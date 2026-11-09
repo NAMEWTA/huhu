@@ -1,0 +1,4 @@
+interface:
+  display_name: "开发环境与宿主配置"
+  short_description: "核对当前工具与模型能力，配置角色预算、验证入口及自主运行条件"
+  default_prompt: "使用 $dev-setup 配置这个项目的开发角色、预算与验证入口，并核对当前宿主实际支持的能力。"

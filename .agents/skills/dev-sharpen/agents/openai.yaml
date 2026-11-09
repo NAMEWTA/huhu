@@ -1,0 +1,4 @@
+interface:
+  display_name: "深化任务"
+  short_description: "从原始材料、专业方法和独立证据深化任务，保留用户需要决定的选择。"
+  default_prompt: "使用 $dev-sharpen 深化这项任务并改写为范围清楚、证据可核验的请求。"

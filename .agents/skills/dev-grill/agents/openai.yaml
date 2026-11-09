@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求澄清"
+  short_description: "按依赖轮次澄清需求，查证事实并保留已经确认的产品决策和边界"
+  default_prompt: "请使用 $dev-grill 理清这项需求，查证代码事实，再按决策依赖提出有推荐答案的问题。"

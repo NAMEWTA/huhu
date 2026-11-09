@@ -1,0 +1,4 @@
+interface:
+  display_name: "部署与上线"
+  short_description: "发布到指定环境并核实实际运行版本，维护部署手册、凭据引用和恢复记录"
+  default_prompt: "使用 $dev-deploy 将当前制品部署到指定环境，验证真实业务路径并更新发布记录。"

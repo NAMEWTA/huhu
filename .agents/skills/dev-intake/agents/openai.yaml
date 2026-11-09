@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求接收与对齐"
+  short_description: "整合聊天、工单、截图与评审来源，区分当前事实、交付目标和真正待决的问题"
+  default_prompt: "使用 $dev-intake 整理这些来源中的开发需求，核实当前代码并明确范围和成功条件。"

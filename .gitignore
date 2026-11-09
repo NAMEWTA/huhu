@@ -1,0 +1,98 @@
+# Dependencies (keep package-manager lockfiles)
+node_modules/
+.pnp.*
+.yarn/*
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/sdks/
+!.yarn/versions/
+
+# Build output and TypeScript incremental state
+dist/
+build/
+out/
+*.tsbuildinfo
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.astro/
+.vercel/
+.netlify/
+.serverless/
+.aws-sam/
+.wrangler/
+
+# Tool caches
+.cache/
+.parcel-cache/
+.turbo/
+.nx/cache/
+.nx/workspace-data/
+.vite/
+.eslintcache
+.stylelintcache
+.npm/
+.pnpm-store/
+
+# Tests and coverage
+coverage/
+.nyc_output/
+playwright-report/
+playwright/.cache/
+test-results/
+blob-report/
+
+# Logs and runtime state
+logs/
+*.log
+*.pid
+*.pid.lock
+*.seed
+report.*.json
+
+# Local environment and secrets (keep shareable templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Editors and OS files
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/

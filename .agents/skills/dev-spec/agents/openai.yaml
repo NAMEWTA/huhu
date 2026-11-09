@@ -1,0 +1,4 @@
+interface:
+  display_name: "开发规格"
+  short_description: "把已有需求与代码证据整理为可实施规格，明确行为契约与验收方式"
+  default_prompt: "请使用 $dev-spec 将已有共识整理成可实施规格，分开目标行为、代码现状和验收证据。"

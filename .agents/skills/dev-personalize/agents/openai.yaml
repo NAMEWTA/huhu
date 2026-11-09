@@ -1,0 +1,4 @@
+interface:
+  display_name: "个人工程方式"
+  short_description: "从已授权记录提炼稳定偏好，生成个人工程技能并验证后续适用范围"
+  default_prompt: "使用 $dev-personalize 从本项目已授权的历史提炼我的工作偏好，更新一份职责明确、依赖清楚的工程技能。"

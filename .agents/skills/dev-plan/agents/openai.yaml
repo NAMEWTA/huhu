@@ -1,0 +1,4 @@
+interface:
+  display_name: "垂直切片"
+  short_description: "将规格拆成可独立验收的垂直功能切片，记录真实依赖和执行顺序"
+  default_prompt: "请使用 $dev-plan 将这个需求拆成可独立验收的垂直切片，明确真实依赖、所有权与交付证据。"

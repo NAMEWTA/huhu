@@ -1,0 +1,4 @@
+interface:
+  display_name: "并行工作与候选比选"
+  short_description: "分工覆盖、独立候选与证据汇总，保留可恢复的工作记录"
+  default_prompt: "使用 $dev-parallel 拆分这项任务，隔离各执行者的写入范围，比较和集成结果，并验证最终交付。"
