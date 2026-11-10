@@ -1,6 +1,8 @@
 import "@huhu/ui/tokens.css";
 import "@huhu/workbench/shell.css";
 import { applyAppearance } from "@huhu/ui";
+import { contributions as archivesUi } from "@huhu/plugin-archives/ui";
+import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
 import { AppShell, ContributionRegistry, EngineProvider, createUiStore, type EngineEndpoint } from "@huhu/workbench";
@@ -19,6 +21,8 @@ function App() {
     const r = new ContributionRegistry();
     r.register(notesUi);
     r.register(tasksUi);
+    r.register(archivesUi);
+    r.register(inboxUi);
     return r;
   }, []);
   const ui = useMemo(() => createUiStore({ activeModule: "tasks", openTabs: ["tasks"] }), []);

@@ -96,3 +96,38 @@ test("知识库：新建笔记、编辑自动保存到文件、预览双链、�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建立关系", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+
+    await page.getByRole("button", { name: "收件箱" }).first().click();
+    await page.getByLabel("快速捕获", { exact: true }).fill("整理发布清单");
+    await page.getByRole("button", { name: "快速捕获" }).click();
+    await expect(page.getByTestId("capture-item")).toHaveCount(1);
+    expect(readdirSync(path.join(vault, "Inbox"))).toHaveLength(1);
+    await page.getByTestId("capture-item").click();
+    await page.getByRole("button", { name: "转为任务" }).click();
+    await expect(page.getByText("这个想法已经开始行动")).toBeVisible({ timeout: 5000 });
+    expect(readdirSync(path.join(vault, "Tasks"))).toHaveLength(1);
+
+    await page.getByRole("button", { name: "档案" }).first().click();
+    await page.getByLabel("类型名称").fill("项目");
+    await page.getByRole("button", { name: "新建类型" }).click();
+    await expect(page.getByRole("button", { name: /^项目/ })).toBeVisible();
+    for (const n of ["甲", "乙"]) {
+      await page.getByLabel("名称", { exact: true }).fill(n);
+      await page.getByRole("button", { name: "新建档案" }).click();
+      await expect(page.getByTestId("archive-row").filter({ hasText: n })).toBeVisible();
+    }
+    // 当前选中的是「乙」：把「甲」设为关联
+    await page.getByLabel("关联档案", { exact: true }).selectOption({ label: "甲" });
+    await expect.poll(() => readdirSync(path.join(vault, "Archives")).map((f) => readFileSync(path.join(vault, "Archives", f), "utf8")).filter((t) => /relatedIds:\s*\n?\s*-?\s*\[?archive-/.test(t) || t.includes("relatedIds: [archive-")).length).toBe(2);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

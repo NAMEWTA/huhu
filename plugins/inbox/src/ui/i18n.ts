@@ -1,0 +1,18 @@
+export const t = {
+  title: "收件箱",
+  statuses: { pending: "待处理", processed: "已整理", dismissed: "已归档" },
+  placeholder: "此刻脑海里有什么？写下来，按 Enter 收好…",
+  capture: "快速捕获",
+  next: "这条想法，接下来应该去哪里？",
+  toTask: "转为任务",
+  toNote: "转为笔记",
+  toArchive: "转为档案",
+  dismiss: "归档这条记录",
+  restore: "放回收件箱",
+  undo: "撤销处理",
+  delete: "删除",
+  cleared: "收件箱已清空 · 现在可以安心专注于真正重要的事情。",
+  select: "选择一条捕获",
+  noArchiveType: "还没有档案类型，请先在档案模块创建",
+  processed: "这个想法已经开始行动",
+} as const;
