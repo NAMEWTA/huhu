@@ -306,6 +306,9 @@ importers:
       '@huhu/plugin-tasks':
         specifier: workspace:*
         version: link:../../plugins/tasks
+      '@huhu/plugin-versioning':
+        specifier: workspace:*
+        version: link:../../plugins/versioning
       '@huhu/vault':
         specifier: workspace:*
         version: link:../../packages/vault
@@ -808,7 +811,23 @@ importers:
         specifier: ^4.23.15
         version: 4.23.15
 
-  plugins/versioning: {}
+  plugins/versioning:
+    dependencies:
+      '@huhu/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@huhu/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@huhu/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@huhu/vault':
+        specifier: workspace:*
+        version: link:../../packages/vault
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   vendor/cordis:
     dependencies:

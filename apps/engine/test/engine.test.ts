@@ -251,4 +251,23 @@ describe("Engine 启动与关闭", () => {
       process.env["PATH"] = oldPath;
     }
   }, 60_000);
+  test("versioning：命名版本、时间线、读取、恢复（经 HTTP）", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const note = (await call("notes.create", { name: "历史笔记" })).data as { path: string };
+    const read1 = (await call("notes.read", { path: note.path })).data as { version: string };
+    const saved = (await call("notes.save", { path: note.path, text: "# 历史笔记\n\n第一版\n", expectedVersion: read1.version })).data as { version: string };
+    const cp = await call("history.checkpoint", { path: note.path, title: "第一版" });
+    expect(cp.error, JSON.stringify(cp.error)).toBeUndefined();
+    const saved2 = (await call("notes.save", { path: note.path, text: "# 历史笔记\n\n第二版\n", expectedVersion: saved.version })).data as { version: string };
+    await call("history.checkpoint", { path: note.path, title: "第二版" });
+    const tl = (await call("history.timeline", { path: note.path })).data as { id: string; title: string | null }[];
+    expect(tl.map((t) => t.title).slice(0, 2)).toEqual(["第二版", "第一版"]);
+    expect(((await call("history.read", { path: note.path, entryId: tl[1]?.id })).data as { text: string }).text).toContain("第一版");
+    expect((await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: "wrong" })).error?.code).toBe("VERSION_CONFLICT");
+    const rest = await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: saved2.version });
+    expect(rest.error, JSON.stringify(rest.error)).toBeUndefined();
+    expect(((await call("notes.read", { path: note.path })).data as { text: string }).text).toContain("第一版");
+  }, 60_000);
 });

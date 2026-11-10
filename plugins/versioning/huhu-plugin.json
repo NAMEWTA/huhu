@@ -1,0 +1,12 @@
+{
+  "id": "versioning",
+  "title": "版本与同步",
+  "description": "文件历史、Git 与同步",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": ["automations", "safe"],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": { "modules": ["versioning"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["history.timeline", "history.read", "history.checkpoint", "history.restore"], "fileKinds": [] }
+}
