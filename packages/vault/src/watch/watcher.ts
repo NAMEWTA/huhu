@@ -31,6 +31,8 @@ export class VaultWatcher {
   private pending = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
+  private heldCreated: { path: string; info: FileInfo; at: number }[] = [];
+  private holdTimer: NodeJS.Timeout | null = null;
   private recentlyDeleted: { path: string; info: FileInfo; at: number }[] = [];
   private closed = false;
   mode: "native" | "polling" = "native";
@@ -80,7 +82,7 @@ export class VaultWatcher {
       const b = next.get(p);
       if (!a !== !b || (a && b && (a.mtimeMs !== b.mtimeMs || a.size !== b.size))) this.pending.add(p);
     }
-    this.flush();
+    this.flush(true);
   }
 
   private schedule(): void {
@@ -91,8 +93,8 @@ export class VaultWatcher {
     }, this.o.batchMs ?? 250);
   }
 
-  private flush(): void {
-    if (this.pending.size === 0 || this.closed) return;
+  private flush(immediate = false): void {
+    if ((this.pending.size === 0 && this.heldCreated.length === 0) || this.closed) return;
     const paths = [...this.pending];
     this.pending.clear();
     const now = Date.now();
@@ -117,20 +119,31 @@ export class VaultWatcher {
       } else created.push({ path: p, info: after });
     }
 
-    // 配对重命名：先在本批内，再在最近 2 秒删除窗口内
+    // 配对重命名：新增（含上一批暂扣的）与删除（含最近 2 秒内的）按 inode / 哈希配对。
+    // 原生监听可能把 rename 拆成相隔数百毫秒的两个批次，所以未配对的"新增"先暂扣一个批处理周期再上报。
     const window = this.o.renameWindowMs ?? 2000;
+    const hold = this.o.batchMs ?? 250;
     this.recentlyDeleted = this.recentlyDeleted.filter((d) => now - d.at < window);
+    const createdPool = [...this.heldCreated.map((h) => ({ path: h.path, info: h.info, at: h.at })), ...created.map((c) => ({ ...c, at: now }))];
+    this.heldCreated = [];
     const pool = [...this.recentlyDeleted.map((d) => ({ path: d.path, info: d.info })), ...deleted];
-    const taken = new Set<string>();
-    for (const c of created) {
-      const match = pool.find((d) => !taken.has(d.path) && ((c.info.identity !== null && d.info.identity === c.info.identity) || (c.info.identity === null && d.info.hash !== null && d.info.hash === c.info.hash)));
+    const takenDeleted = new Set<string>();
+    for (const c of createdPool) {
+      const match = pool.find((d) => !takenDeleted.has(d.path) && ((c.info.identity !== null && d.info.identity === c.info.identity) || (c.info.identity === null && d.info.hash !== null && d.info.hash === c.info.hash)));
       if (match) {
-        taken.add(match.path);
+        takenDeleted.add(match.path);
         changes.push({ path: c.path, change: "renamed", from: match.path });
-      } else changes.push({ path: c.path, change: "created" });
+      } else if (immediate || now - c.at >= hold) changes.push({ path: c.path, change: "created" });
+      else this.heldCreated.push(c);
     }
-    for (const d of deleted) if (!taken.has(d.path)) changes.push({ path: d.path, change: "deleted" });
-    this.recentlyDeleted = [...this.recentlyDeleted.filter((d) => !taken.has(d.path)), ...deleted.filter((d) => !taken.has(d.path)).map((d) => ({ ...d, at: now }))];
+    for (const d of deleted) if (!takenDeleted.has(d.path)) changes.push({ path: d.path, change: "deleted" });
+    this.recentlyDeleted = [...this.recentlyDeleted.filter((d) => !takenDeleted.has(d.path)), ...deleted.filter((d) => !takenDeleted.has(d.path)).map((d) => ({ ...d, at: now }))];
+    if (this.heldCreated.length && !this.holdTimer) {
+      this.holdTimer = setTimeout(() => {
+        this.holdTimer = null;
+        this.flush();
+      }, hold);
+    }
 
     if (changes.length) this.o.onChanges(changes);
   }
@@ -147,6 +160,7 @@ export class VaultWatcher {
   async close(): Promise<void> {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
+    if (this.holdTimer) clearTimeout(this.holdTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
     await this.subscription?.unsubscribe();
   }
