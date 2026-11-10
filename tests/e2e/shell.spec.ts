@@ -204,3 +204,29 @@ test("设置与通知：切换主题立即生效并持久化，重启后仍保�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("插件中心：停用知识库后 rail 项消失，依赖提示；重启后保持；再启用恢复", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "知识库" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "插件中心" }).first().click();
+    await page.getByRole("button", { name: "停用 知识库" }).click();
+    await expect(page.getByRole("button", { name: "知识库", exact: true })).toHaveCount(0, { timeout: 5000 });
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).builtin.notes).toEqual({ enabled: false });
+    await app.close();
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "插件中心" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "知识库", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "插件中心" }).first().click();
+    await page.getByRole("button", { name: "启用 知识库" }).click();
+    await expect(page.getByRole("button", { name: "知识库", exact: true })).toBeVisible({ timeout: 5000 });
+  } finally {
+    await app.close().catch(() => undefined);
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

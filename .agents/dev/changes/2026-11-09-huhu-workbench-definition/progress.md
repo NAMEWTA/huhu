@@ -33,6 +33,8 @@
 | W15 版本历史（部分） | shadow 仓库文件历史（记录/时间线含改名/读取/命名版本/恢复含恢复前检查点）、规则文件恢复后暂停；无 Git 页、同步、冲突、`holdRestoredInput` 接线、界面 | 单元 + HTTP |
 | W17 网关（部分） | `huhu mcp`（stdio，身份 mcp）、`capabilities.list`、`plugins.list/setEnabled`、CLI 便捷命令；无 HTTP 服务/令牌、MCP over HTTP、测试台、指南维护 | 集成 |
 | W14 SSH（部分） | 主机配置（跳板循环检测）、known_hosts 逐跳信任（首次提示/变化拒绝且不发送凭据）、多跳连接、Exec（中断/超时）、审计、凭据只经 SecretUse；用 ssh2 假服务器验证。无 Shell/终端流、SFTP、界面 | 单元 + HTTP |
+| W16 插件中心（部分） | 内置插件启停（含依赖级联确认）、偏好持久化到 plugins.json、rail/标签按启用状态即时过滤、清单（huhu-plugin.json）成为 Engine 注册的唯一来源、停用后能力返回 PLUGIN_DISABLED；无外部插件安装/宿主进程、权限页 | 单元 + HTTP + Playwright |
+| W18（部分） | 站内通知（存储/列表/已读/清除/状态栏入口）、设置（外观；缺编辑器/日期时间/快捷键/数据与存储）；无首页、健康中心、专注习惯 | 单元 + Playwright |
 | W08.1 任务后端 | 分类、勾选、输入版本、CRUD、回收站、提醒完成；UI 与 TaskQuery 服务未做 | 单元/HTTP 集成测试 |
 
 未开始：W01.5 testkit、W02 设计系统与外壳、W05–W07 知识库与编辑器、W08 UI、W09–W20 其余全部。**0.0.1 发布条件远未满足**：没有可用的界面功能，三平台 CI 与安装包未验证。

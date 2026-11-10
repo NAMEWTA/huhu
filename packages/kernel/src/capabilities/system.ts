@@ -12,7 +12,7 @@ const PluginInfo = z.object({
 export function registerSystemCapabilities(
   registry: CapabilityRegistry,
   plugins: PluginManager,
-  exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void },
+  exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void; setPluginEnabled?(id: string, enabled: boolean): void },
 ): () => void {
   const offs = [
     registry.register(defineCapability({
@@ -24,8 +24,14 @@ export function registerSystemCapabilities(
       input: z.object({ id: z.string(), enabled: z.boolean() }), output: z.object({ state: z.string(), alsoDisabled: z.array(z.string()) }),
       handler: async (_c, i) => {
         if (i.id === "kernel") return { state: "active", alsoDisabled: [] };
-        if (i.enabled) return { state: await plugins.enable(i.id), alsoDisabled: [] };
-        return { state: "disabled", alsoDisabled: (await plugins.disable(i.id)).filter((x) => x !== i.id) };
+        if (i.enabled) {
+          const state = await plugins.enable(i.id);
+          if (state === "active") exposure.setPluginEnabled?.(i.id, true);
+          return { state, alsoDisabled: [] };
+        }
+        const stopped = await plugins.disable(i.id); // 依赖它的插件先被停用
+        for (const id of stopped) exposure.setPluginEnabled?.(id, false);
+        return { state: "disabled", alsoDisabled: stopped.filter((x) => x !== i.id) };
       },
     })),
     registry.register(defineCapability({

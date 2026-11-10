@@ -22,6 +22,20 @@ export class ExposureStore {
     return this.map()[name];
   }
 
+  /** 内置插件的用户启停偏好（`builtin.<id>.enabled`）；未记录视为启用。 */
+  pluginEnabled(id: string): boolean {
+    const b = this.load()["builtin"] as Record<string, { enabled?: boolean }> | undefined;
+    return b?.[id]?.enabled !== false;
+  }
+
+  setPluginEnabled(id: string, enabled: boolean): void {
+    const all = this.load();
+    const b = (all["builtin"] as Record<string, { enabled?: boolean }> | undefined) ?? {};
+    all["builtin"] = { ...b, [id]: { enabled } };
+    mkdirSync(path.dirname(this.file), { recursive: true });
+    writeFileSync(this.file, JSON.stringify(all, null, 2));
+  }
+
   set(name: string, exposed: boolean): void {
     const all = this.load();
     all["capabilityExposure"] = { ...this.map(), [name]: exposed };

@@ -33,6 +33,7 @@ export class PluginManager {
     const cycle = findDependencyCycle([...[...this.plugins.values()].map((p) => p.entry.manifest), entry.manifest]);
     if (cycle) throw new Error(`插件依赖成环：${cycle.join(" → ")}`);
     this.plugins.set(id, { entry, state: "disabled" });
+    this.onRegister?.(entry.manifest);
   }
 
   state(id: string): PluginState | undefined {
@@ -124,8 +125,14 @@ export class PluginManager {
   }
 
   /** 按依赖顺序启用全部 activation=vault-open 的插件。 */
+  /** 注册时回调（Engine 用它把清单声明的能力登记给注册表）。 */
+  onRegister?: (manifest: PluginManifest) => void;
+
+  /** 返回 false 的插件在 enableAll 时保持停用（用户偏好）。 */
+  shouldEnable: (id: string) => boolean = () => true;
+
   async enableAll(): Promise<void> {
-    for (const [id, rt] of this.plugins) if (rt.entry.manifest.activation === "vault-open") await this.enable(id);
+    for (const [id, rt] of this.plugins) if (rt.entry.manifest.activation === "vault-open" && this.shouldEnable(id)) await this.enable(id);
   }
 
   async disposeAll(): Promise<void> {

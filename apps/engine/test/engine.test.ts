@@ -317,4 +317,22 @@ describe("Engine 启动与关闭", () => {
     const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
     expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
   }, 30_000);
+  test("plugins.setEnabled：停用后其能力不可用并持久化；级联停用依赖者；重启保持；kernel 不可停用", async () => {
+    const dir = tmp();
+    const e1 = await boot({ vaultPath: dir, create: true });
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    expect((await call(e1, "plugins.setEnabled", { id: "tasks", enabled: false })).data).toMatchObject({ state: "disabled" });
+    expect((await call(e1, "tasks.list", {})).error?.code).toBe("PLUGIN_DISABLED");
+    expect(JSON.parse(readFileSync(path.join(dir, ".huhu/plugins.json"), "utf8")).builtin.tasks).toEqual({ enabled: false });
+    expect((await call(e1, "plugins.setEnabled", { id: "kernel", enabled: false })).data).toMatchObject({ state: "active" });
+    await e1.shutdown();
+    const e2 = await boot({ vaultPath: dir }); engines.push(e2);
+    expect((await call(e2, "tasks.list", {})).error?.code).toBe("PLUGIN_DISABLED");
+    const list = (await call(e2, "plugins.list", {})).data as { id: string; state: string }[];
+    expect(list.find((p) => p.id === "tasks")?.state).toBe("disabled");
+    expect(list.find((p) => p.id === "notes")?.state).toBe("active");
+    expect((await call(e2, "plugins.setEnabled", { id: "tasks", enabled: true })).data).toMatchObject({ state: "active" });
+    expect((await call(e2, "tasks.list", {})).ok).toBe(true);
+  }, 30_000);
 });

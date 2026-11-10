@@ -30,14 +30,26 @@ export function defineCapability<I, O>(def: CapabilityDefinition<I, O>): Capabil
 
 export class CapabilityRegistry {
   private readonly map = new Map<string, CapabilityDefinition>();
+  /** 曾经注册过的能力 → 所属插件（注销后仍保留，用于把"插件已停用"与"能力不存在"区分开）。 */
+  private readonly known = new Map<string, string>();
 
   /** 注册并返回注销函数（供插件作用域释放）。 */
   register<I, O>(def: CapabilityDefinition<I, O>): () => void {
     if (this.map.has(def.name)) throw new Error(`能力重复注册：${def.name}`);
     this.map.set(def.name, def as unknown as CapabilityDefinition);
+    this.known.set(def.name, def.plugin);
     return () => {
       if (this.map.get(def.name) === (def as unknown)) this.map.delete(def.name);
     };
+  }
+
+  /** 清单声明的能力（插件尚未启用时也能区分"插件已停用"与"能力不存在"）。 */
+  declare(plugin: string, names: readonly string[]): void {
+    for (const n of names) if (!this.known.has(n)) this.known.set(n, plugin);
+  }
+
+  knownPlugin(name: string): string | undefined {
+    return this.known.get(name);
   }
 
   get(name: string): CapabilityDefinition | undefined {

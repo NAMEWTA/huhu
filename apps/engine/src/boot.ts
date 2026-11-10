@@ -3,6 +3,15 @@ import path from "node:path";
 import {
   CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
+import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
+import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
+import archivesManifest from "@huhu/plugin-archives/manifest" with { type: "json" };
+import inboxManifest from "@huhu/plugin-inbox/manifest" with { type: "json" };
+import safeManifest from "@huhu/plugin-safe/manifest" with { type: "json" };
+import agentCliManifest from "@huhu/plugin-agent-cli/manifest" with { type: "json" };
+import automationsManifest from "@huhu/plugin-automations/manifest" with { type: "json" };
+import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "json" };
+import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
@@ -91,35 +100,37 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   const plugins = new PluginManager(cordisRoot, facade, events);
+  plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
+  const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "tasks", title: "任务", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(tasksManifest),
     apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n) }),
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "notes", title: "知识库", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(notesManifest),
     apply: (ctx, api) => void notes.apply(ctx, api),
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "archives", title: "档案", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(archivesManifest),
     apply: (ctx, api) => void archives.apply(ctx, api),
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "inbox", title: "收件箱", description: "", version: "0.0.1", origin: "builtin", permissions: ["tasks.write", "notes.write", "archives.write"] }),
+    manifest: PluginManifestSchema.parse(inboxManifest),
     apply: (ctx, api) => void inbox.apply(ctx, api, { isPluginEnabled: (id) => plugins.isEnabled(id) }),
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "safe", title: "保险箱", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(safeManifest),
     apply: (ctx, api) => void safe.apply(ctx, api),
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(agentCliManifest),
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
   const notifications = new NotificationStore(path.join(vault.root, ".huhu", "notifications.ndjson"), () => new Date(), (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }));
   registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
-  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v) });
+  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "automations", title: "自动化", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
       const cli = api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: { detect(): Promise<{ provider: string; exe: string | null; status: string }[]> } }>("agentCli");
       let exes: Record<string, string> = {};
@@ -132,19 +143,19 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "versioning", title: "版本与同步", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(versioningManifest),
     apply: (ctx, api) => void versioning.apply(ctx, api),
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse({ id: "ssh", title: "远程连接", description: "", version: "0.0.1", origin: "builtin" }),
+    manifest: PluginManifestSchema.parse(sshManifest),
     apply: (ctx, api) => void ssh.apply(ctx, api),
   });
+  plugins.shouldEnable = (id) => exposure.pluginEnabled(id);
   await plugins.enableAll();
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
   const mcpToken = tokens.issue("mcp");
-  const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   const real = new Dispatcher({
     registry,
     audit: new GatewayAudit(path.join(runtime, "gateway-audit.ndjson")),

@@ -6,7 +6,8 @@
   "exports": {
     "./engine": "./src/engine/index.ts",
     "./shared": "./src/shared/index.ts",
-    "./ui": "./src/ui/index.tsx"
+    "./ui": "./src/ui/index.tsx",
+    "./manifest": "./huhu-plugin.json"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

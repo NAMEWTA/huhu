@@ -27,6 +27,7 @@ export class ContributionRegistry {
   private modules = new Map<string, ModuleContribution>();
   private commands = new Map<string, CommandContribution>();
   private listeners = new Set<() => void>();
+  private enabled: ReadonlySet<string> | null = null;
   private snapshotCache: { modules: ModuleContribution[]; commands: CommandContribution[] } | null = null;
 
   register(c: { modules?: ModuleContribution[]; commands?: CommandContribution[] }): () => void {
@@ -40,11 +41,21 @@ export class ContributionRegistry {
     };
   }
 
+  /** 按插件启用状态过滤贡献（null = 不过滤）；`kernel` 的贡献始终可见。启停时无需刷新页面。 */
+  setEnabledPlugins(ids: Iterable<string> | null): void {
+    this.enabled = ids ? new Set(ids) : null;
+    this.changed();
+  }
+
   /** 插件停用：移除它贡献的全部内容。 */
   removePlugin(plugin: string): void {
     for (const [id, m] of this.modules) if (m.plugin === plugin) this.modules.delete(id);
     for (const [id, c] of this.commands) if (c.plugin === plugin) this.commands.delete(id);
     this.changed();
+  }
+
+  private visible(plugin: string): boolean {
+    return plugin === "kernel" || this.enabled === null || this.enabled.has(plugin);
   }
 
   private changed(): void {
@@ -60,8 +71,8 @@ export class ContributionRegistry {
   /** 稳定引用的快照（useSyncExternalStore 要求未变化时返回同一对象）。 */
   getSnapshot = (): { modules: ModuleContribution[]; commands: CommandContribution[] } => {
     this.snapshotCache ??= {
-      modules: [...this.modules.values()].sort((a, b) => a.group.localeCompare(b.group) || a.order - b.order),
-      commands: [...this.commands.values()],
+      modules: [...this.modules.values()].filter((m) => this.visible(m.plugin)).sort((a, b) => a.group.localeCompare(b.group) || a.order - b.order),
+      commands: [...this.commands.values()].filter((c) => this.visible(c.plugin)),
     };
     return this.snapshotCache;
   };

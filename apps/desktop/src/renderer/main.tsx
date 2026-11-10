@@ -6,12 +6,21 @@ import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
-import { AppShell, ContributionRegistry, EngineProvider, NotificationBell, SettingsModule, createUiStore, type EngineEndpoint } from "@huhu/workbench";
-import { Settings } from "lucide-react";
+import { AppShell, ContributionRegistry, EngineProvider, NotificationBell, PluginCenterModule, SettingsModule, useCapability, createUiStore, type EngineEndpoint } from "@huhu/workbench";
+import { Blocks, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 type EngineState = "starting" | "ready" | "stopped" | "crashed";
+
+/** 按插件启用状态过滤 rail / 标签 / 命令（启停无需刷新页面）。 */
+function PluginFilter({ registry }: { registry: ContributionRegistry }) {
+  const plugins = useCapability<{ id: string; state: string }[]>("plugins.list", {});
+  useEffect(() => {
+    if (plugins.data) registry.setEnabledPlugins(plugins.data.filter((p) => p.state === "active").map((p) => p.id));
+  }, [plugins.data, registry]);
+  return null;
+}
 
 function App() {
   const [endpoint, setEndpointRaw] = useState<EngineEndpoint | null>(null);
@@ -26,6 +35,7 @@ function App() {
     r.register(archivesUi);
     r.register(inboxUi);
     r.register(safeUi);
+    r.register({ modules: [{ id: "plugins", plugin: "kernel", title: "插件中心", group: "system", order: 10, icon: <Blocks size={18} aria-hidden />, component: PluginCenterModule }] });
     r.register({ modules: [{ id: "settings", plugin: "kernel", title: "设置", group: "system", order: 90, icon: <Settings size={18} aria-hidden />, component: SettingsModule }] });
     return r;
   }, []);
@@ -57,7 +67,8 @@ function App() {
 
   const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
   const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} statusSlot={<NotificationBell />} />;
-  return endpoint ? <EngineProvider endpoint={endpoint}>{shell}</EngineProvider> : shell;
+  const withFilter = <>{shell}{endpoint ? <PluginFilter registry={registry} /> : null}</>;
+  return endpoint ? <EngineProvider endpoint={endpoint}>{withFilter}</EngineProvider> : shell;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

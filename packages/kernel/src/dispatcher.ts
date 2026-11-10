@@ -61,7 +61,11 @@ export class Dispatcher {
 
   private async run(caller: Caller, req: CapabilityRequest, signal: AbortSignal): Promise<CapabilityResult<unknown>> {
     const def = this.d.registry.get(req.capability);
-    if (!def) return this.fail(errors.capabilityNotFound(req.capability));
+    if (!def) {
+      // 插件停用后其能力已注销：仍应报告"插件已停用"（并附前往插件中心的恢复动作），而不是"能力不存在"
+      const owner = this.d.registry.knownPlugin(req.capability);
+      return this.fail(owner && !this.d.isPluginEnabled(owner) ? errors.pluginDisabled(owner) : errors.capabilityNotFound(req.capability));
+    }
     if (!this.d.isPluginEnabled(def.plugin)) return this.fail(errors.pluginDisabled(def.plugin));
 
     const denied = this.authorize(caller, def);
