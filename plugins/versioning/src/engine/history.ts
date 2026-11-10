@@ -103,6 +103,8 @@ export class FileHistory {
   }
 
   async read(entry: { id: string; path: string }): Promise<string> {
+    // id 必须是完整提交哈希：以 -- 开头的值会被 git 当成选项（可写任意文件）
+    if (!/^[0-9a-f]{40,64}$/.test(entry.id)) throw errors.invalidInput("版本 id 无效");
     await this.init();
     try {
       return (await this.git.run(["show", `${entry.id}:${entry.path}`])).stdout;
@@ -115,7 +117,7 @@ export class FileHistory {
    * 恢复：校验当前版本 → 先把当前内容存为"恢复前"版本 → 写入所选内容 → 作为新的当前版本记录。
    * 调用方（插件）负责语义文件的字段保护（规则文件恢复后暂停等）。
    */
-  async restore(rel: string, entryId: string, expectedCurrentVersion: string, hooks: { transform?: (text: string) => string; afterWrite?: (text: string) => void } = {}): Promise<{ checkpoint: HistoryEntry | null; restored: HistoryEntry | null }> {
+  async restore(rel: string, entryId: string, expectedCurrentVersion: string, hooks: { transform?: (restored: string, current: string) => string; afterWrite?: (text: string) => void } = {}): Promise<{ checkpoint: HistoryEntry | null; restored: HistoryEntry | null }> {
     const p = normalizeRelPath(rel);
     const cur = this.files.read(p);
     if (!cur) throw errors.notFound(`文件不存在：${p}`);
@@ -123,7 +125,7 @@ export class FileHistory {
     const entries = await this.timeline(p);
     const entry = entries.find((e) => e.id === entryId);
     if (!entry) throw errors.notFound("该版本不存在");
-    const content = (hooks.transform ?? ((t: string) => t))(await this.read(entry));
+    const content = (hooks.transform ?? ((t: string) => t))(await this.read(entry), cur.bytes.toString("utf8"));
     const checkpoint = await this.record(p, "restore", "恢复前");
     await this.files.write(p, Buffer.from(content), { expectedVersion: cur.version });
     const restored = await this.record(p, "restore");

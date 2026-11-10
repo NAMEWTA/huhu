@@ -1,5 +1,5 @@
 import path from "node:path";
-import { patchFrontmatter } from "@huhu/vault";
+import { parseFrontmatter, patchFrontmatter } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
@@ -14,14 +14,22 @@ const DEBOUNCE_MS = 2000;
 
 export interface VersioningOptions {
   debounceMs?: number;
-  /** 恢复任务文件后通知 automations：该输入不应被重复处理。 */
+  /** 恢复任务文件后通知 automations：该输入不应被重复处理（缺省时从 `automations` 服务取）。 */
   holdRestoredInput?: (taskId: string, inputHash: string) => void;
 }
 
-/** 恢复后对语义文件的保护：自动化规则恢复后一律暂停，避免旧版本里的 enabled: true 立即重新生效。 */
-export function guardRestoredContent(rel: string, text: string): string {
-  if (rel.startsWith("Automations/")) return patchFrontmatter(text, { enabled: false });
-  return text;
+/**
+ * 恢复后对语义文件的保护：
+ * - 自动化规则恢复后一律暂停（旧版本里的 enabled: true 不能立刻重新生效）；
+ * - 任务文件恢复输入内容，但完成状态保持当前值（ACC-VS-03：completed 仍为 true）。
+ */
+export function guardRestoredContent(rel: string, restored: string, current = ""): string {
+  if (rel.startsWith("Automations/")) return patchFrontmatter(restored, { enabled: false });
+  if (rel.startsWith("Tasks/") && current) {
+    const cur = parseFrontmatter(current).data;
+    return patchFrontmatter(restored, { completed: cur["completed"] ?? false, completedAt: cur["completedAt"] ?? null });
+  }
+  return restored;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}): { history: FileHistory } {
@@ -58,22 +66,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     name: "history.restore", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false,
     input: Path.extend({ entryId: z.string(), expectedCurrentVersion: z.string() }), output: z.object({ restored: z.boolean() }),
     handler: async (_c, i) => {
-      const entry = (await history.timeline(i.path)).find((e) => e.id === i.entryId);
       const r = await history.restore(i.path, i.entryId, i.expectedCurrentVersion, {
-        transform: (text) => guardRestoredContent(i.path, text),
-        afterWrite: (text) => {
-          // 任务文件：恢复后的输入不应触发自动化重复处理
-          if (i.path.startsWith("Tasks/")) {
-            const id = /--(task-[0-9a-z]+)\.md$/.exec(path.basename(i.path))?.[1];
-            if (id && opts.holdRestoredInput) {
-              const dto = api.service<{ read(id: string): { inputHash: string } }>("taskQuery");
-              if (dto) opts.holdRestoredInput(id, dto.read(id).inputHash);
-            }
-          }
-          void text;
+        transform: (restored, current) => guardRestoredContent(i.path, restored, current),
+        afterWrite: () => {
+          // 任务文件：恢复后的输入不应触发自动化重复处理（restore 之后读取新的 inputHash）
+          const id = i.path.startsWith("Tasks/") ? /--(task-[0-9a-z]+)\.md$/.exec(path.basename(i.path))?.[1] : undefined;
+          if (!id) return;
+          const hold = opts.holdRestoredInput ?? api.service<{ holdRestoredInput(taskId: string, inputHash: string): void }>("automations")?.holdRestoredInput;
+          const q = api.service<{ snapshot(taskId: string): { inputHash: string } }>("taskQuery");
+          if (hold && q) hold(id, q.snapshot(id).inputHash);
         },
       });
-      void entry;
       return { restored: r.restored !== null || r.checkpoint !== null };
     },
   }));

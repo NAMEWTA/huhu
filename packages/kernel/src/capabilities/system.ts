@@ -1,4 +1,4 @@
-import { toJsonSchema } from "@huhu/contracts";
+import { errors, toJsonSchema } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
 import type { PluginManager } from "../plugin-manager.js";
@@ -12,7 +12,7 @@ const PluginInfo = z.object({
 export function registerSystemCapabilities(
   registry: CapabilityRegistry,
   plugins: PluginManager,
-  exposure: { isExposed(name: string): boolean },
+  exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void },
 ): () => void {
   const offs = [
     registry.register(defineCapability({
@@ -26,6 +26,18 @@ export function registerSystemCapabilities(
         if (i.id === "kernel") return { state: "active", alsoDisabled: [] };
         if (i.enabled) return { state: await plugins.enable(i.id), alsoDisabled: [] };
         return { state: "disabled", alsoDisabled: (await plugins.disable(i.id)).filter((x) => x !== i.id) };
+      },
+    })),
+    registry.register(defineCapability({
+      name: "gateway.update", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false,
+      input: z.object({ capability: z.string(), exposed: z.boolean() }), output: z.object({ exposed: z.boolean() }),
+      handler: (_c, i) => {
+        const cap = registry.get(i.capability);
+        if (!cap) throw errors.capabilityNotFound(i.capability);
+        // exposable:false 的能力（保险箱明文、Agent/SSH 执行等）永远不能开放
+        if (i.exposed && !cap.exposable) throw errors.invalidInput(`${i.capability} 不允许对外开放`);
+        exposure.set?.(i.capability, i.exposed);
+        return { exposed: i.exposed };
       },
     })),
     registry.register(defineCapability({

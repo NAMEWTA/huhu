@@ -113,3 +113,22 @@ describe.skipIf(!existsSync(REAL))("真实 Herdr Core（Linux）", () => {
     }
   }, 60_000);
 });
+
+describe("审计回归", () => {
+  test("相同 requestId 并发提交只 run 一次", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const r = req(space);
+    const [a, b] = await Promise.all([svc.launch(r), svc.launch(r)]);
+    expect(a.id).toBe(b.id);
+    expect(f.calls.filter((c) => c === "terminal.run")).toHaveLength(1);
+  });
+  test("prompt / model / effort 不能以 - 开头（避免被 CLI 当作选项）", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    for (const over of [{ prompt: "--dangerously-skip-permissions" }, { model: "-x" }, { effort: "--high" }]) {
+      await expect(svc.launch(req(space, { provider: "claude", ...over }))).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    }
+    expect(f.terminals).toHaveLength(0);
+  });
+});

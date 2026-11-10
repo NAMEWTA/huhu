@@ -31,6 +31,12 @@ function readLive(root: string): { port: number; cliToken: string; mcpToken?: st
   }
 }
 
+function tokenFor(role: "cli" | "mcp" | undefined, d: { cliToken: string; mcpToken?: string }): string {
+  if (role !== "mcp") return d.cliToken;
+  if (!d.mcpToken) throw new ConnectError("Engine 没有提供 MCP 令牌，请更新或重启 Engine"); // 不静默降级为 cli 身份
+  return d.mcpToken;
+}
+
 export function locateVault(explicit: string | undefined): string {
   const root = explicit ? path.resolve(explicit) : findVaultRoot(process.cwd());
   if (!root || !existsSync(path.join(root, ".huhu", "vault.json"))) throw new ConnectError("找不到 Vault：请用 --vault 指定，或在 Vault 目录内运行");
@@ -54,6 +60,6 @@ export async function connect(vaultOpt: string | undefined, opts: { engineEntry?
     }
     if (!d) throw new ConnectError("等待 Engine 启动超时");
   }
-  return { baseUrl: `http://127.0.0.1:${d.port}`, token: opts.role === "mcp" && d.mcpToken ? d.mcpToken : d.cliToken, vaultId: d.vaultId };
+  return { baseUrl: `http://127.0.0.1:${d.port}`, token: tokenFor(opts.role, d), vaultId: d.vaultId };
 }
 

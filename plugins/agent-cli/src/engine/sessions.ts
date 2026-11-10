@@ -66,10 +66,25 @@ export class SessionsService {
     return s;
   }
 
-  async launch(input: LaunchInput): Promise<SessionRecord> {
+  private inflight = new Map<string, Promise<SessionRecord>>();
+
+  /** 同一 requestId 的并发提交合并为一次，避免两次 terminal.run。 */
+  launch(input: LaunchInput): Promise<SessionRecord> {
+    const running = this.inflight.get(input.requestId);
+    if (running) return running;
+    const p = this.doLaunch(input).finally(() => this.inflight.delete(input.requestId));
+    this.inflight.set(input.requestId, p);
+    return p;
+  }
+
+  private async doLaunch(input: LaunchInput): Promise<SessionRecord> {
     // 同一 requestId 重复提交：返回已有会话，不重复启动
     const dup = this.list().find((s) => s.requestId === input.requestId);
     if (dup) return dup;
+    for (const [k, v] of [["prompt", input.prompt], ["model", input.model], ["effort", input.effort]] as const) {
+      // 以 - 开头的值会被 CLI 当作选项解析（例如 --dangerously-skip-permissions）
+      if (v !== undefined && v.startsWith("-")) throw errors.invalidInput(`${k} 不能以 - 开头`);
+    }
     const space = this.d.spaces.validateForLaunch(input.spaceId, input.spaceRevision);
     let argv: string[] | undefined;
     let env: Record<string, string> | undefined;

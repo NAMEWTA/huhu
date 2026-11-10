@@ -60,3 +60,20 @@ describe("内置规则（ACC-AU-01）", () => {
     expect(builtinScanRule("Asia/Taipei", "2026-11-10T00:00:00Z")).toMatchObject({ builtin: true, enabled: true, trigger: { cron: "*/5 * * * *", zone: "Asia/Taipei" }, action: { kind: "scan_agent_tasks" } });
   });
 });
+
+describe("HoldStore（ACC-AU-12）", () => {
+  test("hold 后同输入被跳过；输入变化（hash 不同）自动失效；release 后恢复处理", async () => {
+    const { HoldStore } = await import("../src/engine/holds.js");
+    const d = mkdtempSync(path.join(tmpdir(), "huhu-hold-")); dirs.push(d);
+    const h = new HoldStore(path.join(d, "holds.json"));
+    h.hold("task-1", "hash-a");
+    expect(h.isHeld("task-1", "hash-a")).toBe(true);
+    expect(h.isHeld("task-1", "hash-b")).toBe(false);
+    expect(classify([agent("task-1", { inputHash: "hash-a" })], env({ holds: (t, x) => h.isHeld(t, x) })).skipped[0]?.reason).toBe("held-after-restore");
+    expect(classify([agent("task-1", { inputHash: "hash-b" })], env({ holds: (t, x) => h.isHeld(t, x) })).candidates).toHaveLength(1);
+    h.release("task-1");
+    expect(h.isHeld("task-1", "hash-a")).toBe(false);
+    h.hold("task-2", "x"); h.prune(() => "changed");
+    expect(h.isHeld("task-2", "x")).toBe(false);
+  });
+});

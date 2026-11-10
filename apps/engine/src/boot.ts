@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
@@ -117,7 +117,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   const notifications = new NotificationStore(path.join(vault.root, ".huhu", "notifications.ndjson"), () => new Date(), (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }));
   registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
-  registerSystemCapabilities(registry, plugins, { isExposed: (n) => registry.get(n)?.defaultExposed === true });
+  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v) });
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "automations", title: "自动化", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => {
@@ -144,17 +144,18 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
   const mcpToken = tokens.issue("mcp");
+  const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   const real = new Dispatcher({
     registry,
     audit: new GatewayAudit(path.join(runtime, "gateway-audit.ndjson")),
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
     isPluginEnabled: (id) => plugins.isEnabled(id),
-    exposureOverride: () => undefined,
+    exposureOverride: (n) => exposure.override(n),
     grantedPermissions: (id) => plugins.permissionsOf(id),
   });
 
   dispatcherRef.current = real;
-  const server = await startEngineServer({ dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && registry.get(name)?.defaultExposed === true), ...(opts.port !== undefined ? { port: opts.port } : {}) });
+  const server = await startEngineServer({ dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)), ...(opts.port !== undefined ? { port: opts.port } : {}) });
 
   const watcher = new VaultWatcher({
     root: vault.root,

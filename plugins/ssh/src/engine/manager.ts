@@ -79,7 +79,18 @@ export class SshManager {
     return { privateKey, ...(h.auth.passphraseRef ? { passphrase: this.d.resolveSecret(h.auth.passphraseRef, `ssh:${h.id}`) } : {}) };
   }
 
-  async connect(hostId: string): Promise<{ attemptId: string }> {
+  private connecting = new Map<string, Promise<{ attemptId: string }>>();
+
+  /** 同一主机的并发 connect 合并为一次，避免产生被遗弃的重复连接。 */
+  connect(hostId: string): Promise<{ attemptId: string }> {
+    const running = this.connecting.get(hostId);
+    if (running) return running;
+    const p = this.doConnect(hostId).finally(() => this.connecting.delete(hostId));
+    this.connecting.set(hostId, p);
+    return p;
+  }
+
+  private async doConnect(hostId: string): Promise<{ attemptId: string }> {
     const target = this.d.hosts.get(hostId);
     if (this.conns.has(hostId)) return { attemptId: "existing" };
     const chain = this.route(target); // 1. 冻结路由
@@ -192,7 +203,7 @@ export class SshManager {
           if (timer) clearTimeout(timer);
           this.execs.delete(execId);
           const tail = (s: string) => s.split("\n").slice(-2000).join("\n");
-          this.audit({ hostId, action: "exec", result: run.interrupted ? "cancelled" : code === 0 ? "ok" : "failed", detail: command.slice(0, 200) });
+          this.audit({ hostId, action: "exec", result: run.interrupted ? "cancelled" : code === 0 ? "ok" : "failed", detail: `命令长度 ${command.length}` }); // 命令里可能含口令，审计不记原文
           resolve({ execId, stdout: tail(out), stderr: tail(errOut), exitCode: code, ms: Date.now() - started, interrupted: run.interrupted });
         });
       });

@@ -108,6 +108,7 @@ describe("扫描", () => {
     expect((await svc.activate(scanId, "manual")).summary).toEqual({ state: "tasks-disabled" });
     expect(svc.preview(scanId).tasksDisabled).toBe(true);
     const n = await svc.create({ title: "提醒", trigger: { preset: "every5", cron: "*/5 * * * *", zone: "UTC" }, action: { kind: "notify", channel: "in_app", text: "该休息了" } });
+    await svc.setEnabled(n.id, true);
     expect((await svc.activate(n.id, "schedule", new Date("2026-11-10T11:55:00Z"))).summary).toEqual({ state: "succeeded" });
     expect(notes).toEqual(["该休息了"]);
   });
@@ -138,5 +139,29 @@ describe("扫描", () => {
     expect(acts).toHaveLength(2);
     expect(acts.every((a) => a.finishedAt)).toBe(true);
     expect(svc.lastActivatedFor(id)?.toISOString()).toBe("2026-11-10T11:55:00.000Z");
+  });
+});
+
+describe("审计回归", () => {
+  test("定时触发不执行已暂停的规则；手动仍可运行", async () => {
+    const { svc, workerCalls } = setup({ tasks: [task("a")] });
+    await svc.ensureBuiltin();
+    const id = svc.rules()[0]!.id;
+    await svc.setEnabled(id, false);
+    expect((await svc.activate(id, "schedule", new Date())).summary).toEqual({ state: "paused" });
+    expect(workerCalls).toHaveLength(0);
+    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 1, skipped: 0 });
+  });
+  test("ACC-AU-07：启动对账把 queued/running 的 claim 置 unknown，之后扫描不再处理该输入", async () => {
+    const t = task("a");
+    const { svc, workerCalls, d } = setup({ tasks: [t] });
+    await svc.ensureBuiltin();
+    const claims = (svc as unknown as { d: { claims: { create(c: unknown): boolean; get(k: string): { state: string } | null } } }).d.claims;
+    claims.create({ processingKey: "a:1:h-a", taskId: "a", runId: "run-gone", state: "running", claimedAt: "t" });
+    expect(await svc.reconcile()).toBe(1);
+    expect(claims.get("a:1:h-a")?.state).toBe("unknown");
+    expect((await svc.activate(svc.rules()[0]!.id, "manual")).summary).toEqual({ processed: 0, skipped: 1 });
+    expect(workerCalls).toHaveLength(0);
+    void d;
   });
 });

@@ -69,6 +69,14 @@ export class HerdrClient {
   }
 
   private onData(d: Buffer): void {
+    try {
+      this.handleData(d);
+    } catch {
+      this.socket?.destroy(); // 帧格式异常：断开连接（挂起的调用被拒绝），不让异常冒泡到进程
+    }
+  }
+
+  private handleData(d: Buffer): void {
     if (!this.framed) {
       this.lineBuf += d.toString("utf8");
       let i: number;

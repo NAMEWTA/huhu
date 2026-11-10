@@ -112,3 +112,22 @@ describe("恢复保护（ACC-VS-04）", () => {
     expect(await h.read(tl[1]!)).toBe("第一周");
   });
 });
+
+describe("审计回归", () => {
+  test("history.read 拒绝以 -- 开头的 id（git 选项注入）", async () => {
+    const { root, h } = setup();
+    put(root, "n.md", "x"); await h.record("n.md", "edit");
+    await expect(h.read({ id: "--output=/tmp/pwned", path: "n.md" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(existsSync("/tmp/pwned:n.md")).toBe(false);
+  });
+  test("ACC-VS-03：任务恢复旧输入，但 completed 保持当前值", async () => {
+    const { guardRestoredContent } = await import("../src/engine/index.js");
+    const old = "---\nhuhu: {kind: task, id: task-1, schema: 1}\ntitle: 旧标题\ncompleted: false\ncompletedAt: null\n---\n旧正文\n";
+    const cur = "---\nhuhu: {kind: task, id: task-1, schema: 1}\ntitle: 新标题\ncompleted: true\ncompletedAt: 2026-11-10T00:00:00Z\n---\n新正文\n";
+    const out = guardRestoredContent("Tasks/t--task-1.md", old, cur);
+    expect(out).toContain("title: 旧标题");
+    expect(out).toContain("旧正文");
+    expect(out).toContain("completed: true");
+    expect(out).toContain("completedAt: 2026-11-10T00:00:00Z");
+  });
+});

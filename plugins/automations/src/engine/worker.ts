@@ -38,7 +38,7 @@ export interface HeadlessCommand { exe: string; args: string[]; env?: Record<str
 
 /** 每个 provider 的无界面命令（claude: `-p`，codex: `exec`）；这些参数未对真实 CLI 版本逐一验证。 */
 export function headlessCommand(provider: string, exe: string, prompt: string, model: string | null, resume: string | null): HeadlessCommand | null {
-  if (provider === "claude") return { exe, args: [...(resume ? ["--resume", resume] : []), ...(model ? ["--model", model] : []), "-p", prompt] };
+  if (provider === "claude") return { exe, args: ["--permission-mode", "acceptEdits", ...(resume ? ["--resume", resume] : []), ...(model ? ["--model", model] : []), "-p", prompt] };
   if (provider === "codex") return { exe, args: resume ? ["exec", "resume", resume, prompt] : ["exec", ...(model ? ["-m", model] : []), prompt] };
   return null;
 }

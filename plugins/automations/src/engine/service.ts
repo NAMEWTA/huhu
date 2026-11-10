@@ -169,6 +169,8 @@ export class AutomationsService {
   /** 激活一条规则。同一规则同一时间只会有一次激活在执行。 */
   async activate(ruleId: string, trigger: "schedule" | "manual", scheduledFor: Date | null = null): Promise<ActivationRecord> {
     const rule = this.rule(ruleId);
+    // 定时触发只对已启用的规则生效（规则被恢复/外部修改为暂停后，内存里的作业可能还没重建）
+    if (trigger === "schedule" && !rule.data.enabled) return { activationId: "skipped", ruleId, trigger, scheduledFor: null, startedAt: iso(this.d.now()), summary: { state: "paused" } };
     if (this.running.has(ruleId)) throw errors.invalidInput("这条规则正在执行");
     this.running.add(ruleId);
     const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: scheduledFor ? iso(scheduledFor) : null, startedAt: iso(this.d.now()) };
@@ -229,6 +231,26 @@ export class AutomationsService {
     const latest = this.d.repo.read("task-run", run.id);
     await this.setRun(latest, { state: outcome.state, finishedAt: iso(this.d.now()), exitCode: outcome.exitCode, nativeSessionId: outcome.nativeSessionId, questions: outcome.questions.map((q) => ({ ...q, answer: null, answeredAt: null })) }, processingKey, `\n## 结果\n\n${outcome.message}\n`);
     return true;
+  }
+
+  /**
+   * 启动对账（ACC-AU-07 的无监督进程版本）：上次 Engine 退出时仍是 queued/running 的 claim，
+   * 结果无法确认 → 置 unknown（task-run 同步）；扫描不会再处理该输入，只有用户明确"标记失败并重试"才会重新启动。
+   */
+  async reconcile(): Promise<number> {
+    let n = 0;
+    for (const c of this.d.claims.list()) {
+      if (c.state !== "queued" && c.state !== "running") continue;
+      this.d.claims.update(c.processingKey, { state: "unknown" });
+      try {
+        const run = this.d.repo.read("task-run", c.runId);
+        await this.d.repo.patch("task-run", c.runId, { state: "unknown" }, run.version);
+      } catch {
+        // task-run 文件已不存在：claim 仍保持 unknown，阻止重复处理
+      }
+      n++;
+    }
+    return n;
   }
 
   private async setRun(run: Entity, changes: Record<string, unknown>, processingKey: string, body?: string): Promise<void> {

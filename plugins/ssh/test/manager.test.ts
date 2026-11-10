@@ -179,3 +179,28 @@ describe("Exec", () => {
     expect(log.map((a) => a.action)).toEqual(expect.arrayContaining(["connect", "exec"]));
   });
 });
+
+describe("并发连接与审计", () => {
+  test("同一主机并发 connect 合并为一次（只提示一次、只建一个连接）", async () => {
+    const srv = await startFakeSsh(); closers.push(srv.close);
+    const { mgr, prompts, add } = setup();
+    const h = add(srv.port);
+    const a = mgr.connect(h.id); const b = mgr.connect(h.id);
+    await until(() => prompts.length > 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(prompts).toHaveLength(1);
+    mgr.decide(prompts[0]!.attemptId, 0, true);
+    expect((await a).attemptId).toBe((await b).attemptId);
+    expect(srv.conns).toHaveLength(1);
+  });
+  test("审计不记录命令原文（可能含口令）", async () => {
+    const srv = await startFakeSsh(); closers.push(srv.close);
+    const { mgr, prompts, add } = setup();
+    const h = add(srv.port);
+    const p = mgr.connect(h.id);
+    await until(() => prompts.length > 0);
+    mgr.decide(prompts[0]!.attemptId, 0, true); await p;
+    await mgr.exec(h.id, "echo hunter2-PASSWORD");
+    expect(JSON.stringify(mgr.auditList())).not.toContain("hunter2");
+  });
+});

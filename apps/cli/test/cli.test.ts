@@ -79,8 +79,22 @@ describe("CLI", () => {
     const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
     const run1 = async (...args: string[]) => { const c = capture(); const code = await run([...args, "--vault", dir, "--json"], c.io); return { code, out: JSON.parse(c.out.join("")) as { ok: boolean; data: unknown } }; };
     const created = await run1("tasks", "create", "--title", "写周报");
-    expect(created.code).toBe(1); // tasks.create 默认不对外开放
+    expect(created.code).toBe(1); // 默认不对外开放
     expect((created.out as unknown as { error: { code: string } }).error.code).toBe("CAPABILITY_NOT_EXPOSED");
+    // 用户在网关里开放 tasks.create / tasks.setCompleted 后，CLI 便捷命令可用
+    for (const cap of ["tasks.create", "tasks.setCompleted"]) {
+      const r = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.update", input: { capability: cap, exposed: true }, requestId: "r", idempotencyKey: `key-gw-${cap}` }) });
+      expect(((await r.json()) as { ok: boolean }).ok).toBe(true);
+    }
+    const created2 = await run1("tasks", "create", "--title", "写周报");
+    expect(created2.code).toBe(0);
+    const id = (created2.out.data as { id: string }).id;
+    const done = await run1("tasks", "complete", id);
+    expect(done.code).toBe(0);
+    expect((done.out.data as { completed: boolean }).completed).toBe(true);
+    // 不可开放的能力永远不能被网关开放
+    const bad = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.update", input: { capability: "safe.items.reveal", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }) });
+    expect(((await bad.json()) as { ok: boolean; error: { code: string } }).error.code).toBe("INVALID_INPUT");
     const plugins = await run1("plugins", "list");
     expect(plugins.code).toBe(0);
     expect((plugins.out.data as { id: string }[]).map((p) => p.id)).toEqual(expect.arrayContaining(["tasks", "notes", "inbox", "safe"]));
