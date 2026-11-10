@@ -6,6 +6,7 @@ import { nextRuns, validateSchedule } from "../shared/cron.js";
 import { builtinScanRule } from "../shared/builtin.js";
 import type { ClaimStore } from "./claims.js";
 import { classify, type ScanEnv, type SnapshotTask } from "./scan.js";
+import { runScript, secretErrorToNotice, type ScriptStore } from "./scripts.js";
 
 export interface TaskQueryLike {
   listAll(): TaskDto[];
@@ -42,6 +43,9 @@ export interface AutomationsDeps {
   spaceState(spaceId: string): { state: "ok" | "missing" | "inaccessible"; root?: string };
   cliAvailable(provider: string): boolean;
   holds(taskId: string, inputHash: string): boolean;
+  scripts?: ScriptStore;
+  /** 解析保险箱引用（plugin=automations）；锁定时抛 SAFE_LOCKED。 */
+  resolveSecret?(ref: string, purpose: string): string;
   notify(n: { title: string; module: string }): void;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
@@ -183,13 +187,52 @@ export class AutomationsService {
         this.d.notify({ title: a.text, module: "automations" });
         summary = { state: "succeeded" };
       } else if (a.kind === "scan_agent_tasks") summary = await this.scan(rule.id, a.maxConcurrent);
-      else summary = { state: "unsupported" }; // agent_prompt / script 在后续任务中实现
+      else if (a.kind === "script") summary = await this.runScriptAction(rule.id, rule.data.title, a.scriptId, a.args ?? [], trigger);
+      else if (a.kind === "agent_prompt") summary = await this.runPromptAction(rule.id, rule.data.title, rule.body, a, trigger);
+      else summary = { state: "unsupported" };
       const done = { ...rec, finishedAt: iso(this.d.now()), summary };
       this.writeActivation(done);
       return done;
     } finally {
       this.running.delete(ruleId);
     }
+  }
+
+  /** script 动作：结果写成 automation-run；保险箱锁定 → 运行失败并通知。 */
+  private async runScriptAction(ruleId: string, ruleTitle: string, scriptId: string, args: string[], trigger: "schedule" | "manual"): Promise<{ state: string }> {
+    const run = await this.d.repo.create("automation-run", { ruleId, actionKind: "script", trigger, state: "running", startedAt: iso(this.d.now()) }, "");
+    let state = "failed"; let exitCode: number | null = null; let body = "";
+    try {
+      const def = this.d.scripts?.get(scriptId);
+      if (!def) throw errors.notFound(`脚本 ${scriptId} 不存在`);
+      const r = await runScript(def, args, (ref) => this.d.resolveSecret ? this.d.resolveSecret(ref, `script:${scriptId}`) : (() => { throw errors.invalidInput("保险箱插件未启用"); })());
+      state = r.state; exitCode = r.exitCode; body = r.output;
+    } catch (e) {
+      body = secretErrorToNotice(e);
+      this.d.notify({ title: `自动化「${ruleTitle}」失败：${body}`, module: "automations" });
+    }
+    await this.d.repo.patch("automation-run", run.id, { state, finishedAt: iso(this.d.now()), exitCode }, run.version, `\n## 输出\n\n${body}\n`);
+    this.d.publish("run.stateChanged", { runId: run.id, kind: "automation-run", state });
+    return { state };
+  }
+
+  /** agent_prompt 动作：与扫描相同的 worker 启动路径，但不涉及 Task 与 claim。 */
+  private async runPromptAction(ruleId: string, ruleTitle: string, prompt: string, a: { spaceId: string; provider: string; model?: string | null }, trigger: "schedule" | "manual"): Promise<{ state: string }> {
+    const run = await this.d.repo.create("automation-run", { ruleId, actionKind: "agent_prompt", trigger, state: "running", startedAt: iso(this.d.now()) }, "");
+    const space = this.d.spaceState(a.spaceId);
+    let outcome: RunOutcome;
+    if (space.state !== "ok" || !space.root) outcome = { state: "failed", message: "Space 不存在或目录不可访问", exitCode: null, nativeSessionId: null, questions: [] };
+    else {
+      const task = { id: run.id, title: ruleTitle, body: prompt, resources: [], execution: { kind: "agent", spaceId: a.spaceId, provider: a.provider, model: a.model ?? null } } as unknown as TaskDto;
+      try {
+        outcome = await this.d.worker({ runId: run.id, task, cwd: space.root, provider: a.provider, model: a.model ?? null, signal: new AbortController().signal });
+      } catch (e) {
+        outcome = { state: "failed", message: e instanceof Error ? e.message : String(e), exitCode: null, nativeSessionId: null, questions: [] };
+      }
+    }
+    await this.d.repo.patch("automation-run", run.id, { state: outcome.state, finishedAt: iso(this.d.now()), exitCode: outcome.exitCode, nativeSessionId: outcome.nativeSessionId }, run.version, `\n## 结果\n\n${outcome.message}\n`);
+    this.d.publish("run.stateChanged", { runId: run.id, kind: "automation-run", state: outcome.state });
+    return { state: outcome.state };
   }
 
   private async scan(ruleId: string, maxConcurrent: number): Promise<{ processed: number; skipped: number } | { state: string }> {

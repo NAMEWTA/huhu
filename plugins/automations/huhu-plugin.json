@@ -5,8 +5,38 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": ["tasks", "agent-cli", "safe"],
+  "optionalDeps": [
+    "tasks",
+    "agent-cli",
+    "safe"
+  ],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["automations"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["automations.list", "automations.read", "automations.create", "automations.update", "automations.delete", "automations.setEnabled", "automations.preview", "automations.runNow", "automations.activations"], "fileKinds": ["automation-rule", "automation-run", "task-run"] }
+  "contributes": {
+    "modules": [
+      "automations"
+    ],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": [
+      "automations.activations",
+      "automations.create",
+      "automations.delete",
+      "automations.list",
+      "automations.preview",
+      "automations.read",
+      "automations.runNow",
+      "automations.scripts.delete",
+      "automations.scripts.list",
+      "automations.scripts.save",
+      "automations.setEnabled",
+      "automations.update"
+    ],
+    "fileKinds": [
+      "automation-rule",
+      "automation-run",
+      "task-run"
+    ]
+  }
 }

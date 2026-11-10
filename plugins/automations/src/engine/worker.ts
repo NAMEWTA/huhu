@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { killTree } from "./scripts.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { RunOutcome, WorkerInput } from "./service.js";
@@ -65,9 +66,9 @@ export function processWorker(d: ProcessWorkerDeps): (i: WorkerInput) => Promise
       if (!cmd) return fail(`${i.provider} 不支持无界面运行`);
       let out = "";
       let err = "";
-      const p = spawn(cmd.exe, cmd.args, { cwd: i.cwd, env: { ...process.env, ...cmd.env }, shell: false, windowsHide: true });
-      const timer = setTimeout(() => p.kill(), d.timeoutMs ?? 30 * 60_000);
-      i.signal.addEventListener("abort", () => p.kill(), { once: true });
+      const p = spawn(cmd.exe, cmd.args, { cwd: i.cwd, env: { ...process.env, ...cmd.env }, shell: false, windowsHide: true, detached: process.platform !== "win32" });
+      const timer = setTimeout(() => killTree(p), d.timeoutMs ?? 30 * 60_000);
+      i.signal.addEventListener("abort", () => killTree(p), { once: true });
       p.stdout.on("data", (b) => { out += b; });
       p.stderr.on("data", (b) => { err += b; });
       p.once("error", (e) => { clearTimeout(timer); fail(e.message); });

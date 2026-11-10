@@ -498,4 +498,29 @@ describe("Engine 启动与关闭", () => {
     await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.tokens.revoke", input: { id: created.id }, requestId: "r", idempotencyKey: "key-tok-revoke-1" }) });
     expect(await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 3000))])).toBe(4401);
   }, 30_000);
+  test("ACC-SF-04（端到端）：脚本环境变量引用只允许 ssh 的保险箱条目 → 运行失败 SECRET_REF_INVALID 并通知；允许 automations 后成功，输出里有值但文件里没有引用解密结果之外的泄漏", async () => {
+    const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const prog = path.join(tmp(), "show.sh");
+    writeFileSync(prog, '#!/bin/sh\necho "got=${TOKEN:+set}"\n'); chmodSync(prog, 0o755);
+    await call("safe.setup", { password: "correct horse battery" });
+    const item = (await call("safe.items.save", { name: "tok", type: "token", allowedModules: ["ssh"], value: "TOP-SECRET-VALUE" })).data as { id: string };
+    const script = (await call("automations.scripts.save", { title: "显示", program: prog, args: [], cwd: dir, envRefs: { TOKEN: `safe://${item.id}` }, timeoutSec: 10 })).data as { id: string };
+    const rule = (await call("automations.create", { title: "脚本规则", trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" }, action: { kind: "script", scriptId: script.id, args: [] } })).data as { id: string };
+    expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
+    const note = ((await call("notifications.list", {})).data as { title: string }[]).map((n) => n.title).join("\n");
+    expect(note).toContain("SECRET_REF_INVALID");
+    // 允许 automations 引用后成功
+    await call("safe.items.save", { id: item.id, name: "tok", type: "token", allowedModules: ["ssh", "automations"] });
+    expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "succeeded" });
+    const texts = ls(path.join(dir, "Automation Runs")).map((f) => readFileSync(path.join(dir, "Automation Runs", f), "utf8"));
+    expect(texts.some((t) => t.includes("got=set"))).toBe(true);
+    expect(texts.join()).not.toContain("TOP-SECRET-VALUE");
+    // 保险箱锁定后同一脚本失败（SAFE_LOCKED）
+    await call("safe.lock", {});
+    expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
+  }, 60_000);
 });

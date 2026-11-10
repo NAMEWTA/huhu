@@ -4,6 +4,7 @@ import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { machineId } from "@huhu/vault";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
+import { ScriptStore } from "./scripts.js";
 import { HoldStore } from "./holds.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
@@ -35,6 +36,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const root = api.vault.files.root;
   const mid = machineId();
   const exeFor = opts.exeFor ?? (() => null);
+  const scriptStore = new ScriptStore(path.join(root, ".huhu", "automations", "scripts.json"));
   const holdStore = new HoldStore(path.join(root, ".huhu", "automations", "holds.json"));
   const svc = new AutomationsService({
     repo: api.vault.repo,
@@ -45,6 +47,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     spaceState: opts.spaceState ?? (() => ({ state: "missing" })),
     cliAvailable: (p) => exeFor(p) !== null,
     holds: (t, h) => holdStore.isHeld(t, h),
+    scripts: scriptStore,
+    resolveSecret: (ref, purpose) => {
+      const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
+      if (!su) throw Object.assign(new Error("保险箱插件未启用"), { code: "SECRET_REF_INVALID" });
+      return su.resolve(ref, { plugin: "automations", purpose });
+    },
     notify: opts.notify ?? (() => undefined),
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
@@ -71,6 +79,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   api.provide("automations", { holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
 
   const Id = z.object({ id: z.string() });
+  const Script = z.object({ id: z.string(), title: z.string(), program: z.string(), args: z.array(z.string()), cwd: z.string(), envRefs: z.record(z.string(), z.string()), timeoutSec: z.number() });
+  api.defineCapability(def({ name: "automations.scripts.list", plugin: "automations", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(Script), handler: () => scriptStore.list() }));
+  api.defineCapability(def({ name: "automations.scripts.save", plugin: "automations", scope: "admin", exposable: false, defaultExposed: false, input: Script.omit({ id: true }).extend({ id: z.string().optional() }), output: Script, handler: (_c, i) => scriptStore.save(i) }));
+  api.defineCapability(def({ name: "automations.scripts.delete", plugin: "automations", scope: "admin", exposable: false, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (scriptStore.delete(i.id), { ok: true as const }) }));
   api.defineCapability(def({ name: "automations.list", plugin: "automations", scope: "read", exposable: true, defaultExposed: true, input: z.object({}), output: z.array(Rule), handler: async () => { await ready; return svc.rules() as never; } }));
   api.defineCapability(def({ name: "automations.read", plugin: "automations", scope: "read", exposable: true, defaultExposed: true, input: Id, output: Rule, handler: async (_c, i) => { await ready; return svc.rule(i.id) as never; } }));
   api.defineCapability(def({ name: "automations.create", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }), output: Rule, handler: async (_c, i) => { const r = await svc.create(i as never); resync(); return r as never; } }));
