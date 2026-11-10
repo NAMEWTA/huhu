@@ -27,6 +27,12 @@ export class TokenTable {
     return digest(token).toString("hex");
   }
 
+  /** 撤销某个令牌（按哈希）。 */
+  removeHash(hashHex: string): void {
+    const h = Buffer.from(hashHex, "hex");
+    for (let i = this.entries.length - 1; i >= 0; i--) if (this.entries[i]?.hash.equals(h)) this.entries.splice(i, 1);
+  }
+
   revokeCaller(caller: Caller): void {
     for (let i = this.entries.length - 1; i >= 0; i--) if (this.entries[i]?.caller === caller) this.entries.splice(i, 1);
   }

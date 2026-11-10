@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import path from "node:path";
 import { z } from "zod";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, registerHealthCapabilities, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -101,6 +101,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
+  const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
@@ -153,7 +154,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
-  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) });
+  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens) });
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
@@ -177,7 +178,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.shouldEnable = (id) => exposure.pluginEnabled(id);
   await plugins.enableAll();
-  const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
   const mcpToken = tokens.issue("mcp");

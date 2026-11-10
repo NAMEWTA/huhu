@@ -357,4 +357,24 @@ describe("Engine 启动与关闭", () => {
     await call("plugins.setEnabled", { id: "tasks", enabled: false });
     expect(((await call("home.summary", {})).data as { tasksOpen: number }).tasksOpen).toBe(0);
   }, 30_000);
+  test("HTTP 服务令牌：创建后明文只返回一次、文件只存哈希；身份为 http（遵守开放规则）；撤销后 401；重启后仍有效", async () => {
+    const dir = tmp();
+    const e1 = await boot({ vaultPath: dir, create: true });
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (e: RunningEngine, token: string, capability: string, input: unknown = {}) => fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) });
+    const created = (await (await call(e1, e1.rendererToken, "gateway.tokens.create", { name: "脚本" })).json() as R).data as { id: string; token: string };
+    expect(created.token).toMatch(/^huhu_/);
+    const stored = readFileSync(path.join(dir, ".huhu/gateways.json"), "utf8");
+    expect(stored).not.toContain(created.token); // 只保存哈希
+    expect(stored).toContain("脚本");
+    expect(((await (await call(e1, created.token, "vault.info")).json()) as R).ok).toBe(true);
+    expect(((await (await call(e1, created.token, "safe.status")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED"); // 外部入口规则同样适用
+    expect(((await (await call(e1, created.token, "gateway.tokens.list")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    await e1.shutdown();
+    const e2 = await boot({ vaultPath: dir }); engines.push(e2);
+    expect(((await (await call(e2, created.token, "vault.info")).json()) as R).ok).toBe(true);
+    expect(((await (await call(e2, e2.rendererToken, "gateway.tokens.revoke", { id: created.id })).json()) as R).data).toEqual({ revoked: true });
+    expect((await call(e2, created.token, "vault.info")).status).toBe(401);
+    expect(readFileSync(path.join(dir, ".huhu/gateways.json"), "utf8")).not.toContain("脚本");
+  }, 30_000);
 });

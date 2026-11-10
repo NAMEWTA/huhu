@@ -13,6 +13,7 @@ export function registerSystemCapabilities(
   registry: CapabilityRegistry,
   plugins: PluginManager,
   exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void; setPluginEnabled?(id: string, enabled: boolean): void },
+  gateway?: { tokens: { list(): { id: string; name: string; createdAt: string }[]; create(name: string): { id: string; token: string }; revoke(id: string): boolean } },
 ): () => void {
   const offs = [
     registry.register(defineCapability({
@@ -33,6 +34,19 @@ export function registerSystemCapabilities(
         for (const id of stopped) exposure.setPluginEnabled?.(id, false);
         return { state: "disabled", alsoDisabled: stopped.filter((x) => x !== i.id) };
       },
+    })),
+    registry.register(defineCapability({
+      name: "gateway.tokens.list", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false, input: z.object({}),
+      output: z.array(z.object({ id: z.string(), name: z.string(), createdAt: z.string() })), handler: () => gateway?.tokens.list() ?? [],
+    })),
+    registry.register(defineCapability({
+      name: "gateway.tokens.create", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false, input: z.object({ name: z.string().min(1).max(60) }),
+      output: z.object({ id: z.string(), token: z.string() }),
+      handler: (_c, i) => { if (!gateway) throw errors.invalidInput("HTTP 服务未启用"); return gateway.tokens.create(i.name); },
+    })),
+    registry.register(defineCapability({
+      name: "gateway.tokens.revoke", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false, input: z.object({ id: z.string() }),
+      output: z.object({ revoked: z.boolean() }), handler: (_c, i) => ({ revoked: gateway?.tokens.revoke(i.id) ?? false }),
     })),
     registry.register(defineCapability({
       name: "gateway.update", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false,
