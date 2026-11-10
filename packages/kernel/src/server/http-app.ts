@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { CapabilityRequestSchema, toJsonSchema, type Caller } from "@huhu/contracts";
@@ -23,6 +24,8 @@ export interface EngineServerDeps {
    * （Agent 会话 → Herdr attach；`ssh-` 前缀 → SSH shell）。返回 false 表示会话不存在。
    */
   terminal?(sessionId: string, ws: import("ws").WebSocket, opts: { cols: number; rows: number; observe: boolean }): Promise<boolean> | boolean;
+  /** MCP Streamable HTTP（`POST /mcp`，无状态）：未启用时返回 404。令牌身份必须是 mcp 或 http。 */
+  mcpHttp?: { enabled(): boolean };
   /** 测试/嵌入时指定端口，默认随机。 */
   port?: number;
 }
@@ -133,7 +136,40 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
   });
 
   const listener = getRequestListener(app.fetch);
-  const server = createServer(listener);
+  const handleMcp = async (req: IncomingMessage, res: import("node:http").ServerResponse): Promise<void> => {
+    const send = (status: number, body: unknown) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+    if (!d.mcpHttp?.enabled()) return send(404, { error: "MCP over HTTP 未启用" });
+    const verdict = checkIngress(req.headers, port);
+    if (!verdict.ok) return send(verdict.status, { error: verdict.reason });
+    const caller = d.tokens.authenticate(bearerFrom(req.headers["authorization"]));
+    if (!caller) return send(401, { error: "未授权" });
+    if (caller !== "mcp" && caller !== "http") return send(403, { error: "该令牌身份不能使用 MCP 服务" });
+    if (req.method !== "POST") return send(405, { error: "仅支持 POST" });
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const c of req) {
+      total += (c as Buffer).length;
+      if (total > MAX_BODY_BYTES) return send(413, { error: "请求体过大" });
+      chunks.push(c as Buffer);
+    }
+    let body: unknown;
+    try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(400, { error: "请求不是合法 JSON" }); }
+    const { createMcpServer } = await import("../mcp.js");
+    const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
+    const mcp = createMcpServer({
+      list: () => d.registry.list().filter((c) => d.visibleTo(caller, c.name)).map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, input: toJsonSchema(c.input) })),
+      call: (capability, input) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+    }, "0.0.1");
+    const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true } as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]) // 无状态：不生成会话 id;
+    res.on("close", () => { void transport.close(); void mcp.close(); });
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res, body);
+  };
+  const server = createServer((req, res) => {
+    lastActivity = Date.now();
+    if (req.url?.split("?")[0] === "/mcp") void handleMcp(req, res).catch(() => { if (!res.headersSent) { res.writeHead(500); res.end(); } });
+    else void listener(req, res);
+  });
   const byCaller = new Map<Caller, Set<import("ws").WebSocket>>();
   const track = (who: Caller, ws: import("ws").WebSocket) => {
     const set = byCaller.get(who) ?? new Set();

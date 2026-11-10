@@ -15,3 +15,4 @@ export * from "./notifications.js";
 export * from "./exposure.js";
 export * from "./capabilities/health.js";
 export * from "./gateway-tokens.js";
+export * from "./mcp.js";

@@ -13,7 +13,7 @@ export function registerSystemCapabilities(
   registry: CapabilityRegistry,
   plugins: PluginManager,
   exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void; setPluginEnabled?(id: string, enabled: boolean): void },
-  gateway?: { tokens: { list(): { id: string; name: string; createdAt: string }[]; create(name: string): { id: string; token: string }; revoke(id: string): boolean } },
+  gateway?: { tokens: { list(): { id: string; name: string; createdAt: string }[]; create(name: string): { id: string; token: string }; revoke(id: string): boolean; mcp(): { enabled: boolean; transport: "stdio" | "http" }; setMcp(c: { enabled: boolean; transport: "stdio" | "http" }): void } },
 ): () => void {
   const offs = [
     registry.register(defineCapability({
@@ -34,6 +34,16 @@ export function registerSystemCapabilities(
         for (const id of stopped) exposure.setPluginEnabled?.(id, false);
         return { state: "disabled", alsoDisabled: stopped.filter((x) => x !== i.id) };
       },
+    })),
+    registry.register(defineCapability({
+      name: "gateway.get", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false, input: z.object({}),
+      output: z.object({ mcp: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }), tokens: z.number(), exposure: z.record(z.string(), z.boolean()) }),
+      handler: () => ({ mcp: gateway?.tokens.mcp() ?? { enabled: false, transport: "stdio" as const }, tokens: gateway?.tokens.list().length ?? 0, exposure: {} }),
+    })),
+    registry.register(defineCapability({
+      name: "gateway.mcp.update", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false,
+      input: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }), output: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }),
+      handler: (_c, i) => { gateway?.tokens.setMcp(i); return i; },
     })),
     registry.register(defineCapability({
       name: "gateway.tokens.list", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false, input: z.object({}),

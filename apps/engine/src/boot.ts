@@ -105,6 +105,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
   const serverRef: { current?: RunningServer } = {};
+  const gatewayTokens = new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens, () => new Date(), () => serverRef.current?.closeConnectionsOf("http"));
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
@@ -155,7 +156,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
-  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens, () => new Date(), () => serverRef.current?.closeConnectionsOf("http")) });
+  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: gatewayTokens });
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
@@ -192,7 +193,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
 
   dispatcherRef.current = real;
-  const server = await startEngineServer({ terminal: (id, ws, o) => { const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent"); return bridge ? bridge(id, ws, o) : false; }, dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)), ...(opts.port !== undefined ? { port: opts.port } : {}) });
+  const server = await startEngineServer({ mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" }, terminal: (id, ws, o) => { const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent"); return bridge ? bridge(id, ws, o) : false; }, dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)), ...(opts.port !== undefined ? { port: opts.port } : {}) });
 
   const watcher = new VaultWatcher({
     root: vault.root,

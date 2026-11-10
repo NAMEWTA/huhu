@@ -187,6 +187,9 @@ importers:
       '@huhu/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@huhu/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
       '@huhu/vault':
         specifier: workspace:*
         version: link:../../packages/vault
@@ -431,6 +434,9 @@ importers:
       '@huhu/vault':
         specifier: workspace:*
         version: link:../vault
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(supports-color@7.2.0)(zod@4.6.7)
       hono:
         specifier: ^4.13.17
         version: 4.13.17

@@ -26,6 +26,20 @@ export class GatewayTokens {
     }
   }
 
+  /** MCP 服务配置：与令牌同在 gateways.json；默认关闭。 */
+  mcp(): { enabled: boolean; transport: "stdio" | "http" } {
+    try {
+      const m = (this.load() as { mcp?: { enabled?: boolean; transport?: string } }).mcp;
+      return { enabled: m?.enabled === true, transport: m?.transport === "http" ? "http" : "stdio" };
+    } catch {
+      return { enabled: false, transport: "stdio" };
+    }
+  }
+
+  setMcp(cfg: { enabled: boolean; transport: "stdio" | "http" }): void {
+    this.write({ ...this.load(), mcp: cfg });
+  }
+
   list(): Omit<HttpToken, "hash">[] {
     return (this.load().tokens ?? []).map(({ hash: _h, ...rest }) => rest);
   }

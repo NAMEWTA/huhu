@@ -523,4 +523,33 @@ describe("Engine 启动与关闭", () => {
     await call("safe.lock", {});
     expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
   }, 60_000);
+  test("MCP over HTTP：默认关闭(404)；开启后 mcp/http 令牌可用，桌面/cli 令牌 403；工具列表遵守开放规则；经 Dispatcher 授权", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const rpc = (token: string | null, body: unknown, method = "POST") => fetch(`http://127.0.0.1:${e.port}/mcp`, { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", accept: "application/json, text/event-stream" }, ...(method === "POST" ? { body: JSON.stringify(body) } : {}) });
+    const init = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+    expect((await rpc(e.mcpToken, init)).status).toBe(404); // 默认关闭
+    const call = (capability: string, input: unknown) => fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
+    expect((await call("gateway.mcp.update", { enabled: true, transport: "http" })).ok).toBe(true);
+    expect((await rpc(null, init)).status).toBe(401);
+    expect((await rpc(e.rendererToken, init)).status).toBe(403);
+    expect((await rpc(e.cliToken, init)).status).toBe(403);
+    expect((await rpc(e.mcpToken, init, "GET")).status).toBe(405);
+    const list = (await (await rpc(e.mcpToken, init)).json()) as { result: { tools: { name: string }[] } };
+    const names = list.result.tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(["vault_info", "tasks_list"]));
+    expect(names).not.toContain("safe_items_reveal");
+    expect(names).not.toContain("tasks_create"); // 默认不对外
+    const callTool = async (name: string, args: unknown) => ((await (await rpc(e.mcpToken, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } })).json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
+    const info = await callTool("vault_info", {});
+    expect(info.isError).toBeUndefined();
+    expect(JSON.parse(info.content[0]?.text ?? "{}")).toMatchObject({ id: e.vault.id });
+    expect((await callTool("tasks_create", { title: "x" })).isError).toBe(true);
+    const cap = await callTool("inbox_capture", { body: "来自 MCP HTTP", source: "quick" });
+    expect(JSON.parse(cap.content[0]?.text ?? "{}").source).toBe("mcp");
+    // 网关令牌（http 身份）同样可用；关闭 MCP 后立即 404
+    const tok = ((await call("gateway.tokens.create", { name: "mcp 客户端" })).data as { token: string }).token;
+    expect((await rpc(tok, init)).status).toBe(200);
+    await call("gateway.mcp.update", { enabled: false, transport: "http" });
+    expect((await rpc(e.mcpToken, init)).status).toBe(404);
+  }, 30_000);
 });
