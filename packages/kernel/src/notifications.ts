@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { newId } from "@huhu/contracts";
+import { randomUUID } from "node:crypto";
 
 export interface Notification {
   id: string;
@@ -42,7 +42,8 @@ export class NotificationStore {
   }
 
   create(input: { title: string; module: string }): Notification {
-    const n: Notification = { id: newId("cap").replace("cap", "ntf"), title: input.title, module: input.module, at: this.now().toISOString(), read: false };
+    const n: Notification = { // 通知可能在同一毫秒批量产生，newId 的 4 位随机后缀会碰撞；这里用完整 UUID
+      id: `ntf-${randomUUID()}`, title: input.title, module: input.module, at: this.now().toISOString(), read: false };
     const list = this.load();
     list.push(n);
     mkdirSync(path.dirname(this.file), { recursive: true });
