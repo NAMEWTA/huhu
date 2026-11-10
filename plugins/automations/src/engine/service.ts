@@ -69,6 +69,21 @@ type RuleData = AutomationRuleFrontmatter;
 export class AutomationsService {
   private running = new Set<string>();
   private readonly abort = new AbortController();
+  /** 每条正在执行的规则一个控制器：取消只终止这条规则的脚本/Agent，不影响其他规则。 */
+  private readonly ruleAbort = new Map<string, AbortController>();
+
+  private signalFor(ruleId: string): AbortSignal {
+    const c = this.ruleAbort.get(ruleId);
+    return c ? AbortSignal.any([this.abort.signal, c.signal]) : this.abort.signal;
+  }
+
+  /** 取消一条正在执行的规则；没有在执行则返回 false。 */
+  cancel(ruleId: string): boolean {
+    const c = this.ruleAbort.get(ruleId);
+    if (!c) return false;
+    c.abort();
+    return true;
+  }
 
   /** 插件停用/引擎关闭：终止运行中的脚本与 Agent 进程。 */
   abortAll(): void {
@@ -183,6 +198,7 @@ export class AutomationsService {
     if (trigger === "schedule" && !rule.data.enabled) return { activationId: "skipped", ruleId, trigger, scheduledFor: null, startedAt: iso(this.d.now()), summary: { state: "paused" } };
     if (this.running.has(ruleId)) throw errors.invalidInput("这条规则正在执行");
     this.running.add(ruleId);
+    this.ruleAbort.set(ruleId, new AbortController());
     const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: scheduledFor ? iso(scheduledFor) : null, startedAt: iso(this.d.now()) };
     this.writeActivation(rec);
     this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger });
@@ -201,6 +217,7 @@ export class AutomationsService {
       return done;
     } finally {
       this.running.delete(ruleId);
+      this.ruleAbort.delete(ruleId);
     }
   }
 
@@ -211,7 +228,7 @@ export class AutomationsService {
     try {
       const def = this.d.scripts?.get(scriptId);
       if (!def) throw errors.notFound(`脚本 ${scriptId} 不存在`);
-      const r = await runScript(def, args, (ref) => this.d.resolveSecret ? this.d.resolveSecret(ref, `script:${scriptId}`) : (() => { throw errors.invalidInput("保险箱插件未启用"); })(), this.abort.signal);
+      const r = await runScript(def, args, (ref) => this.d.resolveSecret ? this.d.resolveSecret(ref, `script:${scriptId}`) : (() => { throw errors.invalidInput("保险箱插件未启用"); })(), this.signalFor(ruleId));
       state = r.state; exitCode = r.exitCode; body = r.output;
     } catch (e) {
       body = secretErrorToNotice(e);
@@ -231,7 +248,7 @@ export class AutomationsService {
     else {
       const task = { id: run.id, title: ruleTitle, body: prompt, resources: [], execution: { kind: "agent", spaceId: a.spaceId, provider: a.provider, model: a.model ?? null } } as unknown as TaskDto;
       try {
-        outcome = await this.d.worker({ runId: run.id, task, cwd: space.root, provider: a.provider, model: a.model ?? null, signal: this.abort.signal });
+        outcome = await this.d.worker({ runId: run.id, task, cwd: space.root, provider: a.provider, model: a.model ?? null, signal: this.signalFor(ruleId) });
       } catch (e) {
         outcome = { state: "failed", message: e instanceof Error ? e.message : String(e), exitCode: null, nativeSessionId: null, questions: [] };
       }
@@ -271,7 +288,7 @@ export class AutomationsService {
       return false;
     }
     await this.setRun(run, { state: "running", startedAt: iso(this.d.now()) }, processingKey);
-    const ac = this.abort;
+    const ac = { signal: this.signalFor(ruleId) };
     let outcome: RunOutcome;
     try {
       outcome = await this.d.worker({ runId: run.id, task, cwd: space.root, provider: task.execution.provider, model: task.execution.model, signal: ac.signal });

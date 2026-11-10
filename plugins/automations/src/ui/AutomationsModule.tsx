@@ -63,6 +63,7 @@ export function AutomationsModule() {
                   <Button onClick={() => void act("automations.setEnabled", { id: cur.id, enabled: !cur.data.enabled })}>{cur.data.enabled ? t.pause : t.enable}</Button>
                   <Button onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>{t.preview}</Button>
                   <Button variant="primary" onClick={() => void act("automations.runNow", { id: cur.id })}>{t.runNow}</Button>
+                  <Button onClick={() => void act("automations.cancel", { id: cur.id })}>{t.cancel}</Button>
                   {!cur.data.builtin ? <Button variant="danger" onClick={() => void act("automations.delete", { id: cur.id })}>{t.delete}</Button> : null}
                 </div>
                 {preview ? (

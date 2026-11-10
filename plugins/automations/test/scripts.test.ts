@@ -106,6 +106,21 @@ describe("script / agent_prompt 动作（服务层）", () => {
     expect(notes.join()).toContain("SAFE_LOCKED");
     expect(runs(root)[0]).toContain("state: failed");
   });
+  test("取消运行：只终止这条规则正在执行的脚本；没在执行返回 false；取消后可再次运行", async () => {
+    const { svc, root, d } = setup();
+    const scripts2 = new ScriptStore(path.join(d, "scripts2.json"));
+    void scripts2; // 慢脚本放进同一个 service 的脚本库
+    const slowProg = exe(d, "slow2", "sleep 30");
+    const slow = (svc as unknown as { d: { scripts: ScriptStore } }).d.scripts.save({ title: "慢", program: slowProg, args: [], cwd: d, envRefs: {}, timeoutSec: 60 });
+    const r = await svc.create({ title: "慢规则", trigger: trig, action: { kind: "script", scriptId: slow.id, args: [] } });
+    expect(svc.cancel(r.id)).toBe(false);
+    const running = svc.activate(r.id, "manual");
+    await new Promise((res) => setTimeout(res, 300));
+    expect(svc.cancel(r.id)).toBe(true);
+    expect((await running).summary).toEqual({ state: "cancelled" });
+    expect(runs(root).some((t) => t.includes("state: cancelled"))).toBe(true);
+    expect(svc.cancel(r.id)).toBe(false);
+  }, 15000);
   test("agent_prompt：以 Space 根为 cwd 调用 worker，提示词来自规则正文；Space 缺失 → failed", async () => {
     const { svc, root, workerCalls, d } = setup();
     const ok = await svc.create({ title: "问问", trigger: trig, action: { kind: "agent_prompt", spaceId: "space-ok", provider: "codex", model: null, effort: null, fast: false }, body: "请总结今天的变更" });

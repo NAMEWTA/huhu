@@ -8,6 +8,7 @@ export const t = {
   pause: "暂停",
   preview: "预览",
   runNow: "立即运行",
+  cancel: "取消运行",
   delete: "删除",
   newRule: "新建通知规则",
   ruleTitle: "规则名称",
