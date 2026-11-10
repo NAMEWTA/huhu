@@ -68,7 +68,8 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
       onEnd: () => { if (ws.readyState === ws.OPEN) { ws.send(JSON.stringify({ type: "closed", reason: { reason: "exited" } })); ws.close(1000, "shell ended"); } },
     });
     if (!att) return false;
-    att.resize(o.cols, o.rows);
+    if (!o.observe) att.resize(o.cols, o.rows); // 观察者不能改变 PTY 尺寸
+    ws.on("error", () => undefined);
     ws.on("message", (data, isBinary) => {
       if (o.observe) return;
       if (isBinary) return att.write(Buffer.from(data as Buffer));

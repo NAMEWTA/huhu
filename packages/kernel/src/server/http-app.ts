@@ -33,6 +33,8 @@ export interface RunningServer {
   replay: EventReplay;
   /** 当前 WebSocket 连接数。 */
   activeConnections(): number;
+  /** 令牌被撤销后关闭该身份已建立的 WebSocket 连接。 */
+  closeConnectionsOf(caller: Caller): void;
   /** 最近一次 HTTP/WS 活动的时间戳。 */
   lastActivity(): number;
   close(): Promise<void>;
@@ -132,7 +134,14 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
 
   const listener = getRequestListener(app.fetch);
   const server = createServer(listener);
-  const wss = new WebSocketServer({ noServer: true, handleProtocols: (protocols) => ([...protocols].find((p) => p.startsWith("bearer.")) ?? false) });
+  const byCaller = new Map<Caller, Set<import("ws").WebSocket>>();
+  const track = (who: Caller, ws: import("ws").WebSocket) => {
+    const set = byCaller.get(who) ?? new Set();
+    set.add(ws);
+    byCaller.set(who, set);
+    ws.on("close", () => set.delete(ws));
+  };
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, handleProtocols: (protocols) => ([...protocols].find((p) => p.startsWith("bearer.")) ?? false) });
 
   server.on("upgrade", (req, socket, head) => {
     const reject = (status: number) => {
@@ -145,10 +154,15 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return reject(verdict.status);
     const proto = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim()).find((s) => s.startsWith("bearer."));
-    if (!d.tokens.authenticate(proto?.slice("bearer.".length))) return reject(401);
+    const who = d.tokens.authenticate(proto?.slice("bearer.".length));
+    if (!who) return reject(401);
+    // 终端流承载 Agent/SSH 执行，永不对外（security.md §1）：只有桌面身份可以连接
+    if (termMatch && who !== "desktop") return reject(403);
     if (termMatch && d.terminal) {
       const dims = (k: string, def: number) => Math.min(500, Math.max(1, Number(url.searchParams.get(k)) || def));
       wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.on("error", () => undefined);
+        track(who, ws);
         void Promise.resolve(d.terminal!(termMatch[1] as string, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe" })).then((ok) => {
           if (!ok) ws.close(4404, "会话不存在");
         }).catch(() => ws.close(1011, "终端桥接失败"));
@@ -156,6 +170,8 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.on("error", () => undefined);
+      track(who, ws);
       const last = url.searchParams.get("lastSeq");
       const epoch = url.searchParams.get("epoch");
       if (last !== null) {
@@ -177,6 +193,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     server,
     replay,
     activeConnections: () => wss.clients.size,
+    closeConnectionsOf: (caller: Caller) => { for (const ws of byCaller.get(caller) ?? []) ws.close(4401, "令牌已撤销"); },
     lastActivity: () => lastActivity,
     close: async () => {
       unsub();

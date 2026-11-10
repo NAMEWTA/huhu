@@ -89,3 +89,88 @@ describe("HerdrClient（假 Core）", () => {
     core.close();
   });
 });
+
+describe("attachTerminal 审计回归", () => {
+  const dirs2: string[] = [];
+  afterEach(() => { for (const d of dirs2.splice(0)) rmSync(d, { recursive: true, force: true }); });
+
+  async function core(onAttach: (s: net.Socket) => void) {
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-")); dirs2.push(dir);
+    const sock = path.join(dir, "c.sock");
+    const server = net.createServer((s) => {
+      let framed = false; let buf = ""; const dec = new FrameDecoder();
+      const reply = (m: unknown) => s.write(framed ? encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify(m)) }) : JSON.stringify(m) + "\n");
+      const handle = (text: string) => {
+        const req = JSON.parse(text) as { id: number; method: string };
+        if (req.method === "hello") { reply({ jsonrpc: "2.0", id: req.id, result: {} }); framed = true; }
+        else if (req.method === "terminal.attach") { onAttach(s); void req; }
+      };
+      s.on("error", () => undefined);
+      s.on("data", (d) => {
+        if (!framed) { buf += d.toString(); let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) handle(l); } }
+        else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString());
+      });
+    });
+    await new Promise<void>((r) => server.listen(sock, r));
+    return { sock, close: () => server.close() };
+  }
+
+  test("attach 回复与首屏输出、CLOSE 在同一个读块里到达：不丢首屏，也不丢结束通知", async () => {
+    const { attachTerminal } = await import("../src/index.js");
+    const c = await core((s) => {
+      const reply = encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { channel: 5 } })) });
+      const paint = encodeFrame({ channel: 5, kind: FrameKind.DATA, payload: Buffer.from("FIRST-PAINT") });
+      const close = encodeFrame({ channel: 5, kind: FrameKind.CLOSE, payload: Buffer.from(JSON.stringify({ reason: "exited", exit_code: 0 })) });
+      s.write(Buffer.concat([reply, paint, close])); // 一次写入 = 一个读块
+    });
+    const t = await attachTerminal(c.sock, { terminal: "t1", cols: 80, rows: 24 });
+    let got = "";
+    let reason: unknown = "unset";
+    t.onData((b) => { got += b.toString(); });
+    t.onClose((r) => { reason = r; });
+    expect(got).toBe("FIRST-PAINT");
+    expect(reason).toMatchObject({ reason: "exited" });
+    c.close();
+  });
+
+  test("attach 被拒绝时关闭 socket（不泄漏）", async () => {
+    const { attachTerminal } = await import("../src/index.js");
+    let conns = 0; let closed = 0;
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-")); dirs2.push(dir);
+    const sock = path.join(dir, "c.sock");
+    const server = net.createServer((s) => {
+      conns++; s.on("close", () => { closed++; }); s.on("error", () => undefined);
+      let framed = false; const dec = new FrameDecoder(); let buf = "";
+      const reply = (m: unknown) => s.write(framed ? encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify(m)) }) : JSON.stringify(m) + "\n");
+      const handle = (text: string) => { const req = JSON.parse(text) as { id: number; method: string }; if (req.method === "hello") { reply({ jsonrpc: "2.0", id: req.id, result: {} }); framed = true; } else reply({ jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "no terminal", data: { kind: "not_found" } } }); };
+      s.on("data", (d) => { if (!framed) { buf += d.toString(); let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) handle(l); } } else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString()); });
+    });
+    await new Promise<void>((r) => server.listen(sock, r));
+    await expect(attachTerminal(sock, { terminal: "t9", cols: 80, rows: 24 })).rejects.toMatchObject({ name: "HerdrError", kind: "not_found" });
+    for (let i = 0; i < 50 && closed < conns; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(conns);
+    server.close();
+  });
+
+  test("背压：canSend 为 false 时不回报 CREDIT，恢复后补报", async () => {
+    const { attachTerminal } = await import("../src/index.js");
+    const credits: number[] = [];
+    const c = await core((s) => {
+      const reply = encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { channel: 7 } })) });
+      s.write(reply);
+      setTimeout(() => s.write(encodeFrame({ channel: 7, kind: FrameKind.DATA, payload: Buffer.alloc(1000) })), 50);
+      const dec = new FrameDecoder();
+      s.on("data", (d) => { for (const f of dec.push(d)) if (f.channel === 7 && f.kind === FrameKind.CREDIT) credits.push(f.payload.readUInt32LE(0)); });
+    });
+    let ok = false;
+    const t = await attachTerminal(c.sock, { terminal: "t1", cols: 80, rows: 24, canSend: () => ok });
+    t.onData(() => undefined);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(credits).toEqual([]);
+    ok = true;
+    await new Promise((r) => setTimeout(r, 200));
+    expect(credits).toEqual([1000]);
+    t.close();
+    c.close();
+  });
+});

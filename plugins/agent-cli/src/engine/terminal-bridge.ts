@@ -20,7 +20,7 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     let term: Awaited<ReturnType<typeof attachTerminal>> | null = null;
     const handle = (data: Buffer, isBinary: boolean) => {
       if (!term || opts.observe) return; // 观察者不能输入
-      if (isBinary) return term.write(data);
+      if (isBinary) return data.length <= 1024 * 1024 ? term.write(data) : undefined; // 单条输入过大直接忽略（也避免帧编码异常）
       try {
         const m = JSON.parse(data.toString("utf8")) as { type?: string; cols?: number; rows?: number };
         if (m.type === "resize" && Number.isInteger(m.cols) && Number.isInteger(m.rows)) term.resize(Math.min(500, Math.max(1, m.cols as number)), Math.min(500, Math.max(1, m.rows as number)));
@@ -28,11 +28,13 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
         // 非 JSON 文本帧忽略
       }
     };
+    ws.on("error", () => undefined);
     ws.on("message", (data, isBinary) => (term ? handle(Buffer.from(data as Buffer), isBinary) : queue.push({ data: Buffer.from(data as Buffer), isBinary })));
     let wsClosed = false;
     ws.on("close", () => { wsClosed = true; term?.close(); });
     await d.core.ensure();
-    const t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe });
+    // 发送缓冲超过 4 MiB 时暂停回报 CREDIT（interfaces.md §7）
+    const t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe, canSend: () => ws.bufferedAmount < 4 * 1024 * 1024 });
     if (wsClosed) { t.close(); return true; }
     t.onData((b) => { if (ws.readyState === ws.OPEN) ws.send(b, { binary: true }); });
     t.onClose((reason) => {

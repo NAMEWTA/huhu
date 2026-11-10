@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { newId } from "@huhu/contracts";
 import { TokenTable } from "./server/tokens.js";
@@ -8,15 +8,21 @@ export interface HttpToken { id: string; name: string; hash: string; createdAt: 
 
 /** HTTP 服务令牌：`gateways.json` 只保存哈希；明文只在创建时返回一次，身份为 `http`。 */
 export class GatewayTokens {
-  constructor(private readonly file: string, private readonly table: TokenTable, private readonly now: () => Date = () => new Date()) {
-    for (const t of this.load().tokens ?? []) this.table.addHash(t.hash, "http");
+  constructor(private readonly file: string, private readonly table: TokenTable, private readonly now: () => Date = () => new Date(), private readonly onRevoked?: () => void) {
+    try {
+      for (const t of this.load().tokens ?? []) this.table.addHash(t.hash, "http");
+    } catch {
+      // 文件损坏：启动时不加载任何 HTTP 令牌（不会覆盖原文件）
+    }
   }
 
   private load(): { tokens: HttpToken[] } & Record<string, unknown> {
+    if (!existsSync(this.file)) return { tokens: [] };
     try {
-      return existsSync(this.file) ? (JSON.parse(readFileSync(this.file, "utf8")) as { tokens: HttpToken[] }) : { tokens: [] };
+      return JSON.parse(readFileSync(this.file, "utf8")) as { tokens: HttpToken[] };
     } catch {
-      return { tokens: [] };
+      // 不静默当作空表：随后的写入会覆盖掉原文件，让所有令牌无声失效
+      throw new Error("gateways.json 无法解析，请修复或删除后重试");
     }
   }
 
@@ -41,11 +47,14 @@ export class GatewayTokens {
     if (!rec) return false;
     this.write({ ...all, tokens: all.tokens.filter((t) => t.id !== id) });
     this.table.removeHash(rec.hash);
+    this.onRevoked?.(); // 关闭该身份已建立的连接
     return true;
   }
 
   private write(v: unknown): void {
     mkdirSync(path.dirname(this.file), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(v, null, 2));
+    const tmp = `${this.file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(v, null, 2));
+    renameSync(tmp, this.file); // 原子替换
   }
 }

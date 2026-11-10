@@ -481,4 +481,21 @@ describe("Engine 启动与关闭", () => {
       await srv.close();
     }
   }, 60_000);
+  test("审计回归：HTTP 令牌不能连接终端流（403）；撤销令牌会关闭它已建立的事件连接（4401）", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const { WebSocket } = await import("ws");
+    const created = (await (await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.tokens.create", input: { name: "t" }, requestId: "r", idempotencyKey: "key-tok-create-1" }) })).json() as { data: { id: string; token: string } }).data;
+    const status = await new Promise<number>((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/sess-abcdef`, [`bearer.${created.token}`]);
+      ws.on("unexpected-response", (_r, res) => resolve(res.statusCode ?? 0));
+      ws.on("open", () => resolve(200));
+      ws.on("error", () => undefined);
+    });
+    expect(status).toBe(403);
+    const events = new WebSocket(`ws://127.0.0.1:${e.port}/ws/events`, [`bearer.${created.token}`]);
+    await new Promise<void>((r) => events.on("open", () => r()));
+    const closed = new Promise<number>((r) => events.on("close", (c) => r(c)));
+    await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.tokens.revoke", input: { id: created.id }, requestId: "r", idempotencyKey: "key-tok-revoke-1" }) });
+    expect(await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 3000))])).toBe(4401);
+  }, 30_000);
 });

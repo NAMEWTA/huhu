@@ -104,6 +104,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
+  const serverRef: { current?: RunningServer } = {};
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
@@ -154,7 +155,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
-  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens) });
+  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens, () => new Date(), () => serverRef.current?.closeConnectionsOf("http")) });
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
@@ -205,6 +206,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   await watcher.start();
 
   // 只读引擎不取写者锁，也不能覆盖或删除写者的端点描述
+  serverRef.current = server;
   const descriptorPath = endpointPath(vault);
   const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, mcpToken, startedAt: new Date().toISOString() };
   if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });

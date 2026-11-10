@@ -56,6 +56,7 @@ export class HerdrClient {
         s.off("error", onErr);
         this.socket = s;
         s.on("data", (d) => this.onData(d));
+        s.on("error", () => undefined); // 连接建立后的错误（ECONNRESET 等）由 close 事件处理，不能变成未捕获异常
         s.on("close", () => {
           for (const [, p] of this.pending) {
             clearTimeout(p.timer);
@@ -179,24 +180,40 @@ export interface TerminalStream {
  * 在独立连接上 attach 到终端：返回字节流。framed 模式只影响这条连接，不影响共享的 plain 客户端。
  * 每转交一段输出就回报 CREDIT（Herdr 的流控）。
  */
-export async function attachTerminal(endpoint: string, o: { terminal: string; cols: number; rows: number; observe?: boolean; history?: number }): Promise<TerminalStream> {
-  const c = new HerdrClient({ endpoint, timeoutMs: 10_000 });
-  await c.connect();
-  await c.hello();
-  const r = await c.call<{ channel: number }>("terminal.attach", { terminal: o.terminal, cols: o.cols, rows: o.rows, ...(o.observe ? { observe: true } : {}), ...(o.history ? { history: o.history } : {}) });
+export async function attachTerminal(endpoint: string, o: { terminal: string; cols: number; rows: number; observe?: boolean; history?: number; canSend?: () => boolean }): Promise<TerminalStream> {
   const dataFns: ((b: Buffer) => void)[] = [];
   const closeFns: Parameters<TerminalStream["onClose"]>[0][] = [];
+  // 订阅者尚未注册时到达的输出/结束事件先暂存，注册时补发（首屏和 CLOSE 不会丢）
+  const pendingData: Buffer[] = [];
+  let pendingClose: { reason: Parameters<Parameters<TerminalStream["onClose"]>[0]>[0] } | null = null;
   let closed = false;
-  const finish = (reason: Parameters<Parameters<TerminalStream["onClose"]>[0]>[0]) => {
+  const c = new HerdrClient({ endpoint, timeoutMs: 10_000, onClose: () => finish(null) });
+  let r: { channel: number };
+  try {
+    await c.connect();
+    await c.hello();
+    r = await c.call<{ channel: number }>("terminal.attach", { terminal: o.terminal, cols: o.cols, rows: o.rows, ...(o.observe ? { observe: true } : {}), ...(o.history ? { history: o.history } : {}) });
+  } catch (e) {
+    c.close(); // attach 失败：不留下泄漏的 socket
+    throw e;
+  }
+  function finish(reason: Parameters<Parameters<TerminalStream["onClose"]>[0]>[0]) {
     if (closed) return;
     closed = true;
+    if (closeFns.length === 0) pendingClose = { reason };
     for (const f of closeFns) f(reason);
     c.close();
+  }
+  const credit = (n: number) => {
+    // 背压：宿主说发送缓冲已满时延迟回报 CREDIT，让 Herdr 停止推送
+    if (o.canSend && !o.canSend() && !closed) return void setTimeout(() => credit(n), 50);
+    if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.CREDIT, payload: creditFrame(0, n).subarray(9) });
   };
   c.onStream(r.channel, (f) => {
     if (f.kind === FrameKind.DATA) {
-      for (const fn of dataFns) fn(f.payload);
-      c.sendFrame({ channel: r.channel, kind: FrameKind.CREDIT, payload: creditFrame(0, f.payload.length).subarray(9) });
+      if (dataFns.length === 0) pendingData.push(f.payload);
+      else for (const fn of dataFns) fn(f.payload);
+      credit(f.payload.length);
     } else if (f.kind === FrameKind.CLOSE) {
       let reason = null;
       try { reason = f.payload.length ? JSON.parse(f.payload.toString("utf8")) : null; } catch { /* 空/非 JSON 的 CLOSE */ }
@@ -204,8 +221,8 @@ export async function attachTerminal(endpoint: string, o: { terminal: string; co
     }
   });
   return {
-    onData: (fn) => { dataFns.push(fn); },
-    onClose: (fn) => { closeFns.push(fn); },
+    onData: (fn) => { dataFns.push(fn); for (const b of pendingData.splice(0)) fn(b); },
+    onClose: (fn) => { closeFns.push(fn); if (pendingClose) { const p = pendingClose; pendingClose = null; fn(p.reason); } },
     write: (b) => { if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.DATA, payload: b }); },
     resize: (cols, rows) => { if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.RESIZE, payload: resizeFrame(0, cols, rows).subarray(9) }); },
     close: () => { if (!closed) { c.sendFrame({ channel: r.channel, kind: FrameKind.CLOSE, payload: Buffer.alloc(0) }); finish(null); } },
