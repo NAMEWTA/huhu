@@ -47,4 +47,12 @@ describe("rewriteLinks", () => {
     const r = rewriteLinks("[n](%E7%AC%94%E8%AE%B0.md)", ctx({ allPaths: ["笔记.md", "A.md"] }, [["笔记.md", "归档/笔记.md"]]));
     expect(r.text).toBe(`[n](${encodeURI("归档/笔记.md")})`);
   });
+
+  test("别名/标题里含多个分隔符时原样保留", () => {
+    expect(rewriteLinks("[[X|a|b]] [[X#h#x]]", ctx()).text).toBe("[[Y|a|b]] [[Y#h#x]]");
+  });
+  test("括号出现在文件名里的标准链接", () => {
+    const r = rewriteLinks("[p](X(1).md)", ctx({ allPaths: [...all, "X(1).md"] }, [["X(1).md", "Z(1).md"]]));
+    expect(r.text).toBe("[p](Z(1).md)");
+  });
 });

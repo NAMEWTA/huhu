@@ -133,3 +133,30 @@ describe("日记与筛选", () => {
     expect(svc.list("favorites")).toEqual([]);
   });
 });
+
+describe("审计回归", () => {
+  test("名称含点号（v1.2 方案）仍补 .md，不会让笔记从列表消失", async () => {
+    const { svc, root, rebuild } = await setup({ "n.md": "x" });
+    await svc.rename("n.md", "v1.2 方案");
+    expect(existsSync(path.join(root, "v1.2 方案.md"))).toBe(true);
+    await rebuild();
+    expect(svc.list("all").map((n) => n.path)).toEqual(["v1.2 方案.md"]);
+    const { trashId } = svc.trash("v1.2 方案.md");
+    expect(svc.restore(trashId, "Q1.5 计划")).toBe("Q1.5 计划.md");
+  });
+  test("仅大小写改名：内容不丢，双链改写，id 不变", async () => {
+    const { svc, root } = await setup({ "readme.md": "正文", "ref.md": "[[readme]] [[readme.md]]" });
+    const id = await svc.ensureId("readme.md");
+    await svc.rename("readme.md", "README");
+    expect(readdirSync(root).filter((n) => n.endsWith(".md")).sort()).toEqual(["README.md", "ref.md"]);
+    expect(rd(root, "README.md")).toBe("正文");
+    expect(rd(root, "ref.md")).toBe("[[README]] [[README.md]]");
+    expect(svc.noteId("README.md")).toBe(id);
+  });
+  test("文件夹移动后不留空壳目录", async () => {
+    const { svc, root } = await setup({ "a/b/c.md": "c", "dest/keep.md": "k" });
+    await svc.move("a", "dest");
+    expect(existsSync(path.join(root, "a"))).toBe(false);
+    expect(rd(root, "dest/a/b/c.md")).toBe("c");
+  });
+});

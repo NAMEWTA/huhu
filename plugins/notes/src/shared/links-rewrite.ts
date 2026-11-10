@@ -51,17 +51,23 @@ export function rewriteLinks(text: string, ctx: RewriteContext): RewriteResult {
 
   const wiki = text.replace(/\[\[([^[\]\n]+?)\]\]/g, (full, inner: string, offset: number) => {
     if (inCode(offset)) return full;
-    const [left = "", alias] = inner.split("|", 2) as [string, string | undefined];
-    const [target = "", heading] = left.split("#", 2) as [string, string | undefined];
+    // 只在第一个分隔符处切开：别名/标题里的后续 | 与 # 属于文本本身
+    const bar = inner.indexOf("|");
+    const left = bar >= 0 ? inner.slice(0, bar) : inner;
+    const alias = bar >= 0 ? inner.slice(bar + 1) : undefined;
+    const hash = left.indexOf("#");
+    const target = hash >= 0 ? left.slice(0, hash) : left;
+    const heading = hash >= 0 ? left.slice(hash + 1) : undefined;
     const t = target.trim();
     if (!t) return full;
     const isPath = t.includes("/");
+    const bareHasMd = !isPath && /\.md$/i.test(t); // `[[名称.md]]`：带扩展名的裸写法
     let resolved: string | null = null;
     if (isPath) {
       const withExt = ctx.allPaths.find((p) => p === t || stripExt(p) === t);
       resolved = withExt ?? null;
     } else {
-      const u = uniqueByBasename(ctx.allPaths, t);
+      const u = uniqueByBasename(ctx.allPaths, bareHasMd ? t.slice(0, -3) : t);
       if (u === "ambiguous") {
         ambiguous.push(t);
         return full;
@@ -79,6 +85,7 @@ export function rewriteLinks(text: string, ctx: RewriteContext): RewriteResult {
       // 改名/移动后裸名称仍唯一才保留裸写法，否则退回路径写法
       const stillUnique = [...after].filter((p) => /\.(md|txt)$/i.test(p) && baseNoExt(p).toLowerCase() === name.toLowerCase()).length === 1;
       next = stillUnique ? name : stripExt(moved);
+      if (bareHasMd) next += ".md";
     }
     if (next === t) return full;
     changes++;
@@ -88,7 +95,7 @@ export function rewriteLinks(text: string, ctx: RewriteContext): RewriteResult {
   // 标准链接在 wiki 替换后的文本上再扫描，需要重新计算代码区间
   const code2 = codeRanges(wiki);
   const inCode2 = (i: number) => code2.some(([a, b]) => i >= a && i < b);
-  const out = wiki.replace(/(!?\[[^\]\n]*\]\()([^)\s]+)(\))/g, (full, open: string, href: string, close: string, offset: number) => {
+  const out = wiki.replace(/(!?\[[^\]\n]*\]\()((?:[^()\s]|\([^()\s]*\))+)(\))/g, (full, open: string, href: string, close: string, offset: number) => {
     if (inCode2(offset) || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("#") || href.startsWith("/")) return full;
     const [rawPath = "", frag] = href.split("#", 2) as [string, string | undefined];
     let decoded: string;

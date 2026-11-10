@@ -74,7 +74,7 @@ describe("转换", () => {
     const { svc, created, calls } = setup();
     const c = await svc.capture({ body: "x", source: "quick" });
     // 模拟崩溃：目标已创建（幂等记录已存在），但捕获仍是 pending
-    created.set(`inbox-convert-${c.id}`, { id: "task-orphan1" });
+    created.set(`inbox-convert-${c.id}-${c.version}`, { id: "task-orphan1" });
     expect(svc.read(c.id).status).toBe("pending");
     const done = await svc.convert(c.id, "task", { title: "x" });
     expect(done.result).toEqual({ kind: "task", id: "task-orphan1" });
@@ -89,6 +89,15 @@ describe("转换", () => {
     expect(undone).toMatchObject({ status: "pending", result: null, processedAt: null });
     expect(created.size).toBe(1); // 生成的内容仍在
     await expect(svc.undo(c.id)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+  test("撤销处理后再次转换会创建新对象，而不是复用旧结果", async () => {
+    const { svc, created } = setup();
+    const c = await svc.capture({ body: "x", source: "quick" });
+    const first = await svc.convert(c.id, "task", { title: "x" });
+    await svc.undo(c.id);
+    const second = await svc.convert(c.id, "task", { title: "x" });
+    expect(second.result?.id).not.toBe(first.result?.id);
+    expect(created.size).toBe(2);
   });
   test("ACC-IN-06 目标插件停用：拒绝转换并提示启用", async () => {
     const { svc, calls } = setup({ disabled: ["archive"] });

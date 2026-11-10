@@ -148,7 +148,12 @@ export class VaultIndex {
   /** 自写操作后按磁盘现状刷新指定路径（监听器会过滤自写回声，索引需要主动更新）。 */
   refreshPaths(paths: string[]): void {
     for (const p of paths) {
-      const exists = takeSnapshot(path.join(this.root, path.dirname(p) === "." ? "" : path.dirname(p)), false).has(path.basename(p));
+      let exists = false;
+      try {
+        exists = takeSnapshot(path.join(this.root, path.dirname(p) === "." ? "" : path.dirname(p)), false).has(path.basename(p));
+      } catch {
+        // 父目录已不存在（例如文件夹被整体移走）：按已删除处理
+      }
       this.applyChanges([{ path: p, change: exists ? "modified" : "deleted" }]);
     }
   }

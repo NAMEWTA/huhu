@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path/posix";
 import { errors, newId } from "@huhu/contracts";
 import { normalizeRelPath, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
@@ -17,6 +17,10 @@ export interface NotesDeps {
 const IDENTITIES = ".huhu/notes/identities.json";
 const FOLDERS = ".huhu/notes/folders.json";
 const FAVORITES = ".huhu/notes/favorites.json";
+/** 名称里含点（如 `v1.2 方案`）不等于已带扩展名：只有与原扩展名一致时才不再追加。 */
+function withExtension(name: string, ext: string): string {
+  return ext && name.toLowerCase().endsWith(ext.toLowerCase()) ? name : `${name}${ext}`;
+}
 const isNoteFile = (p: string) => /\.md$/i.test(p);
 
 export interface MoveResult {
@@ -138,7 +142,7 @@ export class NotesService {
     const dir = path.dirname(rel) === "." ? "" : `${path.dirname(rel)}/`;
     const isDir = existsSync(this.d.files.abs(rel)) && statSync(this.d.files.abs(rel)).isDirectory();
     const ext = isDir ? "" : path.extname(rel);
-    const finalName = !isDir && !/\.[^.]+$/.test(newName) ? `${newName}${ext}` : newName;
+    const finalName = isDir ? newName : withExtension(newName, ext);
     return this.moveEntry(rel, `${dir}${finalName}`);
   }
 
@@ -157,6 +161,7 @@ export class NotesService {
     const existing = this.findCaseInsensitive(to);
     // 仅大小写变化（同一个文件）允许；否则同名拒绝，不合并
     if (existing && existing.toLowerCase() !== from.toLowerCase()) throw errors.nameConflict(to);
+    if (from.toLowerCase() === to.toLowerCase()) return this.caseOnlyRename(from, to, isDir);
     mkdirSync(path.dirname(this.d.files.abs(to)), { recursive: true });
 
     const all = this.allFiles();
@@ -202,6 +207,45 @@ export class NotesService {
     const folderList = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
     steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folderList));
     await this.d.ops.run(`mv-${Date.now().toString(36)}`, isDir ? "move-folder" : "move-file", dedupeWrites(steps));
+    if (isDir) removeEmptyDirs(this.d.files.abs(from));
+    this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
+    return { moved: Object.fromEntries(moves), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };
+  }
+
+  /**
+   * 仅大小写变化：大小写不敏感的文件系统上 from 与 to 是同一物理文件，不能"写新+删旧"。
+   * 这里经临时名做两次物理重命名，再单独改写双链与登记。
+   */
+  private async caseOnlyRename(from: string, to: string, isDir: boolean): Promise<MoveResult> {
+    const all = this.allFiles();
+    const moves = new Map<string, string>();
+    if (isDir) {
+      for (const p of all) if (p.startsWith(`${from}/`)) moves.set(p, `${to}${p.slice(from.length)}`);
+    } else moves.set(from, to);
+    const tmp = `${from}.huhu-case-tmp`;
+    renameSync(this.d.files.abs(from), this.d.files.abs(tmp));
+    renameSync(this.d.files.abs(tmp), this.d.files.abs(to));
+    const steps: OpStep[] = [];
+    const rewritten: string[] = [];
+    const ambiguous = new Set<string>();
+    for (const p of all) {
+      if (moves.has(p) || !isNoteFile(p)) continue;
+      const f = this.d.files.read(p);
+      if (!f) continue;
+      const r = rewriteLinks(f.bytes.toString("utf8"), { filePath: p, newFilePath: p, moves, allPaths: all });
+      r.ambiguous.forEach((a) => ambiguous.add(a));
+      if (r.changes > 0) {
+        steps.push({ action: "write", path: p, bytes: Buffer.from(r.text) });
+        rewritten.push(p);
+      }
+    }
+    const ids = this.identities();
+    for (const [o, n] of moves) if (ids[o]) {
+      ids[n] = ids[o] as string;
+      delete ids[o];
+    }
+    steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f))));
+    await this.d.ops.run(`case-${Date.now().toString(36)}`, "rename-case", dedupeWrites(steps));
     this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
     return { moved: Object.fromEntries(moves), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };
   }
@@ -218,7 +262,7 @@ export class NotesService {
     const meta = this.d.trash.list().find((m) => m.trashId === trashId);
     if (!meta) throw errors.notFound("回收站条目不存在");
     const dir = path.dirname(meta.originalPath) === "." ? "" : `${path.dirname(meta.originalPath)}/`;
-    const target = newName ? `${dir}${/\.[^.]+$/.test(newName) ? newName : `${newName}${path.extname(meta.originalPath)}`}` : meta.originalPath;
+    const target = newName ? `${dir}${withExtension(newName, path.extname(meta.originalPath))}` : meta.originalPath;
     if (newName) {
       const err = validateName(newName.replace(/\.md$/i, ""));
       if (err) throw errors.invalidInput(err);
@@ -279,6 +323,18 @@ export class NotesService {
   backlinks(rel: string): { path: string; title: string }[] {
     return this.d.index.backlinks(rel);
   }
+}
+
+/** 递归删除空目录（文件夹移走后留下的空壳）；含文件的目录不动。 */
+function removeEmptyDirs(dir: string): boolean {
+  if (!existsSync(dir)) return true;
+  let empty = true;
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    if (ent.isDirectory() && removeEmptyDirs(path.join(dir, ent.name))) continue;
+    empty = false;
+  }
+  if (empty) rmSync(dir, { recursive: true, force: true });
+  return empty;
 }
 
 /** 同一路径的多个 write 步骤只保留最后一个（例如 identities.json）。 */
