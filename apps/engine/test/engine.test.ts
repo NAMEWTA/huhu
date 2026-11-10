@@ -437,4 +437,48 @@ describe("Engine 启动与关闭", () => {
       delete process.env["HUHU_HERDR_BIN"];
     }
   }, 60_000);
+  test("SSH shell 经同一条 /ws/terminal/ssh-<id> 路由：输入回显；关闭视图后 shell 仍在，可重新打开；ssh- 路由对未知 shell 返回 4404", async () => {
+    const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
+    const srv = await startFakeSsh({ password: "pw-shell-1" });
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const prompts: { attemptId: string; hop: number }[] = [];
+    e.events.subscribe((ev) => { if (ev.type === "ssh.hostKeyPrompt") prompts.push(ev.payload as { attemptId: string; hop: number }); });
+    const { WebSocket } = await import("ws");
+    try {
+      await call("safe.setup", { password: "correct horse battery" });
+      const item = (await call("safe.items.save", { name: "pw", type: "password", allowedModules: ["ssh"], value: "pw-shell-1" })).data as { id: string };
+      const host = (await call("ssh.hosts.save", { name: "m", host: "127.0.0.1", port: srv.port, user: "u", auth: { kind: "password", secretRef: `safe://${item.id}` }, connectTimeoutSec: 5 })).data as { id: string };
+      const connecting = call("ssh.connect", { hostId: host.id });
+      for (let i = 0; i < 100 && prompts.length === 0; i++) await new Promise((r) => setTimeout(r, 30));
+      await call("ssh.hostKey.decide", { attemptId: prompts[0]?.attemptId, hop: 0, accept: true });
+      expect((await connecting).ok).toBe(true);
+      const shell = (await call("ssh.shells.open", { hostId: host.id, cols: 100, rows: 30 })).data as { id: string };
+      // 回放在连接建立时立即发出，所以收集器必须在 open 之前就挂好
+      const open = (id: string) => new Promise<InstanceType<typeof WebSocket> & { text: string }>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${e.rendererToken}`]) as InstanceType<typeof WebSocket> & { text: string };
+        ws.text = "";
+        ws.on("message", (d, bin) => { if (bin) ws.text += d.toString(); });
+        ws.on("open", () => resolve(ws));
+        ws.on("error", reject);
+      });
+      const ws = await open(shell.id);
+      ws.send(Buffer.from("ping\n"));
+      for (let i = 0; i < 100 && !ws.text.includes("ECHO:ping"); i++) await new Promise((r) => setTimeout(r, 30));
+      expect(ws.text).toContain("ECHO:ping");
+      ws.close();
+      await new Promise((r) => setTimeout(r, 200));
+      expect(((await call("ssh.shells.list", { hostId: host.id })).data as { state: string }[])[0]?.state).toBe("running");
+      const again = await open(shell.id);
+      for (let i = 0; i < 100 && !again.text.includes("ECHO:ping"); i++) await new Promise((r) => setTimeout(r, 30));
+      expect(again.text).toContain("ECHO:ping"); // 回放最近输出
+      again.close();
+      const code = await open("ssh-unknown").then((w) => new Promise<number>((r) => w.on("close", (c) => r(c))));
+      expect(code).toBe(4404);
+      expect((await call("ssh.shells.close", { id: shell.id })).data).toEqual({ closed: true });
+    } finally {
+      await srv.close();
+    }
+  }, 60_000);
 });

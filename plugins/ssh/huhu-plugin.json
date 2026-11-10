@@ -5,8 +5,33 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": ["safe", "agent-cli"],
+  "optionalDeps": [
+    "safe",
+    "agent-cli"
+  ],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["ssh"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["ssh.hosts.list", "ssh.hosts.save", "ssh.hosts.delete", "ssh.connect", "ssh.disconnect", "ssh.hostKey.decide", "ssh.exec.run", "ssh.exec.cancel", "ssh.audit.list"], "fileKinds": [] }
+  "contributes": {
+    "modules": [
+      "ssh"
+    ],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": [
+      "ssh.audit.list",
+      "ssh.connect",
+      "ssh.disconnect",
+      "ssh.exec.cancel",
+      "ssh.exec.run",
+      "ssh.hostKey.decide",
+      "ssh.hosts.delete",
+      "ssh.hosts.list",
+      "ssh.hosts.save",
+      "ssh.shells.close",
+      "ssh.shells.list",
+      "ssh.shells.open"
+    ],
+    "fileKinds": []
+  }
 }

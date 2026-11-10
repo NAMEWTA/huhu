@@ -41,6 +41,17 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
       });
       client.on("session", (accept) => {
         const session = accept();
+        session.on("pty", (acceptPty) => acceptPty?.());
+        session.on("window-change", (acceptWc) => acceptWc?.());
+        session.on("shell", (acceptShell) => {
+          const ch = acceptShell();
+          ch.write("welcome\n");
+          ch.on("data", (d: Buffer) => {
+            const text = d.toString();
+            if (text.includes("exit")) { ch.exit(0); ch.end(); return; }
+            ch.write(`ECHO:${text}`);
+          });
+        });
         session.on("exec", (acceptExec, _rej, info) => {
           const ch = acceptExec();
           const cmd = info.command;

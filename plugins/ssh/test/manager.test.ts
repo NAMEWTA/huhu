@@ -204,3 +204,64 @@ describe("并发连接与审计", () => {
     expect(JSON.stringify(mgr.auditList())).not.toContain("hunter2");
   });
 });
+
+describe("Shell（ACC-SH-05）", () => {
+  async function connected() {
+    const srv = await startFakeSsh(); closers.push(srv.close);
+    const ctx = setup();
+    const h = ctx.add(srv.port);
+    const p = ctx.mgr.connect(h.id);
+    await until(() => ctx.prompts.length > 0);
+    ctx.mgr.decide(ctx.prompts[0]!.attemptId, 0, true);
+    await p;
+    return { ...ctx, h, srv };
+  }
+  const view = () => { const v = { out: "", ended: 0, onData: (b: Buffer) => { v.out += b.toString(); }, onEnd: () => { v.ended++; } }; return v; };
+
+  test("打开 shell、输入输出；关闭视图（detach）不结束 shell，重新打开回到同一 shell 并回放最近输出", async () => {
+    const { mgr, h } = await connected();
+    const sh = await mgr.openShell(h.id, { cols: 100, rows: 30 });
+    expect(sh).toMatchObject({ state: "running", hostId: h.id });
+    expect(sh.id).toMatch(/^ssh-/);
+    const v1 = view();
+    const a1 = mgr.attachShell(sh.id, v1)!;
+    await until(() => v1.out.includes("welcome"));
+    a1.write(Buffer.from("hello\n"));
+    await until(() => v1.out.includes("ECHO:hello"));
+    a1.resize(120, 40);
+    a1.detach(); // 关闭视图
+    expect(mgr.listShells(h.id)[0]?.state).toBe("running"); // 仍在运行
+    const v2 = view();
+    const a2 = mgr.attachShell(sh.id, v2)!;
+    expect(v2.out).toContain("ECHO:hello"); // 回放
+    a2.write(Buffer.from("again\n"));
+    await until(() => v2.out.includes("ECHO:again"));
+    a2.detach();
+  });
+  test("结束 shell 才关闭 channel；断开连接后所有 shell 变为已结束，重连后不会绑定旧 shell", async () => {
+    const { mgr, h, prompts } = await connected();
+    const a = await mgr.openShell(h.id); const b = await mgr.openShell(h.id);
+    const v = view(); mgr.attachShell(a.id, v);
+    expect(mgr.closeShell(a.id)).toBe(true);
+    await until(() => v.ended > 0);
+    expect(mgr.listShells(h.id).find((s) => s.id === a.id)?.state).toBe("ended");
+    expect(mgr.listShells(h.id).find((s) => s.id === b.id)?.state).toBe("running");
+    mgr.disconnect(h.id);
+    expect(mgr.listShells(h.id).every((s) => s.state === "ended")).toBe(true);
+    prompts.length = 0;
+    await mgr.connect(h.id);
+    expect(mgr.listShells(h.id).find((s) => s.id === b.id)?.state).toBe("ended"); // 旧 shell 不会复活
+    const c = await mgr.openShell(h.id);
+    expect(c.id).not.toBe(b.id);
+    expect(mgr.attachShell("ssh-none", view())).toBeNull();
+  });
+  test("未连接 → SSH_DISCONNECTED；shell 里 exit 时通知查看者结束", async () => {
+    const { mgr, h } = await connected();
+    await expect(mgr.openShell("host-none")).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
+    const sh = await mgr.openShell(h.id);
+    const v = view(); const a = mgr.attachShell(sh.id, v)!;
+    a.write(Buffer.from("exit\n"));
+    await until(() => v.ended > 0);
+    expect(v.ended).toBeGreaterThan(0);
+  });
+});

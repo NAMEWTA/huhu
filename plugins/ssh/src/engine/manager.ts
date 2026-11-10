@@ -21,6 +21,10 @@ export interface SshDeps {
 interface Conn { hostId: string; clients: Client[]; target: Client }
 interface ExecRun { channel: ClientChannel; interrupted: boolean }
 
+export interface ShellInfo { id: string; hostId: string; name: string; state: "running" | "ended"; createdAt: string }
+interface ShellRec extends ShellInfo { channel: ClientChannel; buffer: Buffer[]; bufferSize: number; viewers: Set<(b: Buffer) => void>; closers: Set<() => void> }
+const SHELL_BUFFER = 64 * 1024;
+
 /** SSH 密钥类型名取自公钥 blob 的第一个字符串。 */
 export function keyTypeOf(key: Buffer): string {
   const len = key.readUInt32BE(0);
@@ -30,6 +34,7 @@ export function keyTypeOf(key: Buffer): string {
 /** 连接管理：逐跳连接、逐跳主机密钥确认、认证、Exec、审计。 */
 export class SshManager {
   private conns = new Map<string, Conn>();
+  private shells = new Map<string, ShellRec>();
   private attempts = new Map<string, Map<number, (accept: boolean) => void>>();
   private execs = new Map<string, ExecRun>();
   private known: KnownHosts;
@@ -161,9 +166,62 @@ export class SshManager {
     });
   }
 
+  // ---- Shell ----
+  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }): Promise<ShellInfo> {
+    const conn = this.conns.get(hostId);
+    if (!conn) throw new HuhuError("SSH_DISCONNECTED", "尚未连接该主机");
+    const channel = await new Promise<ClientChannel>((resolve, reject) =>
+      conn.target.shell({ term: "xterm-256color", cols: size.cols, rows: size.rows }, (err, ch) => (err ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${err.message}`)) : resolve(ch))),
+    );
+    const id = `ssh-${newId("cap").replace("cap-", "")}`;
+    const rec: ShellRec = { id, hostId, name: `Shell ${this.listShells(hostId).length + 1}`, state: "running", createdAt: this.d.now().toISOString(), channel, buffer: [], bufferSize: 0, viewers: new Set(), closers: new Set() };
+    this.shells.set(id, rec);
+    channel.on("data", (b: Buffer) => {
+      rec.buffer.push(b);
+      rec.bufferSize += b.length;
+      while (rec.bufferSize > SHELL_BUFFER && rec.buffer.length > 1) rec.bufferSize -= (rec.buffer.shift() as Buffer).length;
+      for (const v of rec.viewers) v(b);
+    });
+    channel.on("close", () => {
+      rec.state = "ended";
+      for (const c of rec.closers) c();
+    });
+    this.audit({ hostId, action: "shell", result: "ok", detail: id });
+    return this.info(rec);
+  }
+
+  private info(r: ShellRec): ShellInfo {
+    return { id: r.id, hostId: r.hostId, name: r.name, state: r.state, createdAt: r.createdAt };
+  }
+  listShells(hostId?: string): ShellInfo[] {
+    return [...this.shells.values()].filter((s) => !hostId || s.hostId === hostId).map((s) => this.info(s));
+  }
+  closeShell(id: string): boolean {
+    const s = this.shells.get(id);
+    if (!s) return false;
+    s.channel.close(); // “结束 shell”才关闭 channel；关闭视图不会
+    return true;
+  }
+  /** 绑定一个查看者（WebSocket）：先回放最近输出，再接实时输出。返回 detach 函数；不会关闭 channel。 */
+  attachShell(id: string, view: { onData(b: Buffer): void; onEnd(): void }): { write(b: Buffer): void; resize(cols: number, rows: number): void; detach(): void } | null {
+    const s = this.shells.get(id);
+    if (!s) return null;
+    for (const b of s.buffer) view.onData(b);
+    s.viewers.add(view.onData);
+    s.closers.add(view.onEnd);
+    if (s.state === "ended") queueMicrotask(view.onEnd);
+    return {
+      write: (b) => { if (s.state === "running") s.channel.write(b); },
+      resize: (cols, rows) => { if (s.state === "running") s.channel.setWindow(rows, cols, 0, 0); },
+      detach: () => { s.viewers.delete(view.onData); s.closers.delete(view.onEnd); },
+    };
+  }
+
   private drop(hostId: string): void {
     const c = this.conns.get(hostId);
     if (!c) return;
+    // 连接断开：该主机的所有 shell 变为已结束（重新连接后需新建，不会绑定到新连接）
+    for (const s of this.shells.values()) if (s.hostId === hostId) { s.state = "ended"; for (const f of s.closers) f(); }
     this.conns.delete(hostId);
     for (const cl of c.clients.reverse()) cl.end();
     this.d.publish("ssh.connectionChanged", { hostId, state: "disconnected" });

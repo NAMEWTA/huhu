@@ -57,5 +57,25 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
     output: z.array(z.object({ at: z.string(), hostId: z.string(), action: z.string(), result: z.string(), detail: z.string() })),
     handler: (_c, i) => manager.auditList(i.hostId, i.limit),
   }));
+  const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
+  api.defineCapability(def({ name: "ssh.shells.open", plugin: "ssh", scope: "execute", ...desktop, input: z.object({ hostId: z.string(), cols: z.number().int().min(1).max(500).default(80), rows: z.number().int().min(1).max(500).default(24) }), output: Shell, handler: (_c, i) => manager.openShell(i.hostId, { cols: i.cols, rows: i.rows }) }));
+  api.defineCapability(def({ name: "ssh.shells.list", plugin: "ssh", scope: "read", ...desktop, input: z.object({ hostId: z.string().optional() }), output: z.array(Shell), handler: (_c, i) => manager.listShells(i.hostId) }));
+  api.defineCapability(def({ name: "ssh.shells.close", plugin: "ssh", scope: "execute", ...desktop, input: z.object({ id: z.string() }), output: z.object({ closed: z.boolean() }), handler: (_c, i) => ({ closed: manager.closeShell(i.id) }) }));
+  // /ws/terminal/ssh-<id>：与 Agent 会话共用同一条终端路由
+  api.provide("terminalBridge:ssh", async (shellId: string, ws: import("ws").WebSocket, o: { cols: number; rows: number; observe: boolean }) => {
+    const att = manager.attachShell(shellId, {
+      onData: (b) => { if (ws.readyState === ws.OPEN) ws.send(b, { binary: true }); },
+      onEnd: () => { if (ws.readyState === ws.OPEN) { ws.send(JSON.stringify({ type: "closed", reason: { reason: "exited" } })); ws.close(1000, "shell ended"); } },
+    });
+    if (!att) return false;
+    att.resize(o.cols, o.rows);
+    ws.on("message", (data, isBinary) => {
+      if (o.observe) return;
+      if (isBinary) return att.write(Buffer.from(data as Buffer));
+      try { const m = JSON.parse(String(data)) as { type?: string; cols?: number; rows?: number }; if (m.type === "resize" && Number.isInteger(m.cols) && Number.isInteger(m.rows)) att.resize(m.cols as number, m.rows as number); } catch { /* 忽略 */ }
+    });
+    ws.on("close", () => att.detach()); // 关闭视图只 detach
+    return true;
+  });
   return { manager };
 }

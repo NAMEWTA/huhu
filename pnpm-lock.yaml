@@ -833,6 +833,12 @@ importers:
       '@types/ssh2':
         specifier: ^1.15.6
         version: 1.15.6
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
+      ws:
+        specifier: ^8.22.2
+        version: 8.22.2
 
   plugins/tasks:
     dependencies:

@@ -191,7 +191,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
 
   dispatcherRef.current = real;
-  const server = await startEngineServer({ terminal: (id, ws, o) => { const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>("terminalBridge:agent"); return bridge ? bridge(id, ws, o) : false; }, dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)), ...(opts.port !== undefined ? { port: opts.port } : {}) });
+  const server = await startEngineServer({ terminal: (id, ws, o) => { const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent"); return bridge ? bridge(id, ws, o) : false; }, dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)), ...(opts.port !== undefined ? { port: opts.port } : {}) });
 
   const watcher = new VaultWatcher({
     root: vault.root,
