@@ -21,5 +21,7 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.");
   else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");
   if (prefixes.length === 0) return Promise.resolve();
+  // 首页卡片与健康检查汇总了各模块的数据，任何实体/文件变化都可能影响它们
+  if (e.type !== "plugin.stateChanged") prefixes.push("home.", "health.");
   return qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === vaultId && typeof q.queryKey[1] === "string" && prefixes.some((pre) => (q.queryKey[1] as string).startsWith(pre)) });
 }

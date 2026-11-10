@@ -74,4 +74,12 @@ describe("查询失效", () => {
     expect(qc.getQueryState(queryKey("vault-a", "notes.list"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(queryKey("vault-b", "tasks.list"))?.isInvalidated).toBe(false);
   });
+  test("首页与健康汇总查询随实体变化失效", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(queryKey("vault-a", "home.summary"), {});
+    qc.setQueryData(queryKey("vault-a", "health.run"), {});
+    await invalidateForEvent(qc, "vault-a", { type: "entity.changed", payload: { kind: "task", id: "task-1", op: "created" } });
+    expect(qc.getQueryState(queryKey("vault-a", "home.summary"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("vault-a", "health.run"))?.isInvalidated).toBe(true);
+  });
 });

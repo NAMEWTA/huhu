@@ -1,7 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, registerHealthCapabilities, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -99,6 +100,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       return r.data;
     },
   });
+  const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
@@ -120,13 +122,36 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),
-    apply: (ctx, api) => void safe.apply(ctx, api),
+    apply: (ctx, api) => { safeRef.current = safe.apply(ctx, api); },
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(agentCliManifest),
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
   const notifications = new NotificationStore(path.join(vault.root, ".huhu", "notifications.ndjson"), () => new Date(), (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }));
+  registry.register(defineCapability({
+    name: "home.summary", plugin: "kernel", scope: "read", exposable: true, defaultExposed: true, input: z.object({}),
+    output: z.object({ vault: z.object({ id: z.string(), name: z.string() }), tasksToday: z.number(), tasksOpen: z.number(), inboxPending: z.number(), notes: z.number(), recentNotes: z.array(z.object({ path: z.string(), title: z.string() })) }),
+    handler: async () => {
+      const ask = async <T,>(cap: string, input: unknown, fallback: T): Promise<T> => {
+        if (!plugins.isEnabled(cap.split(".")[0] === "inbox" ? "inbox" : cap.split(".")[0] as string)) return fallback; // 对应插件停用：该卡片为空，不报错
+        const r = await dispatcherRef.current?.call("desktop", { capability: cap, input, requestId: "home" });
+        return r?.ok ? (r.data as T) : fallback;
+      };
+      const open = await ask<{ id: string }[]>("tasks.list", { completed: false }, []);
+      const today = await ask<{ id: string }[]>("tasks.list", { category: "today", completed: false }, []);
+      const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
+      const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
+      return { vault: { id: vault.id, name: vault.info.name }, tasksToday: today.length, tasksOpen: open.length, inboxPending: inbox.length, notes: notesList.length, recentNotes: notesList.slice(0, 5).map((n) => ({ path: n.path, title: n.title })) };
+    },
+  }));
+  registerHealthCapabilities(registry, {
+    plugins, fileProblems: () => repo.problemList(), index, vault: { readOnly: vault.readOnly, id: vault.id }, watcherMode: () => watcher.mode,
+    extra: async () => {
+      const safeStatus = safeRef.current?.status();
+      return safeStatus ? [{ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" }] : [];
+    },
+  });
   registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
   registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) });
   plugins.register({

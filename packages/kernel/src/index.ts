@@ -13,3 +13,4 @@ export * from "./capabilities/vault.js";
 export * from "./capabilities/system.js";
 export * from "./notifications.js";
 export * from "./exposure.js";
+export * from "./capabilities/health.js";

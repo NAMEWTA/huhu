@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -33,8 +33,10 @@ test("任务：新建、勾选完成并写入 Vault 文件；杀死 Engine 后�
   const app = await launch(vault);
   try {
     const page = await app.firstWindow();
-    await expect(page.getByTestId("tasks-module")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 }); // 默认打开工作台首页
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await expect(page.getByTestId("tasks-module")).toBeVisible();
 
     await page.getByLabel("任务名称").fill("写发布说明");
     await page.getByRole("button", { name: "新建任务" }).click();
@@ -227,6 +229,31 @@ test("插件中心：停用知识库后 rail 项消失，依赖提示；重启�
     await expect(page.getByRole("button", { name: "知识库", exact: true })).toBeVisible({ timeout: 5000 });
   } finally {
     await app.close().catch(() => undefined);
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+
+test("首页与健康中心：卡片反映真实数据；坏文件出现在健康检查里", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  mkdirSync(path.join(vault, "Tasks"), { recursive: true });
+  writeFileSync(path.join(vault, "Tasks", "broken.md"), "---\na: [1\n---\n"); // 无法解析的任务文件
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("card-open").locator("strong")).toHaveText("0");
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByLabel("任务名称").fill("首页测试任务");
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await expect(page.getByTestId("task-row")).toHaveCount(1);
+    await page.getByRole("button", { name: "工作台", exact: true }).first().click();
+    await expect(page.getByTestId("card-open").locator("strong")).toHaveText("1");
+    await page.getByRole("button", { name: "健康中心" }).first().click();
+    await expect(page.getByTestId("health-overall")).toHaveText("有需要留意的项目");
+    await expect(page.getByTestId("health-check").filter({ hasText: "broken.md" })).toHaveAttribute("data-status", "warning");
+  } finally {
+    await app.close();
     rmSync(vault, { recursive: true, force: true });
   }
 });

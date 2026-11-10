@@ -335,4 +335,26 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e2, "plugins.setEnabled", { id: "tasks", enabled: true })).data).toMatchObject({ state: "active" });
     expect((await call(e2, "tasks.list", {})).ok).toBe(true);
   }, 30_000);
+  test("health.run / home.summary：坏文件 → warning；插件失败 → error；对应插件停用时首页卡片为 0 而不是报错", async () => {
+    const dir = tmp();
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(path.join(dir, "Tasks"), { recursive: true });
+    writeFileSync(path.join(dir, "Tasks", "bad.md"), "---\nhuhu: {kind: task, id: task-bad001, schema: 1}\ntitle: 1\n---\n");
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    await call("tasks.list", {}); // 触发一次扫描，让文件问题登记
+    const h = (await call("health.run", {})).data as { overall: string; checks: { id: string; status: string; detail: string }[] };
+    expect(h.overall).toBe("warning");
+    expect(h.checks.find((c) => c.id === "files")).toMatchObject({ status: "warning" });
+    expect(h.checks.find((c) => c.id === "files")?.detail).toContain("bad.md");
+    expect(h.checks.find((c) => c.id === "safe")).toMatchObject({ status: "ok", detail: "尚未设置" });
+    expect((await post(e, e.cliToken, { capability: "health.run", input: {}, requestId: "r" }) as unknown as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    const before = (await call("home.summary", {})).data as { tasksOpen: number; vault: { name: string } };
+    expect(before.tasksOpen).toBe(0);
+    await call("tasks.create", { title: "A", execution: { kind: "manual" } });
+    expect(((await call("home.summary", {})).data as { tasksOpen: number }).tasksOpen).toBe(1);
+    await call("plugins.setEnabled", { id: "tasks", enabled: false });
+    expect(((await call("home.summary", {})).data as { tasksOpen: number }).tasksOpen).toBe(0);
+  }, 30_000);
 });
