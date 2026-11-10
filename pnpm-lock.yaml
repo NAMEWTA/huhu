@@ -228,6 +228,9 @@ importers:
 
   packages/kernel:
     dependencies:
+      '@hono/node-server':
+        specifier: ^2.1.6
+        version: 2.1.6(hono@4.13.17)
       '@huhu/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -240,9 +243,19 @@ importers:
       '@huhu/cosmokit':
         specifier: workspace:*
         version: link:../../vendor/cosmokit
+      hono:
+        specifier: ^4.13.17
+        version: 4.13.17
+      ws:
+        specifier: ^8.22.2
+        version: 8.22.2
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
 
   packages/testkit: {}
 
@@ -598,6 +611,12 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@hono/node-server@2.1.6':
+    resolution: {integrity: sha512-p/KH9MnfNcsm3sR6x4lNgm5j+QN4Et8srKredl9DZfXiyZ1UQ3aQ2YVpFLbqktYN5JI+DB+VZFKM2PqE5hLKjQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
 
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
@@ -1078,6 +1097,9 @@ packages:
 
   '@types/write-file-atomic@4.0.3':
     resolution: {integrity: sha512-qdo+vZRchyJIHNeuI1nrpsLw+hnkgqP/8mlaN6Wle/NKhydHmUN9l4p3ZE8yP90AJNJW4uB8HQhedb4f1vNayQ==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@vitejs/plugin-react@6.3.0':
     resolution: {integrity: sha512-H9E955aVvD2F4zNHCw4eIZbIfF6xKldlh7MNu+hSU7xwQzh65lI/N+CJWqmfhi0PEjDXIt/H7T7J/4wU63KJiw==}
@@ -1613,6 +1635,10 @@ packages:
   hasown@2.0.4:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
+
+  hono@4.13.17:
+    resolution: {integrity: sha512-vZIcbkvjOR5hHRWERbGkr8fGfF0GGM1ooYkuH448iO3b2AdVEr3AXZSw4Z3Kn+1L5z0CVoVeyV29VGYmFh05kQ==}
+    engines: {node: '>=16.9.0'}
 
   hosted-git-info@4.1.0:
     resolution: {integrity: sha512-kyCuEOWjJqZuDbRHzL8V93NzQhwIB71oFWSyzVo+KPZI+pnQPPxucdkrOZvkLRnrf5URsQM+IJ09Dw29cRALIA==}
@@ -2431,6 +2457,18 @@ packages:
     resolution: {integrity: sha512-dYwyZredl67GyLLIHJnRM3h2PcOmN5SkcgC7eM5DPDEOEl6dLFqVrMg3F1Ea32usj4VSVZtd2H4MtKTNOf6nPg==}
     engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
+  ws@8.22.2:
+    resolution: {integrity: sha512-/rEZ2ejown2N5gxVTHUu9bVVC7ttu0/Tgzf5hbTOixR3Fs7mbbXgn2DbdbcKgJOmpQMtrIUWivtYuVMnp/W/yA==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xmlbuilder@15.1.1:
     resolution: {integrity: sha512-yMqGBqtXyeN1e3TGYvgNgDVZ3j84W4cwkOXQswghol6APgZWaff9lnbvN7MHYJOiXsvGPXtjTYJEiC9J2wv9Eg==}
     engines: {node: '>=8.0'}
@@ -2750,6 +2788,10 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
+  '@hono/node-server@2.1.6(hono@4.13.17)':
+    dependencies:
+      hono: 4.13.17
+
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.3
@@ -3061,6 +3103,10 @@ snapshots:
   '@types/retry@0.12.5': {}
 
   '@types/write-file-atomic@4.0.3':
+    dependencies:
+      '@types/node': 24.19.2
+
+  '@types/ws@8.18.2':
     dependencies:
       '@types/node': 24.19.2
 
@@ -3718,6 +3764,8 @@ snapshots:
   hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
+
+  hono@4.13.17: {}
 
   hosted-git-info@4.1.0:
     dependencies:
@@ -4485,6 +4533,8 @@ snapshots:
   write-file-atomic@8.0.0:
     dependencies:
       signal-exit: 4.1.0
+
+  ws@8.22.2: {}
 
   xmlbuilder@15.1.1: {}
 
