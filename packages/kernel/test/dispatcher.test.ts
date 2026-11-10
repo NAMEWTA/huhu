@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
+import { getEventListeners } from "node:events";
 import { afterEach, describe, expect, test } from "vitest";
 import { z } from "zod";
 import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, defineCapability } from "../src/index.js";
@@ -116,6 +117,28 @@ describe("Dispatcher 管线", () => {
   });
   test("handler 超时 → INTERNAL，并触发 signal", async () => {
     expect(code(await setup().d.call("desktop", req("x.slow")) as never)).toBe("INTERNAL");
+  });
+  test("写入类超时：结果未知且不重放", async () => {
+    const registry = new CapabilityRegistry();
+    let runs = 0;
+    registry.register(defineCapability({
+      name: "x.w", plugin: "kernel", scope: "write", input: z.object({}), output: z.unknown(), exposable: true, defaultExposed: true, timeoutMs: 10,
+      handler: async () => { runs++; await new Promise((r) => setTimeout(r, 60)); },
+    }));
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-k-")); dirs.push(dir);
+    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [] });
+    const a = await d.call("desktop", req("x.w", {}, "key-slow1"));
+    const b = await d.call("desktop", req("x.w", {}, "key-slow1"));
+    expect(a).toEqual(b);
+    expect(!a.ok && a.error.retryable).toBe(false);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(runs).toBe(1);
+  });
+  test("共享 signal 上不泄漏监听器", async () => {
+    const s = setup();
+    const ac = new AbortController();
+    for (let i = 0; i < 20; i++) await s.d.call("desktop", req("vault.info"), ac.signal);
+    expect(getEventListeners(ac.signal, "abort").length).toBe(0);
   });
   test("客户端断开 → signal abort", async () => {
     const ac = new AbortController();

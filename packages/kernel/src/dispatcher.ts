@@ -125,12 +125,18 @@ export class Dispatcher {
     if (outer.aborted) ac.abort(outer.reason);
     else outer.addEventListener("abort", onAbort, { once: true });
     let timer: NodeJS.Timeout | undefined;
+    let interrupted = false;
+    let rejectOnAbort: (() => void) | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
+        interrupted = true;
         ac.abort(new Error("timeout"));
         reject(new Error(`能力 ${def.name} 超时`));
       }, timeoutMs);
-      const rejectOnAbort = () => reject(new Error(`能力 ${def.name} 已取消`));
+      rejectOnAbort = () => {
+        interrupted = true;
+        reject(new Error(`能力 ${def.name} 已取消`));
+      };
       if (outer.aborted) rejectOnAbort();
       else outer.addEventListener("abort", rejectOnAbort, { once: true });
     });
@@ -142,10 +148,15 @@ export class Dispatcher {
       if (e instanceof HuhuError) return this.fail(e);
       const correlationId = randomUUID();
       this.d.log?.("error", `能力 ${def.name} 失败`, { correlationId, error: e instanceof Error ? (e.stack ?? e.message) : String(e) });
+      // 写入/执行类超时或取消后 handler 可能仍在完成副作用：结果未知，不可重试，也不自动重放
+      if (interrupted && def.scope !== "read") {
+        return this.fail(new HuhuError("INTERNAL", "调用被中断，结果未知", { retryable: false, details: { correlationId, outcome: "unknown" } }));
+      }
       return this.fail(errors.internal(correlationId));
     } finally {
       if (timer) clearTimeout(timer);
       outer.removeEventListener("abort", onAbort);
+      if (rejectOnAbort) outer.removeEventListener("abort", rejectOnAbort);
     }
   }
 }

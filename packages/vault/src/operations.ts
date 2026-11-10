@@ -89,6 +89,10 @@ export class OperationLog {
     try {
       for (const [i, s] of steps.entries()) {
         const rec = records[i] as StepRecord;
+        // 执行前确认目标仍是 prepare 时的版本，绝不覆盖第三方改动
+        const guarded = s.action === "rename" ? s.from : s.path;
+        const now = this.files.currentVersion(guarded);
+        if (now !== rec.beforeVersion) throw new HuhuError("VERSION_CONFLICT", `文件在操作期间被修改：${guarded}`, { details: { currentVersion: now } });
         if (s.action === "write") await this.files.write(s.path, s.bytes);
         else if (s.action === "delete") rmSync(this.files.abs(s.path), { force: true });
         else {
@@ -122,7 +126,9 @@ export class OperationLog {
         const from = s.from as string;
         const toExists = this.files.exists(s.path);
         const fromExists = this.files.exists(from);
-        if (toExists && !fromExists && this.files.currentVersion(s.path) === s.afterVersion) renameSync(this.files.abs(s.path), this.files.abs(from));
+        const toIsOurs = toExists && this.files.currentVersion(s.path) === s.afterVersion;
+        if (toIsOurs && !fromExists) renameSync(this.files.abs(s.path), this.files.abs(from));
+        else if (toIsOurs && fromExists) attention.push(s.path, from); // 移走后第三方又在源路径创建了文件
         else if (!fromExists) attention.push(s.path); // 源不见了且目标也不是我们移过去的
         continue;
       }
@@ -130,7 +136,7 @@ export class OperationLog {
       if (cur === s.beforeVersion) continue; // 尚未执行或已还原
       if (cur !== s.afterVersion) {
         attention.push(s.path);
-        break;
+        continue;
       }
       if (s.beforeVersion === null) rmSync(this.files.abs(s.path), { force: true });
       else if (existsSync(backup)) {

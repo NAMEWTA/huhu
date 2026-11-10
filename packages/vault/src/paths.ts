@@ -13,6 +13,7 @@ export function normalizeRelPath(rel: string): string {
     if (p === "..") throw errors.pathOutsideVault(rel);
     if (WINDOWS_RESERVED.test(p) || /[<>:"|?*]/.test(p) || /[. ]$/.test(p)) throw errors.pathOutsideVault(rel);
   }
+  if (parts.length === 0) throw errors.pathOutsideVault(rel);
   return parts.join("/");
 }
 

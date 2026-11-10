@@ -10,7 +10,7 @@ const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-v-")); dirs.
 
 describe("路径守卫", () => {
   test("拒绝 .. 绝对路径 反斜杠 保留名", () => {
-    for (const bad of ["../x", "a/../../x", "/etc/passwd", "C:/x", "a\\b", "CON", "a/nul.txt", "a/b?.md", "a/b.", "x\0y"]) {
+    for (const bad of ["../x", "a/../../x", "/etc/passwd", "C:/x", "a\\b", "CON", "a/nul.txt", "a/b?.md", "a/b.", "x\0y", "", ".", "./"]) {
       expect(() => normalizeRelPath(bad), bad).toThrowError(/路径越界/);
     }
   });

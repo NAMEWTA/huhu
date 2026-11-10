@@ -80,6 +80,26 @@ describe("多文件操作", () => {
       expect(read(root, "c.md")).toBe("C-old"); expect(read(root, "d.md")).toBeNull(); expect(read(root, "e.md")).toBe("E-old");
     });
   }
+  test("执行期间第三方改动目标 → VERSION_CONFLICT 回滚，不覆盖", async () => {
+    const { root, ops } = init();
+    const log = new OperationLog(new VaultFiles(root), ops);
+    await expect(log.run("race1", "t", [
+      { action: "write", path: "e.md", bytes: Buffer.from("E2") },
+      { action: "write", path: "a.md", bytes: Buffer.from("A2") },
+    ], { afterStep: (i) => { if (i === 0) writeFileSync(path.join(root, "a.md"), "THIRD"); } })).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
+    expect(read(root, "a.md")).toBe("THIRD");
+    expect(read(root, "e.md")).toBe("E-old");
+  });
+  test("rename 后第三方在源路径新建文件 → needs_attention", async () => {
+    const { root, ops } = init();
+    const log = new OperationLog(new VaultFiles(root), ops);
+    await expect(log.run("race2", "t", [
+      { action: "rename", from: "c.md", path: "d.md" },
+      { action: "write", path: "a.md", bytes: Buffer.from("A2") },
+    ], { afterStep: (i) => { if (i === 0) writeFileSync(path.join(root, "c.md"), "THIRD"); if (i === 0) writeFileSync(path.join(root, "a.md"), "X"); } })).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
+    expect(log.load("race2")?.state).toBe("needs_attention");
+    expect(read(root, "c.md")).toBe("THIRD"); expect(read(root, "d.md")).toBe("C-old");
+  });
   test("第三方在崩溃后改动文件 → needs_attention，不覆盖", () => {
     const { root, ops } = init();
     const script = path.resolve(import.meta.dirname, "fixtures/crash-op.mjs");
