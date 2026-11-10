@@ -1,0 +1,18 @@
+export const t = {
+  title: "Agent CLI",
+  spaces: "Spaces",
+  newTerminal: "新终端",
+  launch: "启动终端",
+  noProviders: "此主机未检测到 AI CLI，可先打开普通终端",
+  sessions: "会话",
+  noSessions: "还没有会话，点「新终端」开始",
+  kill: "结束",
+  interrupt: "中断",
+  coreStatus: "Herdr Core",
+  connected: "已连接",
+  unavailable: "未启动或连接失败",
+  selectSession: "选择或新建一个会话",
+  terminalLabel: "终端",
+  running: "运行中",
+  failed: "启动失败",
+} as const;

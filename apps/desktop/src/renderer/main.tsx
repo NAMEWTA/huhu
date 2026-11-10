@@ -1,6 +1,7 @@
 import "@huhu/ui/tokens.css";
 import "@huhu/workbench/shell.css";
 import { applyAppearance } from "@huhu/ui";
+import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as archivesUi } from "@huhu/plugin-archives/ui";
 import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
@@ -35,6 +36,7 @@ function App() {
     r.register(archivesUi);
     r.register(inboxUi);
     r.register(safeUi);
+    r.register(agentCliUi);
     r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: HomeModule }] });
     r.register({ modules: [{ id: "health", plugin: "kernel", title: "健康中心", group: "system", order: 50, icon: <HeartPulse size={18} aria-hidden />, component: HealthModule }] });
     r.register({ modules: [{ id: "plugins", plugin: "kernel", title: "插件中心", group: "system", order: 10, icon: <Blocks size={18} aria-hidden />, component: PluginCenterModule }] });

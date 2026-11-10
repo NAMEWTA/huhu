@@ -83,7 +83,7 @@ describe("Engine 启动与关闭", () => {
     const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
     const call = (capability: string, input: unknown, token = e.rendererToken) => post(e, token, { capability, input, requestId: "r" });
     await e.index.build();
-    expect((await call("vault.tree", {})).data.map((x) => x.path)).toEqual(["笔记.md"]);
+    expect((await call("vault.tree", {})).data.map((x) => x.path)).toContain("笔记.md"); // 新 Vault 还有内置规则所在的 Automations/
     expect((await call("vault.search", { query: "知识库" })).data.hits[0]?.path).toBe("笔记.md");
     expect((await call("vault.readFile", { path: "笔记.md" })).data.text).toContain("想法");
     expect((await call("vault.readFile", { path: "../etc/passwd" })).error?.code).toBe("PATH_OUTSIDE_VAULT");
@@ -395,4 +395,46 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "tasks.create", { title: "Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.rendererToken, "tasks.create", { title: "桌面 Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).ok).toBe(true);
   }, 30_000);
+  test.skipIf(!existsSync(REAL_HERDR))("终端 WebSocket：经 Engine 桥接真实 Herdr 终端——输入回显、鉴权、关闭只 detach", async () => {
+    process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const { WebSocket } = await import("ws");
+    try {
+      const sp = ((await call("agent.spaces.list", {})).data as { id: string; revision: number }[])[0] as { id: string; revision: number };
+      const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-ws-1234" })).data as { id: string; terminalId: string };
+      const open = (token: string, id: string) => new Promise<InstanceType<typeof WebSocket>>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${token}`]);
+        ws.on("open", () => resolve(ws));
+        ws.on("error", reject);
+        ws.on("unexpected-response", (_r, res) => reject(new Error(`status ${res.statusCode}`)));
+      });
+      await expect(open("bad-token", s.id)).rejects.toThrow(/401/);
+      const ws = await open(e.rendererToken, s.id);
+      let out = "";
+      ws.on("message", (d, bin) => { if (bin) out += d.toString(); });
+      ws.send(Buffer.from("echo VIA-ENGINE-$((6*7))\n"));
+      for (let i = 0; i < 100 && !out.includes("VIA-ENGINE-42"); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(out).toContain("VIA-ENGINE-42");
+      ws.close(); // detach：进程仍在运行
+      await new Promise((r) => setTimeout(r, 300));
+      const again = await open(e.rendererToken, s.id); // 重新打开同一个终端
+      let out2 = "";
+      again.on("message", (d, bin) => { if (bin) out2 += d.toString(); });
+      again.send(Buffer.from("echo STILL-ALIVE\n"));
+      for (let i = 0; i < 100 && !out2.includes("STILL-ALIVE"); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(out2).toContain("STILL-ALIVE");
+      again.close();
+      // 不存在的会话
+      const bad = await open(e.rendererToken, "sess-none").then((w) => new Promise<number>((r) => w.on("close", (code) => r(code))));
+      expect(bad).toBe(4404);
+    } finally {
+      const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
+      const { machineId } = await import("@huhu/vault");
+      await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
+      delete process.env["HUHU_HERDR_BIN"];
+    }
+  }, 60_000);
 });

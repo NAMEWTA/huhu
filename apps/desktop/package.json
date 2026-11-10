@@ -27,6 +27,7 @@
   "dependencies": {
     "@huhu/editor": "workspace:*",
     "@huhu/engine": "workspace:*",
+    "@huhu/plugin-agent-cli": "workspace:*",
     "@huhu/plugin-archives": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",

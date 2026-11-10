@@ -63,7 +63,7 @@ export interface RootDeps {
 }
 
 /** 创建绑定了 HUHU 门面的根上下文；`forPlugin` 为每个插件生成带其身份的门面。 */
-export function createHuhuContext(deps: RootDeps): { root: Context; facade: (pluginId: string, ctx: Context) => HuhuApi } {
+export function createHuhuContext(deps: RootDeps): { root: Context; facade: (pluginId: string, ctx: Context) => HuhuApi; getService<T>(name: string): T | undefined } {
   const root = new Context();
   const services = new Map<string, unknown>();
   const facade = (pluginId: string, ctx: Context): HuhuApi => ({
@@ -99,5 +99,5 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
       return r;
     },
   });
-  return { root, facade };
+  return { root, facade, getService: <T,>(name: string) => services.get(name) as T | undefined };
 }

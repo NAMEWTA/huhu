@@ -18,6 +18,11 @@ export interface EngineServerDeps {
   events: EventBus;
   /** 当前调用者可见的能力（外部入口按开放状态过滤）。 */
   visibleTo(caller: Caller, name: string): boolean;
+  /**
+   * 终端字节流路由 `/ws/terminal/:sessionId?cols=&rows=&mode=attach|observe`：鉴权与来源检查通过后交给桥接实现
+   * （Agent 会话 → Herdr attach；`ssh-` 前缀 → SSH shell）。返回 false 表示会话不存在。
+   */
+  terminal?(sessionId: string, ws: import("ws").WebSocket, opts: { cols: number; rows: number; observe: boolean }): Promise<boolean> | boolean;
   /** 测试/嵌入时指定端口，默认随机。 */
   port?: number;
 }
@@ -135,11 +140,21 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       socket.destroy();
     };
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    if (url.pathname !== "/ws/events") return reject(404);
+    const termMatch = /^\/ws\/terminal\/([A-Za-z0-9._-]{1,64})$/.exec(url.pathname);
+    if (url.pathname !== "/ws/events" && !(termMatch && d.terminal)) return reject(404);
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return reject(verdict.status);
     const proto = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim()).find((s) => s.startsWith("bearer."));
     if (!d.tokens.authenticate(proto?.slice("bearer.".length))) return reject(401);
+    if (termMatch && d.terminal) {
+      const dims = (k: string, def: number) => Math.min(500, Math.max(1, Number(url.searchParams.get(k)) || def));
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        void Promise.resolve(d.terminal!(termMatch[1] as string, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe" })).then((ok) => {
+          if (!ok) ws.close(4404, "会话不存在");
+        }).catch(() => ws.close(1011, "终端桥接失败"));
+      });
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       const last = url.searchParams.get("lastSeq");
       const epoch = url.searchParams.get("epoch");

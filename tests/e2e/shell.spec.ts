@@ -1,12 +1,14 @@
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
+const HERDR = process.env["HUHU_HERDR_BIN"] ?? "/tmp/claude-1000/herdr-build/src/target/release/herdr-core";
+
 async function launch(vault: string): Promise<ElectronApplication> {
-  return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } });
 }
 
 test("窗口启动、appInfo 可用、window.open 被拒绝", async () => {
@@ -254,6 +256,47 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
     await expect(page.getByTestId("health-check").filter({ hasText: "broken.md" })).toHaveAttribute("data-status", "warning");
   } finally {
     await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+
+test.skip(!existsSync(HERDR), "需要编译好的 Herdr Core");
+test("Agent CLI：在 Space 里启动 shell，经 xterm 输入并看到输出；关闭视图后进程仍在，可重新打开", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("echo E2E-TERM-$((6*7))");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("E2E-TERM-42", { timeout: 10_000 });
+    // 切换到别的模块（视图卸载 = detach），再回来：同一个会话仍在运行
+    await page.getByRole("button", { name: "工作台", exact: true }).first().click();
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("session-tab")).toHaveCount(1);
+    await page.getByTestId("session-tab").click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("echo STILL-HERE");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("STILL-HERE", { timeout: 10_000 });
+  } finally {
+    await app.close();
+    // 结束这个 Vault 的 Herdr Core 实例
+    try {
+      const id = JSON.parse(readFileSync(path.join(vault, ".huhu/vault.json"), "utf8")).id as string;
+      const { spawnSync } = await import("node:child_process");
+      const runtime = path.join(vault, ".huhu/runtime", readdirSync(path.join(vault, ".huhu/runtime"))[0] as string, "herdr");
+      const sock = path.join(process.env["XDG_RUNTIME_DIR"] ?? tmpdir(), `huhu-${id.replace(/^vault-/, "").slice(0, 8)}-${readdirSync(path.join(vault, ".huhu/runtime"))[0]?.slice(0, 4)}.sock`);
+      spawnSync(HERDR, ["server", "stop"], { env: { ...process.env, HC_SESSION: "huhu", HC_SOCKET: sock, XDG_STATE_HOME: path.join(runtime, "state"), XDG_CONFIG_HOME: path.join(runtime, "config") } });
+    } catch { /* 清理尽力而为 */ }
     rmSync(vault, { recursive: true, force: true });
   }
 });

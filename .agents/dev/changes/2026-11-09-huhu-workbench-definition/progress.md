@@ -28,7 +28,7 @@
 | W09 档案 | 后端完成（类型/字段校验/关系双写/迁移/删除清理/未定义字段）+ 基础界面；无表格/卡片视图切换、导出、关联任务 | 单元 + HTTP + Playwright |
 | W10 收件箱 | 后端完成（来源由身份决定、转换幂等、撤销、回收站）+ 基础界面；无 Mod+Shift+N 全局快捷键、批量归档 | 单元 + HTTP + Playwright |
 | W11 保险箱 | 后端（scrypt+AES-GCM、冷却、自动锁定、AAD 防互换、审计、SecretUse）+ 基础界面完成；无「修改主密码」界面、锁屏/休眠监听（Main powerMonitor）、剪贴板 30 秒清除（copyText） | 单元 + HTTP + Playwright |
-| W12 Agent CLI（部分） | Space、Provider 检测、会话启动/中断/结束/重命名、Herdr Core 实例隔离（真实 Core 验证）；无 attach 终端界面、历史扫描、变更审查 | 单元 + 真实 Core 集成 |
+| W12 Agent CLI（部分） | Space、Provider 检测、会话启动/中断/结束/重命名、Herdr Core 实例隔离、终端 attach（WS 桥 + xterm，真实 Core 验证输入/resize/退出码/重开）、基础模块界面；无分屏、历史扫描、恢复会话、变更审查、Space 管理界面、设置对话框 | 单元 + 真实 Core 集成 + Playwright |
 | W13 自动化（部分） | 规则能力、Croner 调度与补跑、预览、立即运行、进程 worker、激活记录、claim；无 agent_prompt/script 动作、问答续接、取消/对账、监督进程、界面 | 单元 + 假 CLI 端到端 |
 | W15 版本历史（部分） | shadow 仓库文件历史（记录/时间线含改名/读取/命名版本/恢复含恢复前检查点）、规则文件恢复后暂停；无 Git 页、同步、冲突、`holdRestoredInput` 接线、界面 | 单元 + HTTP |
 | W17 网关（部分） | `huhu mcp`（stdio，身份 mcp）、`capabilities.list`、`plugins.list/setEnabled`、CLI 便捷命令；无 HTTP 服务/令牌、MCP over HTTP、测试台、指南维护 | 集成 |
