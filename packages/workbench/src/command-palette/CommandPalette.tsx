@@ -50,6 +50,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     if (!open || !client || q.trim().length < 2) { setResults([]); setSearching(false); return; }
     const isLatest = latest.current.next();
     setSearching(true);
+    setResults([]); // 查询变了：旧结果不再显示
     const timer = setTimeout(() => {
       client.call<{ indexing: boolean; hits: { path: string; kind: string; title: string }[] }>("vault.search", { query: q.trim(), limit: 8 })
         .then((r) => {
@@ -86,12 +87,14 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
           role="combobox"
           aria-expanded
           aria-controls="hu-palette-list"
+          aria-activedescendant={items[sel] ? `hu-palette-opt-${sel}` : undefined}
           aria-label="搜索模块、命令和内容"
           placeholder="搜索模块、命令和内容…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") { e.preventDefault(); setOpen(false); }
+            if (e.key === "Escape" && !e.nativeEvent.isComposing) { e.preventDefault(); setOpen(false); }
+            else if (e.key === "Escape" && e.nativeEvent.isComposing) { /* 输入法取消组合，不关闭面板 */ }
             else if (e.key === "ArrowDown") { e.preventDefault(); setSel((x) => Math.min(items.length - 1, x + 1)); }
             else if (e.key === "ArrowUp") { e.preventDefault(); setSel((x) => Math.max(0, x - 1)); }
             else if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); const it = items[sel]; if (it) run(it); } // IME 组合期间 Enter 不执行
@@ -99,7 +102,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
         />
         <ul id="hu-palette-list" role="listbox" className="hu-palette-list">
           {items.map((it, i) => (
-            <li key={it.id} role="option" aria-selected={i === sel} data-testid="palette-item" data-group={it.group} onMouseEnter={() => setSel(i)} onClick={() => run(it)}>
+            <li key={it.id} id={`hu-palette-opt-${i}`} role="option" aria-selected={i === sel} data-testid="palette-item" data-group={it.group} onMouseEnter={() => setSel(i)} onClick={() => run(it)}>
               <span>{it.title}</span>{it.hint ? <span className="hu-meta">{it.hint}</span> : null}
             </li>
           ))}

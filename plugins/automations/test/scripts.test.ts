@@ -147,4 +147,18 @@ describe("审计回归", () => {
     const r = await p;
     expect(r.state).toBe("cancelled");
   }, 10000);
+  test("多字节秘密值被分块输出时也被抹掉", async () => {
+    const d = tmp();
+    // 先输出秘密的前半个字节序列，停顿后再输出其余部分：两次写入会被分成不同 chunk
+    const prog = exe(d, "split", 'printf "%s" "${TOKEN:0:3}"; sleep 0.3; printf "%s\\n" "${TOKEN:3}"');
+    const r = await runScript({ id: "s", title: "t", program: prog, args: [], cwd: d, envRefs: { TOKEN: "safe://i" }, timeoutSec: 10 }, [], () => "秘密甲乙丙丁戊己");
+    expect(r.output).not.toContain("甲乙丙丁戊己");
+    expect(r.output).not.toContain("秘密甲");
+  });
+  test("已中止的 signal：脚本不会被启动成功运行（立即被终止）", async () => {
+    const d = tmp();
+    const ac = new AbortController(); ac.abort();
+    const r = await runScript({ id: "s", title: "t", program: exe(d, "slow", "sleep 30"), args: [], cwd: d, envRefs: {}, timeoutSec: 60 }, [], () => "", ac.signal);
+    expect(r.state).toBe("cancelled");
+  }, 10000);
 });
