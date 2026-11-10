@@ -83,3 +83,16 @@ describe("查询失效", () => {
     expect(qc.getQueryState(queryKey("vault-a", "health.run"))?.isInvalidated).toBe(true);
   });
 });
+
+describe("通知与自动化事件失效", () => {
+  test("notification.created 让 notifications.* 失效；automation.activated 让 automations.* 失效", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(queryKey("v", "notifications.list"), []);
+    qc.setQueryData(queryKey("v", "automations.activations"), []);
+    await invalidateForEvent(qc, "v", { type: "notification.created", payload: { id: "n", title: "t", module: "m" } });
+    expect(qc.getQueryState(queryKey("v", "notifications.list"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("v", "automations.activations"))?.isInvalidated).toBe(false);
+    await invalidateForEvent(qc, "v", { type: "automation.activated", payload: { ruleId: "r", activationId: "a", trigger: "manual" } });
+    expect(qc.getQueryState(queryKey("v", "automations.activations"))?.isInvalidated).toBe(true);
+  });
+});

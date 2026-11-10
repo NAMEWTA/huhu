@@ -1,6 +1,7 @@
 import "@huhu/ui/tokens.css";
 import "@huhu/workbench/shell.css";
 import { applyAppearance } from "@huhu/ui";
+import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as archivesUi } from "@huhu/plugin-archives/ui";
 import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
@@ -39,6 +40,7 @@ function App() {
     r.register(inboxUi);
     r.register(safeUi);
     r.register(agentCliUi);
+    r.register(automationsUi);
     r.register(sshUi);
     r.register(versioningUi);
     r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: HomeModule }] });

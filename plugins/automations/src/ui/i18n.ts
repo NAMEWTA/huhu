@@ -1,0 +1,29 @@
+export const t = {
+  title: "自动化",
+  nav: { rules: "定时自动化", activations: "激活记录" },
+  builtin: "内置",
+  enabled: "已启用",
+  paused: "已暂停",
+  enable: "启用",
+  pause: "暂停",
+  preview: "预览",
+  runNow: "立即运行",
+  delete: "删除",
+  newRule: "新建通知规则",
+  ruleTitle: "规则名称",
+  ruleText: "通知内容",
+  ruleCron: "cron 表达式",
+  create: "创建",
+  next: "接下来三次激活",
+  candidates: "将处理的任务",
+  skipped: "跳过的任务",
+  none: "无",
+  tasksDisabled: "任务插件已停用",
+  noActivations: "还没有激活记录",
+  trigger: { schedule: "定时", manual: "立即" },
+  summary: (s: unknown) => {
+    const x = s as { processed?: number; skipped?: number; state?: string } | undefined;
+    return x?.state ? x.state : `处理 ${x?.processed ?? 0}，跳过 ${x?.skipped ?? 0}`;
+  },
+  reasons: { completed: "已完成", "not-agent": "执行方式非 Agent", "missing-space": "缺少 Space", "space-inaccessible": "Space 目录不可访问", "cli-missing": "CLI 未安装", "already-processed": "同输入已处理", running: "正在运行", "held-after-restore": "恢复后暂停" },
+} as const;

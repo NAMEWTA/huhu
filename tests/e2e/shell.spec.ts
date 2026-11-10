@@ -396,3 +396,37 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("自动化：内置规则存在且不可删除；预览列出跳过原因；新建通知规则并立即运行 → 激活记录与状态栏通知", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    // 一个手动任务：预览时应出现在"跳过"里
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByLabel("任务名称").fill("手动事项");
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await expect(page.getByTestId("task-row")).toHaveCount(1);
+
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await expect(page.getByTestId("rule-row").filter({ hasText: "定时检查 Agent 任务" })).toContainText("内置");
+    await expect(page.getByRole("button", { name: "删除", exact: true })).toHaveCount(0); // 内置规则没有删除入口
+    await page.getByRole("button", { name: "预览", exact: true }).click();
+    await expect(page.getByTestId("preview-skipped").filter({ hasText: "手动事项" })).toContainText("执行方式非 Agent");
+    expect(existsSync(path.join(vault, "Task Runs"))).toBe(false); // 预览不写文件
+
+    await page.getByLabel("规则名称").fill("喝水提醒");
+    await page.getByLabel("通知内容").fill("该喝水了");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+    await page.getByTestId("rule-row").filter({ hasText: "喝水提醒" }).getByRole("button").first().click();
+    await page.getByRole("button", { name: "立即运行" }).click();
+    await page.getByRole("button", { name: "激活记录" }).click();
+    await expect(page.getByTestId("activation-row").filter({ hasText: "喝水提醒" })).toContainText("立即", { timeout: 10_000 });
+    await page.getByTestId("bell").click();
+    await expect(page.getByTestId("notification-panel")).toContainText("该喝水了", { timeout: 10_000 });
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

@@ -29,6 +29,7 @@
     "@huhu/engine": "workspace:*",
     "@huhu/plugin-agent-cli": "workspace:*",
     "@huhu/plugin-archives": "workspace:*",
+    "@huhu/plugin-automations": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",
     "@huhu/plugin-safe": "workspace:*",

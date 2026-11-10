@@ -20,6 +20,8 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   else if (e.type === "task.completedChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.");
   else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");
+  else if (e.type === "notification.created") prefixes.push("notifications.");
+  else if (e.type === "automation.activated" || e.type === "run.stateChanged") prefixes.push("automations.", "tasks.");
   if (prefixes.length === 0) return Promise.resolve();
   // 首页卡片与健康检查汇总了各模块的数据，任何实体/文件变化都可能影响它们
   if (e.type !== "plugin.stateChanged") prefixes.push("home.", "health.");
