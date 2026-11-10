@@ -8,6 +8,9 @@ files:
 extraResources:
   - from: resources/bin
     to: bin
+  - from: resources/herdr/${platform}-${arch}
+    to: herdr/${platform}-${arch}
+    filter: ["**/*"]
 win:
   target: [{ target: nsis, arch: x64 }]
   artifactName: HUHU-${version}-win32-x64.${ext}

@@ -1,5 +1,12 @@
 import { utilityProcess, type UtilityProcess } from "electron";
+import { existsSync } from "node:fs";
 import path from "node:path";
+
+/** 随应用打包的 Herdr Core：`resources/herdr/<platform>-<arch>/herdr-core(.exe)`；开发时用 HUHU_HERDR_BIN。 */
+export function bundledHerdrBin(resourcesPath: string = process.resourcesPath, platform: string = process.platform, arch: string = process.arch): string | null {
+  const exe = path.join(resourcesPath, "herdr", `${platform}-${arch}`, platform === "win32" ? "herdr-core.exe" : "herdr-core");
+  return existsSync(exe) ? exe : null;
+}
 
 export type EngineState = "starting" | "ready" | "stopped" | "crashed";
 
@@ -39,7 +46,7 @@ export class EngineSupervisor {
     this.stopping = false;
     this.endpoint = null;
     this.set("starting");
-    const child = utilityProcess.fork(this.entry, ["--vault", this.vaultPath, "--create"], { stdio: "pipe", serviceName: "huhu-engine" });
+    const child = utilityProcess.fork(this.entry, ["--vault", this.vaultPath, "--create"], { stdio: "pipe", serviceName: "huhu-engine", env: { ...process.env, ...(process.env["HUHU_HERDR_BIN"] ? {} : (() => { const b = bundledHerdrBin(); return b ? { HUHU_HERDR_BIN: b } : {}; })()) } });
     this.child = child;
     child.stderr?.on("data", (d) => process.stderr.write(`[engine] ${d}`));
     child.on("message", (m: ReadyMessage) => {
