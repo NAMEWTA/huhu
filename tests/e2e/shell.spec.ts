@@ -430,3 +430,29 @@ test("自动化：内置规则存在且不可删除；预览列出跳过原因�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("命令面板：Ctrl+K 打开，搜索并跳转模块，Esc 关闭；内容搜索命中笔记", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  writeFileSync(path.join(vault, "蜻蜓观察.md"), "# 蜻蜓观察\n独特词汇：蜻蜓点水\n");
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.keyboard.press("Control+K");
+    await expect(page.getByTestId("command-palette")).toBeVisible();
+    await page.getByLabel("搜索模块、命令和内容").fill("收件");
+    await expect(page.getByTestId("palette-item").first()).toContainText("收件箱");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("command-palette")).toHaveCount(0);
+    await expect(page.getByTestId("inbox-module")).toBeVisible();
+
+    await page.keyboard.press("Control+K");
+    await page.getByLabel("搜索模块、命令和内容").fill("蜻蜓点水");
+    await expect(page.getByTestId("palette-item").filter({ hasText: "蜻蜓观察" })).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("command-palette")).toHaveCount(0);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

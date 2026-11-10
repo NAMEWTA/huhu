@@ -10,7 +10,7 @@ import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
-import { AppShell, ContributionRegistry, EngineProvider, HealthModule, HomeModule, NotificationBell, PluginCenterModule, SettingsModule, useCapability, createUiStore, type EngineEndpoint } from "@huhu/workbench";
+import { AppShell, ContributionRegistry, EngineProvider, HealthModule, HomeModule, CommandPalette, EngineClient, NotificationBell, PluginCenterModule, SettingsModule, useCapability, createUiStore, type EngineEndpoint } from "@huhu/workbench";
 import { Blocks, HeartPulse, House, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -77,8 +77,15 @@ function App() {
 
   const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
   const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} statusSlot={<NotificationBell />} />;
-  const withFilter = <>{shell}{endpoint ? <PluginFilter registry={registry} /> : null}</>;
-  return endpoint ? <EngineProvider endpoint={endpoint}>{withFilter}</EngineProvider> : shell;
+  const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
+  const withFilter = (
+    <>
+      {shell}
+      {endpoint ? <PluginFilter registry={registry} /> : null}
+      <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={() => ui.getState().openModule("notes")} />
+    </>
+  );
+  return endpoint ? <EngineProvider endpoint={endpoint}>{withFilter}</EngineProvider> : <>{shell}<CommandPalette registry={registry} ui={ui} /></>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

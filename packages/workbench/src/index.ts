@@ -9,3 +9,5 @@ export * from "./notifications/NotificationBell.js";
 export * from "./plugins/PluginCenterModule.js";
 export * from "./home/HomeModule.js";
 export * from "./health/HealthModule.js";
+export * from "./command-palette/CommandPalette.js";
+export * from "./command-palette/palette-model.js";
