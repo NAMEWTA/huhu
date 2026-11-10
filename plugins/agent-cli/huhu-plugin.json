@@ -1,0 +1,12 @@
+{
+  "id": "agent-cli",
+  "title": "Agent CLI",
+  "description": "在 Space 目录中运行 AI CLI 与终端会话",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": ["safe"],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": { "modules": ["agent-cli"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["agent.spaces.list", "agent.spaces.save", "agent.spaces.delete", "agent.providers.detect"], "fileKinds": [] }
+}
