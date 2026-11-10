@@ -61,10 +61,10 @@ describe("HTTP", () => {
   });
 });
 
-function openWs(port: number, token: string, query = ""): Promise<{ ws: WebSocket; msgs: any[] }> {
+function openWs(port: number, token: string, query = ""): Promise<{ ws: WebSocket; msgs: { type?: string; seq?: number }[] }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/events${query}`, [`bearer.${token}`]);
-    const msgs: any[] = [];
+    const msgs: { type?: string; seq?: number }[] = [];
     ws.on("message", (m) => msgs.push(JSON.parse(String(m))));
     ws.on("open", () => resolve({ ws, msgs }));
     ws.on("error", reject);

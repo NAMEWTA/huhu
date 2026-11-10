@@ -14,7 +14,7 @@ afterEach(async () => {
 });
 const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-e-")); dirs.push(d); return d; };
 const post = (e: RunningEngine, token: string, body: unknown) =>
-  fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<any>);
+  fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ ok: boolean; data: { id: string } }>);
 
 describe("Engine 启动与关闭", () => {
   test("Renderer 与 CLI 令牌经同一 Dispatcher 调用 vault.info", async () => {
@@ -47,7 +47,7 @@ describe("Engine 启动与关闭", () => {
     const dir = tmp();
     const tsx = createRequire(import.meta.url).resolve("tsx/cli");
     const child = spawn(process.execPath, [tsx, path.resolve(import.meta.dirname, "../src/main.ts"), "--vault", dir, "--create"], { stdio: ["ignore", "pipe", "pipe"] });
-    const ready: any = await new Promise((resolve, reject) => {
+    const ready: { type: string; port: number } = await new Promise((resolve, reject) => {
       let out = "";
       child.stdout.on("data", (d) => { out += d; const line = out.split("\n")[0]; if (line && out.includes("\n")) resolve(JSON.parse(line)); });
       child.on("exit", (c) => reject(new Error(`exited ${c}`)));
