@@ -502,3 +502,29 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("自动化脚本管理：创建（相对路径被拒）、列表显示、删除", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "自动化" }).first().click();
+    await page.getByRole("button", { name: "脚本" }).first().click();
+    await page.getByLabel("脚本名称").fill("备份");
+    await page.getByLabel("程序（绝对路径）").fill("backup.sh");
+    await page.getByLabel("工作目录（绝对路径）").fill(vault);
+    await page.getByRole("button", { name: "保存脚本" }).click();
+    await expect(page.getByRole("alert")).toContainText("绝对路径");
+    await page.getByLabel("程序（绝对路径）").fill("/bin/true");
+    await page.getByLabel("环境变量引用（每行 NAME=safe://item-…）").fill("TOKEN=safe://item-abc");
+    await page.getByRole("button", { name: "保存脚本" }).click();
+    await expect(page.getByTestId("script-row")).toHaveCount(1);
+    await expect(page.getByTestId("script-row")).toContainText("TOKEN");
+    await page.getByRole("button", { name: "删除脚本 备份" }).click();
+    await expect(page.getByTestId("script-row")).toHaveCount(0);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

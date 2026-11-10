@@ -5,12 +5,15 @@ import { t } from "./i18n.js";
 
 interface Rule { id: string; version: string; data: { title: string; enabled: boolean; builtin: boolean; trigger: { cron: string; zone: string }; action: { kind: string; text?: string } } }
 interface Preview { next: string[]; tasksDisabled: boolean; candidates: { taskId: string; title: string }[]; skipped: { taskId: string; title: string; reason: keyof typeof t.reasons }[] }
+interface ScriptRow { id: string; title: string; program: string; cwd: string; timeoutSec: number; envRefs: Record<string, string> }
 interface Activation { activationId: string; ruleId: string; trigger: "schedule" | "manual"; startedAt: string; finishedAt?: string; summary?: unknown }
 
 export function AutomationsModule() {
   const engine = useEngine();
   const qc = useQueryClient();
-  const [nav, setNav] = useState<"rules" | "activations">("rules");
+  const [nav, setNav] = useState<"rules" | "activations" | "scripts">("rules");
+  const [sf, setSf] = useState({ title: "", program: "", cwd: "", timeoutSec: "60", env: "" });
+  const scripts = useCapability<ScriptRow[]>("automations.scripts.list", {});
   const [sel, setSel] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,11 +39,35 @@ export function AutomationsModule() {
     <div className="hu-module" data-testid="automations-module">
       <aside className="hu-module-sidebar" aria-label={t.title}>
         <h2>{t.title}</h2>
-        {(["rules", "activations"] as const).map((k) => <button key={k} type="button" className="hu-nav-item" aria-current={nav === k} onClick={() => setNav(k)}><span>{t.nav[k]}</span></button>)}
+        {(["rules", "activations", "scripts"] as const).map((k) => <button key={k} type="button" className="hu-nav-item" aria-current={nav === k} onClick={() => setNav(k)}><span>{t.nav[k]}</span></button>)}
       </aside>
       <section className="hu-content">
         {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
-        {nav === "rules" ? (
+        {nav === "scripts" ? (
+          <>
+            <h1>{t.scriptsTitle}</h1>
+            <p className="hu-meta">{t.scriptsHint}</p>
+            <form className="hu-form" onSubmit={(e) => {
+              e.preventDefault();
+              const envRefs: Record<string, string> = {};
+              for (const line of sf.env.split("\n").map((l) => l.trim()).filter(Boolean)) { const i = line.indexOf("="); if (i > 0) envRefs[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+              void act("automations.scripts.save", { title: sf.title, program: sf.program, args: [], cwd: sf.cwd, envRefs, timeoutSec: Number(sf.timeoutSec) }).then((r) => { if (r) setSf({ title: "", program: "", cwd: "", timeoutSec: "60", env: "" }); });
+            }}>
+              <input className="hu-input" aria-label={t.scriptName} placeholder={t.scriptName} value={sf.title} onChange={(e) => setSf({ ...sf, title: e.target.value })} />
+              <input className="hu-input" aria-label={t.scriptProgram} placeholder={t.scriptProgram} value={sf.program} onChange={(e) => setSf({ ...sf, program: e.target.value })} />
+              <input className="hu-input" aria-label={t.scriptCwd} placeholder={t.scriptCwd} value={sf.cwd} onChange={(e) => setSf({ ...sf, cwd: e.target.value })} />
+              <input className="hu-input" type="number" aria-label={t.scriptTimeout} value={sf.timeoutSec} onChange={(e) => setSf({ ...sf, timeoutSec: e.target.value })} />
+              <textarea className="hu-input" aria-label={t.scriptEnv} placeholder={t.scriptEnv} value={sf.env} onChange={(e) => setSf({ ...sf, env: e.target.value })} />
+              <Button type="submit" disabled={!sf.title.trim() || !sf.program.trim() || !sf.cwd.trim()}>{t.scriptSave}</Button>
+            </form>
+            {(scripts.data ?? []).length === 0 ? <EmptyState title={t.noScripts} /> : (scripts.data ?? []).map((s) => (
+              <div key={s.id} className="hu-row" data-testid="script-row">
+                <strong>{s.title}</strong><code>{s.program}</code><span className="hu-meta">{Object.keys(s.envRefs).join(", ")}</span>
+                <Button variant="danger" aria-label={`${t.scriptDelete} ${s.title}`} onClick={() => void act("automations.scripts.delete", { id: s.id })}>{t.scriptDelete}</Button>
+              </div>
+            ))}
+          </>
+        ) : nav === "rules" ? (
           <>
             <h1>{t.nav.rules}</h1>
             <form className="hu-form" onSubmit={(e) => { e.preventDefault(); void act("automations.create", { title: form.title, trigger: { preset: "custom", cron: form.cron, zone }, action: { kind: "notify", channel: "in_app", text: form.text } }).then(() => setForm({ title: "", text: "", cron: "*/5 * * * *" })); }}>
