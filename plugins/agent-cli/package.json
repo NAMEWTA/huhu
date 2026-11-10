@@ -1,0 +1,8 @@
+{
+  "name": "@huhu/plugin-agent-cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": { "./engine": "./src/engine/index.ts", "./ui": "./src/ui/index.ts", "./shared": "./src/shared/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" }
+}

@@ -3,5 +3,6 @@
 - `./changes/` 保存活跃任务；`./notes/` 保存仍指导开发的长期知识。
 - `./deploy/` 保存环境与发布证据；`./archive/` 保存历史，不代表当前实现。
 - `./project/` 保存项目非秘密配置；`./context/` 保存宿主、角色模型与能力限制。
+- 开发配置按需读取 `./context/AGENTS.md`、`./context/model-roles.md` 和 `./context/environment.md`；文件存在不表示宿主已自动加载。
 - 路径相对于本文件所在目录；按任务读取相关子目录的 `AGENTS.md` 和少量记录，不整库加载。
 - 项目资料不写入 `../skills/`；系统维护资料独立放在 `../system/`。

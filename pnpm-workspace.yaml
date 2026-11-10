@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+  - plugins/*
+  - vendor/*
+  - examples/plugins/*
+allowBuilds:
+  esbuild: true
