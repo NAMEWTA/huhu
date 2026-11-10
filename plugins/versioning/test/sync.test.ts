@@ -145,4 +145,15 @@ describe("审计回归", () => {
     expect((err as { code: string }).code).not.toBe("GIT_CONFLICT");
     expect(readFileSync(path.join(b.root, ".huhu/settings.json"), "utf8")).toBe("{\"local\":true}");
   });
+  test("暂存重命名成被排除的新名字：旧文件在远端被删除，新文件不上传", async () => {
+    const { a, remote } = await twoVaults();
+    a.sync.update({ exclude: ["secret.md"] });
+    put(a.root, "old.md", "内容内容内容内容\n"); await a.sync.run("sync");
+    expect(git(remote, "ls-tree", "-r", "--name-only", "main")).toContain("old.md");
+    git(a.root, "mv", "old.md", "secret.md");
+    await a.sync.run("sync");
+    const tree = git(remote, "ls-tree", "-r", "--name-only", "main");
+    expect(tree).not.toContain("old.md");
+    expect(tree).not.toContain("secret.md");
+  });
 });

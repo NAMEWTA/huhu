@@ -259,6 +259,7 @@ export class AutomationsService {
 
   /** 先持久化 claim 与 task-run(queued)，再启动 worker。 */
   private async process(ruleId: string, snap: SnapshotTask, processingKey: string): Promise<boolean> {
+    if (this.abort.signal.aborted) return false; // 插件已停用/引擎关闭：不再启动新的 Agent 进程
     const task = this.d.taskQuery()?.snapshot(snap.id);
     if (!task || task.execution.kind !== "agent" || !task.execution.spaceId || !task.execution.provider) return false;
     if (task.inputHash !== snap.inputHash) return false; // 快照后任务又被编辑：本次不处理

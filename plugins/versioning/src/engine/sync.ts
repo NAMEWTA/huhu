@@ -66,7 +66,11 @@ export class VaultSync {
     for (let i = 0; i < parts.length; i++) {
       const e = parts[i] as string;
       out.push(e.slice(3));
-      if (e[0] === "R" || e[0] === "C") i++;
+      if (e[0] === "R" || e[0] === "C") {
+        // 重命名的旧路径也要算作"变更"（它的删除要被提交，否则远端留下旧文件）；复制的来源没有改动
+        if (e[0] === "R" && parts[i + 1]) out.push(parts[i + 1] as string);
+        i++;
+      }
     }
     return out;
   }

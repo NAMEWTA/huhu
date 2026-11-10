@@ -575,4 +575,17 @@ describe("Engine 启动与关闭", () => {
     // 引擎仍然健康，并且并发回落后可以再次正常使用
     expect(await slow()).toBe(200);
   }, 30_000);
+  test("审计回归：外部入口即使开放 notes 写能力，也不能在 Automations/ 下创建/改写/复制/移入规则", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    for (const cap of ["notes.create", "notes.save", "notes.move", "notes.duplicate", "notes.rename"]) await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true });
+    expect((await call(e.cliToken, "notes.create", { name: "evil", folder: "Automations" })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "notes.create", { name: "evil", folder: "automations/sub" })).error?.code).toBe("PERMISSION_DENIED");
+    const ok = await call(e.cliToken, "notes.create", { name: "正常笔记" });
+    expect(ok.ok).toBe(true);
+    const note = ok.data as { path: string };
+    expect((await call(e.cliToken, "notes.move", { path: note.path, targetDir: "Automations" })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.rendererToken, "notes.create", { name: "桌面可以", folder: "Automations" })).error?.code).not.toBe("PERMISSION_DENIED");
+  }, 30_000);
 });

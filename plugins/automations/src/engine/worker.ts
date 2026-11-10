@@ -68,9 +68,12 @@ export function processWorker(d: ProcessWorkerDeps): (i: WorkerInput) => Promise
       let err = "";
       const p = spawn(cmd.exe, cmd.args, { cwd: i.cwd, env: { ...process.env, ...cmd.env }, shell: false, windowsHide: true, detached: process.platform !== "win32" });
       const timer = setTimeout(() => killTree(p), d.timeoutMs ?? 30 * 60_000);
-      i.signal.addEventListener("abort", () => killTree(p), { once: true });
+      if (i.signal.aborted) killTree(p);
+      else i.signal.addEventListener("abort", () => killTree(p), { once: true });
+      p.stdout.setEncoding("utf8");
+      p.stderr.setEncoding("utf8");
       p.stdout.on("data", (b) => { out += b; if (out.length > 2 * 1024 * 1024) out = out.slice(-2 * 1024 * 1024); });
-      p.stderr.on("data", (b) => { err += b; });
+      p.stderr.on("data", (b) => { err += b; if (err.length > 1024 * 1024) err = err.slice(-1024 * 1024); });
       p.once("error", (e) => { clearTimeout(timer); fail(e.message); });
       p.once("close", (code, signal) => {
         clearTimeout(timer);

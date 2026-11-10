@@ -1,3 +1,4 @@
+import { errors } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
@@ -5,6 +6,15 @@ import { OperationLog } from "@huhu/vault";
 import path from "node:path";
 import { z } from "zod";
 import { NotesService } from "./service.js";
+
+/** 自动化规则（含 agent_prompt）是"会被调度器执行"的 Markdown：外部入口不得通过通用笔记写入口在 Automations/ 下创建、改写、复制或移出它们。 */
+function assertNotAutomationsDir(caller: string, ...paths: (string | undefined)[]): void {
+  if (caller === "desktop") return;
+  for (const p of paths) {
+    const first = (p ?? "").replace(/\\/g, "/").split("/").filter(Boolean)[0]?.toLowerCase();
+    if (first === "automations") throw errors.permissionDenied("Automations 目录（仅桌面可写）");
+  }
+}
 
 export { NotesService } from "./service.js";
 
@@ -35,7 +45,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(def({
     name: "notes.create", plugin: "notes", scope: "write", exposable: true, defaultExposed: false,
     input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional() }), output: z.object({ path: z.string(), id: z.string() }),
-    handler: async (_c, i) => {
+    handler: async (c, i) => {
+      assertNotAutomationsDir(c.caller, i.folder);
       const r = await svc.create({ name: i.name, ...(i.folder ? { folder: i.folder } : {}), ...(i.template ? { template: i.template } : {}) });
       changed(r.id, "created");
       return r;
@@ -44,7 +55,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(def({
     name: "notes.save", plugin: "notes", scope: "write", exposable: true, defaultExposed: false,
     input: Path.extend({ text: z.string(), expectedVersion: z.string() }), output: z.object({ version: z.string() }),
-    handler: async (_c, i) => {
+    handler: async (c, i) => {
+      assertNotAutomationsDir(c.caller, i.path);
       const r = await svc.save(i.path, i.text, i.expectedVersion);
       changed(svc.noteId(i.path), "updated");
       return r;
@@ -52,15 +64,15 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   }));
   api.defineCapability(def({
     name: "notes.rename", plugin: "notes", scope: "write", exposable: true, defaultExposed: false, input: Path.extend({ newName: z.string() }), output: Moved,
-    handler: async (_c, i) => { const r = await svc.rename(i.path, i.newName); changed(null, "updated"); return r; },
+    handler: async (c, i) => { assertNotAutomationsDir(c.caller, i.path); const r = await svc.rename(i.path, i.newName); changed(null, "updated"); return r; },
   }));
   api.defineCapability(def({
     name: "notes.move", plugin: "notes", scope: "write", exposable: true, defaultExposed: false, input: Path.extend({ targetDir: z.string() }), output: Moved,
-    handler: async (_c, i) => { const r = await svc.move(i.path, i.targetDir); changed(null, "updated"); return r; },
+    handler: async (c, i) => { assertNotAutomationsDir(c.caller, i.path, i.targetDir); const r = await svc.move(i.path, i.targetDir); changed(null, "updated"); return r; },
   }));
   api.defineCapability(def({
     name: "notes.duplicate", plugin: "notes", scope: "write", exposable: true, defaultExposed: false, input: Path, output: z.object({ path: z.string(), id: z.string() }),
-    handler: async (_c, i) => { const r = await svc.duplicate(i.path); changed(r.id, "created"); return r; },
+    handler: async (c, i) => { assertNotAutomationsDir(c.caller, i.path); const r = await svc.duplicate(i.path); changed(r.id, "created"); return r; },
   }));
   api.defineCapability(def({ name: "notes.trash", plugin: "notes", scope: "write", exposable: false, defaultExposed: false, input: Path, output: z.object({ trashId: z.string() }), handler: (_c, i) => { const r = svc.trash(i.path); changed(null, "deleted"); return r; } }));
   api.defineCapability(def({ name: "notes.restore", plugin: "notes", scope: "write", exposable: false, defaultExposed: false, input: z.object({ trashId: z.string(), newName: z.string().optional() }), output: z.object({ path: z.string() }), handler: (_c, i) => { const p = svc.restore(i.trashId, i.newName); changed(null, "created"); return { path: p }; } }));

@@ -90,7 +90,10 @@ export function runScript(def: ScriptDef, extraArgs: string[], resolveSecret: (r
     const p = spawn(def.program, [...def.args, ...extraArgs], { cwd: def.cwd, env, shell: false, windowsHide: true, detached: process.platform !== "win32" });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; killTree(p); }, def.timeoutSec * 1000);
-    signal?.addEventListener("abort", () => killTree(p), { once: true });
+    if (signal?.aborted) killTree(p);
+    else signal?.addEventListener("abort", () => killTree(p), { once: true });
+    p.stdout.setEncoding("utf8"); // 多字节字符不会被 chunk 边界切开，脱敏才可靠
+    p.stderr.setEncoding("utf8");
     const tail = () => redact(out).split("\n").slice(-200).join("\n");
     const MAX = 2 * 1024 * 1024; // 内存里只保留最近 2 MiB，持续输出的进程不会占满内存
     const add = (b: Buffer) => { out += b; if (out.length > MAX) out = out.slice(-MAX); };
