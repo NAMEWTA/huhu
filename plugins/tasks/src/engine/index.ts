@@ -17,6 +17,7 @@ export interface TasksOptions {
   reminderCheckMs?: number;
   /** 站内通知：提醒到点时调用（通知中心属于 kernel）。 */
   notify?: (n: { title: string; module: string }) => void;
+  onError?: (e: unknown) => void;
 }
 
 /** tasks 插件入口（architecture.md §5）：注册能力、提醒检查；资源随作用域释放。 */
@@ -61,16 +62,22 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     checking = true;
     try {
       for (const r of svc.dueReminders()) {
-        await svc.markReminderDelivered(r.taskId, r.reminderId);
-        opts.notify?.({ title: `任务提醒：${r.title}`, module: "tasks" });
+        try {
+          await svc.markReminderDelivered(r.taskId, r.reminderId);
+          opts.notify?.({ title: `任务提醒：${r.title}`, module: "tasks" });
+        } catch (e) {
+          // 单个任务无法写入（只读文件、版本冲突）不得影响其他提醒，也不得让进程崩溃
+          opts.onError?.(e);
+        }
       }
     } finally {
       checking = false;
     }
   };
   ctx.effect(() => {
-    void check();
-    const t = setInterval(() => void check(), opts.reminderCheckMs ?? REMINDER_CHECK_MS);
+    const run = () => check().catch((e) => opts.onError?.(e));
+    void run();
+    const t = setInterval(() => void run(), opts.reminderCheckMs ?? REMINDER_CHECK_MS);
     return () => clearInterval(t);
   });
 }

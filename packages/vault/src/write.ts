@@ -18,7 +18,11 @@ export interface WriteOptions {
 
 /** Vault 内文件读写：路径守卫 + 版本校验 + 原子写 + 自写回执。 */
 export class VaultFiles {
-  constructor(readonly root: string, readonly receipts: ReceiptLog = new ReceiptLog()) {}
+  constructor(readonly root: string, readonly receipts: ReceiptLog = new ReceiptLog(), readonly readOnly = false) {}
+
+  assertWritable(): void {
+    if (this.readOnly) throw errors.readOnlyVault();
+  }
 
   abs(rel: string): string {
     return resolveInVault(this.root, rel);
@@ -40,6 +44,7 @@ export class VaultFiles {
   }
 
   async write(rel: string, bytes: Uint8Array, opts: WriteOptions = {}): Promise<{ version: string }> {
+    this.assertWritable();
     const p = this.abs(rel);
     if (opts.expectedVersion !== undefined) {
       const cur = this.currentVersion(rel);

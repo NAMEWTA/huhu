@@ -11,6 +11,8 @@ export interface SeqEvent {
 export class EventReplay {
   private buffer: SeqEvent[] = [];
   private seq = 0;
+  /** 每次 Engine 启动随机生成；客户端带回不同的 epoch 说明引擎重启过，必须 resync。 */
+  readonly epoch = Math.random().toString(36).slice(2, 10);
 
   push(event: HuhuEvent): SeqEvent {
     const e = { seq: ++this.seq, event };

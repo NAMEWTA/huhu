@@ -134,6 +134,11 @@ export class VaultIndex {
         const info = snap.get(path.basename(c.path));
         if (info) {
           this.tree.set(c.path, { path: c.path, type: "file", size: info.size, mtimeMs: info.mtimeMs });
+          const parts = c.path.split("/");
+          for (let i = 1; i < parts.length; i++) {
+            const d = parts.slice(0, i).join("/");
+            if (!this.tree.has(d)) this.tree.set(d, { path: d, type: "dir", size: 0, mtimeMs: 0 });
+          }
           this.indexFile(c.path, this.notes, this.search);
         }
       }

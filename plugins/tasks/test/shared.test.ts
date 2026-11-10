@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { describe, expect, test } from "vitest";
 import { categoryCount, inCategory, inputChanged, inputHash, isOverdue, processingKey, todayIn, weekRange } from "../src/shared/index.js";
 
@@ -55,4 +56,20 @@ describe("输入版本", () => {
   test("processingKey", () => {
     expect(processingKey("task-1", 2, "abc")).toBe("task-1:2:abc");
   });
+
+describe("审计回归", () => {
+  test("标题与正文之间移动字符，inputHash 必须变化", () => {
+    const a = { title: "ab", body: "c", resources: [], execution: { kind: "manual" } };
+    const b = { title: "a", body: "bc", resources: [], execution: { kind: "manual" } };
+    expect(inputChanged(a, b)).toBe(true);
+  });
+  test("日期运算与进程时区无关", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const code = `import('${new URL("../src/shared/categories.ts", import.meta.url).href}').then(m=>console.log(JSON.stringify([m.inCategory({due:'2026-11-11',completed:false},'tomorrow','2026-11-10'),m.weekRange('2026-11-10').to])))`;
+    for (const tz of ["Pacific/Auckland", "America/Los_Angeles", "UTC"]) {
+      const out = execFileSync(process.execPath, [createRequire(import.meta.url).resolve("tsx/cli"), "-e", code], { env: { ...process.env, TZ: tz }, encoding: "utf8" });
+      expect(JSON.parse(out.trim().split("\n").pop() as string)).toEqual([true, "2026-11-16"]);
+    }
+  });
+});
 });

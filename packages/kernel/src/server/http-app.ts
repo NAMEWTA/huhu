@@ -128,11 +128,12 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (!d.tokens.authenticate(proto?.slice("bearer.".length))) return reject(401);
     wss.handleUpgrade(req, socket, head, (ws) => {
       const last = url.searchParams.get("lastSeq");
+      const epoch = url.searchParams.get("epoch");
       if (last !== null) {
-        const r = replay.since(Number(last));
-        if (r.resync) ws.send(JSON.stringify({ type: "resync", seq: replay.lastSeq }));
+        const r = epoch !== null && epoch !== replay.epoch ? ({ resync: true } as const) : replay.since(Number(last));
+        if (r.resync) ws.send(JSON.stringify({ type: "resync", seq: replay.lastSeq, epoch: replay.epoch }));
         else for (const e of r.events) ws.send(JSON.stringify({ seq: e.seq, ...e.event }));
-      } else ws.send(JSON.stringify({ type: "hello", seq: replay.lastSeq }));
+      } else ws.send(JSON.stringify({ type: "hello", seq: replay.lastSeq, epoch: replay.epoch }));
     });
   });
 

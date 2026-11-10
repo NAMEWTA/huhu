@@ -42,7 +42,7 @@ export interface VaultServices {
 export interface HuhuApi {
   vault: VaultServices;
   defineCapability<I, O>(def: CapabilityDefinition<I, O>): void;
-  events: EventBus;
+  events: Pick<EventBus, "publish" | "subscribe">;
   call(capability: string, input: unknown, opts?: { idempotencyKey?: string }): Promise<unknown>;
 }
 
@@ -64,7 +64,8 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
   const root = new Context();
   const facade = (pluginId: string, ctx: Context): HuhuApi => ({
     // 订阅挂到插件作用域，停用后不再收到事件
-    events: Object.assign(Object.create(deps.events) as EventBus, {
+    events: {
+      publish: (type, payload) => deps.events.publish(type, payload),
       subscribe: (fn: (e: HuhuEvent) => void) => {
         let off: (() => void) | undefined;
         ctx.effect(() => {
@@ -73,7 +74,7 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
         });
         return () => off?.();
       },
-    }),
+    },
     vault: deps.vault,
     defineCapability(def) {
       if (def.plugin !== pluginId) throw errors.permissionDenied(`${def.name}（插件 ${pluginId} 不能注册属于 ${def.plugin} 的能力）`);

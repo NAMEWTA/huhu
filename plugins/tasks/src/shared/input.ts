@@ -18,7 +18,7 @@ export interface TaskInput {
 
 /** inputHash = sha256(title + body + canonical(resources) + canonical(execution)) 前 16 位。 */
 export function inputHash(i: TaskInput): string {
-  return createHash("sha256").update(i.title + i.body + canonicalJson(i.resources) + canonicalJson(i.execution)).digest("hex").slice(0, 16);
+  return createHash("sha256").update(canonicalJson([i.title, i.body, i.resources, i.execution])).digest("hex").slice(0, 16);
 }
 
 export function processingKey(taskId: string, inputRevision: number, hash: string): string {

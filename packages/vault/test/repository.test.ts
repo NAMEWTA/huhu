@@ -98,4 +98,14 @@ describe("SemanticRepository", () => {
     writeFileSync(path.join(root, "Tasks/d--task-dat001.md"), "---\nhuhu: {kind: task, id: task-dat001, schema: 1}\ntitle: d\ncompleted: false\ndue: 2026-11-12\ncreatedAt: 2026-11-10T07:15:31Z\nupdatedAt: 2026-11-10T07:15:31Z\n---\n");
     expect(repo.read("task", "task-dat001").data).toMatchObject({ due: "2026-11-12" });
   });
+
+describe("只读 Vault", () => {
+  test("写入被拒绝：create / 多文件操作 / 回收站", async () => {
+    const d = mkdtempSync(path.join(tmpdir(), "huhu-ro-")); dirs.push(d);
+    const files = new VaultFiles(path.join(d), undefined, true);
+    const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
+    await expect(repo.create("task", { title: "x", completed: false, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+    await expect(new OperationLog(files, path.join(d, "ops")).run("o", "t", [])).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+  });
+});
 });

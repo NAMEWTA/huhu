@@ -117,4 +117,14 @@ describe("TasksService", () => {
     expect(svc.read(t.id).reminders[0]?.deliveredAt).toBeTruthy();
     expect(events).toContainEqual(["reminder.due", { taskId: t.id, reminderId: "rem-1", title: "A" }]);
   });
+
+describe("提醒容错", () => {
+  test("单个只读任务写不进去时，其余提醒仍投递且不抛未处理异常", async () => {
+    const { svc } = setup("2026-11-10T08:00:00Z");
+    const a = await svc.create({ title: "A", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [{ id: "rem-1", channel: "in_app", at: "2026-11-10T07:00:00Z", enabled: true, deliveredAt: null }] });
+    expect(svc.dueReminders()).toHaveLength(1);
+    await svc.markReminderDelivered(a.id, "rem-1");
+    expect(svc.dueReminders()).toHaveLength(0);
+  });
+});
 });

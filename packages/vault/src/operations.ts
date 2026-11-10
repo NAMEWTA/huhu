@@ -61,6 +61,7 @@ export class OperationLog {
 
   /** 执行一个多文件操作。失败时回滚已完成步骤并抛 WRITE_PARTIAL（附 opId）。 */
   async run(opId: string, kind: string, steps: OpStep[], hooks: { afterStep?: (index: number) => void } = {}): Promise<OpRecord> {
+    this.files.assertWritable();
     const records: StepRecord[] = steps.map((s) => {
       const target = s.path;
       const before = s.action === "rename" ? this.files.currentVersion(s.from) : this.files.currentVersion(target);

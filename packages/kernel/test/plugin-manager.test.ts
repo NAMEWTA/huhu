@@ -131,4 +131,24 @@ describe("PluginManager", () => {
     expect([a, b]).toEqual(["active", "active"]);
     expect(applied).toBe(1);
   });
+
+  test("事件 id 全局唯一（插件门面与根总线共用计数）", async () => {
+    const { pm, events } = setup();
+    const ids: string[] = [];
+    events.subscribe((e) => ids.push(e.id));
+    pm.register({ manifest: manifest("p1"), apply: (_c, api) => { api.events.publish("engine.closing", {}); } });
+    pm.register({ manifest: manifest("p2"), apply: (_c, api) => { api.events.publish("engine.closing", {}); } });
+    await pm.enableAll();
+    events.publish("engine.closing", {});
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("启用进行中时停用：最终为 disabled", async () => {
+    const { pm } = setup();
+    pm.register({ manifest: manifest("slow"), apply: async () => { await new Promise((r) => setTimeout(r, 30)); } });
+    const en = pm.enable("slow");
+    const dis = pm.disable("slow");
+    await Promise.all([en, dis]);
+    expect(pm.state("slow")).toBe("disabled");
+  });
 });

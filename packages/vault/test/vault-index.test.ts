@@ -73,4 +73,15 @@ describe("VaultIndex", () => {
     expect(ix.indexing).toBe(false);
     expect(ix.query("旧内容").hits[0]?.path).toBe("keep.md");
   });
+
+describe("增量更新目录", () => {
+  test("新建深层文件时补全祖先目录", async () => {
+    const root = vault({ "a.md": "x" });
+    const ix = new VaultIndex(root); await ix.build();
+    mkdirSync(path.join(root, "new/deep"), { recursive: true });
+    writeFileSync(path.join(root, "new/deep/y.md"), "y");
+    ix.applyChanges([{ path: "new/deep/y.md", change: "created" }]);
+    expect(ix.entries().map((e) => e.path)).toEqual(["a.md", "new", "new/deep", "new/deep/y.md"]);
+  });
+});
 });

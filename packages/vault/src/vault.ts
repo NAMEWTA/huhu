@@ -87,7 +87,7 @@ export class Vault {
         throw e;
       }
     }
-    return new Vault(real, info, opts.readOnly === true, new VaultFiles(real, new ReceiptLog()), release);
+    return new Vault(real, info, opts.readOnly === true, new VaultFiles(real, new ReceiptLog(), opts.readOnly === true), release);
   }
 
   async close(): Promise<void> {

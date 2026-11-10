@@ -1,5 +1,5 @@
 import { TZDate } from "@date-fns/tz";
-import { addDays, format } from "date-fns";
+import { format } from "date-fns";
 
 export type TaskCategory = "all" | "today" | "tomorrow" | "week" | "ended";
 
@@ -10,7 +10,7 @@ export function todayIn(zone: string, now: Date = new Date()): string {
 
 function plusDays(date: string, n: number): string {
   const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  return format(addDays(new Date(Date.UTC(y, m - 1, d, 12)), n), "yyyy-MM-dd");
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); // 纯 UTC 日历运算，与进程时区无关
 }
 
 export interface CategorizableTask {

@@ -116,6 +116,10 @@ describe("WS 事件", () => {
     await tick();
     expect(b.msgs[0]).toMatchObject({ type: "resync" });
     b.ws.close();
+    const stale = await openWs(port, t, "?lastSeq=1&epoch=old-epoch");
+    await tick();
+    expect(stale.msgs[0]).toMatchObject({ type: "resync" });
+    stale.ws.close();
     const c = await openWs(port, t, "?lastSeq=abc");
     await tick();
     expect(c.msgs[0]).toMatchObject({ type: "resync" });

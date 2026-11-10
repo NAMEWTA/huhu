@@ -121,11 +121,20 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     (closed ??= (async () => {
       real.beginClose();
       events.publish("engine.closing", {});
-      await watcher.close();
-      await plugins.disposeAll();
-      await server.close();
-      await vault.close();
-      rmSync(descriptorPath, { force: true });
+      try {
+        await watcher.close();
+        await plugins.disposeAll();
+      } finally {
+        try {
+          await server.close();
+        } finally {
+          try {
+            await vault.close();
+          } finally {
+            rmSync(descriptorPath, { force: true });
+          }
+        }
+      }
     })());
 
   return { vault, port: server.port, rendererToken, cliToken, descriptorPath, server, index, dispatcher: real, registry, events, shutdown };

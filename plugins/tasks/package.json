@@ -19,5 +19,8 @@
     "@huhu/vault": "workspace:*",
     "date-fns": "^4.4.0",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

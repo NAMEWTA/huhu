@@ -102,6 +102,7 @@ export class PluginManager {
   async disable(id: string): Promise<string[]> {
     const rt = this.plugins.get(id);
     if (!rt) throw new Error(`未知插件：${id}`);
+    await this.enabling.get(id)?.catch(() => undefined); // 等进行中的启用结束，再停用
     const stopped: string[] = [];
     for (const [otherId, other] of this.plugins) {
       if (other.state === "active" && other.entry.manifest.dependsOn.includes(id)) stopped.push(...(await this.disable(otherId)));
