@@ -45,3 +45,9 @@
 ## 打包冒烟（Linux，2026-11-10）
 
 `electron-builder --linux dir` 在本机成功产出 `release/linux-unpacked`；用 `xvfb-run` 启动解包产物，应用运行 12 秒并在 Vault 目录创建了 `.huhu/vault.json`（说明打包后的 Engine utilityProcess 正常启动）。AppImage/deb、Windows、macOS 安装包与校验和脚本在 CI 中尚未运行。
+
+## Herdr Core 验证（Linux，2026-11-11）
+
+- `herdr-core` 无官方发布包（GitHub releases 为空），必须自行编译：需要 Zig 0.16 **和** 已检出的 `vendor/ghostty` 子模块（参考源码副本里该目录为空，需 `git fetch` 固定提交 `1e5cdb8…`）。Linux x64 release 构建约 3 分钟，产物 `herdr-core`（7.7 MB，同时是 `hc` CLI；服务用 `herdr-core server start`）。
+- `packages/herdr-client` 已用真实 Core 验证：`server.status`、`terminal.run`（labels、cwd）、`terminal.list` 按 `huhu.launch` 标签查回均可用（plain 模式）。framed attach、事件订阅尚未对真实 Core 验证。
+- Windows / macOS 构建与 `herdr.lock.json`、`fetch-herdr` 脚本未做：发布前需要在 CI 中编译并托管三个目标的二进制，这是 W12.1 / W20 的硬前置。
