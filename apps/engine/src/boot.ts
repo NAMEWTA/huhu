@@ -108,7 +108,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "0.0.1", origin: "builtin" }),
-    apply: (ctx, api) => void agentCli.apply(ctx, api),
+    apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
   await plugins.enableAll();
   const tokens = new TokenTable();

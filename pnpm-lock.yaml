@@ -518,6 +518,9 @@ importers:
       '@huhu/cordis':
         specifier: workspace:*
         version: link:../../vendor/cordis
+      '@huhu/herdr-client':
+        specifier: workspace:*
+        version: link:../../packages/herdr-client
       '@huhu/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel

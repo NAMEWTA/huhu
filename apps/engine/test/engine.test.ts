@@ -188,4 +188,26 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "agent.providers.detect", {})).ok).toBe(true);
     expect((await call(e.cliToken, "agent.spaces.list", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
+  const REAL_HERDR = "/tmp/claude-1000/herdr-build/src/target/release/herdr-core";
+  test.skipIf(!existsSync(REAL_HERDR))("agent-cli：经 HTTP 在真实 Herdr Core 里启动 shell 会话并结束", async () => {
+    process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    type R = { ok: boolean; data: { id: string; state: string; terminalId: string; revision: number; state2?: string; version: string | null } & { length?: number }; error?: { code: string } };
+    const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    try {
+      const status = await call("agent.core.status", {});
+      expect(status.data).toMatchObject({ state: "connected" });
+      const spaces = (await call("agent.spaces.list", {})) as unknown as { data: { id: string; revision: number }[] };
+      const sp = spaces.data[0] as { id: string; revision: number };
+      const s = await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-http-1234" });
+      expect(s.data).toMatchObject({ state: "running" });
+      expect((await call("agent.sessions.kill", { id: s.data.id })).ok).toBe(true);
+    } finally {
+      const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
+      const { machineId } = await import("@huhu/vault");
+      await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
+      delete process.env["HUHU_HERDR_BIN"];
+    }
+  }, 60_000);
 });
