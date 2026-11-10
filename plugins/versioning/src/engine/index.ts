@@ -4,9 +4,11 @@ import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { FileHistory, type HistoryEntry } from "./history.js";
+import { VaultGit } from "./repo.js";
 
 export { FileHistory } from "./history.js";
 export { GitRunner } from "./git.js";
+export { VaultGit } from "./repo.js";
 
 const Entry = z.object({ id: z.string(), at: z.string(), source: z.string(), title: z.string().nullable(), path: z.string(), size: z.number() });
 const Path = z.object({ path: z.string().min(1) });
@@ -80,5 +82,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       return { restored: r.restored !== null || r.checkpoint !== null };
     },
   }));
+
+  const git = new VaultGit(files.root);
+  const Commit = z.object({ id: z.string(), short: z.string(), author: z.string(), at: z.string(), subject: z.string() });
+  const Status = z.object({ branch: z.string().nullable(), files: z.array(z.object({ path: z.string(), index: z.string(), worktree: z.string(), from: z.string().optional() })) });
+  api.defineCapability(def({ name: "git.status", plugin: "versioning", scope: "read", exposable: true, defaultExposed: true, input: z.object({}), output: Status.extend({ isRepo: z.boolean() }), handler: async () => (git.isRepo() ? { isRepo: true, ...(await git.status()) } : { isRepo: false, branch: null, files: [] }) }));
+  api.defineCapability(def({ name: "git.init", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ created: z.boolean(), gitignore: z.string() }), handler: () => git.init() }));
+  api.defineCapability(def({ name: "git.log", plugin: "versioning", scope: "read", exposable: true, defaultExposed: true, input: z.object({ limit: z.number().int().min(1).max(500).default(50) }), output: z.array(Commit), handler: (_c, i) => git.log(i.limit) }));
+  api.defineCapability(def({ name: "git.diff", plugin: "versioning", scope: "read", exposable: true, defaultExposed: true, input: z.object({ path: z.string().optional(), staged: z.boolean().optional(), commit: z.string().optional() }), output: z.object({ diff: z.string() }), handler: async (_c, i) => ({ diff: await git.diff({ ...(i.path ? { path: i.path } : {}), ...(i.staged ? { staged: true } : {}), ...(i.commit ? { commit: i.commit } : {}) }) }) }));
+  api.defineCapability(def({ name: "git.stage", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ paths: z.array(z.string()).min(1) }), output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await git.stage(i.paths), { ok: true as const }) }));
+  api.defineCapability(def({ name: "git.unstage", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ paths: z.array(z.string()).min(1) }), output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await git.unstage(i.paths), { ok: true as const }) }));
+  api.defineCapability(def({ name: "git.commit", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ message: z.string() }), output: Commit, handler: (_c, i) => git.commit(i.message) }));
   return { history };
 }

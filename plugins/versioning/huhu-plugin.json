@@ -5,8 +5,32 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": ["automations", "safe"],
+  "optionalDeps": [
+    "automations",
+    "safe"
+  ],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["versioning"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["history.timeline", "history.read", "history.checkpoint", "history.restore"], "fileKinds": [] }
+  "contributes": {
+    "modules": [
+      "versioning"
+    ],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": [
+      "git.commit",
+      "git.diff",
+      "git.init",
+      "git.log",
+      "git.stage",
+      "git.status",
+      "git.unstage",
+      "history.checkpoint",
+      "history.read",
+      "history.restore",
+      "history.timeline"
+    ],
+    "fileKinds": []
+  }
 }
