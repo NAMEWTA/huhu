@@ -561,6 +561,17 @@ describe("Engine 启动与关闭", () => {
     const agent = { kind: "agent_prompt", spaceId: "space-1", provider: "codex" };
     expect((await call(e.cliToken, "automations.create", { title: "外部想创建 Agent 规则", trigger: trig, action: agent })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.cliToken, "automations.create", { title: "外部创建通知规则", trigger: trig, action: { kind: "notify", channel: "in_app", text: "ok" } })).ok).toBe(true);
+    expect((await call(e.cliToken, "automations.create", { title: "外部想创建扫描规则", trigger: trig, action: { kind: "scan_agent_tasks", maxConcurrent: 1 } })).error?.code).toBe("PERMISSION_DENIED");
+    // 内置 scan 规则：外部可以暂停、改时间，但不能启用，也不能改 action
+    const list = (await call(e.rendererToken, "automations.list", {})).data as { id: string; version: string; data: { builtin: boolean; action: { kind: string } } }[] | undefined;
+    const scan = list?.find((r) => r.data.action.kind === "scan_agent_tasks");
+    expect(scan).toBeDefined();
+    const paused = await call(e.cliToken, "automations.setEnabled", { id: scan!.id, enabled: false });
+    expect(paused.ok).toBe(true);
+    const pausedVersion = (paused.data as { version: string }).version;
+    expect((await call(e.cliToken, "automations.setEnabled", { id: scan!.id, enabled: true })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "automations.update", { id: scan!.id, expectedVersion: pausedVersion, patch: { action: { kind: "notify", channel: "in_app", text: "x" } } })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "automations.update", { id: scan!.id, expectedVersion: pausedVersion, patch: { title: "外部改名" } })).ok).toBe(true);
     const desktopRule = (await call(e.rendererToken, "automations.create", { title: "桌面创建的 Agent 规则", trigger: trig, action: agent })).data as { id: string; version: string };
     expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.cliToken, "automations.update", { id: desktopRule.id, expectedVersion: desktopRule.version, patch: { title: "改名" } })).error?.code).toBe("PERMISSION_DENIED");

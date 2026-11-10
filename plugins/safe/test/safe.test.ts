@@ -136,12 +136,12 @@ describe("条目与秘密", () => {
   test("编辑时不提供新值则保留旧值；删除条目同时删密文；审计不含值", async () => {
     const { safe, dir } = setup();
     await safe.setup(PW);
-    const it = safe.itemSave({ name: "A", type: "password", value: "v1" });
+    const it = safe.itemSave({ name: "A", type: "password", value: "sEcReT-9f3a" });
     safe.itemSave({ id: it.id, name: "A2", type: "password", account: "u" });
-    expect(safe.reveal(it.id)).toBe("v1");
+    expect(safe.reveal(it.id)).toBe("sEcReT-9f3a");
     safe.itemDelete(it.id);
     expect(readdirSync(path.join(dir, "sealed"))).toEqual([]);
-    expect(readFileSync(path.join(dir, "audit.ndjson"), "utf8")).not.toContain("v1");
+    expect(readFileSync(path.join(dir, "audit.ndjson"), "utf8")).not.toContain("sEcReT-9f3a"); // 用不会出现在随机 id 里的值，避免偶发误报
   });
   test("ACC-SF-03 修改主密码：新密码可解锁，旧密码不行，秘密文件不变", async () => {
     const { safe, dir } = setup();
