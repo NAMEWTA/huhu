@@ -1,0 +1,77 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { boot, type RunningEngine } from "@huhu/engine";
+import { Vault } from "@huhu/vault";
+import { afterEach, describe, expect, test } from "vitest";
+import { run } from "../src/main.js";
+
+const dirs: string[] = [];
+const engines: RunningEngine[] = [];
+afterEach(async () => {
+  for (const e of engines.splice(0)) await e.shutdown();
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-c-")); dirs.push(d); return d; };
+function capture() {
+  const out: string[] = [], err: string[] = [];
+  return { out, err, io: { out: (s: string) => out.push(s), err: (s: string) => err.push(s) } };
+}
+const ENGINE_ENTRY = path.resolve(import.meta.dirname, "../../engine/src/main.ts");
+
+describe("CLI", () => {
+  test("--version / --help 不需要 Vault", async () => {
+    const c = capture();
+    expect(await run(["--version"], c.io)).toBe(0);
+    expect(c.out.join("")).toContain("0.0.1");
+    const h = capture();
+    expect(await run(["--help"], h.io)).toBe(0);
+    expect(h.out.join("")).toContain("call");
+  });
+  test("找不到 Vault → 退出码 3", async () => {
+    const c = capture();
+    const cwd = process.cwd();
+    process.chdir(tmp());
+    try {
+      expect(await run(["call", "vault.info"], c.io)).toBe(3);
+    } finally { process.chdir(cwd); }
+  });
+  test("参数错误 → 2", async () => {
+    expect(await run(["call", "vault.info", "--input-json", "{bad"], capture().io)).toBe(2);
+    expect(await run(["nosuchcommand"], capture().io)).toBe(2);
+  });
+  test("复用已运行的 Engine：call vault.info --json", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const c = capture();
+    expect(await run(["call", "vault.info", "--vault", dir, "--json"], c.io)).toBe(0);
+    const parsed = JSON.parse(c.out.join(""));
+    expect(parsed).toMatchObject({ ok: true, data: { id: e.vault.id } });
+  });
+  test("业务错误 → 退出码 1", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const c = capture();
+    expect(await run(["call", "no.such", "--vault", dir], c.io)).toBe(1);
+    expect(c.out.join("")).toContain("CAPABILITY_NOT_FOUND");
+  });
+  test("无 Engine 时自动启动无界面 Engine，空闲后自行退出", async () => {
+    const dir = tmp();
+    await (await Vault.open(dir, { create: true })).close();
+    process.env["HUHU_ENGINE_ENTRY"] = ENGINE_ENTRY;
+    const c = capture();
+    // 使用短空闲时间：通过环境变量不可行，这里直接调用 connect 的 idleExitMs
+    const { connect } = await import("../src/connect.js");
+    const conn = await connect(dir, { idleExitMs: 1500, timeoutMs: 20000 });
+    const { callCapability } = await import("../src/commands/call.js");
+    const r = await callCapability(conn, "vault.info", {});
+    expect(r.ok).toBe(true);
+    void c;
+    const v = await Vault.open(dir, { readOnly: true });
+    const desc = path.join(v.runtimeDir, "engine.json");
+    expect(existsSync(desc)).toBe(true);
+    const deadline = Date.now() + 15000;
+    while (existsSync(desc) && Date.now() < deadline) await new Promise((r2) => setTimeout(r2, 200));
+    expect(existsSync(desc)).toBe(false);
+  }, 60000);
+});

@@ -182,7 +182,24 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@24.19.2)(jiti@2.7.0)(lightningcss@1.33.0)(supports-color@7.2.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  apps/cli: {}
+  apps/cli:
+    dependencies:
+      '@huhu/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@huhu/vault':
+        specifier: workspace:*
+        version: link:../../packages/vault
+      commander:
+        specifier: ^15.1.0
+        version: 15.1.0
+    devDependencies:
+      '@huhu/engine':
+        specifier: workspace:*
+        version: link:../engine
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
 
   apps/desktop:
     devDependencies:
@@ -1343,6 +1360,10 @@ packages:
   combined-stream@1.0.8:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
     engines: {node: '>= 0.8'}
+
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
+    engines: {node: '>=22.12.0'}
 
   commander@5.1.0:
     resolution: {integrity: sha512-P0CysNDQ7rtVw4QIQtm+MRxV66vKFSvlsQvGYXZWR3qFU0jlMKHZZZgw8e+8DSah4UDKMqnknRDQz+xuQXQ/Zg==}
@@ -3393,6 +3414,8 @@ snapshots:
   combined-stream@1.0.8:
     dependencies:
       delayed-stream: 1.0.0
+
+  commander@15.1.0: {}
 
   commander@5.1.0: {}
 

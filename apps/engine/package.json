@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "tsx": "^4.23.15"
+  },
+  "exports": {
+    ".": "./src/index.ts"
   }
 }

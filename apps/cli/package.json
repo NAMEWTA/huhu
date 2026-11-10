@@ -3,5 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" }
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@huhu/contracts": "workspace:*",
+    "@huhu/vault": "workspace:*",
+    "commander": "^15.1.0"
+  },
+  "devDependencies": {
+    "@huhu/engine": "workspace:*",
+    "tsx": "^4.23.15"
+  }
 }
