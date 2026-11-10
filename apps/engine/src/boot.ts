@@ -5,6 +5,8 @@ import {
 } from "@huhu/kernel";
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import * as archives from "@huhu/plugin-archives/engine";
+import * as inbox from "@huhu/plugin-inbox/engine";
 import * as notes from "@huhu/plugin-notes/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
 
@@ -90,6 +92,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse({ id: "notes", title: "知识库", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => void notes.apply(ctx, api),
   });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "archives", title: "档案", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => void archives.apply(ctx, api),
+  });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "inbox", title: "收件箱", description: "", version: "0.0.1", origin: "builtin", permissions: ["tasks.write", "notes.write", "archives.write"] }),
+    apply: (ctx, api) => void inbox.apply(ctx, api, { isPluginEnabled: (id) => plugins.isEnabled(id) }),
+  });
   await plugins.enableAll();
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");
@@ -100,7 +110,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
     isPluginEnabled: (id) => plugins.isEnabled(id),
     exposureOverride: () => undefined,
-    grantedPermissions: () => [],
+    grantedPermissions: (id) => plugins.permissionsOf(id),
   });
 
   dispatcherRef.current = real;

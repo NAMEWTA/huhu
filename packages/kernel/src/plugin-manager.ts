@@ -43,6 +43,11 @@ export class PluginManager {
     return this.plugins.get(id)?.error;
   }
 
+  /** 插件清单中声明的权限（内置插件的授予范围）。 */
+  permissionsOf(id: string): readonly string[] {
+    return this.plugins.get(id)?.entry.manifest.permissions ?? [];
+  }
+
   isEnabled(id: string): boolean {
     return id === "kernel" || this.plugins.get(id)?.state === "active";
   }

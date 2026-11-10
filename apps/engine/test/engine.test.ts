@@ -134,4 +134,28 @@ describe("Engine 启动与关闭", () => {
     expect((await call("notes.openDaily", { date: "2026-11-10" })).data.path).toBe("日记/2026-11-10 · 每日笔记.md");
     expect((await call("notes.read", { path: "../x" }, "key-bad-path-1")).error?.code).toBe("PATH_OUTSIDE_VAULT");
   });
+  test("inbox/archives：外部来源由身份决定；转换为任务/档案经插件权限调用；停用目标插件后拒绝", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: { id: string; source: string; status: string; result: { kind: string; id: string } | null; type: string }; error?: { code: string } };
+    const call = (token: string, capability: string, input: unknown, key = `key-${capability}-${Math.random().toString(36).slice(2)}`) =>
+      post(e, token, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<R>;
+    // ACC-IN-05：CLI 提交带 source: quick，文件中仍是 cli（inbox.capture 默认对外开放）
+    const viaCli = await call(e.cliToken, "inbox.capture", { body: "来自 CLI", source: "quick" });
+    expect(viaCli.data.source).toBe("cli");
+    // ACC-IN-02：转为任务
+    const toTask = await call(e.rendererToken, "inbox.convert", { id: viaCli.data.id, target: "task", fields: { title: "来自 CLI" } });
+    expect(toTask.ok).toBe(true);
+    expect(toTask.data).toMatchObject({ status: "processed", result: { kind: "task" } });
+    const tasks = (await post(e, e.rendererToken, { capability: "tasks.list", input: {}, requestId: "r" })) as unknown as { data: { id: string; title: string }[] };
+    expect(tasks.data.map((t) => t.id)).toContain(toTask.data.result?.id);
+    // 档案：先建类型，再转换
+    const type = await call(e.rendererToken, "archives.types.save", { name: "项目", fields: [] });
+    const second = await call(e.rendererToken, "inbox.capture", { body: "一个项目想法" });
+    const toArchive = await call(e.rendererToken, "inbox.convert", { id: second.data.id, target: "archive", fields: { name: "新项目", type: type.data.id } });
+    expect(toArchive.data.result?.kind).toBe("archive");
+    // 外部入口不能调用 inbox.convert
+    expect((await call(e.cliToken, "inbox.convert", { id: second.data.id, target: "task", fields: {} })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    // ACC-AR：archives.list 对外默认开放
+    expect(((await post(e, e.cliToken, { capability: "archives.list", input: {}, requestId: "r" })) as unknown as { ok: boolean }).ok).toBe(true);
+  });
 });

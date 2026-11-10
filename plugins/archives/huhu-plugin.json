@@ -1,0 +1,12 @@
+{
+  "id": "archives",
+  "title": "档案",
+  "description": "按类型组织的长期资料",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": ["tasks", "notes"],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": { "modules": ["archives"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["archives.list", "archives.read", "archives.create", "archives.update", "archives.delete", "archives.changeType", "archives.setRelations", "archives.linkNote", "archives.unlinkNote", "archives.types.list", "archives.types.save", "archives.types.delete"], "fileKinds": ["archive", "archive-type"] }
+}
