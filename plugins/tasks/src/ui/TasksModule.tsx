@@ -1,7 +1,7 @@
 import type { TaskDto } from "@huhu/contracts";
 import { Badge, Button, CompletionCircle, EmptyState } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient, queryKey } from "@huhu/workbench";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { categoryCount, inCategory, isOverdue, todayIn, weekRange, type TaskCategory } from "../shared/categories.js";
 import { t } from "./i18n.js";
 
@@ -17,7 +17,12 @@ export function TasksModule() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [failure, setFailure] = useState<string | null>(null);
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const today = todayIn(zone);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000); // 跨午夜后分类自动重算
+    return () => clearInterval(t);
+  }, []);
+  const today = useMemo(() => todayIn(zone), [zone, tick]);
   const tasks = data ?? [];
   const visible = useMemo(() => tasks.filter((x) => inCategory(x, category, today)), [tasks, category, today]);
   const open = visible.filter((x) => !x.completed);
@@ -25,14 +30,15 @@ export function TasksModule() {
   const key = queryKey(engine.vaultId, "tasks.list", { category: "all" });
 
   async function toggle(task: TaskDto, next: boolean) {
+    if (pending[task.id]) return; // 回执前不重复提交（同一个 expectedVersion 会冲突）
     setFailure(null);
     setPending((p) => ({ ...p, [task.id]: true }));
-    const previous = qc.getQueryData<TaskDto[]>(key);
     qc.setQueryData<TaskDto[]>(key, (old) => (old ?? []).map((x) => (x.id === task.id ? { ...x, completed: next } : x))); // 乐观更新
     try {
       await engine.call("tasks.setCompleted", { id: task.id, completed: next, expectedVersion: task.version }, { write: true });
     } catch (e) {
-      qc.setQueryData(key, previous); // 失败回滚
+      // 失败回滚只还原这一个任务，不影响其他仍在进行中的乐观更新
+      qc.setQueryData<TaskDto[]>(key, (old) => (old ?? []).map((x) => (x.id === task.id ? { ...x, completed: task.completed } : x)));
       setFailure(e instanceof Error ? e.message : String(e));
     } finally {
       setPending((p) => ({ ...p, [task.id]: false }));

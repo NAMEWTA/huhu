@@ -43,9 +43,12 @@ export function CompletionCircle({ checked, pending = false, label, onToggle }: 
       aria-checked={checked}
       aria-label={label}
       aria-busy={pending || undefined}
+      aria-disabled={pending || undefined}
       data-pending={pending || undefined}
       className="hu-circle"
-      onClick={() => onToggle(!checked)}
+      onClick={() => {
+        if (!pending) onToggle(!checked);
+      }}
     >
       {checked ? <span aria-hidden>✓</span> : null}
     </button>

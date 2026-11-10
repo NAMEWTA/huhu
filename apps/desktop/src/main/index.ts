@@ -25,9 +25,15 @@ function errorPage(detail: string): string {
   )}`;
 }
 
+/** 完整来源匹配：`huhu-app://workbench` 本身或其路径，开发服务器同理（不接受仅前缀相同的其他主机/端口）。 */
+function isTrustedUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  const origins = [APP_ORIGIN, process.env["ELECTRON_RENDERER_URL"]?.replace(/\/$/, "")].filter((o): o is string => Boolean(o));
+  return origins.some((o) => url === o || url.startsWith(`${o}/`) || url.startsWith(`${o}?`) || url.startsWith(`${o}#`));
+}
+
 function assertTrusted(url: string | undefined): void {
-  const dev = process.env["ELECTRON_RENDERER_URL"];
-  if (!url || !(url.startsWith(`${APP_ORIGIN}/`) || (dev && url.startsWith(dev)))) throw new Error("untrusted sender");
+  if (!isTrustedUrl(url)) throw new Error("untrusted sender");
 }
 
 function createWindow(): BrowserWindow {
@@ -46,7 +52,7 @@ function createWindow(): BrowserWindow {
     },
   });
   win.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith(APP_ORIGIN) && !(process.env["ELECTRON_RENDERER_URL"] && url.startsWith(process.env["ELECTRON_RENDERER_URL"]))) event.preventDefault();
+    if (!isTrustedUrl(url)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("did-fail-load", (_e, code, desc) => {
@@ -95,9 +101,7 @@ if (!gotLock) {
       supervisor!.restart();
     });
     ipcMain.handle("huhu:appInfo", (event) => {
-      const url = event.senderFrame?.url ?? "";
-      const dev = process.env["ELECTRON_RENDERER_URL"];
-      if (!url.startsWith(APP_ORIGIN) && !(dev && url.startsWith(dev))) throw new Error("untrusted sender");
+      assertTrusted(event.senderFrame?.url);
       return { name: "HUHU", version: app.getVersion(), platform: process.platform };
     });
     createWindow();

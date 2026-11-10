@@ -83,9 +83,11 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
           const m = modules.find((x) => x.id === id);
           if (!m) return null;
           return (
-            <span key={id} role="tab" aria-selected={id === s.activeModule} className="hu-tab" onClick={() => s.openModule(id)}>
-              {m.title}
-              <button type="button" aria-label={`关闭${m.title}`} onClick={(e) => { e.stopPropagation(); s.closeTab(id); }}>×</button>
+            <span key={id} className="hu-tab" data-selected={id === s.activeModule || undefined}>
+              <button type="button" role="tab" aria-selected={id === s.activeModule} tabIndex={id === s.activeModule ? 0 : -1} className="hu-tab-label" onClick={() => s.openModule(id)}>
+                {m.title}
+              </button>
+              <button type="button" aria-label={`关闭${m.title}`} onClick={() => s.closeTab(id)}>×</button>
             </span>
           );
         })}

@@ -26,18 +26,33 @@ export function machineId(): string {
   return createHash("sha256").update(`${os.hostname()}|${os.userInfo().username}`).digest("hex").slice(0, 12);
 }
 
-/** 端点描述中记录的持锁进程是否已不存在。 */
+/** 持锁进程的 pid 记录：获取锁之后立即写入，释放时删除。 */
+function ownerFile(root: string): string {
+  return path.join(root, HUHU_DIR, "writer.pid");
+}
+
+/** 锁文件的持有者已确认死亡（pid 不存在）。pid 存活或记录缺失时保守地返回 false。 */
 function ownerIsDead(root: string): boolean {
-  const file = path.join(root, HUHU_DIR, "runtime", machineId(), "engine.json");
-  if (!existsSync(file)) return false;
   try {
-    const { pid } = JSON.parse(readFileSync(file, "utf8")) as { pid: number };
+    const pid = Number(readFileSync(ownerFile(root), "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0) return false;
     process.kill(pid, 0);
     return false;
   } catch (e) {
     return (e as { code?: string }).code === "ESRCH";
   }
 }
+
+/** 锁最近仍被刷新（持有者刚刚存活过）。 */
+function lockIsFresh(lockPath: string, ms: number): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs < ms;
+  } catch {
+    return false;
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface OpenOptions {
   /** 目录不含 .huhu/vault.json 时创建它（只创建 .huhu，不动已有文件）。 */
@@ -97,11 +112,16 @@ export class Vault {
         try {
           release = await acquire();
         } catch (e) {
-          // 持锁的 Engine 已崩溃（端点描述里的 pid 不存在）：立即回收陈旧锁，而不是等 15 秒
+          // 持锁的 Engine 已崩溃（pid 不存在）：回收陈旧锁，而不是等 15 秒。
+          // 锁刚被刷新过时先等待（最多 3 秒），避免与"刚刚获取锁、尚未写 pid 文件"的新写者竞争。
           if ((e as { code?: string }).code !== "ELOCKED" || !ownerIsDead(real)) throw e;
+          const deadline = Date.now() + 3_000;
+          while (lockIsFresh(lockOpts.lockfilePath, 2_000) && Date.now() < deadline) await sleep(200);
+          if (!ownerIsDead(real)) throw e;
           rmSync(lockOpts.lockfilePath, { recursive: true, force: true });
           release = await acquire();
         }
+        writeFileSync(ownerFile(real), String(process.pid));
       } catch (e) {
         if ((e as { code?: string }).code === "ELOCKED") {
           throw new HuhuError("READ_ONLY_VAULT", "Vault 正被另一个 HUHU 实例使用，可以只读打开", { recovery: [{ action: "open-readonly", label: "只读打开" }] });
@@ -113,6 +133,7 @@ export class Vault {
   }
 
   async close(): Promise<void> {
+    if (this.release) rmSync(ownerFile(this.root), { force: true });
     await this.release?.();
   }
 }

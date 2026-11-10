@@ -29,7 +29,12 @@ export class EngineClient {
       body: JSON.stringify(body),
     });
     if (res.status === 401) throw new CapabilityError("UNAUTHENTICATED", "引擎令牌失效");
-    const json = (await res.json()) as CapabilityResult<T>;
+    let json: CapabilityResult<T>;
+    try {
+      json = (await res.json()) as CapabilityResult<T>;
+    } catch {
+      throw new CapabilityError("INTERNAL", `引擎返回了无法解析的响应（HTTP ${res.status}）`);
+    }
     if (!json.ok) throw new CapabilityError(json.error.code, json.error.message, json.error.details);
     return json.data;
   }

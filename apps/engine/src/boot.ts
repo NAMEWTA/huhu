@@ -5,6 +5,7 @@ import {
 } from "@huhu/kernel";
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import * as notes from "@huhu/plugin-notes/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
 
 export interface EndpointDescriptor {
@@ -85,6 +86,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse({ id: "tasks", title: "任务", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => tasks.apply(ctx, api),
   });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "notes", title: "知识库", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => void notes.apply(ctx, api),
+  });
   await plugins.enableAll();
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");
@@ -112,9 +117,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   await watcher.start();
 
+  // 只读引擎不取写者锁，也不能覆盖或删除写者的端点描述
   const descriptorPath = endpointPath(vault);
   const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, startedAt: new Date().toISOString() };
-  writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
+  if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
 
   let closed: Promise<void> | undefined;
   const shutdown = () =>
@@ -131,7 +137,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
           try {
             await vault.close();
           } finally {
-            rmSync(descriptorPath, { force: true });
+            if (!vault.readOnly) rmSync(descriptorPath, { force: true });
           }
         }
       }

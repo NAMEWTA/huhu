@@ -22,6 +22,10 @@ export function EngineProvider({ endpoint, children, onConnection }: EngineProvi
   const client = useMemo(() => new EngineClient(endpoint), [endpoint]);
   const qc = useMemo(() => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 5_000 } } }), [endpoint.vaultId]);
   useEffect(() => {
+    // 引擎重启后端点（令牌/端口）变化：新事件流没有旧序号，无法补发，必须让全部缓存失效
+    void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === endpoint.vaultId });
+  }, [endpoint.baseUrl, endpoint.token, endpoint.vaultId, qc]);
+  useEffect(() => {
     const stream = new EventStream(endpoint, {
       onEvent: (e) => void invalidateForEvent(qc, endpoint.vaultId, e),
       onResync: () => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === endpoint.vaultId }),

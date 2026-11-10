@@ -145,6 +145,14 @@ export class VaultIndex {
     }
   }
 
+  /** 自写操作后按磁盘现状刷新指定路径（监听器会过滤自写回声，索引需要主动更新）。 */
+  refreshPaths(paths: string[]): void {
+    for (const p of paths) {
+      const exists = takeSnapshot(path.join(this.root, path.dirname(p) === "." ? "" : path.dirname(p)), false).has(path.basename(p));
+      this.applyChanges([{ path: p, change: exists ? "modified" : "deleted" }]);
+    }
+  }
+
   entries(prefix = ""): TreeEntry[] {
     return [...this.tree.values()].filter((e) => !prefix || e.path === prefix || e.path.startsWith(`${prefix}/`)).sort((a, b) => a.path.localeCompare(b.path));
   }

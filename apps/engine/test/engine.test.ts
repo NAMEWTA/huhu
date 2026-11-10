@@ -114,4 +114,24 @@ describe("Engine 启动与关闭", () => {
     expect((await post(e, e.cliToken, { capability: "tasks.list", input: {}, requestId: "r" })).ok).toBe(true);
     expect((await post(e, e.cliToken, { capability: "tasks.create", input: { title: "x" }, requestId: "r", idempotencyKey: "key-cli-1" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
+  test("notes 插件：创建、改名改写双链、保存冲突、反链、日记", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const call = (capability: string, input: unknown, key: string = `key-${capability}-${Math.random()}`) =>
+      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<{ ok: boolean; data: { path: string; id: string; version: string; text: string; moved: Record<string, string> }; error?: { code: string } }>;
+    const x = await call("notes.create", { name: "X" });
+    const a = await call("notes.create", { name: "A" });
+    const aRead = await call("notes.read", { path: a.data.path }, "key-read-a-1");
+    const saved = await call("notes.save", { path: a.data.path, text: "见 [[X]]\n", expectedVersion: aRead.data.version });
+    expect(saved.ok).toBe(true);
+    expect((await call("notes.save", { path: a.data.path, text: "覆盖", expectedVersion: aRead.data.version })).error?.code).toBe("VERSION_CONFLICT");
+    const renamed = await call("notes.rename", { path: x.data.path, newName: "Y" });
+    expect(renamed.data.moved).toEqual({ "X.md": "Y.md" });
+    expect((await call("notes.read", { path: a.data.path }, "key-read-a2-1")).data.text).toBe("见 [[Y]]\n");
+    const bl = (await call("notes.backlinks", { path: "Y.md" }, "key-backlinks-1")) as unknown as { data: { path: string }[]; error?: unknown };
+    expect(bl.error).toBeUndefined();
+    expect(bl.data.map((b) => b.path)).toEqual(["A.md"]);
+    expect((await call("notes.openDaily", { date: "2026-11-10" })).data.path).toBe("日记/2026-11-10 · 每日笔记.md");
+    expect((await call("notes.read", { path: "../x" }, "key-bad-path-1")).error?.code).toBe("PATH_OUTSIDE_VAULT");
+  });
 });

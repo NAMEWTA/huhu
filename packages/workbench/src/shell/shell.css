@@ -10,7 +10,8 @@
 .hu-rail-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--danger)}
 .hu-tabs{grid-area:tabs;display:flex;align-items:flex-end;gap:2px;padding:0 var(--space-2);background:var(--chrome);border-bottom:1px solid var(--line);overflow-x:auto}
 .hu-tab{display:inline-flex;align-items:center;gap:var(--space-2);height:32px;padding:0 var(--space-3);border-radius:var(--radius-control) var(--radius-control) 0 0;color:var(--muted);cursor:pointer}
-.hu-tab[aria-selected='true']{background:var(--bg);color:var(--text)}
+.hu-tab[data-selected]{background:var(--bg);color:var(--text)}
+.hu-tab-label{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;padding:0}
 .hu-tab button{border:0;background:transparent;color:inherit;cursor:pointer}
 .hu-main{grid-area:main;overflow:auto;min-width:0;display:flex;flex-direction:column}
 .hu-empty-main{margin:auto;color:var(--muted)}

@@ -1,0 +1,12 @@
+{
+  "id": "notes",
+  "title": "知识库",
+  "description": "Markdown 笔记、文件树、回收站与日记",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": [],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": { "modules": ["notes"], "settingsPages": [], "homeWidgets": [], "commands": ["notes.new", "notes.openDaily"], "capabilities": ["notes.list", "notes.read", "notes.create", "notes.save", "notes.rename", "notes.move", "notes.duplicate", "notes.trash", "notes.restore", "notes.deletePermanent", "notes.setFavorite", "notes.backlinks", "notes.openDaily", "folders.create"], "fileKinds": [] }
+}
