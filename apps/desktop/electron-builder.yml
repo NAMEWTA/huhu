@@ -19,4 +19,6 @@ linux:
   target: [{ target: AppImage, arch: x64 }, { target: deb, arch: x64 }]
   artifactName: HUHU-${version}-linux-x64.${ext}
   category: Office
+  executableName: huhu
+  maintainer: HUHU
 publish: null
