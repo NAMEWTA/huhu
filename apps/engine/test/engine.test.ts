@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -208,6 +208,47 @@ describe("Engine 启动与关闭", () => {
       const { machineId } = await import("@huhu/vault");
       await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
       delete process.env["HUHU_HERDR_BIN"];
+    }
+  }, 60_000);
+  test("automations：内置规则、预览无副作用、立即运行用假 CLI 处理 Agent 任务，再次运行不重复，Task 仍未完成", async () => {
+    const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
+    const bin = tmp();
+    writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 CLI 已处理"\n');
+    chmodSync(path.join(bin, "codex"), 0o755);
+    const oldPath = process.env["PATH"];
+    process.env["PATH"] = `${bin}:${oldPath}`;
+    try {
+      const dir = tmp();
+      const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+      type R = { ok: boolean; data: unknown; error?: { code: string } };
+      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+      const rules = (await call("automations.list", {})).data as { id: string; data: { builtin: boolean; enabled: boolean } }[];
+      expect(rules).toHaveLength(1);
+      expect(rules[0]?.data).toMatchObject({ builtin: true, enabled: true });
+      expect((await call("automations.delete", { id: rules[0]?.id })).error?.code).toBe("INVALID_INPUT");
+      const space = ((await call("agent.spaces.list", {})).data as { id: string }[])[0] as { id: string };
+      const t = await call("tasks.create", { title: "整理资料", body: "请整理", execution: { kind: "agent", spaceId: space.id, provider: "codex" } });
+      await call("tasks.create", { title: "手动任务", execution: { kind: "manual" } });
+      // 等 Provider 检测完成
+      for (let i = 0; i < 50; i++) { const d = (await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[]; if (d.find((x) => x.provider === "codex")?.status === "found") break; await new Promise((r) => setTimeout(r, 100)); }
+      await new Promise((r) => setTimeout(r, 300));
+      const preview = (await call("automations.preview", { id: rules[0]?.id })).data as { candidates: unknown[]; skipped: unknown[] };
+      expect(preview.candidates).toHaveLength(1);
+      expect(preview.skipped).toHaveLength(1);
+      expect(existsSync(path.join(dir, "Task Runs"))).toBe(false); // 预览不写文件
+      const run1 = (await call("automations.runNow", { id: rules[0]?.id })).data as { summary: unknown };
+      expect(run1.summary).toEqual({ processed: 1, skipped: 1 });
+      const runFile = ls(path.join(dir, "Task Runs"));
+      expect(runFile).toHaveLength(1);
+      const text = readFileSync(path.join(dir, "Task Runs", runFile[0] as string), "utf8");
+      expect(text).toContain("state: succeeded");
+      expect(text).toContain("假 CLI 已处理");
+      expect(((await call("tasks.read", { id: (t.data as { id: string }).id })).data as { completed: boolean }).completed).toBe(false);
+      expect(((await call("automations.runNow", { id: rules[0]?.id })).data as { summary: unknown }).summary).toEqual({ processed: 0, skipped: 2 });
+      expect(ls(path.join(dir, "Task Runs"))).toHaveLength(1);
+      expect(((await call("automations.activations", {})).data as unknown[]).length).toBe(2);
+    } finally {
+      process.env["PATH"] = oldPath;
     }
   }, 60_000);
 });

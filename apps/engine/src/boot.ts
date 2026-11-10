@@ -7,6 +7,7 @@ import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as archives from "@huhu/plugin-archives/engine";
+import * as automations from "@huhu/plugin-automations/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
 import * as notes from "@huhu/plugin-notes/engine";
 import * as safe from "@huhu/plugin-safe/engine";
@@ -111,6 +112,19 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
   registerSystemCapabilities(registry, plugins, { isExposed: (n) => registry.get(n)?.defaultExposed === true });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "automations", title: "自动化", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => {
+      const cli = api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: { detect(): Promise<{ provider: string; exe: string | null; status: string }[]> } }>("agentCli");
+      let exes: Record<string, string> = {};
+      void cli?.detector.detect().then((r) => { exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string])); });
+      automations.apply(ctx, api, {
+        exeFor: (p) => exes[p] ?? null,
+        spaceState: (id) => { const s = cli?.spaces.list().find((x) => x.id === id); return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" }; },
+        notify: (n) => events.publish("notification.created", { id: `n-${Date.now()}`, title: n.title, module: n.module }),
+      });
+    },
+  });
   await plugins.enableAll();
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");

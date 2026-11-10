@@ -288,6 +288,9 @@ importers:
       '@huhu/plugin-archives':
         specifier: workspace:*
         version: link:../../plugins/archives
+      '@huhu/plugin-automations':
+        specifier: workspace:*
+        version: link:../../plugins/automations
       '@huhu/plugin-inbox':
         specifier: workspace:*
         version: link:../../plugins/inbox

@@ -57,5 +57,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   api.defineCapability(def({ name: "agent.sessions.kill", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: Ok, handler: async (_c, i) => (await sessions.kill(i.id), { ok: true as const }) }));
   api.defineCapability(def({ name: "agent.sessions.rename", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: Id.extend({ name: z.string() }), output: Session, handler: (_c, i) => sessions.rename(i.id, i.name) }));
   api.defineCapability(def({ name: "agent.core.status", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ state: z.string(), version: z.string().nullable(), error: z.string().optional() }), handler: () => core.status() }));
+  api.provide("agentCli", { spaces, detector });
   return { spaces, detector, sessions, core };
 }

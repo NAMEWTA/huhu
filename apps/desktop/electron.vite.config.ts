@@ -5,7 +5,7 @@ export default defineConfig({
   main: {
     build: {
       // 工作区包是 TS 源码，必须被打进 index.js/engine.js；原生模块在 rollupOptions.external 中单独外部化
-      externalizeDeps: { exclude: ["@huhu/engine", "@huhu/plugin-notes", "@huhu/plugin-agent-cli", "@huhu/plugin-safe", "@huhu/plugin-archives", "@huhu/plugin-inbox", "@huhu/kernel", "@huhu/vault", "@huhu/contracts", "@huhu/cordis", "@huhu/cosmokit", "@huhu/cordis-timer", "@huhu/plugin-tasks"] },
+      externalizeDeps: { exclude: ["@huhu/engine", "@huhu/plugin-notes", "@huhu/plugin-automations", "@huhu/plugin-agent-cli", "@huhu/plugin-safe", "@huhu/plugin-archives", "@huhu/plugin-inbox", "@huhu/kernel", "@huhu/vault", "@huhu/contracts", "@huhu/cordis", "@huhu/cosmokit", "@huhu/cordis-timer", "@huhu/plugin-tasks"] },
       outDir: "out/main",
       rollupOptions: {
         input: { index: "src/main/index.ts", engine: "../engine/src/main.ts" },

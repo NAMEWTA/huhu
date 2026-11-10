@@ -7,6 +7,13 @@ import { TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
 
+/** 其他插件通过 `api.service<TaskQuery>("taskQuery")` 使用。 */
+export interface TaskQuery {
+  listAll(): import("@huhu/contracts").TaskDto[];
+  listOpenAgentTasks(): import("@huhu/contracts").TaskDto[];
+  snapshot(taskId: string): import("@huhu/contracts").TaskDto;
+}
+
 const Id = z.object({ id: z.string() });
 const Versioned = Id.extend({ expectedVersion: z.string() });
 const REMINDER_CHECK_MS = 30_000;
@@ -54,6 +61,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number() })),
     handler: (_c, i) => svc.runs(i.id),
   }));
+
+  // 为 automations 提供进程内服务（modules/tasks.md §6）：冻结的任务快照
+  api.provide("taskQuery", {
+    listAll: () => svc.list(),
+    listOpenAgentTasks: () => svc.list({ completed: false }).filter((t) => t.execution.kind === "agent"),
+    snapshot: (taskId: string) => svc.read(taskId),
+  } satisfies TaskQuery);
 
   // 提醒：启动时与每 30 秒检查；应用关闭期间到点的在下次启动补发一次
   let checking = false;
