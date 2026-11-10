@@ -1,1 +1,26 @@
-{ "name": "@huhu/cordis-timer", "version": "0.0.1", "private": true, "type": "module", "license": "MIT", "exports": { ".": "./src/index.ts" }, "dependencies": { "@huhu/cosmokit": "workspace:*" }, "peerDependencies": { "@huhu/cordis": "workspace:*" }, "devDependencies": { "@huhu/cordis": "workspace:*" }, "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" } }
+{
+  "name": "@huhu/cordis-timer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@huhu/cosmokit": "workspace:*"
+  },
+  "peerDependencies": {
+    "@huhu/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "@huhu/cordis": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build:types": "tsc -p tsconfig.json"
+  }
+}

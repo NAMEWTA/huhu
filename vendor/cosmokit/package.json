@@ -1,1 +1,17 @@
-{ "name": "@huhu/cosmokit", "version": "0.0.1", "private": true, "type": "module", "license": "MIT", "exports": { ".": "./src/index.ts" }, "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" } }
+{
+  "name": "@huhu/cosmokit",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build:types": "tsc -p tsconfig.json"
+  }
+}

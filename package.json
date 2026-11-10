@@ -10,7 +10,7 @@
   },
   "scripts": {
     "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs",
-    "typecheck": "pnpm -r --parallel run typecheck",
+    "typecheck": "pnpm --filter \"./vendor/*\" run build:types && pnpm -r --parallel run typecheck",
     "test": "vitest run",
     "build": "pnpm -r run build",
     "gen": "node scripts/gen-guide.mjs",

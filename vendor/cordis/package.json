@@ -1,1 +1,21 @@
-{ "name": "@huhu/cordis", "version": "0.0.1", "private": true, "type": "module", "license": "MIT", "exports": { ".": "./src/index.ts" }, "dependencies": { "@huhu/cosmokit": "workspace:*", "@standard-schema/spec": "^1.1.0" }, "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" } }
+{
+  "name": "@huhu/cordis",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@huhu/cosmokit": "workspace:*",
+    "@standard-schema/spec": "^1.1.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build:types": "tsc -p tsconfig.json"
+  }
+}
