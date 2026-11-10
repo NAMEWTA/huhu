@@ -4,6 +4,7 @@ import { applyAppearance } from "@huhu/ui";
 import { contributions as archivesUi } from "@huhu/plugin-archives/ui";
 import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
+import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
 import { AppShell, ContributionRegistry, EngineProvider, createUiStore, type EngineEndpoint } from "@huhu/workbench";
 import { useEffect, useMemo, useState } from "react";
@@ -23,6 +24,7 @@ function App() {
     r.register(tasksUi);
     r.register(archivesUi);
     r.register(inboxUi);
+    r.register(safeUi);
     return r;
   }, []);
   const ui = useMemo(() => createUiStore({ activeModule: "tasks", openTabs: ["tasks"] }), []);

@@ -30,6 +30,7 @@
     "@huhu/plugin-archives": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",
+    "@huhu/plugin-safe": "workspace:*",
     "@huhu/plugin-tasks": "workspace:*",
     "@huhu/ui": "workspace:*",
     "@huhu/workbench": "workspace:*",

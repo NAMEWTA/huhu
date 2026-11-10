@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -126,6 +126,49 @@ test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建
     // 当前选中的是「乙」：把「甲」设为关联
     await page.getByLabel("关联档案", { exact: true }).selectOption({ label: "甲" });
     await expect.poll(() => readdirSync(path.join(vault, "Archives")).map((f) => readFileSync(path.join(vault, "Archives", f), "utf8")).filter((t) => /relatedIds:\s*\n?\s*-?\s*\[?archive-/.test(t) || t.includes("relatedIds: [archive-")).length).toBe(2);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("保险箱：设置主密码、新增凭据、显示、锁定后需要解锁、密文不含明文", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "保险箱" }).first().click();
+    await expect(page.getByTestId("safe-setup")).toBeVisible();
+    const submit = page.getByRole("button", { name: "创建保险箱" });
+    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
+    await page.getByLabel("确认主密码").fill("correct horse battery");
+    await expect(submit).toBeDisabled(); // 未勾选「我已了解」
+    await page.getByLabel("我已了解").check();
+    await submit.click();
+    await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByLabel("凭据名称").fill("GitHub");
+    await page.getByLabel("秘密值").fill("HUHU-MARKER-7f3a");
+    await page.getByRole("button", { name: "新增凭据" }).click();
+    await expect(page.getByTestId("safe-item")).toHaveCount(1);
+    await expect(page.getByTestId("secret-value")).toHaveText("••••••••");
+    await page.getByRole("button", { name: "显示" }).click();
+    await expect(page.getByTestId("secret-value")).toHaveText("HUHU-MARKER-7f3a");
+
+    await page.getByRole("button", { name: "手动锁定" }).click();
+    await expect(page.getByTestId("safe-locked")).toBeVisible();
+    await page.getByLabel("主密码", { exact: true }).fill("wrong password!");
+    await page.getByRole("button", { name: "解锁保险箱" }).click();
+    await expect(page.getByText("主密码不正确")).toBeVisible();
+    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
+    await page.getByRole("button", { name: "解锁保险箱" }).click();
+    await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
+
+    const all: string[] = [];
+    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) all.push(p); } };
+    walk(vault);
+    expect(all).toEqual([]);
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });
