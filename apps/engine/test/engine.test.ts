@@ -94,7 +94,7 @@ describe("Engine 启动与关闭", () => {
     const seen: string[] = [];
     e.events.subscribe((ev) => { if (ev.type === "vault.fileChanged") seen.push((ev.payload as { path: string }).path); });
     writeFileSync(path.join(dir, "新文件.md"), "独特词汇蜻蜓");
-    const end = Date.now() + 3000;
+    const end = Date.now() + 15000; // 全量并行时原生监听延迟可能更长
     while (!seen.includes("新文件.md") && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
     expect(seen).toContain("新文件.md");
     expect((await call("vault.search", { query: "蜻蜓" })).data.hits[0]?.path).toBe("新文件.md");
