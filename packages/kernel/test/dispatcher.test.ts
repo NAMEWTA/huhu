@@ -128,7 +128,7 @@ describe("Dispatcher 管线", () => {
   test("审计只保留最近 500 条", () => {
     const a = new GatewayAudit();
     for (let i = 0; i < 520; i++) a.add({ at: "", entry: "cli", capability: "c", code: "OK", ms: i });
-    expect(a.list().length).toBe(520); // 内存无文件时不截断；文件模式截断见下
+    expect(a.list().length).toBe(500);
     const dir = mkdtempSync(path.join(tmpdir(), "huhu-a-")); dirs.push(dir);
     const f = new GatewayAudit(path.join(dir, "a.ndjson"));
     for (let i = 0; i < 520; i++) f.add({ at: "", entry: "cli", capability: "c", code: "OK", ms: i });

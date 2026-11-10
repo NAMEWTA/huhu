@@ -29,12 +29,12 @@ export class GatewayAudit {
 
   add(r: AuditRecord): void {
     this.records.push(r);
+    const overflow = this.records.length > MAX_RECORDS;
+    if (overflow) this.records = this.records.slice(-MAX_RECORDS);
     if (this.file) {
       mkdirSync(path.dirname(this.file), { recursive: true });
-      if (this.records.length > MAX_RECORDS) {
-        this.records = this.records.slice(-MAX_RECORDS);
-        writeFileSync(this.file, this.records.map((x) => JSON.stringify(x)).join("\n") + "\n");
-      } else appendFileSync(this.file, JSON.stringify(r) + "\n");
+      if (overflow) writeFileSync(this.file, this.records.map((x) => JSON.stringify(x)).join("\n") + "\n");
+      else appendFileSync(this.file, JSON.stringify(r) + "\n");
     }
   }
 
