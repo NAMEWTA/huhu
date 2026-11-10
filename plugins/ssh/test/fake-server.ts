@@ -1,5 +1,8 @@
 import net from "node:net";
-import { Server, utils, type Connection } from "ssh2";
+import ssh2, { type Connection } from "ssh2";
+
+// 默认导入：Playwright 的 Node ESM 加载器拿不到 CJS 的具名导出
+const { Server, utils } = ssh2;
 
 export interface FakeSshOptions {
   password?: string;

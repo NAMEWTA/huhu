@@ -1,9 +1,19 @@
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient, type UseMutationOptions } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import type { HuhuEvent } from "@huhu/contracts";
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { EngineClient, EventStream, type EngineEndpoint } from "./client.js";
 import { invalidateForEvent, queryKey } from "./query.js";
 
 const Ctx = createContext<EngineClient | null>(null);
+const EventsCtx = createContext<{ subscribe(fn: (e: HuhuEvent) => void): () => void } | null>(null);
+
+/** 订阅 Engine 事件（例如主机密钥提示）。组件卸载时自动取消。 */
+export function useEngineEvents(handler: (e: HuhuEvent) => void): void {
+  const bus = useContext(EventsCtx);
+  const ref = useRef(handler);
+  ref.current = handler;
+  useEffect(() => bus?.subscribe((e) => ref.current(e)), [bus]);
+}
 
 export function useEngine(): EngineClient {
   const c = useContext(Ctx);
@@ -20,6 +30,8 @@ export interface EngineProviderProps {
 /** 提供 Engine 客户端与 React Query；事件到达时让相关查询失效。 */
 export function EngineProvider({ endpoint, children, onConnection }: EngineProviderProps) {
   const client = useMemo(() => new EngineClient(endpoint), [endpoint]);
+  const listeners = useMemo(() => new Set<(e: HuhuEvent) => void>(), []);
+  const bus = useMemo(() => ({ subscribe: (fn: (e: HuhuEvent) => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; } }), [listeners]);
   const qc = useMemo(() => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 5_000 } } }), [endpoint.vaultId]);
   useEffect(() => {
     // 引擎重启后端点（令牌/端口）变化：新事件流没有旧序号，无法补发，必须让全部缓存失效
@@ -27,16 +39,18 @@ export function EngineProvider({ endpoint, children, onConnection }: EngineProvi
   }, [endpoint.baseUrl, endpoint.token, endpoint.vaultId, qc]);
   useEffect(() => {
     const stream = new EventStream(endpoint, {
-      onEvent: (e) => void invalidateForEvent(qc, endpoint.vaultId, e),
+      onEvent: (e) => { void invalidateForEvent(qc, endpoint.vaultId, e); for (const l of listeners) l(e); },
       onResync: () => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === endpoint.vaultId }),
       ...(onConnection ? { onState: onConnection } : {}),
     });
     stream.start();
     return () => stream.close();
-  }, [endpoint, qc, onConnection]);
+  }, [endpoint, qc, onConnection, listeners]);
   return (
     <Ctx.Provider value={client}>
-      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      <EventsCtx.Provider value={bus}>
+        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      </EventsCtx.Provider>
     </Ctx.Provider>
   );
 }

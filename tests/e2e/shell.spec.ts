@@ -300,3 +300,51 @@ test("Agent CLI：在 Space 里启动 shell，经 xterm 输入并看到输出；
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("远程连接：新增主机（密码进保险箱）、确认指纹、连接、Exec、交互终端", async () => {
+  const { startFakeSsh } = await import("../../plugins/ssh/test/fake-server.js");
+  const srv = await startFakeSsh({ password: "e2e-ssh-pw" });
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    // 先设置保险箱
+    await page.getByRole("button", { name: "保险箱" }).first().click();
+    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
+    await page.getByLabel("确认主密码").fill("correct horse battery");
+    await page.getByLabel("我已了解").check();
+    await page.getByRole("button", { name: "创建保险箱" }).click();
+    await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByRole("button", { name: "远程连接" }).first().click();
+    await page.getByLabel("显示名称").fill("测试机");
+    await page.getByLabel("主机名或 IP").fill("127.0.0.1");
+    await page.getByLabel("端口", { exact: true }).fill(String(srv.port));
+    await page.getByLabel("用户名").fill("u");
+    await page.getByLabel("密码", { exact: true }).fill("e2e-ssh-pw");
+    await page.getByRole("button", { name: "新增主机" }).click();
+    await expect(page.getByRole("button", { name: /测试机/ })).toBeVisible();
+
+    await page.getByRole("button", { name: "连接", exact: true }).click();
+    await expect(page.getByTestId("hostkey-dialog")).toContainText("SHA256:");
+    await page.getByRole("button", { name: "信任并连接" }).click();
+    await expect(page.getByRole("button", { name: "断开" })).toBeVisible({ timeout: 10_000 });
+    expect(readFileSync(path.join(vault, ".huhu/ssh/known_hosts"), "utf8")).toContain("ssh-ed25519");
+
+    await page.getByLabel("命令", { exact: true }).fill("echo 来自远端");
+    await page.getByRole("button", { name: "运行" }).click();
+    await expect(page.getByTestId("exec-output")).toContainText("来自远端");
+    await expect(page.getByTestId("exec-output")).toContainText("退出码: 0");
+
+    await page.getByRole("button", { name: "新建终端" }).click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 10_000 });
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("Z"); // 假服务器按收到的每个按键回显 ECHO:<按键>
+    await expect(page.locator(".xterm-rows")).toContainText("ECHO:Z", { timeout: 10_000 });
+  } finally {
+    await app.close();
+    await srv.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

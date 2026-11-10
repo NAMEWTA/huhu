@@ -32,7 +32,7 @@
 | W13 自动化（部分） | 规则能力、Croner 调度与补跑、预览、立即运行、进程 worker、激活记录、claim；无 agent_prompt/script 动作、问答续接、取消/对账、监督进程、界面 | 单元 + 假 CLI 端到端 |
 | W15 版本历史（部分） | shadow 仓库文件历史（记录/时间线含改名/读取/命名版本/恢复含恢复前检查点）、规则文件恢复后暂停；无 Git 页、同步、冲突、`holdRestoredInput` 接线、界面 | 单元 + HTTP |
 | W17 网关（部分） | `huhu mcp`（stdio，身份 mcp）、`capabilities.list`、`plugins.list/setEnabled`、CLI 便捷命令；无 HTTP 服务/令牌、MCP over HTTP、测试台、指南维护 | 集成 |
-| W14 SSH（部分） | 主机配置（跳板循环检测）、known_hosts 逐跳信任（首次提示/变化拒绝且不发送凭据）、多跳连接、Exec（中断/超时）、审计、凭据只经 SecretUse；用 ssh2 假服务器验证。无 Shell/终端流、SFTP、界面 | 单元 + HTTP |
+| W14 SSH（部分） | 主机配置（跳板循环检测）、known_hosts 逐跳信任、多跳连接、Exec、审计、凭据只经 SecretUse、交互 Shell（detach 不关 channel、回放、断开后不复活，经 /ws/terminal/ssh-<id>）、模块界面（新增主机进保险箱、指纹对话框、Exec、终端）；用 ssh2 假服务器验证，未对真实 OpenSSH 验证。无 SFTP、主机编辑/跳板选择界面、Agent 转发 | 单元 + HTTP + Playwright |
 | W16 插件中心（部分） | 内置插件启停（含依赖级联确认）、偏好持久化到 plugins.json、rail/标签按启用状态即时过滤、清单（huhu-plugin.json）成为 Engine 注册的唯一来源、停用后能力返回 PLUGIN_DISABLED；无外部插件安装/宿主进程、权限页 | 单元 + HTTP + Playwright |
 | W18（部分） | 站内通知、设置（仅外观）、首页（概览卡片+最近笔记，插件停用时卡片为 0）、健康中心（插件/文件问题/索引/监听/保险箱检查）；无首页卡片自定义、专注计时、习惯、诊断导出、设置的编辑器/日期时间/快捷键/数据与存储页 | 单元 + Playwright |
 | W08.1 任务后端 | 分类、勾选、输入版本、CRUD、回收站、提醒完成；UI 与 TaskQuery 服务未做 | 单元/HTTP 集成测试 |

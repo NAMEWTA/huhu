@@ -6,7 +6,7 @@
   "exports": {
     "./engine": "./src/engine/index.ts",
     "./shared": "./src/shared/index.ts",
-    "./ui": "./src/ui/index.ts",
+    "./ui": "./src/ui/index.tsx",
     "./manifest": "./huhu-plugin.json"
   },
   "scripts": {
@@ -16,11 +16,19 @@
     "@huhu/contracts": "workspace:*",
     "@huhu/cordis": "workspace:*",
     "@huhu/kernel": "workspace:*",
+    "@huhu/ui": "workspace:*",
     "@huhu/vault": "workspace:*",
+    "@huhu/workbench": "workspace:*",
+    "@tanstack/react-query": "^5.107.1",
+    "lucide-react": "^1.70.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "ssh2": "^1.17.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/ssh2": "^1.15.6",
     "@types/ws": "^8.18.2",
     "ws": "^8.22.2"
