@@ -1,6 +1,7 @@
 import { Command, CommanderError } from "commander";
 import { callCapability, render } from "./commands/call.js";
 import { ConnectError, connect } from "./connect.js";
+import { createMcpServer } from "./mcp.js";
 
 export const VERSION = "0.0.1";
 
@@ -100,6 +101,21 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
     }
   });
   shortcut(program.command("inbox").description("收件箱").command("capture").requiredOption("--title <t>").option("--body <text>"), "inbox.capture", (o) => ({ title: o["title"], body: (o["body"] as string | undefined) ?? o["title"] }));
+
+  // stdio MCP：stdout 只输出协议帧，日志写 stderr
+  program.command("mcp").description("以 stdio 方式运行 MCP 服务器").option("--vault <path>").action(async (o: { vault?: string }) => {
+    try {
+      const conn = await connect(o.vault, { role: "mcp" }); // 身份为 mcp，而不是 cli
+      const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+      await createMcpServer(conn, VERSION).connect(new StdioServerTransport());
+      await new Promise<void>(() => undefined); // 一直运行到 stdin 关闭（进程退出）
+    } catch (e) {
+      if (e instanceof ConnectError) {
+        io.err(e.message);
+        code = e.exitCode;
+      } else throw e;
+    }
+  });
 
   try {
     await program.parseAsync(argv, { from: "user" });

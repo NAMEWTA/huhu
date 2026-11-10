@@ -18,6 +18,7 @@ export interface EndpointDescriptor {
   port: number;
   vaultId: string;
   cliToken: string;
+  mcpToken: string;
   startedAt: string;
 }
 
@@ -35,6 +36,7 @@ export interface RunningEngine {
   port: number;
   rendererToken: string;
   cliToken: string;
+  mcpToken: string;
   descriptorPath: string;
   server: RunningServer;
   index: VaultIndex;
@@ -129,6 +131,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
+  const mcpToken = tokens.issue("mcp");
   const real = new Dispatcher({
     registry,
     audit: new GatewayAudit(path.join(runtime, "gateway-audit.ndjson")),
@@ -154,7 +157,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   // 只读引擎不取写者锁，也不能覆盖或删除写者的端点描述
   const descriptorPath = endpointPath(vault);
-  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, startedAt: new Date().toISOString() };
+  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, mcpToken, startedAt: new Date().toISOString() };
   if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
 
   let closed: Promise<void> | undefined;
@@ -178,5 +181,5 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       }
     })());
 
-  return { vault, port: server.port, rendererToken, cliToken, descriptorPath, server, index, dispatcher: real, registry, events, shutdown };
+  return { vault, port: server.port, rendererToken, cliToken, mcpToken, descriptorPath, server, index, dispatcher: real, registry, events, shutdown };
 }

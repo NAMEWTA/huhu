@@ -92,4 +92,28 @@ describe("CLI", () => {
     expect((await run1("tasks", "list", "--completed", "false")).code).toBe(0);
     expect((await run1("notes", "list")).code).toBe(0);
   });
+  test("MCP：只列出对外开放的能力；调用经 Dispatcher 授权；safe 能力不出现；资源可读", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { createMcpServer } = await import("../src/mcp.js");
+    const server = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1");
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "1" });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    const tools = (await client.listTools()).tools.map((t) => t.name);
+    expect(tools).toEqual(expect.arrayContaining(["vault_info", "tasks_list", "inbox_capture"]));
+    expect(tools).not.toContain("safe_items_reveal");
+    expect(tools).not.toContain("tasks_create"); // 默认不对外
+    const info = await client.callTool({ name: "vault_info", arguments: {} });
+    expect(JSON.parse((info.content as { text: string }[])[0]?.text ?? "{}")).toMatchObject({ id: e.vault.id });
+    const denied = await client.callTool({ name: "tasks_create", arguments: { title: "x" } });
+    expect(denied.isError).toBe(true);
+    const cap = await client.callTool({ name: "inbox_capture", arguments: { body: "来自 MCP", source: "quick" } });
+    expect(JSON.parse((cap.content as { text: string }[])[0]?.text ?? "{}").source).toBe("mcp"); // 身份来自令牌，输入里的 source 被忽略
+    const res = await client.readResource({ uri: "huhu://vault/summary" });
+    expect(JSON.parse((res.contents[0] as { text: string }).text)).toMatchObject({ id: e.vault.id });
+    await client.close();
+  });
 });

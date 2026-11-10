@@ -18,11 +18,11 @@ function descriptorFile(root: string): string {
   return path.join(root, ".huhu", "runtime", machineId(), "engine.json");
 }
 
-function readLive(root: string): { port: number; cliToken: string; vaultId: string } | null {
+function readLive(root: string): { port: number; cliToken: string; mcpToken?: string; vaultId: string } | null {
   const f = descriptorFile(root);
   if (!existsSync(f)) return null;
   try {
-    const d = JSON.parse(readFileSync(f, "utf8")) as { pid: number; port: number; cliToken: string; vaultId: string };
+    const d = JSON.parse(readFileSync(f, "utf8")) as { pid: number; port: number; cliToken: string; mcpToken?: string; vaultId: string };
     process.kill(d.pid, 0);
     return d;
   } catch {
@@ -38,7 +38,7 @@ export function locateVault(explicit: string | undefined): string {
 }
 
 /** 连接已运行的 Engine；没有则启动无界面 Engine（空闲 60 秒后自行退出）。 */
-export async function connect(vaultOpt: string | undefined, opts: { engineEntry?: string; timeoutMs?: number; idleExitMs?: number } = {}): Promise<Connection> {
+export async function connect(vaultOpt: string | undefined, opts: { engineEntry?: string; timeoutMs?: number; idleExitMs?: number; role?: "cli" | "mcp" } = {}): Promise<Connection> {
   const root = locateVault(vaultOpt);
   let d = readLive(root);
   if (!d) {
@@ -54,6 +54,6 @@ export async function connect(vaultOpt: string | undefined, opts: { engineEntry?
     }
     if (!d) throw new ConnectError("等待 Engine 启动超时");
   }
-  return { baseUrl: `http://127.0.0.1:${d.port}`, token: d.cliToken, vaultId: d.vaultId };
+  return { baseUrl: `http://127.0.0.1:${d.port}`, token: opts.role === "mcp" && d.mcpToken ? d.mcpToken : d.cliToken, vaultId: d.vaultId };
 }
 
