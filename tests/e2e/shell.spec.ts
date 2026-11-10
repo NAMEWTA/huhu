@@ -348,3 +348,51 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、提交", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    // 用 Engine 能力准备数据（界面之外的前置步骤）
+    await page.evaluate(async () => {
+      const ep = await window.huhuHost.engine();
+      const call = async (capability: string, input: unknown) => {
+        const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+        const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
+        if (!j.ok) throw new Error(JSON.stringify(j.error));
+        return j.data;
+      };
+      const n = await call("notes.create", { name: "历史笔记" });
+      let v = (await call("notes.read", { path: n.path })).version;
+      v = (await call("notes.save", { path: n.path, text: "# 历史笔记\n\n第一版\n", expectedVersion: v })).version;
+      await call("history.checkpoint", { path: n.path, title: "第一版" });
+      await call("notes.save", { path: n.path, text: "# 历史笔记\n\n第二版\n", expectedVersion: v });
+      await call("history.checkpoint", { path: n.path, title: "第二版" });
+    });
+    await page.getByRole("button", { name: "版本与同步" }).first().click();
+    await expect(page.getByTestId("history-entry")).toHaveCount(2, { timeout: 10_000 });
+    await expect(page.getByTestId("history-content")).toContainText("第二版");
+    await page.getByTestId("history-entry").filter({ hasText: "第一版" }).click();
+    await expect(page.getByTestId("history-content")).toContainText("第一版");
+    await page.getByRole("button", { name: "恢复到此版本" }).click();
+    await expect(page.getByText("已恢复，恢复前的内容已保存为一个版本")).toBeVisible({ timeout: 10_000 });
+    await expect.poll(() => readFileSync(path.join(vault, "历史笔记.md"), "utf8")).toContain("第一版");
+    await expect(page.getByTestId("history-entry").filter({ hasText: "恢复前" })).toHaveCount(1);
+
+    await page.getByRole("button", { name: "Git", exact: true }).click();
+    await expect(page.getByTestId("git-not-repo")).toBeVisible();
+    await page.getByRole("button", { name: "初始化 Git 仓库" }).click();
+    await expect(page.getByTestId("git-page")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("git-change").filter({ hasText: "历史笔记.md" })).toBeVisible();
+    await page.getByTestId("git-change").filter({ hasText: "历史笔记.md" }).getByRole("button", { name: "暂存" }).click();
+    await expect(page.getByTestId("git-staged")).toHaveCount(1);
+    await page.getByLabel("提交说明").fill("第一次提交");
+    await page.getByRole("button", { name: "提交", exact: true }).click();
+    await expect(page.getByTestId("git-commit").filter({ hasText: "第一次提交" })).toBeVisible({ timeout: 10_000 });
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

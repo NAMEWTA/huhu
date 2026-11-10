@@ -34,6 +34,7 @@
     "@huhu/plugin-safe": "workspace:*",
     "@huhu/plugin-ssh": "workspace:*",
     "@huhu/plugin-tasks": "workspace:*",
+    "@huhu/plugin-versioning": "workspace:*",
     "@huhu/ui": "workspace:*",
     "@huhu/workbench": "workspace:*",
     "@parcel/watcher": "^2.6.0",

@@ -233,6 +233,9 @@ importers:
       '@huhu/plugin-tasks':
         specifier: workspace:*
         version: link:../../plugins/tasks
+      '@huhu/plugin-versioning':
+        specifier: workspace:*
+        version: link:../../plugins/versioning
       '@huhu/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -930,12 +933,37 @@ importers:
       '@huhu/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@huhu/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@huhu/vault':
         specifier: workspace:*
         version: link:../../packages/vault
+      '@huhu/workbench':
+        specifier: workspace:*
+        version: link:../../packages/workbench
+      '@tanstack/react-query':
+        specifier: ^5.107.1
+        version: 5.107.1(@types/react@19.3.0)(react@19.3.1)
+      lucide-react:
+        specifier: ^1.70.0
+        version: 1.70.0(@types/react@19.3.0)(react@19.3.1)
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
 
   vendor/cordis:
     dependencies:
