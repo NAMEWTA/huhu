@@ -5,6 +5,7 @@ import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { FileHistory, type HistoryEntry } from "./history.js";
 import { VaultGit } from "./repo.js";
+import { VaultSync } from "./sync.js";
 
 export { FileHistory } from "./history.js";
 export { GitRunner } from "./git.js";
@@ -93,5 +94,24 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   api.defineCapability(def({ name: "git.stage", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ paths: z.array(z.string()).min(1) }), output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await git.stage(i.paths), { ok: true as const }) }));
   api.defineCapability(def({ name: "git.unstage", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ paths: z.array(z.string()).min(1) }), output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await git.unstage(i.paths), { ok: true as const }) }));
   api.defineCapability(def({ name: "git.commit", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ message: z.string() }), output: Commit, handler: (_c, i) => git.commit(i.message) }));
+  const sync = new VaultSync(files.root);
+  const Cfg = z.object({ remote: z.string(), branch: z.string(), mode: z.enum(["off", "follow", "full"]), exclude: z.array(z.string()) });
+  api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
+  api.defineCapability(def({ name: "sync.update", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: Cfg.partial(), output: Cfg, handler: (_c, i) => sync.update(i as never) }));
+  api.defineCapability(def({
+    name: "sync.preview", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, timeoutMs: 120_000, input: z.object({}),
+    output: z.object({ push: z.array(z.string()), skipped: z.array(z.object({ path: z.string(), reason: z.string() })), pull: z.array(z.string()), ahead: z.number(), behind: z.number() }),
+    handler: () => sync.preview(),
+  }));
+  api.defineCapability(def({
+    name: "sync.run", plugin: "versioning", scope: "execute", exposable: false, defaultExposed: false, timeoutMs: 10 * 60_000, input: z.object({ mode: z.enum(["pull", "push", "sync"]).default("sync") }),
+    output: z.object({ pulled: z.boolean(), pushed: z.boolean(), committed: z.boolean() }),
+    handler: async (_c, i) => {
+      const r = await sync.run(i.mode);
+      api.events.publish("sync.statusChanged", { status: "idle", ahead: 0, behind: 0, conflicts: 0 });
+      return r;
+    },
+  }));
+  api.defineCapability(def({ name: "sync.status", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ name: z.string(), detail: z.string() }), handler: () => sync.status() }));
   return { history };
 }

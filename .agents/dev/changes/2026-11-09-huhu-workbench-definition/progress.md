@@ -30,7 +30,7 @@
 | W11 保险箱 | 后端（scrypt+AES-GCM、冷却、自动锁定、AAD 防互换、审计、SecretUse）+ 基础界面完成；无「修改主密码」界面、锁屏/休眠监听（Main powerMonitor）、剪贴板 30 秒清除（copyText） | 单元 + HTTP + Playwright |
 | W12 Agent CLI（部分） | Space、Provider 检测、会话启动/中断/结束/重命名、Herdr Core 实例隔离、终端 attach（WS 桥 + xterm，真实 Core 验证输入/resize/退出码/重开）、基础模块界面；无分屏、历史扫描、恢复会话、变更审查、Space 管理界面、设置对话框 | 单元 + 真实 Core 集成 + Playwright |
 | W13 自动化（部分） | 规则能力、Croner 调度与补跑、预览、立即运行、进程 worker、激活记录、claim；无 agent_prompt/script 动作、问答续接、取消/对账、监督进程、界面 | 单元 + 假 CLI 端到端 |
-| W15 版本历史（部分） | shadow 仓库文件历史、命名版本、恢复（含恢复前检查点；规则恢复后暂停；任务恢复保持完成状态并通知自动化暂停）、Git 页后端（init/status/stage/unstage/commit/log/diff）、模块界面（文件历史 + Git 页）；无文件差异视图、提交差异、同步（预览/拉取/推送）、冲突页 | 单元 + 真实 git + HTTP + Playwright |
+| W15 版本历史（部分） | shadow 仓库文件历史、命名版本、恢复（含恢复前检查点；规则恢复后暂停；任务恢复保持完成状态并通知自动化暂停）、Git 页后端（init/status/stage/unstage/commit/log/diff）、模块界面（文件历史 + Git 页）；同步后端（纳入范围分类含用户排除规则、预览、临时 index 提交、拉取合并、推送、冲突回退并报告文件；用本地 bare 仓库验证 ACC-VS-05/06）；无同步界面、冲突解决页（逐块选择）、自动定时同步、凭据（保险箱 token）接入、文件差异视图 | 单元 + 真实 git + HTTP + Playwright |
 | W17 网关（部分） | `huhu mcp`（stdio，身份 mcp）、`capabilities.list`、`plugins.list/setEnabled`、CLI 便捷命令；无 HTTP 服务/令牌、MCP over HTTP、测试台、指南维护 | 集成 |
 | W14 SSH（部分） | 主机配置（跳板循环检测）、known_hosts 逐跳信任、多跳连接、Exec、审计、凭据只经 SecretUse、交互 Shell（detach 不关 channel、回放、断开后不复活，经 /ws/terminal/ssh-<id>）、模块界面（新增主机进保险箱、指纹对话框、Exec、终端）；用 ssh2 假服务器验证，未对真实 OpenSSH 验证。无 SFTP、主机编辑/跳板选择界面、Agent 转发 | 单元 + HTTP + Playwright |
 | W16 插件中心（部分） | 内置插件启停（含依赖级联确认）、偏好持久化到 plugins.json、rail/标签按启用状态即时过滤、清单（huhu-plugin.json）成为 Engine 注册的唯一来源、停用后能力返回 PLUGIN_DISABLED；无外部插件安装/宿主进程、权限页 | 单元 + HTTP + Playwright |

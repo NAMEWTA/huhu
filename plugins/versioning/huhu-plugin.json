@@ -29,7 +29,12 @@
       "history.checkpoint",
       "history.read",
       "history.restore",
-      "history.timeline"
+      "history.timeline",
+      "sync.get",
+      "sync.preview",
+      "sync.run",
+      "sync.status",
+      "sync.update"
     ],
     "fileKinds": []
   }
