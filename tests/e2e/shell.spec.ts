@@ -485,6 +485,16 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByRole("button", { name: "撤销 自动化脚本" }).click();
     await expect(page.getByTestId("token-row")).toHaveCount(0);
 
+    await page.getByRole("textbox", { name: "测试台" }).fill("tasks.create");
+    await page.getByRole("button", { name: "检查" }).click();
+    await expect(page.getByTestId("bench-row").first()).toHaveAttribute("data-allowed", "false"); // 刚才关掉了
+    await page.getByRole("textbox", { name: "测试台" }).fill("safe.items.reveal");
+    await page.getByRole("button", { name: "检查" }).click();
+    await expect(page.getByTestId("bench-row").first()).toContainText("永不对外");
+    await page.getByRole("textbox", { name: "测试台" }).fill("no.such.cap");
+    await page.getByRole("button", { name: "检查" }).click();
+    await expect(page.getByTestId("bench-notfound")).toBeVisible();
+
     await page.getByLabel("启用 MCP 服务").click();
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).mcp.enabled).toBe(true);
   } finally {

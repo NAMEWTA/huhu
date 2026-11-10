@@ -28,6 +28,8 @@ export function GatewayModule() {
       return null;
     }
   }
+  const [bench, setBench] = useState("");
+  const [verdict, setVerdict] = useState<{ found: boolean; identities: { identity: string; allowed: boolean; reason: string }[] } | null>(null);
   const mcp = gw.data?.mcp ?? { enabled: false, transport: "stdio" as const };
   const list = (caps.data ?? []).filter((c) => c.name.includes(filter.trim()));
   return (
@@ -50,6 +52,15 @@ export function GatewayModule() {
       {(tokens.data ?? []).length === 0 ? <p>{g.noTokens}</p> : (tokens.data ?? []).map((t) => (
         <div key={t.id} className="hu-row" data-testid="token-row"><strong>{t.name}</strong><span className="hu-meta">{new Date(t.createdAt).toLocaleString()}</span><Button variant="danger" aria-label={`${g.revoke} ${t.name}`} onClick={() => void act("gateway.tokens.revoke", { id: t.id }).then(() => setFresh(null))}>{g.revoke}</Button></div>
       ))}
+      <h2>{g.bench}</h2>
+      <p className="hu-meta">{g.benchHint}</p>
+      <form className="hu-form" onSubmit={(e) => { e.preventDefault(); void act<typeof verdict>("gateway.check", { capability: bench.trim() }).then((r) => setVerdict(r)); }}>
+        <input className="hu-input" aria-label={g.bench} placeholder="tasks.create" value={bench} onChange={(e) => setBench(e.target.value)} />
+        <Button type="submit" disabled={!bench.trim()}>{g.check}</Button>
+      </form>
+      {verdict ? (verdict.found ? verdict.identities.map((v) => (
+        <div key={v.identity} className="hu-row" data-testid="bench-row" data-identity={v.identity} data-allowed={v.allowed}><strong>{v.identity}</strong><Badge>{v.allowed ? g.allowed : g.denied}</Badge><span className="hu-meta">{v.reason}</span></div>
+      )) : <p role="status" data-testid="bench-notfound">{g.notFound}</p>) : null}
       <h2>{g.capabilities}</h2>
       <input className="hu-input" aria-label={g.filter} placeholder={g.filter} value={filter} onChange={(e) => setFilter(e.target.value)} />
       {list.map((c) => (

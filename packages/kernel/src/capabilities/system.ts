@@ -71,6 +71,23 @@ export function registerSystemCapabilities(
       },
     })),
     registry.register(defineCapability({
+      // 测试台：不执行能力，只回答"以 CLI / MCP / HTTP 身份调用它，现在会不会被允许"
+      name: "gateway.check", plugin: "kernel", scope: "admin", exposable: false, defaultExposed: false,
+      input: z.object({ capability: z.string() }),
+      output: z.object({ found: z.boolean(), scope: z.string().nullable(), identities: z.array(z.object({ identity: z.enum(["cli", "mcp", "http"]), allowed: z.boolean(), reason: z.string() })) }),
+      handler: (_c, i) => {
+        const cap = registry.get(i.capability);
+        const verdict = (): { allowed: boolean; reason: string } => {
+          if (!cap) return { allowed: false, reason: "能力不存在，或所属插件未启用" };
+          if (!cap.exposable) return { allowed: false, reason: "该能力永不对外开放" };
+          if (!exposure.isExposed(cap.name)) return { allowed: false, reason: "尚未开放：先在上面打开它的开关" };
+          return { allowed: true, reason: cap.scope === "read" ? "允许调用" : "允许调用（写/执行类调用需要幂等键）" };
+        };
+        const v = verdict();
+        return { found: !!cap, scope: cap?.scope ?? null, identities: (["cli", "mcp", "http"] as const).map((identity) => ({ identity, ...v })) };
+      },
+    })),
+    registry.register(defineCapability({
       name: "capabilities.list", plugin: "kernel", scope: "read", exposable: true, defaultExposed: true, input: z.object({}),
       output: z.array(z.object({ name: z.string(), plugin: z.string(), scope: z.string(), exposable: z.boolean(), exposed: z.boolean(), input: z.unknown(), output: z.unknown() })),
       handler: () => registry.list().map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable, exposed: c.exposable && exposure.isExposed(c.name), input: toJsonSchema(c.input), output: toJsonSchema(c.output) })),

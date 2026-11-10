@@ -33,5 +33,11 @@ export const tGateway = {
   exposed: "已开放",
   closed: "未开放",
   never: "不可开放",
+  bench: "测试台",
+  benchHint: "输入能力名，检查以 CLI / MCP / HTTP 身份调用现在是否会被允许（不会真的调用）",
+  check: "检查",
+  allowed: "允许",
+  denied: "拒绝",
+  notFound: "没有这个能力",
   scope: { read: "读", write: "写", execute: "执行", admin: "管理" },
 } as const;
