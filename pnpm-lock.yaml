@@ -288,6 +288,9 @@ importers:
       '@huhu/plugin-notes':
         specifier: workspace:*
         version: link:../../plugins/notes
+      '@huhu/plugin-safe':
+        specifier: workspace:*
+        version: link:../../plugins/safe
       '@huhu/plugin-tasks':
         specifier: workspace:*
         version: link:../../plugins/tasks
@@ -654,7 +657,23 @@ importers:
         specifier: ^31.0.0
         version: 31.0.0(@noble/hashes@1.8.0)
 
-  plugins/safe: {}
+  plugins/safe:
+    dependencies:
+      '@huhu/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@huhu/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@huhu/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@huhu/vault':
+        specifier: workspace:*
+        version: link:../../packages/vault
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   plugins/ssh: {}
 

@@ -13,6 +13,7 @@
     "@huhu/plugin-archives": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",
+    "@huhu/plugin-safe": "workspace:*",
     "@huhu/plugin-tasks": "workspace:*",
     "@huhu/vault": "workspace:*",
     "zod": "^4.6.7"

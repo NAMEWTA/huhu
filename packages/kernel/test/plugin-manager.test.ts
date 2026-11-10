@@ -151,4 +151,18 @@ describe("PluginManager", () => {
     await Promise.all([en, dis]);
     expect(pm.state("slow")).toBe("disabled");
   });
+
+  test("provide/service：服务随提供者作用域注册与注销", async () => {
+    const { pm } = setup();
+    let seen: unknown;
+    pm.register({ manifest: manifest("prov"), apply: (_c, api) => api.provide("svc", { hello: 1 }) });
+    pm.register({ manifest: manifest("cons", ["prov"]), apply: (_c, api) => { seen = api.service("svc"); } });
+    await pm.enable("cons");
+    expect(seen).toEqual({ hello: 1 });
+    await pm.disable("prov");
+    let after: unknown = "unset";
+    pm.register({ manifest: manifest("late"), apply: (_c, api) => { after = api.service("svc"); } });
+    await pm.enable("late");
+    expect(after).toBeUndefined();
+  });
 });

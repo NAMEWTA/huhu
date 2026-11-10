@@ -41,6 +41,9 @@ export interface VaultServices {
 
 export interface HuhuApi {
   vault: VaultServices;
+  /** 插件间进程内服务（如 SecretUse）：随提供者作用域注册/注销。 */
+  provide(name: string, service: unknown): void;
+  service<T>(name: string): T | undefined;
   defineCapability<I, O>(def: CapabilityDefinition<I, O>): void;
   events: Pick<EventBus, "publish" | "subscribe">;
   call(capability: string, input: unknown, opts?: { idempotencyKey?: string }): Promise<unknown>;
@@ -62,6 +65,7 @@ export interface RootDeps {
 /** 创建绑定了 HUHU 门面的根上下文；`forPlugin` 为每个插件生成带其身份的门面。 */
 export function createHuhuContext(deps: RootDeps): { root: Context; facade: (pluginId: string, ctx: Context) => HuhuApi } {
   const root = new Context();
+  const services = new Map<string, unknown>();
   const facade = (pluginId: string, ctx: Context): HuhuApi => ({
     // 订阅挂到插件作用域，停用后不再收到事件
     events: {
@@ -76,6 +80,16 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
       },
     },
     vault: deps.vault,
+    provide(name, service) {
+      if (services.has(name)) throw new Error(`服务重复提供：${name}`);
+      ctx.effect(() => {
+        services.set(name, service);
+        return () => {
+          if (services.get(name) === service) services.delete(name);
+        };
+      });
+    },
+    service: <T,>(name: string) => services.get(name) as T | undefined,
     defineCapability(def) {
       if (def.plugin !== pluginId) throw errors.permissionDenied(`${def.name}（插件 ${pluginId} 不能注册属于 ${def.plugin} 的能力）`);
       ctx.effect(() => deps.registry.register(def));

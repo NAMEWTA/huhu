@@ -158,4 +158,23 @@ describe("Engine 启动与关闭", () => {
     // ACC-AR：archives.list 对外默认开放
     expect(((await post(e, e.cliToken, { capability: "archives.list", input: {}, requestId: "r" })) as unknown as { ok: boolean }).ok).toBe(true);
   });
+  test("safe：ACC-SF-06 外部入口不能 reveal；ACC-SF-01 全 Vault 找不到明文；锁定后 SAFE_LOCKED", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    type R = { ok: boolean; data: { id: string; value: string; locked: boolean }; error?: { code: string } };
+    const call = (token: string, capability: string, input: unknown) =>
+      post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    expect((await call(e.rendererToken, "safe.setup", { password: "correct horse battery" })).ok).toBe(true);
+    const item = await call(e.rendererToken, "safe.items.save", { name: "GH", type: "token", allowedModules: ["ssh"], value: "HUHU-MARKER-7f3a" });
+    expect((await call(e.rendererToken, "safe.items.reveal", { id: item.data.id })).data.value).toBe("HUHU-MARKER-7f3a");
+    for (const cap of ["safe.items.reveal", "safe.items.list", "safe.status"]) expect((await call(e.cliToken, cap, { id: item.data.id })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    await call(e.rendererToken, "safe.lock", {});
+    expect((await call(e.rendererToken, "safe.items.list", {})).error?.code).toBe("SAFE_LOCKED");
+    expect((await call(e.rendererToken, "safe.unlock", { password: "wrong password!" })).error?.code).toBe("SAFE_BAD_PASSWORD");
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const hits: string[] = [];
+    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) hits.push(p); } };
+    walk(dir);
+    expect(hits).toEqual([]);
+  });
 });

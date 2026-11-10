@@ -8,6 +8,7 @@ import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatche
 import * as archives from "@huhu/plugin-archives/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
 import * as notes from "@huhu/plugin-notes/engine";
+import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
 
 export interface EndpointDescriptor {
@@ -99,6 +100,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "inbox", title: "收件箱", description: "", version: "0.0.1", origin: "builtin", permissions: ["tasks.write", "notes.write", "archives.write"] }),
     apply: (ctx, api) => void inbox.apply(ctx, api, { isPluginEnabled: (id) => plugins.isEnabled(id) }),
+  });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "safe", title: "保险箱", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => void safe.apply(ctx, api),
   });
   await plugins.enableAll();
   const tokens = new TokenTable();
