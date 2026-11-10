@@ -10,6 +10,7 @@ import * as archives from "@huhu/plugin-archives/engine";
 import * as automations from "@huhu/plugin-automations/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
 import * as notes from "@huhu/plugin-notes/engine";
+import * as ssh from "@huhu/plugin-ssh/engine";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
@@ -131,6 +132,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "versioning", title: "版本与同步", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => void versioning.apply(ctx, api),
+  });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "ssh", title: "远程连接", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => void ssh.apply(ctx, api),
   });
   await plugins.enableAll();
   const tokens = new TokenTable();

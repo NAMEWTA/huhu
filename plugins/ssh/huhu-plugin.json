@@ -1,0 +1,12 @@
+{
+  "id": "ssh",
+  "title": "远程连接",
+  "description": "SSH 主机、Shell、Exec 与 SFTP",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": ["safe", "agent-cli"],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": { "modules": ["ssh"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["ssh.hosts.list", "ssh.hosts.save", "ssh.hosts.delete", "ssh.connect", "ssh.disconnect", "ssh.hostKey.decide", "ssh.exec.run", "ssh.exec.cancel", "ssh.audit.list"], "fileKinds": [] }
+}

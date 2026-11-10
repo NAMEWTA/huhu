@@ -3,6 +3,23 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "exports": { "./engine": "./src/engine/index.ts", "./ui": "./src/ui/index.ts", "./shared": "./src/shared/index.ts" },
-  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" }
+  "exports": {
+    "./engine": "./src/engine/index.ts",
+    "./shared": "./src/shared/index.ts",
+    "./ui": "./src/ui/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@huhu/contracts": "workspace:*",
+    "@huhu/cordis": "workspace:*",
+    "@huhu/kernel": "workspace:*",
+    "@huhu/vault": "workspace:*",
+    "ssh2": "^1.17.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/ssh2": "^1.15.6"
+  }
 }

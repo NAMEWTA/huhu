@@ -16,6 +16,7 @@
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",
     "@huhu/plugin-safe": "workspace:*",
+    "@huhu/plugin-ssh": "workspace:*",
     "@huhu/plugin-tasks": "workspace:*",
     "@huhu/plugin-versioning": "workspace:*",
     "@huhu/vault": "workspace:*",
