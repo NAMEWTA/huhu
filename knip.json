@@ -1,1 +1,6 @@
-{ "workspaces": { ".": {}, "packages/*": {}, "apps/*": {}, "plugins/*": {} } }
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignore": ["temp/**", ".agents/**", ".claude/**", "vendor/**", "**/dist/**", "**/out/**", "release/**", "test-results/**"],
+  "ignoreBinaries": ["xvfb-run"],
+  "workspaces": { ".": { "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts"] } }
+}
