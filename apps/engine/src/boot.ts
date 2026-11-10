@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
@@ -93,7 +93,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "tasks", title: "任务", description: "", version: "0.0.1", origin: "builtin" }),
-    apply: (ctx, api) => tasks.apply(ctx, api),
+    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n) }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "notes", title: "知识库", description: "", version: "0.0.1", origin: "builtin" }),
@@ -115,6 +115,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
+  const notifications = new NotificationStore(path.join(vault.root, ".huhu", "notifications.ndjson"), () => new Date(), (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }));
+  registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
   registerSystemCapabilities(registry, plugins, { isExposed: (n) => registry.get(n)?.defaultExposed === true });
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "automations", title: "自动化", description: "", version: "0.0.1", origin: "builtin" }),
@@ -125,7 +127,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       automations.apply(ctx, api, {
         exeFor: (p) => exes[p] ?? null,
         spaceState: (id) => { const s = cli?.spaces.list().find((x) => x.id === id); return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" }; },
-        notify: (n) => events.publish("notification.created", { id: `n-${Date.now()}`, title: n.title, module: n.module }),
+        notify: (n) => void notifications.create(n),
       });
     },
   });

@@ -36,3 +36,39 @@ export function registerSystemCapabilities(
   ];
   return () => offs.forEach((o) => o());
 }
+
+import { SettingsSchema, mergeSettings, type Settings } from "@huhu/contracts";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import type { NotificationStore } from "../notifications.js";
+
+const NotificationDto = z.object({ id: z.string(), title: z.string(), module: z.string(), at: z.string(), read: z.boolean() });
+
+/** notifications.* 与 settings.*（kernel 能力，仅桌面可用）。 */
+export function registerNotificationAndSettings(registry: CapabilityRegistry, store: NotificationStore, settingsFile: string): () => void {
+  const desktop = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
+  const read = (): Settings => {
+    try {
+      return SettingsSchema.parse(existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {});
+    } catch {
+      return SettingsSchema.parse({}); // 损坏的文件按默认值启动（原文件保留，由调用方备份）
+    }
+  };
+  const offs = [
+    registry.register(defineCapability({ name: "notifications.list", ...desktop, scope: "read", input: z.object({ unreadOnly: z.boolean().optional(), module: z.string().optional() }), output: z.array(NotificationDto), handler: (_c, i) => store.list({ ...(i.unreadOnly ? { unreadOnly: true } : {}), ...(i.module ? { module: i.module } : {}) }) })),
+    registry.register(defineCapability({ name: "notifications.markRead", ...desktop, scope: "write", input: z.object({ ids: z.union([z.array(z.string()), z.literal("all")]) }), output: z.object({ changed: z.number() }), handler: (_c, i) => ({ changed: store.markRead(i.ids) }) })),
+    registry.register(defineCapability({ name: "notifications.delete", ...desktop, scope: "write", input: z.object({ ids: z.array(z.string()).min(1) }), output: z.object({ changed: z.number() }), handler: (_c, i) => ({ changed: store.delete(i.ids) }) })),
+    registry.register(defineCapability({ name: "notifications.clearRead", ...desktop, scope: "write", input: z.object({}), output: z.object({ changed: z.number() }), handler: () => ({ changed: store.clearRead() }) })),
+    registry.register(defineCapability({ name: "settings.get", ...desktop, scope: "read", input: z.object({}), output: SettingsSchema, handler: () => read() })),
+    registry.register(defineCapability({
+      name: "settings.update", ...desktop, scope: "write", input: z.object({ patch: z.record(z.string(), z.unknown()) }), output: SettingsSchema,
+      handler: (_c, i) => {
+        const next = mergeSettings(read(), i.patch);
+        mkdirSync(path.dirname(settingsFile), { recursive: true });
+        writeFileSync(settingsFile, JSON.stringify(next, null, 2));
+        return next;
+      },
+    })),
+  ];
+  return () => offs.forEach((o) => o());
+}

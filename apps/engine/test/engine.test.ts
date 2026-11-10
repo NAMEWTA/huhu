@@ -300,4 +300,21 @@ describe("Engine 启动与关闭", () => {
       await srv.close();
     }
   }, 60_000);
+  test("ACC-TK-07：已到点的提醒在引擎启动时投递为站内通知；deliveredAt 写入；任务仍未完成", async () => {
+    const dir = tmp();
+    const e1 = await boot({ vaultPath: dir, create: true });
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const t = (await call(e1, "tasks.create", { title: "到点提醒", execution: { kind: "manual" }, reminders: [{ id: "rem-1", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }] })).data as { id: string };
+    await e1.shutdown(); // 模拟"应用关闭期间到点"：下次启动时补发
+    const e2 = await boot({ vaultPath: dir }); engines.push(e2);
+    let list: { title: string; module: string }[] = [];
+    for (let i = 0; i < 60; i++) { list = (await call(e2, "notifications.list", {})).data as typeof list; if (list.length) break; await new Promise((r) => setTimeout(r, 50)); }
+    expect(list.map((n) => [n.title, n.module])).toEqual([["任务提醒：到点提醒", "tasks"]]);
+    const task = (await call(e2, "tasks.read", { id: t.id })).data as { completed: boolean; reminders: { deliveredAt: string | null }[] };
+    expect(task.completed).toBe(false);
+    expect(task.reminders[0]?.deliveredAt).toBeTruthy();
+    const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
+    expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
+  }, 30_000);
 });
