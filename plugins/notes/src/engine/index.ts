@@ -11,7 +11,7 @@ import { NotesService } from "./service.js";
 function assertNotAutomationsDir(caller: string, ...paths: (string | undefined)[]): void {
   if (caller === "desktop") return;
   for (const p of paths) {
-    const first = (p ?? "").replace(/\\/g, "/").split("/").filter(Boolean)[0]?.toLowerCase();
+    const first = (p ?? "").replace(/\\/g, "/").split("/").filter((s) => s !== "" && s !== ".")[0]?.toLowerCase(); // 与 normalizeRelPath 一致：忽略空段和 "." 段
     if (first === "automations") throw errors.permissionDenied("Automations 目录（仅桌面可写）");
   }
 }

@@ -586,6 +586,11 @@ describe("Engine 启动与关闭", () => {
     expect(ok.ok).toBe(true);
     const note = ok.data as { path: string };
     expect((await call(e.cliToken, "notes.move", { path: note.path, targetDir: "Automations" })).error?.code).toBe("PERMISSION_DENIED");
+    // 审计回归：带 "./"、重复斜杠的写法归一化后同样落在 Automations/ 下，必须同样被拦
+    expect((await call(e.cliToken, "notes.move", { path: note.path, targetDir: "./Automations" })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "notes.create", { name: "evil", folder: "./automations//sub" })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "notes.save", { path: "./Automations/x--rule-1.md", text: "x", expectedVersion: "v" })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "notes.rename", { path: ".//Automations/x--rule-1.md", newName: "y" })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.rendererToken, "notes.create", { name: "桌面可以", folder: "Automations" })).error?.code).not.toBe("PERMISSION_DENIED");
   }, 30_000);
 });

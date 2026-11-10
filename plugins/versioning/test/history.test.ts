@@ -90,6 +90,10 @@ describe("恢复保护（ACC-VS-04）", () => {
     const { guardRestoredContent } = await import("../src/engine/index.js");
     const rule = "---\nhuhu: {kind: automation-rule, id: rule-1, schema: 1}\nenabled: true\n---\n正文\n";
     expect(guardRestoredContent("Automations/r--rule-1.md", rule)).toContain("enabled: false");
+    expect(guardRestoredContent("./Automations/r--rule-1.md", rule)).toContain("enabled: false");
+    expect(guardRestoredContent("Automations//r--rule-1.md", rule)).toContain("enabled: false");
+    expect(guardRestoredContent("automations/r--rule-1.md", rule)).toContain("enabled: false");
+    expect(() => guardRestoredContent("../x.md", rule)).toThrow();
     expect(guardRestoredContent("Tasks/t.md", rule)).toBe(rule);
   });
   test("restore 钩子：先 transform 再写入，写入后触发 afterWrite", async () => {

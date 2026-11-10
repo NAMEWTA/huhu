@@ -1,5 +1,5 @@
 import path from "node:path";
-import { parseFrontmatter, patchFrontmatter } from "@huhu/vault";
+import { normalizeRelPath, parseFrontmatter, patchFrontmatter } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
@@ -26,8 +26,10 @@ export interface VersioningOptions {
  * - 自动化规则恢复后一律暂停（旧版本里的 enabled: true 不能立刻重新生效）；
  * - 任务文件恢复输入内容，但完成状态保持当前值（ACC-VS-03：completed 仍为 true）。
  */
-export function guardRestoredContent(rel: string, restored: string, current = ""): string {
-  if (rel.startsWith("Automations/")) return patchFrontmatter(restored, { enabled: false });
+export function guardRestoredContent(relInput: string, restored: string, current = ""): string {
+  const rel = normalizeRelPath(relInput); // 与 restore 内部一致：忽略 "./"、重复斜杠
+  // 大小写不敏感的文件系统上 automations/ 与 Automations/ 是同一目录
+  if (rel.toLowerCase().startsWith("automations/")) return patchFrontmatter(restored, { enabled: false });
   if (rel.startsWith("Tasks/") && current) {
     const cur = parseFrontmatter(current).data;
     return patchFrontmatter(restored, { completed: cur["completed"] ?? false, completedAt: cur["completedAt"] ?? null });
@@ -73,7 +75,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
         transform: (restored, current) => guardRestoredContent(i.path, restored, current),
         afterWrite: () => {
           // 任务文件：恢复后的输入不应触发自动化重复处理（restore 之后读取新的 inputHash）
-          const id = i.path.startsWith("Tasks/") ? /--(task-[0-9a-z]+)\.md$/.exec(path.basename(i.path))?.[1] : undefined;
+          const id = normalizeRelPath(i.path).startsWith("Tasks/") ? /--(task-[0-9a-z]+)\.md$/.exec(path.basename(i.path))?.[1] : undefined;
           if (!id) return;
           const hold = opts.holdRestoredInput ?? api.service<{ holdRestoredInput(taskId: string, inputHash: string): void }>("automations")?.holdRestoredInput;
           const q = api.service<{ snapshot(taskId: string): { inputHash: string } }>("taskQuery");
