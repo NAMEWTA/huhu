@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { CapabilityResult } from "@huhu/contracts";
-import type { Connection } from "../connect.js";
+import { ConnectError, type Connection } from "../connect.js";
 
 export async function callCapability(conn: Connection, capability: string, input: unknown): Promise<CapabilityResult<unknown>> {
-  const res = await fetch(`${conn.baseUrl}/api/v1/call`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
-    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${conn.baseUrl}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+    });
+  } catch {
+    throw new ConnectError("无法连接 Engine（端点已失效）");
+  }
   if (!res.ok && res.status !== 200) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     return { ok: false, error: { code: "INTERNAL", message: body.error ?? `HTTP ${res.status}`, retryable: false } };

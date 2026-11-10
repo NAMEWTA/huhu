@@ -25,7 +25,7 @@ export class EventReplay {
 
   since(lastSeq: number): { resync: true } | { resync: false; events: SeqEvent[] } {
     const oldest = this.buffer[0]?.seq ?? this.seq + 1;
-    if (lastSeq > this.seq) return { resync: true }; // Engine 重启后序号倒退
+    if (!Number.isInteger(lastSeq) || lastSeq < 0 || lastSeq > this.seq) return { resync: true }; // Engine 重启后序号倒退
     if (lastSeq < oldest - 1) return { resync: true };
     return { resync: false, events: this.buffer.filter((e) => e.seq > lastSeq) };
   }

@@ -18,7 +18,9 @@ export class TokenTable {
 
   /** 登记已有令牌的哈希（HTTP 服务令牌持久化后重载）。 */
   addHash(hashHex: string, caller: Caller): void {
-    this.entries.push({ hash: Buffer.from(hashHex, "hex"), caller });
+    const hash = Buffer.from(hashHex, "hex");
+    if (hash.length !== 32) throw new Error("令牌哈希必须是 SHA-256（32 字节）");
+    this.entries.push({ hash, caller });
   }
 
   static hashHex(token: string): string {

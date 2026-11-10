@@ -13,3 +13,4 @@ export * from "./index/links.js";
 export * from "./index/search.js";
 export * from "./index/vault-index.js";
 export * from "./package/package.js";
+export * from "./trash.js";

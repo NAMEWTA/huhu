@@ -40,6 +40,13 @@ describe("Vault 生命周期", () => {
     writeFileSync(path.join(d, ".huhu/vault.json"), JSON.stringify({ kind: "huhu-vault", id: "vault-abc", name: "x", formatVersion: 99, createdAt: "" }));
     await expect(Vault.open(d)).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
   });
+  test("过新的 formatVersion 可以只读打开", async () => {
+    const d = tmp(); mkdirSync(path.join(d, ".huhu"));
+    writeFileSync(path.join(d, ".huhu/vault.json"), JSON.stringify({ kind: "huhu-vault", id: "vault-abc", name: "x", formatVersion: 99, createdAt: "" }));
+    const v = await Vault.open(d, { readOnly: true });
+    expect(v.readOnly).toBe(true);
+    await v.close();
+  });
   test("坏的 vault.json → INVALID_INPUT", async () => {
     const d = tmp(); mkdirSync(path.join(d, ".huhu"));
     writeFileSync(path.join(d, ".huhu/vault.json"), JSON.stringify({ kind: "nope" }));

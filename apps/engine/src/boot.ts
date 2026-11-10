@@ -1,9 +1,11 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
-import { Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import { PluginManifestSchema } from "@huhu/contracts";
+import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import * as tasks from "@huhu/plugin-tasks/engine";
 
 export interface EndpointDescriptor {
   pid: number;
@@ -66,6 +68,24 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   void index.build(); // 后台构建；构建期间 vault.tree 已可用，vault.search 返回 indexing=true
 
   const events = new EventBus(() => vault.id);
+  const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")));
+  new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")).recover();
+  const trash = new Trash(vault.files);
+  const dispatcherRef: { current?: Dispatcher } = {};
+  const { root: cordisRoot, facade } = createHuhuContext({
+    registry, events, vault: { repo, files: vault.files, index, trash, vaultId: vault.id },
+    call: async (caller, capability, input, idempotencyKey) => {
+      const r = await dispatcherRef.current!.call(caller, { capability, input, requestId: `${caller}-${Date.now()}`, ...(idempotencyKey ? { idempotencyKey } : {}) });
+      if (!r.ok) throw Object.assign(new Error(r.error.message), { code: r.error.code });
+      return r.data;
+    },
+  });
+  const plugins = new PluginManager(cordisRoot, facade, events);
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "tasks", title: "任务", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => tasks.apply(ctx, api),
+  });
+  await plugins.enableAll();
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
@@ -73,11 +93,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     audit: new GatewayAudit(path.join(runtime, "gateway-audit.ndjson")),
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
-    isPluginEnabled: () => true,
+    isPluginEnabled: (id) => plugins.isEnabled(id),
     exposureOverride: () => undefined,
     grantedPermissions: () => [],
   });
 
+  dispatcherRef.current = real;
   const server = await startEngineServer({ dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && registry.get(name)?.defaultExposed === true), ...(opts.port !== undefined ? { port: opts.port } : {}) });
 
   const watcher = new VaultWatcher({
@@ -101,9 +122,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       real.beginClose();
       events.publish("engine.closing", {});
       await watcher.close();
+      await plugins.disposeAll();
       await server.close();
-      rmSync(descriptorPath, { force: true });
       await vault.close();
+      rmSync(descriptorPath, { force: true });
     })());
 
   return { vault, port: server.port, rendererToken, cliToken, descriptorPath, server, index, dispatcher: real, registry, events, shutdown };

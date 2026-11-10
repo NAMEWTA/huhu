@@ -11,7 +11,7 @@ function setup() {
   const events = new EventBus(() => "vault-test");
   const seen: unknown[] = [];
   events.subscribe((e) => seen.push([e.type, e.payload]));
-  const { root, facade } = createHuhuContext({ registry, events, call: async () => null });
+  const { root, facade } = createHuhuContext({ registry, events, vault: undefined as never, call: async () => null });
   const pm = new PluginManager(root, facade, events);
   return { registry, events, pm, seen, root };
 }
@@ -108,5 +108,27 @@ describe("PluginManager", () => {
     await pm.enableAll();
     await pm.disposeAll();
     expect(order).toEqual(["two", "one"]);
+  });
+
+  test("api.events 订阅随作用域释放", async () => {
+    const { pm, events } = setup();
+    let hits = 0;
+    pm.register({ manifest: manifest("sub"), apply: (_c, api) => { api.events.subscribe(() => { hits++; }); } });
+    await pm.enable("sub");
+    events.publish("engine.closing", {});
+    const before = hits;
+    expect(before).toBeGreaterThan(0);
+    await pm.disable("sub");
+    events.publish("engine.closing", {});
+    expect(hits).toBe(before);
+  });
+
+  test("并发 enable 只执行一次 apply", async () => {
+    const { pm } = setup();
+    let applied = 0;
+    pm.register({ manifest: manifest("once"), apply: async (_c, api) => { applied++; await new Promise((r) => setTimeout(r, 20)); api.defineCapability(cap("once.x", "once")); } });
+    const [a, b] = await Promise.all([pm.enable("once"), pm.enable("once")]);
+    expect([a, b]).toEqual(["active", "active"]);
+    expect(applied).toBe(1);
   });
 });

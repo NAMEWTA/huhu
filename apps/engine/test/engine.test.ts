@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
 interface Reply {
+  [k: string]: unknown;
   ok: boolean;
   data: { id: string; hits: { path: string }[]; text: string } & { path: string }[];
   error?: { code: string };
@@ -97,5 +98,20 @@ describe("Engine 启动与关闭", () => {
     while (!seen.includes("新文件.md") && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
     expect(seen).toContain("新文件.md");
     expect((await call("vault.search", { query: "蜻蜓" })).data.hits[0]?.path).toBe("新文件.md");
+  });
+  test("tasks 插件：经 HTTP 创建、勾选、列表；停用后能力不可用", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const call = (capability: string, input: unknown, key?: string) =>
+      post(e, e.rendererToken, { capability, input, requestId: "r", ...(key ? { idempotencyKey: key } : {}) }) as unknown as Promise<{ ok: boolean; data: { id: string; version: string; completed: boolean; title: string }; error?: { code: string } }>;
+    const created = await call("tasks.create", { title: "写周报", execution: { kind: "manual" } }, "key-create-1");
+    expect(created.ok).toBe(true);
+    expect((await call("tasks.create", { title: "写周报", execution: { kind: "manual" } })).error?.code).toBe("INVALID_INPUT"); // 缺幂等键
+    const done = await call("tasks.setCompleted", { id: created.data.id, completed: true, expectedVersion: created.data.version }, "key-done-1");
+    expect(done.data.completed).toBe(true);
+    const list = (await post(e, e.rendererToken, { capability: "tasks.list", input: { completed: true }, requestId: "r" })) as unknown as { data: { title: string }[] };
+    expect(list.data.map((t) => t.title)).toEqual(["写周报"]);
+    // 外部入口：tasks.list 默认开放，tasks.create 不开放
+    expect((await post(e, e.cliToken, { capability: "tasks.list", input: {}, requestId: "r" })).ok).toBe(true);
+    expect((await post(e, e.cliToken, { capability: "tasks.create", input: { title: "x" }, requestId: "r", idempotencyKey: "key-cli-1" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
 });

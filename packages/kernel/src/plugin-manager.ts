@@ -19,6 +19,7 @@ interface Runtime {
 /** 按 dependsOn 拓扑启停插件；停用先拒绝新调用，再释放作用域。 */
 export class PluginManager {
   private readonly plugins = new Map<string, Runtime>();
+  private readonly enabling = new Map<string, Promise<PluginState>>();
 
   constructor(
     private readonly root: Context,
@@ -51,7 +52,15 @@ export class PluginManager {
   }
 
   /** 启用插件及其硬依赖。依赖缺失或未能启用则该插件不启用并写明原因。 */
-  async enable(id: string): Promise<PluginState> {
+  enable(id: string): Promise<PluginState> {
+    const running = this.enabling.get(id);
+    if (running) return running;
+    const p = this.doEnable(id).finally(() => this.enabling.delete(id));
+    this.enabling.set(id, p);
+    return p;
+  }
+
+  private async doEnable(id: string): Promise<PluginState> {
     const rt = this.plugins.get(id);
     if (!rt) throw new Error(`未知插件：${id}`);
     if (rt.state === "active") return "active";

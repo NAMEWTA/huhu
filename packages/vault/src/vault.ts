@@ -64,7 +64,7 @@ export class Vault {
     if (existsSync(metaPath)) {
       const parsed = VaultJsonSchema.safeParse(JSON.parse(readFileSync(metaPath, "utf8")));
       if (!parsed.success) throw errors.invalidInput("vault.json 格式不正确", parsed.error.issues);
-      if (parsed.data.formatVersion > FORMAT_VERSION) throw new HuhuError("READ_ONLY_VAULT", "该 Vault 由更新版本的 HUHU 创建，只能只读打开");
+      if (parsed.data.formatVersion > FORMAT_VERSION && !opts.readOnly) throw new HuhuError("READ_ONLY_VAULT", "该 Vault 由更新版本的 HUHU 创建，只能只读打开");
       info = parsed.data;
     } else if (opts.create) {
       if (opts.readOnly) throw errors.readOnlyVault();

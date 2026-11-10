@@ -236,9 +236,15 @@ importers:
       '@huhu/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@huhu/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
       '@huhu/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@huhu/plugin-tasks':
+        specifier: workspace:*
+        version: link:../../plugins/tasks
       '@huhu/vault':
         specifier: workspace:*
         version: link:../../packages/vault
@@ -357,7 +363,29 @@ importers:
 
   plugins/ssh: {}
 
-  plugins/tasks: {}
+  plugins/tasks:
+    dependencies:
+      '@date-fns/tz':
+        specifier: ^1.5.0
+        version: 1.5.0
+      '@huhu/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@huhu/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@huhu/kernel':
+        specifier: workspace:*
+        version: link:../../packages/kernel
+      '@huhu/vault':
+        specifier: workspace:*
+        version: link:../../packages/vault
+      date-fns:
+        specifier: ^4.4.0
+        version: 4.4.0
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   plugins/versioning: {}
 
@@ -460,6 +488,9 @@ packages:
   '@babel/types@7.29.11':
     resolution: {integrity: sha512-WCsemW40Cpc6gouC1SrY6PBaZ+oLRlEVY9XBvZBI7il/HyUrb2nJ505wE1MHEFyDZNnrWDEuy4jL50WVHfTTSQ==}
     engines: {node: '>=6.9.0'}
+
+  '@date-fns/tz@1.5.0':
+    resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
 
   '@electron-internal/extract-zip@1.0.8':
     resolution: {integrity: sha512-8iajeLFbzNwM0m3AsQZSZgYREWglAImyGvvFSWU34FgMW8sHlzdwj9QKvv9dgN7jMP591EFUF/sLOC3Jl9YIjQ==}
@@ -1493,6 +1524,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  date-fns@4.4.0:
+    resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -2769,6 +2803,8 @@ snapshots:
       '@babel/helper-string-parser': 7.29.13
       '@babel/helper-validator-identifier': 7.29.7
 
+  '@date-fns/tz@1.5.0': {}
+
   '@electron-internal/extract-zip@1.0.8': {}
 
   '@electron/asar@3.4.1':
@@ -3610,6 +3646,8 @@ snapshots:
       which: 2.0.2
 
   csstype@3.2.3: {}
+
+  date-fns@4.4.0: {}
 
   debug@4.4.3(supports-color@7.2.0):
     dependencies:

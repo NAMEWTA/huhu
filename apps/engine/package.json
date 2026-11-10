@@ -8,7 +8,9 @@
   },
   "dependencies": {
     "@huhu/contracts": "workspace:*",
+    "@huhu/cordis": "workspace:*",
     "@huhu/kernel": "workspace:*",
+    "@huhu/plugin-tasks": "workspace:*",
     "@huhu/vault": "workspace:*",
     "zod": "^4.6.7"
   },

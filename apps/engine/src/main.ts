@@ -19,9 +19,9 @@ async function main(): Promise<void> {
     readOnly: process.argv.includes("--read-only"),
     idleExitMs: idle,
   });
-  const ready = { type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id };
-  if (process.send) process.send(ready);
-  else process.stdout.write(JSON.stringify(ready) + "\n");
+  // Renderer 令牌只经 IPC 通道交给 Main；独立运行（无 IPC）时不输出任何令牌
+  if (process.send) process.send({ type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id });
+  else process.stdout.write(JSON.stringify({ type: "ready", port: engine.port, vaultId: engine.vault.id }) + "\n");
 
   const stop = async () => {
     const timer = setTimeout(() => process.exit(1), 15_000);

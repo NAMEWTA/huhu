@@ -64,13 +64,28 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
 
   app.post("/api/v1/call", async (c) => {
     const caller = c.get("caller" as never) as Caller;
-    const len = Number(c.req.header("content-length") ?? 0);
-    if (len > MAX_BODY_BYTES) return c.json({ error: "请求体过大" }, 413);
-    const buf = await c.req.arrayBuffer();
-    if (buf.byteLength > MAX_BODY_BYTES) return c.json({ error: "请求体过大" }, 413);
+    const declared = Number(c.req.header("content-length") ?? 0);
+    if (Number.isNaN(declared) || declared > MAX_BODY_BYTES) return c.json({ error: "请求体过大" }, 413);
+    // 边读边计数：不带 Content-Length（chunked）的请求超过上限时立即中止，不缓冲全部内容
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    const reader = c.req.raw.body?.getReader();
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_BODY_BYTES) {
+          await reader.cancel();
+          return c.json({ error: "请求体过大" }, 413);
+        }
+        chunks.push(value);
+      }
+    }
+    const buf = Buffer.concat(chunks);
     let body: unknown;
     try {
-      body = JSON.parse(new TextDecoder().decode(buf));
+      body = JSON.parse(buf.toString("utf8"));
     } catch {
       return c.json({ error: "请求不是合法 JSON" }, 400);
     }

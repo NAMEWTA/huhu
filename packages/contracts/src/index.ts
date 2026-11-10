@@ -4,3 +4,4 @@ export * from "./events.js";
 export * from "./ids.js";
 export * from "./plugin-manifest.js";
 export * from "./kinds/index.js";
+export * from "./dto/task.js";
