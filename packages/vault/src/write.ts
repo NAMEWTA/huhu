@@ -51,7 +51,7 @@ export class VaultFiles {
     const version = versionOf(bytes);
     this.receipts.record(rel, version);
     try {
-      await writeFileAtomic(p, bytes);
+      await writeFileAtomic(p, Buffer.from(bytes));
     } catch (e) {
       this.receipts.forget(rel, version);
       throw e;

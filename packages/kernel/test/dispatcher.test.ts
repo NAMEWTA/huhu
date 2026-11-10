@@ -83,6 +83,19 @@ describe("Dispatcher 管线", () => {
     const c = await d.call("desktop", req("tasks.create", { title: "ab" }, "key-bbbb"));
     expect(c).not.toEqual(a);
   });
+  test("写入类缺少 idempotencyKey → INVALID_INPUT", async () => {
+    expect(code(await setup().d.call("desktop", req("tasks.create", { title: "a" })) as never)).toBe("INVALID_INPUT");
+  });
+  test("幂等：并发同 key 只执行一次", async () => {
+    const { d } = setup();
+    const [a, b] = await Promise.all([
+      d.call("desktop", req("tasks.create", { title: "ab" }, "key-cccc")),
+      d.call("desktop", req("tasks.create", { title: "ab" }, "key-cccc")),
+    ]);
+    expect(a).toEqual(b);
+    const next = await d.call("desktop", req("tasks.create", { title: "ab" }, "key-dddd"));
+    expect((next as { data: { n: number } }).data.n).toBe((a as { data: { n: number } }).data.n + 1);
+  });
   test("幂等：同 key 不同输入 → IDEMPOTENCY_MISMATCH", async () => {
     const { d } = setup();
     await d.call("desktop", req("tasks.create", { title: "a" }, "key-aaaa"));

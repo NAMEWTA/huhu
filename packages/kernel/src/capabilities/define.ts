@@ -32,7 +32,7 @@ export class CapabilityRegistry {
   private readonly map = new Map<string, CapabilityDefinition>();
 
   /** 注册并返回注销函数（供插件作用域释放）。 */
-  register(def: CapabilityDefinition<never, unknown>): () => void {
+  register<I, O>(def: CapabilityDefinition<I, O>): () => void {
     if (this.map.has(def.name)) throw new Error(`能力重复注册：${def.name}`);
     this.map.set(def.name, def as unknown as CapabilityDefinition);
     return () => {
