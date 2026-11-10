@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, newVaultId, errors } from "@huhu/contracts";
@@ -24,6 +24,19 @@ export const HUHU_DIR = ".huhu";
 /** 本机标识：用于 runtime/<machineId>/ 目录名，同一台机器稳定。 */
 export function machineId(): string {
   return createHash("sha256").update(`${os.hostname()}|${os.userInfo().username}`).digest("hex").slice(0, 12);
+}
+
+/** 端点描述中记录的持锁进程是否已不存在。 */
+function ownerIsDead(root: string): boolean {
+  const file = path.join(root, HUHU_DIR, "runtime", machineId(), "engine.json");
+  if (!existsSync(file)) return false;
+  try {
+    const { pid } = JSON.parse(readFileSync(file, "utf8")) as { pid: number };
+    process.kill(pid, 0);
+    return false;
+  } catch (e) {
+    return (e as { code?: string }).code === "ESRCH";
+  }
 }
 
 export interface OpenOptions {
@@ -78,8 +91,17 @@ export class Vault {
     let release: (() => Promise<void>) | null = null;
     if (!opts.readOnly) {
       mkdirSync(path.join(real, HUHU_DIR), { recursive: true });
+      const lockOpts = { lockfilePath: path.join(real, HUHU_DIR, "writer.lock"), stale: 15_000, update: 5_000, realpath: false };
+      const acquire = () => lockfile.lock(path.join(real, HUHU_DIR), lockOpts);
       try {
-        release = await lockfile.lock(path.join(real, HUHU_DIR), { lockfilePath: path.join(real, HUHU_DIR, "writer.lock"), stale: 15_000, update: 5_000, realpath: false });
+        try {
+          release = await acquire();
+        } catch (e) {
+          // 持锁的 Engine 已崩溃（端点描述里的 pid 不存在）：立即回收陈旧锁，而不是等 15 秒
+          if ((e as { code?: string }).code !== "ELOCKED" || !ownerIsDead(real)) throw e;
+          rmSync(lockOpts.lockfilePath, { recursive: true, force: true });
+          release = await acquire();
+        }
       } catch (e) {
         if ((e as { code?: string }).code === "ELOCKED") {
           throw new HuhuError("READ_ONLY_VAULT", "Vault 正被另一个 HUHU 实例使用，可以只读打开", { recovery: [{ action: "open-readonly", label: "只读打开" }] });

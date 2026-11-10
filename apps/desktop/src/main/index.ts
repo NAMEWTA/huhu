@@ -1,6 +1,14 @@
 import { app, BrowserWindow, ipcMain, net, protocol } from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { EngineSupervisor } from "./engine-supervisor.js";
+
+let supervisor: EngineSupervisor | null = null;
+
+/** 过渡方案：启动页（W04.1）完成前，用 HUHU_VAULT 或「文档/HUHU Vault」。 */
+function defaultVaultPath(): string {
+  return process.env["HUHU_VAULT"] ?? path.join(app.getPath("documents"), "HUHU Vault");
+}
 
 const APP_ORIGIN = "huhu-app://workbench";
 
@@ -17,6 +25,11 @@ function errorPage(detail: string): string {
   )}`;
 }
 
+function assertTrusted(url: string | undefined): void {
+  const dev = process.env["ELECTRON_RENDERER_URL"];
+  if (!url || !(url.startsWith(`${APP_ORIGIN}/`) || (dev && url.startsWith(dev)))) throw new Error("untrusted sender");
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -24,7 +37,7 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     title: "HUHU",
-    show: false,
+    backgroundColor: "#ffffff",
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -39,7 +52,6 @@ function createWindow(): BrowserWindow {
   win.webContents.on("did-fail-load", (_e, code, desc) => {
     void win.loadURL(errorPage(`${desc} (${code})`));
   });
-  win.once("ready-to-show", () => win.show());
   const dev = process.env["ELECTRON_RENDERER_URL"];
   void win.loadURL(dev ?? `${APP_ORIGIN}/index.html`);
   return win;
@@ -66,6 +78,22 @@ if (!gotLock) {
       if (!file.startsWith(root)) return new Response("forbidden", { status: 403 });
       return net.fetch(pathToFileURL(file).toString());
     });
+    supervisor = new EngineSupervisor(defaultVaultPath(), (state) => {
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
+    });
+    supervisor.start();
+    ipcMain.handle("huhu:engine", async (event) => {
+      assertTrusted(event.senderFrame?.url);
+      return supervisor!.whenReady();
+    });
+    ipcMain.handle("huhu:engineState", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      return supervisor!.current;
+    });
+    ipcMain.handle("huhu:restartEngine", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      supervisor!.restart();
+    });
     ipcMain.handle("huhu:appInfo", (event) => {
       const url = event.senderFrame?.url ?? "";
       const dev = process.env["ELECTRON_RENDERER_URL"];
@@ -76,6 +104,13 @@ if (!gotLock) {
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
+  });
+  let quitting = false;
+  app.on("before-quit", (e) => {
+    if (quitting || !supervisor) return;
+    e.preventDefault();
+    quitting = true;
+    void supervisor.stop().finally(() => app.quit());
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

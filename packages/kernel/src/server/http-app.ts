@@ -7,7 +7,7 @@ import { WebSocketServer } from "ws";
 import type { CapabilityRegistry } from "../capabilities/define.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { EventBus } from "../context.js";
-import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN, bearerFrom, checkIngress } from "./ingress.js";
+import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN, RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import type { TokenTable } from "./tokens.js";
 import { EventReplay } from "./ws-events.js";
 
@@ -48,8 +48,22 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
   const app = new Hono();
   app.get("/healthz", (c) => c.text("ok"));
 
-  app.use("*", async (_c, next) => {
+  app.use("*", async (c, next) => {
     lastActivity = Date.now();
+    // CORS 只对 Renderer 源开放；预检请求不带令牌，故在鉴权之前处理
+    const origin = c.req.header("origin");
+    if (origin === RENDERER_ORIGIN) {
+      const cors = { "access-control-allow-origin": RENDERER_ORIGIN, vary: "Origin" };
+      if (c.req.method === "OPTIONS") {
+        const raw = c.env as { incoming: IncomingMessage };
+        const verdict = checkIngress(raw.incoming.headers, port);
+        if (!verdict.ok) return c.json({ error: verdict.reason }, verdict.status);
+        return c.body(null, 204, { ...cors, "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "600" });
+      }
+      await next();
+      for (const [k, v] of Object.entries(cors)) c.res.headers.set(k, v);
+      return;
+    }
     await next();
   });
   app.use("/api/*", async (c, next) => {

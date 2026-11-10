@@ -1,5 +1,10 @@
 import { boot } from "./boot.js";
 
+interface ParentPort {
+  postMessage(m: unknown): void;
+  on(event: "message", cb: (e: { data?: { type?: string } }) => void): void;
+}
+
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
@@ -20,7 +25,10 @@ async function main(): Promise<void> {
     idleExitMs: idle,
   });
   // Renderer 令牌只经 IPC 通道交给 Main；独立运行（无 IPC）时不输出任何令牌
-  if (process.send) process.send({ type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id });
+  const ready = { type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id };
+  const parentPort = (process as unknown as { parentPort?: ParentPort }).parentPort; // Electron utilityProcess
+  if (parentPort) parentPort.postMessage(ready);
+  else if (process.send) process.send(ready);
   else process.stdout.write(JSON.stringify({ type: "ready", port: engine.port, vaultId: engine.vault.id }) + "\n");
 
   const stop = async () => {
@@ -33,6 +41,9 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void stop());
   process.on("message", (m) => {
     if ((m as { type?: string }).type === "shutdown") void stop();
+  });
+  parentPort?.on("message", (e) => {
+    if (e.data?.type === "shutdown") void stop();
   });
 
   if (idle > 0) {

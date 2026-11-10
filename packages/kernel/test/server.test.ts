@@ -48,6 +48,18 @@ describe("HTTP", () => {
     expect((await call(base, t, REQ, { "x-forwarded-for": "1.2.3.4" })).status).toBe(403);
     expect((await call(base, t, REQ, { origin: "huhu-app://workbench" })).status).toBe(200);
   });
+  test("CORS：Renderer 源预检通过且响应带头；其他源预检不放行", async () => {
+    const { base, tokens } = await boot();
+    const t = tokens.issue("desktop");
+    const pre = await fetch(`${base}/api/v1/call`, { method: "OPTIONS", headers: { origin: "huhu-app://workbench", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type" } });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get("access-control-allow-origin")).toBe("huhu-app://workbench");
+    expect(pre.headers.get("access-control-allow-headers")).toContain("authorization");
+    const res = await call(base, t, REQ, { origin: "huhu-app://workbench" });
+    expect(res.headers.get("access-control-allow-origin")).toBe("huhu-app://workbench");
+    const evil = await fetch(`${base}/api/v1/call`, { method: "OPTIONS", headers: { origin: "https://evil.example" } });
+    expect(evil.headers.get("access-control-allow-origin")).toBeNull();
+  });
   test("413：请求体过大；400：非法 JSON", async () => {
     const { base, tokens } = await boot();
     const t = tokens.issue("desktop");

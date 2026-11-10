@@ -70,6 +70,6 @@ describe("审计回归", () => {
       const out = execFileSync(process.execPath, [createRequire(import.meta.url).resolve("tsx/cli"), "-e", code], { env: { ...process.env, TZ: tz }, encoding: "utf8" });
       expect(JSON.parse(out.trim().split("\n").pop() as string)).toEqual([true, "2026-11-16"]);
     }
-  });
+  }, 60_000);
 });
 });

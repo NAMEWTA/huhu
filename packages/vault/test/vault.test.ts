@@ -35,6 +35,22 @@ describe("Vault 生命周期", () => {
     const b = await Vault.open(d);
     await b.close();
   });
+  test("持锁 Engine 崩溃（pid 不存在）后立即回收陈旧锁；pid 仍存活时不抢", async () => {
+    const d = tmp();
+    const a = await Vault.open(d, { create: true });
+    const desc = path.join(a.runtimeDir, "engine.json");
+    mkdirSync(path.dirname(desc), { recursive: true });
+    // 模拟崩溃：锁目录还在（未释放），描述文件指向已死进程
+    writeFileSync(desc, JSON.stringify({ pid: 2 ** 22 + 12345 }));
+    const b = await Vault.open(d);
+    expect(b.readOnly).toBe(false);
+    await b.close();
+    // pid 存活（本进程）→ 不抢锁
+    const c = await Vault.open(d, { create: false });
+    writeFileSync(path.join(c.runtimeDir, "engine.json"), JSON.stringify({ pid: process.pid }));
+    await expect(Vault.open(d)).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+    await c.close();
+  });
   test("过新的 formatVersion → 拒绝写入打开", async () => {
     const d = tmp(); mkdirSync(path.join(d, ".huhu"));
     writeFileSync(path.join(d, ".huhu/vault.json"), JSON.stringify({ kind: "huhu-vault", id: "vault-abc", name: "x", formatVersion: 99, createdAt: "" }));
