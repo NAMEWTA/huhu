@@ -19,6 +19,8 @@
     "commands": [],
     "capabilities": [
       "agent.core.status",
+      "agent.history.list",
+      "agent.history.resume",
       "agent.providers.detect",
       "agent.sessions.interrupt",
       "agent.sessions.kill",

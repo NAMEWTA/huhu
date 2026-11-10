@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -8,8 +8,8 @@ const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? "/tmp/claude-1000/herdr-build/src/target/release/herdr-core";
 
-async function launch(vault: string): Promise<ElectronApplication> {
-  return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } });
+async function launch(vault: string, extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
+  return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
 }
 
 test("窗口启动、appInfo 可用、window.open 被拒绝", async () => {
@@ -347,6 +347,43 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
     await app.close();
     await srv.close();
     rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史会话（只读扫描），其他目录的会话不出现", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const cfg = mkdtempSync(path.join(tmpdir(), "huhu-e2e-claude-"));
+  const cx = mkdtempSync(path.join(tmpdir(), "huhu-e2e-codex-"));
+  const cwd = realpathSync(vault);
+  const bucket = path.join(cfg, "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(bucket, { recursive: true });
+  writeFileSync(path.join(bucket, "claude-sess-1.jsonl"), `${JSON.stringify({ type: "user", cwd, sessionId: "claude-sess-1", message: { role: "user", content: "梳理发布清单" } })}\n`);
+  mkdirSync(path.join(cx, "sessions", "2026", "11", "09"), { recursive: true });
+  const row = (r: unknown) => `${JSON.stringify(r)}\n`;
+  writeFileSync(path.join(cx, "sessions", "2026", "11", "09", "rollout-2026-11-09T10-00-00-codex-1.jsonl"), row({ type: "session_meta", payload: { id: "codex-1", cwd } }) + row({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "修复登录页" }] } }));
+  writeFileSync(path.join(cx, "sessions", "2026", "11", "09", "rollout-2026-11-09T11-00-00-codex-2.jsonl"), row({ type: "session_meta", payload: { id: "codex-2", cwd: tmpdir() } })); // 不在这个 Space
+  const app = await launch(vault, { CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: cx });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("agent-cli-module")).toBeVisible();
+    await page.getByTestId("agent-history-toggle").click();
+    await expect(page.getByTestId("history-item")).toHaveCount(2, { timeout: 10_000 });
+    await expect(page.getByTestId("history-title").filter({ hasText: "梳理发布清单" })).toBeVisible();
+    await expect(page.getByTestId("history-title").filter({ hasText: "修复登录页" })).toBeVisible();
+    // 恢复入口只对白名单里的会话开放：未知 id 被后端拒绝
+    const err = await page.evaluate(async () => {
+      const ep = await window.huhuHost.engine();
+      const spaces = (await (await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "agent.spaces.list", input: {}, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) })).json()).data as { id: string; revision: number }[];
+      const sp = spaces[0] as { id: string; revision: number };
+      const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "agent.history.resume", input: { spaceId: sp.id, spaceRevision: sp.revision, provider: "claude", nativeSessionId: "不存在的会话", requestId: crypto.randomUUID() }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+      return ((await r.json()) as { error?: { code: string } }).error?.code;
+    });
+    expect(err).toBe("INVALID_INPUT");
+  } finally {
+    await app.close();
+    for (const d of [vault, cfg, cx]) rmSync(d, { recursive: true, force: true });
   }
 });
 

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -15,10 +15,12 @@ const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-ss-")); dirs
 function fakeClient(opts: { failRun?: "throw-after-create" | "throw" } = {}) {
   const terminals: { address: string; labels: Record<string, string> }[] = [];
   const calls: string[] = [];
+  const runs: { argv?: string[]; cwd?: string }[] = [];
   const client = {
-    call: async (method: string, params: { labels?: Record<string, string>; terminal?: string }) => {
+    call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string }) => {
       calls.push(method);
       if (method === "terminal.run") {
+        runs.push({ ...(params.argv ? { argv: params.argv } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) });
         const t = { address: `t${terminals.length + 1}`, labels: params.labels ?? {} };
         if (opts.failRun === "throw") throw new Error("boom");
         terminals.push(t);
@@ -29,7 +31,7 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw" } = {}) {
       return {};
     },
   } as unknown as HerdrClient;
-  return { client, calls, terminals };
+  return { client, calls, terminals, runs };
 }
 
 function setup(client: HerdrClient) {
@@ -41,6 +43,32 @@ function setup(client: HerdrClient) {
   return { svc, space, work };
 }
 const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({ spaceId: space.id, spaceRevision: space.revision, provider: "shell" as const, requestId: `req-${Math.random().toString(36).slice(2)}`, ...over });
+
+describe("恢复历史会话", () => {
+  test("claude：argv 为 --resume <id>，在原会话的子目录启动，记录保存原生 id", async () => {
+    const f = fakeClient();
+    const { svc, space, work } = setup(f.client);
+    mkdirSync(path.join(work, "sub"));
+    const s = await svc.launch(req(space, { provider: "claude", resumeSessionId: "abc-123", cwd: path.join(work, "sub") }));
+    const run = f.runs[0];
+    expect(run?.argv?.slice(1)).toEqual(["--resume", "abc-123"]);
+    expect(run?.cwd).toBe(path.join(work, "sub"));
+    expect(s).toMatchObject({ nativeSessionId: "abc-123", state: "running" });
+    expect(s.cwd).toBe(path.join(work, "sub"));
+  });
+  test("非法的原生会话 id 被拒绝（不能以 - 开头）", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    await expect(svc.launch(req(space, { provider: "claude", resumeSessionId: "--dangerously-skip-permissions" }))).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(f.calls).not.toContain("terminal.run");
+  });
+  test("启动目录不在 Space 之内 → 拒绝，且不启动", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    await expect(svc.launch(req(space, { provider: "claude", resumeSessionId: "abc", cwd: tmp() }))).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(f.calls).not.toContain("terminal.run");
+  });
+});
 
 describe("会话启动", () => {
   test("shell：不传 argv，cwd=Space 根，带四个标签；记录先持久化后 running", async () => {

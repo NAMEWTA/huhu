@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { HuhuError, errors, newId } from "@huhu/contracts";
 import type { HerdrClient } from "@huhu/herdr-client";
+import { isValidNativeId, isWithin } from "./history/scanner.js";
 import { PROVIDERS, type DetectResult, type ProviderId } from "./providers/index.js";
 import type { SpaceStore } from "./spaces.js";
 
@@ -16,6 +17,8 @@ export interface SessionRecord {
   name: string;
   cwd: string;
   createdAt: string;
+  /** 由历史恢复启动时记录 provider 原生会话 id。 */
+  nativeSessionId?: string;
   error?: string;
 }
 
@@ -28,6 +31,10 @@ export interface LaunchInput {
   fast?: boolean | undefined;
   prompt?: string | undefined;
   requestId: string;
+  /** 恢复历史会话（仅内部调用：id 来自对历史的扫描结果，不由外部直接传入）。 */
+  resumeSessionId?: string | undefined;
+  /** 恢复时在原会话的 cwd 启动（必须在 Space 根之内）。 */
+  cwd?: string | undefined;
 }
 
 interface Terminal { address: string }
@@ -92,19 +99,26 @@ export class SessionsService {
       const prov = PROVIDERS.find((p) => p.id === input.provider);
       const det = (await this.d.detect()).find((r) => r.provider === input.provider);
       if (!prov || !det || det.status !== "found" || !det.exe) throw new HuhuError("PROVIDER_NOT_FOUND", `未检测到 ${prov?.displayName ?? input.provider}`);
-      argv = prov.interactiveArgv({ exe: det.exe, model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt });
+      argv = prov.interactiveArgv({ exe: det.exe, model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt, resumeSessionId: input.resumeSessionId });
       env = prov.env;
+    }
+    const cwd = input.cwd ?? space.root;
+    if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
+    if (input.cwd !== undefined) {
+      let ok = false;
+      try { ok = isWithin(realpathSync(space.root), realpathSync(input.cwd)); } catch { /* 目录不存在 */ }
+      if (!ok) throw errors.invalidInput("启动目录必须在 Space 之内且存在");
     }
     const session: SessionRecord = {
       id: newId("cap").replace(/^cap-/, "sess-"), spaceId: space.id, provider: input.provider, model: input.model ?? null, state: "launching",
       requestId: input.requestId, terminalId: null, name: input.provider === "shell" ? "终端" : (PROVIDERS.find((p) => p.id === input.provider)?.displayName ?? input.provider),
-      cwd: space.root, createdAt: this.d.now().toISOString(),
+      cwd, createdAt: this.d.now().toISOString(), ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
     };
     this.save(session); // 先持久化，再启动
     const labels = { "huhu.vault": this.d.vaultId, "huhu.space": space.id, "huhu.session": session.id, "huhu.launch": input.requestId };
     const client = await this.d.core().catch((e: unknown) => { this.save({ ...session, state: "failed", error: String(e) }); throw e; });
     try {
-      const r = await client.call<RunResult>("terminal.run", { ...(argv ? { argv } : {}), cwd: space.root, ...(env ? { env } : {}), labels, name: session.id }); // Herdr 名称只接受 ASCII（a-z0-9-_.，1–32 位）；显示名保存在 HUHU 会话记录里
+      const r = await client.call<RunResult>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels, name: session.id }); // Herdr 名称只接受 ASCII（a-z0-9-_.，1–32 位）；显示名保存在 HUHU 会话记录里
       const ok = { ...session, state: "running" as const, terminalId: r.address };
       this.save(ok);
       return ok;

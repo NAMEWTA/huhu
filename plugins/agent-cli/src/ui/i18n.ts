@@ -15,4 +15,17 @@ export const t = {
   terminalLabel: "终端",
   running: "运行中",
   failed: "启动失败",
+  history: {
+    open: "历史",
+    close: "关闭历史",
+    title: "历史会话",
+    empty: "这个 Space 下还没有 Claude 或 Codex 的历史会话",
+    resume: "恢复",
+    resuming: "正在恢复…",
+    active: "运行中",
+    notInstalled: "未检测到对应的 CLI，无法恢复",
+    skipped: (n: number) => `${n} 个历史文件无法解析，已跳过`,
+    provider: { claude: "Claude", codex: "Codex" } as Record<string, string>,
+    note: "历史来自各 CLI 自己保存的会话记录，只读扫描；恢复会在原来的目录里重新打开它。",
+  },
 } as const;

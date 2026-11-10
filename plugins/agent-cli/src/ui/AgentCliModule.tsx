@@ -1,6 +1,7 @@
 import { Badge, Button, EmptyState, TerminalView } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
+import { HistoryPanel } from "./history/HistoryPanel.js";
 import { t } from "./i18n.js";
 
 interface Space { id: string; name: string; root: string; revision: number }
@@ -14,6 +15,7 @@ export function AgentCliModule() {
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
   const sessions = useCapability<Session[]>("agent.sessions.list", space ? { spaceId: space.id } : {});
@@ -67,6 +69,7 @@ export function AgentCliModule() {
             </button>
           ))}
           <Button variant="primary" aria-expanded={menu} onClick={() => setMenu(!menu)}>{t.newTerminal}</Button>
+          <Button aria-expanded={showHistory} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>{showHistory ? t.history.close : t.history.open}</Button>
         </div>
         {menu ? (
           <div role="menu" aria-label={t.newTerminal} className="hu-popover" style={{ position: "static" }}>
@@ -75,7 +78,10 @@ export function AgentCliModule() {
             {(providers.data ?? []).every((p) => p.status !== "found") ? <p>{t.noProviders}</p> : null}
           </div>
         ) : null}
-        {list.length === 0 ? <EmptyState title={t.noSessions} /> : null}
+        {showHistory && space ? (
+          <HistoryPanel space={space} installed={new Set((providers.data ?? []).filter((p) => p.status === "found").map((p) => p.provider))} onResumed={(id) => { setActive(id); setShowHistory(false); }} />
+        ) : null}
+        {list.length === 0 && !showHistory ? <EmptyState title={t.noSessions} /> : null}
         {cur && cur.state === "running" ? (
           <div style={{ height: "55vh" }}>
             <div className="hu-form">
