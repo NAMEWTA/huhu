@@ -26,6 +26,10 @@ export interface RunningServer {
   port: number;
   server: Server;
   replay: EventReplay;
+  /** 当前 WebSocket 连接数。 */
+  activeConnections(): number;
+  /** 最近一次 HTTP/WS 活动的时间戳。 */
+  lastActivity(): number;
   close(): Promise<void>;
 }
 
@@ -38,11 +42,16 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     for (const c of wss.clients) if (c.readyState === 1) c.send(frame);
   });
   const inflight = new Map<Caller, number>();
+  let lastActivity = Date.now();
   let port = 0;
 
   const app = new Hono();
   app.get("/healthz", (c) => c.text("ok"));
 
+  app.use("*", async (_c, next) => {
+    lastActivity = Date.now();
+    await next();
+  });
   app.use("/api/*", async (c, next) => {
     const raw = c.env as { incoming: IncomingMessage };
     const verdict = checkIngress(raw.incoming.headers, port);
@@ -122,6 +131,8 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     port,
     server,
     replay,
+    activeConnections: () => wss.clients.size,
+    lastActivity: () => lastActivity,
     close: async () => {
       unsub();
       for (const c of wss.clients) c.terminate();
