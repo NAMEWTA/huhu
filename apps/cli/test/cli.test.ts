@@ -74,4 +74,22 @@ describe("CLI", () => {
     while (existsSync(desc) && Date.now() < deadline) await new Promise((r2) => setTimeout(r2, 200));
     expect(existsSync(desc)).toBe(false);
   }, 60000);
+  test("便捷命令：tasks create/list/complete、plugins list、capabilities list、inbox capture", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const run1 = async (...args: string[]) => { const c = capture(); const code = await run([...args, "--vault", dir, "--json"], c.io); return { code, out: JSON.parse(c.out.join("")) as { ok: boolean; data: unknown } }; };
+    const created = await run1("tasks", "create", "--title", "写周报");
+    expect(created.code).toBe(1); // tasks.create 默认不对外开放
+    expect((created.out as unknown as { error: { code: string } }).error.code).toBe("CAPABILITY_NOT_EXPOSED");
+    const plugins = await run1("plugins", "list");
+    expect(plugins.code).toBe(0);
+    expect((plugins.out.data as { id: string }[]).map((p) => p.id)).toEqual(expect.arrayContaining(["tasks", "notes", "inbox", "safe"]));
+    const caps = await run1("capabilities", "list");
+    expect((caps.out.data as { name: string; exposed: boolean }[]).find((c) => c.name === "safe.items.reveal")?.exposed).toBe(false);
+    const cap = await run1("inbox", "capture", "--title", "来自命令行");
+    expect(cap.code).toBe(0);
+    expect((cap.out.data as { source: string }).source).toBe("cli");
+    expect((await run1("tasks", "list", "--completed", "false")).code).toBe(0);
+    expect((await run1("notes", "list")).code).toBe(0);
+  });
 });

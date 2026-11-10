@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
@@ -110,6 +110,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
+  registerSystemCapabilities(registry, plugins, { isExposed: (n) => registry.get(n)?.defaultExposed === true });
   await plugins.enableAll();
   const tokens = new TokenTable();
   const rendererToken = tokens.issue("desktop");

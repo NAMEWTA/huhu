@@ -10,3 +10,4 @@ export * from "./server/ingress.js";
 export * from "./server/tokens.js";
 export * from "./server/ws-events.js";
 export * from "./capabilities/vault.js";
+export * from "./capabilities/system.js";
