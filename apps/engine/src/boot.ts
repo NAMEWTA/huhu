@@ -1,10 +1,9 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, defineCapability, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
-import { Vault } from "@huhu/vault";
-import { z } from "zod";
+import { Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 
 export interface EndpointDescriptor {
   pid: number;
@@ -30,14 +29,13 @@ export interface RunningEngine {
   cliToken: string;
   descriptorPath: string;
   server: RunningServer;
+  index: VaultIndex;
   dispatcher: Dispatcher;
   registry: CapabilityRegistry;
   events: EventBus;
   /** 按顺序关闭：拒绝新写 → 通知客户端 → 停服务 → 释放锁 → 删除端点描述。 */
   shutdown(): Promise<void>;
 }
-
-const VaultInfoOutput = z.object({ id: z.string(), name: z.string(), readOnly: z.boolean(), formatVersion: z.number(), counts: z.record(z.string(), z.number()) });
 
 export function endpointPath(vault: Vault): string {
   return path.join(vault.runtimeDir, "engine.json");
@@ -63,12 +61,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   mkdirSync(runtime, { recursive: true });
 
   const registry = new CapabilityRegistry();
-  registry.register(
-    defineCapability({
-      name: "vault.info", plugin: "kernel", scope: "read", input: z.object({}), output: VaultInfoOutput, exposable: true, defaultExposed: true,
-      handler: () => ({ id: vault.id, name: vault.info.name, readOnly: vault.readOnly, formatVersion: vault.info.formatVersion, counts: {} }),
-    }),
-  );
+  const index = new VaultIndex(vault.root);
+  registerVaultCapabilities(registry, vault, index);
+  void index.build(); // 后台构建；构建期间 vault.tree 已可用，vault.search 返回 indexing=true
 
   const events = new EventBus(() => vault.id);
   const tokens = new TokenTable();
@@ -85,6 +80,17 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   const server = await startEngineServer({ dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && registry.get(name)?.defaultExposed === true), ...(opts.port !== undefined ? { port: opts.port } : {}) });
 
+  const watcher = new VaultWatcher({
+    root: vault.root,
+    receipts: vault.files.receipts,
+    onChanges: (changes) => {
+      index.applyChanges(changes);
+      for (const c of changes) events.publish("vault.fileChanged", { path: c.path, change: c.change, ...(c.from ? { from: c.from } : {}) });
+    },
+    onDegraded: () => undefined,
+  });
+  await watcher.start();
+
   const descriptorPath = endpointPath(vault);
   const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, startedAt: new Date().toISOString() };
   writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
@@ -94,10 +100,11 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     (closed ??= (async () => {
       real.beginClose();
       events.publish("engine.closing", {});
+      await watcher.close();
       await server.close();
       rmSync(descriptorPath, { force: true });
       await vault.close();
     })());
 
-  return { vault, port: server.port, rendererToken, cliToken, descriptorPath, server, dispatcher: real, registry, events, shutdown };
+  return { vault, port: server.port, rendererToken, cliToken, descriptorPath, server, index, dispatcher: real, registry, events, shutdown };
 }

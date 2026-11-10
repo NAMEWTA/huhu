@@ -9,3 +9,4 @@ export * from "./server/http-app.js";
 export * from "./server/ingress.js";
 export * from "./server/tokens.js";
 export * from "./server/ws-events.js";
+export * from "./capabilities/vault.js";

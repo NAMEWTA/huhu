@@ -6,6 +6,11 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, test } from "vitest";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
+interface Reply {
+  ok: boolean;
+  data: { id: string; hits: { path: string }[]; text: string } & { path: string }[];
+  error?: { code: string };
+}
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
 afterEach(async () => {
@@ -14,7 +19,7 @@ afterEach(async () => {
 });
 const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-e-")); dirs.push(d); return d; };
 const post = (e: RunningEngine, token: string, body: unknown) =>
-  fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ ok: boolean; data: { id: string } }>);
+  fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<Reply>);
 
 describe("Engine 启动与关闭", () => {
   test("Renderer 与 CLI 令牌经同一 Dispatcher 调用 vault.info", async () => {
@@ -69,5 +74,28 @@ describe("Engine 启动与关闭", () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
     await expect(boot({ vaultPath: dir })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+  });
+  test("vault.tree / vault.search / vault.readFile 与外部修改后的增量索引", async () => {
+    const dir = tmp();
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(path.join(dir, "笔记.md"), "# 笔记\n关于知识库的想法\n");
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const call = (capability: string, input: unknown, token = e.rendererToken) => post(e, token, { capability, input, requestId: "r" });
+    await e.index.build();
+    expect((await call("vault.tree", {})).data.map((x) => x.path)).toEqual(["笔记.md"]);
+    expect((await call("vault.search", { query: "知识库" })).data.hits[0]?.path).toBe("笔记.md");
+    expect((await call("vault.readFile", { path: "笔记.md" })).data.text).toContain("想法");
+    expect((await call("vault.readFile", { path: "../etc/passwd" })).error?.code).toBe("PATH_OUTSIDE_VAULT");
+    // CLI 身份：readFile 默认不对外
+    expect((await call("vault.readFile", { path: "笔记.md" }, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect((await call("vault.reindex", {}, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    // 外部新增文件 → 事件 + 索引
+    const seen: string[] = [];
+    e.events.subscribe((ev) => { if (ev.type === "vault.fileChanged") seen.push((ev.payload as { path: string }).path); });
+    writeFileSync(path.join(dir, "新文件.md"), "独特词汇蜻蜓");
+    const end = Date.now() + 3000;
+    while (!seen.includes("新文件.md") && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    expect(seen).toContain("新文件.md");
+    expect((await call("vault.search", { query: "蜻蜓" })).data.hits[0]?.path).toBe("新文件.md");
   });
 });
