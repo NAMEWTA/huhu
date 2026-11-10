@@ -15,7 +15,8 @@
     "build": "pnpm -r run build",
     "gen": "node scripts/gen-guide.mjs",
     "e2e": "playwright test",
-    "dev": "pnpm --filter @huhu/desktop dev"
+    "dev": "pnpm --filter @huhu/desktop dev",
+    "notices": "node scripts/gen-notices.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",

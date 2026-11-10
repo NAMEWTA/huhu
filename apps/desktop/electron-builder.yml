@@ -11,6 +11,10 @@ extraResources:
   - from: resources/herdr/${platform}-${arch}
     to: herdr/${platform}-${arch}
     filter: ["**/*"]
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
 win:
   target: [{ target: nsis, arch: x64 }]
   artifactName: HUHU-${version}-win32-x64.${ext}

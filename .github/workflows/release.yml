@@ -31,6 +31,7 @@ jobs:
           path: apps/desktop/resources/herdr/${{ matrix.target }}
       - run: chmod +x apps/desktop/resources/herdr/${{ matrix.target }}/herdr-core || true
         shell: bash
+      - run: pnpm notices
       - run: pnpm build
       - run: pnpm --filter @huhu/desktop exec electron-builder
       - run: node scripts/checksums.mjs apps/desktop/release ${{ matrix.target }}

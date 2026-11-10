@@ -1,0 +1,56 @@
+// 生成 THIRD_PARTY_NOTICES.md：运行时依赖闭包的许可证清单 + 复制来源台账 + 随包二进制。
+// 遇到不在允许列表里的许可证时退出非 0（发布前必须人工确认）。
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ALLOWED = [/^MIT/, /^ISC$/, /^BSD/, /^Apache-2\.0/, /^0BSD$/, /^BlueOak/, /^CC0/, /^Python-2\.0$/, /^MPL-2\.0$/, /^Unlicense$/, /^CC-BY-4\.0$/, /WTFPL/, /^\(?MIT OR/, /^\(?BSD/, /^\(?Apache/];
+
+// 工作区包（renderer/engine/CLI）都被打包进应用，其依赖大多声明为 devDependencies，所以直接读取 pnpm 虚拟仓库里
+// 安装的每个包（偏保守的超集：也包含构建工具；构建工具不随包分发，但列出不会有害）。
+const store = path.join(root, "node_modules", ".pnpm");
+const seen = new Map();
+for (const entry of readdirSync(store)) {
+  if (entry.startsWith("@huhu+") || entry === "node_modules" || entry.startsWith(".")) continue;
+  const m = /^(@[^+]+\+[^@]+|[^@]+)@(\d[^_]*)/.exec(entry);
+  if (!m) continue;
+  const name = m[1].replace("+", "/");
+  const dir = path.join(store, entry, "node_modules", name);
+  if (!existsSync(path.join(dir, "package.json"))) continue;
+  const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
+  const license = typeof pkg.license === "string" ? pkg.license : pkg.license?.type ?? (pkg.licenses?.map((l) => l.type).join(" OR ") ?? "UNKNOWN");
+  seen.set(`${name}@${m[2]}`, { name, version: m[2], license, homepage: typeof pkg.homepage === "string" ? pkg.homepage : "" });
+}
+const rows = [...seen.values()];
+rows.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+const bad = rows.filter((r) => !ALLOWED.some((re) => re.test(r.license)));
+
+const ledger = readFileSync(path.join(root, "docs/upstream/ledger.md"), "utf8");
+const lines = [
+  "# 第三方声明",
+  "",
+  "HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用分发的第三方组件及其许可证；本文件由 `scripts/gen-notices.mjs` 生成，请勿手工编辑。",
+  "",
+  "## 随包二进制与运行时",
+  "",
+  "- Electron / Chromium：见应用目录中的 `LICENSE.electron.txt` 与 `LICENSES.chromium.html`。",
+  "- Herdr Core（`herdr-core`）：Apache-2.0，源码 https://github.com/herdrdev/herdr-core（固定提交见 `scripts/herdr-source.json`），其内含 ghostty（MIT）。",
+  "",
+  "## 复制或改造的源码（`docs/upstream/ledger.md`）",
+  "",
+  ledger.trim(),
+  "",
+  "## npm 运行时依赖",
+  "",
+  "| 包 | 版本 | 许可证 | 主页 |",
+  "| --- | --- | --- | --- |",
+  ...rows.map((r) => `| ${r.name} | ${r.version} | ${r.license} | ${r.homepage} |`),
+  "",
+];
+writeFileSync(path.join(root, "THIRD_PARTY_NOTICES.md"), lines.join("\n"));
+console.log(`THIRD_PARTY_NOTICES.md：${rows.length} 个运行时依赖`);
+if (bad.length) {
+  console.error("以下依赖的许可证不在允许列表内，请人工确认：\n" + bad.map((r) => `  ${r.name}@${r.version}  ${r.license}`).join("\n"));
+  process.exit(1);
+}
