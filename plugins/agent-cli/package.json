@@ -5,8 +5,8 @@
   "type": "module",
   "exports": {
     "./engine": "./src/engine/index.ts",
-    "./ui": "./src/ui/index.ts",
-    "./shared": "./src/shared/index.ts"
+    "./shared": "./src/shared/index.ts",
+    "./ui": "./src/ui/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

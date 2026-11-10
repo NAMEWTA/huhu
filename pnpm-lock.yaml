@@ -282,6 +282,9 @@ importers:
       '@huhu/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
+      '@huhu/plugin-agent-cli':
+        specifier: workspace:*
+        version: link:../../plugins/agent-cli
       '@huhu/plugin-archives':
         specifier: workspace:*
         version: link:../../plugins/archives

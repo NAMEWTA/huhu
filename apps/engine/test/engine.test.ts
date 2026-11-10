@@ -177,4 +177,15 @@ describe("Engine 启动与关闭", () => {
     walk(dir);
     expect(hits).toEqual([]);
   });
+  test("agent-cli：默认 Space 指向 Vault 根；Provider 检测可调用；对外不开放", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const call = (token: string, capability: string, input: unknown) => post(e, token, { capability, input, requestId: "r" }) as unknown as Promise<{ ok: boolean; data: { root: string }[]; error?: { code: string } }>;
+    const spaces = await call(e.rendererToken, "agent.spaces.list", {});
+    expect(spaces.data).toHaveLength(1);
+    const { realpathSync } = await import("node:fs");
+    expect(spaces.data[0]?.root).toBe(realpathSync(dir));
+    expect((await call(e.rendererToken, "agent.providers.detect", {})).ok).toBe(true);
+    expect((await call(e.cliToken, "agent.spaces.list", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+  });
 });

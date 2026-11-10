@@ -5,6 +5,7 @@ import {
 } from "@huhu/kernel";
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as archives from "@huhu/plugin-archives/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
 import * as notes from "@huhu/plugin-notes/engine";
@@ -104,6 +105,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse({ id: "safe", title: "保险箱", description: "", version: "0.0.1", origin: "builtin" }),
     apply: (ctx, api) => void safe.apply(ctx, api),
+  });
+  plugins.register({
+    manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "0.0.1", origin: "builtin" }),
+    apply: (ctx, api) => void agentCli.apply(ctx, api),
   });
   await plugins.enableAll();
   const tokens = new TokenTable();

@@ -10,6 +10,7 @@
     "@huhu/contracts": "workspace:*",
     "@huhu/cordis": "workspace:*",
     "@huhu/kernel": "workspace:*",
+    "@huhu/plugin-agent-cli": "workspace:*",
     "@huhu/plugin-archives": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",
