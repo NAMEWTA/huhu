@@ -145,6 +145,10 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (!caller) return send(401, { error: "未授权" });
     if (caller !== "mcp" && caller !== "http") return send(403, { error: "该令牌身份不能使用 MCP 服务" });
     if (req.method !== "POST") return send(405, { error: "仅支持 POST" });
+    const n = inflight.get(caller) ?? 0;
+    if (n >= MAX_CONCURRENT_PER_TOKEN) return send(429, { error: "并发调用过多" });
+    inflight.set(caller, n + 1);
+    res.on("close", () => inflight.set(caller, Math.max(0, (inflight.get(caller) ?? 1) - 1)));
     const chunks: Buffer[] = [];
     let total = 0;
     for await (const c of req) {

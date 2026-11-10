@@ -107,3 +107,42 @@ describe("同步", () => {
     expect(["offline", "unknown"]).toContain(a.sync.status().name);
   });
 });
+
+describe("审计回归", () => {
+  test("文件名里的通配符不是 pathspec：排除的 xsecret.md 不会被纳入文件 x* 带上远端", async () => {
+    const { a, remote } = await twoVaults();
+    a.sync.update({ exclude: ["xsecret.md"] });
+    put(a.root, "x*", "纳入"); put(a.root, "xsecret.md", "不应上传");
+    await a.sync.run("sync");
+    const tree = git(remote, "ls-tree", "-r", "--name-only", "main");
+    expect(tree).toContain("x*");
+    expect(tree).not.toContain("xsecret.md");
+  });
+  test("暂存的重命名不会让同步失败（旧路径条目被跳过）", async () => {
+    const { a } = await twoVaults();
+    put(a.root, "旧名字.md", "内容内容内容内容内容\n"); git(a.root, "add", "旧名字.md"); git(a.root, "commit", "-q", "-m", "init");
+    git(a.root, "mv", "旧名字.md", "新名字.md");
+    const p = await a.sync.preview();
+    expect(p.push).toContain("新名字.md");
+    await expect(a.sync.run("sync")).resolves.toMatchObject({ pushed: true });
+  });
+  test("用户手动暂存的内容在同步后保留；没暂存过的路径与新 HEAD 对齐", async () => {
+    const { a } = await twoVaults();
+    put(a.root, "keep.md", "v1\n"); git(a.root, "add", "keep.md"); git(a.root, "commit", "-q", "-m", "base");
+    put(a.root, "keep.md", "STAGED\n"); git(a.root, "add", "keep.md");
+    put(a.root, "keep.md", "WORKTREE\n");
+    put(a.root, "other.md", "o\n");
+    await a.sync.run("sync");
+    expect(git(a.root, "show", ":keep.md")).toBe("STAGED\n"); // 用户暂存的版本还在 index 里
+    expect(git(a.root, "diff", "--cached", "--name-only")).toContain("keep.md");
+    expect(git(a.root, "status", "--porcelain")).not.toContain("other.md"); // 其余已与 HEAD 对齐
+  });
+  test("合并被未纳入的脏文件拒绝时，不谎报为冲突", async () => {
+    const { a, b } = await twoVaults();
+    put(a.root, ".huhu/settings.json", "{\"from\":\"a\"}"); await a.sync.run("sync");
+    put(b.root, ".huhu/settings.json", "{\"local\":true}"); // B 本地同名未跟踪文件，会被拉取覆盖
+    const err = await b.sync.run("pull").catch((e: { code: string }) => e);
+    expect((err as { code: string }).code).not.toBe("GIT_CONFLICT");
+    expect(readFileSync(path.join(b.root, ".huhu/settings.json"), "utf8")).toBe("{\"local\":true}");
+  });
+});

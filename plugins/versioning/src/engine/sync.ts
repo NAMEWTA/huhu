@@ -55,7 +55,20 @@ export class VaultSync {
   private _status: { name: SyncStatusName; detail: string } = { name: "idle", detail: "" };
 
   constructor(private readonly root: string, private readonly identity = { name: "HUHU", email: "huhu@localhost" }) {
-    this.git = new GitRunner({ workTree: root });
+    // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
+    this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1" } });
+  }
+
+  /** 解析 `status --porcelain=v1 -z`：重命名/复制条目后面紧跟一个"旧路径"条目，需要跳过。 */
+  private async changedPaths(): Promise<string[]> {
+    const parts = (await this.git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"])).stdout.split("\0").filter(Boolean);
+    const out: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const e = parts[i] as string;
+      out.push(e.slice(3));
+      if (e[0] === "R" || e[0] === "C") i++;
+    }
+    return out;
   }
 
   private cfgFile(): string {
@@ -113,11 +126,9 @@ export class VaultSync {
     } catch (e) {
       this.track(e);
     }
-    const out = (await this.git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"])).stdout.split("\0").filter(Boolean);
     const push: string[] = [];
     const skipped: { path: string; reason: string }[] = [];
-    for (const l of out) {
-      const p = l.slice(3);
+    for (const p of await this.changedPaths()) {
       const v = classify(p, c.exclude);
       if (v.include) push.push(p);
       else skipped.push({ path: p, reason: v.reason });
@@ -142,8 +153,10 @@ export class VaultSync {
   /** 用临时 index 提交纳入范围的改动：不动用户自己的暂存区。没有可提交的改动返回 false。 */
   private async commitIncluded(message: string): Promise<boolean> {
     const c = this.config();
-    const files = (await this.git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"])).stdout.split("\0").filter(Boolean).map((l) => l.slice(3)).filter((p) => classify(p, c.exclude).include);
+    const files = (await this.changedPaths()).filter((p) => classify(p, c.exclude).include);
     if (files.length === 0) return false;
+    const stagedBefore = new Set((await this.git.run(["diff", "--cached", "--name-only"])).stdout.split("\n").filter(Boolean));
+    const oldHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then((r) => r.stdout.trim(), () => null);
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-idx-"));
     const env = { GIT_INDEX_FILE: path.join(dir, "index"), GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
     try {
@@ -153,9 +166,11 @@ export class VaultSync {
       const tree = (await this.git.run(["write-tree"], { env })).stdout.trim();
       const parent = hasHead ? ["-p", "HEAD"] : [];
       const commit = (await this.git.run(["commit-tree", tree, ...parent, "-m", message], { env })).stdout.trim();
-      await this.git.run(["update-ref", "-m", "huhu sync", "HEAD", commit]);
-      // 用户自己的 index 与新的 HEAD 对齐（只重置被提交的路径，不触碰其他暂存内容）
-      await this.git.run(["reset", "--quiet", "--", ...files]).catch(() => undefined);
+      // 带旧值校验：同步期间用户自己做了提交时不会被覆盖
+      await this.git.run(["update-ref", "-m", "huhu sync", "HEAD", commit, ...(oldHead ? [oldHead] : [])]);
+      // 用户自己的 index 与新的 HEAD 对齐：只重置用户没有手动暂存过的路径，用户暂存的内容保留
+      const toReset = files.filter((f) => !stagedBefore.has(f));
+      if (toReset.length) await this.git.run(["reset", "--quiet", "--", ...toReset]).catch(() => undefined);
       return true;
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -182,8 +197,13 @@ export class VaultSync {
           } catch {
             const files = (await this.git.run(["diff", "--name-only", "--diff-filter=U"]).catch(() => ({ stdout: "" }))).stdout.split("\n").filter(Boolean);
             await this.git.run(["merge", "--abort"]).catch(() => undefined); // 不留下半合并状态
+            if (files.length === 0) {
+              // 没有冲突文件：合并因为别的原因被拒绝（例如未纳入的未跟踪文件会被覆盖），不能谎报成"冲突"
+              this._status = { name: "unknown", detail: "合并被拒绝" };
+              throw new HuhuError("INTERNAL", "无法合并远端变更：本地有未提交且会被覆盖的文件，请先处理这些文件", { retryable: false });
+            }
             this._status = { name: "conflict", detail: files.join("、") };
-            throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、") || "存在冲突"}`, { details: { files } });
+            throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files } });
           }
         }
       }

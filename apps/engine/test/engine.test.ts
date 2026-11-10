@@ -552,4 +552,27 @@ describe("Engine 启动与关闭", () => {
     await call("gateway.mcp.update", { enabled: false, transport: "http" });
     expect((await rpc(e.mcpToken, init)).status).toBe(404);
   }, 30_000);
+  test("审计回归：外部入口即使被开放 automations.create/update/setEnabled，也不能创建或启用 agent_prompt 规则", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    for (const cap of ["automations.create", "automations.update", "automations.setEnabled"]) await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true });
+    const trig = { preset: "custom", cron: "0 9 * * *", zone: "UTC" };
+    const agent = { kind: "agent_prompt", spaceId: "space-1", provider: "codex" };
+    expect((await call(e.cliToken, "automations.create", { title: "外部想创建 Agent 规则", trigger: trig, action: agent })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "automations.create", { title: "外部创建通知规则", trigger: trig, action: { kind: "notify", channel: "in_app", text: "ok" } })).ok).toBe(true);
+    const desktopRule = (await call(e.rendererToken, "automations.create", { title: "桌面创建的 Agent 规则", trigger: trig, action: agent })).data as { id: string; version: string };
+    expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.cliToken, "automations.update", { id: desktopRule.id, expectedVersion: desktopRule.version, patch: { title: "改名" } })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.rendererToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).ok).toBe(true);
+  }, 30_000);
+  test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });
+    const slow = () => fetch(`http://127.0.0.1:${e.port}/mcp`, { method: "POST", headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }).then((r) => r.status);
+    const statuses = await Promise.all(Array.from({ length: 80 }, slow));
+    expect(statuses.every((s) => s === 200 || s === 429)).toBe(true);
+    // 引擎仍然健康，并且并发回落后可以再次正常使用
+    expect(await slow()).toBe(200);
+  }, 30_000);
 });

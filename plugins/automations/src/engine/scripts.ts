@@ -77,18 +77,29 @@ export interface ScriptResult { state: "succeeded" | "failed" | "cancelled"; exi
  */
 export function runScript(def: ScriptDef, extraArgs: string[], resolveSecret: (ref: string) => string, signal?: AbortSignal): Promise<ScriptResult> {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const [k, ref] of Object.entries(def.envRefs)) env[k] = resolveSecret(ref); // 抛 SAFE_LOCKED / SECRET_REF_INVALID
+  const secrets: string[] = [];
+  for (const [k, ref] of Object.entries(def.envRefs)) {
+    const v = resolveSecret(ref); // 抛 SAFE_LOCKED / SECRET_REF_INVALID
+    env[k] = v;
+    if (v.length >= 4) secrets.push(v);
+  }
+  /** 输出会写进 Vault（并可能被同步），所以脚本回显的秘密值必须先抹掉。 */
+  const redact = (text: string) => secrets.reduce((t, s) => t.split(s).join("***"), text);
   return new Promise((resolve) => {
     let out = "";
     const p = spawn(def.program, [...def.args, ...extraArgs], { cwd: def.cwd, env, shell: false, windowsHide: true, detached: process.platform !== "win32" });
-    const timer = setTimeout(() => killTree(p), def.timeoutSec * 1000);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; killTree(p); }, def.timeoutSec * 1000);
     signal?.addEventListener("abort", () => killTree(p), { once: true });
-    const tail = () => out.split("\n").slice(-200).join("\n");
-    p.stdout.on("data", (b) => { out += b; });
-    p.stderr.on("data", (b) => { out += b; });
+    const tail = () => redact(out).split("\n").slice(-200).join("\n");
+    const MAX = 2 * 1024 * 1024; // 内存里只保留最近 2 MiB，持续输出的进程不会占满内存
+    const add = (b: Buffer) => { out += b; if (out.length > MAX) out = out.slice(-MAX); };
+    p.stdout.on("data", add);
+    p.stderr.on("data", add);
     p.once("error", (e) => { clearTimeout(timer); resolve({ state: "failed", exitCode: null, output: `${e.message}\n${tail()}`.trim() }); });
     p.once("close", (code, sig) => {
       clearTimeout(timer);
+      if (timedOut) return resolve({ state: "failed", exitCode: code, output: `${tail()}\n[超时 ${def.timeoutSec} 秒，已终止]`.trim() });
       resolve({ state: sig ? "cancelled" : code === 0 ? "succeeded" : "failed", exitCode: code, output: tail() });
     });
   });

@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { machineId } from "@huhu/vault";
+import { errors } from "@huhu/contracts";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
 import { ScriptStore } from "./scripts.js";
@@ -20,6 +21,12 @@ const Action = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("script"), scriptId: z.string(), args: z.array(z.string()).default([]) }),
   z.object({ kind: z.literal("notify"), channel: z.literal("in_app"), text: z.string() }),
 ]);
+/** Agent 执行永不对外（security.md §1）：外部入口即使被开放 automations.create/update/setEnabled，也不能创建、修改或启用 agent_prompt 规则。 */
+function assertNoAgentAction(caller: string, action: { kind: string; model?: string | null } | undefined): void {
+  if (action?.kind === "agent_prompt" && caller !== "desktop") throw errors.permissionDenied("agent_prompt 规则（仅桌面可用）");
+  if (action?.model && action.model.startsWith("-")) throw errors.invalidInput("model 不能以 - 开头");
+}
+
 const Rule = z.object({ id: z.string(), path: z.string(), version: z.string(), body: z.string(), data: z.object({ title: z.string(), enabled: z.boolean(), builtin: z.boolean(), trigger: Trigger, missedRunGraceMinutes: z.number(), action: Action }).passthrough() });
 
 export interface AutomationsOptions {
@@ -68,7 +75,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes })));
   // 能力在内置规则写入完成后才开始服务；写入失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
   const ready = svc.ensureBuiltin().then(() => svc.reconcile()).then(() => { if (opts.schedule !== false) sync(); }).catch(() => undefined);
-  ctx.effect(() => () => scheduler.stop()); // 停用 → 作业全部释放
+  ctx.effect(() => () => { scheduler.stop(); svc.abortAll(); }); // 停用 → 作业全部释放，运行中的脚本/Agent 被终止
   const resync = () => { if (opts.schedule !== false) sync(); };
 
   // 规则文件被恢复/外部修改时重建作业（否则内存里的 Cron 会继续按旧设置激活）
@@ -85,10 +92,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   api.defineCapability(def({ name: "automations.scripts.delete", plugin: "automations", scope: "admin", exposable: false, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (scriptStore.delete(i.id), { ok: true as const }) }));
   api.defineCapability(def({ name: "automations.list", plugin: "automations", scope: "read", exposable: true, defaultExposed: true, input: z.object({}), output: z.array(Rule), handler: async () => { await ready; return svc.rules() as never; } }));
   api.defineCapability(def({ name: "automations.read", plugin: "automations", scope: "read", exposable: true, defaultExposed: true, input: Id, output: Rule, handler: async (_c, i) => { await ready; return svc.rule(i.id) as never; } }));
-  api.defineCapability(def({ name: "automations.create", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }), output: Rule, handler: async (_c, i) => { const r = await svc.create(i as never); resync(); return r as never; } }));
-  api.defineCapability(def({ name: "automations.update", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: Id.extend({ expectedVersion: z.string(), patch: z.object({ title: z.string().optional(), trigger: Trigger.optional(), action: Action.optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }) }), output: Rule, handler: async (_c, i) => { const r = await svc.update(i.id, i.expectedVersion, i.patch as never); resync(); return r as never; } }));
+  api.defineCapability(def({ name: "automations.create", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }), output: Rule, handler: async (c, i) => { assertNoAgentAction(c.caller, i.action); const r = await svc.create(i as never); resync(); return r as never; } }));
+  api.defineCapability(def({ name: "automations.update", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: Id.extend({ expectedVersion: z.string(), patch: z.object({ title: z.string().optional(), trigger: Trigger.optional(), action: Action.optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }) }), output: Rule, handler: async (c, i) => { assertNoAgentAction(c.caller, i.patch.action); assertNoAgentAction(c.caller, svc.rule(i.id).data.action); const r = await svc.update(i.id, i.expectedVersion, i.patch as never); resync(); return r as never; } }));
   api.defineCapability(def({ name: "automations.delete", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => { await svc.delete(i.id); resync(); return { ok: true as const }; } }));
-  api.defineCapability(def({ name: "automations.setEnabled", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: Id.extend({ enabled: z.boolean() }), output: Rule, handler: async (_c, i) => { const r = await svc.setEnabled(i.id, i.enabled); resync(); return r as never; } }));
+  api.defineCapability(def({ name: "automations.setEnabled", plugin: "automations", scope: "write", exposable: true, defaultExposed: false, input: Id.extend({ enabled: z.boolean() }), output: Rule, handler: async (c, i) => { assertNoAgentAction(c.caller, svc.rule(i.id).data.action); const r = await svc.setEnabled(i.id, i.enabled); resync(); return r as never; } }));
   api.defineCapability(def({ name: "automations.preview", plugin: "automations", scope: "read", exposable: true, defaultExposed: false, input: Id, output: z.object({ next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }), handler: (_c, i) => svc.preview(i.id) }));
   api.defineCapability(def({ name: "automations.runNow", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, timeoutMs: 30 * 60_000, input: Id, output: z.object({ activationId: z.string(), summary: z.unknown() }), handler: async (_c, i) => { const a = await svc.activate(i.id, "manual"); return { activationId: a.activationId, summary: a.summary }; } }));
   api.defineCapability(def({ name: "automations.activations", plugin: "automations", scope: "read", exposable: true, defaultExposed: true, input: z.object({}), output: z.array(z.object({ activationId: z.string(), ruleId: z.string(), trigger: z.string(), scheduledFor: z.string().nullable(), startedAt: z.string(), finishedAt: z.string().optional(), summary: z.unknown().optional() })), handler: () => svc.activations() as never }));
