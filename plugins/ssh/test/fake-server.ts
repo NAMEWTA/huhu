@@ -8,8 +8,14 @@ export interface FakeSshOptions {
   hostKey?: string;
 }
 
+/** ssh2 生成的 ed25519 私钥约 0.3% 概率无法被自身解析（会让测试偶发失败）：生成后自检，不合格就重试。 */
 export function genHostKey(): string {
-  return utils.generateKeyPairSync("ed25519").private;
+  for (let i = 0; i < 20; i++) {
+    const key = utils.generateKeyPairSync("ed25519").private;
+    const parsed = utils.parseKey(key);
+    if (!(parsed instanceof Error)) return key;
+  }
+  throw new Error("无法生成可解析的主机密钥");
 }
 
 /** 假 SSH 服务器：密码认证、exec（echo/sleep/exit/出错）、tcpip 转发（供跳板测试）。 */

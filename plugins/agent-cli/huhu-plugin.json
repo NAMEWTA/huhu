@@ -5,8 +5,30 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": ["safe"],
+  "optionalDeps": [
+    "safe"
+  ],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["agent-cli"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["agent.spaces.list", "agent.spaces.save", "agent.spaces.delete", "agent.providers.detect"], "fileKinds": [] }
+  "contributes": {
+    "modules": [
+      "agent-cli"
+    ],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": [
+      "agent.core.status",
+      "agent.providers.detect",
+      "agent.sessions.interrupt",
+      "agent.sessions.kill",
+      "agent.sessions.launch",
+      "agent.sessions.list",
+      "agent.sessions.rename",
+      "agent.spaces.delete",
+      "agent.spaces.list",
+      "agent.spaces.save"
+    ],
+    "fileKinds": []
+  }
 }

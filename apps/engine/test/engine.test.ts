@@ -377,4 +377,22 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e2, created.token, "vault.info")).status).toBe(401);
     expect(readFileSync(path.join(dir, ".huhu/gateways.json"), "utf8")).not.toContain("脚本");
   }, 30_000);
+  test("审计回归：home.summary 以调用者身份取数；外部入口即使被开放 tasks.create 也不能设置 Agent 执行", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: unknown; error?: { code: string } };
+    const call = (token: string, capability: string, input: unknown = {}): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    await call(e.rendererToken, "tasks.create", { title: "T", execution: { kind: "manual" } });
+    await call(e.rendererToken, "notes.create", { name: "N" });
+    // 默认：CLI 能读 tasks.list / notes.list，home.summary 带出计数
+    expect(((await call(e.cliToken, "home.summary")).data as { tasksOpen: number; notes: number })).toMatchObject({ tasksOpen: 1, notes: 1 });
+    // 用户关闭 notes.list 的对外开放后，外部调用 home.summary 看不到笔记；桌面仍然能看到
+    await call(e.rendererToken, "gateway.update", { capability: "notes.list", exposed: false });
+    expect(((await call(e.cliToken, "home.summary")).data as { notes: number; recentNotes: unknown[] })).toMatchObject({ notes: 0, recentNotes: [] });
+    expect(((await call(e.rendererToken, "home.summary")).data as { notes: number }).notes).toBe(1);
+    // 开放 tasks.create 后，外部仍不能创建 Agent 执行的任务
+    await call(e.rendererToken, "gateway.update", { capability: "tasks.create", exposed: true });
+    expect((await call(e.cliToken, "tasks.create", { title: "手动", execution: { kind: "manual" } })).ok).toBe(true);
+    expect((await call(e.cliToken, "tasks.create", { title: "Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.rendererToken, "tasks.create", { title: "桌面 Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).ok).toBe(true);
+  }, 30_000);
 });

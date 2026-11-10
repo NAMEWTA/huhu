@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -38,7 +38,9 @@ export class NotificationStore {
 
   private rewrite(): void {
     mkdirSync(path.dirname(this.file), { recursive: true });
-    writeFileSync(this.file, this.load().map((n) => JSON.stringify(n)).join("\n") + (this.load().length ? "\n" : ""));
+    const tmp = `${this.file}.tmp`;
+    writeFileSync(tmp, this.load().map((n) => JSON.stringify(n)).join("\n") + (this.load().length ? "\n" : ""));
+    renameSync(tmp, this.file); // 原子替换：崩溃不会留下被截断的文件
   }
 
   create(input: { title: string; module: string }): Notification {

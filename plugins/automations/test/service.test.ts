@@ -123,7 +123,7 @@ describe("扫描", () => {
     await s2.svc.ensureBuiltin();
     (s2.svc as unknown as { d: { worker: unknown } }).d.worker = () => new Promise((r) => { release = () => r({ state: "succeeded", message: "ok", exitCode: 0, nativeSessionId: null, questions: [] }); });
     const first = s2.svc.activate(s2.svc.rules()[0]!.id, "manual");
-    await new Promise((r) => setTimeout(r, 50));
+    for (let i = 0; i < 200 && !release; i++) await new Promise((r) => setTimeout(r, 10)); // 轮询等待 worker 被调用，而不是固定 sleep
     await expect(s2.svc.activate(s2.svc.rules()[0]!.id, "manual")).rejects.toThrow(/正在执行/);
     release();
     await first;

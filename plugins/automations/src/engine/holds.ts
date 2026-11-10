@@ -6,10 +6,12 @@ export class HoldStore {
   constructor(private readonly file: string) {}
 
   private load(): Record<string, string> {
+    if (!existsSync(this.file)) return {};
     try {
-      return existsSync(this.file) ? (JSON.parse(readFileSync(this.file, "utf8")) as Record<string, string>) : {};
+      return JSON.parse(readFileSync(this.file, "utf8")) as Record<string, string>;
     } catch {
-      return {};
+      // 不静默当作空表再覆盖写入：那会丢掉其他任务的"恢复后暂停"保护
+      throw new Error("holds.json 无法解析，请修复或删除后重试");
     }
   }
 
@@ -19,7 +21,11 @@ export class HoldStore {
   }
 
   isHeld(taskId: string, inputHash: string): boolean {
-    return this.load()[taskId] === inputHash;
+    try {
+      return this.load()[taskId] === inputHash;
+    } catch {
+      return true; // 读不了时宁可不处理，也不要重复执行
+    }
   }
 
   /** 用户点“继续自动处理”。 */

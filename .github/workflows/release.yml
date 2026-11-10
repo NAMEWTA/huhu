@@ -1,6 +1,9 @@
 name: release
 on:
   workflow_dispatch:
+permissions:
+  contents: read
+
 jobs:
   herdr:
     uses: ./.github/workflows/herdr.yml

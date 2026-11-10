@@ -133,10 +133,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.register(defineCapability({
     name: "home.summary", plugin: "kernel", scope: "read", exposable: true, defaultExposed: true, input: z.object({}),
     output: z.object({ vault: z.object({ id: z.string(), name: z.string() }), tasksToday: z.number(), tasksOpen: z.number(), inboxPending: z.number(), notes: z.number(), recentNotes: z.array(z.object({ path: z.string(), title: z.string() })) }),
-    handler: async () => {
+    handler: async (hc) => {
       const ask = async <T,>(cap: string, input: unknown, fallback: T): Promise<T> => {
         if (!plugins.isEnabled(cap.split(".")[0] === "inbox" ? "inbox" : cap.split(".")[0] as string)) return fallback; // 对应插件停用：该卡片为空，不报错
-        const r = await dispatcherRef.current?.call("desktop", { capability: cap, input, requestId: "home" });
+        const r = await dispatcherRef.current?.call(hc.caller as never, { capability: cap, input, requestId: "home" }); // 以调用者本人的身份取数：外部入口看不到未对其开放的数据
         return r?.ok ? (r.data as T) : fallback;
       };
       const open = await ask<{ id: string }[]>("tasks.list", { completed: false }, []);
@@ -149,7 +149,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerHealthCapabilities(registry, {
     plugins, fileProblems: () => repo.problemList(), index, vault: { readOnly: vault.readOnly, id: vault.id }, watcherMode: () => watcher.mode,
     extra: async () => {
-      const safeStatus = safeRef.current?.status();
+      const safeStatus = plugins.isEnabled("safe") ? safeRef.current?.status() : undefined;
       return safeStatus ? [{ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" }] : [];
     },
   });

@@ -1,4 +1,4 @@
-import { TaskCategorySchema, TaskDtoSchema, TaskWritableSchema } from "@huhu/contracts";
+import { errors, TaskCategorySchema, TaskDtoSchema, TaskWritableSchema } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
@@ -15,6 +15,11 @@ export interface TaskQuery {
 }
 
 const Id = z.object({ id: z.string() });
+
+/** Agent 执行永不对外开放（security.md）：只有桌面界面能把任务的执行方式设为 agent，外部入口即使被开放 tasks.create/update 也不行。 */
+function assertAgentAllowed(caller: string, execution: { kind: string } | undefined): void {
+  if (execution?.kind === "agent" && caller !== "desktop") throw errors.permissionDenied("设置 Agent 执行方式（仅桌面可用）");
+}
 const Versioned = Id.extend({ expectedVersion: z.string() });
 const REMINDER_CHECK_MS = 30_000;
 
@@ -44,11 +49,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     handler: (_c, i) => svc.list({ category: i.category, ...(i.completed !== undefined ? { completed: i.completed } : {}), ...(i.query ? { query: i.query } : {}) }),
   }));
   api.defineCapability(def({ name: "tasks.read", plugin: "tasks", scope: "read", exposable: true, defaultExposed: true, input: Id, output: TaskDtoSchema, handler: (_c, i) => svc.read(i.id) }));
-  api.defineCapability(def({ name: "tasks.create", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: TaskWritableSchema, output: TaskDtoSchema, handler: (_c, i) => svc.create(i) }));
+  api.defineCapability(def({ name: "tasks.create", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: TaskWritableSchema, output: TaskDtoSchema, handler: (c, i) => { assertAgentAllowed(c.caller, i.execution); return svc.create(i); } }));
   api.defineCapability(def({
     name: "tasks.update", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false,
     input: Versioned.extend({ patch: TaskWritableSchema.partial() }), output: TaskDtoSchema,
-    handler: (_c, i) => svc.update(i.id, i.expectedVersion, i.patch as never),
+    handler: (c, i) => { assertAgentAllowed(c.caller, i.patch.execution); return svc.update(i.id, i.expectedVersion, i.patch as never); },
   }));
   api.defineCapability(def({ name: "tasks.duplicate", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: Id, output: TaskDtoSchema, handler: (_c, i) => svc.duplicate(i.id) }));
   api.defineCapability(def({ name: "tasks.delete", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (svc.delete(i.id), { ok: true as const }) }));
