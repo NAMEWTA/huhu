@@ -1,6 +1,7 @@
 import "@huhu/ui/tokens.css";
 import "@huhu/workbench/shell.css";
 import { applyAppearance } from "@huhu/ui";
+import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
 import { AppShell, ContributionRegistry, EngineProvider, createUiStore, type EngineEndpoint } from "@huhu/workbench";
 import { useEffect, useMemo, useState } from "react";
@@ -16,6 +17,7 @@ function App() {
   const [state, setState] = useState<EngineState>("starting");
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
+    r.register(notesUi);
     r.register(tasksUi);
     return r;
   }, []);

@@ -25,7 +25,9 @@
   "description": "HUHU Workbench",
   "homepage": "https://huhu.local",
   "dependencies": {
+    "@huhu/editor": "workspace:*",
     "@huhu/engine": "workspace:*",
+    "@huhu/plugin-notes": "workspace:*",
     "@huhu/plugin-tasks": "workspace:*",
     "@huhu/ui": "workspace:*",
     "@huhu/workbench": "workspace:*",
