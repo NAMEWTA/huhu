@@ -6,3 +6,5 @@ packages:
   - examples/plugins/*
 allowBuilds:
   esbuild: true
+  electron: true
+  electron-winstaller: false

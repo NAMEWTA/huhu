@@ -3,5 +3,25 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" }
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "44.9.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "vite": "^8.3.7"
+  },
+  "main": "out/main/index.js",
+  "author": "HUHU",
+  "description": "HUHU Workbench",
+  "homepage": "https://huhu.local"
 }

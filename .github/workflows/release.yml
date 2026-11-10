@@ -1,0 +1,33 @@
+name: release
+on:
+  workflow_dispatch:
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, target: win32-x64 }
+          - { os: macos-14, target: darwin-arm64 }
+          - { os: ubuntu-22.04, target: linux-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @huhu/desktop exec electron-builder
+      - run: node scripts/checksums.mjs apps/desktop/release ${{ matrix.target }}
+      - name: 冒烟（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x apps/desktop/release/*.AppImage
+          timeout 10 xvfb-run -a apps/desktop/release/*.AppImage --appimage-extract-and-run --no-sandbox || [ $? -eq 124 ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HUHU-${{ matrix.target }}
+          path: apps/desktop/release/*

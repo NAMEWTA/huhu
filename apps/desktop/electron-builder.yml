@@ -1,0 +1,22 @@
+appId: dev.huhu.workbench
+productName: HUHU
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/bin
+    to: bin
+win:
+  target: [{ target: nsis, arch: x64 }]
+  artifactName: HUHU-${version}-win32-x64.${ext}
+mac:
+  target: [{ target: dmg, arch: arm64 }]
+  identity: null
+  artifactName: HUHU-${version}-darwin-arm64.${ext}
+linux:
+  target: [{ target: AppImage, arch: x64 }, { target: deb, arch: x64 }]
+  artifactName: HUHU-${version}-linux-x64.${ext}
+  category: Office
+publish: null
