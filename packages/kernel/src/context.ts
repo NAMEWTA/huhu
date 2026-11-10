@@ -31,7 +31,7 @@ export class EventBus {
 
 /** 插件作用域内可用的 HUHU 门面；资源随作用域自动释放。 */
 export interface HuhuApi {
-  defineCapability(def: CapabilityDefinition<never, unknown>): void;
+  defineCapability<I, O>(def: CapabilityDefinition<I, O>): void;
   events: EventBus;
   call(capability: string, input: unknown, opts?: { idempotencyKey?: string }): Promise<unknown>;
 }
