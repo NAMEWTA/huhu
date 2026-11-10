@@ -10,8 +10,8 @@ import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
-import { AppShell, ContributionRegistry, EngineProvider, HealthModule, HomeModule, CommandPalette, EngineClient, NotificationBell, PluginCenterModule, SettingsModule, useCapability, createUiStore, type EngineEndpoint } from "@huhu/workbench";
-import { Blocks, HeartPulse, House, Settings } from "lucide-react";
+import { AppShell, ContributionRegistry, EngineProvider, HealthModule, HomeModule, CommandPalette, EngineClient, GatewayModule, NotificationBell, PluginCenterModule, SettingsModule, useCapability, createUiStore, type EngineEndpoint } from "@huhu/workbench";
+import { Blocks, HeartPulse, House, Plug, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -45,6 +45,7 @@ function App() {
     r.register(versioningUi);
     r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: HomeModule }] });
     r.register({ modules: [{ id: "health", plugin: "kernel", title: "健康中心", group: "system", order: 50, icon: <HeartPulse size={18} aria-hidden />, component: HealthModule }] });
+    r.register({ modules: [{ id: "gateway", plugin: "kernel", title: "能力网关", group: "system", order: 20, icon: <Plug size={18} aria-hidden />, component: GatewayModule }] });
     r.register({ modules: [{ id: "plugins", plugin: "kernel", title: "插件中心", group: "system", order: 10, icon: <Blocks size={18} aria-hidden />, component: PluginCenterModule }] });
     r.register({ modules: [{ id: "settings", plugin: "kernel", title: "设置", group: "system", order: 90, icon: <Settings size={18} aria-hidden />, component: SettingsModule }] });
     return r;

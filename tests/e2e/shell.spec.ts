@@ -456,3 +456,39 @@ test("命令面板：Ctrl+K 打开，搜索并跳转模块，Esc 关闭；内容
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("能力网关：开放/关闭能力开关、不可开放的能力无开关；创建令牌只显示一次并可撤销；MCP 开关", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "能力网关" }).first().click();
+    await expect(page.getByTestId("gateway-module")).toBeVisible();
+    await page.getByLabel("筛选能力").fill("tasks.create");
+    const row = page.getByTestId("cap-row").filter({ hasText: "tasks.create" }).first();
+    await row.getByRole("checkbox").click(); // 受控复选框：状态在引擎回执后才改变
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).capabilityExposure["tasks.create"]).toBe(true);
+    await expect(row.getByRole("checkbox")).toBeChecked();
+    await row.getByRole("checkbox").click();
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).capabilityExposure["tasks.create"]).toBe(false);
+    await page.getByLabel("筛选能力").fill("safe.items.reveal");
+    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" }).getByRole("checkbox")).toHaveCount(0);
+    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" })).toContainText("不可开放");
+
+    await page.getByLabel("令牌名称").fill("自动化脚本");
+    await page.getByRole("button", { name: "创建令牌" }).click();
+    await expect(page.getByTestId("fresh-token")).toContainText("huhu_");
+    const token = (await page.getByTestId("fresh-token").locator("code").innerText()).trim();
+    expect(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).not.toContain(token); // 只存哈希
+    await expect(page.getByTestId("token-row")).toHaveCount(1);
+    await page.getByRole("button", { name: "撤销 自动化脚本" }).click();
+    await expect(page.getByTestId("token-row")).toHaveCount(0);
+
+    await page.getByLabel("启用 MCP 服务").click();
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).mcp.enabled).toBe(true);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
