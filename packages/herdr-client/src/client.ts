@@ -1,6 +1,6 @@
 import net from "node:net";
 import { HuhuError } from "@huhu/contracts";
-import { FrameDecoder, FrameKind, encodeFrame, type Frame } from "./frames.js";
+import { FrameDecoder, FrameKind, creditFrame, encodeFrame, resizeFrame, type Frame } from "./frames.js";
 
 export interface RpcError {
   code: number;
@@ -42,6 +42,8 @@ export class HerdrClient {
   private lineBuf = "";
   private decoder = new FrameDecoder();
   private streams = new Map<number, (f: Frame) => void>();
+  /** attach 回复之后、订阅注册之前到达的流帧先缓存，避免丢首屏。 */
+  private early = new Map<number, Frame[]>();
 
   constructor(private readonly o: HerdrClientOptions) {}
 
@@ -100,7 +102,11 @@ export class HerdrClient {
   private dispatchFrames(frames: Frame[]): void {
     for (const f of frames) {
       if (f.channel === 0 && f.kind === FrameKind.DATA) this.onMessage(f.payload.toString("utf8"));
-      else this.streams.get(f.channel)?.(f);
+      else {
+        const h = this.streams.get(f.channel);
+        if (h) h(f);
+        else this.early.set(f.channel, [...(this.early.get(f.channel) ?? []), f]);
+      }
     }
   }
 
@@ -146,6 +152,8 @@ export class HerdrClient {
 
   onStream(channel: number, fn: (f: Frame) => void): () => void {
     this.streams.set(channel, fn);
+    for (const f of this.early.get(channel) ?? []) fn(f);
+    this.early.delete(channel);
     return () => this.streams.delete(channel);
   }
 
@@ -156,4 +164,50 @@ export class HerdrClient {
   close(): void {
     this.socket?.destroy();
   }
+
+}
+
+export interface TerminalStream {
+  onData(fn: (b: Buffer) => void): void;
+  onClose(fn: (reason: { reason?: string; exit_code?: number | null; signal?: string | null } | null) => void): void;
+  write(b: Buffer): void;
+  resize(cols: number, rows: number): void;
+  close(): void;
+}
+
+/**
+ * 在独立连接上 attach 到终端：返回字节流。framed 模式只影响这条连接，不影响共享的 plain 客户端。
+ * 每转交一段输出就回报 CREDIT（Herdr 的流控）。
+ */
+export async function attachTerminal(endpoint: string, o: { terminal: string; cols: number; rows: number; observe?: boolean; history?: number }): Promise<TerminalStream> {
+  const c = new HerdrClient({ endpoint, timeoutMs: 10_000 });
+  await c.connect();
+  await c.hello();
+  const r = await c.call<{ channel: number }>("terminal.attach", { terminal: o.terminal, cols: o.cols, rows: o.rows, ...(o.observe ? { observe: true } : {}), ...(o.history ? { history: o.history } : {}) });
+  const dataFns: ((b: Buffer) => void)[] = [];
+  const closeFns: Parameters<TerminalStream["onClose"]>[0][] = [];
+  let closed = false;
+  const finish = (reason: Parameters<Parameters<TerminalStream["onClose"]>[0]>[0]) => {
+    if (closed) return;
+    closed = true;
+    for (const f of closeFns) f(reason);
+    c.close();
+  };
+  c.onStream(r.channel, (f) => {
+    if (f.kind === FrameKind.DATA) {
+      for (const fn of dataFns) fn(f.payload);
+      c.sendFrame({ channel: r.channel, kind: FrameKind.CREDIT, payload: creditFrame(0, f.payload.length).subarray(9) });
+    } else if (f.kind === FrameKind.CLOSE) {
+      let reason = null;
+      try { reason = f.payload.length ? JSON.parse(f.payload.toString("utf8")) : null; } catch { /* 空/非 JSON 的 CLOSE */ }
+      finish(reason);
+    }
+  });
+  return {
+    onData: (fn) => { dataFns.push(fn); },
+    onClose: (fn) => { closeFns.push(fn); },
+    write: (b) => { if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.DATA, payload: b }); },
+    resize: (cols, rows) => { if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.RESIZE, payload: resizeFrame(0, cols, rows).subarray(9) }); },
+    close: () => { if (!closed) { c.sendFrame({ channel: r.channel, kind: FrameKind.CLOSE, payload: Buffer.alloc(0) }); finish(null); } },
+  };
 }
