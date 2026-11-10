@@ -1,0 +1,12 @@
+{
+  "id": "automations",
+  "title": "自动化",
+  "description": "按时间激活动作；扫描未完成的 Agent 任务",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": ["tasks", "agent-cli", "safe"],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": { "modules": ["automations"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["automations.list", "automations.read", "automations.create", "automations.update", "automations.delete", "automations.setEnabled", "automations.preview", "automations.runNow", "automations.activations"], "fileKinds": ["automation-rule", "automation-run", "task-run"] }
+}
