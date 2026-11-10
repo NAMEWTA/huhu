@@ -96,7 +96,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   api.defineCapability(def({ name: "git.stage", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ paths: z.array(z.string()).min(1) }), output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await git.stage(i.paths), { ok: true as const }) }));
   api.defineCapability(def({ name: "git.unstage", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ paths: z.array(z.string()).min(1) }), output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await git.unstage(i.paths), { ok: true as const }) }));
   api.defineCapability(def({ name: "git.commit", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({ message: z.string() }), output: Commit, handler: (_c, i) => git.commit(i.message) }));
-  const sync = new VaultSync(files.root);
+  const sync = new VaultSync(files.root, undefined, {
+    // 覆盖前给每个冲突文件留一个可恢复的检查点（规格总则 8）
+    // 失败则中止解决，此时还没有覆盖任何文件
+    beforeOverwrite: async (paths) => { for (const p of paths) await history.record(p, "checkpoint", "解决冲突前"); },
+    // 带 frontmatter 的文件，解决后必须仍能解析（语义文件的 kind 校验由各插件在读取时再次把关）
+    validateResolved: (_p, text) => { if (text.startsWith("---")) parseFrontmatter(text); },
+  });
+  const publishStatus = () => { const st = sync.status(); api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0 }); };
   const Cfg = z.object({ remote: z.string(), branch: z.string(), mode: z.enum(["off", "follow", "full"]), exclude: z.array(z.string()) });
   api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
   api.defineCapability(def({ name: "sync.update", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: Cfg.partial(), output: Cfg, handler: (_c, i) => sync.update(i as never) }));
@@ -109,10 +116,41 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     name: "sync.run", plugin: "versioning", scope: "execute", exposable: false, defaultExposed: false, timeoutMs: 10 * 60_000, input: z.object({ mode: z.enum(["pull", "push", "sync"]).default("sync") }),
     output: z.object({ pulled: z.boolean(), pushed: z.boolean(), committed: z.boolean() }),
     handler: async (_c, i) => {
-      const r = await sync.run(i.mode);
-      api.events.publish("sync.statusChanged", { status: "idle", ahead: 0, behind: 0, conflicts: 0 });
-      return r;
+      try {
+        return await sync.run(i.mode);
+      } finally {
+        publishStatus(); // 成功、冲突、离线、认证失败都发布真实状态
+      }
     },
+  }));
+  const Side = z.object({ exists: z.boolean(), mode: z.string().optional(), size: z.number().optional(), binary: z.boolean().optional(), preview: z.string().optional() });
+  const Seg = z.union([z.object({ kind: z.literal("common"), text: z.string() }), z.object({ kind: z.literal("conflict"), index: z.number(), base: z.string(), ours: z.string(), theirs: z.string() })]);
+  const Choice = z.union([z.enum(["ours", "theirs", "both"]), z.object({ custom: z.string().max(10 * 1024 * 1024) })]);
+  api.defineCapability(def({
+    name: "conflicts.list", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}),
+    output: z.object({ conflict: z.object({ id: z.string(), createdAt: z.string(), localHead: z.string(), remoteHead: z.string(), files: z.array(z.object({ path: z.string(), kind: z.enum(["blocks", "whole"]), blocks: z.number(), reason: z.string().optional() })) }).nullable() }),
+    handler: async () => ({ conflict: await sync.conflicts() }),
+  }));
+  api.defineCapability(def({
+    name: "conflicts.read", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: Path,
+    output: z.union([z.object({ path: z.string(), kind: z.literal("blocks"), segments: z.array(Seg) }), z.object({ path: z.string(), kind: z.literal("whole"), reason: z.string(), ours: Side, theirs: Side })]),
+    handler: (_c, i) => sync.conflictFile(i.path) as never,
+  }));
+  api.defineCapability(def({
+    name: "conflicts.resolve", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, timeoutMs: 10 * 60_000,
+    input: z.object({ sessionId: z.string(), resolutions: z.array(z.union([z.object({ path: z.string(), blocks: z.array(Choice) }), z.object({ path: z.string(), whole: z.enum(["ours", "theirs", "delete"]) })])).min(1) }),
+    output: z.object({ commit: z.string(), pushed: z.boolean(), syncError: z.string().optional() }),
+    handler: async (_c, i) => {
+      try {
+        return await sync.resolveConflicts(i.sessionId, i.resolutions as never);
+      } finally {
+        publishStatus();
+      }
+    },
+  }));
+  api.defineCapability(def({
+    name: "conflicts.cancel", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ cancelled: z.boolean() }),
+    handler: async () => { const r = await sync.cancelConflicts(); publishStatus(); return r; },
   }));
   api.defineCapability(def({ name: "sync.status", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ name: z.string(), detail: z.string() }), handler: () => sync.status() }));
   return { history };

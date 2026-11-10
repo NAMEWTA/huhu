@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
+import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
+import { loadSession } from "./conflicts/session.js";
 import { GitRunner } from "./git.js";
 
 export interface SyncConfig {
@@ -53,10 +55,20 @@ export type SyncStatusName = "idle" | "conflict" | "offline" | "auth-failed" | "
 export class VaultSync {
   private git: GitRunner;
   private _status: { name: SyncStatusName; detail: string } = { name: "idle", detail: "" };
+  private readonly cf: SyncConflicts;
+  private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly root: string, private readonly identity = { name: "HUHU", email: "huhu@localhost" }) {
+  constructor(private readonly root: string, private readonly identity = { name: "HUHU", email: "huhu@localhost" }, hooks: ConflictHooks = {}) {
     // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
     this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1" } });
+    this.cf = new SyncConflicts(root, this.git, identity, hooks);
+  }
+
+  /** 进程内互斥：preview/run/resolve/cancel 不会交错执行（规格：同一时刻只有一个同步类 Git 操作）。 */
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const job = this.tail.then(fn);
+    this.tail = job.catch(() => undefined);
+    return job;
   }
 
   /** 解析 `status --porcelain=v1 -z`：重命名/复制条目后面紧跟一个"旧路径"条目，需要跳过。 */
@@ -99,7 +111,10 @@ export class VaultSync {
   }
 
   status(): { name: SyncStatusName; detail: string } {
-    return this._status;
+    // 冲突状态以会话文件为准：重启后仍在
+    const sess = loadSession(this.root);
+    if (sess) return { name: "conflict", detail: sess.files.map((f) => f.path).join("、") };
+    return this._status.name === "conflict" ? { name: "idle", detail: "" } : this._status;
   }
 
   private async ready(): Promise<SyncConfig> {
@@ -123,7 +138,11 @@ export class VaultSync {
     throw e;
   }
 
-  async preview(): Promise<SyncPreview> {
+  preview(): Promise<SyncPreview> {
+    return this.exclusive(() => this.previewLocked());
+  }
+
+  private async previewLocked(): Promise<SyncPreview> {
     const c = await this.ready();
     try {
       await this.git.run(["fetch", "--quiet", "origin"]);
@@ -182,7 +201,11 @@ export class VaultSync {
   }
 
   /** 同步一次：follow = 只拉取；full = 拉取后推送。冲突 → 回退合并、状态 conflict，抛 GIT_CONFLICT（附冲突文件）。 */
-  async run(mode: "pull" | "push" | "sync"): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+  run(mode: "pull" | "push" | "sync"): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+    return this.exclusive(() => this.runLocked(mode));
+  }
+
+  private async runLocked(mode: "pull" | "push" | "sync"): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
     const c = await this.ready();
     let committed = false;
     try {
@@ -195,6 +218,16 @@ export class VaultSync {
         const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
         const behind = hasHead ? Number((await this.git.run(["rev-list", "--count", `HEAD..${remoteRef}`])).stdout.trim()) : 1;
         if (behind > 0) {
+          if (hasHead) {
+            // 先不碰工作区地预判：有冲突就记录会话并报告，工作区里永远不会出现冲突标记
+            const headOid = (await this.git.run(["rev-parse", "--verify", "HEAD"])).stdout.trim();
+            const sess = await this.cf.detect(headOid, remoteRef);
+            if (sess) {
+              const files = sess.files.map((f) => f.path);
+              this._status = { name: "conflict", detail: files.join("、") };
+              throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files, sessionId: sess.id } });
+            }
+          }
           try {
             await this.git.run(["-c", `user.name=${this.identity.name}`, "-c", `user.email=${this.identity.email}`, "merge", "--no-edit", remoteRef]);
             pulled = true;
@@ -221,5 +254,39 @@ export class VaultSync {
     } catch (e) {
       return this.track(e);
     }
+  }
+
+  // ---- 冲突解决 ----
+
+  conflicts() {
+    return this.cf.list();
+  }
+
+  conflictFile(p: string) {
+    return this.cf.read(p);
+  }
+
+  /** 放弃当前冲突会话（不改动任何文件；下次同步会重新检测）。 */
+  cancelConflicts(): Promise<{ cancelled: boolean }> {
+    return this.exclusive(async () => {
+      const cancelled = this.cf.cancel();
+      this._status = { name: "idle", detail: "" };
+      return { cancelled };
+    });
+  }
+
+  /** 应用逐块选择，生成合并提交；之后 full 模式继续同步（推送失败不回退合并提交，只报告原因）。 */
+  resolveConflicts(sessionId: string, resolutions: Resolution[]): Promise<{ commit: string; pushed: boolean; syncError?: string }> {
+    return this.exclusive(async () => {
+      const commit = await this.cf.resolve(sessionId, resolutions);
+      this._status = { name: "idle", detail: "" };
+      if (this.config().mode !== "full") return { commit, pushed: false };
+      try {
+        const r = await this.runLocked("sync");
+        return { commit, pushed: r.pushed };
+      } catch (e) {
+        return { commit, pushed: false, syncError: e instanceof HuhuError ? e.code : "INTERNAL" };
+      }
+    });
   }
 }

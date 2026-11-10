@@ -1,4 +1,5 @@
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -394,6 +395,83 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲突 → 界面逐块解决并推送", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const remote = mkdtempSync(path.join(tmpdir(), "huhu-e2e-remote-"));
+  const clone = path.join(mkdtempSync(path.join(tmpdir(), "huhu-e2e-clone-")), "c");
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=远端", "-c", "user.email=r@r", ...args], { encoding: "utf8" });
+  execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", remote]);
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const lines = (edit: Record<number, string> = {}) => Array.from({ length: 12 }, (_, i) => `${edit[i] ?? `第${i}行`}\n`).join("");
+    // 界面之外的前置步骤：初始化仓库并写一篇 12 行的笔记
+    await page.evaluate(async (text) => {
+      const ep = await window.huhuHost.engine();
+      const call = async (capability: string, input: unknown) => {
+        const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+        const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
+        if (!j.ok) throw new Error(JSON.stringify(j.error));
+        return j.data;
+      };
+      await call("git.init", {});
+      const n = await call("notes.create", { name: "共享" });
+      const v = (await call("notes.read", { path: n.path })).version;
+      await call("notes.save", { path: n.path, text, expectedVersion: v });
+    }, lines());
+    await page.getByRole("button", { name: "版本与同步" }).first().click();
+    await page.getByTestId("versioning-nav-sync").click();
+    await expect(page.getByTestId("sync-page")).toBeVisible();
+    await expect(page.getByTestId("sync-run")).toBeDisabled(); // 没有远端时不能同步
+
+    await page.getByTestId("sync-remote").fill(remote);
+    await page.getByTestId("sync-branch").fill("main");
+    await page.getByTestId("sync-mode-full").click();
+    await page.getByTestId("sync-save").click();
+    await expect(page.getByTestId("sync-message")).toHaveText("已保存");
+    await page.getByTestId("sync-preview").click();
+    await expect(page.getByTestId("sync-preview-result")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("preview-push").filter({ hasText: "共享.md" })).toBeVisible();
+    await page.getByTestId("sync-run").click();
+    await expect(page.getByTestId("sync-message")).toContainText("同步完成", { timeout: 30_000 });
+
+    // 另一台设备（克隆）改第 3 行并推送；本机也改第 3 行
+    execFileSync("git", ["clone", "-q", remote, clone]);
+    writeFileSync(path.join(clone, "共享.md"), lines({ 3: "远端改的" }));
+    git(clone, "commit", "-aq", "-m", "远端修改"); git(clone, "push", "-q", "origin", "HEAD:main");
+    writeFileSync(path.join(vault, "共享.md"), lines({ 3: "本地改的" }));
+
+    await page.getByTestId("sync-run").click();
+    await expect(page.getByTestId("sync-conflict-banner")).toContainText("1 个文件存在冲突", { timeout: 30_000 });
+    await expect(page.getByTestId("sync-state")).toHaveText("有冲突");
+    expect(readFileSync(path.join(vault, "共享.md"), "utf8")).toBe(lines({ 3: "本地改的" })); // 工作区没有冲突标记
+    expect(existsSync(path.join(vault, ".git/MERGE_HEAD"))).toBe(false);
+
+    await page.getByTestId("sync-resolve").click();
+    await expect(page.getByTestId("conflict-view")).toBeVisible();
+    await expect(page.getByTestId("conflict-block")).toHaveCount(1);
+    await expect(page.getByTestId("block-ours")).toHaveText("本地改的\n");
+    await expect(page.getByTestId("block-theirs")).toHaveText("远端改的\n");
+    await expect(page.getByTestId("conflict-apply")).toBeDisabled(); // 没选完不能应用
+    await expect(page.getByTestId("conflict-progress")).toHaveText("已选 0 / 1");
+    await page.getByTestId("block-pick-both").click();
+    await expect(page.getByTestId("conflict-progress")).toHaveText("已选 1 / 1");
+    await page.getByTestId("conflict-apply").click();
+    await expect(page.getByTestId("conflict-message")).toContainText("冲突已解决", { timeout: 30_000 });
+    await expect(page.getByTestId("conflict-message")).toContainText("已推送");
+    expect(readFileSync(path.join(vault, "共享.md"), "utf8")).toBe(lines({ 3: "本地改的\n远端改的" }));
+    git(clone, "pull", "-q", "--no-rebase", "origin", "main");
+    expect(readFileSync(path.join(clone, "共享.md"), "utf8")).toBe(lines({ 3: "本地改的\n远端改的" }));
+    expect(existsSync(path.join(vault, ".huhu/sync/conflict.json"))).toBe(false);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
+    rmSync(path.dirname(clone), { recursive: true, force: true });
   }
 });
 

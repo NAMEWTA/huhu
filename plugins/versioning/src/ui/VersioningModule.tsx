@@ -1,7 +1,9 @@
 import { Badge, Button, EmptyState } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
+import { ConflictView } from "./conflicts/ConflictView.js";
 import { t } from "./i18n.js";
+import { SyncPage } from "./sync/SyncPage.js";
 
 interface Entry { id: string; at: string; source: string; title: string | null; path: string }
 interface NoteRef { path: string; title: string }
@@ -9,16 +11,23 @@ interface GitStatus { isRepo: boolean; branch: string | null; files: { path: str
 interface Commit { id: string; short: string; author: string; at: string; subject: string }
 
 export function VersioningModule() {
-  const [tab, setTab] = useState<"history" | "git">("history");
+  const [tab, setTab] = useState<"history" | "git" | "sync" | "conflicts">("history");
+  const syncStatus = useCapability<{ name: string; detail: string }>("sync.status", {});
+  const state = syncStatus.data?.name ?? "idle";
   return (
     <div className="hu-module" data-testid="versioning-module">
       <aside className="hu-module-sidebar" aria-label={t.title}>
         <h2>{t.title}</h2>
-        {(["history", "git"] as const).map((k) => (
-          <button key={k} type="button" className="hu-nav-item" aria-current={tab === k} onClick={() => setTab(k)}><span>{t.nav[k]}</span></button>
+        {(["history", "git", "sync"] as const).map((k) => (
+          <button key={k} type="button" className="hu-nav-item" aria-current={tab === k || (k === "sync" && tab === "conflicts")} data-testid={`versioning-nav-${k}`} onClick={() => setTab(k)}>
+            <span>{t.nav[k]}</span>
+            {k === "sync" && state !== "idle" && state !== "not-configured" ? <Badge tone={state === "conflict" || state === "auth-failed" ? "danger" : "warning"}>{t.sync.state[state] ?? state}</Badge> : null}
+          </button>
         ))}
       </aside>
-      <section className="hu-content">{tab === "history" ? <FileHistory /> : <GitPage />}</section>
+      <section className="hu-content">
+        {tab === "history" ? <FileHistory /> : tab === "git" ? <GitPage /> : tab === "sync" ? <SyncPage onResolve={() => setTab("conflicts")} /> : <ConflictView onBack={() => setTab("sync")} />}
+      </section>
     </div>
   );
 }
