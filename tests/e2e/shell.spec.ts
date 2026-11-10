@@ -174,3 +174,33 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+test("设置与通知：切换主题立即生效并持久化，重启后仍保持；通知入口显示未读", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByLabel("主题").selectOption("suliworld");
+    await page.getByLabel("明暗模式").selectOption("dark");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "suliworld");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).appearance).toMatchObject({ theme: "suliworld", mode: "dark" });
+    await app.close();
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "suliworld", { timeout: 10_000 });
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+
+    // 通知：任务提醒到点 → 状态栏出现未读
+    await page.getByRole("button", { name: "任务" }).first().click();
+    await page.getByTestId("bell").click();
+    await expect(page.getByTestId("notification-panel")).toBeVisible();
+    await expect(page.getByText("没有通知")).toBeVisible();
+  } finally {
+    await app.close().catch(() => undefined);
+    rmSync(vault, { recursive: true, force: true });
+  }
+});

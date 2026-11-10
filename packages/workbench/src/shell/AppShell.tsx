@@ -38,11 +38,13 @@ export interface AppShellProps {
   vaultName: string;
   engineState: "starting" | "ready" | "stopped" | "crashed";
   onRestartEngine?(): void;
+  /** 状态栏右侧插槽（通知入口等，需要 EngineProvider 才能渲染）。 */
+  statusSlot?: ReactNode;
 }
 
 const GROUP_LABEL: Record<ModuleContribution["group"], string> = { primary: "知识与行动", execution: "执行", system: "系统" };
 
-export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine }: AppShellProps) {
+export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine, statusSlot }: AppShellProps) {
   const { modules } = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const s = useStore(ui);
   const active = modules.find((m) => m.id === s.activeModule) ?? null;
@@ -109,6 +111,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
       <footer className="hu-statusbar">
         <span data-testid="engine-state">{engineState === "ready" ? "引擎就绪" : engineState === "starting" ? "引擎启动中" : "引擎已停止"}</span>
         <span>{modules.length} 个模块</span>
+        <span style={{ marginLeft: "auto" }}>{engineState === "ready" ? statusSlot : null}</span>
       </footer>
     </div>
   );

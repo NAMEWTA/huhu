@@ -6,7 +6,8 @@ import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
-import { AppShell, ContributionRegistry, EngineProvider, createUiStore, type EngineEndpoint } from "@huhu/workbench";
+import { AppShell, ContributionRegistry, EngineProvider, NotificationBell, SettingsModule, createUiStore, type EngineEndpoint } from "@huhu/workbench";
+import { Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -25,6 +26,7 @@ function App() {
     r.register(archivesUi);
     r.register(inboxUi);
     r.register(safeUi);
+    r.register({ modules: [{ id: "settings", plugin: "kernel", title: "设置", group: "system", order: 90, icon: <Settings size={18} aria-hidden />, component: SettingsModule }] });
     return r;
   }, []);
   const ui = useMemo(() => createUiStore({ activeModule: "tasks", openTabs: ["tasks"] }), []);
@@ -44,8 +46,17 @@ function App() {
     return off;
   }, []);
 
+  // 引擎就绪后应用该 Vault 保存的外观设置
+  useEffect(() => {
+    if (!endpoint) return;
+    void fetch(`${endpoint.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "settings.get", input: {}, requestId: crypto.randomUUID() }) })
+      .then((r) => r.json() as Promise<{ ok: boolean; data?: { appearance: Record<string, unknown> } }>)
+      .then((r) => { if (r.ok && r.data) applyAppearance(document.documentElement, r.data.appearance, window.matchMedia("(prefers-color-scheme: dark)").matches); })
+      .catch(() => undefined);
+  }, [endpoint]);
+
   const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
-  const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} />;
+  const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} statusSlot={<NotificationBell />} />;
   return endpoint ? <EngineProvider endpoint={endpoint}>{shell}</EngineProvider> : shell;
 }
 
