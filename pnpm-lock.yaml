@@ -231,6 +231,15 @@ importers:
       '@huhu/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@huhu/cordis':
+        specifier: workspace:*
+        version: link:../../vendor/cordis
+      '@huhu/cordis-timer':
+        specifier: workspace:*
+        version: link:../../vendor/timer
+      '@huhu/cosmokit':
+        specifier: workspace:*
+        version: link:../../vendor/cosmokit
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -289,6 +298,27 @@ importers:
   plugins/tasks: {}
 
   plugins/versioning: {}
+
+  vendor/cordis:
+    dependencies:
+      '@huhu/cosmokit':
+        specifier: workspace:*
+        version: link:../cosmokit
+      '@standard-schema/spec':
+        specifier: ^1.1.0
+        version: 1.1.0
+
+  vendor/cosmokit: {}
+
+  vendor/timer:
+    dependencies:
+      '@huhu/cosmokit':
+        specifier: workspace:*
+        version: link:../cosmokit
+    devDependencies:
+      '@huhu/cordis':
+        specifier: workspace:*
+        version: link:../cordis
 
 packages:
 
@@ -991,6 +1021,9 @@ packages:
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
     engines: {node: '>=10'}
+
+  '@standard-schema/spec@1.1.0':
+    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
@@ -2966,6 +2999,8 @@ snapshots:
     optional: true
 
   '@sindresorhus/is@4.6.0': {}
+
+  '@standard-schema/spec@1.1.0': {}
 
   '@szmarczak/http-timer@4.0.6':
     dependencies:

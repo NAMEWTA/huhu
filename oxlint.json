@@ -1,25 +1,100 @@
 {
-  "categories": { "correctness": "error" },
+  "categories": {
+    "correctness": "error"
+  },
   "rules": {
     "no-explicit-any": "error",
-    "no-warning-comments": ["error", { "terms": ["todo", "fixme"], "location": "anywhere" }],
-    "no-restricted-imports": ["error", { "patterns": [{ "group": ["@huhu/*/src/**"], "message": "禁止深路径导入，使用包的公开入口" }] }]
+    "no-warning-comments": [
+      "error",
+      {
+        "terms": [
+          "todo",
+          "fixme"
+        ],
+        "location": "anywhere"
+      }
+    ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "@huhu/*/src/**"
+            ],
+            "message": "禁止深路径导入，使用包的公开入口"
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
-      "files": ["plugins/*/src/engine/**"],
-      "rules": { "no-restricted-imports": ["error", { "patterns": [
-        { "group": ["@huhu/*/src/**"], "message": "禁止深路径导入" },
-        { "group": ["react", "react-dom", "@huhu/ui", "@huhu/workbench"], "message": "插件 engine 不得导入 UI" }
-      ] }] }
+      "files": [
+        "plugins/*/src/engine/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@huhu/*/src/**"
+                ],
+                "message": "禁止深路径导入"
+              },
+              {
+                "group": [
+                  "react",
+                  "react-dom",
+                  "@huhu/ui",
+                  "@huhu/workbench"
+                ],
+                "message": "插件 engine 不得导入 UI"
+              }
+            ]
+          }
+        ]
+      }
     },
     {
-      "files": ["plugins/*/src/ui/**"],
-      "rules": { "no-restricted-imports": ["error", { "patterns": [
-        { "group": ["@huhu/*/src/**"], "message": "禁止深路径导入" },
-        { "group": ["node:*", "@huhu/vault", "@huhu/kernel", "@huhu/plugin-*/engine"], "message": "插件 ui 不得导入 Node 或 engine" }
-      ] }] }
+      "files": [
+        "plugins/*/src/ui/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@huhu/*/src/**"
+                ],
+                "message": "禁止深路径导入"
+              },
+              {
+                "group": [
+                  "node:*",
+                  "@huhu/vault",
+                  "@huhu/kernel",
+                  "@huhu/plugin-*/engine"
+                ],
+                "message": "插件 ui 不得导入 Node 或 engine"
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
-  "ignorePatterns": ["temp/**", "**/dist/**", "**/node_modules/**", "scripts/lint-samples/**", ".agents/**", ".claude/**"]
+  "ignorePatterns": [
+    "temp/**",
+    "**/dist/**",
+    "**/node_modules/**",
+    "scripts/lint-samples/**",
+    ".agents/**",
+    ".claude/**",
+    "vendor/**"
+  ]
 }

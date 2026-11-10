@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "allowImportingTsExtensions": true, "noImplicitAny": false, "noImplicitThis": false, "strictFunctionTypes": false, "noUncheckedIndexedAccess": false, "exactOptionalPropertyTypes": false, "noImplicitOverride": false, "lib": ["ES2024", "DOM"], "target": "ES2024" },
+  "include": ["src"]
+}

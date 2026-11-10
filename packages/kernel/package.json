@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@huhu/contracts": "workspace:*",
+    "@huhu/cordis": "workspace:*",
+    "@huhu/cordis-timer": "workspace:*",
+    "@huhu/cosmokit": "workspace:*",
     "zod": "^4.6.7"
   }
 }
