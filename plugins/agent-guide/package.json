@@ -6,9 +6,17 @@
   "exports": {
     "./engine": "./src/engine/index.ts",
     "./ui": "./src/ui/index.ts",
-    "./shared": "./src/shared/index.ts"
+    "./shared": "./src/shared/index.ts",
+    "./manifest": "./huhu-plugin.json"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@huhu/contracts": "workspace:*",
+    "@huhu/cordis": "workspace:*",
+    "@huhu/kernel": "workspace:*",
+    "@huhu/vault": "workspace:*",
+    "zod": "^4.6.7"
   }
 }

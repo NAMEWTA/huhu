@@ -29,6 +29,7 @@ import {
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
+import agentGuideManifest from "@huhu/plugin-agent-guide/manifest" with { type: "json" };
 import archivesManifest from "@huhu/plugin-archives/manifest" with { type: "json" };
 import inboxManifest from "@huhu/plugin-inbox/manifest" with { type: "json" };
 import safeManifest from "@huhu/plugin-safe/manifest" with { type: "json" };
@@ -39,6 +40,7 @@ import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
+import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as archives from "@huhu/plugin-archives/engine";
 import * as automations from "@huhu/plugin-automations/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
@@ -153,6 +155,13 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(notesManifest),
     apply: (ctx, api) => void notes.apply(ctx, api, { zone: settingsZone }),
+  });
+  const guideRef: { current: agentGuide.GuideService | null } = { current: null };
+  plugins.register({
+    manifest: PluginManifestSchema.parse(agentGuideManifest),
+    apply: (ctx, api) => {
+      guideRef.current = agentGuide.apply(ctx, api, { version: agentGuideManifest.version, capabilities: () => registry.list().map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable })) });
+    },
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(archivesManifest),
@@ -292,6 +301,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.shouldEnable = (id) => exposure.pluginEnabled(id);
   await plugins.enableAll();
+  await guideRef.current?.maintain().catch(() => undefined); // 所有插件启用之后再补写 / 升级指南：能力表取决于完整的注册表
   let lastSync = "";
   let closing = false;
   events.subscribe((e) => {

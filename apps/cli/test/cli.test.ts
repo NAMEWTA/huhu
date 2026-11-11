@@ -122,6 +122,13 @@ describe("CLI", () => {
     expect((plugins.out.data as { id: string }[]).map((p) => p.id)).toEqual(expect.arrayContaining(["tasks", "notes", "inbox", "safe"]));
     const caps = await run1("capabilities", "list");
     expect((caps.out.data as { name: string; exposed: boolean }[]).find((c) => c.name === "safe.items.reveal")?.exposed).toBe(false);
+    // Agent 指南：打开 Vault 时自动补写三份文件；`huhu guide status` 报告 current；`huhu --skill` 不需要 Vault
+    await vi.waitFor(() => expect(existsSync(path.join(dir, ".agents/skills/huhu/references/mcp.md"))).toBe(true));
+    const guide = await run1("guide", "status");
+    expect((guide.out.data as { overall: string }).overall).toBe("current");
+    const lines: string[] = [];
+    expect(await run(["--skill"], { out: (l) => lines.push(l), err: () => undefined })).toBe(0);
+    expect(lines.join("\n")).toContain("HUHU Vault 操作指南");
     const cap = await run1("inbox", "capture", "--title", "来自命令行");
     expect(cap.code).toBe(0);
     expect((cap.out.data as { source: string }).source).toBe("cli");

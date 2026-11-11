@@ -1,0 +1,19 @@
+{
+  "id": "agent-guide",
+  "title": "Agent 接入",
+  "description": "维护 Vault 内的 HUHU 指南文件，让 Agent 知道如何使用 CLI 与 MCP",
+  "version": "0.0.1",
+  "origin": "builtin",
+  "dependsOn": [],
+  "optionalDeps": [],
+  "permissions": [],
+  "activation": "vault-open",
+  "contributes": {
+    "modules": [],
+    "settingsPages": ["agent-access"],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": ["guide.status", "guide.view", "guide.check", "guide.preserve", "guide.restoreBuiltin", "guide.backups.list", "guide.backups.restore"],
+    "fileKinds": []
+  }
+}

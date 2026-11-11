@@ -104,6 +104,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
         const r = await history.restore(i.path, i.entryId, i.expectedCurrentVersion, {
           transform: (restored, current) => guardRestoredContent(i.path, restored, current),
           afterWrite: () => {
+            // 指南文件被恢复：交给 agent-guide 标记为 needs-check（不由它自动覆盖）
+            if (normalizeRelPath(i.path).startsWith(".agents/skills/huhu/")) void api.service<{ markNeedsCheck(paths: string[]): Promise<void> }>("agent-guide")?.markNeedsCheck([normalizeRelPath(i.path)]);
             // 任务文件：恢复后的输入不应触发自动化重复处理（restore 之后读取新的 inputHash）
             const id = normalizeRelPath(i.path).startsWith("Tasks/") ? /--(task-[0-9a-z]+)\.md$/.exec(path.basename(i.path))?.[1] : undefined;
             if (!id) return;

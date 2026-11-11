@@ -13,6 +13,7 @@
     "@huhu/contracts": "workspace:*",
     "@huhu/kernel": "workspace:*",
     "@huhu/plugin-agent-cli": "workspace:*",
+    "@huhu/plugin-agent-guide": "workspace:*",
     "@huhu/plugin-archives": "workspace:*",
     "@huhu/plugin-automations": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",

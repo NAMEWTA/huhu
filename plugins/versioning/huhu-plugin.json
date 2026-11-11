@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": ["automations", "safe"],
+  "optionalDeps": ["automations", "safe", "agent-guide"],
   "permissions": [],
   "activation": "vault-open",
   "contributes": {

@@ -13,6 +13,7 @@ export default defineConfig({
           "@huhu/plugin-versioning",
           "@huhu/plugin-automations",
           "@huhu/plugin-agent-cli",
+          "@huhu/plugin-agent-guide",
           "@huhu/plugin-safe",
           "@huhu/plugin-archives",
           "@huhu/plugin-inbox",

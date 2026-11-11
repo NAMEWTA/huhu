@@ -1,12 +1,18 @@
 import { Command, CommanderError } from "commander";
 import { callCapability, render } from "./commands/call.js";
 import { ConnectError, connect } from "./connect.js";
+import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
 import { createMcpServer } from "./mcp.js";
 
 export const VERSION = "0.0.1";
 
 /** 运行 CLI，返回退出码。 */
 export async function run(argv: string[], io: { out: (s: string) => void; err: (s: string) => void } = { out: (s) => process.stdout.write(s + "\n"), err: (s) => process.stderr.write(s + "\n") }): Promise<number> {
+  // `--skill`：输出随包手册，不需要选定 Vault，也不连接 Engine
+  if (argv[0] === "--skill") {
+    io.out(guideManual(buildGuideFiles(VERSION, [])));
+    return 0;
+  }
   const program = new Command();
   program
     .name("huhu")
@@ -87,6 +93,7 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
       });
   };
   const bool = (v: unknown) => (v === undefined ? undefined : String(v) === "true");
+  shortcut(program.command("guide").description("Agent 指南").command("status"), "guide.status", () => ({}));
   shortcut(program.command("plugins").description("插件").command("list"), "plugins.list", () => ({}));
   shortcut(program.command("capabilities").description("能力目录").command("list"), "capabilities.list", () => ({}));
   shortcut(program.command("notes").description("笔记").command("list"), "notes.list", () => ({}));

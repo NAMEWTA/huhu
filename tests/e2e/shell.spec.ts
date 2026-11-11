@@ -646,6 +646,32 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
   }
 });
 
+test("设置·Agent 接入：指南文件自动创建；手改后为冲突且不被覆盖；备份并恢复内置版本（ACC-PL-07）", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const skill = path.join(vault, ".agents/skills/huhu/SKILL.md");
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await expect.poll(() => existsSync(skill)).toBe(true);
+    writeFileSync(skill, "我手改的指南");
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-agent-access").click();
+    await expect(page.getByTestId("guide-file").first()).toHaveAttribute("data-status", "conflict");
+    await page.getByTestId("guide-restore").click();
+    await page.getByTestId("guide-restore-confirm").click();
+    await expect(page.getByTestId("guide-file").first()).toHaveAttribute("data-status", "current");
+    expect(readFileSync(skill, "utf8")).toContain("HUHU Vault 操作指南");
+    await expect(page.getByTestId("guide-backup")).toHaveCount(1);
+    const backups = path.join(vault, ".huhu/guide/backups");
+    const id = readdirSync(backups)[0] as string;
+    expect(readFileSync(path.join(backups, id, ".agents/skills/huhu/SKILL.md"), "utf8")).toBe("我手改的指南");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("设置：数据与存储——重建索引、导出数据包（结果带 SHA-256）、导入到空目录；非法路径给出明确错误", async () => {
   const { createHash } = await import("node:crypto");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));

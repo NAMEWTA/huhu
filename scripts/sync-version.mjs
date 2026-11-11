@@ -27,6 +27,16 @@ for (const rel of files) {
   drift.push(`${rel}: ${pkg.version}`);
   if (!check) writeFileSync(abs, text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`));
 }
+// 内置插件清单的 version 与应用版本一致
+for (const rel of execFileSync("git", ["ls-files", "--", "plugins/*/huhu-plugin.json"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean)) {
+  const abs = path.join(root, rel);
+  const text = readFileSync(abs, "utf8");
+  const m = JSON.parse(text);
+  if (m.origin === "builtin" && m.version !== version) {
+    drift.push(`${rel}: ${m.version}`);
+    if (!check) writeFileSync(abs, text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`));
+  }
+}
 const cliMain = path.join(root, "apps/cli/src/main.ts");
 const cliText = readFileSync(cliMain, "utf8");
 const cliNext = cliText.replace(/(export const VERSION = ")[^"]*(")/, `$1${version}$2`);

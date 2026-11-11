@@ -6,6 +6,7 @@ import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
 import { AboutPage } from "./AboutPage.js";
+import { AgentAccessPage } from "./AgentAccessPage.js";
 import { ShortcutsPage } from "./ShortcutsPage.js";
 import { StoragePage } from "./StoragePage.js";
 import { VaultPage } from "./VaultPage.js";
@@ -61,7 +62,7 @@ export function SettingsModule({ section }: ModuleProps) {
           ) : section === "data" ? (
             <StoragePage />
           ) : section === "agent-access" ? (
-            <AgentAccess />
+            <AgentAccessPage />
           ) : (
             <AboutPage />
           )}
@@ -369,16 +370,3 @@ function DateTime({ s, update }: PageProps) {
 }
 
 /** Agent 接入（原型 agent-access）：指向 Agent 的入口（CLI / MCP）与技能说明的位置。 */
-function AgentAccess() {
-  return (
-    <div data-testid="settings-agent-access">
-      <section className="settings-section card">
-        <h2>让 Agent 使用这个 Vault</h2>
-        <p>Agent 通过同一套能力访问 Vault：命令行（huhu）、MCP 和本地 HTTP。是否开放、对哪些能力开放，在「能力网关」里设置；Agent 执行永不对外开放。</p>
-        <div className="callout">
-          <p>在「能力网关」里可以复制 MCP 配置、创建访问令牌，并查看每次调用的记录。</p>
-        </div>
-      </section>
-    </div>
-  );
-}
