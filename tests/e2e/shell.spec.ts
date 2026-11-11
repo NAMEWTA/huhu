@@ -1047,8 +1047,7 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     await page.getByTestId("settings-nav-editor").click();
     await page.getByRole("switch", { name: "自动保存" }).click();
     await expect(page.getByRole("switch", { name: "自动保存" })).not.toBeChecked();
-    await page.getByRole("switch", { name: "显示行号" }).click();
-    await expect(page.getByRole("switch", { name: "显示行号" })).toBeChecked();
+    await expect(page.getByRole("switch", { name: "显示行号" })).toBeChecked(); // 默认显示行号（US-KN-03）
     await page.getByLabel("正文字号").fill("20");
     await page.getByLabel("正文宽度").selectOption("680");
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).editor).toMatchObject({ autosave: false, lineNumbers: true, fontSize: 20, readableWidth: "680" });

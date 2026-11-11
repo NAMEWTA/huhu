@@ -31,7 +31,8 @@ dialog.modal::backdrop {
 /* 标签很多时可横向滚动，不被右侧工具区遮住 */
 .tab-list {
   overflow-x: auto;
-  scrollbar-width: thin;
+  overflow-y: hidden; /* 只横向滚动：否则会在“+”旁边多出一个竖向滚动条（带上下箭头的小胶囊） */
+  scrollbar-width: none; /* 原型的标签条不显示滚动条；滚轮 / 触控板仍可横向滚动 */
 }
 .setting-row > input:not([type="range"]):not([type="checkbox"]) {
   width: 190px;

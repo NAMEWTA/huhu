@@ -392,7 +392,7 @@ export function NoteDocument(props: NoteDocumentProps) {
             onCommentClick={props.onCommentClick}
             onScroll={onEditorScroll}
             ariaLabel={t.editorLabel}
-            lineNumbers={ed?.lineNumbers ?? false}
+            lineNumbers={ed?.lineNumbers ?? true}
             spellcheck={ed?.spellcheck ?? false}
             {...(ed ? { fontSize: ed.fontSize, lineHeight: ed.lineHeight, maxWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
           />

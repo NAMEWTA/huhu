@@ -265,7 +265,7 @@ function Editor({ s, update }: PageProps) {
           <ChoiceSwitch checked={e.spellcheck} onChange={(v) => set({ spellcheck: v })} label={t.settings.spellcheck} />
         </div>
         <div className="row">
-          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: false, spellcheck: false })}>
+          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: true, spellcheck: false })}>
             {t.settings.resetEditor}
           </Button>
         </div>

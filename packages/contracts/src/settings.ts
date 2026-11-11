@@ -17,11 +17,11 @@ export const SettingsSchema = z.object({
       fontSize: z.number().int().min(14).max(20).catch(16),
       lineHeight: z.number().min(1.4).max(2).catch(1.8),
       autosave: z.boolean().catch(true),
-      lineNumbers: z.boolean().catch(false),
+      lineNumbers: z.boolean().catch(true),
       spellcheck: z.boolean().catch(false),
       readableWidth: z.enum(["680", "760", "880", "full"]).catch("760"),
     })
-    .catch({ fontSize: 16, lineHeight: 1.8, autosave: true, lineNumbers: false, spellcheck: false, readableWidth: "760" }),
+    .catch({ fontSize: 16, lineHeight: 1.8, autosave: true, lineNumbers: true, spellcheck: false, readableWidth: "760" }),
   dateTime: z
     .object({
       zone: z
