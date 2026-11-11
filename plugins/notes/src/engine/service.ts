@@ -101,6 +101,13 @@ export class NotesService {
       if (err) throw errors.invalidInput(err);
     }
   }
+  /** 其他文件（图片、PDF、日志、代码……）：只给元信息，不当作文本加载（ACC-KN-10）。隐藏目录与语义目录不列出。 */
+  otherFiles(): { path: string; size: number; mtimeMs: number }[] {
+    return this.d.index
+      .entries()
+      .filter((e) => e.type === "file" && !/\.md$/i.test(e.path) && !SEMANTIC_DIRS.has(e.path.split("/")[0] ?? "") && !e.path.split("/").some((seg) => seg.startsWith(".")))
+      .map((e) => ({ path: e.path, size: e.size, mtimeMs: e.mtimeMs }));
+  }
   /** 磁盘上某个目录下的全部文件（相对路径）；不是目录则为空。 */
   private filesUnder(rel: string): string[] {
     const abs = this.d.files.abs(rel);

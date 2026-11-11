@@ -75,19 +75,23 @@ function toDto(e: Entity): CommentDto {
 export class CommentsService {
   constructor(private readonly d: CommentsDeps) {}
 
+  /** 锚点偏移按编辑器看到的文本计算：CodeMirror 把 CRLF 归一为 LF，这里同样归一，偏移才对得上。 */
   private docText(rel: string): { text: string; version: string } {
     const f = this.d.files.read(rel);
     if (!f) throw errors.notFound(`笔记不存在：${rel}`);
-    return { text: f.bytes.toString("utf8"), version: f.version };
+    return { text: f.bytes.toString("utf8").replace(/\r\n?/g, "\n"), version: f.version };
   }
 
   list(rel?: string): CommentDto[] {
     const id = rel ? this.d.noteId(rel) : null;
-    return this.d.repo
-      .list("comment")
-      .map(toDto)
-      .filter((c) => !rel || c.documentPath === rel || (id !== null && c.documentId === id))
-      .sort((a, b) => (a.anchor?.start ?? -1) - (b.anchor?.start ?? -1) || a.createdAt.localeCompare(b.createdAt));
+    return (
+      this.d.repo
+        .list("comment")
+        .map(toDto)
+        // 有稳定 id 就只按 id 匹配（回收站里同路径的旧笔记批注不会贴到同名新笔记上）；没有 id 才按路径
+        .filter((c) => !rel || (id !== null ? c.documentId === id : c.documentPath === rel))
+        .sort((a, b) => (a.anchor?.start ?? -1) - (b.anchor?.start ?? -1) || a.createdAt.localeCompare(b.createdAt))
+    );
   }
 
   async create(input: { path: string; target: "body" | "file" | "property"; property?: string; start?: number; end?: number; text: string; author: string }): Promise<CommentDto> {
@@ -157,7 +161,8 @@ export class CommentsService {
   }
 
   /** 文档保存后：对该文档未解决的正文批注重新定位；找不到或不唯一 → orphaned，不猜位置。 */
-  async refind(rel: string, text: string, version: string): Promise<void> {
+  async refind(rel: string, rawText: string, version: string): Promise<void> {
+    const text = rawText.replace(/\r\n?/g, "\n");
     const id = this.d.noteId(rel);
     for (const c of this.list(rel)) {
       if (c.resolved || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
@@ -194,6 +199,6 @@ export class CommentsService {
 
   /** 永久删除笔记时一并删除它的批注。 */
   async deleteForDocument(id: string | null, rel: string): Promise<void> {
-    for (const c of this.d.repo.list("comment").map(toDto)) if ((id !== null && c.documentId === id) || c.documentPath === rel) await this.delete(c.id);
+    for (const c of this.d.repo.list("comment").map(toDto)) if (id !== null ? c.documentId === id : c.documentPath === rel) await this.delete(c.id);
   }
 }

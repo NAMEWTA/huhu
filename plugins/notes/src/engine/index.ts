@@ -46,6 +46,18 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     now: opts.now ?? (() => new Date()),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
   });
+  api.defineCapability(
+    def({
+      name: "notes.files",
+      plugin: "notes",
+      scope: "read",
+      exposable: true,
+      defaultExposed: true,
+      input: z.object({}),
+      output: z.array(z.object({ path: z.string(), size: z.number(), mtimeMs: z.number() })),
+      handler: () => svc.otherFiles(),
+    }),
+  );
   const comments = new CommentsService({
     repo: api.vault.repo,
     files: api.vault.files,

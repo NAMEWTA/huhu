@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -88,7 +89,10 @@ export class ExternalPlugins {
     return path.join(this.d.root, ".huhu", "local", "external-trust.json");
   }
   private pkgDir(id: string, version: string): string {
-    return path.join(this.d.root, ".huhu", "plugins", "external", id, version);
+    const base = path.join(this.d.root, ".huhu", "plugins", "external");
+    const dir = path.join(base, id, version);
+    if (!dir.startsWith(path.join(base, id) + path.sep)) throw errors.invalidInput("扩展版本号不合法");
+    return dir;
   }
   dataDir(id: string): string {
     return path.join(this.d.root, ".huhu", "plugins", "data", id);
@@ -112,21 +116,34 @@ export class ExternalPlugins {
   }
 
   has(id: string): boolean {
-    return id in this.records();
+    return Object.hasOwn(this.records(), id);
   }
   /** 启动时是否启用：用户没停用，且在本机信任过（同步来的扩展不自动运行）。 */
   shouldEnable(id: string): boolean {
-    const r = this.records()[id];
-    return r !== undefined && r.enabled && this.trusted()[id] === r.version;
+    const all = this.records();
+    const r = Object.hasOwn(all, id) ? all[id] : undefined;
+    return r !== undefined && r.enabled && Object.hasOwn(this.trusted(), id) && this.trusted()[id] === this.trustKey(id, r.version);
+  }
+  /** 信任绑定版本 + 包内容哈希：同版本的文件被替换后不再自动运行。 */
+  private trustKey(id: string, version: string): string {
+    const dir = this.pkgDir(id, version);
+    const h = createHash("sha256");
+    try {
+      for (const f of walk(dir).sort()) h.update(path.relative(dir, f)).update("\0").update(readFileSync(f)).update("\0");
+    } catch {
+      return `${version}:unreadable`;
+    }
+    return `${version}:${h.digest("hex")}`;
   }
   /** 用户在本机显式启用 / 停用：启用即视为信任这个版本。 */
   setEnabled(id: string, enabled: boolean): void {
+    this.d.assertWritable?.();
     const all = this.records();
-    const r = all[id];
+    const r = Object.hasOwn(all, id) ? all[id] : undefined;
     if (!r) return;
     all[id] = { ...r, enabled };
     this.writeJson(this.recordFile, all);
-    if (enabled) this.writeJson(this.trustFile, { ...this.trusted(), [id]: r.version });
+    if (enabled) this.writeJson(this.trustFile, { ...this.trusted(), [id]: this.trustKey(id, r.version) });
   }
 
   permissionInfo(manifest: PluginManifest): PermissionInfo[] {
@@ -189,6 +206,7 @@ export class ExternalPlugins {
   }
 
   private unzipTo(zip: string, target: string): void {
+    if (statSync(zip).size > MAX_BYTES) reject("zip 体积过大（最多 8 MB）");
     let entries: Record<string, Uint8Array>;
     try {
       entries = unzipSync(readFileSync(zip), { filter: (f) => f.originalSize <= MAX_BYTES || reject(`文件过大：${f.name}`) });
@@ -267,10 +285,14 @@ export class ExternalPlugins {
       mkdirSync(path.dirname(target), { recursive: true });
       cpSync(info.dir, target, { recursive: true, dereference: false });
       this.writeJson(this.recordFile, { ...this.records(), [id]: { version: info.manifest.version, enabled: true } });
-      this.writeJson(this.trustFile, { ...this.trusted(), [id]: info.manifest.version });
+      this.writeJson(this.trustFile, { ...this.trusted(), [id]: this.trustKey(id, info.manifest.version) });
       this.register(this.inspect(target));
       const state = await this.d.plugins.enable(id);
-      if (state !== "active") throw errors.invalidInput(`扩展未能启动：${this.d.plugins.error(id) ?? "未知原因"}`);
+      if (state !== "active") {
+        const why = this.d.plugins.error(id) ?? "未知原因";
+        await this.uninstall(id, true).catch(() => undefined); // 启动失败不留半安装状态（可直接再试）
+        throw errors.invalidInput(`扩展未能启动：${why}`);
+      }
       return { id };
     } finally {
       info.cleanup?.();
@@ -281,7 +303,7 @@ export class ExternalPlugins {
   async uninstall(id: string, eraseData: boolean): Promise<void> {
     this.d.assertWritable?.();
     const records = this.records();
-    const r = records[id];
+    const r = Object.hasOwn(records, id) ? records[id] : undefined;
     if (!r) throw errors.notFound(`不是已安装的外部扩展：${id}`);
     await this.d.plugins.unregister(id);
     rmSync(path.join(this.d.root, ".huhu", "plugins", "external", id), { recursive: true, force: true });
@@ -300,6 +322,7 @@ export class ExternalPlugins {
   runCommand(pluginId: string, commandId: string, args: unknown = {}): Promise<unknown> {
     const h = this.hosts.get(pluginId);
     if (!h || !h.commands.has(commandId)) throw errors.notFound(`命令不存在：${pluginId}/${commandId}`);
+    if (h.pending.size >= 8) throw errors.invalidInput("这个扩展正在执行的命令过多");
     const reqId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     return new Promise((resolve, reject2) => {
       const timer = setTimeout(() => {

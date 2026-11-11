@@ -130,6 +130,32 @@ describe("外部扩展（W16.2）", () => {
     expect(existsSync(path.join(vault, ".huhu/plugins/external"))).toBe(false);
   });
 
+  test("版本号不能夹带路径（../ 穿越）；包内容被替换后不再自动运行", async () => {
+    const vault = tmp();
+    let e = await start(vault);
+    const evil = fixture("evil-version", [], "export function activate() {}", { version: "1.0.0/../../../../../../outside" });
+    const r = await call(e, "plugins.install", { source: evil, grants: [] });
+    expect(r.ok).toBe(false);
+    expect(existsSync(path.join(vault, ".huhu/plugins/external"))).toBe(false);
+
+    await call(e, "plugins.install", { source: path.join(EXAMPLES, "quick-clip"), grants: ["inbox.write"] });
+    await e.shutdown();
+    engines.splice(engines.indexOf(e), 1);
+    // 同版本、文件被换掉：信任绑定内容哈希，重启后不自动运行
+    writeFileSync(path.join(vault, ".huhu/plugins/external/quick-clip/1.0.0/main.mjs"), "export function activate() {}");
+    e = await start(vault);
+    expect(((await call(e, "plugins.list")).data as { id: string; state: string }[]).find((p) => p.id === "quick-clip")?.state).toBe("disabled");
+  });
+
+  test("启动失败的扩展不留半安装状态，可直接再试；`constructor` 之类的 id 不会被误判为已安装", async () => {
+    const e = await start(tmp());
+    const dir = fixture("broken", [], "export function activate() { throw new Error('boom'); }");
+    const r = await call(e, "plugins.install", { source: dir, grants: [] });
+    expect(r.ok).toBe(false);
+    expect(((await call(e, "plugins.list")).data as { id: string }[]).some((p) => p.id === "broken")).toBe(false);
+    expect((await call(e, "plugins.uninstall", { id: "constructor" })).ok).toBe(false);
+  });
+
   test("zip 安装；含 ../ 的恶意 zip 被拒绝", async () => {
     const e = await start(tmp());
     const dir = tmp();

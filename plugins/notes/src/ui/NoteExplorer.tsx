@@ -13,6 +13,8 @@ export interface NoteRef {
   tags?: string[];
   /** 文件夹（只在文件资源管理器的菜单里用，path 是文件夹路径）。 */
   folder?: boolean;
+  /** 非 Markdown 文件（图片、日志……）：只显示元信息，不当作文本加载。 */
+  file?: { size: number; mtimeMs: number };
 }
 export type Section = "all" | "favorites" | "daily" | "tags" | "trash";
 const SECTIONS: Section[] = ["all", "favorites", "daily", "tags", "trash"];
@@ -80,14 +82,14 @@ export function NoteExplorer(p: ExplorerProps) {
 
   const fileRow = (note: NoteRef, depth: number) => (
     <div key={note.path} className={`knowledge-tree-line${note.path === p.selected ? " is-selected" : ""}`} style={{ ["--tree-depth" as string]: depth }}>
-      <button type="button" role="treeitem" aria-selected={note.path === p.selected} className="knowledge-tree-item" data-testid="note-item" onClick={() => p.onOpen(note.path)}>
+      <button type="button" role="treeitem" aria-selected={note.path === p.selected} className="knowledge-tree-item" data-testid={note.file ? "file-item" : "note-item"} onClick={() => p.onOpen(note.path)}>
         <span className="knowledge-tree-spacer" />
         <FileText size={15} aria-hidden />
         <span className="knowledge-tree-label">{note.title}</span>
-        <span className="knowledge-tree-extension">.md</span>
+        {note.file ? null : <span className="knowledge-tree-extension">.md</span>}
         {note.favorite ? <Star size={11} className="knowledge-star" aria-label="已星标" /> : null}
       </button>
-      <IconButton icon={MoreHorizontal} label={`文件操作 ${note.title}`} className="knowledge-tree-more" onClick={(e) => (e.stopPropagation(), p.onMenu(note, e.currentTarget))} />
+      {note.file ? null : <IconButton icon={MoreHorizontal} label={`文件操作 ${note.title}`} className="knowledge-tree-more" onClick={(e) => (e.stopPropagation(), p.onMenu(note, e.currentTarget))} />}
     </div>
   );
   const folderRow = (node: TreeNode, depth: number): React.ReactNode => {

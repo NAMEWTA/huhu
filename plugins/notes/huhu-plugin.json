@@ -29,6 +29,7 @@
       "notes.draft.get",
       "notes.draft.save",
       "notes.duplicate",
+      "notes.files",
       "notes.folders",
       "notes.list",
       "notes.move",

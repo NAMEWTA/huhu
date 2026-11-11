@@ -25,7 +25,7 @@ const TITLE: Record<string, string> = { installed: "插件中心", discover: "�
 const tone = (s: PluginInfo["state"]) => (s === "failed" ? "danger" : s === "active" ? "success" : "neutral");
 
 /** 插件中心（原型 PluginCenterV3）：左侧资源列表（内置 / 外部）+ 详情；运行时与权限清单。启用 / 停用走统一生命周期，停用前列出会被一并停用的插件。 */
-export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
+export function PluginCenterModule({ section, onSection, onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const list = useCapability<PluginInfo[]>("plugins.list", {});
@@ -140,6 +140,7 @@ export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
               onInstalled={(id) => {
                 setOrigin("external");
                 setSelectedId(id);
+                onSection("installed");
               }}
             />
           ) : section === "runtime" ? (

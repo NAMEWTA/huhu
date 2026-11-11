@@ -5,6 +5,7 @@ import { FileText, Plus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
+import { FileCard } from "./FileCard.js";
 import { NoteDocument } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
@@ -98,8 +99,11 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     },
   };
   const q = query.trim().toLowerCase();
-  const notes = (list.data ?? []).filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
+  const otherFiles = useCapability<{ path: string; size: number; mtimeMs: number }[]>("notes.files", {});
+  const fileRefs: NoteRef[] = (otherFiles.data ?? []).map((f) => ({ path: f.path, id: null, title: f.path.split("/").at(-1) ?? f.path, file: { size: f.size, mtimeMs: f.mtimeMs } }));
+  const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
+  const selectedFile = fileRefs.find((f) => f.path === selected) ?? null;
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   /** 改名 / 移动之后，打开着的笔记路径跟着变（文件夹则按前缀）。 */
   const remapSelected = (from: string, to: string) => {
@@ -165,7 +169,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             {error}
           </div>
         ) : null}
-        {selected && section !== "trash" ? (
+        {selectedFile?.file && section !== "trash" ? (
+          <FileCard path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+        ) : selected && section !== "trash" ? (
           <NoteDocument
             key={selected}
             path={selected}

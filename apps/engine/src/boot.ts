@@ -385,7 +385,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   serverRef.current = server;
   // 外部扩展要经 HTTP 回调 Engine，所以在服务启动之后才登记并启动
   external.load(plugins.list().map((p) => p.id));
-  for (const p of plugins.list()) if (p.manifest.origin === "external" && external.shouldEnable(p.id)) await plugins.enable(p.id);
+  // 只读 Vault 不启动扩展（它们可能写数据目录）；多个扩展并行启动，互不拖慢
+  if (!vault.files.readOnly)
+    await Promise.all(
+      plugins
+        .list()
+        .filter((p) => p.manifest.origin === "external" && external.shouldEnable(p.id))
+        .map((p) => plugins.enable(p.id)),
+    );
   const descriptorPath = endpointPath(vault);
   const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, mcpToken, startedAt: new Date().toISOString() };
   if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });

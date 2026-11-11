@@ -124,6 +124,10 @@ describe("WS 事件", () => {
     expect(ev.map((m) => m.seq)).toEqual([1, 2]);
     ws.close();
   });
+  test("外部扩展令牌不能订阅事件流（事件载荷不受权限表约束）", async () => {
+    const { tokens, port } = await boot();
+    await expect(openWs(port, tokens.issue("plugin:probe"))).rejects.toThrow(/403/);
+  });
   test("断线重连按 lastSeq 补发；超出缓冲 resync", async () => {
     const { tokens, events, port } = await boot();
     const t = tokens.issue("desktop");

@@ -136,6 +136,28 @@ describe("CommentsService", () => {
     await svc.deleteForDocument("note-1", "新/笔记.md");
     expect(svc.list()).toEqual([]);
   });
+  test("CRLF 笔记：锚点按编辑器看到的 LF 文本计算", async () => {
+    const crlf = "# 标题\r\n\r\n第二行的一句话。\r\n";
+    const { svc } = await setup(crlf);
+    const lf = crlf.replace(/\r\n/g, "\n");
+    const sel = at(lf, "一句话");
+    const c = await svc.create({ path: "笔记.md", target: "body", ...sel, text: "x", author: "我" });
+    expect(c.anchor?.exact).toBe("一句话");
+    expect(c.anchor?.start).toBe(sel.start);
+  });
+  test("回收站里同路径旧笔记的批注不会贴到同名新笔记上，永久删除也不会误删新笔记的批注", async () => {
+    const { svc } = await setup(DOC);
+    const old = await svc.create({ path: "笔记.md", target: "file", text: "旧笔记的批注", author: "我" });
+    // 模拟：旧笔记进回收站后，同名新笔记分配了新 id
+    const lookup = (svc as unknown as { d: { noteId(rel: string): string | null; ensureId(rel: string): Promise<string> } }).d;
+    lookup.noteId = () => "note-新";
+    lookup.ensureId = async () => "note-新";
+    const fresh = await svc.create({ path: "笔记.md", target: "file", text: "新笔记的批注", author: "我" });
+    expect(svc.list("笔记.md").map((c) => c.id)).toEqual([fresh.id]);
+    await svc.deleteForDocument("note-1", "笔记.md"); // 永久删除旧回收站条目（旧 id）
+    expect(svc.list("笔记.md").map((c) => c.id)).toEqual([fresh.id]);
+    expect(svc.list().map((c) => c.id)).not.toContain(old.id);
+  });
   test("消息解析容忍多行与空行", () => {
     const msgs = parseMessages("### 2026-11-11T08:00:00Z · 我\n\n第一行\n第二行\n\n### 2026-11-11T09:00:00Z · cli\n\n回复\n");
     expect(msgs).toEqual([

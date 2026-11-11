@@ -6,7 +6,7 @@ export const PluginManifestSchema = z.object({
   id: PluginId,
   title: z.string().min(1),
   description: z.string(),
-  version: z.string().regex(/^\d+\.\d+\.\d+/),
+  version: z.string().regex(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/),
   origin: z.enum(["builtin", "external"]),
   dependsOn: z.array(PluginId).default([]),
   optionalDeps: z.array(PluginId).default([]),

@@ -224,6 +224,8 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (!who) return reject(401);
     // 终端流承载 Agent/SSH 执行，永不对外（security.md §1）：只有桌面身份可以连接
     if (termMatch && who !== "desktop") return reject(403);
+    // 事件流载荷（任务标题、文件路径、通知……）不受权限表约束：外部扩展令牌不能订阅
+    if (who.startsWith("plugin:")) return reject(403);
     if (termMatch && d.terminal) {
       const dims = (k: string, def: number) => Math.min(500, Math.max(1, Number(url.searchParams.get(k)) || def));
       wss.handleUpgrade(req, socket, head, (ws) => {
