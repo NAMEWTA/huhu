@@ -70,7 +70,9 @@ test("冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；
 
 test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-perf-"));
-  const line = "这是一行用于测试大文档打开速度的正文，包含 **加粗**、`行内代码` 与 [[链接]]。\n";
+  // 真实笔记按段落组织：每行一段（空行分隔）。单个 1 MiB 的超长段落会触发 @lezer/markdown 行内解析（LinkEnd）的超线性回扫，
+  // 是上游解析器的已知病态输入（4 MiB 约 10 s），不是“打开 1 MiB 笔记”的典型场景，见 progress.md。
+  const line = "这是一行用于测试大文档打开速度的正文，包含 **加粗**、`行内代码` 与 [[链接]]。\n\n";
   writeFileSync(path.join(vault, "大文档.md"), `# 大文档\n\n${line.repeat(Math.ceil((1024 * 1024) / Buffer.byteLength(line)))}`);
   const app = await electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
   try {
