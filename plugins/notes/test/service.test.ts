@@ -94,11 +94,11 @@ describe("移动", () => {
   });
   test("删除文件夹：整体进回收站，笔记列表不再包含；恢复后原样回来", async () => {
     const { svc, root } = await setup({ "docs/p.md": "p", "docs/sub/q.md": "q", "keep.md": "k" });
-    const { trashId } = svc.trash("docs");
+    const { trashId } = await svc.trash("docs");
     expect(existsSync(path.join(root, "docs"))).toBe(false);
     expect(svc.list("all").map((x) => x.path)).toEqual(["keep.md"]);
     expect(svc.list("trash").map((x) => x.path)).toEqual(["docs"]);
-    expect(svc.restore(trashId)).toBe("docs");
+    expect(await svc.restore(trashId)).toBe("docs");
     expect(rd(root, "docs/sub/q.md")).toBe("q");
     expect(
       svc
@@ -106,6 +106,22 @@ describe("移动", () => {
         .map((x) => x.path)
         .sort(),
     ).toEqual(["docs/p.md", "docs/sub/q.md", "keep.md"]);
+  });
+  test("回收后同名新建得到新 id；恢复（改名）把原 id 带回；回收文件夹同时取消登记", async () => {
+    const { svc } = await setup({ "a.md": "# a" });
+    const oldId = await svc.ensureId("a.md");
+    const { trashId } = await svc.trash("a.md");
+    expect(svc.noteId("a.md")).toBeNull();
+    const fresh = await svc.create({ name: "a" });
+    expect(fresh.id).not.toBe(oldId);
+    const back = await svc.restore(trashId, "a-旧");
+    expect(svc.noteId(back)).toBe(oldId);
+    await svc.createFolder("空目录");
+    expect(svc.folders()).toContain("空目录");
+    const f = await svc.trash("空目录");
+    expect(svc.folders()).not.toContain("空目录");
+    await svc.restore(f.trashId);
+    expect(svc.folders()).toContain("空目录");
   });
   test("空文件夹改名只改登记", async () => {
     const { svc, root } = await setup();
@@ -127,14 +143,14 @@ describe("复制、回收站", () => {
   });
   test("ACC-KN-07 恢复：原路径有同名 → 要求新名称，原有文件不变；永久删除", async () => {
     const { svc, root } = await setup({ "n.md": "旧" });
-    const { trashId } = svc.trash("n.md");
+    const { trashId } = await svc.trash("n.md");
     writeFileSync(path.join(root, "n.md"), "新占位");
-    expect(() => svc.restore(trashId)).toThrowError(/已存在/);
+    await expect(svc.restore(trashId)).rejects.toThrowError(/已存在/);
     expect(rd(root, "n.md")).toBe("新占位");
-    expect(svc.restore(trashId, "n-恢复")).toBe("n-恢复.md");
+    expect(await svc.restore(trashId, "n-恢复")).toBe("n-恢复.md");
     expect(rd(root, "n-恢复.md")).toBe("旧");
-    const t2 = svc.trash("n-恢复.md");
-    svc.deletePermanent(t2.trashId);
+    const t2 = await svc.trash("n-恢复.md");
+    await svc.deletePermanent(t2.trashId);
     expect(svc.list("trash")).toEqual([]);
   });
 });
@@ -168,8 +184,8 @@ describe("审计回归", () => {
     expect(existsSync(path.join(root, "v1.2 方案.md"))).toBe(true);
     await rebuild();
     expect(svc.list("all").map((n) => n.path)).toEqual(["v1.2 方案.md"]);
-    const { trashId } = svc.trash("v1.2 方案.md");
-    expect(svc.restore(trashId, "Q1.5 计划")).toBe("Q1.5 计划.md");
+    const { trashId } = await svc.trash("v1.2 方案.md");
+    expect(await svc.restore(trashId, "Q1.5 计划")).toBe("Q1.5 计划.md");
   });
   test("仅大小写改名：内容不丢，双链改写，id 不变", async () => {
     const { svc, root } = await setup({ "readme.md": "正文", "ref.md": "[[readme]] [[readme.md]]" });

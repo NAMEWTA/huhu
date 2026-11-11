@@ -8,6 +8,7 @@ import { WebSocketServer } from "ws";
 import type { CapabilityRegistry } from "../capabilities/define.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { EventBus } from "../context.js";
+import { createMcpServer } from "../mcp.js";
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN, RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import type { TokenTable } from "./tokens.js";
 import { EventReplay } from "./ws-events.js";
@@ -165,7 +166,6 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     } catch {
       return send(400, { error: "请求不是合法 JSON" });
     }
-    const { createMcpServer } = await import("../mcp.js");
     const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
     const mcp = createMcpServer(
       {

@@ -18,6 +18,17 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const idle = Number(arg("--idle-exit-ms") ?? 0);
+  // 启动期间收到的关闭请求不能丢：boot 完成后立刻关闭
+  let stopRequested = false;
+  let stopNow: (() => void) | null = null;
+  const requestStop = () => (stopNow ? stopNow() : void (stopRequested = true));
+  process.on("message", (m) => {
+    if ((m as { type?: string }).type === "shutdown") requestStop();
+  });
+  const earlyPort = (process as unknown as { parentPort?: ParentPort }).parentPort;
+  earlyPort?.on("message", (e) => {
+    if (e.data?.type === "shutdown") requestStop();
+  });
   const engine = await boot({
     vaultPath,
     create: process.argv.includes("--create"),
@@ -39,12 +50,8 @@ async function main(): Promise<void> {
   };
   process.on("SIGTERM", () => void stop());
   process.on("SIGINT", () => void stop());
-  process.on("message", (m) => {
-    if ((m as { type?: string }).type === "shutdown") void stop();
-  });
-  parentPort?.on("message", (e) => {
-    if (e.data?.type === "shutdown") void stop();
-  });
+  stopNow = () => void stop();
+  if (stopRequested) stopNow();
 
   if (idle > 0) {
     let last = Date.now();

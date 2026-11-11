@@ -202,6 +202,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const list = (items.data ?? []).filter((i) => `${i.name}${i.account}`.toLowerCase().includes(query.toLowerCase()));
@@ -263,19 +264,28 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
                     data-testid="secret-copy"
                     onClick={() => {
                       // 复制走独立的审计动作；值只经 huhuHost.copyText 进剪贴板，30 秒后若仍是这段文本则清除
-                      void engine.call<{ value: string }>("safe.items.reveal", { id: current.id, purpose: "copy" }).then(async (r) => {
-                        const bridge = (globalThis as { huhuHost?: { copyText?(v: string, o?: { clearAfterMs?: number }): Promise<void> } }).huhuHost;
-                        if (bridge?.copyText) await bridge.copyText(r.value, { clearAfterMs: 30_000 });
-                        else await navigator.clipboard.writeText(r.value);
-                        setCopied(current.id);
-                        setTimeout(() => setCopied((c) => (c === current.id ? null : c)), 30_000);
-                      });
+                      void engine
+                        .call<{ value: string }>("safe.items.reveal", { id: current.id, purpose: "copy" })
+                        .then(async (r) => {
+                          const bridge = (globalThis as { huhuHost?: { copyText?(v: string, o?: { clearAfterMs?: number }): Promise<void> } }).huhuHost;
+                          if (bridge?.copyText) await bridge.copyText(r.value, { clearAfterMs: 30_000 });
+                          else await navigator.clipboard.writeText(r.value);
+                          setCopyError(null);
+                          setCopied(current.id);
+                          setTimeout(() => setCopied((c) => (c === current.id ? null : c)), 30_000);
+                        })
+                        .catch((e: unknown) => setCopyError(e instanceof Error ? e.message : String(e)));
                     }}
                   >
                     {copied === current.id ? t.copied : t.copy}
                   </Button>
                 </div>
               </Field>
+              {copyError ? (
+                <p role="alert" className="field-error">
+                  {copyError}
+                </p>
+              ) : null}
               <Field label="凭据引用">
                 <div className="row">
                   <code className="grow">{formatSecretRef(current.id)}</code>

@@ -95,9 +95,17 @@ if (!gotLock) {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
     };
     let current: { path: string; readOnly: boolean } | null = null;
+    let startupError: string | null = null;
     let recent: RecentVault[] = [];
     /** 打开（或切换到）一个 Vault：先有序关闭旧 Engine；失败时回到未打开状态，错误原样交给启动页显示。 */
-    const openVault = async (target: string, flags: { create: boolean; readOnly: boolean }): Promise<OpenResult> => {
+    // 打开 / 切换串行执行：并发的两次调用不会各自启动 Engine 而留下孤儿进程
+    let chain: Promise<unknown> = Promise.resolve();
+    const openVault = (target: string, flags: { create: boolean; readOnly: boolean }): Promise<OpenResult> => {
+      const run = chain.then(() => openVaultNow(target, flags));
+      chain = run.catch(() => undefined);
+      return run;
+    };
+    const openVaultNow = async (target: string, flags: { create: boolean; readOnly: boolean }): Promise<OpenResult> => {
       if (supervisor) await supervisor.stop();
       supervisor = null;
       current = null;
@@ -111,12 +119,12 @@ if (!gotLock) {
         return r;
       }
       current = { path: target, readOnly: flags.readOnly };
+      startupError = null;
       recent = remember(recent, { path: target, name: path.basename(target) || target, at: new Date().toISOString() });
       return { ok: true };
     };
     const first = startupVault();
     const startup = first ? openVault(first, { create: true, readOnly: false }) : null;
-    let startupError: string | null = null;
     void startup?.then((r) => {
       if (!r.ok) startupError = r.message;
     });
@@ -126,7 +134,7 @@ if (!gotLock) {
       await startup; // 命令行 / 测试指定的 Vault 先打开完，界面再判断是否显示启动页
       return { path: current?.path ?? null, readOnly: current?.readOnly ?? false, recent, ...(startupError ? { error: startupError } : {}) };
     });
-    // kind: open 打开已有文件夹（不存在则初始化为 Vault）；new 新建空白（必须空目录）
+    // kind: open 打开已有文件夹（目录必须存在；非 Vault 的文件夹会被初始化为 Vault）；new 新建空白（必须空目录）
     ipcMain.handle("huhu:vault:open", async (event, target: unknown, opts: unknown): Promise<OpenResult> => {
       assertTrusted(event.senderFrame?.url);
       const o = (opts ?? {}) as { kind?: string; readOnly?: boolean };
@@ -151,9 +159,12 @@ if (!gotLock) {
     });
     ipcMain.handle("huhu:vault:close", async (event) => {
       assertTrusted(event.senderFrame?.url);
-      if (supervisor) await supervisor.stop();
-      supervisor = null;
-      current = null;
+      await (chain = chain.then(async () => {
+        if (supervisor) await supervisor.stop();
+        supervisor = null;
+        current = null;
+        startupError = null;
+      }));
     });
     ipcMain.handle("huhu:engine", async (event) => {
       assertTrusted(event.senderFrame?.url);
@@ -189,7 +200,7 @@ if (!gotLock) {
     let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
     ipcMain.handle("huhu:copyText", (event, value: unknown, clearAfterMs: unknown) => {
       assertTrusted(event.senderFrame?.url);
-      if (typeof value !== "string" || value.length > 10_000) return;
+      if (typeof value !== "string" || value.length > 100_000) return;
       clipboard.writeText(value);
       if (clipboardTimer) clearTimeout(clipboardTimer);
       const ms = typeof clearAfterMs === "number" && clearAfterMs > 0 ? Math.min(clearAfterMs, 600_000) : 0;

@@ -15,7 +15,6 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
 
   async function run(label: string, target: string | null, go: (t: string) => Promise<VaultOpenResult>): Promise<void> {
     if (!target) return;
-    setBusy(true);
     setError(null);
     try {
       const r = await go(target);
@@ -23,19 +22,29 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
       else setError({ message: r.message, code: r.code, target });
     } catch (e) {
       setError({ message: `${label}失败：${e instanceof Error ? e.message : String(e)}`, code: "INTERNAL", target });
-    } finally {
-      setBusy(false);
     }
   }
   const vault = h.vault;
-  const openFolder = async () => run("打开", await h.pickOpenPath("directory"), (t) => vault.open(t, { kind: "open" }));
-  const openDemo = async () => run("打开示例", await h.pickOpenPath("directory"), (t) => vault.openDemo(t));
-  const newBlank = async () => run("新建", await h.pickOpenPath("directory"), (t) => vault.open(t, { kind: "new" }));
-  const importPkg = async () => {
+  // 原生对话框打开期间也算忙碌，避免连点弹出两个对话框
+  const guarded = (f: () => Promise<void>) => async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await f();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openFolder = guarded(async () => run("打开", await h.pickOpenPath("directory"), (t) => vault.open(t, { kind: "open" })));
+  const openDemo = guarded(async () => run("打开示例", await h.pickOpenPath("directory"), (t) => vault.openDemo(t)));
+  const newBlank = guarded(async () => run("新建", await h.pickOpenPath("directory"), (t) => vault.open(t, { kind: "new" })));
+  const importPkg = guarded(async () => {
     const zip = await h.pickOpenPath("zip");
     if (!zip) return;
     await run("导入", await h.pickOpenPath("directory"), (t) => vault.importPackage(zip, t));
-  };
+  });
+  const openRecent = (p: string) => guarded(() => run("打开", p, (t) => vault.open(t, { kind: "open" })))();
+  const openReadOnly = (target: string) => guarded(() => run("只读打开", target, (t) => vault.open(t, { kind: "open", readOnly: true })))();
 
   return (
     <div className="vault-launch" data-testid="vault-launch">
@@ -97,7 +106,7 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
           <div className="vault-recents">
             {state.recent.map((r) => (
               <div className="vault-recent" key={r.path}>
-                <button type="button" className="vault-recent-open" data-testid="vault-recent" disabled={busy} onClick={() => void run("打开", r.path, (t) => vault.open(t, { kind: "open" }))}>
+                <button type="button" className="vault-recent-open" data-testid="vault-recent" disabled={busy} onClick={() => void openRecent(r.path)}>
                   <span className="vault-file-icon">
                     <Folder size={19} aria-hidden />
                   </span>
@@ -141,7 +150,7 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
                     重新选择目录
                   </button>
                   {error.code === "READ_ONLY_VAULT" && error.target ? (
-                    <button type="button" className="text-link" data-testid="vault-readonly" onClick={() => void run("只读打开", error.target, (t) => vault.open(t, { kind: "open", readOnly: true }))}>
+                    <button type="button" className="text-link" data-testid="vault-readonly" onClick={() => void openReadOnly(error.target)}>
                       以只读方式打开
                     </button>
                   ) : null}

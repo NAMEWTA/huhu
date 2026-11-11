@@ -16,6 +16,8 @@ export interface NotesDeps {
 
 const IDENTITIES = ".huhu/notes/identities.json";
 const FOLDERS = ".huhu/notes/folders.json";
+/** 进回收站的笔记带走的稳定 id：trashId → { 相对于被删条目的路径 → id }。 */
+const TRASHED_IDS = ".huhu/notes/trashed-identities.json";
 const FAVORITES = ".huhu/notes/favorites.json";
 /** 名称里含点（如 `v1.2 方案`）不等于已带扩展名：只有与原扩展名一致时才不再追加。 */
 function withExtension(name: string, ext: string): string {
@@ -284,16 +286,28 @@ export class NotesService {
   }
 
   // ---- 回收站 ----
-  trash(rel: string): { trashId: string } {
-    const id = this.identities()[rel] ?? null;
+  async trash(rel: string): Promise<{ trashId: string }> {
     const norm = normalizeRelPath(rel);
+    const ids = this.identities();
     const under = this.d.index.entries(norm).map((e) => e.path); // 文件夹整体进回收站：连同后代一并从索引移除
-    const r = { trashId: this.d.trash.moveIn(norm, id).trashId };
+    const r = { trashId: this.d.trash.moveIn(norm, ids[norm] ?? null).trashId };
+    // 被删条目（及其后代）的稳定 id 随回收站条目保存，不再占用原路径：同名新建会得到新 id，恢复时原样带回
+    const carried: Record<string, string> = {};
+    for (const [p, id] of Object.entries(ids)) {
+      if (p === norm || p.startsWith(`${norm}/`)) {
+        carried[p === norm ? "" : p.slice(norm.length + 1)] = id;
+        delete ids[p];
+      }
+    }
+    const folders = this.folders().filter((f) => f !== norm && !f.startsWith(`${norm}/`));
+    const trashed = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
+    if (Object.keys(carried).length > 0) trashed[r.trashId] = carried;
+    await this.d.ops.run(`trash-${r.trashId}`, "trash-ids", [this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folders), this.jsonStep(TRASHED_IDS, trashed)]);
     this.d.index.refreshPaths([...new Set([norm, ...under])]);
     return r;
   }
   /** 恢复；原路径已有同名文件时必须提供 newName，不覆盖。 */
-  restore(trashId: string, newName?: string): string {
+  async restore(trashId: string, newName?: string): Promise<string> {
     const meta = this.d.trash.list().find((m) => m.trashId === trashId);
     if (!meta) throw errors.notFound("回收站条目不存在");
     const dir = path.dirname(meta.originalPath) === "." ? "" : `${path.dirname(meta.originalPath)}/`;
@@ -304,11 +318,25 @@ export class NotesService {
     }
     if (this.findCaseInsensitive(target)) throw errors.nameConflict(target);
     const restored = this.d.trash.restore(trashId, target);
+    // 带回稳定 id；恢复的是文件夹时，空文件夹重新登记
+    const trashed = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
+    const carried = trashed[trashId];
+    delete trashed[trashId];
+    const ids = this.identities();
+    for (const [sub, id] of Object.entries(carried ?? {})) if (!Object.values(ids).includes(id)) ids[sub === "" ? restored : `${restored}/${sub}`] = id;
+    const steps = [this.jsonStep(IDENTITIES, ids), this.jsonStep(TRASHED_IDS, trashed)];
+    if (existsSync(this.d.files.abs(restored)) && statSync(this.d.files.abs(restored)).isDirectory()) steps.push(this.jsonStep(FOLDERS, [...new Set([...this.folders(), restored])].sort()));
+    await this.d.ops.run(`restore-${trashId}`, "restore-ids", steps);
     this.d.index.refreshPaths([restored, ...this.filesUnder(restored)]);
     return restored;
   }
-  deletePermanent(trashId: string): void {
+  async deletePermanent(trashId: string): Promise<void> {
     this.d.trash.deletePermanent(trashId);
+    const trashed = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
+    if (trashed[trashId]) {
+      delete trashed[trashId];
+      await this.d.files.write(TRASHED_IDS, Buffer.from(JSON.stringify(trashed, null, 2)));
+    }
   }
 
   // ---- 日记 ----

@@ -158,8 +158,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       defaultExposed: false,
       input: Path,
       output: z.object({ trashId: z.string() }),
-      handler: (_c, i) => {
-        const r = svc.trash(i.path);
+      handler: async (_c, i) => {
+        const r = await svc.trash(i.path);
         changed(null, "deleted");
         return r;
       },
@@ -175,7 +175,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       input: z.object({ trashId: z.string(), newName: z.string().optional() }),
       output: z.object({ path: z.string() }),
       handler: async (_c, i) => {
-        const p = svc.restore(i.trashId, i.newName);
+        const p = await svc.restore(i.trashId, i.newName);
         await comments.syncPath(p).catch(() => undefined);
         changed(null, "created");
         return { path: p };
@@ -193,7 +193,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       output: z.object({ ok: z.literal(true) }),
       handler: async (_c, i) => {
         const meta = api.vault.trash.list().find((m) => m.trashId === i.trashId);
-        svc.deletePermanent(i.trashId);
+        await svc.deletePermanent(i.trashId);
         if (meta) await comments.deleteForDocument(meta.noteId, meta.originalPath).catch(() => undefined); // 永久删除笔记时一并删除它的批注
         return { ok: true as const };
       },

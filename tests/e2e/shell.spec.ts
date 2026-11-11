@@ -737,7 +737,7 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
     await expect(page.getByTestId("svault-id")).toHaveText(/^vault-[0-9a-z]+$/);
 
     await page.getByTestId("settings-nav-shortcuts").click();
-    await expect(page.getByTestId("shortcut-row")).toHaveCount(3);
+    await expect(page.getByTestId("shortcut-row")).toHaveCount(4);
     await expect(page.getByTestId("settings-shortcuts")).toContainText("命令面板");
 
     await page.getByTestId("settings-nav-about").click();

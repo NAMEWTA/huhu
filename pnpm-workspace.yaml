@@ -9,3 +9,6 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   "@parcel/watcher": true
+  # ssh2 的原生加速模块（cpu-features / 可选的 sshcrypto.node）不编译：缺失时 ssh2 自动回退纯 JS，打包也不需要为 Electron 重编译
+  cpu-features: false
+  ssh2: false

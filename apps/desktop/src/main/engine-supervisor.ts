@@ -97,17 +97,20 @@ export class EngineSupervisor {
     });
   }
 
-  /** 启动结果：就绪 → ok；在就绪前退出 → 失败原因。 */
+  /** 启动结果：就绪 → ok；在就绪前退出 → 失败原因；被停止 → 已取消。超时与结算都会移除监听。 */
   whenStarted(timeoutMs = 60_000): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve({ ok: false, code: "TIMEOUT", message: "Engine 启动超时" }), timeoutMs);
-      const check = (s: EngineState) => {
-        if (s === "ready") resolve({ ok: true });
-        else if (s === "crashed") resolve({ ok: false, ...(this.lastError ?? { code: "INTERNAL", message: "Engine 启动失败" }) });
-        else return;
+      const done = (r: { ok: true } | { ok: false; code: string; message: string }) => {
         clearTimeout(timer);
         this.listeners.delete(check);
+        resolve(r);
       };
+      const check = (s: EngineState) => {
+        if (s === "ready") done({ ok: true });
+        else if (s === "crashed") done({ ok: false, ...(this.lastError ?? { code: "INTERNAL", message: "Engine 启动失败" }) });
+        else if (s === "stopped") done({ ok: false, code: "CANCELLED", message: "已取消" });
+      };
+      const timer = setTimeout(() => done({ ok: false, code: "TIMEOUT", message: "Engine 启动超时" }), timeoutMs);
       this.listeners.add(check);
       check(this.state);
     });
