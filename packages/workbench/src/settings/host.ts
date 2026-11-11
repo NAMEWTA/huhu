@@ -2,6 +2,8 @@
 export interface HostApi {
   appInfo(): Promise<{ name: string; version: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
   revealVault(): Promise<void>;
+  pickSavePath(defaultName: string): Promise<string | null>;
+  pickOpenPath(kind: "zip" | "directory"): Promise<string | null>;
   notices(): Promise<string>;
 }
 

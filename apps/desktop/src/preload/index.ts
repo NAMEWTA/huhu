@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("huhuHost", {
   engine: (): Promise<{ baseUrl: string; token: string; vaultId: string }> => ipcRenderer.invoke("huhu:engine"),
   engineState: (): Promise<EngineState> => ipcRenderer.invoke("huhu:engineState"),
   revealVault: (): Promise<void> => ipcRenderer.invoke("huhu:revealVault"),
+  pickSavePath: (defaultName: string): Promise<string | null> => ipcRenderer.invoke("huhu:pickSavePath", defaultName),
+  pickOpenPath: (kind: "zip" | "directory"): Promise<string | null> => ipcRenderer.invoke("huhu:pickOpenPath", kind),
   notices: (): Promise<string> => ipcRenderer.invoke("huhu:notices"),
   restartEngine: (): Promise<void> => ipcRenderer.invoke("huhu:restartEngine"),
   onEngineState: (cb: (s: EngineState) => void): (() => void) => {

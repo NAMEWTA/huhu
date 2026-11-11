@@ -71,6 +71,14 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
         },
       }),
     ),
+    registry.register(
+      defineCapability({
+        name: "vault.reindexCancel", plugin: "kernel", scope: "admin", input: z.object({}), output: z.object({ cancelled: z.boolean() }),
+        exposable: false, defaultExposed: false,
+        // 首次建立索引不可取消（没有旧索引可保留）
+        handler: () => { const can = index.indexing && index.hasContentIndex; if (can) index.cancel(); return { cancelled: can }; },
+      }),
+    ),
   ];
   return () => offs.forEach((off) => off());
 }

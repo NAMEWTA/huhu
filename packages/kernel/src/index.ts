@@ -12,6 +12,7 @@ export * from "./server/ws-events.js";
 export * from "./capabilities/vault.js";
 export * from "./capabilities/system.js";
 export * from "./capabilities/home.js";
+export * from "./capabilities/package.js";
 export * from "./notifications.js";
 export * from "./exposure.js";
 export * from "./capabilities/health.js";

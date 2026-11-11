@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import path from "node:path";
 import { z } from "zod";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, readSettingsFile, HomeStore, registerHomeCapabilities, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, readSettingsFile, HomeStore, registerHomeCapabilities, registerPackageCapabilities, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -85,6 +85,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
+  registerPackageCapabilities(registry, vault);
   void index.build(); // 后台构建；构建期间 vault.tree 已可用，vault.search 返回 indexing=true
 
   const events = new EventBus(() => vault.id);

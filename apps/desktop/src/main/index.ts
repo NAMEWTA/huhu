@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -108,6 +108,24 @@ if (!gotLock) {
     ipcMain.handle("huhu:revealVault", (event) => {
       assertTrusted(event.senderFrame?.url);
       shell.showItemInFolder(defaultVaultPath());
+    });
+    // 文件对话框：只返回用户选中的路径，真正的读写由 Engine 进程完成
+    ipcMain.handle("huhu:pickSavePath", async (event, defaultName: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const name = typeof defaultName === "string" ? path.basename(defaultName).slice(0, 120) : "HUHU.zip";
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const opts = { defaultPath: path.join(app.getPath("documents"), name), filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      return r.canceled || !r.filePath ? null : r.filePath;
+    });
+    ipcMain.handle("huhu:pickOpenPath", async (event, kind: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const opts = kind === "directory"
+        ? { properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[] }
+        : { properties: ["openFile"] as "openFile"[], filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      return r.canceled || r.filePaths.length === 0 ? null : (r.filePaths[0] ?? null);
     });
     ipcMain.handle("huhu:notices", (event) => {
       assertTrusted(event.senderFrame?.url);

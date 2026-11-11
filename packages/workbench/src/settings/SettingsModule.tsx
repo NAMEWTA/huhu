@@ -5,11 +5,12 @@ import { useEffect, useState } from "react";
 import { t } from "../i18n/zh-CN.js";
 import { AboutPage } from "./AboutPage.js";
 import { ShortcutsPage } from "./ShortcutsPage.js";
+import { StoragePage } from "./StoragePage.js";
 import { VaultPage } from "./VaultPage.js";
 
-type Page = "appearance" | "vault" | "editor" | "datetime" | "shortcuts" | "about";
-const PAGES: Page[] = ["appearance", "vault", "editor", "datetime", "shortcuts", "about"];
-const PAGE_LABEL: Record<Page, string> = { appearance: t.settings.appearance, vault: t.settings.vault.title, editor: t.settings.editor, datetime: t.settings.dateTime, shortcuts: t.settings.shortcuts.title, about: t.settings.about.title };
+type Page = "appearance" | "vault" | "editor" | "datetime" | "shortcuts" | "storage" | "about";
+const PAGES: Page[] = ["appearance", "vault", "editor", "datetime", "shortcuts", "storage", "about"];
+const PAGE_LABEL: Record<Page, string> = { appearance: t.settings.appearance, vault: t.settings.vault.title, editor: t.settings.editor, datetime: t.settings.dateTime, shortcuts: t.settings.shortcuts.title, storage: t.settings.storage.title, about: t.settings.about.title };
 
 /** 设置：外观 / 编辑器 / 日期与时间。保存后立即生效（外观写到 <html>，编辑器与时区由消费方读取 settings.get）。 */
 export function SettingsModule() {
@@ -41,7 +42,7 @@ export function SettingsModule() {
       </aside>
       <section className="hu-content">
         {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
-        {page === "appearance" ? <Appearance s={s} update={update} /> : page === "vault" ? <VaultPage /> : page === "editor" ? <Editor s={s} update={update} /> : page === "datetime" ? <DateTime s={s} update={update} /> : page === "shortcuts" ? <ShortcutsPage /> : <AboutPage />}
+        {page === "appearance" ? <Appearance s={s} update={update} /> : page === "vault" ? <VaultPage /> : page === "editor" ? <Editor s={s} update={update} /> : page === "datetime" ? <DateTime s={s} update={update} /> : page === "shortcuts" ? <ShortcutsPage /> : page === "storage" ? <StoragePage /> : <AboutPage />}
       </section>
     </div>
   );

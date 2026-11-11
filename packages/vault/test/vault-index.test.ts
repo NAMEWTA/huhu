@@ -74,6 +74,34 @@ describe("VaultIndex", () => {
     expect(ix.query("旧内容").hits[0]?.path).toBe("keep.md");
   });
 
+describe("重建期间的并发更新与首次建立", () => {
+  test("重建期间被更新的文件在新索引换上后仍然可搜到（不被整体替换冲掉）", async () => {
+    const files: Record<string, string> = { "早.md": "早已索引" };
+    for (let i = 0; i < 400; i++) files[`n/${i}.md`] = `内容 ${i}`;
+    const root = vault(files);
+    const ix = new VaultIndex(root); await ix.build();
+    const p = ix.reindex();
+    writeFileSync(path.join(root, "早.md"), "重建期间新增的稀有词");
+    ix.applyChanges([{ path: "早.md", change: "modified" }]);
+    expect(await p).toBe(true);
+    expect(ix.query("稀有词").hits.map((h) => h.path)).toEqual(["早.md"]);
+  });
+  test("首次建立索引不可取消（没有旧索引可保留）；完成后 hasContentIndex 为真，之后的重建可取消", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 400; i++) files[`n/${i}.md`] = `内容 ${i}`;
+    const root = vault(files);
+    const ix = new VaultIndex(root);
+    expect(ix.hasContentIndex).toBe(false);
+    const first = ix.build();
+    ix.cancel();
+    expect(await first).toBe(true);
+    expect(ix.query("内容").hits.length).toBeGreaterThan(0);
+    expect(ix.hasContentIndex).toBe(true);
+    const again = ix.reindex(); ix.cancel();
+    expect(await again).toBe(false);
+  });
+});
+
 describe("增量更新目录", () => {
   test("新建深层文件时补全祖先目录", async () => {
     const root = vault({ "a.md": "x" });

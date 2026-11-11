@@ -32,6 +32,10 @@ export class VaultIndex {
   private search = new SearchIndex();
   private _indexing = false;
   private cancelRequested = false;
+  /** 已经完成过一次内容索引（之后重建才有“旧索引”可以保留）。 */
+  private built = false;
+  /** 重建期间被监听器/自写更新过的路径：新索引换上后按磁盘现状补一遍，避免这些更新被整体替换冲掉。 */
+  private dirty = new Set<string>();
 
   constructor(private readonly root: string) {}
 
@@ -51,8 +55,14 @@ export class VaultIndex {
     return this.build();
   }
 
+  /** 是否有已完成的旧索引（首次建立索引时取消没有意义：取消后搜索会是空的）。 */
+  get hasContentIndex(): boolean {
+    return this.built;
+  }
+
+  /** 取消正在进行的重建；首次建立索引不可取消（没有旧索引可保留）。 */
   cancel(): void {
-    this.cancelRequested = true;
+    if (this.built) this.cancelRequested = true;
   }
 
   private treeFrom(snap: ReturnType<typeof takeSnapshot>): Map<string, TreeEntry> {
@@ -71,6 +81,7 @@ export class VaultIndex {
   private async rebuildContent(paths: string[]): Promise<boolean> {
     this._indexing = true;
     this.cancelRequested = false;
+    this.dirty.clear();
     const nextNotes = new Map<string, NoteMeta>();
     const nextSearch = new SearchIndex();
     try {
@@ -84,6 +95,11 @@ export class VaultIndex {
       }
       this.notes = nextNotes;
       this.search = nextSearch;
+      this.built = true;
+      this._indexing = false;
+      const touched = [...this.dirty];
+      this.dirty.clear();
+      this.refreshPaths(touched);
       return true;
     } finally {
       this._indexing = false;
@@ -121,6 +137,7 @@ export class VaultIndex {
 
   /** 监听事件的增量更新。 */
   applyChanges(changes: { path: string; change: "created" | "modified" | "deleted" | "renamed"; from?: string }[]): void {
+    if (this._indexing) for (const c of changes) { this.dirty.add(c.path); if (c.from) this.dirty.add(c.from); }
     for (const c of changes) {
       if (isIgnored(c.path)) continue;
       if (c.change === "deleted" || c.change === "renamed") {

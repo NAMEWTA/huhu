@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -606,6 +606,64 @@ describe("Engine 启动与关闭", () => {
     expect(loc.data).toMatchObject({ description: "说明" });
     expect(JSON.parse(readFileSync(path.join(loc.data.root, ".huhu/vault.json"), "utf8"))).toMatchObject({ name: "我的工作台", description: "说明" });
     expect((await call(e.rendererToken, "vault.update", { name: "" })).ok).toBe(false);
+  }, 30_000);
+  test("ACC-SY-08：导出受管数据包 → 在新目录导入：Markdown 与保险箱密文哈希一致，保险箱用原主密码解锁；导出结果的 SHA-256 与文件一致", async () => {
+    const { createHash } = await import("node:crypto");
+    const { mkdirSync, readdirSync, statSync } = await import("node:fs");
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+    const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const note = (await call(e.rendererToken, "notes.create", { name: "要备份的笔记" })).data as { path: string };
+    const ver = (await call(e.rendererToken, "notes.read", { path: note.path })).data.version as string;
+    await call(e.rendererToken, "notes.save", { path: note.path, text: "# 要备份的笔记\n\n正文 中文\n", expectedVersion: ver });
+    await call(e.rendererToken, "safe.setup", { password: "correct horse battery" });
+    await call(e.rendererToken, "safe.items.save", { name: "令牌", type: "token", value: "backup-secret-value", allowedModules: [] });
+    const out = tmp(); const zip = path.join(out, "backup.zip");
+
+    // 只有桌面可用；路径必须合法
+    expect((await call(e.cliToken, "vault.exportPackage", { dest: zip })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect((await call(e.rendererToken, "vault.exportPackage", { dest: "relative.zip" })).ok).toBe(false);
+    expect((await call(e.rendererToken, "vault.exportPackage", { dest: path.join(out, "a.txt") })).ok).toBe(false);
+    expect((await call(e.rendererToken, "vault.exportPackage", { dest: path.join(e.vault.root, "inside.zip") })).ok).toBe(false); // 不能导到 Vault 里面
+
+    const ex = await call(e.rendererToken, "vault.exportPackage", { dest: zip, includeAttachments: true });
+    expect(ex.ok).toBe(true);
+    expect(ex.data.sha256).toBe(createHash("sha256").update(readFileSync(zip)).digest("hex"));
+    expect(ex.data.size).toBe(statSync(zip).size);
+    expect((await call(e.rendererToken, "vault.exportPackage", { dest: zip })).ok).toBe(false); // 不覆盖已有文件
+
+    const target = path.join(out, "restored");
+    expect((await call(e.rendererToken, "vault.importPackage", { zipPath: zip, targetDir: path.join(e.vault.root, "nested") })).ok).toBe(false); // 不能导进当前 Vault
+    const im = await call(e.rendererToken, "vault.importPackage", { zipPath: zip, targetDir: target });
+    expect(im.ok).toBe(true);
+    expect(im.data.vaultId).not.toBe(e.vault.id); // 同 id 的 Vault 正开着：副本换新 id
+    const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
+    const list = (root: string, sub: string): string[] => { const d = path.join(root, sub); return existsSync(d) ? readdirSync(d).sort() : []; };
+    expect(sha(path.join(target, note.path))).toBe(sha(path.join(e.vault.root, note.path)));
+    expect(list(target, ".huhu/safe")).toEqual(list(e.vault.root, ".huhu/safe"));
+    for (const f of list(e.vault.root, ".huhu/safe").filter((n) => n.endsWith(".json") || n.endsWith(".bin"))) expect(sha(path.join(target, ".huhu/safe", f))).toBe(sha(path.join(e.vault.root, ".huhu/safe", f)));
+    // 经悬空符号链接指向 Vault 内部的导入目标：明确拒绝，而不是靠后续 mkdir 恰好失败
+    const { symlinkSync } = await import("node:fs");
+    symlinkSync(path.join(e.vault.root, "ghost"), path.join(out, "linkgone"));
+    const viaLink = await call(e.rendererToken, "vault.importPackage", { zipPath: zip, targetDir: path.join(out, "linkgone", "new") });
+    expect(viaLink.ok).toBe(false);
+    expect(viaLink.error?.code).toBe("INVALID_INPUT");
+    expect(existsSync(path.join(e.vault.root, "ghost"))).toBe(false);
+    mkdirSync(path.join(out, "occupied")); writeFileSync(path.join(out, "occupied", "x.txt"), "x");
+    expect((await call(e.rendererToken, "vault.importPackage", { zipPath: zip, targetDir: path.join(out, "occupied") })).ok).toBe(false); // 目标必须为空
+
+    // 用原主密码解锁导入后的保险箱
+    const e2 = await boot({ vaultPath: target }); engines.push(e2);
+    const unlock = await post(e2, e2.rendererToken, { capability: "safe.unlock", input: { password: "correct horse battery" }, requestId: "r", idempotencyKey: "key-unlock-restored" }) as unknown as R;
+    expect(unlock.ok).toBe(true);
+  }, 60_000);
+  test("vault.reindexCancel：没有重建在进行时返回 cancelled=false；重建完成后搜索可用（ACC-SY-07 的能力层前置）", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+    const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    expect((await call(e.cliToken, "vault.reindexCancel", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect((await call(e.rendererToken, "vault.reindexCancel", {})).data).toEqual({ cancelled: false });
+    expect((await call(e.rendererToken, "vault.reindex", {})).data).toEqual({ completed: true });
   }, 30_000);
   test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);

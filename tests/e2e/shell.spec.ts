@@ -460,6 +460,51 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
   }
 });
 
+test("设置：数据与存储——重建索引、导出数据包（结果带 SHA-256）、导入到空目录；非法路径给出明确错误", async () => {
+  const { createHash } = await import("node:crypto");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const out = mkdtempSync(path.join(tmpdir(), "huhu-e2e-out-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByLabel("笔记名称").fill("备份内容");
+    await page.getByRole("button", { name: "新建笔记" }).click();
+    await expect(page.getByTestId("note-item").filter({ hasText: "备份内容.md" })).toBeVisible();
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-storage").click();
+    await expect(page.getByTestId("storage-counts")).toContainText("篇笔记已建立索引");
+
+    await page.getByTestId("storage-reindex").click();
+    await expect(page.getByTestId("storage-reindex-msg")).toHaveText("索引已重建", { timeout: 20_000 });
+
+    const zip = path.join(out, "备份.zip");
+    await page.getByTestId("storage-export-path").fill("相对路径.zip");
+    await page.getByTestId("storage-export").click();
+    await expect(page.getByTestId("storage-export-msg")).toContainText("绝对路径");
+    await page.getByTestId("storage-export-path").fill(zip);
+    await page.getByTestId("storage-export").click();
+    await expect(page.getByTestId("storage-export-result")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("export-path")).toHaveText(zip);
+    expect(await page.getByTestId("export-sha").textContent()).toBe(createHash("sha256").update(readFileSync(zip)).digest("hex"));
+
+    const target = path.join(out, "导入后");
+    await page.getByTestId("storage-import-zip").fill(zip);
+    await page.getByTestId("storage-import-target").fill(target);
+    await page.getByTestId("storage-import").click();
+    await expect(page.getByTestId("storage-import-result")).toContainText("已导入", { timeout: 20_000 });
+    expect(existsSync(path.join(target, ".huhu/vault.json"))).toBe(true);
+    expect(readFileSync(path.join(target, "备份内容.md"), "utf8")).toBe(readFileSync(path.join(vault, "备份内容.md"), "utf8"));
+    await page.getByTestId("storage-import").click(); // 目标不再为空
+    await expect(page.getByTestId("storage-import-msg")).toBeVisible({ timeout: 10_000 });
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
 test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在点“保存”时写入；行号、字号、宽度）；外观的导航宽度与紧凑布局", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
 import { errors, newVaultId } from "@huhu/contracts";
-import { unzipSync, zipSync, type Zippable } from "fflate";
+import { Zip, ZipDeflate, unzipSync } from "fflate";
 import { z } from "zod";
 import { normalizeRelPath } from "../paths.js";
 import { HUHU_DIR, VaultJsonSchema } from "../vault.js";
@@ -47,29 +47,56 @@ function collect(root: string, includeAttachments: boolean): string[] {
   return out.sort();
 }
 
-/** 导出受管数据包（zip）；`signal` 触发时不留下半成品。 */
-export function exportPackage(root: string, dest: string, opts: { includeAttachments?: boolean; signal?: AbortSignal } = {}): PackageManifest {
+/**
+ * 导出受管数据包（zip）：逐个文件读取、压缩并写出，内存里只有当前文件；文件之间让出事件循环，
+ * 所以大 Vault 导出不会让 Engine 长时间无响应。`signal` 触发时不留下半成品。
+ */
+export async function exportPackage(root: string, dest: string, opts: { includeAttachments?: boolean; signal?: AbortSignal } = {}): Promise<PackageManifest> {
   const vault = VaultJsonSchema.parse(JSON.parse(readFileSync(path.join(root, HUHU_DIR, "vault.json"), "utf8")));
   const files = collect(root, opts.includeAttachments ?? true);
-  const zip: Zippable = {};
   const entries: PackageManifest["files"] = [];
-  for (const rel of files) {
-    if (opts.signal?.aborted) throw errors.invalidInput("导出已取消");
-    const bytes = readFileSync(path.join(root, rel));
-    entries.push({ path: rel, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length });
-    zip[rel] = bytes;
-  }
-  const manifest: PackageManifest = { format: "huhu-package", version: 1, vaultId: vault.id, vaultName: vault.name, createdAt: new Date().toISOString(), files: entries };
-  zip[PACKAGE_MANIFEST] = Buffer.from(JSON.stringify(manifest, null, 2));
-  const tmp = `${dest}.partial`;
+  const cancelled = () => { if (opts.signal?.aborted) throw errors.invalidInput("导出已取消"); };
+  // 随机临时名 + 排他创建：不会跟随事先放好的符号链接，也不会覆盖已有文件
+  const tmp = `${dest}.${randomBytes(6).toString("hex")}.partial`;
+  const fd = openSync(tmp, "wx", 0o600);
+  let closed = false;
   try {
-    writeFileSync(tmp, zipSync(zip));
-    if (opts.signal?.aborted) throw errors.invalidInput("导出已取消");
+    const zip = new Zip((err, chunk) => {
+      if (err) throw err;
+      for (let off = 0; off < chunk.length; ) off += writeSync(fd, chunk, off); // writeSync 可能只写一部分
+    });
+    const addFile = async (name: string, bytes: Uint8Array) => {
+      const f = new ZipDeflate(name, { level: 6 });
+      zip.add(f);
+      const CHUNK = 1024 * 1024;
+      for (let off = 0; off < bytes.length || off === 0; off += CHUNK) {
+        const end = Math.min(bytes.length, off + CHUNK);
+        f.push(bytes.subarray(off, end), end >= bytes.length);
+        if (end >= bytes.length) break;
+        await new Promise((r) => setImmediate(r)); // 大文件分块压缩，中间让出
+        cancelled();
+      }
+    };
+    let n = 0;
+    for (const rel of files) {
+      cancelled();
+      const bytes = readFileSync(path.join(root, rel));
+      entries.push({ path: rel, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length });
+      await addFile(rel, bytes);
+      if (++n % 20 === 0) await new Promise((r) => setImmediate(r));
+    }
+    const manifest: PackageManifest = { format: "huhu-package", version: 1, vaultId: vault.id, vaultName: vault.name, createdAt: new Date().toISOString(), files: entries };
+    await addFile(PACKAGE_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2)));
+    zip.end();
+    cancelled();
+    closed = true; // 无论 close 是否成功，finally 里都不再关第二次
+    closeSync(fd);
     renameSync(tmp, dest);
+    return manifest;
   } finally {
+    if (!closed) { closed = true; try { closeSync(fd); } catch { /* 保留原始错误 */ } }
     rmSync(tmp, { force: true });
   }
-  return manifest;
 }
 
 function reject(msg: string): never {
