@@ -343,6 +343,51 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
     await page.locator(".xterm-helper-textarea").focus();
     await page.keyboard.type("Z"); // 假服务器按收到的每个按键回显 ECHO:<按键>
     await expect(page.locator(".xterm-rows")).toContainText("ECHO:Z", { timeout: 10_000 });
+
+    // SFTP 文件：浏览、上传（同名需确认）、预览、下载、重命名、删除（需确认）
+    srv.fs.files.set("/home/test/说明.txt", Buffer.from("远端说明文件"));
+    const files = page.getByTestId("files-panel");
+    await files.getByRole("button", { name: "刷新" }).click();
+    await expect(files.getByTestId("files-path")).toHaveText("/home/test");
+    await expect(files.getByTestId("files-row").filter({ hasText: "说明.txt" })).toBeVisible();
+    await files.getByTestId("files-open").filter({ hasText: "说明.txt" }).click();
+    await expect(files.getByTestId("files-preview")).toHaveText("远端说明文件");
+
+    const local = mkdtempSync(path.join(tmpdir(), "huhu-e2e-up-"));
+    writeFileSync(path.join(local, "上传.txt"), "来自本机");
+    await files.getByTestId("files-upload-from").fill(path.join(local, "上传.txt"));
+    await files.getByTestId("files-upload-go").click();
+    await expect(files.getByTestId("files-row").filter({ hasText: "上传.txt" })).toBeVisible({ timeout: 10_000 });
+    expect(srv.fs.files.get("/home/test/上传.txt")?.toString()).toBe("来自本机");
+    writeFileSync(path.join(local, "上传.txt"), "改过的内容");
+    await files.getByTestId("files-upload-from").fill(path.join(local, "上传.txt")); // 上一次成功后输入框已清空
+    await files.getByTestId("files-upload-go").click(); // 同名：先确认
+    await expect(files.getByTestId("files-overwrite")).toBeVisible();
+    await files.getByTestId("files-overwrite-no").click();
+    expect(srv.fs.files.get("/home/test/上传.txt")?.toString()).toBe("来自本机"); // 取消则远端不变
+    await files.getByTestId("files-upload-go").click();
+    await expect(files.getByTestId("files-overwrite")).toBeVisible();
+    await files.getByTestId("files-overwrite-yes").click();
+    await expect.poll(() => srv.fs.files.get("/home/test/上传.txt")?.toString()).toBe("改过的内容");
+
+    await files.getByRole("button", { name: "下载 说明.txt" }).click();
+    await files.getByTestId("files-save-to").fill(path.join(local, "下载回来.txt"));
+    await files.getByTestId("files-download-go").click();
+    await expect.poll(() => existsSync(path.join(local, "下载回来.txt"))).toBe(true);
+    expect(readFileSync(path.join(local, "下载回来.txt"), "utf8")).toBe("远端说明文件");
+
+    await files.getByRole("button", { name: "重命名 上传.txt" }).click();
+    await files.getByTestId("files-rename-to").fill("已改名.txt");
+    await files.getByTestId("files-rename-go").click();
+    await expect(files.getByTestId("files-row").filter({ hasText: "已改名.txt" })).toBeVisible({ timeout: 10_000 });
+    expect(srv.fs.files.has("/home/test/上传.txt")).toBe(false);
+
+    await files.getByRole("button", { name: "删除 已改名.txt" }).click();
+    await expect(files.getByTestId("files-delete-dialog")).toBeVisible();
+    await files.getByTestId("files-delete-yes").click();
+    await expect.poll(() => srv.fs.files.has("/home/test/已改名.txt")).toBe(false);
+    expect([...srv.fs.files.keys()].filter((k) => k.includes("huhu-upload"))).toEqual([]);
+    rmSync(local, { recursive: true, force: true });
   } finally {
     await app.close();
     await srv.close();

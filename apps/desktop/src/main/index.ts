@@ -123,7 +123,9 @@ if (!gotLock) {
       const win = BrowserWindow.fromWebContents(event.sender);
       const opts = kind === "directory"
         ? { properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[] }
-        : { properties: ["openFile"] as "openFile"[], filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
+        : kind === "file"
+          ? { properties: ["openFile"] as "openFile"[] }
+          : { properties: ["openFile"] as "openFile"[], filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
       const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
       return r.canceled || r.filePaths.length === 0 ? null : (r.filePaths[0] ?? null);
     });

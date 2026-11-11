@@ -1,7 +1,9 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
-import { Client, type ClientChannel } from "ssh2";
+import { Readable } from "node:stream";
+import { Client, type ClientChannel, type SFTPWrapper } from "ssh2";
+import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import type { HostStore, SshHost } from "./hosts.js";
 
@@ -37,6 +39,8 @@ export class SshManager {
   private shells = new Map<string, ShellRec>();
   private attempts = new Map<string, Map<number, (accept: boolean) => void>>();
   private execs = new Map<string, ExecRun>();
+  /** 正在传输（上传/下载）的主机：同一主机同时只传一个文件。 */
+  private transferring = new Map<string, AbortController>();
   private known: KnownHosts;
 
   constructor(private readonly d: SshDeps) {
@@ -50,7 +54,9 @@ export class SshManager {
   }
   auditList(hostId?: string, limit = 200): AuditEntry[] {
     if (!existsSync(this.d.auditDir)) return [];
-    return readFileSync(path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`), "utf8").split("\n").filter(Boolean)
+    const month = path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`);
+    if (!existsSync(month)) return []; // 目录在、当月文件还没有
+    return readFileSync(month, "utf8").split("\n").filter(Boolean)
       .map((l) => JSON.parse(l) as AuditEntry).filter((a) => !hostId || a.hostId === hostId).slice(-limit).reverse();
   }
 
@@ -109,6 +115,7 @@ export class SshManager {
         const client = new Client();
         opened.push(client);
         await this.connectHop(client, h, hop, attemptId, cfg, sock);
+        client.setNoDelay(true); // SFTP/交互 shell 都是小包往返，Nagle + 延迟确认会让每次往返多出几十毫秒
         if (hop < chain.length - 1) {
           const next = chain[hop + 1] as SshHost;
           sock = await new Promise((resolve, reject) => client.forwardOut("127.0.0.1", 0, next.host, next.port, (e, s) => (e ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${e.message}`)) : resolve(s))));
@@ -267,6 +274,68 @@ export class SshManager {
       });
     });
   }
+
+  /** SFTP：复用已建立的连接（含跳板链路），每次操作单独开一个 SFTP 会话，结束即关；写审计（动作与远端路径，不含内容）。 */
+  async withSftp<T>(hostId: string, action: string, detail: string, fn: (s: SFTPWrapper, signal: AbortSignal) => Promise<T>, opts: { transfer?: boolean; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
+    const conn = this.conns.get(hostId);
+    if (!conn) throw new HuhuError("SSH_DISCONNECTED", "尚未连接该主机");
+    if (opts.transfer && this.transferring.has(hostId)) throw errors.invalidInput("这台主机正在传输另一个文件，请等它完成后再试");
+    const ac = new AbortController();
+    if (opts.transfer) this.transferring.set(hostId, ac);
+    const signal = opts.signal ? AbortSignal.any([opts.signal, ac.signal]) : ac.signal;
+    let session: SFTPWrapper | undefined;
+    let detach = (): void => undefined;
+    try {
+      // 取消（用户或调度器）与超时都要能让一切立刻结束并释放互斥：连接还活着但服务器不回应时，ssh2 不会自己报错
+      const stop = new Promise<never>((_, reject) => {
+        const onAbort = () => reject(new HuhuError("INTERNAL", "传输已取消", { retryable: false }));
+        if (signal.aborted) onAbort(); else signal.addEventListener("abort", onAbort, { once: true });
+        const timer = opts.transfer ? null : setTimeout(() => { ac.abort(); reject(new HuhuError("SSH_TIMEOUT", "远端没有响应（60 秒）")); }, opts.timeoutMs ?? 60_000);
+        const prev = detach;
+        detach = () => { prev(); signal.removeEventListener("abort", onAbort); if (timer) clearTimeout(timer); };
+      });
+      stop.catch(() => undefined);
+      session = await Promise.race([new Promise<SFTPWrapper>((resolve, reject) => conn.target.sftp((err, s) => (err ? reject(err) : resolve(s)))), stop]);
+      const live = session;
+      // 连接或 SFTP 通道中途关闭时，ssh2 的流不一定报错，操作会一直挂着：这里主动中止并报告断线
+      const dead = new Promise<never>((_, reject) => {
+        const onClose = () => { reject(new HuhuError("SSH_DISCONNECTED", "连接已中断")); ac.abort(); }; // 先报断线，再中止流（否则会先被当成“已取消”）
+        conn.target.once("close", onClose);
+        live.once("close", onClose);
+        const prev = detach;
+      detach = () => { prev(); conn.target.removeListener("close", onClose); live.removeListener("close", onClose); };
+      });
+      dead.catch(() => undefined);
+      const r = await Promise.race([fn(live, signal), dead, stop]);
+      this.audit({ hostId, action: `sftp.${action}`, result: "ok", detail: detail.slice(0, 500) });
+      return r;
+    } catch (e) {
+      const he = sftp.mapSftpError(e, detail);
+      this.audit({ hostId, action: `sftp.${action}`, result: /已取消/.test(he.message) ? "cancelled" : "failed", detail: `${detail.slice(0, 400)}：${he.message.slice(0, 100)}` });
+      throw he;
+    } finally {
+      detach();
+      try { session?.end(); } catch { /* 连接已断 */ }
+      if (opts.transfer) this.transferring.delete(hostId);
+    }
+  }
+
+  /** 取消这台主机上正在进行的传输。 */
+  sftpCancel(hostId: string): boolean {
+    const ac = this.transferring.get(hostId);
+    if (!ac) return false;
+    ac.abort();
+    return true;
+  }
+
+  sftpList(hostId: string, dir: string) { return this.withSftp(hostId, "list", dir || "~", (s) => sftp.list(s, dir)); }
+  sftpRead(hostId: string, p: string) { return this.withSftp(hostId, "read", p, (s, sig) => sftp.readText(s, p, sig)); }
+  sftpWrite(hostId: string, p: string, text: string, overwrite: boolean) { return this.withSftp(hostId, "write", p, (s, sig) => sftp.writeAtomic(s, p, Readable.from(Buffer.from(text, "utf8")), { overwrite, signal: sig })); }
+  sftpUpload(hostId: string, localPath: string, remotePath: string, overwrite: boolean, signal?: AbortSignal) { return this.withSftp(hostId, "upload", remotePath, (s, sig) => sftp.uploadLocal(s, localPath, remotePath, { overwrite, signal: sig }), { transfer: true, ...(signal ? { signal } : {}) }); }
+  sftpDownload(hostId: string, remotePath: string, localPath: string, overwrite: boolean, signal?: AbortSignal) { return this.withSftp(hostId, "download", remotePath, (s, sig) => sftp.downloadToLocal(s, remotePath, localPath, { overwrite, signal: sig }), { transfer: true, ...(signal ? { signal } : {}) }); }
+  sftpMkdir(hostId: string, p: string) { return this.withSftp(hostId, "mkdir", p, (s) => sftp.mkdir(s, p)); }
+  sftpRename(hostId: string, from: string, to: string, overwrite: boolean) { return this.withSftp(hostId, "rename", `${from} → ${to}`, (s) => sftp.rename(s, from, to, overwrite)); }
+  sftpDelete(hostId: string, p: string) { return this.withSftp(hostId, "delete", p, (s) => sftp.remove(s, p)); }
 
   cancel(execId: string): boolean {
     const run = this.execs.get(execId);

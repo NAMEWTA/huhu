@@ -1,6 +1,7 @@
 import { Badge, Button, EmptyState, TerminalView } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
+import { FilesPanel } from "./FilesPanel.js";
 import { t } from "./i18n.js";
 
 interface Host { id: string; name: string; host: string; port: number; user: string }
@@ -138,6 +139,7 @@ export function SshModule() {
                 <TerminalView key={activeShell} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={activeShell} ariaLabel={t.terminalLabel} />
               </div>
             ) : null}
+            <FilesPanel key={host.id} hostId={host.id} />
           </>
         ) : null}
       </section>

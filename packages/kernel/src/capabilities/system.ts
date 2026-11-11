@@ -97,7 +97,7 @@ export function registerSystemCapabilities(
 }
 
 import { SettingsSchema, mergeSettings, type Settings } from "@huhu/contracts";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { NotificationStore } from "../notifications.js";
 
@@ -131,7 +131,9 @@ export function registerNotificationAndSettings(registry: CapabilityRegistry, st
         if (existsSync(settingsFile)) {
           try { JSON.parse(readFileSync(settingsFile, "utf8")); } catch { copyFileSync(settingsFile, `${settingsFile}.corrupt-${Date.now()}`); }
         }
-        writeFileSync(settingsFile, JSON.stringify(next, null, 2));
+        const tmpFile = `${settingsFile}.${process.pid}.tmp`; // 先写临时文件再改名：读取方永远看不到写到一半的文件
+        writeFileSync(tmpFile, JSON.stringify(next, null, 2));
+        renameSync(tmpFile, settingsFile);
         return next;
       },
     })),

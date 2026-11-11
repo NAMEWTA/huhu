@@ -28,4 +28,13 @@ export const t = {
   noHosts: "还没有主机，先新增一台",
   terminalLabel: "远程终端",
   endShell: "结束 shell",
+  files: {
+    title: "文件（SFTP）", path: "当前位置", up: "上级目录", refresh: "刷新", home: "登录目录", empty: "这个目录是空的",
+    name: "名称", size: "大小", modified: "修改时间", mode: "权限",
+    newFolder: "新建文件夹", folderName: "文件夹名称",
+    working: "正在处理…", cancelTransfer: "取消传输", uploadFrom: "本机文件", uploadTo: "上传到当前目录", choose: "选择…",
+    download: "下载", saveTo: "保存到本机", preview: "预览", rename: "重命名", newName: "新名称", delete: "删除",
+    confirmDelete: (n: string) => `确定删除“${n}”吗？删除后无法恢复（目录必须是空的）。`,
+    overwrite: (n: string) => `“${n}”已存在，要覆盖吗？`, overwriteYes: "覆盖", cancel: "取消", done: "完成", transferred: (n: number) => `已传输 ${(n / 1024).toFixed(1)} KB`,
+  },
 } as const;
