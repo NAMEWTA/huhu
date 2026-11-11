@@ -1,13 +1,13 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { HighlightStyle, Language, LanguageSupport, defineLanguageFacet, ensureSyntaxTree, languageDataProp, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { closeSearchPanel, openSearchPanel, search, searchKeymap } from "@codemirror/search";
-import { Annotation, Compartment, EditorSelection, EditorState, StateField, Transaction, type Extension } from "@codemirror/state";
+import { Annotation, Compartment, EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, drawSelection, dropCursor, highlightSpecialChars, keymap, lineNumbers, type DecorationSet } from "@codemirror/view";
 import { tags as syntaxTags } from "@lezer/highlight";
 import { GFM, parser } from "@lezer/markdown";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { atomicMarkdownSyntax } from "./vendor/atomic/atomic-theme.js";
 import { huhuCompositionEffect, huhuCompositionField } from "./vendor/atomic/huhu-composition.js";
 import { inlinePreview } from "./vendor/atomic/inline-preview.js";
@@ -108,6 +108,33 @@ const tablePreviewField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+/** 批注在正文中的范围（源码偏移）；未解决显示淡色下划线，已解决更淡，orphaned 不画。 */
+export interface CommentMark {
+  id: string;
+  start: number;
+  end: number;
+  resolved: boolean;
+}
+const setCommentMarks = StateEffect.define<readonly CommentMark[]>();
+const commentField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    let next = value.map(tr.changes);
+    for (const e of tr.effects) {
+      if (!e.is(setCommentMarks)) continue;
+      const max = tr.state.doc.length;
+      next = Decoration.set(
+        e.value
+          .filter((m) => m.start >= 0 && m.end <= max && m.start < m.end)
+          .map((m) => Decoration.mark({ class: m.resolved ? "cm-comment cm-comment-resolved" : "cm-comment", attributes: { "data-comment-id": m.id } }).range(m.start, m.end)),
+        true,
+      );
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 const editorTheme = EditorView.theme({
   "&": { height: "100%", fontFamily: "var(--font)", fontSize: "var(--editor-size)", color: "var(--text)", backgroundColor: "var(--bg)" },
   "&.cm-focused": { outline: "none" },
@@ -120,6 +147,8 @@ const editorTheme = EditorView.theme({
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,.cm-selectionBackground": { backgroundColor: "var(--accent-soft)" },
   ".cm-tooltip": { backgroundColor: "var(--panel)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: "7px" },
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--text)", borderColor: "var(--line)" },
+  ".cm-comment": { borderBottom: "2px solid color-mix(in srgb, var(--warning) 55%, transparent)", backgroundColor: "color-mix(in srgb, var(--warning-bg) 70%, transparent)", cursor: "pointer" },
+  ".cm-comment-resolved": { borderBottomStyle: "dotted", borderBottomColor: "var(--faint)", backgroundColor: "transparent" },
   ".cm-searchMatch": { backgroundColor: "var(--warning-bg)", outline: "1px solid var(--warning)" },
   ".cm-searchMatch-selected": { backgroundColor: "var(--accent-soft)", outlineColor: "var(--text)" },
 });
@@ -175,6 +204,8 @@ export interface MarkdownEditorHandle {
   focus(): void;
   getText(): string;
   getSelectionText(): string;
+  /** 当前主选区的源码偏移（折叠选区时 from === to）。 */
+  getSelectionRange(): { from: number; to: number };
   setSelectionRange(from: number, to?: number): void;
   insert(before: string, after?: string, placeholder?: string): boolean;
   undo(): void;
@@ -203,6 +234,9 @@ export interface MarkdownEditorProps {
   lineHeight?: number;
   maxWidth?: number | null;
   ariaLabel?: string;
+  /** 批注范围装饰；点击装饰触发 onCommentClick。 */
+  comments?: readonly CommentMark[];
+  onCommentClick?(id: string): void;
 }
 
 interface DocRecord {
@@ -278,6 +312,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         huhuMarkdownTypography,
         editorTheme,
         huhuCompositionField,
+        commentField,
         visual.of(m === "live" ? previewExtensions : []),
         gutter.of(cfg.lineNumbers !== false ? lineNumbers() : []),
         ro.of(readOnlyExtension(!!cfg.readOnly || m === "preview")),
@@ -293,6 +328,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           ...defaultKeymap,
         ]),
         EditorView.domEventHandlers({
+          click(event) {
+            const id = (event.target as HTMLElement | null)?.closest?.("[data-comment-id]")?.getAttribute("data-comment-id");
+            if (id) latest.current.onCommentClick?.(id);
+            return false;
+          },
           scroll(event, view) {
             if (event.target === view.scrollDOM) {
               record.scrollTop = view.scrollDOM.scrollTop;
@@ -398,6 +438,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         const v = viewRef.current;
         return v ? v.state.sliceDoc(v.state.selection.main.from, v.state.selection.main.to) : "";
       },
+      getSelectionRange: () => {
+        const r = viewRef.current?.state.selection.main;
+        return r ? { from: r.from, to: r.to } : { from: 0, to: 0 };
+      },
       setSelectionRange: (from: number, to = from) => {
         const v = viewRef.current;
         if (v) {
@@ -433,6 +477,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }),
     [],
   );
+
+  // 批注范围变化（或切换文档）后重画装饰；范围随编辑被 CodeMirror 的变更映射带着走，保存后由引擎重新定位
+  const marks = props.comments;
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: setCommentMarks.of(marks ?? []) });
+  }, [marks, documentId]);
 
   const style: Record<string, string> = {};
   if (fontSize) style["--editor-size"] = `${fontSize}px`;

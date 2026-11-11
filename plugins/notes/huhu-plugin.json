@@ -14,6 +14,13 @@
     "homeWidgets": [],
     "commands": ["notes.new", "notes.openDaily"],
     "capabilities": [
+      "comments.create",
+      "comments.delete",
+      "comments.list",
+      "comments.relocate",
+      "comments.reopen",
+      "comments.reply",
+      "comments.resolve",
       "folders.create",
       "notes.backlinks",
       "notes.create",

@@ -217,6 +217,58 @@ test("知识库：文件夹重命名、移动、删除（整体进回收站）",
   }
 });
 
+test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await newNote(page, "批注笔记");
+    const editor = page.getByTestId("markdown-editor");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("需要批注的一句话。");
+    // 选中刚输入的这一行再添加批注
+    await page.keyboard.press("Shift+Home");
+    await page.getByRole("button", { name: "添加批注" }).first().click();
+    await expect(page.getByTestId("comment-composer")).toBeVisible();
+    await page
+      .getByRole("button", { name: "保存批注" })
+      .click({ trial: true })
+      .catch(() => undefined);
+    await page.getByLabel("批注内容").fill("这里要展开");
+    await page.getByTestId("comment-save").click();
+    await expect(page.getByTestId("comment-thread")).toHaveCount(1);
+    const dir = path.join(vault, "Comments");
+    await expect.poll(() => readdirSync(dir).length).toBe(1);
+    expect(readFileSync(path.join(dir, readdirSync(dir)[0] as string), "utf8")).toMatch(/exact: 需要批注的一句话。/);
+    await expect(editor.locator(".cm-comment")).toBeVisible();
+
+    await page.getByLabel("回复批注").fill("收到");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => readFileSync(path.join(dir, readdirSync(dir)[0] as string), "utf8")).toContain("收到");
+    await page.getByRole("button", { name: "标记解决" }).click();
+    await expect(page.getByText("0 条待处理")).toBeVisible();
+    await page.getByLabel("显示已解决").check();
+    await page.getByRole("button", { name: "重新打开" }).click();
+
+    // 删除锚定处的文字并保存 → orphaned
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type("全换成别的内容");
+    await expect.poll(() => readFileSync(path.join(dir, readdirSync(dir)[0] as string), "utf8"), { timeout: 10_000 }).toMatch(/state: orphaned/);
+    await expect(page.getByTestId("comment-orphaned")).toBeVisible();
+
+    await page.getByRole("button", { name: "删除", exact: true }).click();
+    await page.getByTestId("comment-delete-confirm").click();
+    await expect.poll(() => readdirSync(dir).length).toBe(0);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("快速捕获：任意页面 Mod+Shift+N 写入 Inbox，来源为 quick", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

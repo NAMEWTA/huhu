@@ -10,6 +10,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   archive: ["archives."],
   "archive-type": ["archives."],
   capture: ["inbox."],
+  comment: ["comments."],
 };
 
 /** 事件到达时让相关查询失效。 */

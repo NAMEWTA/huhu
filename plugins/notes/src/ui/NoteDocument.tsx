@@ -1,7 +1,7 @@
-import { MarkdownEditor, MarkdownPreview, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
+import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
 import { Banner, Button, IconButton, Segmented } from "@huhu/ui";
 import { CapabilityError, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
-import { ChevronRight, Code2, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
+import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
@@ -26,6 +26,10 @@ export interface NoteDocumentProps {
   /** 父级用它在改名 / 移动 / 移入回收站之前先把未保存的编辑落盘。 */
   registerFlush(fn: (() => Promise<boolean>) | null): void;
   registerEditor(h: MarkdownEditorHandle | null): void;
+  /** 正文里的批注装饰与交互。 */
+  comments: readonly CommentMark[];
+  onCommentClick(id: string): void;
+  onAddComment(): void;
 }
 
 const MODES: EditorMode[] = ["live", "source", "preview", "split"];
@@ -198,6 +202,7 @@ export function NoteDocument(props: NoteDocumentProps) {
           <IconButton icon={Table2} label={n.table} disabled={mode === "preview"} onClick={() => edit("\n| 列 1 | 列 2 |\n| --- | --- |\n| ", " |  |\n", "内容")} />
         </div>
         <div className="row huhu-editor-secondary">
+          <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={mode === "preview"} onClick={props.onAddComment} />
           <IconButton icon={Search} label={n.find} disabled={mode === "preview"} onClick={() => editor.current?.openSearch()} />
           <IconButton
             icon={Download}
@@ -256,6 +261,8 @@ export function NoteDocument(props: NoteDocumentProps) {
             onSave={() => void save()}
             onStatus={setStatus}
             onWikiOpen={openWiki}
+            comments={props.comments}
+            onCommentClick={props.onCommentClick}
             onScroll={onEditorScroll}
             ariaLabel={t.editorLabel}
             lineNumbers={ed?.lineNumbers ?? false}

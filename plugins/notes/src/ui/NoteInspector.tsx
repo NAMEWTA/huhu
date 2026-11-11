@@ -1,15 +1,44 @@
 import { Button, EmptyState, IconButton } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
 import { ArrowUpRight, FileText, X } from "lucide-react";
-import { useState } from "react";
 import { ChoiceSegmented } from "@huhu/ui";
+import { CommentsPanel, type CommentActions, type CommentView } from "./CommentsPanel.js";
 import { n } from "./i18n.js";
 
-type Tab = "properties" | "outline" | "links" | "history";
+export type InspectorTab = "properties" | "outline" | "links" | "comments" | "history";
+type Tab = InspectorTab;
 
 /** 文档详情抽屉（原型 knowledge-inspector）：属性 / 大纲 / 关联（反向链接）/ 历史（由版本历史模块提供）。 */
-export function NoteInspector({ path, text, tags, onClose, onOpen, onJump, onOpenHistory }: { path: string; text: string; tags: string[]; onClose(): void; onOpen(path: string): void; onJump(line: number): void; onOpenHistory(): void }) {
-  const [tab, setTab] = useState<Tab>("properties");
+export function NoteInspector({
+  path,
+  text,
+  tags,
+  tab,
+  onTab,
+  comments,
+  activeComment,
+  commentActions,
+  readOnly,
+  onClose,
+  onOpen,
+  onJump,
+  onOpenHistory,
+}: {
+  path: string;
+  text: string;
+  tags: string[];
+  tab: InspectorTab;
+  onTab(t: InspectorTab): void;
+  comments: CommentView[];
+  activeComment: string | null;
+  commentActions: CommentActions;
+  readOnly: boolean;
+  onClose(): void;
+  onOpen(path: string): void;
+  onJump(line: number): void;
+  onOpenHistory(): void;
+}) {
+  const setTab = onTab;
   const backlinks = useCapability<{ path: string; title: string }[]>("notes.backlinks", { path });
   const headings = text
     .split("\n")
@@ -21,7 +50,7 @@ export function NoteInspector({ path, text, tags, onClose, onOpen, onJump, onOpe
   return (
     <aside className="knowledge-inspector" aria-label={n.props.title} data-testid="note-inspector">
       <header>
-        <h3>{tab === "properties" ? n.props.title : tab === "outline" ? n.props.outline : tab === "links" ? n.props.links : n.props.history}</h3>
+        <h3>{tab === "properties" ? n.props.title : tab === "outline" ? n.props.outline : tab === "links" ? n.props.links : tab === "comments" ? n.props.comments : n.props.history}</h3>
         <IconButton icon={X} label="关闭文档详情" onClick={onClose} />
       </header>
       <nav>
@@ -70,6 +99,8 @@ export function NoteInspector({ path, text, tags, onClose, onOpen, onJump, onOpe
             ))}
             {(backlinks.data ?? []).length === 0 ? <p className="small muted">{n.noBacklinks}</p> : null}
           </section>
+        ) : tab === "comments" ? (
+          <CommentsPanel comments={comments} active={activeComment} readOnly={readOnly} actions={commentActions} />
         ) : (
           <EmptyState
             icon={FileText}

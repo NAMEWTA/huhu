@@ -5,6 +5,7 @@ import { defineCapability as def } from "@huhu/kernel";
 import { OperationLog } from "@huhu/vault";
 import path from "node:path";
 import { z } from "zod";
+import { CommentsService } from "./comments/service.js";
 import { NotesService } from "./service.js";
 
 /** 自动化规则（含 agent_prompt）是"会被调度器执行"的 Markdown：外部入口不得通过通用笔记写入口在 Automations/ 下创建、改写、复制或移出它们。 */
@@ -21,6 +22,7 @@ function assertNotAutomationsDir(caller: string, ...paths: (string | undefined)[
 }
 
 export { NotesService } from "./service.js";
+export { CommentsService } from "./comments/service.js";
 
 const Path = z.object({ path: z.string().min(1) });
 const NoteRef = z.object({ path: z.string(), id: z.string().nullable(), title: z.string(), trashId: z.string().optional(), deletedAt: z.string().optional(), favorite: z.boolean().optional(), tags: z.array(z.string()).optional() });
@@ -42,6 +44,15 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     now: opts.now ?? (() => new Date()),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
   });
+  const comments = new CommentsService({
+    repo: api.vault.repo,
+    files: api.vault.files,
+    ensureId: (rel) => svc.ensureId(rel),
+    noteId: (rel) => svc.noteId(rel),
+    publish: (t, p) => api.events.publish(t, p),
+    now: opts.now ?? (() => new Date()),
+  });
+  const author = (caller: string) => (caller === "desktop" ? "我" : caller);
   const changed = (id: string | null, op: "created" | "updated" | "deleted") => api.events.publish("entity.changed", { kind: "note", id: id ?? "", op });
 
   api.defineCapability(
@@ -79,6 +90,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       handler: async (c, i) => {
         assertNotAutomationsDir(c.caller, i.path);
         const r = await svc.save(i.path, i.text, i.expectedVersion);
+        await comments.refind(i.path, i.text, r.version).catch(() => undefined); // 批注重定位失败不应让保存失败
         changed(svc.noteId(i.path), "updated");
         return r;
       },
@@ -96,6 +108,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       handler: async (c, i) => {
         assertNotAutomationsDir(c.caller, i.path);
         const r = await svc.rename(i.path, i.newName);
+        await comments.moveDocuments(r.moved);
         changed(null, "updated");
         return r;
       },
@@ -113,6 +126,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       handler: async (c, i) => {
         assertNotAutomationsDir(c.caller, i.path, i.targetDir);
         const r = await svc.move(i.path, i.targetDir);
+        await comments.moveDocuments(r.moved);
         changed(null, "updated");
         return r;
       },
@@ -160,8 +174,9 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       defaultExposed: false,
       input: z.object({ trashId: z.string(), newName: z.string().optional() }),
       output: z.object({ path: z.string() }),
-      handler: (_c, i) => {
+      handler: async (_c, i) => {
         const p = svc.restore(i.trashId, i.newName);
+        await comments.syncPath(p).catch(() => undefined);
         changed(null, "created");
         return { path: p };
       },
@@ -176,7 +191,12 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       defaultExposed: false,
       input: z.object({ trashId: z.string() }),
       output: z.object({ ok: z.literal(true) }),
-      handler: (_c, i) => (svc.deletePermanent(i.trashId), { ok: true as const }),
+      handler: async (_c, i) => {
+        const meta = api.vault.trash.list().find((m) => m.trashId === i.trashId);
+        svc.deletePermanent(i.trashId);
+        if (meta) await comments.deleteForDocument(meta.noteId, meta.originalPath).catch(() => undefined); // 永久删除笔记时一并删除它的批注
+        return { ok: true as const };
+      },
     }),
   );
   api.defineCapability(
@@ -248,5 +268,49 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       handler: async (_c, i) => (await svc.createFolder(i.path), { ok: true as const }),
     }),
   );
+  const Cid = z.object({ id: z.string() });
+  const Anchor = z.object({ exact: z.string(), prefix: z.string(), suffix: z.string(), start: z.number(), end: z.number(), sourceVersion: z.string() });
+  const CommentDto = z.object({
+    id: z.string(),
+    path: z.string(),
+    version: z.string(),
+    documentId: z.string(),
+    documentPath: z.string(),
+    target: z.enum(["body", "file", "property"]),
+    property: z.string().nullable(),
+    anchor: Anchor.nullable(),
+    state: z.enum(["anchored", "orphaned"]),
+    resolved: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    messages: z.array(z.object({ at: z.string(), author: z.string(), text: z.string() })),
+  });
+  const cw = { plugin: "notes", scope: "write" as const, exposable: true, defaultExposed: false };
+  api.defineCapability(
+    def({ name: "comments.list", plugin: "notes", scope: "read", exposable: true, defaultExposed: true, input: z.object({ path: z.string().optional() }), output: z.array(CommentDto), handler: (_c, i) => comments.list(i.path) }),
+  );
+  api.defineCapability(
+    def({
+      name: "comments.create",
+      ...cw,
+      input: z.object({ path: z.string().min(1), target: z.enum(["body", "file", "property"]).default("body"), property: z.string().optional(), start: z.number().int().optional(), end: z.number().int().optional(), text: z.string() }),
+      output: CommentDto,
+      handler: (c, i) =>
+        comments.create({
+          path: i.path,
+          target: i.target,
+          ...(i.property !== undefined ? { property: i.property } : {}),
+          ...(i.start !== undefined ? { start: i.start } : {}),
+          ...(i.end !== undefined ? { end: i.end } : {}),
+          text: i.text,
+          author: author(c.caller),
+        }),
+    }),
+  );
+  api.defineCapability(def({ name: "comments.reply", ...cw, input: Cid.extend({ text: z.string() }), output: CommentDto, handler: (c, i) => comments.reply(i.id, i.text, author(c.caller)) }));
+  api.defineCapability(def({ name: "comments.resolve", ...cw, input: Cid, output: CommentDto, handler: (_c, i) => comments.setResolved(i.id, true) }));
+  api.defineCapability(def({ name: "comments.reopen", ...cw, input: Cid, output: CommentDto, handler: (_c, i) => comments.setResolved(i.id, false) }));
+  api.defineCapability(def({ name: "comments.relocate", ...cw, input: Cid.extend({ start: z.number().int(), end: z.number().int() }), output: CommentDto, handler: (_c, i) => comments.relocate(i.id, i.start, i.end) }));
+  api.defineCapability(def({ name: "comments.delete", ...cw, input: Cid, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await comments.delete(i.id), { ok: true as const }) }));
   return svc;
 }

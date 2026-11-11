@@ -2,11 +2,12 @@ import { Button, Dialog, EmptyState, Field } from "@huhu/ui";
 import type { MarkdownEditorHandle } from "@huhu/editor";
 import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Plus } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
 import { NoteDocument } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
-import { NoteInspector } from "./NoteInspector.js";
+import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 
 type DialogState = { kind: "new"; folder: string } | { kind: "folder"; parent: string } | { kind: "rename"; note: NoteRef } | { kind: "move"; note: NoteRef } | { kind: "trash"; note: NoteRef } | { kind: "purge"; note: NoteRef } | null;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -24,11 +25,19 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+  const [composer, setComposer] = useState<{ from: number; to: number; quote: string } | null>(null);
   const [docText, setDocText] = useState("");
   const [dailyDate, setDailyDate] = useState(today());
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const commentsQ = useCapability<CommentView[]>("comments.list", { path: selected ?? "" });
+  const commentMarks = useMemo(
+    () => (commentsQ.data ?? []).filter((c) => c.target === "body" && c.anchor && c.state === "anchored").map((c) => ({ id: c.id, start: c.anchor!.start, end: c.anchor!.end, resolved: c.resolved })),
+    [commentsQ.data],
+  );
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -51,6 +60,43 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
   const beforeMove = async (note: NoteRef): Promise<boolean> => ((note.path === selected || (note.folder === true && selected?.startsWith(`${note.path}/`))) && flushRef.current ? flushRef.current() : true);
 
+  const openComments = (id: string | null) => {
+    setActiveComment(id);
+    setInspector(true);
+    setInspectorTab("comments");
+  };
+  /** 批注锚点基于磁盘上的文本：先把编辑落盘，选区偏移才与引擎看到的文本一致。 */
+  const savedSelection = async (): Promise<{ from: number; to: number; quote: string } | null> => {
+    if (flushRef.current && !(await flushRef.current())) return null;
+    const r = editorRef.current?.getSelectionRange();
+    const quote = editorRef.current?.getSelectionText() ?? "";
+    if (!r || r.from === r.to || !quote.trim()) {
+      setError(n.selectFirst);
+      return null;
+    }
+    setError(null);
+    return { from: r.from, to: r.to, quote };
+  };
+  const addComment = () => {
+    void savedSelection().then((sel) => sel && setComposer(sel));
+  };
+  const commentActions: CommentActions = {
+    add: async (text) => void (await run("comments.create", { path: selected, target: "file", text })),
+    reply: async (id, text) => void (await run("comments.reply", { id, text })),
+    setResolved: async (id, resolved) => void (await run(resolved ? "comments.resolve" : "comments.reopen", { id })),
+    remove: async (id) => void (await run("comments.delete", { id })),
+    relocate: async (id) => {
+      const sel = await savedSelection();
+      if (sel) await run("comments.relocate", { id, start: sel.from, end: sel.to });
+    },
+    jump: (c) => {
+      setActiveComment(c.id);
+      if (c.anchor) {
+        editorRef.current?.setSelectionRange(c.anchor.start, c.anchor.end);
+        editorRef.current?.focus();
+      }
+    },
+  };
   const q = query.trim().toLowerCase();
   const notes = (list.data ?? []).filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
@@ -135,6 +181,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             onText={setDocText}
             registerFlush={(fn) => (flushRef.current = fn)}
             registerEditor={(h) => (editorRef.current = h)}
+            comments={commentMarks}
+            onCommentClick={(id) => openComments(id)}
+            onAddComment={addComment}
           />
         ) : section === "trash" && selected && current === null ? null : (
           <section className="knowledge-document-area">
@@ -175,6 +224,12 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           path={selected}
           text={docText}
           tags={current?.tags ?? []}
+          tab={inspectorTab}
+          onTab={setInspectorTab}
+          comments={commentsQ.data ?? []}
+          activeComment={activeComment}
+          commentActions={commentActions}
+          readOnly={false}
           onClose={() => setInspector(false)}
           onOpen={openNote}
           onJump={(line) => {
@@ -245,6 +300,20 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         </div>
       ) : null}
 
+      {composer ? (
+        <CommentComposer
+          quote={composer.quote}
+          error={error}
+          onClose={() => setComposer(null)}
+          onSubmit={async (text) => {
+            const r = await run<{ id: string }>("comments.create", { path: selected, target: "body", start: composer.from, end: composer.to, text });
+            if (r) {
+              setComposer(null);
+              openComments(r.id);
+            }
+          }}
+        />
+      ) : null}
       {dialog?.kind === "new" ? (
         <NewNoteDialog
           folder={dialog.folder}
@@ -521,6 +590,33 @@ function MoveDialog({ note, folders, error, onClose, onMove }: { note: NoteRef; 
             </option>
           ))}
         </select>
+      </Field>
+    </Dialog>
+  );
+}
+
+function CommentComposer({ quote, error, onClose, onSubmit }: { quote: string; error: string | null; onClose(): void; onSubmit(text: string): Promise<void> }) {
+  const [text, setText] = useState("");
+  return (
+    <Dialog
+      open
+      title="添加批注"
+      description="批注保存为 Comments/ 下的 Markdown 文件，不会改动正文。"
+      error={error}
+      testId="comment-composer"
+      onClose={onClose}
+      actions={
+        <>
+          <Button onClick={onClose}>{n.cancel}</Button>
+          <Button variant="primary" disabled={!text.trim()} data-testid="comment-save" onClick={() => void onSubmit(text.trim())}>
+            保存批注
+          </Button>
+        </>
+      }
+    >
+      <blockquote className="knowledge-comment-quote">{quote}</blockquote>
+      <Field label="批注内容">
+        <textarea aria-label="批注内容" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
       </Field>
     </Dialog>
   );
