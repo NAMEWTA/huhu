@@ -179,7 +179,7 @@ export function NoteExplorer(p: ExplorerProps) {
           ))}
         </div>
       ) : null}
-      <div className="resource-list knowledge-explorer-tree" role="tree" aria-label={caption}>
+      <div className="resource-list knowledge-explorer-tree" role={p.notes.length > 0 ? "tree" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
         <div className="knowledge-list-caption">
           <button type="button" className="active">
             {caption}

@@ -94,3 +94,14 @@ dialog.modal::backdrop {
 .archive-type-caption button:hover {
   background: var(--muted-bg);
 }
+/* 原型 .tw-workbench button { color: inherit } 的特异性高于 .btn-primary，会把主按钮文字刷成正文色（自动化“立即运行”对比度 1.15:1）；显式恢复 */
+.tw-workbench .btn-primary {
+  color: var(--accent-fg);
+}
+.tw-workbench .btn-danger {
+  color: var(--panel);
+}
+/* v9-layer 的 *{scrollbar-width:thin} 盖掉了图标栏的 none，空间不足时出现横向滚动条；横向不滚动 */
+.rail {
+  overflow-x: hidden;
+}

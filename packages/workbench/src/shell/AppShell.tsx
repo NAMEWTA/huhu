@@ -93,7 +93,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
       <ControlsProvider>
         <div className={`app${s.focusMode ? " focus-mode" : ""}`}>
           <header className="window-bar">
-            <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="HUHU 工作台首页">
+            <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="huhu workbench 首页">
               <span className="brand-mark">h</span>
               <span>
                 huhu<span className="brand-suffix">workbench</span>
