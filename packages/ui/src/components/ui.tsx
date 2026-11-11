@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, type LucideIcon } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -6,23 +6,56 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   loading?: boolean;
+  icon?: LucideIcon;
 }
 
 /** loading 期间禁止重复触发。 */
-export function Button({ variant = "secondary", loading = false, disabled, onClick, className = "", children, ...rest }: ButtonProps) {
+export function Button({ variant = "secondary", loading = false, icon: Icon, disabled, onClick, className = "", children, ...rest }: ButtonProps) {
   return (
     <button
+      type="button"
       {...rest}
-      className={`hu-btn hu-btn-${variant} ${className}`.trim()}
+      className={`btn${variant === "secondary" ? "" : ` btn-${variant}`} ${className}`.trim()}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       onClick={(e) => {
         if (!loading) onClick?.(e);
       }}
     >
-      {loading ? <Loader2 size={16} className="hu-spin" aria-hidden /> : null}
+      {loading ? <Loader2 size={14} className="hu-spin" aria-hidden /> : Icon ? <Icon size={14} aria-hidden /> : null}
       {children}
     </button>
+  );
+}
+
+export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
+  icon: LucideIcon;
+  /** 无障碍名称，同时作为悬停提示。 */
+  label: string;
+  size?: number;
+}
+
+/** 图标按钮（原型 .icon-btn，32×32）：只有图标，所以必须给 label。 */
+export function IconButton({ icon: Icon, label, size = 16, className = "", ...rest }: IconButtonProps) {
+  return (
+    <button type="button" {...rest} className={`icon-btn ${className}`.trim()} aria-label={label} title={label}>
+      <Icon size={size} aria-hidden />
+    </button>
+  );
+}
+
+export function Field({ label, description, error, children }: { label: string; description?: string | undefined; error?: string | null | undefined; children: ReactNode }) {
+  return (
+    <div className="field">
+      <span className="field-label">{label}</span>
+      {children}
+      {description ? <span className="field-description">{description}</span> : null}
+      {error ? (
+        <span role="alert" className="field-error">
+          {error}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -45,12 +78,13 @@ export function CompletionCircle({ checked, pending = false, label, onToggle }: 
       aria-busy={pending || undefined}
       aria-disabled={pending || undefined}
       data-pending={pending || undefined}
-      className="hu-circle"
-      onClick={() => {
+      className={`knowledge-task-check tw-completion${checked ? " is-completed" : ""}`}
+      onClick={(e) => {
+        e.stopPropagation(); // 圆框在可点击的行 / 卡片里：只勾选，不顺带打开详情
         if (!pending) onToggle(!checked);
       }}
     >
-      {checked ? <span aria-hidden>✓</span> : null}
+      {checked ? <CheckCircle2 size={18} aria-hidden /> : <Circle size={18} aria-hidden />}
     </button>
   );
 }
@@ -58,7 +92,7 @@ export function CompletionCircle({ checked, pending = false, label, onToggle }: 
 export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "blue" | "violet";
 
 export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {
-  return <span className={`hu-badge hu-badge-${tone}`}>{children}</span>;
+  return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
 export function Banner({ tone = "warning", children, action }: { tone?: "warning" | "danger" | "blue"; children: ReactNode; action?: ReactNode }) {

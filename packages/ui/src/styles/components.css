@@ -1,0 +1,30 @@
+/* 原生 <dialog> 套用原型 .modal 的外观需要的覆盖；其余通用样式在 proto-base.css。 */
+dialog.modal {
+  padding: 0;
+  color: inherit;
+  margin: auto;
+}
+dialog.modal::backdrop {
+  background: #0005;
+  backdrop-filter: blur(3px);
+}
+.hu-datetime {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.hu-datetime input {
+  width: auto;
+}
+.hu-textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 0 0;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}

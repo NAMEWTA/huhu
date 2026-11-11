@@ -1,0 +1,108 @@
+.huhu-tooltip {
+  z-index: 1600;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--text);
+  color: var(--bg);
+  font: 500 12px/1.45 var(--font);
+  box-shadow: 0 3px 10px #00000012;
+  pointer-events: none;
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+}
+.huhu-tooltip[data-state='delayed-open'] {
+  animation: huhu-hint-in var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.huhu-tooltip[data-state='instant-open'] {
+  animation: none;
+}
+.huhu-tooltip[data-state='closed'] {
+  animation: huhu-hint-out 90ms ease-out;
+}
+@keyframes huhu-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes huhu-hint-out {
+  to {
+    opacity: 0;
+  }
+}
+.huhu-segmented {
+  position: relative;
+  isolation: isolate;
+}
+.huhu-segmented-indicator {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: 5px;
+  background: var(--panel);
+  box-shadow:
+    0 1px 3px #00000010,
+    0 0 0 1px #00000004;
+  transition:
+    transform var(--motion-move, 220ms) var(--ease-in-out, ease-in-out),
+    width var(--motion-move, 220ms) var(--ease-in-out, ease-in-out);
+  visibility: hidden;
+}
+.huhu-segmented[data-measured='true'] > .huhu-segmented-indicator {
+  visibility: visible;
+}
+.huhu-segmented > button {
+  z-index: 1;
+  position: relative;
+}
+.huhu-segmented[data-measured='true'] > button.active {
+  background: transparent;
+  box-shadow: none;
+}
+.huhu-switch > span {
+  transform-origin: center;
+  transition:
+    transform var(--motion-move, 220ms) var(--ease-in-out, ease-in-out),
+    width var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.huhu-switch:active:not(:disabled) > span {
+  width: 18px;
+  transition-duration: 0ms;
+}
+:root[data-motion='reduced'] .huhu-tooltip,
+:root[data-motion='reduced'] .huhu-segmented-indicator {
+  animation: none;
+  transition: none;
+}
+:root[data-motion='reduced'] .huhu-switch > span {
+  transition: none;
+}
+:root[data-motion='reduced'] .huhu-switch:active:not(:disabled) > span {
+  width: 16px;
+}
+
+/* The pre-Vault launcher has no persisted policy provider; respect its OS too. */
+@media (prefers-reduced-motion: reduce) {
+  .huhu-tooltip,
+  .huhu-segmented-indicator {
+    animation: none;
+    transition: none;
+  }
+  .huhu-tooltip {
+    transform: none;
+  }
+  .huhu-switch > span {
+    transition: none;
+  }
+  .huhu-switch:active:not(:disabled) > span {
+    width: 16px;
+  }
+}

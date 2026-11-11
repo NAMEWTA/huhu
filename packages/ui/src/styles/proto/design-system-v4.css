@@ -1,0 +1,95 @@
+.design-system-preview > p {
+  max-width: 780px;
+}
+.design-color-roles {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.design-color-roles > div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+}
+.design-color-roles i {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin-bottom: 2px;
+}
+.design-color-roles span {
+  font-size: 12px;
+}
+.design-color-roles code {
+  font-size:12px;
+  color: var(--faint);
+}
+.design-typography {
+  display: grid;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: 20px 0;
+  padding: 8px 0;
+}
+.design-typography > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+}
+.design-typography small {
+  font-size:12px;
+  color: var(--faint);
+  text-align: right;
+}
+.design-role-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+.design-typography code {
+  font-size: 13px;
+}
+.design-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin: 20px 0 24px;
+}
+.design-rules-grid > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.design-rules-grid svg {
+  color: var(--muted);
+}
+.design-rules-grid strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.design-rules-grid span {
+  font-size:12px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+@media (max-width: 1000px) {
+  .design-color-roles {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .design-typography > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .design-rules-grid {
+    grid-template-columns: 1fr;
+  }
+}

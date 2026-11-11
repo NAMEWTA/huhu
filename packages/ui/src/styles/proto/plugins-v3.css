@@ -1,0 +1,70 @@
+.plugin-origin-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
+.plugin-origin-tabs > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.plugin-origin-tabs > button.active {
+  background: var(--panel);
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+}
+.plugin-origin-tabs small {
+  font-size:12px;
+  color: var(--faint);
+}
+.plugin-origin-explainer {
+  display: flex;
+  gap: 12px;
+  background: var(--sidebar);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 16px;
+}
+.plugin-origin-explainer > svg {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.plugin-origin-explainer strong {
+  font-size: 13px;
+}
+.plugin-origin-explainer p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.7;
+}
+.plugin-bundled-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size:12px;
+  color: var(--faint);
+}
+.plugin-v3 .plugin-detail h1 {
+  font-size: 22px;
+}
+.plugin-v3 .discover-card h2 {
+  font-size: 17px;
+}
+.plugin-v3 .discover-card .row:last-child {
+  margin-top: 18px;
+}
+.plugin-v3 .plugin-detail-actions {
+  flex-wrap: wrap;
+}
+.plugin-v3 .resource-footer {
+  font-size:12px;
+}

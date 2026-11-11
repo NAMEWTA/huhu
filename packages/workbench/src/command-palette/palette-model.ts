@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
+
 export interface PaletteItem {
   id: string;
   group: "module" | "command" | "result";
   title: string;
   hint?: string;
+  icon?: ReactNode;
   run(): void;
 }
 

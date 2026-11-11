@@ -1,33 +1,62 @@
 import type { TaskDto } from "@huhu/contracts";
-import { Badge, Button, CompletionCircle, EmptyState } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient, queryKey } from "@huhu/workbench";
+import { Button, EmptyState, IconButton, Segmented } from "@huhu/ui";
+import { queryKey, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { CalendarDays, CheckCircle2, Columns2, List, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { categoryCount, inCategory, isOverdue, todayIn, weekRange, type TaskCategory } from "../shared/categories.js";
+import { categoryCount, inCategory, todayIn, weekRange, type TaskCategory } from "../shared/categories.js";
+import { matchesQuery } from "../shared/search.js";
 import { t } from "./i18n.js";
+import { TaskDetail } from "./TaskDetail.js";
+import { TaskEditor } from "./TaskEditor.js";
+import { TaskBoard, TaskCalendar, TaskTable } from "./TaskViews.js";
 
 const CATEGORIES: TaskCategory[] = ["all", "today", "tomorrow", "week", "ended"];
+type View = "list" | "board" | "calendar";
+type EditorState = { mode: "new"; due?: string } | { mode: "edit"; task: TaskDto } | null;
 
 export function TasksModule() {
   const engine = useEngine();
   const qc = useQueryClient();
   const { data, isLoading, error } = useCapability<TaskDto[]>("tasks.list", { category: "all" });
+  const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
+  const vault = useCapability<{ name: string }>("vault.info", {});
   const [category, setCategory] = useState<TaskCategory>("all");
-  const [title, setTitle] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [view, setView] = useState<View>(() => {
+    try {
+      const v = localStorage.getItem(`huhu.tasks.view.${engine.vaultId}`);
+      return v === "board" || v === "calendar" ? v : "list";
+    } catch {
+      return "list";
+    }
+  });
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<EditorState>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [failure, setFailure] = useState<string | null>(null);
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone; // 与引擎同一个口径：设置里的时区
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 60_000); // 跨午夜后分类自动重算
-    return () => clearInterval(t);
+    const id = setInterval(() => setTick((n) => n + 1), 60_000); // 跨午夜后分类自动重算
+    return () => clearInterval(id);
   }, []);
   const today = useMemo(() => todayIn(zone), [zone, tick]);
   const tasks = data ?? [];
-  const visible = useMemo(() => tasks.filter((x) => inCategory(x, category, today)), [tasks, category, today]);
-  const open = visible.filter((x) => !x.completed);
-  const done = visible.filter((x) => x.completed);
+  const visible = useMemo(() => tasks.filter((x) => inCategory(x, category, today) && matchesQuery(x, query)), [tasks, category, today, query]);
+  const selected = tasks.find((x) => x.id === selectedId) ?? null;
+  const projects = useMemo(() => [...new Set(tasks.map((x) => x.project).filter((p): p is string => !!p))].sort(), [tasks]);
   const key = queryKey(engine.vaultId, "tasks.list", { category: "all" });
+
+  const chooseView = (v: View) => {
+    setView(v);
+    try {
+      localStorage.setItem(`huhu.tasks.view.${engine.vaultId}`, v);
+    } catch {
+      /* 仅界面偏好 */
+    }
+  };
+  const fail = (e: unknown) => setFailure(e instanceof Error ? e.message : String(e));
+  const refresh = () => qc.invalidateQueries({ queryKey: key });
 
   async function toggle(task: TaskDto, next: boolean) {
     if (pending[task.id]) return; // 回执前不重复提交（同一个 expectedVersion 会冲突）
@@ -37,93 +66,137 @@ export function TasksModule() {
     try {
       await engine.call("tasks.setCompleted", { id: task.id, completed: next, expectedVersion: task.version }, { write: true });
     } catch (e) {
-      // 失败回滚只还原这一个任务，不影响其他仍在进行中的乐观更新
-      qc.setQueryData<TaskDto[]>(key, (old) => (old ?? []).map((x) => (x.id === task.id ? { ...x, completed: task.completed } : x)));
-      setFailure(e instanceof Error ? e.message : String(e));
+      qc.setQueryData<TaskDto[]>(key, (old) => (old ?? []).map((x) => (x.id === task.id ? { ...x, completed: task.completed } : x))); // 只还原这一个任务
+      fail(e);
     } finally {
       setPending((p) => ({ ...p, [task.id]: false }));
-      void qc.invalidateQueries({ queryKey: key });
+      await refresh();
     }
   }
 
-  async function create() {
-    const name = title.trim();
-    if (!name) return;
-    setCreating(true);
+  async function run(cap: string, input: unknown): Promise<TaskDto | null> {
     setFailure(null);
     try {
-      await engine.call("tasks.create", { title: name, execution: { kind: "manual" } }, { write: true });
-      setTitle("");
-      await qc.invalidateQueries({ queryKey: key });
+      const r = await engine.call<TaskDto>(cap, input, { write: true });
+      await refresh();
+      return r;
     } catch (e) {
-      setFailure(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCreating(false);
+      fail(e);
+      return null;
     }
   }
 
   const range = weekRange(today);
+  const open = (task: TaskDto) => setSelectedId(task.id);
+  const viewProps = { tasks: visible, pending, selectedId, onToggle: (task: TaskDto, next: boolean) => void toggle(task, next), onOpen: open };
   return (
-    <div className="hu-module" data-testid="tasks-module">
-      <aside className="hu-module-sidebar" aria-label={t.title}>
-        <h2>{t.title}</h2>
-        {CATEGORIES.map((c) => (
-          <button key={c} type="button" className="hu-nav-item" aria-current={c === category} onClick={() => setCategory(c)}>
-            <span>{t.categories[c]}</span>
-            <span>{categoryCount(tasks, c, today)}</span>
-          </button>
-        ))}
-      </aside>
-      <section className="hu-content">
-        <h1>{t.categories[category]}</h1>
-        {category === "week" ? (
-          <p className="hu-meta">
-            {range.from} – {range.to}
+    <div className={`module-layout tw-workbench${selected ? " detail-open" : ""}`} data-testid="tasks-module">
+      <aside className="tw-navigation">
+        <div className="tw-nav-title">
+          <CheckCircle2 size={16} aria-hidden />
+          <strong>{t.title}</strong>
+          <IconButton icon={Plus} label={t.create} onClick={() => setEditor({ mode: "new" })} />
+        </div>
+        <p className="tw-vault-name">{vault.data?.name ?? ""}</p>
+        <nav aria-label={t.filterNav}>
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={c === category ? "active" : ""}
+              aria-current={c === category}
+              onClick={() => {
+                setCategory(c);
+                setSelectedId(null);
+              }}
+            >
+              <span>{t.categories[c]}</span>
+              <small>{categoryCount(tasks, c, today)}</small>
+            </button>
+          ))}
+        </nav>
+        <div className="tw-nav-bottom">
+          <p>
+            {t.navHintA}
+            <br />
+            {t.navHintB}
           </p>
-        ) : null}
-        <form
-          className="hu-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void create();
-          }}
-        >
-          <input className="hu-input" aria-label={t.titleField} placeholder={t.titleField} value={title} onChange={(e) => setTitle(e.target.value)} />
-          <Button type="submit" variant="primary" loading={creating} disabled={!title.trim()}>
+        </div>
+      </aside>
+      <main className="tw-task-main">
+        <header className="tw-heading">
+          <div>
+            <h1>{t.categories[category]}</h1>
+            <p data-testid="task-count">
+              {t.count(visible.length)}
+              {category === "week" ? ` · ${t.weekRange(range.from, range.to)}` : ""}
+            </p>
+          </div>
+          <Button icon={Plus} onClick={() => setEditor({ mode: "new" })} data-testid="task-new">
             {t.create}
           </Button>
-        </form>
-        {failure ? (
-          <div role="alert" className="hu-overdue">
-            {failure}
+        </header>
+        <div className="tw-list-toolbar">
+          <div className="tw-search">
+            <Search size={14} aria-hidden />
+            <input aria-label={t.search} placeholder={t.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} data-testid="task-search" />
           </div>
-        ) : null}
-        {error ? <div role="alert">{String(error)}</div> : null}
-        {isLoading ? <p>{t.loading}</p> : visible.length === 0 ? <EmptyState title={t.empty} /> : null}
-        <TaskGroup label={t.open} tasks={open} today={today} pending={pending} onToggle={toggle} />
-        <TaskGroup label={t.done} tasks={done} today={today} pending={pending} onToggle={toggle} />
-      </section>
-    </div>
-  );
-}
-
-function TaskGroup({ label, tasks, today, pending, onToggle }: { label: string; tasks: TaskDto[]; today: string; pending: Record<string, boolean>; onToggle(t: TaskDto, next: boolean): void }) {
-  if (tasks.length === 0) return null;
-  return (
-    <div role="group" aria-label={label}>
-      <h3>
-        {label} {tasks.length}
-      </h3>
-      {tasks.map((task) => (
-        <div key={task.id} className="hu-row" data-testid="task-row">
-          <CompletionCircle checked={task.completed} pending={pending[task.id] === true} label={`${task.completed ? t.reopen : t.complete}：${task.title}`} onToggle={(next) => void onToggle(task, next)} />
-          <span className="hu-row-title" data-done={task.completed}>
-            {task.title}
-          </span>
-          {task.due ? <span className={isOverdue(task, today) ? "hu-overdue" : ""}>{task.due}</span> : null}
-          {task.execution.kind === "agent" ? <Badge tone="blue">{t.agent}</Badge> : <Badge>{t.manual}</Badge>}
+          <Segmented
+            label={t.views.label}
+            testId="task-views"
+            value={view}
+            onChange={chooseView}
+            options={[
+              { value: "list", label: t.views.list, icon: List },
+              { value: "board", label: t.views.board, icon: Columns2 },
+              { value: "calendar", label: t.views.calendar, icon: CalendarDays },
+            ]}
+          />
         </div>
-      ))}
+        <div className="tw-task-content">
+          {failure ? (
+            <div role="alert" className="field-error">
+              {failure}
+            </div>
+          ) : null}
+          {error ? <div role="alert">{String(error)}</div> : null}
+          {isLoading ? <p>{t.loading}</p> : null}
+          {!isLoading && visible.length === 0 && view !== "calendar" ? <EmptyState title={t.empty} /> : null}
+          {view === "list" && visible.length > 0 ? <TaskTable {...viewProps} /> : null}
+          {view === "board" && visible.length > 0 ? <TaskBoard {...viewProps} /> : null}
+          {view === "calendar" ? <TaskCalendar tasks={visible} today={today} onOpen={open} /> : null}
+        </div>
+        <footer className="tw-main-footer">
+          <span>{t.footer}</span>
+        </footer>
+      </main>
+      {selected ? (
+        <TaskDetail
+          key={selected.id}
+          task={selected}
+          pending={pending[selected.id] === true}
+          onToggle={(next) => void toggle(selected, next)}
+          onEdit={() => setEditor({ mode: "edit", task: selected })}
+          onDuplicate={() => void run("tasks.duplicate", { id: selected.id }).then((r) => r && setSelectedId(r.id))}
+          onDelete={() => void run("tasks.delete", { id: selected.id }).then((r) => r !== null && setSelectedId(null))}
+          onClose={() => setSelectedId(null)}
+          onMessage={setFailure}
+        />
+      ) : null}
+      {editor ? (
+        <TaskEditor
+          key={editor.mode === "edit" ? editor.task.id : "new"}
+          task={editor.mode === "edit" ? editor.task : null}
+          initial={editor.mode === "new" && editor.due ? { due: editor.due } : {}}
+          projects={projects}
+          onClose={() => setEditor(null)}
+          onSaved={(saved) => {
+            setEditor(null);
+            setSelectedId(saved.id);
+            void refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

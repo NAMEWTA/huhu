@@ -1,0 +1,109 @@
+.terminal-surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+  min-width: 0;
+  flex: 1;
+  background: #14171e;
+  color: #d8dee9;
+  overflow: hidden;
+  border-radius: 0;
+  position: relative;
+}
+.terminal-surface-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: #98a5bb;
+  background: #1b1f29;
+  border-bottom: 1px solid #2a3040;
+  font-size:12px;
+  flex-shrink: 0;
+}
+.terminal-surface-tools > .icon-button,
+.terminal-surface-tools > .icon-btn {
+  color: #a6b4ca;
+  width: 27px;
+  height: 27px;
+}
+.terminal-engine-tag {
+  font-size:12px;
+  letter-spacing: 0.02em;
+  color: #7f8da4;
+}
+.terminal-surface-host {
+  flex: 1;
+  min-height: 160px;
+  min-width: 0;
+  padding: 10px 12px 8px;
+  overflow: hidden;
+}
+.terminal-surface-host .xterm {
+  height: 100%;
+}
+.terminal-surface-host .xterm-viewport {
+  scrollbar-color: #3c4658 #14171e;
+  scrollbar-width: thin;
+}
+.terminal-surface-host[hidden] {
+  display: none;
+}
+.terminal-surface.is-compact .terminal-surface-host {
+  min-height: 220px;
+}
+.terminal-surface-transcript {
+  margin: 0;
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.7 'Geist Mono',
+    'Cascadia Code',
+    Consolas,
+    monospace;
+  padding: 14px 16px;
+  background: #14171e;
+  color: #d8dee9;
+}
+.terminal-surface-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: #252b38;
+  flex-shrink: 0;
+}
+.terminal-surface-find input {
+  height: 28px;
+  min-width: 60px;
+  flex: 1;
+  background: #14171e;
+  color: #e8ecf5;
+  border: 1px solid #3a4356;
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.terminal-surface-find span {
+  font:
+    11px 'Geist Mono',
+    monospace;
+  color: #acb7c9;
+  min-width: 40px;
+}
+.terminal-surface-find button {
+  color: #c1ccdd;
+}
+.terminal-render-fallback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #282520;
+  color: #cfbc91;
+  font-size:12px;
+}

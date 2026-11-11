@@ -111,6 +111,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   const events = new EventBus(() => vault.id);
   const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")));
+  repo.onWritten = (paths) => index.refreshPaths(paths);
   new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")).recover();
   const trash = new Trash(vault.files);
   const dispatcherRef: { current?: Dispatcher } = {};

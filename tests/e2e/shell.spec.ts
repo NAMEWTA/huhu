@@ -41,15 +41,19 @@ test("任务：新建、勾选完成并写入 Vault 文件；杀死 Engine 后�
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await expect(page.getByTestId("tasks-module")).toBeVisible();
 
-    await page.getByLabel("任务名称").fill("写发布说明");
-    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByTestId("task-new").click();
+    await page.getByTestId("task-editor").getByLabel("任务名称").fill("写发布说明");
+    await page.getByTestId("task-save").click();
     await expect(page.getByTestId("task-row")).toHaveCount(1);
     const files = readdirSync(path.join(vault, "Tasks"));
     expect(files).toHaveLength(1);
     expect(readFileSync(path.join(vault, "Tasks", files[0] as string), "utf8")).toContain("completed: false");
 
-    await page.getByRole("checkbox", { name: /标记完成：写发布说明/ }).click();
-    await expect(page.getByRole("group", { name: "已完成" })).toBeVisible();
+    await page
+      .getByTestId("task-row")
+      .getByRole("checkbox", { name: /完成任务 写发布说明/ })
+      .click();
+    await expect(page.locator('section[data-group="done"] [data-testid=task-row]')).toHaveCount(1);
     await expect.poll(() => readFileSync(path.join(vault, "Tasks", readdirSync(path.join(vault, "Tasks"))[0] as string), "utf8")).toContain("completed: true");
 
     // 杀死 Engine 进程 → 界面提示 → 重启恢复
@@ -259,8 +263,9 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
     await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("card-open").locator("strong")).toHaveText("0");
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
-    await page.getByLabel("任务名称").fill("首页测试任务");
-    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByTestId("task-new").click();
+    await page.getByTestId("task-editor").getByLabel("任务名称").fill("首页测试任务");
+    await page.getByTestId("task-save").click();
     await expect(page.getByTestId("task-row")).toHaveCount(1);
     await page.getByRole("button", { name: "工作台", exact: true }).first().click();
     await expect(page.getByTestId("card-open").locator("strong")).toHaveText("1");
@@ -1080,8 +1085,9 @@ test("自动化：内置规则存在且不可删除；预览列出跳过原因�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     // 一个手动任务：预览时应出现在"跳过"里
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
-    await page.getByLabel("任务名称").fill("手动事项");
-    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByTestId("task-new").click();
+    await page.getByTestId("task-editor").getByLabel("任务名称").fill("手动事项");
+    await page.getByTestId("task-save").click();
     await expect(page.getByTestId("task-row")).toHaveCount(1);
 
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
@@ -1202,6 +1208,99 @@ test("自动化运行：Agent 规则经监督进程运行，运行页显示已�
     await app.close();
     rmSync(vault, { recursive: true, force: true });
     rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test("任务界面：分类计数、搜索、新建对话框（截止日 / 项目 / Agent 执行）、列表 / 看板 / 月历、详情面板、编辑与删除", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    const editor = page.getByTestId("task-editor");
+
+    // 新建 1：今天到期 + 项目
+    await page.getByTestId("task-new").click();
+    await editor.getByLabel("任务名称").fill("写周报");
+    await editor.getByTestId("task-due").fill(todayStr);
+    await editor.getByLabel("任务项目").fill("工作");
+    await editor.getByLabel("任务内容").fill("整理本周完成的事项");
+    await page.getByTestId("task-save").click();
+    await expect(page.getByTestId("task-detail")).toContainText("写周报"); // 保存后自动打开详情
+    await expect(page.getByTestId("detail-body")).toContainText("整理本周完成的事项");
+
+    // 新建 2：无截止日，空标题不能保存
+    await page.getByTestId("task-new").click();
+    await page.getByTestId("task-save").click();
+    await expect(editor.getByRole("alert").first()).toContainText("请填写任务名称");
+    await editor.getByLabel("任务名称").fill("买咖啡豆");
+    await page.getByTestId("task-save").click();
+    await expect(page.getByTestId("task-row")).toHaveCount(2);
+
+    // Agent 执行需要 Space 与 CLI；保存不会启动 Agent
+    await page.getByTestId("task-new").click();
+    await editor.getByLabel("任务名称").fill("让 Agent 整理");
+    await editor.getByTestId("task-exec").selectOption("agent");
+    await expect(editor.getByTestId("task-agent-fields")).toContainText("任务保存后不会立即启动Agent");
+    await page.getByTestId("task-save").click();
+    await expect(editor.getByRole("alert").first()).toContainText("Agent 执行需要选择");
+    await editor.getByRole("button", { name: "取消" }).click();
+    await editor.getByRole("button", { name: "放弃修改" }).click(); // 有未保存的修改：先确认放弃
+    await expect(editor).toHaveCount(0);
+
+    // 分类与计数：今日 1 件，全部 2 件
+    await expect(page.getByRole("button", { name: /^今日/ })).toContainText("1");
+    await expect(page.getByRole("button", { name: /^全部任务/ })).toContainText("2");
+    await page.getByRole("button", { name: /^今日/ }).click();
+    await expect(page.getByTestId("task-row")).toHaveCount(1);
+    await expect(page.getByTestId("task-count")).toHaveText("1 件任务");
+    await page.getByRole("button", { name: /^全部任务/ }).click();
+
+    // 搜索（标题 / 正文 / 项目）
+    await page.getByTestId("task-search").fill("咖啡");
+    await expect(page.getByTestId("task-row")).toHaveCount(1);
+    await page.getByTestId("task-search").fill("工作");
+    await expect(page.getByTestId("task-row")).toHaveCount(1);
+    await page.getByTestId("task-search").fill("");
+
+    // 看板：勾选后卡片移到“已完成”列
+    await page.getByTestId("task-views").getByRole("radio", { name: "看板" }).click();
+    await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(2);
+    await page
+      .getByTestId("board-open")
+      .getByRole("checkbox", { name: /完成任务 买咖啡豆/ })
+      .click();
+    await expect(page.getByTestId("board-done").getByTestId("board-card")).toHaveCount(1, { timeout: 10_000 });
+
+    // 月历：今天的任务出现在当月
+    await page.getByTestId("task-views").getByRole("radio", { name: "月历" }).click();
+    await expect(page.getByTestId("task-calendar").getByRole("button", { name: "写周报" })).toBeVisible();
+    await page.getByTestId("task-calendar").getByRole("button", { name: "写周报" }).click();
+    await expect(page.getByTestId("detail-title")).toHaveText("写周报");
+
+    // 编辑：改标题
+    await page.getByTestId("task-views").getByRole("radio", { name: "列表" }).click();
+    await page.getByTestId("detail-edit").click();
+    await editor.getByLabel("任务名称").fill("写本周周报");
+    await page.getByTestId("task-save").click();
+    await expect(page.getByTestId("detail-title")).toHaveText("写本周周报");
+    await expect.poll(() => readdirSync(path.join(vault, "Tasks")).some((f) => f.includes("写本周周报"))).toBe(true);
+
+    // 删除（二次确认）
+    await page.getByTestId("detail-delete").click();
+    await page.getByTestId("detail-delete-dialog").getByRole("button", { name: "取消" }).click(); // 先取消一次：任务还在
+    await expect(page.getByTestId("task-detail")).toHaveCount(1);
+    await page.getByTestId("detail-delete").click();
+    await page.getByTestId("detail-delete-confirm").click();
+    await expect(page.getByTestId("task-detail")).toHaveCount(0);
+    await expect(page.getByTestId("task-row")).toHaveCount(1);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
   }
 });
 

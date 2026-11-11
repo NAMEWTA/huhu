@@ -1,0 +1,276 @@
+.review-diff {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  min-width: 0;
+  font-size: 12px;
+}
+.review-header,
+.review-toolbar,
+.review-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.review-header {
+  justify-content: space-between;
+  background: var(--sidebar);
+}
+.review-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.review-file strong {
+  font-size: 13px;
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.review-count-add {
+  color: #20734a;
+  font-variant-numeric: tabular-nums;
+}
+.review-count-remove {
+  color: #b34242;
+  font-variant-numeric: tabular-nums;
+}
+.review-check {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--muted);
+  font-size:12px;
+}
+.review-toolbar .btn,
+.review-footer .btn {
+  min-height: 28px;
+  font-size:12px;
+  padding: 4px 8px;
+}
+.review-body {
+  overflow: auto;
+  max-height: 62vh;
+  min-height: 100px;
+  scrollbar-gutter: stable;
+}
+.review-column-labels {
+  display: flex;
+  position: sticky;
+  top: 0;
+  background: var(--sidebar);
+  z-index: 1;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.review-column-labels span {
+  padding: 7px 12px;
+  flex: 1;
+}
+.review-split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.review-side {
+  display: flex;
+  min-width: 0;
+  min-height: 23px;
+  border-right: 1px solid var(--line);
+}
+.review-side:last-child {
+  border-right: 0;
+}
+.review-side > button,
+.review-unified-row > button {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font:
+    11px/23px 'Geist Mono',
+    monospace;
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 40px;
+  cursor: pointer;
+  text-align: right;
+  padding: 0 8px;
+  user-select: none;
+}
+.review-side > button.selected,
+.review-side > button:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.review-side code,
+.review-unified-row code {
+  font:
+    12px/23px 'Geist Mono',
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+  padding: 0 9px;
+  flex: 1;
+  color: var(--text);
+}
+.review-side.added,
+.review-unified-row.add {
+  background: #e9f6ee;
+}
+.review-side.removed,
+.review-unified-row.remove {
+  background: #fff0ee;
+}
+.review-word-added {
+  background: #bee5cd;
+  border-radius: 2px;
+}
+.review-word-removed {
+  background: #f5c6c3;
+  border-radius: 2px;
+}
+.review-void {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 4px,
+    var(--line) 5px,
+    transparent 6px
+  );
+  opacity: 0.6;
+}
+.review-fold {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-block: 1px solid var(--line);
+  background: var(--sidebar);
+  color: var(--muted);
+  font-size:12px;
+  line-height: 28px;
+  cursor: pointer;
+}
+.review-fold:hover {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+.review-current {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.review-unified-row {
+  display: flex;
+  min-height: 23px;
+}
+.review-unified-row > button {
+  flex: 0 0 72px;
+  display: flex;
+  gap: 8px;
+  padding: 0 7px;
+}
+.review-unified-row > button span {
+  width: 25px;
+}
+.review-unified-row > i {
+  font: 12px/23px monospace;
+  width: 14px;
+  text-align: center;
+  font-style: normal;
+}
+.review-footer {
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  color: var(--faint);
+  font-size:12px;
+}
+.review-large {
+  padding: 24px;
+}
+.review-copy {
+  width: 100%;
+  min-height: 280px;
+  font-family: monospace;
+}
+.change-file-tree {
+  min-width: 170px;
+  max-width: 260px;
+  border-right: 1px solid var(--line);
+  background: var(--sidebar);
+  padding: 10px 6px;
+  overflow: auto;
+}
+.change-tree-title {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 3px 8px 14px;
+  font-size: 12px;
+}
+.change-tree-folder,
+.change-tree-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.change-tree-folder span,
+.change-tree-file span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.change-tree-folder {
+  font-size:12px;
+  margin-top: 4px;
+  color: var(--faint);
+}
+.change-tree-file {
+  padding-left: 23px;
+}
+.change-tree-file.active,
+.change-tree-file:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.change-tree-file .accepted {
+  color: #278052;
+}
+.change-tree-file .modified {
+  color: #ae7d30;
+}
+[data-mode='dark'] .review-side.added,
+[data-mode='dark'] .review-unified-row.add {
+  background: #173325;
+}
+[data-mode='dark'] .review-side.removed,
+[data-mode='dark'] .review-unified-row.remove {
+  background: #3c2222;
+}
+[data-mode='dark'] .review-word-added {
+  background: #285539;
+}
+[data-mode='dark'] .review-word-removed {
+  background: #663434;
+}
+[data-mode='dark'] .review-count-add {
+  color: #79bf92;
+}
+[data-mode='dark'] .review-count-remove {
+  color: #e18f8f;
+}

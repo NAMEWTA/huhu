@@ -1,3 +1,11 @@
 export * from "./components/ui.js";
 export * from "./theme.js";
 export * from "./components/TerminalView.js";
+export * from "./components/Dialog.js";
+export * from "./components/Segmented.js";
+export * from "./components/DateTimePicker.js";
+export * from "./components/datetime.js";
+export * from "./proto/controls.js";
+export * from "./proto/feedback.js";
+export * from "./proto/motion.js";
+export * as Popover from "@radix-ui/react-popover";

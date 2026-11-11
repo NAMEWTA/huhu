@@ -1,0 +1,405 @@
+.huhu-markdown-editor {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  --atomic-editor-font: var(--font);
+  --atomic-editor-font-mono: var(--mono);
+  --atomic-editor-body-size: var(--editor-size);
+  --atomic-editor-body-leading: var(--editor-line);
+  --atomic-editor-measure: 790px;
+  --atomic-editor-fg: var(--text);
+  --atomic-editor-fg-muted: var(--muted);
+  --atomic-editor-fg-faint: var(--faint);
+  --atomic-editor-bg: var(--bg);
+  --atomic-editor-bg-panel: var(--panel);
+  --atomic-editor-bg-surface: var(--muted-bg);
+  --atomic-editor-border: var(--line);
+  --atomic-editor-accent: var(--text);
+  --atomic-editor-accent-bright: var(--text);
+  --atomic-editor-accent-soft: var(--accent-soft);
+  --atomic-editor-link: var(--blue);
+  --atomic-editor-link-hover: var(--text);
+  --atomic-editor-code-bg: var(--muted-bg);
+  --atomic-editor-selection-bg: var(--accent-soft);
+  --atomic-editor-search-bg: var(--warning-bg);
+  --atomic-editor-search-bg-active: var(--accent-soft);
+  --atomic-editor-hl-keyword: var(--accent);
+  --atomic-editor-hl-string: var(--success);
+  --atomic-editor-hl-comment: var(--faint);
+  --atomic-editor-hl-type: var(--warning);
+  --atomic-editor-hl-number: var(--warning);
+  --atomic-editor-hl-function: var(--accent);
+  --atomic-editor-hl-property: var(--text);
+  --atomic-editor-hl-variable: var(--text);
+  --atomic-editor-hl-operator: var(--muted);
+  --atomic-editor-hl-punctuation: var(--muted);
+  --atomic-editor-hl-invalid: var(--danger);
+}
+.huhu-markdown-editor > .cm-editor {
+  height: 100%;
+  min-height: 0;
+}
+.huhu-markdown-editor .cm-scroller {
+  scrollbar-gutter: stable;
+}
+.huhu-markdown-editor .cm-content {
+  max-width: 790px;
+  margin: 0 auto;
+  width: calc(100% - 60px);
+}
+.huhu-markdown-editor.mode-live .cm-content {
+  padding-top: 18px;
+  padding-bottom: 100px;
+}
+.huhu-markdown-editor .cm-editor .cm-line {
+  line-height: var(--editor-line);
+}
+.huhu-markdown-editor .cm-line.cm-atomic-h1 {
+  font-size: 27px;
+  line-height: 1.45;
+  margin: 8px 0 16px;
+  font-weight: 660;
+  letter-spacing: -0.4px;
+}
+.huhu-markdown-editor .cm-line.cm-atomic-h2 {
+  font-size: 20px;
+  line-height: 1.5;
+  margin: 14px 0 8px;
+  font-weight: 620;
+  letter-spacing: -0.2px;
+}
+.huhu-markdown-editor .cm-line.cm-atomic-h3 {
+  font-size: 17px;
+  line-height: 1.6;
+  margin: 10px 0 5px;
+  font-weight: 600;
+}
+.huhu-markdown-editor .cm-line.cm-atomic-blockquote {
+  border-left: 3px solid var(--line);
+  background: var(--muted-bg);
+  padding: 0 15px !important;
+  color: var(--muted);
+}
+.huhu-markdown-editor .cm-line.cm-atomic-fenced-code {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.8;
+  background: var(--muted-bg);
+  padding: 0 14px !important;
+}
+.huhu-markdown-editor .cm-atomic-task-checkbox {
+  accent-color: var(--text);
+}
+.huhu-markdown-editor .cm-atomic-strong {
+  font-weight: 650;
+}
+.huhu-markdown-editor .cm-atomic-wiki-link {
+  color: var(--blue);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+  text-underline-offset: 3px;
+}
+.huhu-markdown-editor.mode-source .cm-scroller,
+.huhu-markdown-editor.mode-split .cm-scroller {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.9;
+}
+.huhu-markdown-editor.mode-source .cm-content,
+.huhu-markdown-editor.mode-split .cm-content {
+  max-width: none;
+  width: auto;
+  margin: 0;
+  padding: 10px 24px 70px;
+  flex: 1;
+}
+.huhu-markdown-editor.mode-source .cm-line,
+.huhu-markdown-editor.mode-split .cm-line {
+  line-height: 1.9;
+}
+.huhu-markdown-editor .cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 13px;
+  font: 12px/1.5 var(--font);
+}
+.huhu-markdown-editor .cm-search input:not([type='checkbox']) {
+  width: 150px;
+  min-height: 29px;
+  height: 29px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: 12px var(--font);
+  border-radius: 5px;
+}
+.huhu-markdown-editor .cm-search button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 5px;
+  font: 12px var(--font);
+}
+.huhu-markdown-editor .cm-search button:hover {
+  color: var(--text);
+  background: var(--muted-bg);
+}
+.huhu-markdown-editor .cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.huhu-markdown-editor .cm-search input[type='checkbox'] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--text);
+  margin: 0;
+}
+.huhu-markdown-editor .cm-search [name='close'] {
+  margin-left: auto;
+  min-width: 27px;
+}
+.huhu-live-table {
+  position: relative;
+  margin: 12px 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.huhu-live-table-scroll {
+  overflow: auto;
+  padding: 0 !important;
+  margin: 0 !important;
+  font: 13px/1.75 var(--font) !important;
+  max-width: 100% !important;
+}
+.huhu-live-table-scroll table {
+  border-collapse: collapse;
+  min-width: 100%;
+  width: max-content;
+  margin: 0 !important;
+  font-size: 13px !important;
+}
+.huhu-live-table-scroll th,
+.huhu-live-table-scroll td {
+  padding: 9px 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--line) !important;
+  min-width: 94px;
+  text-align: left;
+}
+.huhu-live-table-scroll [align='right'] {
+  text-align: right;
+}
+.huhu-live-table-scroll [align='center'] {
+  text-align: center;
+}
+.huhu-live-table-scroll tr:last-child td {
+  border-bottom: 0 !important;
+}
+.huhu-live-table-scroll th {
+  font-weight: 600;
+  background: var(--muted-bg);
+}
+.huhu-live-block-edit {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  font: 11px/1.5 var(--font);
+  color: var(--faint);
+  background: var(--panel);
+}
+.huhu-live-block-edit:hover,
+.huhu-live-block-edit:focus-visible {
+  color: var(--text);
+  background: var(--muted-bg);
+}
+.knowledge-editor-mode-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 18px;
+  background: var(--bg);
+  color: var(--faint);
+  font-size: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  flex-shrink: 0;
+}
+.knowledge-editor-mode-hint > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.knowledge-editor-mode-hint strong {
+  font-weight: 500;
+  color: var(--muted);
+}
+.knowledge-editor-mode-hint button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.knowledge-editor-mode-hint button[aria-pressed='true'] {
+  color: var(--text);
+}
+.knowledge-source-pane.huhu-cm-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.knowledge-source-pane.huhu-cm-pane[hidden] {
+  display: none !important;
+}
+.knowledge-editor-actions .huhu-editor-secondary {
+  gap: 2px;
+}
+.knowledge-editor-actions .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.knowledge-reading-pane[data-editor-mode='split'] {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .knowledge-document-toolbar {
+    flex-wrap: wrap;
+  }
+  .knowledge-document-toolbar > .row.grow {
+    flex-basis: 100%;
+    min-height: 16px;
+  }
+  .knowledge-document-toolbar > .segmented {
+    margin-right: auto;
+  }
+  .knowledge-document-toolbar .segmented button {
+    padding: 4px 9px;
+  }
+  .huhu-markdown-editor .cm-content {
+    width: calc(100% - 42px);
+  }
+  .knowledge-editor-actions .huhu-editor-secondary > .btn {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  .knowledge-editor-mode-hint {
+    padding: 7px 12px;
+    line-height: 1.5;
+  }
+  .knowledge-editor-mode-hint > span > span {
+    display: none;
+  }
+  .knowledge-editor-actions {
+    padding: 0 9px;
+    overflow: auto;
+  }
+  .huhu-markdown-editor .cm-content {
+    width: calc(100% - 32px);
+  }
+  .knowledge-editor-body.is-split {
+    overflow-x: auto;
+    min-width: 0;
+  }
+  .knowledge-editor-body.is-split > .knowledge-source-pane,
+  .knowledge-editor-body.is-split > .knowledge-reading-pane {
+    min-width: 320px;
+    flex: 1 0 320px;
+  }
+  .knowledge-document-toolbar > .segmented {
+    flex: 1;
+  }
+  .knowledge-document-toolbar .segmented button {
+    flex: 1;
+    padding: 4px 6px;
+  }
+  .knowledge-document-status .huhu-editor-position {
+    display: none;
+  }
+}
+
+.huhu-reading-task {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: 17px;
+  vertical-align: -1px;
+}
+
+.huhu-markdown-reading [align='right'] {
+  text-align: right;
+}
+.huhu-markdown-reading [align='center'] {
+  text-align: center;
+}
+
+/* v9 document column: center gutter and prose together. Horizontal space belongs
+   to the scrollport; vertical end space remains on content so CM measures it. */
+.huhu-markdown-editor > .cm-editor > .cm-scroller {
+  --huhu-document-measure: 936px;
+  --huhu-document-side: 24px;
+  padding-inline: max(var(--huhu-document-side), calc((100% - var(--huhu-document-measure)) / 2));
+  box-sizing: border-box;
+}
+.huhu-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
+  max-width: none;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0%;
+  margin: 0;
+  padding: 20px 0 96px 12px;
+  box-sizing: border-box;
+}
+.huhu-markdown-editor > .cm-editor > .cm-scroller > .cm-gutters {
+  min-width: 36px;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--faint);
+}
+.huhu-markdown-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 30px;
+  padding-inline: 0 8px;
+  font: 12px/var(--editor-line) var(--mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.knowledge-editor-body > .knowledge-reading-pane {
+  padding-inline: 24px;
+}
+.knowledge-editor-body > .knowledge-reading-pane > .huhu-markdown-reading {
+  max-width: 880px;
+  margin-inline: auto;
+}
+@media (max-width: 700px) {
+  .huhu-markdown-editor > .cm-editor > .cm-scroller {
+    --huhu-document-side: 12px;
+  }
+  .huhu-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
+    padding-left: 8px;
+  }
+  .knowledge-editor-body > .knowledge-reading-pane {
+    padding-inline: 16px;
+  }
+}

@@ -1,0 +1,196 @@
+.vault-resource-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.vrp-selected {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.vrp-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  min-width: 0;
+  background: var(--bg);
+  font-size: 12px;
+}
+.vrp-chip > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vrp-chip > small {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.vrp-chip.is-missing > small {
+  color: var(--warning);
+}
+.vrp-chip > button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 3px;
+  cursor: pointer;
+}
+.vrp-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  padding: 8px 10px;
+  font: 12px var(--font);
+  cursor: pointer;
+}
+.vrp-trigger > span {
+  flex: 1;
+  color: var(--muted);
+}
+.vrp-trigger > small {
+  color: var(--faint);
+  font-size: 11px;
+}
+.vrp-popover {
+  width: 440px;
+  max-width: calc(100vw - 24px);
+  max-height: min(480px, var(--radix-popover-content-available-height));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  box-shadow: 0 16px 44px #00000022;
+  z-index: 240;
+  font: 12px var(--font);
+}
+.vrp-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.vrp-search input {
+  flex: 1;
+  min-width: 0;
+  height: 29px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  color: var(--text);
+  font: 12px var(--font);
+}
+.vrp-search kbd {
+  font-size: 10px;
+  border: 1px solid var(--line);
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.vrp-options {
+  min-height: 65px;
+  max-height: 330px;
+  overflow: auto;
+  padding: 5px;
+}
+.vrp-option {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 9px 8px;
+  border-radius: 6px;
+  font: 12px var(--font);
+  cursor: pointer;
+}
+.vrp-option.is-active,
+.vrp-option:hover {
+  background: var(--muted-bg);
+}
+.vrp-option > svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.vrp-option > span {
+  flex: 1;
+  min-width: 0;
+}
+.vrp-option strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vrp-option small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.vrp-option > span > small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vrp-empty {
+  padding: 25px 12px;
+  text-align: center;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.vrp-footer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.vrp-footer button {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: 11px var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vrp-trigger:focus-visible,
+.vrp-chip button:focus-visible,
+.vrp-footer button:focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
+}

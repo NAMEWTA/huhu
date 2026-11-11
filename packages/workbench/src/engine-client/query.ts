@@ -18,7 +18,7 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   const p = e.payload as Record<string, unknown>;
   if (e.type === "entity.changed") prefixes.push(...(ENTITY_CAPS[String(p["kind"])] ?? []));
   else if (e.type === "task.completedChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
-  else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.");
+  else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations."); // 外部直接改 Tasks/ 或 Automations/ 下的文件也要刷新界面
   else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");
   else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
   else if (e.type === "notification.created") prefixes.push("notifications.");

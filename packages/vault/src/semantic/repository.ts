@@ -39,6 +39,8 @@ const ID_PREFIX: Record<KindName, IdPrefix> = {
 
 export class SemanticRepository {
   private problems = new Map<KindName, Problem[]>();
+  /** 仓储自己写盘后通知（引擎用它刷新 Vault 索引：监听器会过滤自写回声，不通知就要等重启才看得到新文件）。 */
+  onWritten?: (paths: string[]) => void;
 
   constructor(
     private readonly files: VaultFiles,
@@ -118,6 +120,7 @@ export class SemanticRepository {
     const yamlText = stringify(full, { lineWidth: 0 });
     const text = joinDocument({ bom: "", eol: "\n", yaml: yamlText, body: body.length && !body.startsWith("\n") ? `\n${body}` : body });
     const { version } = await this.files.write(rel, Buffer.from(text), { expectedVersion: null });
+    this.onWritten?.([rel]);
     return { kind, id, path: rel, version, data: parsed.data as Record<string, unknown>, body: splitDocument(text).body, readOnly: false };
   }
 
@@ -141,12 +144,14 @@ export class SemanticRepository {
     const bytes = Buffer.from(next);
     if (wantPath === cur.path) {
       const { version } = await this.files.write(cur.path, bytes, { expectedVersion });
+      this.onWritten?.([cur.path]);
       return { ...cur, version, data: check.data as Record<string, unknown>, body: splitDocument(next).body };
     }
     await this.ops.run(`ren-${id}-${Date.now().toString(36)}`, `rename-${kind}`, [
       { action: "write", path: wantPath, bytes },
       { action: "delete", path: cur.path },
     ]);
+    this.onWritten?.([cur.path, wantPath]);
     return { ...cur, path: wantPath, version: versionOf(bytes), data: check.data as Record<string, unknown>, body: splitDocument(next).body };
   }
 
@@ -154,6 +159,7 @@ export class SemanticRepository {
     const cur = this.read(kind, id);
     if (cur.version !== expectedVersion) throw errors.versionConflict(cur.version);
     await this.ops.run(`del-${id}-${Date.now().toString(36)}`, `delete-${kind}`, [{ action: "delete", path: cur.path }]);
+    this.onWritten?.([cur.path]);
   }
 
   /** 目录是否存在某 kind 的任意文件（路径展示用）。 */

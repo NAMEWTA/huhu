@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path/posix";
-import { errors, newId } from "@huhu/contracts";
+import { errors, KINDS, newId } from "@huhu/contracts";
 import { normalizeRelPath, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
@@ -21,7 +21,9 @@ const FAVORITES = ".huhu/notes/favorites.json";
 function withExtension(name: string, ext: string): string {
   return ext && name.toLowerCase().endsWith(ext.toLowerCase()) ? name : `${name}${ext}`;
 }
-const isNoteFile = (p: string) => /\.md$/i.test(p);
+const SEMANTIC_DIRS = new Set(Object.values(KINDS).map((k) => k.dir));
+/** 笔记 = 普通 Markdown。Tasks/、Automations/ 等语义目录里的文件由各自的插件管理，不是笔记。 */
+const isNoteFile = (p: string) => /\.md$/i.test(p) && !SEMANTIC_DIRS.has(p.split("/")[0] ?? "");
 
 export interface MoveResult {
   moved: Record<string, string>;

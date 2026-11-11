@@ -7,12 +7,14 @@ export interface UiState {
   sidebarWidth: number;
   detailOpen: boolean;
   focusMode: boolean;
+  paletteOpen: boolean;
   openModule(id: string): void;
   closeTab(id: string): void;
   toggleSidebar(): void;
   setSidebarWidth(w: number): void;
   setDetailOpen(open: boolean): void;
   setFocusMode(on: boolean): void;
+  setPaletteOpen(open: boolean): void;
 }
 
 export const SIDEBAR_MIN = 200;
@@ -33,6 +35,7 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
     sidebarWidth: clampWidth(initial.sidebarWidth ?? SIDEBAR_DEFAULT),
     detailOpen: false,
     focusMode: false,
+    paletteOpen: false,
     openModule: (id) => {
       const s = get();
       if (s.activeModule === id) return set({ sidebarCollapsed: !s.sidebarCollapsed });
@@ -48,6 +51,7 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
     setSidebarWidth: (w) => set({ sidebarWidth: clampWidth(w) }),
     setDetailOpen: (open) => set({ detailOpen: open }),
     setFocusMode: (on) => set({ focusMode: on }),
+    setPaletteOpen: (open) => set({ paletteOpen: open }),
   }));
   if (onPersist) {
     store.subscribe((s) => onPersist({ activeModule: s.activeModule, openTabs: s.openTabs, sidebarCollapsed: s.sidebarCollapsed, sidebarWidth: s.sidebarWidth }));

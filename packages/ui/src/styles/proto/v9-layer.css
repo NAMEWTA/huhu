@@ -1,0 +1,44 @@
+/* ===== huhu V9 · 收敛小字 + 统一动效 + 组件精修 (叠加在 V7 共享样式之后) ===== */
+:root{--v9-ease:cubic-bezier(.22,1,.36,1);--v9-fast:140ms;--v9-med:280ms;--ui-meta-font:12px;--faint:#58636e;
+--v9-sh1:0 1px 2px rgba(20,28,36,.05),0 0 0 1px rgba(20,28,36,.02);
+--v9-sh2:0 10px 28px -12px rgba(20,28,36,.2),0 2px 6px rgba(20,28,36,.06)}
+::selection{background:color-mix(in srgb,var(--focus-color) 22%,transparent)}
+*{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+
+/* 1 · 说明性小字统一隐藏，界面只留标题与操作 */
+.page-head .grow>p,.focus-card>p,.plugin-origin-explainer,.contribution-grid span,
+.knowledge-editor-mode-hint,.nav-module-description,.field-description,.canvas-card-description,
+.home-footnote,.resource-bottom-note,.resource-footer,.knowledge-list-caption{display:none!important}
+.focus-timer,.timer-display{margin-bottom:var(--space-4)}
+.page-head{align-items:center;padding-bottom:var(--space-3)}
+.page-head h1,.page-head h2{letter-spacing:-.022em}
+.badge,.badge *{font-size:11px}
+
+/* 2 · 交互反馈：按下、悬停、聚焦使用同一条缓动曲线 */
+button,[role=tab],input,select,textarea,.card{transition:background-color var(--v9-fast),border-color var(--v9-fast),color var(--v9-fast),box-shadow var(--v9-med) var(--v9-ease),transform var(--v9-fast) var(--v9-ease)}
+button:not(:disabled):active,[role=tab]:active{transform:scale(.97)}
+input:focus-visible,textarea:focus-visible,select:focus-visible{border-color:var(--focus-color);box-shadow:var(--focus-ring)}
+.card{box-shadow:var(--v9-sh1)}
+.card:is(a,button,[role=button]):hover,.contribution-grid>*:hover{box-shadow:var(--v9-sh2);border-color:var(--line-strong)}
+
+/* 3 · 侧栏导航：激活指示条 + 图标微缩放 */
+.rail-item{position:relative;border-radius:10px}
+.rail-item svg{transition:transform var(--v9-med) var(--v9-ease)}
+.rail-item:hover svg{transform:scale(1.1)}
+.rail-item::before{content:"";position:absolute;left:-8px;top:50%;width:3px;height:0;border-radius:0 3px 3px 0;background:var(--accent);transform:translateY(-50%);transition:height var(--v9-med) var(--v9-ease)}
+.rail-item.active::before{height:20px}
+
+/* 4 · 页面进入：标题与内容分层淡入上浮，只在挂载时播放 */
+@keyframes v9-in{from{opacity:0;transform:translateY(8px)}}
+.page-head,.page-head~*{animation:v9-in var(--v9-med) var(--v9-ease) backwards}
+.page-head~:nth-child(2){animation-delay:40ms}.page-head~:nth-child(3){animation-delay:80ms}.page-head~:nth-child(n+4){animation-delay:120ms}
+
+/* 5 · 浮层与提示 */
+[role=dialog]{border-radius:16px;box-shadow:0 28px 72px -20px rgba(10,16,22,.32),0 0 0 1px var(--line)}
+[data-radix-popper-content-wrapper]>*{border-radius:12px;box-shadow:var(--v9-sh2)}
+[data-sonner-toast]{border-radius:12px!important;box-shadow:var(--v9-sh2)!important}
+
+@media (prefers-reduced-motion:reduce){.page-head,.page-head~*{animation:none}*{transition-duration:.01ms!important}}
+.contribution-grid>*{min-height:0;gap:var(--space-3)}
+
+[data-motion="reduced"] .v9-launcher{animation:none}@media(prefers-reduced-motion:reduce){.v9-launcher{animation:none}}

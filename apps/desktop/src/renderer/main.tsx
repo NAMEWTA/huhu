@@ -1,4 +1,6 @@
 import "@huhu/ui/tokens.css";
+import "@huhu/ui/proto.css";
+import "@huhu/ui/components.css";
 import "@huhu/workbench/shell.css";
 import { applyAppearance } from "@huhu/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
@@ -100,7 +102,7 @@ function App() {
   }, [endpoint]);
 
   const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
-  const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} statusSlot={<NotificationBell />} />;
+  const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} statusSlot={<NotificationBell />} version="0.0.1" />;
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
   const withFilter = (
     <>
