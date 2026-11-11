@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -268,6 +268,10 @@ if (!gotLock) {
       if (!existsSync(f) || statSync(f).size > 4 * 1024 * 1024) return "";
       return readFileSync(f, "utf8");
     });
+    // 系统锁屏 / 休眠：立即锁定保险箱（W11.1）
+    const lockSafe = () => void supervisor?.callDesktop("safe.lock");
+    powerMonitor.on("lock-screen", lockSafe);
+    powerMonitor.on("suspend", lockSafe);
     createWindow();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

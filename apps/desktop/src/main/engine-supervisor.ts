@@ -125,6 +125,21 @@ export class EngineSupervisor {
 
   private readonly listeners = new Set<(s: EngineState) => void>();
 
+  /** 以桌面身份调用 Engine 能力（Main 自己的需要，如系统锁屏 / 休眠时锁定保险箱）；Engine 不可用时静默忽略。 */
+  async callDesktop(capability: string, input: unknown = {}): Promise<void> {
+    const ep = this.endpoint;
+    if (!ep) return;
+    try {
+      await fetch(`${ep.baseUrl}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability, input, requestId: `main-${Date.now().toString(36)}`, idempotencyKey: `main-${capability}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` }),
+      });
+    } catch {
+      // Engine 正在退出
+    }
+  }
+
   /** 等待 Engine 就绪后返回端点。 */
   whenReady(): Promise<EngineEndpoint> {
     if (this.endpoint) return Promise.resolve(this.endpoint);

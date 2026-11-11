@@ -66,19 +66,27 @@
 - Herdr Core 随包：已改用官方发布包（`scripts/herdr.lock.json` 锁定 0.1.19 与五个目标的 SHA-256；`scripts/fetch-herdr.mjs` 下载、校验、解压到 `apps/desktop/resources/herdr/<平台>-<架构>/`；`beforePack` 缺失即打包失败；CI/release 都先 fetch）。Linux 本机已验证：真实 Herdr 用例与 e2e 全跑、打包产物含 `herdr-core` 且 Engine 启动。**Windows/macOS 的解压（Windows 用 tar 解 zip）、打包与运行、`HUHU_HERDR_BIN` 在三平台 CI 上均未验证**；官方最新为 0.1.20，尚未评估升级。
 - 打包：`electron-builder --linux dir` 需关闭原生模块重编译才通过（`cpu-features` 在 Node 26 下编译失败，经 ssh2 引入）；无打包后的 E2E 子集；`release.yml` 从未在 GitHub 上运行。
 
-## 界面复刻进展（2026-11-11）
+## 当前状态（2026-11-12）
 
-- 样式：原型 CSS 原样放入 `packages/ui/src/styles/proto/`（按原型导入顺序，字体内联），`components.css` 只补原型缺失的类；`tokens.css` 与原型 `refinement.css` 令牌一致；`.oxfmtrc.json` 忽略这些文件与 `packages/editor/src/vendor/**`。
-- 外壳：窗口栏/图标栏/标签条/面包屑栏/命令面板/通知/状态栏、模块分区导航（`sections`/`nav`/`onNavigate`）、首页、健康中心、设置、能力网关、插件中心。
-- 已按原型重写的模块：任务、收件箱、档案、保险箱、笔记（含 Atomic Editor 引入：实时预览/源码/阅读/双栏、双链、表格预览、IME 保护；`R-09` 记入台账与第三方声明）、自动化（规则编辑对话框、监督进程 supervisor 化运行）、版本历史（ReviewDiff + 文件树，Git 页）、远程连接、Agent CLI（Space/终端/分屏/会话历史面板）。
-- 复用：Dialog/Segmented/DateTimePicker/ReviewDiff/ChangeFileTree/Popover/Toaster 等见 `@huhu/ui`；差异渲染用 `diff@9.0.0`。
-- 审计：四轮审计的阻塞项均已修复（菜单点击冒泡、编辑器滚动与正文宽度、保存串行化与离开落盘、外部改动提示、会话历史常驻、档案详情覆盖等）。
+上方表格是 2026-11-10 的后端基线，其中「UI 未做 / 未开始」类描述已过时。2026-11-11～12 完成：
 
-### 仍有缺口
+- **界面复刻**：外壳、首页、任务、知识库（Atomic Editor 引入）、收件箱、档案、保险箱、自动化、版本历史、远程连接、Agent CLI、健康中心、设置、能力网关、插件中心均按原型 v9 重写；原型 CSS 原样放入 `packages/ui/src/styles/proto/`（按原型导入顺序，字体内联），`components.css` 只补原型缺失的类。
+- **新增能力与模块**：
+  - 批注（`comments.*`、R-24 锚点复制、保存后 refind、改名/恢复/永久删除联动、详情面板与正文装饰）。
+  - 外部扩展（清单校验、权限确认、独立宿主进程、`plugin:<id>` 令牌、命令、卸载保留数据、崩溃隔离、本机信任绑定内容哈希）及三个示例扩展。
+  - Agent 指南维护（三份文件生成、状态判定、自动维护、备份恢复、设置·Agent 接入页、`huhu --skill`、`huhu guide status`）。
+  - 启动页与切换 Vault（Main 串行管理 Engine、示例 Vault、导入数据包、只读打开、本次运行最近列表）。
+  - MCP 资源 / 模板 / 提示词与网关 Tools / Resources / Templates / Prompts 子标签；测试台真实调用与调用记录。
+  - 快速捕获（`Mod+Shift+N`）、保险箱复制秘密值 30 秒清除与锁屏/休眠锁定、笔记文件夹重命名/移动/删除、回收站带走/恢复稳定 id、三方合并与草稿保留（ACC-KN-04/05）、非 Markdown 文件元信息卡片（ACC-KN-10）、版本同步脚本 / build-info / 按标签触发的 release 工作流。
+- **测试**：单元/集成 591 项通过；Playwright 新增 axe 无障碍、状态巡检、写作恢复工作流、打包后子集（`pnpm e2e:packaged`）；规模 Vault 基准（`pnpm bench`）。
+- **性能实测（Linux 开发机，2026-11-12）**：5,000 篇中文笔记全量索引 11.0 s（目标 ≤ 15 s）；全文检索均值 42 ms、p99 81 ms（目标 p95 ≤ 150 ms）。其余性能指标（冷启动、1 MiB 文档打开、输入延迟、终端吞吐、内存、8 小时 soak）**尚未测量**。
+- **审计**：共 7 轮独立审计，阻塞项均已修复；每轮的结论与修复见 git 历史。
 
-- 外部插件安装/宿主进程；编辑器批注/评论（W07）；DataTable/详情面板类通用组件。
-- 笔记：文件夹重命名/移动/删除 UI 与拖拽；切换笔记时编辑器整体重挂载（丢失每笔记的撤销历史与滚动位置）。
-- 能力网关缺 Tools/Resources 子标签；插件中心缺「打开/设置/已注册能力」。
-- SSH 在切换模块后丢失本地「已连接」状态（缺查询连接状态的能力）；保险箱凭据在主机保存失败时可能遗留。
-- 视觉：Agent CLI 评审面板（`agent-review*` 原型无 CSS）、自动化运行记录面板、笔记默认行号与工具栏换行与原型有差异；档案详情在 1440 以下按原型覆盖页头按钮。
-- Windows / macOS 三平台验证、CI 实跑、`release.yml` 实跑；宣布完成前需最终顾问复核。
+### 仍有缺口（0.0.1 之前需要处理或明确不做）
+
+- 三平台：只在 Linux 上验证；Windows / macOS 的 Herdr、CLI 安装脚本、打包、冒烟、`ci.yml` / `release.yml` 从未在 GitHub 上运行；三台实机手动验证未做。
+- 笔记：切换笔记时编辑器整体重挂载（丢失每笔记撤销历史与滚动位置）；拖放移动 / 外部拖入导入；文档标签条。
+- 档案：表格 / 卡片视图切换、导出、关联任务；任务：多处细节（见 W08）。
+- W19：状态巡检只覆盖水平滚动 / Engine 断开 / 插件停用，缺少 1.5× 缩放、只读 Vault 与逐模块空态断言；工作流 W-A（委派给 Agent）、W-C（远程脚本）未写；其余性能指标未测。
+- 视觉：Agent CLI 评审面板（原型 `agent-review*` 无 CSS）、自动化运行记录面板、笔记默认行号与工具栏换行与原型存在差异；沙箱曾阻止截图，逐页像素对照未完成。
+- 宣布完成前仍需最终 audit 与顾问复核。
