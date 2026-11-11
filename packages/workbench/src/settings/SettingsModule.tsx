@@ -195,7 +195,7 @@ function Appearance({ s, update }: PageProps) {
           <RangeField label={t.settings.navWidth} value={a.navWidth} min={176} max={300} step={4} onCommit={(n) => set({ navWidth: n })} />
         </div>
         <div className="row">
-          <Button variant="ghost" onClick={() => set({ theme: "pearl", mode: "system", fontSize: 14, motion: "system", navWidth: 260, compact: false })}>
+          <Button variant="ghost" onClick={() => set({ theme: "pearl", mode: "system", fontSize: 14, motion: "system", navWidth: 220, compact: false })}>
             {t.settings.reset}
           </Button>
         </div>

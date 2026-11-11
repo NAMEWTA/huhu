@@ -34,7 +34,7 @@ export function applyAppearance(root: HTMLElement, a: Partial<Record<keyof Appea
   root.dataset["mode"] = resolveMode(n.mode, prefersDark);
   root.dataset["motion"] = n.motion;
   root.style.setProperty("--font-size", `${n.fontSize}px`);
-  const nw = typeof a.navWidth === "number" && a.navWidth >= 200 && a.navWidth <= 360 ? Math.round(a.navWidth) : 260;
+  const nw = typeof a.navWidth === "number" && a.navWidth >= 176 && a.navWidth <= 300 ? Math.round(a.navWidth) : 220;
   root.style.setProperty("--sidebar-w", `${nw}px`);
   root.dataset["density"] = a.compact === true ? "compact" : "comfortable";
 }

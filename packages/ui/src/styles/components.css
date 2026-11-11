@@ -120,3 +120,7 @@ dialog.modal::backdrop {
 .tw-calendar-row {
   display: contents;
 }
+/* 模块页签条：1px 的高度差会让它出现竖向滚动条；原型里没有 */
+.module-local-tabs {
+  overflow-y: hidden;
+}

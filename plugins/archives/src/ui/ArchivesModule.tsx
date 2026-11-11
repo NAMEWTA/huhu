@@ -34,6 +34,7 @@ interface ArchiveType {
 /** 档案类型的图标与着色（原型：项目紫、联系人蓝、书籍绿、资产橙）；类型自带 icon 名，没有就用 # */
 const TYPE_MARK: Record<string, { Icon: typeof Hash; tone: string }> = {
   folder: { Icon: Folder, tone: "type-project" },
+  briefcase: { Icon: Folder, tone: "type-project" },
   users: { Icon: Users, tone: "type-person" },
   user: { Icon: Users, tone: "type-person" },
   book: { Icon: BookOpen, tone: "type-book" },

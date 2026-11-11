@@ -92,7 +92,7 @@ export const n = {
   words: (c: number) => `${c} 字`,
   lines: (c: number) => `${c} 行`,
   position: (l: number, c: number, s: number) => `行 ${l}，列 ${c}${s ? ` · 已选 ${s}` : ""}`,
-  props: { title: "文档详情", outline: "文档大纲", links: "文档关联", comments: "文档批注", history: "版本历史", tabs: { properties: "属性", outline: "大纲", links: "关联", comments: "批注", history: "历史" } },
+  props: { title: "文档详情", outline: "文档大纲", links: "文档关联", comments: "文档批注", history: "版本历史", tabs: { properties: "属性", outline: "大纲", comments: "批注", links: "关联", history: "历史" } },
   basic: "基本属性",
   fTitle: "标题",
   fFolder: "文件夹",

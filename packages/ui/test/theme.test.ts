@@ -69,15 +69,15 @@ describe("applyAppearance：导航宽度与紧凑布局", () => {
     const style = new Map<string, string>();
     return { dataset: {} as Record<string, string>, style: { setProperty: (k: string, v: string) => style.set(k, v) }, vars: style };
   };
-  test("navWidth 写入 --sidebar-w，compact 写入 data-density；非法宽度回退 260", async () => {
+  test("navWidth 写入 --sidebar-w，compact 写入 data-density；非法宽度回退 220", async () => {
     const { applyAppearance } = await import("../src/theme.js");
     const a = fake();
-    applyAppearance(a as never, { theme: "pearl", mode: "light", navWidth: 320, compact: true }, false);
-    expect(a.vars.get("--sidebar-w")).toBe("320px");
+    applyAppearance(a as never, { theme: "pearl", mode: "light", navWidth: 280, compact: true }, false);
+    expect(a.vars.get("--sidebar-w")).toBe("280px");
     expect(a.dataset["density"]).toBe("compact");
     const b = fake();
     applyAppearance(b as never, { theme: "pearl", mode: "light", navWidth: 9999 }, false);
-    expect(b.vars.get("--sidebar-w")).toBe("260px");
+    expect(b.vars.get("--sidebar-w")).toBe("220px");
     expect(b.dataset["density"]).toBe("comfortable");
   });
 });
