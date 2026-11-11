@@ -343,6 +343,7 @@ export function AgentCliModule() {
       {showHistory && space ? (
         <aside className="v9-history" aria-label="当前 Space 会话历史">
           <HistoryPanel
+            key={space.id} // 切换 Space 时历史面板重新挂载：搜索框与筛选被清空（ACC-AG-05）
             space={space}
             installed={new Set((providers.data ?? []).filter((p) => p.status === "found").map((p) => p.provider))}
             onResumed={(id) => {

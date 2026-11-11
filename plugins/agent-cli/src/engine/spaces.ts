@@ -83,7 +83,7 @@ export class SpaceStore {
   validateForLaunch(id: string, revision: number): Space {
     const s = this.list().find((x) => x.id === id);
     if (!s) throw new HuhuError("SPACE_INVALID", "Space 不存在");
-    if (s.revision !== revision) throw new HuhuError("SPACE_INVALID", "Space 配置已变化，请刷新后重试", { details: { currentRevision: s.revision } });
+    if (s.revision !== revision) throw new HuhuError("SPACE_INVALID", "Space 已变化，请重新选择", { details: { currentRevision: s.revision } });
     try {
       this.canonical(s.root);
     } catch {

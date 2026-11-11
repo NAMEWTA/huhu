@@ -108,7 +108,7 @@ describe("Space", () => {
     new SpaceStore(path.join(root, "spaces"), "other").save({ name: "他机", root: work });
     expect(new SpaceStore(path.join(root, "spaces"), "m1").list()).toEqual([]);
   });
-  test("启动校验：revision 变化 / 目录被删 → SPACE_INVALID", () => {
+  test("ACC-AG-03：启动校验：revision 变化 / 目录被删 → SPACE_INVALID", () => {
     const root = tmp();
     const work = tmp();
     const doomed = path.join(work, "gone");

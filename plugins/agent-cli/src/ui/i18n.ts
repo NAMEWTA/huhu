@@ -3,7 +3,7 @@ export const t = {
   spaces: "Spaces",
   newTerminal: "新终端",
   launch: "启动终端",
-  noProviders: "此主机未检测到 AI CLI，可先打开普通终端",
+  noProviders: "此主机未检测到支持的 CLI",
   sessions: "会话",
   noSessions: "还没有会话，点「新终端」开始",
   kill: "结束",
