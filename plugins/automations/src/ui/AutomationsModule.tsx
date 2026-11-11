@@ -1,6 +1,6 @@
 import { Badge, Button, Dialog, EmptyState, Field, IconButton } from "@huhu/ui";
-import { ArrowRight, FileText, History, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
-import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { ArrowRight, ArrowUpRight, FileText, History, List, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
+import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { t } from "./i18n.js";
 import { RuleEditor, type EditableRule } from "./RuleEditor.js";
@@ -32,7 +32,7 @@ interface Activation {
   summary?: unknown;
 }
 
-export function AutomationsModule() {
+export function AutomationsModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [nav, setNav] = useState<"rules" | "activations" | "runs" | "scripts">("rules");
@@ -84,6 +84,12 @@ export function AutomationsModule() {
           ))}
         </nav>
         <div className="tw-nav-bottom">
+          {onNavigate ? (
+            <Button variant="ghost" icon={List} data-testid="automations-open-tasks" onClick={() => onNavigate("tasks")}>
+              打开任务
+              <ArrowUpRight size={13} aria-hidden />
+            </Button>
+          ) : null}
           <p>
             扫描已有Agent任务
             <br />

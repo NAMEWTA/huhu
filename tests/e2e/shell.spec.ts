@@ -470,6 +470,32 @@ test("ACC-AG-08：有运行中的会话，退出 HUHU 再打开同一 Vault，�
   }
 });
 
+test("文档标签条：打开多篇笔记各有一个标签，点标签切换，关闭标签后切到相邻的一篇", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  writeFileSync(path.join(vault, "甲.md"), "# 甲\n");
+  writeFileSync(path.join(vault, "乙.md"), "# 乙\n");
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
+    await page.getByTestId("note-item").filter({ hasText: "乙" }).click();
+    const tabs = page.getByTestId("document-tab");
+    await expect(tabs).toHaveCount(2);
+    await expect(tabs.filter({ hasText: "乙" })).toHaveAttribute("aria-current", "page");
+    await tabs.filter({ hasText: "甲" }).click();
+    await expect(tabs.filter({ hasText: "甲" })).toHaveAttribute("aria-current", "page");
+    await page.getByRole("button", { name: "关闭 甲" }).click();
+    await expect(tabs).toHaveCount(1);
+    await expect(tabs.first()).toContainText("乙");
+    await expect(tabs.first()).toHaveAttribute("aria-current", "page");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

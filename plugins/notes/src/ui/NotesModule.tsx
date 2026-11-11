@@ -1,8 +1,8 @@
 import { Button, Dialog, EmptyState, Field } from "@huhu/ui";
 import type { MarkdownEditorHandle } from "@huhu/editor";
 import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { FileText, Plus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { FileText, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
 import { FileCard } from "./FileCard.js";
@@ -106,8 +106,21 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const selectedFile = fileRefs.find((f) => f.path === selected) ?? null;
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   /** 改名 / 移动之后，打开着的笔记路径跟着变（文件夹则按前缀）。 */
+  // 打开的文档标签（原型：编辑区上方的文档标签条）；文件已不存在（回收 / 永久删除 / 改名后）的标签自动消失
+  const [tabs, setTabs] = useState<string[]>([]);
+  useEffect(() => {
+    if (selected && section !== "trash") setTabs((t) => (t.includes(selected) ? t : [...t, selected]));
+  }, [selected, section]);
+  const alive = new Set([...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)]);
+  const visibleTabs = tabs.filter((p) => alive.has(p));
+  const closeTab = (p: string) => {
+    const i = visibleTabs.indexOf(p);
+    setTabs((t) => t.filter((x) => x !== p));
+    if (selected === p) setSelected(visibleTabs[i + 1] ?? visibleTabs[i - 1] ?? null);
+  };
   const remapSelected = (from: string, to: string) => {
     const re = (s: string) => (s === from ? to : s.startsWith(`${from}/`) ? `${to}${s.slice(from.length)}` : s);
+    setTabs((t) => t.map(re));
     setSelected((s) => (s === null ? s : re(s)));
     setExpanded((set) => new Set([...set].map(re)));
   };
@@ -164,6 +177,24 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onDailyDate={setDailyDate}
       />
       <div className="knowledge-main">
+        {section !== "trash" && visibleTabs.length > 0 ? (
+          <nav className="knowledge-document-tabs" aria-label="打开的文档" data-testid="document-tabs">
+            {visibleTabs.map((p) => {
+              const name = (p.split("/").at(-1) ?? p).replace(/\.md$/i, "");
+              return (
+                <div key={p} className={`knowledge-document-tab${p === selected ? " active" : ""}`}>
+                  <button type="button" aria-current={p === selected ? "page" : undefined} title={p} data-testid="document-tab" onClick={() => openNote(p)}>
+                    <FileText size={14} aria-hidden />
+                    <span>{name}</span>
+                  </button>
+                  <button type="button" title={`关闭 ${name}`} aria-label={`关闭 ${name}`} onClick={() => closeTab(p)}>
+                    <X size={12} aria-hidden />
+                  </button>
+                </div>
+              );
+            })}
+          </nav>
+        ) : null}
         {error ? (
           <div role="alert" className="field-error">
             {error}

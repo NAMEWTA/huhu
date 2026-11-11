@@ -1,5 +1,5 @@
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
-import { Activity, Cable, Fingerprint, Folder, KeyRound, LockKeyhole, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
+import { Activity, ArrowRight, Cable, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
 import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
 import { FilesPanel } from "./FilesPanel.js";
@@ -11,6 +11,8 @@ interface Host {
   host: string;
   port: number;
   user: string;
+  auth?: { kind: string; secretRef?: string };
+  jumpHostIds?: string[];
 }
 interface Shell {
   id: string;
@@ -280,25 +282,64 @@ export function SshModule() {
               ) : null}
             </div>
             <div className="execution-meta-grid">
-              <div>
-                <KeyRound size={16} aria-hidden />
-                <span>认证方式</span>
-                <strong>密码引用</strong>
-              </div>
-              <div>
-                <Network size={16} aria-hidden />
-                <span>连接路径</span>
-                <strong>直接连接</strong>
-              </div>
-              <div>
-                <ShieldCheck size={16} aria-hidden />
-                <span>主机信任</span>
-                <strong>{isConn ? "已保存信任" : "首次连接待确认"}</strong>
-              </div>
+              {[
+                { Icon: KeyRound, label: "认证方式", value: { key: "SSH 私钥", agent: "SSH Agent", password: "密码引用" }[host.auth?.kind ?? "password"] ?? "密码引用" },
+                { Icon: Network, label: "连接路径", value: (host.jumpHostIds ?? []).length > 0 ? "经跳板转发" : "直接连接" },
+                { Icon: ShieldCheck, label: "主机信任", value: isConn ? "已保存信任" : "首次连接待确认" },
+              ].map(({ Icon, label, value }) => (
+                <div key={label} className="execution-stat">
+                  <span className="muted small">
+                    <Icon size={13} aria-hidden /> {label}
+                  </span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
             </div>
+            <section className="card execution-connection-route" data-testid="ssh-route">
+              <div className="execution-section-heading">
+                <h3>连接路径</h3>
+                <span className="muted small">可视化跳板链</span>
+              </div>
+              <div className="execution-route">
+                <div>
+                  <Monitor size={22} aria-hidden />
+                  <strong>本地工作台</strong>
+                  <span>Desktop host</span>
+                </div>
+                <ArrowRight size={18} aria-hidden />
+                {(host.jumpHostIds ?? []).map((jid) => {
+                  const j = (hosts.data ?? []).find((x) => x.id === jid);
+                  return (
+                    <span key={jid} style={{ display: "contents" }}>
+                      <div>
+                        <Network size={22} aria-hidden />
+                        <strong>{j?.name ?? jid}</strong>
+                        <span>{j ? `${j.host} · Proxy jump` : "Proxy jump"}</span>
+                      </div>
+                      <ArrowRight size={18} aria-hidden />
+                    </span>
+                  );
+                })}
+                <div className="execution-route-target">
+                  <Server size={22} aria-hidden />
+                  <strong>{host.name}</strong>
+                  <span>
+                    {host.host}:{host.port}
+                  </span>
+                </div>
+              </div>
+            </section>
             <section className="card execution-connection-config">
               <h3>连接与安全</h3>
               <p className="muted small">密码只保存在保险箱；这里只保存 safe:// 引用，不保存明文凭证。</p>
+              <div className="execution-definition">
+                <span>凭证引用</span>
+                <code>{host.auth?.secretRef ?? "—"}</code>
+                <span>主机密钥</span>
+                <code>{isConn ? "已保存信任" : "尚未信任 · 首次连接时确认"}</code>
+                <span>会话策略</span>
+                <code>独立 PTY / Exec · 用户断开后撤销租约</code>
+              </div>
               <div className="row">
                 <span className="grow" />
                 <Button variant="danger" onClick={() => void engine.call("ssh.hosts.delete", { id: host.id }, { write: true }).then(() => (setSel(null), refresh()))}>

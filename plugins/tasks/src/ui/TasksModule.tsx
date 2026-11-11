@@ -1,7 +1,7 @@
 import type { TaskDto } from "@huhu/contracts";
 import { Button, EmptyState, IconButton, Segmented } from "@huhu/ui";
-import { queryKey, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { CalendarDays, CheckCircle2, Columns2, List, Plus, Search } from "lucide-react";
+import { queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { ArrowUpRight, CalendarDays, CheckCircle2, Columns2, List, Plus, Search, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { categoryCount, inCategory, todayIn, weekRange, type TaskCategory } from "../shared/categories.js";
 import { matchesQuery } from "../shared/search.js";
@@ -14,7 +14,7 @@ const CATEGORIES: TaskCategory[] = ["all", "today", "tomorrow", "week", "ended"]
 type View = "list" | "board" | "calendar";
 type EditorState = { mode: "new"; due?: string } | { mode: "edit"; task: TaskDto } | null;
 
-export function TasksModule() {
+export function TasksModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const { data, isLoading, error } = useCapability<TaskDto[]>("tasks.list", { category: "all" });
@@ -116,6 +116,12 @@ export function TasksModule() {
           ))}
         </nav>
         <div className="tw-nav-bottom">
+          {onNavigate ? (
+            <Button variant="ghost" icon={Workflow} data-testid="tasks-open-automations" onClick={() => onNavigate("automations")}>
+              自动化
+              <ArrowUpRight size={13} aria-hidden />
+            </Button>
+          ) : null}
           <p>
             {t.navHintA}
             <br />
