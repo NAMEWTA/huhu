@@ -1473,6 +1473,15 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
 
     await page.getByRole("switch", { name: "启用 MCP 服务" }).click();
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).mcp.enabled).toBe(true);
+    // MCP 的 Resources / Templates / Prompts 子标签
+    await page.getByRole("tab", { name: "Resources" }).click();
+    await expect(page.getByTestId("mcp-resources")).toContainText("huhu://notes/recent");
+    await page.getByRole("tab", { name: "Templates" }).click();
+    await expect(page.getByTestId("mcp-templates")).toContainText("huhu://notes/{id}");
+    await page.getByRole("tab", { name: "Prompts" }).click();
+    await expect(page.getByTestId("mcp-prompts")).toContainText("knowledge-synthesis");
+    await page.getByRole("tab", { name: "Tools" }).click();
+    await expect(page.getByTestId("cap-row").first()).toBeVisible();
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { Badge, Button, ChoiceSwitch, EmptyState, Field, PageHead, SearchBox } from "@huhu/ui";
+import { Badge, Button, ChoiceSwitch, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, Blocks, Code2, Command, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
@@ -17,6 +17,25 @@ interface Cap {
 }
 type Verdict = { found: boolean; identities: { identity: string; allowed: boolean; reason: string }[] };
 
+type McpTab = "tools" | "resources" | "templates" | "prompts";
+const MCP_TABS: { value: McpTab; label: string }[] = [
+  { value: "tools", label: "Tools" },
+  { value: "resources", label: "Resources" },
+  { value: "templates", label: "Templates" },
+  { value: "prompts", label: "Prompts" },
+];
+/** 随 MCP 服务固定提供的非工具条目（与 packages/kernel/src/mcp.ts 一致）；读取它们仍经同一授权。 */
+const MCP_STATIC: Record<Exclude<McpTab, "tools">, { name: string; desc: string; source: string }[]> = {
+  resources: [
+    { name: "huhu://vault/summary", desc: "Vault 概览（名称、ID、统计）", source: "vault.info" },
+    { name: "huhu://notes/recent", desc: "最近修改的 20 篇笔记", source: "vault.tree" },
+  ],
+  templates: [{ name: "huhu://notes/{id}", desc: "按笔记 ID 或相对路径读取 Markdown 正文", source: "notes.list · notes.read" }],
+  prompts: [
+    { name: "daily-review", desc: "回顾当天的笔记与任务，整理成每日复盘", source: "参数 date（可选）" },
+    { name: "knowledge-synthesis", desc: "围绕主题综合相关笔记并标注来源", source: "参数 topic（必填）" },
+  ],
+};
 const TITLE: Record<string, string> = { mcp: "HUHU MCP 服务", cli: "CLI 命令行", server: "服务端", desktop: "桌面宿主" };
 
 /** 能力网关（原型 Interfaces）：MCP / CLI / 服务端 / 桌面宿主四个分区。不可开放的能力（保险箱明文、Agent/SSH 执行）没有开关。 */
@@ -30,6 +49,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   const [name, setName] = useState("");
   const [fresh, setFresh] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mcpTab, setMcpTab] = useState<McpTab>("tools");
   const [bench, setBench] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
@@ -279,9 +299,34 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                 </div>
               </section>
               <div className="capabilities-toolbar">
-                <SearchBox value={filter} onChange={setFilter} placeholder={g.filter} />
+                <Segmented<McpTab> label="MCP 条目类型" value={mcpTab} onChange={setMcpTab} options={MCP_TABS} />
+                {mcpTab === "tools" ? <SearchBox value={filter} onChange={setFilter} placeholder={g.filter} /> : null}
               </div>
-              <section className="card">
+              {mcpTab !== "tools" ? (
+                <section className="card" data-testid={`mcp-${mcpTab}`}>
+                  <table className="table capability-table">
+                    <thead>
+                      <tr>
+                        <th>名称</th>
+                        <th>说明</th>
+                        <th>来源</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {MCP_STATIC[mcpTab].map((r) => (
+                        <tr key={r.name}>
+                          <td>
+                            <code>{r.name}</code>
+                          </td>
+                          <td>{r.desc}</td>
+                          <td className="small muted">{r.source}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+              ) : null}
+              <section className="card" hidden={mcpTab !== "tools"}>
                 <table className="table capability-table">
                   <thead>
                     <tr>

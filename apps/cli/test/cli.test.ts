@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { boot, type RunningEngine } from "@huhu/engine";
 import { Vault } from "@huhu/vault";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { run } from "../src/main.js";
 
 const dirs: string[] = [];
@@ -151,6 +151,20 @@ describe("CLI", () => {
     expect(JSON.parse((cap.content as { text: string }[])[0]?.text ?? "{}").source).toBe("mcp"); // 身份来自令牌，输入里的 source 被忽略
     const res = await client.readResource({ uri: "huhu://vault/summary" });
     expect(JSON.parse((res.contents[0] as { text: string }).text)).toMatchObject({ id: e.vault.id });
+    // 最近笔记、笔记模板与提示词（ACC-PL-05：资源/模板/提示词都经同一授权）
+    writeFileSync(path.join(dir, "最近.md"), "# 最近\n\n正文内容\n");
+    await vi.waitFor(async () => {
+      const recent = JSON.parse(((await client.readResource({ uri: "huhu://notes/recent" })).contents[0] as { text: string }).text) as { path: string }[];
+      expect(recent.map((r) => r.path)).toContain("最近.md");
+    });
+    const tpl = await client.listResourceTemplates();
+    expect(tpl.resourceTemplates.map((t) => t.uriTemplate)).toContain("huhu://notes/{id}");
+    const byPath = await client.readResource({ uri: `huhu://notes/${encodeURIComponent("最近.md")}` });
+    expect((byPath.contents[0] as { text: string }).text).toContain("正文内容");
+    expect((await client.listPrompts()).prompts.map((p) => p.name)).toEqual(expect.arrayContaining(["daily-review", "knowledge-synthesis"]));
+    const prompt = await client.getPrompt({ name: "knowledge-synthesis", arguments: { topic: "发布" } });
+    expect(JSON.stringify(prompt.messages)).toContain("发布");
+    await expect(client.getPrompt({ name: "knowledge-synthesis", arguments: {} })).rejects.toThrow();
     await client.close();
   });
 });
