@@ -13,6 +13,7 @@ const PluginInfo = z.object({
   error: z.string().optional(),
   dependsOn: z.array(z.string()),
   permissions: z.array(z.string()),
+  contributes: z.object({ modules: z.array(z.string()), settingsPages: z.array(z.string()), capabilities: z.array(z.string()) }),
 });
 
 /** 注册内核的插件与能力目录能力（interfaces.md §2：plugins.*、capabilities.list）。 */
@@ -51,6 +52,7 @@ export function registerSystemCapabilities(
             ...(p.error ? { error: p.error } : {}),
             dependsOn: p.manifest.dependsOn,
             permissions: p.manifest.permissions,
+            contributes: { modules: p.manifest.contributes.modules, settingsPages: p.manifest.contributes.settingsPages, capabilities: p.manifest.contributes.capabilities },
           })),
       }),
     ),

@@ -435,6 +435,8 @@ test("插件中心：停用知识库后 rail 项消失，依赖提示；重启�
     await expect(page.getByRole("button", { name: "知识库" }).first()).toBeVisible();
     await page.getByRole("button", { name: "插件中心" }).first().click();
     await page.locator('[data-plugin="notes"]').click();
+    await expect(page.getByTestId("plugin-capabilities")).toContainText("notes.create"); // 已注册能力
+    await expect(page.getByTestId("plugin-open")).toBeVisible();
     await page.getByRole("switch", { name: "停用 知识库" }).click();
     await expect(page.getByRole("button", { name: "知识库", exact: true })).toHaveCount(0, { timeout: 5000 });
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).builtin.notes).toEqual({ enabled: false });

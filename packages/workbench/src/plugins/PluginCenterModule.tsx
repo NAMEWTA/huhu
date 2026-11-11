@@ -1,5 +1,5 @@
 import { Badge, Button, ChoiceSwitch, Dialog, EmptyState, PageHead, SearchBox, Segmented } from "@huhu/ui";
-import { Blocks, Command, Info, Lock, Monitor, PackageOpen, Plug, RefreshCw, ShieldCheck } from "lucide-react";
+import { Blocks, Command, ExternalLink, Info, Lock, Monitor, PackageOpen, Plug, RefreshCw, Settings as SettingsIcon, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
@@ -15,6 +15,7 @@ interface PluginInfo {
   error?: string;
   dependsOn: string[];
   permissions: string[];
+  contributes?: { modules: string[]; settingsPages: string[]; capabilities: string[] };
 }
 type Filter = "all" | "enabled" | "disabled";
 
@@ -22,7 +23,7 @@ const TITLE: Record<string, string> = { installed: "插件中心", discover: "�
 const tone = (s: PluginInfo["state"]) => (s === "failed" ? "danger" : s === "active" ? "success" : "neutral");
 
 /** 插件中心（原型 PluginCenterV3）：左侧资源列表（内置 / 外部）+ 详情；运行时与权限清单。启用 / 停用走统一生命周期，停用前列出会被一并停用的插件。 */
-export function PluginCenterModule({ section }: ModuleProps) {
+export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const list = useCapability<PluginInfo[]>("plugins.list", {});
@@ -275,6 +276,16 @@ export function PluginCenterModule({ section }: ModuleProps) {
                     <ChoiceSwitch checked={current.state === "active"} disabled={busy} label={`${current.state === "active" ? t.plugins.disable : t.plugins.enable} ${current.title}`} onChange={(on) => toggle(current, on)} />
                   </div>
                   <div className="plugin-detail-actions">
+                    {current.state === "active" && (current.contributes?.modules.length ?? 0) > 0 && onNavigate ? (
+                      <Button icon={ExternalLink} data-testid="plugin-open" onClick={() => onNavigate(current.contributes!.modules[0]!)}>
+                        打开
+                      </Button>
+                    ) : null}
+                    {current.state === "active" && (current.contributes?.settingsPages.length ?? 0) > 0 && onNavigate ? (
+                      <Button icon={SettingsIcon} data-testid="plugin-settings" onClick={() => onNavigate("settings")}>
+                        设置
+                      </Button>
+                    ) : null}
                     <div className="grow" />
                     {current.origin === "builtin" ? (
                       <span className="plugin-bundled-note">
@@ -309,6 +320,10 @@ export function PluginCenterModule({ section }: ModuleProps) {
                           <small>受控应用服务</small>
                         </div>
                       </div>
+                    </div>
+                    <div data-testid="plugin-capabilities">
+                      <h3>已注册能力 · {current.contributes?.capabilities.length ?? 0}</h3>
+                      <div className="permission-tags">{(current.contributes?.capabilities ?? []).length ? current.contributes!.capabilities.map((c) => <code key={c}>{c}</code>) : <span className="muted">无</span>}</div>
                     </div>
                     <div className="field-grid">
                       <div>
