@@ -2,6 +2,9 @@ import type { ComponentType, ReactNode } from "react";
 
 export type RailGroup = "primary" | "execution" | "system";
 
+/** rail 分组的显示顺序（不是字母序）：主功能 → 执行 → 系统。 */
+const GROUP_RANK: Record<RailGroup, number> = { primary: 0, execution: 1, system: 2 };
+
 export interface ModuleProps {
   /** 当前分区 id（模块没有 sections 时为空串）。 */
   section: string;
@@ -84,7 +87,7 @@ export class ContributionRegistry {
   /** 稳定引用的快照（useSyncExternalStore 要求未变化时返回同一对象）。 */
   getSnapshot = (): { modules: ModuleContribution[]; commands: CommandContribution[] } => {
     this.snapshotCache ??= {
-      modules: [...this.modules.values()].filter((m) => this.visible(m.plugin)).sort((a, b) => a.group.localeCompare(b.group) || a.order - b.order),
+      modules: [...this.modules.values()].filter((m) => this.visible(m.plugin)).sort((a, b) => GROUP_RANK[a.group] - GROUP_RANK[b.group] || a.order - b.order),
       commands: [...this.commands.values()].filter((c) => this.visible(c.plugin)),
     };
     return this.snapshotCache;

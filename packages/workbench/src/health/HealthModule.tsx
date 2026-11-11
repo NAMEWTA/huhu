@@ -99,7 +99,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
             </>
           }
         />
-        <div className="system-scroll scroll">
+        <div className="system-scroll scroll" tabIndex={0} role="region" aria-label="健康中心内容">
           {section === "notifications" ? (
             <section className="card">
               <div className="card-head">

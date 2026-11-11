@@ -80,10 +80,24 @@ export function NoteDocument(props: NoteDocumentProps) {
   useEngineEvents((e) => {
     if (e.type !== "vault.fileChanged") return;
     const p = e.payload as { path?: string; change?: string };
-    if (p.path !== path || p.change !== "modified") return;
+    if (p.path !== path || p.change === "deleted") return;
     if (savedText.current !== null && latest.current.text === savedText.current && stateRef.current !== "saving") void load();
     else if (stateRef.current !== "saving") setState("conflict");
   });
+  // 有未保存编辑时兜底轮询磁盘版本（文件事件偶尔迟到 / 丢失）：版本变了就进入冲突状态，让“合并”可用
+  useEffect(() => {
+    if (state !== "dirty") return;
+    const id = setInterval(() => {
+      if (stateRef.current !== "dirty") return;
+      void engine
+        .call<NoteFile>("notes.read", { path })
+        .then((f) => {
+          if (stateRef.current === "dirty" && f.version !== latest.current.version && f.text !== latest.current.text) setState("conflict");
+        })
+        .catch(() => undefined);
+    }, 2500);
+    return () => clearInterval(id);
+  }, [state, engine, path]);
   const [flushError, setFlushError] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ text: string; baseVersion: string; savedAt: string } | null>(null);
   const autosaveRef = useRef(true);
@@ -310,10 +324,14 @@ export function NoteDocument(props: NoteDocumentProps) {
                 data-testid="note-draft-restore"
                 onClick={() => {
                   latest.current.text = draft.text;
+                  // 草稿之后磁盘被外部改过：沿用草稿的基线版本，保存时会走冲突流程（合并 / 载入），而不是静默覆盖外部改动
+                  if (draft.baseVersion !== latest.current.version) latest.current.version = draft.baseVersion;
                   setText(draft.text);
                   onText(draft.text);
                   setState("dirty");
                   setDraft(null);
+                  if (timer.current) clearTimeout(timer.current);
+                  if (ed?.autosave !== false) timer.current = setTimeout(() => void save(), AUTOSAVE_MS);
                 }}
               >
                 {n.restoreDraft}

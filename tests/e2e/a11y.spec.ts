@@ -9,7 +9,7 @@ const MODULES = ["工作台", "任务", "知识库", "收件箱", "档案", "保
 async function violations(page: Page): Promise<string[]> {
   await page.evaluate(axe.source);
   const found = await page.evaluate(async () => {
-    const run = (window as unknown as { axe: { run(ctx: Document, opts: unknown): Promise<{ violations: { id: string; impact: string | null; nodes: { target: unknown[] }[] }[] }> } }).axe.run;
+    const run = (window as unknown as { axe: { run(ctx: Document, opts: unknown): Promise<{ violations: { id: string; impact: string | null; nodes: { target: unknown[]; html: string; any: { message: string }[] }[] }[] }> } }).axe.run;
     const r = await run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] } });
     return r.violations
       .filter((v) => v.impact === "serious" || v.impact === "critical")

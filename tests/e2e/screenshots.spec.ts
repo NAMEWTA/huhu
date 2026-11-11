@@ -24,7 +24,8 @@ for (const size of [
       for (const name of MODULES) {
         const rail = page.getByRole("button", { name, exact: true }).first();
         if ((await rail.count()) === 0) continue;
-        await rail.click();
+        // 点击已激活的模块会收起 / 展开侧栏（预期行为）：首页已经是当前模块，不再点
+        if (name !== "工作台") await rail.click();
         await page.waitForTimeout(500);
         await page.screenshot({ path: path.join(DIR!, `${size.width}-${name}.png`) });
       }

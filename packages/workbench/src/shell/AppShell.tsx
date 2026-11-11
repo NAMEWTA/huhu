@@ -148,14 +148,14 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
             ) : null}
             <main className="main-shell">
               <div className="tab-strip">
-                <div className="tab-list" role="tablist">
+                <nav className="tab-list" aria-label="已打开的功能">
                   {s.openTabs.map((id) => {
                     const m = modules.find((x) => x.id === id);
                     if (!m) return null;
                     const on = id === s.activeModule;
                     return (
                       <div key={id} className={`workspace-tab${on ? " active" : ""}`}>
-                        <button type="button" role="tab" aria-selected={on} tabIndex={on ? 0 : -1} onClick={() => s.openModule(id)}>
+                        <button type="button" aria-current={on ? "page" : undefined} onClick={() => s.openModule(id)}>
                           {m.icon}
                           <span>{m.title}</span>
                         </button>
@@ -168,7 +168,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                     );
                   })}
                   <IconButton icon={Plus} label="打开功能标签" onClick={() => s.setPaletteOpen(true)} />
-                </div>
+                </nav>
                 <div className="tab-tools">
                   <IconButton icon={s.sidebarCollapsed ? PanelLeftOpen : PanelLeftClose} disabled={!shellNav} label={!shellNav ? "当前页面无需侧栏" : s.sidebarCollapsed ? "展开导航" : "收起导航"} onClick={() => s.toggleSidebar()} />
                   <IconButton icon={s.focusMode ? Minimize2 : Maximize2} label={s.focusMode ? "退出专注模式" : "专注模式"} onClick={() => s.setFocusMode(!s.focusMode)} />
