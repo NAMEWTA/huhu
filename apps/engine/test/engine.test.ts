@@ -210,6 +210,50 @@ describe("Engine 启动与关闭", () => {
       delete process.env["HUHU_HERDR_BIN"];
     }
   }, 60_000);
+  test.skipIf(!existsSync(REAL_HERDR))("ACC-AG-10：变更审查——真实 Git 仓库的差异、审查意见经真实 Herdr Core 写进会话终端并标记已发送", async () => {
+    process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
+    const { execFileSync } = await import("node:child_process");
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+    const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
+    const { machineId } = await import("@huhu/vault");
+    const core = new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") });
+    try {
+      const sp = (await call("agent.spaces.list", {})).data[0] as { id: string; revision: number };
+      expect((await call("agent.review.diff", { spaceId: sp.id })).data).toMatchObject({ isRepo: false, files: [] }); // 还不是仓库
+      execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+      writeFileSync(path.join(dir, "审查笔记.md"), "第一行\n第二行\n");
+      const diff = (await call("agent.review.diff", { spaceId: sp.id })).data;
+      expect(diff.isRepo).toBe(true);
+      expect(diff.files.find((f: { path: string }) => f.path === "审查笔记.md")).toMatchObject({ status: "untracked", additions: 2 });
+
+      const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-review-1" })).data as { id: string; terminalId: string };
+      expect((await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 2, text: "REVIEWMARK 第二行需要补充来源" })).ok).toBe(true);
+      const sent = await call("agent.review.send", { sessionId: s.id });
+      expect(sent.data.sent).toBe(1);
+      expect((await call("agent.review.comments", { sessionId: s.id })).data[0].sentAt).not.toBeNull();
+      const client = await core.ensure();
+      let seen = "";
+      for (let i = 0; i < 40 && !seen.includes("REVIEWMARK"); i++) {
+        seen = JSON.stringify(await client.call("terminal.read", { terminal: s.terminalId, lines: 50 }));
+        if (!seen.includes("REVIEWMARK")) await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(seen).toContain("REVIEWMARK"); // 终端里收到了意见文本
+      expect(seen).toContain("审查笔记.md");
+      expect((await call("agent.sessions.kill", { id: s.id })).ok).toBe(true);
+      // 会话结束后再发：给出恢复会话的提示，意见保持未发送
+      await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 1, text: "结束后的意见" });
+      const late = await call("agent.review.send", { sessionId: s.id });
+      expect(late.ok).toBe(false); // 终端已被结束：Core 明确拒绝
+      expect(["INVALID_INPUT", "INTERNAL", "HERDR_UNAVAILABLE"]).toContain(late.error?.code);
+      expect((await call("agent.review.comments", { sessionId: s.id })).data.find((x: { text: string }) => x.text === "结束后的意见").sentAt).toBeNull(); // 保持未发送
+    } finally {
+      await core.stop();
+      delete process.env["HUHU_HERDR_BIN"];
+    }
+  }, 90_000);
   test("automations：内置规则、预览无副作用、立即运行用假 CLI 处理 Agent 任务，再次运行不重复，Task 仍未完成", async () => {
     const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
     const bin = tmp();

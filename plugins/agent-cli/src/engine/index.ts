@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import { HerdrCore } from "./herdr-core.js";
 import { isValidNativeId, scanHistory } from "./history/scanner.js";
+import { reviewDiff } from "./review.js";
 import { ProviderDetector } from "./providers/index.js";
 import { SessionsService } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
@@ -108,6 +109,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       return sessions.launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd }).finally(() => resuming.delete(key));
     },
   }));
+  // ---- 变更审查（git diff HEAD + 审查意见，意见经 terminal.send 写回会话）----
+  const Line = z.object({ kind: z.enum(["ctx", "add", "del"]), oldLine: z.number().nullable(), newLine: z.number().nullable(), text: z.string(), noNewline: z.boolean().optional() });
+  const Hunk = z.object({ header: z.string(), oldStart: z.number(), oldLines: z.number(), newStart: z.number(), newLines: z.number(), lines: z.array(Line) });
+  const ReviewFile = z.object({ path: z.string(), oldPath: z.string().nullable(), status: z.enum(["added", "modified", "deleted", "renamed", "untracked"]), binary: z.boolean(), additions: z.number(), deletions: z.number(), tooLarge: z.boolean(), hunks: z.array(Hunk) });
+  const Comment = z.object({ id: z.string(), path: z.string(), side: z.enum(["old", "new"]), line: z.number(), text: z.string(), createdAt: z.string(), sentAt: z.string().nullable(), sending: z.boolean().optional() });
+  const SessionId = z.object({ sessionId: z.string() });
+  api.defineCapability(def({ name: "agent.review.diff", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, timeoutMs: 60_000, input: z.object({ spaceId: z.string() }), output: z.object({ isRepo: z.boolean(), hasHead: z.boolean(), truncated: z.boolean(), files: z.array(ReviewFile) }), handler: (_c, i) => reviewDiff(spaceOf(i.spaceId).root) }));
+  api.defineCapability(def({ name: "agent.review.comments", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: SessionId, output: z.array(Comment), handler: (_c, i) => sessions.comments(i.sessionId) }));
+  api.defineCapability(def({ name: "agent.review.comment.add", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: SessionId.extend({ path: z.string(), side: z.enum(["old", "new"]), line: z.number().int(), text: z.string() }), output: Comment, handler: (_c, i) => sessions.addComment(i.sessionId, { path: i.path, side: i.side, line: i.line, text: i.text }) }));
+  api.defineCapability(def({ name: "agent.review.comment.delete", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: SessionId.extend({ commentId: z.string() }), output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (sessions.deleteComment(i.sessionId, i.commentId), { ok: true as const }) }));
+  api.defineCapability(def({ name: "agent.review.send", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, timeoutMs: 90_000, input: SessionId.extend({ commentIds: z.array(z.string()).optional(), dryRun: z.boolean().default(false) }), output: z.object({ sent: z.number(), text: z.string() }), handler: (_c, i) => sessions.sendComments(i.sessionId, i.commentIds, i.dryRun) }));
   api.provide("agentCli", { spaces, detector });
   api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core }));
   return { spaces, detector, sessions, core };

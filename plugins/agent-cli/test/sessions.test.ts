@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { HerdrClient } from "@huhu/herdr-client";
+import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import { ProviderDetector } from "../src/engine/providers/index.js";
 import { SessionsService } from "../src/engine/sessions.js";
@@ -12,13 +12,15 @@ const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-ss-")); dirs.push(d); return d; };
 
-function fakeClient(opts: { failRun?: "throw-after-create" | "throw" } = {}) {
+function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean } = {}) {
   const terminals: { address: string; labels: Record<string, string> }[] = [];
   const calls: string[] = [];
   const runs: { argv?: string[]; cwd?: string }[] = [];
+  const sends: { terminal?: string; text?: string }[] = [];
   const client = {
-    call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string }) => {
+    call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string }) => {
       calls.push(method);
+      if (method === "terminal.send") { if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } }); if (opts.failSendTransport) throw new Error("timeout");  sends.push({ terminal: params.terminal as string, text: params.text as string }); return {}; }
       if (method === "terminal.run") {
         runs.push({ ...(params.argv ? { argv: params.argv } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) });
         const t = { address: `t${terminals.length + 1}`, labels: params.labels ?? {} };
@@ -31,7 +33,7 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw" } = {}) {
       return {};
     },
   } as unknown as HerdrClient;
-  return { client, calls, terminals, runs };
+  return { client, calls, terminals, runs, sends };
 }
 
 function setup(client: HerdrClient) {
@@ -43,6 +45,115 @@ function setup(client: HerdrClient) {
   return { svc, space, work };
 }
 const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({ spaceId: space.id, spaceRevision: space.revision, provider: "shell" as const, requestId: `req-${Math.random().toString(36).slice(2)}`, ...over });
+
+describe("变更审查意见", () => {
+  test("添加/删除/校验；发送：格式为“文件:新|旧行 — 意见”，成功后才标记已发送，只发未发送的", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    const a = svc.addComment(s.id, { path: "src/a.md", side: "new", line: 12, text: "这里\n需要处理空值" });
+    svc.addComment(s.id, { path: "b.md", side: "old", line: 3, text: "旧逻辑为什么删了？" });
+    expect(a.text).toBe("这里 需要处理空值"); // 换行压缩
+    expect(() => svc.addComment(s.id, { path: "../x", side: "new", line: 1, text: "x" })).toThrow();
+    expect(() => svc.addComment(s.id, { path: "/abs", side: "new", line: 1, text: "x" })).toThrow();
+    expect(() => svc.addComment(s.id, { path: "a", side: "new", line: 0, text: "x" })).toThrow();
+    expect(() => svc.addComment(s.id, { path: "a", side: "new", line: 1, text: "  " })).toThrow();
+    expect(() => svc.addComment(s.id, { path: "a", side: "new", line: 1, text: "长".repeat(2001) })).toThrow();
+    const r = await svc.sendComments(s.id);
+    expect(r.sent).toBe(2);
+    expect(f.sends).toHaveLength(1);
+    expect(f.sends[0]).toMatchObject({ terminal: s.terminalId, text: "请根据以下审查意见继续工作：\nsrc/a.md:新12 — 这里 需要处理空值\nb.md:旧3 — 旧逻辑为什么删了？" });
+    expect(svc.comments(s.id).every((c) => c.sentAt !== null && !c.sending)).toBe(true);
+    await expect(svc.sendComments(s.id)).rejects.toMatchObject({ code: "INVALID_INPUT" }); // 没有待发送的
+    const c = svc.addComment(s.id, { path: "c.md", side: "new", line: 1, text: "新增的" });
+    expect((await svc.sendComments(s.id)).sent).toBe(1); // 只发新增的
+    expect(f.sends[1]!.text).not.toContain("src/a.md");
+    svc.deleteComment(s.id, c.id);
+    expect(svc.comments(s.id)).toHaveLength(2);
+    expect(() => svc.deleteComment(s.id, "rc-none")).toThrow();
+  });
+  test("发送失败：意见保持未发送且不留“发送中”；终端已不存在 → 提示恢复会话；会话没在运行 → 拒绝", async () => {
+    const f = fakeClient({ failSend: "terminal not found" });
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    await expect(svc.sendComments(s.id)).rejects.toThrow(/恢复会话/);
+    expect(svc.comments(s.id)[0]).toMatchObject({ sentAt: null });
+    expect(svc.comments(s.id)[0]!.sending).toBeUndefined();
+    const g = fakeClient({ failRun: "throw" });
+    const other = setup(g.client);
+    const failed = await other.svc.launch(req(other.space)).catch(() => null);
+    expect(failed).toBeNull();
+    const rec = other.svc.list(other.space.id)[0]!;
+    other.svc.addComment(rec.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    await expect(other.svc.sendComments(rec.id)).rejects.toThrow(/恢复会话/); // 状态 failed：没有运行中的会话
+  });
+  test("路径里的控制字符被拒绝；写进终端的路径把 shell 元字符换成 _；dryRun 只预览不发送、不改状态", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    expect(() => svc.addComment(s.id, { path: "a\nrm -rf ~", side: "new", line: 1, text: "x" })).toThrow();
+    expect(() => svc.addComment(s.id, { path: "a\u0085b", side: "new", line: 1, text: "x" })).toThrow();
+    svc.addComment(s.id, { path: "笔记/a.md;echo INJECT $(id) `x` | y", side: "new", line: 2, text: "注意" });
+    const dry = await svc.sendComments(s.id, undefined, true);
+    expect(dry.sent).toBe(0);
+    expect(dry.text).toBe("请根据以下审查意见继续工作：\n笔记/a.md_echo INJECT __id_ _x_ _ y:新2 — 注意");
+    expect(f.sends).toHaveLength(0);
+    expect(svc.comments(s.id)[0]).toMatchObject({ sentAt: null });
+    await svc.sendComments(s.id);
+    expect(f.sends[0]!.text).toBe(dry.text);
+  });
+  test("已发送的意见不能通过显式 ids 再发；传输层错误（超时/断开）保留“发送状态未知”，Core 明确拒绝则清除", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    const c = svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    await svc.sendComments(s.id);
+    await expect(svc.sendComments(s.id, [c.id])).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(f.sends).toHaveLength(1);
+    const g = fakeClient({ failSendTransport: true });
+    const o = setup(g.client);
+    const os = await o.svc.launch(req(o.space));
+    const oc = o.svc.addComment(os.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    await expect(o.svc.sendComments(os.id)).rejects.toThrow(/发送结果未知/);
+    expect(o.svc.comments(os.id)[0]).toMatchObject({ id: oc.id, sentAt: null, sending: true });
+    await expect(o.svc.sendComments(os.id)).rejects.toMatchObject({ code: "INVALID_INPUT" }); // 默认不会自动重发
+  });
+  test("损坏的会话记录不拖垮列表", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    await svc.launch(req(space));
+    const dir = (svc as unknown as { d: { dir: string } }).d.dir;
+    writeFileSync(path.join(dir, "sess-broken.json"), "{坏的");
+    expect(svc.list(space.id)).toHaveLength(1);
+  });
+  test("意见正文里的 C0/C1 控制字符被替换成空格（不会作为转义序列进入终端）", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    const c = svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "前\u001b[31m红\u009b后\u0007" });
+    expect(c.text).toBe("前 [31m红 后");
+  });
+  test("并发发送同一会话：第二次被拒绝，不会重复写入终端", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    const [a, b] = await Promise.allSettled([svc.sendComments(s.id), svc.sendComments(s.id)]);
+    expect([a.status, b.status].sort()).toEqual(["fulfilled", "rejected"]);
+    expect(f.sends).toHaveLength(1);
+  });
+  test("上一次发送中断（记录里停留在发送中）：默认不重发，需要明确选择", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const s = await svc.launch(req(space));
+    const c = svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    const rec = svc.get(s.id);
+    (svc as unknown as { save(r: unknown): void }).save({ ...rec, reviewComments: [{ ...c, sending: true }] });
+    await expect(svc.sendComments(s.id)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect((await svc.sendComments(s.id, [c.id])).sent).toBe(1);
+  });
+});
 
 describe("恢复历史会话", () => {
   test("claude：argv 为 --resume <id>，在原会话的子目录启动，记录保存原生 id", async () => {

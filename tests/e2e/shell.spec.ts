@@ -807,6 +807,47 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
   }
 });
 
+test("Agent CLI 变更审查（ACC-AG-10）：显示工作树差异，在行上加意见，发送后会话终端收到文本并标记已发送；非 Git 目录给出说明", async () => {
+  test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+
+    await page.getByTestId("agent-review-toggle").click();
+    await expect(page.getByTestId("review-panel")).toContainText("不是 Git 仓库"); // Vault 目录还不是仓库
+
+    execFileSync("git", ["-C", vault, "init", "-q", "-b", "main"]);
+    writeFileSync(path.join(vault, "审查.md"), "第一行\n第二行\n第三行\n");
+    await page.getByTestId("agent-review-toggle").click(); // 关闭再打开：重新读取差异
+    await page.getByTestId("agent-review-toggle").click();
+    await expect(page.getByTestId("review-file").filter({ hasText: "审查.md" })).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("review-file").filter({ hasText: "审查.md" }).click();
+    await expect(page.getByTestId("diff-line")).toHaveCount(3);
+    await page.getByRole("button", { name: "在 审查.md 的新第 2 行添加意见" }).click();
+    await page.getByTestId("review-comment-input").fill("E2EREVIEW 第二行请补充来源");
+    await page.getByTestId("review-comment-save").click();
+    await expect(page.getByTestId("review-comment")).toContainText("待发送");
+    await page.getByTestId("review-send").click();
+    await expect(page.getByTestId("review-confirm")).toBeVisible(); // 先预览，确认后才发送
+    await expect(page.getByTestId("review-shell-warning")).toBeVisible(); // shell 会话会把文字当命令执行
+    await expect(page.getByTestId("review-preview")).toContainText("审查.md:新2 — E2EREVIEW");
+    await page.getByTestId("review-confirm-yes").click();
+    await expect(page.getByTestId("review-comment")).toContainText("已发送", { timeout: 10_000 });
+    await expect(page.locator(".xterm-rows")).toContainText("E2EREVIEW", { timeout: 10_000 }); // 终端收到了意见文本
+    await expect(page.getByTestId("review-send")).toBeDisabled(); // 没有待发送的了
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲突 → 界面逐块解决并推送", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const remote = mkdtempSync(path.join(tmpdir(), "huhu-e2e-remote-"));

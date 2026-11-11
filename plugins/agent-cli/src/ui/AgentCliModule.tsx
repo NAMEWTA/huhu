@@ -2,6 +2,7 @@ import { Badge, Button, EmptyState, TerminalView } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
+import { ReviewPanel } from "./ReviewPanel.js";
 import { t } from "./i18n.js";
 
 interface Space { id: string; name: string; root: string; revision: number }
@@ -16,6 +17,7 @@ export function AgentCliModule() {
   const [active, setActive] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
   const sessions = useCapability<Session[]>("agent.sessions.list", space ? { spaceId: space.id } : {});
@@ -87,10 +89,12 @@ export function AgentCliModule() {
             <div className="hu-form">
               <Button onClick={() => void act("agent.sessions.interrupt", cur.id)}>{t.interrupt}</Button>
               <Button variant="danger" onClick={() => void act("agent.sessions.kill", cur.id)}>{t.kill}</Button>
+              <Button aria-expanded={showReview} data-testid="agent-review-toggle" onClick={() => setShowReview(!showReview)}>{showReview ? t.review.close : t.review.open}</Button>
             </div>
             <TerminalView key={cur.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={cur.id} ariaLabel={t.terminalLabel} />
           </div>
         ) : cur ? <EmptyState title={cur.error ?? t.failed} /> : list.length > 0 ? <EmptyState title={t.selectSession} /> : null}
+        {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
       </section>
     </div>
   );
