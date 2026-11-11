@@ -104,7 +104,7 @@ describe("数据包", () => {
     ["缺 vault.json", () => evilZip({ "a.md": "1" }), /缺少 \.huhu\/vault\.json/],
   ];
   for (const [name, make, msg] of cases) {
-    test(`恶意包被拒且不留文件：${name}`, () => {
+    test(`ACC-WB-04：恶意包被拒且不留文件：${name}`, () => {
       const zip = make();
       const parent = tmp();
       const target = path.join(parent, "t");

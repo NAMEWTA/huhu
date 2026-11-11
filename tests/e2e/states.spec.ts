@@ -7,7 +7,7 @@ for (const size of [
   { width: 1024, height: 768 },
   { width: 960, height: 600 },
 ]) {
-  test(`状态巡检：${size.width}×${size.height} 下所有模块没有页面级水平滚动`, async () => {
+  test(`ACC-WB-09 状态巡检：${size.width}×${size.height} 下所有模块没有页面级水平滚动`, async () => {
     const { app, page, close } = await openApp();
     try {
       await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), size);

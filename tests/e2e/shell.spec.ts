@@ -392,6 +392,84 @@ test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打�
   }
 });
 
+test("ACC-SY-05：切换主题为 SuliWorld 深色，所有模块同时切换；重开 Vault 后保持", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-appearance").click();
+    await page
+      .getByRole("button", { name: /SuliWorld/ })
+      .first()
+      .click();
+    await page.getByRole("tab", { name: "深色" }).click();
+    const root = page.locator("html");
+    await expect(root).toHaveAttribute("data-theme", "suliworld");
+    await expect(root).toHaveAttribute("data-mode", "dark");
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    for (const name of ["知识库", "任务", "收件箱", "Agent CLI", "插件中心"]) {
+      await page.getByRole("button", { name, exact: true }).first().click();
+      await expect(root).toHaveAttribute("data-theme", "suliworld");
+      expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(bg); // 各模块同一套令牌
+    }
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).appearance).toMatchObject({ theme: "suliworld", mode: "dark" });
+    await app.close();
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "suliworld");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("ACC-AG-08：有运行中的会话，退出 HUHU 再打开同一 Vault，会话仍在运行并可重新连接", async () => {
+  test.skip(!existsSync(HERDR), "需要编译好的 Herdr Core");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("echo BEFORE-QUIT-$((6*7))");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("BEFORE-QUIT-42", { timeout: 10_000 });
+    await app.close();
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("session-tab")).toHaveCount(1, { timeout: 20_000 });
+    await page.getByTestId("session-tab").click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("echo AFTER-RESTART-$((7*6))");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("AFTER-RESTART-42", { timeout: 10_000 });
+  } finally {
+    await app.close();
+    try {
+      const id = JSON.parse(readFileSync(path.join(vault, ".huhu/vault.json"), "utf8")).id as string;
+      const { spawnSync } = await import("node:child_process");
+      const runtime = path.join(vault, ".huhu/runtime", readdirSync(path.join(vault, ".huhu/runtime"))[0] as string, "herdr");
+      const sock = path.join(process.env["XDG_RUNTIME_DIR"] ?? tmpdir(), `huhu-${id.replace(/^vault-/, "").slice(0, 8)}-${readdirSync(path.join(vault, ".huhu/runtime"))[0]?.slice(0, 4)}.sock`);
+      spawnSync(HERDR, ["server", "stop"], { env: { ...process.env, HC_SESSION: "huhu", HC_SOCKET: sock, XDG_STATE_HOME: path.join(runtime, "state"), XDG_CONFIG_HOME: path.join(runtime, "config") } });
+    } catch {
+      /* 清理尽力而为 */
+    }
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
@@ -668,7 +746,7 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
   }
 });
 
-test("Agent CLI：在 Space 里启动 shell，经 xterm 输入并看到输出；关闭视图后进程仍在，可重新打开", async () => {
+test("ACC-AG-04 Agent CLI：在 Space 里启动 shell，经 xterm 输入并看到输出；关闭视图后进程仍在，可重新打开", async () => {
   test.skip(!existsSync(HERDR), "需要编译好的 Herdr Core");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

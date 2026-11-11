@@ -169,6 +169,19 @@ describe("外部扩展（W16.2）", () => {
     expect(existsSync(keep)).toBe(true);
   });
 
+  test("ACC-PL-02：内置插件没有卸载入口；直接调用 plugins.uninstall 返回错误且无副作用", async () => {
+    const vault = tmp();
+    const e = await start(vault);
+    const before = JSON.stringify((await call(e, "plugins.list")).data);
+    for (const id of ["tasks", "notes", "inbox"]) {
+      const r = await call(e, "plugins.uninstall", { id, eraseData: true });
+      expect(r.ok, id).toBe(false);
+      expect(r.error?.code, id).toBe("NOT_FOUND");
+    }
+    expect(JSON.stringify((await call(e, "plugins.list")).data)).toBe(before);
+    expect(existsSync(path.join(vault, ".huhu/plugins/external"))).toBe(false);
+  });
+
   test("zip 安装；含 ../ 的恶意 zip 被拒绝", async () => {
     const e = await start(tmp());
     const dir = tmp();

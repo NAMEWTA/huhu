@@ -25,6 +25,8 @@
 | ACC-KN-02 中真实输入法部分 | 自动化只能模拟 composition 事件；E2E 用 CDP `Input.imeSetComposition` 覆盖逻辑，真实 IME 发布前手测 |
 | ACC-AG-06 中真实 Claude 会话 | E2E 用 fake provider 写入原生格式会话文件；真实 CLI 发布前手测 |
 | ACC-VS-05、ACC-VS-08 中真实托管远端 | 自动化使用本地 bare 仓库；真实远端手测 |
+| ACC-SF-07 中剪贴板到点清除 | 清除逻辑在 Electron Main（`clipboard`，仅当剪贴板仍是该文本时清空）；Playwright 无法可靠读取系统剪贴板，发布前三平台手测一次（复制秘密值 → 30 秒后粘贴为空；30 秒内另复制其他内容 → 不被清除） |
+| ACC-KN-03 自动保存在途时继续输入 | 需要在保存请求进行中注入输入，E2E 无法稳定控制时序；已由保存串行化的代码（`NoteDocument.tsx` 的 `inflight` 队列）与离开 / 退出时的落盘路径覆盖，发布前手测（连续快速输入 A、B，断网式慢盘不可模拟时以磁盘最终内容含 A、B 为准） |
 
 ## 3. 性能目标与测量
 
