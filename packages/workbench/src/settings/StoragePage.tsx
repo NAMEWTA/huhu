@@ -110,7 +110,7 @@ export function StoragePage() {
           {c.counts(info.data.counts["files"] ?? 0, info.data.counts["notes"] ?? 0)}
           {indexing ? `（${c.indexing}）` : ""}
         </p>
-        <p className="field-description">{c.indexNote}</p>
+        <p className="hint-text">{c.indexNote}</p>
         <div className="row">
           <Button icon={RefreshCw} onClick={() => void reindex()} disabled={busy !== null || info.data.indexing} loading={busy === "reindex"} data-testid="storage-reindex">
             {c.reindex}
@@ -210,7 +210,7 @@ export function StoragePage() {
           </div>
         </Field>
         {imported ? (
-          <p role="status" data-testid="storage-import-result" className="field-description">
+          <p role="status" data-testid="storage-import-result" className="hint-text">
             {c.imported(imported.targetDir, imported.files)}
           </p>
         ) : null}

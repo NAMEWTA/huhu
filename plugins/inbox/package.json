@@ -15,6 +15,7 @@
   "dependencies": {
     "@huhu/contracts": "workspace:*",
     "@huhu/cordis": "workspace:*",
+    "@huhu/editor": "workspace:*",
     "@huhu/kernel": "workspace:*",
     "@huhu/ui": "workspace:*",
     "@huhu/vault": "workspace:*",

@@ -200,7 +200,7 @@ function RunRecords({ taskId, zone, onMessage }: { taskId: string; zone: string 
                 <div key={q.id} className="field">
                   <span className="field-label">{q.text}</span>
                   {q.answer !== null ? (
-                    <span className="field-description">
+                    <span className="hint-text">
                       {t.detail.answered}：{q.answer}
                     </span>
                   ) : (

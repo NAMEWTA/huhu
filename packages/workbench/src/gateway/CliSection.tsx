@@ -1,4 +1,5 @@
 import { Button } from "@huhu/ui";
+import { SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { tCli as c } from "../i18n/zh-CN.js";
 import { host } from "../settings/host.js";
@@ -41,63 +42,82 @@ export function CliSection() {
   }
   return (
     <section data-testid="cli-section" aria-label={c.title}>
-      <h2>{c.title}</h2>
-      {!h?.cliStatus ? (
-        <p className="hu-meta">{c.hostOnly}</p>
-      ) : !st ? (
-        <p>…</p>
-      ) : (
-        <>
-          <p data-testid="cli-state">
-            {st.installed ? c.installed : c.notInstalled}
-            {st.location ? ` · ${st.location}` : ""}
-          </p>
-          {!st.supported ? (
-            <p className="hu-meta" data-testid="cli-unsupported">
-              {st.reason ?? c.devOnly}
-            </p>
-          ) : (
-            <>
-              {st.installed && st.method === "symlink" && !st.onPath ? (
-                <p role="status" className="hu-meta">
-                  {c.notOnPath(st.location.replace(/[\\/][^\\/]*$/, ""))}
-                </p>
-              ) : null}
-              {st.installed && st.method === "path" ? <p className="hu-meta">{c.restartTerminal}</p> : null}
-              {confirm ? (
-                <div role="alertdialog" aria-label={c.confirmInstall} data-testid="cli-confirm">
-                  <p>{st.method === "symlink" ? c.symlink(st.location) : c.pathMethod(st.location)}</p>
-                  <Button variant="primary" onClick={() => void run(() => h.cliInstall())} data-testid="cli-confirm-yes">
-                    {c.confirmInstall}
-                  </Button>
-                  <Button onClick={() => setConfirm(false)}>{c.cancel}</Button>
-                </div>
-              ) : st.installed ? (
-                <Button onClick={() => void run(() => h.cliUninstall())} data-testid="cli-uninstall">
-                  {c.uninstall}
-                </Button>
-              ) : (
-                <Button variant="primary" onClick={() => setConfirm(true)} data-testid="cli-install">
-                  {c.install}
-                </Button>
-              )}
-            </>
-          )}
-        </>
-      )}
-      {msg ? (
-        <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "hu-overdue" : undefined} data-testid="cli-msg">
-          {msg.text}
+      <div className="card gateway-overview">
+        <div className="row">
+          <span className="plugin-large-icon">
+            <SquareTerminal size={24} aria-hidden />
+          </span>
+          <div className="grow">
+            <h2>{c.title}</h2>
+            <p>结构化 JSON · 稳定退出码 · 脚本与 MCP 共享同一套能力</p>
+          </div>
+          {st && st.supported ? (
+            confirm ? null : st.installed ? (
+              <Button onClick={() => void run(() => h!.cliUninstall())} data-testid="cli-uninstall">
+                {c.uninstall}
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={() => setConfirm(true)} data-testid="cli-install">
+                {c.install}
+              </Button>
+            )
+          ) : null}
         </div>
-      ) : null}
-      <h3>{c.quick}</h3>
-      <ul>
+        {!h?.cliStatus ? (
+          <p className="hint-text">{c.hostOnly}</p>
+        ) : !st ? (
+          <p>…</p>
+        ) : (
+          <>
+            <p data-testid="cli-state">
+              {st.installed ? c.installed : c.notInstalled}
+              {st.location ? ` · ${st.location}` : ""}
+            </p>
+            {!st.supported ? (
+              <p className="hint-text" data-testid="cli-unsupported">
+                {st.reason ?? c.devOnly}
+              </p>
+            ) : (
+              <>
+                {st.installed && st.method === "symlink" && !st.onPath ? (
+                  <p role="status" className="hint-text">
+                    {c.notOnPath(st.location.replace(/[\\/][^\\/]*$/, ""))}
+                  </p>
+                ) : null}
+                {st.installed && st.method === "path" ? <p className="hint-text">{c.restartTerminal}</p> : null}
+                {confirm ? (
+                  <div role="alertdialog" aria-label={c.confirmInstall} data-testid="cli-confirm" className="callout">
+                    <div>
+                      <p>{st.method === "symlink" ? c.symlink(st.location) : c.pathMethod(st.location)}</p>
+                      <div className="row">
+                        <Button variant="primary" onClick={() => void run(() => h.cliInstall())} data-testid="cli-confirm-yes">
+                          {c.confirmInstall}
+                        </Button>
+                        <Button onClick={() => setConfirm(false)}>{c.cancel}</Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </>
+        )}
+        {msg ? (
+          <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "field-error" : "hint-text"} data-testid="cli-msg">
+            {msg.text}
+          </div>
+        ) : null}
+      </div>
+      <div className="card-head">
+        <h2>{c.quick}</h2>
+      </div>
+      <div className="cli-suggestions">
         {c.cheat.map((l) => (
-          <li key={l}>
+          <button key={l} type="button" onClick={() => void navigator.clipboard.writeText(l)} title="点击复制">
             <code>{l}</code>
-          </li>
+          </button>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

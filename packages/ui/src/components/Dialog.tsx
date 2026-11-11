@@ -13,17 +13,27 @@ export interface DialogProps {
   actions?: ReactNode;
   testId?: string;
   wide?: boolean;
+  /** 对话框内操作失败的提示：显示在对话框里（页面上的提示会被遮罩盖住）。 */
+  error?: string | null | undefined;
 }
 
 /** 模态对话框（原型 .modal 结构）：基于原生 <dialog>，焦点陷阱、Esc、背景惰性由浏览器提供。 */
-export function Dialog({ open, title, description, onClose, children, actions, testId, wide = false }: DialogProps) {
+export function Dialog({ open, title, description, onClose, children, actions, testId, wide = false, error }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
+    const opener = document.activeElement as HTMLElement | null;
+    if (open && !d.open) {
+      d.showModal();
+      // 焦点进入第一个表单控件（没有就保持在对话框内）；关闭后回到打开它的按钮
+      d.querySelector<HTMLElement>(".modal-body input:not([type=hidden]), .modal-body textarea, .modal-body select")?.focus();
+    }
     if (!open && d.open) d.close();
+    return () => {
+      if (opener && document.contains(opener)) opener.focus();
+    };
   }, [open]);
   if (!open) return null;
   return (
@@ -44,7 +54,14 @@ export function Dialog({ open, title, description, onClose, children, actions, t
         </div>
         <IconButton icon={X} label="关闭" onClick={onClose} />
       </div>
-      <div className="modal-body">{children}</div>
+      <div className="modal-body">
+        {error ? (
+          <p role="alert" className="field-error">
+            {error}
+          </p>
+        ) : null}
+        {children}
+      </div>
       {actions ? <div className="modal-footer">{actions}</div> : null}
     </dialog>
   );

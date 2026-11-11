@@ -37,3 +37,19 @@ dialog.modal::backdrop {
   width: 190px;
   flex-shrink: 0;
 }
+.hint-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 0;
+}
+.safe-locked form .field + .field {
+  margin-top: 0;
+}
+.settings-section .form-body,
+.settings-section .row {
+  margin-top: 4px;
+}
+.gateway-meta label.row select {
+  width: auto;
+}

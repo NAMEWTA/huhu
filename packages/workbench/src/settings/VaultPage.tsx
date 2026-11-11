@@ -116,7 +116,7 @@ function VaultForm({
           </div>
         </form>
         {note ? (
-          <div role="status" data-testid="svault-note" className="field-description">
+          <div role="status" data-testid="svault-note" className="hint-text">
             {note}
           </div>
         ) : null}
@@ -176,7 +176,7 @@ function VaultForm({
             <span>待整理收件</span>
           </div>
         </div>
-        {info.indexing ? <p className="field-description">{c.indexing}</p> : null}
+        {info.indexing ? <p className="hint-text">{c.indexing}</p> : null}
       </section>
     </div>
   );

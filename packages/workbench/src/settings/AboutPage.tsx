@@ -49,7 +49,7 @@ export function AboutPage() {
       <section className="settings-section card">
         <h2>{c.title}</h2>
         {unavailable ? (
-          <p className="field-description">{c.hostOnly}</p>
+          <p className="hint-text">{c.hostOnly}</p>
         ) : !info ? (
           <p>{t.loading}</p>
         ) : (
@@ -84,7 +84,7 @@ export function AboutPage() {
         {notices === null ? (
           <p>{t.loading}</p>
         ) : notices === "" ? (
-          <p className="field-description">{c.noNotices}</p>
+          <p className="hint-text">{c.noNotices}</p>
         ) : (
           <details data-testid="about-notices">
             <summary>{c.showNotices}</summary>

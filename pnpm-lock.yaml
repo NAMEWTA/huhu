@@ -657,6 +657,9 @@ importers:
       '@huhu/cordis':
         specifier: workspace:*
         version: link:../../vendor/cordis
+      '@huhu/editor':
+        specifier: workspace:*
+        version: link:../../packages/editor
       '@huhu/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel

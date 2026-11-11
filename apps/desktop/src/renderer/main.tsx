@@ -83,8 +83,48 @@ function App() {
         },
       ],
     });
-    r.register({ modules: [{ id: "gateway", plugin: "kernel", title: "能力网关", group: "system", order: 20, icon: <Plug size={18} aria-hidden />, component: GatewayModule }] });
-    r.register({ modules: [{ id: "plugins", plugin: "kernel", title: "插件中心", group: "system", order: 10, icon: <Blocks size={18} aria-hidden />, component: PluginCenterModule }] });
+    r.register({
+      modules: [
+        {
+          id: "gateway",
+          plugin: "kernel",
+          title: "能力网关",
+          group: "system",
+          order: 20,
+          nav: "tabs",
+          sections: [
+            { id: "mcp", label: "MCP" },
+            { id: "cli", label: "CLI" },
+            { id: "server", label: "服务端" },
+            { id: "desktop", label: "桌面宿主" },
+          ],
+          description: "一套能力，多个入口",
+          icon: <Plug size={18} aria-hidden />,
+          component: (p) => <GatewayModule {...p} ui={ui} />,
+        },
+      ],
+    });
+    r.register({
+      modules: [
+        {
+          id: "plugins",
+          plugin: "kernel",
+          title: "插件中心",
+          group: "system",
+          order: 10,
+          icon: <Blocks size={18} aria-hidden />,
+          nav: "tabs",
+          sections: [
+            { id: "installed", label: "已安装" },
+            { id: "discover", label: "发现插件" },
+            { id: "runtime", label: "运行时" },
+            { id: "permissions", label: "权限与依赖" },
+          ],
+          description: "每项能力都有清晰的生命周期",
+          component: PluginCenterModule,
+        },
+      ],
+    });
     r.register({
       modules: [
         {

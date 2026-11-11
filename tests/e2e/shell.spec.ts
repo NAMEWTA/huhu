@@ -114,26 +114,36 @@ test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
 
     await page.getByRole("button", { name: "收件箱" }).first().click();
-    await page.getByLabel("快速捕获", { exact: true }).fill("整理发布清单");
-    await page.getByRole("button", { name: "快速捕获" }).click();
+    await page.getByLabel("快速捕获想法").fill("整理发布清单");
+    await page.getByRole("button", { name: "收集" }).click();
     await expect(page.getByTestId("capture-item")).toHaveCount(1);
     expect(readdirSync(path.join(vault, "Inbox"))).toHaveLength(1);
     await page.getByTestId("capture-item").click();
-    await page.getByRole("button", { name: "转为任务" }).click();
+    await page.getByRole("button", { name: /^转为任务/ }).click();
+    await page.getByTestId("convert-dialog").getByRole("button", { name: "创建任务并完成处理" }).click();
     await expect(page.getByText("这个想法已经开始行动")).toBeVisible({ timeout: 5000 });
     expect(readdirSync(path.join(vault, "Tasks"))).toHaveLength(1);
 
     await page.getByRole("button", { name: "档案" }).first().click();
+    await page.getByRole("button", { name: "新建或编辑档案类型" }).click();
     await page.getByLabel("类型名称").fill("项目");
-    await page.getByRole("button", { name: "新建类型" }).click();
+    await page.getByLabel("自定义字段").fill("负责人");
+    await page.getByTestId("type-save").click();
+    await page
+      .getByRole("button", { name: "完成", exact: true })
+      .click()
+      .catch(() => undefined);
     await expect(page.getByRole("button", { name: /^项目/ })).toBeVisible();
     for (const n of ["甲", "乙"]) {
-      await page.getByLabel("名称", { exact: true }).fill(n);
-      await page.getByRole("button", { name: "新建档案" }).click();
+      await page.getByTestId("archive-new").click();
+      await page.getByTestId("archive-dialog").getByLabel("名称", { exact: true }).fill(n);
+      await page.getByTestId("archive-save").click();
       await expect(page.getByTestId("archive-row").filter({ hasText: n })).toBeVisible();
     }
     // 当前选中的是「乙」：把「甲」设为关联
-    await page.getByLabel("关联档案", { exact: true }).selectOption({ label: "甲" });
+    await page.getByRole("button", { name: "编辑档案关系" }).click();
+    await page.getByTestId("relations-dialog").getByLabel("甲", { exact: true }).check();
+    await page.getByRole("button", { name: "保存关系" }).click();
     await expect
       .poll(
         () =>
@@ -164,9 +174,10 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
     await submit.click();
     await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
 
+    await page.getByTestId("safe-new").click();
     await page.getByLabel("凭据名称").fill("GitHub");
     await page.getByLabel("秘密值").fill("HUHU-MARKER-7f3a");
-    await page.getByRole("button", { name: "新增凭据" }).click();
+    await page.getByTestId("safe-save").click();
     await expect(page.getByTestId("safe-item")).toHaveCount(1);
     await expect(page.getByTestId("secret-value")).toHaveText("••••••••");
     await page.getByRole("button", { name: "显示" }).click();
@@ -235,7 +246,8 @@ test("插件中心：停用知识库后 rail 项消失，依赖提示；重启�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await expect(page.getByRole("button", { name: "知识库" }).first()).toBeVisible();
     await page.getByRole("button", { name: "插件中心" }).first().click();
-    await page.getByRole("button", { name: "停用 知识库" }).click();
+    await page.locator('[data-plugin="notes"]').click();
+    await page.getByRole("switch", { name: "停用 知识库" }).click();
     await expect(page.getByRole("button", { name: "知识库", exact: true })).toHaveCount(0, { timeout: 5000 });
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).builtin.notes).toEqual({ enabled: false });
     await app.close();
@@ -245,7 +257,8 @@ test("插件中心：停用知识库后 rail 项消失，依赖提示；重启�
     await expect(page.getByRole("button", { name: "插件中心" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "知识库", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "插件中心" }).first().click();
-    await page.getByRole("button", { name: "启用 知识库" }).click();
+    await page.locator('[data-plugin="notes"]').click();
+    await page.getByRole("switch", { name: "启用 知识库" }).click();
     await expect(page.getByRole("button", { name: "知识库", exact: true })).toBeVisible({ timeout: 5000 });
   } finally {
     await app.close().catch(() => undefined);
@@ -599,6 +612,7 @@ test("网关·命令行：开发运行时说明没有打包好的启动脚本，
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "网关" }).first().click();
+    await page.getByRole("tab", { name: "CLI" }).click();
     const cli = page.getByTestId("cli-section");
     await expect(cli).toBeVisible();
     await expect(cli.getByTestId("cli-state")).toHaveText(/未安装/);
@@ -774,7 +788,8 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     // ACC-WB-08：停用任务插件，任务卡片隐藏
     await expect(page.getByTestId("card-open")).toBeVisible();
     await page.getByRole("button", { name: "插件中心" }).first().click();
-    await page.getByRole("button", { name: "停用 任务" }).click();
+    await page.locator('[data-plugin="tasks"]').click();
+    await page.getByRole("switch", { name: "停用 任务" }).click();
     await page.getByRole("button", { name: "工作台" }).first().click();
     await expect(page.getByTestId("card-open")).toHaveCount(0, { timeout: 10_000 });
     await expect(page.getByTestId("card-today")).toHaveCount(0);
@@ -1341,15 +1356,16 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await expect(page.getByTestId("gateway-module")).toBeVisible();
     await page.getByLabel("筛选能力").fill("tasks.create");
     const row = page.getByTestId("cap-row").filter({ hasText: "tasks.create" }).first();
-    await row.getByRole("checkbox").click(); // 受控复选框：状态在引擎回执后才改变
+    await row.getByRole("switch").click(); // 受控开关：状态在引擎回执后才改变
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).capabilityExposure["tasks.create"]).toBe(true);
-    await expect(row.getByRole("checkbox")).toBeChecked();
-    await row.getByRole("checkbox").click();
+    await expect(row.getByRole("switch")).toBeChecked();
+    await row.getByRole("switch").click();
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).capabilityExposure["tasks.create"]).toBe(false);
     await page.getByLabel("筛选能力").fill("safe.items.reveal");
-    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" }).getByRole("checkbox")).toHaveCount(0);
+    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" }).getByRole("switch")).toHaveCount(0);
     await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" })).toContainText("不可开放");
 
+    await page.getByRole("tab", { name: "服务端" }).click();
     await page.getByLabel("令牌名称").fill("自动化脚本");
     await page.getByRole("button", { name: "创建令牌" }).click();
     await expect(page.getByTestId("fresh-token")).toContainText("huhu_");
@@ -1359,6 +1375,7 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByRole("button", { name: "撤销 自动化脚本" }).click();
     await expect(page.getByTestId("token-row")).toHaveCount(0);
 
+    await page.getByRole("tab", { name: "MCP" }).click();
     await page.getByRole("textbox", { name: "测试台" }).fill("tasks.create");
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-row").first()).toHaveAttribute("data-allowed", "false"); // 刚才关掉了
@@ -1369,7 +1386,7 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-notfound")).toBeVisible();
 
-    await page.getByLabel("启用 MCP 服务").click();
+    await page.getByRole("switch", { name: "启用 MCP 服务" }).click();
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).mcp.enabled).toBe(true);
   } finally {
     await app.close();

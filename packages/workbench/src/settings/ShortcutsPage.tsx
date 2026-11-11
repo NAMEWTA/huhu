@@ -41,7 +41,7 @@ export function ShortcutsPage() {
             ))}
           </tbody>
         </table>
-        <p className="field-description">{c.note}</p>
+        <p className="hint-text">{c.note}</p>
       </section>
     </div>
   );
