@@ -1,7 +1,0 @@
-{
-  "repo": "https://github.com/herdrdev/herdr-core",
-  "commit": "ce81486e3d4032405060bb823687376fadaa087b",
-  "ghosttyCommit": "1e5cdb865807abc990181efb8ebfa9122955cce2",
-  "zig": "0.16.0",
-  "note": "Herdr Core 没有官方发布包；CI 按该固定提交从源码为三个目标各编译一次，产物放入 apps/desktop/resources/herdr/<platform>-<arch>/"
-}

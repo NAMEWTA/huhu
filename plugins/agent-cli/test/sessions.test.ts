@@ -121,7 +121,7 @@ describe("会话启动", () => {
   });
 });
 
-const REAL = process.env["HUHU_HERDR_BIN"] ?? "/tmp/claude-1000/herdr-build/src/target/release/herdr-core";
+const REAL = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core")
 describe.skipIf(!existsSync(REAL))("真实 Herdr Core（Linux）", () => {
   test("启动实例、launch shell 会话、按标签查回、结束会话；Core 实例相互隔离", async () => {
     const rt = tmp();

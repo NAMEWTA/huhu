@@ -188,7 +188,7 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "agent.providers.detect", {})).ok).toBe(true);
     expect((await call(e.cliToken, "agent.spaces.list", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
-  const REAL_HERDR = "/tmp/claude-1000/herdr-build/src/target/release/herdr-core";
+  const REAL_HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core")
   test.skipIf(!existsSync(REAL_HERDR))("agent-cli：经 HTTP 在真实 Herdr Core 里启动 shell 会话并结束", async () => {
     process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
     const dir = tmp();

@@ -25,6 +25,10 @@
       "ignoreDependencies": [
         "@parcel/watcher",
         "ssh2"
+      ],
+      "entry": [
+        "scripts/before-pack.cjs",
+        "src/index.ts"
       ]
     },
     "apps/cli": {

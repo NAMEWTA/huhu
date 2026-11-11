@@ -19,7 +19,8 @@
     "notices": "node scripts/gen-notices.mjs",
     "knip": "knip --no-progress",
     "format": "oxfmt .",
-    "format:check": "oxfmt --check ."
+    "format:check": "oxfmt --check .",
+    "fetch:herdr": "node scripts/fetch-herdr.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",

@@ -2,6 +2,7 @@ appId: dev.huhu.workbench
 productName: HUHU
 directories:
   output: release
+beforePack: scripts/before-pack.cjs
 files:
   - out/**
   - package.json

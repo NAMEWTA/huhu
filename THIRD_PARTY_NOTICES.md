@@ -5,7 +5,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 ## 随包二进制与运行时
 
 - Electron / Chromium：见应用目录中的 `LICENSE.electron.txt` 与 `LICENSES.chromium.html`。
-- Herdr Core（`herdr-core`）：Apache-2.0，源码 https://github.com/herdrdev/herdr-core（固定提交见 `scripts/herdr-source.json`），其内含 ghostty（MIT）。
+- Herdr Core（`herdr-core`）：Apache-2.0，官方发布包 https://releases.herdr.dev/core/（版本与 SHA-256 见 `scripts/herdr.lock.json`），源码 https://github.com/herdrdev/herdr-core；其内含 ghostty（MIT）；Windows 包另含 Microsoft ConPTY（MIT）。完整声明随包放在 `resources/herdr/<平台>/THIRD-PARTY-NOTICES`。
 
 ## 复制或改造的源码（`docs/upstream/ledger.md`）
 
@@ -83,7 +83,10 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | https://modelcontextprotocol.io |
 | @noble/hashes | 1.8.0 | MIT | https://paulmillr.com/noble/ |
 | @orama/orama | 3.1.18 | Apache-2.0 |  |
+| @oxc-parser/binding-linux-x64-gnu | 0.156.0 | MIT | https://oxc.rs/docs/guide/usage/parser |
 | @oxc-project/types | 0.156.0 | MIT | https://oxc.rs |
+| @oxc-resolver/binding-linux-x64-gnu | 11.24.2 | MIT | https://oxc.rs |
+| @oxfmt/binding-linux-x64-gnu | 0.78.0 | MIT | https://oxc.rs/docs/guide/usage/formatter |
 | @oxlint/binding-linux-x64-gnu | 1.93.0 | MIT | https://oxc.rs/docs/guide/usage/linter |
 | @parcel/watcher | 2.6.0 | MIT |  |
 | @parcel/watcher-linux-x64-glibc | 2.6.0 | MIT |  |
@@ -284,11 +287,13 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | extend | 3.0.2 | MIT |  |
 | fast-deep-equal | 3.1.3 | MIT | https://github.com/epoberezkin/fast-deep-equal#readme |
 | fast-uri | 3.1.9 | BSD-3-Clause | https://github.com/fastify/fast-uri |
+| fd-package-json | 2.0.0 | MIT | https://github.com/es-tooling/fd-package-json#readme |
 | fdir | 6.5.0 | MIT | https://github.com/thecodrr/fdir#readme |
 | fflate | 0.8.3 | MIT | https://101arrowz.github.io/fflate |
 | filelist | 1.0.6 | Apache-2.0 | https://github.com/mde/filelist |
 | finalhandler | 2.1.1 | MIT |  |
 | form-data | 4.0.6 | MIT |  |
+| formatly | 0.11.4 | MIT |  |
 | forwarded | 0.2.0 | MIT |  |
 | fresh | 2.0.0 | MIT |  |
 | fs-extra | 10.1.0 | MIT | https://github.com/jprichardson/node-fs-extra |
@@ -304,6 +309,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | get-intrinsic | 1.3.0 | MIT | https://github.com/ljharb/get-intrinsic#readme |
 | get-proto | 1.0.1 | MIT | https://github.com/ljharb/get-proto#readme |
 | get-stream | 5.2.0 | MIT |  |
+| get-tsconfig | 4.14.3 | MIT |  |
 | glob | 7.2.3 | ISC |  |
 | global-agent | 3.0.0 | BSD-3-Clause |  |
 | globalthis | 1.0.4 | MIT |  |
@@ -365,6 +371,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | jsonfile | 4.0.0 | MIT |  |
 | jsonfile | 6.2.1 | MIT |  |
 | keyv | 4.5.4 | MIT | https://github.com/jaredwray/keyv |
+| knip | 6.44.2 | ISC | https://knip.dev |
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
 | lightningcss | 1.33.0 | MPL-2.0 |  |
 | lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |  |
@@ -460,9 +467,13 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | object-keys | 1.1.1 | MIT |  |
 | on-finished | 2.4.2 | MIT |  |
 | once | 1.4.0 | ISC |  |
+| oxc-parser | 0.156.0 | MIT | https://oxc.rs/docs/guide/usage/parser |
+| oxc-resolver | 11.24.2 | MIT | https://oxc.rs |
+| oxfmt | 0.78.0 | MIT | https://oxc.rs/docs/guide/usage/formatter |
 | oxlint | 1.93.0 | MIT | https://oxc.rs/docs/guide/usage/linter |
 | p-cancelable | 2.1.1 | MIT |  |
 | p-limit | 3.1.0 | MIT |  |
+| package-manager-detector | 1.9.0 | MIT | https://github.com/antfu-collective/package-manager-detector#readme |
 | parse-entities | 4.0.2 | MIT |  |
 | parse5 | 8.1.1 | MIT | https://parse5.js.org |
 | parse5-parser-stream | 8.1.1 | MIT | https://parse5.js.org |
@@ -512,6 +523,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | require-from-string | 2.0.2 | MIT |  |
 | resedit | 1.7.2 | MIT | https://github.com/jet2jet/resedit-js |
 | resolve-alpn | 1.2.1 | MIT | https://github.com/szmarczak/resolve-alpn#readme |
+| resolve-pkg-maps | 1.0.0 | MIT |  |
 | responselike | 2.0.1 | MIT |  |
 | retry | 0.12.0 | MIT | https://github.com/tim-kos/node-retry |
 | rimraf | 2.6.3 | ISC |  |
@@ -544,6 +556,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | signal-exit | 3.0.7 | ISC | https://github.com/tapjs/signal-exit |
 | signal-exit | 4.1.0 | ISC |  |
 | simple-update-notifier | 2.0.0 | MIT | https://github.com/alexbrazier/simple-update-notifier.git |
+| smol-toml | 1.9.1 | BSD-3-Clause |  |
 | source-map | 0.6.1 | BSD-3-Clause | https://github.com/mozilla/source-map |
 | source-map-js | 1.2.2 | BSD-3-Clause | https://github.com/7rulnik/source-map-js |
 | source-map-support | 0.5.21 | MIT |  |
@@ -558,6 +571,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | string-width | 4.2.3 | MIT |  |
 | stringify-entities | 4.0.4 | MIT |  |
 | strip-ansi | 6.0.1 | MIT |  |
+| strip-json-comments | 5.0.3 | MIT |  |
 | strip-literal | 3.1.0 | MIT | https://github.com/antfu/strip-literal#readme |
 | style-mod | 4.1.4 | MIT | https://code.haverbeke.berlin/marijn/style-mod |
 | style-to-object | 2.0.2 | MIT |  |
@@ -571,6 +585,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | tinyexec | 0.3.2 | MIT | https://github.com/tinylibs/tinyexec#readme |
 | tinyglobby | 0.2.17 | MIT | https://superchupu.dev/tinyglobby |
 | tinypool | 1.1.1 | MIT | https://github.com/tinylibs/tinypool#readme |
+| tinypool | 2.2.0 | MIT | https://github.com/tinylibs/tinypool#readme |
 | tinyrainbow | 2.0.0 | MIT | https://github.com/tinylibs/tinyrainbow#readme |
 | tinyspy | 4.0.6 | MIT | https://github.com/tinylibs/tinyspy#readme |
 | tldts | 7.4.19 | MIT | https://github.com/remusao/tldts#readme |
@@ -589,6 +604,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | type-fest | 0.13.1 | (MIT OR CC0-1.0) |  |
 | type-is | 2.1.0 | MIT |  |
 | typescript | 5.9.3 | Apache-2.0 | https://www.typescriptlang.org/ |
+| unbash | 6.0.4 | ISC |  |
 | undici | 6.29.1 | MIT | https://undici.nodejs.org |
 | undici | 7.30.2 | MIT | https://undici.nodejs.org |
 | undici | 8.12.4 | MIT | https://undici.nodejs.org |
@@ -616,6 +632,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | vitest | 3.2.7 | MIT | https://github.com/vitest-dev/vitest#readme |
 | w3c-keyname | 2.2.8 | MIT | https://github.com/marijnh/w3c-keyname#readme |
 | w3c-xmlserializer | 6.0.0 | MIT |  |
+| walk-up-path | 4.0.0 | ISC |  |
 | webcrypto-core | 1.9.2 | MIT | https://github.com/PeculiarVentures/webcrypto-core#readme |
 | webidl-conversions | 8.0.1 | BSD-2-Clause |  |
 | whatwg-mimetype | 5.0.0 | MIT |  |

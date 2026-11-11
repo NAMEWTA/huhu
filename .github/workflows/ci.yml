@@ -20,6 +20,15 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Herdr Core（下载并校验；失败即中止，不能让真实 Herdr 用例被静默跳过）
+        run: node scripts/fetch-herdr.mjs
+      - name: 记录 HUHU_HERDR_BIN
+        shell: bash
+        run: |
+          bin="$(node scripts/fetch-herdr.mjs --print-path)"
+          test -n "$bin"
+          test -f "$bin"
+          echo "HUHU_HERDR_BIN=$bin" >> "$GITHUB_ENV"
       - run: pnpm lint
       - if: runner.os == 'Linux'
         run: pnpm knip # 未使用的文件/依赖/导出；与平台无关，只在 Linux 跑一次

@@ -5,10 +5,7 @@ permissions:
   contents: read
 
 jobs:
-  herdr:
-    uses: ./.github/workflows/herdr.yml
   package:
-    needs: herdr
     strategy:
       fail-fast: false
       matrix:
@@ -25,12 +22,10 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
-        with:
-          name: herdr-${{ matrix.target }}
-          path: apps/desktop/resources/herdr/${{ matrix.target }}
-      - run: chmod +x apps/desktop/resources/herdr/${{ matrix.target }}/herdr-core || true
-        shell: bash
+      - run: node scripts/fetch-herdr.mjs --target ${{ matrix.target }} # 官方发布包，校验 SHA-256；不符则失败
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
       - run: pnpm notices
       - run: pnpm build
       - run: pnpm --filter @huhu/desktop exec electron-builder

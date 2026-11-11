@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 import { HerdrClient, attachTerminal } from "../src/index.js";
 
-const BIN = process.env["HUHU_HERDR_BIN"] ?? "/tmp/claude-1000/herdr-build/src/target/release/herdr-core";
+const BIN = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core")
 const dir = mkdtempSync(path.join(tmpdir(), "huhu-hl-"));
 const env = { ...process.env, HC_SESSION: "huhulive", HC_SOCKET: path.join(dir, "hc.sock"), XDG_STATE_HOME: path.join(dir, "state"), XDG_CONFIG_HOME: path.join(dir, "config") };
 

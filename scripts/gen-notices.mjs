@@ -35,7 +35,7 @@ const lines = [
   "## 随包二进制与运行时",
   "",
   "- Electron / Chromium：见应用目录中的 `LICENSE.electron.txt` 与 `LICENSES.chromium.html`。",
-  "- Herdr Core（`herdr-core`）：Apache-2.0，源码 https://github.com/herdrdev/herdr-core（固定提交见 `scripts/herdr-source.json`），其内含 ghostty（MIT）。",
+  "- Herdr Core（`herdr-core`）：Apache-2.0，官方发布包 https://releases.herdr.dev/core/（版本与 SHA-256 见 `scripts/herdr.lock.json`），源码 https://github.com/herdrdev/herdr-core；其内含 ghostty（MIT）；Windows 包另含 Microsoft ConPTY（MIT）。完整声明随包放在 `resources/herdr/<平台>/THIRD-PARTY-NOTICES`。",
   "",
   "## 复制或改造的源码（`docs/upstream/ledger.md`）",
   "",
