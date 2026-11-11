@@ -341,6 +341,30 @@ test("Agent CLI：新建 Space 指向 Vault 外目录，只写 .huhu/agent-cli/s
   }
 });
 
+test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await newNote(page, "退出落盘");
+    const editor = page.getByTestId("markdown-editor");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("立刻关闭窗口前输入的内容");
+    // 不等 800ms 自动保存：直接关窗口（与用户点 X 一致）
+    const closed = app.waitForEvent("close");
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const w of BrowserWindow.getAllWindows()) w.close();
+    });
+    await closed;
+    expect(readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
+  } finally {
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

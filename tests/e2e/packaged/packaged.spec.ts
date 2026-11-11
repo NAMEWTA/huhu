@@ -50,6 +50,7 @@ async function start(): Promise<{ app: ElectronApplication; page: Page; vault: s
         // 没有端点描述：Engine 已自行清理
       }
       await app.close();
+      expect(pid, "没有找到 Engine 端点描述，无法检查退出").toBeGreaterThan(0);
       if (pid > 0) {
         const deadline = Date.now() + 10_000;
         const alive = () => {
@@ -104,6 +105,27 @@ test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，C
     const sess = await s.call("agent.sessions.launch", { spaceId: space.data.id, spaceRevision: space.data.revision, provider: "shell", requestId: "packaged-shell-1" });
     expect(sess.ok, JSON.stringify(sess)).toBe(true);
     await expect.poll(async () => (await s.call("agent.core.status", {})).data?.state, { timeout: 15_000 }).toBe("connected");
+    // 终端：经 WebSocket 发送 echo，读到输出（验证随包 Herdr 的 PTY 与桥接）
+    const ep = await s.page.evaluate(() => window.huhuHost.engine());
+    const out = await s.page.evaluate(
+      async ([e, id]) =>
+        new Promise<string>((resolve) => {
+          const ws = new WebSocket(`${e.baseUrl.replace(/^http/, "ws")}/ws/terminal/${id}?cols=80&rows=24`, [`bearer.${e.token}`]);
+          ws.binaryType = "arraybuffer";
+          let text = "";
+          ws.onopen = () => setTimeout(() => ws.send(new TextEncoder().encode("echo packaged-$((20+22))\n")), 800);
+          ws.onmessage = (m) => {
+            if (typeof m.data !== "string") text += new TextDecoder().decode(m.data as ArrayBuffer);
+            if (text.includes("packaged-42")) {
+              ws.close();
+              resolve(text);
+            }
+          };
+          setTimeout(() => resolve(text), 15_000);
+        }),
+      [ep, sess.data.id] as const,
+    );
+    expect(out).toContain("packaged-42");
     await s.call("agent.sessions.kill", { id: sess.data.id });
   } finally {
     await s.stop();

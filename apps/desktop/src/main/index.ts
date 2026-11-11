@@ -47,6 +47,21 @@ function assertTrusted(url: string | undefined): void {
   if (!isTrustedUrl(url)) throw new Error("untrusted sender");
 }
 
+/** 请求界面把还在防抖窗口里的编辑写出去（自动保存 / 草稿），最多等 3 秒。 */
+function requestFlush(wins: BrowserWindow[]): Promise<void> {
+  const live = wins.filter((w) => !w.isDestroyed());
+  if (live.length === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 3000);
+    ipcMain.once("huhu:flushed", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    for (const w of live) w.webContents.send("huhu:flush");
+  });
+}
+let flushedForQuit = false;
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -61,6 +76,16 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       nodeIntegration: false,
     },
+  });
+  // 点窗口 X：窗口销毁后 before-quit 已经没有可通知的界面了，所以在这里先落盘再关
+  let closing = false;
+  win.on("close", (event) => {
+    if (closing || flushedForQuit) return;
+    closing = true;
+    event.preventDefault();
+    void requestFlush([win]).finally(() => {
+      if (!win.isDestroyed()) win.destroy();
+    });
   });
   win.webContents.on("will-navigate", (event, url) => {
     if (!isTrustedUrl(url)) event.preventDefault();
@@ -286,19 +311,8 @@ if (!gotLock) {
     if (quitting || !supervisor) return;
     e.preventDefault();
     quitting = true;
-    // 先让界面把还在防抖窗口里的编辑写出去（自动保存 / 草稿），再停 Engine；最多等 3 秒
-    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
-    const flushed =
-      wins.length === 0
-        ? Promise.resolve()
-        : new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, 3000);
-            ipcMain.once("huhu:flushed", () => {
-              clearTimeout(timer);
-              resolve();
-            });
-            for (const w of wins) w.webContents.send("huhu:flush");
-          });
+    flushedForQuit = true;
+    const flushed = requestFlush(BrowserWindow.getAllWindows());
     void flushed.finally(() => supervisor?.stop().finally(() => app.quit()));
   });
   app.on("window-all-closed", () => {
