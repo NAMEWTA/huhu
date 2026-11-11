@@ -205,7 +205,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                 </Banner>
               ) : null}
               {active?.nav === "tabs" && sections.length > 0 ? (
-                <Segmented className="module-local-tabs" label={`${active.title}页面`} value={section} options={sections.map((x) => ({ value: x.id, label: x.label }))} onChange={setSection} />
+                <Segmented className="module-local-tabs" label={`${active.title}页面`} value={section} options={sections.map((x) => ({ value: x.id, label: x.label, ...(x.tabIcon ? { icon: x.tabIcon } : {}) }))} onChange={setSection} />
               ) : null}
               <div className={`main-body module-${active?.id ?? "none"} module-section-${section}`}>
                 <div className="huhu-page-surface">

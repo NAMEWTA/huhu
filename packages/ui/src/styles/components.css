@@ -110,13 +110,13 @@ dialog.modal::backdrop {
 .rail-bottom {
   scrollbar-width: none; /* 原型 .rail-bottom { overflow-y:auto } 会让横向也变成 auto，在齿轮下方出现 ‹▬› 滚动条 */
 }
-/* 文档详情「批注」页签：与头部同样的 17px 水平内边距（原型里这个页签的容器自带内边距） */
-.knowledge-inspector-body > [data-testid="comments-panel"] {
-  padding: 16px 17px 20px;
-}
 /* 远程连接左栏标题不换行 */
 .resource-head .row > strong {
   white-space: nowrap;
   flex: 1 1 auto;
   min-width: 0;
+}
+/* 月历：为了 ARIA（grid > row > cell）每周包了一层 row；原型的网格是 7 列直排，这里让 row 不参与布局 */
+.tw-calendar-row {
+  display: contents;
 }

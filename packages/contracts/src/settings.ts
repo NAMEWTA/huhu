@@ -9,9 +9,9 @@ export const SettingsSchema = z.object({
       fontSize: z.number().int().min(12).max(18).catch(14),
       compact: z.boolean().catch(false),
       motion: z.enum(["system", "standard", "reduced"]).catch("system"),
-      navWidth: z.number().int().min(200).max(360).catch(260),
+      navWidth: z.number().int().min(176).max(300).catch(220),
     })
-    .catch({ theme: "pearl", mode: "system", fontSize: 14, compact: false, motion: "system", navWidth: 260 }),
+    .catch({ theme: "pearl", mode: "system", fontSize: 14, compact: false, motion: "system", navWidth: 220 }),
   editor: z
     .object({
       fontSize: z.number().int().min(14).max(20).catch(16),

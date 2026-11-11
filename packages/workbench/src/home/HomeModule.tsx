@@ -3,6 +3,7 @@ import { Badge, Button, Dialog, EmptyState, IconButton, PageHead, Segmented } fr
 import { Activity, ArrowRight, ArrowUpRight, CheckCircle2, ChevronRight, Clock, FileText, Inbox, LayoutGrid, ListTodo, Plus, RefreshCw, Sparkles, Target } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
+import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import type { UiState } from "../state/ui-store.js";
@@ -39,7 +40,7 @@ const fmtDate = (iso: string, zone: string): string => new Date(iso).toLocaleDat
 const fmtTime = (iso: string, zone: string): string => new Date(iso).toLocaleString("zh-CN", { timeZone: zone });
 
 /** 首页（原型 Home）：页头 → 数字概览 → 左列（我的任务 / 继续上次的思考 / 最近活动）+ 右列（专注与习惯 / 灵感收件箱 / Agent CLI 入口）。 */
-export function HomeModule({ ui }: { ui: StoreApi<UiState> }) {
+export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreApi<UiState> } & Partial<Pick<ModuleProps, "section" | "onSection">>) {
   const engine = useEngine();
   const qc = useQueryClient();
   const s = useCapability<Summary>("home.summary", {});
@@ -47,7 +48,10 @@ export function HomeModule({ ui }: { ui: StoreApi<UiState> }) {
   const tasks = useCapability<TaskDto[]>("tasks.list", { completed: false });
   const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" });
   const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
-  const [section, setSection] = useState<Section>("overview");
+  // 分区由外壳的模块页签（原型：标题上方的“总览 / 今日安排 / 最近活动”）提供；没有外壳时用本地状态
+  const [localSection, setLocalSection] = useState<Section>("overview");
+  const section: Section = sectionProp === "today" || sectionProp === "activity" || sectionProp === "overview" ? sectionProp : onSection ? "overview" : localSection;
+  const setSection = (x: Section) => (onSection ? onSection(x) : setLocalSection(x));
   const [filter, setFilter] = useState<"all" | "today">("all");
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,16 +117,6 @@ export function HomeModule({ ui }: { ui: StoreApi<UiState> }) {
               </Button>
             </>
           }
-        />
-        <Segmented<Section>
-          label={tHome.sections.label}
-          value={section}
-          onChange={setSection}
-          options={[
-            { value: "overview", label: tHome.sections.overview },
-            { value: "today", label: tHome.sections.today },
-            { value: "activity", label: tHome.sections.activity },
-          ]}
         />
         {error ? (
           <div role="alert" className="field-error">

@@ -1,3 +1,4 @@
+import type { LucideIcon } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
 export type RailGroup = "primary" | "execution" | "system";
@@ -24,7 +25,8 @@ export interface ModuleContribution {
   /** 模块页面；带 sections 的模块会收到当前分区。 */
   component: ComponentType<ModuleProps>;
   /** 模块分区。nav 缺省 "own"：模块自己画导航（任务、笔记…）；"shell"：外壳左侧显示分区导航；"tabs"：页面顶部显示分段标签。 */
-  sections?: { id: string; label: string; icon?: ReactNode }[];
+  /** 分区；icon 用于外壳左侧导航（nav="shell"），tabIcon（图标组件）用于页面顶部的分段标签（nav="tabs"）。 */
+  sections?: { id: string; label: string; icon?: ReactNode; tabIcon?: LucideIcon }[];
   description?: string;
   nav?: "own" | "shell" | "tabs";
   /** 侧栏计数/徽标由模块自己的 hook 提供。 */

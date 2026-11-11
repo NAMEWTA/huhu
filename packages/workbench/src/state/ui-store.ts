@@ -20,9 +20,9 @@ export interface UiState {
   setPaletteOpen(open: boolean): void;
 }
 
-export const SIDEBAR_MIN = 200;
-export const SIDEBAR_MAX = 360;
-export const SIDEBAR_DEFAULT = 260;
+export const SIDEBAR_MIN = 176; // 原型 navWidth：默认 220，范围 176–300
+export const SIDEBAR_MAX = 300;
+export const SIDEBAR_DEFAULT = 220;
 
 export type UiPersisted = Pick<UiState, "activeModule" | "openTabs" | "sidebarCollapsed" | "sidebarWidth">;
 

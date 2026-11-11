@@ -247,6 +247,7 @@ export function AutomationsModule() {
                     <p>{cur.data.action.text}</p>
                   </section>
                 ) : null}
+                <RuleSchedule id={cur.id} zone={cur.data.trigger.zone} />
                 <div className="tw-rule-preview-action">
                   <Button icon={Search} onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>
                     {cur.data.action.kind === "scan_agent_tasks" ? "预览扫描" : t.preview}
@@ -363,6 +364,22 @@ export function AutomationsModule() {
           />
         </Dialog>
       ) : null}
+    </div>
+  );
+}
+
+/** 规则详情里常驻的“接下来的激活时间”（原型 SchedulePreview）：只预览，不写日志、不运行。 */
+function RuleSchedule({ id, zone }: { id: string; zone: string }) {
+  const preview = useCapability<Preview>("automations.preview", { id });
+  if (preview.isError || !preview.data) return null;
+  const fmt = new Intl.DateTimeFormat("sv-SE", { timeZone: zone || undefined, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  return (
+    <div className="tw-schedule-preview" data-testid="rule-schedule">
+      <strong>接下来的激活时间</strong>
+      <small>{zone || "本地时区"} · 仅预览</small>
+      {preview.data.next.map((time) => (
+        <time key={time}>{fmt.format(new Date(time))}</time>
+      ))}
     </div>
   );
 }

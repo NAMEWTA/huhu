@@ -192,7 +192,7 @@ function Appearance({ s, update }: PageProps) {
             <strong>{t.settings.navWidth}</strong>
             <p>仅影响此类分类导航，不增加重复栏位。</p>
           </div>
-          <RangeField label={t.settings.navWidth} value={a.navWidth} min={200} max={360} step={10} onCommit={(n) => set({ navWidth: n })} />
+          <RangeField label={t.settings.navWidth} value={a.navWidth} min={176} max={300} step={4} onCommit={(n) => set({ navWidth: n })} />
         </div>
         <div className="row">
           <Button variant="ghost" onClick={() => set({ theme: "pearl", mode: "system", fontSize: 14, motion: "system", navWidth: 260, compact: false })}>

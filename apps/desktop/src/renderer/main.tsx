@@ -34,7 +34,7 @@ import {
   createUiStore,
   type EngineEndpoint,
 } from "@huhu/workbench";
-import { Activity, Bell, Blocks, BookOpen, CalendarDays, Command, Database, Folder, HeartPulse, House, NotebookPen, Palette, Plug, Settings } from "lucide-react";
+import { Activity, Bell, Blocks, BookOpen, CalendarDays, Command, Database, Folder, HeartPulse, House, LayoutGrid, Monitor, NotebookPen, Palette, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -66,7 +66,25 @@ function App() {
     r.register(automationsUi);
     r.register(sshUi);
     r.register(versioningUi);
-    r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: () => <HomeModule ui={ui} /> }] });
+    r.register({
+      modules: [
+        {
+          id: "home",
+          plugin: "kernel",
+          title: "工作台",
+          group: "primary",
+          order: 0,
+          icon: <House size={18} aria-hidden />,
+          nav: "tabs",
+          sections: [
+            { id: "overview", label: "总览", tabIcon: LayoutGrid },
+            { id: "today", label: "今日安排", tabIcon: CalendarDays },
+            { id: "activity", label: "最近活动", tabIcon: Activity },
+          ],
+          component: (p) => <HomeModule ui={ui} section={p.section} onSection={p.onSection} />,
+        },
+      ],
+    });
     r.register({
       modules: [
         {
@@ -97,10 +115,10 @@ function App() {
           order: 20,
           nav: "tabs",
           sections: [
-            { id: "mcp", label: "MCP" },
-            { id: "cli", label: "CLI" },
-            { id: "server", label: "服务端" },
-            { id: "desktop", label: "桌面宿主" },
+            { id: "mcp", label: "MCP", tabIcon: Plug },
+            { id: "cli", label: "CLI", tabIcon: SquareTerminal },
+            { id: "server", label: "服务端", tabIcon: Server },
+            { id: "desktop", label: "桌面宿主", tabIcon: Monitor },
           ],
           description: "一套能力，多个入口",
           icon: <Plug size={18} aria-hidden />,
@@ -119,10 +137,10 @@ function App() {
           icon: <Blocks size={18} aria-hidden />,
           nav: "tabs",
           sections: [
-            { id: "installed", label: "已安装" },
-            { id: "discover", label: "发现插件" },
-            { id: "runtime", label: "运行时" },
-            { id: "permissions", label: "权限与依赖" },
+            { id: "installed", label: "已安装", tabIcon: Blocks },
+            { id: "discover", label: "发现插件", tabIcon: Search },
+            { id: "runtime", label: "运行时", tabIcon: Activity },
+            { id: "permissions", label: "权限与依赖", tabIcon: ShieldCheck },
           ],
           description: "每项能力都有清晰的生命周期",
           component: PluginCenterModule,

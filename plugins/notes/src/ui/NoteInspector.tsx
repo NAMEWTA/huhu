@@ -53,10 +53,10 @@ export function NoteInspector({
         <h3>{tab === "properties" ? n.props.title : tab === "outline" ? n.props.outline : tab === "links" ? n.props.links : tab === "comments" ? n.props.comments : n.props.history}</h3>
         <IconButton icon={X} label="关闭文档详情" onClick={onClose} />
       </header>
-      <nav>
+      <div className="knowledge-inspector-nav">
         <ChoiceSegmented label="详情分区" value={tab} onChange={(id) => setTab(id as Tab)} items={(Object.keys(n.props.tabs) as Tab[]).map((id) => ({ id, label: n.props.tabs[id] }))} />
-      </nav>
-      <div className="knowledge-inspector-body" aria-label={title}>
+      </div>
+      <div className="knowledge-inspector-scroll" aria-label={title}>
         {tab === "properties" ? (
           <section>
             <h4>{n.basic}</h4>

@@ -1,6 +1,6 @@
 import { Badge, Button, CompletionCircle, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { Archive, ArrowRight, ArrowUpRight, Download, FileText, Hash, LayoutGrid, Link2, MoreHorizontal, Network, Pencil, Plus, SlidersHorizontal, Table2, Trash2, X } from "lucide-react";
+import { Archive, ArrowRight, ArrowUpRight, BookOpen, Box, Download, FileText, Folder, Hash, LayoutGrid, Link2, MoreHorizontal, Network, Pencil, Plus, SlidersHorizontal, Table2, Trash2, Users, X } from "lucide-react";
 import { useState } from "react";
 import { t } from "./i18n.js";
 
@@ -25,10 +25,30 @@ interface ArchiveRow {
 }
 interface ArchiveType {
   id: string;
+  icon?: string;
   version?: string;
   name: string;
   body?: string;
   fields: FieldDef[];
+}
+/** 档案类型的图标与着色（原型：项目紫、联系人蓝、书籍绿、资产橙）；类型自带 icon 名，没有就用 # */
+const TYPE_MARK: Record<string, { Icon: typeof Hash; tone: string }> = {
+  folder: { Icon: Folder, tone: "type-project" },
+  users: { Icon: Users, tone: "type-person" },
+  user: { Icon: Users, tone: "type-person" },
+  book: { Icon: BookOpen, tone: "type-book" },
+  "book-open": { Icon: BookOpen, tone: "type-book" },
+  box: { Icon: Box, tone: "type-asset" },
+  package: { Icon: Box, tone: "type-asset" },
+};
+const markOf = (type: ArchiveType | undefined) => TYPE_MARK[type?.icon ?? ""] ?? { Icon: Hash, tone: "" };
+function TypeMark({ type, size }: { type: ArchiveType | undefined; size: number }) {
+  const { Icon, tone } = markOf(type);
+  return (
+    <span className={`knowledge-type-icon ${tone}`.trim()}>
+      <Icon size={size} aria-hidden />
+    </span>
+  );
 }
 type View = "table" | "cards";
 type DialogState =
@@ -110,7 +130,10 @@ export function ArchivesModule() {
           <nav className="knowledge-archive-filter-tree" aria-label="档案类型">
             {typeList.map((x) => (
               <button key={x.id} type="button" className={`knowledge-project-row ${typeId === x.id ? "active" : ""}`} aria-current={typeId === x.id ? "page" : undefined} onClick={() => setTypeId(x.id)}>
-                <Hash size={15} aria-hidden />
+                {(() => {
+                  const { Icon } = markOf(x);
+                  return <Icon size={15} aria-hidden />;
+                })()}
                 <span>{x.name}</span>
                 <small>{rows.filter((a) => a.type === x.id).length}</small>
               </button>
@@ -179,9 +202,7 @@ export function ArchivesModule() {
               {visible.map((a) => (
                 <div key={a.id} className={`knowledge-archive-table-row ${a.id === selected ? "is-current" : ""}`} data-testid="archive-row">
                   <button type="button" className="knowledge-archive-name" onClick={() => setSelected(a.id)}>
-                    <span className="knowledge-type-icon">
-                      <Hash size={17} aria-hidden />
-                    </span>
+                    <TypeMark type={typeList.find((x) => x.id === a.type)} size={17} />
                     <div>
                       <strong>{a.name}</strong>
                       <small>{a.body?.slice(0, 40)}</small>
@@ -203,9 +224,7 @@ export function ArchivesModule() {
                 return (
                   <article key={a.id} className={`knowledge-archive-card ${a.id === selected ? "is-current" : ""}`} data-testid="archive-row">
                     <div className="row">
-                      <span className="knowledge-type-icon">
-                        <Hash size={21} aria-hidden />
-                      </span>
+                      <TypeMark type={typeList.find((x) => x.id === a.type)} size={21} />
                       <span className="grow" />
                     </div>
                     <button type="button" className="knowledge-card-title" onClick={() => setSelected(a.id)}>
@@ -262,8 +281,11 @@ export function ArchivesModule() {
             </div>
           </header>
           <div className="knowledge-detail-scroll">
-            <div className="knowledge-entity-cover">
-              <Hash size={30} aria-hidden />
+            <div className={`knowledge-entity-cover ${markOf(curType).tone}`.trim()}>
+              {(() => {
+                const { Icon } = markOf(curType);
+                return <Icon size={30} aria-hidden />;
+              })()}
               <span>{curType?.name ?? "自定义"}</span>
             </div>
             <h2>{cur.name}</h2>
@@ -405,9 +427,7 @@ export function ArchivesModule() {
             {typeList.map((x) => (
               <article key={x.id} className="knowledge-type-card">
                 <div className="row">
-                  <span className="knowledge-type-icon">
-                    <Hash size={19} aria-hidden />
-                  </span>
+                  <TypeMark type={x} size={19} />
                   <strong className="grow">{x.name}</strong>
                   <Badge>{rows.filter((a) => a.type === x.id).length}</Badge>
                 </div>
