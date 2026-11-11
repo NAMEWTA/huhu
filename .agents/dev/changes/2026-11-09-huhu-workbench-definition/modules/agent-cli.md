@@ -63,7 +63,7 @@ Space 只决定启动目录与历史范围；它不授予 Vault 资源权限，�
 - 关闭标签：关闭 WebSocket（Core 侧 detach），会话保持 `running`。
 - 中断：`terminal.interrupt`。结束：AlertDialog“结束会话？进程将被终止，记录会保留。”→ `terminal.kill`。
 - 进程退出：Core 事件 → 会话 `exited`（退出码）；标签保留并显示“已结束”，可关闭。
-- Engine 启动：`terminal.list({labels:{huhu.vault}})` 对账：本地会话记录与 Core 终端一一对应；Core 中有而记录中无 → 补记录；记录中有而 Core 无 → `exited`（退出码未知）。
+- 对账（打开模块 / 列表请求时，2 秒节流；Core 没在运行时不去启动它）：`terminal.list({all:true, labels:{huhu.vault}})` 对账：本地会话记录与 Core 终端一一对应；Core 中有而记录中无 → 补记录；记录中有而 Core 无 → `exited`（退出码未知）。
 
 ### 历史与恢复
 

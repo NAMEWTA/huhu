@@ -15,6 +15,9 @@ export const t = {
   terminalLabel: "终端",
   running: "运行中",
   failed: "启动失败",
+  exited: "已结束",
+  exitedTitle: (code: number | null) => (code === null ? "这个会话已经结束" : `这个会话已经结束（退出码 ${code}）`),
+  exitedHint: "可以在「历史」里恢复它，或新开一个终端。",
   review: {
     open: "变更审查", close: "关闭变更审查", title: "变更审查", refresh: "刷新", files: "变更的文件",
     notRepo: "此 Space 不是 Git 仓库，无法显示变更", clean: "没有未提交的变更", noHead: "这个仓库还没有任何提交：显示的是相对空仓库的全部内容。",

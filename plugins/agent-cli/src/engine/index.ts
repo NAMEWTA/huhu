@@ -35,7 +35,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const mid = machineId();
   const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(root, ".huhu", "runtime", mid, "herdr") });
   ctx.effect(() => () => core.dispose()); // 停用只断开连接，不结束 Core
-  const sessions = new SessionsService({ dir: path.join(root, ".huhu", "agent-cli", "sessions"), vaultId: api.vault.vaultId, spaces, core: () => core.ensure(), detect: () => detector.detect(), now: () => new Date() });
+  const sessions = new SessionsService({ dir: path.join(root, ".huhu", "agent-cli", "sessions"), vaultId: api.vault.vaultId, spaces, core: () => core.ensure(), peekCore: () => core.peek(), detect: () => detector.detect(), now: () => new Date() });
 
   api.defineCapability(def({ name: "agent.spaces.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(SpaceDto), handler: () => spaces.list() }));
   api.defineCapability(def({
@@ -51,7 +51,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     handler: (_c, i) => detector.detect(i.refresh === true),
   }));
 
-  const Session = z.object({ id: z.string(), spaceId: z.string(), provider: z.string(), model: z.string().nullable(), state: z.string(), requestId: z.string(), terminalId: z.string().nullable(), name: z.string(), cwd: z.string(), createdAt: z.string(), nativeSessionId: z.string().optional(), error: z.string().optional() });
+  const Session = z.object({ id: z.string(), spaceId: z.string(), provider: z.string(), model: z.string().nullable(), state: z.string(), requestId: z.string(), terminalId: z.string().nullable(), name: z.string(), cwd: z.string(), createdAt: z.string(), nativeSessionId: z.string().optional(), exitCode: z.number().nullable().optional(), exitedAt: z.string().optional(), error: z.string().optional() });
   const Id = z.object({ id: z.string() });
   const Ok = z.object({ ok: z.literal(true) });
   api.defineCapability(def({
@@ -59,7 +59,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     input: z.object({ spaceId: z.string(), spaceRevision: z.number(), provider: z.enum(["claude", "claude-agent-teams", "codex", "pi", "shell"]), model: z.string().optional(), effort: z.string().optional(), fast: z.boolean().optional(), prompt: z.string().optional(), requestId: z.string().min(8) }), output: Session,
     handler: (_c, i) => sessions.launch(i),
   }));
-  api.defineCapability(def({ name: "agent.sessions.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({ spaceId: z.string().optional() }), output: z.array(Session), handler: (_c, i) => sessions.list(i.spaceId) }));
+  api.defineCapability(def({ name: "agent.sessions.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({ spaceId: z.string().optional() }), output: z.array(Session), handler: async (_c, i) => { await sessions.reconcile(); return sessions.list(i.spaceId); } }));
   api.defineCapability(def({ name: "agent.sessions.interrupt", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: Ok, handler: async (_c, i) => (await sessions.interrupt(i.id), { ok: true as const }) }));
   api.defineCapability(def({ name: "agent.sessions.kill", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: Ok, handler: async (_c, i) => (await sessions.kill(i.id), { ok: true as const }) }));
   api.defineCapability(def({ name: "agent.sessions.rename", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: Id.extend({ name: z.string() }), output: Session, handler: (_c, i) => sessions.rename(i.id, i.name) }));
@@ -85,8 +85,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     name: "agent.history.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false,
     input: z.object({ spaceId: z.string(), limit: z.number().int().min(1).max(500).default(100) }),
     output: z.object({ entries: z.array(Entry), skipped: z.number() }),
-    handler: (_c, i) => {
+    handler: async (_c, i) => {
       const sp = spaceOf(i.spaceId);
+      await sessions.reconcile(); // 已结束的会话不再算“运行中”
       const live = new Set(sessions.list(sp.id).filter((x) => x.state === "running" && x.nativeSessionId).map((x) => `${x.provider}:${x.nativeSessionId}`));
       const r = scanCached(sp.root);
       return { entries: r.entries.slice(0, i.limit).map((e) => ({ ...e, active: live.has(`${e.provider}:${e.nativeSessionId}`) })), skipped: r.skipped };
@@ -96,7 +97,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     name: "agent.history.resume", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, timeoutMs: 60_000,
     input: z.object({ spaceId: z.string(), spaceRevision: z.number(), provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), requestId: z.string() }),
     output: Session,
-    handler: (_c, i) => {
+    handler: async (_c, i) => {
+      await sessions.reconcile();
       if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
       const sp = spaceOf(i.spaceId);
       // 只接受扫描结果里确实存在的会话：不能把任意字符串交给 CLI

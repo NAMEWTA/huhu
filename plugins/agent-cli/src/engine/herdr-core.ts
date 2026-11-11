@@ -50,10 +50,31 @@ export class HerdrCore {
         else reject(new HuhuError("HERDR_UNAVAILABLE", `Herdr Core 启动退出码 ${code}`));
       });
     });
-    const c = new HerdrClient({ endpoint: this.endpoint, onClose: () => { this.client = null; } });
+    const c: HerdrClient = new HerdrClient({ endpoint: this.endpoint, onClose: () => { if (this.client === c) this.client = null; } });
     await c.connect();
+    if (this.client) { c.close(); return this.client; }
     this.client = c;
     return c;
+  }
+
+  /**
+   * 只在 Core 已经在运行时返回客户端，不会去启动它：用于“对账”这类只读检查。
+   * "absent" = 确认没有 Core 在监听（套接字不存在 / 拒绝连接）；null = 暂时判断不了（其他连接错误）。
+   */
+  async peek(): Promise<HerdrClient | "absent" | null> {
+    if (this.client) return this.client;
+    if (process.platform !== "win32" && !existsSync(this.endpoint)) return "absent"; // Unix 套接字文件都不存在：确定没有 Core
+    try {
+      const c: HerdrClient = new HerdrClient({ endpoint: this.endpoint, onClose: () => { if (this.client === c) this.client = null; } }); // 只清掉自己：被丢弃的重复连接关闭时不能把保留的那个也清掉
+      await c.connect();
+      if (this.client) { c.close(); return this.client; } // 与 ensure() 并发时只保留先建好的那一个
+      this.client = c;
+      return c;
+    } catch (e) {
+      // HerdrClient.connect 把底层错误包装成 HuhuError，errno 只留在消息里；套接字文件残留但没有进程监听 = ECONNREFUSED
+      const text = `${(e as { code?: string }).code ?? ""} ${e instanceof Error ? e.message : String(e)}`;
+      return /ENOENT|ECONNREFUSED/.test(text) ? "absent" : null;
+    }
   }
 
   async status(): Promise<{ state: "connected" | "unavailable"; version: string | null; error?: string }> {

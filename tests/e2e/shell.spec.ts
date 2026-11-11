@@ -807,6 +807,40 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
   }
 });
 
+test("Agent CLI：shell 里 exit 之后，会话标记为已结束（带退出码），不再提供终端；其他会话不受影响", async () => {
+  test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    for (let i = 0; i < 2; i++) {
+      await page.getByRole("button", { name: "新终端", exact: true }).click();
+      await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+      await expect(page.getByTestId("session-tab")).toHaveCount(i + 1, { timeout: 15_000 });
+    }
+    await page.getByTestId("session-tab").first().click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("exit 7");
+    await page.keyboard.press("Enter");
+    // 切走再回来触发会话列表刷新（对账）
+    await expect(async () => {
+      await page.getByRole("button", { name: "工作台", exact: true }).first().click();
+      await page.getByRole("button", { name: "Agent CLI" }).first().click();
+      await expect(page.getByTestId("session-tab").filter({ hasText: "已结束" })).toHaveCount(1, { timeout: 2000 });
+    }).toPass({ timeout: 20_000, intervals: [2500] });
+    await page.getByTestId("session-tab").filter({ hasText: "已结束" }).click();
+    await expect(page.getByText("这个会话已经结束（退出码 7）")).toBeVisible();
+    await expect(page.getByTestId("session-tab").filter({ hasText: "运行中" })).toHaveCount(1);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("Agent CLI 变更审查（ACC-AG-10）：显示工作树差异，在行上加意见，发送后会话终端收到文本并标记已发送；非 Git 目录给出说明", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));

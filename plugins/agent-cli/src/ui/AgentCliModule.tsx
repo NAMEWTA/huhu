@@ -1,12 +1,12 @@
 import { Badge, Button, EmptyState, TerminalView } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { t } from "./i18n.js";
 
 interface Space { id: string; name: string; root: string; revision: number }
-interface Session { id: string; spaceId: string; provider: string; name: string; state: string; terminalId: string | null; error?: string }
+interface Session { id: string; spaceId: string; provider: string; name: string; state: string; terminalId: string | null; exitCode?: number | null; error?: string }
 interface Provider { provider: string; displayName: string; status: string }
 
 export function AgentCliModule() {
@@ -48,6 +48,13 @@ export function AgentCliModule() {
   }
 
   const list = sessions.data ?? [];
+  // 有会话在运行时每 5 秒刷新一次列表：程序结束后徽标会自己变成“已结束”
+  const anyRunning = list.some((s) => s.state === "running");
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = setInterval(() => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" }), 5000);
+    return () => clearInterval(id);
+  }, [anyRunning, engine.vaultId, qc]);
   const cur = list.find((s) => s.id === active) ?? null;
   return (
     <div className="hu-module" data-testid="agent-cli-module">
@@ -67,7 +74,7 @@ export function AgentCliModule() {
         <div role="tablist" aria-label={t.sessions} className="hu-form">
           {list.map((s) => (
             <button key={s.id} type="button" role="tab" aria-selected={s.id === active} className="hu-btn" data-testid="session-tab" onClick={() => setActive(s.id)}>
-              {s.name} <Badge tone={s.state === "running" ? "success" : "danger"}>{s.state === "running" ? t.running : t.failed}</Badge>
+              {s.name} <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>
             </button>
           ))}
           <Button variant="primary" aria-expanded={menu} onClick={() => setMenu(!menu)}>{t.newTerminal}</Button>
@@ -93,7 +100,7 @@ export function AgentCliModule() {
             </div>
             <TerminalView key={cur.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={cur.id} ariaLabel={t.terminalLabel} />
           </div>
-        ) : cur ? <EmptyState title={cur.error ?? t.failed} /> : list.length > 0 ? <EmptyState title={t.selectSession} /> : null}
+        ) : cur ? <EmptyState title={cur.state === "exited" ? t.exitedTitle(cur.exitCode ?? null) : (cur.error ?? t.failed)} {...(cur.state === "exited" ? { hint: cur.error ?? t.exitedHint } : {})} /> : list.length > 0 ? <EmptyState title={t.selectSession} /> : null}
         {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
       </section>
     </div>

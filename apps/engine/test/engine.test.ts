@@ -243,6 +243,10 @@ describe("Engine 启动与关闭", () => {
       expect(seen).toContain("REVIEWMARK"); // 终端里收到了意见文本
       expect(seen).toContain("审查笔记.md");
       expect((await call("agent.sessions.kill", { id: s.id })).ok).toBe(true);
+      // 终端被结束后对账：记录变成 exited（真实 Core 的 finished 状态）
+      await new Promise((r) => setTimeout(r, 2200));
+      const listed = (await call("agent.sessions.list", { spaceId: sp.id })).data as { id: string; state: string }[];
+      expect(listed.find((x) => x.id === s.id)?.state).toBe("exited");
       // 会话结束后再发：给出恢复会话的提示，意见保持未发送
       await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 1, text: "结束后的意见" });
       const late = await call("agent.review.send", { sessionId: s.id });

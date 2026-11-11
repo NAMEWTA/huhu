@@ -13,7 +13,7 @@ afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, f
 const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-ss-")); dirs.push(d); return d; };
 
 function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean } = {}) {
-  const terminals: { address: string; labels: Record<string, string> }[] = [];
+  const terminals: { address: string; labels: Record<string, string>; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
   const calls: string[] = [];
   const runs: { argv?: string[]; cwd?: string }[] = [];
   const sends: { terminal?: string; text?: string }[] = [];
@@ -33,18 +33,102 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
       return {};
     },
   } as unknown as HerdrClient;
-  return { client, calls, terminals, runs, sends };
+  const finish = (address: string, code: number | null) => { const x = terminals.find((y) => y.address === address); if (x) { x.state = "finished"; x.exit_code = code; x.finished_ms = Date.parse("2026-11-11T00:30:00Z"); } };
+  return { client, calls, terminals, runs, sends, finish };
 }
 
-function setup(client: HerdrClient) {
+function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof SessionsService>[0]> = {}) {
   const root = tmp(); const work = tmp(); const bin = tmp();
   writeFileSync(path.join(bin, "claude"), "#!/bin/sh\necho 2.0.0\n"); chmodSync(path.join(bin, "claude"), 0o755);
   const spaces = new SpaceStore(path.join(root, "spaces"), "m1");
   const space = spaces.save({ name: "S", root: work });
-  const svc = new SessionsService({ dir: path.join(root, "sessions"), vaultId: "vault-x", spaces, core: async () => client, detect: () => new ProviderDetector(() => 0, { PATH: bin }).detect(), now: () => new Date("2026-11-11T00:00:00Z") });
+  const svc = new SessionsService({ dir: path.join(root, "sessions"), vaultId: "vault-x", spaces, core: async () => client, detect: () => new ProviderDetector(() => 0, { PATH: bin }).detect(), now: () => new Date("2026-11-11T00:00:00Z"), ...over });
   return { svc, space, work };
 }
 const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({ spaceId: space.id, spaceRevision: space.revision, provider: "shell" as const, requestId: `req-${Math.random().toString(36).slice(2)}`, ...over });
+
+describe("HerdrCore.peek（不 mock：真实端点检查）", () => {
+  test("没有任何 Core 在监听：peek 返回 absent，且不会启动它（二进制不存在也不报错）", async () => {
+    const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });
+    expect(await core.peek()).toBe("absent");
+  });
+  test.skipIf(process.platform === "win32")("并发 peek：只保留一个连接，被丢弃的重复连接关闭后不会把保留的那个清掉", async () => {
+    const net = await import("node:net");
+    const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });
+    const srv = net.createServer((s) => { s.on("error", () => undefined); });
+    await new Promise<void>((r) => srv.listen(core.endpoint, r));
+    try {
+      const [a, b] = await Promise.all([core.peek(), core.peek()]);
+      expect(a).not.toBe("absent"); expect(a).not.toBeNull();
+      expect(b).toBe(a);
+      await new Promise((r) => setTimeout(r, 300)); // 等被丢弃的那条连接的关闭事件
+      expect(await core.peek()).toBe(a); // 仍是同一个，没有重新建连
+      core.dispose();
+    } finally {
+      srv.close();
+    }
+  });
+  test("接线到 SessionsService：Core 不在时，记录为 running 的会话对账后变成 exited", async () => {
+    const f = fakeClient();
+    const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });
+    const { svc, space } = setup(f.client, { peekCore: () => core.peek() });
+    const s = await svc.launch(req(space));
+    expect(svc.get(s.id).state).toBe("running");
+    await svc.reconcile();
+    expect(svc.get(s.id)).toMatchObject({ state: "exited", error: expect.stringContaining("没有在运行") });
+  });
+});
+
+describe("会话对账（终端是否已结束）", () => {
+  test("程序退出：记录变为 exited 并带退出码与结束时间；仍在运行的不动；之后发送审查意见被拒绝", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const a = await svc.launch(req(space));
+    const b = await svc.launch(req(space));
+    f.finish(a.terminalId as string, 3);
+    await svc.reconcile();
+    expect(svc.get(a.id)).toMatchObject({ state: "exited", exitCode: 3, exitedAt: "2026-11-11T00:30:00.000Z" });
+    expect(svc.get(b.id).state).toBe("running");
+    svc.addComment(a.id, { path: "a.md", side: "new", line: 1, text: "x" });
+    await expect(svc.sendComments(a.id)).rejects.toThrow(/恢复会话/);
+  });
+  test("终端已不存在（Core 重启过）：exited 并说明原因；Core 连不上：保持原状", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const a = await svc.launch(req(space));
+    f.terminals.length = 0; // Core 里已经没有这个终端
+    await svc.reconcile();
+    expect(svc.get(a.id)).toMatchObject({ state: "exited", exitCode: null, error: expect.stringContaining("不存在") });
+  });
+  test("Core 暂时连不上（判断不了）：保持 running 不动；确认没有 Core 在监听（absent）：全部标为已结束并说明", async () => {
+    let mode: "up" | "unknown" | "absent" = "up";
+    const f = fakeClient();
+    const { svc, space } = setup(f.client, { peekCore: async () => (mode === "up" ? f.client : mode === "unknown" ? null : "absent") });
+    const a = await svc.launch(req(space));
+    mode = "unknown";
+    await svc.reconcile();
+    expect(svc.get(a.id).state).toBe("running");
+    mode = "absent";
+    await new Promise((r) => setTimeout(r, 2100)); // 过了节流窗口
+    await svc.reconcile();
+    expect(svc.get(a.id)).toMatchObject({ state: "exited", error: expect.stringContaining("没有在运行") });
+  });
+  test("地址被别的终端占用（标签不是这个会话）：不能把旧会话当成还在运行", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    const a = await svc.launch(req(space));
+    f.terminals[0]!.labels = { ...f.terminals[0]!.labels, "huhu.session": "sess-someone-else" }; // Core 重置后 t1 被别的会话的终端复用
+    await svc.reconcile();
+    expect(svc.get(a.id).state).toBe("exited");
+  });
+  test("2 秒内重复对账直接跳过（不反复打 Core）", async () => {
+    const f = fakeClient();
+    const { svc, space } = setup(f.client);
+    await svc.launch(req(space));
+    await svc.reconcile(); await svc.reconcile(); await svc.reconcile();
+    expect(f.calls.filter((c) => c === "terminal.list")).toHaveLength(1);
+  });
+});
 
 describe("变更审查意见", () => {
   test("添加/删除/校验；发送：格式为“文件:新|旧行 — 意见”，成功后才标记已发送，只发未发送的", async () => {

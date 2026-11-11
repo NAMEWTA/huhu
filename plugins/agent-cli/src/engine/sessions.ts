@@ -11,7 +11,10 @@ export interface SessionRecord {
   spaceId: string;
   provider: ProviderId | "shell";
   model: string | null;
-  state: "launching" | "running" | "failed" | "unknown";
+  state: "launching" | "running" | "exited" | "failed" | "unknown";
+  /** state=exited：程序的退出码（拿不到为 null）与结束时间。 */
+  exitCode?: number | null;
+  exitedAt?: string;
   requestId: string;
   terminalId: string | null;
   name: string;
@@ -66,6 +69,8 @@ export interface SessionsDeps {
   vaultId: string;
   spaces: SpaceStore;
   core(): Promise<HerdrClient>;
+  /** 只读检查用：Core 在运行才返回客户端，不启动它（缺省退回 core()）。 */
+  peekCore?(): Promise<HerdrClient | "absent" | null>;
   detect(): Promise<DetectResult[]>;
   now(): Date;
 }
@@ -167,6 +172,37 @@ export class SessionsService {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
     await (await this.d.core()).call("terminal.kill", { terminal: s.terminalId });
+  }
+
+  private lastReconcile = 0;
+
+  /**
+   * 对账：记录里还是 running 的会话，到 Herdr Core 里核对终端是否已经结束（程序退出 / 被结束 / Core 重启后终端不存在）。
+   * 在打开模块时调用；2 秒内重复调用直接跳过。Core 连不上就保持原状，不乱改。
+   */
+  async reconcile(): Promise<void> {
+    const mine = this.list().filter((x) => x.state === "running" && x.terminalId);
+    if (mine.length === 0 || Date.now() - this.lastReconcile < 2000) return;
+    this.lastReconcile = Date.now();
+    type T = { address: string; labels?: Record<string, string>; state?: string; exit_code?: number | null; finished_ms?: number | null };
+    let list: T[] | null;
+    try {
+      const c = this.d.peekCore ? await this.d.peekCore() : await this.d.core();
+      if (c === null) return; // 暂时判断不了：保持原状
+      list = c === "absent" ? [] : (await c.call<{ terminals: T[] }>("terminal.list", { all: true, labels: { "huhu.vault": this.d.vaultId } })).terminals;
+    } catch {
+      return;
+    }
+    for (const sess of mine) {
+      // 地址之外还要核对标签：Core 状态被重置后地址可能被别的终端复用
+      const t = list.find((x) => x.address === sess.terminalId && x.labels?.["huhu.session"] === sess.id);
+      const finished = t && (t.state === "finished" || (t.finished_ms ?? null) !== null);
+      if (t && !finished) continue;
+      try {
+        const at = t?.finished_ms ? new Date(t.finished_ms).toISOString() : this.d.now().toISOString();
+        this.save({ ...this.get(sess.id), state: "exited", exitCode: t?.exit_code ?? null, exitedAt: at, ...(t ? {} : { error: "终端已不存在（Herdr Core 没有在运行，或已重启过）" }) });
+      } catch { /* 单条记录读写失败不影响其他会话和列表 */ }
+    }
   }
 
   // ---- 变更审查意见 ----
