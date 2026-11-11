@@ -40,7 +40,11 @@ export class HoldStore {
   prune(current: (taskId: string) => string | null): void {
     const cur = this.load();
     let changed = false;
-    for (const [id, h] of Object.entries(cur)) if (current(id) !== h) { delete cur[id]; changed = true; }
+    for (const [id, h] of Object.entries(cur))
+      if (current(id) !== h) {
+        delete cur[id];
+        changed = true;
+      }
     if (changed) writeFileSync(this.file, JSON.stringify(cur, null, 2));
   }
 }

@@ -7,10 +7,7 @@
     "no-warning-comments": [
       "error",
       {
-        "terms": [
-          "todo",
-          "fixme"
-        ],
+        "terms": ["todo", "fixme"],
         "location": "anywhere"
       }
     ],
@@ -19,9 +16,7 @@
       {
         "patterns": [
           {
-            "group": [
-              "@huhu/*/src/**"
-            ],
+            "group": ["@huhu/*/src/**"],
             "message": "\u7981\u6b62\u6df1\u8def\u5f84\u5bfc\u5165\uff0c\u4f7f\u7528\u5305\u7684\u516c\u5f00\u5165\u53e3"
           }
         ]
@@ -30,27 +25,18 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/plugins/*/src/engine/**"
-      ],
+      "files": ["**/plugins/*/src/engine/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": [
-                  "@huhu/*/src/**"
-                ],
+                "group": ["@huhu/*/src/**"],
                 "message": "\u7981\u6b62\u6df1\u8def\u5f84\u5bfc\u5165"
               },
               {
-                "group": [
-                  "react",
-                  "react-dom",
-                  "@huhu/ui",
-                  "@huhu/workbench"
-                ],
+                "group": ["react", "react-dom", "@huhu/ui", "@huhu/workbench"],
                 "message": "\u63d2\u4ef6 engine \u4e0d\u5f97\u5bfc\u5165 UI"
               }
             ]
@@ -59,27 +45,18 @@
       }
     },
     {
-      "files": [
-        "**/plugins/*/src/ui/**"
-      ],
+      "files": ["**/plugins/*/src/ui/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": [
-                  "@huhu/*/src/**"
-                ],
+                "group": ["@huhu/*/src/**"],
                 "message": "\u7981\u6b62\u6df1\u8def\u5f84\u5bfc\u5165"
               },
               {
-                "group": [
-                  "node:*",
-                  "@huhu/vault",
-                  "@huhu/kernel",
-                  "@huhu/plugin-*/engine"
-                ],
+                "group": ["node:*", "@huhu/vault", "@huhu/kernel", "@huhu/plugin-*/engine"],
                 "message": "\u63d2\u4ef6 ui \u4e0d\u5f97\u5bfc\u5165 Node \u6216 engine"
               }
             ]

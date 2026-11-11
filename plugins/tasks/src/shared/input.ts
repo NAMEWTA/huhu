@@ -4,7 +4,11 @@ export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
     const o = value as Record<string, unknown>;
-    return `{${Object.keys(o).sort().filter((k) => o[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(",")}}`;
+    return `{${Object.keys(o)
+      .sort()
+      .filter((k) => o[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
 }
@@ -18,7 +22,10 @@ export interface TaskInput {
 
 /** inputHash = sha256(title + body + canonical(resources) + canonical(execution)) 前 16 位。 */
 export function inputHash(i: TaskInput): string {
-  return createHash("sha256").update(canonicalJson([i.title, i.body, i.resources, i.execution])).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(canonicalJson([i.title, i.body, i.resources, i.execution]))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 export function processingKey(taskId: string, inputRevision: number, hash: string): string {

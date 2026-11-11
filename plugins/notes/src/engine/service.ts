@@ -95,7 +95,10 @@ export class NotesService {
     }
   }
   private allFiles(): string[] {
-    return this.d.index.entries().filter((e) => e.type === "file").map((e) => e.path);
+    return this.d.index
+      .entries()
+      .filter((e) => e.type === "file")
+      .map((e) => e.path);
   }
   /** 大小写不敏感地查找已存在条目（文件或目录）。 */
   private findCaseInsensitive(rel: string): string | null {
@@ -200,10 +203,11 @@ export class NotesService {
         steps.push({ action: "delete", path: p });
       } else if (changed) steps.push({ action: "write", path: p, bytes });
     }
-    for (const [o, n] of moves) if (ids[o]) {
-      ids[n] = ids[o] as string;
-      delete ids[o];
-    }
+    for (const [o, n] of moves)
+      if (ids[o]) {
+        ids[n] = ids[o] as string;
+        delete ids[o];
+      }
     const folderList = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
     steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folderList));
     await this.d.ops.run(`mv-${Date.now().toString(36)}`, isDir ? "move-folder" : "move-file", dedupeWrites(steps));
@@ -240,11 +244,18 @@ export class NotesService {
       }
     }
     const ids = this.identities();
-    for (const [o, n] of moves) if (ids[o]) {
-      ids[n] = ids[o] as string;
-      delete ids[o];
-    }
-    steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f))));
+    for (const [o, n] of moves)
+      if (ids[o]) {
+        ids[n] = ids[o] as string;
+        delete ids[o];
+      }
+    steps.push(
+      this.jsonStep(IDENTITIES, ids),
+      this.jsonStep(
+        FOLDERS,
+        this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f)),
+      ),
+    );
     await this.d.ops.run(`case-${Date.now().toString(36)}`, "rename-case", dedupeWrites(steps));
     this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
     return { moved: Object.fromEntries(moves), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };
@@ -340,7 +351,8 @@ function removeEmptyDirs(dir: string): boolean {
 /** 同一路径的多个 write 步骤只保留最后一个（例如 identities.json）。 */
 function dedupeWrites(steps: OpStep[]): OpStep[] {
   const lastWrite = new Map<string, number>();
-  steps.forEach((s, i) => { if (s.action === "write") lastWrite.set(s.path, i); });
+  steps.forEach((s, i) => {
+    if (s.action === "write") lastWrite.set(s.path, i);
+  });
   return steps.filter((s, i) => s.action !== "write" || lastWrite.get(s.path) === i);
 }
-

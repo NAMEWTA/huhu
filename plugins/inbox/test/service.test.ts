@@ -6,15 +6,22 @@ import { afterEach, describe, expect, test } from "vitest";
 import { InboxService, sourceFor, type ConvertTarget } from "../src/engine/service.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 function setup(opts: { disabled?: ConvertTarget[]; failAfterCreate?: boolean } = {}) {
-  const d = mkdtempSync(path.join(tmpdir(), "huhu-i-")); dirs.push(d);
-  const root = path.join(d, "v"); mkdirSync(path.join(root, ".huhu"), { recursive: true });
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-i-"));
+  dirs.push(d);
+  const root = path.join(d, "v");
+  mkdirSync(path.join(root, ".huhu"), { recursive: true });
   const files = new VaultFiles(root);
   const created = new Map<string, { id: string }>(); // 以幂等键模拟目标插件的幂等行为
   let createCalls = 0;
   const svc = new InboxService({
-    repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))), trash: new Trash(files), publish: () => undefined, now: () => new Date("2026-11-10T12:00:00Z"),
+    repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
+    trash: new Trash(files),
+    publish: () => undefined,
+    now: () => new Date("2026-11-10T12:00:00Z"),
     isTargetEnabled: (k) => !(opts.disabled ?? []).includes(k),
     createTarget: async (kind, _fields, key) => {
       createCalls++;

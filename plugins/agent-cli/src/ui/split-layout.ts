@@ -1,5 +1,9 @@
 // 分屏布局的纯逻辑：界面和测试共用。
-export interface SplitSession { id: string; name: string; state: string }
+export interface SplitSession {
+  id: string;
+  name: string;
+  state: string;
+}
 export type Layout = 1 | 2 | 4;
 
 /**
@@ -21,7 +25,10 @@ export function fillCells(layout: Layout, cells: (string | null)[], sessions: Sp
 }
 
 /** 用户在分屏里的选择：picks 是各格的选定（见 fillCells），hidden 是被主动移走的会话。 */
-export interface SplitState { picks: (string | null)[]; hidden: string[] }
+export interface SplitState {
+  picks: (string | null)[];
+  hidden: string[];
+}
 
 /** 只冻结已有会话的格子（位置不跳）；自动的空格保持自动，之后新建的会话仍会自己出现。layout 变小再变大时，多出的选择保留。 */
 function frozen(shown: (string | null)[], st: SplitState): (string | null)[] {

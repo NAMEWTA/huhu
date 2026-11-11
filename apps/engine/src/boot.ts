@@ -2,7 +2,28 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import path from "node:path";
 import { z } from "zod";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, readSettingsFile, HomeStore, registerHomeCapabilities, registerPackageCapabilities, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry,
+  Dispatcher,
+  PluginManager,
+  defineCapability,
+  createHuhuContext,
+  EventBus,
+  GatewayAudit,
+  IdempotencyStore,
+  TokenTable,
+  NotificationStore,
+  ExposureStore,
+  GatewayTokens,
+  registerHealthCapabilities,
+  registerNotificationAndSettings,
+  readSettingsFile,
+  HomeStore,
+  registerHomeCapabilities,
+  registerPackageCapabilities,
+  registerSystemCapabilities,
+  registerVaultCapabilities,
+  startEngineServer,
+  type RunningServer,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -93,8 +114,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")).recover();
   const trash = new Trash(vault.files);
   const dispatcherRef: { current?: Dispatcher } = {};
-  const { root: cordisRoot, facade, getService } = createHuhuContext({
-    registry, events, vault: { repo, files: vault.files, index, trash, vaultId: vault.id },
+  const {
+    root: cordisRoot,
+    facade,
+    getService,
+  } = createHuhuContext({
+    registry,
+    events,
+    vault: { repo, files: vault.files, index, trash, vaultId: vault.id },
     call: async (caller, capability, input, idempotencyKey) => {
       const r = await dispatcherRef.current!.call(caller, { capability, input, requestId: `${caller}-${Date.now()}`, ...(idempotencyKey ? { idempotencyKey } : {}) });
       if (!r.ok) throw Object.assign(new Error(r.error.message), { code: r.error.code });
@@ -106,7 +133,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
   const serverRef: { current?: RunningServer } = {};
-  const gatewayTokens = new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens, () => new Date(), () => serverRef.current?.closeConnectionsOf("http"));
+  const gatewayTokens = new GatewayTokens(
+    path.join(vault.root, ".huhu", "gateways.json"),
+    tokens,
+    () => new Date(),
+    () => serverRef.current?.closeConnectionsOf("http"),
+  );
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
   const settingsFile = path.join(vault.root, ".huhu", "settings.json");
@@ -129,49 +161,94 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),
-    apply: (ctx, api) => { safeRef.current = safe.apply(ctx, api); },
+    apply: (ctx, api) => {
+      safeRef.current = safe.apply(ctx, api);
+    },
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(agentCliManifest),
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
-  const notifications = new NotificationStore(path.join(vault.root, ".huhu", "notifications.ndjson"), () => new Date(), (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }));
-  registry.register(defineCapability({
-    name: "home.summary", plugin: "kernel", scope: "read", exposable: true, defaultExposed: true, input: z.object({}),
-    output: z.object({ vault: z.object({ id: z.string(), name: z.string() }), tasksToday: z.number(), tasksOpen: z.number(), inboxPending: z.number(), notes: z.number(), recentNotes: z.array(z.object({ path: z.string(), title: z.string() })), enabled: z.object({ tasks: z.boolean(), inbox: z.boolean(), notes: z.boolean() }) }),
-    handler: async (hc) => {
-      const ask = async <T,>(cap: string, input: unknown, fallback: T): Promise<T> => {
-        if (!plugins.isEnabled(cap.split(".")[0] === "inbox" ? "inbox" : cap.split(".")[0] as string)) return fallback; // 对应插件停用：该卡片为空，不报错
-        const r = await dispatcherRef.current?.call(hc.caller as never, { capability: cap, input, requestId: "home" }); // 以调用者本人的身份取数：外部入口看不到未对其开放的数据
-        return r?.ok ? (r.data as T) : fallback;
-      };
-      const open = await ask<{ id: string }[]>("tasks.list", { completed: false }, []);
-      const today = await ask<{ id: string }[]>("tasks.list", { category: "today", completed: false }, []);
-      const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
-      const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
-      return { vault: { id: vault.id, name: vault.info.name }, tasksToday: today.length, tasksOpen: open.length, inboxPending: inbox.length, notes: notesList.length, recentNotes: notesList.slice(0, 5).map((n) => ({ path: n.path, title: n.title })), enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes") } };
-    },
-  }));
+  const notifications = new NotificationStore(
+    path.join(vault.root, ".huhu", "notifications.ndjson"),
+    () => new Date(),
+    (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }),
+  );
+  registry.register(
+    defineCapability({
+      name: "home.summary",
+      plugin: "kernel",
+      scope: "read",
+      exposable: true,
+      defaultExposed: true,
+      input: z.object({}),
+      output: z.object({
+        vault: z.object({ id: z.string(), name: z.string() }),
+        tasksToday: z.number(),
+        tasksOpen: z.number(),
+        inboxPending: z.number(),
+        notes: z.number(),
+        recentNotes: z.array(z.object({ path: z.string(), title: z.string() })),
+        enabled: z.object({ tasks: z.boolean(), inbox: z.boolean(), notes: z.boolean() }),
+      }),
+      handler: async (hc) => {
+        const ask = async <T>(cap: string, input: unknown, fallback: T): Promise<T> => {
+          if (!plugins.isEnabled(cap.split(".")[0] === "inbox" ? "inbox" : (cap.split(".")[0] as string))) return fallback; // 对应插件停用：该卡片为空，不报错
+          const r = await dispatcherRef.current?.call(hc.caller as never, { capability: cap, input, requestId: "home" }); // 以调用者本人的身份取数：外部入口看不到未对其开放的数据
+          return r?.ok ? (r.data as T) : fallback;
+        };
+        const open = await ask<{ id: string }[]>("tasks.list", { completed: false }, []);
+        const today = await ask<{ id: string }[]>("tasks.list", { category: "today", completed: false }, []);
+        const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
+        const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
+        return {
+          vault: { id: vault.id, name: vault.info.name },
+          tasksToday: today.length,
+          tasksOpen: open.length,
+          inboxPending: inbox.length,
+          notes: notesList.length,
+          recentNotes: notesList.slice(0, 5).map((n) => ({ path: n.path, title: n.title })),
+          enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes") },
+        };
+      },
+    }),
+  );
   registerHealthCapabilities(registry, {
-    plugins, fileProblems: () => repo.problemList(), index, vault: { readOnly: vault.readOnly, id: vault.id }, watcherMode: () => watcher.mode,
+    plugins,
+    fileProblems: () => repo.problemList(),
+    index,
+    vault: { readOnly: vault.readOnly, id: vault.id },
+    watcherMode: () => watcher.mode,
     extra: async () => {
       const safeStatus = plugins.isEnabled("safe") ? safeRef.current?.status() : undefined;
-      return safeStatus ? [{ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" }] : [];
+      return safeStatus
+        ? [{ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" }]
+        : [];
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
   registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.root, ".huhu", "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }));
-  registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: gatewayTokens });
+  registerSystemCapabilities(
+    registry,
+    plugins,
+    { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) },
+    { tokens: gatewayTokens },
+  );
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
       const cli = api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: { detect(): Promise<{ provider: string; exe: string | null; status: string }[]> } }>("agentCli");
       let exes: Record<string, string> = {};
-      void cli?.detector.detect().then((r) => { exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string])); });
+      void cli?.detector.detect().then((r) => {
+        exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string]));
+      });
       automations.apply(ctx, api, {
         zone: settingsZone,
         exeFor: (p) => exes[p] ?? null,
-        spaceState: (id) => { const s = cli?.spaces.list().find((x) => x.id === id); return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" }; },
+        spaceState: (id) => {
+          const s = cli?.spaces.list().find((x) => x.id === id);
+          return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" };
+        },
         notify: (n) => void notifications.create(n),
       });
     },
@@ -199,7 +276,19 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
 
   dispatcherRef.current = real;
-  const server = await startEngineServer({ mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" }, terminal: (id, ws, o) => { const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent"); return bridge ? bridge(id, ws, o) : false; }, dispatcher: real, registry, tokens, events, visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)), ...(opts.port !== undefined ? { port: opts.port } : {}) });
+  const server = await startEngineServer({
+    mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
+    terminal: (id, ws, o) => {
+      const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
+      return bridge ? bridge(id, ws, o) : false;
+    },
+    dispatcher: real,
+    registry,
+    tokens,
+    events,
+    visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)),
+    ...(opts.port !== undefined ? { port: opts.port } : {}),
+  });
 
   const watcher = new VaultWatcher({
     root: vault.root,

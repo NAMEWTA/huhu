@@ -2,7 +2,13 @@ import { Badge, Button } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 
-interface Check { id: string; title: string; status: "ok" | "warning" | "error"; detail: string; action?: { label: string; target: string } }
+interface Check {
+  id: string;
+  title: string;
+  status: "ok" | "warning" | "error";
+  detail: string;
+  action?: { label: string; target: string };
+}
 
 export function HealthModule() {
   const engine = useEngine();

@@ -42,17 +42,31 @@ export class HerdrCore {
     mkdirSync(this.o.runtimeDir, { recursive: true });
     await new Promise<void>((resolve, reject) => {
       const p = spawn(this.o.bin, ["server", "start"], { env: this.env(), stdio: "ignore", windowsHide: true });
-      const timer = setTimeout(() => { p.kill(); reject(new HuhuError("HERDR_UNAVAILABLE", "启动 Herdr Core 超时")); }, 15_000);
-      p.once("error", (e) => { clearTimeout(timer); reject(new HuhuError("HERDR_UNAVAILABLE", `启动 Herdr Core 失败：${e.message}`)); });
+      const timer = setTimeout(() => {
+        p.kill();
+        reject(new HuhuError("HERDR_UNAVAILABLE", "启动 Herdr Core 超时"));
+      }, 15_000);
+      p.once("error", (e) => {
+        clearTimeout(timer);
+        reject(new HuhuError("HERDR_UNAVAILABLE", `启动 Herdr Core 失败：${e.message}`));
+      });
       p.once("exit", (code) => {
         clearTimeout(timer);
         if (code === 0) resolve();
         else reject(new HuhuError("HERDR_UNAVAILABLE", `Herdr Core 启动退出码 ${code}`));
       });
     });
-    const c: HerdrClient = new HerdrClient({ endpoint: this.endpoint, onClose: () => { if (this.client === c) this.client = null; } });
+    const c: HerdrClient = new HerdrClient({
+      endpoint: this.endpoint,
+      onClose: () => {
+        if (this.client === c) this.client = null;
+      },
+    });
     await c.connect();
-    if (this.client) { c.close(); return this.client; }
+    if (this.client) {
+      c.close();
+      return this.client;
+    }
     this.client = c;
     return c;
   }
@@ -65,9 +79,17 @@ export class HerdrCore {
     if (this.client) return this.client;
     if (process.platform !== "win32" && !existsSync(this.endpoint)) return "absent"; // Unix 套接字文件都不存在：确定没有 Core
     try {
-      const c: HerdrClient = new HerdrClient({ endpoint: this.endpoint, onClose: () => { if (this.client === c) this.client = null; } }); // 只清掉自己：被丢弃的重复连接关闭时不能把保留的那个也清掉
+      const c: HerdrClient = new HerdrClient({
+        endpoint: this.endpoint,
+        onClose: () => {
+          if (this.client === c) this.client = null;
+        },
+      }); // 只清掉自己：被丢弃的重复连接关闭时不能把保留的那个也清掉
       await c.connect();
-      if (this.client) { c.close(); return this.client; } // 与 ensure() 并发时只保留先建好的那一个
+      if (this.client) {
+        c.close();
+        return this.client;
+      } // 与 ensure() 并发时只保留先建好的那一个
       this.client = c;
       return c;
     } catch (e) {
@@ -79,7 +101,7 @@ export class HerdrCore {
 
   async status(): Promise<{ state: "connected" | "unavailable"; version: string | null; error?: string }> {
     try {
-      const s = (await (await this.ensure()).call<{ version: string }>("server.status")) ;
+      const s = await (await this.ensure()).call<{ version: string }>("server.status");
       return { state: "connected", version: s.version };
     } catch (e) {
       return { state: "unavailable", version: null, error: e instanceof Error ? e.message : String(e) };

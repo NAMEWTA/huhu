@@ -137,7 +137,10 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
 
   const listener = getRequestListener(app.fetch);
   const handleMcp = async (req: IncomingMessage, res: import("node:http").ServerResponse): Promise<void> => {
-    const send = (status: number, body: unknown) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
+    const send = (status: number, body: unknown) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
     if (!d.mcpHttp?.enabled()) return send(404, { error: "MCP over HTTP 未启用" });
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return send(verdict.status, { error: verdict.reason });
@@ -157,21 +160,41 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       chunks.push(c as Buffer);
     }
     let body: unknown;
-    try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(400, { error: "请求不是合法 JSON" }); }
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+      return send(400, { error: "请求不是合法 JSON" });
+    }
     const { createMcpServer } = await import("../mcp.js");
     const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const mcp = createMcpServer({
-      list: () => d.registry.list().filter((c) => d.visibleTo(caller, c.name)).map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, input: toJsonSchema(c.input) })),
-      call: (capability, input) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
-    }, "0.0.1");
-    const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true } as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]) // 无状态：不生成会话 id;
-    res.on("close", () => { void transport.close(); void mcp.close(); });
+    const mcp = createMcpServer(
+      {
+        list: () =>
+          d.registry
+            .list()
+            .filter((c) => d.visibleTo(caller, c.name))
+            .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, input: toJsonSchema(c.input) })),
+        call: (capability, input) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+      },
+      "0.0.1",
+    );
+    const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true } as ConstructorParameters<typeof StreamableHTTPServerTransport>[0]); // 无状态：不生成会话 id;
+    res.on("close", () => {
+      void transport.close();
+      void mcp.close();
+    });
     await mcp.connect(transport);
     await transport.handleRequest(req, res, body);
   };
   const server = createServer((req, res) => {
     lastActivity = Date.now();
-    if (req.url?.split("?")[0] === "/mcp") void handleMcp(req, res).catch(() => { if (!res.headersSent) { res.writeHead(500); res.end(); } });
+    if (req.url?.split("?")[0] === "/mcp")
+      void handleMcp(req, res).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end();
+        }
+      });
     else void listener(req, res);
   });
   const byCaller = new Map<Caller, Set<import("ws").WebSocket>>();
@@ -181,7 +204,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     byCaller.set(who, set);
     ws.on("close", () => set.delete(ws));
   };
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, handleProtocols: (protocols) => ([...protocols].find((p) => p.startsWith("bearer.")) ?? false) });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, handleProtocols: (protocols) => [...protocols].find((p) => p.startsWith("bearer.")) ?? false });
 
   server.on("upgrade", (req, socket, head) => {
     const reject = (status: number) => {
@@ -193,7 +216,10 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (url.pathname !== "/ws/events" && !(termMatch && d.terminal)) return reject(404);
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return reject(verdict.status);
-    const proto = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim()).find((s) => s.startsWith("bearer."));
+    const proto = String(req.headers["sec-websocket-protocol"] ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .find((s) => s.startsWith("bearer."));
     const who = d.tokens.authenticate(proto?.slice("bearer.".length));
     if (!who) return reject(401);
     // 终端流承载 Agent/SSH 执行，永不对外（security.md §1）：只有桌面身份可以连接
@@ -203,9 +229,11 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       wss.handleUpgrade(req, socket, head, (ws) => {
         ws.on("error", () => undefined);
         track(who, ws);
-        void Promise.resolve(d.terminal!(termMatch[1] as string, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe" })).then((ok) => {
-          if (!ok) ws.close(4404, "会话不存在");
-        }).catch(() => ws.close(1011, "终端桥接失败"));
+        void Promise.resolve(d.terminal!(termMatch[1] as string, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe" }))
+          .then((ok) => {
+            if (!ok) ws.close(4404, "会话不存在");
+          })
+          .catch(() => ws.close(1011, "终端桥接失败"));
       });
       return;
     }
@@ -233,7 +261,9 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     server,
     replay,
     activeConnections: () => wss.clients.size,
-    closeConnectionsOf: (caller: Caller) => { for (const ws of byCaller.get(caller) ?? []) ws.close(4401, "令牌已撤销"); },
+    closeConnectionsOf: (caller: Caller) => {
+      for (const ws of byCaller.get(caller) ?? []) ws.close(4401, "令牌已撤销");
+    },
     lastActivity: () => lastActivity,
     close: async () => {
       unsub();

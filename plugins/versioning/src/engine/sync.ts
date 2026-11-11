@@ -61,7 +61,12 @@ function globToRegex(pattern: string): RegExp {
   if (anchored) p = p.slice(1);
   const dirOnly = p.endsWith("/");
   if (dirOnly) p = p.slice(0, -1);
-  const body = p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "<<DS>>").replace(/\*/g, "[^/]*").replace(/<<DS>>/g, ".*").replace(/\?/g, "[^/]");
+  const body = p
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "<<DS>>")
+    .replace(/\*/g, "[^/]*")
+    .replace(/<<DS>>/g, ".*")
+    .replace(/\?/g, "[^/]");
   return new RegExp(`${anchored || p.includes("/") ? "^" : "(^|/)"}${body}${dirOnly ? "/" : "(/|$)"}`);
 }
 
@@ -94,7 +99,12 @@ export class VaultSync {
   private readonly cf: SyncConflicts;
   private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly root: string, private readonly identity = { name: "HUHU", email: "huhu@localhost" }, hooks: ConflictHooks = {}, private readonly resolveSecret?: (ref: string) => string) {
+  constructor(
+    private readonly root: string,
+    private readonly identity = { name: "HUHU", email: "huhu@localhost" },
+    hooks: ConflictHooks = {},
+    private readonly resolveSecret?: (ref: string) => string,
+  ) {
     // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
     this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1" } });
     this.cf = new SyncConflicts(root, this.git, identity, hooks);
@@ -174,7 +184,10 @@ export class VaultSync {
       this._status = { name: "not-configured", detail: "尚未配置远端" };
       throw errors.invalidInput("尚未配置远端");
     }
-    const has = await this.git.run(["remote", "get-url", "origin"]).then((r) => r.stdout.trim(), () => null);
+    const has = await this.git.run(["remote", "get-url", "origin"]).then(
+      (r) => r.stdout.trim(),
+      () => null,
+    );
     if (has === null) await this.git.run(["remote", "add", "origin", "--", c.remote]);
     else if (has !== c.remote) await this.git.run(["remote", "set-url", "origin", "--", c.remote]);
     return c;
@@ -197,13 +210,16 @@ export class VaultSync {
       const script = path.join(dir, win ? "askpass.cmd" : "askpass.sh");
       if (win) {
         // cmd 会对变量值再次解析（& | ) ^ !），所以交给 PowerShell 处理，值只当作数据
-        writeFileSync(path.join(dir, "askpass.ps1"), [
-          "param([string]$prompt)",
-          "if ($prompt -notmatch \"'[^']*?://(?:[^/@']*@)?([^/']+)\") { exit 1 }",
-          "if ($Matches[1].ToLower() -ne $env:HUHU_GIT_HOST.ToLower()) { exit 1 }",
-          "if ($prompt -like 'Username*') { [Console]::Out.Write($env:HUHU_GIT_USER) } else { [Console]::Out.Write($env:HUHU_GIT_TOKEN) }",
-          "",
-        ].join("\r\n"));
+        writeFileSync(
+          path.join(dir, "askpass.ps1"),
+          [
+            "param([string]$prompt)",
+            "if ($prompt -notmatch \"'[^']*?://(?:[^/@']*@)?([^/']+)\") { exit 1 }",
+            "if ($Matches[1].ToLower() -ne $env:HUHU_GIT_HOST.ToLower()) { exit 1 }",
+            "if ($prompt -like 'Username*') { [Console]::Out.Write($env:HUHU_GIT_USER) } else { [Console]::Out.Write($env:HUHU_GIT_TOKEN) }",
+            "",
+          ].join("\r\n"),
+        );
         writeFileSync(script, '@echo off\r\npowershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0askpass.ps1" "%~1"\r\n');
       } else {
         // 只回答针对配置主机的提示：被重定向到别的主机时不交出令牌
@@ -217,7 +233,13 @@ export class VaultSync {
       env: { GIT_ASKPASS: path.join(dir, process.platform === "win32" ? "askpass.cmd" : "askpass.sh"), GIT_TERMINAL_PROMPT: "0", HUHU_GIT_USER: c.credentialUser, HUHU_GIT_TOKEN: token, HUHU_GIT_HOST: host },
       // 清空系统的 credential helper（否则它可能抢先给出别的凭据，或把令牌存进钥匙串/明文文件），并固定用户名让 git 只需要问密码
       args: ["-c", "credential.helper=", "-c", `credential.username=${c.credentialUser}`],
-      done: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* 杀毒软件占用等：目录里没有秘密，留给系统临时目录清理 */ } },
+      done: () => {
+        try {
+          rmSync(dir, { recursive: true, force: true });
+        } catch {
+          /* 杀毒软件占用等：目录里没有秘密，留给系统临时目录清理 */
+        }
+      },
     };
   }
 
@@ -254,8 +276,14 @@ export class VaultSync {
       else skipped.push({ path: p, reason: v.reason });
     }
     const remoteRef = `origin/${c.branch}`;
-    const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(() => true, () => false);
-    const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+    const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(
+      () => true,
+      () => false,
+    );
+    const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+      () => true,
+      () => false,
+    );
     let pull: string[] = [];
     let ahead = 0;
     let behind = 0;
@@ -276,11 +304,17 @@ export class VaultSync {
     const files = (await this.changedPaths()).filter((p) => classify(p, c.exclude).include);
     if (files.length === 0) return false;
     const stagedBefore = new Set((await this.git.run(["diff", "--cached", "--name-only"])).stdout.split("\n").filter(Boolean));
-    const oldHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then((r) => r.stdout.trim(), () => null);
+    const oldHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+      (r) => r.stdout.trim(),
+      () => null,
+    );
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-idx-"));
     const env = { GIT_INDEX_FILE: path.join(dir, "index"), GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
     try {
-      const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+      const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+        () => true,
+        () => false,
+      );
       if (hasHead) await this.git.run(["read-tree", "HEAD"], { env });
       await this.git.run(["add", "-A", "--", ...files], { env });
       const tree = (await this.git.run(["write-tree"], { env })).stdout.trim();
@@ -314,10 +348,16 @@ export class VaultSync {
         net.done();
       }
       const remoteRef = `origin/${c.branch}`;
-      const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(() => true, () => false);
+      const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(
+        () => true,
+        () => false,
+      );
       let pulled = false;
       if (mode !== "push" && hasRemote) {
-        const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+        const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+          () => true,
+          () => false,
+        );
         const behind = hasHead ? Number((await this.git.run(["rev-list", "--count", `HEAD..${remoteRef}`])).stdout.trim()) : 1;
         if (behind > 0) {
           if (hasHead) {

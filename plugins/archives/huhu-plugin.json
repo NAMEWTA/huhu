@@ -8,5 +8,25 @@
   "optionalDeps": ["tasks", "notes"],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["archives"], "settingsPages": [], "homeWidgets": [], "commands": [], "capabilities": ["archives.list", "archives.read", "archives.create", "archives.update", "archives.delete", "archives.changeType", "archives.setRelations", "archives.linkNote", "archives.unlinkNote", "archives.types.list", "archives.types.save", "archives.types.delete"], "fileKinds": ["archive", "archive-type"] }
+  "contributes": {
+    "modules": ["archives"],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": [
+      "archives.list",
+      "archives.read",
+      "archives.create",
+      "archives.update",
+      "archives.delete",
+      "archives.changeType",
+      "archives.setRelations",
+      "archives.linkNote",
+      "archives.unlinkNote",
+      "archives.types.list",
+      "archives.types.save",
+      "archives.types.delete"
+    ],
+    "fileKinds": ["archive", "archive-type"]
+  }
 }

@@ -19,8 +19,6 @@ export const TaskRunFrontmatterSchema = z.object({
   startedAt: dateLike(IsoTime).nullable().default(null),
   finishedAt: dateLike(IsoTime).nullable().default(null),
   exitCode: z.number().int().nullable().default(null),
-  questions: z
-    .array(z.object({ id: z.string(), text: z.string(), options: z.array(z.string()).default([]), answer: z.string().nullable().default(null), answeredAt: dateLike(IsoTime).nullable().default(null) }))
-    .default([]),
+  questions: z.array(z.object({ id: z.string(), text: z.string(), options: z.array(z.string()).default([]), answer: z.string().nullable().default(null), answeredAt: dateLike(IsoTime).nullable().default(null) })).default([]),
 });
 export type TaskRunFrontmatter = z.infer<typeof TaskRunFrontmatterSchema>;

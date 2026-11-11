@@ -36,16 +36,39 @@ setInterval(() => { if (fs.existsSync(path.join(dir, "cancel"))) { cancelled = t
 if (L.timeoutMs > 0) setTimeout(() => { timedOut = true; killTree(); }, L.timeoutMs);
 `;
 
-export interface LaunchSpec { exe: string; args: string[]; env?: Record<string, string>; cwd: string; timeoutMs: number; stdin?: string; extra?: Record<string, unknown> }
-export interface ExitInfo { code: number | null; signal: string | null; finishedAt: string; timedOut?: boolean; cancelled?: boolean; error?: string }
-export interface SupervisorInfo { supervisorPid: number; workerPid: number | null; startedAt: string }
+export interface LaunchSpec {
+  exe: string;
+  args: string[];
+  env?: Record<string, string>;
+  cwd: string;
+  timeoutMs: number;
+  stdin?: string;
+  extra?: Record<string, unknown>;
+}
+export interface ExitInfo {
+  code: number | null;
+  signal: string | null;
+  finishedAt: string;
+  timedOut?: boolean;
+  cancelled?: boolean;
+  error?: string;
+}
+export interface SupervisorInfo {
+  supervisorPid: number;
+  workerPid: number | null;
+  startedAt: string;
+}
 export type WaitResult = { kind: "exited"; exit: ExitInfo } | { kind: "stopped" } | { kind: "lost"; reason: string };
 
 const HEARTBEAT_FRESH_MS = 8000;
 const STALE_GRACE_MS = 8000;
 
 function readJson<T>(file: string): T | null {
-  try { return JSON.parse(readFileSync(file, "utf8")) as T; } catch { return null; } // 半写或不存在都按“还没有”处理
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as T;
+  } catch {
+    return null;
+  } // 半写或不存在都按“还没有”处理
 }
 
 export const readExit = (dir: string): ExitInfo | null => readJson<ExitInfo>(path.join(dir, "exit.json"));
@@ -66,7 +89,12 @@ export function supervisorAlive(dir: string, now = Date.now()): boolean {
 
 const pidExists = (pid: number | null | undefined): boolean => {
   if (!pid) return false;
-  try { process.kill(pid, 0); return true; } catch { return false; } // EPERM = 别的用户的进程，不是我们启动的
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  } // EPERM = 别的用户的进程，不是我们启动的
 };
 
 /**
@@ -83,9 +111,18 @@ export function roundActive(dir: string): boolean {
 export function launchSupervised(dir: string, spec: LaunchSpec, nodeBin: string = process.env["HUHU_NODE_BIN"] || process.execPath): void {
   mkdirSync(dir, { recursive: true });
   const script = path.join(path.dirname(dir), "_supervisor.cjs");
-  try { if (readFileSync(script, "utf8") !== SUPERVISOR_SRC) throw new Error("stale"); } catch { const tmp = `${script}.${process.pid}.tmp`; writeFileSync(tmp, SUPERVISOR_SRC); renameSync(tmp, script); }
+  try {
+    if (readFileSync(script, "utf8") !== SUPERVISOR_SRC) throw new Error("stale");
+  } catch {
+    const tmp = `${script}.${process.pid}.tmp`;
+    writeFileSync(tmp, SUPERVISOR_SRC);
+    renameSync(tmp, script);
+  }
   if (spec.stdin !== undefined) writeFileSync(path.join(dir, "prompt.txt"), spec.stdin);
-  writeFileSync(path.join(dir, "launch.json"), JSON.stringify({ ...spec.extra, exe: spec.exe, args: spec.args, env: spec.env ?? {}, cwd: spec.cwd, timeoutMs: spec.timeoutMs, ...(spec.stdin !== undefined ? { stdinFile: "prompt.txt" } : {}) }));
+  writeFileSync(
+    path.join(dir, "launch.json"),
+    JSON.stringify({ ...spec.extra, exe: spec.exe, args: spec.args, env: spec.env ?? {}, cwd: spec.cwd, timeoutMs: spec.timeoutMs, ...(spec.stdin !== undefined ? { stdinFile: "prompt.txt" } : {}) }),
+  );
   const p = spawn(nodeBin, [script, dir], { detached: process.platform !== "win32", stdio: "ignore", windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
   p.once("error", () => undefined); // 启动失败由 waitExit 的握手超时报告
   p.unref();
@@ -93,7 +130,11 @@ export function launchSupervised(dir: string, spec: LaunchSpec, nodeBin: string 
 
 /** 请求取消：监督进程自己结束 CLI 进程树；调用方在宽限期后可用 forceKill。 */
 export function requestCancel(dir: string): void {
-  try { writeFileSync(path.join(dir, "cancel"), ""); } catch { /* 目录不存在：没有可取消的进程 */ }
+  try {
+    writeFileSync(path.join(dir, "cancel"), "");
+  } catch {
+    /* 目录不存在：没有可取消的进程 */
+  }
 }
 
 export function forceKill(dir: string): void {
@@ -107,7 +148,9 @@ export function forceKill(dir: string): void {
     try {
       if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
       else process.kill(-pid, "SIGKILL");
-    } catch { /* 已退出 */ }
+    } catch {
+      /* 已退出 */
+    }
   }
 }
 
@@ -116,7 +159,13 @@ export function killRound(dir: string): void {
   requestCancel(dir);
   forceKill(dir);
   if (!readExit(dir)) {
-    try { const t = path.join(dir, `exit.json.${process.pid}.tmp`); writeFileSync(t, JSON.stringify({ code: null, signal: "SIGKILL", cancelled: true, finishedAt: new Date().toISOString() })); renameSync(t, path.join(dir, "exit.json")); } catch { /* 目录已不存在 */ }
+    try {
+      const t = path.join(dir, `exit.json.${process.pid}.tmp`);
+      writeFileSync(t, JSON.stringify({ code: null, signal: "SIGKILL", cancelled: true, finishedAt: new Date().toISOString() }));
+      renameSync(t, path.join(dir, "exit.json"));
+    } catch {
+      /* 目录已不存在 */
+    }
   }
 }
 
@@ -138,8 +187,15 @@ export async function waitExit(dir: string, o: WaitOptions = {}): Promise<WaitRe
   for (;;) {
     const exit = readExit(dir);
     if (exit) return { kind: "exited", exit };
-    if (o.cancel?.aborted && cancelAt === null) { requestCancel(dir); cancelAt = Date.now(); }
-    if (cancelAt !== null && Date.now() - cancelAt > (o.cancelGraceMs ?? 5000)) { forceKill(dir); const e = readExit(dir); return e ? { kind: "exited", exit: e } : { kind: "exited", exit: { code: null, signal: "SIGKILL", cancelled: true, finishedAt: new Date().toISOString() } }; }
+    if (o.cancel?.aborted && cancelAt === null) {
+      requestCancel(dir);
+      cancelAt = Date.now();
+    }
+    if (cancelAt !== null && Date.now() - cancelAt > (o.cancelGraceMs ?? 5000)) {
+      forceKill(dir);
+      const e = readExit(dir);
+      return e ? { kind: "exited", exit: e } : { kind: "exited", exit: { code: null, signal: "SIGKILL", cancelled: true, finishedAt: new Date().toISOString() } };
+    }
     if (o.stopWaiting?.aborted) return { kind: "stopped" };
     const sup = readSupervisor(dir);
     if (!sup) {
@@ -147,7 +203,10 @@ export async function waitExit(dir: string, o: WaitOptions = {}): Promise<WaitRe
     } else if (!supervisorAlive(dir)) {
       const again = readExit(dir); // 它刚好写完 exit.json 然后退出
       if (again) return { kind: "exited", exit: again };
-      if (cancelAt !== null) { forceKill(dir); return { kind: "exited", exit: { code: null, signal: "SIGKILL", cancelled: true, finishedAt: new Date().toISOString() } }; } // 取消时监督进程已死：没人会读 cancel 文件，直接强杀孤儿 CLI
+      if (cancelAt !== null) {
+        forceKill(dir);
+        return { kind: "exited", exit: { code: null, signal: "SIGKILL", cancelled: true, finishedAt: new Date().toISOString() } };
+      } // 取消时监督进程已死：没人会读 cancel 文件，直接强杀孤儿 CLI
       // 进程还在但心跳过期（机器睡眠后唤醒）：多给几个心跳周期；进程已经不在就直接判定
       staleSince ??= Date.now();
       if (!pidExists(sup.supervisorPid) || Date.now() - staleSince > STALE_GRACE_MS) {

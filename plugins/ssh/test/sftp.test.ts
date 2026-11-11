@@ -13,18 +13,31 @@ afterEach(async () => {
   for (const c of closers.splice(0)) await c();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-sftp-")); dirs.push(d); return d; };
-const until = async (c: () => boolean, ms = 3000) => { const end = Date.now() + ms; while (!c() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); };
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-sftp-"));
+  dirs.push(d);
+  return d;
+};
+const until = async (c: () => boolean, ms = 3000) => {
+  const end = Date.now() + ms;
+  while (!c() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+};
 
 async function connected(o: FakeSshOptions = {}) {
-  const srv = await startFakeSsh(o); closers.push(srv.close);
+  const srv = await startFakeSsh(o);
+  closers.push(srv.close);
   const root = tmp();
   const hosts = new HostStore(path.join(root, "hosts"));
   const prompts: { attemptId: string }[] = [];
   const mgr: SshManager = new SshManager({
-    hosts, knownHostsFile: path.join(root, "known_hosts"), auditDir: path.join(root, "audit"), now: () => new Date("2026-11-11T00:00:00Z"),
+    hosts,
+    knownHostsFile: path.join(root, "known_hosts"),
+    auditDir: path.join(root, "audit"),
+    now: () => new Date("2026-11-11T00:00:00Z"),
     resolveSecret: () => "pw",
-    publish: (type, payload) => { if (type === "ssh.hostKeyPrompt") prompts.push(payload as { attemptId: string }); },
+    publish: (type, payload) => {
+      if (type === "ssh.hostKeyPrompt") prompts.push(payload as { attemptId: string });
+    },
     decisionTimeoutMs: 1000,
   });
   closers.push(() => mgr.disposeAll());
@@ -57,7 +70,13 @@ describe("SFTP 浏览与文本预览", () => {
     srv.fs.files.set("/home/test/big.txt", Buffer.alloc(2 * 1024 * 1024 + 1, 97));
     const root = await mgr.sftpList(h.id, "");
     expect(root.path).toBe("/home/test");
-    expect(root.entries.map((e) => [e.name, e.type])).toEqual([["docs", "dir"], ["a.txt", "file"], ["b.txt", "file"], ["big.txt", "file"], ["bin.dat", "file"]]);
+    expect(root.entries.map((e) => [e.name, e.type])).toEqual([
+      ["docs", "dir"],
+      ["a.txt", "file"],
+      ["b.txt", "file"],
+      ["big.txt", "file"],
+      ["bin.dat", "file"],
+    ]);
     expect((await mgr.sftpList(h.id, "/home/test/docs")).entries.map((e) => e.name)).toEqual(["n.md"]);
     await expect(mgr.sftpList(h.id, "/nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await mgr.sftpRead(h.id, "/home/test/b.txt")).toEqual({ text: "你好 SFTP", size: Buffer.byteLength("你好 SFTP") });
@@ -85,7 +104,8 @@ describe("SFTP 写入、覆盖确认（ACC-SH-08）、重命名、删除", () =>
     const { srv, mgr, h } = await connected();
     await mgr.sftpMkdir(h.id, "/home/test/d");
     await expect(mgr.sftpMkdir(h.id, "/home/test/d")).rejects.toMatchObject({ code: "NAME_CONFLICT" });
-    srv.fs.files.set("/home/test/d/a.txt", Buffer.from("a")); srv.fs.files.set("/home/test/b.txt", Buffer.from("b"));
+    srv.fs.files.set("/home/test/d/a.txt", Buffer.from("a"));
+    srv.fs.files.set("/home/test/b.txt", Buffer.from("b"));
     await expect(mgr.sftpDelete(h.id, "/home/test/d")).rejects.toBeTruthy(); // 非空目录不递归删除
     expect(srv.fs.dirs.has("/home/test/d")).toBe(true);
     await expect(mgr.sftpRename(h.id, "/home/test/b.txt", "/home/test/d/a.txt", false)).rejects.toMatchObject({ code: "NAME_CONFLICT" });
@@ -127,7 +147,8 @@ describe("SFTP 上传与下载", () => {
     const { srv, mgr, h } = await connected();
     srv.fs.files.set("/home/test/big.bin", Buffer.alloc(8 * 1024 * 1024, 1));
     const local = tmp();
-    const ac = new AbortController(); ac.abort();
+    const ac = new AbortController();
+    ac.abort();
     await expect(mgr.sftpDownload(h.id, "/home/test/big.bin", path.join(local, "big.bin"), false, ac.signal)).rejects.toThrow();
     expect(readdirSync(local)).toEqual([]);
   });

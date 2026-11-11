@@ -8,6 +8,11 @@ const exts = [".exe", ".dmg", ".AppImage", ".deb"];
 const lines = readdirSync(dir)
   .filter((f) => exts.some((e) => f.endsWith(e)))
   .sort()
-  .map((f) => `${createHash("sha256").update(readFileSync(path.join(dir, f))).digest("hex")}  ${f}`);
+  .map(
+    (f) =>
+      `${createHash("sha256")
+        .update(readFileSync(path.join(dir, f)))
+        .digest("hex")}  ${f}`,
+  );
 writeFileSync(path.join(dir, `SHA256SUMS-${target}.txt`), lines.join("\n") + "\n");
 console.log(lines.join("\n"));

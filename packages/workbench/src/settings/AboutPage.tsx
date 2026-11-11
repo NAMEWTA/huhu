@@ -13,16 +13,29 @@ export function AboutPage() {
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   useEffect(() => {
     const h = host();
-    if (!h) { setNotices(""); setUnavailable(true); return; }
+    if (!h) {
+      setNotices("");
+      setUnavailable(true);
+      return;
+    }
     void h.appInfo().then(setInfo, () => undefined);
     void h.notices().then(setNotices, () => setNotices(""));
   }, []);
   const c = t.settings.about;
-  const row = (label: string, value: string, testid: string) => (<><dt>{label}</dt><dd data-testid={testid}>{value}</dd></>);
+  const row = (label: string, value: string, testid: string) => (
+    <>
+      <dt>{label}</dt>
+      <dd data-testid={testid}>{value}</dd>
+    </>
+  );
   return (
     <div data-testid="settings-about">
       <h1>{c.title}</h1>
-      {unavailable ? <p className="hu-meta">{c.hostOnly}</p> : !info ? <p>{t.loading}</p> : (
+      {unavailable ? (
+        <p className="hu-meta">{c.hostOnly}</p>
+      ) : !info ? (
+        <p>{t.loading}</p>
+      ) : (
         <dl>
           {row(c.app, `${info.name} ${info.version}`, "about-version")}
           {row(c.platform, `${info.platform} / ${info.arch}`, "about-platform")}
@@ -33,7 +46,11 @@ export function AboutPage() {
         </dl>
       )}
       <h2>{c.notices}</h2>
-      {notices === null ? <p>{t.loading}</p> : notices === "" ? <p className="hu-meta">{c.noNotices}</p> : (
+      {notices === null ? (
+        <p>{t.loading}</p>
+      ) : notices === "" ? (
+        <p className="hu-meta">{c.noNotices}</p>
+      ) : (
         <details data-testid="about-notices">
           <summary>{c.showNotices}</summary>
           <pre style={{ maxHeight: "50vh", overflow: "auto", whiteSpace: "pre-wrap" }}>{notices}</pre>

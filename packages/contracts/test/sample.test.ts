@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { z } from "zod";
-import {
-  CapabilityRequestSchema, EVENT_PAYLOADS, HuhuError, HuhuErrorSchema, PluginManifestSchema, errors,
-  findDependencyCycle, isId, newId, parseId, toJsonSchema, ERROR_CODES,
-} from "../src/index.js";
+import { CapabilityRequestSchema, EVENT_PAYLOADS, HuhuError, HuhuErrorSchema, PluginManifestSchema, errors, findDependencyCycle, isId, newId, parseId, toJsonSchema, ERROR_CODES } from "../src/index.js";
 
 describe("errors", () => {
   test("HuhuError 往返并通过模式", () => {
@@ -47,7 +44,17 @@ describe("schemas", () => {
   test("插件清单与循环依赖", () => {
     const m = PluginManifestSchema.parse({ id: "tasks", title: "任务", description: "", version: "1.0.0", origin: "builtin" });
     expect(m.dependsOn).toEqual([]);
-    expect(findDependencyCycle([{ id: "a", dependsOn: ["b"] }, { id: "b", dependsOn: ["a"] }])).toEqual(["a", "b", "a"]);
-    expect(findDependencyCycle([{ id: "a", dependsOn: ["b"] }, { id: "b", dependsOn: [] }])).toBeNull();
+    expect(
+      findDependencyCycle([
+        { id: "a", dependsOn: ["b"] },
+        { id: "b", dependsOn: ["a"] },
+      ]),
+    ).toEqual(["a", "b", "a"]);
+    expect(
+      findDependencyCycle([
+        { id: "a", dependsOn: ["b"] },
+        { id: "b", dependsOn: [] },
+      ]),
+    ).toBeNull();
   });
 });

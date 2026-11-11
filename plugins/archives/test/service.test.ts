@@ -6,19 +6,36 @@ import { afterEach, describe, expect, test } from "vitest";
 import { ArchivesService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 function setup() {
-  const d = mkdtempSync(path.join(tmpdir(), "huhu-a-")); dirs.push(d);
-  const root = path.join(d, "v"); mkdirSync(path.join(root, ".huhu"), { recursive: true });
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-a-"));
+  dirs.push(d);
+  const root = path.join(d, "v");
+  mkdirSync(path.join(root, ".huhu"), { recursive: true });
   const files = new VaultFiles(root);
   const events: string[] = [];
-  const svc = new ArchivesService({ repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))), files, ops: new OperationLog(files, path.join(d, "ops2")), publish: (t, p) => events.push(`${t}:${JSON.stringify(p)}`), now: () => new Date("2026-11-10T12:00:00Z") });
+  const svc = new ArchivesService({
+    repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
+    files,
+    ops: new OperationLog(files, path.join(d, "ops2")),
+    publish: (t, p) => events.push(`${t}:${JSON.stringify(p)}`),
+    now: () => new Date("2026-11-10T12:00:00Z"),
+  });
   return { svc, root, events };
 }
 const rd = (root: string, p: string) => readFileSync(path.join(root, p), "utf8");
 
 async function twoTypes(svc: ArchivesService) {
-  const project = await svc.saveType({ name: "项目", fields: [{ id: "owner", label: "负责人", type: "text" }, { id: "site", label: "网站", type: "url" }, { id: "target", label: "目标日期", type: "date" }] });
+  const project = await svc.saveType({
+    name: "项目",
+    fields: [
+      { id: "owner", label: "负责人", type: "text" },
+      { id: "site", label: "网站", type: "url" },
+      { id: "target", label: "目标日期", type: "date" },
+    ],
+  });
   const book = await svc.saveType({ name: "书籍", fields: [{ id: "author", label: "作者", type: "text" }] });
   return { project, book };
 }
@@ -28,8 +45,21 @@ describe("类型", () => {
     const { svc } = setup();
     await twoTypes(svc);
     await expect(svc.saveType({ name: "项目", fields: [] })).rejects.toMatchObject({ code: "NAME_CONFLICT" });
-    await expect(svc.saveType({ name: "x", fields: [{ id: "a", label: "A", type: "text" }, { id: "a", label: "B", type: "text" }] })).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    expect(svc.types().map((t) => t.name).sort()).toEqual(["书籍", "项目"]);
+    await expect(
+      svc.saveType({
+        name: "x",
+        fields: [
+          { id: "a", label: "A", type: "text" },
+          { id: "a", label: "B", type: "text" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(
+      svc
+        .types()
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual(["书籍", "项目"]);
   });
   test("ACC-AR-03 删除有档案的类型：必须迁移；迁移与删除一起完成", async () => {
     const { svc } = setup();

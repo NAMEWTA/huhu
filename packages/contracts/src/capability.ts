@@ -15,14 +15,9 @@ export const CapabilityRequestSchema = z.object({
 });
 export type CapabilityRequest = z.infer<typeof CapabilityRequestSchema>;
 
-export type CapabilityResult<T> =
-  | { ok: true; data: T; opId?: string }
-  | { ok: false; error: z.infer<typeof HuhuErrorSchema> };
+export type CapabilityResult<T> = { ok: true; data: T; opId?: string } | { ok: false; error: z.infer<typeof HuhuErrorSchema> };
 
-export const CapabilityResultSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), data: z.unknown(), opId: z.string().optional() }),
-  z.object({ ok: z.literal(false), error: HuhuErrorSchema }),
-]);
+export const CapabilityResultSchema = z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), data: z.unknown(), opId: z.string().optional() }), z.object({ ok: z.literal(false), error: HuhuErrorSchema })]);
 
 /** 把 zod 模式导出为 JSON Schema，供 capabilities.list 与 MCP 使用。 */
 export function toJsonSchema(schema: z.ZodType): unknown {

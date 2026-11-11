@@ -12,9 +12,14 @@ afterEach(async () => {
   for (const e of engines.splice(0)) await e.shutdown();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-c-")); dirs.push(d); return d; };
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-c-"));
+  dirs.push(d);
+  return d;
+};
 function capture() {
-  const out: string[] = [], err: string[] = [];
+  const out: string[] = [],
+    err: string[] = [];
   return { out, err, io: { out: (s: string) => out.push(s), err: (s: string) => err.push(s) } };
 }
 const ENGINE_ENTRY = path.resolve(import.meta.dirname, "../../engine/src/main.ts");
@@ -34,7 +39,9 @@ describe("CLI", () => {
     process.chdir(tmp());
     try {
       expect(await run(["call", "vault.info"], c.io)).toBe(3);
-    } finally { process.chdir(cwd); }
+    } finally {
+      process.chdir(cwd);
+    }
   });
   test("参数错误 → 2", async () => {
     expect(await run(["call", "vault.info", "--input-json", "{bad"], capture().io)).toBe(2);
@@ -42,7 +49,8 @@ describe("CLI", () => {
   });
   test("复用已运行的 Engine：call vault.info --json", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     const c = capture();
     expect(await run(["call", "vault.info", "--vault", dir, "--json"], c.io)).toBe(0);
     const parsed = JSON.parse(c.out.join(""));
@@ -50,7 +58,8 @@ describe("CLI", () => {
   });
   test("业务错误 → 退出码 1", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     const c = capture();
     expect(await run(["call", "no.such", "--vault", dir], c.io)).toBe(1);
     expect(c.out.join("")).toContain("CAPABILITY_NOT_FOUND");
@@ -76,14 +85,23 @@ describe("CLI", () => {
   }, 60000);
   test("便捷命令：tasks create/list/complete、plugins list、capabilities list、inbox capture", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
-    const run1 = async (...args: string[]) => { const c = capture(); const code = await run([...args, "--vault", dir, "--json"], c.io); return { code, out: JSON.parse(c.out.join("")) as { ok: boolean; data: unknown } }; };
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    const run1 = async (...args: string[]) => {
+      const c = capture();
+      const code = await run([...args, "--vault", dir, "--json"], c.io);
+      return { code, out: JSON.parse(c.out.join("")) as { ok: boolean; data: unknown } };
+    };
     const created = await run1("tasks", "create", "--title", "写周报");
     expect(created.code).toBe(1); // 默认不对外开放
     expect((created.out as unknown as { error: { code: string } }).error.code).toBe("CAPABILITY_NOT_EXPOSED");
     // 用户在网关里开放 tasks.create / tasks.setCompleted 后，CLI 便捷命令可用
     for (const cap of ["tasks.create", "tasks.setCompleted"]) {
-      const r = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.update", input: { capability: cap, exposed: true }, requestId: "r", idempotencyKey: `key-gw-${cap}` }) });
+      const r = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability: "gateway.update", input: { capability: cap, exposed: true }, requestId: "r", idempotencyKey: `key-gw-${cap}` }),
+      });
       expect(((await r.json()) as { ok: boolean }).ok).toBe(true);
     }
     const created2 = await run1("tasks", "create", "--title", "写周报");
@@ -93,7 +111,11 @@ describe("CLI", () => {
     expect(done.code).toBe(0);
     expect((done.out.data as { completed: boolean }).completed).toBe(true);
     // 不可开放的能力永远不能被网关开放
-    const bad = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.update", input: { capability: "safe.items.reveal", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }) });
+    const bad = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "gateway.update", input: { capability: "safe.items.reveal", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }),
+    });
     expect(((await bad.json()) as { ok: boolean; error: { code: string } }).error.code).toBe("INVALID_INPUT");
     const plugins = await run1("plugins", "list");
     expect(plugins.code).toBe(0);
@@ -108,7 +130,8 @@ describe("CLI", () => {
   });
   test("MCP：只列出对外开放的能力；调用经 Dispatcher 授权；safe 能力不出现；资源可读", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");

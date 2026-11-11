@@ -16,10 +16,14 @@ export class KnownHosts {
 
   private entries(): { host: string; type: string; key: string }[] {
     if (!existsSync(this.file)) return [];
-    return readFileSync(this.file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")).flatMap((l) => {
-      const [host, type, key] = l.split(/\s+/);
-      return host && type && key ? [{ host, type, key }] : [];
-    });
+    return readFileSync(this.file, "utf8")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"))
+      .flatMap((l) => {
+        const [host, type, key] = l.split(/\s+/);
+        return host && type && key ? [{ host, type, key }] : [];
+      });
   }
 
   check(host: string, port: number, keyType: string, key: Buffer): { state: TrustState; recorded: string[] } {

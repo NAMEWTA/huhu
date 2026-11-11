@@ -8,5 +8,12 @@
   "optionalDeps": [],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["safe"], "settingsPages": [], "homeWidgets": [], "commands": ["safe.lock"], "capabilities": ["safe.status", "safe.setup", "safe.unlock", "safe.lock", "safe.changePassword", "safe.settings.update", "safe.items.list", "safe.items.save", "safe.items.delete", "safe.items.reveal", "safe.audit.list"], "fileKinds": [] }
+  "contributes": {
+    "modules": ["safe"],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": ["safe.lock"],
+    "capabilities": ["safe.status", "safe.setup", "safe.unlock", "safe.lock", "safe.changePassword", "safe.settings.update", "safe.items.list", "safe.items.save", "safe.items.delete", "safe.items.reveal", "safe.audit.list"],
+    "fileKinds": []
+  }
 }

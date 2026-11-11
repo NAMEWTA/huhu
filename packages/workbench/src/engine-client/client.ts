@@ -7,7 +7,11 @@ export interface EngineEndpoint {
 }
 
 export class CapabilityError extends Error {
-  constructor(readonly code: string, message: string, readonly details?: Record<string, unknown>) {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "CapabilityError";
   }
@@ -15,7 +19,10 @@ export class CapabilityError extends Error {
 
 /** Engine HTTP 客户端：调用能力；业务错误抛 CapabilityError。 */
 export class EngineClient {
-  constructor(readonly endpoint: EngineEndpoint, private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init)) {}
+  constructor(
+    readonly endpoint: EngineEndpoint,
+    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
+  ) {}
 
   get vaultId(): string {
     return this.endpoint.vaultId;
@@ -63,7 +70,10 @@ export class EventStream {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
 
-  constructor(private readonly endpoint: EngineEndpoint, private readonly o: EventStreamOptions) {}
+  constructor(
+    private readonly endpoint: EngineEndpoint,
+    private readonly o: EventStreamOptions,
+  ) {}
 
   start(): void {
     this.connect();

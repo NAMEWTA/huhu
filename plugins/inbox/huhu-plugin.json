@@ -8,5 +8,12 @@
   "optionalDeps": ["tasks", "notes", "archives"],
   "permissions": ["tasks.write", "notes.write", "archives.write", "archives.read"],
   "activation": "vault-open",
-  "contributes": { "modules": ["inbox"], "settingsPages": [], "homeWidgets": ["inbox"], "commands": ["inbox.capture"], "capabilities": ["inbox.list", "inbox.capture", "inbox.update", "inbox.convert", "inbox.dismiss", "inbox.restore", "inbox.undo", "inbox.delete"], "fileKinds": ["capture"] }
+  "contributes": {
+    "modules": ["inbox"],
+    "settingsPages": [],
+    "homeWidgets": ["inbox"],
+    "commands": ["inbox.capture"],
+    "capabilities": ["inbox.list", "inbox.capture", "inbox.update", "inbox.convert", "inbox.dismiss", "inbox.restore", "inbox.undo", "inbox.delete"],
+    "fileKinds": ["capture"]
+  }
 }

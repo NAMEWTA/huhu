@@ -3,10 +3,7 @@ import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
 import { VaultFiles, versionOf } from "./write.js";
 
-export type OpStep =
-  | { action: "write"; path: string; bytes: Uint8Array }
-  | { action: "rename"; from: string; path: string }
-  | { action: "delete"; path: string };
+export type OpStep = { action: "write"; path: string; bytes: Uint8Array } | { action: "rename"; from: string; path: string } | { action: "delete"; path: string };
 
 interface StepRecord {
   action: "write" | "rename" | "delete";
@@ -35,7 +32,11 @@ const RETENTION_MS = 30 * 24 * 3600 * 1000;
  * 不承诺跨文件原子性，承诺可解释、可恢复、不静默覆盖。
  */
 export class OperationLog {
-  constructor(private readonly files: VaultFiles, private readonly dir: string, private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly files: VaultFiles,
+    private readonly dir: string,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   private logPath(opId: string): string {
     return path.join(this.dir, `${opId}.json`);
@@ -56,7 +57,9 @@ export class OperationLog {
 
   list(): OpRecord[] {
     if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as OpRecord);
+    return readdirSync(this.dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as OpRecord);
   }
 
   /** 执行一个多文件操作。失败时回滚已完成步骤并抛 WRITE_PARTIAL（附 opId）。 */

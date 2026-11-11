@@ -18,7 +18,11 @@ export interface WriteOptions {
 
 /** Vault 内文件读写：路径守卫 + 版本校验 + 原子写 + 自写回执。 */
 export class VaultFiles {
-  constructor(readonly root: string, readonly receipts: ReceiptLog = new ReceiptLog(), readonly readOnly = false) {}
+  constructor(
+    readonly root: string,
+    readonly receipts: ReceiptLog = new ReceiptLog(),
+    readonly readOnly = false,
+  ) {}
 
   assertWritable(): void {
     if (this.readOnly) throw errors.readOnlyVault();

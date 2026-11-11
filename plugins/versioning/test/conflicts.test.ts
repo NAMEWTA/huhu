@@ -7,9 +7,18 @@ import { VaultGit } from "../src/engine/repo.js";
 import { VaultSync } from "../src/engine/sync.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-cf-")); dirs.push(d); return d; };
-const put = (root: string, rel: string, text: string | Buffer) => { mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); writeFileSync(path.join(root, rel), text); };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-cf-"));
+  dirs.push(d);
+  return d;
+};
+const put = (root: string, rel: string, text: string | Buffer) => {
+  mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+  writeFileSync(path.join(root, rel), text);
+};
 const read = (root: string, rel: string) => readFileSync(path.join(root, rel), "utf8");
 const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
@@ -38,7 +47,9 @@ async function conflicted(files: Record<string, [base: string | Buffer, mine: st
   await v.a.sync.run("sync");
   for (const [p, [, mine]] of Object.entries(files)) put(v.b.root, p, mine);
   let err: { code?: string; details?: { sessionId?: string } } = {};
-  await v.b.sync.run("sync").catch((e: unknown) => { err = e as typeof err; });
+  await v.b.sync.run("sync").catch((e: unknown) => {
+    err = e as typeof err;
+  });
   expect(err.code).toBe("GIT_CONFLICT");
   return { ...v, sessionId: err.details?.sessionId as string };
 }
@@ -87,8 +98,11 @@ describe("同步冲突解决", () => {
 
   test("一方删除、一方修改：只能整文件选择；选择删除后文件被移除", async () => {
     const v = await twoVaults();
-    put(v.a.root, "d.md", "x\ny\n"); await v.a.sync.run("sync"); await v.b.sync.run("pull");
-    rmSync(path.join(v.a.root, "d.md")); await v.a.sync.run("sync");
+    put(v.a.root, "d.md", "x\ny\n");
+    await v.a.sync.run("sync");
+    await v.b.sync.run("pull");
+    rmSync(path.join(v.a.root, "d.md"));
+    await v.a.sync.run("sync");
     put(v.b.root, "d.md", "x\nY\n");
     const err = await v.b.sync.run("sync").catch((e: unknown) => e as { details: { sessionId: string } });
     const sessionId = (err as { details: { sessionId: string } }).details.sessionId;
@@ -143,10 +157,17 @@ describe("同步冲突解决", () => {
 
   test("覆盖前调用检查点钩子；语义校验失败 → 拒绝并不改动", async () => {
     const seen: string[][] = [];
-    const v = await conflicted({ "n.md": [lines(6), lines(6, { 3: "L" }), lines(6, { 3: "R" })] }, {
-      beforeOverwrite: (p: string[]) => { seen.push(p); },
-      validateResolved: (_p: string, t: string) => { if (t.includes("坏")) throw new Error("kind 无效"); },
-    });
+    const v = await conflicted(
+      { "n.md": [lines(6), lines(6, { 3: "L" }), lines(6, { 3: "R" })] },
+      {
+        beforeOverwrite: (p: string[]) => {
+          seen.push(p);
+        },
+        validateResolved: (_p: string, t: string) => {
+          if (t.includes("坏")) throw new Error("kind 无效");
+        },
+      },
+    );
     await expect(v.b.sync.resolveConflicts(v.sessionId, [{ path: "n.md", blocks: [{ custom: "坏\n" }] }])).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(seen).toEqual([]); // 校验先于覆盖
     await v.b.sync.resolveConflicts(v.sessionId, [{ path: "n.md", blocks: ["ours"] }]);

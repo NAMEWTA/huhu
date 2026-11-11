@@ -17,13 +17,17 @@ export class GatewayAudit {
 
   constructor(private readonly file?: string) {
     if (file && existsSync(file)) {
-      this.records = readFileSync(file, "utf8").split("\n").filter(Boolean).flatMap((l) => {
-        try {
-          return [JSON.parse(l) as AuditRecord];
-        } catch {
-          return [];
-        }
-      }).slice(-MAX_RECORDS);
+      this.records = readFileSync(file, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .flatMap((l) => {
+          try {
+            return [JSON.parse(l) as AuditRecord];
+          } catch {
+            return [];
+          }
+        })
+        .slice(-MAX_RECORDS);
     }
   }
 

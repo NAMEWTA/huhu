@@ -7,15 +7,7 @@ export interface SnapshotTask {
   inputHash: string;
 }
 
-export type SkipReason =
-  | "completed"
-  | "not-agent"
-  | "missing-space"
-  | "space-inaccessible"
-  | "cli-missing"
-  | "already-processed"
-  | "running"
-  | "held-after-restore";
+export type SkipReason = "completed" | "not-agent" | "missing-space" | "space-inaccessible" | "cli-missing" | "already-processed" | "running" | "held-after-restore";
 
 export interface Claim {
   processingKey: string;
@@ -37,8 +29,15 @@ export interface ScanEnv {
   cliAvailable(provider: string): boolean;
 }
 
-export interface Candidate { task: SnapshotTask; processingKey: string }
-export interface Skipped { task: SnapshotTask; reason: SkipReason; detail?: string }
+export interface Candidate {
+  task: SnapshotTask;
+  processingKey: string;
+}
+export interface Skipped {
+  task: SnapshotTask;
+  reason: SkipReason;
+  detail?: string;
+}
 
 export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "inputHash">): string => `${t.id}:${t.inputRevision}:${t.inputHash}`;
 
@@ -48,17 +47,38 @@ export function classify(tasks: SnapshotTask[], env: ScanEnv): { candidates: Can
   const skipped: Skipped[] = [];
   for (const task of tasks) {
     const skip = (reason: SkipReason, detail?: string) => skipped.push({ task, reason, ...(detail ? { detail } : {}) });
-    if (task.completed) { skip("completed"); continue; }
-    if (task.execution.kind !== "agent") { skip("not-agent"); continue; }
+    if (task.completed) {
+      skip("completed");
+      continue;
+    }
+    if (task.execution.kind !== "agent") {
+      skip("not-agent");
+      continue;
+    }
     const key = processingKeyOf(task);
     const claim = env.claims(key);
     // 排队/运行/等待回答/结果未知/已成功/已失败：都不自动再处理（失败只能由用户点"重试"）
-    if (claim) { skip(claim.state === "queued" || claim.state === "running" || claim.state === "waiting_input" ? "running" : "already-processed", claim.state); continue; }
-    if (env.holds(task.id, task.inputHash)) { skip("held-after-restore"); continue; }
-    if (!task.execution.spaceId) { skip("missing-space"); continue; }
+    if (claim) {
+      skip(claim.state === "queued" || claim.state === "running" || claim.state === "waiting_input" ? "running" : "already-processed", claim.state);
+      continue;
+    }
+    if (env.holds(task.id, task.inputHash)) {
+      skip("held-after-restore");
+      continue;
+    }
+    if (!task.execution.spaceId) {
+      skip("missing-space");
+      continue;
+    }
     const sp = env.spaceAccessible(task.execution.spaceId);
-    if (sp !== "ok") { skip(sp === "missing" ? "missing-space" : "space-inaccessible"); continue; }
-    if (!task.execution.provider || !env.cliAvailable(task.execution.provider)) { skip("cli-missing"); continue; }
+    if (sp !== "ok") {
+      skip(sp === "missing" ? "missing-space" : "space-inaccessible");
+      continue;
+    }
+    if (!task.execution.provider || !env.cliAvailable(task.execution.provider)) {
+      skip("cli-missing");
+      continue;
+    }
     candidates.push({ task, processingKey: key });
   }
   return { candidates, skipped };

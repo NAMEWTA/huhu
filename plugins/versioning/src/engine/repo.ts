@@ -12,7 +12,13 @@ export interface GitFileStatus {
   from?: string;
 }
 
-export interface GitCommit { id: string; short: string; author: string; at: string; subject: string }
+export interface GitCommit {
+  id: string;
+  short: string;
+  author: string;
+  at: string;
+  subject: string;
+}
 
 export const DEFAULT_GITIGNORE = [".huhu/runtime/", ".huhu/cache/", ".huhu/ui/", ".huhu/history/", ""].join("\n");
 
@@ -20,7 +26,10 @@ export const DEFAULT_GITIGNORE = [".huhu/runtime/", ".huhu/cache/", ".huhu/ui/",
 export class VaultGit {
   private git: GitRunner;
 
-  constructor(private readonly root: string, private readonly identity: { name: string; email: string } = { name: "HUHU", email: "huhu@localhost" }) {
+  constructor(
+    private readonly root: string,
+    private readonly identity: { name: string; email: string } = { name: "HUHU", email: "huhu@localhost" },
+  ) {
     this.git = new GitRunner({ workTree: root });
   }
 
@@ -47,11 +56,18 @@ export class VaultGit {
     const out = (await this.git.run(["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"])).stdout;
     const parts = out.split("\0").filter(Boolean);
     const head = parts.shift() ?? "";
-    const branch = head.startsWith("## ") ? (head.slice(3).split("...")[0]?.replace(/^No commits yet on /, "") ?? null) : null;
+    const branch = head.startsWith("## ")
+      ? (head
+          .slice(3)
+          .split("...")[0]
+          ?.replace(/^No commits yet on /, "") ?? null)
+      : null;
     const files: GitFileStatus[] = [];
     for (let i = 0; i < parts.length; i++) {
       const e = parts[i] as string;
-      const x = e[0] as string; const y = e[1] as string; const p = e.slice(3);
+      const x = e[0] as string;
+      const y = e[1] as string;
+      const p = e.slice(3);
       if (x === "R" || x === "C") files.push({ path: p, index: x, worktree: y, from: parts[++i] as string });
       else files.push({ path: p, index: x, worktree: y });
     }
@@ -60,13 +76,20 @@ export class VaultGit {
 
   async log(limit = 50): Promise<GitCommit[]> {
     this.assertRepo();
-    const has = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+    const has = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+      () => true,
+      () => false,
+    );
     if (!has) return [];
     const out = (await this.git.run(["log", `-n${Math.min(limit, 500)}`, "--format=%H%x1f%an%x1f%cI%x1f%s%x1e"])).stdout;
-    return out.split("\u001e").map((r) => r.trim()).filter(Boolean).map((r) => {
-      const [id = "", author = "", at = "", subject = ""] = r.split("\u001f");
-      return { id, short: id.slice(0, 7), author, at, subject };
-    });
+    return out
+      .split("\u001e")
+      .map((r) => r.trim())
+      .filter(Boolean)
+      .map((r) => {
+        const [id = "", author = "", at = "", subject = ""] = r.split("\u001f");
+        return { id, short: id.slice(0, 7), author, at, subject };
+      });
   }
 
   /** 差异：`staged` 比较暂存区与 HEAD，否则工作区与暂存区；`commit` 给出某次提交的变更。 */
@@ -87,7 +110,10 @@ export class VaultGit {
   async unstage(paths: string[]): Promise<void> {
     this.assertRepo();
     if (paths.length === 0) return;
-    const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+    const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+      () => true,
+      () => false,
+    );
     const ps = paths.map(normalizeRelPath);
     await this.git.run(hasHead ? ["reset", "--quiet", "HEAD", "--", ...ps] : ["rm", "--cached", "--quiet", "-r", "--", ...ps]);
   }
@@ -95,7 +121,10 @@ export class VaultGit {
   async commit(message: string): Promise<GitCommit> {
     this.assertRepo();
     if (!message.trim()) throw errors.invalidInput("提交说明不能为空");
-    const staged = await this.git.run(["diff", "--cached", "--quiet"]).then(() => false, () => true);
+    const staged = await this.git.run(["diff", "--cached", "--quiet"]).then(
+      () => false,
+      () => true,
+    );
     if (!staged) throw errors.invalidInput("暂存区没有变更");
     // 用 -F - 从 stdin 读说明：说明以 - 开头也不会被当成选项
     await this.git.run(["-c", `user.name=${this.identity.name}`, "-c", `user.email=${this.identity.email}`, "commit", "--quiet", "-F", "-"], { input: message });

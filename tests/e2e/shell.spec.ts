@@ -6,7 +6,7 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
-const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core")
+const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
 async function launch(vault: string, extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
   return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
@@ -130,7 +130,14 @@ test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建
     }
     // 当前选中的是「乙」：把「甲」设为关联
     await page.getByLabel("关联档案", { exact: true }).selectOption({ label: "甲" });
-    await expect.poll(() => readdirSync(path.join(vault, "Archives")).map((f) => readFileSync(path.join(vault, "Archives", f), "utf8")).filter((t) => /relatedIds:\s*\n?\s*-?\s*\[?archive-/.test(t) || t.includes("relatedIds: [archive-")).length).toBe(2);
+    await expect
+      .poll(
+        () =>
+          readdirSync(path.join(vault, "Archives"))
+            .map((f) => readFileSync(path.join(vault, "Archives", f), "utf8"))
+            .filter((t) => /relatedIds:\s*\n?\s*-?\s*\[?archive-/.test(t) || t.includes("relatedIds: [archive-")).length,
+      )
+      .toBe(2);
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });
@@ -171,7 +178,13 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
     await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
 
     const all: string[] = [];
-    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) all.push(p); } };
+    const walk = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = path.join(d, n);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) all.push(p);
+      }
+    };
     walk(vault);
     expect(all).toEqual([]);
   } finally {
@@ -236,7 +249,6 @@ test("插件中心：停用知识库后 rail 项消失，依赖提示；重启�
   }
 });
 
-
 test("首页与健康中心：卡片反映真实数据；坏文件出现在健康检查里", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   mkdirSync(path.join(vault, "Tasks"), { recursive: true });
@@ -260,7 +272,6 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
     rmSync(vault, { recursive: true, force: true });
   }
 });
-
 
 test.skip(!existsSync(HERDR), "需要编译好的 Herdr Core");
 test("Agent CLI：在 Space 里启动 shell，经 xterm 输入并看到输出；关闭视图后进程仍在，可重新打开", async () => {
@@ -297,7 +308,9 @@ test("Agent CLI：在 Space 里启动 shell，经 xterm 输入并看到输出；
       const runtime = path.join(vault, ".huhu/runtime", readdirSync(path.join(vault, ".huhu/runtime"))[0] as string, "herdr");
       const sock = path.join(process.env["XDG_RUNTIME_DIR"] ?? tmpdir(), `huhu-${id.replace(/^vault-/, "").slice(0, 8)}-${readdirSync(path.join(vault, ".huhu/runtime"))[0]?.slice(0, 4)}.sock`);
       spawnSync(HERDR, ["server", "stop"], { env: { ...process.env, HC_SESSION: "huhu", HC_SOCKET: sock, XDG_STATE_HOME: path.join(runtime, "state"), XDG_CONFIG_HOME: path.join(runtime, "config") } });
-    } catch { /* 清理尽力而为 */ }
+    } catch {
+      /* 清理尽力而为 */
+    }
     rmSync(vault, { recursive: true, force: true });
   }
 });
@@ -405,7 +418,10 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   writeFileSync(path.join(bucket, "claude-sess-1.jsonl"), `${JSON.stringify({ type: "user", cwd, sessionId: "claude-sess-1", message: { role: "user", content: "梳理发布清单" } })}\n`);
   mkdirSync(path.join(cx, "sessions", "2026", "11", "09"), { recursive: true });
   const row = (r: unknown) => `${JSON.stringify(r)}\n`;
-  writeFileSync(path.join(cx, "sessions", "2026", "11", "09", "rollout-2026-11-09T10-00-00-codex-1.jsonl"), row({ type: "session_meta", payload: { id: "codex-1", cwd } }) + row({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "修复登录页" }] } }));
+  writeFileSync(
+    path.join(cx, "sessions", "2026", "11", "09", "rollout-2026-11-09T10-00-00-codex-1.jsonl"),
+    row({ type: "session_meta", payload: { id: "codex-1", cwd } }) + row({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "修复登录页" }] } }),
+  );
   writeFileSync(path.join(cx, "sessions", "2026", "11", "09", "rollout-2026-11-09T11-00-00-codex-2.jsonl"), row({ type: "session_meta", payload: { id: "codex-2", cwd: tmpdir() } })); // 不在这个 Space
   const app = await launch(vault, { CLAUDE_CONFIG_DIR: cfg, CODEX_HOME: cx });
   try {
@@ -420,9 +436,26 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
     // 恢复入口只对白名单里的会话开放：未知 id 被后端拒绝
     const err = await page.evaluate(async () => {
       const ep = await window.huhuHost.engine();
-      const spaces = (await (await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "agent.spaces.list", input: {}, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) })).json()).data as { id: string; revision: number }[];
+      const spaces = (
+        await (
+          await fetch(`${ep.baseUrl}/api/v1/call`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+            body: JSON.stringify({ capability: "agent.spaces.list", input: {}, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+          })
+        ).json()
+      ).data as { id: string; revision: number }[];
       const sp = spaces[0] as { id: string; revision: number };
-      const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "agent.history.resume", input: { spaceId: sp.id, spaceRevision: sp.revision, provider: "claude", nativeSessionId: "不存在的会话", requestId: crypto.randomUUID() }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+      const r = await fetch(`${ep.baseUrl}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          capability: "agent.history.resume",
+          input: { spaceId: sp.id, spaceRevision: sp.revision, provider: "claude", nativeSessionId: "不存在的会话", requestId: crypto.randomUUID() },
+          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
       return ((await r.json()) as { error?: { code: string } }).error?.code;
     });
     expect(err).toBe("INVALID_INPUT");
@@ -441,7 +474,11 @@ test("同步凭据：下拉只列出保险箱里允许 versioning 的令牌；�
     await page.evaluate(async () => {
       const ep = await window.huhuHost.engine();
       const call = async (capability: string, input: unknown) => {
-        const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+        const r = await fetch(`${ep.baseUrl}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        });
         const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
         if (!j.ok) throw new Error(JSON.stringify(j.error));
         return j.data;
@@ -653,7 +690,10 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
     const edit = async (title: string) => {
       await page.getByLabel("笔记名称").fill(title);
       await page.getByRole("button", { name: "新建笔记" }).click();
-      await page.getByTestId("note-item").filter({ hasText: `${title}.md` }).click();
+      await page
+        .getByTestId("note-item")
+        .filter({ hasText: `${title}.md` })
+        .click();
       await page.getByTestId("markdown-editor").locator(".cm-content").click();
       await page.keyboard.press("ControlOrMeta+End");
       await page.keyboard.type(EDIT);
@@ -750,7 +790,18 @@ test("设置：时区改变后页面显示该时区的当前日期，非法时�
     await expect(page.getByTestId("settings-zone-invalid")).toBeVisible();
     await page.getByTestId("settings-zone").fill("Pacific/Kiritimati");
     await expect(page.getByTestId("settings-zone-invalid")).toHaveCount(0);
-    await expect.poll(() => { try { return JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).dateTime.zone; } catch { return null; } }, { timeout: 20_000 }).toBe("Pacific/Kiritimati"); // 文件尚未写出时读取会 ENOENT：视为“还没有”，继续等
+    await expect
+      .poll(
+        () => {
+          try {
+            return JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).dateTime.zone;
+          } catch {
+            return null;
+          }
+        },
+        { timeout: 20_000 },
+      )
+      .toBe("Pacific/Kiritimati"); // 文件尚未写出时读取会 ENOENT：视为“还没有”，继续等
     const expected = new Intl.DateTimeFormat("zh-CN", { timeZone: "Pacific/Kiritimati", dateStyle: "full" }).format(new Date());
     await expect(page.getByTestId("settings-zone-now")).toContainText(expected);
   } finally {
@@ -769,7 +820,11 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
     await page.evaluate(async () => {
       const ep = await window.huhuHost.engine();
       const call = async (capability: string, input: unknown) => {
-        const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+        const r = await fetch(`${ep.baseUrl}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        });
         const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
         if (!j.ok) throw new Error(JSON.stringify(j.error));
         return j.data;
@@ -829,8 +884,12 @@ test("Agent CLI 分屏：左右两格同时显示两个会话并各自输入；�
     const picks = page.getByTestId("split-pick");
     expect(await picks.nth(0).inputValue()).not.toBe(await picks.nth(1).inputValue()); // 两格不是同一个会话
     const helpers = page.locator(".xterm-helper-textarea");
-    await helpers.nth(0).focus(); await page.keyboard.type("echo LEFT-$((1+1))"); await page.keyboard.press("Enter");
-    await helpers.nth(1).focus(); await page.keyboard.type("echo RIGHT-$((2+2))"); await page.keyboard.press("Enter");
+    await helpers.nth(0).focus();
+    await page.keyboard.type("echo LEFT-$((1+1))");
+    await page.keyboard.press("Enter");
+    await helpers.nth(1).focus();
+    await page.keyboard.type("echo RIGHT-$((2+2))");
+    await page.keyboard.press("Enter");
     await expect(page.getByTestId("split-cell").nth(0).locator(".xterm-rows")).toContainText("LEFT-2", { timeout: 10_000 });
     await expect(page.getByTestId("split-cell").nth(1).locator(".xterm-rows")).toContainText("RIGHT-4", { timeout: 10_000 });
     await expect(page.getByTestId("split-cell").nth(0).locator(".xterm-rows")).not.toContainText("RIGHT-4"); // 各自独立
@@ -946,7 +1005,11 @@ test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲�
     await page.evaluate(async (text) => {
       const ep = await window.huhuHost.engine();
       const call = async (capability: string, input: unknown) => {
-        const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+        const r = await fetch(`${ep.baseUrl}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        });
         const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
         if (!j.ok) throw new Error(JSON.stringify(j.error));
         return j.data;
@@ -975,7 +1038,8 @@ test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲�
     // 另一台设备（克隆）改第 3 行并推送；本机也改第 3 行
     execFileSync("git", ["clone", "-q", remote, clone]);
     writeFileSync(path.join(clone, "共享.md"), lines({ 3: "远端改的" }));
-    git(clone, "commit", "-aq", "-m", "远端修改"); git(clone, "push", "-q", "origin", "HEAD:main");
+    git(clone, "commit", "-aq", "-m", "远端修改");
+    git(clone, "push", "-q", "origin", "HEAD:main");
     writeFileSync(path.join(vault, "共享.md"), lines({ 3: "本地改的" }));
 
     await page.getByTestId("sync-run").click();
@@ -1046,10 +1110,15 @@ test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 /
   test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
   const { chmodSync } = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-e2e-bin-"));
-  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\necho '2.0.0 (Claude Code)'\n"); chmodSync(path.join(bin, "claude"), 0o755);
+  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\necho '2.0.0 (Claude Code)'\n");
+  chmodSync(path.join(bin, "claude"), 0o755);
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault, { PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` });
-  const ruleFile = () => { const dir = path.join(vault, "Automations"); const f = readdirSync(dir).find((n) => n.includes("整理周报")); return f ? readFileSync(path.join(dir, f), "utf8") : ""; };
+  const ruleFile = () => {
+    const dir = path.join(vault, "Automations");
+    const f = readdirSync(dir).find((n) => n.includes("整理周报"));
+    return f ? readFileSync(path.join(dir, f), "utf8") : "";
+  };
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -1101,7 +1170,11 @@ test("自动化运行：Agent 规则经监督进程运行，运行页显示已�
   test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
   const { chmodSync } = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-e2e-bin-"));
-  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\ncase \"$*\" in *\" -p\"*|\"-p \"*) cat >/dev/null; printf '%s\\n' '{\"type\":\"result\",\"result\":\"周报已整理\",\"session_id\":\"e2e-sess-1\",\"is_error\":false}';; *) echo '2.0.0 (Claude Code)';; esac\n"); chmodSync(path.join(bin, "claude"), 0o755);
+  writeFileSync(
+    path.join(bin, "claude"),
+    '#!/bin/sh\ncase "$*" in *" -p"*|"-p "*) cat >/dev/null; printf \'%s\\n\' \'{"type":"result","result":"周报已整理","session_id":"e2e-sess-1","is_error":false}\';; *) echo \'2.0.0 (Claude Code)\';; esac\n',
+  );
+  chmodSync(path.join(bin, "claude"), 0o755);
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault, { PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` });
   try {

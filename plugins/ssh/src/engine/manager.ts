@@ -7,7 +7,13 @@ import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import type { HostStore, SshHost } from "./hosts.js";
 
-export interface AuditEntry { at: string; hostId: string; action: string; result: "ok" | "failed" | "cancelled"; detail: string }
+export interface AuditEntry {
+  at: string;
+  hostId: string;
+  action: string;
+  result: "ok" | "failed" | "cancelled";
+  detail: string;
+}
 
 export interface SshDeps {
   hosts: HostStore;
@@ -20,11 +26,30 @@ export interface SshDeps {
   decisionTimeoutMs?: number;
 }
 
-interface Conn { hostId: string; clients: Client[]; target: Client }
-interface ExecRun { channel: ClientChannel; interrupted: boolean }
+interface Conn {
+  hostId: string;
+  clients: Client[];
+  target: Client;
+}
+interface ExecRun {
+  channel: ClientChannel;
+  interrupted: boolean;
+}
 
-export interface ShellInfo { id: string; hostId: string; name: string; state: "running" | "ended"; createdAt: string }
-interface ShellRec extends ShellInfo { channel: ClientChannel; buffer: Buffer[]; bufferSize: number; viewers: Set<(b: Buffer) => void>; closers: Set<() => void> }
+export interface ShellInfo {
+  id: string;
+  hostId: string;
+  name: string;
+  state: "running" | "ended";
+  createdAt: string;
+}
+interface ShellRec extends ShellInfo {
+  channel: ClientChannel;
+  buffer: Buffer[];
+  bufferSize: number;
+  viewers: Set<(b: Buffer) => void>;
+  closers: Set<() => void>;
+}
 const SHELL_BUFFER = 64 * 1024;
 
 /** SSH 密钥类型名取自公钥 blob 的第一个字符串。 */
@@ -56,8 +81,13 @@ export class SshManager {
     if (!existsSync(this.d.auditDir)) return [];
     const month = path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`);
     if (!existsSync(month)) return []; // 目录在、当月文件还没有
-    return readFileSync(month, "utf8").split("\n").filter(Boolean)
-      .map((l) => JSON.parse(l) as AuditEntry).filter((a) => !hostId || a.hostId === hostId).slice(-limit).reverse();
+    return readFileSync(month, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as AuditEntry)
+      .filter((a) => !hostId || a.hostId === hostId)
+      .slice(-limit)
+      .reverse();
   }
 
   isConnected(hostId: string): boolean {
@@ -150,7 +180,9 @@ export class SshManager {
       });
       client.connect({
         ...(sock ? { sock: sock as never } : { host: h.host, port: h.port }),
-        username: h.user, readyTimeout: h.connectTimeoutSec * 1000, ...auth,
+        username: h.user,
+        readyTimeout: h.connectTimeoutSec * 1000,
+        ...auth,
         hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
           const type = keyTypeOf(key);
           const check = this.known.check(h.host, h.port, type, key);
@@ -161,7 +193,11 @@ export class SshManager {
             return verify(false);
           }
           this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: fingerprintSha256(key), keyType: type, reason: "first" });
-          const timer = setTimeout(() => { this.attempts.get(attemptId)?.delete(hop); rejectedByUser = true; verify(false); }, this.d.decisionTimeoutMs ?? 120_000);
+          const timer = setTimeout(() => {
+            this.attempts.get(attemptId)?.delete(hop);
+            rejectedByUser = true;
+            verify(false);
+          }, this.d.decisionTimeoutMs ?? 120_000);
           this.attempts.get(attemptId)?.set(hop, (accept) => {
             clearTimeout(timer);
             if (accept) this.known.trust(h.host, h.port, type, key);
@@ -218,9 +254,16 @@ export class SshManager {
     s.closers.add(view.onEnd);
     if (s.state === "ended") queueMicrotask(view.onEnd);
     return {
-      write: (b) => { if (s.state === "running") s.channel.write(b); },
-      resize: (cols, rows) => { if (s.state === "running") s.channel.setWindow(rows, cols, 0, 0); },
-      detach: () => { s.viewers.delete(view.onData); s.closers.delete(view.onEnd); },
+      write: (b) => {
+        if (s.state === "running") s.channel.write(b);
+      },
+      resize: (cols, rows) => {
+        if (s.state === "running") s.channel.setWindow(rows, cols, 0, 0);
+      },
+      detach: () => {
+        s.viewers.delete(view.onData);
+        s.closers.delete(view.onEnd);
+      },
     };
   }
 
@@ -228,7 +271,11 @@ export class SshManager {
     const c = this.conns.get(hostId);
     if (!c) return;
     // 连接断开：该主机的所有 shell 变为已结束（重新连接后需新建，不会绑定到新连接）
-    for (const s of this.shells.values()) if (s.hostId === hostId) { s.state = "ended"; for (const f of s.closers) f(); }
+    for (const s of this.shells.values())
+      if (s.hostId === hostId) {
+        s.state = "ended";
+        for (const f of s.closers) f();
+      }
     this.conns.delete(hostId);
     for (const cl of c.clients.reverse()) cl.end();
     this.d.publish("ssh.connectionChanged", { hostId, state: "disconnected" });
@@ -261,9 +308,15 @@ export class SshManager {
         let errOut = "";
         let code: number | null = null;
         const timer = opts.timeoutSec ? setTimeout(() => this.cancel(execId), opts.timeoutSec * 1000) : null;
-        channel.on("data", (b: Buffer) => { out += b; });
-        channel.stderr.on("data", (b: Buffer) => { errOut += b; });
-        channel.on("exit", (c: number | null) => { code = c; });
+        channel.on("data", (b: Buffer) => {
+          out += b;
+        });
+        channel.stderr.on("data", (b: Buffer) => {
+          errOut += b;
+        });
+        channel.on("exit", (c: number | null) => {
+          code = c;
+        });
         channel.on("close", () => {
           if (timer) clearTimeout(timer);
           this.execs.delete(execId);
@@ -289,21 +342,38 @@ export class SshManager {
       // 取消（用户或调度器）与超时都要能让一切立刻结束并释放互斥：连接还活着但服务器不回应时，ssh2 不会自己报错
       const stop = new Promise<never>((_, reject) => {
         const onAbort = () => reject(new HuhuError("INTERNAL", "传输已取消", { retryable: false }));
-        if (signal.aborted) onAbort(); else signal.addEventListener("abort", onAbort, { once: true });
-        const timer = opts.transfer ? null : setTimeout(() => { ac.abort(); reject(new HuhuError("SSH_TIMEOUT", "远端没有响应（60 秒）")); }, opts.timeoutMs ?? 60_000);
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+        const timer = opts.transfer
+          ? null
+          : setTimeout(() => {
+              ac.abort();
+              reject(new HuhuError("SSH_TIMEOUT", "远端没有响应（60 秒）"));
+            }, opts.timeoutMs ?? 60_000);
         const prev = detach;
-        detach = () => { prev(); signal.removeEventListener("abort", onAbort); if (timer) clearTimeout(timer); };
+        detach = () => {
+          prev();
+          signal.removeEventListener("abort", onAbort);
+          if (timer) clearTimeout(timer);
+        };
       });
       stop.catch(() => undefined);
       session = await Promise.race([new Promise<SFTPWrapper>((resolve, reject) => conn.target.sftp((err, s) => (err ? reject(err) : resolve(s)))), stop]);
       const live = session;
       // 连接或 SFTP 通道中途关闭时，ssh2 的流不一定报错，操作会一直挂着：这里主动中止并报告断线
       const dead = new Promise<never>((_, reject) => {
-        const onClose = () => { reject(new HuhuError("SSH_DISCONNECTED", "连接已中断")); ac.abort(); }; // 先报断线，再中止流（否则会先被当成“已取消”）
+        const onClose = () => {
+          reject(new HuhuError("SSH_DISCONNECTED", "连接已中断"));
+          ac.abort();
+        }; // 先报断线，再中止流（否则会先被当成“已取消”）
         conn.target.once("close", onClose);
         live.once("close", onClose);
         const prev = detach;
-      detach = () => { prev(); conn.target.removeListener("close", onClose); live.removeListener("close", onClose); };
+        detach = () => {
+          prev();
+          conn.target.removeListener("close", onClose);
+          live.removeListener("close", onClose);
+        };
       });
       dead.catch(() => undefined);
       const r = await Promise.race([fn(live, signal), dead, stop]);
@@ -315,7 +385,11 @@ export class SshManager {
       throw he;
     } finally {
       detach();
-      try { session?.end(); } catch { /* 连接已断 */ }
+      try {
+        session?.end();
+      } catch {
+        /* 连接已断 */
+      }
       if (opts.transfer) this.transferring.delete(hostId);
     }
   }
@@ -328,20 +402,40 @@ export class SshManager {
     return true;
   }
 
-  sftpList(hostId: string, dir: string) { return this.withSftp(hostId, "list", dir || "~", (s) => sftp.list(s, dir)); }
-  sftpRead(hostId: string, p: string) { return this.withSftp(hostId, "read", p, (s, sig) => sftp.readText(s, p, sig)); }
-  sftpWrite(hostId: string, p: string, text: string, overwrite: boolean) { return this.withSftp(hostId, "write", p, (s, sig) => sftp.writeAtomic(s, p, Readable.from(Buffer.from(text, "utf8")), { overwrite, signal: sig })); }
-  sftpUpload(hostId: string, localPath: string, remotePath: string, overwrite: boolean, signal?: AbortSignal) { return this.withSftp(hostId, "upload", remotePath, (s, sig) => sftp.uploadLocal(s, localPath, remotePath, { overwrite, signal: sig }), { transfer: true, ...(signal ? { signal } : {}) }); }
-  sftpDownload(hostId: string, remotePath: string, localPath: string, overwrite: boolean, signal?: AbortSignal) { return this.withSftp(hostId, "download", remotePath, (s, sig) => sftp.downloadToLocal(s, remotePath, localPath, { overwrite, signal: sig }), { transfer: true, ...(signal ? { signal } : {}) }); }
-  sftpMkdir(hostId: string, p: string) { return this.withSftp(hostId, "mkdir", p, (s) => sftp.mkdir(s, p)); }
-  sftpRename(hostId: string, from: string, to: string, overwrite: boolean) { return this.withSftp(hostId, "rename", `${from} → ${to}`, (s) => sftp.rename(s, from, to, overwrite)); }
-  sftpDelete(hostId: string, p: string) { return this.withSftp(hostId, "delete", p, (s) => sftp.remove(s, p)); }
+  sftpList(hostId: string, dir: string) {
+    return this.withSftp(hostId, "list", dir || "~", (s) => sftp.list(s, dir));
+  }
+  sftpRead(hostId: string, p: string) {
+    return this.withSftp(hostId, "read", p, (s, sig) => sftp.readText(s, p, sig));
+  }
+  sftpWrite(hostId: string, p: string, text: string, overwrite: boolean) {
+    return this.withSftp(hostId, "write", p, (s, sig) => sftp.writeAtomic(s, p, Readable.from(Buffer.from(text, "utf8")), { overwrite, signal: sig }));
+  }
+  sftpUpload(hostId: string, localPath: string, remotePath: string, overwrite: boolean, signal?: AbortSignal) {
+    return this.withSftp(hostId, "upload", remotePath, (s, sig) => sftp.uploadLocal(s, localPath, remotePath, { overwrite, signal: sig }), { transfer: true, ...(signal ? { signal } : {}) });
+  }
+  sftpDownload(hostId: string, remotePath: string, localPath: string, overwrite: boolean, signal?: AbortSignal) {
+    return this.withSftp(hostId, "download", remotePath, (s, sig) => sftp.downloadToLocal(s, remotePath, localPath, { overwrite, signal: sig }), { transfer: true, ...(signal ? { signal } : {}) });
+  }
+  sftpMkdir(hostId: string, p: string) {
+    return this.withSftp(hostId, "mkdir", p, (s) => sftp.mkdir(s, p));
+  }
+  sftpRename(hostId: string, from: string, to: string, overwrite: boolean) {
+    return this.withSftp(hostId, "rename", `${from} → ${to}`, (s) => sftp.rename(s, from, to, overwrite));
+  }
+  sftpDelete(hostId: string, p: string) {
+    return this.withSftp(hostId, "delete", p, (s) => sftp.remove(s, p));
+  }
 
   cancel(execId: string): boolean {
     const run = this.execs.get(execId);
     if (!run) return false;
     run.interrupted = true;
-    try { run.channel.signal("INT"); } catch { /* 部分服务器不支持 signal */ }
+    try {
+      run.channel.signal("INT");
+    } catch {
+      /* 部分服务器不支持 signal */
+    }
     run.channel.close();
     return true;
   }

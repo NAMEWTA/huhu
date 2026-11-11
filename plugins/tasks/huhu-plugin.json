@@ -8,5 +8,12 @@
   "optionalDeps": ["agent-cli", "automations"],
   "permissions": [],
   "activation": "vault-open",
-  "contributes": { "modules": ["tasks"], "settingsPages": [], "homeWidgets": ["tasks"], "commands": ["tasks.new"], "capabilities": ["tasks.list", "tasks.read", "tasks.create", "tasks.update", "tasks.duplicate", "tasks.delete", "tasks.setCompleted", "tasks.runs"], "fileKinds": ["task"] }
+  "contributes": {
+    "modules": ["tasks"],
+    "settingsPages": [],
+    "homeWidgets": ["tasks"],
+    "commands": ["tasks.new"],
+    "capabilities": ["tasks.list", "tasks.read", "tasks.create", "tasks.update", "tasks.duplicate", "tasks.delete", "tasks.setCompleted", "tasks.runs"],
+    "fileKinds": ["task"]
+  }
 }

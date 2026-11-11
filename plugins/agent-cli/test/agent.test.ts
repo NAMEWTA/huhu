@@ -6,8 +6,14 @@ import { PROVIDERS, ProviderDetector, findOnPath } from "../src/engine/providers
 import { SpaceStore } from "../src/engine/spaces.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-ag-")); dirs.push(d); return d; };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-ag-"));
+  dirs.push(d);
+  return d;
+};
 function fakeBin(dir: string, name: string, script: string) {
   const f = path.join(dir, name);
   writeFileSync(f, `#!/bin/sh\n${script}\n`);
@@ -74,7 +80,8 @@ describe("启动参数", () => {
 
 describe("Space", () => {
   test("创建不启动进程；canonical 路径去重（符号链接指向同一目录）", () => {
-    const root = tmp(); const work = tmp();
+    const root = tmp();
+    const work = tmp();
     const link = path.join(root, "link");
     symlinkSync(work, link);
     const store = new SpaceStore(path.join(root, "spaces"), "m1", () => new Date("2026-11-10T00:00:00Z"));
@@ -84,7 +91,8 @@ describe("Space", () => {
     expect(store.list()).toHaveLength(1);
   });
   test("名称必填、目录必须存在且为绝对路径；编辑 revision+1，过期 revision 冲突", () => {
-    const root = tmp(); const work = tmp();
+    const root = tmp();
+    const work = tmp();
     const store = new SpaceStore(path.join(root, "spaces"), "m1");
     expect(() => store.save({ name: " ", root: work })).toThrow();
     expect(() => store.save({ name: "x", root: "relative/dir" })).toThrow();
@@ -95,22 +103,31 @@ describe("Space", () => {
     expect(() => store.save({ id: s.id, name: "A3", root: work, expectedRevision: 1 })).toThrowError(/修改/);
   });
   test("绑定 machineId：他机的 Space 不可见", () => {
-    const root = tmp(); const work = tmp();
+    const root = tmp();
+    const work = tmp();
     new SpaceStore(path.join(root, "spaces"), "other").save({ name: "他机", root: work });
     expect(new SpaceStore(path.join(root, "spaces"), "m1").list()).toEqual([]);
   });
   test("启动校验：revision 变化 / 目录被删 → SPACE_INVALID", () => {
-    const root = tmp(); const work = tmp(); const doomed = path.join(work, "gone"); mkdirSync(doomed);
+    const root = tmp();
+    const work = tmp();
+    const doomed = path.join(work, "gone");
+    mkdirSync(doomed);
     const store = new SpaceStore(path.join(root, "spaces"), "m1");
     const s = store.save({ name: "A", root: doomed });
     expect(store.validateForLaunch(s.id, 1).id).toBe(s.id);
     expect(() => store.validateForLaunch(s.id, 9)).toThrowError(/已变化/);
     rmSync(doomed, { recursive: true });
-    try { store.validateForLaunch(s.id, 1); } catch (e) { expect((e as { code: string }).code).toBe("SPACE_INVALID"); }
+    try {
+      store.validateForLaunch(s.id, 1);
+    } catch (e) {
+      expect((e as { code: string }).code).toBe("SPACE_INVALID");
+    }
     expect(() => store.validateForLaunch("space-none", 1)).toThrow();
   });
   test("默认 Space 以 Vault 根为目录且幂等", () => {
-    const root = tmp(); const vault = tmp();
+    const root = tmp();
+    const vault = tmp();
     const store = new SpaceStore(path.join(root, "spaces"), "m1");
     const a = store.ensureDefault(vault);
     expect(store.ensureDefault(vault).id).toBe(a.id);

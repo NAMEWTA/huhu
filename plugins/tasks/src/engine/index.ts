@@ -42,30 +42,77 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     now: opts.now ?? (() => new Date()),
   });
 
-  api.defineCapability(def({
-    name: "tasks.list", plugin: "tasks", scope: "read", exposable: true, defaultExposed: true,
-    input: z.object({ category: TaskCategorySchema.default("all"), completed: z.boolean().optional(), query: z.string().optional() }),
-    output: z.array(TaskDtoSchema),
-    handler: (_c, i) => svc.list({ category: i.category, ...(i.completed !== undefined ? { completed: i.completed } : {}), ...(i.query ? { query: i.query } : {}) }),
-  }));
+  api.defineCapability(
+    def({
+      name: "tasks.list",
+      plugin: "tasks",
+      scope: "read",
+      exposable: true,
+      defaultExposed: true,
+      input: z.object({ category: TaskCategorySchema.default("all"), completed: z.boolean().optional(), query: z.string().optional() }),
+      output: z.array(TaskDtoSchema),
+      handler: (_c, i) => svc.list({ category: i.category, ...(i.completed !== undefined ? { completed: i.completed } : {}), ...(i.query ? { query: i.query } : {}) }),
+    }),
+  );
   api.defineCapability(def({ name: "tasks.read", plugin: "tasks", scope: "read", exposable: true, defaultExposed: true, input: Id, output: TaskDtoSchema, handler: (_c, i) => svc.read(i.id) }));
-  api.defineCapability(def({ name: "tasks.create", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: TaskWritableSchema, output: TaskDtoSchema, handler: (c, i) => { assertAgentAllowed(c.caller, i.execution); return svc.create(i); } }));
-  api.defineCapability(def({
-    name: "tasks.update", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false,
-    input: Versioned.extend({ patch: TaskWritableSchema.partial() }), output: TaskDtoSchema,
-    handler: (c, i) => { assertAgentAllowed(c.caller, i.patch.execution); return svc.update(i.id, i.expectedVersion, i.patch as never); },
-  }));
+  api.defineCapability(
+    def({
+      name: "tasks.create",
+      plugin: "tasks",
+      scope: "write",
+      exposable: true,
+      defaultExposed: false,
+      input: TaskWritableSchema,
+      output: TaskDtoSchema,
+      handler: (c, i) => {
+        assertAgentAllowed(c.caller, i.execution);
+        return svc.create(i);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.update",
+      plugin: "tasks",
+      scope: "write",
+      exposable: true,
+      defaultExposed: false,
+      input: Versioned.extend({ patch: TaskWritableSchema.partial() }),
+      output: TaskDtoSchema,
+      handler: (c, i) => {
+        assertAgentAllowed(c.caller, i.patch.execution);
+        return svc.update(i.id, i.expectedVersion, i.patch as never);
+      },
+    }),
+  );
   api.defineCapability(def({ name: "tasks.duplicate", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: Id, output: TaskDtoSchema, handler: (_c, i) => svc.duplicate(i.id) }));
-  api.defineCapability(def({ name: "tasks.delete", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (svc.delete(i.id), { ok: true as const }) }));
-  api.defineCapability(def({
-    name: "tasks.setCompleted", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false,
-    input: Versioned.extend({ completed: z.boolean() }), output: TaskDtoSchema, handler: (_c, i) => svc.setCompleted(i.id, i.completed, i.expectedVersion),
-  }));
-  api.defineCapability(def({
-    name: "tasks.runs", plugin: "tasks", scope: "read", exposable: true, defaultExposed: true, input: Id,
-    output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number() })),
-    handler: (_c, i) => svc.runs(i.id),
-  }));
+  api.defineCapability(
+    def({ name: "tasks.delete", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (svc.delete(i.id), { ok: true as const }) }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.setCompleted",
+      plugin: "tasks",
+      scope: "write",
+      exposable: true,
+      defaultExposed: false,
+      input: Versioned.extend({ completed: z.boolean() }),
+      output: TaskDtoSchema,
+      handler: (_c, i) => svc.setCompleted(i.id, i.completed, i.expectedVersion),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.runs",
+      plugin: "tasks",
+      scope: "read",
+      exposable: true,
+      defaultExposed: true,
+      input: Id,
+      output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number() })),
+      handler: (_c, i) => svc.runs(i.id),
+    }),
+  );
 
   // 为 automations 提供进程内服务（modules/tasks.md §6）：冻结的任务快照
   api.provide("taskQuery", {

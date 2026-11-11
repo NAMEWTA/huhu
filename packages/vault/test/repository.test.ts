@@ -5,10 +5,14 @@ import { afterEach, describe, expect, test } from "vitest";
 import { OperationLog, SemanticRepository, VaultFiles, idFromFilename, sanitizeTitle, semanticFilename } from "../src/index.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 function setup() {
-  const d = mkdtempSync(path.join(tmpdir(), "huhu-r-")); dirs.push(d);
-  const root = path.join(d, "v"); mkdirSync(root);
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-r-"));
+  dirs.push(d);
+  const root = path.join(d, "v");
+  mkdirSync(root);
   const files = new VaultFiles(root);
   return { root, repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))), files };
 }
@@ -67,7 +71,12 @@ describe("SemanticRepository", () => {
     writeFileSync(path.join(root, "Tasks/noid.md"), "---\ntitle: x\n---\n");
     writeFileSync(path.join(root, "Tasks/schema.md"), "---\nhuhu: {kind: task, id: task-zzzzz1, schema: 1}\ntitle: 1\n---\n");
     expect(repo.list("task")).toEqual([]);
-    expect(repo.problemList().map((p) => p.code).sort()).toEqual(["BAD_YAML", "INVALID_SCHEMA", "MISSING_ID"]);
+    expect(
+      repo
+        .problemList()
+        .map((p) => p.code)
+        .sort(),
+    ).toEqual(["BAD_YAML", "INVALID_SCHEMA", "MISSING_ID"]);
     expect(readFileSync(path.join(root, "Tasks/bad.md"), "utf8")).toBe("---\na: [1\n---\n"); // 保持原样
   });
   test("id 冲突：两者都不参与查询", async () => {
@@ -99,13 +108,14 @@ describe("SemanticRepository", () => {
     expect(repo.read("task", "task-dat001").data).toMatchObject({ due: "2026-11-12" });
   });
 
-describe("只读 Vault", () => {
-  test("写入被拒绝：create / 多文件操作 / 回收站", async () => {
-    const d = mkdtempSync(path.join(tmpdir(), "huhu-ro-")); dirs.push(d);
-    const files = new VaultFiles(path.join(d), undefined, true);
-    const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
-    await expect(repo.create("task", { title: "x", completed: false, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
-    await expect(new OperationLog(files, path.join(d, "ops")).run("o", "t", [])).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+  describe("只读 Vault", () => {
+    test("写入被拒绝：create / 多文件操作 / 回收站", async () => {
+      const d = mkdtempSync(path.join(tmpdir(), "huhu-ro-"));
+      dirs.push(d);
+      const files = new VaultFiles(path.join(d), undefined, true);
+      const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
+      await expect(repo.create("task", { title: "x", completed: false, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+      await expect(new OperationLog(files, path.join(d, "ops")).run("o", "t", [])).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+    });
   });
-});
 });

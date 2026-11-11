@@ -9,8 +9,14 @@ import { SessionsService } from "../src/engine/sessions.js";
 import { SpaceStore } from "../src/engine/spaces.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-ss-")); dirs.push(d); return d; };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-ss-"));
+  dirs.push(d);
+  return d;
+};
 
 function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean } = {}) {
   const terminals: { address: string; labels: Record<string, string>; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
@@ -20,7 +26,12 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
   const client = {
     call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string }) => {
       calls.push(method);
-      if (method === "terminal.send") { if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } }); if (opts.failSendTransport) throw new Error("timeout");  sends.push({ terminal: params.terminal as string, text: params.text as string }); return {}; }
+      if (method === "terminal.send") {
+        if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } });
+        if (opts.failSendTransport) throw new Error("timeout");
+        sends.push({ terminal: params.terminal as string, text: params.text as string });
+        return {};
+      }
       if (method === "terminal.run") {
         runs.push({ ...(params.argv ? { argv: params.argv } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) });
         const t = { address: `t${terminals.length + 1}`, labels: params.labels ?? {} };
@@ -33,19 +44,43 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
       return {};
     },
   } as unknown as HerdrClient;
-  const finish = (address: string, code: number | null) => { const x = terminals.find((y) => y.address === address); if (x) { x.state = "finished"; x.exit_code = code; x.finished_ms = Date.parse("2026-11-11T00:30:00Z"); } };
+  const finish = (address: string, code: number | null) => {
+    const x = terminals.find((y) => y.address === address);
+    if (x) {
+      x.state = "finished";
+      x.exit_code = code;
+      x.finished_ms = Date.parse("2026-11-11T00:30:00Z");
+    }
+  };
   return { client, calls, terminals, runs, sends, finish };
 }
 
 function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof SessionsService>[0]> = {}) {
-  const root = tmp(); const work = tmp(); const bin = tmp();
-  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\necho 2.0.0\n"); chmodSync(path.join(bin, "claude"), 0o755);
+  const root = tmp();
+  const work = tmp();
+  const bin = tmp();
+  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\necho 2.0.0\n");
+  chmodSync(path.join(bin, "claude"), 0o755);
   const spaces = new SpaceStore(path.join(root, "spaces"), "m1");
   const space = spaces.save({ name: "S", root: work });
-  const svc = new SessionsService({ dir: path.join(root, "sessions"), vaultId: "vault-x", spaces, core: async () => client, detect: () => new ProviderDetector(() => 0, { PATH: bin }).detect(), now: () => new Date("2026-11-11T00:00:00Z"), ...over });
+  const svc = new SessionsService({
+    dir: path.join(root, "sessions"),
+    vaultId: "vault-x",
+    spaces,
+    core: async () => client,
+    detect: () => new ProviderDetector(() => 0, { PATH: bin }).detect(),
+    now: () => new Date("2026-11-11T00:00:00Z"),
+    ...over,
+  });
   return { svc, space, work };
 }
-const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({ spaceId: space.id, spaceRevision: space.revision, provider: "shell" as const, requestId: `req-${Math.random().toString(36).slice(2)}`, ...over });
+const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({
+  spaceId: space.id,
+  spaceRevision: space.revision,
+  provider: "shell" as const,
+  requestId: `req-${Math.random().toString(36).slice(2)}`,
+  ...over,
+});
 
 describe("HerdrCore.peek（不 mock：真实端点检查）", () => {
   test("没有任何 Core 在监听：peek 返回 absent，且不会启动它（二进制不存在也不报错）", async () => {
@@ -55,11 +90,14 @@ describe("HerdrCore.peek（不 mock：真实端点检查）", () => {
   test.skipIf(process.platform === "win32")("并发 peek：只保留一个连接，被丢弃的重复连接关闭后不会把保留的那个清掉", async () => {
     const net = await import("node:net");
     const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });
-    const srv = net.createServer((s) => { s.on("error", () => undefined); });
+    const srv = net.createServer((s) => {
+      s.on("error", () => undefined);
+    });
     await new Promise<void>((r) => srv.listen(core.endpoint, r));
     try {
       const [a, b] = await Promise.all([core.peek(), core.peek()]);
-      expect(a).not.toBe("absent"); expect(a).not.toBeNull();
+      expect(a).not.toBe("absent");
+      expect(a).not.toBeNull();
       expect(b).toBe(a);
       await new Promise((r) => setTimeout(r, 300)); // 等被丢弃的那条连接的关闭事件
       expect(await core.peek()).toBe(a); // 仍是同一个，没有重新建连
@@ -125,7 +163,9 @@ describe("会话对账（终端是否已结束）", () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);
     await svc.launch(req(space));
-    await svc.reconcile(); await svc.reconcile(); await svc.reconcile();
+    await svc.reconcile();
+    await svc.reconcile();
+    await svc.reconcile();
     expect(f.calls.filter((c) => c === "terminal.list")).toHaveLength(1);
   });
 });
@@ -309,14 +349,15 @@ describe("会话启动", () => {
     const { svc, space } = setup(f.client);
     const s = await svc.launch(req(space, { provider: "claude", model: "opus", prompt: "hi" }));
     expect(s.provider).toBe("claude");
-    await svc.interrupt(s.id); await svc.kill(s.id);
+    await svc.interrupt(s.id);
+    await svc.kill(s.id);
     expect(f.calls).toEqual(expect.arrayContaining(["terminal.interrupt", "terminal.kill"]));
     expect(svc.rename(s.id, "我的会话").name).toBe("我的会话");
     expect(() => svc.rename(s.id, " ")).toThrow();
   });
 });
 
-const REAL = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core")
+const REAL = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 describe.skipIf(!existsSync(REAL))("真实 Herdr Core（Linux）", () => {
   test("启动实例、launch shell 会话、按标签查回、结束会话；Core 实例相互隔离", async () => {
     const rt = tmp();

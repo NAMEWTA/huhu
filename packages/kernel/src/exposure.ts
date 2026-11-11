@@ -15,7 +15,7 @@ export class ExposureStore {
 
   map(): Record<string, boolean> {
     const raw = this.load()["capabilityExposure"];
-    return raw && typeof raw === "object" ? Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([, v]) => typeof v === "boolean")) as Record<string, boolean> : {};
+    return raw && typeof raw === "object" ? (Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([, v]) => typeof v === "boolean")) as Record<string, boolean>) : {};
   }
 
   override(name: string): boolean | undefined {

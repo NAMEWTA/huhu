@@ -6,22 +6,36 @@ import { afterEach, describe, expect, test } from "vitest";
 import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, NotificationStore, registerNotificationAndSettings } from "../src/index.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-n-")); dirs.push(d); return d; };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-n-"));
+  dirs.push(d);
+  return d;
+};
 
 describe("NotificationStore", () => {
   test("创建/未读过滤/标记已读/删除/清除已读；重启后状态保持", () => {
     const f = path.join(tmp(), "n.ndjson");
     const created: string[] = [];
-    const s = new NotificationStore(f, () => new Date("2026-11-11T00:00:00Z"), (n) => created.push(n.id));
-    const a = s.create({ title: "A", module: "tasks" }); const b = s.create({ title: "B", module: "automations" });
+    const s = new NotificationStore(
+      f,
+      () => new Date("2026-11-11T00:00:00Z"),
+      (n) => created.push(n.id),
+    );
+    const a = s.create({ title: "A", module: "tasks" });
+    const b = s.create({ title: "B", module: "automations" });
     expect(created).toEqual([a.id, b.id]);
     expect(s.list().map((n) => n.title)).toEqual(["B", "A"]);
     expect(s.markRead([a.id])).toBe(1);
     expect(s.list({ unreadOnly: true }).map((n) => n.title)).toEqual(["B"]);
     expect(s.list({ module: "tasks" })).toHaveLength(1);
     const reopened = new NotificationStore(f);
-    expect(reopened.list().map((n) => [n.title, n.read])).toEqual([["B", false], ["A", true]]);
+    expect(reopened.list().map((n) => [n.title, n.read])).toEqual([
+      ["B", false],
+      ["A", true],
+    ]);
     expect(reopened.clearRead()).toBe(1);
     expect(reopened.delete([b.id])).toBe(1);
     expect(new NotificationStore(f).list()).toEqual([]);

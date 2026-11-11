@@ -7,15 +7,27 @@ import { VaultGit } from "../src/engine/repo.js";
 import { VaultSync, classify } from "../src/engine/sync.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-sy-")); dirs.push(d); return d; };
-const put = (root: string, rel: string, text: string) => { mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); writeFileSync(path.join(root, rel), text); };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-sy-"));
+  dirs.push(d);
+  return d;
+};
+const put = (root: string, rel: string, text: string) => {
+  mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+  writeFileSync(path.join(root, rel), text);
+};
 const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
 async function twoVaults() {
   const remote = tmp();
   execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", remote]);
-  const a = (() => { const root = tmp(); return { root }; })();
+  const a = (() => {
+    const root = tmp();
+    return { root };
+  })();
   await new VaultGit(a.root).init();
   git(a.root, "checkout", "-q", "-b", "main");
   const asy = new VaultSync(a.root);
@@ -31,7 +43,8 @@ async function twoVaults() {
 describe("纳入范围（ACC-VS-06）", () => {
   test("Markdown/附件与白名单内的 .huhu 文件纳入；runtime/cache/drafts/operations/claims/history 跳过", () => {
     for (const p of ["笔记/a.md", "img/x.png", ".huhu/vault.json", ".huhu/settings.json", ".huhu/notes/identities.json", ".huhu/safe/keyring.json", ".huhu/ssh/known_hosts"]) expect(classify(p, []).include, p).toBe(true);
-    for (const p of [".huhu/runtime/m/engine.json", ".huhu/cache/x", ".huhu/drafts/note.json", ".huhu/operations/op.json", ".huhu/automations/claims/k.json", ".huhu/history/git/HEAD", ".huhu/ui/state.json", ".git/config"]) expect(classify(p, []).include, p).toBe(false);
+    for (const p of [".huhu/runtime/m/engine.json", ".huhu/cache/x", ".huhu/drafts/note.json", ".huhu/operations/op.json", ".huhu/automations/claims/k.json", ".huhu/history/git/HEAD", ".huhu/ui/state.json", ".git/config"])
+      expect(classify(p, []).include, p).toBe(false);
   });
   test("用户追加的排除规则：目录、通配符、锚定", () => {
     const ex = ["private/", "*.tmp", "/draft.md", "a/**/secret.md"];
@@ -56,10 +69,14 @@ describe("同步", () => {
   test("预览：待推送与跳过分开列出；不是仓库 / 未配置远端时给出明确错误", async () => {
     const empty = new VaultSync(tmp());
     await expect(empty.preview()).rejects.toThrow(/不是 Git 仓库/);
-    const root = tmp(); await new VaultGit(root).init();
+    const root = tmp();
+    await new VaultGit(root).init();
     await expect(new VaultSync(root).preview()).rejects.toThrow(/尚未配置远端/);
     const { a } = await twoVaults();
-    put(a.root, "笔记/a.md", "内容"); put(a.root, ".huhu/runtime/m/engine.json", "{}"); put(a.root, ".huhu/drafts/d.json", "{}"); put(a.root, ".huhu/settings.json", "{}");
+    put(a.root, "笔记/a.md", "内容");
+    put(a.root, ".huhu/runtime/m/engine.json", "{}");
+    put(a.root, ".huhu/drafts/d.json", "{}");
+    put(a.root, ".huhu/settings.json", "{}");
     const p = await a.sync.preview();
     expect(p.push).toEqual(expect.arrayContaining(["笔记/a.md", ".huhu/settings.json"]));
     expect(p.push.some((x) => x.includes("runtime") || x.includes("drafts"))).toBe(false);
@@ -69,7 +86,9 @@ describe("同步", () => {
 
   test("A 推送，B 拉取：只带纳入范围的文件；用户自己的暂存区不被动", async () => {
     const { a, b, remote } = await twoVaults();
-    put(a.root, "笔记/a.md", "来自 A"); put(a.root, ".huhu/drafts/d.json", "不应同步"); put(a.root, "私人.md", "用户自己暂存的");
+    put(a.root, "笔记/a.md", "来自 A");
+    put(a.root, ".huhu/drafts/d.json", "不应同步");
+    put(a.root, "私人.md", "用户自己暂存的");
     git(a.root, "add", "私人.md"); // 用户暂存了另一个文件
     const r = await a.sync.run("sync");
     expect(r).toMatchObject({ pushed: true, committed: true });
@@ -89,7 +108,8 @@ describe("同步", () => {
     await a.sync.run("sync");
     await b.sync.run("pull");
     expect(readFileSync(path.join(b.root, "共享.md"), "utf8")).toContain("共同的一行");
-    put(a.root, "共享.md", "第一行\nA 改的\n第三行\n"); await a.sync.run("sync");
+    put(a.root, "共享.md", "第一行\nA 改的\n第三行\n");
+    await a.sync.run("sync");
     put(b.root, "共享.md", "第一行\nB 改的\n第三行\n");
     await expect(b.sync.run("sync")).rejects.toMatchObject({ code: "GIT_CONFLICT", details: { files: ["共享.md"] } });
     expect(readFileSync(path.join(b.root, "共享.md"), "utf8")).toBe("第一行\nB 改的\n第三行\n"); // 本地内容保留
@@ -112,7 +132,8 @@ describe("审计回归", () => {
   test("文件名里的通配符不是 pathspec：排除的 xsecret.md 不会被纳入文件 x* 带上远端", async () => {
     const { a, remote } = await twoVaults();
     a.sync.update({ exclude: ["xsecret.md"] });
-    put(a.root, "x*", "纳入"); put(a.root, "xsecret.md", "不应上传");
+    put(a.root, "x*", "纳入");
+    put(a.root, "xsecret.md", "不应上传");
     await a.sync.run("sync");
     const tree = git(remote, "ls-tree", "-r", "--name-only", "main");
     expect(tree).toContain("x*");
@@ -120,7 +141,9 @@ describe("审计回归", () => {
   });
   test("暂存的重命名不会让同步失败（旧路径条目被跳过）", async () => {
     const { a } = await twoVaults();
-    put(a.root, "旧名字.md", "内容内容内容内容内容\n"); git(a.root, "add", "旧名字.md"); git(a.root, "commit", "-q", "-m", "init");
+    put(a.root, "旧名字.md", "内容内容内容内容内容\n");
+    git(a.root, "add", "旧名字.md");
+    git(a.root, "commit", "-q", "-m", "init");
     git(a.root, "mv", "旧名字.md", "新名字.md");
     const p = await a.sync.preview();
     expect(p.push).toContain("新名字.md");
@@ -128,8 +151,11 @@ describe("审计回归", () => {
   });
   test("用户手动暂存的内容在同步后保留；没暂存过的路径与新 HEAD 对齐", async () => {
     const { a } = await twoVaults();
-    put(a.root, "keep.md", "v1\n"); git(a.root, "add", "keep.md"); git(a.root, "commit", "-q", "-m", "base");
-    put(a.root, "keep.md", "STAGED\n"); git(a.root, "add", "keep.md");
+    put(a.root, "keep.md", "v1\n");
+    git(a.root, "add", "keep.md");
+    git(a.root, "commit", "-q", "-m", "base");
+    put(a.root, "keep.md", "STAGED\n");
+    git(a.root, "add", "keep.md");
     put(a.root, "keep.md", "WORKTREE\n");
     put(a.root, "other.md", "o\n");
     await a.sync.run("sync");
@@ -139,16 +165,18 @@ describe("审计回归", () => {
   });
   test("合并被未纳入的脏文件拒绝时，不谎报为冲突", async () => {
     const { a, b } = await twoVaults();
-    put(a.root, ".huhu/settings.json", "{\"from\":\"a\"}"); await a.sync.run("sync");
-    put(b.root, ".huhu/settings.json", "{\"local\":true}"); // B 本地同名未跟踪文件，会被拉取覆盖
+    put(a.root, ".huhu/settings.json", '{"from":"a"}');
+    await a.sync.run("sync");
+    put(b.root, ".huhu/settings.json", '{"local":true}'); // B 本地同名未跟踪文件，会被拉取覆盖
     const err = await b.sync.run("pull").catch((e: { code: string }) => e);
     expect((err as { code: string }).code).not.toBe("GIT_CONFLICT");
-    expect(readFileSync(path.join(b.root, ".huhu/settings.json"), "utf8")).toBe("{\"local\":true}");
+    expect(readFileSync(path.join(b.root, ".huhu/settings.json"), "utf8")).toBe('{"local":true}');
   });
   test("暂存重命名成被排除的新名字：旧文件在远端被删除，新文件不上传", async () => {
     const { a, remote } = await twoVaults();
     a.sync.update({ exclude: ["secret.md"] });
-    put(a.root, "old.md", "内容内容内容内容\n"); await a.sync.run("sync");
+    put(a.root, "old.md", "内容内容内容内容\n");
+    await a.sync.run("sync");
     expect(git(remote, "ls-tree", "-r", "--name-only", "main")).toContain("old.md");
     git(a.root, "mv", "old.md", "secret.md");
     await a.sync.run("sync");
@@ -182,8 +210,14 @@ describe("审计回归", () => {
     const seen: string[] = [];
     const srv = http.createServer((req, res) => {
       const a = req.headers.authorization;
-      if (!a) { res.writeHead(401, { "WWW-Authenticate": 'Basic realm="x"' }); res.end(); return; }
-      seen.push(a); res.writeHead(404); res.end("not a repo");
+      if (!a) {
+        res.writeHead(401, { "WWW-Authenticate": 'Basic realm="x"' });
+        res.end();
+        return;
+      }
+      seen.push(a);
+      res.writeHead(404);
+      res.end("not a repo");
     });
     await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
     const port = (srv.address() as { port: number }).port;
@@ -191,7 +225,10 @@ describe("审计回归", () => {
       const root = tmp();
       await new VaultGit(root).init();
       const asked: string[] = [];
-      const sync = new VaultSync(root, undefined, {}, (ref) => { asked.push(ref); return "s3cr3t-tok3n"; });
+      const sync = new VaultSync(root, undefined, {}, (ref) => {
+        asked.push(ref);
+        return "s3cr3t-tok3n";
+      });
       sync.update({ remote: `http://127.0.0.1:${port}/r.git`, credential: "safe://item-1", credentialUser: "alice" });
       const before = readdirSync(tmpdir()).filter((f) => f.startsWith("huhu-askpass-")).length;
       const err = await sync.run("pull").catch((e: Error) => e);
@@ -211,7 +248,9 @@ describe("审计回归", () => {
     const { HuhuError } = await import("@huhu/contracts");
     const root = tmp();
     await new VaultGit(root).init();
-    const sync = new VaultSync(root, undefined, {}, () => { throw new HuhuError("SAFE_LOCKED", "保险箱已锁定"); });
+    const sync = new VaultSync(root, undefined, {}, () => {
+      throw new HuhuError("SAFE_LOCKED", "保险箱已锁定");
+    });
     sync.update({ remote: "https://example.invalid/r.git", credential: "safe://item-1" });
     await expect(sync.run("sync")).rejects.toMatchObject({ code: "SAFE_LOCKED" });
     expect(sync.status()).toMatchObject({ name: "auth-failed" });
@@ -232,8 +271,14 @@ describe("审计回归", () => {
     const seen: string[] = [];
     const srv = http.createServer((req, res) => {
       const a = req.headers.authorization;
-      if (!a) { res.writeHead(401, { "WWW-Authenticate": 'Basic realm="x"' }); res.end(); return; }
-      seen.push(a); res.writeHead(404); res.end();
+      if (!a) {
+        res.writeHead(401, { "WWW-Authenticate": 'Basic realm="x"' });
+        res.end();
+        return;
+      }
+      seen.push(a);
+      res.writeHead(404);
+      res.end();
     });
     await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
     const port = (srv.address() as { port: number }).port;
@@ -254,7 +299,8 @@ describe("审计回归", () => {
       for (const a of seen) expect(a).toBe(`Basic ${Buffer.from("alice:vault-token").toString("base64")}`);
       expect(readFileSync(store, "utf8")).toBe(`http://other:wrongtoken@127.0.0.1:${port}\n`); // 没有被 approve 写入
     } finally {
-      if (old === undefined) delete process.env["GIT_CONFIG_GLOBAL"]; else process.env["GIT_CONFIG_GLOBAL"] = old;
+      if (old === undefined) delete process.env["GIT_CONFIG_GLOBAL"];
+      else process.env["GIT_CONFIG_GLOBAL"] = old;
       srv.close();
     }
   });
@@ -263,12 +309,21 @@ describe("审计回归", () => {
     const http = await import("node:http");
     const seenOther: string[] = [];
     const other = http.createServer((req, res) => {
-      if (!req.headers.authorization) { res.writeHead(401, { "WWW-Authenticate": 'Basic realm="o"' }); res.end(); return; }
-      seenOther.push(req.headers.authorization); res.writeHead(404); res.end();
+      if (!req.headers.authorization) {
+        res.writeHead(401, { "WWW-Authenticate": 'Basic realm="o"' });
+        res.end();
+        return;
+      }
+      seenOther.push(req.headers.authorization);
+      res.writeHead(404);
+      res.end();
     });
     await new Promise<void>((r) => other.listen(0, "127.0.0.1", r));
     const otherPort = (other.address() as { port: number }).port;
-    const first = http.createServer((_req, res) => { res.writeHead(302, { Location: `http://localhost:${otherPort}/r.git/info/refs?service=git-upload-pack` }); res.end(); });
+    const first = http.createServer((_req, res) => {
+      res.writeHead(302, { Location: `http://localhost:${otherPort}/r.git/info/refs?service=git-upload-pack` });
+      res.end();
+    });
     await new Promise<void>((r) => first.listen(0, "127.0.0.1", r));
     const port = (first.address() as { port: number }).port;
     try {
@@ -279,7 +334,8 @@ describe("审计回归", () => {
       await sync.run("pull").catch(() => undefined);
       expect(seenOther).toEqual([]);
     } finally {
-      first.close(); other.close();
+      first.close();
+      other.close();
     }
   });
 
@@ -287,7 +343,10 @@ describe("审计回归", () => {
     const calls: string[] = [];
     const { a } = await twoVaults();
     const bare = a.sync.config().remote; // 本地 bare 远端（file 路径）
-    const sync = new VaultSync(a.root, undefined, {}, (ref) => { calls.push(ref); return "t"; });
+    const sync = new VaultSync(a.root, undefined, {}, (ref) => {
+      calls.push(ref);
+      return "t";
+    });
     expect(() => sync.update({ remote: "http://git.example.com/r.git", credential: "safe://item-1" })).toThrow(/https/);
     expect(sync.update({ remote: "https://git.example.com/r.git", credential: "safe://item-1" }).credential).toBe("safe://item-1");
     expect(() => sync.update({ credential: "safe://other" })).toThrow(/凭据引用格式无效/); // 与保险箱的 item-… 格式一致

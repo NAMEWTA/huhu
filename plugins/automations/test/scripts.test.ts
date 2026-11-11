@@ -9,13 +9,25 @@ import { ScriptStore, runScript } from "../src/engine/scripts.js";
 import { AutomationsService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-sc-")); dirs.push(d); return d; };
-function exe(dir: string, name: string, body: string) { const f = path.join(dir, name); writeFileSync(f, `#!/bin/sh\n${body}\n`); chmodSync(f, 0o755); return f; }
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-sc-"));
+  dirs.push(d);
+  return d;
+};
+function exe(dir: string, name: string, body: string) {
+  const f = path.join(dir, name);
+  writeFileSync(f, `#!/bin/sh\n${body}\n`);
+  chmodSync(f, 0o755);
+  return f;
+}
 
 describe("ScriptStore", () => {
   test("校验：绝对路径、环境变量只能引用保险箱、超时范围；坏文件不被静默清空", () => {
-    const d = tmp(); const store = new ScriptStore(path.join(d, "scripts.json"));
+    const d = tmp();
+    const store = new ScriptStore(path.join(d, "scripts.json"));
     const ok = { title: "备份", program: "/bin/echo", args: ["a"], cwd: d, envRefs: { TOKEN: "safe://item-abc123" }, timeoutSec: 30 };
     expect(store.save(ok)).toMatchObject({ title: "备份" });
     expect(() => store.save({ ...ok, program: "relative/prog" })).toThrow(/绝对路径/);
@@ -47,7 +59,11 @@ describe("runScript", () => {
     const def = { id: "s", title: "t", program: prog, args: [], cwd: d, envRefs: { TOKEN: "safe://item-1" }, timeoutSec: 10 };
     const r = await runScript(def, [], (ref) => (ref === "safe://item-1" ? "s3cret" : ""));
     expect(r.output).toContain("T=6:***"); // 程序拿到了 6 个字符的值，但输出里的明文被抹掉
-    expect(() => runScript(def, [], () => { throw new HuhuError("SAFE_LOCKED", "保险箱已锁定"); })).toThrowError(/已锁定/);
+    expect(() =>
+      runScript(def, [], () => {
+        throw new HuhuError("SAFE_LOCKED", "保险箱已锁定");
+      }),
+    ).toThrowError(/已锁定/);
   });
   test("非 0 退出码 → failed；超时被终止；输出只保留最后 200 行", async () => {
     const d = tmp();
@@ -70,7 +86,9 @@ describe("runScript", () => {
 
 describe("script / agent_prompt 动作（服务层）", () => {
   function setup(opts: { locked?: boolean } = {}) {
-    const d = tmp(); const root = path.join(d, "v"); mkdirSync(path.join(root, ".huhu"), { recursive: true });
+    const d = tmp();
+    const root = path.join(d, "v");
+    mkdirSync(path.join(root, ".huhu"), { recursive: true });
     const files = new VaultFiles(root);
     const notes: string[] = [];
     const scripts = new ScriptStore(path.join(d, "scripts.json"));
@@ -78,12 +96,27 @@ describe("script / agent_prompt 动作（服务层）", () => {
     const script = scripts.save({ title: "S", program: prog, args: [], cwd: d, envRefs: { TOKEN: "safe://item-1" }, timeoutSec: 10 });
     const workerCalls: string[] = [];
     const svc = new AutomationsService({
-      repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))), claims: new ClaimStore(path.join(d, "claims")), activationsDir: path.join(d, "act"),
-      taskQuery: () => undefined, scripts,
-      resolveSecret: (ref) => { if (opts.locked) throw new HuhuError("SAFE_LOCKED", "保险箱已锁定"); return ref === "safe://item-1" ? "tok" : ""; },
-      worker: async (i) => { workerCalls.push(`${i.cwd}|${i.task.body}`); return { state: "succeeded", message: "代理已完成", exitCode: 0, nativeSessionId: "s1", questions: [] }; },
-      spaceState: (id) => (id === "space-ok" ? { state: "ok", root: d } : { state: "missing" }), cliAvailable: () => true, holds: () => false,
-      notify: (n) => notes.push(n.title), publish: () => undefined, now: () => new Date("2026-11-11T00:00:00Z"), zone: () => "UTC", machineId: "m",
+      repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
+      claims: new ClaimStore(path.join(d, "claims")),
+      activationsDir: path.join(d, "act"),
+      taskQuery: () => undefined,
+      scripts,
+      resolveSecret: (ref) => {
+        if (opts.locked) throw new HuhuError("SAFE_LOCKED", "保险箱已锁定");
+        return ref === "safe://item-1" ? "tok" : "";
+      },
+      worker: async (i) => {
+        workerCalls.push(`${i.cwd}|${i.task.body}`);
+        return { state: "succeeded", message: "代理已完成", exitCode: 0, nativeSessionId: "s1", questions: [] };
+      },
+      spaceState: (id) => (id === "space-ok" ? { state: "ok", root: d } : { state: "missing" }),
+      cliAvailable: () => true,
+      holds: () => false,
+      notify: (n) => notes.push(n.title),
+      publish: () => undefined,
+      now: () => new Date("2026-11-11T00:00:00Z"),
+      zone: () => "UTC",
+      machineId: "m",
     });
     return { svc, root, notes, script, workerCalls, d };
   }
@@ -172,7 +205,8 @@ describe("审计回归", () => {
   });
   test("已中止的 signal：脚本不会被启动成功运行（立即被终止）", async () => {
     const d = tmp();
-    const ac = new AbortController(); ac.abort();
+    const ac = new AbortController();
+    ac.abort();
     const r = await runScript({ id: "s", title: "t", program: exe(d, "slow", "sleep 30"), args: [], cwd: d, envRefs: {}, timeoutSec: 60 }, [], () => "", ac.signal);
     expect(r.state).toBe("cancelled");
   }, 10000);

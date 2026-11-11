@@ -31,8 +31,19 @@ const HabitSchema = z.object({ id: z.string(), title: z.string() });
 /** `.huhu/home/habits.json`。单个条目损坏只丢弃该条，不清空整个列表。 */
 export const HabitsStateSchema = z.object({
   dateKey: z.string().catch(""),
-  habits: z.array(z.unknown()).catch(() => []).transform((arr) => arr.flatMap((x) => { const r = HabitSchema.safeParse(x); return r.success ? [r.data] : []; })),
-  doneToday: z.array(z.unknown()).catch(() => []).transform((arr) => arr.filter((x): x is string => typeof x === "string")),
+  habits: z
+    .array(z.unknown())
+    .catch(() => [])
+    .transform((arr) =>
+      arr.flatMap((x) => {
+        const r = HabitSchema.safeParse(x);
+        return r.success ? [r.data] : [];
+      }),
+    ),
+  doneToday: z
+    .array(z.unknown())
+    .catch(() => [])
+    .transform((arr) => arr.filter((x): x is string => typeof x === "string")),
 });
 export type HabitsState = z.infer<typeof HabitsStateSchema>;
 

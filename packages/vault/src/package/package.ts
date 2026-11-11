@@ -55,7 +55,9 @@ export async function exportPackage(root: string, dest: string, opts: { includeA
   const vault = VaultJsonSchema.parse(JSON.parse(readFileSync(path.join(root, HUHU_DIR, "vault.json"), "utf8")));
   const files = collect(root, opts.includeAttachments ?? true);
   const entries: PackageManifest["files"] = [];
-  const cancelled = () => { if (opts.signal?.aborted) throw errors.invalidInput("导出已取消"); };
+  const cancelled = () => {
+    if (opts.signal?.aborted) throw errors.invalidInput("导出已取消");
+  };
   // 随机临时名 + 排他创建：不会跟随事先放好的符号链接，也不会覆盖已有文件
   const tmp = `${dest}.${randomBytes(6).toString("hex")}.partial`;
   const fd = openSync(tmp, "wx", 0o600);
@@ -63,7 +65,7 @@ export async function exportPackage(root: string, dest: string, opts: { includeA
   try {
     const zip = new Zip((err, chunk) => {
       if (err) throw err;
-      for (let off = 0; off < chunk.length; ) off += writeSync(fd, chunk, off); // writeSync 可能只写一部分
+      for (let off = 0; off < chunk.length;) off += writeSync(fd, chunk, off); // writeSync 可能只写一部分
     });
     const addFile = async (name: string, bytes: Uint8Array) => {
       const f = new ZipDeflate(name, { level: 6 });
@@ -94,7 +96,14 @@ export async function exportPackage(root: string, dest: string, opts: { includeA
     renameSync(tmp, dest);
     return manifest;
   } finally {
-    if (!closed) { closed = true; try { closeSync(fd); } catch { /* 保留原始错误 */ } }
+    if (!closed) {
+      closed = true;
+      try {
+        closeSync(fd);
+      } catch {
+        /* 保留原始错误 */
+      }
+    }
     rmSync(tmp, { force: true });
   }
 }
@@ -172,4 +181,3 @@ export function importPackage(zipPath: string, targetRoot: string, opts: { exist
     if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
   }
 }
-

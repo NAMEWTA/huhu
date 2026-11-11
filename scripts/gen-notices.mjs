@@ -19,7 +19,7 @@ for (const entry of readdirSync(store)) {
   const dir = path.join(store, entry, "node_modules", name);
   if (!existsSync(path.join(dir, "package.json"))) continue;
   const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
-  const license = typeof pkg.license === "string" ? pkg.license : pkg.license?.type ?? (pkg.licenses?.map((l) => l.type).join(" OR ") ?? "UNKNOWN");
+  const license = typeof pkg.license === "string" ? pkg.license : (pkg.license?.type ?? pkg.licenses?.map((l) => l.type).join(" OR ") ?? "UNKNOWN");
   seen.set(`${name}@${m[2]}`, { name, version: m[2], license, homepage: typeof pkg.homepage === "string" ? pkg.homepage : "" });
 }
 const rows = [...seen.values()];

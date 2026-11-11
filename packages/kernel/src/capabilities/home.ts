@@ -35,7 +35,11 @@ export class HomeStore {
     mkdirSync(this.d.dir, { recursive: true });
     // 现有文件无法解析：覆盖前留一份副本
     if (existsSync(this.file(name))) {
-      try { JSON.parse(readFileSync(this.file(name), "utf8")); } catch { copyFileSync(this.file(name), `${this.file(name)}.corrupt-${this.d.now().getTime()}`); }
+      try {
+        JSON.parse(readFileSync(this.file(name), "utf8"));
+      } catch {
+        copyFileSync(this.file(name), `${this.file(name)}.corrupt-${this.d.now().getTime()}`);
+      }
     }
     const tmp = `${this.file(name)}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(v, null, 2));
@@ -108,8 +112,10 @@ export class HomeStore {
       const h = s.habits.find((x) => x.id === a.id);
       if (!h) throw errors.notFound("习惯不存在");
       if (a.action === "rename") h.title = title;
-      else if (a.action === "remove") { s.habits = s.habits.filter((x) => x.id !== a.id); s.doneToday = s.doneToday.filter((x) => x !== a.id); }
-      else s.doneToday = s.doneToday.includes(a.id) ? s.doneToday.filter((x) => x !== a.id) : [...s.doneToday, a.id];
+      else if (a.action === "remove") {
+        s.habits = s.habits.filter((x) => x.id !== a.id);
+        s.doneToday = s.doneToday.filter((x) => x !== a.id);
+      } else s.doneToday = s.doneToday.includes(a.id) ? s.doneToday.filter((x) => x !== a.id) : [...s.doneToday, a.id];
     }
     this.write("habits.json", s);
     return this.habitsView(s);

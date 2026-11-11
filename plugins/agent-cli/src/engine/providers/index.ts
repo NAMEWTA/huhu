@@ -42,9 +42,21 @@ function claudeArgv(o: Parameters<AgentProvider["interactiveArgv"]>[0]): string[
 export const PROVIDERS: readonly AgentProvider[] = [
   { id: "claude", displayName: "Claude Code", detectCommands: ["claude"], models: () => claudeModels, interactiveArgv: claudeArgv, headless: true },
   // Orca 的 Agent Teams 依赖其私有 CLI 包装；HUHU 以同一 claude 二进制 + 实验开关实现这一预设
-  { id: "claude-agent-teams", displayName: "Claude Agent Teams", detectCommands: ["claude"], requires: ["claude"], models: () => claudeModels, interactiveArgv: claudeArgv, env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" }, headless: false },
   {
-    id: "codex", displayName: "Codex", detectCommands: ["codex"], headless: true,
+    id: "claude-agent-teams",
+    displayName: "Claude Agent Teams",
+    detectCommands: ["claude"],
+    requires: ["claude"],
+    models: () => claudeModels,
+    interactiveArgv: claudeArgv,
+    env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" },
+    headless: false,
+  },
+  {
+    id: "codex",
+    displayName: "Codex",
+    detectCommands: ["codex"],
+    headless: true,
     models: () => [{ id: "gpt-5.5", label: "GPT-5.5", efforts: ["low", "medium", "high"], fast: false }],
     interactiveArgv: (o) => {
       const a = o.resumeSessionId ? [o.exe, "resume", o.resumeSessionId] : [o.exe];
@@ -94,7 +106,9 @@ export function probeVersion(exe: string, timeoutMs = 5000, env: NodeJS.ProcessE
   return new Promise((resolve) => {
     execFile(exe, ["--version"], { timeout: timeoutMs, env, windowsHide: true }, (err, stdout) => {
       if (err) return resolve(null);
-      const line = String(stdout).split(/\r?\n/).find((l) => l.trim());
+      const line = String(stdout)
+        .split(/\r?\n/)
+        .find((l) => l.trim());
       resolve(line?.trim() ?? null);
     });
   });
@@ -105,7 +119,11 @@ const TTL_MS = 10 * 60_000;
 /** 检测缓存 10 分钟；`refresh` 强制重测。HUHU 不读取 provider 的凭据文件。 */
 export class ProviderDetector {
   private cache: { at: number; results: DetectResult[] } | null = null;
-  constructor(private readonly now: () => number = Date.now, private readonly env: NodeJS.ProcessEnv = process.env, private readonly platform: NodeJS.Platform = process.platform) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly platform: NodeJS.Platform = process.platform,
+  ) {}
 
   async detect(refresh = false): Promise<DetectResult[]> {
     if (!refresh && this.cache && this.now() - this.cache.at < TTL_MS) return this.cache.results;

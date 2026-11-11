@@ -8,7 +8,10 @@ export const CaptureFrontmatterSchema = z.object({
   status: z.enum(["pending", "processed", "dismissed"]),
   createdAt: dateLike(IsoTime),
   processedAt: dateLike(IsoTime).nullable().default(null),
-  result: z.object({ kind: z.enum(["task", "note", "archive"]), id: z.string() }).nullable().default(null),
+  result: z
+    .object({ kind: z.enum(["task", "note", "archive"]), id: z.string() })
+    .nullable()
+    .default(null),
 });
 export type CaptureFrontmatter = z.infer<typeof CaptureFrontmatterSchema>;
 
@@ -18,10 +21,7 @@ export const CommentFrontmatterSchema = z.object({
   documentPath: z.string(),
   target: z.enum(["body", "file", "property"]),
   property: z.string().nullable().default(null),
-  anchor: z
-    .object({ exact: z.string(), prefix: z.string(), suffix: z.string(), start: z.number().int(), end: z.number().int(), sourceVersion: z.string() })
-    .nullable()
-    .default(null),
+  anchor: z.object({ exact: z.string(), prefix: z.string(), suffix: z.string(), start: z.number().int(), end: z.number().int(), sourceVersion: z.string() }).nullable().default(null),
   state: z.enum(["anchored", "orphaned"]),
   resolved: z.boolean().default(false),
   createdAt: dateLike(IsoTime),

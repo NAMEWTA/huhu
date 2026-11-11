@@ -5,7 +5,11 @@ import ssh2, { type Connection } from "ssh2";
 const { Server, utils } = ssh2;
 
 /** 假服务器上的内存文件系统（SFTP 用）。 */
-export interface FakeFs { files: Map<string, Buffer>; dirs: Set<string>; links: Map<string, string> }
+export interface FakeFs {
+  files: Map<string, Buffer>;
+  dirs: Set<string>;
+  links: Map<string, string>;
+}
 
 export interface FakeSshOptions {
   /** 不提供 SFTP 子系统（测试“服务器没有开启 SFTP”）。 */
@@ -37,7 +41,9 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
   const server = new Server({ hostKeys: [o.hostKey ?? genHostKey()] }, (client) => {
     conns.push(client);
     (client as unknown as { setNoDelay(b: boolean): void }).setNoDelay(true); // 与真实 sshd 一致（OpenSSH 默认 TCP_NODELAY）
-    client.on("close", () => { closed++; });
+    client.on("close", () => {
+      closed++;
+    });
     client.on("authentication", (ctx) => {
       o.onAuth?.(ctx.username, ctx.method);
       if (ctx.method === "password" && ctx.password === (o.password ?? "pw")) return ctx.accept();
@@ -61,40 +67,83 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
           ch.write("welcome\n");
           ch.on("data", (d: Buffer) => {
             const text = d.toString();
-            if (text.includes("exit")) { ch.exit(0); ch.end(); return; }
+            if (text.includes("exit")) {
+              ch.exit(0);
+              ch.end();
+              return;
+            }
             ch.write(`ECHO:${text}`);
           });
         });
         session.on("sftp", (acceptSftp, rejectSftp) => {
           if (o.noSftp) return rejectSftp();
-          serveSftp(acceptSftp(), fs, () => { if (o.dropAfterWrites !== undefined && ++writes >= o.dropAfterWrites) { client.end(); return true; } return false; });
+          serveSftp(acceptSftp(), fs, () => {
+            if (o.dropAfterWrites !== undefined && ++writes >= o.dropAfterWrites) {
+              client.end();
+              return true;
+            }
+            return false;
+          });
         });
         session.on("exec", (acceptExec, _rej, info) => {
           const ch = acceptExec();
           const cmd = info.command;
-          if (cmd.startsWith("echo ")) { ch.write(cmd.slice(5) + "\n"); ch.exit(0); ch.end(); }
-          else if (cmd.startsWith("fail")) { ch.stderr.write("boom\n"); ch.exit(3); ch.end(); }
-          else if (cmd.startsWith("sleep")) {
-            const t = setTimeout(() => { ch.exit(0); ch.end(); }, Number(cmd.split(" ")[1] ?? 1) * 1000);
+          if (cmd.startsWith("echo ")) {
+            ch.write(cmd.slice(5) + "\n");
+            ch.exit(0);
+            ch.end();
+          } else if (cmd.startsWith("fail")) {
+            ch.stderr.write("boom\n");
+            ch.exit(3);
+            ch.end();
+          } else if (cmd.startsWith("sleep")) {
+            const t = setTimeout(
+              () => {
+                ch.exit(0);
+                ch.end();
+              },
+              Number(cmd.split(" ")[1] ?? 1) * 1000,
+            );
             ch.on("close", () => clearTimeout(t));
-            session.on("signal", (acc) => { acc?.(); ch.exit(130); ch.end(); });
-          } else { ch.write(`unknown: ${cmd}\n`); ch.exit(127); ch.end(); }
+            session.on("signal", (acc) => {
+              acc?.();
+              ch.exit(130);
+              ch.end();
+            });
+          } else {
+            ch.write(`unknown: ${cmd}\n`);
+            ch.exit(127);
+            ch.end();
+          }
         });
       });
     });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as net.AddressInfo).port;
-  return { port, conns, fs, closed: () => closed, close: () => new Promise<void>((r) => { for (const c of conns) c.end(); server.close(() => r()); }) };
+  return {
+    port,
+    conns,
+    fs,
+    closed: () => closed,
+    close: () =>
+      new Promise<void>((r) => {
+        for (const c of conns) c.end();
+        server.close(() => r());
+      }),
+  };
 }
-
 
 const { OPEN_MODE, STATUS_CODE } = utils.sftp;
 
 const norm = (p: string): string => {
   const abs = p === "." || p === "" ? "/home/test" : p.startsWith("/") ? p : `/home/test/${p}`;
   const out: string[] = [];
-  for (const seg of abs.split("/")) { if (seg === "" || seg === ".") continue; if (seg === "..") out.pop(); else out.push(seg); }
+  for (const seg of abs.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") out.pop();
+    else out.push(seg);
+  }
   return `/${out.join("/")}`;
 };
 const parent = (p: string): string => norm(p.split("/").slice(0, -1).join("/") || "/");
@@ -104,7 +153,13 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
   let next = 1;
-  const newHandle = (h: H): Buffer => { const id = next++; handles.set(id, h); const b = Buffer.alloc(4); b.writeUInt32BE(id); return b; };
+  const newHandle = (h: H): Buffer => {
+    const id = next++;
+    handles.set(id, h);
+    const b = Buffer.alloc(4);
+    b.writeUInt32BE(id);
+    return b;
+  };
   const get = (b: Buffer): H | undefined => handles.get(b.readUInt32BE(0));
   const attrsOf = (p: string) => {
     const isDir = fs.dirs.has(p);
@@ -114,11 +169,22 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   const exists = (p: string) => fs.dirs.has(p) || fs.files.has(p) || fs.links.has(p);
   const st = (id: number, code: number) => sftp.status(id, code);
 
-  sftp.on("REALPATH", (id, p) => { const n = norm(p); sftp.name(id, [{ filename: n, longname: n, attrs: attrsOf(n) as never }]); });
-  const stat = (id: number, p: string) => { const n = norm(p); if (!exists(n)) return st(id, STATUS_CODE.NO_SUCH_FILE); sftp.attrs(id, attrsOf(n) as never); };
+  sftp.on("REALPATH", (id, p) => {
+    const n = norm(p);
+    sftp.name(id, [{ filename: n, longname: n, attrs: attrsOf(n) as never }]);
+  });
+  const stat = (id: number, p: string) => {
+    const n = norm(p);
+    if (!exists(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    sftp.attrs(id, attrsOf(n) as never);
+  };
   sftp.on("STAT", stat);
   sftp.on("LSTAT", stat);
-  sftp.on("OPENDIR", (id, p) => { const n = norm(p); if (!fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE); sftp.handle(id, newHandle({ kind: "dir", path: n, sent: false })); });
+  sftp.on("OPENDIR", (id, p) => {
+    const n = norm(p);
+    if (!fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    sftp.handle(id, newHandle({ kind: "dir", path: n, sent: false }));
+  });
   sftp.on("READDIR", (id, h) => {
     const d = get(h);
     if (!d || d.kind !== "dir" || d.sent) return st(id, STATUS_CODE.EOF);
@@ -126,7 +192,13 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
     const prefix = d.path === "/" ? "/" : `${d.path}/`;
     const names = [...fs.dirs, ...fs.files.keys(), ...fs.links.keys()].filter((x) => x !== d.path && x.startsWith(prefix) && !x.slice(prefix.length).includes("/"));
     if (names.length === 0) return st(id, STATUS_CODE.EOF);
-    sftp.name(id, names.map((x) => { const f = x.slice(prefix.length); return { filename: f, longname: f, attrs: attrsOf(x) as never }; }));
+    sftp.name(
+      id,
+      names.map((x) => {
+        const f = x.slice(prefix.length);
+        return { filename: f, longname: f, attrs: attrsOf(x) as never };
+      }),
+    );
   });
   sftp.on("OPEN", (id, p, flags) => {
     const n = norm(p);
@@ -153,25 +225,47 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
     if (onWrite()) return; // 模拟中途断线：不再回复
     const cur = fs.files.get(f.path) ?? Buffer.alloc(0);
     const out = Buffer.alloc(Math.max(cur.length, offset + data.length));
-    cur.copy(out); data.copy(out, offset);
+    cur.copy(out);
+    data.copy(out, offset);
     fs.files.set(f.path, out);
     st(id, STATUS_CODE.OK);
   });
-  sftp.on("CLOSE", (id, h) => { handles.delete(h.readUInt32BE(0)); st(id, STATUS_CODE.OK); });
-  sftp.on("REMOVE", (id, p) => { const n = norm(p); if (!fs.files.delete(n) && !fs.links.delete(n)) return st(id, STATUS_CODE.NO_SUCH_FILE); st(id, STATUS_CODE.OK); });
-  sftp.on("MKDIR", (id, p) => { const n = norm(p); if (exists(n)) return st(id, STATUS_CODE.FAILURE); if (!fs.dirs.has(parent(n))) return st(id, STATUS_CODE.NO_SUCH_FILE); fs.dirs.add(n); st(id, STATUS_CODE.OK); });
+  sftp.on("CLOSE", (id, h) => {
+    handles.delete(h.readUInt32BE(0));
+    st(id, STATUS_CODE.OK);
+  });
+  sftp.on("REMOVE", (id, p) => {
+    const n = norm(p);
+    if (!fs.files.delete(n) && !fs.links.delete(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    st(id, STATUS_CODE.OK);
+  });
+  sftp.on("MKDIR", (id, p) => {
+    const n = norm(p);
+    if (exists(n)) return st(id, STATUS_CODE.FAILURE);
+    if (!fs.dirs.has(parent(n))) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    fs.dirs.add(n);
+    st(id, STATUS_CODE.OK);
+  });
   sftp.on("RMDIR", (id, p) => {
     const n = norm(p);
     if (!fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     if ([...fs.dirs, ...fs.files.keys()].some((x) => x !== n && x.startsWith(`${n}/`))) return st(id, STATUS_CODE.FAILURE);
-    fs.dirs.delete(n); st(id, STATUS_CODE.OK);
+    fs.dirs.delete(n);
+    st(id, STATUS_CODE.OK);
   });
   sftp.on("RENAME", (id, from, to) => {
-    const a = norm(from); const b = norm(to);
+    const a = norm(from);
+    const b = norm(to);
     if (!exists(a)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     if (exists(b)) return st(id, STATUS_CODE.FAILURE); // SFTP v3：目标已存在则失败
     const f = fs.files.get(a);
-    if (f) { fs.files.delete(a); fs.files.set(b, f); } else if (fs.dirs.has(a)) { fs.dirs.delete(a); fs.dirs.add(b); }
+    if (f) {
+      fs.files.delete(a);
+      fs.files.set(b, f);
+    } else if (fs.dirs.has(a)) {
+      fs.dirs.delete(a);
+      fs.dirs.add(b);
+    }
     st(id, STATUS_CODE.OK);
   });
 }

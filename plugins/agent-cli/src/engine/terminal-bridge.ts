@@ -31,12 +31,20 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     ws.on("error", () => undefined);
     ws.on("message", (data, isBinary) => (term ? handle(Buffer.from(data as Buffer), isBinary) : queue.push({ data: Buffer.from(data as Buffer), isBinary })));
     let wsClosed = false;
-    ws.on("close", () => { wsClosed = true; term?.close(); });
+    ws.on("close", () => {
+      wsClosed = true;
+      term?.close();
+    });
     await d.core.ensure();
     // 发送缓冲超过 4 MiB 时暂停回报 CREDIT（interfaces.md §7）
     const t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe, canSend: () => ws.bufferedAmount < 4 * 1024 * 1024 });
-    if (wsClosed) { t.close(); return true; }
-    t.onData((b) => { if (ws.readyState === ws.OPEN) ws.send(b, { binary: true }); });
+    if (wsClosed) {
+      t.close();
+      return true;
+    }
+    t.onData((b) => {
+      if (ws.readyState === ws.OPEN) ws.send(b, { binary: true });
+    });
     t.onClose((reason) => {
       if (ws.readyState === ws.OPEN) {
         ws.send(JSON.stringify({ type: "closed", reason }));

@@ -2,12 +2,8 @@
   "name": "huhu",
   "version": "0.0.1",
   "private": true,
-  "type": "module",
   "license": "GPL-3.0-or-later",
-  "packageManager": "pnpm@12.10.1",
-  "engines": {
-    "node": ">=24"
-  },
+  "type": "module",
   "scripts": {
     "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs",
     "typecheck": "pnpm --filter \"./vendor/*\" run build:types && pnpm -r --parallel run typecheck",
@@ -30,5 +26,9 @@
     "oxlint": "1.93.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
-  }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.10.1"
 }

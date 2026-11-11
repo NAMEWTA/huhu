@@ -5,16 +5,11 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": [
-    "safe",
-    "agent-cli"
-  ],
+  "optionalDeps": ["safe", "agent-cli"],
   "permissions": [],
   "activation": "vault-open",
   "contributes": {
-    "modules": [
-      "ssh"
-    ],
+    "modules": ["ssh"],
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],

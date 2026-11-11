@@ -16,7 +16,11 @@ const MAX = 1000;
 export class NotificationStore {
   private items: Notification[] | null = null;
 
-  constructor(private readonly file: string, private readonly now: () => Date = () => new Date(), private readonly onCreated?: (n: Notification) => void) {}
+  constructor(
+    private readonly file: string,
+    private readonly now: () => Date = () => new Date(),
+    private readonly onCreated?: (n: Notification) => void,
+  ) {}
 
   private load(): Notification[] {
     if (this.items) return this.items;
@@ -39,13 +43,24 @@ export class NotificationStore {
   private rewrite(): void {
     mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, this.load().map((n) => JSON.stringify(n)).join("\n") + (this.load().length ? "\n" : ""));
+    writeFileSync(
+      tmp,
+      this.load()
+        .map((n) => JSON.stringify(n))
+        .join("\n") + (this.load().length ? "\n" : ""),
+    );
     renameSync(tmp, this.file); // 原子替换：崩溃不会留下被截断的文件
   }
 
   create(input: { title: string; module: string }): Notification {
-    const n: Notification = { // 通知可能在同一毫秒批量产生，newId 的 4 位随机后缀会碰撞；这里用完整 UUID
-      id: `ntf-${randomUUID()}`, title: input.title, module: input.module, at: this.now().toISOString(), read: false };
+    const n: Notification = {
+      // 通知可能在同一毫秒批量产生，newId 的 4 位随机后缀会碰撞；这里用完整 UUID
+      id: `ntf-${randomUUID()}`,
+      title: input.title,
+      module: input.module,
+      at: this.now().toISOString(),
+      read: false,
+    };
     const list = this.load();
     list.push(n);
     mkdirSync(path.dirname(this.file), { recursive: true });
@@ -58,12 +73,19 @@ export class NotificationStore {
   }
 
   list(filter: { unreadOnly?: boolean; module?: string } = {}): Notification[] {
-    return this.load().filter((n) => (!filter.unreadOnly || !n.read) && (!filter.module || n.module === filter.module)).slice().reverse();
+    return this.load()
+      .filter((n) => (!filter.unreadOnly || !n.read) && (!filter.module || n.module === filter.module))
+      .slice()
+      .reverse();
   }
 
   markRead(ids: string[] | "all"): number {
     let c = 0;
-    for (const n of this.load()) if (!n.read && (ids === "all" || ids.includes(n.id))) { n.read = true; c++; }
+    for (const n of this.load())
+      if (!n.read && (ids === "all" || ids.includes(n.id))) {
+        n.read = true;
+        c++;
+      }
     if (c) this.rewrite();
     return c;
   }

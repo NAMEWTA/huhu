@@ -31,10 +31,11 @@ const GROUP_ORDER: Record<PaletteItem["group"], number> = { module: 0, command: 
 /** 过滤并排序；空查询时按分组顺序原样返回（最近使用的置顶）。 */
 export function rankItems(items: readonly PaletteItem[], query: string, recents: readonly string[] = []): PaletteItem[] {
   const scored = items.map((it) => ({ it, s: scoreText(query, it.title) })).filter((x) => x.s >= 0);
-  const recentRank = (id: string) => { const i = recents.indexOf(id); return i < 0 ? 99 : i; };
-  return scored
-    .sort((a, b) => (query.trim() ? b.s - a.s : recentRank(a.it.id) - recentRank(b.it.id) || GROUP_ORDER[a.it.group] - GROUP_ORDER[b.it.group]) || a.it.title.localeCompare(b.it.title))
-    .map((x) => x.it);
+  const recentRank = (id: string) => {
+    const i = recents.indexOf(id);
+    return i < 0 ? 99 : i;
+  };
+  return scored.sort((a, b) => (query.trim() ? b.s - a.s : recentRank(a.it.id) - recentRank(b.it.id) || GROUP_ORDER[a.it.group] - GROUP_ORDER[b.it.group]) || a.it.title.localeCompare(b.it.title)).map((x) => x.it);
 }
 
 /** 搜索请求去抖后的"过期结果丢弃"：只有最新一次请求的结果会被采纳。 */

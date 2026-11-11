@@ -4,11 +4,21 @@ import path from "node:path";
 import { newId } from "@huhu/contracts";
 import { TokenTable } from "./server/tokens.js";
 
-export interface HttpToken { id: string; name: string; hash: string; createdAt: string }
+export interface HttpToken {
+  id: string;
+  name: string;
+  hash: string;
+  createdAt: string;
+}
 
 /** HTTP 服务令牌：`gateways.json` 只保存哈希；明文只在创建时返回一次，身份为 `http`。 */
 export class GatewayTokens {
-  constructor(private readonly file: string, private readonly table: TokenTable, private readonly now: () => Date = () => new Date(), private readonly onRevoked?: () => void) {
+  constructor(
+    private readonly file: string,
+    private readonly table: TokenTable,
+    private readonly now: () => Date = () => new Date(),
+    private readonly onRevoked?: () => void,
+  ) {
     try {
       for (const t of this.load().tokens ?? []) this.table.addHash(t.hash, "http");
     } catch {

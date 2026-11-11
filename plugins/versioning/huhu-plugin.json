@@ -5,16 +5,11 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": [
-    "automations",
-    "safe"
-  ],
+  "optionalDeps": ["automations", "safe"],
   "permissions": [],
   "activation": "vault-open",
   "contributes": {
-    "modules": [
-      "versioning"
-    ],
+    "modules": ["versioning"],
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],

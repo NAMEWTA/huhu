@@ -1,8 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-export interface Stage { mode: string; oid: string }
-export interface ConflictFile { path: string; base: Stage | null; ours: Stage | null; theirs: Stage | null }
+export interface Stage {
+  mode: string;
+  oid: string;
+}
+export interface ConflictFile {
+  path: string;
+  base: Stage | null;
+  ours: Stage | null;
+  theirs: Stage | null;
+}
 
 /**
  * 冲突会话：只记录提交与 blob 的 OID（不存笔记内容，避免在 .huhu/sync/ 多留一份明文）。

@@ -33,4 +33,3 @@ export function createMcpServer(backend: McpBackend, version: string): Server {
   });
   return server;
 }
-

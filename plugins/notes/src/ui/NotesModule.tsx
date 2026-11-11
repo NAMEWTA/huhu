@@ -5,8 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 
 type Filter = "all" | "favorites" | "daily" | "trash";
-interface NoteRef { path: string; id: string | null; title: string }
-interface NoteFile { path: string; text: string; version: string }
+interface NoteRef {
+  path: string;
+  id: string | null;
+  title: string;
+}
+interface NoteFile {
+  path: string;
+  text: string;
+  version: string;
+}
 const AUTOSAVE_MS = 800;
 
 export function NotesModule() {
@@ -36,16 +44,44 @@ export function NotesModule() {
       <aside className="hu-module-sidebar" aria-label={t.title}>
         <h2>{t.title}</h2>
         {(Object.keys(t.filters) as Filter[]).map((f) => (
-          <button key={f} type="button" className="hu-nav-item" aria-current={f === filter} onClick={() => { setFilter(f); setSelected(null); }}>
+          <button
+            key={f}
+            type="button"
+            className="hu-nav-item"
+            aria-current={f === filter}
+            onClick={() => {
+              setFilter(f);
+              setSelected(null);
+            }}
+          >
             <span>{t.filters[f]}</span>
           </button>
         ))}
-        <form className="hu-form" onSubmit={(e) => { e.preventDefault(); const n = name.trim(); if (!n) return; void run<{ path: string }>("notes.create", { name: n }).then((r) => { if (r) { setName(""); setSelected(r.path); } }); }}>
+        <form
+          className="hu-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const n = name.trim();
+            if (!n) return;
+            void run<{ path: string }>("notes.create", { name: n }).then((r) => {
+              if (r) {
+                setName("");
+                setSelected(r.path);
+              }
+            });
+          }}
+        >
           <input className="hu-input" aria-label={t.noteName} placeholder={t.noteName} value={name} onChange={(e) => setName(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!name.trim()}>{t.newNote}</Button>
+          <Button type="submit" variant="primary" disabled={!name.trim()}>
+            {t.newNote}
+          </Button>
         </form>
         {filter === "daily" ? <Button onClick={() => void run<{ path: string }>("notes.openDaily", {}).then((r) => r && setSelected(r.path))}>{t.openDaily}</Button> : null}
-        {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
+        {error ? (
+          <div role="alert" className="hu-overdue">
+            {error}
+          </div>
+        ) : null}
         <ul className="hu-note-list" aria-label={t.filters[filter]}>
           {(notes.data ?? []).map((n) => (
             <li key={n.path}>
@@ -59,7 +95,17 @@ export function NotesModule() {
       </aside>
       <section className="hu-content hu-note-pane">
         {selected && filter !== "trash" ? (
-          <NoteEditor key={selected} path={selected} onRename={(newName) => run("notes.rename", { path: selected, newName }).then((r) => { if (r) setSelected(newName.endsWith(".md") ? newName : `${newName}.md`); })} onTrash={() => run("notes.trash", { path: selected }).then(() => setSelected(null))} onOpen={(p) => setSelected(p)} />
+          <NoteEditor
+            key={selected}
+            path={selected}
+            onRename={(newName) =>
+              run("notes.rename", { path: selected, newName }).then((r) => {
+                if (r) setSelected(newName.endsWith(".md") ? newName : `${newName}.md`);
+              })
+            }
+            onTrash={() => run("notes.trash", { path: selected }).then(() => setSelected(null))}
+            onOpen={(p) => setSelected(p)}
+          />
         ) : (
           <EmptyState title={t.noSelection} />
         )}
@@ -90,15 +136,20 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
     savedText.current = f.text;
     setState("saved");
   }, [engine, path]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   // 离开（切换笔记、关闭模块）时把未保存的编辑写入，关闭自动保存或 800ms 窗口内切换都不丢内容
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-    const { text: body, version } = latest.current;
-    if (savedText.current !== null && body !== savedText.current && version) {
-      void engine.call("notes.save", { path, text: body, expectedVersion: version }, { write: true }).catch(() => undefined);
-    }
-  }, [engine, path]);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      const { text: body, version } = latest.current;
+      if (savedText.current !== null && body !== savedText.current && version) {
+        void engine.call("notes.save", { path, text: body, expectedVersion: version }, { write: true }).catch(() => undefined);
+      }
+    },
+    [engine, path],
+  );
 
   const save = useCallback(async (): Promise<boolean> => {
     const { text: body, version: v } = latest.current;
@@ -140,29 +191,77 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
         <h1>{path.replace(/\.md$/, "")}</h1>
         <Badge tone={state === "saved" ? "success" : state === "conflict" ? "danger" : "warning"}>{state === "saved" ? t.saved : state === "saving" ? t.saving : state === "conflict" ? t.conflict : t.dirty}</Badge>
         <div role="group" aria-label="模式">
-          <Button variant={mode === "source" ? "primary" : "secondary"} onClick={() => setMode("source")}>{t.modeSource}</Button>
-          <Button variant={mode === "preview" ? "primary" : "secondary"} onClick={() => setMode("preview")}>{t.modePreview}</Button>
+          <Button variant={mode === "source" ? "primary" : "secondary"} onClick={() => setMode("source")}>
+            {t.modeSource}
+          </Button>
+          <Button variant={mode === "preview" ? "primary" : "secondary"} onClick={() => setMode("preview")}>
+            {t.modePreview}
+          </Button>
         </div>
         {renaming === null ? (
           <Button onClick={() => setRenaming(path.replace(/\.md$/, ""))}>{t.rename}</Button>
         ) : (
-          <form className="hu-form" onSubmit={(e) => { e.preventDefault(); const name = renaming; void flush().then((ok) => { if (ok) { setRenaming(null); return onRename(name); } return undefined; }); }}>
+          <form
+            className="hu-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = renaming;
+              void flush().then((ok) => {
+                if (ok) {
+                  setRenaming(null);
+                  return onRename(name);
+                }
+                return undefined;
+              });
+            }}
+          >
             <input className="hu-input" aria-label={t.rename} value={renaming} onChange={(e) => setRenaming(e.target.value)} autoFocus />
             <Button type="submit">{t.rename}</Button>
           </form>
         )}
-        {ed?.autosave === false ? <Button variant="primary" disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>{t.save}</Button> : null}
-        <Button variant="danger" onClick={() => void flush().then((ok) => (ok ? onTrash() : undefined))}>{t.trash}</Button>
+        {ed?.autosave === false ? (
+          <Button variant="primary" disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>
+            {t.save}
+          </Button>
+        ) : null}
+        <Button variant="danger" onClick={() => void flush().then((ok) => (ok ? onTrash() : undefined))}>
+          {t.trash}
+        </Button>
       </header>
-      {state === "conflict" ? <Banner tone="danger" action={<Button onClick={() => void load()}>{t.reload}</Button>}>{t.conflict}</Banner> : null}
+      {state === "conflict" ? (
+        <Banner tone="danger" action={<Button onClick={() => void load()}>{t.reload}</Button>}>
+          {t.conflict}
+        </Banner>
+      ) : null}
       {mode === "source" ? (
-        <MarkdownEditor value={text} onChange={onChange} onSave={() => void save()} ariaLabel={t.editorLabel} {...(ed ? { lineNumbers: ed.lineNumbers, spellcheck: ed.spellcheck, fontSize: ed.fontSize, lineHeight: ed.lineHeight, maxWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})} />
+        <MarkdownEditor
+          value={text}
+          onChange={onChange}
+          onSave={() => void save()}
+          ariaLabel={t.editorLabel}
+          {...(ed ? { lineNumbers: ed.lineNumbers, spellcheck: ed.spellcheck, fontSize: ed.fontSize, lineHeight: ed.lineHeight, maxWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
+        />
       ) : (
-        <MarkdownPreview source={text} resolveWikiLink={(target) => known.has(target)} onOpenWikiLink={(target) => { const hit = (all.data ?? []).find((n) => n.path === target || n.path === `${target}.md` || n.title === target); if (hit) onOpen(hit.path); }} />
+        <MarkdownPreview
+          source={text}
+          resolveWikiLink={(target) => known.has(target)}
+          onOpenWikiLink={(target) => {
+            const hit = (all.data ?? []).find((n) => n.path === target || n.path === `${target}.md` || n.title === target);
+            if (hit) onOpen(hit.path);
+          }}
+        />
       )}
       <section aria-label={t.backlinks}>
         <h3>{t.backlinks}</h3>
-        <ul>{(backlinks.data ?? []).map((b) => <li key={b.path}><button type="button" className="hu-nav-item" onClick={() => onOpen(b.path)}>{b.title}</button></li>)}</ul>
+        <ul>
+          {(backlinks.data ?? []).map((b) => (
+            <li key={b.path}>
+              <button type="button" className="hu-nav-item" onClick={() => onOpen(b.path)}>
+                {b.title}
+              </button>
+            </li>
+          ))}
+        </ul>
       </section>
     </div>
   );

@@ -13,7 +13,11 @@ export interface Space {
 
 /** Space：一个明确选择的本机目录（可在 Vault 外）。创建 Space 不启动任何进程。 */
 export class SpaceStore {
-  constructor(private readonly dir: string, private readonly machineId: string, private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly dir: string,
+    private readonly machineId: string,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   private file(id: string): string {
     return path.join(this.dir, `${id}.json`);
@@ -21,14 +25,17 @@ export class SpaceStore {
 
   list(): Space[] {
     if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir).filter((f) => f.endsWith(".json")).flatMap((f) => {
-      try {
-        const s = JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as Space;
-        return s.machineId === this.machineId ? [s] : []; // 绑定 machineId：他机的 Space 在本机不可见
-      } catch {
-        return [];
-      }
-    }).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return readdirSync(this.dir)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => {
+        try {
+          const s = JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as Space;
+          return s.machineId === this.machineId ? [s] : []; // 绑定 machineId：他机的 Space 在本机不可见
+        } catch {
+          return [];
+        }
+      })
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   get(id: string): Space {

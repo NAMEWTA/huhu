@@ -5,8 +5,15 @@ export type CaptureSource = CaptureFrontmatter["source"];
 export type ConvertTarget = "task" | "note" | "archive";
 
 export interface CaptureDto {
-  id: string; path: string; version: string; title: string; body: string; source: string;
-  status: "pending" | "processed" | "dismissed"; createdAt: string; processedAt: string | null;
+  id: string;
+  path: string;
+  version: string;
+  title: string;
+  body: string;
+  source: string;
+  status: "pending" | "processed" | "dismissed";
+  createdAt: string;
+  processedAt: string | null;
   result: { kind: ConvertTarget; id: string } | null;
 }
 

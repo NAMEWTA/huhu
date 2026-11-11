@@ -6,15 +6,39 @@ import { PRESETS, cronFor, presetOf, type PresetId } from "./cron-presets.js";
 import { t } from "./i18n.js";
 
 export interface EditableRule {
-  id: string; version: string; body: string;
+  id: string;
+  version: string;
+  body: string;
   data: { title: string; builtin: boolean; trigger: { preset: string; cron: string; zone: string }; action: { kind: string; text?: string; spaceId?: string; provider?: string; model?: string | null; scriptId?: string; args?: string[] } };
 }
-interface Space { id: string; name: string; root: string }
-interface Provider { provider: string; displayName: string; status: string; headless: boolean }
-interface ScriptRow { id: string; title: string }
+interface Space {
+  id: string;
+  name: string;
+  root: string;
+}
+interface Provider {
+  provider: string;
+  displayName: string;
+  status: string;
+  headless: boolean;
+}
+interface ScriptRow {
+  id: string;
+  title: string;
+}
 
 /** 规则编辑器（新建 / 编辑）：标题、触发（预设+时刻或 cron+时区）、动作（通知 / 让 Agent 执行 / 运行脚本），保存时默认保持暂停。 */
-export function RuleEditor({ rule, zone, onSave, onCancel }: { rule?: EditableRule; zone: string; onSave(v: { title: string; trigger: { preset: string; cron: string; zone: string }; action: Record<string, unknown>; body: string }): Promise<boolean>; onCancel?(): void }) {
+export function RuleEditor({
+  rule,
+  zone,
+  onSave,
+  onCancel,
+}: {
+  rule?: EditableRule;
+  zone: string;
+  onSave(v: { title: string; trigger: { preset: string; cron: string; zone: string }; action: Record<string, unknown>; body: string }): Promise<boolean>;
+  onCancel?(): void;
+}) {
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const providers = useCapability<Provider[]>("agent.providers.detect", {});
   const scripts = useCapability<ScriptRow[]>("automations.scripts.list", {});
@@ -45,27 +69,48 @@ export function RuleEditor({ rule, zone, onSave, onCancel }: { rule?: EditableRu
   if (!timeOk) triggerError = t.timeRequired;
   else if (cron === "") triggerError = t.cronRequired;
   else {
-    try { new Intl.DateTimeFormat("en-US", { timeZone: tz.trim() || zone }); upcoming = nextRuns(cron, tz.trim() || zone, 3); }
-    catch (e) { triggerError = /Range|time ?zone/i.test(String(e)) ? t.zoneInvalid : t.cronInvalid; }
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz.trim() || zone });
+      upcoming = nextRuns(cron, tz.trim() || zone, 3);
+    } catch (e) {
+      triggerError = /Range|time ?zone/i.test(String(e)) ? t.zoneInvalid : t.cronInvalid;
+    }
   }
   const valid = title.trim() !== "" && tz.trim() !== "" && triggerError === null && actionValid;
 
   async function submit() {
     setBusy(true);
     const action: Record<string, unknown> =
-      kind === "notify" ? { kind, channel: "in_app", text: text.trim() }
-      : kind === "agent_prompt" ? { kind, spaceId, provider, model: model.trim() || null, effort: null, fast: false }
-      : kind === "script" ? { kind, scriptId, args: [] }
-      : (a as Record<string, unknown>);
+      kind === "notify"
+        ? { kind, channel: "in_app", text: text.trim() }
+        : kind === "agent_prompt"
+          ? { kind, spaceId, provider, model: model.trim() || null, effort: null, fast: false }
+          : kind === "script"
+            ? { kind, scriptId, args: [] }
+            : (a as Record<string, unknown>);
     const ok = await onSave({ title: title.trim(), trigger: { preset, cron, zone: tz.trim() }, action, body: kind === "agent_prompt" ? prompt.trim() : (rule?.body ?? "") });
     setBusy(false);
-    if (ok && !rule) { setTitle(""); setText(""); setPrompt(""); }
+    if (ok && !rule) {
+      setTitle("");
+      setText("");
+      setPrompt("");
+    }
   }
 
   return (
-    <form className="hu-form" style={{ flexDirection: "column", alignItems: "stretch" }} data-testid="rule-editor" aria-label={rule ? t.editRule : t.ruleEditor} onSubmit={(e) => { e.preventDefault(); if (valid) void submit(); }}>
+    <form
+      className="hu-form"
+      style={{ flexDirection: "column", alignItems: "stretch" }}
+      data-testid="rule-editor"
+      aria-label={rule ? t.editRule : t.ruleEditor}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid) void submit();
+      }}
+    >
       <input className="hu-input" aria-label={t.ruleTitle} placeholder={t.ruleTitle} value={title} onChange={(e) => setTitle(e.target.value)} />
-      <label>{t.actionKind}
+      <label>
+        {t.actionKind}
         <select aria-label={t.actionKind} data-testid="rule-kind" value={kind} disabled={builtin} onChange={(e) => setKind(e.target.value as typeof kind)}>
           <option value="notify">{t.kinds.notify}</option>
           <option value="agent_prompt">{t.kinds.agent_prompt}</option>
@@ -76,17 +121,31 @@ export function RuleEditor({ rule, zone, onSave, onCancel }: { rule?: EditableRu
       {kind === "notify" ? <input className="hu-input" aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} /> : null}
       {kind === "agent_prompt" ? (
         <>
-          <label>{t.space}
+          <label>
+            {t.space}
             <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
               <option value="">{t.choose}</option>
-              {(spaces.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {(spaces.data ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
             </select>
           </label>
-          <label>{t.provider}
+          <label>
+            {t.provider}
             <select aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
               <option value="">{t.choose}</option>
-              {found.map((p) => <option key={p.provider} value={p.provider}>{p.displayName}</option>)}
-              {provider && !found.some((p) => p.provider === provider) ? <option value={provider}>{provider}（{t.unavailable}）</option> : null}
+              {found.map((p) => (
+                <option key={p.provider} value={p.provider}>
+                  {p.displayName}
+                </option>
+              ))}
+              {provider && !found.some((p) => p.provider === provider) ? (
+                <option value={provider}>
+                  {provider}（{t.unavailable}）
+                </option>
+              ) : null}
             </select>
           </label>
           {found.length === 0 && providers.data ? <p className="hu-meta">{t.noProvider}</p> : null}
@@ -95,25 +154,63 @@ export function RuleEditor({ rule, zone, onSave, onCancel }: { rule?: EditableRu
         </>
       ) : null}
       {kind === "script" ? (
-        <label>{t.script}
+        <label>
+          {t.script}
           <select aria-label={t.script} data-testid="rule-script" value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
             <option value="">{t.choose}</option>
-            {(scripts.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+            {(scripts.data ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.title}
+              </option>
+            ))}
           </select>
         </label>
       ) : null}
-      <label>{t.frequency}
-        <select aria-label={t.frequency} data-testid="rule-preset" value={preset} onChange={(e) => { const next = e.target.value as PresetId; if (next === "custom") setCustom(cron); setPreset(next); }}>
-          {PRESETS.map((p) => <option key={p.id} value={p.id}>{t.presets[p.id]}</option>)}
+      <label>
+        {t.frequency}
+        <select
+          aria-label={t.frequency}
+          data-testid="rule-preset"
+          value={preset}
+          onChange={(e) => {
+            const next = e.target.value as PresetId;
+            if (next === "custom") setCustom(cron);
+            setPreset(next);
+          }}
+        >
+          {PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {t.presets[p.id]}
+            </option>
+          ))}
         </select>
       </label>
-      {PRESETS.find((p) => p.id === preset)?.time ? <label>{t.timeOfDay}<input className="hu-input" type="time" aria-label={t.timeOfDay} value={time} onChange={(e) => setTime(e.target.value)} /></label> : null}
+      {PRESETS.find((p) => p.id === preset)?.time ? (
+        <label>
+          {t.timeOfDay}
+          <input className="hu-input" type="time" aria-label={t.timeOfDay} value={time} onChange={(e) => setTime(e.target.value)} />
+        </label>
+      ) : null}
       {preset === "custom" ? <input className="hu-input" aria-label={t.ruleCron} value={custom} onChange={(e) => setCustom(e.target.value)} /> : <code data-testid="rule-cron">{cron}</code>}
       <input className="hu-input" aria-label={t.zone} placeholder={t.zone} value={tz} aria-invalid={triggerError === t.zoneInvalid} onChange={(e) => setTz(e.target.value)} />
-      {triggerError ? <div role="alert" className="hu-overdue" data-testid="rule-trigger-error">{triggerError}</div> : <p className="hu-meta" data-testid="rule-upcoming">{t.upcoming}：{upcoming.map((x) => new Date(x).toLocaleString()).join(" · ")}</p>}
+      {triggerError ? (
+        <div role="alert" className="hu-overdue" data-testid="rule-trigger-error">
+          {triggerError}
+        </div>
+      ) : (
+        <p className="hu-meta" data-testid="rule-upcoming">
+          {t.upcoming}：{upcoming.map((x) => new Date(x).toLocaleString()).join(" · ")}
+        </p>
+      )}
       <div className="hu-row">
-        <Button type="submit" variant="primary" disabled={!valid || busy} data-testid="rule-save">{rule ? t.save : t.create}</Button>
-        {onCancel ? <Button type="button" onClick={onCancel}>{t.cancelEdit}</Button> : null}
+        <Button type="submit" variant="primary" disabled={!valid || busy} data-testid="rule-save">
+          {rule ? t.save : t.create}
+        </Button>
+        {onCancel ? (
+          <Button type="button" onClick={onCancel}>
+            {t.cancelEdit}
+          </Button>
+        ) : null}
         {!rule ? <span className="hu-meta">{t.savedPaused}</span> : null}
       </div>
     </form>

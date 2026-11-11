@@ -1,6 +1,13 @@
 // 触发预设 ↔ cron：纯函数，界面和测试共用。
 export type PresetId = "every5" | "hourly" | "daily" | "weekdays" | "monday" | "custom";
-export const PRESETS: { id: PresetId; time: boolean }[] = [{ id: "every5", time: false }, { id: "hourly", time: false }, { id: "daily", time: true }, { id: "weekdays", time: true }, { id: "monday", time: true }, { id: "custom", time: false }];
+export const PRESETS: { id: PresetId; time: boolean }[] = [
+  { id: "every5", time: false },
+  { id: "hourly", time: false },
+  { id: "daily", time: true },
+  { id: "weekdays", time: true },
+  { id: "monday", time: true },
+  { id: "custom", time: false },
+];
 
 /** 预设 + 时刻 → cron。 */
 export function cronFor(preset: PresetId, time: string, custom: string): string {
@@ -9,12 +16,18 @@ export function cronFor(preset: PresetId, time: string, custom: string): string 
   const m = ok && Number(ok[2]) < 60 ? Number(ok[2]) : 0;
   const hm = `${m} ${h}`;
   switch (preset) {
-    case "every5": return "*/5 * * * *";
-    case "hourly": return "0 * * * *";
-    case "daily": return `${hm} * * *`;
-    case "weekdays": return `${hm} * * 1-5`;
-    case "monday": return `${hm} * * 1`;
-    default: return custom.trim();
+    case "every5":
+      return "*/5 * * * *";
+    case "hourly":
+      return "0 * * * *";
+    case "daily":
+      return `${hm} * * *`;
+    case "weekdays":
+      return `${hm} * * 1-5`;
+    case "monday":
+      return `${hm} * * 1`;
+    default:
+      return custom.trim();
   }
 }
 
@@ -30,4 +43,3 @@ export function presetOf(cron: string): { preset: PresetId; time: string } {
   }
   return { preset: "custom", time: "09:00" };
 }
-

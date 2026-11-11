@@ -1,5 +1,9 @@
 /** 已实现的快捷键（设置页「快捷键」与实际行为同源：新增快捷键时在这里登记，页面自动显示）。 */
-export interface Shortcut { keys: string; action: string; scope: string }
+export interface Shortcut {
+  keys: string;
+  action: string;
+  scope: string;
+}
 
 export const SHORTCUTS: readonly Shortcut[] = [
   { keys: "Mod+K", action: "打开 / 关闭命令面板", scope: "全局" },

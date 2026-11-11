@@ -8,15 +8,49 @@ import { ClaimStore } from "../src/engine/claims.js";
 import { AutomationsService, type AutomationsDeps, type RunOutcome, type WorkerInput } from "../src/engine/service.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 function task(id: string, over: Partial<TaskDto> = {}): TaskDto {
-  return { id, path: `Tasks/${id}.md`, version: "v", title: id, body: "", completed: false, completedAt: null, due: null, project: null, execution: { kind: "agent", spaceId: "space-1", provider: "codex", model: null, effort: null, fast: false }, resources: [], reminders: [], inputRevision: 1, inputHash: `h-${id}`, createdAt: "", updatedAt: "", readOnly: false, ...over };
+  return {
+    id,
+    path: `Tasks/${id}.md`,
+    version: "v",
+    title: id,
+    body: "",
+    completed: false,
+    completedAt: null,
+    due: null,
+    project: null,
+    execution: { kind: "agent", spaceId: "space-1", provider: "codex", model: null, effort: null, fast: false },
+    resources: [],
+    reminders: [],
+    inputRevision: 1,
+    inputHash: `h-${id}`,
+    createdAt: "",
+    updatedAt: "",
+    readOnly: false,
+    ...over,
+  };
 }
 
-function setup(opts: { tasks?: TaskDto[]; tasksEnabled?: boolean; outcome?: (i: WorkerInput) => RunOutcome; adopt?: AutomationsDeps["adopt"]; hasRound?: AutomationsDeps["hasRound"]; runAlive?: AutomationsDeps["runAlive"]; killRound?: AutomationsDeps["killRound"]; spaceState?: "ok" | "missing" } = {}) {
-  const d = mkdtempSync(path.join(tmpdir(), "huhu-au-")); dirs.push(d);
-  const root = path.join(d, "v"); mkdirSync(path.join(root, ".huhu"), { recursive: true });
+function setup(
+  opts: {
+    tasks?: TaskDto[];
+    tasksEnabled?: boolean;
+    outcome?: (i: WorkerInput) => RunOutcome;
+    adopt?: AutomationsDeps["adopt"];
+    hasRound?: AutomationsDeps["hasRound"];
+    runAlive?: AutomationsDeps["runAlive"];
+    killRound?: AutomationsDeps["killRound"];
+    spaceState?: "ok" | "missing";
+  } = {},
+) {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-au-"));
+  dirs.push(d);
+  const root = path.join(d, "v");
+  mkdirSync(path.join(root, ".huhu"), { recursive: true });
   const files = new VaultFiles(root);
   const tasks = opts.tasks ?? [];
   const workerCalls: WorkerInput[] = [];
@@ -24,12 +58,26 @@ function setup(opts: { tasks?: TaskDto[]; tasksEnabled?: boolean; outcome?: (i: 
   const events: string[] = [];
   const svc = new AutomationsService({
     repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
-    claims: new ClaimStore(path.join(d, "claims")), activationsDir: path.join(d, "act"),
-    taskQuery: () => (opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listOpenAgentTasks: () => tasks.filter((t) => !t.completed && t.execution.kind === "agent"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto }),
-    worker: async (i) => { workerCalls.push(i); return opts.outcome?.(i) ?? { state: "succeeded", message: `完成 ${i.task.title}`, exitCode: 0, nativeSessionId: "sess-1", questions: [] }; },
-    ...(opts.adopt ? { adopt: opts.adopt } : {}), ...(opts.hasRound ? { hasRound: opts.hasRound } : {}), ...(opts.runAlive ? { runAlive: opts.runAlive } : {}), ...(opts.killRound ? { killRound: opts.killRound } : {}),
-    spaceState: () => ({ state: opts.spaceState ?? "ok", root: "/work" }), cliAvailable: () => true, holds: () => false,
-    notify: (n) => notes.push(n.title), publish: (t) => events.push(t), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC", machineId: "m1",
+    claims: new ClaimStore(path.join(d, "claims")),
+    activationsDir: path.join(d, "act"),
+    taskQuery: () =>
+      opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listOpenAgentTasks: () => tasks.filter((t) => !t.completed && t.execution.kind === "agent"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto },
+    worker: async (i) => {
+      workerCalls.push(i);
+      return opts.outcome?.(i) ?? { state: "succeeded", message: `完成 ${i.task.title}`, exitCode: 0, nativeSessionId: "sess-1", questions: [] };
+    },
+    ...(opts.adopt ? { adopt: opts.adopt } : {}),
+    ...(opts.hasRound ? { hasRound: opts.hasRound } : {}),
+    ...(opts.runAlive ? { runAlive: opts.runAlive } : {}),
+    ...(opts.killRound ? { killRound: opts.killRound } : {}),
+    spaceState: () => ({ state: opts.spaceState ?? "ok", root: "/work" }),
+    cliAvailable: () => true,
+    holds: () => false,
+    notify: (n) => notes.push(n.title),
+    publish: (t) => events.push(t),
+    now: () => new Date("2026-11-10T12:00:00Z"),
+    zone: () => "UTC",
+    machineId: "m1",
   });
   return { svc, root, tasks, workerCalls, notes, events, d };
 }
@@ -54,7 +102,8 @@ describe("规则正文（agent_prompt 的提示词）", () => {
 describe("规则", () => {
   test("ACC-AU-01 新 Vault 有内置规则（每 5 分钟、启用）；不能删除；可暂停", async () => {
     const { svc } = setup();
-    await svc.ensureBuiltin(); await svc.ensureBuiltin();
+    await svc.ensureBuiltin();
+    await svc.ensureBuiltin();
     const rules = svc.rules();
     expect(rules).toHaveLength(1);
     expect(rules[0]?.data).toMatchObject({ builtin: true, enabled: true, trigger: { cron: "*/5 * * * *" } });
@@ -79,7 +128,10 @@ describe("扫描", () => {
     const before = readdirSync(d).sort();
     const p = svc.preview(svc.rules()[0]!.id);
     expect(p.candidates.map((c) => c.taskId)).toEqual(["a", "b"]);
-    expect(p.skipped.map((s) => [s.taskId, s.reason])).toEqual([["m", "not-agent"], ["d", "completed"]]);
+    expect(p.skipped.map((s) => [s.taskId, s.reason])).toEqual([
+      ["m", "not-agent"],
+      ["d", "completed"],
+    ]);
     expect(p.next).toHaveLength(3);
     expect(readdirSync(d).sort()).toEqual(before);
     expect(() => readdirSync(path.join(d, "claims"))).toThrow();
@@ -108,7 +160,13 @@ describe("扫描", () => {
   });
 
   test("worker 失败 → failed，不自动重试；ask 回执 → waiting_input 带问题", async () => {
-    const { svc, root } = setup({ tasks: [task("a"), task("b")], outcome: (i) => i.task.id === "a" ? { state: "failed", message: "boom", exitCode: 1, nativeSessionId: null, questions: [] } : { state: "waiting_input", message: "要覆盖吗", exitCode: 0, nativeSessionId: "s9", questions: [{ id: "q-1", text: "是否覆盖？", options: ["覆盖", "另存"] }] } });
+    const { svc, root } = setup({
+      tasks: [task("a"), task("b")],
+      outcome: (i) =>
+        i.task.id === "a"
+          ? { state: "failed", message: "boom", exitCode: 1, nativeSessionId: null, questions: [] }
+          : { state: "waiting_input", message: "要覆盖吗", exitCode: 0, nativeSessionId: "s9", questions: [{ id: "q-1", text: "是否覆盖？", options: ["覆盖", "另存"] }] },
+    });
     await svc.ensureBuiltin();
     const id = svc.rules()[0]!.id;
     await svc.activate(id, "manual");
@@ -139,7 +197,10 @@ describe("扫描", () => {
     let release!: () => void;
     const s2 = setup({ tasks: [task("a")] });
     await s2.svc.ensureBuiltin();
-    (s2.svc as unknown as { d: { worker: unknown } }).d.worker = () => new Promise((r) => { release = () => r({ state: "succeeded", message: "ok", exitCode: 0, nativeSessionId: null, questions: [] }); });
+    (s2.svc as unknown as { d: { worker: unknown } }).d.worker = () =>
+      new Promise((r) => {
+        release = () => r({ state: "succeeded", message: "ok", exitCode: 0, nativeSessionId: null, questions: [] });
+      });
     const first = s2.svc.activate(s2.svc.rules()[0]!.id, "manual");
     for (let i = 0; i < 200 && !release; i++) await new Promise((r) => setTimeout(r, 10)); // 轮询等待 worker 被调用，而不是固定 sleep
     await expect(s2.svc.activate(s2.svc.rules()[0]!.id, "manual")).rejects.toThrow(/正在执行/);
@@ -185,7 +246,16 @@ describe("审计回归", () => {
 });
 
 describe("问答续跑、取消与重试（ACC-AU-08）", () => {
-  const ask = (n: string): RunOutcome => ({ state: "waiting_input", message: `第 ${n} 次提问`, exitCode: 0, nativeSessionId: "sess-9", questions: [{ id: "q-1", text: "是否覆盖？", options: ["覆盖", "另存"] }, { id: "q-2", text: "文件名？", options: [] }] });
+  const ask = (n: string): RunOutcome => ({
+    state: "waiting_input",
+    message: `第 ${n} 次提问`,
+    exitCode: 0,
+    nativeSessionId: "sess-9",
+    questions: [
+      { id: "q-1", text: "是否覆盖？", options: ["覆盖", "另存"] },
+      { id: "q-2", text: "文件名？", options: [] },
+    ],
+  });
   const done: RunOutcome = { state: "succeeded", message: "续跑完成", exitCode: 0, nativeSessionId: "sess-9", questions: [] };
 
   async function waiting() {
@@ -200,7 +270,12 @@ describe("问答续跑、取消与重试（ACC-AU-08）", () => {
   test("回答全部问题后以原生会话 id 续跑，同一个 task-run 追加第 2 轮结果，attempt 不变", async () => {
     const { svc, runId, workerCalls, notes } = await waiting();
     expect(svc.runDetail(runId).data["state"]).toBe("waiting_input");
-    expect(await svc.answerRun(runId, [{ id: "q-1", answer: "覆盖" }, { id: "q-2", answer: "out.md" }])).toEqual({ resumed: true });
+    expect(
+      await svc.answerRun(runId, [
+        { id: "q-1", answer: "覆盖" },
+        { id: "q-2", answer: "out.md" },
+      ]),
+    ).toEqual({ resumed: true });
     await svc.idle();
     const call = workerCalls.at(-1)!;
     expect(call.resume?.nativeSessionId).toBe("sess-9");
@@ -243,16 +318,25 @@ describe("问答续跑、取消与重试（ACC-AU-08）", () => {
   });
 
   test("ACC-AU-06/07：重启对账——结果已落盘的运行完成（不再启动 worker），无法确认的置 unknown，别的机器的 claim 不动", async () => {
-    const t1 = task("a"); const t2 = task("b");
+    const t1 = task("a");
+    const t2 = task("b");
     const adopt: AutomationsDeps["adopt"] = async (i) => (i.runId === "run-ok" ? { ...done, message: "后台跑完了" } : { state: "unknown", message: "监督进程已不存在，结果无法确认", exitCode: null, nativeSessionId: null, questions: [] });
     const { svc, workerCalls, d } = setup({ tasks: [t1, t2], adopt });
     await svc.ensureBuiltin();
     const dd = svc as unknown as { d: { claims: { create(c: unknown): boolean; get(k: string): { state: string } | null }; repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    const mk = async (task: TaskDto) => (await dd.d.repo.create("task-run", { taskId: task.id, ruleId: "r", processingKey: `${task.id}:1:h-${task.id}`, attempt: 1, round: 1, state: "running", provider: "claude", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", questions: [] }, "")).id;
+    const mk = async (task: TaskDto) =>
+      (
+        await dd.d.repo.create(
+          "task-run",
+          { taskId: task.id, ruleId: "r", processingKey: `${task.id}:1:h-${task.id}`, attempt: 1, round: 1, state: "running", provider: "claude", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", questions: [] },
+          "",
+        )
+      ).id;
     const okId = await mk(t1);
     expect(okId).toBeTruthy();
     // adopt 按 runId 区分：把 id 对上
-    (svc as unknown as { d: { adopt: unknown } }).d.adopt = async (i: { runId: string }) => (i.runId === okId ? { ...done, message: "后台跑完了" } : { state: "unknown", message: "无法确认", exitCode: null, nativeSessionId: null, questions: [] });
+    (svc as unknown as { d: { adopt: unknown } }).d.adopt = async (i: { runId: string }) =>
+      i.runId === okId ? { ...done, message: "后台跑完了" } : { state: "unknown", message: "无法确认", exitCode: null, nativeSessionId: null, questions: [] };
     const badId = await mk(t2);
     dd.d.claims.create({ processingKey: "a:1:h-a", taskId: "a", runId: okId, state: "running", claimedAt: "t", machineId: "m1" });
     dd.d.claims.create({ processingKey: "b:1:h-b", taskId: "b", runId: badId, state: "running", claimedAt: "t", machineId: "m1" });
@@ -279,7 +363,10 @@ describe("问答续跑、取消与重试（ACC-AU-08）", () => {
     await ctx.svc.answerRun(runId, [{ id: "q-1", answer: "甲" }]);
     await ctx.svc.idle();
     const qs = ctx.svc.runDetail(runId).data["questions"] as { id: string; answer: string | null; text: string }[];
-    expect(qs.map((q) => [q.id, q.answer])).toEqual([["q-1", "甲"], ["r2-q-1", null]]);
+    expect(qs.map((q) => [q.id, q.answer])).toEqual([
+      ["q-1", "甲"],
+      ["r2-q-1", null],
+    ]);
     expect(await ctx.svc.answerRun(runId, [{ id: "r2-q-1", answer: "乙" }])).toEqual({ resumed: true });
     await ctx.svc.idle();
   });
@@ -289,7 +376,9 @@ describe("问答续跑、取消与重试（ACC-AU-08）", () => {
     const { svc, workerCalls } = setup({ tasks: [t1], adopt: async () => null, hasRound: () => false });
     await svc.ensureBuiltin();
     const dd = svc as unknown as { d: { claims: { create(c: unknown): boolean; get(k: string): { state: string } | null }; repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    const runId = (await dd.d.repo.create("task-run", { taskId: "a", ruleId: "r", processingKey: "a:1:h-a", attempt: 1, round: 1, state: "queued", provider: "codex", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", questions: [] }, "")).id;
+    const runId = (
+      await dd.d.repo.create("task-run", { taskId: "a", ruleId: "r", processingKey: "a:1:h-a", attempt: 1, round: 1, state: "queued", provider: "codex", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", questions: [] }, "")
+    ).id;
     dd.d.claims.create({ processingKey: "a:1:h-a", taskId: "a", runId, state: "queued", claimedAt: "t", machineId: "m1" });
     await svc.reconcile();
     await svc.idle();
@@ -310,7 +399,27 @@ describe("问答续跑、取消与重试（ACC-AU-08）", () => {
     const { svc, workerCalls } = setup({ tasks: [task("a")], adopt: async () => null, hasRound: (_id, round) => round === 1 });
     await svc.ensureBuiltin();
     const dd = svc as unknown as { d: { claims: { create(c: unknown): boolean }; repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    const runId = (await dd.d.repo.create("task-run", { taskId: "a", ruleId: "r", processingKey: "a:1:h-a", attempt: 1, round: 2, state: "running", provider: "claude", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", nativeSessionId: "sess-9", questions: [{ id: "q-1", text: "覆盖吗？", options: [], answer: "覆盖", answeredAt: "2026-11-10T12:00:00Z" }] }, "")).id;
+    const runId = (
+      await dd.d.repo.create(
+        "task-run",
+        {
+          taskId: "a",
+          ruleId: "r",
+          processingKey: "a:1:h-a",
+          attempt: 1,
+          round: 2,
+          state: "running",
+          provider: "claude",
+          model: null,
+          spaceId: "space-1",
+          cwd: "/work",
+          machineId: "m1",
+          nativeSessionId: "sess-9",
+          questions: [{ id: "q-1", text: "覆盖吗？", options: [], answer: "覆盖", answeredAt: "2026-11-10T12:00:00Z" }],
+        },
+        "",
+      )
+    ).id;
     dd.d.claims.create({ processingKey: "a:1:h-a", taskId: "a", runId, state: "running", claimedAt: "t", machineId: "m1" });
     await svc.reconcile();
     await svc.idle();
@@ -323,7 +432,15 @@ describe("问答续跑、取消与重试（ACC-AU-08）", () => {
   test("失去监督的孤儿 CLI：详情显示 live，可以取消（结束进程并标记已取消），之后才能重试", async () => {
     let alive = true;
     const killed: string[] = [];
-    const { svc } = setup({ tasks: [task("a")], outcome: () => ({ state: "unknown", message: "无法确认", exitCode: null, nativeSessionId: null, questions: [] }), runAlive: () => alive, killRound: (id) => { killed.push(id); alive = false; } });
+    const { svc } = setup({
+      tasks: [task("a")],
+      outcome: () => ({ state: "unknown", message: "无法确认", exitCode: null, nativeSessionId: null, questions: [] }),
+      runAlive: () => alive,
+      killRound: (id) => {
+        killed.push(id);
+        alive = false;
+      },
+    });
     await svc.ensureBuiltin();
     await svc.activate(svc.rules()[0]!.id, "manual");
     const runId = svc.runs().find((r) => r.kind === "task-run")!.id;

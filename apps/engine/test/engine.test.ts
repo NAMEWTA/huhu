@@ -18,13 +18,18 @@ afterEach(async () => {
   for (const e of engines.splice(0)) await e.shutdown();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-e-")); dirs.push(d); return d; };
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-e-"));
+  dirs.push(d);
+  return d;
+};
 const post = (e: RunningEngine, token: string, body: unknown) =>
   fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<Reply>);
 
 describe("Engine 启动与关闭", () => {
   test("Renderer 与 CLI 令牌经同一 Dispatcher 调用 vault.info", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     const req = { capability: "vault.info", input: {}, requestId: "r" };
     const a = await post(e, e.rendererToken, req);
     const b = await post(e, e.cliToken, req);
@@ -55,7 +60,11 @@ describe("Engine 启动与关闭", () => {
     const child = spawn(process.execPath, [tsx, path.resolve(import.meta.dirname, "../src/main.ts"), "--vault", dir, "--create"], { stdio: ["ignore", "pipe", "pipe"] });
     const ready: { type: string; port: number } = await new Promise((resolve, reject) => {
       let out = "";
-      child.stdout.on("data", (d) => { out += d; const line = out.split("\n")[0]; if (line && out.includes("\n")) resolve(JSON.parse(line)); });
+      child.stdout.on("data", (d) => {
+        out += d;
+        const line = out.split("\n")[0];
+        if (line && out.includes("\n")) resolve(JSON.parse(line));
+      });
       child.on("exit", (c) => reject(new Error(`exited ${c}`)));
       setTimeout(() => reject(new Error("timeout")), 20000);
     });
@@ -73,14 +82,16 @@ describe("Engine 启动与关闭", () => {
   }, 30000);
   test("同一 Vault 的第二个 Engine → READ_ONLY_VAULT", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     await expect(boot({ vaultPath: dir })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
   });
   test("vault.tree / vault.search / vault.readFile 与外部修改后的增量索引", async () => {
     const dir = tmp();
     const { writeFileSync } = await import("node:fs");
     writeFileSync(path.join(dir, "笔记.md"), "# 笔记\n关于知识库的想法\n");
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     const call = (capability: string, input: unknown, token = e.rendererToken) => post(e, token, { capability, input, requestId: "r" });
     await e.index.build();
     expect((await call("vault.tree", {})).data.map((x) => x.path)).toContain("笔记.md"); // 新 Vault 还有内置规则所在的 Automations/
@@ -92,7 +103,9 @@ describe("Engine 启动与关闭", () => {
     expect((await call("vault.reindex", {}, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     // 外部新增文件 → 事件 + 索引
     const seen: string[] = [];
-    e.events.subscribe((ev) => { if (ev.type === "vault.fileChanged") seen.push((ev.payload as { path: string }).path); });
+    e.events.subscribe((ev) => {
+      if (ev.type === "vault.fileChanged") seen.push((ev.payload as { path: string }).path);
+    });
     writeFileSync(path.join(dir, "新文件.md"), "独特词汇蜻蜓");
     const end = Date.now() + 15000; // 全量并行时原生监听延迟可能更长
     while (!seen.includes("新文件.md") && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
@@ -100,9 +113,14 @@ describe("Engine 启动与关闭", () => {
     expect((await call("vault.search", { query: "蜻蜓" })).data.hits[0]?.path).toBe("新文件.md");
   });
   test("tasks 插件：经 HTTP 创建、勾选、列表；停用后能力不可用", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     const call = (capability: string, input: unknown, key?: string) =>
-      post(e, e.rendererToken, { capability, input, requestId: "r", ...(key ? { idempotencyKey: key } : {}) }) as unknown as Promise<{ ok: boolean; data: { id: string; version: string; completed: boolean; title: string }; error?: { code: string } }>;
+      post(e, e.rendererToken, { capability, input, requestId: "r", ...(key ? { idempotencyKey: key } : {}) }) as unknown as Promise<{
+        ok: boolean;
+        data: { id: string; version: string; completed: boolean; title: string };
+        error?: { code: string };
+      }>;
     const created = await call("tasks.create", { title: "写周报", execution: { kind: "manual" } }, "key-create-1");
     expect(created.ok).toBe(true);
     expect((await call("tasks.create", { title: "写周报", execution: { kind: "manual" } })).error?.code).toBe("INVALID_INPUT"); // 缺幂等键
@@ -116,9 +134,14 @@ describe("Engine 启动与关闭", () => {
   });
   test("notes 插件：创建、改名改写双链、保存冲突、反链、日记", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     const call = (capability: string, input: unknown, key: string = `key-${capability}-${Math.random()}`) =>
-      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<{ ok: boolean; data: { path: string; id: string; version: string; text: string; moved: Record<string, string> }; error?: { code: string } }>;
+      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<{
+        ok: boolean;
+        data: { path: string; id: string; version: string; text: string; moved: Record<string, string> };
+        error?: { code: string };
+      }>;
     const x = await call("notes.create", { name: "X" });
     const a = await call("notes.create", { name: "A" });
     const aRead = await call("notes.read", { path: a.data.path }, "key-read-a-1");
@@ -135,10 +158,10 @@ describe("Engine 启动与关闭", () => {
     expect((await call("notes.read", { path: "../x" }, "key-bad-path-1")).error?.code).toBe("PATH_OUTSIDE_VAULT");
   });
   test("inbox/archives：外部来源由身份决定；转换为任务/档案经插件权限调用；停用目标插件后拒绝", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: { id: string; source: string; status: string; result: { kind: string; id: string } | null; type: string }; error?: { code: string } };
-    const call = (token: string, capability: string, input: unknown, key = `key-${capability}-${Math.random().toString(36).slice(2)}`) =>
-      post(e, token, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<R>;
+    const call = (token: string, capability: string, input: unknown, key = `key-${capability}-${Math.random().toString(36).slice(2)}`) => post(e, token, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<R>;
     // ACC-IN-05：CLI 提交带 source: quick，文件中仍是 cli（inbox.capture 默认对外开放）
     const viaCli = await call(e.cliToken, "inbox.capture", { body: "来自 CLI", source: "quick" });
     expect(viaCli.data.source).toBe("cli");
@@ -160,10 +183,10 @@ describe("Engine 启动与关闭", () => {
   });
   test("safe：ACC-SF-06 外部入口不能 reveal；ACC-SF-01 全 Vault 找不到明文；锁定后 SAFE_LOCKED", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     type R = { ok: boolean; data: { id: string; value: string; locked: boolean }; error?: { code: string } };
-    const call = (token: string, capability: string, input: unknown) =>
-      post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const call = (token: string, capability: string, input: unknown) => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     expect((await call(e.rendererToken, "safe.setup", { password: "correct horse battery" })).ok).toBe(true);
     const item = await call(e.rendererToken, "safe.items.save", { name: "GH", type: "token", allowedModules: ["ssh"], value: "HUHU-MARKER-7f3a" });
     expect((await call(e.rendererToken, "safe.items.reveal", { id: item.data.id })).data.value).toBe("HUHU-MARKER-7f3a");
@@ -173,13 +196,20 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "safe.unlock", { password: "wrong password!" })).error?.code).toBe("SAFE_BAD_PASSWORD");
     const { readdirSync, readFileSync, statSync } = await import("node:fs");
     const hits: string[] = [];
-    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) hits.push(p); } };
+    const walk = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = path.join(d, n);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) hits.push(p);
+      }
+    };
     walk(dir);
     expect(hits).toEqual([]);
   });
   test("agent-cli：默认 Space 指向 Vault 根；Provider 检测可调用；对外不开放", async () => {
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     const call = (token: string, capability: string, input: unknown) => post(e, token, { capability, input, requestId: "r" }) as unknown as Promise<{ ok: boolean; data: { root: string }[]; error?: { code: string } }>;
     const spaces = await call(e.rendererToken, "agent.spaces.list", {});
     expect(spaces.data).toHaveLength(1);
@@ -188,76 +218,86 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "agent.providers.detect", {})).ok).toBe(true);
     expect((await call(e.cliToken, "agent.spaces.list", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
-  const REAL_HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core")
-  test.skipIf(!existsSync(REAL_HERDR))("agent-cli：经 HTTP 在真实 Herdr Core 里启动 shell 会话并结束", async () => {
-    process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
-    const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
-    type R = { ok: boolean; data: { id: string; state: string; terminalId: string; revision: number; state2?: string; version: string | null } & { length?: number }; error?: { code: string } };
-    const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-    try {
-      const status = await call("agent.core.status", {});
-      expect(status.data).toMatchObject({ state: "connected" });
-      const spaces = (await call("agent.spaces.list", {})) as unknown as { data: { id: string; revision: number }[] };
-      const sp = spaces.data[0] as { id: string; revision: number };
-      const s = await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-http-1234" });
-      expect(s.data).toMatchObject({ state: "running" });
-      expect((await call("agent.sessions.kill", { id: s.data.id })).ok).toBe(true);
-    } finally {
+  const REAL_HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
+  test.skipIf(!existsSync(REAL_HERDR))(
+    "agent-cli：经 HTTP 在真实 Herdr Core 里启动 shell 会话并结束",
+    async () => {
+      process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
+      const dir = tmp();
+      const e = await boot({ vaultPath: dir, create: true });
+      engines.push(e);
+      type R = { ok: boolean; data: { id: string; state: string; terminalId: string; revision: number; state2?: string; version: string | null } & { length?: number }; error?: { code: string } };
+      const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+      try {
+        const status = await call("agent.core.status", {});
+        expect(status.data).toMatchObject({ state: "connected" });
+        const spaces = (await call("agent.spaces.list", {})) as unknown as { data: { id: string; revision: number }[] };
+        const sp = spaces.data[0] as { id: string; revision: number };
+        const s = await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-http-1234" });
+        expect(s.data).toMatchObject({ state: "running" });
+        expect((await call("agent.sessions.kill", { id: s.data.id })).ok).toBe(true);
+      } finally {
+        const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
+        const { machineId } = await import("@huhu/vault");
+        await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
+        delete process.env["HUHU_HERDR_BIN"];
+      }
+    },
+    60_000,
+  );
+  test.skipIf(!existsSync(REAL_HERDR))(
+    "ACC-AG-10：变更审查——真实 Git 仓库的差异、审查意见经真实 Herdr Core 写进会话终端并标记已发送",
+    async () => {
+      process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
+      const { execFileSync } = await import("node:child_process");
+      const dir = tmp();
+      const e = await boot({ vaultPath: dir, create: true });
+      engines.push(e);
+      type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+      const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
       const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
       const { machineId } = await import("@huhu/vault");
-      await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
-      delete process.env["HUHU_HERDR_BIN"];
-    }
-  }, 60_000);
-  test.skipIf(!existsSync(REAL_HERDR))("ACC-AG-10：变更审查——真实 Git 仓库的差异、审查意见经真实 Herdr Core 写进会话终端并标记已发送", async () => {
-    process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
-    const { execFileSync } = await import("node:child_process");
-    const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
-    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
-    const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-    const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
-    const { machineId } = await import("@huhu/vault");
-    const core = new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") });
-    try {
-      const sp = (await call("agent.spaces.list", {})).data[0] as { id: string; revision: number };
-      expect((await call("agent.review.diff", { spaceId: sp.id })).data).toMatchObject({ isRepo: false, files: [] }); // 还不是仓库
-      execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
-      writeFileSync(path.join(dir, "审查笔记.md"), "第一行\n第二行\n");
-      const diff = (await call("agent.review.diff", { spaceId: sp.id })).data;
-      expect(diff.isRepo).toBe(true);
-      expect(diff.files.find((f: { path: string }) => f.path === "审查笔记.md")).toMatchObject({ status: "untracked", additions: 2 });
+      const core = new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") });
+      try {
+        const sp = (await call("agent.spaces.list", {})).data[0] as { id: string; revision: number };
+        expect((await call("agent.review.diff", { spaceId: sp.id })).data).toMatchObject({ isRepo: false, files: [] }); // 还不是仓库
+        execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+        writeFileSync(path.join(dir, "审查笔记.md"), "第一行\n第二行\n");
+        const diff = (await call("agent.review.diff", { spaceId: sp.id })).data;
+        expect(diff.isRepo).toBe(true);
+        expect(diff.files.find((f: { path: string }) => f.path === "审查笔记.md")).toMatchObject({ status: "untracked", additions: 2 });
 
-      const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-review-1" })).data as { id: string; terminalId: string };
-      expect((await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 2, text: "REVIEWMARK 第二行需要补充来源" })).ok).toBe(true);
-      const sent = await call("agent.review.send", { sessionId: s.id });
-      expect(sent.data.sent).toBe(1);
-      expect((await call("agent.review.comments", { sessionId: s.id })).data[0].sentAt).not.toBeNull();
-      const client = await core.ensure();
-      let seen = "";
-      for (let i = 0; i < 40 && !seen.includes("REVIEWMARK"); i++) {
-        seen = JSON.stringify(await client.call("terminal.read", { terminal: s.terminalId, lines: 50 }));
-        if (!seen.includes("REVIEWMARK")) await new Promise((r) => setTimeout(r, 100));
+        const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-review-1" })).data as { id: string; terminalId: string };
+        expect((await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 2, text: "REVIEWMARK 第二行需要补充来源" })).ok).toBe(true);
+        const sent = await call("agent.review.send", { sessionId: s.id });
+        expect(sent.data.sent).toBe(1);
+        expect((await call("agent.review.comments", { sessionId: s.id })).data[0].sentAt).not.toBeNull();
+        const client = await core.ensure();
+        let seen = "";
+        for (let i = 0; i < 40 && !seen.includes("REVIEWMARK"); i++) {
+          seen = JSON.stringify(await client.call("terminal.read", { terminal: s.terminalId, lines: 50 }));
+          if (!seen.includes("REVIEWMARK")) await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(seen).toContain("REVIEWMARK"); // 终端里收到了意见文本
+        expect(seen).toContain("审查笔记.md");
+        expect((await call("agent.sessions.kill", { id: s.id })).ok).toBe(true);
+        // 终端被结束后对账：记录变成 exited（真实 Core 的 finished 状态）
+        await new Promise((r) => setTimeout(r, 2200));
+        const listed = (await call("agent.sessions.list", { spaceId: sp.id })).data as { id: string; state: string }[];
+        expect(listed.find((x) => x.id === s.id)?.state).toBe("exited");
+        // 会话结束后再发：给出恢复会话的提示，意见保持未发送
+        await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 1, text: "结束后的意见" });
+        const late = await call("agent.review.send", { sessionId: s.id });
+        expect(late.ok).toBe(false); // 终端已被结束：Core 明确拒绝
+        expect(["INVALID_INPUT", "INTERNAL", "HERDR_UNAVAILABLE"]).toContain(late.error?.code);
+        expect((await call("agent.review.comments", { sessionId: s.id })).data.find((x: { text: string }) => x.text === "结束后的意见").sentAt).toBeNull(); // 保持未发送
+      } finally {
+        await core.stop();
+        delete process.env["HUHU_HERDR_BIN"];
       }
-      expect(seen).toContain("REVIEWMARK"); // 终端里收到了意见文本
-      expect(seen).toContain("审查笔记.md");
-      expect((await call("agent.sessions.kill", { id: s.id })).ok).toBe(true);
-      // 终端被结束后对账：记录变成 exited（真实 Core 的 finished 状态）
-      await new Promise((r) => setTimeout(r, 2200));
-      const listed = (await call("agent.sessions.list", { spaceId: sp.id })).data as { id: string; state: string }[];
-      expect(listed.find((x) => x.id === s.id)?.state).toBe("exited");
-      // 会话结束后再发：给出恢复会话的提示，意见保持未发送
-      await call("agent.review.comment.add", { sessionId: s.id, path: "审查笔记.md", side: "new", line: 1, text: "结束后的意见" });
-      const late = await call("agent.review.send", { sessionId: s.id });
-      expect(late.ok).toBe(false); // 终端已被结束：Core 明确拒绝
-      expect(["INVALID_INPUT", "INTERNAL", "HERDR_UNAVAILABLE"]).toContain(late.error?.code);
-      expect((await call("agent.review.comments", { sessionId: s.id })).data.find((x: { text: string }) => x.text === "结束后的意见").sentAt).toBeNull(); // 保持未发送
-    } finally {
-      await core.stop();
-      delete process.env["HUHU_HERDR_BIN"];
-    }
-  }, 90_000);
+    },
+    90_000,
+  );
   test("automations：内置规则、预览无副作用、立即运行用假 CLI 处理 Agent 任务，再次运行不重复，Task 仍未完成", async () => {
     const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
     const bin = tmp();
@@ -267,7 +307,8 @@ describe("Engine 启动与关闭", () => {
     process.env["PATH"] = `${bin}:${oldPath}`;
     try {
       const dir = tmp();
-      const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+      const e = await boot({ vaultPath: dir, create: true });
+      engines.push(e);
       type R = { ok: boolean; data: unknown; error?: { code: string } };
       const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
       const rules = (await call("automations.list", {})).data as { id: string; data: { builtin: boolean; enabled: boolean } }[];
@@ -278,7 +319,11 @@ describe("Engine 启动与关闭", () => {
       const t = await call("tasks.create", { title: "整理资料", body: "请整理", execution: { kind: "agent", spaceId: space.id, provider: "codex" } });
       await call("tasks.create", { title: "手动任务", execution: { kind: "manual" } });
       // 等 Provider 检测完成
-      for (let i = 0; i < 50; i++) { const d = (await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[]; if (d.find((x) => x.provider === "codex")?.status === "found") break; await new Promise((r) => setTimeout(r, 100)); }
+      for (let i = 0; i < 50; i++) {
+        const d = (await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[];
+        if (d.find((x) => x.provider === "codex")?.status === "found") break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
       await new Promise((r) => setTimeout(r, 300));
       const preview = (await call("automations.preview", { id: rules[0]?.id })).data as { candidates: unknown[]; skipped: unknown[] };
       expect(preview.candidates).toHaveLength(1);
@@ -300,7 +345,8 @@ describe("Engine 启动与关闭", () => {
     }
   }, 60_000);
   test("versioning：命名版本、时间线、读取、恢复（经 HTTP）", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const note = (await call("notes.create", { name: "历史笔记" })).data as { path: string };
@@ -321,11 +367,14 @@ describe("Engine 启动与关闭", () => {
   test("ssh + safe：凭据只经保险箱引用；锁定时连接失败；解锁后确认指纹并执行命令；审计无密码", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
     const srv = await startFakeSsh({ password: "s3cret-PW-marker" });
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const prompts: { attemptId: string; hop: number }[] = [];
-    e.events.subscribe((ev) => { if (ev.type === "ssh.hostKeyPrompt") prompts.push(ev.payload as { attemptId: string; hop: number }); });
+    e.events.subscribe((ev) => {
+      if (ev.type === "ssh.hostKeyPrompt") prompts.push(ev.payload as { attemptId: string; hop: number });
+    });
     try {
       await call("safe.setup", { password: "correct horse battery" });
       const item = (await call("safe.items.save", { name: "服务器密码", type: "password", allowedModules: ["ssh"], value: "s3cret-PW-marker" })).data as { id: string };
@@ -343,7 +392,7 @@ describe("Engine 启动与关闭", () => {
       const audit = JSON.stringify((await call("ssh.audit.list", {})).data);
       expect(audit).toContain("connect");
       expect(audit).not.toContain("s3cret-PW-marker");
-      expect((await post(e, e.cliToken, { capability: "ssh.hosts.list", input: {}, requestId: "r" }) as unknown as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+      expect(((await post(e, e.cliToken, { capability: "ssh.hosts.list", input: {}, requestId: "r" })) as unknown as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     } finally {
       await srv.close();
     }
@@ -352,12 +401,18 @@ describe("Engine 启动与关闭", () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
     type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> =>
+      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const t = (await call(e1, "tasks.create", { title: "到点提醒", execution: { kind: "manual" }, reminders: [{ id: "rem-1", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }] })).data as { id: string };
     await e1.shutdown(); // 模拟"应用关闭期间到点"：下次启动时补发
-    const e2 = await boot({ vaultPath: dir }); engines.push(e2);
+    const e2 = await boot({ vaultPath: dir });
+    engines.push(e2);
     let list: { title: string; module: string }[] = [];
-    for (let i = 0; i < 60; i++) { list = (await call(e2, "notifications.list", {})).data as typeof list; if (list.length) break; await new Promise((r) => setTimeout(r, 50)); }
+    for (let i = 0; i < 60; i++) {
+      list = (await call(e2, "notifications.list", {})).data as typeof list;
+      if (list.length) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect(list.map((n) => [n.title, n.module])).toEqual([["任务提醒：到点提醒", "tasks"]]);
     const task = (await call(e2, "tasks.read", { id: t.id })).data as { completed: boolean; reminders: { deliveredAt: string | null }[] };
     expect(task.completed).toBe(false);
@@ -369,13 +424,15 @@ describe("Engine 启动与关闭", () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
     type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> =>
+      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     expect((await call(e1, "plugins.setEnabled", { id: "tasks", enabled: false })).data).toMatchObject({ state: "disabled" });
     expect((await call(e1, "tasks.list", {})).error?.code).toBe("PLUGIN_DISABLED");
     expect(JSON.parse(readFileSync(path.join(dir, ".huhu/plugins.json"), "utf8")).builtin.tasks).toEqual({ enabled: false });
     expect((await call(e1, "plugins.setEnabled", { id: "kernel", enabled: false })).data).toMatchObject({ state: "active" });
     await e1.shutdown();
-    const e2 = await boot({ vaultPath: dir }); engines.push(e2);
+    const e2 = await boot({ vaultPath: dir });
+    engines.push(e2);
     expect((await call(e2, "tasks.list", {})).error?.code).toBe("PLUGIN_DISABLED");
     const list = (await call(e2, "plugins.list", {})).data as { id: string; state: string }[];
     expect(list.find((p) => p.id === "tasks")?.state).toBe("disabled");
@@ -388,7 +445,8 @@ describe("Engine 启动与关闭", () => {
     const { mkdirSync, writeFileSync } = await import("node:fs");
     mkdirSync(path.join(dir, "Tasks"), { recursive: true });
     writeFileSync(path.join(dir, "Tasks", "bad.md"), "---\nhuhu: {kind: task, id: task-bad001, schema: 1}\ntitle: 1\n---\n");
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     await call("tasks.list", {}); // 触发一次扫描，让文件问题登记
@@ -397,7 +455,7 @@ describe("Engine 启动与关闭", () => {
     expect(h.checks.find((c) => c.id === "files")).toMatchObject({ status: "warning" });
     expect(h.checks.find((c) => c.id === "files")?.detail).toContain("bad.md");
     expect(h.checks.find((c) => c.id === "safe")).toMatchObject({ status: "ok", detail: "尚未设置" });
-    expect((await post(e, e.cliToken, { capability: "health.run", input: {}, requestId: "r" }) as unknown as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect(((await post(e, e.cliToken, { capability: "health.run", input: {}, requestId: "r" })) as unknown as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     const before = (await call("home.summary", {})).data as { tasksOpen: number; vault: { name: string } };
     expect(before.tasksOpen).toBe(0);
     await call("tasks.create", { title: "A", execution: { kind: "manual" } });
@@ -409,8 +467,13 @@ describe("Engine 启动与关闭", () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
     type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (e: RunningEngine, token: string, capability: string, input: unknown = {}) => fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) });
-    const created = (await (await call(e1, e1.rendererToken, "gateway.tokens.create", { name: "脚本" })).json() as R).data as { id: string; token: string };
+    const call = (e: RunningEngine, token: string, capability: string, input: unknown = {}) =>
+      fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
+      });
+    const created = ((await (await call(e1, e1.rendererToken, "gateway.tokens.create", { name: "脚本" })).json()) as R).data as { id: string; token: string };
     expect(created.token).toMatch(/^huhu_/);
     const stored = readFileSync(path.join(dir, ".huhu/gateways.json"), "utf8");
     expect(stored).not.toContain(created.token); // 只保存哈希
@@ -419,23 +482,26 @@ describe("Engine 启动与关闭", () => {
     expect(((await (await call(e1, created.token, "safe.status")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED"); // 外部入口规则同样适用
     expect(((await (await call(e1, created.token, "gateway.tokens.list")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     await e1.shutdown();
-    const e2 = await boot({ vaultPath: dir }); engines.push(e2);
+    const e2 = await boot({ vaultPath: dir });
+    engines.push(e2);
     expect(((await (await call(e2, created.token, "vault.info")).json()) as R).ok).toBe(true);
     expect(((await (await call(e2, e2.rendererToken, "gateway.tokens.revoke", { id: created.id })).json()) as R).data).toEqual({ revoked: true });
     expect((await call(e2, created.token, "vault.info")).status).toBe(401);
     expect(readFileSync(path.join(dir, ".huhu/gateways.json"), "utf8")).not.toContain("脚本");
   }, 30_000);
   test("审计回归：home.summary 以调用者身份取数；外部入口即使被开放 tasks.create 也不能设置 Agent 执行", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (token: string, capability: string, input: unknown = {}): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const call = (token: string, capability: string, input: unknown = {}): Promise<R> =>
+      post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     await call(e.rendererToken, "tasks.create", { title: "T", execution: { kind: "manual" } });
     await call(e.rendererToken, "notes.create", { name: "N" });
     // 默认：CLI 能读 tasks.list / notes.list，home.summary 带出计数
-    expect(((await call(e.cliToken, "home.summary")).data as { tasksOpen: number; notes: number })).toMatchObject({ tasksOpen: 1, notes: 1 });
+    expect((await call(e.cliToken, "home.summary")).data as { tasksOpen: number; notes: number }).toMatchObject({ tasksOpen: 1, notes: 1 });
     // 用户关闭 notes.list 的对外开放后，外部调用 home.summary 看不到笔记；桌面仍然能看到
     await call(e.rendererToken, "gateway.update", { capability: "notes.list", exposed: false });
-    expect(((await call(e.cliToken, "home.summary")).data as { notes: number; recentNotes: unknown[] })).toMatchObject({ notes: 0, recentNotes: [] });
+    expect((await call(e.cliToken, "home.summary")).data as { notes: number; recentNotes: unknown[] }).toMatchObject({ notes: 0, recentNotes: [] });
     expect(((await call(e.rendererToken, "home.summary")).data as { notes: number }).notes).toBe(1);
     // 开放 tasks.create 后，外部仍不能创建 Agent 执行的任务
     await call(e.rendererToken, "gateway.update", { capability: "tasks.create", exposed: true });
@@ -443,56 +509,69 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "tasks.create", { title: "Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.rendererToken, "tasks.create", { title: "桌面 Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).ok).toBe(true);
   }, 30_000);
-  test.skipIf(!existsSync(REAL_HERDR))("终端 WebSocket：经 Engine 桥接真实 Herdr 终端——输入回显、鉴权、关闭只 detach", async () => {
-    process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
-    const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
-    type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-    const { WebSocket } = await import("ws");
-    try {
-      const sp = ((await call("agent.spaces.list", {})).data as { id: string; revision: number }[])[0] as { id: string; revision: number };
-      const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-ws-1234" })).data as { id: string; terminalId: string };
-      const open = (token: string, id: string) => new Promise<InstanceType<typeof WebSocket>>((resolve, reject) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${token}`]);
-        ws.on("open", () => resolve(ws));
-        ws.on("error", reject);
-        ws.on("unexpected-response", (_r, res) => reject(new Error(`status ${res.statusCode}`)));
-      });
-      await expect(open("bad-token", s.id)).rejects.toThrow(/401/);
-      const ws = await open(e.rendererToken, s.id);
-      let out = "";
-      ws.on("message", (d, bin) => { if (bin) out += d.toString(); });
-      ws.send(Buffer.from("echo VIA-ENGINE-$((6*7))\n"));
-      for (let i = 0; i < 100 && !out.includes("VIA-ENGINE-42"); i++) await new Promise((r) => setTimeout(r, 50));
-      expect(out).toContain("VIA-ENGINE-42");
-      ws.close(); // detach：进程仍在运行
-      await new Promise((r) => setTimeout(r, 300));
-      const again = await open(e.rendererToken, s.id); // 重新打开同一个终端
-      let out2 = "";
-      again.on("message", (d, bin) => { if (bin) out2 += d.toString(); });
-      again.send(Buffer.from("echo STILL-ALIVE\n"));
-      for (let i = 0; i < 100 && !out2.includes("STILL-ALIVE"); i++) await new Promise((r) => setTimeout(r, 50));
-      expect(out2).toContain("STILL-ALIVE");
-      again.close();
-      // 不存在的会话
-      const bad = await open(e.rendererToken, "sess-none").then((w) => new Promise<number>((r) => w.on("close", (code) => r(code))));
-      expect(bad).toBe(4404);
-    } finally {
-      const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
-      const { machineId } = await import("@huhu/vault");
-      await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
-      delete process.env["HUHU_HERDR_BIN"];
-    }
-  }, 60_000);
+  test.skipIf(!existsSync(REAL_HERDR))(
+    "终端 WebSocket：经 Engine 桥接真实 Herdr 终端——输入回显、鉴权、关闭只 detach",
+    async () => {
+      process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
+      const dir = tmp();
+      const e = await boot({ vaultPath: dir, create: true });
+      engines.push(e);
+      type R = { ok: boolean; data: unknown; error?: { code: string } };
+      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+      const { WebSocket } = await import("ws");
+      try {
+        const sp = ((await call("agent.spaces.list", {})).data as { id: string; revision: number }[])[0] as { id: string; revision: number };
+        const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-ws-1234" })).data as { id: string; terminalId: string };
+        const open = (token: string, id: string) =>
+          new Promise<InstanceType<typeof WebSocket>>((resolve, reject) => {
+            const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${token}`]);
+            ws.on("open", () => resolve(ws));
+            ws.on("error", reject);
+            ws.on("unexpected-response", (_r, res) => reject(new Error(`status ${res.statusCode}`)));
+          });
+        await expect(open("bad-token", s.id)).rejects.toThrow(/401/);
+        const ws = await open(e.rendererToken, s.id);
+        let out = "";
+        ws.on("message", (d, bin) => {
+          if (bin) out += d.toString();
+        });
+        ws.send(Buffer.from("echo VIA-ENGINE-$((6*7))\n"));
+        for (let i = 0; i < 100 && !out.includes("VIA-ENGINE-42"); i++) await new Promise((r) => setTimeout(r, 50));
+        expect(out).toContain("VIA-ENGINE-42");
+        ws.close(); // detach：进程仍在运行
+        await new Promise((r) => setTimeout(r, 300));
+        const again = await open(e.rendererToken, s.id); // 重新打开同一个终端
+        let out2 = "";
+        again.on("message", (d, bin) => {
+          if (bin) out2 += d.toString();
+        });
+        again.send(Buffer.from("echo STILL-ALIVE\n"));
+        for (let i = 0; i < 100 && !out2.includes("STILL-ALIVE"); i++) await new Promise((r) => setTimeout(r, 50));
+        expect(out2).toContain("STILL-ALIVE");
+        again.close();
+        // 不存在的会话
+        const bad = await open(e.rendererToken, "sess-none").then((w) => new Promise<number>((r) => w.on("close", (code) => r(code))));
+        expect(bad).toBe(4404);
+      } finally {
+        const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
+        const { machineId } = await import("@huhu/vault");
+        await new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") }).stop();
+        delete process.env["HUHU_HERDR_BIN"];
+      }
+    },
+    60_000,
+  );
   test("SSH shell 经同一条 /ws/terminal/ssh-<id> 路由：输入回显；关闭视图后 shell 仍在，可重新打开；ssh- 路由对未知 shell 返回 4404", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
     const srv = await startFakeSsh({ password: "pw-shell-1" });
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const prompts: { attemptId: string; hop: number }[] = [];
-    e.events.subscribe((ev) => { if (ev.type === "ssh.hostKeyPrompt") prompts.push(ev.payload as { attemptId: string; hop: number }); });
+    e.events.subscribe((ev) => {
+      if (ev.type === "ssh.hostKeyPrompt") prompts.push(ev.payload as { attemptId: string; hop: number });
+    });
     const { WebSocket } = await import("ws");
     try {
       await call("safe.setup", { password: "correct horse battery" });
@@ -504,13 +583,16 @@ describe("Engine 启动与关闭", () => {
       expect((await connecting).ok).toBe(true);
       const shell = (await call("ssh.shells.open", { hostId: host.id, cols: 100, rows: 30 })).data as { id: string };
       // 回放在连接建立时立即发出，所以收集器必须在 open 之前就挂好
-      const open = (id: string) => new Promise<InstanceType<typeof WebSocket> & { text: string }>((resolve, reject) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${e.rendererToken}`]) as InstanceType<typeof WebSocket> & { text: string };
-        ws.text = "";
-        ws.on("message", (d, bin) => { if (bin) ws.text += d.toString(); });
-        ws.on("open", () => resolve(ws));
-        ws.on("error", reject);
-      });
+      const open = (id: string) =>
+        new Promise<InstanceType<typeof WebSocket> & { text: string }>((resolve, reject) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${e.rendererToken}`]) as InstanceType<typeof WebSocket> & { text: string };
+          ws.text = "";
+          ws.on("message", (d, bin) => {
+            if (bin) ws.text += d.toString();
+          });
+          ws.on("open", () => resolve(ws));
+          ws.on("error", reject);
+        });
       const ws = await open(shell.id);
       ws.send(Buffer.from("ping\n"));
       for (let i = 0; i < 100 && !ws.text.includes("ECHO:ping"); i++) await new Promise((r) => setTimeout(r, 30));
@@ -530,9 +612,18 @@ describe("Engine 启动与关闭", () => {
     }
   }, 60_000);
   test("审计回归：HTTP 令牌不能连接终端流（403）；撤销令牌会关闭它已建立的事件连接（4401）", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     const { WebSocket } = await import("ws");
-    const created = (await (await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.tokens.create", input: { name: "t" }, requestId: "r", idempotencyKey: "key-tok-create-1" }) })).json() as { data: { id: string; token: string } }).data;
+    const created = (
+      (await (
+        await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability: "gateway.tokens.create", input: { name: "t" }, requestId: "r", idempotencyKey: "key-tok-create-1" }),
+        })
+      ).json()) as { data: { id: string; token: string } }
+    ).data;
     const status = await new Promise<number>((resolve) => {
       const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/sess-abcdef`, [`bearer.${created.token}`]);
       ws.on("unexpected-response", (_r, res) => resolve(res.statusCode ?? 0));
@@ -543,17 +634,23 @@ describe("Engine 启动与关闭", () => {
     const events = new WebSocket(`ws://127.0.0.1:${e.port}/ws/events`, [`bearer.${created.token}`]);
     await new Promise<void>((r) => events.on("open", () => r()));
     const closed = new Promise<number>((r) => events.on("close", (c) => r(c)));
-    await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "gateway.tokens.revoke", input: { id: created.id }, requestId: "r", idempotencyKey: "key-tok-revoke-1" }) });
+    await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "gateway.tokens.revoke", input: { id: created.id }, requestId: "r", idempotencyKey: "key-tok-revoke-1" }),
+    });
     expect(await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 3000))])).toBe(4401);
   }, 30_000);
   test("ACC-SF-04（端到端）：脚本环境变量引用只允许 ssh 的保险箱条目 → 运行失败 SECRET_REF_INVALID 并通知；允许 automations 后成功，输出里有值但文件里没有引用解密结果之外的泄漏", async () => {
     const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
     const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true }); engines.push(e);
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const prog = path.join(tmp(), "show.sh");
-    writeFileSync(prog, '#!/bin/sh\necho "got=${TOKEN:+set}"\n'); chmodSync(prog, 0o755);
+    writeFileSync(prog, '#!/bin/sh\necho "got=${TOKEN:+set}"\n');
+    chmodSync(prog, 0o755);
     await call("safe.setup", { password: "correct horse battery" });
     const item = (await call("safe.items.save", { name: "tok", type: "token", allowedModules: ["ssh"], value: "TOP-SECRET-VALUE" })).data as { id: string };
     const script = (await call("automations.scripts.save", { title: "显示", program: prog, args: [], cwd: dir, envRefs: { TOKEN: `safe://${item.id}` }, timeoutSec: 10 })).data as { id: string };
@@ -572,11 +669,22 @@ describe("Engine 启动与关闭", () => {
     expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
   }, 60_000);
   test("MCP over HTTP：默认关闭(404)；开启后 mcp/http 令牌可用，桌面/cli 令牌 403；工具列表遵守开放规则；经 Dispatcher 授权", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
-    const rpc = (token: string | null, body: unknown, method = "POST") => fetch(`http://127.0.0.1:${e.port}/mcp`, { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", accept: "application/json, text/event-stream" }, ...(method === "POST" ? { body: JSON.stringify(body) } : {}) });
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    const rpc = (token: string | null, body: unknown, method = "POST") =>
+      fetch(`http://127.0.0.1:${e.port}/mcp`, {
+        method,
+        headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", accept: "application/json, text/event-stream" },
+        ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
+      });
     const init = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
     expect((await rpc(e.mcpToken, init)).status).toBe(404); // 默认关闭
-    const call = (capability: string, input: unknown) => fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
+    const call = (capability: string, input: unknown) =>
+      fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
+      }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
     expect((await call("gateway.mcp.update", { enabled: true, transport: "http" })).ok).toBe(true);
     expect((await rpc(null, init)).status).toBe(401);
     expect((await rpc(e.rendererToken, init)).status).toBe(403);
@@ -587,7 +695,8 @@ describe("Engine 启动与关闭", () => {
     expect(names).toEqual(expect.arrayContaining(["vault_info", "tasks_list"]));
     expect(names).not.toContain("safe_items_reveal");
     expect(names).not.toContain("tasks_create"); // 默认不对外
-    const callTool = async (name: string, args: unknown) => ((await (await rpc(e.mcpToken, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } })).json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
+    const callTool = async (name: string, args: unknown) =>
+      ((await (await rpc(e.mcpToken, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } })).json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
     const info = await callTool("vault_info", {});
     expect(info.isError).toBeUndefined();
     expect(JSON.parse(info.content[0]?.text ?? "{}")).toMatchObject({ id: e.vault.id });
@@ -601,7 +710,8 @@ describe("Engine 启动与关闭", () => {
     expect((await rpc(e.mcpToken, init)).status).toBe(404);
   }, 30_000);
   test("审计回归：外部入口即使被开放 automations.create/update/setEnabled，也不能创建或启用 agent_prompt 规则", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     for (const cap of ["automations.create", "automations.update", "automations.setEnabled"]) await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true });
@@ -626,7 +736,8 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).ok).toBe(true);
   }, 30_000);
   test("ACC-SY-06：设置里的时区立即影响日记的“今天”（两个相差 25 小时的时区得到不同日期）", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const dayIn = (zone: string) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date());
@@ -640,7 +751,8 @@ describe("Engine 启动与关闭", () => {
     expect(dayIn("Pacific/Kiritimati")).not.toBe(dayIn("Pacific/Pago_Pago"));
   }, 30_000);
   test("vault.update / vault.location 只有桌面可用；改名后 vault.info 与 vault.json 一致", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
     const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     expect((await call(e.cliToken, "vault.update", { name: "外部改名" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
@@ -658,7 +770,8 @@ describe("Engine 启动与关闭", () => {
   test("ACC-SY-08：导出受管数据包 → 在新目录导入：Markdown 与保险箱密文哈希一致，保险箱用原主密码解锁；导出结果的 SHA-256 与文件一致", async () => {
     const { createHash } = await import("node:crypto");
     const { mkdirSync, readdirSync, statSync } = await import("node:fs");
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
     const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const note = (await call(e.rendererToken, "notes.create", { name: "要备份的笔记" })).data as { path: string };
@@ -666,7 +779,8 @@ describe("Engine 启动与关闭", () => {
     await call(e.rendererToken, "notes.save", { path: note.path, text: "# 要备份的笔记\n\n正文 中文\n", expectedVersion: ver });
     await call(e.rendererToken, "safe.setup", { password: "correct horse battery" });
     await call(e.rendererToken, "safe.items.save", { name: "令牌", type: "token", value: "backup-secret-value", allowedModules: [] });
-    const out = tmp(); const zip = path.join(out, "backup.zip");
+    const out = tmp();
+    const zip = path.join(out, "backup.zip");
 
     // 只有桌面可用；路径必须合法
     expect((await call(e.cliToken, "vault.exportPackage", { dest: zip })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
@@ -686,7 +800,10 @@ describe("Engine 启动与关闭", () => {
     expect(im.ok).toBe(true);
     expect(im.data.vaultId).not.toBe(e.vault.id); // 同 id 的 Vault 正开着：副本换新 id
     const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
-    const list = (root: string, sub: string): string[] => { const d = path.join(root, sub); return existsSync(d) ? readdirSync(d).sort() : []; };
+    const list = (root: string, sub: string): string[] => {
+      const d = path.join(root, sub);
+      return existsSync(d) ? readdirSync(d).sort() : [];
+    };
     expect(sha(path.join(target, note.path))).toBe(sha(path.join(e.vault.root, note.path)));
     expect(list(target, ".huhu/safe")).toEqual(list(e.vault.root, ".huhu/safe"));
     for (const f of list(e.vault.root, ".huhu/safe").filter((n) => n.endsWith(".json") || n.endsWith(".bin"))) expect(sha(path.join(target, ".huhu/safe", f))).toBe(sha(path.join(e.vault.root, ".huhu/safe", f)));
@@ -697,16 +814,19 @@ describe("Engine 启动与关闭", () => {
     expect(viaLink.ok).toBe(false);
     expect(viaLink.error?.code).toBe("INVALID_INPUT");
     expect(existsSync(path.join(e.vault.root, "ghost"))).toBe(false);
-    mkdirSync(path.join(out, "occupied")); writeFileSync(path.join(out, "occupied", "x.txt"), "x");
+    mkdirSync(path.join(out, "occupied"));
+    writeFileSync(path.join(out, "occupied", "x.txt"), "x");
     expect((await call(e.rendererToken, "vault.importPackage", { zipPath: zip, targetDir: path.join(out, "occupied") })).ok).toBe(false); // 目标必须为空
 
     // 用原主密码解锁导入后的保险箱
-    const e2 = await boot({ vaultPath: target }); engines.push(e2);
-    const unlock = await post(e2, e2.rendererToken, { capability: "safe.unlock", input: { password: "correct horse battery" }, requestId: "r", idempotencyKey: "key-unlock-restored" }) as unknown as R;
+    const e2 = await boot({ vaultPath: target });
+    engines.push(e2);
+    const unlock = (await post(e2, e2.rendererToken, { capability: "safe.unlock", input: { password: "correct horse battery" }, requestId: "r", idempotencyKey: "key-unlock-restored" })) as unknown as R;
     expect(unlock.ok).toBe(true);
   }, 60_000);
   test("vault.reindexCancel：没有重建在进行时返回 cancelled=false；重建完成后搜索可用（ACC-SY-07 的能力层前置）", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
     const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     expect((await call(e.cliToken, "vault.reindexCancel", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
@@ -714,7 +834,8 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "vault.reindex", {})).data).toEqual({ completed: true });
   }, 30_000);
   test("automations.update 可以改规则正文（agent_prompt 的提示词）；外部入口不能改 agent 规则的正文", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
     const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     const trig = { preset: "daily", cron: "30 9 * * *", zone: "UTC" };
@@ -731,16 +852,23 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "automations.read", { id: created.id })).data?.body ?? upd.data.body).toContain("第二版提示词");
   }, 30_000);
   test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });
-    const slow = () => fetch(`http://127.0.0.1:${e.port}/mcp`, { method: "POST", headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }) }).then((r) => r.status);
+    const slow = () =>
+      fetch(`http://127.0.0.1:${e.port}/mcp`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }).then((r) => r.status);
     const statuses = await Promise.all(Array.from({ length: 80 }, slow));
     expect(statuses.every((s) => s === 200 || s === 429)).toBe(true);
     // 引擎仍然健康，并且并发回落后可以再次正常使用
     expect(await slow()).toBe(200);
   }, 30_000);
   test("审计回归：外部入口即使开放 notes 写能力，也不能在 Automations/ 下创建/改写/复制/移入规则", async () => {
-    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     for (const cap of ["notes.create", "notes.save", "notes.move", "notes.duplicate", "notes.rename"]) await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true });

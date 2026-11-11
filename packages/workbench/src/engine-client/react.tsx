@@ -31,7 +31,17 @@ export interface EngineProviderProps {
 export function EngineProvider({ endpoint, children, onConnection }: EngineProviderProps) {
   const client = useMemo(() => new EngineClient(endpoint), [endpoint]);
   const listeners = useMemo(() => new Set<(e: HuhuEvent) => void>(), []);
-  const bus = useMemo(() => ({ subscribe: (fn: (e: HuhuEvent) => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; } }), [listeners]);
+  const bus = useMemo(
+    () => ({
+      subscribe: (fn: (e: HuhuEvent) => void) => {
+        listeners.add(fn);
+        return () => {
+          listeners.delete(fn);
+        };
+      },
+    }),
+    [listeners],
+  );
   const qc = useMemo(() => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 5_000 } } }), [endpoint.vaultId]);
   useEffect(() => {
     // 引擎重启后端点（令牌/端口）变化：新事件流没有旧序号，无法补发，必须让全部缓存失效
@@ -39,7 +49,10 @@ export function EngineProvider({ endpoint, children, onConnection }: EngineProvi
   }, [endpoint.baseUrl, endpoint.token, endpoint.vaultId, qc]);
   useEffect(() => {
     const stream = new EventStream(endpoint, {
-      onEvent: (e) => { void invalidateForEvent(qc, endpoint.vaultId, e); for (const l of listeners) l(e); },
+      onEvent: (e) => {
+        void invalidateForEvent(qc, endpoint.vaultId, e);
+        for (const l of listeners) l(e);
+      },
       onResync: () => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === endpoint.vaultId }),
       ...(onConnection ? { onState: onConnection } : {}),
     });

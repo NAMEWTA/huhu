@@ -1,1 +1,20 @@
-{ "$schema": "./node_modules/oxfmt/configuration_schema.json" }
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 240,
+  "ignorePatterns": [
+    ".agents/**",
+    ".claude/**",
+    "vendor/**",
+    "docs/upstream/**",
+    "temp/**",
+    "**/dist/**",
+    "**/out/**",
+    "**/release/**",
+    "test-results/**",
+    "playwright-report/**",
+    "pnpm-lock.yaml",
+    "THIRD_PARTY_NOTICES.md",
+    "**/*.md",
+    "packages/ui/src/styles/tokens.css"
+  ]
+}

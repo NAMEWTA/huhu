@@ -30,12 +30,23 @@ export class ClaimStore {
     } catch (e) {
       const code = (e as { code?: string }).code;
       if (code === "EEXIST") return false;
-      if (code === "EPERM" || code === "ENOTSUP" || code === "EXDEV" || code === "EOPNOTSUPP") { // 文件系统不支持硬链接（FAT/exFAT 等）：退回 wx 创建
-        try { writeFileSync(file, JSON.stringify(claim, null, 2), { flag: "wx" }); return true; } catch (e2) { if ((e2 as { code?: string }).code === "EEXIST") return false; throw e2; }
+      if (code === "EPERM" || code === "ENOTSUP" || code === "EXDEV" || code === "EOPNOTSUPP") {
+        // 文件系统不支持硬链接（FAT/exFAT 等）：退回 wx 创建
+        try {
+          writeFileSync(file, JSON.stringify(claim, null, 2), { flag: "wx" });
+          return true;
+        } catch (e2) {
+          if ((e2 as { code?: string }).code === "EEXIST") return false;
+          throw e2;
+        }
       }
       throw e;
     } finally {
-      try { unlinkSync(tmp); } catch { /* 已清理 */ }
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* 已清理 */
+      }
     }
   }
 
@@ -52,12 +63,14 @@ export class ClaimStore {
 
   list(): Claim[] {
     if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir).filter((f) => f.endsWith(".json")).flatMap((f) => {
-      try {
-        return [JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as Claim];
-      } catch {
-        return [];
-      }
-    });
+    return readdirSync(this.dir)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => {
+        try {
+          return [JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as Claim];
+        } catch {
+          return [];
+        }
+      });
   }
 }

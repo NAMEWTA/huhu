@@ -36,10 +36,13 @@ export class Scheduler {
       const baseline = last && Number.isFinite(edited) && edited > last.getTime() ? new Date(edited) : last;
       const missed = missedRun(r.cron, r.zone, baseline, now, r.missedRunGraceMinutes);
       if (missed) void Promise.resolve(this.d.activate(r.id, missed, "schedule")).catch(() => undefined);
-      this.jobs.set(r.id, new Cron(r.cron, { timezone: r.zone, protect: true }, (self) => {
-        const at = self.currentRun() ?? new Date();
-        return Promise.resolve(this.d.activate(r.id, at, "schedule")).catch(() => undefined);
-      }));
+      this.jobs.set(
+        r.id,
+        new Cron(r.cron, { timezone: r.zone, protect: true }, (self) => {
+          const at = self.currentRun() ?? new Date();
+          return Promise.resolve(this.d.activate(r.id, at, "schedule")).catch(() => undefined);
+        }),
+      );
     }
   }
 

@@ -46,14 +46,31 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
             setState("ended");
             exit.current?.(msg.reason?.reason ?? "exited");
           }
-        } catch { /* 非 JSON 文本忽略 */ }
+        } catch {
+          /* 非 JSON 文本忽略 */
+        }
       } else term.write(new Uint8Array(m.data as ArrayBuffer));
     };
-    ws.onclose = () => { if (!ended) { setState("lost"); exit.current?.("lost"); } };
+    ws.onclose = () => {
+      if (!ended) {
+        setState("lost");
+        exit.current?.("lost");
+      }
+    };
     const enc = new TextEncoder();
-    const inputSub = term.onData((d) => { if (!observe && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d)); });
-    const resizeSub = term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows })); });
-    const ro = new ResizeObserver(() => { try { fit.fit(); } catch { /* 容器不可见时忽略 */ } });
+    const inputSub = term.onData((d) => {
+      if (!observe && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
+    });
+    const resizeSub = term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
+    });
+    const ro = new ResizeObserver(() => {
+      try {
+        fit.fit();
+      } catch {
+        /* 容器不可见时忽略 */
+      }
+    });
     ro.observe(host.current);
     return () => {
       ro.disconnect();

@@ -16,7 +16,11 @@ export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
     const o = value as Record<string, unknown>;
-    return `{${Object.keys(o).sort().filter((k) => o[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(",")}}`;
+    return `{${Object.keys(o)
+      .sort()
+      .filter((k) => o[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
 }
@@ -25,7 +29,10 @@ export function canonicalJson(value: unknown): string {
 export class IdempotencyStore {
   private readonly entries = new Map<string, Entry>();
 
-  constructor(private readonly file?: string, private readonly now: () => number = Date.now) {
+  constructor(
+    private readonly file?: string,
+    private readonly now: () => number = Date.now,
+  ) {
     if (file && existsSync(file)) {
       for (const line of readFileSync(file, "utf8").split("\n")) {
         if (!line.trim()) continue;

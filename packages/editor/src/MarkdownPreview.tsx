@@ -31,12 +31,24 @@ export function MarkdownPreview({ source, onOpenWikiLink, resolveWikiLink }: Mar
       if (wiki) {
         const exists = resolveWikiLink ? resolveWikiLink(wiki.target) : true;
         return (
-          <a href="#" className={exists ? "hu-wikilink" : "hu-wikilink hu-wikilink-missing"} data-target={wiki.target} onClick={(e) => { e.preventDefault(); if (exists) onOpenWikiLink?.(wiki.target, wiki.heading); }}>
+          <a
+            href="#"
+            className={exists ? "hu-wikilink" : "hu-wikilink hu-wikilink-missing"}
+            data-target={wiki.target}
+            onClick={(e) => {
+              e.preventDefault();
+              if (exists) onOpenWikiLink?.(wiki.target, wiki.heading);
+            }}
+          >
             {children}
           </a>
         );
       }
-      return <a href={href} rel="noopener noreferrer" target="_blank">{children}</a>;
+      return (
+        <a href={href} rel="noopener noreferrer" target="_blank">
+          {children}
+        </a>
+      );
     },
   };
   return (

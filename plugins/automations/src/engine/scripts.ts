@@ -54,7 +54,14 @@ export class ScriptStore {
 
   delete(id: string): void {
     this.get(id);
-    writeFileSync(this.file, JSON.stringify(this.list().filter((s) => s.id !== id), null, 2));
+    writeFileSync(
+      this.file,
+      JSON.stringify(
+        this.list().filter((s) => s.id !== id),
+        null,
+        2,
+      ),
+    );
   }
 }
 
@@ -69,7 +76,11 @@ export function killTree(p: ChildProcess): void {
   }
 }
 
-export interface ScriptResult { state: "succeeded" | "failed" | "cancelled"; exitCode: number | null; output: string }
+export interface ScriptResult {
+  state: "succeeded" | "failed" | "cancelled";
+  exitCode: number | null;
+  output: string;
+}
 
 /**
  * 运行脚本：参数作为独立 argv（shell:false，ACC-AU-11），环境变量由保险箱引用解析（锁定时 SAFE_LOCKED），
@@ -89,17 +100,26 @@ export function runScript(def: ScriptDef, extraArgs: string[], resolveSecret: (r
     let out = "";
     const p = spawn(def.program, [...def.args, ...extraArgs], { cwd: def.cwd, env, shell: false, windowsHide: true, detached: process.platform !== "win32" });
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; killTree(p); }, def.timeoutSec * 1000);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(p);
+    }, def.timeoutSec * 1000);
     if (signal?.aborted) killTree(p);
     else signal?.addEventListener("abort", () => killTree(p), { once: true });
     p.stdout.setEncoding("utf8"); // 多字节字符不会被 chunk 边界切开，脱敏才可靠
     p.stderr.setEncoding("utf8");
     const tail = () => redact(out).split("\n").slice(-200).join("\n");
     const MAX = 2 * 1024 * 1024; // 内存里只保留最近 2 MiB，持续输出的进程不会占满内存
-    const add = (b: Buffer) => { out += b; if (out.length > MAX) out = out.slice(-MAX); };
+    const add = (b: Buffer) => {
+      out += b;
+      if (out.length > MAX) out = out.slice(-MAX);
+    };
     p.stdout.on("data", add);
     p.stderr.on("data", add);
-    p.once("error", (e) => { clearTimeout(timer); resolve({ state: "failed", exitCode: null, output: `${e.message}\n${tail()}`.trim() }); });
+    p.once("error", (e) => {
+      clearTimeout(timer);
+      resolve({ state: "failed", exitCode: null, output: `${e.message}\n${tail()}`.trim() });
+    });
     p.once("close", (code, sig) => {
       clearTimeout(timer);
       if (timedOut) return resolve({ state: "failed", exitCode: code, output: `${tail()}\n[超时 ${def.timeoutSec} 秒，已终止]`.trim() });

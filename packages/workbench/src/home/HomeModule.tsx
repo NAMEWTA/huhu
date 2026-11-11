@@ -6,7 +6,12 @@ import { FocusCard } from "./FocusCard.js";
 import { HabitsCard } from "./HabitsCard.js";
 
 interface Summary {
-  vault: { id: string; name: string }; tasksToday: number; tasksOpen: number; inboxPending: number; notes: number; recentNotes: { path: string; title: string }[];
+  vault: { id: string; name: string };
+  tasksToday: number;
+  tasksOpen: number;
+  inboxPending: number;
+  notes: number;
+  recentNotes: { path: string; title: string }[];
   enabled: { tasks: boolean; inbox: boolean; notes: boolean };
 }
 type Card = "focus" | "habits" | "tasks" | "inbox" | "recent";
@@ -36,28 +41,69 @@ export function HomeModule() {
     }
   }
 
-  const tasks: [string, number, string][] = [[tHome.tasksToday, d.tasksToday, "today"], [tHome.tasksOpen, d.tasksOpen, "open"]];
+  const tasks: [string, number, string][] = [
+    [tHome.tasksToday, d.tasksToday, "today"],
+    [tHome.tasksOpen, d.tasksOpen, "open"],
+  ];
   return (
     <div className="hu-content" data-testid="home-module">
-      <h1>{d.vault.name} <Button variant="ghost" aria-expanded={editing} data-testid="home-customize" onClick={() => setEditing(!editing)}>{tHome.customize.open}</Button></h1>
-      {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
+      <h1>
+        {d.vault.name}{" "}
+        <Button variant="ghost" aria-expanded={editing} data-testid="home-customize" onClick={() => setEditing(!editing)}>
+          {tHome.customize.open}
+        </Button>
+      </h1>
+      {error ? (
+        <div role="alert" className="hu-overdue">
+          {error}
+        </div>
+      ) : null}
       {editing ? (
         <fieldset data-testid="home-customize-panel">
           <legend>{tHome.customize.title}</legend>
-          {CARDS.map((c) => <label key={c}><input type="checkbox" checked={show(c)} aria-label={tHome.customize.cards[c]} onChange={() => void toggle(c)} /> {tHome.customize.cards[c]}</label>)}
+          {CARDS.map((c) => (
+            <label key={c}>
+              <input type="checkbox" checked={show(c)} aria-label={tHome.customize.cards[c]} onChange={() => void toggle(c)} /> {tHome.customize.cards[c]}
+            </label>
+          ))}
         </fieldset>
       ) : null}
       <div className="hu-cards">
-        {show("tasks") && d.enabled.tasks ? tasks.map(([label, n, key]) => <div key={key} className="hu-card" data-testid={`card-${key}`}><span>{label}</span><strong>{n}</strong></div>) : null}
-        {show("inbox") && d.enabled.inbox ? <div className="hu-card" data-testid="card-inbox"><span>{tHome.inboxPending}</span><strong>{d.inboxPending}</strong></div> : null}
-        {d.enabled.notes ? <div className="hu-card" data-testid="card-notes"><span>{tHome.notes}</span><strong>{d.notes}</strong></div> : null}
+        {show("tasks") && d.enabled.tasks
+          ? tasks.map(([label, n, key]) => (
+              <div key={key} className="hu-card" data-testid={`card-${key}`}>
+                <span>{label}</span>
+                <strong>{n}</strong>
+              </div>
+            ))
+          : null}
+        {show("inbox") && d.enabled.inbox ? (
+          <div className="hu-card" data-testid="card-inbox">
+            <span>{tHome.inboxPending}</span>
+            <strong>{d.inboxPending}</strong>
+          </div>
+        ) : null}
+        {d.enabled.notes ? (
+          <div className="hu-card" data-testid="card-notes">
+            <span>{tHome.notes}</span>
+            <strong>{d.notes}</strong>
+          </div>
+        ) : null}
         {show("focus") ? <FocusCard /> : null}
         {show("habits") ? <HabitsCard /> : null}
       </div>
       {show("recent") && d.enabled.notes ? (
         <>
           <h2>{tHome.recent}</h2>
-          {d.recentNotes.length === 0 ? <EmptyState title={tHome.noRecent} /> : <ul>{d.recentNotes.map((n) => <li key={n.path}>{n.title}</li>)}</ul>}
+          {d.recentNotes.length === 0 ? (
+            <EmptyState title={tHome.noRecent} />
+          ) : (
+            <ul>
+              {d.recentNotes.map((n) => (
+                <li key={n.path}>{n.title}</li>
+              ))}
+            </ul>
+          )}
         </>
       ) : null}
     </div>

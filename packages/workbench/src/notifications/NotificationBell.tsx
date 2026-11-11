@@ -3,7 +3,13 @@ import { useCapability, useEngine, useQueryClient } from "../engine-client/react
 import { useState } from "react";
 import { t } from "../i18n/zh-CN.js";
 
-interface Notification { id: string; title: string; module: string; at: string; read: boolean }
+interface Notification {
+  id: string;
+  title: string;
+  module: string;
+  at: string;
+  read: boolean;
+}
 
 /** 状态栏通知入口：未读数 + 弹出列表。 */
 export function NotificationBell() {
@@ -20,9 +26,19 @@ export function NotificationBell() {
       </button>
       {open ? (
         <div role="dialog" aria-label={t.notifications.title} className="hu-popover" data-testid="notification-panel">
-          {(list.data ?? []).length === 0 ? <p>{t.notifications.empty}</p> : (list.data ?? []).map((n) => <div key={n.id} className="hu-row" data-read={n.read}>{n.title}</div>)}
+          {(list.data ?? []).length === 0 ? (
+            <p>{t.notifications.empty}</p>
+          ) : (
+            (list.data ?? []).map((n) => (
+              <div key={n.id} className="hu-row" data-read={n.read}>
+                {n.title}
+              </div>
+            ))
+          )}
           <Button onClick={() => void engine.call("notifications.markRead", { ids: "all" }, { write: true }).then(refresh)}>{t.notifications.markAll}</Button>
-          <Button variant="ghost" onClick={() => void engine.call("notifications.clearRead", {}, { write: true }).then(refresh)}>{t.notifications.clearRead}</Button>
+          <Button variant="ghost" onClick={() => void engine.call("notifications.clearRead", {}, { write: true }).then(refresh)}>
+            {t.notifications.clearRead}
+          </Button>
         </div>
       ) : null}
     </span>

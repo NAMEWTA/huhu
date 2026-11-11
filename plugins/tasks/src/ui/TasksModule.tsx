@@ -76,12 +76,28 @@ export function TasksModule() {
       </aside>
       <section className="hu-content">
         <h1>{t.categories[category]}</h1>
-        {category === "week" ? <p className="hu-meta">{range.from} – {range.to}</p> : null}
-        <form className="hu-form" onSubmit={(e) => { e.preventDefault(); void create(); }}>
+        {category === "week" ? (
+          <p className="hu-meta">
+            {range.from} – {range.to}
+          </p>
+        ) : null}
+        <form
+          className="hu-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void create();
+          }}
+        >
           <input className="hu-input" aria-label={t.titleField} placeholder={t.titleField} value={title} onChange={(e) => setTitle(e.target.value)} />
-          <Button type="submit" variant="primary" loading={creating} disabled={!title.trim()}>{t.create}</Button>
+          <Button type="submit" variant="primary" loading={creating} disabled={!title.trim()}>
+            {t.create}
+          </Button>
         </form>
-        {failure ? <div role="alert" className="hu-overdue">{failure}</div> : null}
+        {failure ? (
+          <div role="alert" className="hu-overdue">
+            {failure}
+          </div>
+        ) : null}
         {error ? <div role="alert">{String(error)}</div> : null}
         {isLoading ? <p>{t.loading}</p> : visible.length === 0 ? <EmptyState title={t.empty} /> : null}
         <TaskGroup label={t.open} tasks={open} today={today} pending={pending} onToggle={toggle} />
@@ -95,11 +111,15 @@ function TaskGroup({ label, tasks, today, pending, onToggle }: { label: string; 
   if (tasks.length === 0) return null;
   return (
     <div role="group" aria-label={label}>
-      <h3>{label} {tasks.length}</h3>
+      <h3>
+        {label} {tasks.length}
+      </h3>
       {tasks.map((task) => (
         <div key={task.id} className="hu-row" data-testid="task-row">
           <CompletionCircle checked={task.completed} pending={pending[task.id] === true} label={`${task.completed ? t.reopen : t.complete}：${task.title}`} onToggle={(next) => void onToggle(task, next)} />
-          <span className="hu-row-title" data-done={task.completed}>{task.title}</span>
+          <span className="hu-row-title" data-done={task.completed}>
+            {task.title}
+          </span>
           {task.due ? <span className={isOverdue(task, today) ? "hu-overdue" : ""}>{task.due}</span> : null}
           {task.execution.kind === "agent" ? <Badge tone="blue">{t.agent}</Badge> : <Badge>{t.manual}</Badge>}
         </div>

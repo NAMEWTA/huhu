@@ -31,8 +31,15 @@ class FakeWS {
   onopen: (() => void) | null = null;
   onmessage: ((m: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
-  constructor(public url: string, public protocols: string[]) { FakeWS.instances.push(this); }
-  close() { this.onclose?.(); }
+  constructor(
+    public url: string,
+    public protocols: string[],
+  ) {
+    FakeWS.instances.push(this);
+  }
+  close() {
+    this.onclose?.();
+  }
 }
 
 describe("EventStream", () => {

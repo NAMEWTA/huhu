@@ -49,12 +49,15 @@ async function main(): Promise<void> {
   if (idle > 0) {
     let last = Date.now();
     engine.events.subscribe(() => (last = Date.now()));
-    const t = setInterval(() => {
-      if (engine.server.activeConnections() === 0 && Date.now() - Math.max(last, engine.server.lastActivity()) > idle) {
-        clearInterval(t);
-        void stop();
-      }
-    }, Math.min(1000, idle));
+    const t = setInterval(
+      () => {
+        if (engine.server.activeConnections() === 0 && Date.now() - Math.max(last, engine.server.lastActivity()) > idle) {
+          clearInterval(t);
+          void stop();
+        }
+      },
+      Math.min(1000, idle),
+    );
   }
 }
 

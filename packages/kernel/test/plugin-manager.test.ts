@@ -15,8 +15,7 @@ function setup() {
   const pm = new PluginManager(root, facade, events);
   return { registry, events, pm, seen, root };
 }
-const cap = (name: string, plugin: string) =>
-  defineCapability({ name, plugin, scope: "read", input: z.object({}), output: z.unknown(), exposable: true, defaultExposed: true, handler: () => 1 });
+const cap = (name: string, plugin: string) => defineCapability({ name, plugin, scope: "read", input: z.object({}), output: z.unknown(), exposable: true, defaultExposed: true, handler: () => 1 });
 
 describe("PluginManager", () => {
   test("启用/停用：能力、事件监听、定时器随作用域释放", async () => {
@@ -27,7 +26,12 @@ describe("PluginManager", () => {
       manifest: manifest("a"),
       apply: (ctx, api) => {
         api.defineCapability(cap("a.ping", "a"));
-        ctx.on("internal/ping" as never, (() => { listenerCalls++; }) as never);
+        ctx.on(
+          "internal/ping" as never,
+          (() => {
+            listenerCalls++;
+          }) as never,
+        );
         ctx.effect(() => {
           const t = setInterval(() => ticks++, 5);
           return () => clearInterval(t);
@@ -83,7 +87,12 @@ describe("PluginManager", () => {
     pm.register({ manifest: manifest("orphan", ["ghost"]), apply: () => undefined });
     expect(await pm.enable("orphan")).toBe("failed");
     expect(pm.error("orphan")).toContain("ghost");
-    pm.register({ manifest: manifest("dead"), apply: () => { throw new Error("x"); } });
+    pm.register({
+      manifest: manifest("dead"),
+      apply: () => {
+        throw new Error("x");
+      },
+    });
     pm.register({ manifest: manifest("child", ["dead"]), apply: () => undefined });
     expect(await pm.enable("child")).toBe("failed");
     expect(pm.error("child")).toContain("dead");
@@ -104,7 +113,15 @@ describe("PluginManager", () => {
   test("disposeAll 逆序释放", async () => {
     const { pm } = setup();
     const order: string[] = [];
-    for (const id of ["one", "two"]) pm.register({ manifest: manifest(id), apply: (ctx) => { ctx.effect(() => () => { order.push(id); }); } });
+    for (const id of ["one", "two"])
+      pm.register({
+        manifest: manifest(id),
+        apply: (ctx) => {
+          ctx.effect(() => () => {
+            order.push(id);
+          });
+        },
+      });
     await pm.enableAll();
     await pm.disposeAll();
     expect(order).toEqual(["two", "one"]);
@@ -113,7 +130,14 @@ describe("PluginManager", () => {
   test("api.events 订阅随作用域释放", async () => {
     const { pm, events } = setup();
     let hits = 0;
-    pm.register({ manifest: manifest("sub"), apply: (_c, api) => { api.events.subscribe(() => { hits++; }); } });
+    pm.register({
+      manifest: manifest("sub"),
+      apply: (_c, api) => {
+        api.events.subscribe(() => {
+          hits++;
+        });
+      },
+    });
     await pm.enable("sub");
     events.publish("engine.closing", {});
     const before = hits;
@@ -126,7 +150,14 @@ describe("PluginManager", () => {
   test("并发 enable 只执行一次 apply", async () => {
     const { pm } = setup();
     let applied = 0;
-    pm.register({ manifest: manifest("once"), apply: async (_c, api) => { applied++; await new Promise((r) => setTimeout(r, 20)); api.defineCapability(cap("once.x", "once")); } });
+    pm.register({
+      manifest: manifest("once"),
+      apply: async (_c, api) => {
+        applied++;
+        await new Promise((r) => setTimeout(r, 20));
+        api.defineCapability(cap("once.x", "once"));
+      },
+    });
     const [a, b] = await Promise.all([pm.enable("once"), pm.enable("once")]);
     expect([a, b]).toEqual(["active", "active"]);
     expect(applied).toBe(1);
@@ -136,8 +167,18 @@ describe("PluginManager", () => {
     const { pm, events } = setup();
     const ids: string[] = [];
     events.subscribe((e) => ids.push(e.id));
-    pm.register({ manifest: manifest("p1"), apply: (_c, api) => { api.events.publish("engine.closing", {}); } });
-    pm.register({ manifest: manifest("p2"), apply: (_c, api) => { api.events.publish("engine.closing", {}); } });
+    pm.register({
+      manifest: manifest("p1"),
+      apply: (_c, api) => {
+        api.events.publish("engine.closing", {});
+      },
+    });
+    pm.register({
+      manifest: manifest("p2"),
+      apply: (_c, api) => {
+        api.events.publish("engine.closing", {});
+      },
+    });
     await pm.enableAll();
     events.publish("engine.closing", {});
     expect(new Set(ids).size).toBe(ids.length);
@@ -145,7 +186,12 @@ describe("PluginManager", () => {
 
   test("启用进行中时停用：最终为 disabled", async () => {
     const { pm } = setup();
-    pm.register({ manifest: manifest("slow"), apply: async () => { await new Promise((r) => setTimeout(r, 30)); } });
+    pm.register({
+      manifest: manifest("slow"),
+      apply: async () => {
+        await new Promise((r) => setTimeout(r, 30));
+      },
+    });
     const en = pm.enable("slow");
     const dis = pm.disable("slow");
     await Promise.all([en, dis]);
@@ -156,12 +202,22 @@ describe("PluginManager", () => {
     const { pm } = setup();
     let seen: unknown;
     pm.register({ manifest: manifest("prov"), apply: (_c, api) => api.provide("svc", { hello: 1 }) });
-    pm.register({ manifest: manifest("cons", ["prov"]), apply: (_c, api) => { seen = api.service("svc"); } });
+    pm.register({
+      manifest: manifest("cons", ["prov"]),
+      apply: (_c, api) => {
+        seen = api.service("svc");
+      },
+    });
     await pm.enable("cons");
     expect(seen).toEqual({ hello: 1 });
     await pm.disable("prov");
     let after: unknown = "unset";
-    pm.register({ manifest: manifest("late"), apply: (_c, api) => { after = api.service("svc"); } });
+    pm.register({
+      manifest: manifest("late"),
+      apply: (_c, api) => {
+        after = api.service("svc");
+      },
+    });
     await pm.enable("late");
     expect(after).toBeUndefined();
   });

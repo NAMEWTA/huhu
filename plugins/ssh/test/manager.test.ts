@@ -13,7 +13,11 @@ afterEach(async () => {
   for (const c of closers.splice(0)) await c();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-ssh-")); dirs.push(d); return d; };
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-ssh-"));
+  dirs.push(d);
+  return d;
+};
 
 function setup(secrets: Record<string, string> = { "safe://item-pw1": "pw" }, locked = false) {
   const root = tmp();
@@ -22,32 +26,60 @@ function setup(secrets: Record<string, string> = { "safe://item-pw1": "pw" }, lo
   let mgr!: SshManager;
   const secretCalls: string[] = [];
   mgr = new SshManager({
-    hosts, knownHostsFile: path.join(root, "known_hosts"), auditDir: path.join(root, "audit"), now: () => new Date("2026-11-11T00:00:00Z"),
-    resolveSecret: (ref) => { secretCalls.push(ref); if (locked) throw Object.assign(new Error("保险箱已锁定"), { code: "SAFE_LOCKED" }); const v = secrets[ref]; if (v === undefined) throw new Error("bad ref"); return v; },
-    publish: (type, payload) => { if (type === "ssh.hostKeyPrompt") { const p = payload as { hop: number; reason: string; attemptId: string; fingerprint: string }; prompts.push(p); } },
+    hosts,
+    knownHostsFile: path.join(root, "known_hosts"),
+    auditDir: path.join(root, "audit"),
+    now: () => new Date("2026-11-11T00:00:00Z"),
+    resolveSecret: (ref) => {
+      secretCalls.push(ref);
+      if (locked) throw Object.assign(new Error("保险箱已锁定"), { code: "SAFE_LOCKED" });
+      const v = secrets[ref];
+      if (v === undefined) throw new Error("bad ref");
+      return v;
+    },
+    publish: (type, payload) => {
+      if (type === "ssh.hostKeyPrompt") {
+        const p = payload as { hop: number; reason: string; attemptId: string; fingerprint: string };
+        prompts.push(p);
+      }
+    },
     decisionTimeoutMs: 1000,
   });
   closers.push(() => mgr.disposeAll());
-  const add = (port: number, over: Partial<SshHost> = {}) => hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", auth: { kind: "password", secretRef: "safe://item-pw1" }, jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
+  const add = (port: number, over: Partial<SshHost> = {}) =>
+    hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", auth: { kind: "password", secretRef: "safe://item-pw1" }, jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
   return { root, hosts, mgr, prompts, add, secretCalls };
 }
-const until = async (c: () => boolean, ms = 3000) => { const end = Date.now() + ms; while (!c() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); };
+const until = async (c: () => boolean, ms = 3000) => {
+  const end = Date.now() + ms;
+  while (!c() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+};
 
 describe("主机配置", () => {
   test("校验：端口、主机名、用户；ACC-SH-04 跳板链循环被拒", () => {
     const { hosts, add } = setup();
     expect(() => add(0)).toThrow(/端口/);
     expect(() => hosts.save({ name: "x", host: "a b", port: 22, user: "u", auth: { kind: "agent" }, jumpHostIds: [], tags: [], connectTimeoutSec: 20 })).toThrow(/空格/);
-    const a = add(2201); const b = add(2202, { jumpHostIds: [a.id] });
+    const a = add(2201);
+    const b = add(2202, { jumpHostIds: [a.id] });
     expect(() => hosts.save({ ...a, jumpHostIds: [b.id] })).toThrowError(/循环/);
     expect(() => hosts.delete(a.id)).toThrowError(/以它为跳板/);
-    expect(findJumpCycle([{ id: "a", jumpHostIds: ["b"] }, { id: "b", jumpHostIds: ["a"] }], "a")).toEqual(["a", "b", "a"]);
+    expect(
+      findJumpCycle(
+        [
+          { id: "a", jumpHostIds: ["b"] },
+          { id: "b", jumpHostIds: ["a"] },
+        ],
+        "a",
+      ),
+    ).toEqual(["a", "b", "a"]);
   });
 });
 
 describe("连接与主机密钥", () => {
   test("ACC-SH-01 首次连接弹出指纹，接受后连接成功并写入 known_hosts；再次连接无提示", async () => {
-    const srv = await startFakeSsh(); closers.push(srv.close);
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
     const { mgr, prompts, add, root } = setup();
     const h = add(srv.port);
     const p = mgr.connect(h.id);
@@ -64,7 +96,8 @@ describe("连接与主机密钥", () => {
     expect(prompts).toHaveLength(0);
   });
   test("取消 → 连接失败；超时未决定也视为取消；迟到/未知决定被忽略", async () => {
-    const srv = await startFakeSsh(); closers.push(srv.close);
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
     const { mgr, prompts, add } = setup();
     const h = add(srv.port);
     const p = mgr.connect(h.id).catch((e: Error) => e);
@@ -78,7 +111,8 @@ describe("连接与主机密钥", () => {
   });
   test("ACC-SH-02 已记录的主机密钥与服务器不符 → SSH_HOST_KEY_MISMATCH，且没有发送任何认证", async () => {
     const auth: string[] = [];
-    const srv = await startFakeSsh({ onAuth: (u, m) => auth.push(`${u}:${m}`) }); closers.push(srv.close);
+    const srv = await startFakeSsh({ onAuth: (u, m) => auth.push(`${u}:${m}`) });
+    closers.push(srv.close);
     const { mgr, add, root } = setup();
     const other = utils.parseKey(utils.generateKeyPairSync("ed25519").public);
     const blob = (Array.isArray(other) ? other[0] : other) as { getPublicSSH(): Buffer };
@@ -90,10 +124,12 @@ describe("连接与主机密钥", () => {
   });
 
   test("ACC-SH-03 经跳板：两跳都首次连接依次提示（标明第 1、2 跳）；取消第二个则整体失败且跳板被关闭", async () => {
-    const jump = await startFakeSsh(); const dest = await startFakeSsh();
+    const jump = await startFakeSsh();
+    const dest = await startFakeSsh();
     closers.push(jump.close, dest.close);
     const { mgr, prompts, add } = setup();
-    const j = add(jump.port); const t = add(dest.port, { jumpHostIds: [j.id] });
+    const j = add(jump.port);
+    const t = add(dest.port, { jumpHostIds: [j.id] });
     const p = mgr.connect(t.id).catch((e: Error) => e);
     await until(() => prompts.length >= 1);
     expect(prompts[0]?.hop).toBe(0);
@@ -108,19 +144,25 @@ describe("连接与主机密钥", () => {
   });
 
   test("跳板全部接受后可连接目标并执行命令", async () => {
-    const jump = await startFakeSsh(); const dest = await startFakeSsh();
+    const jump = await startFakeSsh();
+    const dest = await startFakeSsh();
     closers.push(jump.close, dest.close);
     const { mgr, prompts, add } = setup();
-    const j = add(jump.port); const t = add(dest.port, { jumpHostIds: [j.id] });
+    const j = add(jump.port);
+    const t = add(dest.port, { jumpHostIds: [j.id] });
     const p = mgr.connect(t.id);
-    for (let hop = 0; hop < 2; hop++) { await until(() => prompts.length > hop); mgr.decide(prompts[hop]!.attemptId, hop, true); }
+    for (let hop = 0; hop < 2; hop++) {
+      await until(() => prompts.length > hop);
+      mgr.decide(prompts[hop]!.attemptId, hop, true);
+    }
     await p;
     expect((await mgr.exec(t.id, "echo 你好")).stdout.trim()).toBe("你好");
   });
 
   test("ACC-SH-07 保险箱锁定：连接前就失败（SAFE_LOCKED），未发起网络认证；审计中没有密码", async () => {
     const auth: string[] = [];
-    const srv = await startFakeSsh({ onAuth: (u, m) => auth.push(m) }); closers.push(srv.close);
+    const srv = await startFakeSsh({ onAuth: (u, m) => auth.push(m) });
+    closers.push(srv.close);
     const { mgr, add, root } = setup({}, true);
     const h = add(srv.port);
     await expect(mgr.connect(h.id)).rejects.toMatchObject({ code: "SAFE_LOCKED" });
@@ -130,7 +172,8 @@ describe("连接与主机密钥", () => {
   });
 
   test("认证失败 → SSH_AUTH_FAILED", async () => {
-    const srv = await startFakeSsh({ password: "right" }); closers.push(srv.close);
+    const srv = await startFakeSsh({ password: "right" });
+    closers.push(srv.close);
     const { mgr, prompts, add } = setup({ "safe://item-pw1": "wrong" });
     const h = add(srv.port);
     const p = mgr.connect(h.id).catch((e: Error) => e);
@@ -142,7 +185,8 @@ describe("连接与主机密钥", () => {
 
 describe("Exec", () => {
   async function connected() {
-    const srv = await startFakeSsh(); closers.push(srv.close);
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
     const ctx = setup();
     const h = ctx.add(srv.port);
     const p = ctx.mgr.connect(h.id);
@@ -182,10 +226,12 @@ describe("Exec", () => {
 
 describe("并发连接与审计", () => {
   test("同一主机并发 connect 合并为一次（只提示一次、只建一个连接）", async () => {
-    const srv = await startFakeSsh(); closers.push(srv.close);
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
     const { mgr, prompts, add } = setup();
     const h = add(srv.port);
-    const a = mgr.connect(h.id); const b = mgr.connect(h.id);
+    const a = mgr.connect(h.id);
+    const b = mgr.connect(h.id);
     await until(() => prompts.length > 0);
     await new Promise((r) => setTimeout(r, 100));
     expect(prompts).toHaveLength(1);
@@ -194,12 +240,14 @@ describe("并发连接与审计", () => {
     expect(srv.conns).toHaveLength(1);
   });
   test("审计不记录命令原文（可能含口令）", async () => {
-    const srv = await startFakeSsh(); closers.push(srv.close);
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
     const { mgr, prompts, add } = setup();
     const h = add(srv.port);
     const p = mgr.connect(h.id);
     await until(() => prompts.length > 0);
-    mgr.decide(prompts[0]!.attemptId, 0, true); await p;
+    mgr.decide(prompts[0]!.attemptId, 0, true);
+    await p;
     await mgr.exec(h.id, "echo hunter2-PASSWORD");
     expect(JSON.stringify(mgr.auditList())).not.toContain("hunter2");
   });
@@ -207,7 +255,8 @@ describe("并发连接与审计", () => {
 
 describe("Shell（ACC-SH-05）", () => {
   async function connected() {
-    const srv = await startFakeSsh(); closers.push(srv.close);
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
     const ctx = setup();
     const h = ctx.add(srv.port);
     const p = ctx.mgr.connect(h.id);
@@ -216,7 +265,19 @@ describe("Shell（ACC-SH-05）", () => {
     await p;
     return { ...ctx, h, srv };
   }
-  const view = () => { const v = { out: "", ended: 0, onData: (b: Buffer) => { v.out += b.toString(); }, onEnd: () => { v.ended++; } }; return v; };
+  const view = () => {
+    const v = {
+      out: "",
+      ended: 0,
+      onData: (b: Buffer) => {
+        v.out += b.toString();
+      },
+      onEnd: () => {
+        v.ended++;
+      },
+    };
+    return v;
+  };
 
   test("打开 shell、输入输出；关闭视图（detach）不结束 shell，重新打开回到同一 shell 并回放最近输出", async () => {
     const { mgr, h } = await connected();
@@ -240,8 +301,10 @@ describe("Shell（ACC-SH-05）", () => {
   });
   test("结束 shell 才关闭 channel；断开连接后所有 shell 变为已结束，重连后不会绑定旧 shell", async () => {
     const { mgr, h, prompts } = await connected();
-    const a = await mgr.openShell(h.id); const b = await mgr.openShell(h.id);
-    const v = view(); mgr.attachShell(a.id, v);
+    const a = await mgr.openShell(h.id);
+    const b = await mgr.openShell(h.id);
+    const v = view();
+    mgr.attachShell(a.id, v);
     expect(mgr.closeShell(a.id)).toBe(true);
     await until(() => v.ended > 0);
     expect(mgr.listShells(h.id).find((s) => s.id === a.id)?.state).toBe("ended");
@@ -259,7 +322,8 @@ describe("Shell（ACC-SH-05）", () => {
     const { mgr, h } = await connected();
     await expect(mgr.openShell("host-none")).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
     const sh = await mgr.openShell(h.id);
-    const v = view(); const a = mgr.attachShell(sh.id, v)!;
+    const v = view();
+    const a = mgr.attachShell(sh.id, v)!;
     a.write(Buffer.from("exit\n"));
     await until(() => v.ended > 0);
     expect(v.ended).toBeGreaterThan(0);

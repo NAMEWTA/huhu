@@ -2,10 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import path from "node:path";
 import { errors, newId } from "@huhu/contracts";
 
-export type SshAuth =
-  | { kind: "key"; secretRef: string; passphraseRef?: string | undefined }
-  | { kind: "password"; secretRef: string }
-  | { kind: "agent" };
+export type SshAuth = { kind: "key"; secretRef: string; passphraseRef?: string | undefined } | { kind: "password"; secretRef: string } | { kind: "agent" };
 
 export interface SshHost {
   id: string;
@@ -41,13 +38,16 @@ export class HostStore {
 
   list(): SshHost[] {
     if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir).filter((f) => f.endsWith(".json")).flatMap((f) => {
-      try {
-        return [JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as SshHost];
-      } catch {
-        return [];
-      }
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    return readdirSync(this.dir)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => {
+        try {
+          return [JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as SshHost];
+        } catch {
+          return [];
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   get(id: string): SshHost {

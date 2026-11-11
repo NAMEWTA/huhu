@@ -78,8 +78,11 @@ export class Safe {
   status(): { initialized: boolean; locked: boolean; corrupt: boolean; autoLockMinutes: number; lockOnLeave: boolean; cooldownSeconds: number } {
     const k = this.keyring();
     return {
-      initialized: k !== null, locked: this.dk === null, corrupt: this.keyringCorrupt(),
-      autoLockMinutes: k?.autoLockMinutes ?? 5, lockOnLeave: k?.lockOnLeave ?? false,
+      initialized: k !== null,
+      locked: this.dk === null,
+      corrupt: this.keyringCorrupt(),
+      autoLockMinutes: k?.autoLockMinutes ?? 5,
+      lockOnLeave: k?.lockOnLeave ?? false,
       cooldownSeconds: Math.max(0, Math.ceil((this.cooldownUntil - this.d.now()) / 1000)),
     };
   }
@@ -91,7 +94,12 @@ export class Safe {
 
   auditList(limit = 200): AuditEntry[] {
     if (!existsSync(this.p("audit.ndjson"))) return [];
-    return readFileSync(this.p("audit.ndjson"), "utf8").split("\n").filter(Boolean).slice(-limit).map((l) => JSON.parse(l) as AuditEntry).reverse();
+    return readFileSync(this.p("audit.ndjson"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .slice(-limit)
+      .map((l) => JSON.parse(l) as AuditEntry)
+      .reverse();
   }
 
   async setup(password: string): Promise<void> {
@@ -115,7 +123,8 @@ export class Safe {
     const ring = this.keyring();
     if (this.keyringCorrupt()) throw new HuhuError("INTERNAL", "keyring 文件损坏，保险箱不可用（原文件未被修改）");
     if (!ring) throw errors.invalidInput("保险箱尚未设置");
-    if (this.d.now() < this.cooldownUntil) throw new HuhuError("SAFE_BAD_PASSWORD", `尝试过多，请 ${Math.ceil((this.cooldownUntil - this.d.now()) / 1000)} 秒后再试`, { details: { cooldownSeconds: Math.ceil((this.cooldownUntil - this.d.now()) / 1000) } });
+    if (this.d.now() < this.cooldownUntil)
+      throw new HuhuError("SAFE_BAD_PASSWORD", `尝试过多，请 ${Math.ceil((this.cooldownUntil - this.d.now()) / 1000)} 秒后再试`, { details: { cooldownSeconds: Math.ceil((this.cooldownUntil - this.d.now()) / 1000) } });
     const kek = await deriveKek(password, ring.kdf);
     try {
       const dk = open(kek, Buffer.from(ring.wrappedKey, "base64"), "huhu-safe/dk");
@@ -206,7 +215,10 @@ export class Safe {
     this.key();
     const dir = this.p("items");
     if (!existsSync(dir)) return [];
-    return readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(dir, f), "utf8")) as ItemMeta).sort((a, b) => a.name.localeCompare(b.name));
+    return readdirSync(dir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => JSON.parse(readFileSync(path.join(dir, f), "utf8")) as ItemMeta)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   itemSave(input: { id?: string; name: string; type: SecretType; account?: string; allowedModules?: string[]; value?: string }): ItemMeta {
@@ -266,4 +278,3 @@ export class Safe {
     return v;
   }
 }
-

@@ -11,7 +11,13 @@ export const SFTP_PREVIEW_MAX = 2 * 1024 * 1024;
 /** 单个文件上传/下载上限（规格未定，先取 512 MiB；超过的拒绝并说明）。 */
 export const SFTP_TRANSFER_MAX = 512 * 1024 * 1024;
 
-export interface SftpEntry { name: string; type: "file" | "dir" | "link" | "other"; size: number; mtime: number; mode: string }
+export interface SftpEntry {
+  name: string;
+  type: "file" | "dir" | "link" | "other";
+  size: number;
+  mtime: number;
+  mode: string;
+}
 
 const SSH_FX = { NO_SUCH_FILE: 2, PERMISSION_DENIED: 3 } as const;
 
@@ -71,7 +77,18 @@ export async function readText(s: SFTPWrapper, p: string, signal?: AbortSignal):
   if (st.size > SFTP_PREVIEW_MAX) throw errors.invalidInput(`文件超过 ${SFTP_PREVIEW_MAX / 1024 / 1024} MiB，不能预览，请下载`);
   const chunks: Buffer[] = [];
   let got = 0;
-  await pipeline(s.createReadStream(abs), new Transform({ transform(c: Buffer, _e, cb) { got += c.length; if (got > SFTP_PREVIEW_MAX) return cb(errors.invalidInput("文件超过预览上限（读取期间变大了），请下载")); chunks.push(c); cb(); } }), ...(signal ? [{ signal }] : []));
+  await pipeline(
+    s.createReadStream(abs),
+    new Transform({
+      transform(c: Buffer, _e, cb) {
+        got += c.length;
+        if (got > SFTP_PREVIEW_MAX) return cb(errors.invalidInput("文件超过预览上限（读取期间变大了），请下载"));
+        chunks.push(c);
+        cb();
+      },
+    }),
+    ...(signal ? [{ signal }] : []),
+  );
   const buf = Buffer.concat(chunks);
   if (buf.subarray(0, 8000).includes(0)) throw errors.invalidInput("这是二进制文件，不能预览");
   try {
@@ -105,12 +122,24 @@ export async function writeAtomic(s: SFTPWrapper, target: string, source: Readab
   const abs = normalizeRemote(target);
   if (abs === ".") throw errors.invalidInput("需要完整的远端文件路径");
   const existing = await statOrNull(s, abs);
-  if (existing && !opts.overwrite) { source.destroy(); throw errors.nameConflict(abs); }
-  if (existing && typeOf(existing.mode) === "dir") { source.destroy(); throw errors.invalidInput("目标是目录，不能覆盖"); }
+  if (existing && !opts.overwrite) {
+    source.destroy();
+    throw errors.nameConflict(abs);
+  }
+  if (existing && typeOf(existing.mode) === "dir") {
+    source.destroy();
+    throw errors.invalidInput("目标是目录，不能覆盖");
+  }
   const tmp = `${abs}.huhu-upload-${randomBytes(4).toString("hex")}`;
   let size = 0;
   const limit = opts.maxBytes ?? SFTP_TRANSFER_MAX;
-  const counter = new Transform({ transform(c: Buffer, _e, cb) { size += c.length; if (size > limit) return cb(errors.invalidInput(`文件超过 ${limit / 1024 / 1024} MiB 上限`)); cb(null, c); } });
+  const counter = new Transform({
+    transform(c: Buffer, _e, cb) {
+      size += c.length;
+      if (size > limit) return cb(errors.invalidInput(`文件超过 ${limit / 1024 / 1024} MiB 上限`));
+      cb(null, c);
+    },
+  });
   try {
     await pipeline(source, counter, s.createWriteStream(tmp, { flags: "wx" }), ...(opts.signal ? [{ signal: opts.signal }] : []));
     if (existing) {
@@ -129,7 +158,11 @@ export async function writeAtomic(s: SFTPWrapper, target: string, source: Readab
 export async function uploadLocal(s: SFTPWrapper, localFile: string, remote: string, opts: { overwrite: boolean; signal?: AbortSignal }): Promise<{ size: number }> {
   if (!path.isAbsolute(localFile) || localFile.includes("\0")) throw errors.invalidInput("本机路径必须是绝对路径");
   let st;
-  try { st = lstatSync(localFile); } catch { throw errors.notFound("本机文件不存在"); }
+  try {
+    st = lstatSync(localFile);
+  } catch {
+    throw errors.notFound("本机文件不存在");
+  }
   if (st.isSymbolicLink() || !st.isFile()) throw errors.invalidInput("只能上传普通文件（不跟随符号链接）");
   if (st.size > SFTP_TRANSFER_MAX) throw errors.invalidInput(`文件超过 ${SFTP_TRANSFER_MAX / 1024 / 1024} MiB 上限`);
   return writeAtomic(s, remote, localRead(localFile), opts);
@@ -143,12 +176,22 @@ export async function downloadToLocal(s: SFTPWrapper, remote: string, localFile:
   if (st.size > SFTP_TRANSFER_MAX) throw errors.invalidInput(`文件超过 ${SFTP_TRANSFER_MAX / 1024 / 1024} MiB 上限`);
   if (!existsSync(path.dirname(localFile))) throw errors.invalidInput("保存目录不存在");
   let localExists = false;
-  try { lstatSync(localFile); localExists = true; } catch { /* 不存在 */ }
+  try {
+    lstatSync(localFile);
+    localExists = true;
+  } catch {
+    /* 不存在 */
+  }
   if (localExists && !opts.overwrite) throw errors.nameConflict(localFile);
   if (localExists && lstatSync(localFile).isSymbolicLink()) throw errors.invalidInput("目标是符号链接，不覆盖");
   const tmp = `${localFile}.huhu-download-${randomBytes(4).toString("hex")}`;
   let size = 0;
-  const counter = new Transform({ transform(c: Buffer, _e, cb) { size += c.length; cb(null, c); } });
+  const counter = new Transform({
+    transform(c: Buffer, _e, cb) {
+      size += c.length;
+      cb(null, c);
+    },
+  });
   try {
     await pipeline(s.createReadStream(abs), counter, localWrite(tmp, { flags: "wx", mode: 0o600 }), ...(opts.signal ? [{ signal: opts.signal }] : []));
     renameSync(tmp, localFile);
@@ -167,7 +210,8 @@ export async function mkdir(s: SFTPWrapper, p: string): Promise<void> {
 }
 
 export async function rename(s: SFTPWrapper, from: string, to: string, overwrite: boolean): Promise<void> {
-  const a = normalizeRemote(from); const b = normalizeRemote(to);
+  const a = normalizeRemote(from);
+  const b = normalizeRemote(to);
   const target = await statOrNull(s, b);
   if (target && !overwrite) throw errors.nameConflict(b);
   if (target && typeOf(target.mode) === "dir") throw errors.invalidInput("目标是目录，不能覆盖");

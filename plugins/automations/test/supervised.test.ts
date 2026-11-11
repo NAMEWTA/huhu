@@ -7,25 +7,39 @@ import { killRound, readSupervisor, roundActive, supervisorAlive, waitExit } fro
 import { headlessCommand, isSafeId, parseOutput, processWorker, roundDir } from "../src/engine/worker.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 const posix = process.platform !== "win32";
 
 function fakeCli(script: string): { exe: string; runs: string; count: string } {
-  const d = mkdtempSync(path.join(tmpdir(), "huhu-sup-")); dirs.push(d);
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-sup-"));
+  dirs.push(d);
   const exe = path.join(d, "fake-cli.sh");
   const count = path.join(d, "count.txt");
   writeFileSync(exe, `#!/bin/sh\necho x >> "${count}"\n${script}\n`);
   chmodSync(exe, 0o755);
   return { exe, runs: path.join(d, "runs"), count };
 }
-const input = (over: Partial<WorkerInput> = {}): WorkerInput => ({ runId: "run-1", task: { id: "t1", title: "T", body: "b", resources: [] } as never, cwd: tmpdir(), provider: "claude", model: null, signal: new AbortController().signal, ...over });
+const input = (over: Partial<WorkerInput> = {}): WorkerInput => ({
+  runId: "run-1",
+  task: { id: "t1", title: "T", body: "b", resources: [] } as never,
+  cwd: tmpdir(),
+  provider: "claude",
+  model: null,
+  signal: new AbortController().signal,
+  ...over,
+});
 const calls = (count: string): number => (existsSync(count) ? readFileSync(count, "utf8").trim().split("\n").length : 0);
 
 describe("输出解析与命令构造", () => {
   test("claude stream-json：取 result 与 session_id；codex --json：取 thread_id 与最后一条 agent_message", () => {
     const c = parseOutput("claude", ['{"type":"system","session_id":"s-1"}', '{"type":"result","result":"好了","session_id":"s-1","is_error":false}'].join("\n"));
     expect(c).toEqual({ message: "好了", nativeSessionId: "s-1", isError: false });
-    const x = parseOutput("codex", ['{"type":"thread.started","thread_id":"th-9"}', '{"type":"item.completed","item":{"type":"agent_message","text":"一"}}', '{"type":"item.completed","item":{"type":"agent_message","text":"二"}}'].join("\n"));
+    const x = parseOutput(
+      "codex",
+      ['{"type":"thread.started","thread_id":"th-9"}', '{"type":"item.completed","item":{"type":"agent_message","text":"一"}}', '{"type":"item.completed","item":{"type":"agent_message","text":"二"}}'].join("\n"),
+    );
     expect(x).toMatchObject({ message: "二", nativeSessionId: "th-9" });
     expect(parseOutput("claude", "纯文本").message).toBe("纯文本");
   });
@@ -51,7 +65,7 @@ describe.skipIf(!posix)("监督进程（ACC-AU-06 / 取消）", () => {
   });
 
   test("最终消息含 agent-autoloop 提问 → waiting_input，带问题", async () => {
-    const msg = "需要确认\\n```agent-autoloop\\n{\\\"ask\\\":[{\\\"id\\\":\\\"q-1\\\",\\\"text\\\":\\\"覆盖吗\\\"}]}\\n```";
+    const msg = '需要确认\\n```agent-autoloop\\n{\\"ask\\":[{\\"id\\":\\"q-1\\",\\"text\\":\\"覆盖吗\\"}]}\\n```';
     const f = fakeCli(`cat > /dev/null\nprintf '%s\\n' '{"type":"result","result":"${msg}","session_id":"abc-2","is_error":false}'`);
     const out = await processWorker({ runsDir: f.runs, exeFor: () => f.exe }).run(input());
     expect(out).toMatchObject({ state: "waiting_input", nativeSessionId: "abc-2" });
@@ -151,7 +165,8 @@ describe.skipIf(!posix)("监督进程（ACC-AU-06 / 取消）", () => {
     const f = fakeCli("true");
     const w = processWorker({ runsDir: f.runs, exeFor: () => f.exe });
     expect(await w.run(input({ runId: "../../etc" }))).toMatchObject({ state: "failed" });
-    const d = path.join(f.runs, "nobody"); mkdirSync(d, { recursive: true });
+    const d = path.join(f.runs, "nobody");
+    mkdirSync(d, { recursive: true });
     expect(await waitExit(d, { handshakeMs: 100, pollMs: 20 })).toMatchObject({ kind: "lost" });
   });
 });

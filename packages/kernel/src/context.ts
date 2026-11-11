@@ -10,7 +10,10 @@ export class EventBus {
   private readonly listeners = new Set<(e: HuhuEvent) => void>();
   private counter = 0;
 
-  constructor(private readonly vaultId: () => string, private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly vaultId: () => string,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   subscribe(fn: (e: HuhuEvent) => void): () => void {
     this.listeners.add(fn);
@@ -89,7 +92,7 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
         };
       });
     },
-    service: <T,>(name: string) => services.get(name) as T | undefined,
+    service: <T>(name: string) => services.get(name) as T | undefined,
     defineCapability(def) {
       if (def.plugin !== pluginId) throw errors.permissionDenied(`${def.name}（插件 ${pluginId} 不能注册属于 ${def.plugin} 的能力）`);
       ctx.effect(() => deps.registry.register(def));
@@ -99,5 +102,5 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
       return r;
     },
   });
-  return { root, facade, getService: <T,>(name: string) => services.get(name) as T | undefined };
+  return { root, facade, getService: <T>(name: string) => services.get(name) as T | undefined };
 }

@@ -2,12 +2,13 @@ import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { z } from "zod";
-import {
-  CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, defineCapability, startEngineServer, type RunningServer, EventReplay,
-} from "../src/index.js";
+import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, defineCapability, startEngineServer, type RunningServer, EventReplay } from "../src/index.js";
 
 let running: RunningServer | undefined;
-afterEach(async () => { await running?.close(); running = undefined; });
+afterEach(async () => {
+  await running?.close();
+  running = undefined;
+});
 
 async function boot() {
   const registry = new CapabilityRegistry();
@@ -71,7 +72,13 @@ describe("HTTP", () => {
     const t = tokens.issue("desktop");
     const chunk = new Uint8Array(1024 * 1024);
     let sent = 0;
-    const stream = new ReadableStream({ pull(c) { if (sent >= 12) return c.close(); sent++; c.enqueue(chunk); } });
+    const stream = new ReadableStream({
+      pull(c) {
+        if (sent >= 12) return c.close();
+        sent++;
+        c.enqueue(chunk);
+      },
+    });
     const r = await fetch(`${base}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${t}`, "content-type": "application/json" }, body: stream, duplex: "half" } as RequestInit);
     expect(r.status).toBe(413);
   });
@@ -79,7 +86,8 @@ describe("HTTP", () => {
     const { port } = await boot();
     const res = await new Promise<number>((resolve, reject) => {
       const req = httpRequest({ host: "127.0.0.1", port, path: "/api/v1/capabilities", headers: { host: "evil.example", authorization: "Bearer x" } }, (r) => resolve(r.statusCode ?? 0));
-      req.on("error", reject); req.end();
+      req.on("error", reject);
+      req.end();
     });
     expect(res).toBe(403);
   });

@@ -11,7 +11,8 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 async function setup(opts: { forcePolling?: boolean } = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-")); dirs.push(root);
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
+  dirs.push(root);
   const receipts = new ReceiptLog();
   const seen: FileChange[] = [];
   const degraded: string[] = [];
@@ -61,8 +62,11 @@ describe("原生监听", () => {
   });
   test("忽略 .huhu、.git 与 .DS_Store", async () => {
     const { root, seen } = await setup();
-    mkdirSync(path.join(root, ".huhu")); mkdirSync(path.join(root, ".git"));
-    writeFileSync(path.join(root, ".huhu/x.json"), "1"); writeFileSync(path.join(root, ".git/y"), "1"); writeFileSync(path.join(root, ".DS_Store"), "1");
+    mkdirSync(path.join(root, ".huhu"));
+    mkdirSync(path.join(root, ".git"));
+    writeFileSync(path.join(root, ".huhu/x.json"), "1");
+    writeFileSync(path.join(root, ".git/y"), "1");
+    writeFileSync(path.join(root, ".DS_Store"), "1");
     writeFileSync(path.join(root, "visible.md"), "1");
     await until(() => seen.some((c) => c.path === "visible.md"));
     await new Promise((r) => setTimeout(r, 200));

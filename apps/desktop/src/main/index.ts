@@ -14,17 +14,13 @@ function defaultVaultPath(): string {
 
 const APP_ORIGIN = "huhu-app://workbench";
 
-protocol.registerSchemesAsPrivileged([
-  { scheme: "huhu-app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
-]);
+protocol.registerSchemesAsPrivileged([{ scheme: "huhu-app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
 /** 渲染器加载失败时显示的内置错误页，包含日志路径。 */
 function errorPage(detail: string): string {
   const logs = app.getPath("logs");
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-  return `data:text/html;charset=utf-8,${encodeURIComponent(
-    `<!doctype html><title>HUHU</title><body style="font-family:sans-serif;padding:2rem"><h1>HUHU 无法加载界面</h1><p>${esc(detail)}</p><p>日志目录：${esc(logs)}</p></body>`,
-  )}`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><title>HUHU</title><body style="font-family:sans-serif;padding:2rem"><h1>HUHU 无法加载界面</h1><p>${esc(detail)}</p><p>日志目录：${esc(logs)}</p></body>`)}`;
 }
 
 /** 完整来源匹配：`huhu-app://workbench` 本身或其路径，开发服务器同理（不接受仅前缀相同的其他主机/端口）。 */
@@ -122,21 +118,40 @@ if (!gotLock) {
     ipcMain.handle("huhu:pickOpenPath", async (event, kind: unknown) => {
       assertTrusted(event.senderFrame?.url);
       const win = BrowserWindow.fromWebContents(event.sender);
-      const opts = kind === "directory"
-        ? { properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[] }
-        : kind === "file"
-          ? { properties: ["openFile"] as "openFile"[] }
-          : { properties: ["openFile"] as "openFile"[], filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
+      const opts =
+        kind === "directory"
+          ? { properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[] }
+          : kind === "file"
+            ? { properties: ["openFile"] as "openFile"[] }
+            : { properties: ["openFile"] as "openFile"[], filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
       const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
       return r.canceled || r.filePaths.length === 0 ? null : (r.filePaths[0] ?? null);
     });
     // 命令行安装：只有打包版有启动脚本；每次都由用户在界面确认后才调用
     // AppImage 每次启动挂载到随机的临时目录，退出后符号链接就悬空：不支持，提示改用 deb / 解压版
     const appImage = process.platform === "linux" && Boolean(process.env["APPIMAGE"]);
-    const cliDeps = (): CliDeps => ({ platform: process.platform, home: app.getPath("home"), env: process.env, ...(appImage ? { unsupportedReason: "AppImage 每次启动都挂载在临时目录，命令行链接会失效；请使用 deb 安装版，或把 AppImage 解压（--appimage-extract）到固定位置后再安装" } : {}), launcher: !appImage && app.isPackaged && existsSync(path.join(process.resourcesPath, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu")) ? path.join(process.resourcesPath, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu") : null });
-    ipcMain.handle("huhu:cliStatus", (event) => { assertTrusted(event.senderFrame?.url); return cliStatus(cliDeps()); });
-    ipcMain.handle("huhu:cliInstall", (event) => { assertTrusted(event.senderFrame?.url); return cliInstall(cliDeps()); });
-    ipcMain.handle("huhu:cliUninstall", (event) => { assertTrusted(event.senderFrame?.url); return cliUninstall(cliDeps()); });
+    const cliDeps = (): CliDeps => ({
+      platform: process.platform,
+      home: app.getPath("home"),
+      env: process.env,
+      ...(appImage ? { unsupportedReason: "AppImage 每次启动都挂载在临时目录，命令行链接会失效；请使用 deb 安装版，或把 AppImage 解压（--appimage-extract）到固定位置后再安装" } : {}),
+      launcher:
+        !appImage && app.isPackaged && existsSync(path.join(process.resourcesPath, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu"))
+          ? path.join(process.resourcesPath, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu")
+          : null,
+    });
+    ipcMain.handle("huhu:cliStatus", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      return cliStatus(cliDeps());
+    });
+    ipcMain.handle("huhu:cliInstall", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      return cliInstall(cliDeps());
+    });
+    ipcMain.handle("huhu:cliUninstall", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      return cliUninstall(cliDeps());
+    });
     ipcMain.handle("huhu:notices", (event) => {
       assertTrusted(event.senderFrame?.url);
       // 打包后在 resources/；开发时在仓库根

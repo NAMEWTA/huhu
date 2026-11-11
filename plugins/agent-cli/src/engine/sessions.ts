@@ -40,11 +40,24 @@ export interface ReviewComment {
 }
 
 const MAX_COMMENTS = 200;
-const hasControl = (s: string): boolean => { for (const ch of s) { const n = ch.codePointAt(0) as number; if (n < 0x20 || (n >= 0x7f && n <= 0x9f)) return true; } return false; };
+const hasControl = (s: string): boolean => {
+  for (const ch of s) {
+    const n = ch.codePointAt(0) as number;
+    if (n < 0x20 || (n >= 0x7f && n <= 0x9f)) return true;
+  }
+  return false;
+};
 /** 写进终端的路径：只保留字母数字（含中文等）和 . _ - / @ + ~ 空格，其余一律换成 _（文件名里的 ; $ ` | 等不能被 shell 解释）。 */
 const safePath = (p: string): string => Array.from(p, (ch) => (/[\p{L}\p{N}._\-/@+~ ]/u.test(ch) ? ch : "_")).join("");
 /** C0、DEL 与 C1 控制字符（如 U+009B）都不进终端：替换成空格并压缩空白。 */
-const noControl = (s: string): string => Array.from(s, (ch) => { const c = ch.codePointAt(0) as number; return c < 0x20 || (c >= 0x7f && c <= 0x9f) ? " " : ch; }).join("").replace(/\s+/g, " ").trim();
+const noControl = (s: string): string =>
+  Array.from(s, (ch) => {
+    const c = ch.codePointAt(0) as number;
+    return c < 0x20 || (c >= 0x7f && c <= 0x9f) ? " " : ch;
+  })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 
 export interface LaunchInput {
   spaceId: string;
@@ -61,8 +74,12 @@ export interface LaunchInput {
   cwd?: string | undefined;
 }
 
-interface Terminal { address: string }
-interface RunResult { address: string }
+interface Terminal {
+  address: string;
+}
+interface RunResult {
+  address: string;
+}
 
 export interface SessionsDeps {
   dir: string;
@@ -91,8 +108,17 @@ export class SessionsService {
 
   list(spaceId?: string): SessionRecord[] {
     if (!existsSync(this.d.dir)) return [];
-    return readdirSync(this.d.dir).filter((f) => f.endsWith(".json")).flatMap((f) => { try { return [JSON.parse(readFileSync(path.join(this.d.dir, f), "utf8")) as SessionRecord]; } catch { return []; } }) // 单个记录损坏不拖垮整个列表
-      .filter((s) => !spaceId || s.spaceId === spaceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return readdirSync(this.d.dir)
+      .filter((f) => f.endsWith(".json"))
+      .flatMap((f) => {
+        try {
+          return [JSON.parse(readFileSync(path.join(this.d.dir, f), "utf8")) as SessionRecord];
+        } catch {
+          return [];
+        }
+      }) // 单个记录损坏不拖垮整个列表
+      .filter((s) => !spaceId || s.spaceId === spaceId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   get(id: string): SessionRecord {
@@ -116,7 +142,11 @@ export class SessionsService {
     // 同一 requestId 重复提交：返回已有会话，不重复启动
     const dup = this.list().find((s) => s.requestId === input.requestId);
     if (dup) return dup;
-    for (const [k, v] of [["prompt", input.prompt], ["model", input.model], ["effort", input.effort]] as const) {
+    for (const [k, v] of [
+      ["prompt", input.prompt],
+      ["model", input.model],
+      ["effort", input.effort],
+    ] as const) {
       // 以 - 开头的值会被 CLI 当作选项解析（例如 --dangerously-skip-permissions）
       if (v !== undefined && v.startsWith("-")) throw errors.invalidInput(`${k} 不能以 - 开头`);
     }
@@ -134,17 +164,32 @@ export class SessionsService {
     if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
     if (input.cwd !== undefined) {
       let ok = false;
-      try { ok = isWithin(realpathSync(space.root), realpathSync(input.cwd)); } catch { /* 目录不存在 */ }
+      try {
+        ok = isWithin(realpathSync(space.root), realpathSync(input.cwd));
+      } catch {
+        /* 目录不存在 */
+      }
       if (!ok) throw errors.invalidInput("启动目录必须在 Space 之内且存在");
     }
     const session: SessionRecord = {
-      id: newId("cap").replace(/^cap-/, "sess-"), spaceId: space.id, provider: input.provider, model: input.model ?? null, state: "launching",
-      requestId: input.requestId, terminalId: null, name: input.provider === "shell" ? "终端" : (PROVIDERS.find((p) => p.id === input.provider)?.displayName ?? input.provider),
-      cwd, createdAt: this.d.now().toISOString(), ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
+      id: newId("cap").replace(/^cap-/, "sess-"),
+      spaceId: space.id,
+      provider: input.provider,
+      model: input.model ?? null,
+      state: "launching",
+      requestId: input.requestId,
+      terminalId: null,
+      name: input.provider === "shell" ? "终端" : (PROVIDERS.find((p) => p.id === input.provider)?.displayName ?? input.provider),
+      cwd,
+      createdAt: this.d.now().toISOString(),
+      ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
     };
     this.save(session); // 先持久化，再启动
     const labels = { "huhu.vault": this.d.vaultId, "huhu.space": space.id, "huhu.session": session.id, "huhu.launch": input.requestId };
-    const client = await this.d.core().catch((e: unknown) => { this.save({ ...session, state: "failed", error: String(e) }); throw e; });
+    const client = await this.d.core().catch((e: unknown) => {
+      this.save({ ...session, state: "failed", error: String(e) });
+      throw e;
+    });
     try {
       const r = await client.call<RunResult>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels, name: session.id }); // Herdr 名称只接受 ASCII（a-z0-9-_.，1–32 位）；显示名保存在 HUHU 会话记录里
       const ok = { ...session, state: "running" as const, terminalId: r.address };
@@ -155,7 +200,8 @@ export class SessionsService {
       const found = await client.call<{ terminals: Terminal[] }>("terminal.list", { labels: { "huhu.launch": input.requestId } }).catch(() => null);
       const list = found?.terminals ?? null;
       const n = list ? list.length : -1;
-      const next: SessionRecord = n === 1 && list ? { ...session, state: "running", terminalId: (list[0] as Terminal).address } : n > 1 ? { ...session, state: "unknown" } : { ...session, state: "failed", error: e instanceof Error ? e.message : String(e) };
+      const next: SessionRecord =
+        n === 1 && list ? { ...session, state: "running", terminalId: (list[0] as Terminal).address } : n > 1 ? { ...session, state: "unknown" } : { ...session, state: "failed", error: e instanceof Error ? e.message : String(e) };
       this.save(next);
       if (next.state === "running") return next;
       throw new HuhuError(next.state === "unknown" ? "RUN_UNKNOWN" : "HERDR_UNAVAILABLE", next.state === "unknown" ? "找到多个同请求终端，请手动选择" : `启动失败：${next.error}`);
@@ -201,7 +247,9 @@ export class SessionsService {
       try {
         const at = t?.finished_ms ? new Date(t.finished_ms).toISOString() : this.d.now().toISOString();
         this.save({ ...this.get(sess.id), state: "exited", exitCode: t?.exit_code ?? null, exitedAt: at, ...(t ? {} : { error: "终端已不存在（Herdr Core 没有在运行，或已重启过）" }) });
-      } catch { /* 单条记录读写失败不影响其他会话和列表 */ }
+      } catch {
+        /* 单条记录读写失败不影响其他会话和列表 */
+      }
     }
   }
 
@@ -247,8 +295,14 @@ export class SessionsService {
     if (dryRun) return { sent: 0, text };
     this.sending.add(id);
     try {
-      const mark = (patch: (c: ReviewComment) => ReviewComment) => { const cur = this.get(id); this.save({ ...cur, reviewComments: (cur.reviewComments ?? []).map((c) => (chosen.some((x) => x.id === c.id) ? patch(c) : c)) }); };
-      const clear = (c: ReviewComment): ReviewComment => { const { sending: _s, ...rest } = c; return rest; };
+      const mark = (patch: (c: ReviewComment) => ReviewComment) => {
+        const cur = this.get(id);
+        this.save({ ...cur, reviewComments: (cur.reviewComments ?? []).map((c) => (chosen.some((x) => x.id === c.id) ? patch(c) : c)) });
+      };
+      const clear = (c: ReviewComment): ReviewComment => {
+        const { sending: _s, ...rest } = c;
+        return rest;
+      };
       // 先落盘“发送中”：发送期间崩溃时，重启后能看出这批意见送达状态未知，而不是静默重发
       mark((c) => ({ ...c, sending: true }));
       try {

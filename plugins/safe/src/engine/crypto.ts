@@ -16,9 +16,7 @@ export interface Kdf {
 
 /** scrypt 派生 32 字节 KEK；maxmem 256 MiB。 */
 export function deriveKek(password: string, kdf: Kdf): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    scrypt(password.normalize("NFKC"), Buffer.from(kdf.salt, "base64"), 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 256 * 1024 * 1024 }, (err, key) => (err ? reject(err) : resolve(key))),
-  );
+  return new Promise((resolve, reject) => scrypt(password.normalize("NFKC"), Buffer.from(kdf.salt, "base64"), 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 256 * 1024 * 1024 }, (err, key) => (err ? reject(err) : resolve(key))));
 }
 
 export function newKdf(params: { N: number; r: number; p: number } = KDF_PARAMS): Kdf {

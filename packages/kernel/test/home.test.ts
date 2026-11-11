@@ -5,14 +5,25 @@ import { afterEach, describe, expect, test } from "vitest";
 import { HomeStore } from "../src/capabilities/home.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 function setup(start = "2026-11-11T10:00:00Z", zone = "UTC") {
-  const dir = mkdtempSync(path.join(tmpdir(), "huhu-home-")); dirs.push(dir);
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-home-"));
+  dirs.push(dir);
   const clock = { t: new Date(start).getTime(), zone };
   const notes: { title: string; module: string }[] = [];
   const store = new HomeStore({ dir, now: () => new Date(clock.t), zone: () => clock.zone, notify: (n) => notes.push(n) });
-  return { dir, store, clock, notes, advance: (sec: number) => { clock.t += sec * 1000; } };
+  return {
+    dir,
+    store,
+    clock,
+    notes,
+    advance: (sec: number) => {
+      clock.t += sec * 1000;
+    },
+  };
 }
 
 describe("专注计时", () => {
@@ -47,9 +58,11 @@ describe("专注计时", () => {
 
   test("重置回到 25:00；在 0 秒时“开始”先结算再开始新的一轮", () => {
     const { store, advance, notes } = setup();
-    store.focusAction("start"); advance(10);
+    store.focusAction("start");
+    advance(10);
     expect(store.focusAction("reset")).toMatchObject({ remainingSec: 1500, running: false });
-    store.focusAction("start"); advance(1600);
+    store.focusAction("start");
+    advance(1600);
     const v = store.focusAction("start"); // 先结算上一轮，再开始
     expect(v).toMatchObject({ running: true, completedToday: 1, remainingSec: 1500 });
     expect(notes).toHaveLength(1);
@@ -57,7 +70,9 @@ describe("专注计时", () => {
 
   test("今日次数按设置的时区计算“今天”", () => {
     const { store, clock, advance } = setup("2026-11-11T10:00:00Z", "UTC");
-    store.focusAction("start"); advance(1600); store.focusAction("sync");
+    store.focusAction("start");
+    advance(1600);
+    store.focusAction("sync");
     expect(store.focus().completedToday).toBe(1);
     clock.zone = "Pacific/Kiritimati"; // UTC+14：此刻已是 11-12，与记录的 11-11 不同 → 清零
     expect(store.focus().completedToday).toBe(0);

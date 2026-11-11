@@ -5,17 +5,11 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": [
-    "tasks",
-    "agent-cli",
-    "safe"
-  ],
+  "optionalDeps": ["tasks", "agent-cli", "safe"],
   "permissions": [],
   "activation": "vault-open",
   "contributes": {
-    "modules": [
-      "automations"
-    ],
+    "modules": ["automations"],
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],
@@ -39,10 +33,6 @@
       "automations.setEnabled",
       "automations.update"
     ],
-    "fileKinds": [
-      "automation-rule",
-      "automation-run",
-      "task-run"
-    ]
+    "fileKinds": ["automation-rule", "automation-run", "task-run"]
   }
 }

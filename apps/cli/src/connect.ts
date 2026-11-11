@@ -62,4 +62,3 @@ export async function connect(vaultOpt: string | undefined, opts: { engineEntry?
   }
   return { baseUrl: `http://127.0.0.1:${d.port}`, token: tokenFor(opts.role, d), vaultId: d.vaultId };
 }
-

@@ -7,7 +7,9 @@ import { classify, processingKeyOf, type Claim, type ScanEnv, type SnapshotTask 
 import { builtinScanRule } from "../src/shared/builtin.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 const agent = (id: string, over: Partial<SnapshotTask> = {}): SnapshotTask => ({ id, title: id, completed: false, execution: { kind: "agent", spaceId: "space-1", provider: "codex" }, inputRevision: 1, inputHash: `h-${id}`, ...over });
 function env(over: Partial<ScanEnv> = {}, claims: Claim[] = []): ScanEnv {
@@ -19,12 +21,22 @@ describe("classify（预览与扫描共用）", () => {
     const tasks: SnapshotTask[] = [agent("a"), agent("b"), { ...agent("m"), execution: { kind: "manual" } }, agent("d", { completed: true })];
     const r = classify(tasks, env());
     expect(r.candidates.map((c) => c.task.id)).toEqual(["a", "b"]);
-    expect(r.skipped.map((s) => [s.task.id, s.reason])).toEqual([["m", "not-agent"], ["d", "completed"]]);
+    expect(r.skipped.map((s) => [s.task.id, s.reason])).toEqual([
+      ["m", "not-agent"],
+      ["d", "completed"],
+    ]);
   });
   test("同输入已有 claim 跳过（各状态原因不同）；修改正文（hash 变）再次成为候选；只改截止日不变", () => {
     const t = agent("a");
     const mk = (state: Claim["state"]): Claim => ({ processingKey: processingKeyOf(t), taskId: "a", runId: "run-1", state, claimedAt: "" });
-    for (const [state, reason] of [["succeeded", "already-processed"], ["failed", "already-processed"], ["unknown", "already-processed"], ["running", "running"], ["queued", "running"], ["waiting_input", "running"]] as const) {
+    for (const [state, reason] of [
+      ["succeeded", "already-processed"],
+      ["failed", "already-processed"],
+      ["unknown", "already-processed"],
+      ["running", "running"],
+      ["queued", "running"],
+      ["waiting_input", "running"],
+    ] as const) {
       expect(classify([t], env({}, [mk(state)])).skipped[0]).toMatchObject({ reason });
     }
     const done = [mk("succeeded")];
@@ -43,7 +55,8 @@ describe("classify（预览与扫描共用）", () => {
 
 describe("ClaimStore", () => {
   test("原子创建：重复创建返回 false；更新；列表", () => {
-    const d = mkdtempSync(path.join(tmpdir(), "huhu-cl-")); dirs.push(d);
+    const d = mkdtempSync(path.join(tmpdir(), "huhu-cl-"));
+    dirs.push(d);
     const store = new ClaimStore(path.join(d, "claims"));
     const c: Claim = { processingKey: "task-1:1:abc", taskId: "task-1", runId: "run-1", state: "queued", claimedAt: "t" };
     expect(store.create(c)).toBe(true);
@@ -64,7 +77,8 @@ describe("内置规则（ACC-AU-01）", () => {
 describe("HoldStore（ACC-AU-12）", () => {
   test("hold 后同输入被跳过；输入变化（hash 不同）自动失效；release 后恢复处理", async () => {
     const { HoldStore } = await import("../src/engine/holds.js");
-    const d = mkdtempSync(path.join(tmpdir(), "huhu-hold-")); dirs.push(d);
+    const d = mkdtempSync(path.join(tmpdir(), "huhu-hold-"));
+    dirs.push(d);
     const h = new HoldStore(path.join(d, "holds.json"));
     h.hold("task-1", "hash-a");
     expect(h.isHeld("task-1", "hash-a")).toBe(true);
@@ -73,7 +87,8 @@ describe("HoldStore（ACC-AU-12）", () => {
     expect(classify([agent("task-1", { inputHash: "hash-b" })], env({ holds: (t, x) => h.isHeld(t, x) })).candidates).toHaveLength(1);
     h.release("task-1");
     expect(h.isHeld("task-1", "hash-a")).toBe(false);
-    h.hold("task-2", "x"); h.prune(() => "changed");
+    h.hold("task-2", "x");
+    h.prune(() => "changed");
     expect(h.isHeld("task-2", "x")).toBe(false);
   });
 });

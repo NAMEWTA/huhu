@@ -20,7 +20,7 @@ const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 export function validateName(name: string): string | null {
   const n = name.trim();
   if (!n) return "名称不能为空";
-  if (/[\\/:*?"<>|]/.test(n)) return "名称不能包含 / \\ : * ? \" < > |";
+  if (/[\\/:*?"<>|]/.test(n)) return '名称不能包含 / \\ : * ? " < > |';
   if (n === "." || n === ".." || /[. ]$/.test(n)) return "名称不能以点或空格结尾";
   if (RESERVED.test(n.replace(/\.[^.]*$/, ""))) return "这是系统保留名称";
   if ([...n].some((c) => c.charCodeAt(0) < 32)) return "名称包含不可见字符";

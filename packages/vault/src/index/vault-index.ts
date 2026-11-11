@@ -137,7 +137,11 @@ export class VaultIndex {
 
   /** 监听事件的增量更新。 */
   applyChanges(changes: { path: string; change: "created" | "modified" | "deleted" | "renamed"; from?: string }[]): void {
-    if (this._indexing) for (const c of changes) { this.dirty.add(c.path); if (c.from) this.dirty.add(c.from); }
+    if (this._indexing)
+      for (const c of changes) {
+        this.dirty.add(c.path);
+        if (c.from) this.dirty.add(c.from);
+      }
     for (const c of changes) {
       if (isIgnored(c.path)) continue;
       if (c.change === "deleted" || c.change === "renamed") {
@@ -187,9 +191,7 @@ export class VaultIndex {
   backlinks(targetPath: string): { path: string; title: string }[] {
     const base = path.basename(targetPath, path.extname(targetPath));
     const noExt = targetPath.replace(/\.[^./]+$/, "");
-    return [...this.notes.values()]
-      .filter((n) => n.path !== targetPath && n.links.some((l) => l.target === base || l.target === noExt || l.target === targetPath))
-      .map((n) => ({ path: n.path, title: n.title }));
+    return [...this.notes.values()].filter((n) => n.path !== targetPath && n.links.some((l) => l.target === base || l.target === noExt || l.target === targetPath)).map((n) => ({ path: n.path, title: n.title }));
   }
 
   tagsOf(rel: string): string[] {

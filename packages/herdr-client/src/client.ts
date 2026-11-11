@@ -165,7 +165,6 @@ export class HerdrClient {
   close(): void {
     this.socket?.destroy();
   }
-
 }
 
 export interface TerminalStream {
@@ -216,15 +215,38 @@ export async function attachTerminal(endpoint: string, o: { terminal: string; co
       credit(f.payload.length);
     } else if (f.kind === FrameKind.CLOSE) {
       let reason = null;
-      try { reason = f.payload.length ? JSON.parse(f.payload.toString("utf8")) : null; } catch { /* 空/非 JSON 的 CLOSE */ }
+      try {
+        reason = f.payload.length ? JSON.parse(f.payload.toString("utf8")) : null;
+      } catch {
+        /* 空/非 JSON 的 CLOSE */
+      }
       finish(reason);
     }
   });
   return {
-    onData: (fn) => { dataFns.push(fn); for (const b of pendingData.splice(0)) fn(b); },
-    onClose: (fn) => { closeFns.push(fn); if (pendingClose) { const p = pendingClose; pendingClose = null; fn(p.reason); } },
-    write: (b) => { if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.DATA, payload: b }); },
-    resize: (cols, rows) => { if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.RESIZE, payload: resizeFrame(0, cols, rows).subarray(9) }); },
-    close: () => { if (!closed) { c.sendFrame({ channel: r.channel, kind: FrameKind.CLOSE, payload: Buffer.alloc(0) }); finish(null); } },
+    onData: (fn) => {
+      dataFns.push(fn);
+      for (const b of pendingData.splice(0)) fn(b);
+    },
+    onClose: (fn) => {
+      closeFns.push(fn);
+      if (pendingClose) {
+        const p = pendingClose;
+        pendingClose = null;
+        fn(p.reason);
+      }
+    },
+    write: (b) => {
+      if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.DATA, payload: b });
+    },
+    resize: (cols, rows) => {
+      if (!closed) c.sendFrame({ channel: r.channel, kind: FrameKind.RESIZE, payload: resizeFrame(0, cols, rows).subarray(9) });
+    },
+    close: () => {
+      if (!closed) {
+        c.sendFrame({ channel: r.channel, kind: FrameKind.CLOSE, payload: Buffer.alloc(0) });
+        finish(null);
+      }
+    },
   };
 }

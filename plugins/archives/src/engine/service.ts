@@ -59,9 +59,19 @@ export class ArchivesService {
     const def = types.find((t) => t.id === x.type);
     const defined = new Set((def?.fields ?? []).map((f) => f.id));
     return {
-      id: e.id, path: e.path, version: e.version, name: x.name, type: x.type, fields: x.fields, relatedIds: x.relatedIds, noteIds: x.noteIds,
-      body: e.body.replace(/^\r?\n/, ""), updatedAt: x.updatedAt, readOnly: e.readOnly,
-      undefinedFields: Object.keys(x.fields).filter((k) => !defined.has(k)), staleRelations: x.relatedIds.filter((r) => !ids.has(r)),
+      id: e.id,
+      path: e.path,
+      version: e.version,
+      name: x.name,
+      type: x.type,
+      fields: x.fields,
+      relatedIds: x.relatedIds,
+      noteIds: x.noteIds,
+      body: e.body.replace(/^\r?\n/, ""),
+      updatedAt: x.updatedAt,
+      readOnly: e.readOnly,
+      undefinedFields: Object.keys(x.fields).filter((k) => !defined.has(k)),
+      staleRelations: x.relatedIds.filter((r) => !ids.has(r)),
     };
   }
 
@@ -77,7 +87,12 @@ export class ArchivesService {
   }
 
   read(id: string): ArchiveDto {
-    return this.list().find((a) => a.id === id) ?? (() => { throw errors.notFound(`档案 ${id} 不存在`); })();
+    return (
+      this.list().find((a) => a.id === id) ??
+      (() => {
+        throw errors.notFound(`档案 ${id} 不存在`);
+      })()
+    );
   }
 
   private validateFields(typeId: string, fields: Record<string, unknown>): void {
@@ -143,7 +158,11 @@ export class ArchivesService {
       const had = rel.has(id);
       const wants = next.has(other.id);
       if (wants && !had) rewrite(other, [...rel, id]);
-      else if (!wants && prev.has(other.id) && had) rewrite(other, [...rel].filter((x) => x !== id));
+      else if (!wants && prev.has(other.id) && had)
+        rewrite(
+          other,
+          [...rel].filter((x) => x !== id),
+        );
     }
     await this.d.ops.run(`rel-${id}-${Date.now().toString(36)}`, "archive-relations", steps);
     this.d.publish("entity.changed", { kind: "archive", id, op: "updated" });
@@ -193,7 +212,13 @@ export class ArchivesService {
     }
     const cur = this.types().find((t) => t.id === input.id);
     if (!cur) throw errors.notFound("类型不存在");
-    const e = await this.d.repo.patch("archive-type", input.id, { name: input.name.trim(), icon: input.icon ?? cur.icon, fields: input.fields }, input.expectedVersion ?? cur.version, input.body !== undefined ? `\n${input.body}` : undefined);
+    const e = await this.d.repo.patch(
+      "archive-type",
+      input.id,
+      { name: input.name.trim(), icon: input.icon ?? cur.icon, fields: input.fields },
+      input.expectedVersion ?? cur.version,
+      input.body !== undefined ? `\n${input.body}` : undefined,
+    );
     this.d.publish("entity.changed", { kind: "archive-type", id: e.id, op: "updated" });
     return this.toType(e);
   }
@@ -219,4 +244,3 @@ export class ArchivesService {
     return { migrated: affected.length };
   }
 }
-

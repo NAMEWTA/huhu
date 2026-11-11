@@ -17,7 +17,10 @@ function assertTrashId(id: string): void {
 
 /** 回收站：文件移到 `.huhu/trash/<trashId>/`，meta.json 记录来源；恢复时目标已存在则拒绝（不覆盖）。 */
 export class Trash {
-  constructor(private readonly files: VaultFiles, private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly files: VaultFiles,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   private dir(): string {
     return path.join(this.files.root, HUHU_DIR, "trash");

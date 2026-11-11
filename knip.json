@@ -1,45 +1,24 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": [
-    "vendor/**",
-    ".agents/**",
-    "scripts/lint-samples/**"
-  ],
+  "ignore": ["vendor/**", ".agents/**", "scripts/lint-samples/**"],
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
-      "entry": [
-        "scripts/*.mjs",
-        "tests/e2e/*.spec.ts"
-      ]
+      "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts"]
     },
     "packages/vault": {
-      "entry": [
-        "test/fixtures/*.mjs"
-      ],
-      "ignoreDependencies": [
-        "tsx"
-      ]
+      "entry": ["test/fixtures/*.mjs"],
+      "ignoreDependencies": ["tsx"]
     },
     "apps/desktop": {
-      "ignoreDependencies": [
-        "@parcel/watcher",
-        "ssh2"
-      ],
-      "entry": [
-        "scripts/before-pack.cjs",
-        "src/index.ts"
-      ]
+      "ignoreDependencies": ["@parcel/watcher", "ssh2"],
+      "entry": ["scripts/before-pack.cjs", "src/index.ts"]
     },
     "apps/cli": {
-      "entry": [
-        "src/bin.ts"
-      ]
+      "entry": ["src/bin.ts"]
     },
     "plugins/tasks": {
-      "ignoreDependencies": [
-        "tsx"
-      ]
+      "ignoreDependencies": ["tsx"]
     }
   }
 }

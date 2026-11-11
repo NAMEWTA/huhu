@@ -27,13 +27,23 @@ export interface Problem {
 }
 
 const ID_PREFIX: Record<KindName, IdPrefix> = {
-  task: "task", "task-run": "run", "automation-rule": "rule", "automation-run": "arun", "archive-type": "atype", archive: "archive", capture: "cap", comment: "cmt",
+  task: "task",
+  "task-run": "run",
+  "automation-rule": "rule",
+  "automation-run": "arun",
+  "archive-type": "atype",
+  archive: "archive",
+  capture: "cap",
+  comment: "cmt",
 };
 
 export class SemanticRepository {
   private problems = new Map<KindName, Problem[]>();
 
-  constructor(private readonly files: VaultFiles, private readonly ops: OperationLog) {}
+  constructor(
+    private readonly files: VaultFiles,
+    private readonly ops: OperationLog,
+  ) {}
 
   /** 所有 kind 当前的问题列表（供健康中心）。 */
   problemList(): Problem[] {

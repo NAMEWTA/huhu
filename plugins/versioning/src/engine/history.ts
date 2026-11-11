@@ -25,7 +25,10 @@ export class FileHistory {
   private git: GitRunner;
   private ready: Promise<void> | null = null;
 
-  constructor(private readonly files: VaultFiles, private readonly now: () => Date = () => new Date()) {
+  constructor(
+    private readonly files: VaultFiles,
+    private readonly now: () => Date = () => new Date(),
+  ) {
     const dir = path.join(files.root, ".huhu", "history", "git");
     this.git = new GitRunner({ gitDir: dir, workTree: files.root, env: { GIT_AUTHOR_NAME: "HUHU", GIT_AUTHOR_EMAIL: "huhu@localhost", GIT_COMMITTER_NAME: "HUHU", GIT_COMMITTER_EMAIL: "huhu@localhost", GIT_CONFIG_NOSYSTEM: "1" } });
   }
@@ -61,7 +64,10 @@ export class FileHistory {
     if (!this.recordable(p)) return null;
     await this.init();
     await this.git.run(["add", "--force", "--", p]);
-    const diff = await this.git.run(["diff", "--cached", "--quiet", "--", p]).then(() => false, () => true);
+    const diff = await this.git.run(["diff", "--cached", "--quiet", "--", p]).then(
+      () => false,
+      () => true,
+    );
     if (!diff && !title) return null;
     const subject = `${source}|${title ?? ""}|${p}`;
     await this.git.run(["commit", "--quiet", "--allow-empty", "-m", subject, "--date", this.now().toISOString(), "--only", "--", p], { env: { GIT_COMMITTER_DATE: this.now().toISOString() } }); // 命名版本允许内容未变
@@ -76,7 +82,10 @@ export class FileHistory {
     if (!this.recordable(t)) return;
     await this.init();
     await this.git.run(["add", "--force", "-A", "--", f, t]);
-    const dirty = await this.git.run(["diff", "--cached", "--quiet"]).then(() => false, () => true);
+    const dirty = await this.git.run(["diff", "--cached", "--quiet"]).then(
+      () => false,
+      () => true,
+    );
     if (dirty) await this.git.run(["commit", "--quiet", "-m", "edit|", "--date", this.now().toISOString()]);
   }
 
@@ -84,7 +93,10 @@ export class FileHistory {
   async timeline(rel: string): Promise<HistoryEntry[]> {
     const p = normalizeRelPath(rel);
     await this.init();
-    const head = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(() => true, () => false);
+    const head = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+      () => true,
+      () => false,
+    );
     if (!head) return [];
     // 内容变化的版本：按 --follow 追踪（含改名前）；内容未变的命名版本是空提交，按主题里的路径找回
     const follow = (await this.git.run(["log", "--follow", "--name-only", "--format=%x1e%H%x1f%cI%x1f%s", "--", p])).stdout;
@@ -97,7 +109,12 @@ export class FileHistory {
       const [source = "edit", title = ""] = subject.split("|");
       byId.set(id, { id, at, source: source as HistorySource, title: title || null, path: names.find((n) => n.trim())?.trim() ?? p, size: 0 });
     }
-    const order = new Map((await this.git.run(["rev-list", "HEAD"])).stdout.split("\n").filter(Boolean).map((id, i) => [id, i]));
+    const order = new Map(
+      (await this.git.run(["rev-list", "HEAD"])).stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((id, i) => [id, i]),
+    );
     const entries = [...byId.values()].sort((x, y) => (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0)); // 最新在前（按提交顺序，而不是可能相同的时间戳）
     return entries;
   }
@@ -117,7 +134,12 @@ export class FileHistory {
    * 恢复：校验当前版本 → 先把当前内容存为"恢复前"版本 → 写入所选内容 → 作为新的当前版本记录。
    * 调用方（插件）负责语义文件的字段保护（规则文件恢复后暂停等）。
    */
-  async restore(rel: string, entryId: string, expectedCurrentVersion: string, hooks: { transform?: (restored: string, current: string) => string; afterWrite?: (text: string) => void } = {}): Promise<{ checkpoint: HistoryEntry | null; restored: HistoryEntry | null }> {
+  async restore(
+    rel: string,
+    entryId: string,
+    expectedCurrentVersion: string,
+    hooks: { transform?: (restored: string, current: string) => string; afterWrite?: (text: string) => void } = {},
+  ): Promise<{ checkpoint: HistoryEntry | null; restored: HistoryEntry | null }> {
     const p = normalizeRelPath(rel);
     const cur = this.files.read(p);
     if (!cur) throw errors.notFound(`文件不存在：${p}`);
@@ -133,4 +155,3 @@ export class FileHistory {
     return { checkpoint, restored };
   }
 }
-

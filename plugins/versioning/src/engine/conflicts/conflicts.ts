@@ -17,13 +17,20 @@ export interface ConflictHooks {
   validateResolved?: (path: string, text: string) => void;
 }
 
-export interface WholeSide { exists: boolean; mode?: string; size?: number; binary?: boolean; preview?: string }
-export type ConflictFileView =
-  | { path: string; kind: "blocks"; segments: (Segment & { index?: number })[] }
-  | { path: string; kind: "whole"; reason: string; ours: WholeSide; theirs: WholeSide };
+export interface WholeSide {
+  exists: boolean;
+  mode?: string;
+  size?: number;
+  binary?: boolean;
+  preview?: string;
+}
+export type ConflictFileView = { path: string; kind: "blocks"; segments: (Segment & { index?: number })[] } | { path: string; kind: "whole"; reason: string; ours: WholeSide; theirs: WholeSide };
 
 export interface ConflictListing {
-  id: string; createdAt: string; localHead: string; remoteHead: string;
+  id: string;
+  createdAt: string;
+  localHead: string;
+  remoteHead: string;
   files: { path: string; kind: "blocks" | "whole"; blocks: number; reason?: string }[];
 }
 
@@ -80,7 +87,7 @@ export class SyncConflicts {
     if (!f.base || !f.ours || !f.theirs) return { kind: "whole", reason: !f.ours || !f.theirs ? "一方删除了该文件" : "双方各自新增了该文件" };
     if (f.base.mode !== f.ours.mode || f.ours.mode !== f.theirs.mode) return { kind: "whole", reason: "文件类型或权限发生了变化" };
     if (f.ours.mode !== "100644" && f.ours.mode !== "100755") return { kind: "whole", reason: "符号链接或子模块" };
-    const [b, o, t] = await Promise.all([this.blob(f.base), this.blob(f.ours), this.blob(f.theirs)]) as [Buffer, Buffer, Buffer];
+    const [b, o, t] = (await Promise.all([this.blob(f.base), this.blob(f.ours), this.blob(f.theirs)])) as [Buffer, Buffer, Buffer];
     const [bs, os_, ts] = [decodeText(b), decodeText(o), decodeText(t)];
     if (bs === null || os_ === null || ts === null) return { kind: "whole", reason: "二进制文件或体积过大" };
     const segments = splitThreeWay(bs, os_, ts);
@@ -107,7 +114,7 @@ export class SyncConflicts {
 
   private async side(st: Stage | null): Promise<WholeSide> {
     if (!st) return { exists: false };
-    const b = await this.blob(st) as Buffer;
+    const b = (await this.blob(st)) as Buffer;
     const text = decodeText(b);
     return { exists: true, mode: st.mode, size: b.byteLength, binary: text === null, ...(text !== null && b.byteLength <= 1024 * 1024 ? { preview: text.slice(0, PREVIEW_CHARS) } : {}) };
   }
@@ -126,14 +133,29 @@ export class SyncConflicts {
     const s = this.need();
     if (s.id !== sessionId) throw stale();
     // 重验：本地分支没动、远端对象还在、重新预判的冲突文件集合与会话一致
-    const head = await this.git.run(["rev-parse", "--verify", "HEAD"]).then((r) => r.stdout.trim(), () => "");
-    if (head !== s.localHead) { clearSession(this.root); throw stale(); }
-    const remoteOk = await this.git.run(["cat-file", "-e", `${s.remoteHead}^{commit}`]).then(() => true, () => false);
-    if (!remoteOk) { clearSession(this.root); throw stale(); }
+    const head = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
+      (r) => r.stdout.trim(),
+      () => "",
+    );
+    if (head !== s.localHead) {
+      clearSession(this.root);
+      throw stale();
+    }
+    const remoteOk = await this.git.run(["cat-file", "-e", `${s.remoteHead}^{commit}`]).then(
+      () => true,
+      () => false,
+    );
+    if (!remoteOk) {
+      clearSession(this.root);
+      throw stale();
+    }
     const mt = await this.git.run(["merge-tree", "--write-tree", "--name-only", "-z", s.localHead, s.remoteHead], { okCodes: [1] }).catch(() => null);
     const now = mt && mt.code === 1 ? parseConflictNames(mt.stdout) : null;
     const want = s.files.map((f) => f.path).sort((a, b) => a.localeCompare(b));
-    if (!mt || !now || now.length !== want.length || now.some((n, i) => n !== want[i])) { clearSession(this.root); throw stale(); }
+    if (!mt || !now || now.length !== want.length || now.some((n, i) => n !== want[i])) {
+      clearSession(this.root);
+      throw stale();
+    }
     const mergedTree = mt.stdout.split("\0")[0] as string;
 
     // 输入必须恰好覆盖会话里的每个文件
@@ -149,7 +171,11 @@ export class SyncConflicts {
         if (a.kind !== "blocks") throw errors.invalidInput(`${f.path} 只能整文件选择`);
         if (r.blocks.length !== countConflicts(a.segments)) throw errors.invalidInput(`${f.path} 的冲突块选择数量不对`);
         const text = applyChoices(a.segments, r.blocks);
-        try { this.hooks.validateResolved?.(f.path, text); } catch (e) { throw errors.invalidInput(`${f.path} 解决后的内容不合法：${e instanceof Error ? e.message : String(e)}`); }
+        try {
+          this.hooks.validateResolved?.(f.path, text);
+        } catch (e) {
+          throw errors.invalidInput(`${f.path} 解决后的内容不合法：${e instanceof Error ? e.message : String(e)}`);
+        }
         plans.push({ f, action: { kind: "text", text, mode: (f.ours as Stage).mode } });
       } else {
         if (a.kind === "blocks") throw errors.invalidInput(`${f.path} 需要逐块选择`);
@@ -189,7 +215,10 @@ export class SyncConflicts {
     try {
       await this.git.run(["update-ref", "-m", "huhu resolve conflicts", "HEAD", commit, s.localHead]);
     } catch (e) {
-      const back = await this.git.run(["read-tree", "-m", "-u", commit, s.localHead]).then(() => null, (e2: unknown) => e2); // 回到解决前
+      const back = await this.git.run(["read-tree", "-m", "-u", commit, s.localHead]).then(
+        () => null,
+        (e2: unknown) => e2,
+      ); // 回到解决前
       if (back) throw new HuhuError("INTERNAL", `提交解决结果失败且回退也失败，请检查 Git 页的状态后重新同步（${e instanceof Error ? e.message : String(e)}）`, { retryable: false });
       throw e;
     }

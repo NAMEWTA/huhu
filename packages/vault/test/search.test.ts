@@ -48,7 +48,8 @@ describe("全文检索", () => {
     expect(ix.query("完全")).toEqual([]);
   });
   test("清空", () => {
-    const ix = build(); ix.clear();
+    const ix = build();
+    ix.clear();
     expect(ix.query("研究")).toEqual([]);
   });
 });

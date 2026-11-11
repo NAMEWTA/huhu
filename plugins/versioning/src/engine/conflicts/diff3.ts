@@ -1,11 +1,14 @@
 /** 按行的三方分段：把"基线/本地/远端"拆成公共段与冲突块，逐块可选。纯函数，字节保真（保留 CRLF、末尾无换行）。 */
-export type Segment =
-  | { kind: "common"; text: string }
-  | { kind: "conflict"; base: string; ours: string; theirs: string };
+export type Segment = { kind: "common"; text: string } | { kind: "conflict"; base: string; ours: string; theirs: string };
 
 export type Choice = "ours" | "theirs" | "both" | { custom: string };
 
-interface Hunk { a0: number; a1: number; b0: number; b1: number }
+interface Hunk {
+  a0: number;
+  a1: number;
+  b0: number;
+  b1: number;
+}
 
 /** LCS 表的单元上限（超过则放弃逐块，调用方按整文件处理）。 */
 const MAX_CELLS = 4_000_000;
@@ -20,7 +23,10 @@ function diffHunks(a: string[], b: string[]): Hunk[] | null {
   while (s < a.length && s < b.length && a[s] === b[s]) s++;
   let ea = a.length;
   let eb = b.length;
-  while (ea > s && eb > s && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
+  while (ea > s && eb > s && a[ea - 1] === b[eb - 1]) {
+    ea--;
+    eb--;
+  }
   const n = ea - s;
   const m = eb - s;
   if (n === 0 && m === 0) return [];
@@ -37,12 +43,27 @@ function diffHunks(a: string[], b: string[]): Hunk[] | null {
   let i = 0;
   let j = 0;
   let open: Hunk | null = null;
-  const close = () => { if (open) { out.push(open); open = null; } };
+  const close = () => {
+    if (open) {
+      out.push(open);
+      open = null;
+    }
+  };
   while (i < n || j < m) {
-    if (i < n && j < m && a[s + i] === b[s + j]) { close(); i++; j++; continue; }
+    if (i < n && j < m && a[s + i] === b[s + j]) {
+      close();
+      i++;
+      j++;
+      continue;
+    }
     open ??= { a0: s + i, a1: s + i, b0: s + j, b1: s + j };
-    if (j < m && (i === n || (L[i * w + j + 1] as number) >= (L[(i + 1) * w + j] as number))) { j++; open.b1 = s + j; }
-    else { i++; open.a1 = s + i; }
+    if (j < m && (i === n || (L[i * w + j + 1] as number) >= (L[(i + 1) * w + j] as number))) {
+      j++;
+      open.b1 = s + j;
+    } else {
+      i++;
+      open.a1 = s + i;
+    }
   }
   close();
   return out;
@@ -107,7 +128,10 @@ export function applyChoices(segs: readonly Segment[], choices: readonly Choice[
   let n = 0;
   let out = "";
   for (const s of segs) {
-    if (s.kind === "common") { out += s.text; continue; }
+    if (s.kind === "common") {
+      out += s.text;
+      continue;
+    }
     const c = choices[n++];
     if (c === undefined) throw new Error("冲突块选择数量不足");
     out += c === "ours" ? s.ours : c === "theirs" ? s.theirs : c === "both" ? s.ours + s.theirs : c.custom;

@@ -7,22 +7,41 @@ import { Safe } from "../src/engine/safe.js";
 import { formatSecretRef, parseSecretRef } from "../src/shared/secret-ref.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 const FAST = { N: 2 ** 10, r: 8, p: 1 }; // 测试用低成本参数；生产为 N=2^17
 const PW = "correct horse battery";
 
 function setup() {
-  const root = mkdtempSync(path.join(tmpdir(), "huhu-s-")); dirs.push(root);
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-s-"));
+  dirs.push(root);
   const dir = path.join(root, ".huhu", "safe");
   let now = 1_700_000_000_000;
   const timers: { fn: () => void; at: number; id: number }[] = [];
   let tid = 0;
   const safe = new Safe({
-    dir, now: () => now, publish: () => undefined, kdfParams: FAST,
-    setTimer: (fn, ms) => { const t = { fn, at: now + ms, id: ++tid }; timers.push(t); return t.id; },
-    clearTimer: (h) => { const i = timers.findIndex((t) => t.id === h); if (i >= 0) timers.splice(i, 1); },
+    dir,
+    now: () => now,
+    publish: () => undefined,
+    kdfParams: FAST,
+    setTimer: (fn, ms) => {
+      const t = { fn, at: now + ms, id: ++tid };
+      timers.push(t);
+      return t.id;
+    },
+    clearTimer: (h) => {
+      const i = timers.findIndex((t) => t.id === h);
+      if (i >= 0) timers.splice(i, 1);
+    },
   });
-  const advance = (ms: number) => { now += ms; for (const t of [...timers].filter((x) => x.at <= now)) { timers.splice(timers.indexOf(t), 1); t.fn(); } };
+  const advance = (ms: number) => {
+    now += ms;
+    for (const t of [...timers].filter((x) => x.at <= now)) {
+      timers.splice(timers.indexOf(t), 1);
+      t.fn();
+    }
+  };
   return { safe, root, dir, advance, timers: () => timers.length };
 }
 
@@ -32,7 +51,8 @@ describe("密码学", () => {
     const sealed = seal(key, Buffer.from("秘密"), "item:a");
     expect(open(key, sealed, "item:a").toString()).toBe("秘密");
     expect(() => open(key, sealed, "item:b")).toThrow(SealError); // 换 itemId
-    const tampered = Buffer.from(sealed); tampered[tampered.length - 1] = (tampered[tampered.length - 1] ?? 0) ^ 1;
+    const tampered = Buffer.from(sealed);
+    tampered[tampered.length - 1] = (tampered[tampered.length - 1] ?? 0) ^ 1;
     expect(() => open(key, tampered, "item:a")).toThrow(SealError);
     expect(() => open(Buffer.alloc(32, 1), sealed, "item:a")).toThrow(SealError);
     expect(() => open(key, Buffer.from("junk"), "item:a")).toThrow(SealError);
@@ -62,7 +82,8 @@ describe("设置与解锁", () => {
   });
   test("ACC-SF-02 错误密码 5 次后进入 30 秒冷却，冷却后可再试", async () => {
     const { safe, advance } = setup();
-    await safe.setup(PW); safe.lock();
+    await safe.setup(PW);
+    safe.lock();
     for (let i = 0; i < 5; i++) await expect(safe.unlock("wrong-password-1")).rejects.toMatchObject({ code: "SAFE_BAD_PASSWORD" });
     await expect(safe.unlock(PW)).rejects.toMatchObject({ code: "SAFE_BAD_PASSWORD", details: { cooldownSeconds: 30 } }); // 正确密码也被拒
     expect(safe.status().cooldownSeconds).toBeGreaterThan(0);
@@ -72,13 +93,20 @@ describe("设置与解锁", () => {
   });
   test("锁定状态下操作 → SAFE_LOCKED 带解锁动作", async () => {
     const { safe } = setup();
-    await safe.setup(PW); safe.lock();
+    await safe.setup(PW);
+    safe.lock();
     expect(() => safe.itemsList()).toThrowError(/已锁定/);
-    try { safe.itemsList(); } catch (e) { expect((e as { code: string; recovery: unknown }).code).toBe("SAFE_LOCKED"); expect((e as { recovery: unknown[] }).recovery).toHaveLength(1); }
+    try {
+      safe.itemsList();
+    } catch (e) {
+      expect((e as { code: string; recovery: unknown }).code).toBe("SAFE_LOCKED");
+      expect((e as { recovery: unknown[] }).recovery).toHaveLength(1);
+    }
   });
   test("keyring 损坏 → 不可用且不覆盖文件", async () => {
     const { safe, dir } = setup();
-    await safe.setup(PW); safe.lock();
+    await safe.setup(PW);
+    safe.lock();
     writeFileSync(path.join(dir, "keyring.json"), "{broken");
     expect(safe.status().corrupt).toBe(true);
     await expect(safe.unlock(PW)).rejects.toThrowError(/损坏/);
@@ -117,7 +145,13 @@ describe("条目与秘密", () => {
     expect(safe.reveal(item.id)).toBe("HUHU-MARKER-7f3a");
     safe.lock();
     const hits: string[] = [];
-    const walk = (d: string) => { for (const n of readdirSync(d)) { const p = path.join(d, n); if (statSync(p).isDirectory()) walk(p); else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) hits.push(p); } };
+    const walk = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = path.join(d, n);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) hits.push(p);
+      }
+    };
     walk(root);
     expect(hits).toEqual([]);
     expect(readdirSync(path.join(dir, "sealed"))).toEqual([`${item.id}.bin`]);
@@ -166,13 +200,21 @@ describe("SecretUse（ACC-SF-04）", () => {
     const ref = formatSecretRef(it.id);
     expect(safe.resolve(ref, { plugin: "ssh", purpose: "connect" })).toBe("KEY");
     expect(() => safe.resolve(ref, { plugin: "automations", purpose: "script env" })).toThrowError(/不允许/);
-    try { safe.resolve(ref, { plugin: "automations", purpose: "x" }); } catch (e) { expect((e as { code: string }).code).toBe("SECRET_REF_INVALID"); }
+    try {
+      safe.resolve(ref, { plugin: "automations", purpose: "x" });
+    } catch (e) {
+      expect((e as { code: string }).code).toBe("SECRET_REF_INVALID");
+    }
     expect(() => safe.resolve("safe://item-missing1", { plugin: "ssh", purpose: "x" })).toThrow();
     expect(() => safe.resolve("not-a-ref", { plugin: "ssh", purpose: "x" })).toThrow();
     const log = safe.auditList();
     expect(log.filter((a) => a.action === "use-denied").length).toBeGreaterThanOrEqual(2);
     expect(log.find((a) => a.action === "use")).toMatchObject({ subject: "ssh", itemId: it.id });
     safe.lock();
-    try { safe.resolve(ref, { plugin: "ssh", purpose: "x" }); } catch (e) { expect((e as { code: string }).code).toBe("SAFE_LOCKED"); }
+    try {
+      safe.resolve(ref, { plugin: "ssh", purpose: "x" });
+    } catch (e) {
+      expect((e as { code: string }).code).toBe("SAFE_LOCKED");
+    }
   });
 });

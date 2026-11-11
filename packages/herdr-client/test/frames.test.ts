@@ -14,7 +14,11 @@ describe("帧编解码", () => {
     for (const cut of [1, 3, 9, 10, all.length - 1]) {
       const d = new FrameDecoder();
       const frames = [...d.push(all.subarray(0, cut)), ...d.push(all.subarray(cut))];
-      expect(frames.map((f) => [f.channel, f.kind])).toEqual([[7, 0], [7, 1], [7, 3]]);
+      expect(frames.map((f) => [f.channel, f.kind])).toEqual([
+        [7, 0],
+        [7, 1],
+        [7, 3],
+      ]);
       expect(frames[0]?.payload.toString()).toBe("你好");
       expect(frames[1]?.payload.readUInt32LE(0)).toBe(1234);
       expect([frames[2]?.payload.readUInt16LE(0), frames[2]?.payload.readUInt16LE(2)]).toEqual([120, 40]);
@@ -26,7 +30,8 @@ describe("帧编解码", () => {
   });
   test("超限长度拒绝", () => {
     const d = new FrameDecoder();
-    const h = Buffer.alloc(9); h.writeUInt32LE(MAX_PAYLOAD + 1, 5);
+    const h = Buffer.alloc(9);
+    h.writeUInt32LE(MAX_PAYLOAD + 1, 5);
     expect(() => d.push(h)).toThrow(RangeError);
     expect(() => encodeFrame({ channel: 0, kind: 0, payload: Buffer.alloc(MAX_PAYLOAD + 1) })).toThrow(RangeError);
   });
@@ -34,10 +39,13 @@ describe("帧编解码", () => {
 
 describe("HerdrClient（假 Core）", () => {
   const dirs: string[] = [];
-  afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
 
   async function fakeCore() {
-    const dir = mkdtempSync(path.join(tmpdir(), "huhu-hc-")); dirs.push(dir);
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-hc-"));
+    dirs.push(dir);
     const sock = path.join(dir, "hc.sock");
     let framed = false;
     const dec = new FrameDecoder();
@@ -46,15 +54,28 @@ describe("HerdrClient（假 Core）", () => {
       const reply = (m: unknown) => s.write(framed ? encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify(m)) }) : JSON.stringify(m) + "\n");
       const handle = (text: string) => {
         const req = JSON.parse(text) as { id: number; method: string; params: unknown };
-        if (req.method === "hello") { reply({ jsonrpc: "2.0", id: req.id, result: { features: ["automatic_input"] } }); framed = true; }
-        else if (req.method === "terminal.list") reply({ jsonrpc: "2.0", id: req.id, result: { terminals: [] } });
+        if (req.method === "hello") {
+          reply({ jsonrpc: "2.0", id: req.id, result: { features: ["automatic_input"] } });
+          framed = true;
+        } else if (req.method === "terminal.list") reply({ jsonrpc: "2.0", id: req.id, result: { terminals: [] } });
         else if (req.method === "terminal.get") reply({ jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "no terminal t9", data: { kind: "not_found" } } });
-        else if (req.method === "slow") { /* 不回复，测超时 */ }
-        else if (req.method === "events") { s.write(JSON.stringify({ jsonrpc: "2.0", method: "event", params: { seq: 1, type: "status", terminal: "t1" } }) + "\n"); reply({ jsonrpc: "2.0", id: req.id, result: {} }); }
+        else if (req.method === "slow") {
+          /* 不回复，测超时 */
+        } else if (req.method === "events") {
+          s.write(JSON.stringify({ jsonrpc: "2.0", method: "event", params: { seq: 1, type: "status", terminal: "t1" } }) + "\n");
+          reply({ jsonrpc: "2.0", id: req.id, result: {} });
+        }
       };
       s.on("data", (d) => {
-        if (!framed) { buf += d.toString(); let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) handle(l); } }
-        else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString());
+        if (!framed) {
+          buf += d.toString();
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const l = buf.slice(0, i);
+            buf = buf.slice(i + 1);
+            if (l.trim()) handle(l);
+          }
+        } else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString());
       });
     });
     await new Promise<void>((r) => server.listen(sock, r));
@@ -73,7 +94,8 @@ describe("HerdrClient（假 Core）", () => {
     expect(events).toEqual([{ seq: 1, type: "status", terminal: "t1" }]);
     await c.hello();
     expect(await c.call("terminal.list")).toEqual({ terminals: [] }); // framed 模式
-    c.close(); core.close();
+    c.close();
+    core.close();
     expect(HerdrError).toBeDefined();
   });
   test("连不上 → HERDR_UNAVAILABLE；断开后挂起的调用被拒绝", async () => {
@@ -92,23 +114,40 @@ describe("HerdrClient（假 Core）", () => {
 
 describe("attachTerminal 审计回归", () => {
   const dirs2: string[] = [];
-  afterEach(() => { for (const d of dirs2.splice(0)) rmSync(d, { recursive: true, force: true }); });
+  afterEach(() => {
+    for (const d of dirs2.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
 
   async function core(onAttach: (s: net.Socket) => void) {
-    const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-")); dirs2.push(dir);
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-"));
+    dirs2.push(dir);
     const sock = path.join(dir, "c.sock");
     const server = net.createServer((s) => {
-      let framed = false; let buf = ""; const dec = new FrameDecoder();
+      let framed = false;
+      let buf = "";
+      const dec = new FrameDecoder();
       const reply = (m: unknown) => s.write(framed ? encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify(m)) }) : JSON.stringify(m) + "\n");
       const handle = (text: string) => {
         const req = JSON.parse(text) as { id: number; method: string };
-        if (req.method === "hello") { reply({ jsonrpc: "2.0", id: req.id, result: {} }); framed = true; }
-        else if (req.method === "terminal.attach") { onAttach(s); void req; }
+        if (req.method === "hello") {
+          reply({ jsonrpc: "2.0", id: req.id, result: {} });
+          framed = true;
+        } else if (req.method === "terminal.attach") {
+          onAttach(s);
+          void req;
+        }
       };
       s.on("error", () => undefined);
       s.on("data", (d) => {
-        if (!framed) { buf += d.toString(); let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) handle(l); } }
-        else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString());
+        if (!framed) {
+          buf += d.toString();
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const l = buf.slice(0, i);
+            buf = buf.slice(i + 1);
+            if (l.trim()) handle(l);
+          }
+        } else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString());
       });
     });
     await new Promise<void>((r) => server.listen(sock, r));
@@ -126,8 +165,12 @@ describe("attachTerminal 审计回归", () => {
     const t = await attachTerminal(c.sock, { terminal: "t1", cols: 80, rows: 24 });
     let got = "";
     let reason: unknown = "unset";
-    t.onData((b) => { got += b.toString(); });
-    t.onClose((r) => { reason = r; });
+    t.onData((b) => {
+      got += b.toString();
+    });
+    t.onClose((r) => {
+      reason = r;
+    });
     expect(got).toBe("FIRST-PAINT");
     expect(reason).toMatchObject({ reason: "exited" });
     c.close();
@@ -135,15 +178,39 @@ describe("attachTerminal 审计回归", () => {
 
   test("attach 被拒绝时关闭 socket（不泄漏）", async () => {
     const { attachTerminal } = await import("../src/index.js");
-    let conns = 0; let closed = 0;
-    const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-")); dirs2.push(dir);
+    let conns = 0;
+    let closed = 0;
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-"));
+    dirs2.push(dir);
     const sock = path.join(dir, "c.sock");
     const server = net.createServer((s) => {
-      conns++; s.on("close", () => { closed++; }); s.on("error", () => undefined);
-      let framed = false; const dec = new FrameDecoder(); let buf = "";
+      conns++;
+      s.on("close", () => {
+        closed++;
+      });
+      s.on("error", () => undefined);
+      let framed = false;
+      const dec = new FrameDecoder();
+      let buf = "";
       const reply = (m: unknown) => s.write(framed ? encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(JSON.stringify(m)) }) : JSON.stringify(m) + "\n");
-      const handle = (text: string) => { const req = JSON.parse(text) as { id: number; method: string }; if (req.method === "hello") { reply({ jsonrpc: "2.0", id: req.id, result: {} }); framed = true; } else reply({ jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "no terminal", data: { kind: "not_found" } } }); };
-      s.on("data", (d) => { if (!framed) { buf += d.toString(); let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.trim()) handle(l); } } else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString()); });
+      const handle = (text: string) => {
+        const req = JSON.parse(text) as { id: number; method: string };
+        if (req.method === "hello") {
+          reply({ jsonrpc: "2.0", id: req.id, result: {} });
+          framed = true;
+        } else reply({ jsonrpc: "2.0", id: req.id, error: { code: -32000, message: "no terminal", data: { kind: "not_found" } } });
+      };
+      s.on("data", (d) => {
+        if (!framed) {
+          buf += d.toString();
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const l = buf.slice(0, i);
+            buf = buf.slice(i + 1);
+            if (l.trim()) handle(l);
+          }
+        } else for (const f of dec.push(d)) if (f.channel === 0) handle(f.payload.toString());
+      });
     });
     await new Promise<void>((r) => server.listen(sock, r));
     await expect(attachTerminal(sock, { terminal: "t9", cols: 80, rows: 24 })).rejects.toMatchObject({ name: "HerdrError", kind: "not_found" });
@@ -160,7 +227,9 @@ describe("attachTerminal 审计回归", () => {
       s.write(reply);
       setTimeout(() => s.write(encodeFrame({ channel: 7, kind: FrameKind.DATA, payload: Buffer.alloc(1000) })), 50);
       const dec = new FrameDecoder();
-      s.on("data", (d) => { for (const f of dec.push(d)) if (f.channel === 7 && f.kind === FrameKind.CREDIT) credits.push(f.payload.readUInt32LE(0)); });
+      s.on("data", (d) => {
+        for (const f of dec.push(d)) if (f.channel === 7 && f.kind === FrameKind.CREDIT) credits.push(f.payload.readUInt32LE(0));
+      });
     });
     let ok = false;
     const t = await attachTerminal(c.sock, { terminal: "t1", cols: 80, rows: 24, canSend: () => ok });

@@ -5,15 +5,11 @@
   "version": "0.0.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": [
-    "safe"
-  ],
+  "optionalDeps": ["safe"],
   "permissions": [],
   "activation": "vault-open",
   "contributes": {
-    "modules": [
-      "agent-cli"
-    ],
+    "modules": ["agent-cli"],
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],

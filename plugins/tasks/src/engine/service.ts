@@ -12,9 +12,17 @@ export interface TasksDeps {
 }
 
 type TaskData = {
-  title: string; completed: boolean; completedAt: string | null; due: string | null; project: string | null;
-  execution: TaskDto["execution"]; resources: TaskDto["resources"]; reminders: TaskDto["reminders"];
-  inputRevision: number; createdAt: string; updatedAt: string;
+  title: string;
+  completed: boolean;
+  completedAt: string | null;
+  due: string | null;
+  project: string | null;
+  execution: TaskDto["execution"];
+  resources: TaskDto["resources"];
+  reminders: TaskDto["reminders"];
+  inputRevision: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -23,9 +31,23 @@ export function toDto(e: Entity): TaskDto {
   const d = e.data as unknown as TaskData;
   const body = e.body.replace(/^\r?\n/, "");
   return {
-    id: e.id, path: e.path, version: e.version, title: d.title, body, completed: d.completed, completedAt: d.completedAt ?? null, due: d.due ?? null,
-    project: d.project ?? null, execution: d.execution, resources: d.resources, reminders: d.reminders, inputRevision: d.inputRevision,
-    inputHash: inputHash({ title: d.title, body, resources: d.resources, execution: d.execution }), createdAt: d.createdAt, updatedAt: d.updatedAt, readOnly: e.readOnly,
+    id: e.id,
+    path: e.path,
+    version: e.version,
+    title: d.title,
+    body,
+    completed: d.completed,
+    completedAt: d.completedAt ?? null,
+    due: d.due ?? null,
+    project: d.project ?? null,
+    execution: d.execution,
+    resources: d.resources,
+    reminders: d.reminders,
+    inputRevision: d.inputRevision,
+    inputHash: inputHash({ title: d.title, body, resources: d.resources, execution: d.execution }),
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+    readOnly: e.readOnly,
   };
 }
 
@@ -54,8 +76,17 @@ export class TasksService {
   async create(input: TaskWritable): Promise<TaskDto> {
     const now = iso(this.d.now());
     const data = {
-      title: input.title, completed: false, completedAt: null, due: input.due, project: input.project, execution: input.execution, resources: input.resources,
-      reminders: input.reminders.map((r) => ({ ...r, id: r.id || newId("cap").replace("cap", "rem"), deliveredAt: null })), inputRevision: 1, createdAt: now, updatedAt: now,
+      title: input.title,
+      completed: false,
+      completedAt: null,
+      due: input.due,
+      project: input.project,
+      execution: input.execution,
+      resources: input.resources,
+      reminders: input.reminders.map((r) => ({ ...r, id: r.id || newId("cap").replace("cap", "rem"), deliveredAt: null })),
+      inputRevision: 1,
+      createdAt: now,
+      updatedAt: now,
     };
     const e = await this.d.repo.create("task", data, input.body);
     this.d.publish("entity.changed", { kind: "task", id: e.id, op: "created" });
@@ -65,7 +96,10 @@ export class TasksService {
   async update(id: string, expectedVersion: string, patch: Partial<TaskWritable>): Promise<TaskDto> {
     const cur = this.read(id);
     const next = {
-      title: patch.title ?? cur.title, body: patch.body ?? cur.body, resources: patch.resources ?? cur.resources, execution: patch.execution ?? cur.execution,
+      title: patch.title ?? cur.title,
+      body: patch.body ?? cur.body,
+      resources: patch.resources ?? cur.resources,
+      execution: patch.execution ?? cur.execution,
     };
     const changes: Record<string, unknown> = { updatedAt: iso(this.d.now()) };
     if (patch.title !== undefined) changes["title"] = patch.title;
@@ -102,7 +136,12 @@ export class TasksService {
   async duplicate(id: string): Promise<TaskDto> {
     const cur = this.read(id);
     return this.create({
-      title: `${cur.title} 副本`.slice(0, 200), body: cur.body, due: cur.due, project: cur.project, execution: cur.execution, resources: cur.resources,
+      title: `${cur.title} 副本`.slice(0, 200),
+      body: cur.body,
+      due: cur.due,
+      project: cur.project,
+      execution: cur.execution,
+      resources: cur.resources,
       reminders: cur.reminders.map((r) => ({ ...r, deliveredAt: null })),
     });
   }
@@ -138,4 +177,3 @@ export class TasksService {
     this.d.publish("reminder.due", { taskId, reminderId, title: cur.title });
   }
 }
-

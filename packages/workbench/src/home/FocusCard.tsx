@@ -3,7 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 
-interface FocusView { remainingSec: number; running: boolean; endsAt: string | null; completedToday: number }
+interface FocusView {
+  remainingSec: number;
+  running: boolean;
+  endsAt: string | null;
+  completedToday: number;
+}
 
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
@@ -37,24 +42,47 @@ export function FocusCard() {
   useEffect(() => {
     if (v?.running && remaining === 0 && !settling.current) {
       settling.current = true;
-      void act("sync").finally(() => { settling.current = false; });
+      void act("sync").finally(() => {
+        settling.current = false;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v?.running, remaining]);
 
-  if (!v) return <div className="hu-card" data-testid="card-focus"><span>{tHome.focus.title}</span></div>;
+  if (!v)
+    return (
+      <div className="hu-card" data-testid="card-focus">
+        <span>{tHome.focus.title}</span>
+      </div>
+    );
   return (
     <section className="hu-card" data-testid="card-focus" aria-label={tHome.focus.title}>
       <span>{tHome.focus.title}</span>
-      <strong data-testid="focus-time" role="timer" aria-live="off">{fmt(remaining)}</strong>
+      <strong data-testid="focus-time" role="timer" aria-live="off">
+        {fmt(remaining)}
+      </strong>
       <div className="hu-row">
-        {v.running
-          ? <Button onClick={() => void act("pause")} data-testid="focus-pause">{tHome.focus.pause}</Button>
-          : <Button variant="primary" onClick={() => void act("start")} data-testid="focus-start">{tHome.focus.start}</Button>}
-        <Button onClick={() => void act("reset")} data-testid="focus-reset">{tHome.focus.reset}</Button>
+        {v.running ? (
+          <Button onClick={() => void act("pause")} data-testid="focus-pause">
+            {tHome.focus.pause}
+          </Button>
+        ) : (
+          <Button variant="primary" onClick={() => void act("start")} data-testid="focus-start">
+            {tHome.focus.start}
+          </Button>
+        )}
+        <Button onClick={() => void act("reset")} data-testid="focus-reset">
+          {tHome.focus.reset}
+        </Button>
       </div>
-      <span className="hu-meta" data-testid="focus-completed">{tHome.focus.completedToday(v.completedToday)}</span>
-      {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
+      <span className="hu-meta" data-testid="focus-completed">
+        {tHome.focus.completedToday(v.completedToday)}
+      </span>
+      {error ? (
+        <div role="alert" className="hu-overdue">
+          {error}
+        </div>
+      ) : null}
     </section>
   );
 }

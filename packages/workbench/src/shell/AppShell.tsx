@@ -55,7 +55,9 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
     <div className="hu-shell" data-focus-mode={s.focusMode || undefined}>
       <header className="hu-topbar">
         <span className="hu-logo">HUHU</span>
-        <span className="hu-vault-name" data-testid="vault-name">{vaultName}</span>
+        <span className="hu-vault-name" data-testid="vault-name">
+          {vaultName}
+        </span>
       </header>
       <nav className="hu-rail" aria-label="模块">
         {groups.map(({ g, items }) => (
@@ -63,15 +65,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
             {items.map((m) => {
               const badge = m.badge?.() ?? null;
               return (
-                <button
-                  key={m.id}
-                  type="button"
-                  className="hu-rail-item"
-                  aria-label={m.title}
-                  aria-current={m.id === s.activeModule ? "page" : undefined}
-                  title={m.title}
-                  onClick={() => s.openModule(m.id)}
-                >
+                <button key={m.id} type="button" className="hu-rail-item" aria-label={m.title} aria-current={m.id === s.activeModule ? "page" : undefined} title={m.title} onClick={() => s.openModule(m.id)}>
                   {m.icon}
                   {badge ? <span className="hu-rail-dot" aria-label={`${badge} 项待处理`} /> : null}
                 </button>
@@ -89,14 +83,25 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
               <button type="button" role="tab" aria-selected={id === s.activeModule} tabIndex={id === s.activeModule ? 0 : -1} className="hu-tab-label" onClick={() => s.openModule(id)}>
                 {m.title}
               </button>
-              <button type="button" aria-label={`关闭${m.title}`} onClick={() => s.closeTab(id)}>×</button>
+              <button type="button" aria-label={`关闭${m.title}`} onClick={() => s.closeTab(id)}>
+                ×
+              </button>
             </span>
           );
         })}
       </div>
       <main className="hu-main">
         {engineState !== "ready" ? (
-          <Banner tone={engineState === "starting" ? "blue" : "danger"} action={engineState === "crashed" || engineState === "stopped" ? <button type="button" className="hu-btn" onClick={onRestartEngine}>重启引擎</button> : null}>
+          <Banner
+            tone={engineState === "starting" ? "blue" : "danger"}
+            action={
+              engineState === "crashed" || engineState === "stopped" ? (
+                <button type="button" className="hu-btn" onClick={onRestartEngine}>
+                  重启引擎
+                </button>
+              ) : null
+            }
+          >
             {engineState === "starting" ? "工作台引擎正在启动…" : "工作台引擎未连接"}
           </Banner>
         ) : null}

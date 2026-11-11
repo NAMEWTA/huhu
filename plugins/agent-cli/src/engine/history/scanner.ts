@@ -20,7 +20,10 @@ export interface ScanOptions {
   limit?: number;
 }
 
-export interface ScanResult { entries: HistoryEntry[]; skipped: number }
+export interface ScanResult {
+  entries: HistoryEntry[];
+  skipped: number;
+}
 
 /** 每个文件最多读取的头部字节与行数：标题与 cwd 都在会话开头附近。 */
 const HEAD_BYTES = 512 * 1024;
@@ -96,7 +99,11 @@ function textOf(content: unknown): string | null {
   return null;
 }
 
-interface Parsed { id: string | null; cwd: string | null; title: string | null }
+interface Parsed {
+  id: string | null;
+  cwd: string | null;
+  title: string | null;
+}
 
 function parseClaude(file: string): Parsed {
   let cwd: string | null = null;
@@ -178,7 +185,10 @@ export function scanHistory(o: ScanOptions): ScanResult {
   let skipped = 0;
   const accept = (provider: HistoryEntry["provider"], p: Parsed, fallbackId: string | null, mtime: Date) => {
     const id = p.id ?? fallbackId;
-    if (!id || !p.cwd || !isValidNativeId(id)) { skipped++; return; }
+    if (!id || !p.cwd || !isValidNativeId(id)) {
+      skipped++;
+      return;
+    }
     const cwd = real(p.cwd);
     if (!roots.some((r) => within(r, cwd))) return;
     if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
@@ -198,7 +208,11 @@ export function scanHistory(o: ScanOptions): ScanResult {
       for (const f of readdirSafe(dir)) {
         if (!f.isFile() || !f.name.endsWith(".jsonl")) continue;
         const file = path.join(dir, f.name);
-        try { cFiles.push({ file, id: f.name.slice(0, -".jsonl".length), mtime: statSync(file).mtime }); } catch { skipped++; }
+        try {
+          cFiles.push({ file, id: f.name.slice(0, -".jsonl".length), mtime: statSync(file).mtime });
+        } catch {
+          skipped++;
+        }
       }
     }
     cFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
@@ -215,7 +229,11 @@ export function scanHistory(o: ScanOptions): ScanResult {
   const xRoot = codexRoot(env, home);
   const files: { file: string; mtime: Date }[] = [];
   for (const file of walkCodex(xRoot)) {
-    try { files.push({ file, mtime: statSync(file).mtime }); } catch { skipped++; }
+    try {
+      files.push({ file, mtime: statSync(file).mtime });
+    } catch {
+      skipped++;
+    }
   }
   files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
   for (const { file, mtime } of files.slice(0, MAX_FILES)) {

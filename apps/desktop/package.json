@@ -2,28 +2,17 @@
   "name": "@huhu/desktop",
   "version": "0.0.1",
   "private": true,
+  "description": "HUHU Workbench",
+  "homepage": "https://huhu.local",
+  "author": "HUHU",
   "type": "module",
+  "main": "out/main/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "electron-vite dev",
     "build": "pnpm --filter @huhu/cli run build && electron-vite build",
     "dist": "electron-builder"
   },
-  "devDependencies": {
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.3.0",
-    "electron": "44.9.1",
-    "electron-builder": "^26.18.0",
-    "electron-vite": "^6.0.0",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "vite": "^8.3.7"
-  },
-  "main": "out/main/index.js",
-  "author": "HUHU",
-  "description": "HUHU Workbench",
-  "homepage": "https://huhu.local",
   "dependencies": {
     "@huhu/plugin-agent-cli": "workspace:*",
     "@huhu/plugin-archives": "workspace:*",
@@ -39,5 +28,16 @@
     "@parcel/watcher": "^2.6.0",
     "lucide-react": "^1.70.0",
     "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "44.9.1",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "vite": "^8.3.7"
   }
 }

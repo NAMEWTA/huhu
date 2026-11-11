@@ -2,7 +2,11 @@
 export type AutoMode = "off" | "follow" | "full";
 export type RunMode = "pull" | "sync";
 
-export interface AutoSyncConfig { mode: AutoMode; pullIntervalSec: number; pushIntervalSec: number }
+export interface AutoSyncConfig {
+  mode: AutoMode;
+  pullIntervalSec: number;
+  pushIntervalSec: number;
+}
 
 export interface AutoSyncDeps {
   config(): AutoSyncConfig;
@@ -14,7 +18,11 @@ export interface AutoSyncDeps {
   onChange?(state: AutoSyncState): void;
 }
 
-export interface AutoSyncState { active: boolean; pausedReason: "conflict" | "auth-failed" | null; failures: number }
+export interface AutoSyncState {
+  active: boolean;
+  pausedReason: "conflict" | "auth-failed" | null;
+  failures: number;
+}
 
 export const MIN_INTERVAL_SEC = 30;
 export const MAX_INTERVAL_SEC = 3600;
@@ -59,7 +67,10 @@ export class AutoSync {
   }
 
   private clear(): void {
-    for (const k of Object.keys(this.timers) as RunMode[]) { this.timers[k]?.(); delete this.timers[k]; }
+    for (const k of Object.keys(this.timers) as RunMode[]) {
+      this.timers[k]?.();
+      delete this.timers[k];
+    }
   }
 
   private pause(reason: NonNullable<AutoSyncState["pausedReason"]>): void {
@@ -113,7 +124,10 @@ export class AutoSync {
     } finally {
       this.running = false;
     }
-    if (this.stopped || this.paused) { this.d.onChange?.(this.state()); return; }
+    if (this.stopped || this.paused) {
+      this.d.onChange?.(this.state());
+      return;
+    }
     this.armOne(mode);
     this.d.onChange?.(this.state());
   }

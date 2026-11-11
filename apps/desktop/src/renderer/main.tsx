@@ -10,7 +10,22 @@ import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
-import { AppShell, ContributionRegistry, EngineProvider, HealthModule, HomeModule, CommandPalette, EngineClient, GatewayModule, NotificationBell, PluginCenterModule, SettingsModule, useCapability, createUiStore, type EngineEndpoint } from "@huhu/workbench";
+import {
+  AppShell,
+  ContributionRegistry,
+  EngineProvider,
+  HealthModule,
+  HomeModule,
+  CommandPalette,
+  EngineClient,
+  GatewayModule,
+  NotificationBell,
+  PluginCenterModule,
+  SettingsModule,
+  useCapability,
+  createUiStore,
+  type EngineEndpoint,
+} from "@huhu/workbench";
 import { Blocks, HeartPulse, House, Plug, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -29,8 +44,7 @@ function PluginFilter({ registry }: { registry: ContributionRegistry }) {
 function App() {
   const [endpoint, setEndpointRaw] = useState<EngineEndpoint | null>(null);
   // 同一端点重复到达时保持引用不变，避免重建连接
-  const setEndpoint = (e: EngineEndpoint | null) =>
-    setEndpointRaw((cur) => (cur && e && cur.baseUrl === e.baseUrl && cur.token === e.token && cur.vaultId === e.vaultId ? cur : e));
+  const setEndpoint = (e: EngineEndpoint | null) => setEndpointRaw((cur) => (cur && e && cur.baseUrl === e.baseUrl && cur.token === e.token && cur.vaultId === e.vaultId ? cur : e));
   const [state, setState] = useState<EngineState>("starting");
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
@@ -63,16 +77,25 @@ function App() {
       setState(s);
       if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
     });
-    void window.huhuHost.engine().then((e) => { setEndpoint(e); setState("ready"); });
+    void window.huhuHost.engine().then((e) => {
+      setEndpoint(e);
+      setState("ready");
+    });
     return off;
   }, []);
 
   // 引擎就绪后应用该 Vault 保存的外观设置
   useEffect(() => {
     if (!endpoint) return;
-    void fetch(`${endpoint.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability: "settings.get", input: {}, requestId: crypto.randomUUID() }) })
+    void fetch(`${endpoint.baseUrl}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "settings.get", input: {}, requestId: crypto.randomUUID() }),
+    })
       .then((r) => r.json() as Promise<{ ok: boolean; data?: { appearance: Record<string, unknown> } }>)
-      .then((r) => { if (r.ok && r.data) applyAppearance(document.documentElement, r.data.appearance, window.matchMedia("(prefers-color-scheme: dark)").matches); })
+      .then((r) => {
+        if (r.ok && r.data) applyAppearance(document.documentElement, r.data.appearance, window.matchMedia("(prefers-color-scheme: dark)").matches);
+      })
       .catch(() => undefined);
   }, [endpoint]);
 
@@ -86,7 +109,14 @@ function App() {
       <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={() => ui.getState().openModule("notes")} />
     </>
   );
-  return endpoint ? <EngineProvider endpoint={endpoint}>{withFilter}</EngineProvider> : <>{shell}<CommandPalette registry={registry} ui={ui} /></>;
+  return endpoint ? (
+    <EngineProvider endpoint={endpoint}>{withFilter}</EngineProvider>
+  ) : (
+    <>
+      {shell}
+      <CommandPalette registry={registry} ui={ui} />
+    </>
+  );
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

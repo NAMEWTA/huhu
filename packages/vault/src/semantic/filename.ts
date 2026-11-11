@@ -3,7 +3,14 @@ const isControl = (c: string) => c.charCodeAt(0) < 32;
 
 /** 清理标题用于文件名：去非法字符与首尾空白/点，限长，空则回退。 */
 export function sanitizeTitle(title: string, fallback = "未命名"): string {
-  const cleaned = [...title].map((c) => (isControl(c) ? " " : c)).join("").replace(ILLEGAL, " ").replace(/\s+/g, " ").trim().replace(/^\.+|\.+$/g, "").trim();
+  const cleaned = [...title]
+    .map((c) => (isControl(c) ? " " : c))
+    .join("")
+    .replace(ILLEGAL, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .trim();
   const cut = [...cleaned].slice(0, 80).join("").trim();
   return cut || fallback;
 }

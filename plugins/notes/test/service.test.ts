@@ -6,12 +6,19 @@ import { afterEach, describe, expect, test } from "vitest";
 import { NotesService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
 async function setup(files: Record<string, string> = {}) {
-  const d = mkdtempSync(path.join(tmpdir(), "huhu-n-")); dirs.push(d);
-  const root = path.join(d, "v"); mkdirSync(path.join(root, ".huhu"), { recursive: true });
-  for (const [p, c] of Object.entries(files)) { mkdirSync(path.dirname(path.join(root, p)), { recursive: true }); writeFileSync(path.join(root, p), c); }
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-n-"));
+  dirs.push(d);
+  const root = path.join(d, "v");
+  mkdirSync(path.join(root, ".huhu"), { recursive: true });
+  for (const [p, c] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(root, p)), { recursive: true });
+    writeFileSync(path.join(root, p), c);
+  }
   const vf = new VaultFiles(root);
   const index = new VaultIndex(root);
   await index.build();
@@ -55,7 +62,12 @@ describe("ACC-KN-06 重命名改写双链", () => {
     expect(existsSync(path.join(root, "X.md"))).toBe(false);
     expect(svc.noteId("Y.md")).toBe(id); // id 不变
     await rebuild();
-    expect(svc.backlinks("Y.md").map((b) => b.path).sort()).toEqual(["A.md", "B.md"]);
+    expect(
+      svc
+        .backlinks("Y.md")
+        .map((b) => b.path)
+        .sort(),
+    ).toEqual(["A.md", "B.md"]);
   });
   test("目标已存在 → NAME_CONFLICT，文件不变", async () => {
     const { svc, root } = await setup({ "X.md": "x", "Y.md": "y" });
@@ -148,7 +160,11 @@ describe("审计回归", () => {
     const { svc, root } = await setup({ "readme.md": "正文", "ref.md": "[[readme]] [[readme.md]]" });
     const id = await svc.ensureId("readme.md");
     await svc.rename("readme.md", "README");
-    expect(readdirSync(root).filter((n) => n.endsWith(".md")).sort()).toEqual(["README.md", "ref.md"]);
+    expect(
+      readdirSync(root)
+        .filter((n) => n.endsWith(".md"))
+        .sort(),
+    ).toEqual(["README.md", "ref.md"]);
     expect(rd(root, "README.md")).toBe("正文");
     expect(rd(root, "ref.md")).toBe("[[README]] [[README.md]]");
     expect(svc.noteId("README.md")).toBe(id);

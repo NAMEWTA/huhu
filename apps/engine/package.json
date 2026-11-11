@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -24,8 +27,5 @@
   "devDependencies": {
     "@types/ws": "^8.18.2",
     "ws": "^8.22.2"
-  },
-  "exports": {
-    ".": "./src/index.ts"
   }
 }

@@ -7,8 +7,14 @@ import { afterEach, describe, expect, test } from "vitest";
 import { exportPackage, importPackage } from "../src/index.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-pk-")); dirs.push(d); return d; };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
+  dirs.push(d);
+  return d;
+};
 function makeVault() {
   const root = tmp();
   mkdirSync(path.join(root, ".huhu/runtime/m1"), { recursive: true });
@@ -26,7 +32,10 @@ function evilZip(files: Record<string, string>, manifestFiles?: { path: string; 
   for (const [p, c] of Object.entries(files)) entries[p] = Buffer.from(c);
   const list = (manifestFiles ?? Object.entries(files).map(([path, content]) => ({ path, content }))).map((f) => ({ path: f.path, sha256: sha(Buffer.from(f.content)), size: Buffer.from(f.content).length }));
   entries["huhu-package.json"] = Buffer.from(JSON.stringify({ format: "huhu-package", version: 1, vaultId: "vault-x", vaultName: "x", createdAt: "", files: list }));
-  const d = tmp(); const p = path.join(d, "evil.zip"); writeFileSync(p, zipSync(entries)); return p;
+  const d = tmp();
+  const p = path.join(d, "evil.zip");
+  writeFileSync(p, zipSync(entries));
+  return p;
 }
 const VJ = JSON.stringify({ kind: "huhu-vault", id: "vault-evil1", name: "e", description: "", formatVersion: 1, createdAt: "" });
 
@@ -48,47 +57,65 @@ describe("数据包", () => {
     expect(m.files.map((f) => f.path)).not.toContain("pic.png");
   });
   test("同 id 已存在 → 生成新 id", async () => {
-    const zip = path.join(tmp(), "o.zip"); await exportPackage(makeVault(), zip);
+    const zip = path.join(tmp(), "o.zip");
+    await exportPackage(makeVault(), zip);
     const r = importPackage(zip, path.join(tmp(), "t"), { existingVaultIds: ["vault-abc123"] });
     expect(r.vaultId).not.toBe("vault-abc123");
   });
   test("取消导出不留半成品", async () => {
-    const ac = new AbortController(); ac.abort();
+    const ac = new AbortController();
+    ac.abort();
     const dest = path.join(tmp(), "o.zip");
     await expect(exportPackage(makeVault(), dest, { signal: ac.signal })).rejects.toThrow();
     expect(existsSync(dest)).toBe(false);
     expect(readdirSync(path.dirname(dest)).filter((f) => f.endsWith(".partial"))).toEqual([]);
   });
   test("目标非空 → 拒绝", async () => {
-    const zip = path.join(tmp(), "o.zip"); await exportPackage(makeVault(), zip);
-    const t = tmp(); writeFileSync(path.join(t, "x"), "1");
+    const zip = path.join(tmp(), "o.zip");
+    await exportPackage(makeVault(), zip);
+    const t = tmp();
+    writeFileSync(path.join(t, "x"), "1");
     expect(() => importPackage(zip, t)).toThrowError(/必须为空/);
   });
   const cases: [string, () => string, RegExp][] = [
     ["绝对路径", () => evilZip({ "/etc/x": "1", ".huhu/vault.json": VJ }), /非法路径/],
     ["..", () => evilZip({ "../escape.md": "1", ".huhu/vault.json": VJ }), /非法路径/],
     ["重复路径(大小写)", () => evilZip({ "A.md": "1", "a.md": "2", ".huhu/vault.json": VJ }), /重复路径/],
-    ["哈希不符", () => evilZip({ "a.md": "tampered", ".huhu/vault.json": VJ }, [{ path: "a.md", content: "original" }, { path: ".huhu/vault.json", content: VJ }]), /哈希不符/],
-    ["清单外文件", () => {
-      const zip = evilZip({ ".huhu/vault.json": VJ });
-      const entries = unzipSync(readFileSync(zip));
-      entries["extra.md"] = Buffer.from("x");
-      writeFileSync(zip, zipSync(entries));
-      return zip;
-    }, /清单之外/],
+    [
+      "哈希不符",
+      () =>
+        evilZip({ "a.md": "tampered", ".huhu/vault.json": VJ }, [
+          { path: "a.md", content: "original" },
+          { path: ".huhu/vault.json", content: VJ },
+        ]),
+      /哈希不符/,
+    ],
+    [
+      "清单外文件",
+      () => {
+        const zip = evilZip({ ".huhu/vault.json": VJ });
+        const entries = unzipSync(readFileSync(zip));
+        entries["extra.md"] = Buffer.from("x");
+        writeFileSync(zip, zipSync(entries));
+        return zip;
+      },
+      /清单之外/,
+    ],
     ["缺 vault.json", () => evilZip({ "a.md": "1" }), /缺少 \.huhu\/vault\.json/],
   ];
   for (const [name, make, msg] of cases) {
     test(`恶意包被拒且不留文件：${name}`, () => {
       const zip = make();
-      const parent = tmp(); const target = path.join(parent, "t");
+      const parent = tmp();
+      const target = path.join(parent, "t");
       expect(() => importPackage(zip, target)).toThrowError(msg);
       expect(existsSync(target)).toBe(false);
       expect(readdirSync(parent)).toEqual([]);
     });
   }
   test("不是 zip", () => {
-    const f = path.join(tmp(), "x.zip"); writeFileSync(f, "not a zip");
+    const f = path.join(tmp(), "x.zip");
+    writeFileSync(f, "not a zip");
     expect(() => importPackage(f, path.join(tmp(), "t"))).toThrowError(/zip/);
   });
 });
@@ -97,7 +124,8 @@ describe("导出的安全与内存", () => {
   test("预置的 <dest>.partial 符号链接不会被跟随：导出到别处不动被指向的文件；临时名随机、用完不留", async () => {
     const root = makeVault();
     const out = tmp();
-    const victim = path.join(out, "victim.txt"); writeFileSync(victim, "原内容");
+    const victim = path.join(out, "victim.txt");
+    writeFileSync(victim, "原内容");
     symlinkSync(victim, path.join(out, "o.zip.partial"));
     const dest = path.join(out, "o.zip");
     await exportPackage(root, dest);
@@ -107,10 +135,13 @@ describe("导出的安全与内存", () => {
   });
   test("大文件分块压缩：内容完整往返（含 > 1 MiB 的文件），导出期间事件循环有机会运行", async () => {
     const root = makeVault();
-    const big = Buffer.alloc(3 * 1024 * 1024 + 123, 7); writeFileSync(path.join(root, "big.bin"), big);
+    const big = Buffer.alloc(3 * 1024 * 1024 + 123, 7);
+    writeFileSync(path.join(root, "big.bin"), big);
     const zip = path.join(tmp(), "big.zip");
     let ticks = 0;
-    const timer = setInterval(() => { ticks++; }, 1);
+    const timer = setInterval(() => {
+      ticks++;
+    }, 1);
     await exportPackage(root, zip);
     clearInterval(timer);
     expect(ticks).toBeGreaterThan(0);

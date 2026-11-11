@@ -6,9 +6,18 @@ import { afterEach, describe, expect, test } from "vitest";
 import { DEFAULT_GITIGNORE, VaultGit } from "../src/engine/repo.js";
 
 const dirs: string[] = [];
-afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
-const tmp = () => { const d = mkdtempSync(path.join(tmpdir(), "huhu-g-")); dirs.push(d); return d; };
-const put = (root: string, rel: string, text: string) => { mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); writeFileSync(path.join(root, rel), text); };
+afterEach(() => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+const tmp = () => {
+  const d = mkdtempSync(path.join(tmpdir(), "huhu-g-"));
+  dirs.push(d);
+  return d;
+};
+const put = (root: string, rel: string, text: string) => {
+  mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+  writeFileSync(path.join(root, rel), text);
+};
 
 describe("VaultGit（ACC-VS-07）", () => {
   test("不是仓库：isRepo=false；init 创建仓库与默认 .gitignore，且不覆盖已有 .gitignore", async () => {
@@ -20,7 +29,8 @@ describe("VaultGit（ACC-VS-07）", () => {
     expect(r).toEqual({ created: true, gitignore: DEFAULT_GITIGNORE });
     expect(readFileSync(path.join(root, ".gitignore"), "utf8")).toContain(".huhu/runtime/");
     expect(await g.init()).toEqual({ created: false, gitignore: "" });
-    const other = tmp(); put(other, ".gitignore", "mine\n");
+    const other = tmp();
+    put(other, ".gitignore", "mine\n");
     await new VaultGit(other).init();
     expect(readFileSync(path.join(other, ".gitignore"), "utf8")).toBe("mine\n");
   });
@@ -29,7 +39,8 @@ describe("VaultGit（ACC-VS-07）", () => {
     const root = tmp();
     const g = new VaultGit(root);
     await g.init();
-    put(root, "笔记/a.md", "第一行\n"); put(root, ".huhu/runtime/x/engine.json", "{}");
+    put(root, "笔记/a.md", "第一行\n");
+    put(root, ".huhu/runtime/x/engine.json", "{}");
     let st = await g.status();
     expect(st.files.find((f) => f.path === "笔记/a.md")).toMatchObject({ index: "?", worktree: "?" });
     expect(st.files.some((f) => f.path.startsWith(".huhu/runtime"))).toBe(false); // 被默认 .gitignore 忽略
@@ -60,7 +71,9 @@ describe("VaultGit（ACC-VS-07）", () => {
     const root = tmp();
     const g = new VaultGit(root);
     await g.init();
-    put(root, "旧名.md", "内容内容内容内容\n"); await g.stage(["旧名.md", ".gitignore"]); await g.commit("初始");
+    put(root, "旧名.md", "内容内容内容内容\n");
+    await g.stage(["旧名.md", ".gitignore"]);
+    await g.commit("初始");
     execFileSync("git", ["-C", root, "mv", "旧名.md", "新名.md"]);
     const st = await g.status();
     expect(st.files.find((f) => f.path === "新名.md")).toMatchObject({ index: "R", from: "旧名.md" });
