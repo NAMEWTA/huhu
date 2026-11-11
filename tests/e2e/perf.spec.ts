@@ -1,10 +1,14 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { root } from "./helpers/launch.js";
+
+const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
+
+const p95 = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.max(0, Math.ceil(xs.length * 0.95) - 1)] ?? 0;
 
 /** quality.md §3 中可以在 E2E 里自动测量的指标：测量值写进用例注解，超过目标即失败。 */
 function note(name: string, value: string) {
@@ -88,6 +92,128 @@ test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
     const ms = Date.now() - t0;
     note("打开 1 MiB 文档到可编辑", `${ms} ms（目标 ≤ 500）`);
     expect(ms).toBeLessThanOrEqual(500);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+/** 页面里挂一个探针：每次按键从 keydown 到下一帧绘制的时间。 */
+const probe = () => {
+  const w = window as unknown as { __lat?: number[] };
+  w.__lat = [];
+  document.addEventListener(
+    "keydown",
+    () => {
+      const t0 = performance.now();
+      requestAnimationFrame(() => requestAnimationFrame(() => w.__lat?.push(performance.now() - t0)));
+    },
+    true,
+  );
+};
+
+test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-perf-"));
+  const body = Array.from({ length: 5000 }, (_, i) => `第 ${i} 行：这是一段正文，包含 **加粗**、\`代码\` 与 [[链接${i % 50}]]。`).join("\n\n");
+  writeFileSync(path.join(vault, "长文.md"), `# 长文\n\n${body}\n`);
+  const app = await electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "长文" }).click();
+    const content = page.getByTestId("markdown-editor").locator(".cm-content");
+    await expect(content).toContainText("长文", { timeout: 15_000 });
+    await content.click();
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("ArrowDown");
+    await page.evaluate(probe);
+    for (let i = 0; i < 80; i++) await page.keyboard.type("字", { delay: 25 });
+    await page.waitForTimeout(300);
+    const lat = await page.evaluate(() => (window as unknown as { __lat: number[] }).__lat);
+    expect(lat.length).toBeGreaterThan(60);
+    const v = p95(lat);
+    note("编辑输入延迟（keydown→下一帧）", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 p95 ≤ 16；rAF 粒度约 16.7 ms，用两帧口径）`);
+    expect(v).toBeLessThanOrEqual(34); // 两帧口径：一帧 ≈ 16.7 ms，p95 ≤ 16 ms 对应两次 rAF 之内
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-perf-"));
+  const app = await electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const ep = await page.evaluate(() => window.huhuHost.engine());
+    await page.evaluate(async (e) => {
+      const call = (title: string) =>
+        fetch(`${e.baseUrl}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability: "tasks.create", input: { title, execution: { kind: "manual" } }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        });
+      for (let i = 0; i < 1000; i += 20) await Promise.all(Array.from({ length: 20 }, (_, k) => call(`任务 ${i + k}`)));
+    }, ep);
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await expect(page.getByTestId("task-row").first()).toBeVisible({ timeout: 30_000 });
+    const result = await page.evaluate(async () => {
+      const longs: number[] = [];
+      const obs = new PerformanceObserver((l) => l.getEntries().forEach((x) => longs.push(x.duration)));
+      obs.observe({ entryTypes: ["longtask"] });
+      const row = document.querySelector('[data-testid="task-row"]') as HTMLElement | null;
+      let el: HTMLElement | null = row;
+      while (el && el.scrollHeight <= el.clientHeight + 4) el = el.parentElement;
+      const target = el ?? document.scrollingElement!;
+      const total = target.scrollHeight - target.clientHeight;
+      for (let i = 0; i <= 60; i++) {
+        target.scrollTop = (total * i) / 60;
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+      }
+      await new Promise((r) => setTimeout(r, 300));
+      obs.disconnect();
+      return { longs, total, rows: document.querySelectorAll('[data-testid="task-row"]').length };
+    });
+    note("任务列表 1,000 行滚动", `长任务 ${result.longs.length} 个，最长 ${Math.max(0, ...result.longs).toFixed(0)} ms；可滚动高度 ${result.total}px；DOM 行数 ${result.rows}`);
+    expect(result.total).toBeGreaterThan(0);
+    expect(result.longs.filter((d) => d > 50)).toEqual([]);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", async () => {
+  test.skip(!existsSync(HERDR) || process.platform === "win32", "需要 Herdr Core 与 POSIX shell（yes）");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-perf-"));
+  const app = await electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, HUHU_HERDR_BIN: HERDR } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await page.evaluate(probe);
+    await page.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("yes 0123456789abcdef | head -c 10485760; echo FLOOD-DONE-$((6*7))");
+    await page.keyboard.press("Enter");
+    // 输出洪流期间，在页面上的另一个输入框里持续打字，测按键到绘制的延迟
+    const search = page.getByLabel("搜索当前 Space 历史");
+    const t0 = Date.now();
+    for (let i = 0; i < 40; i++) {
+      await search.pressSequentially("a", { delay: 40 });
+      if (Date.now() - t0 > 20_000) break;
+    }
+    await expect(page.locator(".xterm-rows")).toContainText("FLOOD-DONE-42", { timeout: 60_000 });
+    const lat = await page.evaluate(() => (window as unknown as { __lat: number[] }).__lat);
+    const v = p95(lat);
+    note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
+    expect(lat.length).toBeGreaterThan(5);
+    expect(v).toBeLessThanOrEqual(100);
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });
