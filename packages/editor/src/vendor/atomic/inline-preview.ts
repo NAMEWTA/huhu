@@ -378,10 +378,20 @@ function sameListItem(a: SyntaxNode | null, b: SyntaxNode): boolean {
   return a?.name === 'ListItem' && a.from === b.from && a.to === b.to;
 }
 
+// HUHU: 大文档只装饰“视口 ± WINDOW_MARGIN”（上游为避免 iOS 滚动动量中断而整篇装饰，
+// 每次按键整篇遍历语法树，5,000 行文档的输入延迟因此超过 16 ms）；桌面端滚到窗口边缘再重建。
+const WHOLE_DOC_CHARS = 120_000;
+const WINDOW_MARGIN = 30_000;
+const builtWindow = new WeakMap<EditorView, { from: number; to: number }>();
+
 function buildInlineDecorations(view: EditorView): DecorationSet {
   const { state } = view;
   const { doc } = state;
   const ranges: Range<Decoration>[] = [];
+  const windowed = doc.length > WHOLE_DOC_CHARS;
+  const winFrom = windowed ? Math.max(0, view.viewport.from - WINDOW_MARGIN) : 0;
+  const winTo = windowed ? Math.min(doc.length, view.viewport.to + WINDOW_MARGIN) : doc.length;
+  builtWindow.set(view, { from: winFrom, to: winTo });
 
   // In read-only mode no line is ever "active" — the whole doc stays
   // rendered (no reveal). We skip the selection walk entirely rather
@@ -415,7 +425,7 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
   // are near-free because ensureSyntaxTree short-circuits once the
   // tree reaches the target.
   const tree =
-    ensureSyntaxTree(state, state.doc.length, 200) ?? syntaxTree(state);
+    ensureSyntaxTree(state, winTo, 200) ?? syntaxTree(state);
 
   // `from` positions of Link nodes whose range overlaps a selection.
   // Link children (LinkMark/URL/LinkTitle) hide unless their parent
@@ -440,6 +450,8 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
   // traversal — meaningful because this runs on every cursor move and
   // its cost scales with document size.)
   tree.iterate({
+    from: winFrom,
+    to: winTo,
     enter: (node) => {
       if (node.name === 'FencedCode') {
         const firstLine = doc.lineAt(node.from).number;
@@ -939,7 +951,16 @@ const inlinePreviewPlugin = ViewPlugin.fromClass(
         update.startState.facet(readOnlyFacet) !==
         update.state.facet(readOnlyFacet);
 
+      // HUHU: 视口移出已装饰的窗口（大文档）时重建
+      let leftWindow = false;
+      if (update.viewportChanged && update.state.doc.length > WHOLE_DOC_CHARS) {
+        const w = builtWindow.get(update.view);
+        const vp = update.view.viewport;
+        leftWindow = !w || (w.from > 0 && vp.from < w.from + 3000) || (w.to < update.state.doc.length && vp.to > w.to - 3000);
+      }
+
       if (
+        leftWindow ||
         justUnfroze ||
         update.docChanged ||
         update.selectionSet ||

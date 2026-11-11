@@ -88,9 +88,11 @@ class TablePreviewWidget extends WidgetType {
 function buildTablePreviews(state: EditorState): DecorationSet {
   const ranges: ReturnType<ReturnType<typeof Decoration.replace>["range"]>[] = [];
   const tree = ensureSyntaxTree(state, state.doc.length, 35) || syntaxTree(state);
+  // 表格是块级节点：只下探容器（文档 / 引用 / 列表），不遍历段落里的行内节点——5,000 行文档里那是十万级节点，每次按键都走一遍
+  const CONTAINERS = new Set(["Document", "Blockquote", "BulletList", "OrderedList", "ListItem"]);
   tree.iterate({
     enter(node) {
-      if (node.name !== "Table") return;
+      if (node.name !== "Table") return CONTAINERS.has(node.name) ? undefined : false;
       const active = state.selection.ranges.some((s) => s.from <= node.to && s.to >= node.from);
       if (!active) ranges.push(Decoration.replace({ widget: new TablePreviewWidget(state.sliceDoc(node.from, node.to), node.from), block: true }).range(node.from, node.to));
       return false;
