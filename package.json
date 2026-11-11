@@ -12,6 +12,7 @@
     "build": "pnpm -r run build",
     "gen": "node scripts/gen-guide.mjs",
     "e2e": "playwright test",
+    "e2e:packaged": "playwright test -c playwright.packaged.config.ts",
     "dev": "pnpm --filter @huhu/desktop dev",
     "notices": "node scripts/gen-notices.mjs",
     "knip": "knip --no-progress",

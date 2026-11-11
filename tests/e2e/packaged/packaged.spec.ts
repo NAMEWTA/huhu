@@ -1,0 +1,83 @@
+/* oxlint-disable typescript/no-explicit-any */
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+/**
+ * 打包后的 E2E 子集（release.md §5）：对安装/解包后的可执行文件运行。
+ * 用法：HUHU_PACKAGED_EXE=<可执行文件> pnpm e2e:packaged
+ * （Linux 解包目录：apps/desktop/release/linux-unpacked/huhu；CI 需要 xvfb-run。）
+ */
+const EXE = process.env["HUHU_PACKAGED_EXE"];
+test.skip(!EXE, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
+
+async function start(): Promise<{ app: ElectronApplication; page: Page; vault: string; call(cap: string, input?: unknown): Promise<any>; stop(): Promise<void> }> {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
+  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  const page = await app.firstWindow();
+  await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+  const ep = await page.evaluate(() => window.huhuHost.engine());
+  const call = (capability: string, input: unknown = {}) =>
+    page.evaluate(
+      async ([e, cap, inp]) => {
+        const r = await fetch(`${e.baseUrl}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability: cap, input: inp, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        });
+        return r.json();
+      },
+      [ep, capability, input] as const,
+    );
+  return {
+    app,
+    page,
+    vault,
+    call,
+    stop: async () => {
+      await app.close();
+      rmSync(vault, { recursive: true, force: true });
+    },
+  };
+}
+
+test("打包后：创建笔记并保存；新建任务并勾选；导出数据包", async () => {
+  const s = await start();
+  try {
+    const note = await s.call("notes.create", { name: "打包冒烟" });
+    expect(note.ok).toBe(true);
+    const cur = await s.call("notes.read", { path: note.data.path });
+    expect((await s.call("notes.save", { path: note.data.path, text: "# 打包冒烟\n\n正文\n", expectedVersion: cur.data.version })).ok).toBe(true);
+    expect(readFileSync(path.join(s.vault, note.data.path), "utf8")).toContain("正文");
+
+    const task = await s.call("tasks.create", { title: "打包后的任务" });
+    expect(task.ok).toBe(true);
+    const done = await s.call("tasks.setCompleted", { id: task.data.id, completed: true, expectedVersion: task.data.version });
+    expect(done.data.completed).toBe(true);
+
+    const out = path.join(mkdtempSync(path.join(tmpdir(), "huhu-pk-out-")), "导出.zip");
+    const exp = await s.call("vault.exportPackage", { targetPath: out });
+    expect(exp.ok).toBe(true);
+    expect(existsSync(out)).toBe(true);
+    rmSync(path.dirname(out), { recursive: true, force: true });
+  } finally {
+    await s.stop();
+  }
+});
+
+test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，Core 状态为已连接", async () => {
+  const s = await start();
+  try {
+    const health = await s.call("health.run", {});
+    expect(health.ok).toBe(true);
+    const space = await s.call("agent.spaces.save", { name: "冒烟", root: s.vault });
+    expect(space.ok, JSON.stringify(space)).toBe(true);
+    const sess = await s.call("agent.sessions.launch", { spaceId: space.data.id, spaceRevision: space.data.revision, provider: "shell", requestId: "packaged-shell-1" });
+    expect(sess.ok, JSON.stringify(sess)).toBe(true);
+    await expect.poll(async () => (await s.call("agent.core.status", {})).data?.state, { timeout: 15_000 }).toBe("connected");
+    await s.call("agent.sessions.kill", { id: sess.data.id });
+  } finally {
+    await s.stop();
+  }
+});
