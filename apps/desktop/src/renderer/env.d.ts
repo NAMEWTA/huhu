@@ -7,6 +7,9 @@ declare global {
       revealVault(): Promise<void>;
       pickSavePath(defaultName: string): Promise<string | null>;
       pickOpenPath(kind: "zip" | "directory" | "file"): Promise<string | null>;
+      cliStatus(): Promise<unknown>;
+      cliInstall(): Promise<unknown>;
+      cliUninstall(): Promise<unknown>;
       notices(): Promise<string>;
       engine(): Promise<{ baseUrl: string; token: string; vaultId: string }>;
       engineState(): Promise<EngineState>;

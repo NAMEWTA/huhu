@@ -1,3 +1,4 @@
+import { CliSection } from "./CliSection.js";
 import { Badge, Button } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { useState } from "react";
@@ -43,6 +44,7 @@ export function GatewayModule() {
           <option value="stdio">{g.stdio}</option><option value="http">{g.http}</option>
         </select>
       </label>
+      <CliSection />
       <h2>{g.tokens}</h2>
       <form className="hu-form" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void act<{ token: string }>("gateway.tokens.create", { name: name.trim() }).then((r) => { if (r) { setFresh(r.token); setName(""); } }); }}>
         <input className="hu-input" aria-label={g.tokenName} placeholder={g.tokenName} value={name} onChange={(e) => setName(e.target.value)} />

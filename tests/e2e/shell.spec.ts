@@ -550,6 +550,25 @@ test("设置：数据与存储——重建索引、导出数据包（结果带 S
   }
 });
 
+test("网关·命令行：开发运行时说明没有打包好的启动脚本，不提供安装；速查表可见", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "网关" }).first().click();
+    const cli = page.getByTestId("cli-section");
+    await expect(cli).toBeVisible();
+    await expect(cli.getByTestId("cli-state")).toHaveText(/未安装/);
+    await expect(cli.getByTestId("cli-unsupported")).toContainText("开发运行");
+    await expect(cli.getByTestId("cli-install")).toHaveCount(0);
+    await expect(cli).toContainText("huhu call vault.info");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在点“保存”时写入；行号、字号、宽度）；外观的导航宽度与紧凑布局", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
@@ -731,7 +750,7 @@ test("设置：时区改变后页面显示该时区的当前日期，非法时�
     await expect(page.getByTestId("settings-zone-invalid")).toBeVisible();
     await page.getByTestId("settings-zone").fill("Pacific/Kiritimati");
     await expect(page.getByTestId("settings-zone-invalid")).toHaveCount(0);
-    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).dateTime.zone, { timeout: 15_000 }).toBe("Pacific/Kiritimati");
+    await expect.poll(() => { try { return JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).dateTime.zone; } catch { return null; } }, { timeout: 20_000 }).toBe("Pacific/Kiritimati"); // 文件尚未写出时读取会 ENOENT：视为“还没有”，继续等
     const expected = new Intl.DateTimeFormat("zh-CN", { timeZone: "Pacific/Kiritimati", dateStyle: "full" }).format(new Date());
     await expect(page.getByTestId("settings-zone-now")).toContainText(expected);
   } finally {

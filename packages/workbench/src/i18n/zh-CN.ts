@@ -66,3 +66,18 @@ export const tGateway = {
   notFound: "没有这个能力",
   scope: { read: "读", write: "写", execute: "执行", admin: "管理" },
 } as const;
+
+export const tCli = {
+  title: "命令行（huhu）",
+  installed: "已安装", notInstalled: "未安装",
+  symlink: (p: string) => `将创建符号链接 ${p}，指向应用内的 huhu 启动脚本。`,
+  pathMethod: (p: string) => `将把 ${p} 加入你的用户 PATH。`,
+  install: "安装到终端", uninstall: "卸载", confirmInstall: "确认安装", cancel: "取消",
+  notOnPath: (p: string) => `${p} 目前不在你的 PATH 里：新开终端后如果找不到 huhu，请把这个目录加入 PATH。`,
+  restartTerminal: "已加入用户 PATH：新打开的终端才会生效。",
+  devOnly: "开发运行时没有打包好的命令行启动脚本；请使用安装版 HUHU。",
+  hostOnly: "命令行安装只在桌面应用里可用",
+  quick: "常用命令",
+  cheat: ["huhu --help", "huhu call vault.info --vault <Vault 路径>", "huhu call tasks.list --vault <Vault 路径> --json", "huhu mcp --vault <Vault 路径>"],
+  done: "已完成",
+} as const;

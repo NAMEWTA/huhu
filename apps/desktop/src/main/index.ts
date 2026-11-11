@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "elect
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 
 let supervisor: EngineSupervisor | null = null;
@@ -129,6 +130,13 @@ if (!gotLock) {
       const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
       return r.canceled || r.filePaths.length === 0 ? null : (r.filePaths[0] ?? null);
     });
+    // 命令行安装：只有打包版有启动脚本；每次都由用户在界面确认后才调用
+    // AppImage 每次启动挂载到随机的临时目录，退出后符号链接就悬空：不支持，提示改用 deb / 解压版
+    const appImage = process.platform === "linux" && Boolean(process.env["APPIMAGE"]);
+    const cliDeps = (): CliDeps => ({ platform: process.platform, home: app.getPath("home"), env: process.env, ...(appImage ? { unsupportedReason: "AppImage 每次启动都挂载在临时目录，命令行链接会失效；请使用 deb 安装版，或把 AppImage 解压（--appimage-extract）到固定位置后再安装" } : {}), launcher: !appImage && app.isPackaged && existsSync(path.join(process.resourcesPath, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu")) ? path.join(process.resourcesPath, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu") : null });
+    ipcMain.handle("huhu:cliStatus", (event) => { assertTrusted(event.senderFrame?.url); return cliStatus(cliDeps()); });
+    ipcMain.handle("huhu:cliInstall", (event) => { assertTrusted(event.senderFrame?.url); return cliInstall(cliDeps()); });
+    ipcMain.handle("huhu:cliUninstall", (event) => { assertTrusted(event.senderFrame?.url); return cliUninstall(cliDeps()); });
     ipcMain.handle("huhu:notices", (event) => {
       assertTrusted(event.senderFrame?.url);
       // 打包后在 resources/；开发时在仓库根
