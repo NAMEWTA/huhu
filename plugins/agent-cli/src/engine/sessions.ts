@@ -40,7 +40,8 @@ const MAX_COMMENTS = 200;
 const hasControl = (s: string): boolean => { for (const ch of s) { const n = ch.codePointAt(0) as number; if (n < 0x20 || (n >= 0x7f && n <= 0x9f)) return true; } return false; };
 /** 写进终端的路径：只保留字母数字（含中文等）和 . _ - / @ + ~ 空格，其余一律换成 _（文件名里的 ; $ ` | 等不能被 shell 解释）。 */
 const safePath = (p: string): string => Array.from(p, (ch) => (/[\p{L}\p{N}._\-/@+~ ]/u.test(ch) ? ch : "_")).join("");
-const noControl = (s: string): string => Array.from(s, (ch) => { const c = ch.codePointAt(0) as number; return c < 0x20 || (c >= 0x7f && c <= 0x9f) ? " " : ch; // C0、DEL 与 C1 控制字符（如 U+009B）都不进终端 }).join("").replace(/\s+/g, " ").trim();
+/** C0、DEL 与 C1 控制字符（如 U+009B）都不进终端：替换成空格并压缩空白。 */
+const noControl = (s: string): string => Array.from(s, (ch) => { const c = ch.codePointAt(0) as number; return c < 0x20 || (c >= 0x7f && c <= 0x9f) ? " " : ch; }).join("").replace(/\s+/g, " ").trim();
 
 export interface LaunchInput {
   spaceId: string;
