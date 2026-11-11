@@ -807,6 +807,55 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
   }
 });
 
+test("Agent CLI 分屏：左右两格同时显示两个会话并各自输入；四格有空位提示；新建/点标签自动出现；切回单窗格", async () => {
+  test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  let page: Awaited<ReturnType<typeof app.firstWindow>> | undefined;
+  try {
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    for (let i = 0; i < 2; i++) {
+      await page.getByRole("button", { name: "新终端", exact: true }).click();
+      await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+      await expect(page.getByTestId("session-tab")).toHaveCount(i + 1, { timeout: 15_000 });
+    }
+    await page.getByTestId("layout-2").click();
+    await expect(page.getByTestId("split-cell")).toHaveCount(2);
+    await expect(page.getByTestId("terminal-view")).toHaveCount(2);
+    for (const tv of await page.getByTestId("terminal-view").all()) await expect(tv).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    const picks = page.getByTestId("split-pick");
+    expect(await picks.nth(0).inputValue()).not.toBe(await picks.nth(1).inputValue()); // 两格不是同一个会话
+    const helpers = page.locator(".xterm-helper-textarea");
+    await helpers.nth(0).focus(); await page.keyboard.type("echo LEFT-$((1+1))"); await page.keyboard.press("Enter");
+    await helpers.nth(1).focus(); await page.keyboard.type("echo RIGHT-$((2+2))"); await page.keyboard.press("Enter");
+    await expect(page.getByTestId("split-cell").nth(0).locator(".xterm-rows")).toContainText("LEFT-2", { timeout: 10_000 });
+    await expect(page.getByTestId("split-cell").nth(1).locator(".xterm-rows")).toContainText("RIGHT-4", { timeout: 10_000 });
+    await expect(page.getByTestId("split-cell").nth(0).locator(".xterm-rows")).not.toContainText("RIGHT-4"); // 各自独立
+
+    await page.getByTestId("layout-4").click();
+    await expect(page.getByTestId("split-cell")).toHaveCount(4);
+    await expect(page.getByText("选一个运行中的会话显示在这里")).toHaveCount(2);
+    // 新建的会话自动出现在空格里（分屏中不用手动去下拉框选）
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+    await expect(page.getByTestId("session-tab")).toHaveCount(3, { timeout: 15_000 });
+    await expect(page.getByTestId("terminal-view")).toHaveCount(3);
+    // 用户明确选“空”的格子不会被自动补满
+    await page.getByTestId("split-pick").nth(2).selectOption("");
+    await expect(page.getByTestId("terminal-view")).toHaveCount(2);
+    await page.getByTestId("layout-1").click();
+    await expect(page.getByTestId("split-view")).toHaveCount(0);
+    await expect(page.getByTestId("terminal-view")).toHaveCount(1);
+  } finally {
+    await page?.evaluate(() => localStorage.removeItem("huhu.agentcli.layout")).catch(() => undefined); // 布局偏好存在共享的 Electron profile 里：不要影响后面的单窗格用例
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("Agent CLI：shell 里 exit 之后，会话标记为已结束（带退出码），不再提供终端；其他会话不受影响", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));

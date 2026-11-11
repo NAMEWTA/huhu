@@ -39,5 +39,6 @@ body{margin:0;background:var(--bg);color:var(--text);font:400 var(--font-size)/1
 .hu-banner-warning{background:var(--warning-bg);color:var(--warning)}.hu-banner-danger{background:var(--danger-bg);color:var(--danger)}.hu-banner-blue{background:var(--blue-bg);color:var(--blue)}
 .hu-empty{display:flex;flex-direction:column;align-items:center;gap:var(--space-2);padding:var(--space-8);color:var(--muted)}
 .hu-terminal-wrap{position:relative;height:100%;min-height:240px;background:#0f1114;border-radius:var(--radius-control);overflow:hidden}
+.hu-split .hu-terminal-wrap{min-height:0} /* 分屏的格子由网格决定高度，不要被 240px 的下限撑出格子 */
 .hu-terminal{height:100%;padding:var(--space-2)}
 .hu-terminal-overlay{position:absolute;inset:auto 0 0 0;padding:var(--space-2) var(--space-4);background:var(--chrome);color:var(--text);text-align:center}
