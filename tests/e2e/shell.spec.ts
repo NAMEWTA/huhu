@@ -1645,6 +1645,14 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
 
     await page.getByRole("switch", { name: "启用 MCP 服务" }).click();
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).mcp.enabled).toBe(true);
+    // 测试台：真实调用（桌面身份）；参数不是合法 JSON 时不能调用
+    await page.getByLabel("测试台", { exact: true }).fill("vault.info");
+    await page.getByLabel("调用参数 JSON").fill("{坏的");
+    await expect(page.getByTestId("bench-invoke")).toBeDisabled();
+    await page.getByLabel("调用参数 JSON").fill("{}");
+    await page.getByTestId("bench-invoke").click();
+    await expect(page.getByTestId("bench-result")).toHaveAttribute("data-ok", "true");
+    await expect(page.getByTestId("bench-result")).toContainText("name");
     // MCP 的 Resources / Templates / Prompts 子标签
     await page.getByRole("tab", { name: "Resources" }).click();
     await expect(page.getByTestId("mcp-resources")).toContainText("huhu://notes/recent");

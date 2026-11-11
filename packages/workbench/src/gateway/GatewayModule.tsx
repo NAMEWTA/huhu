@@ -3,6 +3,7 @@ import { Activity, Blocks, Code2, Command, Database, Folder, HeartPulse, Monitor
 import { useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { ModuleProps } from "../contributions.js";
+import { CapabilityError } from "../engine-client/client.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tGateway as g } from "../i18n/zh-CN.js";
 import type { UiState } from "../state/ui-store.js";
@@ -14,6 +15,13 @@ interface Cap {
   scope: "read" | "write" | "execute" | "admin";
   exposable: boolean;
   exposed: boolean;
+}
+interface AuditRow {
+  at: string;
+  entry: string;
+  capability: string;
+  code: string;
+  ms: number;
 }
 type Verdict = { found: boolean; identities: { identity: string; allowed: boolean; reason: string }[] };
 
@@ -51,6 +59,9 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   const [error, setError] = useState<string | null>(null);
   const [mcpTab, setMcpTab] = useState<McpTab>("tools");
   const [bench, setBench] = useState("");
+  const [argsText, setArgsText] = useState("{}");
+  const [invoked, setInvoked] = useState<{ ok: boolean; code: string; body: string } | null>(null);
+  const audit = useCapability<AuditRow[]>("gateway.audit.list", {});
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
   async function act<T>(cap: string, input: unknown): Promise<T | null> {
@@ -68,6 +79,25 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   const all = caps.data ?? [];
   const list = all.filter((c) => c.name.includes(filter.trim()));
   const open = all.filter((c) => c.exposed).length;
+
+  const argsError = (() => {
+    try {
+      const v: unknown = JSON.parse(argsText);
+      return v !== null && typeof v === "object" && !Array.isArray(v) ? null : "参数必须是 JSON 对象";
+    } catch {
+      return "不是合法的 JSON";
+    }
+  })();
+  async function invoke(): Promise<void> {
+    if (argsError || !bench.trim()) return;
+    try {
+      const data = await engine.call<unknown>(bench.trim(), JSON.parse(argsText), { write: true });
+      setInvoked({ ok: true, code: "OK", body: JSON.stringify(data, null, 2) ?? "null" });
+    } catch (e) {
+      setInvoked({ ok: false, code: e instanceof CapabilityError ? e.code : "ERROR", body: e instanceof Error ? e.message : String(e) });
+    }
+    await refresh();
+  }
 
   const tester = (
     <section className="card capability-tester" id="capability-tester">
@@ -127,6 +157,29 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
             </div>
           )}
         </div>
+      </form>
+      <form
+        className="tester-invoke"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void invoke();
+        }}
+      >
+        <Field label="参数（JSON）" error={argsError}>
+          <textarea aria-label="调用参数 JSON" rows={5} spellCheck={false} className="mono" value={argsText} onChange={(e) => (setArgsText(e.target.value), setInvoked(null))} />
+        </Field>
+        <div className="row">
+          <Button type="submit" variant="primary" icon={Play} disabled={!bench.trim() || argsError !== null} data-testid="bench-invoke">
+            调用
+          </Button>
+          <span className="small muted">测试台以桌面身份调用，与外部开放状态无关；写入类调用会真实执行。</span>
+        </div>
+        {invoked ? (
+          <div className="tester-output" data-testid="bench-result" data-ok={invoked.ok}>
+            <Badge tone={invoked.ok ? "success" : "danger"}>{invoked.ok ? "成功" : `失败 · ${invoked.code}`}</Badge>
+            <pre className="code-block">{invoked.body}</pre>
+          </div>
+        ) : null}
       </form>
     </section>
   );
@@ -214,6 +267,45 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                               {g.revoke}
                             </Button>
                           </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+              <section className="card" data-testid="gateway-audit">
+                <div className="card-head">
+                  <h2>调用记录</h2>
+                  <Button disabled={(audit.data ?? []).length === 0} data-testid="audit-clear" onClick={() => void act("gateway.audit.clear", {})}>
+                    清空
+                  </Button>
+                </div>
+                <p className="hint-text">只记录外部入口（CLI / MCP / HTTP）的调用：时间、入口、能力、结果与耗时，不含输入内容。</p>
+                {(audit.data ?? []).length === 0 ? (
+                  <EmptyState icon={Activity} title="还没有外部调用" />
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>时间</th>
+                        <th>入口</th>
+                        <th>能力</th>
+                        <th>结果</th>
+                        <th>耗时</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(audit.data ?? []).slice(0, 100).map((r) => (
+                        <tr key={`${r.at}-${r.capability}-${r.entry}-${r.ms}`} data-testid="audit-row">
+                          <td>{r.at.slice(5, 19).replace("T", " ")}</td>
+                          <td>{r.entry}</td>
+                          <td>
+                            <code>{r.capability}</code>
+                          </td>
+                          <td>
+                            <Badge tone={r.code === "OK" ? "success" : "danger"}>{r.code}</Badge>
+                          </td>
+                          <td>{r.ms} ms</td>
                         </tr>
                       ))}
                     </tbody>

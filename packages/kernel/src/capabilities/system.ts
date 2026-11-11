@@ -22,6 +22,7 @@ export function registerSystemCapabilities(
   plugins: PluginManager,
   exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void; setPluginEnabled?(id: string, enabled: boolean): void },
   gateway?: {
+    audit?: { list(): { at: string; entry: string; capability: string; code: string; ms: number }[]; clear(): void };
     tokens: {
       list(): { id: string; name: string; createdAt: string }[];
       create(name: string): { id: string; token: string };
@@ -161,6 +162,30 @@ export function registerSystemCapabilities(
           exposure.set?.(i.capability, i.exposed);
           return { exposed: i.exposed };
         },
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "gateway.audit.list",
+        plugin: "kernel",
+        scope: "admin",
+        exposable: false,
+        defaultExposed: false,
+        input: z.object({}),
+        output: z.array(z.object({ at: z.string(), entry: z.string(), capability: z.string(), code: z.string(), ms: z.number() })),
+        handler: () => (gateway?.audit?.list() ?? []).slice().reverse(),
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "gateway.audit.clear",
+        plugin: "kernel",
+        scope: "admin",
+        exposable: false,
+        defaultExposed: false,
+        input: z.object({}),
+        output: z.object({ ok: z.literal(true) }),
+        handler: () => (gateway?.audit?.clear(), { ok: true as const }),
       }),
     ),
     registry.register(

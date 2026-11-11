@@ -146,6 +146,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     () => new Date(),
     () => serverRef.current?.closeConnectionsOf("http"),
   );
+  const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
   const settingsFile = path.join(vault.root, ".huhu", "settings.json");
@@ -272,7 +273,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     plugins,
     { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)) },
-    { tokens: gatewayTokens },
+    { tokens: gatewayTokens, audit: gatewayAudit },
   );
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
@@ -347,7 +348,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const mcpToken = tokens.issue("mcp");
   const real = new Dispatcher({
     registry,
-    audit: new GatewayAudit(path.join(runtime, "gateway-audit.ndjson")),
+    audit: gatewayAudit,
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
     isPluginEnabled: (id) => plugins.isEnabled(id),
     exposureOverride: (n) => exposure.override(n),

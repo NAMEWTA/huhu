@@ -45,4 +45,9 @@ export class GatewayAudit {
   list(): AuditRecord[] {
     return [...this.records];
   }
+
+  clear(): void {
+    this.records = [];
+    if (this.file && existsSync(this.file)) writeFileSync(this.file, "");
+  }
 }
