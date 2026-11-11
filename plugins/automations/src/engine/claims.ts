@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, linkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Claim } from "./scan.js";
 
@@ -21,12 +21,21 @@ export class ClaimStore {
   /** 原子创建：已存在返回 false（并发/重复激活不会重复 claim）。 */
   create(claim: Claim): boolean {
     mkdirSync(this.dir, { recursive: true });
+    const file = this.file(claim.processingKey);
+    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    writeFileSync(tmp, JSON.stringify(claim, null, 2));
     try {
-      writeFileSync(this.file(claim.processingKey), JSON.stringify(claim, null, 2), { flag: "wx" });
+      linkSync(tmp, file); // 硬链接：写满内容后才出现，且目标已存在会失败（原子创建）
       return true;
     } catch (e) {
-      if ((e as { code?: string }).code === "EEXIST") return false;
+      const code = (e as { code?: string }).code;
+      if (code === "EEXIST") return false;
+      if (code === "EPERM" || code === "ENOTSUP" || code === "EXDEV" || code === "EOPNOTSUPP") { // 文件系统不支持硬链接（FAT/exFAT 等）：退回 wx 创建
+        try { writeFileSync(file, JSON.stringify(claim, null, 2), { flag: "wx" }); return true; } catch (e2) { if ((e2 as { code?: string }).code === "EEXIST") return false; throw e2; }
+      }
       throw e;
+    } finally {
+      try { unlinkSync(tmp); } catch { /* 已清理 */ }
     }
   }
 
@@ -34,7 +43,10 @@ export class ClaimStore {
     const cur = this.get(key);
     if (!cur) throw new Error(`claim 不存在：${key}`);
     const next = { ...cur, ...patch };
-    writeFileSync(this.file(key), JSON.stringify(next, null, 2));
+    const file = this.file(key);
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(next, null, 2)); // 临时文件 + rename：崩溃不会留下写坏的 claim（写坏会让任务被当成“没有 claim”而重复启动）
+    renameSync(tmp, file);
     return next;
   }
 

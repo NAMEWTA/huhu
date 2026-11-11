@@ -7,6 +7,8 @@ export const TaskRunFrontmatterSchema = z.object({
   ruleId: z.string(),
   processingKey: z.string(),
   attempt: z.number().int().min(1),
+  /** 问答续跑的轮次：每答完一批问题加一轮（同一个 task-run，attempt 不变）。 */
+  round: z.number().int().min(1).default(1),
   state: RunState,
   provider: z.string(),
   model: z.string().nullable().default(null),

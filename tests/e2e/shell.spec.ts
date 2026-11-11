@@ -1097,6 +1097,41 @@ test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 /
   }
 });
 
+test("自动化运行：Agent 规则经监督进程运行，运行页显示已完成、会话 id 与结果", async () => {
+  test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
+  const { chmodSync } = await import("node:fs");
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-e2e-bin-"));
+  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\ncase \"$*\" in *\" -p\"*|\"-p \"*) cat >/dev/null; printf '%s\\n' '{\"type\":\"result\",\"result\":\"周报已整理\",\"session_id\":\"e2e-sess-1\",\"is_error\":false}';; *) echo '2.0.0 (Claude Code)';; esac\n"); chmodSync(path.join(bin, "claude"), 0o755);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault, { PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const editor = page.getByTestId("rule-editor");
+    await editor.getByLabel("规则名称").fill("整理周报");
+    await editor.getByTestId("rule-kind").selectOption("agent_prompt");
+    await expect(editor.getByTestId("rule-provider")).toContainText("Claude Code", { timeout: 15_000 });
+    await editor.getByTestId("rule-space").selectOption({ index: 1 });
+    await editor.getByTestId("rule-provider").selectOption("claude");
+    await editor.getByTestId("rule-prompt").fill("请整理本周的工作记录。");
+    await editor.getByTestId("rule-save").click();
+    await page.getByTestId("rule-row").filter({ hasText: "整理周报" }).getByRole("button").first().click();
+    await page.getByRole("button", { name: "立即运行" }).click();
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    const row = page.getByTestId("run-row").filter({ hasText: "整理周报" });
+    await expect(row).toContainText("已完成", { timeout: 30_000 });
+    await row.getByRole("button").first().click();
+    await expect(page.getByTestId("run-state")).toHaveText("已完成");
+    await expect(page.getByTestId("run-session")).toHaveText("e2e-sess-1");
+    await expect(page.getByTestId("run-body")).toContainText("周报已整理");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
 test("命令面板：Ctrl+K 打开，搜索并跳转模块，Esc 关闭；内容搜索命中笔记", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   writeFileSync(path.join(vault, "蜻蜓观察.md"), "# 蜻蜓观察\n独特词汇：蜻蜓点水\n");

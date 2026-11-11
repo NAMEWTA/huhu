@@ -8,8 +8,9 @@ import { ClaimStore } from "./claims.js";
 import { ScriptStore } from "./scripts.js";
 import { HoldStore } from "./holds.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
-import { processWorker } from "./worker.js";
+import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
+import { hasRunDir, killRound, roundActive } from "./supervised.js";
+import { processWorker, roundDir } from "./worker.js";
 
 export { AutomationsService } from "./service.js";
 export { Scheduler } from "./scheduler.js";
@@ -33,7 +34,9 @@ const Rule = z.object({ id: z.string(), path: z.string(), version: z.string(), b
 export interface AutomationsOptions {
   zone?: () => string;
   /** 注入 worker（测试用替身）；默认以 provider 无界面模式启动外部进程。 */
-  worker?: (i: WorkerInput) => Promise<RunOutcome>;
+  worker?: (i: WorkerInput) => Promise<RunOutcome | null>;
+  /** 注入接管函数（测试用替身）。 */
+  adopt?: AutomationsDeps["adopt"];
   notify?: (n: { title: string; module: string }) => void;
   spaceState?: (spaceId: string) => { state: "ok" | "missing" | "inaccessible"; root?: string };
   exeFor?: (provider: string) => string | null;
@@ -44,6 +47,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const root = api.vault.files.root;
   const mid = machineId();
   const exeFor = opts.exeFor ?? (() => null);
+  const runsDir = path.join(root, ".huhu", "runtime", mid, "runs");
+  const realWorker = processWorker({ runsDir, exeFor });
   const scriptStore = new ScriptStore(path.join(root, ".huhu", "automations", "scripts.json"));
   const holdStore = new HoldStore(path.join(root, ".huhu", "automations", "holds.json"));
   const svc = new AutomationsService({
@@ -51,7 +56,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     claims: new ClaimStore(path.join(root, ".huhu", "automations", "claims")),
     activationsDir: path.join(root, ".huhu", "automations", "activations"),
     taskQuery: () => api.service<TaskQueryLike>("taskQuery"),
-    worker: opts.worker ?? processWorker({ runsDir: path.join(root, ".huhu", "runtime", mid, "runs"), exeFor }),
+    worker: opts.worker ?? realWorker.run,
+    ...(opts.worker ? (opts.adopt ? { adopt: opts.adopt } : {}) : { adopt: realWorker.adopt }),
+    runAlive: (runId, round) => roundActive(roundDir(runsDir, runId, round)),
+    killRound: (runId, round) => killRound(roundDir(runsDir, runId, round)),
+    hasRound: (runId, round) => hasRunDir(roundDir(runsDir, runId, round)),
     spaceState: opts.spaceState ?? (() => ({ state: "missing" })),
     cliAvailable: (p) => exeFor(p) !== null,
     holds: (t, h) => holdStore.isHeld(t, h),
@@ -75,7 +84,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
   const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes, updatedAt: r.data.updatedAt })));
   // 能力在内置规则写入完成后才开始服务；写入失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
-  const ready = svc.ensureBuiltin().then(() => svc.reconcile()).then(() => { if (opts.schedule !== false) sync(); }).catch(() => undefined);
+  const ready = svc.ensureBuiltin().then(() => svc.reconcile().catch(() => 0)).then(() => { if (opts.schedule !== false) sync(); }).catch(() => undefined);
   ctx.effect(() => () => { scheduler.stop(); svc.abortAll(); }); // 停用 → 作业全部释放，运行中的脚本/Agent 被终止
   const resync = () => { if (opts.schedule !== false) sync(); };
 
@@ -101,5 +110,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   api.defineCapability(def({ name: "automations.runNow", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, timeoutMs: 30 * 60_000, input: Id, output: z.object({ activationId: z.string(), summary: z.unknown() }), handler: async (_c, i) => { const a = await svc.activate(i.id, "manual"); return { activationId: a.activationId, summary: a.summary }; } }));
   api.defineCapability(def({ name: "automations.cancel", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: z.object({ cancelled: z.boolean() }), handler: (_c, i) => ({ cancelled: svc.cancel(i.id) }) }));
   api.defineCapability(def({ name: "automations.activations", plugin: "automations", scope: "read", exposable: true, defaultExposed: true, input: z.object({}), output: z.array(z.object({ activationId: z.string(), ruleId: z.string(), trigger: z.string(), scheduledFor: z.string().nullable(), startedAt: z.string(), finishedAt: z.string().optional(), summary: z.unknown().optional() })), handler: () => svc.activations() as never }));
+  const RunRow = z.object({ id: z.string(), kind: z.enum(["task-run", "automation-run"]), state: z.string(), title: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), attempt: z.number().nullable(), live: z.boolean() });
+  api.defineCapability(def({ name: "automations.runs.list", plugin: "automations", scope: "read", exposable: false, defaultExposed: false, input: z.object({ limit: z.number().int().min(1).max(500).optional() }), output: z.array(RunRow), handler: async (_c, i) => { await ready; return svc.runs(i.limit); } }));
+  api.defineCapability(def({ name: "automations.runs.read", plugin: "automations", scope: "read", exposable: false, defaultExposed: false, input: z.object({ runId: z.string() }), output: z.object({ id: z.string(), kind: z.enum(["task-run", "automation-run"]), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean(), canRetry: z.boolean() }), handler: async (_c, i) => { await ready; return svc.runDetail(i.runId); } }));
+  api.defineCapability(def({ name: "automations.runs.answer", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, input: z.object({ runId: z.string(), answers: z.array(z.object({ id: z.string(), answer: z.string() })).min(1).max(20) }), output: z.object({ resumed: z.boolean() }), handler: async (_c, i) => { await ready; return svc.answerRun(i.runId, i.answers); } }));
+  api.defineCapability(def({ name: "automations.runs.cancel", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, input: z.object({ runId: z.string() }), output: z.object({ cancelled: z.boolean() }), handler: async (_c, i) => { await ready; return svc.cancelRunById(i.runId); } }));
+  api.defineCapability(def({ name: "automations.runs.retry", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, input: z.object({ runId: z.string() }), output: z.object({ runId: z.string() }), handler: async (_c, i) => { await ready; return svc.retryRun(i.runId); } }));
   return { service: svc, scheduler };
 }

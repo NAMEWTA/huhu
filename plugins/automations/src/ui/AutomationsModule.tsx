@@ -3,6 +3,7 @@ import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
 import { t } from "./i18n.js";
 import { RuleEditor, type EditableRule } from "./RuleEditor.js";
+import { RunsPanel } from "./RunsPanel.js";
 
 interface Rule extends EditableRule { data: EditableRule["data"] & { enabled: boolean } }
 interface Preview { next: string[]; tasksDisabled: boolean; candidates: { taskId: string; title: string }[]; skipped: { taskId: string; title: string; reason: keyof typeof t.reasons }[] }
@@ -12,7 +13,7 @@ interface Activation { activationId: string; ruleId: string; trigger: "schedule"
 export function AutomationsModule() {
   const engine = useEngine();
   const qc = useQueryClient();
-  const [nav, setNav] = useState<"rules" | "activations" | "scripts">("rules");
+  const [nav, setNav] = useState<"rules" | "activations" | "runs" | "scripts">("rules");
   const [sf, setSf] = useState({ title: "", program: "", cwd: "", timeoutSec: "60", env: "" });
   const scripts = useCapability<ScriptRow[]>("automations.scripts.list", {});
   const [sel, setSel] = useState<string | null>(null);
@@ -40,11 +41,11 @@ export function AutomationsModule() {
     <div className="hu-module" data-testid="automations-module">
       <aside className="hu-module-sidebar" aria-label={t.title}>
         <h2>{t.title}</h2>
-        {(["rules", "activations", "scripts"] as const).map((k) => <button key={k} type="button" className="hu-nav-item" aria-current={nav === k} onClick={() => setNav(k)}><span>{t.nav[k]}</span></button>)}
+        {(["rules", "activations", "runs", "scripts"] as const).map((k) => <button key={k} type="button" className="hu-nav-item" aria-current={nav === k} onClick={() => setNav(k)}><span>{t.nav[k]}</span></button>)}
       </aside>
       <section className="hu-content">
         {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
-        {nav === "scripts" ? (
+        {nav === "runs" ? <RunsPanel /> : nav === "scripts" ? (
           <>
             <h1>{t.scriptsTitle}</h1>
             <p className="hu-meta">{t.scriptsHint}</p>

@@ -23,6 +23,11 @@ export interface Claim {
   runId: string;
   state: "queued" | "running" | "waiting_input" | "succeeded" | "failed" | "cancelled" | "unknown";
   claimedAt: string;
+  /** 启动这次运行的机器：多机共享 Vault 时，对账只处理本机的 claim。缺省（旧数据）视为任何机器都可对账。 */
+  machineId?: string;
+  attempt?: number;
+  workerPid?: number;
+  supervisorPid?: number;
 }
 
 export interface ScanEnv {

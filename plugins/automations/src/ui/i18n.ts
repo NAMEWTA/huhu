@@ -1,6 +1,12 @@
 export const t = {
   title: "自动化",
-  nav: { rules: "定时自动化", activations: "激活记录", scripts: "脚本" },
+  nav: { rules: "定时自动化", activations: "激活记录", runs: "运行", scripts: "脚本" },
+  runs: {
+    none: "还没有运行记录", detail: "运行详情", status: "状态", started: "开始", finished: "结束", cwd: "工作目录", cli: "CLI", session: "会话 id", exitCode: "退出码",
+    attemptRound: "尝试 / 轮次", attempt: (n: number) => `第 ${n} 次尝试`, questions: "Agent 的提问", answered: "已回答", answerFor: (id: string) => `回答 ${id}`, answerPlaceholder: "输入你的回答",
+    submitAnswers: "提交回答并继续", result: "结果", cancel: "取消运行", retry: "标记失败并重试", retryConfirm: "会重新启动一次 Agent 运行（新的尝试）。", retryUnknownConfirm: "这次运行的结果无法确认：会先标记为失败，再重新启动一次。", retryDo: "确认重试", retryAbort: "不重试",
+    state: { queued: "排队中", running: "运行中", waiting_input: "等你回答", succeeded: "已完成", failed: "失败", cancelled: "已取消", unknown: "结果未知" } as Record<string, string>,
+  },
   builtin: "内置",
   enabled: "已启用",
   paused: "已暂停",

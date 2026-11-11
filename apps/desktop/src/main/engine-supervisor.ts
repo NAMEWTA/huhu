@@ -46,7 +46,7 @@ export class EngineSupervisor {
     this.stopping = false;
     this.endpoint = null;
     this.set("starting");
-    const child = utilityProcess.fork(this.entry, ["--vault", this.vaultPath, "--create"], { stdio: "pipe", serviceName: "huhu-engine", env: { ...process.env, ...(process.env["HUHU_HERDR_BIN"] ? {} : (() => { const b = bundledHerdrBin(); return b ? { HUHU_HERDR_BIN: b } : {}; })()) } });
+    const child = utilityProcess.fork(this.entry, ["--vault", this.vaultPath, "--create"], { stdio: "pipe", serviceName: "huhu-engine", env: { ...process.env, HUHU_NODE_BIN: process.execPath /* 主程序可执行文件：Engine 里启动监督进程要用它（utilityProcess 的 execPath 在 macOS 可能是 Helper） */, ...(process.env["HUHU_HERDR_BIN"] ? {} : (() => { const b = bundledHerdrBin(); return b ? { HUHU_HERDR_BIN: b } : {}; })()) } });
     this.child = child;
     child.stderr?.on("data", (d) => process.stderr.write(`[engine] ${d}`));
     child.on("message", (m: ReadyMessage) => {
