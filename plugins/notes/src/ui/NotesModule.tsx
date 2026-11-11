@@ -1,4 +1,4 @@
-import { Button, Dialog, EmptyState, Field } from "@huhu/ui";
+import { Button, Dialog, EmptyState, Field, IconButton } from "@huhu/ui";
 import type { MarkdownEditorHandle } from "@huhu/editor";
 import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Plus, X } from "lucide-react";
@@ -193,6 +193,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
                 </div>
               );
             })}
+            <IconButton icon={Plus} label="在新标签新建笔记" onClick={() => setDialog({ kind: "new", folder: "" })} />
           </nav>
         ) : null}
         {error ? (

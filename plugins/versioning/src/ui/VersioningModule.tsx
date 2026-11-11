@@ -1,6 +1,6 @@
-import { Badge, Button, EmptyState, ReviewDiff } from "@huhu/ui";
-import { Cloud, FileText, GitBranch, History, Plus, RotateCcw, Search } from "lucide-react";
-import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { Badge, Button, EmptyState, ReviewDiff, buildDiffRows } from "@huhu/ui";
+import { Cloud, FileText, GitBranch, History, Pencil, Plus, RotateCcw, Search } from "lucide-react";
+import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { ConflictView } from "./conflicts/ConflictView.js";
 import { t } from "./i18n.js";
@@ -34,7 +34,7 @@ type Tab = "history" | "git" | "sync" | "conflicts";
 const TAB_ICON = { history: History, git: GitBranch, sync: Cloud } as const;
 
 /** 版本历史（原型 version-v9）：顶部三个功能（文件历史 / Git / 同步）+ 左侧资源栏 + 主区。 */
-export function VersioningModule() {
+export function VersioningModule({ onNavigate }: ModuleProps) {
   const [tab, setTab] = useState<Tab>("history");
   const syncStatus = useCapability<{ name: string; detail: string }>("sync.status", {});
   const state = syncStatus.data?.name ?? "idle";
@@ -58,7 +58,7 @@ export function VersioningModule() {
         </nav>
       </header>
       {tab === "history" ? (
-        <FileHistory />
+        <FileHistory onNavigate={onNavigate} />
       ) : tab === "git" ? (
         <GitPage />
       ) : (
@@ -91,7 +91,7 @@ function useAct() {
   return { engine, act, error };
 }
 
-function FileHistory() {
+function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] }) {
   const { engine, act, error } = useAct();
   const notes = useCapability<NoteRef[]>("notes.list", { filter: "all" });
   const [path, setPath] = useState<string | null>(null);
@@ -104,6 +104,8 @@ function FileHistory() {
   const chosen = entries.find((e) => e.id === sel) ?? entries[0] ?? null;
   const content = useCapability<{ text: string }>("history.read", chosen && file ? { path: chosen.path, entryId: chosen.id } : { path: "x.md", entryId: "0".repeat(40) });
   const current = useCapability<{ text: string }>("notes.read", file ? { path: file } : { path: "x.md" });
+  // 头部的 +n −m：所选历史版本相对当前内容的行数变化（和下面的差异视图同一份数据）
+  const stats = chosen && content.data && current.data ? buildDiffRows(content.data.text, current.data.text) : null;
 
   async function restore() {
     if (!file || !chosen) return;
@@ -187,9 +189,21 @@ function FileHistory() {
             <FileText size={15} aria-hidden />
             <strong title={file ?? ""}>{file ?? "—"}</strong>
           </div>
-          <Button variant="ghost" icon={RotateCcw} disabled={!chosen || content.data?.text === current.data?.text} onClick={() => void restore()}>
-            {t.restore}
-          </Button>
+          <div className="row">
+            {stats ? (
+              <span className="version-v9-stats" data-testid="history-stats">
+                <span className="added">+{stats.added}</span> <span className="removed">−{stats.removed}</span>
+              </span>
+            ) : null}
+            {onNavigate ? (
+              <Button variant="ghost" icon={Pencil} data-testid="history-edit-current" onClick={() => onNavigate("notes")}>
+                编辑当前文件
+              </Button>
+            ) : null}
+            <Button variant="ghost" icon={RotateCcw} disabled={!chosen || content.data?.text === current.data?.text} onClick={() => void restore()}>
+              {t.restore}
+            </Button>
+          </div>
         </div>
         {chosen ? (
           <div className="version-v9-diff" data-testid="history-content">
