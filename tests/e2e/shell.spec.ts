@@ -12,6 +12,60 @@ async function launch(vault: string, extraEnv: Record<string, string> = {}): Pro
   return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
 }
 
+/** 不指定 HUHU_VAULT 启动：显示启动页。目录选择框用主进程里的桩替换（原生对话框无法被 Playwright 驱动）。 */
+async function launchBare(): Promise<ElectronApplication> {
+  const env = { ...process.env, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } as Record<string, string>;
+  delete env["HUHU_VAULT"];
+  return electron.launch({ args: [root, "--no-sandbox"], env });
+}
+async function stubPick(app: ElectronApplication, ...paths: string[]): Promise<void> {
+  await app.evaluate(({ dialog }, queue) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [queue.shift() ?? ""] })) as typeof dialog.showOpenDialog;
+  }, paths);
+}
+
+test("启动页（ACC-WB-01/02）：新建空白 Vault、非空目录被拒绝、示例 Vault、切换 Vault 回到启动页", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "huhu-launch-"));
+  const empty = path.join(base, "空白");
+  const busy = path.join(base, "已有内容");
+  const demo = path.join(base, "示例");
+  mkdirSync(busy);
+  writeFileSync(path.join(busy, "a.txt"), "已有");
+  const app = await launchBare();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+
+    await stubPick(app, busy);
+    await page.getByTestId("vault-new").click();
+    await expect(page.getByTestId("vault-error")).toContainText("必须为空");
+    expect(readdirSync(busy)).toEqual(["a.txt"]); // 不动已有内容
+
+    await stubPick(app, empty);
+    mkdirSync(empty);
+    await page.getByTestId("vault-new").click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    expect(existsSync(path.join(empty, ".huhu/vault.json"))).toBe(true);
+
+    // 切换 Vault：回到启动页，且最近列表里有刚才的目录；打开示例 Vault
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-vault").click();
+    await page.getByTestId("svault-switch").click();
+    await page.getByTestId("svault-switch-confirm").click();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("vault-recent")).toContainText("空白");
+    await stubPick(app, demo);
+    await page.getByTestId("vault-demo").click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    expect(existsSync(path.join(demo, "欢迎使用 HUHU.md"))).toBe(true);
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await expect(page.getByTestId("note-item").filter({ hasText: "欢迎使用 HUHU" })).toBeVisible();
+  } finally {
+    await app.close();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("窗口启动、appInfo 可用、window.open 被拒绝", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

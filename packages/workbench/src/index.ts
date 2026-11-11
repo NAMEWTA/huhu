@@ -14,3 +14,5 @@ export * from "./command-palette/palette-model.js";
 export * from "./gateway/GatewayModule.js";
 export * from "./shell/ShellBars.js";
 export * from "./shell/QuickCapture.js";
+export * from "./launch/LaunchPage.js";
+export * from "./settings/host.js";

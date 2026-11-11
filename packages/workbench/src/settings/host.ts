@@ -10,6 +10,23 @@ export interface HostApi {
   cliInstall(): Promise<unknown>;
   cliUninstall(): Promise<unknown>;
   notices(): Promise<string>;
+  vault: VaultHostApi;
+}
+
+export interface VaultHostState {
+  path: string | null;
+  readOnly: boolean;
+  recent: { path: string; name: string; at: string }[];
+  error?: string;
+}
+export type VaultOpenResult = { ok: true } | { ok: false; code: string; message: string };
+/** 启动页与“切换 Vault”用的宿主能力（Main 管理 Engine 的生命周期）。 */
+export interface VaultHostApi {
+  state(): Promise<VaultHostState>;
+  open(target: string, opts?: { kind?: "open" | "new"; readOnly?: boolean }): Promise<VaultOpenResult>;
+  openDemo(target: string): Promise<VaultOpenResult>;
+  importPackage(zip: string, target: string): Promise<VaultOpenResult>;
+  close(): Promise<void>;
 }
 
 export const host = (): HostApi | undefined => (globalThis as { huhuHost?: HostApi }).huhuHost;

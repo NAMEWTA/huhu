@@ -248,6 +248,9 @@ importers:
       '@huhu/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@huhu/vault':
+        specifier: workspace:*
+        version: link:../../packages/vault
       '@huhu/workbench':
         specifier: workspace:*
         version: link:../../packages/workbench

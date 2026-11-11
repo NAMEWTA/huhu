@@ -1,5 +1,5 @@
 import { Button, Field } from "@huhu/ui";
-import { Copy, Folder } from "lucide-react";
+import { Copy, Folder, FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
@@ -84,6 +84,7 @@ function VaultForm({
 }) {
   const [name, setName] = useState(info.name);
   const [desc, setDesc] = useState(description);
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
   const dirty = name !== info.name || desc !== description;
   const valid = name.trim().length > 0 && name.trim().length <= 80 && desc.trim().length <= 500;
   const c = t.settings.vault;
@@ -135,6 +136,35 @@ function VaultForm({
             ) : null}
           </div>
         </Field>
+        {host()?.vault ? (
+          <div className="setting-row">
+            <div>
+              <strong>切换 Vault</strong>
+              <p className="hint-text">关闭当前 Vault（未保存的编辑会先写入）并回到启动页，可以打开另一个文件夹。</p>
+            </div>
+            {confirmSwitch ? (
+              <div className="row">
+                <Button
+                  variant="primary"
+                  data-testid="svault-switch-confirm"
+                  onClick={() =>
+                    void (async () => {
+                      await host()?.vault.close();
+                      window.location.reload();
+                    })()
+                  }
+                >
+                  关闭并切换
+                </Button>
+                <Button onClick={() => setConfirmSwitch(false)}>取消</Button>
+              </div>
+            ) : (
+              <Button icon={FolderOpen} data-testid="svault-switch" onClick={() => setConfirmSwitch(true)}>
+                切换 Vault…
+              </Button>
+            )}
+          </div>
+        ) : null}
         <div className="setting-row">
           <div>
             <strong>{c.id}</strong>

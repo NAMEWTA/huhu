@@ -14,6 +14,8 @@ extraResources:
   - from: resources/herdr/${platform}-${arch}
     to: herdr/${platform}-${arch}
     filter: ["**/*"]
+  - from: resources/demo-vault
+    to: demo-vault
   - from: ../../LICENSE
     to: LICENSE
   - from: ../../THIRD_PARTY_NOTICES.md

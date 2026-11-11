@@ -4,13 +4,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
+import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 
 let supervisor: EngineSupervisor | null = null;
 
-/** 过渡方案：启动页（W04.1）完成前，用 HUHU_VAULT 或「文档/HUHU Vault」。 */
-function defaultVaultPath(): string {
-  return process.env["HUHU_VAULT"] ?? path.join(app.getPath("documents"), "HUHU Vault");
-}
+/** 启动时的 Vault：只有 HUHU_VAULT（自动化测试 / 命令行启动）会跳过启动页；正常使用由用户在启动页选择。 */
+const startupVault = (): string | null => process.env["HUHU_VAULT"] ?? null;
 
 /** 构建时写入的 build-info.json（提交、构建时间）；开发态没有就为空。 */
 function readBuildInfo(): { commit?: string; builtAt?: string } {
@@ -92,21 +91,82 @@ if (!gotLock) {
       if (!file.startsWith(root)) return new Response("forbidden", { status: 403 });
       return net.fetch(pathToFileURL(file).toString());
     });
-    supervisor = new EngineSupervisor(defaultVaultPath(), (state) => {
+    const broadcast = (state: string) => {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
+    };
+    let current: { path: string; readOnly: boolean } | null = null;
+    let recent: RecentVault[] = [];
+    /** 打开（或切换到）一个 Vault：先有序关闭旧 Engine；失败时回到未打开状态，错误原样交给启动页显示。 */
+    const openVault = async (target: string, flags: { create: boolean; readOnly: boolean }): Promise<OpenResult> => {
+      if (supervisor) await supervisor.stop();
+      supervisor = null;
+      current = null;
+      const next = new EngineSupervisor(target, flags, broadcast);
+      supervisor = next;
+      next.start();
+      const r = await next.whenStarted();
+      if (!r.ok) {
+        await next.stop().catch(() => undefined);
+        if (supervisor === next) supervisor = null;
+        return r;
+      }
+      current = { path: target, readOnly: flags.readOnly };
+      recent = remember(recent, { path: target, name: path.basename(target) || target, at: new Date().toISOString() });
+      return { ok: true };
+    };
+    const first = startupVault();
+    const startup = first ? openVault(first, { create: true, readOnly: false }) : null;
+    let startupError: string | null = null;
+    void startup?.then((r) => {
+      if (!r.ok) startupError = r.message;
     });
-    supervisor.start();
+    const demoRoot = (): string => (app.isPackaged ? path.join(process.resourcesPath, "demo-vault") : path.join(app.getAppPath(), "resources", "demo-vault"));
+    ipcMain.handle("huhu:vault:state", async (event): Promise<VaultState> => {
+      assertTrusted(event.senderFrame?.url);
+      await startup; // 命令行 / 测试指定的 Vault 先打开完，界面再判断是否显示启动页
+      return { path: current?.path ?? null, readOnly: current?.readOnly ?? false, recent, ...(startupError ? { error: startupError } : {}) };
+    });
+    // kind: open 打开已有文件夹（不存在则初始化为 Vault）；new 新建空白（必须空目录）
+    ipcMain.handle("huhu:vault:open", async (event, target: unknown, opts: unknown): Promise<OpenResult> => {
+      assertTrusted(event.senderFrame?.url);
+      const o = (opts ?? {}) as { kind?: string; readOnly?: boolean };
+      if (typeof target !== "string") return { ok: false, code: "INVALID_INPUT", message: "请选择一个目录" };
+      const bad = o.kind === "new" ? checkEmptyTarget(target) : checkOpenable(target);
+      if (bad) return bad;
+      return openVault(target, { create: o.kind === "new" || !o.readOnly, readOnly: o.readOnly === true });
+    });
+    ipcMain.handle("huhu:vault:demo", async (event, target: unknown): Promise<OpenResult> => {
+      assertTrusted(event.senderFrame?.url);
+      if (typeof target !== "string") return { ok: false, code: "INVALID_INPUT", message: "请选择一个空目录" };
+      const bad = copyDemoVault(demoRoot(), target);
+      if (bad) return bad;
+      return openVault(target, { create: true, readOnly: false });
+    });
+    ipcMain.handle("huhu:vault:import", async (event, zip: unknown, target: unknown): Promise<OpenResult> => {
+      assertTrusted(event.senderFrame?.url);
+      if (typeof zip !== "string" || typeof target !== "string") return { ok: false, code: "INVALID_INPUT", message: "请选择数据包和一个空目录" };
+      const bad = importPackageTo(zip, target);
+      if (bad) return bad;
+      return openVault(target, { create: false, readOnly: false });
+    });
+    ipcMain.handle("huhu:vault:close", async (event) => {
+      assertTrusted(event.senderFrame?.url);
+      if (supervisor) await supervisor.stop();
+      supervisor = null;
+      current = null;
+    });
     ipcMain.handle("huhu:engine", async (event) => {
       assertTrusted(event.senderFrame?.url);
-      return supervisor!.whenReady();
+      if (!supervisor) throw new Error("尚未打开 Vault");
+      return supervisor.whenReady();
     });
     ipcMain.handle("huhu:engineState", (event) => {
       assertTrusted(event.senderFrame?.url);
-      return supervisor!.current;
+      return supervisor?.current ?? "stopped";
     });
     ipcMain.handle("huhu:restartEngine", (event) => {
       assertTrusted(event.senderFrame?.url);
-      supervisor!.restart();
+      supervisor?.restart();
     });
     ipcMain.handle("huhu:appInfo", (event) => {
       assertTrusted(event.senderFrame?.url);
@@ -114,7 +174,7 @@ if (!gotLock) {
     });
     ipcMain.handle("huhu:revealVault", (event) => {
       assertTrusted(event.senderFrame?.url);
-      shell.showItemInFolder(defaultVaultPath());
+      if (current) shell.showItemInFolder(current.path);
     });
     // 文件对话框：只返回用户选中的路径，真正的读写由 Engine 进程完成
     ipcMain.handle("huhu:pickSavePath", async (event, defaultName: unknown) => {

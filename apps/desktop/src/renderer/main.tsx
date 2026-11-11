@@ -19,6 +19,8 @@ import {
   HealthModule,
   HomeModule,
   CommandPalette,
+  LaunchPage,
+  type VaultHostState,
   QuickCapture,
   EngineClient,
   GatewayModule,
@@ -235,4 +237,16 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+/** 根：先问 Main 当前有没有打开的 Vault；没有就显示启动页，打开成功后重新载入界面（旧 Vault 的缓存与事件随页面一起丢弃）。 */
+function Root() {
+  const [vault, setVault] = useState<VaultHostState | null>(null);
+  useEffect(() => {
+    applyAppearance(document.documentElement, { theme: "pearl", mode: "system" }, window.matchMedia("(prefers-color-scheme: dark)").matches);
+    void window.huhuHost.vault.state().then(setVault);
+  }, []);
+  if (!vault) return null;
+  if (vault.path === null) return <LaunchPage state={vault} onOpened={() => window.location.reload()} />;
+  return <App />;
+}
+
+createRoot(document.getElementById("root")!).render(<Root />);

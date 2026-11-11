@@ -11,6 +11,7 @@ declare global {
       cliInstall(): Promise<unknown>;
       cliUninstall(): Promise<unknown>;
       notices(): Promise<string>;
+      vault: import("@huhu/workbench").VaultHostApi;
       engine(): Promise<{ baseUrl: string; token: string; vaultId: string }>;
       engineState(): Promise<EngineState>;
       restartEngine(): Promise<void>;

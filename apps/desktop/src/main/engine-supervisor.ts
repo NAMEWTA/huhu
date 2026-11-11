@@ -30,9 +30,12 @@ export class EngineSupervisor {
   private endpoint: EngineEndpoint | null = null;
   private waiters: ((e: EngineEndpoint) => void)[] = [];
   private stopping = false;
+  /** 最近一次启动失败的原因（Engine 在 stderr 上输出的 {"type":"error"} 行）。 */
+  lastError: { code: string; message: string } | null = null;
 
   constructor(
     private readonly vaultPath: string,
+    private readonly flags: { create?: boolean; readOnly?: boolean } = { create: true },
     private readonly onState: (s: EngineState) => void,
     private readonly entry: string = path.join(import.meta.dirname, "engine.js"),
   ) {}
@@ -44,13 +47,16 @@ export class EngineSupervisor {
   private set(s: EngineState): void {
     this.state = s;
     this.onState(s);
+    for (const l of this.listeners) l(s);
   }
 
   start(): void {
     this.stopping = false;
     this.endpoint = null;
+    this.lastError = null;
     this.set("starting");
-    const child = utilityProcess.fork(this.entry, ["--vault", this.vaultPath, "--create"], {
+    const args = ["--vault", this.vaultPath, ...(this.flags.create ? ["--create"] : []), ...(this.flags.readOnly ? ["--read-only"] : [])];
+    const child = utilityProcess.fork(this.entry, args, {
       stdio: "pipe",
       serviceName: "huhu-engine",
       env: {
@@ -65,7 +71,18 @@ export class EngineSupervisor {
       },
     });
     this.child = child;
-    child.stderr?.on("data", (d) => process.stderr.write(`[engine] ${d}`));
+    child.stderr?.on("data", (d) => {
+      process.stderr.write(`[engine] ${d}`);
+      for (const line of String(d).split("\n")) {
+        if (!line.startsWith('{"type":"error"')) continue;
+        try {
+          const e = JSON.parse(line) as { code?: string; message?: string };
+          this.lastError = { code: e.code ?? "INTERNAL", message: e.message ?? "Vault 打开失败" };
+        } catch {
+          // 非 JSON 行忽略
+        }
+      }
+    });
     child.on("message", (m: ReadyMessage) => {
       if (m.type !== "ready") return;
       this.endpoint = { baseUrl: `http://127.0.0.1:${m.port}`, token: m.rendererToken, vaultId: m.vaultId };
@@ -79,6 +96,24 @@ export class EngineSupervisor {
       this.set(this.stopping ? "stopped" : "crashed");
     });
   }
+
+  /** 启动结果：就绪 → ok；在就绪前退出 → 失败原因。 */
+  whenStarted(timeoutMs = 60_000): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ ok: false, code: "TIMEOUT", message: "Engine 启动超时" }), timeoutMs);
+      const check = (s: EngineState) => {
+        if (s === "ready") resolve({ ok: true });
+        else if (s === "crashed") resolve({ ok: false, ...(this.lastError ?? { code: "INTERNAL", message: "Engine 启动失败" }) });
+        else return;
+        clearTimeout(timer);
+        this.listeners.delete(check);
+      };
+      this.listeners.add(check);
+      check(this.state);
+    });
+  }
+
+  private readonly listeners = new Set<(s: EngineState) => void>();
 
   /** 等待 Engine 就绪后返回端点。 */
   whenReady(): Promise<EngineEndpoint> {
