@@ -82,7 +82,7 @@ export function AgentCliModule() {
         {error ? <div role="alert" className="hu-overdue">{error}</div> : null}
         <div role="tablist" aria-label={t.sessions} className="hu-form">
           {list.map((s) => (
-            <button key={s.id} type="button" role="tab" aria-selected={s.id === active} className="hu-btn" data-testid="session-tab" onClick={() => { setActive(s.id); if (layout !== 1 && s.state === "running") setSplit(reveal(layout, shown, split, s.id)); else if (split.hidden.includes(s.id)) setSplit({ ...split, hidden: split.hidden.filter((h) => h !== s.id) }); // 单窗格点标签也解除“已移出分屏” }}>
+            <button key={s.id} type="button" role="tab" aria-selected={s.id === active} className="hu-btn" data-testid="session-tab" onClick={() => { setActive(s.id); if (layout !== 1 && s.state === "running") setSplit(reveal(layout, shown, split, s.id)); else if (split.hidden.includes(s.id)) setSplit({ ...split, hidden: split.hidden.filter((h) => h !== s.id) }); }}>
               {s.name} <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>
             </button>
           ))}
