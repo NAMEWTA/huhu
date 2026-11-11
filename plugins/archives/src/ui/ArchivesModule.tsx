@@ -1,4 +1,4 @@
-import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
+import { Badge, Button, CompletionCircle, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Download, FileText, Hash, LayoutGrid, Link2, MoreHorizontal, Network, Pencil, Plus, SlidersHorizontal, Table2, Trash2, X } from "lucide-react";
 import { useState } from "react";
@@ -11,6 +11,8 @@ interface FieldDef {
 }
 interface ArchiveRow {
   id: string;
+  path: string;
+  noteIds?: string[];
   version: string;
   name: string;
   type: string;
@@ -32,6 +34,8 @@ type View = "table" | "cards";
 type DialogState =
   | { kind: "archive"; entity: ArchiveRow | null }
   | { kind: "relations"; entity: ArchiveRow }
+  | { kind: "linkNote"; entity: ArchiveRow }
+  | { kind: "newTask"; entity: ArchiveRow }
   | { kind: "types" }
   | { kind: "type"; type: ArchiveType | null }
   | { kind: "delete"; entity: ArchiveRow }
@@ -59,6 +63,9 @@ export function ArchivesModule() {
   const [error, setError] = useState<string | null>(null);
   const types = useCapability<ArchiveType[]>("archives.types.list", {});
   const all = useCapability<ArchiveRow[]>("archives.list", {});
+  // 关联笔记 / 任务来自可选依赖：对应插件停用时这两个分区显示提示，不影响档案本身
+  const notesQ = useCapability<{ id: string | null; path: string; title: string }[]>("notes.list", { filter: "all" });
+  const tasksQ = useCapability<{ id: string; version: string; title: string; completed: boolean; path: string; resources: { path: string }[] }[]>("tasks.list", { category: "all" });
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
   const typeList = types.data ?? [];
   const rows = all.data ?? [];
@@ -294,6 +301,44 @@ export function ArchivesModule() {
               })}
               {cur.relatedIds.length === 0 ? <p className="small muted">建立关系，让长期信息串联起来。</p> : null}
             </section>
+            <section className="knowledge-detail-section" data-testid="archive-notes">
+              <div className="row">
+                <h3 className="grow">关联笔记</h3>
+                {notesQ.isError ? null : <IconButton icon={Plus} label="关联已有笔记" onClick={() => setDialog({ kind: "linkNote", entity: cur })} />}
+              </div>
+              {notesQ.isError ? <p className="small muted">知识库插件已停用，无法选择笔记。</p> : null}
+              {(cur.noteIds ?? []).map((nid) => {
+                const note = (notesQ.data ?? []).find((n) => n.id === nid);
+                return (
+                  <div key={nid} className="knowledge-link-row">
+                    <FileText size={15} aria-hidden />
+                    <span className="grow">{note?.title ?? nid}</span>
+                    {note ? null : <Badge tone="warning">{t.stale}</Badge>}
+                    <IconButton icon={X} label={`解除关联 ${note?.title ?? nid}`} onClick={() => void act("archives.unlinkNote", { id: cur.id, noteId: nid })} />
+                  </div>
+                );
+              })}
+              {(cur.noteIds ?? []).length === 0 && !notesQ.isError ? <p className="small muted">把相关笔记关联到这里。</p> : null}
+            </section>
+            <section className="knowledge-detail-section" data-testid="archive-tasks">
+              <div className="row">
+                <h3 className="grow">关联任务</h3>
+                {tasksQ.isError ? null : <IconButton icon={Plus} label="新建关联任务" onClick={() => setDialog({ kind: "newTask", entity: cur })} />}
+              </div>
+              {tasksQ.isError ? <p className="small muted">任务插件已停用，无法显示关联任务。</p> : null}
+              {(tasksQ.data ?? [])
+                .filter((tk) => tk.resources.some((r) => r.path === cur.path))
+                .map((tk) => (
+                  <div key={tk.id} className="knowledge-link-row" data-testid="archive-task">
+                    <CompletionCircle
+                      checked={tk.completed}
+                      label={`${tk.completed ? "已完成" : "未完成"}：${tk.title}`}
+                      onToggle={() => void act("tasks.setCompleted", { id: tk.id, completed: !tk.completed, expectedVersion: tk.version })}
+                    />
+                    <span className="grow">{tk.title}</span>
+                  </div>
+                ))}
+            </section>
             <section className="knowledge-detail-section">
               <h3>更多操作</h3>
               <Button icon={ArrowRight} onClick={() => setDialog({ kind: "changeType", entity: cur })}>
@@ -433,6 +478,30 @@ export function ArchivesModule() {
             </select>
           </Field>
         </Dialog>
+      ) : null}
+      {dialog?.kind === "linkNote" ? (
+        <PickDialog
+          title="关联已有笔记"
+          label="笔记"
+          error={error}
+          options={(notesQ.data ?? []).filter((n) => n.id && !(dialog.entity.noteIds ?? []).includes(n.id)).map((n) => ({ value: n.id as string, label: n.title }))}
+          submit="关联"
+          onClose={() => setDialog(null)}
+          onSubmit={async (noteId) => {
+            if (await act("archives.linkNote", { id: dialog.entity.id, noteId })) setDialog(null);
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "newTask" ? (
+        <NewTaskDialog
+          error={error}
+          archive={dialog.entity}
+          onClose={() => setDialog(null)}
+          onSubmit={async (title) => {
+            const project = typeList.find((x) => x.id === dialog.entity.type)?.name === "项目" ? dialog.entity.name : null;
+            if (await act("tasks.create", { title, project, resources: [{ kind: "file", path: dialog.entity.path, id: dialog.entity.id }] })) setDialog(null);
+          }}
+        />
       ) : null}
       {dialog?.kind === "delete" ? (
         <Dialog
@@ -657,6 +726,82 @@ function DeleteTypeDialog({ error, type, others, count, onClose, onConfirm }: { 
       ) : (
         <p className="confirm-description">「{type.name}」类型会被删除。</p>
       )}
+    </Dialog>
+  );
+}
+
+function PickDialog({
+  title,
+  label,
+  options,
+  submit,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  label: string;
+  options: { value: string; label: string }[];
+  submit: string;
+  error: string | null;
+  onClose(): void;
+  onSubmit(value: string): Promise<void>;
+}) {
+  const [value, setValue] = useState(options[0]?.value ?? "");
+  return (
+    <Dialog
+      open
+      title={title}
+      error={error}
+      onClose={onClose}
+      actions={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!value} data-testid="pick-submit" onClick={() => void onSubmit(value)}>
+            {submit}
+          </Button>
+        </>
+      }
+    >
+      {options.length === 0 ? (
+        <p className="muted">没有可选择的{label}。</p>
+      ) : (
+        <Field label={label}>
+          <select aria-label={label} value={value} onChange={(e) => setValue(e.target.value)}>
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+    </Dialog>
+  );
+}
+
+function NewTaskDialog({ archive, error, onClose, onSubmit }: { archive: ArchiveRow; error: string | null; onClose(): void; onSubmit(title: string): Promise<void> }) {
+  const [title, setTitle] = useState("");
+  return (
+    <Dialog
+      open
+      title="新建关联任务"
+      description={`任务会带上「${archive.name}」作为资源。`}
+      error={error}
+      testId="archive-task-dialog"
+      onClose={onClose}
+      actions={
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!title.trim()} data-testid="archive-task-save" onClick={() => void onSubmit(title.trim())}>
+            创建任务
+          </Button>
+        </>
+      }
+    >
+      <Field label="任务名称">
+        <input aria-label="任务名称" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </Field>
     </Dialog>
   );
 }

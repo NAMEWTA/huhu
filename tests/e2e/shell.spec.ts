@@ -429,6 +429,12 @@ test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建
       await page.getByTestId("archive-save").click();
       await expect(page.getByTestId("archive-row").filter({ hasText: n })).toBeVisible();
     }
+    // 乙的详情：新建关联任务（ACC-AR-06），再关联一篇笔记
+    await page.getByRole("button", { name: "新建关联任务" }).click();
+    await page.getByTestId("archive-task-dialog").getByLabel("任务名称").fill("跟进乙");
+    await page.getByTestId("archive-task-save").click();
+    await expect(page.getByTestId("archive-task").filter({ hasText: "跟进乙" })).toBeVisible();
+    expect(readdirSync(path.join(vault, "Tasks")).length).toBeGreaterThanOrEqual(1);
     // 当前选中的是「乙」：把「甲」设为关联
     await page.getByRole("button", { name: "编辑档案关系" }).click();
     await page.getByTestId("relations-dialog").getByLabel("甲", { exact: true }).check();
