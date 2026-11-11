@@ -424,6 +424,42 @@ test("同步凭据：下拉只列出保险箱里允许 versioning 的令牌；�
   }
 });
 
+test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键表、关于页的版本与开源声明", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+
+    await page.getByTestId("settings-nav-vault").click();
+    await expect(page.getByTestId("svault-root")).toHaveText(realpathSync(vault));
+    await page.getByTestId("svault-name").fill("我的第二大脑");
+    await page.getByTestId("svault-description").fill("工作与学习");
+    await page.getByTestId("svault-save").click();
+    await expect(page.getByTestId("svault-note")).toHaveText("已保存");
+    expect(JSON.parse(readFileSync(path.join(vault, ".huhu/vault.json"), "utf8"))).toMatchObject({ name: "我的第二大脑", description: "工作与学习" });
+    await expect(page.getByTestId("svault-counts")).toContainText("篇笔记");
+    await page.getByTestId("svault-name").fill("   ");
+    await expect(page.getByTestId("svault-save")).toBeDisabled(); // 空名称不能保存
+    await expect(page.getByTestId("svault-id")).toHaveText(/^vault-[0-9a-z]+$/);
+
+    await page.getByTestId("settings-nav-shortcuts").click();
+    await expect(page.getByTestId("shortcut-row")).toHaveCount(3);
+    await expect(page.getByTestId("settings-shortcuts")).toContainText("命令面板");
+
+    await page.getByTestId("settings-nav-about").click();
+    await expect(page.getByTestId("about-version")).toHaveText("HUHU 0.0.1");
+    await expect(page.getByTestId("about-electron")).toHaveText(/^\d+\.\d+\.\d+/);
+    await expect(page.getByTestId("about-node")).toHaveText(/^\d+\.\d+\.\d+/);
+    await page.getByTestId("about-notices").locator("summary").click();
+    await expect(page.getByTestId("about-notices")).toContainText("Herdr Core");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在点“保存”时写入；行号、字号、宽度）；外观的导航宽度与紧凑布局", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, net, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { EngineSupervisor } from "./engine-supervisor.js";
@@ -102,7 +103,18 @@ if (!gotLock) {
     });
     ipcMain.handle("huhu:appInfo", (event) => {
       assertTrusted(event.senderFrame?.url);
-      return { name: "HUHU", version: app.getVersion(), platform: process.platform };
+      return { name: "HUHU", version: app.getVersion(), platform: process.platform, arch: process.arch, electron: process.versions.electron ?? "", chrome: process.versions.chrome ?? "", node: process.versions.node };
+    });
+    ipcMain.handle("huhu:revealVault", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      shell.showItemInFolder(defaultVaultPath());
+    });
+    ipcMain.handle("huhu:notices", (event) => {
+      assertTrusted(event.senderFrame?.url);
+      // 打包后在 resources/；开发时在仓库根
+      const f = app.isPackaged ? path.join(process.resourcesPath, "THIRD_PARTY_NOTICES.md") : path.join(app.getAppPath(), "..", "..", "THIRD_PARTY_NOTICES.md"); // 开发时 appPath 是 apps/desktop
+      if (!existsSync(f) || statSync(f).size > 4 * 1024 * 1024) return "";
+      return readFileSync(f, "utf8");
     });
     createWindow();
     app.on("activate", () => {

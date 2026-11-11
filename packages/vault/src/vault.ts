@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, newVaultId, errors } from "@huhu/contracts";
@@ -19,6 +19,15 @@ export const VaultJsonSchema = z.object({
 export type VaultJson = z.infer<typeof VaultJsonSchema>;
 
 export const FORMAT_VERSION = 1;
+
+/** 是否含控制字符（allowNewline 时允许 \n 与 \t）。逐码判断，避免控制字符正则。 */
+function hasControlChars(s: string, allowNewline: boolean): boolean {
+  for (const ch of s) {
+    const c = ch.codePointAt(0) as number;
+    if (c === 0x7f || (c < 0x20 && !(allowNewline && (c === 0x0a || c === 0x09)))) return true;
+  }
+  return false;
+}
 export const HUHU_DIR = ".huhu";
 
 /** 本机标识：用于 runtime/<machineId>/ 目录名，同一台机器稳定。 */
@@ -82,6 +91,43 @@ export class Vault {
 
   assertWritable(): void {
     if (this.readOnly) throw errors.readOnlyVault();
+  }
+
+  private readDisk(): VaultJson | null {
+    try {
+      const parsed = VaultJsonSchema.safeParse(JSON.parse(readFileSync(path.join(this.root, HUHU_DIR, "vault.json"), "utf8")));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 磁盘上最新的 vault.json（同步拉取或外部修改后与启动时读到的缓存可能不同）；读不了或格式不对时退回缓存。 */
+  currentInfo(): VaultJson {
+    const disk = this.readDisk();
+    if (disk) Object.assign(this.info, disk);
+    return disk ?? this.info;
+  }
+
+  /** 修改名称与描述（只写 vault.json 的这两个字段，不移动目录）。以磁盘上的最新内容为基础合并，原子替换；只读 Vault 拒绝。 */
+  updateInfo(patch: { name?: string; description?: string }): VaultJson {
+    this.assertWritable();
+    const cur = this.readDisk();
+    if (!cur) throw errors.invalidInput("vault.json 无法读取或格式不正确，没有改动；请先检查该文件");
+    Object.assign(this.info, cur);
+    const name = (patch.name ?? cur.name).trim();
+    const description = (patch.description ?? cur.description).trim();
+    if (!name || [...name].length > 80) throw errors.invalidInput("Vault 名称需要 1–80 个字");
+    if (hasControlChars(name, false)) throw errors.invalidInput("Vault 名称不能包含换行或控制字符");
+    if ([...description].length > 500) throw errors.invalidInput("描述最多 500 个字");
+    if (hasControlChars(description, true)) throw errors.invalidInput("描述不能包含控制字符");
+    const next: VaultJson = { ...cur, name, description };
+    const file = path.join(this.root, HUHU_DIR, "vault.json");
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n");
+    renameSync(tmp, file);
+    Object.assign(this.info, next);
+    return next;
   }
 
   static async open(root: string, opts: OpenOptions = {}): Promise<Vault> {

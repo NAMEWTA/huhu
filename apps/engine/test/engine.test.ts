@@ -591,6 +591,22 @@ describe("Engine 启动与关闭", () => {
     expect(west.data.path).toContain(dayIn("Pacific/Pago_Pago"));
     expect(dayIn("Pacific/Kiritimati")).not.toBe(dayIn("Pacific/Pago_Pago"));
   }, 30_000);
+  test("vault.update / vault.location 只有桌面可用；改名后 vault.info 与 vault.json 一致", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+    const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    expect((await call(e.cliToken, "vault.update", { name: "外部改名" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect((await call(e.cliToken, "vault.location", {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    const r = await call(e.rendererToken, "vault.update", { name: "我的工作台", description: "说明" });
+    expect(r.ok).toBe(true);
+    const info = await call(e.rendererToken, "vault.info", {});
+    expect(info.data).toMatchObject({ name: "我的工作台" });
+    expect(info.data).not.toHaveProperty("description"); // 描述不随 vault.info 对外
+    const loc = await call(e.rendererToken, "vault.location", {});
+    expect(loc.data).toMatchObject({ description: "说明" });
+    expect(JSON.parse(readFileSync(path.join(loc.data.root, ".huhu/vault.json"), "utf8"))).toMatchObject({ name: "我的工作台", description: "说明" });
+    expect((await call(e.rendererToken, "vault.update", { name: "" })).ok).toBe(false);
+  }, 30_000);
   test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
     await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });

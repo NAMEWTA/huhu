@@ -14,7 +14,23 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
         name: "vault.info", plugin: "kernel", scope: "read", input: z.object({}),
         output: z.object({ id: z.string(), name: z.string(), readOnly: z.boolean(), formatVersion: z.number(), counts: z.record(z.string(), z.number()), indexing: z.boolean() }),
         exposable: true, defaultExposed: true,
-        handler: () => ({ id: vault.id, name: vault.info.name, readOnly: vault.readOnly, formatVersion: vault.info.formatVersion, counts: index.counts(), indexing: index.indexing }),
+        handler: () => ({ id: vault.id, name: vault.currentInfo().name, readOnly: vault.readOnly, formatVersion: vault.info.formatVersion, counts: index.counts(), indexing: index.indexing }),
+      }),
+    ),
+    // 以下两个只有桌面可用：改名称/描述；显示根目录路径与描述（外部入口不应知道本机路径和用户写的说明）
+    registry.register(
+      defineCapability({
+        name: "vault.update", plugin: "kernel", scope: "write", exposable: false, defaultExposed: false,
+        input: z.object({ name: z.string().optional(), description: z.string().optional() }),
+        output: z.object({ name: z.string(), description: z.string() }),
+        handler: (_c, i) => { const r = vault.updateInfo({ ...(i.name !== undefined ? { name: i.name } : {}), ...(i.description !== undefined ? { description: i.description } : {}) }); return { name: r.name, description: r.description }; },
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "vault.location", plugin: "kernel", scope: "read", exposable: false, defaultExposed: false, input: z.object({}),
+        output: z.object({ root: z.string(), readOnly: z.boolean(), description: z.string() }),
+        handler: () => ({ root: vault.root, readOnly: vault.readOnly, description: vault.currentInfo().description }),
       }),
     ),
     registry.register(

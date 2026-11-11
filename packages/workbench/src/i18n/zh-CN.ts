@@ -4,6 +4,13 @@ export const t = {
     title: "设置", appearance: "外观", theme: "主题", mode: "明暗模式", modeSystem: "跟随系统", modeLight: "浅色", modeDark: "深色", fontSize: "界面字号", reset: "恢复默认外观",
     motion: "动效", motionSystem: "跟随系统", motionStandard: "标准", motionReduced: "减少", compact: "紧凑布局", navWidth: "导航栏宽度",
     editor: "编辑器", editorFontSize: "正文字号", editorLineHeight: "行高", editorWidth: "正文宽度", widthFull: "全宽", autosave: "自动保存", autosaveNote: "关闭后只在按 Mod+S 或点“保存”时写入文件", lineNumbers: "显示行号", spellcheck: "拼写检查", resetEditor: "恢复默认编辑器设置",
+    vault: {
+      title: "当前 Vault", name: "名称", description: "描述", save: "保存", saved: "已保存", readOnly: "此 Vault 以只读方式打开，不能修改名称和描述。",
+      root: "根目录", reveal: "在文件管理器中显示", id: "标识", copy: "复制", copied: "已复制标识", copyFailed: "复制失败，请手动选择文本复制", overview: "概况", indexing: "正在建立索引",
+      counts: (files: number, notes: number, tasks: number, inbox: number) => `${files} 个文件 · ${notes} 篇笔记 · ${tasks} 个未完成任务 · ${inbox} 条待整理`,
+    },
+    shortcuts: { title: "快捷键", keys: "按键", action: "操作", scope: "范围", note: "这里只列出已经可用的快捷键，之后新增的会自动出现在这个列表里。" },
+    about: { title: "关于与来源", app: "应用", platform: "系统", coreUnavailable: "未启动或不可用", notices: "开源声明", showNotices: "展开查看全部开源声明", noNotices: "没有找到开源声明文件", hostOnly: "版本信息只在桌面应用里可用" },
     dateTime: "日期与时间", zone: "时区", zoneNote: "“今天”、日记和任务的今日视图按这个时区计算", zoneInvalid: "不是有效的时区", todayIn: (d: string) => `现在这个时区的日期：${d}`, resetZone: "恢复为系统时区",
   },
   plugins: {
