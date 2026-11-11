@@ -103,8 +103,12 @@ dialog.modal::backdrop {
   color: var(--panel);
 }
 /* v9-layer 的 *{scrollbar-width:thin} 盖掉了图标栏的 none，空间不足时出现横向滚动条；横向不滚动 */
-.rail {
+.rail,
+.rail-bottom {
   overflow-x: hidden;
+}
+.rail-bottom {
+  scrollbar-width: none; /* 原型 .rail-bottom { overflow-y:auto } 会让横向也变成 auto，在齿轮下方出现 ‹▬› 滚动条 */
 }
 /* 文档详情「批注」页签：与头部同样的 17px 水平内边距（原型里这个页签的容器自带内边距） */
 .knowledge-inspector-body > [data-testid="comments-panel"] {

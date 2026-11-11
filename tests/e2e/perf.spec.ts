@@ -128,13 +128,14 @@ test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", asy
     await page.keyboard.press("ControlOrMeta+Home");
     await page.keyboard.press("ArrowDown");
     await page.evaluate(probe);
-    for (let i = 0; i < 80; i++) await page.keyboard.type("字", { delay: 25 });
+    // 用 ASCII：Playwright 的 type() 对非 US 键盘字符走 insertText，不派发 keydown，探针会一个样本都没有
+    for (let i = 0; i < 80; i++) await page.keyboard.type("a", { delay: 25 });
     await page.waitForTimeout(300);
     const lat = await page.evaluate(() => (window as unknown as { __lat: number[] }).__lat);
     expect(lat.length).toBeGreaterThan(60);
     const v = p95(lat);
-    note("编辑输入延迟（keydown→下一帧）", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 p95 ≤ 16；rAF 粒度约 16.7 ms，用两帧口径）`);
-    expect(v).toBeLessThanOrEqual(34); // 两帧口径：一帧 ≈ 16.7 ms，p95 ≤ 16 ms 对应两次 rAF 之内
+    note("编辑输入延迟（keydown→下一帧）", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 p95 ≤ 16 ms；口径为 keydown→两次 rAF，阈值 34 ms）`);
+    expect(v).toBeLessThanOrEqual(34); // 口径：keydown→两次 rAF 之后（含一帧的绘制），目标 16 ms 对应不超过两帧
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });
@@ -147,18 +148,35 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    // 先用 API 建一个任务作为模板，再把文件复制成 1,000 份（逐个调 API 创建要几分钟，不是本用例要测的东西）
     const ep = await page.evaluate(() => window.huhuHost.engine());
-    await page.evaluate(async (e) => {
-      const call = (title: string) =>
-        fetch(`${e.baseUrl}/api/v1/call`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
-          body: JSON.stringify({ capability: "tasks.create", input: { title, execution: { kind: "manual" } }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
-        });
-      for (let i = 0; i < 1000; i += 20) await Promise.all(Array.from({ length: 20 }, (_, k) => call(`任务 ${i + k}`)));
+    const created = await page.evaluate(async (e) => {
+      const r = await fetch(`${e.baseUrl}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability: "tasks.create", input: { title: "模板任务", execution: { kind: "manual" } }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+      });
+      return (await r.json()) as { data: { id: string; path: string } };
     }, ep);
+    const tpl = readFileSync(path.join(vault, created.data.path), "utf8");
+    for (let i = 0; i < 1000; i++) {
+      const id = `${created.data.id}${String(i).padStart(4, "0")}`;
+      writeFileSync(path.join(vault, "Tasks", `任务 ${i}--${id}.md`), tpl.replaceAll(created.data.id, id).replace("模板任务", `任务 ${i}`));
+    }
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await expect(page.getByTestId("task-row").first()).toBeVisible({ timeout: 30_000 });
+    // 正向对照：人为阻塞 120 ms，观察器必须能看到长任务，否则“0 个长任务”没有意义
+    const control = await page.evaluate(async () => {
+      const seen: number[] = [];
+      const o = new PerformanceObserver((l) => l.getEntries().forEach((x) => seen.push(x.duration)));
+      o.observe({ entryTypes: ["longtask"] });
+      const end = performance.now() + 120;
+      while (performance.now() < end);
+      await new Promise((r) => setTimeout(r, 300));
+      o.disconnect();
+      return seen.length;
+    });
+    expect(control, "长任务观察器不工作").toBeGreaterThan(0);
     const result = await page.evaluate(async () => {
       const longs: number[] = [];
       const obs = new PerformanceObserver((l) => l.getEntries().forEach((x) => longs.push(x.duration)));
@@ -208,11 +226,14 @@ test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", asyn
       await search.pressSequentially("a", { delay: 40 });
       if (Date.now() - t0 > 20_000) break;
     }
+    // 采样窗口必须与洪流重叠：打字结束时洪流不能已经结束
+    const floodStillRunning = !(await page.locator(".xterm-rows").innerText()).includes("FLOOD-DONE-42");
     await expect(page.locator(".xterm-rows")).toContainText("FLOOD-DONE-42", { timeout: 60_000 });
     const lat = await page.evaluate(() => (window as unknown as { __lat: number[] }).__lat);
     const v = p95(lat);
     note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
     expect(lat.length).toBeGreaterThan(5);
+    expect(floodStillRunning, "10 MiB 洪流在采样结束前就已完成，采样没有覆盖洪流").toBe(true);
     expect(v).toBeLessThanOrEqual(100);
   } finally {
     await app.close();
