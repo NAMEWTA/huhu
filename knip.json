@@ -4,7 +4,7 @@
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts"]
+      "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts", "tests/e2e/workflows/*.spec.ts", "tests/perf/*.bench.ts", "tests/perf/vitest.config.ts"]
     },
     "packages/vault": {
       "entry": ["test/fixtures/*.mjs"],

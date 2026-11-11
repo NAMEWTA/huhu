@@ -8,6 +8,7 @@
     "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs",
     "typecheck": "pnpm --filter \"./vendor/*\" run build:types && pnpm -r --parallel run typecheck",
     "test": "vitest run",
+    "bench": "vitest bench --run --project perf",
     "build": "pnpm -r run build",
     "gen": "node scripts/gen-guide.mjs",
     "e2e": "playwright test",
@@ -19,6 +20,7 @@
     "fetch:herdr": "node scripts/fetch-herdr.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.65.0",
     "@types/node": "^24.0.0",
     "knip": "^6.44.2",

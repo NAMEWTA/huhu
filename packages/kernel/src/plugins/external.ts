@@ -52,6 +52,14 @@ export interface ExternalDeps {
   assertWritable?(): void;
 }
 
+/** 宿主进程只拿到运行 Node 所需的最小环境：不把 Engine 进程里的 API 密钥等环境变量带给扩展。 */
+function hostEnv(): NodeJS.ProcessEnv {
+  const keep = ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP", "SystemRoot", "LANG", "LC_ALL", "APPDATA", "LOCALAPPDATA"];
+  const env: NodeJS.ProcessEnv = { ELECTRON_RUN_AS_NODE: "1" };
+  for (const k of keep) if (process.env[k] !== undefined) env[k] = process.env[k];
+  return env;
+}
+
 const reject = (msg: string): never => {
   throw errors.invalidInput(`扩展无效：${msg}`);
 };
@@ -315,7 +323,7 @@ export class ExternalPlugins {
     const child = spawn(nodeBin, ["--input-type=module", "-e", PLUGIN_HOST_SCRIPT, "--", dir, main, this.d.baseUrl(), token, this.dataDir(id)], {
       stdio: ["ignore", "ignore", "pipe", "ipc"],
       windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      env: hostEnv(),
     });
     const host = { child, commands: new Map<string, string>(), pending: new Map<string, (r: { ok: boolean; result?: unknown; error?: string }) => void>() };
     this.hosts.set(id, host);
