@@ -3,7 +3,7 @@
   --font-size:14px;--font-ui:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif;
   --font-mono:'Geist Mono','SFMono-Regular',Consolas,'Noto Sans Mono',monospace;
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--page-gutter:28px;
-  --control-h:36px;--row-h:40px;--rail-w:56px;--sidebar-w:260px;--detail-w:400px;
+  --control-h:36px;--row-h:40px;--rail-w:56px;--sidebar-w:220px;--detail-w:400px;
   --radius-control:8px;--radius-card:12px;--radius-popover:10px;--radius-badge:6px;
   --shadow-sm:0 1px 2px #14212b06;--shadow-popover:0 8px 28px #15202a12,0 2px 6px #15202a08;--shadow:0 16px 48px #15202a14,0 2px 8px #15202a0a;
   --z-sticky:10;--z-sidebar:30;--z-popover:50;--z-dialog:60;--z-toast:70;--z-palette:80;

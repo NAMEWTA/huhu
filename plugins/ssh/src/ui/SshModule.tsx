@@ -1,7 +1,7 @@
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
 import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { FilesPanel } from "./FilesPanel.js";
 import { t } from "./i18n.js";
 
@@ -310,14 +310,14 @@ export function SshModule() {
                 {(host.jumpHostIds ?? []).map((jid) => {
                   const j = (hosts.data ?? []).find((x) => x.id === jid);
                   return (
-                    <span key={jid} style={{ display: "contents" }}>
+                    <Fragment key={jid}>
                       <div>
                         <Network size={22} aria-hidden />
                         <strong>{j?.name ?? jid}</strong>
                         <span>{j ? `${j.host} · Proxy jump` : "Proxy jump"}</span>
                       </div>
                       <ArrowRight size={18} aria-hidden />
-                    </span>
+                    </Fragment>
                   );
                 })}
                 <div className="execution-route-target">

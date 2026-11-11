@@ -124,3 +124,7 @@ dialog.modal::backdrop {
 .module-local-tabs {
   overflow-y: hidden;
 }
+/* 连接路径卡片：原型的 overflow:hidden 会把节点第二行文字（主机地址）裁掉 */
+.execution-connection-route {
+  overflow: visible;
+}

@@ -115,7 +115,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
             ) : null}
             {!s.focusMode && shellNav && active && !s.sidebarCollapsed ? (
               <>
-                <aside className="primary-nav" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 260px)" : s.sidebarWidth }}>
+                <aside className="primary-nav" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 220px)" : s.sidebarWidth }}>
                   <div className="nav-heading">
                     <strong>{active.title}</strong>
                   </div>

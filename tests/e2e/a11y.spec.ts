@@ -90,3 +90,21 @@ test("键盘：不碰鼠标新建笔记、新建任务并用空格勾选", async
     await close();
   }
 });
+
+test("axe：知识库打开两篇笔记后（文档标签条 + 编辑器 + 详情面板）", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    fs.writeFileSync(`${vault}/甲.md`, "# 甲\n正文\n");
+    fs.writeFileSync(`${vault}/乙.md`, "# 乙\n正文\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
+    await page.getByTestId("note-item").filter({ hasText: "乙" }).click();
+    await expect(page.getByTestId("document-tab")).toHaveCount(2);
+    await page.getByRole("button", { name: "文档详情" }).first().click();
+    expect(await violations(page)).toEqual([]);
+  } finally {
+    await close();
+  }
+});
