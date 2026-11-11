@@ -209,6 +209,9 @@ importers:
       '@huhu/engine':
         specifier: workspace:*
         version: link:../engine
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
 
   apps/desktop:
     dependencies:

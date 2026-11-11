@@ -1,0 +1,19 @@
+#!/bin/sh
+# HUHU 命令行：用应用自带的 Electron 以 Node 模式运行打包好的 cli.mjs，不依赖系统安装 Node。
+src="$0"
+while [ -h "$src" ]; do # 允许 ~/.local/bin/huhu 这样的符号链接
+  dir="$(cd "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+here="$(cd "$(dirname "$src")" && pwd)"
+res="$(dirname "$here")" # .../resources（macOS: HUHU.app/Contents/Resources）
+case "$(uname -s)" in
+  Darwin) app="$(dirname "$res")/MacOS/HUHU"; os=darwin ;;
+  *) app="$(dirname "$res")/huhu"; os=linux ;;
+esac
+case "$(uname -m)" in aarch64|arm64) arch=arm64 ;; *) arch=x64 ;; esac
+export ELECTRON_RUN_AS_NODE=1
+export HUHU_ENGINE_ENTRY="${HUHU_ENGINE_ENTRY:-$res/app.asar/out/main/engine.js}"
+if [ -z "$HUHU_HERDR_BIN" ] && [ -x "$res/herdr/$os-$arch/herdr-core" ]; then export HUHU_HERDR_BIN="$res/herdr/$os-$arch/herdr-core"; fi
+exec "$app" "$res/cli/cli.mjs" "$@"

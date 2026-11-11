@@ -10,3 +10,5 @@ playwright-report
 lib
 apps/desktop/resources/herdr/
 .cache/
+.claude/worktrees
+temp/

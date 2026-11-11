@@ -33,6 +33,11 @@ jobs:
       - name: 冒烟（Linux）
         if: runner.os == 'Linux'
         run: sh scripts/smoke-linux.sh apps/desktop/release/HUHU-*-linux-x64.AppImage
+      - name: 命令行冒烟（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE"/apps/desktop/release/HUHU-*-linux-x64.AppImage --appimage-extract >/dev/null
+          sh "$GITHUB_WORKSPACE/scripts/smoke-cli.sh" "$RUNNER_TEMP/squashfs-root" "$(node -p "require('$GITHUB_WORKSPACE/apps/desktop/package.json').version")"
       - uses: actions/upload-artifact@v4
         with:
           name: HUHU-${{ matrix.target }}

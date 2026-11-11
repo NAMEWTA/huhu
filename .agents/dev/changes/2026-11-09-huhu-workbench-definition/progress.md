@@ -62,6 +62,6 @@
 ## 工程质量与发布缺口（2026-11-11）
 
 - `pnpm knip` 已清零并进入 CI（Linux 一次）；删除了 55 个未使用依赖条目、`SKIP_LABEL` 与探针脚本。`pnpm format` / `format:check` 已有脚本，但仓库约 450 个文件未格式化，**格式检查尚未进 CI**（需先做一次全量格式化并决定 `.agents/.claude/vendor` 的忽略范围）。
-- **CLI 没有可安装的入口**：`apps/cli` 无 `bin` 字段，`huhu` 命令代码与测试齐全但不会随安装包或 npm 包分发；发布前需要决定分发方式（随桌面应用附带 / 独立包）并实现。
+- CLI 随包分发：`apps/cli` 用 esbuild 打成单文件 `cli.mjs`（`@parcel/watcher` 换桩），经 `resources/bin/huhu(.cmd)` 以 `ELECTRON_RUN_AS_NODE` 运行，无运行 Engine 时自动拉起 `app.asar` 里的 `engine.js`；Linux 解包目录已验证（`scripts/smoke-cli.sh`：版本一致、自动拉起 Engine、符号链接调用）。**macOS/Windows 的启动脚本与 AppImage 解包后的冒烟未验证**；设置页里“安装到 PATH（符号链接 / 加入用户 PATH）”尚未做。
 - Herdr Core 随包：已改用官方发布包（`scripts/herdr.lock.json` 锁定 0.1.19 与五个目标的 SHA-256；`scripts/fetch-herdr.mjs` 下载、校验、解压到 `apps/desktop/resources/herdr/<平台>-<架构>/`；`beforePack` 缺失即打包失败；CI/release 都先 fetch）。Linux 本机已验证：真实 Herdr 用例与 e2e 全跑、打包产物含 `herdr-core` 且 Engine 启动。**Windows/macOS 的解压（Windows 用 tar 解 zip）、打包与运行、`HUHU_HERDR_BIN` 在三平台 CI 上均未验证**；官方最新为 0.1.20，尚未评估升级。
 - 打包：`electron-builder --linux dir` 需关闭原生模块重编译才通过（`cpu-features` 在 Node 26 下编译失败，经 ssh2 引入）；无打包后的 E2E 子集；`release.yml` 从未在 GitHub 上运行。

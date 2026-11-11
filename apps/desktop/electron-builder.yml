@@ -9,6 +9,8 @@ files:
 extraResources:
   - from: resources/bin
     to: bin
+  - from: ../cli/dist/cli.mjs
+    to: cli/cli.mjs
   - from: resources/herdr/${platform}-${arch}
     to: herdr/${platform}-${arch}
     filter: ["**/*"]
