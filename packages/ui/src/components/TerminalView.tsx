@@ -19,6 +19,7 @@ export interface TerminalViewProps {
 export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
+  const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
   const [demoted, setDemoted] = useState(false); // 另一个视图正在输入：本视图被服务端降级为观察者
   const exit = useRef(onExit);
   exit.current = onExit;
@@ -37,6 +38,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     const ws = new WebSocket(url.toString(), [`bearer.${token}`]);
     ws.binaryType = "arraybuffer";
     let ended = false;
+    let disposed = false; // 本次连接已被清理（切换会话 / 卸载 / 重连）：旧 socket 的回调不再改状态
     let observing = observe;
     setDemoted(false);
     ws.onopen = () => setState("open");
@@ -44,9 +46,12 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       if (typeof m.data === "string") {
         try {
           const msg = JSON.parse(m.data) as { type?: string; mode?: string; reason?: { reason?: string; exit_code?: number | null } | null };
+          if (disposed) return;
           if (msg.type === "mode" && msg.mode === "observe") {
             observing = true;
             setDemoted(true);
+          } else if (msg.type === "mode" && msg.mode === "control-free") {
+            setAttempt((a) => a + 1); // 另一个视图离开了：重新连接，成为控制者
           } else if (msg.type === "closed") {
             ended = true;
             setState("ended");
@@ -58,7 +63,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       } else term.write(new Uint8Array(m.data as ArrayBuffer));
     };
     ws.onclose = () => {
-      if (!ended) {
+      if (!ended && !disposed) {
         setState("lost");
         exit.current?.("lost");
       }
@@ -79,13 +84,14 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     });
     ro.observe(host.current);
     return () => {
+      disposed = true;
       ro.disconnect();
       inputSub.dispose();
       resizeSub.dispose();
       ws.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe]);
+  }, [baseUrl, token, sessionId, observe, attempt]);
 
   return (
     <div className="hu-terminal-wrap" data-testid="terminal-view" data-state={state}>

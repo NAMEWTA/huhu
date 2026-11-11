@@ -38,6 +38,15 @@ export class HerdrCore {
   /** 确保 Core 在运行并返回已连接的客户端；二进制缺失或启动失败 → HERDR_UNAVAILABLE。 */
   async ensure(): Promise<HerdrClient> {
     if (this.client) return this.client;
+    // 并发的 ensure（打开终端与健康诊断同时发生）共用同一次启动，不各自 spawn `server start`
+    this.starting ??= this.start().finally(() => {
+      this.starting = null;
+    });
+    return this.starting;
+  }
+  private starting: Promise<HerdrClient> | null = null;
+
+  private async start(): Promise<HerdrClient> {
     if (!existsSync(this.o.bin)) throw new HuhuError("HERDR_UNAVAILABLE", `找不到 Herdr Core：${this.o.bin}`);
     mkdirSync(this.o.runtimeDir, { recursive: true });
     await new Promise<void>((resolve, reject) => {

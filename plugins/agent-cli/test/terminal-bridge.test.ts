@@ -46,6 +46,8 @@ describe("终端桥：同一会话只有一个视图可输入（ACC-AG-09）", (
     expect(attaches[1]?.resizes).toEqual([]);
 
     a.close();
+    // 控制者离开：通知被降级的视图重新连接以接管输入（它不会永远只读）
+    expect(b.sent).toContain(JSON.stringify({ type: "mode", mode: "control-free" }));
     const c = new FakeWs();
     await bridge("s1", c as never, { cols: 80, rows: 24, observe: false });
     expect(attaches[2]?.observe).toBe(false);

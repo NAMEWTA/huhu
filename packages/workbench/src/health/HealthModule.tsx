@@ -44,7 +44,8 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
   const qc = useQueryClient();
   // 诊断只在用户点“运行诊断”时执行：打开页面时是“尚未检查”，不显示“正常”（ACC-SY-01）
   const [result, setResult] = useState<Run | null>(null);
-  const [state, setState] = useState<"idle" | "running" | "done" | "cancelled">("idle");
+  const [state, setState] = useState<"idle" | "running" | "done" | "cancelled" | "failed">("idle");
+  const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const token = useRef(0);
   const running = state === "running";
@@ -59,15 +60,10 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
   const unread = (notices.data ?? []).filter((n) => !n.read).length;
   const overall = result?.overall;
 
-  function runDiagnostics() {
-    if (running) {
-      // 取消：在途结果丢弃，之前的结果也不再标为当前（ACC-SY-03）
-      token.current += 1;
-      setResult(null);
-      setState("cancelled");
-      return;
-    }
+  /** 开始一次新的诊断（会让在途的那次失效）。 */
+  function startDiagnostics() {
     const mine = ++token.current;
+    setResult(null);
     setState("running");
     void engine
       .call<Run>("health.run", {})
@@ -77,13 +73,27 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
         setState("done");
       })
       .catch(() => {
-        if (token.current === mine) setState("idle");
+        if (token.current !== mine) return;
+        setResult(null);
+        setState("failed"); // 诊断本身没能运行：不保留任何旧结果
       });
+  }
+  function runDiagnostics() {
+    if (running) {
+      // 取消：在途结果丢弃，之前的结果也不再标为当前（ACC-SY-03）
+      token.current += 1;
+      setResult(null);
+      setState("cancelled");
+      return;
+    }
+    startDiagnostics();
   }
   async function runAction(a: { label: string; target: string; capability?: string }) {
     if (!a.capability) return ui.getState().openModule(a.target);
+    if (confirmAction !== a.capability) return setConfirmAction(a.capability); // 重启会中断 Core 上运行中的终端：先确认
+    setConfirmAction(null);
     await call(a.capability, {}).catch(() => undefined);
-    runDiagnostics();
+    startDiagnostics();
   }
   function exportDiagnostics() {
     // 诊断包只含版本、模块状态和事件记录，不含凭据值或笔记正文
@@ -187,7 +197,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                   <HeartPulse size={36} aria-hidden />
                 </div>
                 <div>
-                  <h1 data-testid="health-overall">{running ? "正在检查Vault…" : state === "cancelled" ? "已取消" : overall ? tHome.health.overall[overall] : "尚未检查"}</h1>
+                  <h1 data-testid="health-overall">{running ? "正在检查Vault…" : state === "cancelled" ? "已取消" : state === "failed" ? "诊断没有运行成功" : overall ? tHome.health.overall[overall] : "尚未检查"}</h1>
                   <p>{state === "done" ? "检查已完成。" : state === "cancelled" ? "检查已取消，之前的结果不再有效。" : "还没有运行过诊断；运行后这里显示每一项的真实状态。"}</p>
                 </div>
                 <Badge tone={running ? "warning" : overall === "error" ? "danger" : overall === "warning" ? "warning" : overall ? "success" : "neutral"}>{running ? "检查中" : overall ? "LOCAL READY" : "未检查"}</Badge>
@@ -217,7 +227,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                     <Badge tone={STATE[c.status]}>{STATE_TEXT[c.status]}</Badge>
                     {c.action ? (
                       <Button variant="ghost" onClick={() => void runAction(c.action!)}>
-                        {c.action.label} <ChevronRight size={14} aria-hidden />
+                        {c.action.capability && confirmAction === c.action.capability ? "确认（会中断运行中的终端）" : c.action.label} <ChevronRight size={14} aria-hidden />
                       </Button>
                     ) : null}
                   </div>
