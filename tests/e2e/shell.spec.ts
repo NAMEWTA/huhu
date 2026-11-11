@@ -959,6 +959,61 @@ test("自动化：内置规则存在且不可删除；预览列出跳过原因�
   }
 });
 
+test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 / 每天 09:30）默认暂停，编辑后提示词与时间写入规则文件", async () => {
+  test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
+  const { chmodSync } = await import("node:fs");
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-e2e-bin-"));
+  writeFileSync(path.join(bin, "claude"), "#!/bin/sh\necho '2.0.0 (Claude Code)'\n"); chmodSync(path.join(bin, "claude"), 0o755);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault, { PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` });
+  const ruleFile = () => { const dir = path.join(vault, "Automations"); const f = readdirSync(dir).find((n) => n.includes("整理周报")); return f ? readFileSync(path.join(dir, f), "utf8") : ""; };
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const editor = page.getByTestId("rule-editor");
+    await editor.getByLabel("规则名称").fill("整理周报");
+    await editor.getByTestId("rule-kind").selectOption("agent_prompt");
+    await expect(editor.getByTestId("rule-provider")).toContainText("Claude Code", { timeout: 15_000 }); // PATH 上的 claude 被检测到
+    await expect(editor.getByTestId("rule-save")).toBeDisabled(); // 缺 Space / CLI / 提示词不能保存
+    await editor.getByTestId("rule-space").selectOption({ index: 1 });
+    await editor.getByTestId("rule-provider").selectOption("claude");
+    await editor.getByTestId("rule-prompt").fill("请整理本周的工作记录，写成周报。");
+    await editor.getByTestId("rule-preset").selectOption("daily");
+    await editor.getByLabel("时刻").fill("09:30");
+    await expect(editor.getByTestId("rule-cron")).toHaveText("30 9 * * *");
+    await expect(editor.getByTestId("rule-upcoming")).toContainText("接下来三次"); // 合法时显示接下来三次激活
+    await editor.getByTestId("rule-preset").selectOption("custom");
+    await editor.getByLabel("cron 表达式").fill("not a cron");
+    await expect(editor.getByTestId("rule-trigger-error")).toContainText("cron 表达式无效");
+    await expect(editor.getByTestId("rule-save")).toBeDisabled();
+    await editor.getByTestId("rule-preset").selectOption("daily");
+    await editor.getByTestId("rule-save").click();
+    await expect(page.getByTestId("rule-row").filter({ hasText: "整理周报" })).toContainText("已暂停", { timeout: 10_000 });
+    await expect.poll(ruleFile).toContain("请整理本周的工作记录，写成周报。");
+    expect(ruleFile()).toContain("agent_prompt");
+    expect(ruleFile()).toMatch(/enabled: false/);
+
+    // 编辑：改提示词和时间
+    await page.getByTestId("rule-row").filter({ hasText: "整理周报" }).getByRole("button").first().click();
+    await page.getByTestId("rule-edit").click();
+    const edit = page.getByTestId("rule-editor");
+    await expect(edit.getByTestId("rule-prompt")).toHaveValue("请整理本周的工作记录，写成周报。");
+    await expect(edit.getByLabel("时刻")).toHaveValue("09:30");
+    await edit.getByTestId("rule-prompt").fill("改成：只列出已完成的事项。");
+    await edit.getByTestId("rule-preset").selectOption("weekdays");
+    await edit.getByLabel("时刻").fill("18:00");
+    await edit.getByTestId("rule-save").click();
+    await expect.poll(ruleFile).toContain("改成：只列出已完成的事项。");
+    expect(ruleFile()).toContain("0 18 * * 1-5");
+    expect(ruleFile()).not.toContain("请整理本周的工作记录");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
+
 test("命令面板：Ctrl+K 打开，搜索并跳转模块，Esc 关闭；内容搜索命中笔记", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   writeFileSync(path.join(vault, "蜻蜓观察.md"), "# 蜻蜓观察\n独特词汇：蜻蜓点水\n");

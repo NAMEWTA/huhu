@@ -7,6 +7,8 @@ export interface ScheduledRule {
   cron: string;
   zone: string;
   missedRunGraceMinutes: number;
+  /** 规则最近一次被编辑 / 启停的时间：只补这之后错过的激活（改了时间或刚启用，不能立刻补跑改动之前的“错过”）。 */
+  updatedAt?: string;
 }
 
 export interface SchedulerDeps {
@@ -29,7 +31,10 @@ export class Scheduler {
     const now = this.d.now();
     for (const r of rules) {
       if (!r.enabled) continue;
-      const missed = missedRun(r.cron, r.zone, this.d.lastActivatedFor(r.id), now, r.missedRunGraceMinutes);
+      const last = this.d.lastActivatedFor(r.id);
+      const edited = r.updatedAt ? Date.parse(r.updatedAt) : Number.NaN;
+      const baseline = last && Number.isFinite(edited) && edited > last.getTime() ? new Date(edited) : last;
+      const missed = missedRun(r.cron, r.zone, baseline, now, r.missedRunGraceMinutes);
       if (missed) void Promise.resolve(this.d.activate(r.id, missed, "schedule")).catch(() => undefined);
       this.jobs.set(r.id, new Cron(r.cron, { timezone: r.zone, protect: true }, (self) => {
         const at = self.currentRun() ?? new Date();

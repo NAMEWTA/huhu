@@ -33,6 +33,23 @@ function setup(opts: { tasks?: TaskDto[]; tasksEnabled?: boolean; outcome?: (i: 
   return { svc, root, tasks, workerCalls, notes, events, d };
 }
 
+describe("规则正文（agent_prompt 的提示词）", () => {
+  test("update 可以改正文；非 Agent 动作不接受非空正文；从 Agent 改成别的动作会清空旧提示词；省略 body 保留原文", async () => {
+    const { svc } = setup();
+    const trig = { preset: "daily", cron: "30 9 * * *", zone: "UTC" };
+    const r = await svc.create({ title: "整理", trigger: trig, action: { kind: "agent_prompt", spaceId: "s", provider: "claude", model: null, effort: null, fast: false }, body: "第一版" });
+    expect(r.body).toBe("第一版");
+    const r2 = await svc.update(r.id, r.version, { title: "整理2" });
+    expect(r2.body).toBe("第一版"); // 省略 body：保留
+    const r3 = await svc.update(r.id, r2.version, {}, "第二版");
+    expect(r3.body).toBe("第二版");
+    await expect(svc.update(r.id, r3.version, { action: { kind: "notify", channel: "in_app", text: "x" } }, "还想留着提示词")).rejects.toThrow(/提示词/);
+    const r4 = await svc.update(r.id, r3.version, { action: { kind: "notify", channel: "in_app", text: "x" } });
+    expect(r4.body).toBe(""); // 改成通知：旧提示词被清空
+    await expect(svc.update(r.id, r4.version, {}, "通知规则不该有正文")).rejects.toThrow(/提示词/);
+  });
+});
+
 describe("规则", () => {
   test("ACC-AU-01 新 Vault 有内置规则（每 5 分钟、启用）；不能删除；可暂停", async () => {
     const { svc } = setup();

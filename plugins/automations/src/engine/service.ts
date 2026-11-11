@@ -117,11 +117,15 @@ export class AutomationsService {
     return this.rule(e.id);
   }
 
-  async update(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>) {
+  async update(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>, body?: string) {
     const cur = this.rule(id);
     if (patch.trigger) validateSchedule(patch.trigger.cron, patch.trigger.zone);
     if (cur.data.builtin && patch.action && patch.action.kind !== cur.data.action.kind) throw errors.invalidInput("内置规则的动作类型不能更改");
-    await this.d.repo.patch("automation-rule", id, { ...patch, updatedAt: iso(this.d.now()) }, expectedVersion);
+    // 正文只有“让 Agent 执行”的规则才有意义（它就是提示词）：其他动作不接受非空正文；从 Agent 动作改成别的动作时清空，避免旧提示词留在文件里被误用
+    const nextKind = (patch.action ?? cur.data.action).kind;
+    if (body !== undefined && body.trim() !== "" && nextKind !== "agent_prompt") throw errors.invalidInput("只有让 Agent 执行的规则才有提示词");
+    if (body === undefined && cur.data.action.kind === "agent_prompt" && nextKind !== "agent_prompt") body = "";
+    await this.d.repo.patch("automation-rule", id, { ...patch, updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent_prompt 的提示词）
     this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
     return this.rule(id);
   }

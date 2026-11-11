@@ -709,6 +709,23 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "vault.reindexCancel", {})).data).toEqual({ cancelled: false });
     expect((await call(e.rendererToken, "vault.reindex", {})).data).toEqual({ completed: true });
   }, 30_000);
+  test("automations.update 可以改规则正文（agent_prompt 的提示词）；外部入口不能改 agent 规则的正文", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+    const call = (token: string, capability: string, input: unknown): Promise<R> => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const trig = { preset: "daily", cron: "30 9 * * *", zone: "UTC" };
+    const created = (await call(e.rendererToken, "automations.create", { title: "每日整理", trigger: trig, action: { kind: "agent_prompt", spaceId: "space-x", provider: "claude" }, body: "第一版提示词" })).data;
+    expect(created.body).toContain("第一版提示词");
+    expect(created.data.enabled).toBe(false); // 新建默认暂停
+    const upd = await call(e.rendererToken, "automations.update", { id: created.id, expectedVersion: created.version, patch: { title: "每日整理（改）", trigger: { ...trig, cron: "0 18 * * 1-5" } }, body: "第二版提示词\n第二行" });
+    expect(upd.ok).toBe(true);
+    expect(upd.data.body).toContain("第二版提示词");
+    expect(upd.data.data).toMatchObject({ title: "每日整理（改）", trigger: { cron: "0 18 * * 1-5" } });
+    expect((await call(e.rendererToken, "automations.update", { id: created.id, expectedVersion: created.version, patch: {}, body: "旧版本写入" })).error?.code).toBe("VERSION_CONFLICT");
+    await call(e.rendererToken, "gateway.update", { capability: "automations.update", exposed: true });
+    expect((await call(e.cliToken, "automations.update", { id: created.id, expectedVersion: upd.data.version, patch: {}, body: "外部想改提示词" })).error?.code).toBe("PERMISSION_DENIED");
+    expect((await call(e.rendererToken, "automations.read", { id: created.id })).data?.body ?? upd.data.body).toContain("第二版提示词");
+  }, 30_000);
   test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
     await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });

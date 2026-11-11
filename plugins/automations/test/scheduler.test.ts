@@ -49,6 +49,20 @@ describe("Scheduler", () => {
     s.stop();
     expect(calls).toEqual([["m", "2026-11-10T09:00:00.000Z"]]);
   });
+  test("编辑 / 启用规则之后：只补编辑时间之后错过的计划，不会立刻补跑改动之前的“错过”", async () => {
+    const calls: string[] = [];
+    const last = new Date("2026-11-10T09:00:00Z"); // 今天 09:00 已激活
+    const mk = () => new Scheduler({ activate: (id, at) => { calls.push(`${id}@${at.toISOString()}`); }, lastActivatedFor: () => last, now: () => new Date("2026-11-10T09:10:00Z") });
+    // 把每天 09:00 改成 09:05，09:10 保存：09:05 在保存之前，不补
+    const a = mk(); a.sync([{ id: "edited", enabled: true, cron: "5 9 * * *", zone: "UTC", missedRunGraceMinutes: 30, updatedAt: "2026-11-10T09:10:00Z" }]);
+    // 对照：没有编辑记录（或编辑早于上次激活）时，照常补
+    const b = mk(); b.sync([{ id: "plain", enabled: true, cron: "5 9 * * *", zone: "UTC", missedRunGraceMinutes: 30 }, { id: "old-edit", enabled: true, cron: "5 9 * * *", zone: "UTC", missedRunGraceMinutes: 30, updatedAt: "2026-11-01T00:00:00Z" }]);
+    await new Promise((r) => setTimeout(r, 20));
+    a.stop(); b.stop();
+    expect(calls.filter((c) => c.startsWith("edited"))).toEqual([]);
+    expect(calls.filter((c) => c.startsWith("plain"))).toEqual(["plain@2026-11-10T09:05:00.000Z"]);
+    expect(calls.filter((c) => c.startsWith("old-edit"))).toEqual(["old-edit@2026-11-10T09:05:00.000Z"]);
+  });
   test("protect：长任务不重叠", async () => {
     let running = 0, max = 0, total = 0;
     const s = new Scheduler({ activate: async () => { total++; running++; max = Math.max(max, running); await new Promise((r) => setTimeout(r, 2500)); running--; }, lastActivatedFor: () => null, now: () => new Date() });
