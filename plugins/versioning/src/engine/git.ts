@@ -37,7 +37,7 @@ export class GitRunner {
         const msg = `${stderr}`.trim() || err.message;
         if (/index\.lock/.test(msg)) return reject(new HuhuError("INTERNAL", "另一个 Git 操作正在进行", { retryable: true }));
         if (/not a git repository/i.test(msg)) return reject(new HuhuError("GIT_NOT_REPOSITORY", "此 Vault 不是 Git 仓库"));
-        if (/Authentication failed|could not read Username|Permission denied \(publickey\)/i.test(msg)) return reject(new HuhuError("GIT_AUTH_FAILED", `认证失败：${msg.split("\n")[0]}`));
+        if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|Permission denied \(publickey\)/i.test(msg)) return reject(new HuhuError("GIT_AUTH_FAILED", `认证失败：${msg.split("\n")[0]}`));
         if (/Could not resolve host|unable to access|Connection (refused|timed out)/i.test(msg)) return reject(new HuhuError("GIT_OFFLINE", `无法连接远端：${msg.split("\n")[0]}`));
         if (/CONFLICT|Merge conflict/i.test(`${String(stdout)}\n${msg}`)) return reject(new HuhuError("GIT_CONFLICT", "存在冲突"));
         reject(new HuhuError("INTERNAL", `git ${args[0]} 失败：${msg.split("\n")[0]}`, { retryable: false }));

@@ -13,11 +13,44 @@ export interface SyncConfig {
   /** 自动同步的拉取/推送间隔（秒，30–3600）。 */
   pullIntervalSec: number;
   pushIntervalSec: number;
+  /** 保险箱凭据引用 `safe://<id>`（只存引用，不存秘密）；空表示用系统的 Git 凭据助手 / SSH agent。仅对 http(s) 远端生效。 */
+  credential: string;
+  /** 配合令牌使用的用户名（GitHub 等接受任意非空值）。 */
+  credentialUser: string;
   /** 用户追加的排除规则（gitignore 子集：`*`、`**`、前缀目录 `dir/`、前导 `/`）。 */
   exclude: string[];
 }
 
-export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", pullIntervalSec: 30, pushIntervalSec: 60, exclude: [] };
+/**
+ * 只回答针对配置主机（HUHU_GIT_HOST，含端口）的提示：被重定向到别的主机（含名字相似的主机）时不交出令牌。
+ * git 的提示形如 `Username for 'https://host:port': ` / `Password for 'https://user@host:port': `。
+ */
+export const POSIX_ASKPASS = `#!/bin/sh
+q="'"
+url="\${1#*$q}"
+url="\${url%%$q*}"
+rest="\${url#*://}"
+rest="\${rest%%/*}"
+host="\${rest##*@}"
+want="$(printf %s "$HUHU_GIT_HOST" | tr 'A-Z' 'a-z')"
+got="$(printf %s "$host" | tr 'A-Z' 'a-z')"
+[ -n "$got" ] && [ "$got" = "$want" ] || exit 1
+case "$1" in
+  Username*) printf %s "$HUHU_GIT_USER" ;;
+  *) printf %s "$HUHU_GIT_TOKEN" ;;
+esac
+`;
+
+function isLoopbackHttp(remote: string): boolean {
+  try {
+    const h = new URL(remote).hostname;
+    return h === "127.0.0.1" || h === "localhost" || h === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", pullIntervalSec: 30, pushIntervalSec: 60, credential: "", credentialUser: "git", exclude: [] };
 
 /** `.huhu/` 下默认纳入同步的路径（其余一律跳过：runtime/cache/ui/history/drafts/operations/claims 等）。 */
 const HUHU_INCLUDE = ["vault.json", "settings.json", "plugins.json", "notes/", "home/", "agent-cli/spaces/", "ssh/hosts/", "ssh/known_hosts", "automations/scripts.json", "safe/"]; // sync/config.json 含本机的远端与分支设置，不随同步传播（与规格偏离：两台设备各自配置，否则首次拉取会与本地未跟踪的同名文件冲突）
@@ -61,7 +94,7 @@ export class VaultSync {
   private readonly cf: SyncConflicts;
   private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly root: string, private readonly identity = { name: "HUHU", email: "huhu@localhost" }, hooks: ConflictHooks = {}) {
+  constructor(private readonly root: string, private readonly identity = { name: "HUHU", email: "huhu@localhost" }, hooks: ConflictHooks = {}, private readonly resolveSecret?: (ref: string) => string) {
     // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
     this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1" } });
     this.cf = new SyncConflicts(root, this.git, identity, hooks);
@@ -113,6 +146,10 @@ export class VaultSync {
     // 凭据不能写进远端地址（配置文件、日志、错误信息都会带出来）：https://user:token@host 之类一律拒绝
     // （http/https 的 userinfo 即便只有一段也多半是令牌，如 https://ghp_xxx@github.com/…；ssh://git@host 这类用户名是正常写法）
     if (/^[a-z][a-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/i.test(next.remote) || /^https?:\/\/[^/]*@/i.test(next.remote)) throw errors.invalidInput("远端地址不能包含用户名密码或令牌");
+    if (next.credential && !/^safe:\/\/item-[0-9a-z]+$/.test(next.credential)) throw errors.invalidInput("凭据引用格式无效");
+    if (!/^[A-Za-z0-9._@-]{1,64}$/.test(next.credentialUser)) throw errors.invalidInput("凭据用户名无效");
+    // 令牌只能走加密连接：https，或本机回环上的 http（本地测试用）；其他 http 远端会让令牌以明文发出
+    if (next.credential && /^http:\/\//i.test(next.remote) && !isLoopbackHttp(next.remote)) throw errors.invalidInput("凭据只能用于 https 远端");
     for (const k of ["pullIntervalSec", "pushIntervalSec"] as const) {
       const v = next[k];
       if (!Number.isInteger(v) || v < 30 || v > 3600) throw errors.invalidInput("同步间隔需要在 30–3600 秒之间");
@@ -143,9 +180,51 @@ export class VaultSync {
     return c;
   }
 
+  /**
+   * 需要联网的 Git 命令（fetch/push）的环境：配置了保险箱凭据且远端是 http(s) 时，写一个一次性 GIT_ASKPASS 脚本，
+   * 秘密只通过子进程环境变量传递（不在命令行、不在配置、不在 URL 里），命令结束后脚本目录立即删除。
+   */
+  private netEnv(c: SyncConfig): { env: NodeJS.ProcessEnv; args: string[]; done(): void } {
+    const none = { env: {}, args: [] as string[], done: () => undefined };
+    const secure = /^https:\/\//i.test(c.remote) || (/^http:\/\//i.test(c.remote) && isLoopbackHttp(c.remote));
+    if (!c.credential || !secure) return none;
+    if (!this.resolveSecret) throw errors.invalidInput("保险箱插件未启用，无法使用凭据");
+    const token = this.resolveSecret(c.credential);
+    const host = new URL(c.remote).host; // 含端口，与 git 提示里的主机写法一致
+    const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-askpass-")); // 0700
+    try {
+      const win = process.platform === "win32";
+      const script = path.join(dir, win ? "askpass.cmd" : "askpass.sh");
+      if (win) {
+        // cmd 会对变量值再次解析（& | ) ^ !），所以交给 PowerShell 处理，值只当作数据
+        writeFileSync(path.join(dir, "askpass.ps1"), [
+          "param([string]$prompt)",
+          "if ($prompt -notmatch \"'[^']*?://(?:[^/@']*@)?([^/']+)\") { exit 1 }",
+          "if ($Matches[1].ToLower() -ne $env:HUHU_GIT_HOST.ToLower()) { exit 1 }",
+          "if ($prompt -like 'Username*') { [Console]::Out.Write($env:HUHU_GIT_USER) } else { [Console]::Out.Write($env:HUHU_GIT_TOKEN) }",
+          "",
+        ].join("\r\n"));
+        writeFileSync(script, '@echo off\r\npowershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0askpass.ps1" "%~1"\r\n');
+      } else {
+        // 只回答针对配置主机的提示：被重定向到别的主机时不交出令牌
+        writeFileSync(script, POSIX_ASKPASS, { mode: 0o700 });
+      }
+    } catch (e) {
+      rmSync(dir, { recursive: true, force: true });
+      throw e;
+    }
+    return {
+      env: { GIT_ASKPASS: path.join(dir, process.platform === "win32" ? "askpass.cmd" : "askpass.sh"), GIT_TERMINAL_PROMPT: "0", HUHU_GIT_USER: c.credentialUser, HUHU_GIT_TOKEN: token, HUHU_GIT_HOST: host },
+      // 清空系统的 credential helper（否则它可能抢先给出别的凭据，或把令牌存进钥匙串/明文文件），并固定用户名让 git 只需要问密码
+      args: ["-c", "credential.helper=", "-c", `credential.username=${c.credentialUser}`],
+      done: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* 杀毒软件占用等：目录里没有秘密，留给系统临时目录清理 */ } },
+    };
+  }
+
   private track(e: unknown): never {
     if (e instanceof HuhuError) {
-      const map: Record<string, SyncStatusName> = { GIT_OFFLINE: "offline", GIT_AUTH_FAILED: "auth-failed", GIT_CONFLICT: "conflict" };
+      // 保险箱锁定/凭据不可用同样需要用户去重新配置，按认证失败处理
+      const map: Record<string, SyncStatusName> = { GIT_OFFLINE: "offline", GIT_AUTH_FAILED: "auth-failed", GIT_CONFLICT: "conflict", SAFE_LOCKED: "auth-failed", SECRET_REF_INVALID: "auth-failed" };
       this._status = { name: map[e.code] ?? "unknown", detail: e.message };
     }
     throw e;
@@ -158,7 +237,12 @@ export class VaultSync {
   private async previewLocked(): Promise<SyncPreview> {
     const c = await this.ready();
     try {
-      await this.git.run(["fetch", "--quiet", "origin"]);
+      const net = this.netEnv(c);
+      try {
+        await this.git.run([...net.args, "fetch", "--quiet", "origin"], { env: net.env });
+      } finally {
+        net.done();
+      }
     } catch (e) {
       this.track(e);
     }
@@ -223,7 +307,12 @@ export class VaultSync {
     let committed = false;
     try {
       if (mode !== "pull") committed = await this.commitIncluded("HUHU 同步");
-      await this.git.run(["fetch", "--quiet", "origin"]);
+      const net = this.netEnv(c);
+      try {
+        await this.git.run([...net.args, "fetch", "--quiet", "origin"], { env: net.env });
+      } finally {
+        net.done();
+      }
       const remoteRef = `origin/${c.branch}`;
       const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(() => true, () => false);
       let pulled = false;
@@ -259,7 +348,12 @@ export class VaultSync {
       }
       let pushed = false;
       if (mode !== "pull") {
-        await this.git.run(["push", "--quiet", "origin", `HEAD:refs/heads/${c.branch}`]);
+        const net = this.netEnv(c);
+        try {
+          await this.git.run([...net.args, "push", "--quiet", "origin", `HEAD:refs/heads/${c.branch}`], { env: net.env });
+        } finally {
+          net.done();
+        }
         pushed = true;
       }
       this._status = { name: "idle", detail: "" };

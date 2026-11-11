@@ -387,6 +387,43 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   }
 });
 
+test("同步凭据：下拉只列出保险箱里允许 versioning 的令牌；保存后配置里只有 safe:// 引用，没有秘密", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.evaluate(async () => {
+      const ep = await window.huhuHost.engine();
+      const call = async (capability: string, input: unknown) => {
+        const r = await fetch(`${ep.baseUrl}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" }, body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) });
+        const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
+        if (!j.ok) throw new Error(JSON.stringify(j.error));
+        return j.data;
+      };
+      await call("git.init", {});
+      await call("safe.setup", { password: "correct horse battery staple" });
+      await call("safe.items.save", { name: "GitHub 令牌", type: "token", value: "ghp_e2e_secret_value", allowedModules: ["versioning"] });
+      await call("safe.items.save", { name: "别的模块的令牌", type: "token", value: "other_secret", allowedModules: ["ssh"] });
+    });
+    await page.getByRole("button", { name: "版本与同步" }).first().click();
+    await page.getByTestId("versioning-nav-sync").click();
+    const sel = page.getByTestId("sync-credential");
+    await expect(sel.locator("option")).toHaveText(["无（使用系统的 Git 凭据助手 / SSH agent）", "GitHub 令牌"], { timeout: 10_000 });
+    await page.getByTestId("sync-remote").fill("https://example.invalid/team/notes.git");
+    await sel.selectOption({ label: "GitHub 令牌" });
+    await page.getByTestId("sync-credential-user").fill("alice");
+    await page.getByTestId("sync-save").click();
+    await expect(page.getByTestId("sync-message")).toHaveText("已保存");
+    const cfg = readFileSync(path.join(vault, ".huhu/sync/config.json"), "utf8");
+    expect(JSON.parse(cfg)).toMatchObject({ credential: expect.stringMatching(/^safe:\/\/item-[0-9a-z]+$/), credentialUser: "alice" });
+    expect(cfg).not.toContain("ghp_e2e_secret_value");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在点“保存”时写入；行号、字号、宽度）；外观的导航宽度与紧凑布局", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

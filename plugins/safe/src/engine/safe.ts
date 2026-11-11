@@ -124,6 +124,7 @@ export class Safe {
       this.failures = 0;
       this.audit({ action: "unlock", itemId: null, subject: "desktop", result: "ok" });
       this.armTimer();
+      this.d.publish("safe.unlocked", {});
     } catch (e) {
       if (!(e instanceof SealError)) throw e;
       this.failures++;

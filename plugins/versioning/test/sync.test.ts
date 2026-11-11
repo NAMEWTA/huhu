@@ -175,4 +175,149 @@ describe("审计回归", () => {
     writeFileSync(path.join(a.root, ".huhu/sync/config.json"), JSON.stringify({ ...a.sync.config(), pullIntervalSec: "abc", pushIntervalSec: 5 }));
     expect(a.sync.config()).toMatchObject({ pullIntervalSec: 30, pushIntervalSec: 60 });
   });
+
+  test("保险箱凭据：经一次性 GIT_ASKPASS 传给 git（服务端收到 Basic 认证），配置里只有引用，错误信息不含秘密，脚本目录用完即删", async () => {
+    const http = await import("node:http");
+    const { readdirSync } = await import("node:fs");
+    const seen: string[] = [];
+    const srv = http.createServer((req, res) => {
+      const a = req.headers.authorization;
+      if (!a) { res.writeHead(401, { "WWW-Authenticate": 'Basic realm="x"' }); res.end(); return; }
+      seen.push(a); res.writeHead(404); res.end("not a repo");
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    try {
+      const root = tmp();
+      await new VaultGit(root).init();
+      const asked: string[] = [];
+      const sync = new VaultSync(root, undefined, {}, (ref) => { asked.push(ref); return "s3cr3t-tok3n"; });
+      sync.update({ remote: `http://127.0.0.1:${port}/r.git`, credential: "safe://item-1", credentialUser: "alice" });
+      const before = readdirSync(tmpdir()).filter((f) => f.startsWith("huhu-askpass-")).length;
+      const err = await sync.run("pull").catch((e: Error) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(String((err as Error).message)).not.toContain("s3cr3t-tok3n");
+      expect(asked).toEqual(["safe://item-1"]);
+      expect(seen[0]).toBe(`Basic ${Buffer.from("alice:s3cr3t-tok3n").toString("base64")}`);
+      expect(readFileSync(path.join(root, ".huhu/sync/config.json"), "utf8")).not.toContain("s3cr3t-tok3n");
+      expect(sync.config().credential).toBe("safe://item-1");
+      expect(readdirSync(tmpdir()).filter((f) => f.startsWith("huhu-askpass-")).length).toBe(before); // 没有残留
+    } finally {
+      srv.close();
+    }
+  });
+
+  test("保险箱锁定：同步失败并标记为认证失败（需要重新配置/解锁），不会去连远端", async () => {
+    const { HuhuError } = await import("@huhu/contracts");
+    const root = tmp();
+    await new VaultGit(root).init();
+    const sync = new VaultSync(root, undefined, {}, () => { throw new HuhuError("SAFE_LOCKED", "保险箱已锁定"); });
+    sync.update({ remote: "https://example.invalid/r.git", credential: "safe://item-1" });
+    await expect(sync.run("sync")).rejects.toMatchObject({ code: "SAFE_LOCKED" });
+    expect(sync.status()).toMatchObject({ name: "auth-failed" });
+  });
+
+  test("凭据配置校验：只接受 safe:// 引用与合法用户名；file/ssh 远端不使用凭据", async () => {
+    const { a } = await twoVaults();
+    expect(() => a.sync.update({ credential: "ghp_plain_token" })).toThrow(/凭据引用格式无效/);
+    expect(() => a.sync.update({ credential: "safe://a/b" })).toThrow(/凭据引用格式无效/);
+    expect(() => a.sync.update({ credentialUser: "bad name" })).toThrow(/用户名无效/);
+    expect(a.sync.update({ credential: "safe://item-9", credentialUser: "bob" })).toMatchObject({ credential: "safe://item-9", credentialUser: "bob" });
+    a.sync.update({ credential: "safe://item-9" });
+    await a.sync.run("sync"); // 本地 bare 远端：不会调用（也不需要）保险箱
+  });
+
+  test("系统 credential helper 不会抢先或存走令牌：同步只使用保险箱令牌，helper 文件不被写入", async () => {
+    const http = await import("node:http");
+    const seen: string[] = [];
+    const srv = http.createServer((req, res) => {
+      const a = req.headers.authorization;
+      if (!a) { res.writeHead(401, { "WWW-Authenticate": 'Basic realm="x"' }); res.end(); return; }
+      seen.push(a); res.writeHead(404); res.end();
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    const dir = tmp();
+    const store = path.join(dir, "git-credentials");
+    writeFileSync(store, `http://other:wrongtoken@127.0.0.1:${port}\n`);
+    const gcfg = path.join(dir, "gitconfig");
+    writeFileSync(gcfg, `[credential]\n\thelper = store --file=${store}\n`);
+    const old = process.env["GIT_CONFIG_GLOBAL"];
+    process.env["GIT_CONFIG_GLOBAL"] = gcfg;
+    try {
+      const root = tmp();
+      await new VaultGit(root).init();
+      const sync = new VaultSync(root, undefined, {}, () => "vault-token");
+      sync.update({ remote: `http://127.0.0.1:${port}/r.git`, credential: "safe://item-1", credentialUser: "alice" });
+      await sync.run("pull").catch(() => undefined);
+      expect(seen.length).toBeGreaterThan(0);
+      for (const a of seen) expect(a).toBe(`Basic ${Buffer.from("alice:vault-token").toString("base64")}`);
+      expect(readFileSync(store, "utf8")).toBe(`http://other:wrongtoken@127.0.0.1:${port}\n`); // 没有被 approve 写入
+    } finally {
+      if (old === undefined) delete process.env["GIT_CONFIG_GLOBAL"]; else process.env["GIT_CONFIG_GLOBAL"] = old;
+      srv.close();
+    }
+  });
+
+  test("重定向到别的主机时不交出令牌（askpass 只回答配置主机的提示）", async () => {
+    const http = await import("node:http");
+    const seenOther: string[] = [];
+    const other = http.createServer((req, res) => {
+      if (!req.headers.authorization) { res.writeHead(401, { "WWW-Authenticate": 'Basic realm="o"' }); res.end(); return; }
+      seenOther.push(req.headers.authorization); res.writeHead(404); res.end();
+    });
+    await new Promise<void>((r) => other.listen(0, "127.0.0.1", r));
+    const otherPort = (other.address() as { port: number }).port;
+    const first = http.createServer((_req, res) => { res.writeHead(302, { Location: `http://localhost:${otherPort}/r.git/info/refs?service=git-upload-pack` }); res.end(); });
+    await new Promise<void>((r) => first.listen(0, "127.0.0.1", r));
+    const port = (first.address() as { port: number }).port;
+    try {
+      const root = tmp();
+      await new VaultGit(root).init();
+      const sync = new VaultSync(root, undefined, {}, () => "vault-token");
+      sync.update({ remote: `http://127.0.0.1:${port}/r.git`, credential: "safe://item-1", credentialUser: "alice" });
+      await sync.run("pull").catch(() => undefined);
+      expect(seenOther).toEqual([]);
+    } finally {
+      first.close(); other.close();
+    }
+  });
+
+  test("凭据只能用于 https（或本机回环 http）；file / ssh 远端从不调用保险箱", async () => {
+    const calls: string[] = [];
+    const { a } = await twoVaults();
+    const bare = a.sync.config().remote; // 本地 bare 远端（file 路径）
+    const sync = new VaultSync(a.root, undefined, {}, (ref) => { calls.push(ref); return "t"; });
+    expect(() => sync.update({ remote: "http://git.example.com/r.git", credential: "safe://item-1" })).toThrow(/https/);
+    expect(sync.update({ remote: "https://git.example.com/r.git", credential: "safe://item-1" }).credential).toBe("safe://item-1");
+    expect(() => sync.update({ credential: "safe://other" })).toThrow(/凭据引用格式无效/); // 与保险箱的 item-… 格式一致
+    sync.update({ remote: bare, credential: "safe://item-1" });
+    await sync.run("sync");
+    expect(calls).toEqual([]);
+  }, 30_000);
+
+  test("askpass 脚本：主机必须精确匹配（含端口、不分大小写）；名字相似的主机、不同端口、无法解析的提示都拒绝", async () => {
+    const { POSIX_ASKPASS } = await import("../src/engine/sync.js");
+    const { spawnSync } = await import("node:child_process");
+    const f = path.join(tmp(), "askpass.sh");
+    writeFileSync(f, POSIX_ASKPASS, { mode: 0o700 });
+    const ask = (prompt: string, host = "git.example.com") => spawnSync("sh", [f, prompt], { env: { PATH: process.env["PATH"] ?? "", HUHU_GIT_HOST: host, HUHU_GIT_USER: "alice", HUHU_GIT_TOKEN: "tok en!&^%" }, encoding: "utf8" });
+    expect(ask("Username for 'https://git.example.com': ")).toMatchObject({ status: 0, stdout: "alice" });
+    expect(ask("Password for 'https://alice@git.example.com': ")).toMatchObject({ status: 0, stdout: "tok en!&^%" }); // 特殊字符原样输出
+    expect(ask("Password for 'https://alice@GIT.Example.com/': ")).toMatchObject({ status: 0, stdout: "tok en!&^%" });
+    expect(ask("Password for 'https://alice@git.example.com:8443': ", "git.example.com:8443")).toMatchObject({ status: 0 });
+    for (const bad of [
+      "Password for 'https://alice@git.example.com.evil.example': ",
+      "Password for 'https://alice@evilgit.example.com': ",
+      "Password for 'https://git.example.com@evil.example': ",
+      "Password for 'https://alice@git.example.com:9999': ",
+      "Password for 'https://other.example.org': ",
+      "Password: ",
+      "",
+    ]) {
+      const r = ask(bad);
+      expect(r.status, bad).not.toBe(0);
+      expect(r.stdout, bad).toBe("");
+    }
+  });
 });

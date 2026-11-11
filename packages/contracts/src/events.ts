@@ -7,6 +7,8 @@ const op = z.enum(["created", "updated", "deleted"]);
 export const EVENT_PAYLOADS = {
   "vault.fileChanged": z.object({ path: z.string(), kind: z.string().optional(), id: z.string().optional(), change, from: z.string().optional() }),
   "entity.changed": z.object({ kind: z.string(), id: z.string(), op }),
+  /** 保险箱解锁成功（依赖保险箱凭据而暂停的功能据此恢复）。 */
+  "safe.unlocked": z.object({}),
   "plugin.stateChanged": z.object({ id: z.string(), state: z.enum(["active", "disabled", "failed"]), error: z.string().optional() }),
   "task.completedChanged": z.object({ taskId: z.string(), completed: z.boolean() }),
   "task.inputChanged": z.object({ taskId: z.string(), inputRevision: z.number().int(), inputHash: z.string() }),

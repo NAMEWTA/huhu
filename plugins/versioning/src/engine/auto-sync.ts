@@ -20,6 +20,8 @@ export const MIN_INTERVAL_SEC = 30;
 export const MAX_INTERVAL_SEC = 3600;
 const MAX_BACKOFF_MS = MAX_INTERVAL_SEC * 1000;
 
+/** 需要用户去重新配置凭据的错误（含保险箱锁定/引用失效）。 */
+const AUTH_CODES = new Set(["GIT_AUTH_FAILED", "SAFE_LOCKED", "SECRET_REF_INVALID"]);
 const codeOf = (e: unknown): string => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "");
 
 export class AutoSync {
@@ -52,7 +54,8 @@ export class AutoSync {
   /** 手动同步失败时通知：认证失败/冲突同样会让自动同步暂停。 */
   noteManualFailure(e: unknown): void {
     const c = codeOf(e);
-    if (c === "GIT_CONFLICT" || c === "GIT_AUTH_FAILED") this.pause(c === "GIT_CONFLICT" ? "conflict" : "auth-failed");
+    if (c === "GIT_CONFLICT") this.pause("conflict");
+    else if (AUTH_CODES.has(c)) this.pause("auth-failed");
   }
 
   private clear(): void {
@@ -105,7 +108,7 @@ export class AutoSync {
     } catch (e) {
       const c = codeOf(e);
       if (c === "GIT_CONFLICT") this.pause("conflict");
-      else if (c === "GIT_AUTH_FAILED") this.pause("auth-failed");
+      else if (AUTH_CODES.has(c)) this.pause("auth-failed");
       else this.failures = Math.min(this.failures + 1, 7); // 离线等：退避（30 秒起翻 7 次即封顶 3600 秒）
     } finally {
       this.running = false;

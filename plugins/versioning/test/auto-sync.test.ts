@@ -58,6 +58,16 @@ describe("自动同步调度", () => {
     expect(t.live()).toHaveLength(0);
   });
 
+  test("保险箱锁定/凭据引用失效同样暂停自动同步（等用户解锁或重新配置）", async () => {
+    for (const code of ["SAFE_LOCKED", "SECRET_REF_INVALID"]) {
+      const t = setup(); t.auto.restart();
+      t.st.fail = err(code);
+      await t.fire(30_000);
+      expect(t.auto.state().pausedReason).toBe("auth-failed");
+      expect(t.live()).toHaveLength(0);
+    }
+  });
+
   test("离线等其他失败：指数退避（每次翻倍，封顶 3600 秒），成功后恢复原间隔", async () => {
     const t = setup({ mode: "follow" }); t.auto.restart();
     t.st.fail = err("GIT_OFFLINE");

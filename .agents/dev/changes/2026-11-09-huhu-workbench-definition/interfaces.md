@@ -161,6 +161,7 @@ Engine 在提交成功后发布事件；Renderer 通过 `GET /ws/events` 订阅�
 | `vault.fileChanged` | `{ path, kind?, id?, change: created\|modified\|deleted\|renamed, from? }` |
 | `entity.changed` | `{ kind, id, op: created\|updated\|deleted }` |
 | `plugin.stateChanged` | `{ id, state: active\|disabled\|failed, error? }` |
+| `safe.unlocked` | `{}`（保险箱解锁成功；依赖保险箱凭据而暂停的功能据此恢复） |
 | `task.completedChanged` | `{ taskId, completed }` |
 | `task.inputChanged` | `{ taskId, inputRevision, inputHash }` |
 | `automation.activated` | `{ ruleId, activationId, trigger }` |

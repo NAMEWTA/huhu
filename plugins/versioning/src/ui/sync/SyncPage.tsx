@@ -4,26 +4,29 @@ import { useRef, useState } from "react";
 import { t } from "../i18n.js";
 import { useCall } from "../useCall.js";
 
-interface Cfg { remote: string; branch: string; mode: "off" | "follow" | "full"; pullIntervalSec: number; pushIntervalSec: number; exclude: string[] }
+interface Cfg { remote: string; branch: string; mode: "off" | "follow" | "full"; pullIntervalSec: number; pushIntervalSec: number; credential: string; credentialUser: string; exclude: string[] }
 interface Preview { push: string[]; skipped: { path: string; reason: string }[]; pull: string[]; ahead: number; behind: number }
 interface RunResult { pulled: boolean; pushed: boolean; committed: boolean }
 
 export function SyncPage({ onResolve }: { onResolve: () => void }) {
   const cfg = useCapability<Cfg>("sync.get", {});
+  const items = useCapability<{ id: string; name: string; type: string; allowedModules: string[] }[]>("safe.items.list", {}); // 保险箱插件停用/未解锁时会报错，忽略即可
   const status = useCapability<{ name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }>("sync.status", {});
   if (cfg.isError) return <div role="alert" className="hu-overdue" data-testid="sync-load-error">{cfg.error instanceof Error ? cfg.error.message : String(cfg.error)}</div>;
   if (!cfg.data) return <p>…</p>;
   // 不能用配置值做 key：保存后配置变化会让表单重挂载，把“已保存”提示一并清掉
-  return <SyncForm cfg={cfg.data} status={status.data ?? { name: "unknown", detail: "", pausedReason: null }} onResolve={onResolve} />;
+  return <SyncForm cfg={cfg.data} safeItems={(items.data ?? []).filter((i) => i.allowedModules.includes("versioning") && (i.type === "token" || i.type === "password"))} status={status.data ?? { name: "unknown", detail: "", pausedReason: null }} onResolve={onResolve} />;
 }
 
-function SyncForm({ cfg, status, onResolve }: { cfg: Cfg; status: { name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }; onResolve: () => void }) {
+function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: { id: string; name: string }[]; status: { name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }; onResolve: () => void }) {
   const call = useCall();
   const remoteRef = useRef<HTMLInputElement>(null);
   const [remote, setRemote] = useState(cfg.remote);
   const [branch, setBranch] = useState(cfg.branch);
   const [mode, setMode] = useState(cfg.mode);
   const [exclude, setExclude] = useState(cfg.exclude.join("\n"));
+  const [credential, setCredential] = useState(cfg.credential);
+  const [credUser, setCredUser] = useState(cfg.credentialUser);
   const [pullSec, setPullSec] = useState(String(cfg.pullIntervalSec));
   const [pushSec, setPushSec] = useState(String(cfg.pushIntervalSec));
   const okSec = (v: string) => /^\d+$/.test(v) && Number(v) >= 30 && Number(v) <= 3600;
@@ -31,12 +34,12 @@ function SyncForm({ cfg, status, onResolve }: { cfg: Cfg; status: { name: string
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const configured = cfg.remote.trim() !== "";
-  const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n") || pullSec !== String(cfg.pullIntervalSec) || pushSec !== String(cfg.pushIntervalSec);
+  const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n") || credential !== cfg.credential || credUser !== cfg.credentialUser || pullSec !== String(cfg.pullIntervalSec) || pushSec !== String(cfg.pushIntervalSec);
   const conflictCount = status.name === "conflict" ? status.detail.split("、").filter(Boolean).length : 0;
 
   async function save() {
     setMsg(null);
-    const r = await call<Cfg>("sync.update", { remote: remote.trim(), branch: branch.trim(), mode, pullIntervalSec: okSec(pullSec) ? Number(pullSec) : cfg.pullIntervalSec, pushIntervalSec: okSec(pushSec) ? Number(pushSec) : cfg.pushIntervalSec, exclude: exclude.split("\n").map((l) => l.trim()).filter(Boolean) });
+    const r = await call<Cfg>("sync.update", { remote: remote.trim(), branch: branch.trim(), mode, credential, credentialUser: credUser.trim() || "git", pullIntervalSec: okSec(pullSec) ? Number(pullSec) : cfg.pullIntervalSec, pushIntervalSec: okSec(pushSec) ? Number(pushSec) : cfg.pushIntervalSec, exclude: exclude.split("\n").map((l) => l.trim()).filter(Boolean) });
     setMsg(r.ok ? { tone: "ok", text: t.sync.saved } : { tone: "error", text: r.message });
   }
 
@@ -71,6 +74,15 @@ function SyncForm({ cfg, status, onResolve }: { cfg: Cfg; status: { name: string
       <form className="hu-form" onSubmit={(e) => { e.preventDefault(); void save(); }} aria-label={t.sync.settings}>
         <label>{t.sync.remote}<input ref={remoteRef} className="hu-input" data-testid="sync-remote" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="https://… 或 /path/to/repo.git" /></label>
         <label>{t.sync.branch}<input className="hu-input" data-testid="sync-branch" value={branch} onChange={(e) => setBranch(e.target.value)} /></label>
+        <label>{t.sync.credential}
+          <select data-testid="sync-credential" aria-label={t.sync.credential} value={credential} onChange={(e) => setCredential(e.target.value)}>
+            <option value="">{t.sync.credentialNone}</option>
+            {safeItems.map((i) => <option key={i.id} value={`safe://${i.id}`}>{i.name}</option>)}
+            {credential && !safeItems.some((i) => `safe://${i.id}` === credential) ? <option value={credential}>{t.sync.credentialMissing}</option> : null}
+          </select>
+        </label>
+        {credential ? <label>{t.sync.credentialUser}<input className="hu-input" data-testid="sync-credential-user" value={credUser} onChange={(e) => setCredUser(e.target.value)} /></label> : null}
+        <p className="hu-meta">{safeItems.length === 0 ? t.sync.credentialHint : t.sync.credentialNote}</p>
         <fieldset>
           <legend>{t.sync.mode}</legend>
           <div role="radiogroup" aria-label={t.sync.mode} className="hu-row">

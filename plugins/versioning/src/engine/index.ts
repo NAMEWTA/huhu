@@ -103,6 +103,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     beforeOverwrite: async (paths) => { for (const p of paths) await history.record(p, "checkpoint", "解决冲突前"); },
     // 带 frontmatter 的文件，解决后必须仍能解析（语义文件的 kind 校验由各插件在读取时再次把关）
     validateResolved: (_p, text) => { if (text.startsWith("---")) parseFrontmatter(text); },
+  }, (ref) => {
+    // 秘密只经 SecretUse 取得，且仅限被允许引用的模块（versioning）
+    const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
+    if (!su) throw Object.assign(new Error("保险箱插件未启用"), { code: "SECRET_REF_INVALID" });
+    return su.resolve(ref, { plugin: "versioning", purpose: "sync" });
   });
   let publishStatus = () => {};
   // 自动同步：按模式与间隔定时拉取/推送；认证失败或冲突后暂停，插件停用即停止
@@ -119,7 +124,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0, ...(paused ? { pausedReason: paused } : {}) });
   };
   ctx.effect(() => () => auto.stop());
-  const Cfg = z.object({ remote: z.string(), branch: z.string(), mode: z.enum(["off", "follow", "full"]), pullIntervalSec: z.number().int(), pushIntervalSec: z.number().int(), exclude: z.array(z.string()) });
+  // 保险箱解锁：因为锁定/凭据不可用而暂停的自动同步自动恢复（真正的认证失败会在下一拍再次暂停）
+  api.events.subscribe((e) => { if (e.type === "safe.unlocked" && auto.state().pausedReason === "auth-failed") auto.restart(); });
+  const Cfg = z.object({ remote: z.string(), branch: z.string(), mode: z.enum(["off", "follow", "full"]), pullIntervalSec: z.number().int(), pushIntervalSec: z.number().int(), credential: z.string(), credentialUser: z.string(), exclude: z.array(z.string()) });
   api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
   api.defineCapability(def({ name: "sync.update", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: Cfg.partial(), output: Cfg, handler: (_c, i) => { const next = sync.update(i as never); auto.restart(); return next; } }));
   api.defineCapability(def({
