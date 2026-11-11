@@ -365,6 +365,33 @@ test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字",
   }
 });
 
+test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打开并切换四种模式、不编辑、关闭后，文件字节与 mtime 不变", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const file = path.join(vault, "原样.md");
+  const raw = Buffer.from('\uFEFF# 原样\r\n\r\n| a | b |\r\n| - | - |\r\n| 1 | 2 |\r\n\r\n<custom-block data-x="1">未知块</custom-block>\r\n\r\n正文\r\n', "utf8");
+  writeFileSync(file, raw);
+  const before = statSync(file).mtimeMs;
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "原样" }).click();
+    await expect(page.getByTestId("markdown-editor")).toBeVisible();
+    for (const mode of ["源码", "阅读", "双栏", "实时预览"]) {
+      await page.getByRole("tab", { name: mode }).click();
+      await page.waitForTimeout(300);
+    }
+    await page.getByRole("button", { name: "任务", exact: true }).first().click(); // 离开 = 关闭文档
+    await page.waitForTimeout(1500);
+    expect(readFileSync(file).equals(raw)).toBe(true);
+    expect(statSync(file).mtimeMs).toBe(before);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

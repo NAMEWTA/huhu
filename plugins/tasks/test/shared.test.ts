@@ -6,7 +6,7 @@ const T = "2026-11-10";
 const t = (due: string | null, completed = false) => ({ due, completed });
 
 describe("分类", () => {
-  test("today / tomorrow / week / ended / all", () => {
+  test("ACC-TK-05：today / tomorrow / week / ended / all", () => {
     expect(inCategory(t(T), "today", T)).toBe(true);
     expect(inCategory(t("2026-11-11"), "today", T)).toBe(false);
     expect(inCategory(t("2026-11-11"), "tomorrow", T)).toBe(true);

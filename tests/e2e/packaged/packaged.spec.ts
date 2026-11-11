@@ -146,3 +146,40 @@ test("打包后：随包命令行 huhu --version 与应用版本一致，huhu ca
     await s.stop();
   }
 });
+
+test("打包后：Agent 规则经监督进程运行（fake provider），运行页显示已完成与结果", async () => {
+  test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
+  const { chmodSync, writeFileSync: write } = await import("node:fs");
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-pk-bin-"));
+  write(path.join(bin, "claude"), '#!/bin/sh\ncase "$*" in *" -p"*|"-p "*) cat >/dev/null; printf \'%s\\n\' \'{"type":"result","result":"周报已整理","session_id":"pk-sess-1","is_error":false}\';; *) echo \'2.0.0 (Claude Code)\';; esac\n');
+  chmodSync(path.join(bin, "claude"), 0o755);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
+  const env = { ...process.env, HUHU_VAULT: vault, PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` } as Record<string, string>;
+  delete env["HUHU_HERDR_BIN"];
+  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox"], env });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByTestId("rule-new").click();
+    const editor = page.getByTestId("rule-editor");
+    await editor.getByLabel("规则名称").fill("打包后的规则");
+    await editor.getByTestId("rule-kind").selectOption("agent_prompt");
+    await expect(editor.getByTestId("rule-provider")).toContainText("Claude Code", { timeout: 15_000 });
+    await editor.getByTestId("rule-space").selectOption({ index: 1 });
+    await editor.getByTestId("rule-provider").selectOption("claude");
+    await editor.getByTestId("rule-prompt").fill("请整理本周的工作记录。");
+    await editor.getByTestId("rule-save").click();
+    await page.getByTestId("rule-row").filter({ hasText: "打包后的规则" }).click();
+    await page.getByRole("button", { name: "立即运行" }).click();
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    const row = page.getByTestId("run-row").filter({ hasText: "打包后的规则" });
+    await expect(row).toContainText("已完成", { timeout: 30_000 });
+    await row.getByRole("button").first().click();
+    await expect(page.getByTestId("run-body")).toContainText("周报已整理");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
