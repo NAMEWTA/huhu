@@ -52,7 +52,8 @@ export function NoteDocument(props: NoteDocumentProps) {
     for (let i = 0; i < t.length; i++) {
       const c = t.charCodeAt(i);
       if (c === 10) lines++;
-      if (c !== 32 && c !== 10 && c !== 13 && c !== 9) chars++;
+      // ASCII 空白快速判断；非 ASCII 才用正则（全角空格 U+3000、NBSP 等也不算字数）
+      if (c > 127 ? !/\s/.test(t[i] as string) : c !== 32 && c !== 10 && c !== 13 && c !== 9) chars++;
     }
     return { chars, lines };
   }, [deferredText]);
@@ -63,6 +64,18 @@ export function NoteDocument(props: NoteDocumentProps) {
   const [sync, setSync] = useState(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 立即把全文交给父组件（载入 / 合并 / 恢复草稿等），并取消还在等待的防抖，避免旧文本稍后覆盖新文本。 */
+  const pushText = (t: string) => {
+    if (textTimer.current) clearTimeout(textTimer.current);
+    textTimer.current = null;
+    onText(t);
+  };
+  useEffect(
+    () => () => {
+      if (textTimer.current) clearTimeout(textTimer.current); // 卸载（切换笔记）后不再回调
+    },
+    [],
+  );
   const latest = useRef({ text: "", version: "" });
   const savedText = useRef<string | null>(null); // 最近一次已落盘的内容；离开时据此判断是否有未保存的编辑
   const editor = useRef<MarkdownEditorHandle>(null);
@@ -80,7 +93,7 @@ export function NoteDocument(props: NoteDocumentProps) {
     latest.current = { text: f.text, version: f.version };
     savedText.current = f.text;
     setState("saved");
-    onText(f.text);
+    pushText(f.text);
     // 手动保存模式离开时留下的草稿
     const d = await engine.call<{ text: string; baseVersion: string; savedAt: string } | null>("notes.draft.get", { path }).catch(() => null);
     if (d && d.text !== f.text) setDraft(d);
@@ -226,7 +239,7 @@ export function NoteDocument(props: NoteDocumentProps) {
       latest.current = { text: merged, version: theirs.version };
       savedText.current = theirs.text;
       setText(merged);
-      onText(merged);
+      pushText(merged);
       setState(merged === theirs.text ? "saved" : "dirty");
       setConfirmReload(false);
       if (conflicts > 0) setFlushError(n.mergeConflicts(conflicts));
@@ -357,7 +370,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                   // 草稿之后磁盘被外部改过：沿用草稿的基线版本，保存时会走冲突流程（合并 / 载入），而不是静默覆盖外部改动
                   if (draft.baseVersion !== latest.current.version) latest.current.version = draft.baseVersion;
                   setText(draft.text);
-                  onText(draft.text);
+                  pushText(draft.text);
                   setState("dirty");
                   setDraft(null);
                   if (timer.current) clearTimeout(timer.current);

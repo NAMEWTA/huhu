@@ -357,9 +357,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         EditorView.updateListener.of((update) => {
           record.state = update.state;
           if (update.docChanged && !update.transactions.some((tr) => tr.annotation(externalUpdate))) {
+            const perf = (window as unknown as { __huhuPerf?: { t0: number; cm: number[]; toString: number[]; onChange: number[] } }).__huhuPerf; // 性能用例的分阶段探针；平时不存在
+            const a = performance.now();
+            if (perf) perf.cm.push(a - perf.t0);
             const out = update.state.doc.toString();
+            const b = performance.now();
             emitted.current = out; // 记住刚交给父组件的文本：它回传同一个值时不必再做整份文档的比较
             latest.current.onChange(out, record.id);
+            if (perf) {
+              perf.toString.push(b - a);
+              perf.onChange.push(performance.now() - b);
+            }
           }
           if (update.docChanged || update.selectionSet || update.transactions.some((tr) => tr.reconfigured)) status(update.view);
         }),
@@ -398,6 +406,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       current.scrollLeft = view.scrollDOM.scrollLeft;
       const record = records.current.get(documentId) ?? createRecord(documentId, value);
       active.current = record;
+      emitted.current = null;
       view.setState(record.state);
       view.scrollDOM.scrollTop = record.scrollTop;
       view.scrollDOM.scrollLeft = record.scrollLeft;
@@ -424,6 +433,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     if (value === emitted.current) return; // 这就是编辑器自己刚发出的文本：文档已是最新，省掉每次按键 O(文档大小) 的 toString + 比较
     const before = view.state.doc.toString();
     if (before !== value) view.dispatch({ changes: sourceChange(before, value), annotations: [externalUpdate.of(true), Transaction.addToHistory.of(false)] });
+    emitted.current = null; // 外部更新之后，旧的“刚发出的文本”不能再用来短路后面的比较
   }, [documentId, value]);
 
   useImperativeHandle(

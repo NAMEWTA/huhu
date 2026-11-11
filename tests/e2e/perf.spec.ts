@@ -100,10 +100,18 @@ test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
 
 /** 编辑器探针：keydown → 编辑区 DOM 更新完成的时间（应用自己的处理耗时；不含合成器绘制，Xvfb 没有真实 vsync）。 */
 const editProbe = () => {
-  const w = window as unknown as { __edit?: number[] };
+  const w = window as unknown as { __edit?: number[]; __huhuPerf?: { t0: number; cm: number[]; toString: number[]; onChange: number[] } };
   w.__edit = [];
+  w.__huhuPerf = { t0: 0, cm: [], toString: [], onChange: [] };
   let t0 = 0;
-  document.addEventListener("keydown", () => (t0 = performance.now()), true);
+  document.addEventListener(
+    "keydown",
+    () => {
+      t0 = performance.now();
+      if (w.__huhuPerf) w.__huhuPerf.t0 = t0;
+    },
+    true,
+  );
   new MutationObserver(() => {
     if (t0 > 0) {
       w.__edit?.push(performance.now() - t0);
@@ -133,6 +141,9 @@ test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", asy
     await page.waitForTimeout(300);
     const lat = await page.evaluate(() => (window as unknown as { __edit: number[] }).__edit);
     expect(lat.length).toBeGreaterThan(60);
+    const stages = await page.evaluate(() => (window as unknown as { __huhuPerf: { cm: number[]; toString: number[]; onChange: number[] } }).__huhuPerf);
+    const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
+    note("输入延迟分阶段（中位数）", `keydown→CM 事务完成 ${med(stages.cm).toFixed(1)} ms；doc.toString ${med(stages.toString).toFixed(1)} ms；onChange 同步部分 ${med(stages.onChange).toFixed(1)} ms`);
     const v = p95(lat);
     note("编辑输入延迟（keydown→编辑区 DOM 更新）", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 p95 ≤ 16 ms）`);
     expect(v).toBeLessThanOrEqual(16);
