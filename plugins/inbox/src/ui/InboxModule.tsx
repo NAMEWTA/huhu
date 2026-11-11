@@ -2,7 +2,7 @@ import { MarkdownPreview } from "@huhu/editor";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "./i18n.js";
 
 interface Capture {
@@ -49,6 +49,11 @@ export function InboxModule() {
     .filter((c) => c.status === status && (!source || c.source === source) && `${c.title}${c.body}`.toLowerCase().includes(query.toLowerCase()))
     .slice()
     .reverse();
+  // 原型：进入收件箱默认选中第一条，右侧直接显示详情（没有选中项才是空态）
+  const firstId = items[0]?.id ?? null;
+  useEffect(() => {
+    if (selected === null && firstId !== null) setSelected(firstId);
+  }, [selected, firstId]);
 
   async function act(capability: string, input: unknown): Promise<boolean> {
     setError(null);

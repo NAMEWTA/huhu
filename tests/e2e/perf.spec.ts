@@ -56,7 +56,7 @@ test("冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；
     expect(on).toBeLessThanOrEqual(300);
 
     const runtime = path.join(vault, ".huhu", "runtime");
-    const pid = Number(readFileSync(path.join(runtime, readdirSync(runtime)[0] as string, "engine.json"), "utf8").match(/"pid":(\d+)/)?.[1]);
+    const pid = Number(readFileSync(path.join(runtime, readdirSync(runtime).sort().at(-1) as string, "engine.json"), "utf8").match(/"pid":(\d+)/)?.[1]);
     if (process.platform !== "win32") {
       const rssKiB = Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim());
       note("Engine 常驻内存", `${(rssKiB / 1024).toFixed(0)} MiB（目标 ≤ 600）`);
@@ -82,6 +82,7 @@ test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
     const t0 = Date.now();
     await item.click();
     await expect(page.getByTestId("markdown-editor").locator(".cm-content")).toContainText("大文档", { timeout: 10_000 });
+    await expect(page.getByText(/\d{4,} 行/)).toBeVisible({ timeout: 10_000 }); // 状态行显示整份文档的行数：全文都已载入
     const ms = Date.now() - t0;
     note("打开 1 MiB 文档到可编辑", `${ms} ms（目标 ≤ 500）`);
     expect(ms).toBeLessThanOrEqual(500);

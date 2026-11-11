@@ -47,7 +47,10 @@ export interface SearchHit {
   score: number;
 }
 
-/** Orama 全文索引；标题、正文、标签、路径参与检索，查询与文档用同一分词器。 */
+/**
+ * Orama 全文索引；索引与查询用同一分词器，并对词去重：Orama 为每个词做词频计数的做法对重复词是 O(n²)，
+ * 1 MiB 的笔记会让全量索引耗时上百秒（Engine 启动超时）。去重后只损失词频打分，复杂度与词表大小成正比。
+ * 标题、正文、标签、路径参与检索，查询与文档用同一分词器。 */
 export class SearchIndex {
   private db: AnyOrama = this.make();
   private ids = new Map<string, string>();
@@ -55,7 +58,7 @@ export class SearchIndex {
   private make(): AnyOrama {
     return create({
       schema: { path: "string", kind: "string", title: "string", body: "string", tags: "string" } as const,
-      components: { tokenizer: { language: "english", tokenize: (raw: string) => tokenize(raw), normalizationCache: new Map() } as never },
+      components: { tokenizer: { language: "english", tokenize: (raw: string) => [...new Set(tokenize(raw))], normalizationCache: new Map() } as never },
     });
   }
 

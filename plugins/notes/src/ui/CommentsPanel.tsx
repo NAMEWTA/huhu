@@ -20,7 +20,13 @@ export interface CommentActions {
   jump(c: CommentView): void;
 }
 
-const shortDate = (iso: string) => iso.slice(5, 16).replace("T", " ");
+/** 本地时间 MM-DD HH:mm（消息时间戳是 UTC，不能直接截取字符串）。 */
+const shortDate = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 /** 详情面板「批注」页签（原型 knowledge.jsx 的批注结构）：待处理计数 + 显示已解决；线程含引用、消息、回复；解决 / 重新打开 / 删除（确认）/ 重新选择位置；底部添加整篇笔记批注。 */
 export function CommentsPanel({ comments, active, readOnly, actions }: { comments: CommentView[]; active: string | null; readOnly: boolean; actions: CommentActions }) {
