@@ -21,6 +21,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - if: runner.os == 'Linux'
+        run: pnpm knip # 未使用的文件/依赖/导出；与平台无关，只在 Linux 跑一次
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

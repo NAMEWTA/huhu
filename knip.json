@@ -1,6 +1,41 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignore": ["temp/**", ".agents/**", ".claude/**", "vendor/**", "**/dist/**", "**/out/**", "release/**", "test-results/**"],
-  "ignoreBinaries": ["xvfb-run"],
-  "workspaces": { ".": { "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts"] } }
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [
+    "vendor/**",
+    ".agents/**",
+    "scripts/lint-samples/**"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.mjs",
+        "tests/e2e/*.spec.ts"
+      ]
+    },
+    "packages/vault": {
+      "entry": [
+        "test/fixtures/*.mjs"
+      ],
+      "ignoreDependencies": [
+        "tsx"
+      ]
+    },
+    "apps/desktop": {
+      "ignoreDependencies": [
+        "@parcel/watcher",
+        "ssh2"
+      ]
+    },
+    "apps/cli": {
+      "entry": [
+        "src/bin.ts"
+      ]
+    },
+    "plugins/tasks": {
+      "ignoreDependencies": [
+        "tsx"
+      ]
+    }
+  }
 }

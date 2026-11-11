@@ -58,3 +58,9 @@
 - `herdr-core` 无官方发布包（GitHub releases 为空），必须自行编译：需要 Zig 0.16 **和** 已检出的 `vendor/ghostty` 子模块（参考源码副本里该目录为空，需 `git fetch` 固定提交 `1e5cdb8…`）。Linux x64 release 构建约 3 分钟，产物 `herdr-core`（7.7 MB，同时是 `hc` CLI；服务用 `herdr-core server start`）。
 - `packages/herdr-client` 已用真实 Core 验证：`server.status`、`terminal.run`（labels、cwd）、`terminal.list` 按 `huhu.launch` 标签查回均可用（plain 模式）。framed attach、事件订阅尚未对真实 Core 验证。
 - Windows / macOS 构建与 `herdr.lock.json`、`fetch-herdr` 脚本未做：发布前需要在 CI 中编译并托管三个目标的二进制，这是 W12.1 / W20 的硬前置。
+
+## 工程质量与发布缺口（2026-11-11）
+
+- `pnpm knip` 已清零并进入 CI（Linux 一次）；删除了 55 个未使用依赖条目、`SKIP_LABEL` 与探针脚本。`pnpm format` / `format:check` 已有脚本，但仓库约 450 个文件未格式化，**格式检查尚未进 CI**（需先做一次全量格式化并决定 `.agents/.claude/vendor` 的忽略范围）。
+- **CLI 没有可安装的入口**：`apps/cli` 无 `bin` 字段，`huhu` 命令代码与测试齐全但不会随安装包或 npm 包分发；发布前需要决定分发方式（随桌面应用附带 / 独立包）并实现。
+- 打包：`electron-builder --linux dir` 需关闭原生模块重编译才通过（`cpu-features` 在 Node 26 下编译失败，经 ssh2 引入）；安装包里**没有 herdr-core**（`resources/herdr/<平台>` 不存在，`scripts/fetch-herdr.mjs` 未写）；无打包后的 E2E 子集。这些在 CI 的三平台上均未验证。

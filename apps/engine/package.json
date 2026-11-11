@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "@huhu/contracts": "workspace:*",
-    "@huhu/cordis": "workspace:*",
     "@huhu/kernel": "workspace:*",
     "@huhu/plugin-agent-cli": "workspace:*",
     "@huhu/plugin-archives": "workspace:*",
@@ -24,7 +23,6 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",
-    "tsx": "^4.23.15",
     "ws": "^8.22.2"
   },
   "exports": {

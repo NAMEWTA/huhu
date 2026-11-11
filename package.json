@@ -17,7 +17,9 @@
     "e2e": "playwright test",
     "dev": "pnpm --filter @huhu/desktop dev",
     "notices": "node scripts/gen-notices.mjs",
-    "knip": "knip --no-progress"
+    "knip": "knip --no-progress",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check ."
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",

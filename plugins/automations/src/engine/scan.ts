@@ -17,17 +17,6 @@ export type SkipReason =
   | "running"
   | "held-after-restore";
 
-export const SKIP_LABEL: Record<SkipReason, string> = {
-  completed: "已完成",
-  "not-agent": "执行方式非 Agent",
-  "missing-space": "缺少 Space",
-  "space-inaccessible": "Space 目录不可访问",
-  "cli-missing": "CLI 未安装",
-  "already-processed": "同输入已处理",
-  running: "正在运行",
-  "held-after-restore": "恢复后暂停",
-};
-
 export interface Claim {
   processingKey: string;
   taskId: string;
