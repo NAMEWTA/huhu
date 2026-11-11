@@ -143,7 +143,7 @@ export const tHome = {
   inboxCard: { title: "灵感收件箱", add: "捕获新灵感", empty: "收件箱已清空，新的想法随时可以来。", organize: "整理收件箱" },
   agentCard: { title: "打开成熟 Agent CLI", body: ["使用 Claude Code、Codex 或 Gemini CLI，", "在 Vault 目录中工作。"], action: "管理 CLI 会话" },
   footnote: "HUHU WORKBENCH · 为个人的完整工作流而设计",
-  health: { title: "健康中心", run: "重新检查", overall: { ok: "一切正常", warning: "有需要留意的项目", error: "有需要处理的问题" } },
+  health: { title: "健康中心", run: "重新检查", overall: { ok: "Vault状态良好", warning: "有需要留意的项目", error: "有需要处理的问题" } },
 } as const;
 
 export const tGateway = {

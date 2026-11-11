@@ -1,10 +1,10 @@
-import { Badge, Banner, ControlsProvider, Hint, IconButton, MotionProvider } from "@huhu/ui";
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Folder, Maximize2, Minimize2, Plus, Search, X } from "lucide-react";
-import { Component, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
+import { Badge, Banner, ControlsProvider, Hint, IconButton, MotionProvider, Segmented } from "@huhu/ui";
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Folder, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from "lucide-react";
+import { Component, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry } from "../contributions.js";
-import type { UiState } from "../state/ui-store.js";
+import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
 
 class ModuleBoundary extends Component<{ children: ReactNode; moduleId: string }, { error: Error | null }> {
   override state = { error: null as Error | null };
@@ -58,6 +58,22 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   const main = modules.filter((m) => m.group !== "system");
   const system = modules.filter((m) => m.group === "system");
   const home = modules.find((m) => m.id === "home") ?? modules[0] ?? null;
+  const sections = active?.sections ?? [];
+  const section = (active && s.sections[active.id]) || sections[0]?.id || "";
+  const setSection = (id: string) => active && s.setSection(active.id, id);
+  const shellNav = active?.nav === "shell" && sections.length > 0;
+  const startResize = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const x = e.clientX;
+    const width = s.sidebarWidth;
+    const move = (ev: PointerEvent) => s.setSidebarWidth(width + ev.clientX - x);
+    const end = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", end);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", end);
+  };
 
   const railItem = (m: (typeof modules)[number]) => {
     const badge = m.badge?.() ?? null;
@@ -97,6 +113,39 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                 <div className="rail-bottom">{system.map(railItem)}</div>
               </nav>
             ) : null}
+            {!s.focusMode && shellNav && active && !s.sidebarCollapsed ? (
+              <>
+                <aside className="primary-nav" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 260px)" : s.sidebarWidth }}>
+                  <div className="nav-heading">
+                    <strong>{active.title}</strong>
+                  </div>
+                  <div className="section-nav">
+                    {sections.map((x) => (
+                      <button key={x.id} type="button" data-testid={`${active.id}-nav-${x.id}`} className={x.id === section ? "active" : ""} aria-current={x.id === section ? "page" : undefined} onClick={() => setSection(x.id)}>
+                        {x.icon}
+                        <span>{x.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="nav-bottom">{active.description ? <div className="nav-module-description">{active.description}</div> : null}</div>
+                </aside>
+                <div
+                  className="column-resizer"
+                  role="separator"
+                  aria-label="调整导航栏宽度"
+                  aria-orientation="vertical"
+                  aria-valuenow={s.sidebarWidth}
+                  aria-valuemin={SIDEBAR_MIN}
+                  aria-valuemax={SIDEBAR_MAX}
+                  tabIndex={0}
+                  onPointerDown={startResize}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowRight") s.setSidebarWidth(s.sidebarWidth + 12);
+                    if (e.key === "ArrowLeft") s.setSidebarWidth(s.sidebarWidth - 12);
+                  }}
+                />
+              </>
+            ) : null}
             <main className="main-shell">
               <div className="tab-strip">
                 <div className="tab-list" role="tablist">
@@ -121,6 +170,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                   <IconButton icon={Plus} label="打开功能标签" onClick={() => s.setPaletteOpen(true)} />
                 </div>
                 <div className="tab-tools">
+                  <IconButton icon={s.sidebarCollapsed ? PanelLeftOpen : PanelLeftClose} disabled={!shellNav} label={!shellNav ? "当前页面无需侧栏" : s.sidebarCollapsed ? "展开导航" : "收起导航"} onClick={() => s.toggleSidebar()} />
                   <IconButton icon={s.focusMode ? Minimize2 : Maximize2} label={s.focusMode ? "退出专注模式" : "专注模式"} onClick={() => s.setFocusMode(!s.focusMode)} />
                 </div>
               </div>
@@ -154,11 +204,14 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                   {engineState === "starting" ? "工作台引擎正在启动…" : "工作台引擎未连接"}
                 </Banner>
               ) : null}
-              <div className={`main-body module-${active?.id ?? "none"}`}>
+              {active?.nav === "tabs" && sections.length > 0 ? (
+                <Segmented className="module-local-tabs" label={`${active.title}页面`} value={section} options={sections.map((x) => ({ value: x.id, label: x.label }))} onChange={setSection} />
+              ) : null}
+              <div className={`main-body module-${active?.id ?? "none"} module-section-${section}`}>
                 <div className="huhu-page-surface">
                   {Active && active && engineState === "ready" ? (
                     <ModuleBoundary moduleId={active.id}>
-                      <Active />
+                      <Active section={section} onSection={setSection} />
                     </ModuleBoundary>
                   ) : (
                     <div className="hu-empty-main">选择左侧的模块开始</div>

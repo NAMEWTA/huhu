@@ -70,7 +70,7 @@ export class SemanticRepository {
       const text = file.bytes.toString("utf8");
       const fm = parseFrontmatter(text);
       if (fm.errors.length) {
-        problems.push({ path: rel, kind, code: "BAD_YAML", message: fm.errors[0] ?? "YAML 无法解析" });
+        problems.push({ path: rel, kind, code: "BAD_YAML", message: (fm.errors[0] ?? "YAML 无法解析").split("\n")[0] ?? "YAML 无法解析" });
         continue;
       }
       const huhu = fm.data["huhu"] as { kind?: string; id?: string; schema?: number } | undefined;

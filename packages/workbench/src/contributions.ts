@@ -2,6 +2,12 @@ import type { ComponentType, ReactNode } from "react";
 
 export type RailGroup = "primary" | "execution" | "system";
 
+export interface ModuleProps {
+  /** 当前分区 id（模块没有 sections 时为空串）。 */
+  section: string;
+  onSection(id: string): void;
+}
+
 export interface ModuleContribution {
   id: string;
   plugin: string;
@@ -10,7 +16,12 @@ export interface ModuleContribution {
   /** 同组内排序，越小越靠前。 */
   order: number;
   icon: ReactNode;
-  component: ComponentType;
+  /** 模块页面；带 sections 的模块会收到当前分区。 */
+  component: ComponentType<ModuleProps>;
+  /** 模块分区。nav 缺省 "own"：模块自己画导航（任务、笔记…）；"shell"：外壳左侧显示分区导航；"tabs"：页面顶部显示分段标签。 */
+  sections?: { id: string; label: string; icon?: ReactNode }[];
+  description?: string;
+  nav?: "own" | "shell" | "tabs";
   /** 侧栏计数/徽标由模块自己的 hook 提供。 */
   badge?: () => number | null;
 }

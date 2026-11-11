@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Loader2, Search, type LucideIcon } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Search, X, type LucideIcon } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -129,5 +129,20 @@ export function PageHead({ eyebrow, title, description, actions, children }: { e
       </div>
       {actions ? <div className="page-actions">{actions}</div> : null}
     </header>
+  );
+}
+
+/** 搜索框（原型 SearchBox）：左侧放大镜，有内容时右侧出现清空按钮。 */
+export function SearchBox({ value, onChange, placeholder = "搜索…", className = "" }: { value: string; onChange(v: string): void; placeholder?: string; className?: string }) {
+  return (
+    <div className={`search-box ${className}`.trim()}>
+      <Search size={15} aria-hidden />
+      <input aria-label={placeholder} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      {value ? (
+        <button type="button" aria-label="清空搜索" onClick={() => onChange("")}>
+          <X size={13} aria-hidden />
+        </button>
+      ) : null}
+    </div>
   );
 }

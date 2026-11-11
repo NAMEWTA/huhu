@@ -17,28 +17,32 @@ export function ShortcutsPage() {
   const c = t.settings.shortcuts;
   return (
     <div data-testid="settings-shortcuts">
-      <h1>{c.title}</h1>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">{c.keys}</th>
-            <th scope="col">{c.action}</th>
-            <th scope="col">{c.scope}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SHORTCUTS.map((s) => (
-            <tr key={s.keys} data-testid="shortcut-row">
-              <td>
-                <kbd>{displayKeys(s.keys, platform)}</kbd>
-              </td>
-              <td>{s.action}</td>
-              <td>{s.scope}</td>
+      <section className="card">
+        <div className="card-head">
+          <h2>{c.title}</h2>
+        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th scope="col">{c.action}</th>
+              <th scope="col">{c.keys}</th>
+              <th scope="col">{c.scope}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="hu-meta">{c.note}</p>
+          </thead>
+          <tbody>
+            {SHORTCUTS.map((s) => (
+              <tr key={s.keys} data-testid="shortcut-row">
+                <td>{s.action}</td>
+                <td>
+                  <kbd>{displayKeys(s.keys, platform)}</kbd>
+                </td>
+                <td>{s.scope}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="field-description">{c.note}</p>
+      </section>
     </div>
   );
 }

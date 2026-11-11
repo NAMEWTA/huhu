@@ -293,7 +293,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.shouldEnable = (id) => exposure.pluginEnabled(id);
   await plugins.enableAll();
   let lastSync = "";
+  let closing = false;
   events.subscribe((e) => {
+    if (e.type === "engine.closing") closing = true;
+    if (closing && e.type === "plugin.stateChanged") return; // 关闭时的批量停用不是用户操作，不进事件日志
     if (e.type === "sync.statusChanged") {
       const st = String((e.payload as { status?: string }).status ?? "");
       if (st === lastSync) return; // 同步状态频繁重复上报：只记录变化

@@ -30,7 +30,7 @@ import {
   createUiStore,
   type EngineEndpoint,
 } from "@huhu/workbench";
-import { Blocks, HeartPulse, House, Plug, Settings } from "lucide-react";
+import { Activity, Bell, Blocks, BookOpen, CalendarDays, Command, Database, Folder, HeartPulse, House, NotebookPen, Palette, Plug, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -63,10 +63,53 @@ function App() {
     r.register(sshUi);
     r.register(versioningUi);
     r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: () => <HomeModule ui={ui} /> }] });
-    r.register({ modules: [{ id: "health", plugin: "kernel", title: "健康中心", group: "system", order: 50, icon: <HeartPulse size={18} aria-hidden />, component: HealthModule }] });
+    r.register({
+      modules: [
+        {
+          id: "health",
+          plugin: "kernel",
+          title: "健康中心",
+          group: "system",
+          order: 50,
+          icon: <HeartPulse size={18} aria-hidden />,
+          nav: "shell",
+          description: "状态、诊断与问题恢复",
+          sections: [
+            { id: "all", label: "系统状态", icon: <HeartPulse size={16} aria-hidden /> },
+            { id: "logs", label: "事件日志", icon: <Activity size={16} aria-hidden /> },
+            { id: "notifications", label: "通知", icon: <Bell size={16} aria-hidden /> },
+          ],
+          component: (p) => <HealthModule {...p} ui={ui} />,
+        },
+      ],
+    });
     r.register({ modules: [{ id: "gateway", plugin: "kernel", title: "能力网关", group: "system", order: 20, icon: <Plug size={18} aria-hidden />, component: GatewayModule }] });
     r.register({ modules: [{ id: "plugins", plugin: "kernel", title: "插件中心", group: "system", order: 10, icon: <Blocks size={18} aria-hidden />, component: PluginCenterModule }] });
-    r.register({ modules: [{ id: "settings", plugin: "kernel", title: "设置", group: "system", order: 90, icon: <Settings size={18} aria-hidden />, component: SettingsModule }] });
+    r.register({
+      modules: [
+        {
+          id: "settings",
+          plugin: "kernel",
+          title: "设置",
+          group: "system",
+          order: 90,
+          icon: <Settings size={18} aria-hidden />,
+          nav: "shell",
+          description: "你的工作方式，由你定义",
+          sections: [
+            { id: "appearance", label: "外观", icon: <Palette size={16} aria-hidden /> },
+            { id: "vault", label: "当前 Vault", icon: <Folder size={16} aria-hidden /> },
+            { id: "agent-access", label: "Agent 接入", icon: <BookOpen size={16} aria-hidden /> },
+            { id: "editor", label: "编辑器", icon: <NotebookPen size={16} aria-hidden /> },
+            { id: "date-time", label: "日期与时间", icon: <CalendarDays size={16} aria-hidden /> },
+            { id: "shortcuts", label: "快捷键", icon: <Command size={16} aria-hidden /> },
+            { id: "data", label: "数据与存储", icon: <Database size={16} aria-hidden /> },
+            { id: "about", label: "关于与来源", icon: <BookOpen size={16} aria-hidden /> },
+          ],
+          component: SettingsModule,
+        },
+      ],
+    });
     return r;
   }, []);
   const ui = useMemo(() => createUiStore({ activeModule: "home", openTabs: ["home"] }), []);

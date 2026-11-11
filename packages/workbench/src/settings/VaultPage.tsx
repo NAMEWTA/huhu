@@ -1,4 +1,5 @@
-import { Button } from "@huhu/ui";
+import { Button, Field } from "@huhu/ui";
+import { Copy, Folder } from "lucide-react";
 import { useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
@@ -88,55 +89,61 @@ function VaultForm({
   const c = t.settings.vault;
   return (
     <div data-testid="settings-vault">
-      <h1>{c.title}</h1>
       {info.readOnly ? (
-        <p role="status" className="hu-meta">
-          {c.readOnly}
-        </p>
-      ) : null}
-      <form
-        className="hu-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (dirty && valid) void onSave(name.trim(), desc.trim());
-        }}
-      >
-        <label>
-          {c.name}
-          <input className="hu-input" data-testid="svault-name" value={name} maxLength={80} disabled={info.readOnly} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <label>
-          {c.description}
-          <textarea className="hu-input" data-testid="svault-description" rows={3} maxLength={500} value={desc} disabled={info.readOnly} onChange={(e) => setDesc(e.target.value)} />
-        </label>
-        <Button type="submit" variant="primary" disabled={!dirty || !valid || info.readOnly} data-testid="svault-save">
-          {c.save}
-        </Button>
-      </form>
-      {note ? (
-        <div role="status" data-testid="svault-note">
-          {note}
+        <div role="status" className="callout">
+          <p>{c.readOnly}</p>
         </div>
       ) : null}
-      {error ? (
-        <div role="alert" className="hu-overdue">
-          {error}
-        </div>
-      ) : null}
-      <dl>
-        <dt>{c.root}</dt>
-        <dd className="hu-row">
-          <code data-testid="svault-root">{root || "…"}</code>
-          {host()?.revealVault ? (
-            <Button onClick={() => void host()?.revealVault()} data-testid="svault-reveal">
-              {c.reveal}
+      <section className="settings-section card">
+        <h2>知识库信息</h2>
+        <form
+          className="form-body"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (dirty && valid) void onSave(name.trim(), desc.trim());
+          }}
+        >
+          <Field label={c.name}>
+            <input data-testid="svault-name" aria-label={c.name} value={name} maxLength={80} disabled={info.readOnly} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label={c.description}>
+            <textarea data-testid="svault-description" aria-label={c.description} rows={2} maxLength={500} value={desc} disabled={info.readOnly} onChange={(e) => setDesc(e.target.value)} />
+          </Field>
+          <div className="row">
+            <Button type="submit" variant="primary" disabled={!dirty || !valid || info.readOnly} data-testid="svault-save">
+              {c.save}
             </Button>
-          ) : null}
-        </dd>
-        <dt>{c.id}</dt>
-        <dd className="hu-row">
-          <code data-testid="svault-id">{info.id}</code>
+          </div>
+        </form>
+        {note ? (
+          <div role="status" data-testid="svault-note" className="field-description">
+            {note}
+          </div>
+        ) : null}
+        {error ? (
+          <div role="alert" className="field-error">
+            {error}
+          </div>
+        ) : null}
+        <Field label={c.root} description="引擎直接读写此 Vault 目录；名称与描述的修改不会移动目录。">
+          <div className="row">
+            <input readOnly aria-label={c.root} data-testid="svault-root" value={root || "…"} />
+            {host()?.revealVault ? (
+              <Button icon={Folder} onClick={() => void host()?.revealVault()} data-testid="svault-reveal">
+                {c.reveal}
+              </Button>
+            ) : null}
+          </div>
+        </Field>
+        <div className="setting-row">
+          <div>
+            <strong>{c.id}</strong>
+            <p className="mono" data-testid="svault-id">
+              {info.id}
+            </p>
+          </div>
           <Button
+            icon={Copy}
             onClick={() => {
               navigator.clipboard.writeText(info.id).then(
                 () => onCopied(true),
@@ -147,13 +154,30 @@ function VaultForm({
           >
             {c.copy}
           </Button>
-        </dd>
-        <dt>{c.overview}</dt>
-        <dd data-testid="svault-counts">
-          {c.counts(info.counts["files"] ?? 0, info.counts["notes"] ?? 0, summary?.tasksOpen ?? 0, summary?.inboxPending ?? 0)}
-          {info.indexing ? `（${c.indexing}）` : ""}
-        </dd>
-      </dl>
+        </div>
+      </section>
+      <section className="settings-section card">
+        <h2>{c.overview}</h2>
+        <div className="metric-grid" data-testid="svault-counts">
+          <div>
+            <strong>{info.counts["files"] ?? 0}</strong>
+            <span>文件</span>
+          </div>
+          <div>
+            <strong>{info.counts["notes"] ?? 0}</strong>
+            <span>Markdown 笔记</span>
+          </div>
+          <div>
+            <strong>{summary?.tasksOpen ?? 0}</strong>
+            <span>未完成任务</span>
+          </div>
+          <div>
+            <strong>{summary?.inboxPending ?? 0}</strong>
+            <span>待整理收件</span>
+          </div>
+        </div>
+        {info.indexing ? <p className="field-description">{c.indexing}</p> : null}
+      </section>
     </div>
   );
 }

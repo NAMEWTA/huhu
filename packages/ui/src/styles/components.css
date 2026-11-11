@@ -33,3 +33,7 @@ dialog.modal::backdrop {
   overflow-x: auto;
   scrollbar-width: thin;
 }
+.setting-row > input:not([type="range"]):not([type="checkbox"]) {
+  width: 190px;
+  flex-shrink: 0;
+}

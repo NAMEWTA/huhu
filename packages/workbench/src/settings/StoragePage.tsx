@@ -1,4 +1,5 @@
-import { Button } from "@huhu/ui";
+import { Button, ChoiceSwitch, Field } from "@huhu/ui";
+import { Download, RefreshCw, Upload } from "lucide-react";
 import { useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
@@ -97,117 +98,128 @@ export function StoragePage() {
   const indexing = info.data.indexing || busy === "reindex";
   return (
     <div data-testid="settings-storage">
-      <h1>{c.title}</h1>
       {msg ? (
-        <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "hu-overdue" : undefined} data-testid={msg.testid}>
-          {msg.text}
+        <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "callout danger" : "callout"} data-testid={msg.testid}>
+          <p>{msg.text}</p>
         </div>
       ) : null}
 
-      <h2>{c.indexTitle}</h2>
-      <p data-testid="storage-counts">
-        {c.counts(info.data.counts["files"] ?? 0, info.data.counts["notes"] ?? 0)}
-        {indexing ? `（${c.indexing}）` : ""}
-      </p>
-      <p className="hu-meta">{c.indexNote}</p>
-      <div className="hu-row">
-        <Button onClick={() => void reindex()} disabled={busy !== null || info.data.indexing} loading={busy === "reindex"} data-testid="storage-reindex">
-          {c.reindex}
-        </Button>
-        {indexing ? (
-          <Button onClick={() => void cancelReindex()} data-testid="storage-reindex-cancel">
-            {c.cancel}
-          </Button>
-        ) : null}
-      </div>
-
-      <h2>{c.exportTitle}</h2>
-      <p className="hu-meta">{c.exportNote}</p>
-      <label>
-        <input type="checkbox" aria-label={c.attachments} checked={attachments} onChange={(e) => setAttachments(e.target.checked)} /> {c.attachments}
-      </label>
-      <div className="hu-row">
-        <label>
-          {c.exportPath}
-          <input className="hu-input" data-testid="storage-export-path" value={dest} placeholder="/…/HUHU-备份.zip" onChange={(e) => setDest(e.target.value)} />
-        </label>
-        {h?.pickSavePath ? (
-          <Button
-            onClick={() =>
-              void h.pickSavePath(`HUHU-${new Date().toISOString().slice(0, 10)}.zip`).then((p) => {
-                if (p) setDest(p);
-              })
-            }
-          >
-            {c.choose}
-          </Button>
-        ) : null}
-        <Button variant="primary" onClick={() => void doExport()} disabled={busy !== null || !dest.trim()} loading={busy === "export"} data-testid="storage-export">
-          {c.export}
-        </Button>
-      </div>
-      {exported ? (
-        <dl data-testid="storage-export-result">
-          <dt>{c.resultPath}</dt>
-          <dd data-testid="export-path">{exported.path}</dd>
-          <dt>{c.resultSize}</dt>
-          <dd data-testid="export-size">
-            {fmtSize(exported.size)}（{c.files(exported.files)}）
-          </dd>
-          <dt>SHA-256</dt>
-          <dd>
-            <code data-testid="export-sha">{exported.sha256}</code>
-          </dd>
-        </dl>
-      ) : null}
-
-      <h2>{c.importTitle}</h2>
-      <p className="hu-meta">{c.importNote}</p>
-      <div className="hu-row">
-        <label>
-          {c.zipPath}
-          <input className="hu-input" data-testid="storage-import-zip" value={zipPath} onChange={(e) => setZipPath(e.target.value)} />
-        </label>
-        {h?.pickOpenPath ? (
-          <Button
-            onClick={() =>
-              void h.pickOpenPath("zip").then((p) => {
-                if (p) setZipPath(p);
-              })
-            }
-          >
-            {c.choose}
-          </Button>
-        ) : null}
-      </div>
-      <div className="hu-row">
-        <label>
-          {c.targetDir}
-          <input className="hu-input" data-testid="storage-import-target" value={targetDir} onChange={(e) => setTargetDir(e.target.value)} />
-        </label>
-        {h?.pickOpenPath ? (
-          <Button
-            onClick={() =>
-              void h.pickOpenPath("directory").then((p) => {
-                if (p) setTargetDir(p);
-              })
-            }
-          >
-            {c.choose}
-          </Button>
-        ) : null}
-        <Button onClick={() => void doImport()} disabled={busy !== null || !zipPath.trim() || !targetDir.trim()} loading={busy === "import"} data-testid="storage-import">
-          {c.import}
-        </Button>
-      </div>
-      {imported ? (
-        <p role="status" data-testid="storage-import-result">
-          {c.imported(imported.targetDir, imported.files)}
+      <section className="settings-section card">
+        <h2>{c.indexTitle}</h2>
+        <p data-testid="storage-counts">
+          {c.counts(info.data.counts["files"] ?? 0, info.data.counts["notes"] ?? 0)}
+          {indexing ? `（${c.indexing}）` : ""}
         </p>
-      ) : null}
+        <p className="field-description">{c.indexNote}</p>
+        <div className="row">
+          <Button icon={RefreshCw} onClick={() => void reindex()} disabled={busy !== null || info.data.indexing} loading={busy === "reindex"} data-testid="storage-reindex">
+            {c.reindex}
+          </Button>
+          {indexing ? (
+            <Button onClick={() => void cancelReindex()} data-testid="storage-reindex-cancel">
+              {c.cancel}
+            </Button>
+          ) : null}
+        </div>
+      </section>
 
-      <h2>{c.backupTitle}</h2>
-      <p className="hu-meta">{c.backupNote}</p>
+      <section className="settings-section card">
+        <h2>{c.exportTitle}</h2>
+        <p>{c.exportNote}</p>
+        <div className="setting-row">
+          <div>
+            <strong>{c.attachments}</strong>
+          </div>
+          <ChoiceSwitch checked={attachments} onChange={setAttachments} label={c.attachments} />
+        </div>
+        <Field label={c.exportPath}>
+          <div className="row">
+            <input aria-label={c.exportPath} data-testid="storage-export-path" value={dest} placeholder="/…/HUHU-备份.zip" onChange={(e) => setDest(e.target.value)} />
+            {h?.pickSavePath ? (
+              <Button
+                onClick={() =>
+                  void h.pickSavePath(`HUHU-${new Date().toISOString().slice(0, 10)}.zip`).then((p) => {
+                    if (p) setDest(p);
+                  })
+                }
+              >
+                {c.choose}
+              </Button>
+            ) : null}
+            <Button variant="primary" icon={Download} onClick={() => void doExport()} disabled={busy !== null || !dest.trim()} loading={busy === "export"} data-testid="storage-export">
+              {c.export}
+            </Button>
+          </div>
+        </Field>
+        {exported ? (
+          <div className="date-format-samples" data-testid="storage-export-result">
+            <div>
+              <span>{c.resultPath}</span>
+              <code data-testid="export-path">{exported.path}</code>
+            </div>
+            <div>
+              <span>{c.resultSize}</span>
+              <code data-testid="export-size">
+                {fmtSize(exported.size)}（{c.files(exported.files)}）
+              </code>
+            </div>
+            <div>
+              <span>SHA-256</span>
+              <code data-testid="export-sha">{exported.sha256}</code>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section card">
+        <h2>{c.importTitle}</h2>
+        <p>{c.importNote}</p>
+        <Field label={c.zipPath}>
+          <div className="row">
+            <input aria-label={c.zipPath} data-testid="storage-import-zip" value={zipPath} onChange={(e) => setZipPath(e.target.value)} />
+            {h?.pickOpenPath ? (
+              <Button
+                onClick={() =>
+                  void h.pickOpenPath("zip").then((p) => {
+                    if (p) setZipPath(p);
+                  })
+                }
+              >
+                {c.choose}
+              </Button>
+            ) : null}
+          </div>
+        </Field>
+        <Field label={c.targetDir}>
+          <div className="row">
+            <input aria-label={c.targetDir} data-testid="storage-import-target" value={targetDir} onChange={(e) => setTargetDir(e.target.value)} />
+            {h?.pickOpenPath ? (
+              <Button
+                onClick={() =>
+                  void h.pickOpenPath("directory").then((p) => {
+                    if (p) setTargetDir(p);
+                  })
+                }
+              >
+                {c.choose}
+              </Button>
+            ) : null}
+            <Button icon={Upload} onClick={() => void doImport()} disabled={busy !== null || !zipPath.trim() || !targetDir.trim()} loading={busy === "import"} data-testid="storage-import">
+              {c.import}
+            </Button>
+          </div>
+        </Field>
+        {imported ? (
+          <p role="status" data-testid="storage-import-result" className="field-description">
+            {c.imported(imported.targetDir, imported.files)}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="settings-section card">
+        <h2>{c.backupTitle}</h2>
+        <p>{c.backupNote}</p>
+      </section>
     </div>
   );
 }

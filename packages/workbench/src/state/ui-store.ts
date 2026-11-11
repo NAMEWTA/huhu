@@ -8,6 +8,9 @@ export interface UiState {
   detailOpen: boolean;
   focusMode: boolean;
   paletteOpen: boolean;
+  /** 各模块当前分区（外壳导航 / 顶部标签用）。 */
+  sections: Record<string, string>;
+  setSection(module: string, id: string): void;
   openModule(id: string): void;
   closeTab(id: string): void;
   toggleSidebar(): void;
@@ -36,6 +39,8 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
     detailOpen: false,
     focusMode: false,
     paletteOpen: false,
+    sections: {},
+    setSection: (module, id) => set({ sections: { ...get().sections, [module]: id } }),
     openModule: (id) => {
       const s = get();
       if (s.activeModule === id) return set({ sidebarCollapsed: !s.sidebarCollapsed });

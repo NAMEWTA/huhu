@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { ChoiceSegmented } from "../proto/controls.js";
 
 export interface SegmentedProps<T extends string> {
   label: string;
@@ -6,42 +7,17 @@ export interface SegmentedProps<T extends string> {
   options: readonly { value: T; label: string; icon?: LucideIcon }[];
   onChange(v: T): void;
   testId?: string;
+  className?: string;
 }
 
-/** 分段控件（原型 .segmented）：单选组，方向键切换（roving tabindex）。 */
-export function Segmented<T extends string>({ label, value, options, onChange, testId }: SegmentedProps<T>) {
-  const go = (e: { currentTarget: HTMLElement }, to: number) => {
-    const next = options[(to + options.length) % options.length];
-    if (!next) return;
-    onChange(next.value);
-    e.currentTarget.parentElement?.querySelectorAll<HTMLElement>("[role=radio]")[(to + options.length) % options.length]?.focus();
-  };
-  return (
-    <div role="radiogroup" aria-label={label} className="segmented" data-testid={testId}>
-      {options.map((o, i) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={o.value === value}
-          tabIndex={o.value === value ? 0 : -1}
-          className={o.value === value ? "active" : ""}
-          data-value={o.value}
-          onClick={() => onChange(o.value)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-              e.preventDefault();
-              go(e, i + 1);
-            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-              e.preventDefault();
-              go(e, i - 1);
-            }
-          }}
-        >
-          {o.icon ? <o.icon size={13} aria-hidden /> : null}
-          {o.label}
-        </button>
-      ))}
-    </div>
+/** 分段控件：原型的 ChoiceSegmented（滑动指示条 + Radix 漫游焦点）的类型化封装，选项用 value 而不是 id。 */
+export function Segmented<T extends string>({ label, value, options, onChange, testId, className = "" }: SegmentedProps<T>) {
+  const control = <ChoiceSegmented label={label} className={className} value={value} items={options.map((o) => ({ id: o.value, label: o.label, ...(o.icon ? { icon: o.icon } : {}) }))} onChange={(id) => onChange(id as T)} />;
+  return testId ? (
+    <span data-testid={testId} style={{ display: "contents" }}>
+      {control}
+    </span>
+  ) : (
+    control
   );
 }

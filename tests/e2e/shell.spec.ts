@@ -204,8 +204,8 @@ test("设置与通知：切换主题立即生效并持久化，重启后仍保�
     let page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "设置" }).first().click();
-    await page.getByLabel("主题", { exact: true }).selectOption("suliworld");
-    await page.getByLabel("明暗模式").selectOption("dark");
+    await page.getByTestId("theme-suliworld").click();
+    await page.getByRole("tab", { name: "深色" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "suliworld");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).appearance).toMatchObject({ theme: "suliworld", mode: "dark" });
@@ -520,13 +520,13 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
     await page.getByRole("button", { name: "设置" }).first().click();
 
     await page.getByTestId("settings-nav-vault").click();
-    await expect(page.getByTestId("svault-root")).toHaveText(realpathSync(vault));
+    await expect(page.getByTestId("svault-root")).toHaveValue(realpathSync(vault));
     await page.getByTestId("svault-name").fill("我的第二大脑");
     await page.getByTestId("svault-description").fill("工作与学习");
     await page.getByTestId("svault-save").click();
     await expect(page.getByTestId("svault-note")).toHaveText("已保存");
     expect(JSON.parse(readFileSync(path.join(vault, ".huhu/vault.json"), "utf8"))).toMatchObject({ name: "我的第二大脑", description: "工作与学习" });
-    await expect(page.getByTestId("svault-counts")).toContainText("篇笔记");
+    await expect(page.getByTestId("svault-counts")).toContainText("Markdown 笔记");
     await page.getByTestId("svault-name").fill("   ");
     await expect(page.getByTestId("svault-save")).toBeDisabled(); // 空名称不能保存
     await expect(page.getByTestId("svault-id")).toHaveText(/^vault-[0-9a-z]+$/);
@@ -560,7 +560,7 @@ test("设置：数据与存储——重建索引、导出数据包（结果带 S
     await page.getByRole("button", { name: "新建笔记" }).click();
     await expect(page.getByTestId("note-item").filter({ hasText: "备份内容.md" })).toBeVisible();
     await page.getByRole("button", { name: "设置" }).first().click();
-    await page.getByTestId("settings-nav-storage").click();
+    await page.getByTestId("settings-nav-data").click();
     await expect(page.getByTestId("storage-counts")).toContainText("篇笔记已建立索引");
 
     await page.getByTestId("storage-reindex").click();
@@ -618,17 +618,17 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "设置" }).first().click();
-    await page.getByLabel("导航栏宽度").fill("320");
+    await page.getByLabel("导航栏宽度", { exact: true }).fill("320");
     await expect(page.locator("html")).toHaveCSS("--sidebar-w", "320px");
-    await page.getByLabel("紧凑布局").click();
-    await expect(page.getByLabel("紧凑布局")).toBeChecked();
+    await page.getByRole("switch", { name: "紧凑布局" }).click();
+    await expect(page.getByRole("switch", { name: "紧凑布局" })).toBeChecked();
     await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
 
     await page.getByTestId("settings-nav-editor").click();
-    await page.getByLabel("自动保存").click();
-    await expect(page.getByLabel("自动保存")).not.toBeChecked();
-    await page.getByLabel("显示行号").click();
-    await expect(page.getByLabel("显示行号")).toBeChecked();
+    await page.getByRole("switch", { name: "自动保存" }).click();
+    await expect(page.getByRole("switch", { name: "自动保存" })).not.toBeChecked();
+    await page.getByRole("switch", { name: "显示行号" }).click();
+    await expect(page.getByRole("switch", { name: "显示行号" })).toBeChecked();
     await page.getByLabel("正文字号").fill("20");
     await page.getByLabel("正文宽度").selectOption("680");
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).editor).toMatchObject({ autosave: false, lineNumbers: true, fontSize: 20, readableWidth: "680" });
@@ -661,8 +661,8 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     // 重新打开自动保存后恢复原行为
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByTestId("settings-nav-editor").click();
-    await page.getByLabel("自动保存").click();
-    await expect(page.getByLabel("自动保存")).toBeChecked();
+    await page.getByRole("switch", { name: "自动保存" }).click();
+    await expect(page.getByRole("switch", { name: "自动保存" })).toBeChecked();
     await page.getByRole("button", { name: "知识库" }).first().click();
     await expect(page.getByTestId("note-save")).toHaveCount(0);
   } finally {
@@ -689,8 +689,8 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByTestId("settings-nav-editor").click();
-    await page.getByLabel("自动保存").click();
-    await expect(page.getByLabel("自动保存")).not.toBeChecked();
+    await page.getByRole("switch", { name: "自动保存" }).click();
+    await expect(page.getByRole("switch", { name: "自动保存" })).not.toBeChecked();
     await page.getByRole("button", { name: "知识库" }).first().click();
     const edit = async (title: string) => {
       await page.getByLabel("笔记名称").fill(title);
@@ -791,7 +791,7 @@ test("设置：时区改变后页面显示该时区的当前日期，非法时�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "设置" }).first().click();
-    await page.getByTestId("settings-nav-datetime").click();
+    await page.getByTestId("settings-nav-date-time").click();
     await page.getByTestId("settings-zone").fill("Nowhere/Land");
     await expect(page.getByTestId("settings-zone-invalid")).toBeVisible();
     await page.getByTestId("settings-zone").fill("Pacific/Kiritimati");
@@ -1269,7 +1269,7 @@ test("任务界面：分类计数、搜索、新建对话框（截止日 / 项�
     await page.getByTestId("task-search").fill("");
 
     // 看板：勾选后卡片移到“已完成”列
-    await page.getByTestId("task-views").getByRole("radio", { name: "看板" }).click();
+    await page.getByTestId("task-views").getByRole("tab", { name: "看板" }).click();
     await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(2);
     await page
       .getByTestId("board-open")
@@ -1278,13 +1278,13 @@ test("任务界面：分类计数、搜索、新建对话框（截止日 / 项�
     await expect(page.getByTestId("board-done").getByTestId("board-card")).toHaveCount(1, { timeout: 10_000 });
 
     // 月历：今天的任务出现在当月
-    await page.getByTestId("task-views").getByRole("radio", { name: "月历" }).click();
+    await page.getByTestId("task-views").getByRole("tab", { name: "月历" }).click();
     await expect(page.getByTestId("task-calendar").getByRole("button", { name: "写周报" })).toBeVisible();
     await page.getByTestId("task-calendar").getByRole("button", { name: "写周报" }).click();
     await expect(page.getByTestId("detail-title")).toHaveText("写周报");
 
     // 编辑：改标题
-    await page.getByTestId("task-views").getByRole("radio", { name: "列表" }).click();
+    await page.getByTestId("task-views").getByRole("tab", { name: "列表" }).click();
     await page.getByTestId("detail-edit").click();
     await editor.getByLabel("任务名称").fill("写本周周报");
     await page.getByTestId("task-save").click();
