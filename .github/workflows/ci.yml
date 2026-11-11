@@ -34,6 +34,8 @@ jobs:
         run: pnpm knip # 未使用的文件/依赖/导出；与平台无关，只在 Linux 跑一次
       - if: runner.os == 'Linux'
         run: pnpm format:check # 格式化与平台无关，只在 Linux 检查一次
+      - if: runner.os == 'Linux'
+        run: node scripts/sync-version.mjs --check # 各包版本与根 package.json 一致
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

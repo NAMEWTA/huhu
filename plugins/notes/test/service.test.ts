@@ -92,6 +92,21 @@ describe("移动", () => {
     expect(rd(root, "ref.md")).toBe("[[N]]");
     expect(r.ambiguous).toEqual(["N"]);
   });
+  test("删除文件夹：整体进回收站，笔记列表不再包含；恢复后原样回来", async () => {
+    const { svc, root } = await setup({ "docs/p.md": "p", "docs/sub/q.md": "q", "keep.md": "k" });
+    const { trashId } = svc.trash("docs");
+    expect(existsSync(path.join(root, "docs"))).toBe(false);
+    expect(svc.list("all").map((x) => x.path)).toEqual(["keep.md"]);
+    expect(svc.list("trash").map((x) => x.path)).toEqual(["docs"]);
+    expect(svc.restore(trashId)).toBe("docs");
+    expect(rd(root, "docs/sub/q.md")).toBe("q");
+    expect(
+      svc
+        .list("all")
+        .map((x) => x.path)
+        .sort(),
+    ).toEqual(["docs/p.md", "docs/sub/q.md", "keep.md"]);
+  });
   test("空文件夹改名只改登记", async () => {
     const { svc, root } = await setup();
     await svc.createFolder("空目录");

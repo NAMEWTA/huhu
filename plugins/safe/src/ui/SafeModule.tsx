@@ -201,6 +201,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState<Record<string, string>>({});
+  const [copied, setCopied] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const list = (items.data ?? []).filter((i) => `${i.name}${i.account}`.toLowerCase().includes(query.toLowerCase()));
@@ -256,6 +257,22 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
                     icon={reveal !== undefined ? EyeOff : Eye}
                   >
                     {reveal !== undefined ? t.hide : t.show}
+                  </Button>
+                  <Button
+                    icon={Copy}
+                    data-testid="secret-copy"
+                    onClick={() => {
+                      // 复制走独立的审计动作；值只经 huhuHost.copyText 进剪贴板，30 秒后若仍是这段文本则清除
+                      void engine.call<{ value: string }>("safe.items.reveal", { id: current.id, purpose: "copy" }).then(async (r) => {
+                        const bridge = (globalThis as { huhuHost?: { copyText?(v: string, o?: { clearAfterMs?: number }): Promise<void> } }).huhuHost;
+                        if (bridge?.copyText) await bridge.copyText(r.value, { clearAfterMs: 30_000 });
+                        else await navigator.clipboard.writeText(r.value);
+                        setCopied(current.id);
+                        setTimeout(() => setCopied((c) => (c === current.id ? null : c)), 30_000);
+                      });
+                    }}
+                  >
+                    {copied === current.id ? t.copied : t.copy}
                   </Button>
                 </div>
               </Field>

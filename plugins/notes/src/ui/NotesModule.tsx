@@ -49,12 +49,18 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     }
   }
   /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
-  const beforeMove = async (note: NoteRef): Promise<boolean> => (note.path === selected && flushRef.current ? flushRef.current() : true);
+  const beforeMove = async (note: NoteRef): Promise<boolean> => ((note.path === selected || (note.folder === true && selected?.startsWith(`${note.path}/`))) && flushRef.current ? flushRef.current() : true);
 
   const q = query.trim().toLowerCase();
   const notes = (list.data ?? []).filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
+  /** 改名 / 移动之后，打开着的笔记路径跟着变（文件夹则按前缀）。 */
+  const remapSelected = (from: string, to: string) => {
+    const re = (s: string) => (s === from ? to : s.startsWith(`${from}/`) ? `${to}${s.slice(from.length)}` : s);
+    setSelected((s) => (s === null ? s : re(s)));
+    setExpanded((set) => new Set([...set].map(re)));
+  };
   const toggleFolder = (p: string) => setExpanded((s) => (s.has(p) ? new Set([...s].filter((x) => x !== p)) : new Set(s).add(p)));
   const openNote = (path: string) => {
     setSelected(path);
@@ -185,7 +191,26 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       {menu ? (
         <div className="knowledge-file-menu" role="menu" aria-label="文件操作菜单" style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y }} onClick={(e) => e.stopPropagation()}>
           <div className="knowledge-menu-caption">{menu.note.path.split("/").at(-1)}</div>
-          {section === "trash" ? (
+          {menu.note.folder ? (
+            <>
+              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "new", folder: menu.note.path }), setMenu(null))}>
+                {n.newNote}
+              </button>
+              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "folder", parent: menu.note.path }), setMenu(null))}>
+                {n.newFolder}
+              </button>
+              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "rename", note: menu.note }), setMenu(null))}>
+                {n.menu.rename}
+              </button>
+              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "move", note: menu.note }), setMenu(null))}>
+                {n.menu.move}
+              </button>
+              <hr />
+              <button type="button" role="menuitem" className="danger" onClick={() => (setDialog({ kind: "trash", note: menu.note }), setMenu(null))}>
+                {n.menu.trash}
+              </button>
+            </>
+          ) : section === "trash" ? (
             <>
               <button type="button" role="menuitem" onClick={() => (menu.note.trashId && void run("notes.restore", { trashId: menu.note.trashId }), setMenu(null))}>
                 {n.menu.restore}
@@ -264,7 +289,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             if (!(await beforeMove(dialog.note))) return;
             const r = await run("notes.rename", { path: dialog.note.path, newName: name });
             if (r) {
-              if (selected === dialog.note.path) setSelected(`${dialog.note.path.includes("/") ? dialog.note.path.slice(0, dialog.note.path.lastIndexOf("/") + 1) : ""}${name.endsWith(".md") ? name : `${name}.md`}`);
+              const dir = dialog.note.path.includes("/") ? dialog.note.path.slice(0, dialog.note.path.lastIndexOf("/") + 1) : "";
+              remapSelected(dialog.note.path, `${dir}${dialog.note.folder || name.endsWith(".md") ? name : `${name}.md`}`);
               setDialog(null);
             }
           }}
@@ -280,7 +306,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             if (!(await beforeMove(dialog.note))) return;
             const r = await run("notes.move", { path: dialog.note.path, targetDir: dir });
             if (r) {
-              if (selected === dialog.note.path) setSelected(`${dir ? `${dir}/` : ""}${dialog.note.path.split("/").at(-1)}`);
+              remapSelected(dialog.note.path, `${dir ? `${dir}/` : ""}${dialog.note.path.split("/").at(-1)}`);
               setDialog(null);
             }
           }}
@@ -290,7 +316,11 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         <Dialog
           open
           title={n.trashTitle}
-          description={`「${dialog.note.title}」会移到回收站，可以恢复。`}
+          description={
+            dialog.note.folder
+              ? `文件夹「${dialog.note.title}」及其中的 ${(every.data ?? []).filter((x) => x.path.startsWith(`${dialog.note.path}/`)).length} 篇笔记会整体移到回收站，可以恢复。`
+              : `「${dialog.note.title}」会移到回收站，可以恢复。`
+          }
           error={error}
           onClose={() => setDialog(null)}
           actions={
@@ -303,8 +333,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
                     if (!(await beforeMove(dialog.note))) return;
                     const r = await run<{ trashId: string }>("notes.trash", { path: dialog.note.path });
                     if (r) {
-                      if (selected === dialog.note.path) setSelected(null);
-                      setUndo({ label: `${dialog.note.title}.md`, trashId: r.trashId });
+                      if (selected === dialog.note.path || selected?.startsWith(`${dialog.note.path}/`)) setSelected(null);
+                      setUndo({ label: dialog.note.folder ? dialog.note.title : `${dialog.note.title}.md`, trashId: r.trashId });
                       setDialog(null);
                     }
                   })()

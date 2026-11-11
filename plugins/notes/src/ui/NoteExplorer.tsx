@@ -11,6 +11,8 @@ export interface NoteRef {
   deletedAt?: string;
   favorite?: boolean;
   tags?: string[];
+  /** 文件夹（只在文件资源管理器的菜单里用，path 是文件夹路径）。 */
+  folder?: boolean;
 }
 export type Section = "all" | "favorites" | "daily" | "tags" | "trash";
 const SECTIONS: Section[] = ["all", "favorites", "daily", "tags", "trash"];
@@ -100,6 +102,12 @@ export function NoteExplorer(p: ExplorerProps) {
             <small>{count(node)}</small>
           </button>
           <IconButton icon={FilePlus2} label={`在 ${node.path} 新建笔记`} className="knowledge-tree-more" onClick={() => p.onNewNote(node.path)} />
+          <IconButton
+            icon={MoreHorizontal}
+            label={`文件夹操作 ${node.name}`}
+            className="knowledge-tree-more"
+            onClick={(e) => (e.stopPropagation(), p.onMenu({ path: node.path, id: null, title: node.name, folder: true }, e.currentTarget))}
+          />
         </div>
         {open ? (
           <div role="group">

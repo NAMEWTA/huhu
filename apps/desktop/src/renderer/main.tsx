@@ -19,6 +19,7 @@ import {
   HealthModule,
   HomeModule,
   CommandPalette,
+  QuickCapture,
   EngineClient,
   GatewayModule,
   NotificationBell,
@@ -220,6 +221,7 @@ function App() {
     <>
       {shell}
       {endpoint ? <PluginFilter registry={registry} /> : null}
+      {endpoint ? <QuickCapture /> : null}
       <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={() => ui.getState().openModule("notes")} />
     </>
   );

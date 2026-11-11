@@ -55,6 +55,7 @@ export function AboutPage() {
         ) : (
           <>
             {row(c.app, `${info.name} ${info.version}`, "about-version")}
+            {info.commit ? row("构建", `${info.commit}${info.builtAt ? ` · ${info.builtAt.slice(0, 10)}` : ""}`, "about-build") : null}
             {row(c.platform, `${info.platform} / ${info.arch}`, "about-platform")}
             {row("Electron", info.electron, "about-electron")}
             {row("Chromium", info.chrome, "about-chrome")}

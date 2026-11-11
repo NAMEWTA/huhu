@@ -20,6 +20,8 @@ export const t = {
   show: "显示",
   hide: "隐藏",
   copyRef: "复制引用",
+  copy: "复制",
+  copied: "已复制 · 30 秒后清除",
   delete: "删除",
   cooldown: "尝试过多，请稍后再试",
   empty: "还没有凭据",

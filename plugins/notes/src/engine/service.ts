@@ -99,6 +99,23 @@ export class NotesService {
       if (err) throw errors.invalidInput(err);
     }
   }
+  /** 磁盘上某个目录下的全部文件（相对路径）；不是目录则为空。 */
+  private filesUnder(rel: string): string[] {
+    const abs = this.d.files.abs(rel);
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) return [];
+    const out: string[] = [];
+    const walk = (dirRel: string): void => {
+      for (const e of readdirSync(this.d.files.abs(dirRel), { withFileTypes: true })) {
+        const child = `${dirRel}/${e.name}`;
+        if (e.isDirectory()) {
+          out.push(child);
+          walk(child);
+        } else out.push(child);
+      }
+    };
+    walk(rel);
+    return out;
+  }
   private allFiles(): string[] {
     return this.d.index
       .entries()
@@ -269,8 +286,10 @@ export class NotesService {
   // ---- 回收站 ----
   trash(rel: string): { trashId: string } {
     const id = this.identities()[rel] ?? null;
-    const r = { trashId: this.d.trash.moveIn(normalizeRelPath(rel), id).trashId };
-    this.d.index.refreshPaths([rel]);
+    const norm = normalizeRelPath(rel);
+    const under = this.d.index.entries(norm).map((e) => e.path); // 文件夹整体进回收站：连同后代一并从索引移除
+    const r = { trashId: this.d.trash.moveIn(norm, id).trashId };
+    this.d.index.refreshPaths([...new Set([norm, ...under])]);
     return r;
   }
   /** 恢复；原路径已有同名文件时必须提供 newName，不覆盖。 */
@@ -285,7 +304,7 @@ export class NotesService {
     }
     if (this.findCaseInsensitive(target)) throw errors.nameConflict(target);
     const restored = this.d.trash.restore(trashId, target);
-    this.d.index.refreshPaths([restored]);
+    this.d.index.refreshPaths([restored, ...this.filesUnder(restored)]);
     return restored;
   }
   deletePermanent(trashId: string): void {

@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "electron-vite dev",
-    "build": "pnpm --filter @huhu/cli run build && electron-vite build",
+    "build": "pnpm --filter @huhu/cli run build && electron-vite build && node ../../scripts/write-build-info.mjs",
     "dist": "electron-builder"
   },
   "dependencies": {

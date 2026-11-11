@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } from "electron";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,6 +10,16 @@ let supervisor: EngineSupervisor | null = null;
 /** 过渡方案：启动页（W04.1）完成前，用 HUHU_VAULT 或「文档/HUHU Vault」。 */
 function defaultVaultPath(): string {
   return process.env["HUHU_VAULT"] ?? path.join(app.getPath("documents"), "HUHU Vault");
+}
+
+/** 构建时写入的 build-info.json（提交、构建时间）；开发态没有就为空。 */
+function readBuildInfo(): { commit?: string; builtAt?: string } {
+  try {
+    const j = JSON.parse(readFileSync(path.join(import.meta.dirname, "../build-info.json"), "utf8")) as { commit?: unknown; builtAt?: unknown };
+    return { ...(typeof j.commit === "string" ? { commit: j.commit.slice(0, 12) } : {}), ...(typeof j.builtAt === "string" ? { builtAt: j.builtAt } : {}) };
+  } catch {
+    return {};
+  }
 }
 
 const APP_ORIGIN = "huhu-app://workbench";
@@ -100,7 +110,7 @@ if (!gotLock) {
     });
     ipcMain.handle("huhu:appInfo", (event) => {
       assertTrusted(event.senderFrame?.url);
-      return { name: "HUHU", version: app.getVersion(), platform: process.platform, arch: process.arch, electron: process.versions.electron ?? "", chrome: process.versions.chrome ?? "", node: process.versions.node };
+      return { name: "HUHU", version: app.getVersion(), ...readBuildInfo(), platform: process.platform, arch: process.arch, electron: process.versions.electron ?? "", chrome: process.versions.chrome ?? "", node: process.versions.node };
     });
     ipcMain.handle("huhu:revealVault", (event) => {
       assertTrusted(event.senderFrame?.url);
@@ -114,6 +124,23 @@ if (!gotLock) {
       const opts = { defaultPath: path.join(app.getPath("documents"), name), filters: [{ name: "HUHU 数据包", extensions: ["zip"] }] };
       const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
       return r.canceled || !r.filePath ? null : r.filePath;
+    });
+    // 复制敏感文本：到点后只在剪贴板里仍是这段文本时才清除，不动用户之后复制的内容
+    let clipboardTimer: ReturnType<typeof setTimeout> | null = null;
+    ipcMain.handle("huhu:copyText", (event, value: unknown, clearAfterMs: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      if (typeof value !== "string" || value.length > 10_000) return;
+      clipboard.writeText(value);
+      if (clipboardTimer) clearTimeout(clipboardTimer);
+      const ms = typeof clearAfterMs === "number" && clearAfterMs > 0 ? Math.min(clearAfterMs, 600_000) : 0;
+      if (ms === 0) return;
+      clipboardTimer = setTimeout(() => {
+        clipboardTimer = null;
+        void Promise.resolve(clipboard.readText()).then((now) => {
+          if (now === value) clipboard.clear();
+        });
+      }, ms);
+      clipboardTimer.unref();
     });
     ipcMain.handle("huhu:pickOpenPath", async (event, kind: unknown) => {
       assertTrusted(event.senderFrame?.url);

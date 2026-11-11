@@ -125,6 +125,64 @@ test("知识库：新建笔记、编辑自动保存到文件、预览双链、�
   }
 });
 
+test("知识库：文件夹重命名、移动、删除（整体进回收站）", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByRole("button", { name: "新建文件夹" }).first().click();
+    await page.getByRole("textbox").last().fill("资料");
+    await page.getByTestId("name-dialog-submit").click();
+    await page.getByRole("button", { name: "新建文件夹" }).first().click();
+    await page.getByRole("textbox").last().fill("归档");
+    await page.getByTestId("name-dialog-submit").click();
+    await expect.poll(() => existsSync(path.join(vault, "资料"))).toBe(true);
+
+    await page.getByRole("button", { name: "文件夹操作 资料" }).click();
+    await page.getByRole("menuitem", { name: "重命名" }).click();
+    await page.getByRole("textbox", { name: "重命名" }).fill("资料库");
+    await page.getByTestId("name-dialog-submit").click();
+    await expect.poll(() => existsSync(path.join(vault, "资料库"))).toBe(true);
+    expect(existsSync(path.join(vault, "资料"))).toBe(false);
+
+    await page.getByRole("button", { name: "文件夹操作 资料库" }).click();
+    await page.getByRole("menuitem", { name: "移动到文件夹" }).click();
+    await page.getByLabel("文件夹", { exact: true }).selectOption("归档");
+    await page.getByRole("button", { name: "移动", exact: true }).click();
+    await expect.poll(() => existsSync(path.join(vault, "归档/资料库"))).toBe(true);
+
+    await page.getByRole("button", { name: "文件夹操作 归档" }).click();
+    await page.getByRole("menuitem", { name: "移到回收站" }).click();
+    await page.getByRole("button", { name: "移到回收站", exact: true }).click();
+    await expect.poll(() => existsSync(path.join(vault, "归档"))).toBe(false);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("快速捕获：任意页面 Mod+Shift+N 写入 Inbox，来源为 quick", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.keyboard.press("ControlOrMeta+Shift+N");
+    await page.getByLabel("快速捕获内容").fill("路上想到的点子");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => readdirSync(path.join(vault, "Inbox")).length).toBe(1);
+    const file = readdirSync(path.join(vault, "Inbox"))[0] as string;
+    expect(readFileSync(path.join(vault, "Inbox", file), "utf8")).toMatch(/source: quick/);
+    await expect(page.getByTestId("quick-capture")).toBeHidden();
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建立关系", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

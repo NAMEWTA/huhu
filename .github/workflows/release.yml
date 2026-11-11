@@ -1,5 +1,7 @@
 name: release
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,13 +24,18 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: 标签与版本号一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+      - run: node scripts/sync-version.mjs --check
       - run: node scripts/fetch-herdr.mjs --target ${{ matrix.target }} # 官方发布包，校验 SHA-256；不符则失败
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm notices
       - run: pnpm build
-      - run: pnpm --filter @huhu/desktop exec electron-builder
+      - run: pnpm --filter @huhu/desktop exec electron-builder --publish never
       - run: node scripts/checksums.mjs apps/desktop/release ${{ matrix.target }}
       - name: 冒烟（Linux）
         if: runner.os == 'Linux'
@@ -41,4 +48,35 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: HUHU-${{ matrix.target }}
-          path: apps/desktop/release/*
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/SHA256SUMS-*.txt
+
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: HUHU-*
+          merge-multiple: true
+      - name: 合并校验和
+        run: |
+          cd dist
+          cat SHA256SUMS-*.txt > SHA256SUMS.txt
+          rm SHA256SUMS-*.txt
+          sha256sum -c SHA256SUMS.txt
+      - name: 创建 Release 草稿（人工审阅后发布）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --draft --title "HUHU ${GITHUB_REF_NAME}" \
+            --notes "未签名安装包。Windows SmartScreen 选择“仍要运行”；macOS 首次打开右键“打开”或执行 xattr -dr com.apple.quarantine /Applications/HUHU.app；Linux AppImage 需 chmod +x。校验：sha256sum -c SHA256SUMS.txt。"
