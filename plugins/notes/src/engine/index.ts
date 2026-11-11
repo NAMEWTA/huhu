@@ -3,6 +3,8 @@ import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
 import { OperationLog } from "@huhu/vault";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { CommentsService } from "./comments/service.js";
@@ -312,5 +314,46 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(def({ name: "comments.reopen", ...cw, input: Cid, output: CommentDto, handler: (_c, i) => comments.setResolved(i.id, false) }));
   api.defineCapability(def({ name: "comments.relocate", ...cw, input: Cid.extend({ start: z.number().int(), end: z.number().int() }), output: CommentDto, handler: (_c, i) => comments.relocate(i.id, i.start, i.end) }));
   api.defineCapability(def({ name: "comments.delete", ...cw, input: Cid, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await comments.delete(i.id), { ok: true as const }) }));
+  // 手动保存模式下离开时保留的草稿：写在 .huhu/drafts/，不改动笔记文件（ACC-KN-04）
+  const draftFile = (rel: string) => path.join(api.vault.files.root, ".huhu", "drafts", `note-${createHash("sha1").update(rel).digest("hex").slice(0, 16)}.json`);
+  const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string() });
+  const dw = { plugin: "notes", scope: "write" as const, exposable: false, defaultExposed: false };
+  api.defineCapability(
+    def({
+      name: "notes.draft.get",
+      plugin: "notes",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: Path,
+      output: Draft.nullable(),
+      handler: (_c, i) => {
+        const f = draftFile(i.path);
+        if (!existsSync(f)) return null;
+        try {
+          const d = JSON.parse(readFileSync(f, "utf8")) as z.infer<typeof Draft>;
+          return d.path === i.path ? d : null;
+        } catch {
+          return null;
+        }
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.draft.save",
+      ...dw,
+      input: Path.extend({ text: z.string().max(8 * 1024 * 1024), baseVersion: z.string() }),
+      output: z.object({ ok: z.literal(true) }),
+      handler: (_c, i) => {
+        api.vault.files.assertWritable();
+        const f = draftFile(i.path);
+        mkdirSync(path.dirname(f), { recursive: true });
+        writeFileSync(f, JSON.stringify({ path: i.path, text: i.text, baseVersion: i.baseVersion, savedAt: (opts.now ?? (() => new Date()))().toISOString() }));
+        return { ok: true as const };
+      },
+    }),
+  );
+  api.defineCapability(def({ name: "notes.draft.discard", ...dw, input: Path, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (rmSync(draftFile(i.path), { force: true }), { ok: true as const }) }));
   return svc;
 }

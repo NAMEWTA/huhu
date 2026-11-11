@@ -255,6 +255,51 @@ test("外部扩展（ACC-PL-03/04）：发现页安装快速剪藏，权限确�
   }
 });
 
+test("手动保存：外部改动出现合并 Banner、合并后两边改动都在（ACC-KN-05）；离开后留下草稿并可恢复（ACC-KN-04）", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    await page.getByRole("switch", { name: "自动保存" }).click(); // 关闭自动保存
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await newNote(page, "合并笔记");
+    const file = path.join(vault, "合并笔记.md");
+    const editor = page.getByTestId("markdown-editor");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("\n我的新行");
+    await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
+    // 外部编辑器在末尾追加另一行
+    writeFileSync(file, `${readFileSync(file, "utf8")}\n外部的新行\n`);
+    await expect(page.getByTestId("note-merge")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("note-merge").click();
+    await expect(editor).toContainText("我的新行");
+    await expect(editor).toContainText("外部的新行");
+    await page.getByTestId("note-save").click();
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("我的新行");
+    expect(readFileSync(file, "utf8")).toContain("外部的新行");
+
+    // 再改一处，不保存就离开：文件不变，回来时提示草稿
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("草稿里的字");
+    const onDisk = readFileSync(file, "utf8");
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "合并笔记" }).click();
+    await expect(page.getByTestId("note-draft-restore")).toBeVisible({ timeout: 10_000 });
+    expect(readFileSync(file, "utf8")).toBe(onDisk);
+    await page.getByTestId("note-draft-restore").click();
+    await expect(editor).toContainText("草稿里的字");
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

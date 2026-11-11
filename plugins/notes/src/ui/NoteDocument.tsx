@@ -2,6 +2,7 @@ import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, typ
 import { Banner, Button, IconButton, Segmented } from "@huhu/ui";
 import { CapabilityError, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
+import { diff3Merge } from "node-diff3";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
@@ -62,6 +63,13 @@ export function NoteDocument(props: NoteDocumentProps) {
     savedText.current = f.text;
     setState("saved");
     onText(f.text);
+    // 手动保存模式离开时留下的草稿
+    const d = await engine.call<{ text: string; baseVersion: string; savedAt: string } | null>("notes.draft.get", { path }).catch(() => null);
+    if (d && d.text !== f.text) setDraft(d);
+    else {
+      setDraft(null);
+      if (d) void engine.call("notes.draft.discard", { path }, { write: true }).catch(() => undefined);
+    }
   }, [engine, path, onText]);
   useEffect(() => {
     void load();
@@ -77,6 +85,11 @@ export function NoteDocument(props: NoteDocumentProps) {
     else if (stateRef.current !== "saving") setState("conflict");
   });
   const [flushError, setFlushError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ text: string; baseVersion: string; savedAt: string } | null>(null);
+  const autosaveRef = useRef(true);
+  autosaveRef.current = ed?.autosave !== false;
+  const hadDraft = useRef(false);
+  hadDraft.current = draft !== null;
   const [confirmReload, setConfirmReload] = useState(false);
   const saveRef = useRef<(() => Promise<boolean>) | null>(null);
   const doSave = useCallback(async (): Promise<boolean> => {
@@ -88,6 +101,10 @@ export function NoteDocument(props: NoteDocumentProps) {
       savedText.current = body;
       setState(latest.current.text === body ? "saved" : "dirty");
       setFlushError(null);
+      if (latest.current.text === body) {
+        setDraft(null);
+        void engine.call("notes.draft.discard", { path }, { write: true }).catch(() => undefined);
+      }
       void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
       return true;
     } catch (e) {
@@ -118,8 +135,13 @@ export function NoteDocument(props: NoteDocumentProps) {
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
-      if (savedText.current !== null && latest.current.text !== savedText.current) void saveRef.current?.();
+      if (savedText.current !== null && latest.current.text !== savedText.current) {
+        // 手动保存模式：不改动文件，留下草稿，下次打开时可恢复（ACC-KN-04）；自动保存模式：直接落盘
+        if (autosaveRef.current) void saveRef.current?.();
+        else void engine.call("notes.draft.save", { path, text: latest.current.text, baseVersion: latest.current.version }, { write: true }).catch(() => undefined);
+      }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在卸载时运行；path / engine 在这个实例的生命周期内不变（NotesModule 以 path 作 key）
     [],
   );
   const flush = useCallback(async (): Promise<boolean> => {
@@ -135,6 +157,36 @@ export function NoteDocument(props: NoteDocumentProps) {
     registerEditor(editor.current);
     return () => registerEditor(null);
   });
+
+  /** 合并：以最后一次保存的内容为基线，把我的修改与磁盘上的新内容做三方合并；冲突处写入标记，由用户处理后再保存。 */
+  const merge = async (): Promise<void> => {
+    setFlushError(null);
+    try {
+      const theirs = await engine.call<NoteFile>("notes.read", { path });
+      const base = savedText.current ?? "";
+      const parts = diff3Merge(latest.current.text.split("\n"), base.split("\n"), theirs.text.split("\n"), { excludeFalseConflicts: true });
+      const lines: string[] = [];
+      let conflicts = 0;
+      for (const part of parts) {
+        if ("ok" in part && part.ok) lines.push(...part.ok);
+        else if (part.conflict) {
+          conflicts++;
+          lines.push("<<<<<<< 我的修改", ...part.conflict.a, "=======", ...part.conflict.b, ">>>>>>> 磁盘上的新内容");
+        }
+      }
+      const merged = lines.join("\n");
+      // 之后的保存以磁盘上的新版本为准；合并结果相对它就是“我的未保存修改”
+      latest.current = { text: merged, version: theirs.version };
+      savedText.current = theirs.text;
+      setText(merged);
+      onText(merged);
+      setState(merged === theirs.text ? "saved" : "dirty");
+      setConfirmReload(false);
+      if (conflicts > 0) setFlushError(n.mergeConflicts(conflicts));
+    } catch (e) {
+      setFlushError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const onChange = (next: string) => {
     if (text === null || next === latest.current.text) return;
@@ -230,7 +282,14 @@ export function NoteDocument(props: NoteDocumentProps) {
                 <Button onClick={() => setConfirmReload(false)}>{n.keepEditing}</Button>
               </>
             ) : (
-              <Button onClick={() => (latest.current.text === savedText.current ? void load() : setConfirmReload(true))}>{t.reload}</Button>
+              <>
+                {latest.current.text !== savedText.current ? (
+                  <Button variant="primary" data-testid="note-merge" onClick={() => void merge()}>
+                    {n.merge}
+                  </Button>
+                ) : null}
+                <Button onClick={() => (latest.current.text === savedText.current ? void load() : setConfirmReload(true))}>{t.reload}</Button>
+              </>
             )
           }
         >
