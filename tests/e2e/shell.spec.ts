@@ -235,7 +235,7 @@ test("外部扩展（ACC-PL-03/04）：发现页安装快速剪藏，权限确�
     await expect(page.getByTestId("plugin-detail")).toContainText("快速剪藏", { timeout: 15_000 });
     await page.getByTestId("plugin-command-run").click();
     await expect(page.getByTestId("plugin-command-result")).toContainText("已运行");
-    await expect.poll(() => readdirSync(path.join(vault, "Inbox")).length).toBe(1);
+    await expect.poll(() => (existsSync(path.join(vault, "Inbox")) ? readdirSync(path.join(vault, "Inbox")).length : 0)).toBe(1);
     expect(readFileSync(path.join(vault, "Inbox", readdirSync(path.join(vault, "Inbox"))[0] as string), "utf8")).toContain("source: plugin:quick-clip");
 
     // 命令面板里也能运行扩展命令
@@ -380,8 +380,9 @@ test("快速捕获：任意页面 Mod+Shift+N 写入 Inbox，来源为 quick", a
     await page.keyboard.press("ControlOrMeta+Shift+N");
     await page.getByLabel("快速捕获内容").fill("路上想到的点子");
     await page.keyboard.press("Enter");
-    await expect.poll(() => readdirSync(path.join(vault, "Inbox")).length).toBe(1);
-    const file = readdirSync(path.join(vault, "Inbox"))[0] as string;
+    const inbox = path.join(vault, "Inbox");
+    await expect.poll(() => (existsSync(inbox) ? readdirSync(inbox).length : 0)).toBe(1); // 目录在第一次写入时才创建
+    const file = readdirSync(inbox)[0] as string;
     expect(readFileSync(path.join(vault, "Inbox", file), "utf8")).toMatch(/source: quick/);
     await expect(page.getByTestId("quick-capture")).toBeHidden();
   } finally {
