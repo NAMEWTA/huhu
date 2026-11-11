@@ -84,6 +84,17 @@ describe("查询失效", () => {
   });
 });
 
+describe("插件启停", () => {
+  test("plugin.stateChanged 让首页汇总与健康检查失效（停用插件的卡片要隐藏）", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(queryKey("v", "home.summary"), {});
+    qc.setQueryData(queryKey("v", "health.run"), {});
+    qc.setQueryData(queryKey("v", "plugins.list"), []);
+    await invalidateForEvent(qc, "v", { type: "plugin.stateChanged", payload: { id: "tasks", state: "disabled" } });
+    for (const k of ["home.summary", "health.run", "plugins.list"]) expect(qc.getQueryState(queryKey("v", k))?.isInvalidated).toBe(true);
+  });
+});
+
 describe("通知与自动化事件失效", () => {
   test("notification.created 让 notifications.* 失效；automation.activated 让 automations.* 失效", async () => {
     const qc = new QueryClient();

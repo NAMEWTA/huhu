@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import path from "node:path";
 import { z } from "zod";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, readSettingsFile, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, readSettingsFile, HomeStore, registerHomeCapabilities, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -137,7 +137,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const notifications = new NotificationStore(path.join(vault.root, ".huhu", "notifications.ndjson"), () => new Date(), (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }));
   registry.register(defineCapability({
     name: "home.summary", plugin: "kernel", scope: "read", exposable: true, defaultExposed: true, input: z.object({}),
-    output: z.object({ vault: z.object({ id: z.string(), name: z.string() }), tasksToday: z.number(), tasksOpen: z.number(), inboxPending: z.number(), notes: z.number(), recentNotes: z.array(z.object({ path: z.string(), title: z.string() })) }),
+    output: z.object({ vault: z.object({ id: z.string(), name: z.string() }), tasksToday: z.number(), tasksOpen: z.number(), inboxPending: z.number(), notes: z.number(), recentNotes: z.array(z.object({ path: z.string(), title: z.string() })), enabled: z.object({ tasks: z.boolean(), inbox: z.boolean(), notes: z.boolean() }) }),
     handler: async (hc) => {
       const ask = async <T,>(cap: string, input: unknown, fallback: T): Promise<T> => {
         if (!plugins.isEnabled(cap.split(".")[0] === "inbox" ? "inbox" : cap.split(".")[0] as string)) return fallback; // 对应插件停用：该卡片为空，不报错
@@ -148,7 +148,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       const today = await ask<{ id: string }[]>("tasks.list", { category: "today", completed: false }, []);
       const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
       const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
-      return { vault: { id: vault.id, name: vault.info.name }, tasksToday: today.length, tasksOpen: open.length, inboxPending: inbox.length, notes: notesList.length, recentNotes: notesList.slice(0, 5).map((n) => ({ path: n.path, title: n.title })) };
+      return { vault: { id: vault.id, name: vault.info.name }, tasksToday: today.length, tasksOpen: open.length, inboxPending: inbox.length, notes: notesList.length, recentNotes: notesList.slice(0, 5).map((n) => ({ path: n.path, title: n.title })), enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes") } };
     },
   }));
   registerHealthCapabilities(registry, {
@@ -159,6 +159,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
+  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.root, ".huhu", "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }));
   registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: gatewayTokens });
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),

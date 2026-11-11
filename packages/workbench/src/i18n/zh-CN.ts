@@ -17,6 +17,9 @@ export const t = {
 export const tHome = {
   title: "工作台",
   tasksToday: "今日任务", tasksOpen: "未完成任务", inboxPending: "待处理收件", notes: "笔记", recent: "最近笔记", noRecent: "还没有笔记",
+  focus: { title: "专注计时", start: "开始", pause: "暂停", reset: "重置", completedToday: (n: number) => `今日完成 ${n} 次` },
+  habits: { title: "习惯", empty: "还没有习惯，在下面添加一个", newLabel: "新习惯", add: "添加", remove: (t: string) => `删除习惯：${t}` },
+  customize: { open: "自定义", title: "首页卡片", cards: { focus: "专注计时", habits: "习惯", tasks: "任务", inbox: "收件箱", recent: "最近笔记" } as Record<string, string> },
   health: { title: "健康中心", run: "重新检查", overall: { ok: "一切正常", warning: "有需要留意的项目", error: "有需要处理的问题" } },
 } as const;
 

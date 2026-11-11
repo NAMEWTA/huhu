@@ -497,6 +497,65 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
   }
 });
 
+test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自定义隐藏卡片；停用任务插件后任务卡片隐藏", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  try {
+    let page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await app.close();
+    // 预置一个还剩 2 秒、正在运行的专注：不必等 25 分钟
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).format(new Date());
+    mkdirSync(path.join(vault, ".huhu", "home"), { recursive: true });
+    writeFileSync(path.join(vault, ".huhu", "home", "focus.json"), JSON.stringify({ remainingSec: 2, running: true, startedAt: new Date().toISOString(), completedToday: 0, dateKey: today }));
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("focus-completed")).toHaveText("今日完成 1 次", { timeout: 15_000 });
+    await expect(page.getByTestId("focus-time")).toHaveText("25:00");
+    await expect(page.getByTestId("focus-start")).toBeVisible();
+    await page.getByTestId("bell").click();
+    await expect(page.getByTestId("notification-panel")).toContainText("专注完成");
+    await page.getByTestId("bell").click();
+
+    // 开始后暂停：显示不再走，状态持久化
+    await page.getByTestId("focus-start").click();
+    await expect(page.getByTestId("focus-pause")).toBeVisible();
+    await page.getByTestId("focus-pause").click();
+    await expect(page.getByTestId("focus-start")).toBeVisible();
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/home/focus.json"), "utf8")).running).toBe(false);
+
+    // 习惯：添加、勾选，重启后保持
+    await page.getByLabel("新习惯").fill("喝水");
+    await page.getByRole("button", { name: "添加" }).click();
+    await expect(page.getByTestId("habit-row")).toHaveCount(1);
+    await page.getByLabel("喝水", { exact: true }).click();
+    await expect(page.getByLabel("喝水", { exact: true })).toBeChecked();
+    await app.close();
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("habit-row")).toHaveCount(1, { timeout: 20_000 });
+    await expect(page.getByLabel("喝水", { exact: true })).toBeChecked();
+
+    // 自定义：隐藏专注卡片，重启后仍隐藏
+    await page.getByTestId("home-customize").click();
+    await page.getByTestId("home-customize-panel").getByRole("checkbox", { name: "专注计时" }).click();
+    await expect(page.getByTestId("card-focus")).toHaveCount(0);
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8")).hidden).toEqual(["focus"]);
+
+    // ACC-WB-08：停用任务插件，任务卡片隐藏
+    await expect(page.getByTestId("card-open")).toBeVisible();
+    await page.getByRole("button", { name: "插件中心" }).first().click();
+    await page.getByRole("button", { name: "停用 任务" }).click();
+    await page.getByRole("button", { name: "工作台" }).first().click();
+    await expect(page.getByTestId("card-open")).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId("card-today")).toHaveCount(0);
+  } finally {
+    await app.close().catch(() => undefined);
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("设置：时区改变后页面显示该时区的当前日期，非法时区被拒绝且不写入", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
