@@ -156,6 +156,19 @@ describe("外部扩展（W16.2）", () => {
     expect((await call(e, "plugins.uninstall", { id: "constructor" })).ok).toBe(false);
   });
 
+  test("安装失败的回滚不会删掉卸载时保留的旧数据", async () => {
+    const vault = tmp();
+    const e = await start(vault);
+    const good = fixture("keeper", [], "export function activate() {}");
+    await call(e, "plugins.install", { source: good, grants: [] });
+    const keep = path.join(vault, ".huhu/plugins/data/keeper/keep.txt");
+    writeFileSync(keep, "保留");
+    await call(e, "plugins.uninstall", { id: "keeper" });
+    const bad = fixture("keeper", [], "export function activate() { throw new Error('boom'); }");
+    expect((await call(e, "plugins.install", { source: bad, grants: [] })).ok).toBe(false);
+    expect(existsSync(keep)).toBe(true);
+  });
+
   test("zip 安装；含 ../ 的恶意 zip 被拒绝", async () => {
     const e = await start(tmp());
     const dir = tmp();

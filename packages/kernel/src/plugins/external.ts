@@ -209,7 +209,18 @@ export class ExternalPlugins {
     if (statSync(zip).size > MAX_BYTES) reject("zip 体积过大（最多 8 MB）");
     let entries: Record<string, Uint8Array>;
     try {
-      entries = unzipSync(readFileSync(zip), { filter: (f) => f.originalSize <= MAX_BYTES || reject(`文件过大：${f.name}`) });
+      // 在解压之前按声明的原始大小累计：文件数 / 总体积超限就不解压（防压缩炸弹）
+      let files = 0;
+      let declared = 0;
+      entries = unzipSync(readFileSync(zip), {
+        filter: (f) => {
+          files += 1;
+          declared += f.originalSize;
+          if (files > MAX_FILES) reject(`文件过多（最多 ${MAX_FILES} 个）`);
+          if (f.originalSize > MAX_BYTES || declared > MAX_BYTES) reject("体积过大（最多 8 MB）");
+          return true;
+        },
+      });
     } catch (e) {
       if (e instanceof Error && e.name === "HuhuError") throw e;
       return reject("不是有效的 zip 文件");
@@ -282,21 +293,39 @@ export class ExternalPlugins {
       const id = info.manifest.id;
       if (this.has(id) || this.d.plugins.has(id)) throw errors.nameConflict(`扩展已安装：${id}`);
       const target = this.pkgDir(id, info.manifest.version);
-      mkdirSync(path.dirname(target), { recursive: true });
-      cpSync(info.dir, target, { recursive: true, dereference: false });
-      this.writeJson(this.recordFile, { ...this.records(), [id]: { version: info.manifest.version, enabled: true } });
-      this.writeJson(this.trustFile, { ...this.trusted(), [id]: this.trustKey(id, info.manifest.version) });
-      this.register(this.inspect(target));
-      const state = await this.d.plugins.enable(id);
-      if (state !== "active") {
-        const why = this.d.plugins.error(id) ?? "未知原因";
-        await this.uninstall(id, true).catch(() => undefined); // 启动失败不留半安装状态（可直接再试）
-        throw errors.invalidInput(`扩展未能启动：${why}`);
+      const hadData = existsSync(this.dataDir(id)); // 回滚时只清理这次安装新建的数据目录，不动用户之前保留的数据
+      try {
+        mkdirSync(path.dirname(target), { recursive: true });
+        cpSync(info.dir, target, { recursive: true, dereference: false });
+        this.writeJson(this.recordFile, { ...this.records(), [id]: { version: info.manifest.version, enabled: true } });
+        this.writeJson(this.trustFile, { ...this.trusted(), [id]: this.trustKey(id, info.manifest.version) });
+        this.register(this.inspect(target));
+        const state = await this.d.plugins.enable(id);
+        if (state !== "active") throw errors.invalidInput(`扩展未能启动：${this.d.plugins.error(id) ?? "未知原因"}`);
+      } catch (e) {
+        await this.rollback(id, !hadData); // 任何一步失败都不留半安装状态（可直接再试）
+        throw e;
       }
       return { id };
     } finally {
       info.cleanup?.();
     }
+  }
+
+  private async rollback(id: string, eraseData: boolean): Promise<void> {
+    await this.d.plugins.unregister(id).catch(() => undefined);
+    rmSync(path.join(this.d.root, ".huhu", "plugins", "external", id), { recursive: true, force: true });
+    const records = this.records();
+    if (Object.hasOwn(records, id)) {
+      delete records[id];
+      this.writeJson(this.recordFile, records);
+    }
+    const trust = this.trusted();
+    if (Object.hasOwn(trust, id)) {
+      delete trust[id];
+      this.writeJson(this.trustFile, trust);
+    }
+    if (eraseData) rmSync(this.dataDir(id), { recursive: true, force: true });
   }
 
   /** 卸载：默认保留数据目录（ACC-PL-04）；eraseData 单独选择。 */

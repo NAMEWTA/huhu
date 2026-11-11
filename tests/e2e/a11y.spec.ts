@@ -1,21 +1,27 @@
-import AxeBuilder from "@axe-core/playwright";
+import axe from "axe-core";
 import { expect, test, type Page } from "@playwright/test";
 import { openApp } from "./helpers/launch.js";
 
 /** 主要模块（rail 按钮名称）。每个都跑 axe，serious / critical 不允许出现。 */
 const MODULES = ["工作台", "任务", "知识库", "收件箱", "档案", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
 
+/** Electron 窗口不支持 @axe-core/playwright（它要新建页面）：直接把 axe-core 注入当前页面运行。 */
 async function violations(page: Page): Promise<string[]> {
-  const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
-  return r.violations
-    .filter((v) => v.impact === "serious" || v.impact === "critical")
-    .map(
-      (v) =>
-        `${v.id}（${v.impact}）：${v.nodes
-          .slice(0, 3)
-          .map((n) => n.target.join(" "))
-          .join(" | ")}`,
-    );
+  await page.evaluate(axe.source);
+  const found = await page.evaluate(async () => {
+    const run = (window as unknown as { axe: { run(ctx: Document, opts: unknown): Promise<{ violations: { id: string; impact: string | null; nodes: { target: unknown[] }[] }[] }> } }).axe.run;
+    const r = await run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] } });
+    return r.violations
+      .filter((v) => v.impact === "serious" || v.impact === "critical")
+      .map(
+        (v) =>
+          `${v.id}（${v.impact}）：${v.nodes
+            .slice(0, 3)
+            .map((n) => n.target.join(" "))
+            .join(" | ")}`,
+      );
+  });
+  return found;
 }
 
 test("axe：每个模块主页面没有 serious / critical 违规", async () => {

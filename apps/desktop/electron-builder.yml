@@ -3,6 +3,7 @@ productName: HUHU
 directories:
   output: release
 beforePack: scripts/before-pack.cjs
+npmRebuild: false # 没有需要针对 Electron ABI 编译的模块（@parcel/watcher 用预编译包；ssh2 的原生加速可选）
 files:
   - out/**
   - package.json

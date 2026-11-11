@@ -988,13 +988,17 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     await page.getByTestId("note-save").click();
     await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8")).toContain("手动保存的正文");
 
-    // 没点保存就离开：切换到另一篇笔记时未保存的编辑会被写入，不丢内容
+    // 没点保存就离开：手动保存模式不改动文件，编辑留作草稿，回来时可恢复
     await page.keyboard.type("，离开前的补充");
     await page.waitForTimeout(1500);
     expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("离开前的补充");
     await newNote(page, "另一篇");
     await expect(page.getByTestId("note-item").filter({ hasText: "另一篇.md" })).toBeVisible();
-    await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8"), { timeout: 10_000 }).toContain("离开前的补充");
+    await page.getByTestId("note-item").filter({ hasText: "手动保存.md" }).click();
+    await expect(page.getByTestId("note-draft-restore")).toBeVisible({ timeout: 10_000 });
+    expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("离开前的补充");
+    await page.getByTestId("note-draft-restore").click();
+    await expect(page.getByTestId("markdown-editor")).toContainText("离开前的补充");
 
     // 重新打开自动保存后恢复原行为
     await page.getByRole("button", { name: "设置" }).first().click();

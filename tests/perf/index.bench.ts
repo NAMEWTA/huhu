@@ -31,7 +31,7 @@ describe("scale-vault", () => {
     index.query(`${WORDS[rnd(WORDS.length)]}${WORDS[rnd(WORDS.length)]}`, { limit: 20 });
   });
   bench(
-    "重建索引（增量扫描无变化）",
+    "重建索引（全量，已有索引）",
     async () => {
       await index.build();
     },

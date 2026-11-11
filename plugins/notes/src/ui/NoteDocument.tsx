@@ -88,8 +88,6 @@ export function NoteDocument(props: NoteDocumentProps) {
   const [draft, setDraft] = useState<{ text: string; baseVersion: string; savedAt: string } | null>(null);
   const autosaveRef = useRef(true);
   autosaveRef.current = ed?.autosave !== false;
-  const hadDraft = useRef(false);
-  hadDraft.current = draft !== null;
   const [confirmReload, setConfirmReload] = useState(false);
   const saveRef = useRef<(() => Promise<boolean>) | null>(null);
   const doSave = useCallback(async (): Promise<boolean> => {
@@ -137,8 +135,14 @@ export function NoteDocument(props: NoteDocumentProps) {
       if (timer.current) clearTimeout(timer.current);
       if (savedText.current !== null && latest.current.text !== savedText.current) {
         // 手动保存模式：不改动文件，留下草稿，下次打开时可恢复（ACC-KN-04）；自动保存模式：直接落盘
-        if (autosaveRef.current) void saveRef.current?.();
-        else void engine.call("notes.draft.save", { path, text: latest.current.text, baseVersion: latest.current.version }, { write: true }).catch(() => undefined);
+        if (autosaveRef.current) {
+          const snap = { text: latest.current.text, version: latest.current.version };
+          // 离开时的落盘失败（版本冲突 / I/O 错误）不能让编辑静默丢失：改存草稿
+          void saveRef
+            .current?.()
+            .then((ok) => (ok ? undefined : engine.call("notes.draft.save", { path, text: snap.text, baseVersion: snap.version }, { write: true })))
+            .catch(() => undefined);
+        } else void engine.call("notes.draft.save", { path, text: latest.current.text, baseVersion: latest.current.version }, { write: true }).catch(() => undefined);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在卸载时运行；path / engine 在这个实例的生命周期内不变（NotesModule 以 path 作 key）
@@ -294,6 +298,38 @@ export function NoteDocument(props: NoteDocumentProps) {
           }
         >
           {confirmReload ? n.discardReloadHint : t.conflict}
+        </Banner>
+      ) : null}
+      {draft ? (
+        <Banner
+          tone="blue"
+          action={
+            <>
+              <Button
+                variant="primary"
+                data-testid="note-draft-restore"
+                onClick={() => {
+                  latest.current.text = draft.text;
+                  setText(draft.text);
+                  onText(draft.text);
+                  setState("dirty");
+                  setDraft(null);
+                }}
+              >
+                {n.restoreDraft}
+              </Button>
+              <Button
+                onClick={() => {
+                  setDraft(null);
+                  void engine.call("notes.draft.discard", { path }, { write: true }).catch(() => undefined);
+                }}
+              >
+                {n.discardDraft}
+              </Button>
+            </>
+          }
+        >
+          {n.draftFound(draft.savedAt.replace("T", " ").slice(0, 16))}
         </Banner>
       ) : null}
       {flushError ? <Banner tone="danger">{n.saveFailed(flushError)}</Banner> : null}

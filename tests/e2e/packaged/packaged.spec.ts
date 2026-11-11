@@ -57,7 +57,7 @@ test("打包后：创建笔记并保存；新建任务并勾选；导出数据�
     expect(done.data.completed).toBe(true);
 
     const out = path.join(mkdtempSync(path.join(tmpdir(), "huhu-pk-out-")), "导出.zip");
-    const exp = await s.call("vault.exportPackage", { targetPath: out });
+    const exp = await s.call("vault.exportPackage", { dest: out });
     expect(exp.ok).toBe(true);
     expect(existsSync(out)).toBe(true);
     rmSync(path.dirname(out), { recursive: true, force: true });
@@ -71,8 +71,10 @@ test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，C
   try {
     const health = await s.call("health.run", {});
     expect(health.ok).toBe(true);
-    const space = await s.call("agent.spaces.save", { name: "冒烟", root: s.vault });
-    expect(space.ok, JSON.stringify(space)).toBe(true);
+    // Vault 根目录启动时已有默认 Space
+    const spaces = await s.call("agent.spaces.list", {});
+    const space = { data: spaces.data[0] };
+    expect(space.data, JSON.stringify(spaces)).toBeTruthy();
     const sess = await s.call("agent.sessions.launch", { spaceId: space.data.id, spaceRevision: space.data.revision, provider: "shell", requestId: "packaged-shell-1" });
     expect(sess.ok, JSON.stringify(sess)).toBe(true);
     await expect.poll(async () => (await s.call("agent.core.status", {})).data?.state, { timeout: 15_000 }).toBe("connected");
