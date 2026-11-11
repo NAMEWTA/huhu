@@ -1,5 +1,6 @@
-import { Badge, Button, EmptyState } from "@huhu/ui";
+import { Button } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { History, Search } from "lucide-react";
 import { useState } from "react";
 import { t } from "../i18n.js";
 
@@ -15,12 +16,14 @@ interface Session {
   id: string;
 }
 
-export function HistoryPanel({ space, installed, onResumed }: { space: { id: string; revision: number }; installed: Set<string>; onResumed: (sessionId: string) => void }) {
+export function HistoryPanel({ space, installed, onResumed }: { space: { id: string; revision: number; name?: string; root?: string }; installed: Set<string>; onResumed: (sessionId: string) => void }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const history = useCapability<{ entries: Entry[]; skipped: number }>("agent.history.list", { spaceId: space.id });
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "active" | "resumable">("all");
 
   async function resume(e: Entry) {
     setBusy(e.nativeSessionId);
@@ -36,50 +39,76 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
     }
   }
 
-  if (history.isError)
-    return (
-      <div role="alert" className="hu-overdue">
-        {history.error instanceof Error ? history.error.message : String(history.error)}
-      </div>
-    );
-  if (!history.data) return <p>…</p>;
-  const { entries, skipped } = history.data;
+  const entries = (history.data?.entries ?? []).filter((e) => (filter === "all" ? true : filter === "active" ? e.active : !e.active) && (query.trim() === "" || e.title.toLowerCase().includes(query.trim().toLowerCase())));
+  const skipped = history.data?.skipped ?? 0;
+  const FILTERS: ["all" | "active" | "resumable", string][] = [
+    ["all", t.history.filterAll],
+    ["active", t.history.active],
+    ["resumable", t.history.filterResumable],
+  ];
   return (
-    <section data-testid="agent-history" aria-label={t.history.title}>
-      <h2>{t.history.title}</h2>
-      <p className="hu-meta">{t.history.note}</p>
-      {skipped > 0 ? (
-        <p className="hu-meta" data-testid="history-skipped">
-          {t.history.skipped(skipped)}
-        </p>
-      ) : null}
-      {error ? (
-        <div role="alert" className="hu-overdue">
-          {error}
-        </div>
-      ) : null}
-      {entries.length === 0 ? (
-        <EmptyState title={t.history.empty} />
-      ) : (
-        entries.map((e) => {
+    <section data-testid="agent-history" aria-label={t.history.title} style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+      <div className="v9-sidebar-head">
+        <span>
+          <History size={15} aria-hidden />
+          {t.history.title}
+        </span>
+        <span className="v9-count">{history.data?.entries.length ?? 0}</span>
+      </div>
+      <div className="v9-history-space">
+        {space.name ?? ""}
+        <small title={space.root}>{space.root}</small>
+      </div>
+      <div className="v9-history-search">
+        <Search size={14} aria-hidden />
+        <input aria-label={t.history.search} placeholder={t.history.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+      </div>
+      <div className="v9-history-filters" role="group" aria-label={t.history.filters}>
+        {FILTERS.map(([id, label]) => (
+          <button type="button" key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="v9-history-list">
+        {history.isError ? (
+          <div role="alert" className="callout danger">
+            <p>{history.error instanceof Error ? history.error.message : String(history.error)}</p>
+          </div>
+        ) : null}
+        {error ? (
+          <div role="alert" className="callout danger">
+            <p>{error}</p>
+          </div>
+        ) : null}
+        {skipped > 0 ? (
+          <p className="v9-small-empty" data-testid="history-skipped">
+            {t.history.skipped(skipped)}
+          </p>
+        ) : null}
+        {!history.data && !history.isError ? <p className="v9-small-empty">…</p> : null}
+        {history.data && entries.length === 0 ? <p className="v9-small-empty">{query || filter !== "all" ? t.history.noMatch : t.history.empty}</p> : null}
+        {entries.map((e) => {
           const ok = installed.has(e.provider);
           return (
-            <div key={`${e.provider}:${e.nativeSessionId}`} className="hu-row" data-testid="history-item">
-              <Badge tone="blue">{t.history.provider[e.provider] ?? e.provider}</Badge>
-              <span style={{ flex: 1 }}>
+            <div key={`${e.provider}:${e.nativeSessionId}`} className="v9-history-item" data-testid="history-item">
+              <span className={`v9-provider-mark provider-${e.provider}`}>{e.provider.slice(0, 1).toUpperCase()}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
                 <strong data-testid="history-title">{e.title}</strong>
-                <span className="hu-meta" style={{ display: "block" }}>
-                  {new Date(e.updatedAt).toLocaleString()} · {e.cwd}
-                </span>
+                <small>
+                  {t.history.provider[e.provider] ?? e.provider}
+                  {e.active ? ` · ${t.history.active}` : ""}
+                </small>
+                <time>{new Date(e.updatedAt).toLocaleString("zh-CN", { hour12: false })}</time>
               </span>
-              {e.active ? <Badge tone="success">{t.history.active}</Badge> : null}
               <Button disabled={!ok || e.active || busy !== null} loading={busy === e.nativeSessionId} title={ok ? undefined : t.history.notInstalled} data-testid="history-resume" onClick={() => void resume(e)}>
                 {busy === e.nativeSessionId ? t.history.resuming : t.history.resume}
               </Button>
             </div>
           );
-        })
-      )}
+        })}
+      </div>
+      <div className="v9-history-footnote">{t.history.note}</div>
     </section>
   );
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ALLOWED = [/^MIT/, /^ISC$/, /^BSD/, /^Apache-2\.0/, /^0BSD$/, /^BlueOak/, /^CC0/, /^Python-2\.0$/, /^MPL-2\.0$/, /^Unlicense$/, /^CC-BY-4\.0$/, /WTFPL/, /^\(?MIT OR/, /^\(?BSD/, /^\(?Apache/];
+const ALLOWED = [/^MIT/, /^ISC$/, /^BSD/, /^Apache-2\.0/, /^0BSD$/, /^BlueOak/, /^CC0/, /^Python-2\.0$/, /^MPL-2\.0$/, /^Unlicense$/, /^CC-BY-4\.0$/, /WTFPL/, /^\(?MIT OR/, /^\(?BSD/, /^\(?Apache/, /^\(MPL-2\.0 OR Apache-2\.0\)$/];
 
 // 工作区包（renderer/engine/CLI）都被打包进应用，其依赖大多声明为 devDependencies，所以直接读取 pnpm 虚拟仓库里
 // 安装的每个包（偏保守的超集：也包含构建工具；构建工具不随包分发，但列出不会有害）。

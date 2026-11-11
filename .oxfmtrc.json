@@ -16,6 +16,7 @@
     "THIRD_PARTY_NOTICES.md",
     "**/*.md",
     "packages/ui/src/styles/tokens.css",
-    "packages/ui/src/styles/proto/**"
+    "packages/ui/src/styles/proto/**",
+    "packages/editor/src/vendor/**"
   ]
 }

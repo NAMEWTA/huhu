@@ -9,3 +9,4 @@ export * from "./proto/controls.js";
 export * from "./proto/feedback.js";
 export * from "./proto/motion.js";
 export * as Popover from "@radix-ui/react-popover";
+export * from "./components/ReviewDiff.js";

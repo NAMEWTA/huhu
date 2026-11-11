@@ -96,7 +96,7 @@ export function ArchivesModule() {
             <span>{t.all}</span>
             <small>{rows.length}</small>
           </button>
-          <div className="knowledge-list-caption">
+          <div className="archive-type-caption">
             <span>档案类型</span>
             <IconButton icon={Plus} label="新建或编辑档案类型" onClick={() => setDialog({ kind: "type", type: null })} />
           </div>

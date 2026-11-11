@@ -76,6 +76,9 @@ export class NotesService {
     await this.d.files.write(FAVORITES, Buffer.from(JSON.stringify([...set], null, 2)), { expectedVersion: cur });
     return [...set];
   }
+  tags(): { tag: string; count: number }[] {
+    return this.d.index.allTags();
+  }
   folders(): string[] {
     return this.readJson<string[]>(FOLDERS, []);
   }
@@ -312,8 +315,8 @@ export class NotesService {
     return r;
   }
 
-  list(filter: "all" | "favorites" | "daily" | "trash" | { tag: string }): { path: string; id: string | null; title: string }[] {
-    if (filter === "trash") return this.d.trash.list().map((m) => ({ path: m.originalPath, id: m.noteId, title: path.basename(m.originalPath, ".md") }));
+  list(filter: "all" | "favorites" | "daily" | "trash" | { tag: string }): { path: string; id: string | null; title: string; trashId?: string; deletedAt?: string; favorite?: boolean; tags?: string[] }[] {
+    if (filter === "trash") return this.d.trash.list().map((m) => ({ path: m.originalPath, id: m.noteId, title: path.basename(m.originalPath, ".md"), trashId: m.trashId, deletedAt: m.deletedAt }));
     const ids = this.identities();
     const fav = new Set(this.favorites());
     return this.allFiles()
@@ -324,7 +327,7 @@ export class NotesService {
         if (filter === "daily") return p.startsWith("日记/");
         return this.d.index.tagsOf(p).includes(filter.tag);
       })
-      .map((p) => ({ path: p, id: ids[p] ?? null, title: path.basename(p, ".md") }));
+      .map((p) => ({ path: p, id: ids[p] ?? null, title: path.basename(p, ".md"), favorite: fav.has(ids[p] ?? ""), tags: this.d.index.tagsOf(p) }));
   }
 
   read(rel: string): { path: string; text: string; version: string } {

@@ -194,6 +194,13 @@ export class VaultIndex {
     return [...this.notes.values()].filter((n) => n.path !== targetPath && n.links.some((l) => l.target === base || l.target === noExt || l.target === targetPath)).map((n) => ({ path: n.path, title: n.title }));
   }
 
+  /** 全部标签及出现的笔记数（标签云用）。 */
+  allTags(): { tag: string; count: number }[] {
+    const m = new Map<string, number>();
+    for (const n of this.notes.values()) for (const t of new Set(n.tags)) m.set(t, (m.get(t) ?? 0) + 1);
+    return [...m.entries()].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
   tagsOf(rel: string): string[] {
     return this.notes.get(rel)?.tags ?? [];
   }

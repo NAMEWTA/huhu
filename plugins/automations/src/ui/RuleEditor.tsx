@@ -1,4 +1,5 @@
-import { Button } from "@huhu/ui";
+import { Button, Field } from "@huhu/ui";
+import { Clock } from "lucide-react";
 import { useCapability } from "@huhu/workbench";
 import { useState } from "react";
 import { nextRuns } from "../shared/cron.js";
@@ -9,7 +10,12 @@ export interface EditableRule {
   id: string;
   version: string;
   body: string;
-  data: { title: string; builtin: boolean; trigger: { preset: string; cron: string; zone: string }; action: { kind: string; text?: string; spaceId?: string; provider?: string; model?: string | null; scriptId?: string; args?: string[] } };
+  data: {
+    title: string;
+    builtin: boolean;
+    trigger: { preset: string; cron: string; zone: string };
+    action: { kind: string; text?: string; spaceId?: string; provider?: string; model?: string | null; effort?: string | null; fast?: boolean; scriptId?: string; args?: string[] };
+  };
 }
 interface Space {
   id: string;
@@ -84,7 +90,7 @@ export function RuleEditor({
       kind === "notify"
         ? { kind, channel: "in_app", text: text.trim() }
         : kind === "agent_prompt"
-          ? { kind, spaceId, provider, model: model.trim() || null, effort: null, fast: false }
+          ? { kind, spaceId, provider, model: model.trim() || null, effort: a?.kind === "agent_prompt" ? (a.effort ?? null) : null, fast: a?.kind === "agent_prompt" ? (a.fast ?? false) : false }
           : kind === "script"
             ? { kind, scriptId, args: [] }
             : (a as Record<string, unknown>);
@@ -99,8 +105,6 @@ export function RuleEditor({
 
   return (
     <form
-      className="hu-form"
-      style={{ flexDirection: "column", alignItems: "stretch" }}
       data-testid="rule-editor"
       aria-label={rule ? t.editRule : t.ruleEditor}
       onSubmit={(e) => {
@@ -108,110 +112,139 @@ export function RuleEditor({
         if (valid) void submit();
       }}
     >
-      <input className="hu-input" aria-label={t.ruleTitle} placeholder={t.ruleTitle} value={title} onChange={(e) => setTitle(e.target.value)} />
-      <label>
-        {t.actionKind}
-        <select aria-label={t.actionKind} data-testid="rule-kind" value={kind} disabled={builtin} onChange={(e) => setKind(e.target.value as typeof kind)}>
-          <option value="notify">{t.kinds.notify}</option>
-          <option value="agent_prompt">{t.kinds.agent_prompt}</option>
-          <option value="script">{t.kinds.script}</option>
-          {builtin ? <option value="scan_agent_tasks">{t.kinds.scan_agent_tasks}</option> : null}
-        </select>
-      </label>
-      {kind === "notify" ? <input className="hu-input" aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} /> : null}
-      {kind === "agent_prompt" ? (
-        <>
-          <label>
-            {t.space}
-            <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
-              <option value="">{t.choose}</option>
-              {(spaces.data ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            {t.provider}
-            <select aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
-              <option value="">{t.choose}</option>
-              {found.map((p) => (
-                <option key={p.provider} value={p.provider}>
-                  {p.displayName}
-                </option>
-              ))}
-              {provider && !found.some((p) => p.provider === provider) ? (
-                <option value={provider}>
-                  {provider}（{t.unavailable}）
-                </option>
-              ) : null}
-            </select>
-          </label>
-          {found.length === 0 && providers.data ? <p className="hu-meta">{t.noProvider}</p> : null}
-          <input className="hu-input" aria-label={t.model} placeholder={t.model} value={model} onChange={(e) => setModel(e.target.value)} />
-          <textarea className="hu-input" rows={5} aria-label={t.prompt} placeholder={t.prompt} data-testid="rule-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-        </>
-      ) : null}
-      {kind === "script" ? (
-        <label>
-          {t.script}
-          <select aria-label={t.script} data-testid="rule-script" value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
-            <option value="">{t.choose}</option>
-            {(scripts.data ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <label>
-        {t.frequency}
-        <select
-          aria-label={t.frequency}
-          data-testid="rule-preset"
-          value={preset}
-          onChange={(e) => {
-            const next = e.target.value as PresetId;
-            if (next === "custom") setCustom(cron);
-            setPreset(next);
-          }}
-        >
-          {PRESETS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {t.presets[p.id]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {PRESETS.find((p) => p.id === preset)?.time ? (
-        <label>
-          {t.timeOfDay}
-          <input className="hu-input" type="time" aria-label={t.timeOfDay} value={time} onChange={(e) => setTime(e.target.value)} />
-        </label>
-      ) : null}
-      {preset === "custom" ? <input className="hu-input" aria-label={t.ruleCron} value={custom} onChange={(e) => setCustom(e.target.value)} /> : <code data-testid="rule-cron">{cron}</code>}
-      <input className="hu-input" aria-label={t.zone} placeholder={t.zone} value={tz} aria-invalid={triggerError === t.zoneInvalid} onChange={(e) => setTz(e.target.value)} />
-      {triggerError ? (
-        <div role="alert" className="hu-overdue" data-testid="rule-trigger-error">
-          {triggerError}
+      <div className="tw-editor-grid">
+        <div className="tw-editor-body">
+          <Field label={t.ruleTitle}>
+            <input autoFocus aria-label={t.ruleTitle} placeholder={t.ruleTitle} value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <div className="tw-action-fields">
+            <Field label={t.actionKind}>
+              <select aria-label={t.actionKind} data-testid="rule-kind" value={kind} disabled={builtin} onChange={(e) => setKind(e.target.value as typeof kind)}>
+                <option value="notify">{t.kinds.notify}</option>
+                <option value="agent_prompt">{t.kinds.agent_prompt}</option>
+                <option value="script">{t.kinds.script}</option>
+                {builtin ? <option value="scan_agent_tasks">{t.kinds.scan_agent_tasks}</option> : null}
+              </select>
+            </Field>
+            {kind === "scan_agent_tasks" ? (
+              <div className="tw-scan-contract">
+                <strong>扫描已有任务</strong>
+                <p>只处理未完成且执行方式为Agent的任务；按任务输入版本避免重复调用。</p>
+                <p>不会创建另一份待办，也不会自动勾选完成。</p>
+              </div>
+            ) : null}
+            {kind === "notify" ? (
+              <Field label={t.ruleText}>
+                <input aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} />
+              </Field>
+            ) : null}
+            {kind === "agent_prompt" ? (
+              <>
+                <Field label={t.space}>
+                  <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
+                    <option value="">{t.choose}</option>
+                    {(spaces.data ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={t.provider}>
+                  <select aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                    <option value="">{t.choose}</option>
+                    {found.map((p) => (
+                      <option key={p.provider} value={p.provider}>
+                        {p.displayName}
+                      </option>
+                    ))}
+                    {provider && !found.some((p) => p.provider === provider) ? (
+                      <option value={provider}>
+                        {provider}（{t.unavailable}）
+                      </option>
+                    ) : null}
+                  </select>
+                </Field>
+                {found.length === 0 && providers.data ? <p className="tw-hint">{t.noProvider}</p> : null}
+                <Field label={t.model}>
+                  <input aria-label={t.model} placeholder={t.model} value={model} onChange={(e) => setModel(e.target.value)} />
+                </Field>
+                <Field label={t.prompt}>
+                  <textarea className="tw-description-input" rows={7} aria-label={t.prompt} placeholder={t.prompt} data-testid="rule-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                </Field>
+              </>
+            ) : null}
+            {kind === "script" ? (
+              <Field label={t.script}>
+                <select aria-label={t.script} data-testid="rule-script" value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
+                  <option value="">{t.choose}</option>
+                  {(scripts.data ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
+          </div>
         </div>
-      ) : (
-        <p className="hu-meta" data-testid="rule-upcoming">
-          {t.upcoming}：{upcoming.map((x) => new Date(x).toLocaleString()).join(" · ")}
-        </p>
-      )}
-      <div className="hu-row">
-        <Button type="submit" variant="primary" disabled={!valid || busy} data-testid="rule-save">
-          {rule ? t.save : t.create}
-        </Button>
+        <aside className="tw-editor-aside">
+          <div className="tw-section-label">
+            <Clock size={14} aria-hidden />
+            <strong>何时激活</strong>
+          </div>
+          <Field label={t.frequency}>
+            <select
+              aria-label={t.frequency}
+              data-testid="rule-preset"
+              value={preset}
+              onChange={(e) => {
+                const next = e.target.value as PresetId;
+                if (next === "custom") setCustom(cron);
+                setPreset(next);
+              }}
+            >
+              {PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {t.presets[p.id]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {PRESETS.find((p) => p.id === preset)?.time ? (
+            <Field label={t.timeOfDay}>
+              <input type="time" aria-label={t.timeOfDay} value={time} onChange={(e) => setTime(e.target.value)} />
+            </Field>
+          ) : null}
+          <Field label={t.ruleCron}>{preset === "custom" ? <input aria-label={t.ruleCron} value={custom} onChange={(e) => setCustom(e.target.value)} /> : <code data-testid="rule-cron">{cron}</code>}</Field>
+          <Field label={t.zone}>
+            <input aria-label={t.zone} placeholder={t.zone} value={tz} aria-invalid={triggerError === t.zoneInvalid} onChange={(e) => setTz(e.target.value)} />
+          </Field>
+          {triggerError ? (
+            <p role="alert" className="tw-schedule-error" data-testid="rule-trigger-error">
+              {triggerError}
+            </p>
+          ) : (
+            <div className="tw-schedule-preview" data-testid="rule-upcoming">
+              <strong>{t.upcoming}</strong>
+              <small>{tz.trim() || zone} · 仅预览</small>
+              {upcoming.map((x) => (
+                <time key={x}>{new Date(x).toLocaleString("zh-CN", { timeZone: tz.trim() || zone, hour12: false })}</time>
+              ))}
+            </div>
+          )}
+          <p className="tw-hint">{t.savedPaused}</p>
+        </aside>
+      </div>
+      <div className="modal-actions">
         {onCancel ? (
-          <Button type="button" onClick={onCancel}>
+          <Button type="button" variant="ghost" onClick={onCancel}>
             {t.cancelEdit}
           </Button>
         ) : null}
-        {!rule ? <span className="hu-meta">{t.savedPaused}</span> : null}
+        <Button type="submit" variant="primary" disabled={!valid || busy} data-testid="rule-save">
+          {rule ? t.save : t.create}
+        </Button>
       </div>
     </form>
   );

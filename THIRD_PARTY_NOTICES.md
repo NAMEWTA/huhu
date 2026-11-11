@@ -15,6 +15,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | --- | --- | --- | --- | --- |
 | R-05 | DSH fcc0ad4 | vendor/{cordis,cosmokit,timer}/src/* | vendor/{cordis,cosmokit,timer}/src/* | 包名改为 @huhu/*，保留 MIT 许可文件与来源行 |
 | R-08 | OK 44a2e0a | packages/server/src/file-watcher.ts | packages/vault/src/watch/ | 仅参照批处理/回退/重命名配对思路，按 HUHU 需求精简重写（模式，未复制代码） |
+| R-09 | atomic-editor b6ed65f (kenforthewin, 0.6.2) | src/* | packages/editor/src/vendor/atomic/ | 复制并改造（inline-preview、wiki-links、主题、IME 组合保护），保留 MIT 许可文件与来源说明 `UPSTREAM.md` |
 
 ## npm 运行时依赖
 
@@ -63,6 +64,10 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @electron/universal | 2.0.3 | MIT |  |
 | @esbuild/linux-x64 | 0.28.2 | MIT |  |
 | @exodus/bytes | 1.16.0 | MIT | https://github.com/ExodusOSS/bytes |
+| @floating-ui/core | 1.8.0 | MIT | https://floating-ui.com |
+| @floating-ui/dom | 1.8.0 | MIT | https://floating-ui.com |
+| @floating-ui/react-dom | 2.1.9 | MIT | https://floating-ui.com/docs/react-dom |
+| @floating-ui/utils | 0.2.12 | MIT | https://floating-ui.com |
 | @hono/node-server | 2.1.6 | MIT | https://github.com/honojs/node-server |
 | @isaacs/fs-minipass | 4.0.1 | ISC |  |
 | @jridgewell/gen-mapping | 0.3.13 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping |
@@ -95,6 +100,35 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @peculiar/utils | 2.0.3 | MIT | https://github.com/PeculiarVentures/pvtsutils#readme |
 | @peculiar/webcrypto | 1.7.2 | MIT | https://github.com/PeculiarVentures/webcrypto#readme |
 | @playwright/test | 1.65.0 | Apache-2.0 | https://playwright.dev |
+| @radix-ui/primitive | 1.1.7 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-arrow | 1.1.15 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-collection | 1.1.15 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-compose-refs | 1.1.5 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-context | 1.2.2 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-dialog | 1.1.23 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-direction | 1.1.4 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-dismissable-layer | 1.1.19 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-focus-guards | 1.1.6 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-focus-scope | 1.1.16 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-id | 1.1.4 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-popover | 1.1.23 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-popper | 1.3.7 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-portal | 1.1.17 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-presence | 1.1.10 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-primitive | 2.1.10 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-roving-focus | 1.1.19 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-slot | 1.3.3 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-switch | 1.3.7 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-tooltip | 1.2.16 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-callback-ref | 1.1.4 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-controllable-state | 1.2.6 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-effect-event | 0.0.5 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-is-hydrated | 0.1.3 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-layout-effect | 1.1.4 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-rect | 1.1.4 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-use-size | 1.1.4 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/react-visually-hidden | 1.2.11 | MIT | https://radix-ui.com/primitives |
+| @radix-ui/rect | 1.1.3 | MIT | https://radix-ui.com/primitives |
 | @rolldown/binding-linux-x64-gnu | 1.2.18 | MIT | https://rolldown.rs/ |
 | @rolldown/pluginutils | 1.1.0 | MIT | https://github.com/rolldown/plugins/tree/main/packages/pluginutils#readme |
 | @rollup/rollup-linux-x64-gnu | 4.68.1 | MIT | https://rollupjs.org/ |
@@ -126,6 +160,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @types/responselike | 1.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/responselike |
 | @types/retry | 0.12.5 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/retry |
 | @types/ssh2 | 1.15.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/ssh2 |
+| @types/trusted-types | 2.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/trusted-types |
 | @types/unist | 2.0.11 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/unist |
 | @types/unist | 3.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/unist |
 | @types/write-file-atomic | 4.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/write-file-atomic |
@@ -152,6 +187,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | ansi-styles | 5.2.0 | MIT |  |
 | app-builder-lib | 26.18.0 | MIT | https://github.com/electron-userland/electron-builder |
 | argparse | 2.0.1 | Python-2.0 |  |
+| aria-hidden | 1.2.6 | MIT | https://github.com/theKashey/aria-hidden#readme |
 | aria-query | 5.3.0 | Apache-2.0 | https://github.com/A11yance/aria-query#readme |
 | asn1 | 0.2.6 | MIT |  |
 | asn1js | 3.1.0 | BSD-3-Clause |  |
@@ -240,10 +276,13 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | dequal | 2.0.3 | MIT |  |
 | detect-libc | 2.1.2 | Apache-2.0 |  |
 | detect-node | 2.1.0 | MIT | https://github.com/iliakan/detect-node |
+| detect-node-es | 1.1.0 | MIT | https://github.com/thekashey/detect-node |
 | devlop | 1.1.0 | MIT |  |
+| diff | 9.0.0 | BSD-3-Clause |  |
 | dir-compare | 4.2.0 | MIT |  |
 | dmg-builder | 26.18.0 | MIT | https://github.com/electron-userland/electron-builder |
 | dom-accessibility-api | 0.5.16 | MIT |  |
+| dompurify | 3.3.3 | (MPL-2.0 OR Apache-2.0) | https://github.com/cure53/DOMPurify |
 | dotenv | 16.6.1 | BSD-2-Clause | https://github.com/motdotla/dotenv#readme |
 | dotenv-expand | 11.0.7 | BSD-2-Clause |  |
 | dunder-proto | 1.0.1 | MIT | https://github.com/es-shims/dunder-proto#readme |
@@ -307,6 +346,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | gensync | 1.0.0-beta.2 | MIT | https://github.com/loganfsmyth/gensync |
 | get-caller-file | 2.0.5 | ISC | https://github.com/stefanpenner/get-caller-file#readme |
 | get-intrinsic | 1.3.0 | MIT | https://github.com/ljharb/get-intrinsic#readme |
+| get-nonce | 1.0.1 | MIT | https://github.com/theKashey/get-nonce |
 | get-proto | 1.0.1 | MIT | https://github.com/ljharb/get-proto#readme |
 | get-stream | 5.2.0 | MIT |  |
 | get-tsconfig | 4.14.3 | MIT |  |
@@ -382,11 +422,13 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | lru-cache | 11.5.3 | BlueOak-1.0.0 |  |
 | lru-cache | 5.1.1 | ISC |  |
 | lru-cache | 6.0.0 | ISC |  |
+| lucide-react | 0.577.0 | ISC | https://lucide.dev |
 | lucide-react | 1.70.0 | ISC | https://lucide.dev |
 | lz-string | 1.5.0 | MIT | http://pieroxy.net/blog/pages/lz-string/index.html |
 | magic-string | 0.30.21 | MIT |  |
 | magic-string | 1.4.5 | MIT |  |
 | markdown-table | 3.1.0 | MIT |  |
+| marked | 17.0.5 | MIT | https://marked.js.org |
 | matcher | 3.0.0 | MIT |  |
 | math-intrinsics | 1.1.0 | MIT | https://github.com/es-shims/math-intrinsics#readme |
 | mdast-util-find-and-replace | 3.0.4 | MIT |  |
@@ -512,6 +554,9 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | react-dom | 19.3.1 | MIT | https://react.dev/ |
 | react-is | 17.0.2 | MIT | https://reactjs.org/ |
 | react-markdown | 10.1.0 | MIT |  |
+| react-remove-scroll | 2.7.2 | MIT |  |
+| react-remove-scroll-bar | 2.3.8 | MIT |  |
+| react-style-singleton | 2.2.3 | MIT | https://github.com/theKashey/react-style-singleton#readme |
 | read-binary-file-arch | 1.0.6 | MIT | https://github.com/samuelmaddock/read-binary-file-arch#readme |
 | readable-stream | 2.3.8 | MIT |  |
 | rehype-sanitize | 6.0.0 | MIT |  |
@@ -557,6 +602,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | signal-exit | 4.1.0 | ISC |  |
 | simple-update-notifier | 2.0.0 | MIT | https://github.com/alexbrazier/simple-update-notifier.git |
 | smol-toml | 1.9.1 | BSD-3-Clause |  |
+| sonner | 2.0.7 | MIT | https://sonner.emilkowal.ski/ |
 | source-map | 0.6.1 | BSD-3-Clause | https://github.com/mozilla/source-map |
 | source-map-js | 1.2.2 | BSD-3-Clause | https://github.com/7rulnik/source-map-js |
 | source-map-support | 0.5.21 | MIT |  |
@@ -621,6 +667,8 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | unpipe | 1.0.0 | MIT |  |
 | unzipper | 0.12.5 | MIT |  |
 | update-browserslist-db | 1.3.4 | MIT |  |
+| use-callback-ref | 1.3.3 | MIT |  |
+| use-sidecar | 1.1.3 | MIT | https://github.com/theKashey/use-sidecar |
 | utf8-byte-length | 1.0.5 | (WTFPL OR MIT) | https://github.com/parshap/utf8-byte-length#readme |
 | util-deprecate | 1.0.2 | MIT | https://github.com/TooTallNate/util-deprecate |
 | vary | 1.1.2 | MIT |  |

@@ -1,4 +1,5 @@
-import { Badge, Button, EmptyState } from "@huhu/ui";
+import { Badge, Button, Dialog, EmptyState, Field, IconButton } from "@huhu/ui";
+import { ArrowRight, FileText, History, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
 import { t } from "./i18n.js";
@@ -58,30 +59,61 @@ export function AutomationsModule() {
     }
   }
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+  const list = (rules.data ?? []).filter((r) => `${r.data.title}`.toLowerCase().includes(query.toLowerCase()));
+  const heading: Record<string, [string, string]> = {
+    rules: [t.nav.rules, `${(rules.data ?? []).length} 条规则`],
+    activations: [t.nav.activations, `${(acts.data ?? []).length} 条记录`],
+    runs: [t.nav.runs, "Agent 与脚本的运行记录"],
+    scripts: [t.scriptsTitle, "脚本只在这里定义；规则只引用脚本"],
+  };
   return (
-    <div className="hu-module" data-testid="automations-module">
-      <aside className="hu-module-sidebar" aria-label={t.title}>
-        <h2>{t.title}</h2>
-        {(["rules", "activations", "runs", "scripts"] as const).map((k) => (
-          <button key={k} type="button" className="hu-nav-item" aria-current={nav === k} onClick={() => setNav(k)}>
-            <span>{t.nav[k]}</span>
-          </button>
-        ))}
+    <div className="module-layout tw-workbench tw-automation" data-testid="automations-module">
+      <aside className="tw-navigation" aria-label={t.title}>
+        <div className="tw-nav-title">
+          <Workflow size={16} aria-hidden />
+          <strong>{t.title}</strong>
+        </div>
+        <nav aria-label="自动化导航">
+          {(["rules", "activations", "runs", "scripts"] as const).map((k) => (
+            <button key={k} type="button" className={nav === k ? "active" : ""} aria-current={nav === k} onClick={() => setNav(k)}>
+              <span>{t.nav[k]}</span>
+              <small>{k === "rules" ? (rules.data ?? []).length : k === "activations" ? (acts.data ?? []).length : ""}</small>
+            </button>
+          ))}
+        </nav>
+        <div className="tw-nav-bottom">
+          <p>
+            扫描已有Agent任务
+            <br />
+            或按时间激活独立动作
+          </p>
+        </div>
       </aside>
-      <section className="hu-content">
+      <main className="tw-automation-main">
+        <header className="tw-heading">
+          <div>
+            <h1>{heading[nav]?.[0]}</h1>
+            <p>{heading[nav]?.[1]}</p>
+          </div>
+          <Button icon={Plus} onClick={() => setCreating(true)} data-testid="rule-new">
+            新建自动化
+          </Button>
+        </header>
         {error ? (
-          <div role="alert" className="hu-overdue">
+          <div role="alert" className="field-error" style={{ padding: "0 28px" }}>
             {error}
           </div>
         ) : null}
         {nav === "runs" ? (
-          <RunsPanel />
+          <div className="tw-task-content" style={{ padding: "0 28px" }}>
+            <RunsPanel />
+          </div>
         ) : nav === "scripts" ? (
-          <>
-            <h1>{t.scriptsTitle}</h1>
-            <p className="hu-meta">{t.scriptsHint}</p>
+          <div className="tw-task-content" style={{ padding: "18px 28px" }}>
             <form
-              className="hu-form"
+              className="form-body"
               onSubmit={(e) => {
                 e.preventDefault();
                 const envRefs: Record<string, string> = {};
@@ -97,138 +129,240 @@ export function AutomationsModule() {
                 });
               }}
             >
-              <input className="hu-input" aria-label={t.scriptName} placeholder={t.scriptName} value={sf.title} onChange={(e) => setSf({ ...sf, title: e.target.value })} />
-              <input className="hu-input" aria-label={t.scriptProgram} placeholder={t.scriptProgram} value={sf.program} onChange={(e) => setSf({ ...sf, program: e.target.value })} />
-              <input className="hu-input" aria-label={t.scriptCwd} placeholder={t.scriptCwd} value={sf.cwd} onChange={(e) => setSf({ ...sf, cwd: e.target.value })} />
-              <input className="hu-input" type="number" aria-label={t.scriptTimeout} value={sf.timeoutSec} onChange={(e) => setSf({ ...sf, timeoutSec: e.target.value })} />
-              <textarea className="hu-input" aria-label={t.scriptEnv} placeholder={t.scriptEnv} value={sf.env} onChange={(e) => setSf({ ...sf, env: e.target.value })} />
-              <Button type="submit" disabled={!sf.title.trim() || !sf.program.trim() || !sf.cwd.trim()}>
-                {t.scriptSave}
-              </Button>
+              <p className="tw-hint">{t.scriptsHint}</p>
+              <div className="tw-two-fields">
+                <Field label={t.scriptName}>
+                  <input aria-label={t.scriptName} placeholder={t.scriptName} value={sf.title} onChange={(e) => setSf({ ...sf, title: e.target.value })} />
+                </Field>
+                <Field label={t.scriptTimeout}>
+                  <input type="number" aria-label={t.scriptTimeout} value={sf.timeoutSec} onChange={(e) => setSf({ ...sf, timeoutSec: e.target.value })} />
+                </Field>
+              </div>
+              <Field label={t.scriptProgram}>
+                <input aria-label={t.scriptProgram} placeholder={t.scriptProgram} value={sf.program} onChange={(e) => setSf({ ...sf, program: e.target.value })} />
+              </Field>
+              <Field label={t.scriptCwd}>
+                <input aria-label={t.scriptCwd} placeholder={t.scriptCwd} value={sf.cwd} onChange={(e) => setSf({ ...sf, cwd: e.target.value })} />
+              </Field>
+              <Field label={t.scriptEnv}>
+                <textarea rows={3} aria-label={t.scriptEnv} placeholder={t.scriptEnv} value={sf.env} onChange={(e) => setSf({ ...sf, env: e.target.value })} />
+              </Field>
+              <div className="row">
+                <Button type="submit" variant="primary" disabled={!sf.title.trim() || !sf.program.trim() || !sf.cwd.trim()}>
+                  {t.scriptSave}
+                </Button>
+              </div>
             </form>
             {(scripts.data ?? []).length === 0 ? (
-              <EmptyState title={t.noScripts} />
+              <EmptyState icon={Workflow} title={t.noScripts} />
             ) : (
               (scripts.data ?? []).map((s) => (
-                <div key={s.id} className="hu-row" data-testid="script-row">
-                  <strong>{s.title}</strong>
-                  <code>{s.program}</code>
-                  <span className="hu-meta">{Object.keys(s.envRefs).join(", ")}</span>
-                  <Button variant="danger" aria-label={`${t.scriptDelete} ${s.title}`} onClick={() => void act("automations.scripts.delete", { id: s.id })}>
-                    {t.scriptDelete}
-                  </Button>
+                <div key={s.id} className="tw-rule-item" data-testid="script-row" style={{ cursor: "default" }}>
+                  <div>
+                    <strong>{s.title}</strong>
+                    <span className="grow" />
+                    <Button variant="danger" aria-label={`${t.scriptDelete} ${s.title}`} onClick={() => void act("automations.scripts.delete", { id: s.id })}>
+                      {t.scriptDelete}
+                    </Button>
+                  </div>
+                  <p>
+                    <code>{s.program}</code>
+                  </p>
+                  <small>{Object.keys(s.envRefs).join(", ")}</small>
                 </div>
               ))
             )}
-          </>
+          </div>
         ) : nav === "rules" ? (
-          <>
-            <h1>{t.nav.rules}</h1>
-            {editing === null ? <RuleEditor key="new" zone={zone} onSave={async (v) => (await act("automations.create", v)) !== null} /> : null}
-            {(rules.data ?? []).map((r) => (
-              <div key={r.id} className="hu-row" data-testid="rule-row" aria-current={cur?.id === r.id}>
+          <div className="tw-automation-columns">
+            <section className="tw-rule-list">
+              <div className="tw-search">
+                <Search size={14} aria-hidden />
+                <input aria-label="搜索自动化" placeholder="搜索自动化…" value={query} onChange={(e) => setQuery(e.target.value)} />
+              </div>
+              {list.map((r) => (
                 <button
+                  key={r.id}
                   type="button"
-                  className="hu-nav-item"
+                  className={`tw-rule-item${cur?.id === r.id ? " active" : ""}`}
+                  data-testid="rule-row"
+                  aria-label={`打开自动化 ${r.data.title}`}
+                  aria-current={cur?.id === r.id}
                   onClick={() => {
                     setSel(r.id);
                     setPreview(null);
-                    setEditing(null);
                   }}
                 >
-                  <strong>{r.data.title}</strong>
-                  <span className="hu-meta">
+                  <div>
+                    <Workflow size={16} aria-hidden />
+                    <strong>{r.data.title}</strong>
+                    <Badge tone={r.data.enabled ? "success" : "neutral"}>{r.data.enabled ? t.enabled : t.paused}</Badge>
+                  </div>
+                  <p>
                     {r.data.trigger.cron} · {r.data.trigger.zone}
-                  </span>
+                  </p>
+                  <small>
+                    {r.data.builtin ? `${t.builtin} · ` : ""}
+                    {t.kinds[r.data.action.kind as keyof typeof t.kinds] ?? r.data.action.kind}
+                  </small>
                 </button>
-                {r.data.builtin ? <Badge tone="blue">{t.builtin}</Badge> : null}
-                <Badge tone={r.data.enabled ? "success" : "neutral"}>{r.data.enabled ? t.enabled : t.paused}</Badge>
-              </div>
-            ))}
+              ))}
+              {list.length === 0 ? <EmptyState icon={Workflow} title="没有匹配的自动化" /> : null}
+            </section>
             {cur ? (
-              <article aria-label={cur.data.title} data-testid="rule-detail">
-                <h2>{cur.data.title}</h2>
-                <div className="hu-form">
-                  <Button aria-expanded={editing === cur.id} onClick={() => setEditing(editing === cur.id ? null : cur.id)} data-testid="rule-edit">
-                    {t.edit}
-                  </Button>
-                  <Button onClick={() => void act("automations.setEnabled", { id: cur.id, enabled: !cur.data.enabled })}>{cur.data.enabled ? t.pause : t.enable}</Button>
-                  <Button onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>{t.preview}</Button>
-                  <Button variant="primary" onClick={() => void act("automations.runNow", { id: cur.id })}>
-                    {t.runNow}
-                  </Button>
-                  <Button onClick={() => void act("automations.cancel", { id: cur.id })}>{t.cancel}</Button>
-                  {!cur.data.builtin ? (
-                    <Button variant="danger" onClick={() => void act("automations.delete", { id: cur.id })}>
-                      {t.delete}
+              <section className="tw-rule-detail" aria-label={cur.data.title} data-testid="rule-detail">
+                <div className="tw-rule-detail-header">
+                  <div>
+                    <Badge tone={cur.data.enabled ? "success" : "neutral"}>{cur.data.enabled ? t.enabled : t.paused}</Badge>
+                    <h2>{cur.data.title}</h2>
+                  </div>
+                  <div>
+                    <IconButton icon={Pencil} label="编辑当前自动化" onClick={() => setEditing(cur.id)} data-testid="rule-edit" />
+                    <Button variant="ghost" icon={cur.data.enabled ? Pause : Play} onClick={() => void act("automations.setEnabled", { id: cur.id, enabled: !cur.data.enabled })}>
+                      {cur.data.enabled ? t.pause : t.enable}
                     </Button>
-                  ) : null}
+                  </div>
                 </div>
-                {editing === cur.id ? (
-                  <RuleEditor
-                    key={cur.id}
-                    rule={cur}
-                    zone={zone}
-                    onCancel={() => setEditing(null)}
-                    onSave={async (v) => {
-                      const r = await act("automations.update", { id: cur.id, expectedVersion: cur.version, patch: { title: v.title, trigger: v.trigger, action: v.action }, body: v.body });
-                      if (r !== null) setEditing(null);
-                      return r !== null;
-                    }}
-                  />
+                <div className="tw-rule-flow">
+                  <span>定时激活</span>
+                  <ArrowRight size={15} aria-hidden />
+                  <span>{t.kinds[cur.data.action.kind as keyof typeof t.kinds] ?? cur.data.action.kind}</span>
+                  <ArrowRight size={15} aria-hidden />
+                  <span>记录结果</span>
+                </div>
+                {cur.data.action.kind === "scan_agent_tasks" ? (
+                  <div className="tw-scan-contract">
+                    <strong>扫描已有任务</strong>
+                    <p>只处理未完成且执行方式为Agent的任务；按任务输入版本避免重复调用。</p>
+                    <p>不会创建另一份待办，也不会自动勾选完成。</p>
+                  </div>
+                ) : cur.data.action.kind === "agent_prompt" ? (
+                  <section className="tw-markdown">
+                    <h3>固定需求</h3>
+                    <pre className="tw-source-preview">{cur.body.trim() || "尚未配置内容。"}</pre>
+                  </section>
+                ) : cur.data.action.kind === "notify" ? (
+                  <section className="tw-markdown">
+                    <h3>提醒内容</h3>
+                    <p>{cur.data.action.text}</p>
+                  </section>
                 ) : null}
+                <div className="tw-rule-preview-action">
+                  <Button icon={Search} onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>
+                    {cur.data.action.kind === "scan_agent_tasks" ? "预览扫描" : t.preview}
+                  </Button>
+                  <p>预览不写日志、不运行；立即运行才会记录一次激活。</p>
+                  <div className="row" style={{ marginTop: 10 }}>
+                    <Button variant="primary" icon={Play} onClick={() => void act("automations.runNow", { id: cur.id })}>
+                      {t.runNow}
+                    </Button>
+                    <Button onClick={() => void act("automations.cancel", { id: cur.id })}>{t.cancel}</Button>
+                    {!cur.data.builtin ? (
+                      <Button variant="danger" onClick={() => void act("automations.delete", { id: cur.id })}>
+                        {t.delete}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
                 {preview ? (
-                  <div data-testid="rule-preview">
-                    <h3>{t.next}</h3>
-                    <ul>
+                  <div className="tw-scan-contract" data-testid="rule-preview">
+                    <strong>{t.next}</strong>
+                    <div className="tw-schedule-preview">
                       {preview.next.map((n) => (
-                        <li key={n}>{new Date(n).toLocaleString()}</li>
+                        <time key={n}>{new Date(n).toLocaleString("zh-CN", { hour12: false })}</time>
                       ))}
-                    </ul>
+                    </div>
                     {preview.tasksDisabled ? <p>{t.tasksDisabled}</p> : null}
-                    <h3>
+                    <strong>
                       {t.candidates} {preview.candidates.length}
-                    </h3>
-                    <ul>
+                    </strong>
+                    <div className="tw-scan-list">
                       {preview.candidates.map((c) => (
-                        <li key={c.taskId} data-testid="preview-candidate">
-                          {c.title}
-                        </li>
+                        <div key={c.taskId} data-testid="preview-candidate">
+                          <FileText size={14} aria-hidden />
+                          <strong>{c.title}</strong>
+                        </div>
                       ))}
-                    </ul>
-                    <h3>
+                    </div>
+                    <strong>
                       {t.skipped} {preview.skipped.length}
-                    </h3>
-                    <ul>
-                      {preview.skipped.map((s) => (
-                        <li key={s.taskId} data-testid="preview-skipped">
-                          {s.title} — {t.reasons[s.reason] ?? s.reason}
-                        </li>
+                    </strong>
+                    <div className="tw-scan-list">
+                      {preview.skipped.map((sk) => (
+                        <div key={sk.taskId} className="skipped" data-testid="preview-skipped">
+                          <strong>{sk.title}</strong>
+                          <small>{t.reasons[sk.reason] ?? sk.reason}</small>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 ) : null}
-              </article>
+                <section className="tw-rule-linked">
+                  <h3>最近激活</h3>
+                  {(acts.data ?? [])
+                    .filter((x) => x.ruleId === cur.id)
+                    .slice(0, 5)
+                    .map((x) => (
+                      <button key={x.activationId} type="button" onClick={() => setNav("activations")}>
+                        <History size={13} aria-hidden />
+                        <span>{new Date(x.startedAt).toLocaleString("zh-CN")}</span>
+                        <small>{t.trigger[x.trigger]}</small>
+                        <ArrowRight size={13} aria-hidden />
+                      </button>
+                    ))}
+                  {(acts.data ?? []).filter((x) => x.ruleId === cur.id).length === 0 ? <p className="tw-hint">尚未激活。启用配置不等于已经运行。</p> : null}
+                </section>
+              </section>
             ) : null}
-          </>
+          </div>
         ) : (
-          <>
-            <h1>{t.nav.activations}</h1>
+          <div className="tw-occurrence-list">
             {(acts.data ?? []).length === 0 ? (
-              <EmptyState title={t.noActivations} />
+              <EmptyState icon={History} title={t.noActivations} hint="立即运行或等待定时激活后，结果会出现在这里。" />
             ) : (
               (acts.data ?? []).map((a) => (
-                <div key={a.activationId} className="hu-row" data-testid="activation-row">
-                  <span>{new Date(a.startedAt).toLocaleString()}</span>
-                  <span>{(rules.data ?? []).find((r) => r.id === a.ruleId)?.data.title ?? a.ruleId}</span>
-                  <Badge>{t.trigger[a.trigger]}</Badge>
-                  <span>{t.summary(a.summary)}</span>
-                </div>
+                <article key={a.activationId} className="tw-occurrence" data-testid="activation-row">
+                  <header>
+                    <strong>{(rules.data ?? []).find((r) => r.id === a.ruleId)?.data.title ?? "原自动化已移除"}</strong>
+                    <time>{new Date(a.startedAt).toLocaleString("zh-CN")}</time>
+                    <Badge>{t.trigger[a.trigger]}</Badge>
+                  </header>
+                  <div className="tw-run-summary">{t.summary(a.summary)}</div>
+                </article>
               ))
             )}
-          </>
+          </div>
         )}
-      </section>
+      </main>
+      {creating ? (
+        <Dialog open wide title="新建自动化" description="按时间激活一个动作；任务执行与普通待办完成分开。" onClose={() => setCreating(false)} error={error} testId="rule-dialog">
+          <RuleEditor
+            key="new"
+            zone={zone}
+            onCancel={() => setCreating(false)}
+            onSave={async (v) => {
+              const r = await act("automations.create", v);
+              if (r !== null) setCreating(false);
+              return r !== null;
+            }}
+          />
+        </Dialog>
+      ) : null}
+      {cur && editing === cur.id ? (
+        <Dialog open wide title="编辑自动化" description="修改后保持暂停；提示词与时间的改动立即写入规则文件。" onClose={() => setEditing(null)} error={error} testId="rule-dialog">
+          <RuleEditor
+            key={cur.id}
+            rule={cur}
+            zone={zone}
+            onCancel={() => setEditing(null)}
+            onSave={async (v) => {
+              const r = await act("automations.update", { id: cur.id, expectedVersion: cur.version, patch: { title: v.title, trigger: v.trigger, action: v.action }, body: v.body });
+              if (r !== null) setEditing(null);
+              return r !== null;
+            }}
+          />
+        </Dialog>
+      ) : null}
     </div>
   );
 }

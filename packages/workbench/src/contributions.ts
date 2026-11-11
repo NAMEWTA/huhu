@@ -6,6 +6,8 @@ export interface ModuleProps {
   /** 当前分区 id（模块没有 sections 时为空串）。 */
   section: string;
   onSection(id: string): void;
+  /** 跳转到另一个模块（例如从笔记属性页打开版本历史）。 */
+  onNavigate?(moduleId: string): void;
 }
 
 export interface ModuleContribution {

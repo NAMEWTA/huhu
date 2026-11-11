@@ -1,4 +1,5 @@
 import { Badge, Button, EmptyState, TerminalView } from "@huhu/ui";
+import { ChevronDown, Folder, FolderOpen, History, Plus } from "lucide-react";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
@@ -36,7 +37,7 @@ export function AgentCliModule() {
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true); // 原型：会话历史在桌面宽度下常驻右侧
   const [showReview, setShowReview] = useState(false);
   const [layout, setLayoutState] = useState<Layout>(() => {
     try {
@@ -94,150 +95,197 @@ export function AgentCliModule() {
   }, [anyRunning, engine.vaultId, qc]);
   const cur = list.find((s) => s.id === active) ?? null;
   const shown = layout === 1 ? [] : fillCells(layout, split.picks, list, active, split.hidden);
+  const stateBadge = (s: Session) => <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>;
   return (
-    <div className="hu-module" data-testid="agent-cli-module">
-      <aside className="hu-module-sidebar" aria-label={t.title}>
-        <h2>{t.spaces}</h2>
-        {(spaces.data ?? []).map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className="hu-nav-item"
-            aria-current={space?.id === s.id}
-            title={s.root}
-            onClick={() => {
-              setSpaceId(s.id);
-              setActive(null);
-              setSplit({ picks: [], hidden: [] });
-            }}
-          >
-            <span>{s.name}</span>
-          </button>
-        ))}
-        <p className="hu-meta" data-testid="core-status">
-          {t.coreStatus} · {core.data?.state === "connected" ? `${core.data.version} ${t.connected}` : t.unavailable}
-        </p>
-      </aside>
-      <section className="hu-content">
-        <h1>{space?.name ?? t.title}</h1>
-        {space ? <p className="hu-meta">{space.root}</p> : null}
-        {error ? (
-          <div role="alert" className="hu-overdue">
-            {error}
-          </div>
-        ) : null}
-        <div role="tablist" aria-label={t.sessions} className="hu-form">
-          {list.map((s) => (
+    <div className={`module-layout v9-agent-layout${showHistory ? " history-open" : ""}`} data-testid="agent-cli-module" style={showHistory && space ? undefined : { gridTemplateColumns: "224px minmax(300px, 1fr)" }}>
+      <aside className="v9-spaces" aria-label={t.spaces}>
+        <div className="v9-sidebar-head">
+          <span>Spaces</span>
+        </div>
+        <div className="v9-vault-caption">
+          <Folder size={13} aria-hidden /> {t.spaces}
+        </div>
+        <div className="v9-space-list">
+          {(spaces.data ?? []).map((s) => (
             <button
               key={s.id}
               type="button"
-              role="tab"
-              aria-selected={s.id === active}
-              className="hu-btn"
-              data-testid="session-tab"
+              className={`v9-space-item${space?.id === s.id ? " active" : ""}`}
+              aria-pressed={space?.id === s.id}
+              title={s.root}
               onClick={() => {
-                setActive(s.id);
-                if (layout !== 1 && s.state === "running") setSplit(reveal(layout, shown, split, s.id));
-                else if (split.hidden.includes(s.id)) setSplit({ ...split, hidden: split.hidden.filter((h) => h !== s.id) });
+                setSpaceId(s.id);
+                setActive(null);
+                setSplit({ picks: [], hidden: [] });
               }}
             >
-              {s.name} <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>
+              <FolderOpen size={17} aria-hidden />
+              <span>
+                <strong>{s.name}</strong>
+                <small title={s.root}>{s.root}</small>
+              </span>
+              <span className="v9-count">{space?.id === s.id ? list.length : ""}</span>
             </button>
           ))}
-          <Button variant="primary" aria-expanded={menu} onClick={() => setMenu(!menu)}>
-            {t.newTerminal}
-          </Button>
-          <div role="radiogroup" aria-label={t.split.label} className="hu-row">
-            {(
-              [
-                [1, t.split.single],
-                [2, t.split.two],
-                [4, t.split.four],
-              ] as const
-            ).map(([l, text]) => (
-              <Button
-                key={l}
-                role="radio"
-                aria-checked={layout === l}
-                variant={layout === l ? "primary" : "secondary"}
-                data-testid={`layout-${l}`}
-                onClick={() => setLayout(l)}
-                onKeyDown={(e) => {
-                  const order: Layout[] = [1, 2, 4];
-                  const k = order.indexOf(l);
-                  const to = e.key === "ArrowRight" || e.key === "ArrowDown" ? order[(k + 1) % 3] : e.key === "ArrowLeft" || e.key === "ArrowUp" ? order[(k + 2) % 3] : undefined;
-                  if (to) {
-                    e.preventDefault();
-                    setLayout(to);
-                    document.querySelector<HTMLElement>(`[data-testid="layout-${to}"]`)?.focus();
-                  }
-                }}
-                tabIndex={layout === l ? 0 : -1}
-              >
-                {text}
-              </Button>
+        </div>
+        <div className="v9-core-note" data-testid="core-status">
+          <span className="status-dot" />
+          {t.coreStatus} · {core.data?.state === "connected" ? `${core.data.version} ${t.connected}` : t.unavailable}
+        </div>
+      </aside>
+      <section className="v9-session-main">
+        <header className="v9-space-header">
+          <div>
+            <FolderOpen size={16} aria-hidden />
+            <strong>{space?.name ?? t.title}</strong>
+            <span className="v9-cwd">{space?.root ?? "先选择一个工作目录"}</span>
+          </div>
+          <button type="button" className="v9-history-toggle" aria-expanded={showHistory} aria-label={showHistory ? t.history.close : t.history.open} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>
+            <History size={15} aria-hidden />
+          </button>
+        </header>
+        {error ? (
+          <div role="alert" className="callout danger">
+            <p>{error}</p>
+          </div>
+        ) : null}
+        <div className="v9-tabs">
+          <div className="v9-open-tabs" role="tablist" aria-label={t.sessions}>
+            {list.map((s) => (
+              <div key={s.id} className={`v9-session-tab${s.id === active ? " active" : ""}`}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={s.id === active}
+                  data-testid="session-tab"
+                  onClick={() => {
+                    setActive(s.id);
+                    if (layout !== 1 && s.state === "running") setSplit(reveal(layout, shown, split, s.id));
+                    else if (split.hidden.includes(s.id)) setSplit({ ...split, hidden: split.hidden.filter((h) => h !== s.id) });
+                  }}
+                >
+                  <span className={`v9-provider-mark provider-${s.provider}`}>{s.provider === "shell" ? "›" : s.provider.slice(0, 1).toUpperCase()}</span>
+                  {s.name} {stateBadge(s)}
+                </button>
+              </div>
             ))}
           </div>
-          <Button aria-expanded={showHistory} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>
-            {showHistory ? t.history.close : t.history.open}
-          </Button>
+          <div className="v9-tab-actions">
+            <button type="button" className="v9-add-cli" aria-label={t.newTerminal} aria-expanded={menu} onClick={() => setMenu(!menu)}>
+              <Plus size={17} aria-hidden />
+              <ChevronDown size={12} aria-hidden />
+            </button>
+            <div role="radiogroup" aria-label={t.split.label} className="row">
+              {(
+                [
+                  [1, t.split.single],
+                  [2, t.split.two],
+                  [4, t.split.four],
+                ] as const
+              ).map(([l, text]) => (
+                <button
+                  key={l}
+                  type="button"
+                  role="radio"
+                  aria-checked={layout === l}
+                  className={`v9-subtle-button${layout === l ? " active" : ""}`}
+                  data-testid={`layout-${l}`}
+                  onClick={() => setLayout(l)}
+                  onKeyDown={(e) => {
+                    const order: Layout[] = [1, 2, 4];
+                    const k = order.indexOf(l);
+                    const to = e.key === "ArrowRight" || e.key === "ArrowDown" ? order[(k + 1) % 3] : e.key === "ArrowLeft" || e.key === "ArrowUp" ? order[(k + 2) % 3] : undefined;
+                    if (to) {
+                      e.preventDefault();
+                      setLayout(to);
+                      document.querySelector<HTMLElement>(`[data-testid="layout-${to}"]`)?.focus();
+                    }
+                  }}
+                  tabIndex={layout === l ? 0 : -1}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         {menu ? (
-          <div role="menu" aria-label={t.newTerminal} className="hu-popover" style={{ position: "static" }}>
-            <Button role="menuitem" onClick={() => void launch("shell")}>
-              {t.newTerminal}（shell）
-            </Button>
+          <section role="menu" aria-label={t.newTerminal} className="v9-provider-menu" style={{ position: "static" }}>
+            <button type="button" role="menuitem" onClick={() => void launch("shell")}>
+              <span className="v9-provider-mark">›</span> {t.newTerminal}（shell）
+            </button>
+            <div className="v9-menu-divider" />
+            <div className="v9-menu-caption">当前 Space · {space?.name ?? "未选择"}</div>
+            <div className="v9-menu-folder" title={space?.root}>
+              {space?.root ?? "请先创建 Space"}
+            </div>
             {(providers.data ?? [])
               .filter((p) => p.status === "found")
               .map((p) => (
-                <Button key={p.provider} role="menuitem" onClick={() => void launch(p.provider)}>
-                  {p.displayName}
-                </Button>
+                <button key={p.provider} type="button" role="menuitem" onClick={() => void launch(p.provider)}>
+                  <span className={`v9-provider-mark provider-${p.provider}`}>{p.displayName.slice(0, 1)}</span>
+                  <span>{p.displayName}</span>
+                </button>
               ))}
-            {(providers.data ?? []).every((p) => p.status !== "found") ? <p>{t.noProviders}</p> : null}
-          </div>
+            {(providers.data ?? []).every((p) => p.status !== "found") ? <p className="v9-small-empty">{t.noProviders}</p> : null}
+          </section>
         ) : null}
-        {showHistory && space ? (
+        {list.length === 0 ? (
+          <EmptyState icon={FolderOpen} title={space ? "在这个 Space 开始工作" : "创建你的第一个 Space"} hint={space ? "点击顶部 + 选择检测到的 AI CLI，工作目录自动使用当前 Space。" : "Space 绑定一个工作目录，会话和历史按 Space 隔离。"} />
+        ) : null}
+        {layout !== 1 ? (
+          <>
+            <div className="row" style={{ padding: "6px 16px" }}>
+              <Button aria-expanded={showReview} data-testid="agent-review-toggle" disabled={!cur || cur.state !== "running"} onClick={() => setShowReview(!showReview)}>
+                {showReview ? t.review.close : t.review.open}
+              </Button>
+              <span className="muted small">{t.split.reviewHint}</span>
+            </div>
+            <SplitView layout={layout} cells={shown} sessions={list} onChange={(i, v) => setSplit(choose(shown, split, i, v))} onAct={(cap, id) => void act(cap, id)} />
+          </>
+        ) : cur && cur.state === "running" ? (
+          <div className="v9-terminal-grid panes-1">
+            <section className="v9-terminal-pane" aria-label={cur.name}>
+              <div className="v9-terminal-heading">
+                <span className={`v9-provider-mark provider-${cur.provider}`}>{cur.provider === "shell" ? "›" : cur.provider.slice(0, 1).toUpperCase()}</span>
+                <strong>{cur.name}</strong>
+                {stateBadge(cur)}
+                <span className="grow" />
+                <Button onClick={() => void act("agent.sessions.interrupt", cur.id)}>{t.interrupt}</Button>
+                <Button variant="danger" onClick={() => void act("agent.sessions.kill", cur.id)}>
+                  {t.kill}
+                </Button>
+                <Button aria-expanded={showReview} data-testid="agent-review-toggle" onClick={() => setShowReview(!showReview)}>
+                  {showReview ? t.review.close : t.review.open}
+                </Button>
+              </div>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <TerminalView key={cur.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={cur.id} ariaLabel={t.terminalLabel} />
+              </div>
+            </section>
+          </div>
+        ) : cur ? (
+          <EmptyState icon={FolderOpen} title={cur.state === "exited" ? t.exitedTitle(cur.exitCode ?? null) : (cur.error ?? t.failed)} {...(cur.state === "exited" ? { hint: cur.error ?? t.exitedHint } : {})} />
+        ) : list.length > 0 ? (
+          <EmptyState icon={FolderOpen} title={t.selectSession} />
+        ) : null}
+        {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
+        <footer className="v9-main-footer">
+          <span>{space ? `${list.length} 个会话 · 当前 Space` : "尚无 Space"}</span>
+          <span>关闭标签只分离视图 · 会话记录保留</span>
+        </footer>
+      </section>
+      {showHistory && space ? (
+        <aside className="v9-history" aria-label="当前 Space 会话历史">
           <HistoryPanel
             space={space}
             installed={new Set((providers.data ?? []).filter((p) => p.status === "found").map((p) => p.provider))}
             onResumed={(id) => {
               setActive(id);
-              setShowHistory(false);
             }}
           />
-        ) : null}
-        {list.length === 0 && !showHistory ? <EmptyState title={t.noSessions} /> : null}
-        {layout !== 1 ? (
-          <>
-            <div className="hu-form">
-              <Button aria-expanded={showReview} data-testid="agent-review-toggle" disabled={!cur || cur.state !== "running"} onClick={() => setShowReview(!showReview)}>
-                {showReview ? t.review.close : t.review.open}
-              </Button>
-              <span className="hu-meta">{t.split.reviewHint}</span>
-            </div>
-            <SplitView layout={layout} cells={shown} sessions={list} onChange={(i, v) => setSplit(choose(shown, split, i, v))} onAct={(cap, id) => void act(cap, id)} />
-          </>
-        ) : cur && cur.state === "running" ? (
-          <div style={{ height: "55vh" }}>
-            <div className="hu-form">
-              <Button onClick={() => void act("agent.sessions.interrupt", cur.id)}>{t.interrupt}</Button>
-              <Button variant="danger" onClick={() => void act("agent.sessions.kill", cur.id)}>
-                {t.kill}
-              </Button>
-              <Button aria-expanded={showReview} data-testid="agent-review-toggle" onClick={() => setShowReview(!showReview)}>
-                {showReview ? t.review.close : t.review.open}
-              </Button>
-            </div>
-            <TerminalView key={cur.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={cur.id} ariaLabel={t.terminalLabel} />
-          </div>
-        ) : cur ? (
-          <EmptyState title={cur.state === "exited" ? t.exitedTitle(cur.exitCode ?? null) : (cur.error ?? t.failed)} {...(cur.state === "exited" ? { hint: cur.error ?? t.exitedHint } : {})} />
-        ) : list.length > 0 ? (
-          <EmptyState title={t.selectSession} />
-        ) : null}
-        {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
-      </section>
+        </aside>
+      ) : null}
     </div>
   );
 }

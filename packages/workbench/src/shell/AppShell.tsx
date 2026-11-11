@@ -211,7 +211,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                 <div className="huhu-page-surface">
                   {Active && active && engineState === "ready" ? (
                     <ModuleBoundary moduleId={active.id}>
-                      <Active section={section} onSection={setSection} />
+                      <Active section={section} onSection={setSection} onNavigate={(id) => s.openModule(id)} />
                     </ModuleBoundary>
                   ) : (
                     <div className="hu-empty-main">选择左侧的模块开始</div>

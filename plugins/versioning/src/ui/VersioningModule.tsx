@@ -1,4 +1,5 @@
-import { Badge, Button, EmptyState } from "@huhu/ui";
+import { Badge, Button, EmptyState, ReviewDiff } from "@huhu/ui";
+import { Cloud, FileText, GitBranch, History, Plus, RotateCcw, Search } from "lucide-react";
 import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
 import { ConflictView } from "./conflicts/ConflictView.js";
@@ -29,22 +30,44 @@ interface Commit {
   subject: string;
 }
 
+type Tab = "history" | "git" | "sync" | "conflicts";
+const TAB_ICON = { history: History, git: GitBranch, sync: Cloud } as const;
+
+/** 版本历史（原型 version-v9）：顶部三个功能（文件历史 / Git / 同步）+ 左侧资源栏 + 主区。 */
 export function VersioningModule() {
-  const [tab, setTab] = useState<"history" | "git" | "sync" | "conflicts">("history");
+  const [tab, setTab] = useState<Tab>("history");
   const syncStatus = useCapability<{ name: string; detail: string }>("sync.status", {});
   const state = syncStatus.data?.name ?? "idle";
   return (
-    <div className="hu-module" data-testid="versioning-module">
-      <aside className="hu-module-sidebar" aria-label={t.title}>
-        <h2>{t.title}</h2>
-        {(["history", "git", "sync"] as const).map((k) => (
-          <button key={k} type="button" className="hu-nav-item" aria-current={tab === k || (k === "sync" && tab === "conflicts")} data-testid={`versioning-nav-${k}`} onClick={() => setTab(k)}>
-            <span>{t.nav[k]}</span>
-            {k === "sync" && state !== "idle" && state !== "not-configured" ? <Badge tone={state === "conflict" || state === "auth-failed" ? "danger" : "warning"}>{t.sync.state[state] ?? state}</Badge> : null}
-          </button>
-        ))}
-      </aside>
-      <section className="hu-content">{tab === "history" ? <FileHistory /> : tab === "git" ? <GitPage /> : tab === "sync" ? <SyncPage onResolve={() => setTab("conflicts")} /> : <ConflictView onBack={() => setTab("sync")} />}</section>
+    <div className="module-layout version-v9" data-testid="versioning-module">
+      <header className="version-v9-top">
+        <div className="version-v9-title">
+          <History size={18} aria-hidden />
+          <strong>{t.title}</strong>
+        </div>
+        <nav aria-label="版本功能">
+          {(["history", "git", "sync"] as const).map((k) => {
+            const Icon = TAB_ICON[k];
+            return (
+              <button key={k} type="button" aria-pressed={tab === k || (k === "sync" && tab === "conflicts")} data-testid={`versioning-nav-${k}`} onClick={() => setTab(k)}>
+                <Icon size={14} aria-hidden /> {t.nav[k]}
+                {k === "sync" && state !== "idle" && state !== "not-configured" ? <Badge tone={state === "conflict" || state === "auth-failed" ? "danger" : "warning"}>{t.sync.state[state] ?? state}</Badge> : null}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
+      {tab === "history" ? (
+        <FileHistory />
+      ) : tab === "git" ? (
+        <GitPage />
+      ) : (
+        <div className="version-v9-body">
+          <main className="version-v9-main">
+            <div className="version-v9-sync-main">{tab === "sync" ? <SyncPage onResolve={() => setTab("conflicts")} /> : <ConflictView onBack={() => setTab("sync")} />}</div>
+          </main>
+        </div>
+      )}
     </div>
   );
 }
@@ -80,6 +103,7 @@ function FileHistory() {
   const entries = file ? (timeline.data ?? []) : [];
   const chosen = entries.find((e) => e.id === sel) ?? entries[0] ?? null;
   const content = useCapability<{ text: string }>("history.read", chosen && file ? { path: chosen.path, entryId: chosen.id } : { path: "x.md", entryId: "0".repeat(40) });
+  const current = useCapability<{ text: string }>("notes.read", file ? { path: file } : { path: "x.md" });
 
   async function restore() {
     if (!file || !chosen) return;
@@ -88,152 +112,247 @@ function FileHistory() {
     setOk(r !== null);
   }
   return (
-    <div data-testid="file-history">
-      <h1>{t.nav.history}</h1>
-      <label>
-        {t.pickFile}
-        <select
-          aria-label={t.pickFile}
-          value={file ?? ""}
-          onChange={(e) => {
-            setPath(e.target.value);
-            setSel(null);
-            setOk(false);
-          }}
-        >
-          {(notes.data ?? []).map((n) => (
-            <option key={n.path} value={n.path}>
-              {n.path}
-            </option>
-          ))}
-        </select>
-      </label>
-      <form
-        className="hu-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (file && name.trim()) void act("history.checkpoint", { path: file, title: name.trim() }).then(() => setName(""));
-        }}
-      >
-        <input className="hu-input" aria-label={t.checkpointName} placeholder={t.checkpointName} value={name} onChange={(e) => setName(e.target.value)} />
-        <Button type="submit" disabled={!file || !name.trim()}>
-          {t.checkpoint}
-        </Button>
-      </form>
-      {error ? (
-        <div role="alert" className="hu-overdue">
-          {error}
-        </div>
-      ) : null}
-      {ok ? <div role="status">{t.restored}</div> : null}
-      {entries.length === 0 ? (
-        <EmptyState title={t.noHistory} />
-      ) : (
-        entries.map((e) => (
-          <button
-            key={e.id}
-            type="button"
-            className="hu-nav-item"
-            aria-current={chosen?.id === e.id}
-            data-testid="history-entry"
-            onClick={() => {
-              setSel(e.id);
+    <div className="version-v9-body" data-testid="file-history">
+      <aside className="version-v9-sidebar">
+        <div className="version-v9-sidebar-title">{t.nav.history}</div>
+        <label className="version-v9-file-picker">
+          {t.pickFile}
+          <select
+            aria-label={t.pickFile}
+            value={file ?? ""}
+            onChange={(e) => {
+              setPath(e.target.value);
+              setSel(null);
               setOk(false);
             }}
           >
-            <span>{e.title ?? new Date(e.at).toLocaleString()}</span>
-            <Badge>{(t.source as Record<string, string>)[e.source] ?? e.source}</Badge>
-          </button>
-        ))
-      )}
-      {chosen ? (
-        <>
-          <pre data-testid="history-content">{content.data?.text ?? ""}</pre>
-          <Button variant="danger" onClick={() => void restore()}>
+            {(notes.data ?? []).map((n) => (
+              <option key={n.path} value={n.path}>
+                {n.path}
+              </option>
+            ))}
+          </select>
+        </label>
+        <form
+          className="version-v9-sidebar-actions"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (file && name.trim()) void act("history.checkpoint", { path: file, title: name.trim() }).then((r) => r !== null && setName(""));
+          }}
+        >
+          <input aria-label={t.checkpointName} placeholder={t.checkpointName} value={name} onChange={(e) => setName(e.target.value)} />
+          <Button type="submit" icon={Plus} disabled={!file || !name.trim()}>
+            {t.checkpoint}
+          </Button>
+        </form>
+        <div className="version-v9-entry-list">
+          {entries.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              className={chosen?.id === e.id ? "active" : ""}
+              aria-current={chosen?.id === e.id}
+              data-testid="history-entry"
+              onClick={() => {
+                setSel(e.id);
+                setOk(false);
+              }}
+            >
+              <History size={14} aria-hidden />
+              <span>
+                <strong>{e.title ?? new Date(e.at).toLocaleString("zh-CN")}</strong>
+                <small>
+                  {new Date(e.at).toLocaleString("zh-CN")} · {(t.source as Record<string, string>)[e.source] ?? e.source}
+                </small>
+              </span>
+            </button>
+          ))}
+          {entries.length === 0 ? <p className="version-v9-empty">{t.noHistory}</p> : null}
+        </div>
+        <p className="version-v9-note">每条历史属于一个文件。恢复前保留当前有效正文；查看差异不会改写内容。</p>
+      </aside>
+      <main className="version-v9-main">
+        {error ? (
+          <p role="alert" className="version-v9-error">
+            {error}
+          </p>
+        ) : null}
+        {ok ? (
+          <div role="status" className="version-v9-note">
+            {t.restored}
+          </div>
+        ) : null}
+        <div className="version-v9-diff-heading">
+          <div>
+            <FileText size={15} aria-hidden />
+            <strong title={file ?? ""}>{file ?? "—"}</strong>
+          </div>
+          <Button variant="ghost" icon={RotateCcw} disabled={!chosen || content.data?.text === current.data?.text} onClick={() => void restore()}>
             {t.restore}
           </Button>
-        </>
-      ) : null}
+        </div>
+        {chosen ? (
+          <div className="version-v9-diff" data-testid="history-content">
+            <div className="version-v9-diff-labels">
+              <span>所选历史版本</span>
+              <span>当前有效内容</span>
+            </div>
+            <ReviewDiff before={content.data?.text ?? ""} after={current.data?.text ?? ""} path={file ?? "document.md"} />
+          </div>
+        ) : (
+          <EmptyState icon={History} title="选择文件查看历史" hint="查看和预览不会改写文件。" />
+        )}
+      </main>
     </div>
   );
 }
+
+/** git.diff 返回的统一差异文本 → 与 ReviewDiff 同款的统一视图（只读）。 */
+function PatchView({ patch }: { patch: string }) {
+  const rows = patch.split("\n");
+  return (
+    <section className="review-diff" aria-label="Git 差异">
+      <div className="review-body review-unified">
+        {rows.map((line, i) => {
+          const kind = line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "remove" : "same";
+          return (
+            <div key={i} className={`review-unified-row ${kind}`}>
+              <i>{kind === "add" ? "+" : kind === "remove" ? "−" : " "}</i>
+              <code>{kind === "same" ? line : line.slice(1) || " "}</code>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+type GitArea = "worktree" | "staged" | "commits";
 
 function GitPage() {
   const { act, error } = useAct();
   const status = useCapability<GitStatus>("git.status", {});
   const log = useCapability<Commit[]>("git.log", { limit: 50 });
   const [msg, setMsg] = useState("");
+  const [area, setArea] = useState<GitArea>("worktree");
+  const [query, setQuery] = useState("");
+  const [selPath, setSelPath] = useState<string | null>(null);
+  const [selCommit, setSelCommit] = useState<string | null>(null);
+  const files = status.data?.files ?? [];
+  const staged = files.filter((f) => f.index !== " " && f.index !== "?");
+  const changes = files.filter((f) => f.worktree !== " " || f.index === "?");
+  const shown = (area === "staged" ? staged : changes).filter((f) => f.path.toLowerCase().includes(query.toLowerCase()));
+  const target = area === "commits" ? null : (shown.find((f) => f.path === selPath) ?? shown[0] ?? null);
+  const commit = (log.data ?? []).find((c) => c.id === selCommit) ?? (log.data ?? [])[0] ?? null;
+  const diff = useCapability<{ diff: string }>("git.diff", area === "commits" ? (commit ? { commit: commit.id } : {}) : target ? { path: target.path, staged: area === "staged" } : {});
   if (!status.data) return <p>…</p>;
   if (!status.data.isRepo) {
     return (
-      <div data-testid="git-not-repo">
-        <EmptyState
-          title={t.git.notRepo}
-          hint={t.git.initNote}
-          action={
-            <Button variant="primary" onClick={() => void act("git.init", {})}>
-              {t.git.init}
-            </Button>
-          }
-        />
-        {error ? (
-          <div role="alert" className="hu-overdue">
-            {error}
-          </div>
-        ) : null}
+      <div className="version-v9-body" data-testid="git-not-repo">
+        <main className="version-v9-main">
+          <EmptyState
+            icon={GitBranch}
+            title={t.git.notRepo}
+            hint={t.git.initNote}
+            action={
+              <Button variant="primary" onClick={() => void act("git.init", {})}>
+                {t.git.init}
+              </Button>
+            }
+          />
+          {error ? (
+            <p role="alert" className="version-v9-error">
+              {error}
+            </p>
+          ) : null}
+        </main>
       </div>
     );
   }
-  const staged = status.data.files.filter((f) => f.index !== " " && f.index !== "?");
-  const changes = status.data.files.filter((f) => f.worktree !== " " || f.index === "?");
   return (
-    <div data-testid="git-page">
-      <h1>
-        {t.nav.git}{" "}
-        <Badge>
-          {t.git.branch}: {status.data.branch ?? "-"}
-        </Badge>
-      </h1>
-      {error ? (
-        <div role="alert" className="hu-overdue">
-          {error}
+    <div className="version-v9-body" data-testid="git-page">
+      <aside className="version-v9-sidebar">
+        <div className="version-v9-sidebar-title">
+          <GitBranch size={14} aria-hidden /> {status.data.branch ?? "-"}
         </div>
-      ) : null}
-      <h2>{t.git.status}</h2>
-      {status.data.files.length === 0 ? <EmptyState title={t.git.clean} /> : null}
-      {changes.map((f) => (
-        <div key={f.path} className="hu-row" data-testid="git-change">
-          <span>{f.path}</span>
-          <Button onClick={() => void act("git.stage", { paths: [f.path] })}>{t.git.stage}</Button>
+        <div className="version-v9-git-filters">
+          {(
+            [
+              ["worktree", "工作区"],
+              ["staged", "暂存区"],
+              ["commits", "提交历史"],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={area === k} onClick={() => setArea(k)}>
+              {label}
+            </button>
+          ))}
         </div>
-      ))}
-      {staged.map((f) => (
-        <div key={`s-${f.path}`} className="hu-row" data-testid="git-staged">
-          <span>{f.path}</span>
-          <Badge tone="success">{f.index}</Badge>
-          <Button onClick={() => void act("git.unstage", { paths: [f.path] })}>{t.git.unstage}</Button>
+        <div className="version-v9-search">
+          <Search size={13} aria-hidden />
+          <input aria-label="搜索变更文件" placeholder="搜索文件…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-      ))}
-      <form
-        className="hu-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (msg.trim() && staged.length) void act("git.commit", { message: msg }).then(() => setMsg(""));
-        }}
-      >
-        <input className="hu-input" aria-label={t.git.message} placeholder={t.git.message} value={msg} onChange={(e) => setMsg(e.target.value)} />
-        <Button type="submit" variant="primary" disabled={!msg.trim() || staged.length === 0}>
-          {t.git.commit}
-        </Button>
-      </form>
-      <h2>{t.git.log}</h2>
-      {(log.data ?? []).map((c) => (
-        <div key={c.id} className="hu-row" data-testid="git-commit">
-          <code>{c.short}</code>
-          <span>{c.subject}</span>
-          <span className="hu-meta">{c.author}</span>
+        <div className="version-v9-entry-list">
+          {area === "commits"
+            ? (log.data ?? []).map((c) => (
+                <button key={c.id} type="button" className={commit?.id === c.id ? "active" : ""} data-testid="git-commit" onClick={() => setSelCommit(c.id)}>
+                  <GitBranch size={14} aria-hidden />
+                  <span>
+                    <strong>{c.subject}</strong>
+                    <small>
+                      {new Date(c.at).toLocaleString("zh-CN")} · <code>{c.short}</code> · {c.author}
+                    </small>
+                  </span>
+                </button>
+              ))
+            : shown.map((f) => (
+                <div key={`${area}-${f.path}`} className={`version-v9-file-row${target?.path === f.path ? " active" : ""}`} data-testid={area === "staged" ? "git-staged" : "git-change"}>
+                  <button type="button" className={target?.path === f.path ? "active" : ""} onClick={() => setSelPath(f.path)}>
+                    <FileText size={14} aria-hidden />
+                    <span>
+                      <strong>{f.path.split("/").at(-1)}</strong>
+                      <small>
+                        {f.index === "?" ? "未跟踪" : f.worktree === "D" || f.index === "D" ? "已删除" : "已修改"} · {f.path}
+                      </small>
+                    </span>
+                  </button>
+                  {area === "staged" ? <Button onClick={() => void act("git.unstage", { paths: [f.path] })}>{t.git.unstage}</Button> : <Button onClick={() => void act("git.stage", { paths: [f.path] })}>{t.git.stage}</Button>}
+                </div>
+              ))}
+          {area !== "commits" && shown.length === 0 ? <p className="version-v9-empty">{files.length === 0 ? t.git.clean : "此区域没有变更"}</p> : null}
+          {area === "commits" && (log.data ?? []).length === 0 ? <p className="version-v9-empty">尚无提交</p> : null}
         </div>
-      ))}
+        <p className="version-v9-note">工作区、暂存区和提交分别保存。暂存后的新编辑仍留在工作区。</p>
+      </aside>
+      <main className="version-v9-main">
+        {error ? (
+          <p role="alert" className="version-v9-error">
+            {error}
+          </p>
+        ) : null}
+        <div className="version-v9-diff-heading">
+          <div>
+            <FileText size={15} aria-hidden />
+            <strong>{area === "commits" ? (commit?.subject ?? "—") : (target?.path ?? "—")}</strong>
+          </div>
+        </div>
+        {diff.data?.diff ? <PatchView patch={diff.data.diff} /> : <EmptyState icon={GitBranch} title="当前没有可比较的变更" hint="查看和预览不会改写文件。" />}
+        <details className="version-v9-manual" open={area === "staged"}>
+          <summary>手动暂存与提交</summary>
+          <form
+            className="version-v9-sidebar-actions"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (msg.trim() && staged.length) void act("git.commit", { message: msg }).then((r) => r !== null && setMsg(""));
+            }}
+          >
+            <input aria-label={t.git.message} placeholder={t.git.message} value={msg} onChange={(e) => setMsg(e.target.value)} />
+            <Button type="submit" variant="primary" disabled={!msg.trim() || staged.length === 0}>
+              {t.git.commit}
+            </Button>
+          </form>
+        </details>
+      </main>
     </div>
   );
 }

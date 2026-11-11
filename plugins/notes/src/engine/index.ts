@@ -23,7 +23,7 @@ function assertNotAutomationsDir(caller: string, ...paths: (string | undefined)[
 export { NotesService } from "./service.js";
 
 const Path = z.object({ path: z.string().min(1) });
-const NoteRef = z.object({ path: z.string(), id: z.string().nullable(), title: z.string() });
+const NoteRef = z.object({ path: z.string(), id: z.string().nullable(), title: z.string(), trashId: z.string().optional(), deletedAt: z.string().optional(), favorite: z.boolean().optional(), tags: z.array(z.string()).optional() });
 const Moved = z.object({ moved: z.record(z.string(), z.string()), rewrittenFiles: z.array(z.string()), ambiguous: z.array(z.string()) });
 const Filter = z.union([z.enum(["all", "favorites", "daily", "trash"]), z.object({ tag: z.string() })]);
 
@@ -210,6 +210,30 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         if (r.created) changed(null, "created");
         return r;
       },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.folders",
+      plugin: "notes",
+      scope: "read",
+      exposable: true,
+      defaultExposed: true,
+      input: z.object({}),
+      output: z.array(z.string()),
+      handler: () => svc.folders(),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.tags",
+      plugin: "notes",
+      scope: "read",
+      exposable: true,
+      defaultExposed: true,
+      input: z.object({}),
+      output: z.array(z.object({ tag: z.string(), count: z.number() })),
+      handler: () => svc.tags(),
     }),
   );
   api.defineCapability(

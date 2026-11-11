@@ -53,3 +53,44 @@ dialog.modal::backdrop {
 .gateway-meta label.row select {
   width: auto;
 }
+.knowledge-notes > .knowledge-main {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.knowledge-notes .knowledge-document-area {
+  flex: 1 1 0%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.huhu-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
+  max-width: var(--editor-width, none);
+  margin-inline: auto;
+}
+/* 原型 v9-layer 隐藏了 .knowledge-list-caption；档案类型的“新建”入口必须可见，故用同样的视觉另起类名 */
+.archive-type-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--faint);
+  font-weight: 500;
+  padding: 10px 8px 8px;
+  letter-spacing: 0.25px;
+}
+.archive-type-caption button {
+  padding: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 20px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+.archive-type-caption button:hover {
+  background: var(--muted-bg);
+}

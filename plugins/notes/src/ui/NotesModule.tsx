@@ -1,31 +1,41 @@
-import { MarkdownEditor, MarkdownPreview } from "@huhu/editor";
-import { Badge, Banner, Button, EmptyState } from "@huhu/ui";
-import { CapabilityError, queryKey, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { t } from "./i18n.js";
+import { Button, Dialog, EmptyState, Field } from "@huhu/ui";
+import type { MarkdownEditorHandle } from "@huhu/editor";
+import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { FileText, Plus } from "lucide-react";
+import { useRef, useState } from "react";
+import { n, t } from "./i18n.js";
+import { NoteDocument } from "./NoteDocument.js";
+import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
+import { NoteInspector } from "./NoteInspector.js";
 
-type Filter = "all" | "favorites" | "daily" | "trash";
-interface NoteRef {
-  path: string;
-  id: string | null;
-  title: string;
-}
-interface NoteFile {
-  path: string;
-  text: string;
-  version: string;
-}
-const AUTOSAVE_MS = 800;
+type DialogState = { kind: "new"; folder: string } | { kind: "folder"; parent: string } | { kind: "rename"; note: NoteRef } | { kind: "move"; note: NoteRef } | { kind: "trash"; note: NoteRef } | { kind: "purge"; note: NoteRef } | null;
+const today = () => new Date().toISOString().slice(0, 10);
 
-export function NotesModule() {
+/** 知识库（原型 NotesView）：左侧文件资源管理器 + 文档区 + 右侧详情抽屉。 */
+export function NotesModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<Filter>("all");
+  const [section, setSection] = useState<Section>("all");
+  const [tag, setTag] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [name, setName] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const notes = useCapability<NoteRef[]>("notes.list", { filter });
-  const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("notes.") });
+  const [inspector, setInspector] = useState(false);
+  const [docText, setDocText] = useState("");
+  const [dailyDate, setDailyDate] = useState(today());
+  const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
+  const flushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
+  const list = useCapability<NoteRef[]>("notes.list", { filter });
+  const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
+  const folders = useCapability<string[]>("notes.folders", {});
+  const tags = useCapability<{ tag: string; count: number }[]>("notes.tags", {});
+  const vault = useCapability<{ name: string }>("vault.info", {});
+  const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
 
   async function run<T>(capability: string, input: unknown): Promise<T | null> {
     setError(null);
@@ -38,231 +48,450 @@ export function NotesModule() {
       return null;
     }
   }
+  /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
+  const beforeMove = async (note: NoteRef): Promise<boolean> => (note.path === selected && flushRef.current ? flushRef.current() : true);
+
+  const q = query.trim().toLowerCase();
+  const notes = (list.data ?? []).filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
+  const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
+  const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
+  const toggleFolder = (p: string) => setExpanded((s) => (s.has(p) ? new Set([...s].filter((x) => x !== p)) : new Set(s).add(p)));
+  const openNote = (path: string) => {
+    setSelected(path);
+    setSection((s) => (s === "trash" ? "all" : s));
+    // 展开它所在的文件夹，树里能定位到
+    const parts = path.split("/").slice(0, -1);
+    setExpanded((s) => new Set([...s, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
+  };
 
   return (
-    <div className="hu-module" data-testid="notes-module">
-      <aside className="hu-module-sidebar" aria-label={t.title}>
-        <h2>{t.title}</h2>
-        {(Object.keys(t.filters) as Filter[]).map((f) => (
-          <button
-            key={f}
-            type="button"
-            className="hu-nav-item"
-            aria-current={f === filter}
-            onClick={() => {
-              setFilter(f);
-              setSelected(null);
-            }}
-          >
-            <span>{t.filters[f]}</span>
-          </button>
-        ))}
-        <form
-          className="hu-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const n = name.trim();
-            if (!n) return;
-            void run<{ path: string }>("notes.create", { name: n }).then((r) => {
-              if (r) {
-                setName("");
-                setSelected(r.path);
+    <div className="module-layout knowledge-root knowledge-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+      <NoteExplorer
+        vaultName={vault.data?.name ?? "Vault"}
+        section={section}
+        onSection={(s) => {
+          setSection(s);
+          setTag(null);
+        }}
+        notes={notes}
+        allCount={(every.data ?? []).length}
+        folders={folders.data ?? []}
+        tags={tags.data ?? []}
+        tag={tag}
+        onTag={setTag}
+        query={query}
+        onQuery={setQuery}
+        selected={selected}
+        onOpen={openNote}
+        expanded={expanded}
+        onToggleFolder={toggleFolder}
+        onNewNote={(folder) => setDialog({ kind: "new", folder: folder ?? "" })}
+        onNewFolder={(parent) => setDialog({ kind: "folder", parent: parent ?? "" })}
+        onMenu={(note, el) => {
+          const r = el.getBoundingClientRect();
+          setMenu({ note, x: r.right, y: r.bottom });
+        }}
+        onOpenDaily={(date) => void run<{ path: string }>("notes.openDaily", { date }).then((r) => r && openNote(r.path))}
+        onImport={(files) =>
+          void (async () => {
+            for (const f of Array.from(files)) {
+              const text = await f.text();
+              const created = await run<{ path: string }>("notes.create", { name: f.name.replace(/\.(md|markdown|txt)$/i, "") });
+              if (created) {
+                const read = await engine.call<{ version: string }>("notes.read", { path: created.path });
+                await run("notes.save", { path: created.path, text, expectedVersion: read.version });
               }
-            });
-          }}
-        >
-          <input className="hu-input" aria-label={t.noteName} placeholder={t.noteName} value={name} onChange={(e) => setName(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!name.trim()}>
-            {t.newNote}
-          </Button>
-        </form>
-        {filter === "daily" ? <Button onClick={() => void run<{ path: string }>("notes.openDaily", {}).then((r) => r && setSelected(r.path))}>{t.openDaily}</Button> : null}
+            }
+          })()
+        }
+        dailyDate={dailyDate}
+        onDailyDate={setDailyDate}
+      />
+      <div className="knowledge-main">
         {error ? (
-          <div role="alert" className="hu-overdue">
+          <div role="alert" className="field-error">
             {error}
           </div>
         ) : null}
-        <ul className="hu-note-list" aria-label={t.filters[filter]}>
-          {(notes.data ?? []).map((n) => (
-            <li key={n.path}>
-              <button type="button" className="hu-nav-item" aria-current={n.path === selected} onClick={() => setSelected(n.path)} data-testid="note-item">
-                <span>{n.path}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {notes.isSuccess && notes.data.length === 0 ? <EmptyState title={t.empty} /> : null}
-      </aside>
-      <section className="hu-content hu-note-pane">
-        {selected && filter !== "trash" ? (
-          <NoteEditor
+        {selected && section !== "trash" ? (
+          <NoteDocument
             key={selected}
             path={selected}
-            onRename={(newName) =>
-              run("notes.rename", { path: selected, newName }).then((r) => {
-                if (r) setSelected(newName.endsWith(".md") ? newName : `${newName}.md`);
-              })
-            }
-            onTrash={() => run("notes.trash", { path: selected }).then(() => setSelected(null))}
-            onOpen={(p) => setSelected(p)}
+            favorite={current?.favorite === true}
+            inspectorOpen={inspector}
+            onToggleInspector={() => setInspector((v) => !v)}
+            onToggleFavorite={() => void run("notes.setFavorite", { path: selected, favorite: !(current?.favorite === true) })}
+            onOpen={openNote}
+            onMenu={(el) => {
+              const r = el.getBoundingClientRect();
+              if (current) setMenu({ note: current, x: r.right, y: r.bottom });
+            }}
+            onText={setDocText}
+            registerFlush={(fn) => (flushRef.current = fn)}
+            registerEditor={(h) => (editorRef.current = h)}
           />
-        ) : (
-          <EmptyState title={t.noSelection} />
+        ) : section === "trash" && selected && current === null ? null : (
+          <section className="knowledge-document-area">
+            <EmptyState
+              icon={FileText}
+              title={section === "trash" ? n.noTrashDoc : n.noDoc}
+              hint={n.noDocHint}
+              action={
+                <Button variant="primary" icon={Plus} onClick={() => setDialog({ kind: "new", folder: "" })}>
+                  {n.newNote}
+                </Button>
+              }
+            />
+          </section>
         )}
-      </section>
+        {section === "trash" ? <TrashList notes={list.data ?? []} onRestore={(x) => x.trashId && void run("notes.restore", { trashId: x.trashId })} onPurge={(x) => setDialog({ kind: "purge", note: x })} /> : null}
+        {undo ? (
+          <div className="knowledge-undo-banner">
+            <span>{n.undoRemoved(undo.label)}</span>
+            <button
+              type="button"
+              onClick={() =>
+                void run("notes.restore", { trashId: undo.trashId }).then(() => {
+                  setUndo(null);
+                })
+              }
+            >
+              {n.undo}
+            </button>
+            <button type="button" aria-label={n.closeUndo} onClick={() => setUndo(null)}>
+              ×
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {inspector && selected && section !== "trash" ? (
+        <NoteInspector
+          path={selected}
+          text={docText}
+          tags={current?.tags ?? []}
+          onClose={() => setInspector(false)}
+          onOpen={openNote}
+          onJump={(line) => {
+            const v = editorRef.current?.view;
+            if (v) {
+              const pos = v.state.doc.line(Math.min(line, v.state.doc.lines)).from;
+              editorRef.current?.setSelectionRange(pos);
+              editorRef.current?.focus();
+            }
+          }}
+          onOpenHistory={() => onNavigate?.("versioning")}
+        />
+      ) : null}
+      {menu ? (
+        <div className="knowledge-file-menu" role="menu" aria-label="文件操作菜单" style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y }} onClick={(e) => e.stopPropagation()}>
+          <div className="knowledge-menu-caption">{menu.note.path.split("/").at(-1)}</div>
+          {section === "trash" ? (
+            <>
+              <button type="button" role="menuitem" onClick={() => (menu.note.trashId && void run("notes.restore", { trashId: menu.note.trashId }), setMenu(null))}>
+                {n.menu.restore}
+              </button>
+              <button type="button" role="menuitem" className="danger" onClick={() => (setDialog({ kind: "purge", note: menu.note }), setMenu(null))}>
+                {n.menu.purge}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" role="menuitem" onClick={() => (openNote(menu.note.path), setMenu(null))}>
+                {n.menu.open}
+              </button>
+              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "rename", note: menu.note }), setMenu(null))}>
+                {n.menu.rename}
+              </button>
+              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "move", note: menu.note }), setMenu(null))}>
+                {n.menu.move}
+              </button>
+              <button type="button" role="menuitem" onClick={() => void run<{ path: string }>("notes.duplicate", { path: menu.note.path }).then((r) => (r && openNote(r.path), setMenu(null)))}>
+                {n.menu.duplicate}
+              </button>
+              <button type="button" role="menuitem" onClick={() => (void run("notes.setFavorite", { path: menu.note.path, favorite: menu.note.favorite !== true }), setMenu(null))}>
+                {menu.note.favorite ? n.menu.unstar : n.menu.star}
+              </button>
+              <hr />
+              <button type="button" role="menuitem" className="danger" onClick={() => (setDialog({ kind: "trash", note: menu.note }), setMenu(null))}>
+                {n.menu.trash}
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {dialog?.kind === "new" ? (
+        <NewNoteDialog
+          folder={dialog.folder}
+          folders={folderOptions}
+          error={error}
+          onClose={() => setDialog(null)}
+          onCreate={async (v) => {
+            const r = await run<{ path: string }>("notes.create", { name: v.name, ...(v.folder ? { folder: v.folder } : {}), template: v.template });
+            if (r) {
+              setDialog(null);
+              openNote(r.path);
+            }
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "folder" ? (
+        <NameDialog
+          title={n.newFolderTitle}
+          label={n.fileName}
+          submit={n.createFolder}
+          error={error}
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            const path = dialog.parent ? `${dialog.parent}/${name}` : name;
+            if (await run("folders.create", { path })) {
+              setDialog(null);
+              setExpanded((s) => new Set([...s, ...path.split("/").map((_, i, a) => a.slice(0, i + 1).join("/"))]));
+            }
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "rename" ? (
+        <NameDialog
+          title={n.renameTitle}
+          description={n.renameDesc}
+          label={t.rename}
+          initial={dialog.note.path.split("/").at(-1)?.replace(/\.md$/, "") ?? ""}
+          submit={n.renameTitle}
+          error={error}
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            if (!(await beforeMove(dialog.note))) return;
+            const r = await run("notes.rename", { path: dialog.note.path, newName: name });
+            if (r) {
+              if (selected === dialog.note.path) setSelected(`${dialog.note.path.includes("/") ? dialog.note.path.slice(0, dialog.note.path.lastIndexOf("/") + 1) : ""}${name.endsWith(".md") ? name : `${name}.md`}`);
+              setDialog(null);
+            }
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "move" ? (
+        <MoveDialog
+          note={dialog.note}
+          folders={folderOptions}
+          error={error}
+          onClose={() => setDialog(null)}
+          onMove={async (dir) => {
+            if (!(await beforeMove(dialog.note))) return;
+            const r = await run("notes.move", { path: dialog.note.path, targetDir: dir });
+            if (r) {
+              if (selected === dialog.note.path) setSelected(`${dir ? `${dir}/` : ""}${dialog.note.path.split("/").at(-1)}`);
+              setDialog(null);
+            }
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "trash" ? (
+        <Dialog
+          open
+          title={n.trashTitle}
+          description={`「${dialog.note.title}」会移到回收站，可以恢复。`}
+          error={error}
+          onClose={() => setDialog(null)}
+          actions={
+            <>
+              <Button onClick={() => setDialog(null)}>{n.cancel}</Button>
+              <Button
+                variant="danger"
+                onClick={() =>
+                  void (async () => {
+                    if (!(await beforeMove(dialog.note))) return;
+                    const r = await run<{ trashId: string }>("notes.trash", { path: dialog.note.path });
+                    if (r) {
+                      if (selected === dialog.note.path) setSelected(null);
+                      setUndo({ label: `${dialog.note.title}.md`, trashId: r.trashId });
+                      setDialog(null);
+                    }
+                  })()
+                }
+              >
+                {n.trashDo}
+              </Button>
+            </>
+          }
+        >
+          <p className="confirm-description">内部 ID 与关联保留；恢复后双链继续有效。</p>
+        </Dialog>
+      ) : null}
+      {dialog?.kind === "purge" ? (
+        <Dialog
+          open
+          title={n.purgeTitle}
+          description={n.purgeDesc}
+          error={error}
+          onClose={() => setDialog(null)}
+          actions={
+            <>
+              <Button onClick={() => setDialog(null)}>{n.cancel}</Button>
+              <Button variant="danger" onClick={() => dialog.note.trashId && void run("notes.deletePermanent", { trashId: dialog.note.trashId }).then((r) => r && setDialog(null))}>
+                {n.purgeDo}
+              </Button>
+            </>
+          }
+        >
+          <p className="confirm-description">「{dialog.note.title}」将被永久删除。</p>
+        </Dialog>
+      ) : null}
     </div>
   );
 }
 
-function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRename(newName: string): Promise<unknown>; onTrash(): Promise<unknown>; onOpen(path: string): void }) {
-  const engine = useEngine();
-  const qc = useQueryClient();
-  const [text, setText] = useState<string | null>(null);
-  const [state, setState] = useState<"saved" | "dirty" | "saving" | "conflict">("saved");
-  const [mode, setMode] = useState<"source" | "preview">("source");
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef({ text: "", version: "" });
-  const savedText = useRef<string | null>(null); // 最近一次已落盘的内容；离开时据此判断是否有未保存的编辑
-  const all = useCapability<NoteRef[]>("notes.list", { filter: "all" });
-  const settings = useCapability<{ editor: { fontSize: number; lineHeight: number; autosave: boolean; lineNumbers: boolean; spellcheck: boolean; readableWidth: "680" | "760" | "880" | "full" } }>("settings.get", {});
-  const ed = settings.data?.editor;
-  const backlinks = useCapability<{ path: string; title: string }[]>("notes.backlinks", { path });
-
-  const load = useCallback(async () => {
-    const f = await engine.call<NoteFile>("notes.read", { path });
-    setText(f.text);
-    latest.current = { text: f.text, version: f.version };
-    savedText.current = f.text;
-    setState("saved");
-  }, [engine, path]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  // 离开（切换笔记、关闭模块）时把未保存的编辑写入，关闭自动保存或 800ms 窗口内切换都不丢内容
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-      const { text: body, version } = latest.current;
-      if (savedText.current !== null && body !== savedText.current && version) {
-        void engine.call("notes.save", { path, text: body, expectedVersion: version }, { write: true }).catch(() => undefined);
-      }
-    },
-    [engine, path],
-  );
-
-  const save = useCallback(async (): Promise<boolean> => {
-    const { text: body, version: v } = latest.current;
-    setState("saving");
-    try {
-      const r = await engine.call<{ version: string }>("notes.save", { path, text: body, expectedVersion: v }, { write: true });
-      latest.current.version = r.version;
-      savedText.current = body;
-      setState(latest.current.text === body ? "saved" : "dirty");
-      void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
-      return true;
-    } catch (e) {
-      setState(e instanceof CapabilityError && e.code === "VERSION_CONFLICT" ? "conflict" : "dirty");
-      return false;
-    }
-  }, [engine, path, qc]);
-
-  /** 改名/移入回收站之前先把未保存的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。保存失败（如冲突）返回 false，调用方据此不继续，编辑留在原处。 */
-  const flush = async (): Promise<boolean> => {
-    if (timer.current) clearTimeout(timer.current);
-    if (savedText.current !== null && latest.current.text !== savedText.current) return save();
-    return true;
-  };
-
-  const onChange = (next: string) => {
-    if (text === null || next === latest.current.text) return;
-    latest.current.text = next;
-    setText(next);
-    setState("dirty");
-    if (timer.current) clearTimeout(timer.current);
-    if (ed?.autosave !== false) timer.current = setTimeout(() => void save(), AUTOSAVE_MS); // 关闭自动保存：只在 Mod+S 或点“保存”时写入
-  };
-
-  const known = new Set((all.data ?? []).flatMap((n) => [n.path, n.path.replace(/\.md$/, ""), n.title]));
-  if (text === null) return <p>{t.loading}</p>;
+function TrashList({ notes, onRestore, onPurge }: { notes: NoteRef[]; onRestore(n: NoteRef): void; onPurge(n: NoteRef): void }) {
+  if (notes.length === 0) return null;
   return (
-    <div className="hu-note">
-      <header className="hu-note-head">
-        <h1>{path.replace(/\.md$/, "")}</h1>
-        <Badge tone={state === "saved" ? "success" : state === "conflict" ? "danger" : "warning"}>{state === "saved" ? t.saved : state === "saving" ? t.saving : state === "conflict" ? t.conflict : t.dirty}</Badge>
-        <div role="group" aria-label="模式">
-          <Button variant={mode === "source" ? "primary" : "secondary"} onClick={() => setMode("source")}>
-            {t.modeSource}
-          </Button>
-          <Button variant={mode === "preview" ? "primary" : "secondary"} onClick={() => setMode("preview")}>
-            {t.modePreview}
+    <div className="knowledge-trash-banner" role="list" aria-label="已删除的笔记" data-testid="trash-list">
+      {notes.map((x) => (
+        <div key={x.trashId ?? x.path} role="listitem" className="row">
+          <span className="grow">
+            {x.path} · {n.trashBanner(x.deletedAt ? new Date(x.deletedAt).toLocaleString("zh-CN") : "")}
+          </span>
+          <Button onClick={() => onRestore(x)}>{n.menu.restore}</Button>
+          <Button variant="danger" onClick={() => onPurge(x)}>
+            {n.menu.purge}
           </Button>
         </div>
-        {renaming === null ? (
-          <Button onClick={() => setRenaming(path.replace(/\.md$/, ""))}>{t.rename}</Button>
-        ) : (
-          <form
-            className="hu-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const name = renaming;
-              void flush().then((ok) => {
-                if (ok) {
-                  setRenaming(null);
-                  return onRename(name);
-                }
-                return undefined;
-              });
-            }}
-          >
-            <input className="hu-input" aria-label={t.rename} value={renaming} onChange={(e) => setRenaming(e.target.value)} autoFocus />
-            <Button type="submit">{t.rename}</Button>
-          </form>
-        )}
-        {ed?.autosave === false ? (
-          <Button variant="primary" disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>
-            {t.save}
-          </Button>
-        ) : null}
-        <Button variant="danger" onClick={() => void flush().then((ok) => (ok ? onTrash() : undefined))}>
-          {t.trash}
-        </Button>
-      </header>
-      {state === "conflict" ? (
-        <Banner tone="danger" action={<Button onClick={() => void load()}>{t.reload}</Button>}>
-          {t.conflict}
-        </Banner>
-      ) : null}
-      {mode === "source" ? (
-        <MarkdownEditor
-          value={text}
-          onChange={onChange}
-          onSave={() => void save()}
-          ariaLabel={t.editorLabel}
-          {...(ed ? { lineNumbers: ed.lineNumbers, spellcheck: ed.spellcheck, fontSize: ed.fontSize, lineHeight: ed.lineHeight, maxWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
-        />
-      ) : (
-        <MarkdownPreview
-          source={text}
-          resolveWikiLink={(target) => known.has(target)}
-          onOpenWikiLink={(target) => {
-            const hit = (all.data ?? []).find((n) => n.path === target || n.path === `${target}.md` || n.title === target);
-            if (hit) onOpen(hit.path);
-          }}
-        />
-      )}
-      <section aria-label={t.backlinks}>
-        <h3>{t.backlinks}</h3>
-        <ul>
-          {(backlinks.data ?? []).map((b) => (
-            <li key={b.path}>
-              <button type="button" className="hu-nav-item" onClick={() => onOpen(b.path)}>
-                {b.title}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+      ))}
     </div>
+  );
+}
+
+function NameDialog({
+  title,
+  description,
+  label,
+  initial = "",
+  submit,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  description?: string;
+  label: string;
+  initial?: string;
+  submit: string;
+  error: string | null;
+  onClose(): void;
+  onSubmit(name: string): Promise<void>;
+}) {
+  const [name, setName] = useState(initial);
+  return (
+    <Dialog
+      open
+      title={title}
+      {...(description ? { description } : {})}
+      error={error}
+      onClose={onClose}
+      actions={
+        <>
+          <Button onClick={onClose}>{n.cancel}</Button>
+          <Button variant="primary" disabled={!name.trim()} onClick={() => void onSubmit(name.trim())} data-testid="name-dialog-submit">
+            {submit}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="form-body"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) void onSubmit(name.trim());
+        }}
+      >
+        <Field label={label}>
+          <input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+function NewNoteDialog({ folder, folders, error, onClose, onCreate }: { folder: string; folders: string[]; error: string | null; onClose(): void; onCreate(v: { name: string; folder: string; template: string }): Promise<void> }) {
+  const [name, setName] = useState("");
+  const [dir, setDir] = useState(folder);
+  const [template, setTemplate] = useState("blank");
+  return (
+    <Dialog
+      open
+      title={n.newTitle}
+      description={n.newDesc}
+      error={error}
+      onClose={onClose}
+      testId="new-note-dialog"
+      actions={
+        <>
+          <Button onClick={onClose}>{n.cancel}</Button>
+          <Button variant="primary" icon={FileText} disabled={!name.trim()} onClick={() => void onCreate({ name: name.trim(), folder: dir, template })} data-testid="new-note-submit">
+            {n.create}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="form-body"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) void onCreate({ name: name.trim(), folder: dir, template });
+        }}
+      >
+        <Field label={n.fileName} description={n.fileNameHint}>
+          <input autoFocus aria-label={n.fileName} placeholder={n.fileNameHint} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label={n.folderLabel}>
+          <select aria-label={n.folderLabel} value={dir} onChange={(e) => setDir(e.target.value)}>
+            {folders.map((f) => (
+              <option key={f} value={f}>
+                {f || n.folderHint}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label={n.template}>
+          <select aria-label={n.template} value={template} onChange={(e) => setTemplate(e.target.value)}>
+            {(Object.keys(n.templates) as (keyof typeof n.templates)[]).map((k) => (
+              <option key={k} value={k}>
+                {n.templates[k]}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+function MoveDialog({ note, folders, error, onClose, onMove }: { note: NoteRef; folders: string[]; error: string | null; onClose(): void; onMove(dir: string): Promise<void> }) {
+  const [dir, setDir] = useState("");
+  return (
+    <Dialog
+      open
+      title={n.moveTitle}
+      description={`把「${note.title}」移到另一个文件夹；指向它的双链会同步更新。`}
+      error={error}
+      onClose={onClose}
+      actions={
+        <>
+          <Button onClick={onClose}>{n.cancel}</Button>
+          <Button variant="primary" onClick={() => void onMove(dir)}>
+            {n.moveDo}
+          </Button>
+        </>
+      }
+    >
+      <Field label={n.folderLabel}>
+        <select aria-label={n.folderLabel} value={dir} onChange={(e) => setDir(e.target.value)}>
+          {folders.map((f) => (
+            <option key={f} value={f}>
+              {f || "Vault 根目录"}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </Dialog>
   );
 }
