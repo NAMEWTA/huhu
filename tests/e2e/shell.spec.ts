@@ -300,6 +300,24 @@ test("手动保存：外部改动出现合并 Banner、合并后两边改动都�
   }
 });
 
+test("大文件（ACC-KN-10）：50 MiB 日志在文件树中只显示元信息卡片，不当作文本加载", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  writeFileSync(path.join(vault, "服务器.log"), Buffer.alloc(50 * 1024 * 1024, 0x41));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByTestId("file-item").filter({ hasText: "服务器.log" }).click();
+    await expect(page.getByTestId("file-card")).toBeVisible();
+    await expect(page.getByTestId("file-size")).toHaveText("50.0 MiB");
+    await expect(page.getByTestId("markdown-editor")).toHaveCount(0);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
