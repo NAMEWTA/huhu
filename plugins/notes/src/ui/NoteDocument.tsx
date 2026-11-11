@@ -8,6 +8,8 @@ import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
 
 const AUTOSAVE_MS = 800;
+/** 超过这个字符数的文档默认用源码模式打开：实时预览要为整份文档建装饰，1 MiB 级别会让“打开到可编辑”超过 500 ms。 */
+const LARGE_DOC_CHARS = 256 * 1024;
 
 interface NoteFile {
   path: string;
@@ -58,6 +60,7 @@ export function NoteDocument(props: NoteDocumentProps) {
 
   const load = useCallback(async () => {
     const f = await engine.call<NoteFile>("notes.read", { path });
+    if (f.text.length > LARGE_DOC_CHARS) setMode((m) => (m === "live" ? "source" : m));
     setText(f.text);
     latest.current = { text: f.text, version: f.version };
     savedText.current = f.text;
