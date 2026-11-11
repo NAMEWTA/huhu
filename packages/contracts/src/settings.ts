@@ -11,8 +11,8 @@ export const SettingsSchema = z.object({
     navWidth: z.number().int().min(200).max(360).catch(260),
   }).catch({ theme: "pearl", mode: "system", fontSize: 14, compact: false, motion: "system", navWidth: 260 }),
   editor: z.object({
-    fontSize: z.number().int().min(12).max(24).catch(16),
-    lineHeight: z.number().min(1.2).max(2.4).catch(1.8),
+    fontSize: z.number().int().min(14).max(20).catch(16),
+    lineHeight: z.number().min(1.4).max(2).catch(1.8),
     autosave: z.boolean().catch(true),
     lineNumbers: z.boolean().catch(false),
     spellcheck: z.boolean().catch(false),

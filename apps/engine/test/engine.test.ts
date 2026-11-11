@@ -577,6 +577,20 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "automations.update", { id: desktopRule.id, expectedVersion: desktopRule.version, patch: { title: "改名" } })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.rendererToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).ok).toBe(true);
   }, 30_000);
+  test("ACC-SY-06：设置里的时区立即影响日记的“今天”（两个相差 25 小时的时区得到不同日期）", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
+    type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
+    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+    const dayIn = (zone: string) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date());
+    await call("settings.update", { patch: { dateTime: { zone: "Pacific/Kiritimati" } } });
+    const east = await call("notes.openDaily", {});
+    await call("settings.update", { patch: { dateTime: { zone: "Pacific/Pago_Pago" } } });
+    const west = await call("notes.openDaily", {});
+    expect(east.ok && west.ok).toBe(true);
+    expect(east.data.path).toContain(dayIn("Pacific/Kiritimati"));
+    expect(west.data.path).toContain(dayIn("Pacific/Pago_Pago"));
+    expect(dayIn("Pacific/Kiritimati")).not.toBe(dayIn("Pacific/Pago_Pago"));
+  }, 30_000);
   test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true }); engines.push(e);
     await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });

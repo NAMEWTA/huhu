@@ -1,5 +1,6 @@
 export const t = {
   title: "知识库",
+  save: "保存",
   filters: { all: "全部笔记", favorites: "星标", daily: "日记", trash: "回收站" },
   newNote: "新建笔记",
   noteName: "笔记名称",

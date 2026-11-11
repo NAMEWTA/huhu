@@ -77,16 +77,28 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
   const [renaming, setRenaming] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ text: "", version: "" });
+  const savedText = useRef<string | null>(null); // 最近一次已落盘的内容；离开时据此判断是否有未保存的编辑
   const all = useCapability<NoteRef[]>("notes.list", { filter: "all" });
+  const settings = useCapability<{ editor: { fontSize: number; lineHeight: number; autosave: boolean; lineNumbers: boolean; spellcheck: boolean; readableWidth: "680" | "760" | "880" | "full" } }>("settings.get", {});
+  const ed = settings.data?.editor;
   const backlinks = useCapability<{ path: string; title: string }[]>("notes.backlinks", { path });
 
   const load = useCallback(async () => {
     const f = await engine.call<NoteFile>("notes.read", { path });
     setText(f.text);
     latest.current = { text: f.text, version: f.version };
+    savedText.current = f.text;
     setState("saved");
   }, [engine, path]);
-  useEffect(() => { void load(); return () => { if (timer.current) clearTimeout(timer.current); }; }, [load]);
+  useEffect(() => { void load(); }, [load]);
+  // 离开（切换笔记、关闭模块）时把未保存的编辑写入，关闭自动保存或 800ms 窗口内切换都不丢内容
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+    const { text: body, version } = latest.current;
+    if (savedText.current !== null && body !== savedText.current && version) {
+      void engine.call("notes.save", { path, text: body, expectedVersion: version }, { write: true }).catch(() => undefined);
+    }
+  }, [engine, path]);
 
   const save = useCallback(async () => {
     const { text: body, version: v } = latest.current;
@@ -94,6 +106,7 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
     try {
       const r = await engine.call<{ version: string }>("notes.save", { path, text: body, expectedVersion: v }, { write: true });
       latest.current.version = r.version;
+      savedText.current = body;
       setState(latest.current.text === body ? "saved" : "dirty");
       void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
     } catch (e) {
@@ -101,13 +114,19 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
     }
   }, [engine, path, qc]);
 
+  /** 改名/移入回收站之前先把未保存的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。 */
+  const flush = async () => {
+    if (timer.current) clearTimeout(timer.current);
+    if (savedText.current !== null && latest.current.text !== savedText.current) await save();
+  };
+
   const onChange = (next: string) => {
     if (text === null || next === latest.current.text) return;
     latest.current.text = next;
     setText(next);
     setState("dirty");
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void save(), AUTOSAVE_MS);
+    if (ed?.autosave !== false) timer.current = setTimeout(() => void save(), AUTOSAVE_MS); // 关闭自动保存：只在 Mod+S 或点“保存”时写入
   };
 
   const known = new Set((all.data ?? []).flatMap((n) => [n.path, n.path.replace(/\.md$/, ""), n.title]));
@@ -124,16 +143,17 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
         {renaming === null ? (
           <Button onClick={() => setRenaming(path.replace(/\.md$/, ""))}>{t.rename}</Button>
         ) : (
-          <form className="hu-form" onSubmit={(e) => { e.preventDefault(); void onRename(renaming); setRenaming(null); }}>
+          <form className="hu-form" onSubmit={(e) => { e.preventDefault(); const name = renaming; setRenaming(null); void flush().then(() => onRename(name)); }}>
             <input className="hu-input" aria-label={t.rename} value={renaming} onChange={(e) => setRenaming(e.target.value)} autoFocus />
             <Button type="submit">{t.rename}</Button>
           </form>
         )}
-        <Button variant="danger" onClick={() => void onTrash()}>{t.trash}</Button>
+        {ed?.autosave === false ? <Button variant="primary" disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>{t.save}</Button> : null}
+        <Button variant="danger" onClick={() => void flush().then(() => onTrash())}>{t.trash}</Button>
       </header>
       {state === "conflict" ? <Banner tone="danger" action={<Button onClick={() => void load()}>{t.reload}</Button>}>{t.conflict}</Banner> : null}
       {mode === "source" ? (
-        <MarkdownEditor value={text} onChange={onChange} onSave={() => void save()} ariaLabel={t.editorLabel} />
+        <MarkdownEditor value={text} onChange={onChange} onSave={() => void save()} ariaLabel={t.editorLabel} {...(ed ? { lineNumbers: ed.lineNumbers, spellcheck: ed.spellcheck, fontSize: ed.fontSize, lineHeight: ed.lineHeight, maxWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})} />
       ) : (
         <MarkdownPreview source={text} resolveWikiLink={(target) => known.has(target)} onOpenWikiLink={(target) => { const hit = (all.data ?? []).find((n) => n.path === target || n.path === `${target}.md` || n.title === target); if (hit) onOpen(hit.path); }} />
       )}

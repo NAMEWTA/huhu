@@ -1,6 +1,11 @@
 export const t = {
   loading: "加载中…",
-  settings: { title: "设置", appearance: "外观", theme: "主题", mode: "明暗模式", modeSystem: "跟随系统", modeLight: "浅色", modeDark: "深色", fontSize: "界面字号", reset: "恢复默认外观" },
+  settings: {
+    title: "设置", appearance: "外观", theme: "主题", mode: "明暗模式", modeSystem: "跟随系统", modeLight: "浅色", modeDark: "深色", fontSize: "界面字号", reset: "恢复默认外观",
+    motion: "动效", motionSystem: "跟随系统", motionStandard: "标准", motionReduced: "减少", compact: "紧凑布局", navWidth: "导航栏宽度",
+    editor: "编辑器", editorFontSize: "正文字号", editorLineHeight: "行高", editorWidth: "正文宽度", widthFull: "全宽", autosave: "自动保存", autosaveNote: "关闭后只在按 Mod+S 或点“保存”时写入文件", lineNumbers: "显示行号", spellcheck: "拼写检查", resetEditor: "恢复默认编辑器设置",
+    dateTime: "日期与时间", zone: "时区", zoneNote: "“今天”、日记和任务的今日视图按这个时区计算", zoneInvalid: "不是有效的时区", todayIn: (d: string) => `现在这个时区的日期：${d}`, resetZone: "恢复为系统时区",
+  },
   plugins: {
     title: "插件中心", enable: "启用", disable: "停用", cancel: "取消", confirmTitle: "同时停用依赖它的插件",
     states: { active: "已启用", disabled: "已停用", failed: "启动失败" },

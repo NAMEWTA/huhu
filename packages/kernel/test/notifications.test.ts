@@ -64,3 +64,36 @@ describe("设置", () => {
     expect(!ext.ok && ext.error.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
 });
+
+describe("设置范围（规格 modules/system.md §3）", () => {
+  test("编辑器字号 14–20、行高 1.4–2.0：越界回退默认；范围内保留", async () => {
+    const { SettingsSchema } = await import("@huhu/contracts");
+    expect(SettingsSchema.parse({ editor: { fontSize: 12, lineHeight: 2.4 } }).editor).toMatchObject({ fontSize: 16, lineHeight: 1.8 });
+    expect(SettingsSchema.parse({ editor: { fontSize: 20, lineHeight: 1.4 } }).editor).toMatchObject({ fontSize: 20, lineHeight: 1.4 });
+  });
+  test("readSettingsFile：缺失或损坏的文件按默认值", async () => {
+    const { readSettingsFile } = await import("../src/capabilities/system.js");
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "huhu-set-"));
+    expect(readSettingsFile(join(dir, "none.json")).dateTime.weekStartsOn).toBe(1);
+    writeFileSync(join(dir, "bad.json"), "{坏的");
+    expect(readSettingsFile(join(dir, "bad.json")).editor.fontSize).toBe(16);
+    writeFileSync(join(dir, "z.json"), JSON.stringify({ dateTime: { zone: "America/New_York" } }));
+    expect(readSettingsFile(join(dir, "z.json")).dateTime.zone).toBe("America/New_York");
+  });
+  test("settings.json 损坏时 settings.update 先留下副本再覆盖", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "huhu-set-"));
+    const file = path.join(dir, "settings.json");
+    writeFileSync(file, "{损坏的内容");
+    const registry = new CapabilityRegistry();
+    registerNotificationAndSettings(registry, new NotificationStore(path.join(dir, "n.ndjson")), file);
+    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [] });
+    const r = await d.call("desktop", { capability: "settings.update", input: { patch: { editor: { autosave: false } } }, requestId: "r", idempotencyKey: "key-corrupt-1" });
+    expect(r.ok).toBe(true);
+    const copies = (await import("node:fs")).readdirSync(dir).filter((f) => f.startsWith("settings.json.corrupt-"));
+    expect(copies).toHaveLength(1);
+    expect(readFileSync(path.join(dir, copies[0] as string), "utf8")).toBe("{损坏的内容");
+  });
+});

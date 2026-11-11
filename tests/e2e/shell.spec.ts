@@ -387,6 +387,87 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   }
 });
 
+test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在点“保存”时写入；行号、字号、宽度）；外观的导航宽度与紧凑布局", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByLabel("导航栏宽度").fill("320");
+    await expect(page.locator("html")).toHaveCSS("--sidebar-w", "320px");
+    await page.getByLabel("紧凑布局").click();
+    await expect(page.getByLabel("紧凑布局")).toBeChecked();
+    await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
+
+    await page.getByTestId("settings-nav-editor").click();
+    await page.getByLabel("自动保存").click();
+    await expect(page.getByLabel("自动保存")).not.toBeChecked();
+    await page.getByLabel("显示行号").click();
+    await expect(page.getByLabel("显示行号")).toBeChecked();
+    await page.getByLabel("正文字号").fill("20");
+    await page.getByLabel("正文宽度").selectOption("680");
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).editor).toMatchObject({ autosave: false, lineNumbers: true, fontSize: 20, readableWidth: "680" });
+
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByLabel("笔记名称").fill("手动保存");
+    await page.getByRole("button", { name: "新建笔记" }).click();
+    await expect(page.getByTestId("note-item").filter({ hasText: "手动保存.md" })).toBeVisible();
+    const editor = page.getByTestId("markdown-editor");
+    await expect(editor.locator(".cm-lineNumbers")).toBeVisible(); // 行号
+    await expect(editor).toHaveCSS("max-width", "680px");
+    await expect(editor.locator(".cm-content")).toHaveCSS("font-size", "20px");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("手动保存的正文");
+    await page.waitForTimeout(2500); // 远超 800ms 的自动保存间隔
+    expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("手动保存的正文");
+    await page.getByTestId("note-save").click();
+    await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8")).toContain("手动保存的正文");
+
+    // 没点保存就离开：切换到另一篇笔记时未保存的编辑会被写入，不丢内容
+    await page.keyboard.type("，离开前的补充");
+    await page.waitForTimeout(1500);
+    expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("离开前的补充");
+    await page.getByLabel("笔记名称").fill("另一篇");
+    await page.getByRole("button", { name: "新建笔记" }).click();
+    await expect(page.getByTestId("note-item").filter({ hasText: "另一篇.md" })).toBeVisible();
+    await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8"), { timeout: 10_000 }).toContain("离开前的补充");
+
+    // 重新打开自动保存后恢复原行为
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    await page.getByLabel("自动保存").click();
+    await expect(page.getByLabel("自动保存")).toBeChecked();
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await expect(page.getByTestId("note-save")).toHaveCount(0);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("设置：时区改变后页面显示该时区的当前日期，非法时区被拒绝且不写入", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-datetime").click();
+    await page.getByTestId("settings-zone").fill("Nowhere/Land");
+    await expect(page.getByTestId("settings-zone-invalid")).toBeVisible();
+    await page.getByTestId("settings-zone").fill("Pacific/Kiritimati");
+    await expect(page.getByTestId("settings-zone-invalid")).toHaveCount(0);
+    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).dateTime.zone, { timeout: 15_000 }).toBe("Pacific/Kiritimati");
+    const expected = new Intl.DateTimeFormat("zh-CN", { timeZone: "Pacific/Kiritimati", dateStyle: "full" }).format(new Date());
+    await expect(page.getByTestId("settings-zone-now")).toContainText(expected);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、提交", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

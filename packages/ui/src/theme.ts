@@ -9,10 +9,13 @@ export interface Appearance {
   mode: Mode;
   motion?: Motion;
   fontSize?: number;
+  /** 导航栏宽度（200–360）。 */
+  navWidth?: number;
+  compact?: boolean;
 }
 
 /** 非法值回退到 Pearl 浅色。 */
-export function normalizeAppearance(a: Partial<Record<keyof Appearance, unknown>>): Required<Appearance> {
+export function normalizeAppearance(a: Partial<Record<keyof Appearance, unknown>>): Required<Omit<Appearance, "navWidth" | "compact">> {
   const theme = THEMES.includes(a.theme as Theme) ? (a.theme as Theme) : "pearl";
   const mode = MODES.includes(a.mode as Mode) ? (a.mode as Mode) : "light";
   const motion = a.motion === "standard" || a.motion === "reduced" ? a.motion : "system";
@@ -31,4 +34,7 @@ export function applyAppearance(root: HTMLElement, a: Partial<Record<keyof Appea
   root.dataset["mode"] = resolveMode(n.mode, prefersDark);
   root.dataset["motion"] = n.motion;
   root.style.setProperty("--font-size", `${n.fontSize}px`);
+  const nw = typeof a.navWidth === "number" && a.navWidth >= 200 && a.navWidth <= 360 ? Math.round(a.navWidth) : 260;
+  root.style.setProperty("--sidebar-w", `${nw}px`);
+  root.dataset["density"] = a.compact === true ? "compact" : "comfortable";
 }

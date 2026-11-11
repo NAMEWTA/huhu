@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import path from "node:path";
 import { z } from "zod";
 import {
-  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
+  CapabilityRegistry, Dispatcher, PluginManager, defineCapability, createHuhuContext, EventBus, GatewayAudit, IdempotencyStore, TokenTable, NotificationStore, ExposureStore, GatewayTokens, registerHealthCapabilities, registerNotificationAndSettings, readSettingsFile, registerSystemCapabilities, registerVaultCapabilities, startEngineServer, type RunningServer,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -107,13 +107,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const serverRef: { current?: RunningServer } = {};
   const gatewayTokens = new GatewayTokens(path.join(vault.root, ".huhu", "gateways.json"), tokens, () => new Date(), () => serverRef.current?.closeConnectionsOf("http"));
   const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
+  // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
+  const settingsFile = path.join(vault.root, ".huhu", "settings.json");
+  const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
-    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n) }),
+    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n), zone: settingsZone }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(notesManifest),
-    apply: (ctx, api) => void notes.apply(ctx, api),
+    apply: (ctx, api) => void notes.apply(ctx, api, { zone: settingsZone }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(archivesManifest),
@@ -155,7 +158,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       return safeStatus ? [{ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" }] : [];
     },
   });
-  registerNotificationAndSettings(registry, notifications, path.join(vault.root, ".huhu", "settings.json"));
+  registerNotificationAndSettings(registry, notifications, settingsFile);
   registerSystemCapabilities(registry, plugins, { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) }, { tokens: gatewayTokens });
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
@@ -164,6 +167,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       let exes: Record<string, string> = {};
       void cli?.detector.detect().then((r) => { exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string])); });
       automations.apply(ctx, api, {
+        zone: settingsZone,
         exeFor: (p) => exes[p] ?? null,
         spaceState: (id) => { const s = cli?.spaces.list().find((x) => x.id === id); return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" }; },
         notify: (n) => void notifications.create(n),

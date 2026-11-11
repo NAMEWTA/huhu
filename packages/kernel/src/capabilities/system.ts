@@ -97,22 +97,25 @@ export function registerSystemCapabilities(
 }
 
 import { SettingsSchema, mergeSettings, type Settings } from "@huhu/contracts";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { NotificationStore } from "../notifications.js";
 
 const NotificationDto = z.object({ id: z.string(), title: z.string(), module: z.string(), at: z.string(), read: z.boolean() });
 
+/** 读取 settings.json；缺失或损坏时按默认值（原文件保留）。 */
+export function readSettingsFile(settingsFile: string): Settings {
+  try {
+    return SettingsSchema.parse(existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {});
+  } catch {
+    return SettingsSchema.parse({});
+  }
+}
+
 /** notifications.* 与 settings.*（kernel 能力，仅桌面可用）。 */
 export function registerNotificationAndSettings(registry: CapabilityRegistry, store: NotificationStore, settingsFile: string): () => void {
   const desktop = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
-  const read = (): Settings => {
-    try {
-      return SettingsSchema.parse(existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {});
-    } catch {
-      return SettingsSchema.parse({}); // 损坏的文件按默认值启动（原文件保留，由调用方备份）
-    }
-  };
+  const read = (): Settings => readSettingsFile(settingsFile);
   const offs = [
     registry.register(defineCapability({ name: "notifications.list", ...desktop, scope: "read", input: z.object({ unreadOnly: z.boolean().optional(), module: z.string().optional() }), output: z.array(NotificationDto), handler: (_c, i) => store.list({ ...(i.unreadOnly ? { unreadOnly: true } : {}), ...(i.module ? { module: i.module } : {}) }) })),
     registry.register(defineCapability({ name: "notifications.markRead", ...desktop, scope: "write", input: z.object({ ids: z.union([z.array(z.string()), z.literal("all")]) }), output: z.object({ changed: z.number() }), handler: (_c, i) => ({ changed: store.markRead(i.ids) }) })),
@@ -124,6 +127,10 @@ export function registerNotificationAndSettings(registry: CapabilityRegistry, st
       handler: (_c, i) => {
         const next = mergeSettings(read(), i.patch);
         mkdirSync(path.dirname(settingsFile), { recursive: true });
+        // 现有文件无法解析：覆盖前先留一份副本，用户的原始设置不会因一次保存而消失
+        if (existsSync(settingsFile)) {
+          try { JSON.parse(readFileSync(settingsFile, "utf8")); } catch { copyFileSync(settingsFile, `${settingsFile}.corrupt-${Date.now()}`); }
+        }
         writeFileSync(settingsFile, JSON.stringify(next, null, 2));
         return next;
       },
