@@ -379,7 +379,8 @@ function sameListItem(a: SyntaxNode | null, b: SyntaxNode): boolean {
 }
 
 // HUHU: 大文档只装饰“视口 ± WINDOW_MARGIN”（上游为避免 iOS 滚动动量中断而整篇装饰，
-// 每次按键整篇遍历语法树，5,000 行文档的输入延迟因此超过 16 ms）；桌面端滚到窗口边缘再重建。
+// 每次按键整篇遍历语法树，5,000 行文档的输入延迟因此超过 16 ms）；文档 > WHOLE_DOC_CHARS 时视口移出窗口（update() 里的 leftWindow）会重建，
+// 因此下面“滚动本身不重建”的注释只对窗口之内成立。
 const WHOLE_DOC_CHARS = 120_000;
 const WINDOW_MARGIN = 30_000;
 const builtWindow = new WeakMap<EditorView, { from: number; to: number }>();
