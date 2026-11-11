@@ -100,7 +100,7 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
     }
   }, [engine, path]);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const { text: body, version: v } = latest.current;
     setState("saving");
     try {
@@ -109,15 +109,18 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
       savedText.current = body;
       setState(latest.current.text === body ? "saved" : "dirty");
       void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
+      return true;
     } catch (e) {
       setState(e instanceof CapabilityError && e.code === "VERSION_CONFLICT" ? "conflict" : "dirty");
+      return false;
     }
   }, [engine, path, qc]);
 
-  /** 改名/移入回收站之前先把未保存的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。 */
-  const flush = async () => {
+  /** 改名/移入回收站之前先把未保存的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。保存失败（如冲突）返回 false，调用方据此不继续，编辑留在原处。 */
+  const flush = async (): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);
-    if (savedText.current !== null && latest.current.text !== savedText.current) await save();
+    if (savedText.current !== null && latest.current.text !== savedText.current) return save();
+    return true;
   };
 
   const onChange = (next: string) => {
@@ -143,13 +146,13 @@ function NoteEditor({ path, onRename, onTrash, onOpen }: { path: string; onRenam
         {renaming === null ? (
           <Button onClick={() => setRenaming(path.replace(/\.md$/, ""))}>{t.rename}</Button>
         ) : (
-          <form className="hu-form" onSubmit={(e) => { e.preventDefault(); const name = renaming; setRenaming(null); void flush().then(() => onRename(name)); }}>
+          <form className="hu-form" onSubmit={(e) => { e.preventDefault(); const name = renaming; void flush().then((ok) => { if (ok) { setRenaming(null); return onRename(name); } return undefined; }); }}>
             <input className="hu-input" aria-label={t.rename} value={renaming} onChange={(e) => setRenaming(e.target.value)} autoFocus />
             <Button type="submit">{t.rename}</Button>
           </form>
         )}
         {ed?.autosave === false ? <Button variant="primary" disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>{t.save}</Button> : null}
-        <Button variant="danger" onClick={() => void flush().then(() => onTrash())}>{t.trash}</Button>
+        <Button variant="danger" onClick={() => void flush().then((ok) => (ok ? onTrash() : undefined))}>{t.trash}</Button>
       </header>
       {state === "conflict" ? <Banner tone="danger" action={<Button onClick={() => void load()}>{t.reload}</Button>}>{t.conflict}</Banner> : null}
       {mode === "source" ? (

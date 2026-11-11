@@ -447,6 +447,56 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
   }
 });
 
+test("知识库：关闭自动保存后，未保存的编辑在“重命名”和“移到回收站”之前先落盘，不丢内容", async () => {
+  const EDIT = "未保存的编辑XYZ";
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  const trashed = (name: string): string => {
+    const dir = path.join(vault, ".huhu", "trash");
+    if (!existsSync(dir)) return "";
+    for (const id of readdirSync(dir)) {
+      const f = path.join(dir, id, name);
+      if (existsSync(f)) return readFileSync(f, "utf8");
+    }
+    return "";
+  };
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    await page.getByLabel("自动保存").click();
+    await expect(page.getByLabel("自动保存")).not.toBeChecked();
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    const edit = async (title: string) => {
+      await page.getByLabel("笔记名称").fill(title);
+      await page.getByRole("button", { name: "新建笔记" }).click();
+      await page.getByTestId("note-item").filter({ hasText: `${title}.md` }).click();
+      await page.getByTestId("markdown-editor").locator(".cm-content").click();
+      await page.keyboard.press("ControlOrMeta+End");
+      await page.keyboard.type(EDIT);
+      await expect(page.getByTestId("note-save")).toBeEnabled();
+      await page.waitForTimeout(1500);
+      expect(readFileSync(path.join(vault, `${title}.md`), "utf8")).not.toContain(EDIT);
+    };
+    await edit("改名前");
+    await page.getByRole("button", { name: "重命名", exact: true }).click();
+    await page.getByLabel("重命名").fill("改名后");
+    await page.getByRole("button", { name: "重命名", exact: true }).click();
+    await expect.poll(() => existsSync(path.join(vault, "改名后.md"))).toBe(true);
+    await expect.poll(() => readFileSync(path.join(vault, "改名后.md"), "utf8")).toContain(EDIT);
+    expect(existsSync(path.join(vault, "改名前.md"))).toBe(false);
+
+    await edit("回收站前");
+    await page.getByRole("button", { name: "移到回收站", exact: true }).click();
+    await expect.poll(() => trashed("回收站前.md")).toContain(EDIT);
+    expect(existsSync(path.join(vault, "回收站前.md"))).toBe(false);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("设置：时区改变后页面显示该时区的当前日期，非法时区被拒绝且不写入", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
