@@ -3,6 +3,7 @@ import { normalizeRelPath, parseFrontmatter, patchFrontmatter } from "@huhu/vaul
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
+import { AutoSync } from "./auto-sync.js";
 import { FileHistory, type HistoryEntry } from "./history.js";
 import { VaultGit } from "./repo.js";
 import { VaultSync } from "./sync.js";
@@ -103,10 +104,24 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     // 带 frontmatter 的文件，解决后必须仍能解析（语义文件的 kind 校验由各插件在读取时再次把关）
     validateResolved: (_p, text) => { if (text.startsWith("---")) parseFrontmatter(text); },
   });
-  const publishStatus = () => { const st = sync.status(); api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0 }); };
-  const Cfg = z.object({ remote: z.string(), branch: z.string(), mode: z.enum(["off", "follow", "full"]), exclude: z.array(z.string()) });
+  let publishStatus = () => {};
+  // 自动同步：按模式与间隔定时拉取/推送；认证失败或冲突后暂停，插件停用即停止
+  const auto = new AutoSync({
+    config: () => sync.config(),
+    run: (m) => sync.run(m),
+    hasConflict: () => sync.status().name === "conflict",
+    schedule: (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); },
+    onChange: () => publishStatus(),
+  });
+  publishStatus = () => {
+    const st = sync.status();
+    const paused = auto.state().pausedReason;
+    api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0, ...(paused ? { pausedReason: paused } : {}) });
+  };
+  ctx.effect(() => () => auto.stop());
+  const Cfg = z.object({ remote: z.string(), branch: z.string(), mode: z.enum(["off", "follow", "full"]), pullIntervalSec: z.number().int(), pushIntervalSec: z.number().int(), exclude: z.array(z.string()) });
   api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
-  api.defineCapability(def({ name: "sync.update", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: Cfg.partial(), output: Cfg, handler: (_c, i) => sync.update(i as never) }));
+  api.defineCapability(def({ name: "sync.update", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: Cfg.partial(), output: Cfg, handler: (_c, i) => { const next = sync.update(i as never); auto.restart(); return next; } }));
   api.defineCapability(def({
     name: "sync.preview", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, timeoutMs: 120_000, input: z.object({}),
     output: z.object({ push: z.array(z.string()), skipped: z.array(z.object({ path: z.string(), reason: z.string() })), pull: z.array(z.string()), ahead: z.number(), behind: z.number() }),
@@ -117,7 +132,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     output: z.object({ pulled: z.boolean(), pushed: z.boolean(), committed: z.boolean() }),
     handler: async (_c, i) => {
       try {
-        return await sync.run(i.mode);
+        const r = await sync.run(i.mode);
+        auto.restart(); // 手动同步成功：清除暂停与退避
+        return r;
+      } catch (e) {
+        auto.noteManualFailure(e);
+        throw e;
       } finally {
         publishStatus(); // 成功、冲突、离线、认证失败都发布真实状态
       }
@@ -142,7 +162,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     output: z.object({ commit: z.string(), pushed: z.boolean(), syncError: z.string().optional() }),
     handler: async (_c, i) => {
       try {
-        return await sync.resolveConflicts(i.sessionId, i.resolutions as never);
+        const r = await sync.resolveConflicts(i.sessionId, i.resolutions as never);
+        auto.restart();
+        return r;
       } finally {
         publishStatus();
       }
@@ -150,8 +172,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   }));
   api.defineCapability(def({
     name: "conflicts.cancel", plugin: "versioning", scope: "write", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ cancelled: z.boolean() }),
-    handler: async () => { const r = await sync.cancelConflicts(); publishStatus(); return r; },
+    handler: async () => { const r = await sync.cancelConflicts(); auto.restart(); publishStatus(); return r; },
   }));
-  api.defineCapability(def({ name: "sync.status", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ name: z.string(), detail: z.string() }), handler: () => sync.status() }));
+  api.defineCapability(def({ name: "sync.status", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ name: z.string(), detail: z.string(), pausedReason: z.enum(["conflict", "auth-failed"]).nullable() }), handler: () => ({ ...sync.status(), pausedReason: auto.state().pausedReason }) }));
+  auto.restart(); // 启动时按已保存的模式与间隔排程
   return { history };
 }

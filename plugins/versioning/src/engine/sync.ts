@@ -10,11 +10,14 @@ export interface SyncConfig {
   remote: string;
   branch: string;
   mode: "off" | "follow" | "full";
+  /** 自动同步的拉取/推送间隔（秒，30–3600）。 */
+  pullIntervalSec: number;
+  pushIntervalSec: number;
   /** 用户追加的排除规则（gitignore 子集：`*`、`**`、前缀目录 `dir/`、前导 `/`）。 */
   exclude: string[];
 }
 
-export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", exclude: [] };
+export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", pullIntervalSec: 30, pushIntervalSec: 60, exclude: [] };
 
 /** `.huhu/` 下默认纳入同步的路径（其余一律跳过：runtime/cache/ui/history/drafts/operations/claims 等）。 */
 const HUHU_INCLUDE = ["vault.json", "settings.json", "plugins.json", "notes/", "home/", "agent-cli/spaces/", "ssh/hosts/", "ssh/known_hosts", "automations/scripts.json", "safe/"]; // sync/config.json 含本机的远端与分支设置，不随同步传播（与规格偏离：两台设备各自配置，否则首次拉取会与本地未跟踪的同名文件冲突）
@@ -93,7 +96,10 @@ export class VaultSync {
 
   config(): SyncConfig {
     try {
-      return { ...DEFAULT_SYNC, ...(JSON.parse(readFileSync(this.cfgFile(), "utf8")) as Partial<SyncConfig>) };
+      const c = { ...DEFAULT_SYNC, ...(JSON.parse(readFileSync(this.cfgFile(), "utf8")) as Partial<SyncConfig>) };
+      // 手改文件写出的非法间隔回退默认值，避免调度器拿到 NaN
+      for (const k of ["pullIntervalSec", "pushIntervalSec"] as const) if (!Number.isInteger(c[k]) || c[k] < 30 || c[k] > 3600) c[k] = DEFAULT_SYNC[k];
+      return c;
     } catch {
       return { ...DEFAULT_SYNC };
     }
@@ -104,6 +110,13 @@ export class VaultSync {
     if (!["off", "follow", "full"].includes(next.mode)) throw errors.invalidInput("同步模式无效");
     if (next.remote && /^\s|\s$|[\0\n]/.test(next.remote)) throw errors.invalidInput("远端地址无效");
     if (next.remote.startsWith("-")) throw errors.invalidInput("远端地址不能以 - 开头");
+    // 凭据不能写进远端地址（配置文件、日志、错误信息都会带出来）：https://user:token@host 之类一律拒绝
+    // （http/https 的 userinfo 即便只有一段也多半是令牌，如 https://ghp_xxx@github.com/…；ssh://git@host 这类用户名是正常写法）
+    if (/^[a-z][a-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/i.test(next.remote) || /^https?:\/\/[^/]*@/i.test(next.remote)) throw errors.invalidInput("远端地址不能包含用户名密码或令牌");
+    for (const k of ["pullIntervalSec", "pushIntervalSec"] as const) {
+      const v = next[k];
+      if (!Number.isInteger(v) || v < 30 || v > 3600) throw errors.invalidInput("同步间隔需要在 30–3600 秒之间");
+    }
     if (!/^[A-Za-z0-9._/-]+$/.test(next.branch) || next.branch.startsWith("-")) throw errors.invalidInput("分支名无效");
     mkdirSync(path.dirname(this.cfgFile()), { recursive: true });
     writeFileSync(this.cfgFile(), JSON.stringify(next, null, 2));

@@ -95,6 +95,19 @@ describe("插件启停", () => {
   });
 });
 
+describe("同步状态事件", () => {
+  test("sync.statusChanged 让 sync.* 与 conflicts.* 失效（后台自动暂停/出现冲突时界面实时更新）", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(queryKey("v", "sync.status"), {});
+    qc.setQueryData(queryKey("v", "conflicts.list"), {});
+    qc.setQueryData(queryKey("v", "tasks.list"), []);
+    await invalidateForEvent(qc, "v", { type: "sync.statusChanged", payload: { status: "conflict", ahead: 0, behind: 0, conflicts: 1 } });
+    expect(qc.getQueryState(queryKey("v", "sync.status"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("v", "conflicts.list"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("v", "tasks.list"))?.isInvalidated).toBe(false);
+  });
+});
+
 describe("通知与自动化事件失效", () => {
   test("notification.created 让 notifications.* 失效；automation.activated 让 automations.* 失效", async () => {
     const qc = new QueryClient();

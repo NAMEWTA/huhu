@@ -4,36 +4,39 @@ import { useRef, useState } from "react";
 import { t } from "../i18n.js";
 import { useCall } from "../useCall.js";
 
-interface Cfg { remote: string; branch: string; mode: "off" | "follow" | "full"; exclude: string[] }
+interface Cfg { remote: string; branch: string; mode: "off" | "follow" | "full"; pullIntervalSec: number; pushIntervalSec: number; exclude: string[] }
 interface Preview { push: string[]; skipped: { path: string; reason: string }[]; pull: string[]; ahead: number; behind: number }
 interface RunResult { pulled: boolean; pushed: boolean; committed: boolean }
 
 export function SyncPage({ onResolve }: { onResolve: () => void }) {
   const cfg = useCapability<Cfg>("sync.get", {});
-  const status = useCapability<{ name: string; detail: string }>("sync.status", {});
+  const status = useCapability<{ name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }>("sync.status", {});
   if (cfg.isError) return <div role="alert" className="hu-overdue" data-testid="sync-load-error">{cfg.error instanceof Error ? cfg.error.message : String(cfg.error)}</div>;
   if (!cfg.data) return <p>…</p>;
   // 不能用配置值做 key：保存后配置变化会让表单重挂载，把“已保存”提示一并清掉
-  return <SyncForm cfg={cfg.data} status={status.data ?? { name: "unknown", detail: "" }} onResolve={onResolve} />;
+  return <SyncForm cfg={cfg.data} status={status.data ?? { name: "unknown", detail: "", pausedReason: null }} onResolve={onResolve} />;
 }
 
-function SyncForm({ cfg, status, onResolve }: { cfg: Cfg; status: { name: string; detail: string }; onResolve: () => void }) {
+function SyncForm({ cfg, status, onResolve }: { cfg: Cfg; status: { name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }; onResolve: () => void }) {
   const call = useCall();
   const remoteRef = useRef<HTMLInputElement>(null);
   const [remote, setRemote] = useState(cfg.remote);
   const [branch, setBranch] = useState(cfg.branch);
   const [mode, setMode] = useState(cfg.mode);
   const [exclude, setExclude] = useState(cfg.exclude.join("\n"));
+  const [pullSec, setPullSec] = useState(String(cfg.pullIntervalSec));
+  const [pushSec, setPushSec] = useState(String(cfg.pushIntervalSec));
+  const okSec = (v: string) => /^\d+$/.test(v) && Number(v) >= 30 && Number(v) <= 3600;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const configured = cfg.remote.trim() !== "";
-  const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n");
+  const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n") || pullSec !== String(cfg.pullIntervalSec) || pushSec !== String(cfg.pushIntervalSec);
   const conflictCount = status.name === "conflict" ? status.detail.split("、").filter(Boolean).length : 0;
 
   async function save() {
     setMsg(null);
-    const r = await call<Cfg>("sync.update", { remote: remote.trim(), branch: branch.trim(), mode, exclude: exclude.split("\n").map((l) => l.trim()).filter(Boolean) });
+    const r = await call<Cfg>("sync.update", { remote: remote.trim(), branch: branch.trim(), mode, pullIntervalSec: okSec(pullSec) ? Number(pullSec) : cfg.pullIntervalSec, pushIntervalSec: okSec(pushSec) ? Number(pushSec) : cfg.pushIntervalSec, exclude: exclude.split("\n").map((l) => l.trim()).filter(Boolean) });
     setMsg(r.ok ? { tone: "ok", text: t.sync.saved } : { tone: "error", text: r.message });
   }
 
@@ -76,9 +79,17 @@ function SyncForm({ cfg, status, onResolve }: { cfg: Cfg; status: { name: string
             ))}
           </div>
           <p className="hu-meta">{t.sync.modeNote}</p>
+          {mode !== "off" ? (
+            <div className="hu-row">
+              <label>{t.sync.pullEvery}<input className="hu-input" inputMode="numeric" data-testid="sync-pull-sec" aria-invalid={!okSec(pullSec)} value={pullSec} onChange={(e) => setPullSec(e.target.value)} /></label>
+              {mode === "full" ? <label>{t.sync.pushEvery}<input className="hu-input" inputMode="numeric" data-testid="sync-push-sec" aria-invalid={!okSec(pushSec)} value={pushSec} onChange={(e) => setPushSec(e.target.value)} /></label> : null}
+              <span className="hu-meta">{t.sync.intervalRange}</span>
+            </div>
+          ) : null}
+          {status.pausedReason ? <p role="status" className="hu-overdue" data-testid="sync-auto-paused">{t.sync.autoPaused[status.pausedReason]}</p> : null}
         </fieldset>
         <label>{t.sync.exclude}<textarea className="hu-input" data-testid="sync-exclude" rows={3} value={exclude} onChange={(e) => setExclude(e.target.value)} /></label>
-        <Button type="submit" variant="primary" disabled={!dirty || !remote.trim() || !branch.trim()} data-testid="sync-save">{t.sync.save}</Button>
+        <Button type="submit" variant="primary" disabled={!dirty || !remote.trim() || !branch.trim() || (mode !== "off" && !okSec(pullSec)) || (mode === "full" && !okSec(pushSec))} data-testid="sync-save">{t.sync.save}</Button>
       </form>
 
       <div className="hu-row" role="group" aria-label={t.nav.sync}>

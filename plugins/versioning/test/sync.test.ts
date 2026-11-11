@@ -156,4 +156,23 @@ describe("审计回归", () => {
     expect(tree).not.toContain("old.md");
     expect(tree).not.toContain("secret.md");
   });
+
+  test("配置校验：间隔 30–3600 整数；远端地址不能带用户名密码/令牌，但 ssh 用户名可以", async () => {
+    const { a } = await twoVaults();
+    expect(a.sync.update({ pullIntervalSec: 45, pushIntervalSec: 120 })).toMatchObject({ pullIntervalSec: 45, pushIntervalSec: 120 });
+    for (const bad of [29, 3601, 60.5, Number.NaN]) expect(() => a.sync.update({ pullIntervalSec: bad })).toThrow(/30–3600/);
+    expect(() => a.sync.update({ remote: "https://user:ghp_secret@github.com/x/y.git" })).toThrow(/用户名密码或令牌/);
+    expect(() => a.sync.update({ remote: "https://:ghp_secret@github.com/x/y.git" })).toThrow(/用户名密码或令牌/);
+    expect(() => a.sync.update({ remote: "https://ghp_onlytoken@github.com/x/y.git" })).toThrow(/用户名密码或令牌/); // 只有令牌的写法
+    expect(a.sync.update({ remote: "ssh://git@github.com/x/y.git" }).remote).toBe("ssh://git@github.com/x/y.git");
+    expect(a.sync.update({ remote: "git@github.com:x/y.git" }).remote).toBe("git@github.com:x/y.git");
+    expect(a.sync.config().pullIntervalSec).toBe(45); // 旧配置缺字段时用默认值，已有字段保留
+  });
+
+  test("配置文件里手改成非法间隔：读取时回退默认值", async () => {
+    const { a } = await twoVaults();
+    a.sync.update({ remote: a.sync.config().remote });
+    writeFileSync(path.join(a.root, ".huhu/sync/config.json"), JSON.stringify({ ...a.sync.config(), pullIntervalSec: "abc", pushIntervalSec: 5 }));
+    expect(a.sync.config()).toMatchObject({ pullIntervalSec: 30, pushIntervalSec: 60 });
+  });
 });

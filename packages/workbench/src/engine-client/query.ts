@@ -20,6 +20,7 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   else if (e.type === "task.completedChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.");
   else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");
+  else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
   else if (e.type === "notification.created") prefixes.push("notifications.");
   else if (e.type === "automation.activated" || e.type === "run.stateChanged") prefixes.push("automations.", "tasks.");
   if (prefixes.length === 0) return Promise.resolve();
