@@ -12,9 +12,19 @@ export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: nu
  * 关闭 WebSocket 只是 detach，进程继续运行（可从历史重新打开同一个终端）。
  */
 export function createTerminalBridge(d: { sessions: SessionsService; core: HerdrCore }): TerminalBridge {
-  return async (sessionId, ws, opts) => {
+  /** 每个会话同一时刻只有一个视图可以输入（ACC-AG-09）：后来的视图自动成为观察者，不能输入、不改变终端尺寸。 */
+  const controllers = new Map<string, WebSocket>();
+  return async (sessionId, ws, requested) => {
     const s = d.sessions.list().find((x) => x.id === sessionId);
     if (!s?.terminalId) return false;
+    const holder = controllers.get(sessionId);
+    const taken = holder !== undefined && holder.readyState === holder.OPEN;
+    const opts = { ...requested, observe: requested.observe || taken };
+    if (!opts.observe) controllers.set(sessionId, ws);
+    else if (!requested.observe && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "mode", mode: "observe" })); // 告诉客户端它被降级为观察者
+    ws.on("close", () => {
+      if (controllers.get(sessionId) === ws) controllers.delete(sessionId);
+    });
     // attach 是异步的：客户端可能在连上后立刻发送输入，先收进队列，attach 完成后再按序写入
     const queue: { data: Buffer; isBinary: boolean }[] = [];
     let term: Awaited<ReturnType<typeof attachTerminal>> | null = null;

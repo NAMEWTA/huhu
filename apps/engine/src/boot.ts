@@ -18,6 +18,7 @@ import {
   ExternalPlugins,
   GatewayTokens,
   registerHealthCapabilities,
+  type HealthCheck,
   registerNotificationAndSettings,
   readSettingsFile,
   HomeStore,
@@ -261,10 +262,22 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     vault: { readOnly: vault.readOnly, id: vault.id },
     watcherMode: () => watcher.mode,
     extra: async () => {
+      const out: HealthCheck[] = [];
+      // Herdr Core：Agent 终端的运行时依赖；不可用时给出“重启 Core”
+      const cli = plugins.isEnabled("agent-cli") ? getService<{ core: { ensure(): Promise<unknown>; status(): Promise<{ state: string; version: string | null; error?: string }> } }>("agentCli") : undefined;
+      if (cli) {
+        await cli.core.ensure().catch(() => undefined); // 诊断时按需拉起 Core（用户打开终端时也是这样）；拉不起来才报“需处理”
+        const st = await cli.core.status().catch((e: unknown) => ({ state: "unavailable", version: null, error: e instanceof Error ? e.message : String(e) }));
+        out.push(
+          st.state === "connected"
+            ? { id: "herdr", title: "Herdr Core", status: "ok", detail: `已连接${st.version ? ` · ${st.version}` : ""}` }
+            : { id: "herdr", title: "Herdr Core", status: "error", detail: st.error ?? "未启动或连接失败", action: { label: "重启 Core", target: "agent-cli", capability: "agent.core.restart" } },
+        );
+      }
       const safeStatus = plugins.isEnabled("safe") ? safeRef.current?.status() : undefined;
-      return safeStatus
-        ? [{ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" }]
-        : [];
+      if (safeStatus)
+        out.push({ id: "safe", title: "保险箱", status: safeStatus.corrupt ? "error" : "ok", detail: safeStatus.corrupt ? "keyring 文件损坏，保险箱不可用" : safeStatus.initialized ? (safeStatus.locked ? "已锁定" : "已解锁") : "尚未设置" });
+      return out;
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);

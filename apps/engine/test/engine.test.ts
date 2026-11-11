@@ -451,7 +451,10 @@ describe("Engine 启动与关闭", () => {
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     await call("tasks.list", {}); // 触发一次扫描，让文件问题登记
     const h = (await call("health.run", {})).data as { overall: string; checks: { id: string; status: string; detail: string }[] };
-    expect(h.overall).toBe("warning");
+    // 本测试环境没有 Herdr Core（未设 HUHU_HERDR_BIN）：该项应为“需处理”并带“重启 Core”（ACC-SY-02），其余项的总体状态是 warning
+    const herdr = h.checks.find((c) => c.id === "herdr") as { status: string; action?: { label: string; capability?: string } } | undefined;
+    if (!process.env["HUHU_HERDR_BIN"]) expect(herdr).toMatchObject({ status: "error", action: { label: "重启 Core", capability: "agent.core.restart" } });
+    expect(h.checks.filter((c) => c.id !== "herdr").some((c) => c.status === "error")).toBe(false);
     expect(h.checks.find((c) => c.id === "files")).toMatchObject({ status: "warning" });
     expect(h.checks.find((c) => c.id === "files")?.detail).toContain("bad.md");
     expect(h.checks.find((c) => c.id === "safe")).toMatchObject({ status: "ok", detail: "尚未设置" });

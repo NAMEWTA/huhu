@@ -581,6 +581,10 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
     await page.getByRole("button", { name: "工作台", exact: true }).first().click();
     await expect(page.getByTestId("card-open").locator("strong")).toContainText("1");
     await page.getByRole("button", { name: "健康中心" }).first().click();
+    // 未运行诊断前是“尚未检查”，所有项为“未检查”，不显示“正常”（ACC-SY-01）
+    await expect(page.getByTestId("health-overall")).toHaveText("尚未检查");
+    await expect(page.getByTestId("health-check").first()).toHaveAttribute("data-status", "unchecked");
+    await page.getByTestId("health-run").click();
     await expect(page.getByTestId("health-overall")).toHaveText("有需要留意的项目");
     await expect(page.getByTestId("health-check").filter({ hasText: "broken.md" })).toHaveAttribute("data-status", "warning");
   } finally {

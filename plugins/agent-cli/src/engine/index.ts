@@ -169,6 +169,22 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       handler: () => core.status(),
     }),
   );
+  api.defineCapability(
+    def({
+      name: "agent.core.restart",
+      plugin: "agent-cli",
+      scope: "execute",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({}),
+      output: z.object({ state: z.string(), version: z.string().nullable(), error: z.string().optional() }),
+      handler: async () => {
+        await core.stop();
+        await core.ensure().catch(() => undefined);
+        return core.status();
+      },
+    }),
+  );
   const Entry = z.object({ provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), cwd: z.string(), title: z.string(), updatedAt: z.string(), active: z.boolean() });
   const spaceOf = (id: string) => {
     const sp = spaces.list().find((x) => x.id === id);
@@ -300,7 +316,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       handler: (_c, i) => sessions.sendComments(i.sessionId, i.commentIds, i.dryRun),
     }),
   );
-  api.provide("agentCli", { spaces, detector });
+  api.provide("agentCli", { spaces, detector, core });
   api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core }));
   return { spaces, detector, sessions, core };
 }

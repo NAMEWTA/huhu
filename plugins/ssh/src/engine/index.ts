@@ -196,7 +196,10 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
     def({ name: "ssh.shells.close", plugin: "ssh", scope: "execute", ...desktop, input: z.object({ id: z.string() }), output: z.object({ closed: z.boolean() }), handler: (_c, i) => ({ closed: manager.closeShell(i.id) }) }),
   );
   // /ws/terminal/ssh-<id>：与 Agent 会话共用同一条终端路由
-  api.provide("terminalBridge:ssh", async (shellId: string, ws: import("ws").WebSocket, o: { cols: number; rows: number; observe: boolean }) => {
+  const controllers = new Map<string, import("ws").WebSocket>(); // 同一个 shell 只有一个视图可输入（ACC-AG-09）
+  api.provide("terminalBridge:ssh", async (shellId: string, ws: import("ws").WebSocket, req: { cols: number; rows: number; observe: boolean }) => {
+    const holder = controllers.get(shellId);
+    const o = { ...req, observe: req.observe || (holder !== undefined && holder.readyState === holder.OPEN) };
     const att = manager.attachShell(shellId, {
       onData: (b) => {
         if (ws.readyState === ws.OPEN) ws.send(b, { binary: true });
@@ -209,6 +212,11 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
       },
     });
     if (!att) return false;
+    if (!o.observe) controllers.set(shellId, ws);
+    else if (!req.observe && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "mode", mode: "observe" }));
+    ws.on("close", () => {
+      if (controllers.get(shellId) === ws) controllers.delete(shellId);
+    });
     if (!o.observe) att.resize(o.cols, o.rows); // 观察者不能改变 PTY 尺寸
     ws.on("error", () => undefined);
     ws.on("message", (data, isBinary) => {

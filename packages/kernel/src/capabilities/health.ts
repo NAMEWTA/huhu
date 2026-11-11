@@ -21,10 +21,10 @@ export interface HealthCheck {
   status: "ok" | "warning" | "error";
   detail: string;
   /** 界面可直接渲染的修复入口。 */
-  action?: { label: string; target: string };
+  action?: { label: string; target: string; /** 有值时界面直接调用这个能力（如“重启 Core”），而不是跳转模块 */ capability?: string };
 }
 
-const CheckDto = z.object({ id: z.string(), title: z.string(), status: z.enum(["ok", "warning", "error"]), detail: z.string(), action: z.object({ label: z.string(), target: z.string() }).optional() });
+const CheckDto = z.object({ id: z.string(), title: z.string(), status: z.enum(["ok", "warning", "error"]), detail: z.string(), action: z.object({ label: z.string(), target: z.string(), capability: z.string().optional() }).optional() });
 
 /** 健康检查：只读，汇总各子系统的真实状态。 */
 export async function runHealth(d: HealthDeps): Promise<{ overall: "ok" | "warning" | "error"; checks: HealthCheck[] }> {

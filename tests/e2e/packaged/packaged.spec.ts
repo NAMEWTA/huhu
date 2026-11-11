@@ -1,5 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -79,6 +80,21 @@ test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，C
     expect(sess.ok, JSON.stringify(sess)).toBe(true);
     await expect.poll(async () => (await s.call("agent.core.status", {})).data?.state, { timeout: 15_000 }).toBe("connected");
     await s.call("agent.sessions.kill", { id: sess.data.id });
+  } finally {
+    await s.stop();
+  }
+});
+
+test("打包后：随包命令行 huhu --version 与应用版本一致，huhu call vault.info 返回 ok", async () => {
+  const s = await start();
+  try {
+    const bin = path.join(path.dirname(EXE!), "resources", "bin", process.platform === "win32" ? "huhu.cmd" : "huhu");
+    expect(existsSync(bin)).toBe(true);
+    const info = await s.page.evaluate(() => window.huhuHost.appInfo());
+    const version = execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 30_000 }).trim();
+    expect(version).toBe(info.version);
+    const out = execFileSync(bin, ["call", "vault.info", "--vault", s.vault, "--json"], { encoding: "utf8", timeout: 30_000 });
+    expect(JSON.parse(out).ok).toBe(true);
   } finally {
     await s.stop();
   }

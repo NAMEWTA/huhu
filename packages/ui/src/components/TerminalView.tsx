@@ -19,6 +19,7 @@ export interface TerminalViewProps {
 export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
+  const [demoted, setDemoted] = useState(false); // 另一个视图正在输入：本视图被服务端降级为观察者
   const exit = useRef(onExit);
   exit.current = onExit;
 
@@ -36,12 +37,17 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     const ws = new WebSocket(url.toString(), [`bearer.${token}`]);
     ws.binaryType = "arraybuffer";
     let ended = false;
+    let observing = observe;
+    setDemoted(false);
     ws.onopen = () => setState("open");
     ws.onmessage = (m) => {
       if (typeof m.data === "string") {
         try {
-          const msg = JSON.parse(m.data) as { type?: string; reason?: { reason?: string; exit_code?: number | null } | null };
-          if (msg.type === "closed") {
+          const msg = JSON.parse(m.data) as { type?: string; mode?: string; reason?: { reason?: string; exit_code?: number | null } | null };
+          if (msg.type === "mode" && msg.mode === "observe") {
+            observing = true;
+            setDemoted(true);
+          } else if (msg.type === "closed") {
             ended = true;
             setState("ended");
             exit.current?.(msg.reason?.reason ?? "exited");
@@ -59,10 +65,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     };
     const enc = new TextEncoder();
     const inputSub = term.onData((d) => {
-      if (!observe && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
+      if (!observing && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      if (!observing && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
     });
     const ro = new ResizeObserver(() => {
       try {
@@ -84,6 +90,11 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   return (
     <div className="hu-terminal-wrap" data-testid="terminal-view" data-state={state}>
       <div ref={host} className="hu-terminal" role="application" aria-label={ariaLabel} />
+      {observe || demoted ? (
+        <div className="hu-terminal-overlay" data-testid="terminal-observer" style={{ inset: "auto 8px 8px auto", padding: "2px 8px", pointerEvents: "none" }}>
+          观察模式 · 不能输入
+        </div>
+      ) : null}
       {state === "ended" ? <div className="hu-terminal-overlay">程序已结束</div> : state === "lost" ? <div className="hu-terminal-overlay">连接已断开</div> : null}
     </div>
   );

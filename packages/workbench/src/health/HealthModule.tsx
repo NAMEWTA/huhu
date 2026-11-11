@@ -12,7 +12,7 @@ interface Check {
   title: string;
   status: "ok" | "warning" | "error";
   detail: string;
-  action?: { label: string; target: string };
+  action?: { label: string; target: string; capability?: string };
 }
 interface Run {
   overall: "ok" | "warning" | "error";
@@ -35,17 +35,19 @@ interface Notice {
 
 const TITLE = { all: "健康中心", logs: "事件日志", notifications: "通知中心" } as Record<string, string>;
 const STATE = { ok: "success", warning: "warning", error: "danger" } as const;
+const UNCHECKED = ["插件", "文件", "索引", "文件监听", "Herdr Core", "保险箱"];
 const STATE_TEXT = { ok: "正常", warning: "需留意", error: "需处理" } as const;
 
 /** 健康中心（原型 Health）：系统状态（诊断）/ 事件日志 / 通知中心。 */
 export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiState> }) {
   const engine = useEngine();
   const qc = useQueryClient();
-  const run = useCapability<Run>("health.run", {});
+  // 诊断只在用户点“运行诊断”时执行：打开页面时是“尚未检查”，不显示“正常”（ACC-SY-01）
+  const [result, setResult] = useState<Run | null>(null);
+  const [state, setState] = useState<"idle" | "running" | "done" | "cancelled">("idle");
   const [query, setQuery] = useState("");
-  const [running, setRunning] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const token = useRef(0);
+  const running = state === "running";
   const events = useCapability<{ events: EventRow[]; modules: string[] }>("health.events", { limit: 500, ...(query ? { query } : {}) });
   const notices = useCapability<Notice[]>("notifications.list", {});
   const plugins = useCapability<{ id: string; state: string }[]>("plugins.list", {});
@@ -55,25 +57,37 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const fmt = (iso: string) => new Date(iso).toLocaleString("zh-CN", { timeZone: zone });
   const unread = (notices.data ?? []).filter((n) => !n.read).length;
-  const overall = run.data?.overall ?? "ok";
+  const overall = result?.overall;
 
   function runDiagnostics() {
     if (running) {
-      if (timer.current) clearTimeout(timer.current);
-      setRunning(false);
+      // 取消：在途结果丢弃，之前的结果也不再标为当前（ACC-SY-03）
+      token.current += 1;
+      setResult(null);
+      setState("cancelled");
       return;
     }
-    setRunning(true);
-    void refresh("health.run").finally(() => {
-      timer.current = setTimeout(() => {
-        setRunning(false);
-        setChecked(true);
-      }, 300);
-    });
+    const mine = ++token.current;
+    setState("running");
+    void engine
+      .call<Run>("health.run", {})
+      .then((r) => {
+        if (token.current !== mine) return;
+        setResult(r);
+        setState("done");
+      })
+      .catch(() => {
+        if (token.current === mine) setState("idle");
+      });
+  }
+  async function runAction(a: { label: string; target: string; capability?: string }) {
+    if (!a.capability) return ui.getState().openModule(a.target);
+    await call(a.capability, {}).catch(() => undefined);
+    runDiagnostics();
   }
   function exportDiagnostics() {
     // 诊断包只含版本、模块状态和事件记录，不含凭据值或笔记正文
-    const body = JSON.stringify({ time: new Date().toISOString(), vault: vault.data, plugins: plugins.data, events: events.data?.events, checks: run.data?.checks }, null, 2);
+    const body = JSON.stringify({ time: new Date().toISOString(), vault: vault.data, plugins: plugins.data, events: events.data?.events, checks: result?.checks }, null, 2);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
     a.download = "HUHU-Diagnostics.json";
@@ -173,13 +187,27 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                   <HeartPulse size={36} aria-hidden />
                 </div>
                 <div>
-                  <h1 data-testid="health-overall">{running ? "正在检查Vault…" : tHome.health.overall[overall]}</h1>
-                  <p>{checked ? "检查已完成。" : "本地数据与应用能力可用。你可以运行诊断获取检查结果。"}</p>
+                  <h1 data-testid="health-overall">{running ? "正在检查Vault…" : state === "cancelled" ? "已取消" : overall ? tHome.health.overall[overall] : "尚未检查"}</h1>
+                  <p>{state === "done" ? "检查已完成。" : state === "cancelled" ? "检查已取消，之前的结果不再有效。" : "还没有运行过诊断；运行后这里显示每一项的真实状态。"}</p>
                 </div>
-                <Badge tone={running ? "warning" : overall === "error" ? "danger" : overall === "warning" ? "warning" : "success"}>{running ? "检查中" : "LOCAL READY"}</Badge>
+                <Badge tone={running ? "warning" : overall === "error" ? "danger" : overall === "warning" ? "warning" : overall ? "success" : "neutral"}>{running ? "检查中" : overall ? "LOCAL READY" : "未检查"}</Badge>
               </div>
               <section className="card system-section">
-                {(run.data?.checks ?? []).map((c) => (
+                {result === null
+                  ? UNCHECKED.map((title) => (
+                      <div className="health-check" key={title} data-testid="health-check" data-status="unchecked">
+                        <span className="health-check-icon">
+                          <HeartPulse size={20} aria-hidden />
+                        </span>
+                        <div className="grow">
+                          <h3>{title}</h3>
+                          <p>尚未检查</p>
+                        </div>
+                        <Badge>未检查</Badge>
+                      </div>
+                    ))
+                  : null}
+                {(result?.checks ?? []).map((c) => (
                   <div className="health-check" key={c.id} data-testid="health-check" data-status={c.status}>
                     <span className={`health-check-icon ${c.status === "ok" ? "success" : STATE[c.status]}`}>{c.status === "ok" ? <CheckCircle2 size={20} aria-hidden /> : <AlertTriangle size={20} aria-hidden />}</span>
                     <div className="grow">
@@ -188,7 +216,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                     </div>
                     <Badge tone={STATE[c.status]}>{STATE_TEXT[c.status]}</Badge>
                     {c.action ? (
-                      <Button variant="ghost" onClick={() => ui.getState().openModule(c.action!.target)}>
+                      <Button variant="ghost" onClick={() => void runAction(c.action!)}>
                         {c.action.label} <ChevronRight size={14} aria-hidden />
                       </Button>
                     ) : null}
