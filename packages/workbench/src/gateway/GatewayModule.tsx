@@ -187,7 +187,23 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   return (
     <div className="module-layout" data-testid="gateway-module">
       <div className="view-content interfaces-view">
-        <PageHead eyebrow="ONE CAPABILITY, EVERYWHERE" title={TITLE[section] ?? TITLE["mcp"]!} description="统一注册、统一鉴权、统一应用服务。任何客户端都可以调用，无需绑定大模型。" />
+        <PageHead
+          eyebrow="ONE CAPABILITY, EVERYWHERE"
+          title={TITLE[section] ?? TITLE["mcp"]!}
+          description="统一注册、统一鉴权、统一应用服务。任何客户端都可以调用，无需绑定大模型。"
+          actions={
+            <Button
+              icon={Command}
+              data-testid="gateway-guide"
+              onClick={() => {
+                ui.getState().setSection("settings", "agent-access");
+                ui.getState().openModule("settings");
+              }}
+            >
+              HUHU 使用指南
+            </Button>
+          }
+        />
         <div className="system-scroll scroll">
           {error ? (
             <div role="alert" className="callout danger">

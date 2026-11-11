@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld("huhuHost", {
   cliUninstall: (): Promise<unknown> => ipcRenderer.invoke("huhu:cliUninstall"),
   notices: (): Promise<string> => ipcRenderer.invoke("huhu:notices"),
   restartEngine: (): Promise<void> => ipcRenderer.invoke("huhu:restartEngine"),
+  /** 应用退出前主进程会请求界面把未落盘的编辑写出去；回调完成后回 ack。 */
+  onFlush: (cb: () => Promise<void>): void => {
+    ipcRenderer.on("huhu:flush", () => {
+      void cb()
+        .catch(() => undefined)
+        .finally(() => ipcRenderer.send("huhu:flushed"));
+    });
+  },
   onEngineState: (cb: (s: EngineState) => void): (() => void) => {
     const handler = (_e: unknown, s: EngineState) => cb(s);
     ipcRenderer.on("huhu:engineState", handler);

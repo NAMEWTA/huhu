@@ -9,7 +9,11 @@ import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, rememb
 let supervisor: EngineSupervisor | null = null;
 
 /** 启动时的 Vault：只有 HUHU_VAULT（自动化测试 / 命令行启动）会跳过启动页；正常使用由用户在启动页选择。 */
-const startupVault = (): string | null => process.env["HUHU_VAULT"] ?? null;
+const startupVault = (): string | null => {
+  const v = process.env["HUHU_VAULT"];
+  // 路径必须已存在：环境里残留一个写错的路径不会静默建出一个空 Vault（要新建请走启动页）
+  return v && existsSync(v) ? v : null;
+};
 
 /** 构建时写入的 build-info.json（提交、构建时间）；开发态没有就为空。 */
 function readBuildInfo(): { commit?: string; builtAt?: string } {
@@ -282,7 +286,20 @@ if (!gotLock) {
     if (quitting || !supervisor) return;
     e.preventDefault();
     quitting = true;
-    void supervisor.stop().finally(() => app.quit());
+    // 先让界面把还在防抖窗口里的编辑写出去（自动保存 / 草稿），再停 Engine；最多等 3 秒
+    const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+    const flushed =
+      wins.length === 0
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 3000);
+            ipcMain.once("huhu:flushed", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+            for (const w of wins) w.webContents.send("huhu:flush");
+          });
+    void flushed.finally(() => supervisor?.stop().finally(() => app.quit()));
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

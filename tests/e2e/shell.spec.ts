@@ -318,6 +318,29 @@ test("大文件（ACC-KN-10）：50 MiB 日志在文件树中只显示元信息�
   }
 });
 
+test("Agent CLI：新建 Space 指向 Vault 外目录，只写 .huhu/agent-cli/spaces/，不启动任何进程（ACC-AG-01）", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const outside = mkdtempSync(path.join(tmpdir(), "huhu-space-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await page.getByTestId("space-new").click();
+    await page.getByLabel("Space 名称").fill("外部项目");
+    await page.getByLabel("工作目录").fill(outside);
+    await page.getByTestId("space-save").click();
+    await expect(page.getByRole("button", { name: /外部项目/ })).toBeVisible();
+    const dir = path.join(vault, ".huhu/agent-cli/spaces");
+    await expect.poll(() => readdirSync(dir).length).toBeGreaterThanOrEqual(2); // 默认 Space + 新建的
+    expect(readdirSync(outside)).toEqual([]); // 不在目录里写任何东西
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

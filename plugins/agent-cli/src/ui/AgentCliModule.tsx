@@ -1,6 +1,6 @@
-import { Badge, Button, EmptyState, TerminalView } from "@huhu/ui";
+import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
 import { ChevronDown, Folder, FolderOpen, History, Plus } from "lucide-react";
-import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
@@ -37,6 +37,8 @@ export function AgentCliModule() {
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  const [spaceForm, setSpaceForm] = useState<{ name: string; folder: string } | null>(null);
+  const [spaceError, setSpaceError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(true); // 原型：会话历史在桌面宽度下常驻右侧
   const [showReview, setShowReview] = useState(false);
   const [layout, setLayoutState] = useState<Layout>(() => {
@@ -101,6 +103,7 @@ export function AgentCliModule() {
       <aside className="v9-spaces" aria-label={t.spaces}>
         <div className="v9-sidebar-head">
           <span>Spaces</span>
+          <IconButton icon={Plus} label="新建 Space" onClick={() => setSpaceForm({ name: "", folder: "" })} />
         </div>
         <div className="v9-vault-caption">
           <Folder size={13} aria-hidden /> {t.spaces}
@@ -128,6 +131,10 @@ export function AgentCliModule() {
             </button>
           ))}
         </div>
+        <button type="button" className="v9-create-space" data-testid="space-new" onClick={() => setSpaceForm({ name: "", folder: "" })}>
+          <Plus size={14} aria-hidden />
+          新建 Space
+        </button>
         <div className="v9-core-note" data-testid="core-status">
           <span className="status-dot" />
           {t.coreStatus} · {core.data?.state === "connected" ? `${core.data.version} ${t.connected}` : t.unavailable}
@@ -275,6 +282,64 @@ export function AgentCliModule() {
           <span>关闭标签只分离视图 · 会话记录保留</span>
         </footer>
       </section>
+      {spaceForm ? (
+        <Dialog
+          open
+          title="新建 Space"
+          description="为 Agent CLI 选择工作目录。这里不会创建或删除磁盘文件。"
+          error={spaceError}
+          testId="space-dialog"
+          onClose={() => (setSpaceForm(null), setSpaceError(null))}
+          actions={
+            <>
+              <Button onClick={() => (setSpaceForm(null), setSpaceError(null))}>取消</Button>
+              <Button
+                variant="primary"
+                icon={Plus}
+                disabled={!spaceForm.name.trim() || !spaceForm.folder.trim()}
+                data-testid="space-save"
+                onClick={() =>
+                  void (async () => {
+                    setSpaceError(null);
+                    try {
+                      const created = await engine.call<Space>("agent.spaces.save", { name: spaceForm.name.trim(), root: spaceForm.folder.trim() }, { write: true });
+                      setSpaceForm(null);
+                      setSpaceId(created.id);
+                      setActive(null);
+                      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
+                    } catch (e) {
+                      setSpaceError(e instanceof CapabilityError || e instanceof Error ? e.message : String(e));
+                    }
+                  })()
+                }
+              >
+                创建 Space
+              </Button>
+            </>
+          }
+        >
+          <Field label="Space 名称">
+            <input aria-label="Space 名称" autoFocus value={spaceForm.name} placeholder="例如：HUHU 开发" onChange={(e) => setSpaceForm({ ...spaceForm, name: e.target.value })} />
+          </Field>
+          <Field label="工作目录">
+            <div className="row">
+              <input aria-label="工作目录" className="grow" value={spaceForm.folder} placeholder="/home/you/projects/huhu" onChange={(e) => setSpaceForm({ ...spaceForm, folder: e.target.value })} />
+              {host()?.pickOpenPath ? (
+                <Button
+                  onClick={() =>
+                    void host()
+                      ?.pickOpenPath("directory")
+                      .then((p) => p && setSpaceForm({ ...spaceForm, folder: p, name: spaceForm.name || (p.split(/[\\/]/).filter(Boolean).at(-1) ?? "") }))
+                  }
+                >
+                  选择…
+                </Button>
+              ) : null}
+            </div>
+          </Field>
+          <p className="hint-text">当前 Space 新建的每个 CLI 都使用这个目录。</p>
+        </Dialog>
+      ) : null}
       {showHistory && space ? (
         <aside className="v9-history" aria-label="当前 Space 会话历史">
           <HistoryPanel

@@ -124,9 +124,16 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
           title={TITLE[section] ?? "插件中心"}
           description="内置功能随应用交付，外部扩展独立管理。两类插件均使用统一的权限与生命周期。"
           actions={
-            <Button icon={RefreshCw} onClick={() => void refresh()}>
-              刷新
-            </Button>
+            <>
+              <Button icon={RefreshCw} onClick={() => void refresh()}>
+                刷新
+              </Button>
+              {section !== "discover" ? (
+                <Button variant="primary" icon={PackageOpen} data-testid="plugin-discover-open" onClick={() => onSection("discover")}>
+                  发现插件
+                </Button>
+              ) : null}
+            </>
           }
         />
         <div className="system-scroll scroll">

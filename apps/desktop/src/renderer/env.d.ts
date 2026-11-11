@@ -15,6 +15,7 @@ declare global {
       engine(): Promise<{ baseUrl: string; token: string; vaultId: string }>;
       engineState(): Promise<EngineState>;
       restartEngine(): Promise<void>;
+      onFlush(cb: () => Promise<void>): void;
       onEngineState(cb: (s: EngineState) => void): () => void;
     };
   }

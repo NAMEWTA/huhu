@@ -34,3 +34,6 @@
 | D-28 | 首版界面语言只提供简体中文；文案集中在 `packages/workbench/src/i18n/zh-CN.ts`，用 i18next 读取 | 原型全中文；集中文案避免散落 | 首版多语言 |
 | D-29 | 外部 Agent 指南固定为 Vault 内三份文件 `.agents/skills/huhu/{SKILL.md,references/cli.md,references/mcp.md}`，由 agent-guide 插件维护 | 原型 `builtin-guide-model.js` 与示例 Vault 已如此 | 独立 Skill 管理模块 |
 | D-30 | Agent CLI 可视变更审查保留为会话详情中的按需面板：展示 Space 工作树的 Git 差异与审查意见，意见经同一会话输入发送 | 原型 `agent-cli-review.jsx` 定义了审查流程（当前未接线），产品需要它让 Agent 改动可审查 | 删除审查能力 |
+| D-31 | UI 层不采用 Tailwind 4 + shadcn（取代 D-17 中的这一部分）：原型 CSS 原样放入 `packages/ui/src/styles/proto/`（按原型的导入顺序，字体内联），`components.css` 只补原型缺失的类；交互组件用 Radix 与手写的薄封装（`@huhu/ui`）。其余依赖（lucide-react、sonner、@tanstack/react-query、zustand、diff 等）仍按 D-17 | 用户要求逻辑、排版、间距、像素、配色必须与原型一致；原型样式就是规格，改写成 Tailwind 工具类会引入像素偏差并丢失原型的层叠顺序 | 逐个用 Tailwind 重写（像素对照成本高、易偏） |
+| D-32 | 当前版本号为 0.0.1（取代 release.md §2 中“首版为 1.0.0”的设定）；版本单一来源仍是根 `package.json`，`scripts/sync-version.mjs --check` 进 CI | 用户的目标明确为“可正式 release 0.0.1 版本” | 1.0.0 |
+| D-33 | 应用退出前由 Main 请求界面落盘（最多等 3 秒）：自动保存模式写文件，手动保存模式留草稿；`HUHU_VAULT` 只在路径已存在时才跳过启动页 | 防抖窗口内的编辑不能因退出丢失；环境里残留的错误路径不应静默建出空 Vault | 直接停 Engine |

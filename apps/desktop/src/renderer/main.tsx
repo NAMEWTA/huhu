@@ -19,6 +19,7 @@ import {
   HealthModule,
   HomeModule,
   CommandPalette,
+  runFlushers,
   LaunchPage,
   type VaultHostState,
   QuickCapture,
@@ -242,6 +243,7 @@ function Root() {
   const [vault, setVault] = useState<VaultHostState | null>(null);
   useEffect(() => {
     applyAppearance(document.documentElement, { theme: "pearl", mode: "system" }, window.matchMedia("(prefers-color-scheme: dark)").matches);
+    window.huhuHost.onFlush(runFlushers);
     void window.huhuHost.vault.state().then(setVault);
   }, []);
   if (!vault) return null;

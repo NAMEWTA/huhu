@@ -1,6 +1,6 @@
 import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
 import { Banner, Button, IconButton, Segmented } from "@huhu/ui";
-import { CapabilityError, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, queryKey, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
 import { diff3Merge } from "node-diff3";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -161,6 +161,17 @@ export function NoteDocument(props: NoteDocumentProps) {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在卸载时运行；path / engine 在这个实例的生命周期内不变（NotesModule 以 path 作 key）
     [],
+  );
+  // 应用退出前：自动保存模式落盘，手动模式留草稿（与离开笔记时一致）
+  useEffect(
+    () =>
+      registerFlusher(async () => {
+        if (timer.current) clearTimeout(timer.current);
+        if (savedText.current === null || latest.current.text === savedText.current) return;
+        if (autosaveRef.current) await saveRef.current?.();
+        else await engine.call("notes.draft.save", { path, text: latest.current.text, baseVersion: latest.current.version }, { write: true });
+      }),
+    [engine, path],
   );
   const flush = useCallback(async (): Promise<boolean> => {
     if (timer.current) clearTimeout(timer.current);

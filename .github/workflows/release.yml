@@ -50,7 +50,7 @@ jobs:
         run: |
           exe="$(find apps/desktop/release/linux-unpacked -maxdepth 1 -type f -iname 'huhu' | head -1)"
           test -n "$exe"
-          HUHU_HERDR_BIN="$PWD/apps/desktop/resources/herdr/${{ matrix.target }}/herdr-core" HUHU_PACKAGED_EXE="$PWD/$exe" xvfb-run -a pnpm e2e:packaged
+          HUHU_PACKAGED_EXE="$PWD/$exe" xvfb-run -a pnpm e2e:packaged # 不设 HUHU_HERDR_BIN：必须用随包的 Herdr Core
       - name: 打包后 E2E 子集（macOS）
         if: runner.os == 'macOS'
         run: HUHU_PACKAGED_EXE="$PWD/apps/desktop/release/mac-arm64/HUHU.app/Contents/MacOS/HUHU" pnpm e2e:packaged

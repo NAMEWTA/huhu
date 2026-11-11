@@ -1,7 +1,7 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -15,7 +15,10 @@ test.skip(!EXE, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
 
 async function start(): Promise<{ app: ElectronApplication; page: Page; vault: string; call(cap: string, input?: unknown): Promise<any>; stop(): Promise<void> }> {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
-  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  // 不传 HUHU_HERDR_BIN：必须用随包的 Herdr Core，而不是源码树里的那份
+  const env = { ...process.env, HUHU_VAULT: vault } as Record<string, string>;
+  delete env["HUHU_HERDR_BIN"];
+  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox"], env });
   const page = await app.firstWindow();
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
   const ep = await page.evaluate(() => window.huhuHost.engine());
@@ -37,7 +40,29 @@ async function start(): Promise<{ app: ElectronApplication; page: Page; vault: s
     vault,
     call,
     stop: async () => {
+      // 退出后 Engine 进程必须在 10 秒内消失（Herdr Core 允许保留）
+      const runtime = path.join(vault, ".huhu", "runtime");
+      let pid = 0;
+      try {
+        const d = readdirSync(runtime)[0];
+        if (d) pid = Number(readFileSync(path.join(runtime, d, "engine.json"), "utf8").match(/"pid":(\d+)/)?.[1]);
+      } catch {
+        // 没有端点描述：Engine 已自行清理
+      }
       await app.close();
+      if (pid > 0) {
+        const deadline = Date.now() + 10_000;
+        const alive = () => {
+          try {
+            process.kill(pid, 0);
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
+        expect(alive(), "Engine 进程在退出后 10 秒内仍存在").toBe(false);
+      }
       rmSync(vault, { recursive: true, force: true });
     },
   };
