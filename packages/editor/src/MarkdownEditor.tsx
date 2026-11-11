@@ -263,6 +263,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   const active = useRef<DocRecord | null>(null);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(false);
+  const emitted = useRef<string | null>(null);
   const latest = useRef(props);
   latest.current = props;
 
@@ -355,7 +356,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         }),
         EditorView.updateListener.of((update) => {
           record.state = update.state;
-          if (update.docChanged && !update.transactions.some((tr) => tr.annotation(externalUpdate))) latest.current.onChange(update.state.doc.toString(), record.id);
+          if (update.docChanged && !update.transactions.some((tr) => tr.annotation(externalUpdate))) {
+            const out = update.state.doc.toString();
+            emitted.current = out; // 记住刚交给父组件的文本：它回传同一个值时不必再做整份文档的比较
+            latest.current.onChange(out, record.id);
+          }
           if (update.docChanged || update.selectionSet || update.transactions.some((tr) => tr.reconfigured)) status(update.view);
         }),
       ],
@@ -416,6 +421,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   useLayoutEffect(() => {
     const view = viewRef.current;
     if (!view || active.current?.id !== documentId) return;
+    if (value === emitted.current) return; // 这就是编辑器自己刚发出的文本：文档已是最新，省掉每次按键 O(文档大小) 的 toString + 比较
     const before = view.state.doc.toString();
     if (before !== value) view.dispatch({ changes: sourceChange(before, value), annotations: [externalUpdate.of(true), Transaction.addToHistory.of(false)] });
   }, [documentId, value]);

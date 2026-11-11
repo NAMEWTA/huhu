@@ -3,7 +3,7 @@ import { Banner, Button, IconButton, Segmented } from "@huhu/ui";
 import { CapabilityError, queryKey, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
 import { diff3Merge } from "node-diff3";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
 
@@ -43,11 +43,26 @@ export function NoteDocument(props: NoteDocumentProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [text, setText] = useState<string | null>(null);
+  const deferredText = useDeferredValue(text);
+  // 字数 / 行数：对延后的文本单遍统计（5,000 行文档每次按键都做正则 + split 会占掉输入延迟预算）
+  const stats = useMemo(() => {
+    const t = deferredText ?? "";
+    let chars = 0;
+    let lines = 1;
+    for (let i = 0; i < t.length; i++) {
+      const c = t.charCodeAt(i);
+      if (c === 10) lines++;
+      if (c !== 32 && c !== 10 && c !== 13 && c !== 9) chars++;
+    }
+    return { chars, lines };
+  }, [deferredText]);
+
   const [state, setState] = useState<SaveState>("saved");
   const [mode, setMode] = useState<EditorMode>("live");
   const [status, setStatus] = useState<EditorStatus | null>(null);
   const [sync, setSync] = useState(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ text: "", version: "" });
   const savedText = useRef<string | null>(null); // 最近一次已落盘的内容；离开时据此判断是否有未保存的编辑
   const editor = useRef<MarkdownEditorHandle>(null);
@@ -224,7 +239,9 @@ export function NoteDocument(props: NoteDocumentProps) {
     if (text === null || next === latest.current.text) return;
     latest.current.text = next;
     setText(next);
-    onText(next);
+    // 大纲 / 属性面板用的全文：按键路径上不同步给父组件（会让整个笔记模块重渲染），停手 300 ms 后再给
+    if (textTimer.current) clearTimeout(textTimer.current);
+    textTimer.current = setTimeout(() => onText(next), 300);
     setState("dirty");
     if (timer.current) clearTimeout(timer.current);
     if (ed?.autosave !== false) timer.current = setTimeout(() => void save(), AUTOSAVE_MS); // 关闭自动保存：只在 Mod+S 或点“保存”时写入
@@ -238,7 +255,6 @@ export function NoteDocument(props: NoteDocumentProps) {
   if (text === null) return <p>{t.loading}</p>;
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   const filename = path.split("/").at(-1) ?? path;
-  const plain = text.replace(/\s/g, "");
   const edit = (before: string, after = "", ph?: string) => editor.current?.insert(before, after, ph);
   const split = mode === "split";
   const showSource = mode !== "preview";
@@ -406,8 +422,8 @@ export function NoteDocument(props: NoteDocumentProps) {
       <div className="knowledge-document-status">
         <span className={`knowledge-save-dot${state === "saved" ? "" : " unsaved"}`} />
         <span data-testid="save-state">{state === "saved" ? n.status.saved : state === "saving" ? n.status.saving : state === "conflict" ? n.status.conflict : n.status.dirty}</span>
-        <span>{n.words(plain.length)}</span>
-        <span>{n.lines(text.split("\n").length)}</span>
+        <span>{n.words(stats.chars)}</span>
+        <span>{n.lines(stats.lines)}</span>
         <span className="grow" />
         <span className="huhu-editor-position">{status ? n.position(status.line, status.column, status.selected) : ""}</span>
         <span>UTF-8</span>
