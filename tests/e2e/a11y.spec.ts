@@ -7,6 +7,7 @@ const MODULES = ["工作台", "任务", "知识库", "收件箱", "档案", "保
 
 /** Electron 窗口不支持 @axe-core/playwright（它要新建页面）：直接把 axe-core 注入当前页面运行。 */
 async function violations(page: Page): Promise<string[]> {
+  await page.waitForTimeout(700); // 等入场动画结束：半透明过渡中的文字会被算成对比度不足（偶发误报）
   await page.evaluate(axe.source);
   const found = await page.evaluate(async () => {
     const run = (window as unknown as { axe: { run(ctx: Document, opts: unknown): Promise<{ violations: { id: string; impact: string | null; nodes: { target: unknown[]; html: string; any: { message: string }[] }[] }[] }> } }).axe.run;

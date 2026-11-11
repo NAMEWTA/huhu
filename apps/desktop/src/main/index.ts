@@ -308,6 +308,8 @@ if (!gotLock) {
   });
   let quitting = false;
   app.on("before-quit", (e) => {
+    // 没有打开 Vault（启动页）时无需落盘；同时让窗口的 close 处理放行，否则 macOS 上 Cmd+Q 会被它取消
+    if (!supervisor) flushedForQuit = true;
     if (quitting || !supervisor) return;
     e.preventDefault();
     quitting = true;
