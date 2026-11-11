@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } from "electron";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
@@ -212,6 +212,17 @@ if (!gotLock) {
         });
       }, ms);
       clipboardTimer.unref();
+    });
+    // 扩展命令返回 saveFile：由用户选保存位置，内容经本进程写出（扩展本身不拿到路径）
+    ipcMain.handle("huhu:saveTextFile", async (event, name: unknown, content: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      if (typeof name !== "string" || typeof content !== "string" || content.length > 64 * 1024 * 1024) return false;
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const opts = { defaultPath: path.join(app.getPath("documents"), path.basename(name).slice(0, 120) || "HUHU.md") };
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+      if (r.canceled || !r.filePath) return false;
+      writeFileSync(r.filePath, content);
+      return true;
     });
     ipcMain.handle("huhu:pickOpenPath", async (event, kind: unknown) => {
       assertTrusted(event.senderFrame?.url);

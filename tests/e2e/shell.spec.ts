@@ -217,6 +217,44 @@ test("知识库：文件夹重命名、移动、删除（整体进回收站）",
   }
 });
 
+test("外部扩展（ACC-PL-03/04）：发现页安装快速剪藏，权限确认后运行命令写入收件箱；卸载保留数据", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "插件中心" }).first().click();
+    await page.getByRole("tab", { name: "发现插件" }).click();
+    await expect(page.getByTestId("plugin-example")).toHaveCount(3);
+    await page.locator('[data-testid="plugin-example"][data-plugin="quick-clip"]').getByTestId("plugin-example-install").click();
+    const dialog = page.getByTestId("plugin-permission-dialog");
+    await expect(dialog).toContainText("inbox.write");
+    await expect(dialog).toContainText("inbox.capture");
+    await expect(dialog).toContainText("只安装你信任的扩展");
+    await page.getByTestId("plugin-install-confirm").click();
+    await expect(page.getByTestId("plugin-detail")).toContainText("快速剪藏", { timeout: 15_000 });
+    await page.getByTestId("plugin-command-run").click();
+    await expect(page.getByTestId("plugin-command-result")).toContainText("已运行");
+    await expect.poll(() => readdirSync(path.join(vault, "Inbox")).length).toBe(1);
+    expect(readFileSync(path.join(vault, "Inbox", readdirSync(path.join(vault, "Inbox"))[0] as string), "utf8")).toContain("source: plugin:quick-clip");
+
+    // 命令面板里也能运行扩展命令
+    await page.keyboard.press("ControlOrMeta+K");
+    await page.getByLabel("搜索模块、命令和内容").fill("快速剪藏");
+    await expect(page.getByRole("option", { name: /快速剪藏/ })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    writeFileSync(path.join(vault, ".huhu/plugins/data/quick-clip/keep.txt"), "保留");
+    await page.getByTestId("plugin-uninstall").click();
+    await page.getByTestId("plugin-uninstall-confirm").click();
+    await expect.poll(() => existsSync(path.join(vault, ".huhu/plugins/external/quick-clip"))).toBe(false);
+    expect(existsSync(path.join(vault, ".huhu/plugins/data/quick-clip/keep.txt"))).toBe(true);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
 test("批注：选中正文添加、回复、解决、删除；删除锚定句后变为 orphaned（ACC-KN-08）", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

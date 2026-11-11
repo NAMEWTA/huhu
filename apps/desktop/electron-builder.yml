@@ -16,6 +16,8 @@ extraResources:
     filter: ["**/*"]
   - from: resources/demo-vault
     to: demo-vault
+  - from: ../../examples/plugins
+    to: plugins
   - from: ../../LICENSE
     to: LICENSE
   - from: ../../THIRD_PARTY_NOTICES.md

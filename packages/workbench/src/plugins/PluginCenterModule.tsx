@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
+import { DiscoverPanel } from "./DiscoverPanel.js";
+import { runExternalCommand } from "./run-command.js";
 
 interface PluginInfo {
   id: string;
@@ -34,6 +36,9 @@ export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
   const [confirm, setConfirm] = useState<{ id: string; alsoDisabled: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uninstall, setUninstall] = useState<{ id: string; title: string; erase: boolean } | null>(null);
+  const [ran, setRan] = useState<string | null>(null);
+  const commands = useCapability<{ pluginId: string; id: string; title: string }[]>("plugins.commands.list", {});
   const plugins = list.data ?? [];
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
 
@@ -131,13 +136,12 @@ export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
             </div>
           ) : null}
           {section === "discover" ? (
-            <div className="callout">
-              <PackageOpen size={18} aria-hidden />
-              <div>
-                <strong>外部扩展</strong>
-                <p>外部扩展包的安装与托管尚未开放；当前所有功能都是随应用交付的内置插件。</p>
-              </div>
-            </div>
+            <DiscoverPanel
+              onInstalled={(id) => {
+                setOrigin("external");
+                setSelectedId(id);
+              }}
+            />
           ) : section === "runtime" ? (
             <>
               <div className="metric-grid">
@@ -291,7 +295,11 @@ export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
                       <span className="plugin-bundled-note">
                         <Lock size={13} aria-hidden /> 内置功能不可卸载
                       </span>
-                    ) : null}
+                    ) : (
+                      <Button variant="danger" data-testid="plugin-uninstall" onClick={() => setUninstall({ id: current.id, title: current.title, erase: false })}>
+                        卸载扩展
+                      </Button>
+                    )}
                   </div>
                   <div className="plugin-detail-body">
                     <div className="plugin-origin-explainer">
@@ -321,6 +329,34 @@ export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
                         </div>
                       </div>
                     </div>
+                    {current.origin !== "builtin" ? (
+                      <div data-testid="plugin-commands">
+                        <h3>扩展命令</h3>
+                        {(commands.data ?? []).filter((c) => c.pluginId === current.id).length === 0 ? <p className="muted">{current.state === "active" ? "这个扩展没有注册命令。" : "启用后可运行它的命令。"}</p> : null}
+                        {(commands.data ?? [])
+                          .filter((c) => c.pluginId === current.id)
+                          .map((c) => (
+                            <div key={c.id} className="row">
+                              <span className="grow">{c.title}</span>
+                              <Button
+                                data-testid="plugin-command-run"
+                                onClick={() =>
+                                  void runExternalCommand(engine, c)
+                                    .then((m) => (setRan(m), setError(null), refresh()))
+                                    .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+                                }
+                              >
+                                运行
+                              </Button>
+                            </div>
+                          ))}
+                        {ran ? (
+                          <p role="status" className="small muted" data-testid="plugin-command-result">
+                            {ran}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div data-testid="plugin-capabilities">
                       <h3>已注册能力 · {current.contributes?.capabilities.length ?? 0}</h3>
                       <div className="permission-tags">{(current.contributes?.capabilities ?? []).length ? current.contributes!.capabilities.map((c) => <code key={c}>{c}</code>) : <span className="muted">无</span>}</div>
@@ -352,6 +388,45 @@ export function PluginCenterModule({ section, onNavigate }: ModuleProps) {
           )}
         </div>
       </div>
+      {uninstall ? (
+        <Dialog
+          open
+          title={`卸载「${uninstall.title}」？`}
+          description="扩展包会被删除；它保存的数据默认保留，重新安装后可继续使用。"
+          error={error}
+          testId="plugin-uninstall-dialog"
+          onClose={() => setUninstall(null)}
+          actions={
+            <>
+              <Button onClick={() => setUninstall(null)}>取消</Button>
+              <Button
+                variant="danger"
+                data-testid="plugin-uninstall-confirm"
+                onClick={() =>
+                  void (async () => {
+                    setError(null);
+                    try {
+                      await engine.call("plugins.uninstall", { id: uninstall.id, eraseData: uninstall.erase }, { write: true });
+                      setUninstall(null);
+                      setSelectedId(null);
+                      await refresh();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    }
+                  })()
+                }
+              >
+                卸载
+              </Button>
+            </>
+          }
+        >
+          <label className="knowledge-inline-check">
+            <input type="checkbox" checked={uninstall.erase} onChange={(e) => setUninstall({ ...uninstall, erase: e.target.checked })} />
+            同时擦除扩展数据（不可恢复）
+          </label>
+        </Dialog>
+      ) : null}
       {confirm ? (
         <Dialog
           open

@@ -4,6 +4,8 @@ export interface HostApi {
   revealVault(): Promise<void>;
   pickSavePath(defaultName: string): Promise<string | null>;
   pickOpenPath(kind: "zip" | "directory" | "file"): Promise<string | null>;
+  /** 弹出保存对话框并写出文本（扩展命令返回 saveFile 时用）；用户取消返回 false。 */
+  saveTextFile(name: string, content: string): Promise<boolean>;
   /** 复制文本；clearAfterMs 到点后若剪贴板仍是这段文本则清除（用于秘密值）。 */
   copyText(value: string, opts?: { clearAfterMs?: number }): Promise<void>;
   cliStatus(): Promise<unknown>;

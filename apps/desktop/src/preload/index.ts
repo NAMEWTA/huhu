@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("huhuHost", {
     importPackage: (zip: string, target: string): Promise<unknown> => ipcRenderer.invoke("huhu:vault:import", zip, target),
     close: (): Promise<void> => ipcRenderer.invoke("huhu:vault:close"),
   },
+  saveTextFile: (name: string, content: string): Promise<boolean> => ipcRenderer.invoke("huhu:saveTextFile", name, content),
   copyText: (value: string, opts?: { clearAfterMs?: number }): Promise<void> => ipcRenderer.invoke("huhu:copyText", value, opts?.clearAfterMs),
   cliStatus: (): Promise<unknown> => ipcRenderer.invoke("huhu:cliStatus"),
   cliInstall: (): Promise<unknown> => ipcRenderer.invoke("huhu:cliInstall"),

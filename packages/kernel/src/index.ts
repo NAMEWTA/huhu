@@ -19,3 +19,5 @@ export * from "./capabilities/health.js";
 export * from "./gateway-tokens.js";
 export * from "./mcp.js";
 export * from "./event-log.js";
+export * from "./plugins/external.js";
+export * from "./capabilities/external-plugins.js";

@@ -6,6 +6,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry } from "../contributions.js";
 import { EngineClient } from "../engine-client/client.js";
 import type { UiState } from "../state/ui-store.js";
+import { runExternalCommand, type ExternalCommandRef } from "../plugins/run-command.js";
 import { LatestOnly, rankItems, type PaletteItem } from "./palette-model.js";
 
 export interface CommandPaletteProps {
@@ -60,6 +61,20 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     }
   }, [open]);
 
+  // 外部扩展注册的命令：打开面板时读取（扩展启停后下次打开即更新）
+  const [pluginCommands, setPluginCommands] = useState<ExternalCommandRef[]>([]);
+  useEffect(() => {
+    if (!open || !client) return;
+    let alive = true;
+    client
+      .call<ExternalCommandRef[]>("plugins.commands.list", {})
+      .then((r) => alive && setPluginCommands(r))
+      .catch(() => alive && setPluginCommands([]));
+    return () => {
+      alive = false;
+    };
+  }, [open, client]);
+
   // 搜索：200ms 去抖；输入已变化的旧请求结果被丢弃
   useEffect(() => {
     if (!open || !client || q.trim().length < 2) {
@@ -91,8 +106,16 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     () => [
       ...modules.map((m): PaletteItem => ({ id: `mod:${m.id}`, group: "module", title: m.title, hint: "打开模块", icon: m.icon, run: () => s.openModule(m.id) })),
       ...commands.map((c): PaletteItem => ({ id: `cmd:${c.id}`, group: "command", title: c.title, hint: "命令", icon: <Command size={18} aria-hidden />, run: c.run })),
+      ...pluginCommands.map((c): PaletteItem => ({
+        id: `ext:${c.pluginId}:${c.id}`,
+        group: "command",
+        title: c.title,
+        hint: `扩展 · ${c.pluginId}`,
+        icon: <Command size={18} aria-hidden />,
+        run: () => void (client && runExternalCommand(client, c).catch(() => undefined)),
+      })),
     ],
-    [modules, commands, s],
+    [modules, commands, pluginCommands, client, s],
   );
   const items = useMemo(() => [...rankItems(base, q, recents), ...results], [base, q, recents, results]);
   useEffect(() => {

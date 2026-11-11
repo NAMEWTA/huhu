@@ -1,0 +1,13 @@
+{
+  "id": "portable-export",
+  "title": "便携导出",
+  "description": "把全部笔记合并成一个 Markdown 文件，由桌面端弹出保存对话框。",
+  "version": "1.0.0",
+  "origin": "external",
+  "main": "main.mjs",
+  "publisher": "HUHU 示例",
+  "tags": ["导出", "Markdown"],
+  "dependsOn": [],
+  "permissions": ["notes.read"],
+  "contributes": { "commands": ["export"] }
+}

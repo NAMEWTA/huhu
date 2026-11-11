@@ -15,6 +15,7 @@ import {
   EventLog,
   describeEvent,
   ExposureStore,
+  ExternalPlugins,
   GatewayTokens,
   registerHealthCapabilities,
   registerNotificationAndSettings,
@@ -22,6 +23,7 @@ import {
   HomeStore,
   registerHomeCapabilities,
   registerPackageCapabilities,
+  registerExternalPluginCapabilities,
   registerSystemCapabilities,
   registerVaultCapabilities,
   startEngineServer,
@@ -269,7 +271,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerSystemCapabilities(
     registry,
     plugins,
-    { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => exposure.setPluginEnabled(id, v) },
+    { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)) },
     { tokens: gatewayTokens },
   );
   plugins.register({
@@ -299,7 +301,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse(sshManifest),
     apply: (ctx, api) => void ssh.apply(ctx, api),
   });
-  plugins.shouldEnable = (id) => exposure.pluginEnabled(id);
+  const external = new ExternalPlugins({
+    root: vault.root,
+    plugins,
+    tokens,
+    baseUrl: () => `http://127.0.0.1:${serverRef.current?.port ?? 0}`,
+    ...(process.env["HUHU_EXAMPLES_DIR"] ? { examplesDir: process.env["HUHU_EXAMPLES_DIR"] } : {}),
+    assertWritable: () => vault.files.assertWritable(),
+  });
+  registerExternalPluginCapabilities(registry, external);
+  plugins.shouldEnable = (id) => (external.has(id) ? external.shouldEnable(id) : exposure.pluginEnabled(id));
   await plugins.enableAll();
   await guideRef.current?.maintain().catch(() => undefined); // 所有插件启用之后再补写 / 升级指南：能力表取决于完整的注册表
   let lastSync = "";
@@ -371,6 +382,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   // 只读引擎不取写者锁，也不能覆盖或删除写者的端点描述
   serverRef.current = server;
+  // 外部扩展要经 HTTP 回调 Engine，所以在服务启动之后才登记并启动
+  external.load(plugins.list().map((p) => p.id));
+  for (const p of plugins.list()) if (p.manifest.origin === "external" && external.shouldEnable(p.id)) await plugins.enable(p.id);
   const descriptorPath = endpointPath(vault);
   const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, mcpToken, startedAt: new Date().toISOString() };
   if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });

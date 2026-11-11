@@ -8,6 +8,12 @@ export function bundledHerdrBin(resourcesPath: string = process.resourcesPath, p
   return existsSync(exe) ? exe : null;
 }
 
+/** 随应用提供的示例扩展：打包后在 resources/plugins，开发时在仓库 examples/plugins。 */
+function examplesDir(): string {
+  const packaged = path.join(process.resourcesPath ?? "", "plugins");
+  return existsSync(packaged) ? packaged : path.resolve(import.meta.dirname, "../../../../examples/plugins");
+}
+
 export type EngineState = "starting" | "ready" | "stopped" | "crashed";
 
 export interface EngineEndpoint {
@@ -61,6 +67,7 @@ export class EngineSupervisor {
       serviceName: "huhu-engine",
       env: {
         ...process.env,
+        HUHU_EXAMPLES_DIR: examplesDir(),
         HUHU_NODE_BIN: process.execPath /* 主程序可执行文件：Engine 里启动监督进程要用它（utilityProcess 的 execPath 在 macOS 可能是 Helper） */,
         ...(process.env["HUHU_HERDR_BIN"]
           ? {}

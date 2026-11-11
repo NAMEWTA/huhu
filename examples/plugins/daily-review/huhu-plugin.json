@@ -1,0 +1,13 @@
+{
+  "id": "daily-review",
+  "title": "每日回顾",
+  "description": "汇总未完成任务和笔记数量，生成一篇「每日回顾」笔记。",
+  "version": "1.0.0",
+  "origin": "external",
+  "main": "main.mjs",
+  "publisher": "HUHU 示例",
+  "tags": ["回顾", "任务", "笔记"],
+  "dependsOn": [],
+  "permissions": ["tasks.read", "notes.read", "notes.write"],
+  "contributes": { "commands": ["generate"] }
+}

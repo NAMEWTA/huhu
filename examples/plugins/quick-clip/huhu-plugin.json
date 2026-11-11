@@ -1,0 +1,13 @@
+{
+  "id": "quick-clip",
+  "title": "快速剪藏",
+  "description": "一键把想法或剪贴内容收集到收件箱，来源标记为 plugin:quick-clip。",
+  "version": "1.0.0",
+  "origin": "external",
+  "main": "main.mjs",
+  "publisher": "HUHU 示例",
+  "tags": ["收集", "收件箱"],
+  "dependsOn": [],
+  "permissions": ["inbox.write"],
+  "contributes": { "commands": ["clip"] }
+}

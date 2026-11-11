@@ -124,6 +124,28 @@ export class PluginManager {
     return stopped;
   }
 
+  /** 运行期故障（例如外部扩展进程崩溃）：标记 failed 并释放资源，状态页显示原因并允许重试。 */
+  async markFailed(id: string, error: string): Promise<void> {
+    const rt = this.plugins.get(id);
+    if (!rt || rt.state !== "active") return;
+    rt.state = "failed";
+    rt.error = error;
+    await rt.dispose?.();
+    delete rt.dispose;
+    this.events.publish("plugin.stateChanged", { id, state: "failed", error });
+  }
+
+  /** 卸载外部扩展时移除注册（先停用）。 */
+  async unregister(id: string): Promise<void> {
+    if (!this.plugins.has(id)) return;
+    await this.disable(id);
+    this.plugins.delete(id);
+  }
+
+  has(id: string): boolean {
+    return this.plugins.has(id);
+  }
+
   /** 按依赖顺序启用全部 activation=vault-open 的插件。 */
   /** 注册时回调（Engine 用它把清单声明的能力登记给注册表）。 */
   onRegister?: (manifest: PluginManifest) => void;
