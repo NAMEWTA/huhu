@@ -1,0 +1,21 @@
+name: bench
+on:
+  schedule:
+    - cron: "17 3 * * 1" # 每周一次（Linux runner），结果写入作业日志
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 规模 Vault 索引 / 检索基准（quality.md §3）
+        run: pnpm bench
