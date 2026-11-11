@@ -18,3 +18,4 @@ export * from "./exposure.js";
 export * from "./capabilities/health.js";
 export * from "./gateway-tokens.js";
 export * from "./mcp.js";
+export * from "./event-log.js";

@@ -28,3 +28,8 @@ dialog.modal::backdrop {
   margin-top: 16px;
   border-top: 1px solid var(--line);
 }
+/* 标签很多时可横向滚动，不被右侧工具区遮住 */
+.tab-list {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}

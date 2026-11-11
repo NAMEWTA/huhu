@@ -20,7 +20,7 @@ export interface GitCommit {
   subject: string;
 }
 
-export const DEFAULT_GITIGNORE = [".huhu/runtime/", ".huhu/cache/", ".huhu/ui/", ".huhu/history/", ""].join("\n");
+export const DEFAULT_GITIGNORE = [".huhu/runtime/", ".huhu/cache/", ".huhu/ui/", ".huhu/history/", ".huhu/diagnostics/", ""].join("\n");
 
 /** Vault 根目录下用户自己的 Git 仓库（与文件历史的 shadow 仓库无关）。 */
 export class VaultGit {

@@ -41,6 +41,8 @@ export interface AppShellProps {
   onRestartEngine?(): void;
   /** 面包屑栏右侧插槽（通知入口等，需要 EngineProvider 才能渲染）。 */
   statusSlot?: ReactNode;
+  /** 底部状态栏内容（需要 EngineProvider）。 */
+  statusBar?: ReactNode;
   /** 版本号，显示在窗口栏右侧。 */
   version?: string;
 }
@@ -48,7 +50,7 @@ export interface AppShellProps {
 const ENGINE_TEXT = { ready: "引擎就绪", starting: "引擎启动中", stopped: "引擎已停止", crashed: "引擎已停止" } as const;
 
 /** 应用外壳（原型 App）：窗口栏 → 左侧图标栏 + 主区（标签条 → 面包屑栏 → 模块页面）。模块各自带自己的导航栏。 */
-export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine, statusSlot, version }: AppShellProps) {
+export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine, statusSlot, statusBar, version }: AppShellProps) {
   const { modules } = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const s = useStore(ui);
   const active = modules.find((m) => m.id === s.activeModule) ?? null;
@@ -165,6 +167,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
               </div>
             </main>
           </div>
+          <footer className="status-bar">{engineState === "ready" ? statusBar : null}</footer>
         </div>
       </ControlsProvider>
     </MotionProvider>

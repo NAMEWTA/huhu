@@ -12,3 +12,4 @@ export * from "./health/HealthModule.js";
 export * from "./command-palette/CommandPalette.js";
 export * from "./command-palette/palette-model.js";
 export * from "./gateway/GatewayModule.js";
+export * from "./shell/ShellBars.js";

@@ -22,6 +22,8 @@ import {
   EngineClient,
   GatewayModule,
   NotificationBell,
+  ShellStatusBar,
+  ThemeToggle,
   PluginCenterModule,
   SettingsModule,
   useCapability,
@@ -48,6 +50,7 @@ function App() {
   // 同一端点重复到达时保持引用不变，避免重建连接
   const setEndpoint = (e: EngineEndpoint | null) => setEndpointRaw((cur) => (cur && e && cur.baseUrl === e.baseUrl && cur.token === e.token && cur.vaultId === e.vaultId ? cur : e));
   const [state, setState] = useState<EngineState>("starting");
+  const [vaultName, setVaultName] = useState("HUHU");
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
     r.register(notesUi);
@@ -59,7 +62,7 @@ function App() {
     r.register(automationsUi);
     r.register(sshUi);
     r.register(versioningUi);
-    r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: HomeModule }] });
+    r.register({ modules: [{ id: "home", plugin: "kernel", title: "工作台", group: "primary", order: 0, icon: <House size={18} aria-hidden />, component: () => <HomeModule ui={ui} /> }] });
     r.register({ modules: [{ id: "health", plugin: "kernel", title: "健康中心", group: "system", order: 50, icon: <HeartPulse size={18} aria-hidden />, component: HealthModule }] });
     r.register({ modules: [{ id: "gateway", plugin: "kernel", title: "能力网关", group: "system", order: 20, icon: <Plug size={18} aria-hidden />, component: GatewayModule }] });
     r.register({ modules: [{ id: "plugins", plugin: "kernel", title: "插件中心", group: "system", order: 10, icon: <Blocks size={18} aria-hidden />, component: PluginCenterModule }] });
@@ -99,10 +102,36 @@ function App() {
         if (r.ok && r.data) applyAppearance(document.documentElement, r.data.appearance, window.matchMedia("(prefers-color-scheme: dark)").matches);
       })
       .catch(() => undefined);
+    void fetch(`${endpoint.baseUrl}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "vault.info", input: {}, requestId: crypto.randomUUID() }),
+    })
+      .then((r) => r.json() as Promise<{ ok: boolean; data?: { name: string } }>)
+      .then((r) => {
+        if (r.ok && r.data) setVaultName(r.data.name);
+      })
+      .catch(() => undefined);
   }, [endpoint]);
 
   const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
-  const shell = <AppShell registry={registry} ui={ui} vaultName={endpoint?.vaultId ?? "HUHU"} engineState={shellState} onRestartEngine={() => void window.huhuHost.restartEngine()} statusSlot={<NotificationBell />} version="0.0.1" />;
+  const shell = (
+    <AppShell
+      registry={registry}
+      ui={ui}
+      engineState={shellState}
+      onRestartEngine={() => void window.huhuHost.restartEngine()}
+      vaultName={vaultName}
+      statusSlot={
+        <>
+          <ThemeToggle />
+          <NotificationBell />
+        </>
+      }
+      statusBar={<ShellStatusBar ui={ui} />}
+      version="0.0.1"
+    />
+  );
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
   const withFilter = (
     <>

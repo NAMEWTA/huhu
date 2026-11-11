@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Loader2, type LucideIcon } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Search, type LucideIcon } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -104,12 +104,30 @@ export function Banner({ tone = "warning", children, action }: { tone?: "warning
   );
 }
 
-export function EmptyState({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
+export function EmptyState({ title, hint, action, icon: Icon = Search }: { title: string; hint?: string | undefined; action?: ReactNode; icon?: LucideIcon }) {
   return (
-    <div className="hu-empty">
-      <strong>{title}</strong>
-      {hint ? <span>{hint}</span> : null}
+    <div className="empty-state">
+      <div className="empty-icon">
+        <Icon size={26} aria-hidden />
+      </div>
+      <h3>{title}</h3>
+      {hint ? <p>{hint}</p> : null}
       {action}
     </div>
+  );
+}
+
+/** 页头（原型 PageHead）：eyebrow / 标题 / 说明 + 右侧操作区。 */
+export function PageHead({ eyebrow, title, description, actions, children }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode; children?: ReactNode }) {
+  return (
+    <header className="page-head">
+      <div className="grow">
+        {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
+        <h1>{title}</h1>
+        {description ? <p>{description}</p> : null}
+        {children}
+      </div>
+      {actions ? <div className="page-actions">{actions}</div> : null}
+    </header>
   );
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /** 专注计时默认时长（秒）。 */
 export const FOCUS_SECONDS = 25 * 60;
-export const HOME_CARDS = ["focus", "habits", "tasks", "inbox", "recent"] as const;
+export const HOME_CARDS = ["focus", "habits", "tasks", "inbox", "recent", "activity"] as const;
 export type HomeCard = (typeof HOME_CARDS)[number];
 
 /** `.huhu/home/focus.json`：运行中时 remainingSec 是 startedAt 那一刻的剩余秒数。 */

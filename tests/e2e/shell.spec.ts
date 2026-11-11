@@ -204,7 +204,7 @@ test("设置与通知：切换主题立即生效并持久化，重启后仍保�
     let page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "设置" }).first().click();
-    await page.getByLabel("主题").selectOption("suliworld");
+    await page.getByLabel("主题", { exact: true }).selectOption("suliworld");
     await page.getByLabel("明暗模式").selectOption("dark");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "suliworld");
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
@@ -261,14 +261,14 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId("card-open").locator("strong")).toHaveText("0");
+    await expect(page.getByTestId("card-open").locator("strong")).toContainText("0");
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
     await page.getByTestId("task-editor").getByLabel("任务名称").fill("首页测试任务");
     await page.getByTestId("task-save").click();
     await expect(page.getByTestId("task-row")).toHaveCount(1);
     await page.getByRole("button", { name: "工作台", exact: true }).first().click();
-    await expect(page.getByTestId("card-open").locator("strong")).toHaveText("1");
+    await expect(page.getByTestId("card-open").locator("strong")).toContainText("1");
     await page.getByRole("button", { name: "健康中心" }).first().click();
     await expect(page.getByTestId("health-overall")).toHaveText("有需要留意的项目");
     await expect(page.getByTestId("health-check").filter({ hasText: "broken.md" })).toHaveAttribute("data-status", "warning");
@@ -754,7 +754,7 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
 
     // 习惯：添加、勾选，重启后保持
     await page.getByLabel("新习惯").fill("喝水");
-    await page.getByRole("button", { name: "添加" }).click();
+    await page.getByRole("button", { name: "添加", exact: true }).click();
     await expect(page.getByTestId("habit-row")).toHaveCount(1);
     await page.getByLabel("喝水", { exact: true }).click();
     await expect(page.getByLabel("喝水", { exact: true })).toBeChecked();
@@ -768,6 +768,7 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     await page.getByTestId("home-customize").click();
     await page.getByTestId("home-customize-panel").getByRole("checkbox", { name: "专注计时" }).click();
     await expect(page.getByTestId("card-focus")).toHaveCount(0);
+    await page.keyboard.press("Escape"); // 关闭自定义对话框
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8")).hidden).toEqual(["focus"]);
 
     // ACC-WB-08：停用任务插件，任务卡片隐藏

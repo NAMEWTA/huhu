@@ -12,6 +12,8 @@ import {
   IdempotencyStore,
   TokenTable,
   NotificationStore,
+  EventLog,
+  describeEvent,
   ExposureStore,
   GatewayTokens,
   registerHealthCapabilities,
@@ -189,8 +191,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         tasksOpen: z.number(),
         inboxPending: z.number(),
         notes: z.number(),
-        recentNotes: z.array(z.object({ path: z.string(), title: z.string() })),
-        enabled: z.object({ tasks: z.boolean(), inbox: z.boolean(), notes: z.boolean() }),
+        rulesEnabled: z.number(),
+        recentNotes: z.array(z.object({ path: z.string(), title: z.string(), folder: z.string(), updatedAt: z.string(), snippet: z.string() })),
+        enabled: z.object({ tasks: z.boolean(), inbox: z.boolean(), notes: z.boolean(), automations: z.boolean(), agentCli: z.boolean() }),
       }),
       handler: async (hc) => {
         const ask = async <T>(cap: string, input: unknown, fallback: T): Promise<T> => {
@@ -202,20 +205,45 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         const today = await ask<{ id: string }[]>("tasks.list", { category: "today", completed: false }, []);
         const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
         const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
+        const rules = await ask<{ data: { enabled: boolean } }[]>("automations.list", {}, []);
+        const mtimes = new Map(index.entries("").map((e) => [e.path, e.mtimeMs]));
+        const recent = [...notesList].sort((a, b) => (mtimes.get(b.path) ?? 0) - (mtimes.get(a.path) ?? 0)).slice(0, 4);
+        const snippetOf = (rel: string): string => {
+          try {
+            const text = vault.files.read(rel)?.bytes.toString("utf8") ?? "";
+            return text
+              .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+              .replace(/[#*`>[\]]/g, "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 62);
+          } catch {
+            return "";
+          }
+        };
         return {
           vault: { id: vault.id, name: vault.info.name },
           tasksToday: today.length,
           tasksOpen: open.length,
           inboxPending: inbox.length,
           notes: notesList.length,
-          recentNotes: notesList.slice(0, 5).map((n) => ({ path: n.path, title: n.title })),
-          enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes") },
+          rulesEnabled: rules.filter((r) => r.data.enabled).length,
+          recentNotes: recent.map((n) => ({
+            path: n.path,
+            title: n.title,
+            folder: n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "根目录",
+            updatedAt: new Date(mtimes.get(n.path) ?? 0).toISOString(),
+            snippet: snippetOf(n.path),
+          })),
+          enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes"), automations: plugins.isEnabled("automations"), agentCli: plugins.isEnabled("agent-cli") },
         };
       },
     }),
   );
+  const eventLog = new EventLog(path.join(vault.root, ".huhu", "diagnostics", "events.ndjson"));
   registerHealthCapabilities(registry, {
     plugins,
+    events: eventLog,
     fileProblems: () => repo.problemList(),
     index,
     vault: { readOnly: vault.readOnly, id: vault.id },
@@ -264,6 +292,32 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.shouldEnable = (id) => exposure.pluginEnabled(id);
   await plugins.enableAll();
+  let lastSync = "";
+  events.subscribe((e) => {
+    if (e.type === "sync.statusChanged") {
+      const st = String((e.payload as { status?: string }).status ?? "");
+      if (st === lastSync) return; // 同步状态频繁重复上报：只记录变化
+      lastSync = st;
+    }
+    const titleOf = (kind: string, id: string): string | null => {
+      try {
+        const d = repo.read(kind as never, id).data as Record<string, unknown>;
+        const t = d["title"] ?? d["name"];
+        return typeof t === "string" ? t : null;
+      } catch {
+        return null; // 已删除或不是语义文件
+      }
+    };
+    const r = describeEvent(e, titleOf);
+    if (r) {
+      try {
+        eventLog.append(r);
+      } catch {
+        // 日志写不进去不能影响业务
+      }
+    }
+  });
+
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
   const mcpToken = tokens.issue("mcp");

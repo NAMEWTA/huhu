@@ -9,6 +9,8 @@ export interface HealthDeps {
   index: { indexing: boolean; counts(): Record<string, number> };
   vault: { readOnly: boolean; id: string };
   watcherMode(): "native" | "polling";
+  /** 事件日志（健康中心的“事件日志”与首页“最近活动”共用）。 */
+  events?: import("../event-log.js").EventLog;
   /** 其他模块贡献的检查（例如 Herdr Core、保险箱）。 */
   extra?: () => Promise<HealthCheck[]> | HealthCheck[];
 }
@@ -72,5 +74,22 @@ export function registerHealthCapabilities(registry: CapabilityRegistry, d: Heal
       handler: () => runHealth(d),
     }),
   );
-  return off;
+  const off2 = d.events
+    ? registry.register(
+        defineCapability({
+          name: "health.events",
+          plugin: "kernel",
+          scope: "read",
+          exposable: false,
+          defaultExposed: false,
+          input: z.object({ limit: z.number().int().min(1).max(1000).optional(), module: z.string().optional(), query: z.string().optional() }),
+          output: z.object({ events: z.array(z.object({ id: z.string(), time: z.string(), module: z.string(), message: z.string(), tone: z.enum(["success", "error", "neutral"]) })), modules: z.array(z.string()) }),
+          handler: (_c, i) => ({ events: d.events!.list(i), modules: d.events!.modules() }),
+        }),
+      )
+    : () => undefined;
+  return () => {
+    off();
+    off2();
+  };
 }
