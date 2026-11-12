@@ -57,7 +57,7 @@ flowchart LR
 | 服务端 | Node `http` + Hono 4 + @hono/node-server 2 + ws 8；@modelcontextprotocol/sdk 1.x；commander 14 | OK `packages/server`、`packages/cli` |
 | 校验/格式 | zod 4.6、yaml 2.9（CST 局部改写） | OK `core/src/frontmatter/yaml-codec.ts` |
 | 文件 | write-file-atomic 7、proper-lockfile 4.1.2、@parcel/watcher 2.5（chokidar 5 回退）、fflate（数据包 zip） | 原型、OK、Orca |
-| 搜索 | @orama/orama 3（内存全文索引） | OK `packages/core` |
+| 搜索 | Node 内置 `node:sqlite`（FTS5 内存库；D-34，取代 Orama） | OK `packages/core` |
 | Git | 系统 git + simple-git 3.36 | OK `packages/server` |
 | SSH | ssh2 1.17 | Orca `package.json`、`main/ssh` |
 | 日志 | pino 10 | OK |
@@ -176,7 +176,7 @@ flowchart TB
 | 服务 | 所属 | 资源释放 |
 | --- | --- | --- |
 | 文件监听 | kernel（vault 包） | Engine 关闭 |
-| 内存索引与 Orama | kernel | Engine 关闭 |
+| 内存索引与 SQLite 全文库 | kernel | Engine 关闭 |
 | 调度器（Croner 作业） | automations | 插件作用域 |
 | 提醒投递 | tasks（到点产生通知） | 插件作用域 |
 | 站内通知存储与 `notify` 服务 | kernel（health 插件停用时仍可用） | Engine 关闭 |

@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@huhu/contracts": "workspace:*",
-    "@orama/orama": "^3.1.18",
     "@parcel/watcher": "^2.6.0",
     "fflate": "^0.8.3",
     "proper-lockfile": "^4.1.2",

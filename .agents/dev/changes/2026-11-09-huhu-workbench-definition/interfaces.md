@@ -61,7 +61,7 @@ Scope：R 读、W 写、X 执行外部动作、A 管理。“外”列为外部�
 | --- | --- | --- | --- | --- |
 | kernel | `vault.info` | R | ● | Vault 身份、名称、各类计数 |
 | kernel | `vault.tree` | R | ● | 文件树（路径、类型、大小、mtime） |
-| kernel | `vault.search` | R | ● | 全文检索（Orama），可按 kind 过滤 |
+| kernel | `vault.search` | R | ● | 全文检索（SQLite FTS5），可按 kind 过滤 |
 | kernel | `vault.readFile` | R | ○ | 读取 Vault 内文本文件（受路径守卫） |
 | kernel | `vault.reindex` | A | — | 重建内存索引，可取消 |
 | kernel | `vault.exportPackage` / `vault.importPackage` | A | — | 数据包（data-model §9） |

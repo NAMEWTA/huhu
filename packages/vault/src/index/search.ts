@@ -1,4 +1,4 @@
-import { create, insert, remove, search, type AnyOrama } from "@orama/orama";
+import { DatabaseSync } from "node:sqlite";
 
 const CJK = /[㐀-鿿豈-﫿]/;
 
@@ -48,39 +48,51 @@ export interface SearchHit {
 }
 
 /**
- * Orama 全文索引；索引与查询用同一分词器，并对词去重：Orama 为每个词做词频计数的做法对重复词是 O(n²)，
- * 1 MiB 的笔记会让全量索引耗时上百秒（Engine 启动超时）。去重后只损失词频打分，复杂度与词表大小成正比。
- * 标题、正文、标签、路径参与检索，查询与文档用同一分词器。 */
+ * 全文索引：Node 内置的 SQLite（`node:sqlite`）+ FTS5，内存库。倒排表由 SQLite 紧凑存放，不占 Engine 的 JS 堆
+ * （原先的 JS 对象索引在 10,000 篇笔记时常驻内存超过 600 MiB 目标）。
+ * 分词仍是本文件的 `tokenize`（中文二元切分、英文小写）：写入时把每个字段变成去重后的词表（空格分隔），
+ * FTS5 只负责按空格切分与前缀匹配；查询用同一分词器，每个词都要命中（任意字段）。
+ * 打分用 bm25，标题权重 3、标签 2、正文与路径 1。 */
 export class SearchIndex {
-  private db: AnyOrama = this.make();
-  private ids = new Map<string, string>();
+  private db = SearchIndex.open();
+  private ids = new Map<string, number>();
 
-  private make(): AnyOrama {
-    return create({
-      schema: { path: "string", kind: "string", title: "string", body: "string", tags: "string" } as const,
-      components: { tokenizer: { language: "english", tokenize: (raw: string) => [...new Set(tokenize(raw))], normalizationCache: new Map() } as never },
-    });
+  private static open(): DatabaseSync {
+    const db = new DatabaseSync(":memory:");
+    db.exec(`CREATE VIRTUAL TABLE docs USING fts5(path UNINDEXED, kind UNINDEXED, title UNINDEXED, ftitle, fbody, ftags, fpath, tokenize = 'unicode61 remove_diacritics 0')`);
+    return db;
+  }
+
+  /** 词表：去重后以空格连接；FTS5 的 unicode61 分词器会按空白与标点再切一次，词内不含这些字符，所以与 `tokenize` 的结果一致。 */
+  private static words(text: string): string {
+    return [...new Set(tokenize(text))].join(" ");
   }
 
   upsert(doc: SearchDoc): void {
     this.removePath(doc.path);
-    // 正文只以去重后的词表入库：Orama 的文档仓会整份保存插入的文档（删除时也要靠它还原倒排项），
-    // 存全文会让 scale-vault（约 100 MiB 正文）的 Engine 内存超标；词表与原文分词结果相同，检索行为不变。
-    const body = [...new Set(tokenize(doc.body))].join(" ");
-    const id = String(insert(this.db, { ...doc, body, pathText: doc.path } as never));
-    this.ids.set(doc.path, id);
+    const r = this.db
+      .prepare("INSERT INTO docs(path, kind, title, ftitle, fbody, ftags, fpath) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(doc.path, doc.kind, doc.title, SearchIndex.words(doc.title), SearchIndex.words(doc.body), SearchIndex.words(doc.tags), SearchIndex.words(doc.path));
+    this.ids.set(doc.path, Number(r.lastInsertRowid));
   }
 
   removePath(p: string): void {
     const id = this.ids.get(p);
     if (id !== undefined) {
-      remove(this.db, id);
+      this.db.prepare("DELETE FROM docs WHERE rowid = ?").run(id);
       this.ids.delete(p);
     }
   }
 
   clear(): void {
-    this.db = this.make();
+    this.db.close();
+    this.db = SearchIndex.open();
+    this.ids.clear();
+  }
+
+  /** 释放数据库（索引被新建的一份替换后调用）。 */
+  close(): void {
+    this.db.close();
     this.ids.clear();
   }
 
@@ -89,16 +101,13 @@ export class SearchIndex {
   }
 
   query(term: string, opts: { kind?: string; limit?: number } = {}): SearchHit[] {
-    const toks = tokenize(term);
+    const toks = [...new Set(tokenize(term))];
     if (toks.length === 0) return [];
-    const res = search(this.db, {
-      term: toks.join(" "),
-      properties: ["title", "body", "tags", "path"],
-      boost: { title: 3, tags: 2 },
-      limit: opts.limit ?? 50,
-      ...(opts.kind ? { where: { kind: opts.kind } } : {}),
-      threshold: 0,
-    } as never) as { hits: { score: number; document: SearchDoc }[] };
-    return res.hits.map((h) => ({ path: h.document.path, kind: h.document.kind, title: h.document.title, score: h.score }));
+    // 每个词：双引号包住（词里的双引号翻倍），加 * 表示前缀；词之间是 AND
+    const match = toks.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" AND ");
+    const rows = this.db
+      .prepare(`SELECT path, kind, title, -bm25(docs, 0, 0, 0, 3.0, 1.0, 2.0, 1.0) AS score FROM docs WHERE docs MATCH ?${opts.kind ? " AND kind = ?" : ""} ORDER BY score DESC LIMIT ?`)
+      .all(match, ...(opts.kind ? [opts.kind] : []), opts.limit ?? 50) as { path: string; kind: string; title: string; score: number }[];
+    return rows.map((r) => ({ path: r.path, kind: r.kind, title: r.title, score: r.score }));
   }
 }

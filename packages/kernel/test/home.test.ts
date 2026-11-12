@@ -151,5 +151,8 @@ describe("首页卡片", () => {
     expect(store.widgets().order).toEqual(["activity", "tasks"]);
     writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: [], order: ["nope"] }));
     expect(store.widgets().order ?? []).toEqual([]);
+    // 个别不认识的 id 只丢掉它自己，其余顺序保留
+    writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: [], order: ["activity", "nope", "tasks"] }));
+    expect(store.widgets().order).toEqual(["activity", "tasks"]);
   });
 });

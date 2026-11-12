@@ -39,7 +39,7 @@
 | R-08 | 文件监听 | OK `packages/server/src/file-watcher.ts`、`packages/server/src/watcher-clock.ts`、`packages/server/src/polled-path-watcher.ts` | @parcel/watcher 订阅，chokidar 回退，去抖与就绪检测 | 改造 | `packages/vault/src/watch/` | 去除 OK 专有 `.okignore` 与托管工件逻辑，忽略规则用 data-model §2 |
 | R-09 | 文件身份 | OK `packages/core/src/filesystem-identity.ts`（`filesystemIdentity`） | `dev:ino` 作为身份 | 复制 | `packages/vault/src/identity.ts` | — |
 | R-10 | YAML frontmatter 局部改写 | OK `packages/core/src/frontmatter/{yaml-codec,record,schema,errors}.ts` | 基于 yaml CST 修改单键，保留其余文本 | 改造 | `packages/vault/src/semantic/frontmatter.ts` | 去掉 OK 页面 schema，改为按 kind 的 zod 模式 |
-| R-11 | 全文检索 | 依赖 `@orama/orama`（OK `packages/core/src/search/`） | 内存全文索引 | 依赖 + 模式 | `packages/vault/src/index/search.ts` | — |
+| R-11 | 全文检索 | Node 内置 `node:sqlite` + FTS5（D-34 取代 `@orama/orama`） | 内存全文索引 | 运行时自带能力 | `packages/vault/src/index/search.ts` | — |
 | R-12 | 原型语义 Markdown 编解码与文件布局 | PROTO `semantic-markdown.js`、`vault-format.js`、`examples/demo-vault/` | 各 kind 的 frontmatter 字段与文件命名 | 模式 | `packages/contracts/src/kinds/`、测试夹具 `packages/testkit/fixtures/demo-vault` | 字段以 data-model §5 为准；示例 Vault 复制为测试夹具后按新字段修正 |
 
 ### 工作台 UI 与设计系统

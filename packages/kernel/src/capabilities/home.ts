@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, WidgetsStateSchema, errors } from "@huhu/contracts";
+import { FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, HOME_CARDS, WidgetsStateSchema, errors } from "@huhu/contracts";
 import type { FocusState, FocusView, HabitsState, HabitsView, WidgetsState } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
@@ -124,7 +124,13 @@ export class HomeStore {
   // ---- 卡片 ----
 
   widgets(): WidgetsState {
-    return this.read("widgets.json", (v) => WidgetsStateSchema.parse(v));
+    return this.read("widgets.json", (v) => {
+      // 排序逐项过滤：个别不认识的卡片 id 不会让整份排序作废（不放进 schema：带 transform 的 schema 无法生成能力目录用的 JSON Schema）
+      const raw = (v ?? {}) as { order?: unknown };
+      const known = new Set<string>(HOME_CARDS);
+      const order = Array.isArray(raw.order) ? raw.order.filter((x): x is string => typeof x === "string" && known.has(x)) : raw.order;
+      return WidgetsStateSchema.parse({ ...(v as object), ...(order !== undefined ? { order } : {}) });
+    });
   }
   setWidgets(w: WidgetsState): WidgetsState {
     const next = WidgetsStateSchema.parse({ hidden: [...new Set(w.hidden)], order: [...new Set(w.order ?? [])] });

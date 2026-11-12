@@ -89,12 +89,17 @@ export class VaultIndex {
       for (const p of paths) {
         if (++i % 50 === 0) {
           await new Promise((r) => setImmediate(r));
-          if (this.cancelRequested) return false;
+          if (this.cancelRequested) {
+            nextSearch.close();
+            return false;
+          }
         }
         this.indexFile(p, nextNotes, nextSearch);
       }
       this.notes = nextNotes;
+      const old = this.search;
       this.search = nextSearch;
+      old.close();
       this.built = true;
       this._indexing = false;
       const touched = [...this.dirty];
