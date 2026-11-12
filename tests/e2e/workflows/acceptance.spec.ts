@@ -513,3 +513,41 @@ test("能力网关 MCP：配置传输（对话框）、复制客户端配置、�
     await close();
   }
 });
+
+test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果，任务仍未完成，可勾选完成", async () => {
+  const fs = await import("node:fs");
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-wa-bin-"));
+  writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 Codex 已整理完成"\n');
+  fs.chmodSync(path.join(bin, "codex"), 0o755);
+  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    // 1. 想法进入收件箱（外部入口同样走这条能力）
+    expect((await call("inbox.capture", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要" })).ok).toBe(true);
+    const task = await (async () => {
+      // 2. 转为任务：执行方式 Agent（Space 与 Codex）
+      const spaces = (await call("agent.spaces.list", {})).data as { id: string }[];
+      await expect.poll(async () => ((await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[]).find((x) => x.provider === "codex")?.status).toBe("found");
+      return (await call("tasks.create", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要", execution: { kind: "agent", spaceId: spaces[0]!.id, provider: "codex" } })).data as { id: string };
+    })();
+    // 3. 自动化：内置规则立即运行
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByTestId("rule-row").first().click();
+    await page.getByRole("button", { name: "立即运行" }).click();
+    await expect(page.getByText("尚未激活。启用配置不等于已经运行。")).toHaveCount(0, { timeout: 30_000 }); // 激活记录出现
+    // 4. 任务详情显示运行结果；任务仍未完成，用户阅读后自己勾选
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).click();
+    await expect(page.getByTestId("task-runs")).toContainText("已完成", { timeout: 30_000 });
+    await page.getByTestId("task-runs").getByRole("button", { name: "展开结果" }).click();
+    await expect(page.getByTestId("run-result")).toContainText("假 Codex 已整理完成");
+    expect(((await call("tasks.read", { id: task.id })).data as { completed: boolean }).completed).toBe(false);
+    await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).getByRole("checkbox").click();
+    await expect.poll(async () => ((await call("tasks.read", { id: task.id })).data as { completed: boolean }).completed).toBe(true);
+    expect(fs.readdirSync(`${vault}/Task Runs`).length).toBe(1);
+  } finally {
+    await close();
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
