@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, IconButton, PageHead, SearchBox } from "@huhu/ui";
+import { Badge, Button, DataTable, EmptyState, IconButton, PageHead, SearchBox } from "@huhu/ui";
 import { AlertTriangle, Bell, CheckCircle2, ChevronRight, Download, HeartPulse, RefreshCw, ShieldCheck, Square, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
@@ -189,28 +189,23 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
             <>
               <SearchBox value={query} onChange={setQuery} placeholder="搜索事件内容或来源…" />
               <section className="card system-section">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>时间</th>
-                      <th>来源</th>
-                      <th>事件</th>
-                      <th>状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(events.data?.events ?? []).map((e) => (
-                      <tr key={e.id} data-testid="event-row">
-                        <td className="mono">{fmt(e.time)}</td>
-                        <td>{e.module}</td>
-                        <td>{e.message}</td>
-                        <td>
-                          <Badge tone={e.tone === "error" ? "danger" : e.tone === "success" ? "success" : "neutral"}>{e.tone === "error" ? "故障" : e.tone === "success" ? "成功" : "记录"}</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable
+                  label="事件日志"
+                  rows={events.data?.events ?? []}
+                  rowKey={(e) => String(e.id)}
+                  rowTestId="event-row"
+                  columns={[
+                    { id: "time", header: "时间", width: 170, className: "mono", cell: (e) => fmt(e.time) },
+                    { id: "module", header: "来源", width: 140, cell: (e) => e.module },
+                    { id: "message", header: "事件", width: 420, cell: (e) => e.message },
+                    {
+                      id: "tone",
+                      header: "状态",
+                      width: 90,
+                      cell: (e) => <Badge tone={e.tone === "error" ? "danger" : e.tone === "success" ? "success" : "neutral"}>{e.tone === "error" ? "故障" : e.tone === "success" ? "成功" : "记录"}</Badge>,
+                    },
+                  ]}
+                />
                 {(events.data?.events ?? []).length === 0 ? <EmptyState title="还没有事件记录" /> : null}
               </section>
             </>

@@ -1,5 +1,5 @@
 import type { ModuleProps } from "@huhu/workbench";
-import { Badge, Button, ChoiceSwitch, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox } from "@huhu/ui";
+import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Copy, Eye, EyeOff, History, Info, KeyRound, Lock, Plus, Settings, Trash2, Unlock as UnlockIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -425,32 +425,19 @@ function Audit() {
         <h2>凭据访问记录</h2>
       </div>
       {(rows.data ?? []).length ? (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>动作</th>
-              <th>凭据引用</th>
-              <th>主体</th>
-              <th>结果</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(rows.data ?? []).map((a, i) => (
-              <tr key={`${a.at}-${i}`}>
-                <td className="mono">{fmt(a.at)}</td>
-                <td>{ACTION_TEXT[a.action] ?? a.action}</td>
-                <td>
-                  <code>{a.itemId ? formatSecretRef(a.itemId) : "—"}</code>
-                </td>
-                <td>{a.subject}</td>
-                <td>
-                  <Badge tone={a.result === "ok" ? "success" : "danger"}>{a.result === "ok" ? "成功" : a.result === "denied" ? "被拒绝" : "失败"}</Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          label="凭据访问记录"
+          rows={(rows.data ?? []).map((a, i) => ({ ...a, key: `${a.at}-${i}` }))}
+          rowKey={(a) => a.key}
+          rowTestId="safe-audit-row"
+          columns={[
+            { id: "at", header: "时间", width: 170, className: "mono", cell: (a) => fmt(a.at) },
+            { id: "action", header: "动作", width: 140, cell: (a) => ACTION_TEXT[a.action] ?? a.action },
+            { id: "item", header: "凭据引用", width: 260, cell: (a) => <code>{a.itemId ? formatSecretRef(a.itemId) : "—"}</code> },
+            { id: "subject", header: "主体", width: 160, cell: (a) => a.subject },
+            { id: "result", header: "结果", width: 100, cell: (a) => <Badge tone={a.result === "ok" ? "success" : "danger"}>{a.result === "ok" ? "成功" : a.result === "denied" ? "被拒绝" : "失败"}</Badge> },
+          ]}
+        />
       ) : (
         <EmptyState icon={History} title="暂无访问记录" hint="解锁、查看、复制等操作都会记录，不记录秘密内容。" />
       )}

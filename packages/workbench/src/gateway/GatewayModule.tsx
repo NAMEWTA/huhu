@@ -1,4 +1,4 @@
-import { Badge, Button, ChoiceSwitch, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
+import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, BookOpen, Blocks, Code2, Command, Copy, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, Settings, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
@@ -318,32 +318,19 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                 {(audit.data ?? []).length === 0 ? (
                   <EmptyState icon={Activity} title="还没有外部调用" />
                 ) : (
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>时间</th>
-                        <th>入口</th>
-                        <th>能力</th>
-                        <th>结果</th>
-                        <th>耗时</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(audit.data ?? []).slice(0, 100).map((r) => (
-                        <tr key={`${r.at}-${r.capability}-${r.entry}-${r.ms}`} data-testid="audit-row">
-                          <td>{r.at.slice(5, 19).replace("T", " ")}</td>
-                          <td>{r.entry}</td>
-                          <td>
-                            <code>{r.capability}</code>
-                          </td>
-                          <td>
-                            <Badge tone={r.code === "OK" ? "success" : "danger"}>{r.code}</Badge>
-                          </td>
-                          <td>{r.ms} ms</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    label="外部调用记录"
+                    rows={(audit.data ?? []).slice(0, 500)}
+                    rowKey={(r) => `${r.at}-${r.capability}-${r.entry}-${r.ms}`}
+                    rowTestId="audit-row"
+                    columns={[
+                      { id: "at", header: "时间", width: 150, cell: (r) => r.at.slice(5, 19).replace("T", " ") },
+                      { id: "entry", header: "入口", width: 90, cell: (r) => r.entry },
+                      { id: "capability", header: "能力", width: 260, cell: (r) => <code>{r.capability}</code> },
+                      { id: "code", header: "结果", width: 130, cell: (r) => <Badge tone={r.code === "OK" ? "success" : "danger"}>{r.code}</Badge> },
+                      { id: "ms", header: "耗时", width: 90, cell: (r) => `${r.ms} ms` },
+                    ]}
+                  />
                 )}
               </section>
               {tester}

@@ -223,3 +223,41 @@ dialog.modal::backdrop {
 .hu-combobox-empty {
   padding: 8px 9px;
 }
+
+/* DataTable：沿用原型 .table，补吸顶表头、可聚焦行与列宽拖动 */
+.hu-data-table-scroll {
+  overflow: auto;
+  position: relative;
+}
+.hu-data-table {
+  table-layout: fixed;
+}
+.hu-data-table th {
+  background: var(--panel);
+  z-index: 1;
+  position: relative;
+}
+.hu-data-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hu-data-table tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.hu-data-table tbody tr[data-selected] {
+  background: var(--accent-soft);
+}
+.hu-col-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+.hu-col-resizer:hover {
+  background: var(--line);
+}

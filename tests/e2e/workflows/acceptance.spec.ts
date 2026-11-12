@@ -1123,3 +1123,49 @@ test("Combobox：任务“项目”可从已有项目中搜索选择，也可直
     await close();
   }
 });
+
+test("DataTable：网关“调用记录”显示外部调用；超过 200 行时只渲染可见行，键盘 ↑↓ 移动、表头列宽可拖动", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const tok = (await call("gateway.tokens.create", { name: "e2e" })).data as { token: string };
+    const ep = await page.evaluate(() => window.huhuHost.engine());
+    const sent = await page.evaluate(
+      async ([e, token]) => {
+        let ok = 0;
+        for (let i = 0; i < 260; i++) {
+          const r = await fetch(`${e.baseUrl}/api/v1/call`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+            body: JSON.stringify({ capability: "vault.info", input: {}, requestId: crypto.randomUUID() }),
+          });
+          if (r.ok) ok++;
+        }
+        return ok;
+      },
+      [ep, tok.token] as const,
+    );
+    expect(sent).toBe(260);
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    await page.getByRole("tab", { name: "服务端" }).click();
+    const rows = page.getByTestId("audit-row");
+    await expect(rows.first()).toBeVisible({ timeout: 15_000 });
+    expect(await rows.count()).toBeLessThan(120); // 260 条记录，只渲染可见行（虚拟化）
+    await rows.first().focus();
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-row-index"))).toBe("1");
+    // 表头列宽可拖动
+    const th = page.locator(".hu-data-table th").first();
+    const before = (await th.boundingBox())!.width;
+    const handle = th.locator(".hu-col-resizer");
+    const hb = (await handle.boundingBox())!;
+    await page.mouse.move(hb.x + 3, hb.y + 5);
+    await page.mouse.down();
+    await page.mouse.move(hb.x + 63, hb.y + 5, { steps: 4 });
+    await page.mouse.up();
+    expect((await th.boundingBox())!.width).toBeGreaterThan(before + 30);
+  } finally {
+    await close();
+  }
+});

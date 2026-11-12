@@ -1,4 +1,4 @@
-import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
+import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
 import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { Fragment, useState } from "react";
@@ -295,26 +295,18 @@ export function SshModule() {
             <div className="row execution-section-heading">
               <h3 className="grow">全部连接审计</h3>
             </div>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>动作</th>
-                  <th>主机</th>
-                  <th>结果</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(audit.data ?? []).map((a, i) => (
-                  <tr key={`${a.at}-${i}`}>
-                    <td className="mono">{new Date(a.at).toLocaleString("zh-CN")}</td>
-                    <td>{a.action}</td>
-                    <td>{(hosts.data ?? []).find((h) => h.id === a.hostId)?.name ?? "—"}</td>
-                    <td>{a.result ?? a.detail ?? ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              label="连接审计"
+              rows={(audit.data ?? []).map((a, i) => ({ ...a, key: `${a.at}-${i}` }))}
+              rowKey={(a) => a.key}
+              rowTestId="ssh-audit-row"
+              columns={[
+                { id: "at", header: "时间", width: 170, className: "mono", cell: (a) => new Date(a.at).toLocaleString("zh-CN") },
+                { id: "action", header: "动作", width: 140, cell: (a) => a.action },
+                { id: "host", header: "主机", width: 200, cell: (a) => (hosts.data ?? []).find((h) => h.id === a.hostId)?.name ?? "—" },
+                { id: "result", header: "结果", width: 260, cell: (a) => a.result ?? a.detail ?? "" },
+              ]}
+            />
             {(audit.data ?? []).length === 0 ? <EmptyState icon={Activity} title="还没有连接审计记录" /> : null}
           </div>
         ) : host && tab === "overview" ? (
