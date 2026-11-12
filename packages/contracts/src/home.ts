@@ -60,8 +60,10 @@ export const HabitsActionSchema = z.discriminatedUnion("action", [
 /** `.huhu/home/widgets.json`：隐藏的卡片（未列出的都显示）与用户排的卡片顺序（未列出的按默认顺序排在后面）。 */
 export const WidgetsStateSchema = z.object({
   hidden: z.array(z.enum(HOME_CARDS)).catch(() => []),
+  // 逐项过滤：个别不认识的卡片 id 不会让整份排序作废
   order: z
-    .array(z.enum(HOME_CARDS))
+    .array(z.string())
+    .transform((xs) => xs.filter((x): x is (typeof HOME_CARDS)[number] => (HOME_CARDS as readonly string[]).includes(x)))
     .catch(() => [])
     .optional(),
 });

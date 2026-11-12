@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, newVaultId, errors } from "@huhu/contracts";
@@ -39,8 +39,15 @@ export const HUHU_DIR = ".huhu";
 
 /** 只读打开且磁盘不可写时的运行状态目录：按 Vault 路径固定在系统临时目录下，重复打开同一目录得到同一处。 */
 function scratchStateDir(real: string): string {
-  const dir = path.join(os.tmpdir(), `huhu-readonly-${createHash("sha1").update(real).digest("hex").slice(0, 12)}`, HUHU_DIR);
-  mkdirSync(dir, { recursive: true });
+  const base = path.join(os.tmpdir(), `huhu-readonly-${createHash("sha1").update(real).digest("hex").slice(0, 12)}`);
+  const dir = path.join(base, HUHU_DIR);
+  mkdirSync(base, { recursive: true, mode: 0o700 });
+  // 临时目录是公共位置：只使用属于当前用户的真实目录（不是符号链接），且不对其他用户开放
+  const st = lstatSync(base);
+  const uid = process.getuid?.();
+  if (!st.isDirectory() || st.isSymbolicLink() || (uid !== undefined && st.uid !== uid)) throw errors.invalidInput(`临时状态目录不可信：${base}`);
+  if (process.platform !== "win32") chmodSync(base, 0o700);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -90,7 +97,7 @@ export interface OpenOptions {
   /** 目录不含 .huhu/vault.json 时创建它（只创建 .huhu，不动已有文件）。 */
   create?: boolean;
   name?: string;
-  /** 只读打开：不取写者锁，所有写入返回 READ_ONLY_VAULT。 */
+  /** 只读打开：不取写者锁，对 Vault 文件的所有写入返回 READ_ONLY_VAULT（设置、通知等运行状态写在 `stateDir`，不属于 Vault 内容）。 */
   readOnly?: boolean;
 }
 

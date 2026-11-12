@@ -50,7 +50,6 @@ export interface AutomationsOptions {
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {}): { service: AutomationsService; scheduler: Scheduler } {
-  const root = api.vault.files.root;
   const mid = machineId();
   const exeFor = opts.exeFor ?? (() => null);
   const runsDir = path.join(api.vault.stateDir, "runtime", mid, "runs");

@@ -132,7 +132,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const events = new EventBus(() => vault.id);
   const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.stateDir, "operations")));
   repo.onWritten = (paths) => index.refreshPaths(paths);
-  new OperationLog(vault.files, path.join(vault.stateDir, "operations")).recover();
+  // 只读打开时不能回滚：未完成的多文件操作可能正由另一个（写者）实例执行，回滚会改写用户文件
+  if (!vault.readOnly) new OperationLog(vault.files, path.join(vault.stateDir, "operations")).recover();
   const trash = new Trash(vault.files);
   const dispatcherRef: { current?: Dispatcher } = {};
   const {

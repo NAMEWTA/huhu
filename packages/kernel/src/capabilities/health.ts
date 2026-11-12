@@ -55,7 +55,7 @@ export async function runHealth(d: HealthDeps): Promise<{ overall: "ok" | "warni
       ? { id: "watcher", title: "文件监听", status: "ok", detail: "使用系统原生监听" }
       : { id: "watcher", title: "文件监听", status: "warning", detail: "原生监听不可用，已回退为每 30 秒轮询（外部修改可能延迟出现）" },
   );
-  if (d.vault.readOnly) checks.push({ id: "readonly", title: "Vault 模式", status: "warning", detail: "以只读方式打开，所有写入都会被拒绝" });
+  if (d.vault.readOnly) checks.push({ id: "readonly", title: "Vault 模式", status: "warning", detail: "以只读方式打开，对笔记等 Vault 文件的写入都会被拒绝" });
   checks.push(...((await d.extra?.()) ?? []));
   const overall = checks.some((c) => c.status === "error") ? "error" : checks.some((c) => c.status === "warning") ? "warning" : "ok";
   return { overall, checks };
