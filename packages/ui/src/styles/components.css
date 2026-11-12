@@ -143,3 +143,12 @@ dialog.modal::backdrop {
   width: 14px;
   height: 14px;
 }
+/* 插件中心：列表 / 详情里直接使用模块图标（与侧栏一致），按原型的尺寸显示 */
+.plugin-mini-icon > svg {
+  width: 17px;
+  height: 17px;
+}
+.plugin-hero-icon > svg {
+  width: 28px;
+  height: 28px;
+}

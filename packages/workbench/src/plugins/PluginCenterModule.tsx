@@ -1,7 +1,7 @@
 import { Badge, Button, ChoiceSwitch, Dialog, EmptyState, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Blocks, Command, ExternalLink, Info, Lock, Monitor, PackageOpen, Plug, RefreshCw, Settings as SettingsIcon, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { ModuleProps } from "../contributions.js";
+import { useModuleIcons, type ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
 import { DiscoverPanel } from "./DiscoverPanel.js";
@@ -26,6 +26,7 @@ const tone = (s: PluginInfo["state"]) => (s === "failed" ? "danger" : s === "act
 
 /** 插件中心（原型 PluginCenterV3）：左侧资源列表（内置 / 外部）+ 详情；运行时与权限清单。启用 / 停用走统一生命周期，停用前列出会被一并停用的插件。 */
 export function PluginCenterModule({ section, onSection, onNavigate }: ModuleProps) {
+  const icons = useModuleIcons();
   const engine = useEngine();
   const qc = useQueryClient();
   const list = useCapability<PluginInfo[]>("plugins.list", {});
@@ -102,9 +103,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
         <div className="resource-list system-resource-list">
           {visible.map((p) => (
             <button key={p.id} type="button" className={`plugin-list-row ${p.id === current?.id ? "active" : ""}`} data-testid="plugin-row" data-plugin={p.id} onClick={() => setSelectedId(p.id)}>
-              <span className="plugin-mini-icon">
-                <Blocks size={17} aria-hidden />
-              </span>
+              <span className="plugin-mini-icon">{icons[p.id] ?? <Blocks size={17} aria-hidden />}</span>
               <span className="grow">
                 <strong>{p.title}</strong>
                 <small>{p.id}</small>
@@ -268,9 +267,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
               {current ? (
                 <article className="plugin-detail card" data-testid="plugin-detail">
                   <div className="plugin-detail-top">
-                    <span className="plugin-hero-icon">
-                      <Blocks size={28} aria-hidden />
-                    </span>
+                    <span className="plugin-hero-icon">{icons[current.id] ?? <Blocks size={28} aria-hidden />}</span>
                     <div className="grow">
                       <div className="row">
                         <h1>{current.title}</h1>
@@ -290,12 +287,12 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                   <div className="plugin-detail-actions">
                     {current.state === "active" && (current.contributes?.modules.length ?? 0) > 0 && onNavigate ? (
                       <Button icon={ExternalLink} data-testid="plugin-open" onClick={() => onNavigate(current.contributes!.modules[0]!)}>
-                        打开
+                        打开 {current.title}
                       </Button>
                     ) : null}
                     {current.state === "active" && (current.contributes?.settingsPages.length ?? 0) > 0 && onNavigate ? (
                       <Button icon={SettingsIcon} data-testid="plugin-settings" onClick={() => onNavigate("settings")}>
-                        设置
+                        插件设置
                       </Button>
                     ) : null}
                     <div className="grow" />

@@ -1,9 +1,9 @@
 import { Badge, Banner, ControlsProvider, Hint, IconButton, MotionProvider, Segmented } from "@huhu/ui";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Folder, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from "lucide-react";
-import { Component, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Component, useMemo, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
-import type { ContributionRegistry } from "../contributions.js";
+import { ModuleIconsContext, type ContributionRegistry } from "../contributions.js";
 import { host } from "../settings/host.js";
 import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
@@ -56,6 +56,11 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   const { modules } = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const s = useStore(ui);
   const [switchOpen, setSwitchOpen] = useState(false);
+  const moduleIcons = useMemo(() => {
+    const map: Record<string, React.ReactNode> = {};
+    for (const m of modules) map[m.plugin] ??= m.icon; // 一个插件有多个模块时取第一个
+    return map;
+  }, [modules]);
   const active = modules.find((m) => m.id === s.activeModule) ?? null;
   const Active = active?.component;
   const main = modules.filter((m) => m.group !== "system");
@@ -94,146 +99,148 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   return (
     <MotionProvider preference="system">
       <ControlsProvider>
-        <div className={`app${s.focusMode ? " focus-mode" : ""}`}>
-          <header className="window-bar">
-            <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="huhu workbench 首页">
-              <span className="brand-mark">h</span>
-              <span>
-                huhu<span className="brand-suffix">workbench</span>
-              </span>
-            </button>
-            {host()?.vault ? (
-              <button type="button" className="window-center vault-title-button" data-testid="vault-name" aria-label="切换 Vault" onClick={() => setSwitchOpen(true)}>
-                <Folder size={13} aria-hidden />
-                <span>{vaultName}</span>
-                <ChevronDown size={12} aria-hidden />
+        <ModuleIconsContext.Provider value={moduleIcons}>
+          <div className={`app${s.focusMode ? " focus-mode" : ""}`}>
+            <header className="window-bar">
+              <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="huhu workbench 首页">
+                <span className="brand-mark">h</span>
+                <span>
+                  huhu<span className="brand-suffix">workbench</span>
+                </span>
               </button>
-            ) : (
-              <div className="window-center vault-title-button" data-testid="vault-name">
-                <Folder size={13} aria-hidden />
-                <span>{vaultName}</span>
-                <ChevronDown size={12} aria-hidden />
-              </div>
-            )}
-            {host()?.vault ? <VaultSwitchDialog open={switchOpen} onClose={() => setSwitchOpen(false)} /> : null}
-            <div className="row">{version ? <Badge tone="neutral">{version}</Badge> : null}</div>
-          </header>
-          <div className="workbench">
-            {!s.focusMode ? (
-              <nav className="rail" aria-label="功能图标栏">
-                <div className="rail-scroll">{main.map(railItem)}</div>
-                <div className="rail-bottom">{system.map(railItem)}</div>
-              </nav>
-            ) : null}
-            {!s.focusMode && shellNav && active && !s.sidebarCollapsed ? (
-              <>
-                <aside className="primary-nav" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 220px)" : s.sidebarWidth }}>
-                  <div className="nav-heading">
-                    <strong>{active.title}</strong>
-                  </div>
-                  <div className="section-nav">
-                    {sections.map((x) => (
-                      <button key={x.id} type="button" data-testid={`${active.id}-nav-${x.id}`} className={x.id === section ? "active" : ""} aria-current={x.id === section ? "page" : undefined} onClick={() => setSection(x.id)}>
-                        {x.icon}
-                        <span>{x.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="nav-bottom">{active.description ? <div className="nav-module-description">{active.description}</div> : null}</div>
-                </aside>
-                <div
-                  className="column-resizer"
-                  role="separator"
-                  aria-label="调整导航栏宽度"
-                  aria-orientation="vertical"
-                  aria-valuenow={s.sidebarWidth}
-                  aria-valuemin={SIDEBAR_MIN}
-                  aria-valuemax={SIDEBAR_MAX}
-                  tabIndex={0}
-                  onPointerDown={startResize}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowRight") s.setSidebarWidth(s.sidebarWidth + 12);
-                    if (e.key === "ArrowLeft") s.setSidebarWidth(s.sidebarWidth - 12);
-                  }}
-                />
-              </>
-            ) : null}
-            <main className="main-shell">
-              <div className="tab-strip">
-                <nav className="tab-list" aria-label="已打开的功能">
-                  {s.openTabs.map((id) => {
-                    const m = modules.find((x) => x.id === id);
-                    if (!m) return null;
-                    const on = id === s.activeModule;
-                    return (
-                      <div key={id} className={`workspace-tab${on ? " active" : ""}`}>
-                        <button type="button" aria-current={on ? "page" : undefined} onClick={() => s.openModule(id)}>
-                          {m.icon}
-                          <span>{m.title}</span>
-                        </button>
-                        {id !== "home" ? (
-                          <button className="tab-close" type="button" aria-label={`关闭${m.title}标签`} onClick={() => s.closeTab(id)}>
-                            <X size={12} aria-hidden />
-                          </button>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                  <IconButton icon={Plus} label="打开功能标签" onClick={() => s.setPaletteOpen(true)} />
-                </nav>
-                <div className="tab-tools">
-                  <IconButton icon={s.sidebarCollapsed ? PanelLeftOpen : PanelLeftClose} disabled={!shellNav} label={!shellNav ? "当前页面无需侧栏" : s.sidebarCollapsed ? "展开导航" : "收起导航"} onClick={() => s.toggleSidebar()} />
-                  <IconButton icon={s.focusMode ? Minimize2 : Maximize2} label={s.focusMode ? "退出专注模式" : "专注模式"} onClick={() => s.setFocusMode(!s.focusMode)} />
-                </div>
-              </div>
-              <div className="breadcrumb-bar">
-                <div className="breadcrumb">
+              {host()?.vault ? (
+                <button type="button" className="window-center vault-title-button" data-testid="vault-name" aria-label="切换 Vault" onClick={() => setSwitchOpen(true)}>
                   <Folder size={13} aria-hidden />
                   <span>{vaultName}</span>
-                  <ChevronRight size={12} aria-hidden />
-                  <span className="current">{active?.title ?? "—"}</span>
+                  <ChevronDown size={12} aria-hidden />
+                </button>
+              ) : (
+                <div className="window-center vault-title-button" data-testid="vault-name">
+                  <Folder size={13} aria-hidden />
+                  <span>{vaultName}</span>
+                  <ChevronDown size={12} aria-hidden />
                 </div>
-                <div className="row">
-                  <span className="quiet-button" data-testid="engine-state">
-                    {engineState === "ready" ? <CheckCircle2 size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
-                    <span>{ENGINE_TEXT[engineState]}</span>
-                  </span>
-                  <IconButton icon={Search} label="搜索与命令" onClick={() => s.setPaletteOpen(true)} />
-                  {engineState === "ready" ? statusSlot : null}
-                </div>
-              </div>
-              {engineState !== "ready" ? (
-                <Banner
-                  tone={engineState === "starting" ? "blue" : "danger"}
-                  action={
-                    engineState === "crashed" || engineState === "stopped" ? (
-                      <button type="button" className="btn" onClick={onRestartEngine}>
-                        重启引擎
-                      </button>
-                    ) : null
-                  }
-                >
-                  {engineState === "starting" ? "工作台引擎正在启动…" : "工作台引擎未连接"}
-                </Banner>
+              )}
+              {host()?.vault ? <VaultSwitchDialog open={switchOpen} onClose={() => setSwitchOpen(false)} /> : null}
+              <div className="row">{version ? <Badge tone="neutral">{version}</Badge> : null}</div>
+            </header>
+            <div className="workbench">
+              {!s.focusMode ? (
+                <nav className="rail" aria-label="功能图标栏">
+                  <div className="rail-scroll">{main.map(railItem)}</div>
+                  <div className="rail-bottom">{system.map(railItem)}</div>
+                </nav>
               ) : null}
-              {active?.nav === "tabs" && sections.length > 0 ? (
-                <Segmented className="module-local-tabs" label={`${active.title}页面`} value={section} options={sections.map((x) => ({ value: x.id, label: x.label, ...(x.tabIcon ? { icon: x.tabIcon } : {}) }))} onChange={setSection} />
+              {!s.focusMode && shellNav && active && !s.sidebarCollapsed ? (
+                <>
+                  <aside className="primary-nav" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 220px)" : s.sidebarWidth }}>
+                    <div className="nav-heading">
+                      <strong>{active.title}</strong>
+                    </div>
+                    <div className="section-nav">
+                      {sections.map((x) => (
+                        <button key={x.id} type="button" data-testid={`${active.id}-nav-${x.id}`} className={x.id === section ? "active" : ""} aria-current={x.id === section ? "page" : undefined} onClick={() => setSection(x.id)}>
+                          {x.icon}
+                          <span>{x.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="nav-bottom">{active.description ? <div className="nav-module-description">{active.description}</div> : null}</div>
+                  </aside>
+                  <div
+                    className="column-resizer"
+                    role="separator"
+                    aria-label="调整导航栏宽度"
+                    aria-orientation="vertical"
+                    aria-valuenow={s.sidebarWidth}
+                    aria-valuemin={SIDEBAR_MIN}
+                    aria-valuemax={SIDEBAR_MAX}
+                    tabIndex={0}
+                    onPointerDown={startResize}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowRight") s.setSidebarWidth(s.sidebarWidth + 12);
+                      if (e.key === "ArrowLeft") s.setSidebarWidth(s.sidebarWidth - 12);
+                    }}
+                  />
+                </>
               ) : null}
-              <div className={`main-body module-${active?.id ?? "none"} module-section-${section}`}>
-                <div className="huhu-page-surface">
-                  {Active && active && engineState === "ready" ? (
-                    <ModuleBoundary moduleId={active.id}>
-                      <Active section={section} onSection={setSection} onNavigate={(id) => s.openModule(id)} />
-                    </ModuleBoundary>
-                  ) : (
-                    <div className="hu-empty-main">选择左侧的模块开始</div>
-                  )}
+              <main className="main-shell">
+                <div className="tab-strip">
+                  <nav className="tab-list" aria-label="已打开的功能">
+                    {s.openTabs.map((id) => {
+                      const m = modules.find((x) => x.id === id);
+                      if (!m) return null;
+                      const on = id === s.activeModule;
+                      return (
+                        <div key={id} className={`workspace-tab${on ? " active" : ""}`}>
+                          <button type="button" aria-current={on ? "page" : undefined} onClick={() => s.openModule(id)}>
+                            {m.icon}
+                            <span>{m.title}</span>
+                          </button>
+                          {id !== "home" ? (
+                            <button className="tab-close" type="button" aria-label={`关闭${m.title}标签`} onClick={() => s.closeTab(id)}>
+                              <X size={12} aria-hidden />
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    <IconButton icon={Plus} label="打开功能标签" onClick={() => s.setPaletteOpen(true)} />
+                  </nav>
+                  <div className="tab-tools">
+                    <IconButton icon={s.sidebarCollapsed ? PanelLeftOpen : PanelLeftClose} disabled={!shellNav} label={!shellNav ? "当前页面无需侧栏" : s.sidebarCollapsed ? "展开导航" : "收起导航"} onClick={() => s.toggleSidebar()} />
+                    <IconButton icon={s.focusMode ? Minimize2 : Maximize2} label={s.focusMode ? "退出专注模式" : "专注模式"} onClick={() => s.setFocusMode(!s.focusMode)} />
+                  </div>
                 </div>
-              </div>
-            </main>
+                <div className="breadcrumb-bar">
+                  <div className="breadcrumb">
+                    <Folder size={13} aria-hidden />
+                    <span>{vaultName}</span>
+                    <ChevronRight size={12} aria-hidden />
+                    <span className="current">{active?.title ?? "—"}</span>
+                  </div>
+                  <div className="row">
+                    <span className="quiet-button" data-testid="engine-state">
+                      {engineState === "ready" ? <CheckCircle2 size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
+                      <span>{ENGINE_TEXT[engineState]}</span>
+                    </span>
+                    <IconButton icon={Search} label="搜索与命令" onClick={() => s.setPaletteOpen(true)} />
+                    {engineState === "ready" ? statusSlot : null}
+                  </div>
+                </div>
+                {engineState !== "ready" ? (
+                  <Banner
+                    tone={engineState === "starting" ? "blue" : "danger"}
+                    action={
+                      engineState === "crashed" || engineState === "stopped" ? (
+                        <button type="button" className="btn" onClick={onRestartEngine}>
+                          重启引擎
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {engineState === "starting" ? "工作台引擎正在启动…" : "工作台引擎未连接"}
+                  </Banner>
+                ) : null}
+                {active?.nav === "tabs" && sections.length > 0 ? (
+                  <Segmented className="module-local-tabs" label={`${active.title}页面`} value={section} options={sections.map((x) => ({ value: x.id, label: x.label, ...(x.tabIcon ? { icon: x.tabIcon } : {}) }))} onChange={setSection} />
+                ) : null}
+                <div className={`main-body module-${active?.id ?? "none"} module-section-${section}`}>
+                  <div className="huhu-page-surface">
+                    {Active && active && engineState === "ready" ? (
+                      <ModuleBoundary moduleId={active.id}>
+                        <Active section={section} onSection={setSection} onNavigate={(id) => s.openModule(id)} />
+                      </ModuleBoundary>
+                    ) : (
+                      <div className="hu-empty-main">选择左侧的模块开始</div>
+                    )}
+                  </div>
+                </div>
+              </main>
+            </div>
+            <footer className="status-bar">{engineState === "ready" ? statusBar : null}</footer>
           </div>
-          <footer className="status-bar">{engineState === "ready" ? statusBar : null}</footer>
-        </div>
+        </ModuleIconsContext.Provider>
       </ControlsProvider>
     </MotionProvider>
   );

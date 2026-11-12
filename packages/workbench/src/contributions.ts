@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import type { ComponentType, ReactNode } from "react";
+import { createContext, useContext, type ComponentType, type ReactNode } from "react";
 
 export type RailGroup = "primary" | "execution" | "system";
 
@@ -95,3 +95,7 @@ export class ContributionRegistry {
     return this.snapshotCache;
   };
 }
+
+/** 插件 id → 它贡献的第一个模块的图标（插件中心的列表与详情用，与侧栏图标一致）。 */
+export const ModuleIconsContext = createContext<Record<string, ReactNode>>({});
+export const useModuleIcons = (): Record<string, ReactNode> => useContext(ModuleIconsContext);
