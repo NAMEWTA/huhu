@@ -472,7 +472,7 @@ test("版本历史：对比基准“与当前内容 / 与前一版”切换，�
 });
 
 test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；拖到空白处回到 Vault 根", async () => {
-  test.skip(process.platform === "win32", "Playwright 在 Windows 的 Electron 上模拟原生拖放会卡住（拖看板卡片可以，拖树节点不行）；移动本身由 notes.move 的单元 / 引擎测试覆盖");
+  test.skip(process.platform !== "linux", "Playwright 在 Windows / macOS 的 Electron 上模拟原生拖放会卡住（拖看板卡片可以，拖树节点不行）；移动本身由 notes.move 的单元 / 引擎测试覆盖");
   const { page, vault, close } = await openApp();
   try {
     const fs = await import("node:fs");
@@ -544,6 +544,17 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
       .click();
     await expect(page.getByTestId("activation-row").first()).toBeVisible({ timeout: 30_000 }); // 激活记录出现
     // 4. 任务详情显示运行结果；任务仍未完成，用户阅读后自己勾选
+    console.log(
+      "W-A 激活记录：",
+      await page
+        .getByTestId("activation-row")
+        .allInnerTexts()
+        .catch(() => []),
+      await page
+        .locator(".tw-occurrence, .tw-rule-detail")
+        .allInnerTexts()
+        .catch(() => []),
+    );
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).click();
     await expect(page.getByTestId("task-runs")).toContainText("已完成", { timeout: 30_000 });
@@ -574,7 +585,7 @@ test("知识库资源栏顶部的 Vault 名称按钮：打开“切换 Vault”�
 });
 
 test("笔记拖放移动文件夹：拖到另一个文件夹下，其中的笔记随之移动；不能拖进自己的后代", async () => {
-  test.skip(process.platform === "win32", "同上：Windows 上的拖放模拟不稳定");
+  test.skip(process.platform !== "linux", "同上：Windows / macOS 上的拖放模拟不稳定");
   const { page, vault, close } = await openApp();
   try {
     const fs = await import("node:fs");

@@ -362,7 +362,9 @@ test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字",
     await app.evaluate(({ BrowserWindow }) => {
       for (const w of BrowserWindow.getAllWindows()) w.close();
     });
-    await closed;
+    // macOS 上关掉最后一个窗口应用不会退出（系统惯例），但窗口 close 时的落盘照样发生：此时直接检查文件，再退出应用
+    if (process.platform === "darwin") await expect.poll(() => readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
+    else await closed;
     expect(readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
   } finally {
     rmTree(vault);
@@ -1022,7 +1024,9 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
     await page.getByRole("button", { name: "设置" }).first().click();
 
     await page.getByTestId("settings-nav-vault").click();
-    await expect(page.getByTestId("svault-root")).toHaveValue(realpathSync(vault));
+    // 显示的是打开时的路径；macOS 的临时目录 /var 是 /private/var 的符号链接，两种写法都算对
+    await expect.poll(() => page.getByTestId("svault-root").inputValue()).toEqual(expect.stringMatching(/./));
+    expect([realpathSync(vault), path.resolve(vault)]).toContain(await page.getByTestId("svault-root").inputValue());
     await page.getByTestId("svault-name").fill("我的第二大脑");
     await page.getByTestId("svault-description").fill("工作与学习");
     await page.getByTestId("svault-save").click();
