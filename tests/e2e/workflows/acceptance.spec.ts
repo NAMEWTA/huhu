@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, root } from "../helpers/launch.js";
@@ -219,6 +219,52 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
     expect(existsSync(path.join(B, "草稿甲.md"))).toBe(false);
   } finally {
     await app.close();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("ACC-AG-05 切换 Space：右侧历史只显示当前 Space 目录的会话，搜索框被清空", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "huhu-ag05-"));
+  const dirA = path.join(base, "项目甲");
+  const dirB = path.join(base, "项目乙");
+  const claude = path.join(base, "claude-config");
+  mkdirSync(dirA);
+  mkdirSync(dirB);
+  const enc = (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  const row = (cwd: string, text: string, id: string) => JSON.stringify({ type: "user", cwd, sessionId: id, isMeta: false, message: { role: "user", content: text } }) + "\n";
+  for (const [dir, id, text] of [
+    [dirA, "sess-a", "甲目录里的提问"],
+    [dirB, "sess-b", "乙目录里的提问"],
+  ] as const) {
+    const d = path.join(claude, "projects", enc(realpathSync(dir)));
+    mkdirSync(d, { recursive: true });
+    writeFileSync(path.join(d, `${id}.jsonl`), row(realpathSync(dir), text, id));
+  }
+  const { page, close } = await openApp({ CLAUDE_CONFIG_DIR: claude });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    for (const [name, dir] of [
+      ["空间甲", dirA],
+      ["空间乙", dirB],
+    ] as const) {
+      await page.getByTestId("space-new").click();
+      await page.getByLabel("Space 名称").fill(name);
+      await page.getByLabel("工作目录").fill(dir);
+      await page.getByTestId("space-save").click();
+      await expect(page.getByRole("button", { name: new RegExp(name) })).toBeVisible();
+    }
+    const items = page.getByTestId("history-item");
+    // 当前是刚建好的“空间乙”
+    await expect(items).toHaveCount(1);
+    await expect(items.first()).toContainText("乙目录里的提问");
+    await page.getByLabel("搜索当前 Space 历史").fill("乙目录");
+    await page.getByRole("button", { name: /空间甲/ }).click();
+    await expect(items).toHaveCount(1);
+    await expect(items.first()).toContainText("甲目录里的提问");
+    await expect(page.getByLabel("搜索当前 Space 历史")).toHaveValue("");
+  } finally {
+    await close();
     rmSync(base, { recursive: true, force: true });
   }
 });
