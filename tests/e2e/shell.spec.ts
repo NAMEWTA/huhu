@@ -1485,6 +1485,7 @@ test("Agent CLI：shell 里 exit 之后，会话标记为已结束（带退出�
 });
 
 test("Agent CLI 变更审查（ACC-AG-10）：显示工作树差异，在行上加意见，发送后会话终端收到文本并标记已发送；非 Git 目录给出说明", async () => {
+  test.skip(process.platform === "win32", "Windows 的终端是 PowerShell，回显与报错格式不同，E2EREVIEW 的断言不适用");
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

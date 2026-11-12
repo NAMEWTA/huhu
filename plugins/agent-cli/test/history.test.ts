@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -45,7 +45,7 @@ describe("历史扫描", () => {
       ["s-new", "新会话 多行 提问"],
       ["s-old", "旧会话的提问"],
     ]);
-    expect(r.entries[0]).toMatchObject({ provider: "claude", cwd: path.resolve(root) });
+    expect(r.entries[0]).toMatchObject({ provider: "claude", cwd: realpathSync(root) }); // 扫描器按真实路径归属（macOS 的临时目录 /var 是 /private/var 的符号链接）
   });
 
   test("归属：子目录会话算入，同前缀的兄弟目录与外部目录不算", async () => {
@@ -69,7 +69,7 @@ describe("历史扫描", () => {
 
   test("符号链接的 Space 根按真实路径归属", async () => {
     const home = tmp();
-    const real = tmp();
+    const real = realpathSync(tmp());
     const link = path.join(tmp(), "link");
     symlinkSync(real, link);
     claudeFile(home, real, "r", [userRow(real, "经链接")]);

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import watcher from "@parcel/watcher";
 import type { ReceiptLog } from "../receipts.js";
@@ -43,17 +43,24 @@ export class VaultWatcher {
     this.snapshot = takeSnapshot(this.o.root);
     if (!this.o.forcePolling) {
       try {
+        // 原生监听报告的是真实路径（macOS 的临时目录 /var → /private/var；Vault 放在符号链接下也一样）：相对路径要按真实根计算
+        let real = this.o.root;
+        try {
+          real = realpathSync(this.o.root);
+        } catch {
+          /* 根目录不存在时沿用原路径 */
+        }
         this.subscription = await watcher.subscribe(
-          this.o.root,
+          real,
           (err, events) => {
             if (err) return this.degrade(String(err.message ?? err));
             for (const e of events) {
-              const rel = path.relative(this.o.root, e.path).split(path.sep).join("/");
+              const rel = path.relative(real, e.path).split(path.sep).join("/");
               if (rel && !rel.startsWith("..") && !isIgnored(rel)) this.pending.add(rel);
             }
             this.schedule();
           },
-          { ignore: [".git", "node_modules", ".huhu", ".agents"].map((d) => path.join(this.o.root, d)) },
+          { ignore: [".git", "node_modules", ".huhu", ".agents"].map((d) => path.join(real, d)) },
         );
         return;
       } catch (e) {
