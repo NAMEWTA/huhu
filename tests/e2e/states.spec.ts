@@ -78,6 +78,8 @@ test("ACC-WB-09 状态巡检：1.5× 缩放下所有模块没有页面级水平�
     }
     expect(wide).toEqual([]);
   } finally {
+    // 缩放级别会按来源记在用户数据目录里：不还原的话，之后启动的所有用例都会是 1.5×
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(1)).catch(() => undefined);
     await close();
   }
 });
