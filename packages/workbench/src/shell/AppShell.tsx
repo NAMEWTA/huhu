@@ -1,9 +1,11 @@
 import { Badge, Banner, ControlsProvider, Hint, IconButton, MotionProvider, Segmented } from "@huhu/ui";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Folder, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from "lucide-react";
-import { Component, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Component, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry } from "../contributions.js";
+import { host } from "../settings/host.js";
+import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
 
 class ModuleBoundary extends Component<{ children: ReactNode; moduleId: string }, { error: Error | null }> {
@@ -53,6 +55,7 @@ const ENGINE_TEXT = { ready: "引擎就绪", starting: "引擎启动中", stoppe
 export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine, statusSlot, statusBar, version }: AppShellProps) {
   const { modules } = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const s = useStore(ui);
+  const [switchOpen, setSwitchOpen] = useState(false);
   const active = modules.find((m) => m.id === s.activeModule) ?? null;
   const Active = active?.component;
   const main = modules.filter((m) => m.group !== "system");
@@ -99,11 +102,20 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                 huhu<span className="brand-suffix">workbench</span>
               </span>
             </button>
-            <div className="window-center vault-title-button" data-testid="vault-name">
-              <Folder size={13} aria-hidden />
-              <span>{vaultName}</span>
-              <ChevronDown size={12} aria-hidden />
-            </div>
+            {host()?.vault ? (
+              <button type="button" className="window-center vault-title-button" data-testid="vault-name" aria-label="切换 Vault" onClick={() => setSwitchOpen(true)}>
+                <Folder size={13} aria-hidden />
+                <span>{vaultName}</span>
+                <ChevronDown size={12} aria-hidden />
+              </button>
+            ) : (
+              <div className="window-center vault-title-button" data-testid="vault-name">
+                <Folder size={13} aria-hidden />
+                <span>{vaultName}</span>
+                <ChevronDown size={12} aria-hidden />
+              </div>
+            )}
+            {host()?.vault ? <VaultSwitchDialog open={switchOpen} onClose={() => setSwitchOpen(false)} /> : null}
             <div className="row">{version ? <Badge tone="neutral">{version}</Badge> : null}</div>
           </header>
           <div className="workbench">

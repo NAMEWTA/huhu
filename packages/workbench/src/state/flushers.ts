@@ -9,3 +9,33 @@ export function registerFlusher(fn: () => Promise<void>): () => void {
 export async function runFlushers(): Promise<void> {
   await Promise.allSettled([...flushers].map((f) => f()));
 }
+
+/** 有未保存修改的文档（切换 / 关闭 Vault 前列给用户选择：保存，或保留为草稿）。 */
+export interface DirtyDoc {
+  label: string;
+  isDirty(): boolean;
+  /** 写入文件；返回是否成功。 */
+  save(): Promise<boolean>;
+  /** 只保留为草稿，不改文件。 */
+  keepDraft(): Promise<void>;
+}
+const dirtyDocs = new Set<DirtyDoc>();
+
+export function registerDirtyDoc(doc: DirtyDoc): () => void {
+  dirtyDocs.add(doc);
+  return () => dirtyDocs.delete(doc);
+}
+
+export function listDirtyDocs(): DirtyDoc[] {
+  return [...dirtyDocs].filter((d) => d.isDirty());
+}
+
+/** 按用户选择处理全部未保存文档；保存失败的文档改存草稿，不丢内容。 */
+export async function settleDirtyDocs(mode: "save" | "draft"): Promise<void> {
+  await Promise.allSettled(
+    listDirtyDocs().map(async (d) => {
+      if (mode === "save" && (await d.save().catch(() => false))) return;
+      await d.keepDraft();
+    }),
+  );
+}

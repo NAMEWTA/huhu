@@ -1,6 +1,9 @@
 /* oxlint-disable typescript/no-explicit-any */
-import { expect, test, type Page } from "@playwright/test";
-import { openApp } from "../helpers/launch.js";
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { openApp, root } from "../helpers/launch.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
 type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -153,5 +156,69 @@ test("ACC-TK-06 关联资料选择器：Enter 选中高亮的文件夹；输入�
     await expect(picker.locator(".vrp-chip").first()).toContainText("Research");
   } finally {
     await close();
+  }
+});
+
+test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换”，B 中看不到 A 的数据，回到 A 提示恢复草稿且内容一致", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "huhu-wb03-"));
+  const A = path.join(base, "甲库");
+  const B = path.join(base, "乙库");
+  mkdirSync(A);
+  mkdirSync(B);
+  const env = { ...process.env } as Record<string, string>;
+  delete env["HUHU_VAULT"];
+  const app: ElectronApplication = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const pick = (...paths: string[]) =>
+    app.evaluate(({ dialog }, queue) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [queue.shift() ?? ""] })) as typeof dialog.showOpenDialog;
+    }, paths);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+    await pick(A);
+    await page.getByTestId("vault-new").click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    // 手动保存模式，才会有“未保存的修改”
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    await page.getByRole("switch", { name: "自动保存" }).click();
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByRole("button", { name: "新建笔记" }).first().click();
+    await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("草稿甲");
+    await page.getByTestId("new-note-submit").click();
+    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("\nA库未保存的内容");
+    await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
+
+    await page.getByRole("button", { name: "切换 Vault" }).click(); // 标题栏的 Vault 切换器；笔记仍在编辑中
+    await expect(page.getByTestId("svault-dirty-list")).toContainText("草稿甲");
+    await page.getByTestId("svault-switch-draft").click();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+    expect(readFileSync(path.join(A, "草稿甲.md"), "utf8")).not.toContain("A库未保存的内容"); // 文件没被改
+
+    // B：看不到 A 的任何数据
+    await pick(B);
+    await page.getByTestId("vault-new").click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await expect(page.getByTestId("note-item")).toHaveCount(0);
+    await expect(page.getByText("草稿甲")).toHaveCount(0);
+
+    // 回到 A：笔记提示恢复草稿，内容与切换前一致
+    await page.getByRole("button", { name: "切换 Vault" }).click();
+    await page.getByTestId("svault-switch-confirm").click();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("vault-recent").filter({ hasText: "甲库" }).click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "草稿甲" }).click();
+    await expect(page.getByTestId("note-draft-restore")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("note-draft-restore").click();
+    await expect(page.getByTestId("markdown-editor")).toContainText("A库未保存的内容");
+    expect(existsSync(path.join(B, "草稿甲.md"))).toBe(false);
+  } finally {
+    await app.close();
+    rmSync(base, { recursive: true, force: true });
   }
 });

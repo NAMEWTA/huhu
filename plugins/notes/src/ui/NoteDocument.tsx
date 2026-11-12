@@ -1,6 +1,6 @@
 import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
 import { Banner, Button, IconButton, Segmented } from "@huhu/ui";
-import { CapabilityError, queryKey, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, queryKey, registerDirtyDoc, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
 import { diff3Merge } from "node-diff3";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -201,6 +201,20 @@ export function NoteDocument(props: NoteDocumentProps) {
         if (savedText.current === null || latest.current.text === savedText.current) return;
         if (autosaveRef.current) await saveRef.current?.();
         else await engine.call("notes.draft.save", { path, text: latest.current.text, baseVersion: latest.current.version }, { write: true });
+      }),
+    [engine, path],
+  );
+  // 切换 Vault 前，设置页据此列出未保存的文档，让用户选“全部保存”或“保留草稿”
+  useEffect(
+    () =>
+      registerDirtyDoc({
+        label: path,
+        isDirty: () => savedText.current !== null && latest.current.text !== savedText.current,
+        save: () => saveRef.current?.() ?? Promise.resolve(false),
+        keepDraft: async () => {
+          if (timer.current) clearTimeout(timer.current);
+          await engine.call("notes.draft.save", { path, text: latest.current.text, baseVersion: latest.current.version }, { write: true });
+        },
       }),
     [engine, path],
   );
