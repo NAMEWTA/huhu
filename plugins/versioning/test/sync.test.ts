@@ -2,9 +2,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { VaultGit } from "../src/engine/repo.js";
 import { VaultSync, classify } from "../src/engine/sync.js";
+
+// Windows 上每次 git 调用都要几百毫秒，一个用例里有几十次：默认的 5 秒不够
+vi.setConfig({ testTimeout: 60_000 });
 
 const dirs: string[] = [];
 afterEach(() => {
