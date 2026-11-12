@@ -73,8 +73,10 @@ export function InboxModule() {
       <aside className="resource-pane knowledge-inbox-list" aria-label={t.title}>
         <div className="resource-head">
           <div className="row">
-            <strong className="grow">{t.title}</strong>
-            <span className="knowledge-count">{items.length}</span>
+            <strong className="grow">
+              {t.title}
+              <span className="knowledge-count">{items.length}</span>
+            </strong>
             <IconButton icon={Plus} label="新建收集条目" onClick={() => setDialog({ kind: "edit", item: null })} />
           </div>
           <div className="knowledge-inbox-status-tabs">
