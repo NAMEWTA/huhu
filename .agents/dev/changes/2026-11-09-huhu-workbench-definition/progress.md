@@ -86,7 +86,7 @@
 
 此前没有自动化证据的 14 条验收项已补测并通过：ACC-AG-02/07（给已有用例打标签）、ACC-AG-05、ACC-AG-11、ACC-KN-09、ACC-PL-01、ACC-PL-06、ACC-SY-03、ACC-TK-02/03/06/11、ACC-WB-03/05。位置：`tests/e2e/workflows/acceptance.spec.ts`、`plugins/tasks/test/service.test.ts`、`apps/engine/test/engine.test.ts`、`apps/cli/test/cli.test.ts`。补测时发现并修复的两处与规格的偏差：
 
-- MCP：已缓存旧工具表的客户端在插件停用后调用 `tasks.list`，得到的是含糊的“能力不存在”，规格要求 `PLUGIN_DISABLED`（现在调用交给 Dispatcher 判定）。stdio 形态（`huhu mcp`）仍沿用清单过滤，只在 HTTP 形态做了该修复。
+- MCP：已缓存旧工具表的客户端在插件停用后调用 `tasks.list`，得到的是含糊的“能力不存在”，规格要求 `PLUGIN_DISABLED`（现在调用交给 Dispatcher 判定）。stdio 形态（`huhu mcp`）同样处理：`capabilities.list` 新增 `includeInactive`，CLI 据此识别已停用插件的能力名（CLI 测试覆盖）。
 - 工作台：标题栏的 Vault 名称原先不可点；现在是“切换 Vault”按钮，有未保存文档时弹出“全部保存并切换 / 保留草稿并切换 / 取消”（原型 `vault-title-button`；规格“切换与关闭 Vault”第 1 条）。
 
 笔记页的“文件目录”条（`knowledge-resource-bar`）在原型里只在窗口宽度 ≤ 900px 时显示，桌面宽度下是 `display:none`，不属于缺口。

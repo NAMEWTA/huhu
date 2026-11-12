@@ -218,10 +218,21 @@ export function registerSystemCapabilities(
         scope: "read",
         exposable: true,
         defaultExposed: true,
-        input: z.object({}),
+        // includeInactive：同时返回曾注册 / 在清单中声明、但现在不可用（插件已停用）的能力名，供 stdio MCP 把已缓存工具的调用交给 Dispatcher 得到 PLUGIN_DISABLED
+        input: z.object({ includeInactive: z.boolean().optional() }),
         output: z.array(z.object({ name: z.string(), plugin: z.string(), scope: z.string(), exposable: z.boolean(), exposed: z.boolean(), input: z.unknown(), output: z.unknown() })),
-        handler: () =>
-          registry.list().map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable, exposed: c.exposable && exposure.isExposed(c.name), input: toJsonSchema(c.input), output: toJsonSchema(c.output) })),
+        handler: (_c, i) => {
+          const active = registry
+            .list()
+            .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable, exposed: c.exposable && exposure.isExposed(c.name), input: toJsonSchema(c.input), output: toJsonSchema(c.output) }));
+          if (!i.includeInactive) return active;
+          const have = new Set(active.map((c) => c.name));
+          const inactive = registry
+            .knownNames()
+            .filter((n) => !have.has(n))
+            .map((n) => ({ name: n, plugin: registry.knownPlugin(n) ?? "", scope: "read", exposable: false, exposed: false, input: null, output: null }));
+          return [...active, ...inactive];
+        },
       }),
     ),
   ];

@@ -135,6 +135,29 @@ describe("CLI", () => {
     expect((await run1("tasks", "list", "--completed", "false")).code).toBe(0);
     expect((await run1("notes", "list")).code).toBe(0);
   });
+  test("ACC-PL-01 stdio：停用 tasks 后，已缓存工具表的客户端调用 tasks_list 得到 PLUGIN_DISABLED，且工具表不再含 tasks_*", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { createMcpServer } = await import("../src/mcp.js");
+    const server = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1");
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "1" });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    expect((await client.listTools()).tools.some((t) => t.name === "tasks_list")).toBe(true);
+    const off = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "plugins.setEnabled", input: { id: "tasks", enabled: false }, requestId: "r", idempotencyKey: "key-disable-tasks-1" }),
+    });
+    expect(off.ok).toBe(true);
+    expect((await client.listTools()).tools.some((t) => t.name.startsWith("tasks_"))).toBe(false);
+    const stale = await client.callTool({ name: "tasks_list", arguments: {} });
+    expect(stale.isError).toBe(true);
+    expect((stale.content as { text: string }[])[0]?.text).toContain("PLUGIN_DISABLED");
+    await client.close();
+  }, 30_000);
   test("ACC-PL-06 stdio 进程：stdout 只有 JSON-RPC 帧（日志不进 stdout），工具表只含对外开放的能力", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });

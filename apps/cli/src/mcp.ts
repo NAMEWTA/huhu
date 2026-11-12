@@ -19,6 +19,10 @@ export function createMcpServer(conn: Connection, version: string) {
         if (!r.ok) throw new Error(r.error.message);
         return (r.data as CapInfo[]).filter((c) => c.exposed);
       },
+      known: async () => {
+        const r = await callCapability(conn, "capabilities.list", { includeInactive: true });
+        return r.ok ? (r.data as CapInfo[]).map((c) => c.name) : [];
+      },
       call: (cap, input) => callCapability(conn, cap, input),
     },
     version,
