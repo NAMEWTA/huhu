@@ -23,7 +23,7 @@ const put = (root: string, rel: string, text: string) => {
   writeFileSync(path.join(root, rel), text);
 };
 const git = (root: string, ...args: string[]) =>
-  execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], {
+  execFileSync("git", ["-C", root, "-c", "core.quotepath=false", "-c", "core.autocrlf=false", ...args], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" },

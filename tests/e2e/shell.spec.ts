@@ -13,6 +13,9 @@ async function launch(vault: string, extraEnv: Record<string, string> = {}): Pro
 }
 
 /** 不指定 HUHU_VAULT 启动：显示启动页。目录选择框用主进程里的桩替换（原生对话框无法被 Playwright 驱动）。 */
+/** 应用版本号：单一来源是 apps/desktop/package.json（由 sync-version 同步，预发布时带 -rc.N 后缀）。 */
+const APP_VERSION = (JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version: string }).version;
+
 async function launchBare(): Promise<ElectronApplication> {
   const env = { ...process.env, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } as Record<string, string>;
   delete env["HUHU_VAULT"];
@@ -74,7 +77,7 @@ test("窗口启动、appInfo 可用、window.open 被拒绝", async () => {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     expect(await page.title()).toBe("HUHU");
     const info = await page.evaluate(() => window.huhuHost.appInfo());
-    expect(info).toMatchObject({ name: "HUHU", version: "0.0.1" });
+    expect(info).toMatchObject({ name: "HUHU", version: APP_VERSION });
     const before = app.windows().length;
     await page.evaluate(() => window.open("file:///etc/passwd"));
     await page.waitForTimeout(500);
@@ -1034,7 +1037,7 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
     await expect(page.getByTestId("settings-shortcuts")).toContainText("命令面板");
 
     await page.getByTestId("settings-nav-about").click();
-    await expect(page.getByTestId("about-version")).toHaveText("HUHU 0.0.1");
+    await expect(page.getByTestId("about-version")).toHaveText(`HUHU ${APP_VERSION}`);
     await expect(page.getByTestId("about-electron")).toHaveText(/^\d+\.\d+\.\d+/);
     await expect(page.getByTestId("about-node")).toHaveText(/^\d+\.\d+\.\d+/);
     await page.getByTestId("about-notices").locator("summary").click();

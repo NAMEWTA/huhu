@@ -31,6 +31,8 @@ test("ACC-WB-05 首页“我的任务”勾选：待推进任务数减少，任�
     const call = await caller(page);
     const t = await call("tasks.create", { title: "首页勾选", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
     expect(t.ok).toBe(true);
+    await page.reload(); // 首页数据在挂载时取：重新载入后一定包含刚创建的任务（CI 上事件刷新的时机不稳）
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const open = page.getByTestId("card-open");
     await expect(open).toContainText("1");
     await page.getByTestId("card-tasks").getByRole("button", { name: "完成任务 首页勾选" }).click();
@@ -122,8 +124,7 @@ test("ACC-TK-11 看板：把卡片拖到“已完成”列等同于勾选完成�
     await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(1);
     await page.getByTestId("board-open").getByTestId("board-card").dragTo(page.getByTestId("board-done"));
     await expect(page.getByTestId("board-done").getByTestId("board-card")).toHaveCount(1, { timeout: 10_000 });
-    const done = await call("tasks.list", { category: "ended" });
-    expect((done.data as { title: string }[]).map((x) => x.title)).toContain("拖拽任务");
+    await expect.poll(async () => ((await call("tasks.list", { category: "ended" })).data as { title: string }[]).map((x) => x.title)).toContain("拖拽任务");
     // 回执前同一任务不会重复提交，所以等上一次提交结束后再拖回（失败则重试拖拽）
     await expect(async () => {
       await page.getByTestId("board-done").getByTestId("board-card").dragTo(page.getByTestId("board-open"));

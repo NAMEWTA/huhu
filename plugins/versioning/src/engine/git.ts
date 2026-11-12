@@ -32,8 +32,9 @@ export class GitRunner {
   }
 
   private exec(args: string[], opts: RunOpts, enc: "utf8" | "buffer"): Promise<GitResult | Buffer> {
-    // core.quotepath=false：非 ASCII 路径（中文文件名）原样输出，不转义成八进制
-    const base = ["-c", "core.quotepath=false", ...(this.o.gitDir ? ["--git-dir", this.o.gitDir, "--work-tree", this.o.workTree] : ["-C", this.o.workTree])];
+    // core.quotepath=false：非 ASCII 路径（中文文件名）原样输出，不转义成八进制；
+    // core.autocrlf=false：Windows 的系统 / 用户配置常把它设为 true，合并 / 检出时会改写用户笔记的换行符，Vault 里的文件必须字节保真
+    const base = ["-c", "core.quotepath=false", "-c", "core.autocrlf=false", ...(this.o.gitDir ? ["--git-dir", this.o.gitDir, "--work-tree", this.o.workTree] : ["-C", this.o.workTree])];
     return new Promise((resolve, reject) => {
       const p = execFile(
         this.o.bin ?? "git",
