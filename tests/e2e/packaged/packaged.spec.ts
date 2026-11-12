@@ -118,7 +118,9 @@ test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，C
           const ws = new WebSocket(`${e.baseUrl.replace(/^http/, "ws")}/ws/terminal/${id}?cols=80&rows=24`, [`bearer.${e.token}`]);
           ws.binaryType = "arraybuffer";
           let text = "";
-          ws.onopen = () => setTimeout(() => ws.send(new TextEncoder().encode("echo packaged-$((20+22))\n")), 800);
+          // Windows 的 shell 是 PowerShell（启动 / PSReadLine 初始化更慢，输入太早会被吞）：等久一点，并用 PowerShell 的写法
+          const win = /Windows/i.test(navigator.userAgent);
+          ws.onopen = () => setTimeout(() => ws.send(new TextEncoder().encode(win ? 'Write-Output ("packaged-" + (20+22))\r' : "echo packaged-$((20+22))\n")), win ? 5000 : 800);
           ws.onmessage = (m) => {
             if (typeof m.data !== "string") text += new TextDecoder().decode(m.data as ArrayBuffer);
             if (text.includes("packaged-42")) {
@@ -126,7 +128,7 @@ test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，C
               resolve(text);
             }
           };
-          setTimeout(() => resolve(text), 15_000);
+          setTimeout(() => resolve(text), 25_000);
         }),
       [ep, sess.data.id] as const,
     );
