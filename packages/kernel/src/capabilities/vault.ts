@@ -75,6 +75,23 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
     ),
     registry.register(
       defineCapability({
+        name: "vault.readBinary",
+        plugin: "kernel",
+        scope: "read",
+        input: z.object({ path: z.string() }),
+        output: z.object({ path: z.string(), base64: z.string(), size: z.number() }),
+        exposable: false,
+        defaultExposed: false,
+        handler: (_c, i) => {
+          const f = vault.files.read(i.path); // 路径守卫在 abs() 内
+          if (!f) throw errors.notFound(`文件不存在：${i.path}`);
+          if (f.bytes.length > MAX_READ_BYTES) throw errors.invalidInput("文件超过 10 MiB，不支持预览");
+          return { path: i.path, base64: f.bytes.toString("base64"), size: f.bytes.length };
+        },
+      }),
+    ),
+    registry.register(
+      defineCapability({
         name: "vault.readFile",
         plugin: "kernel",
         scope: "read",

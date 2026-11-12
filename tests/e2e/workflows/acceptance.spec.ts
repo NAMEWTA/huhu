@@ -866,3 +866,34 @@ test("笔记被外部修改且有未保存编辑：Banner 有“查看差异 / �
     await close();
   }
 });
+
+test("知识库查看器：文本 / JSON（带语法诊断）/ 图片 / SVG 直接查看，二进制只有元信息；都有“用系统应用打开”", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    fs.writeFileSync(`${vault}/说明.txt`, "第一行\n第二行 hello\n");
+    fs.writeFileSync(`${vault}/数据.json`, '{"a": 1,}');
+    fs.writeFileSync(`${vault}/图.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    fs.writeFileSync(`${vault}/矢量.svg`, '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>window.__svgpwn=1</script><rect width="10" height="10" fill="red"/></svg>');
+    fs.writeFileSync(`${vault}/二进制.bin`, Buffer.from([0, 1, 2, 3, 0, 255]));
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    const open = (name: string) => page.getByTestId("file-item").filter({ hasText: name }).click();
+    await open("说明");
+    await expect(page.getByTestId("file-text-view")).toContainText("第二行 hello");
+    await expect(page.getByTestId("file-open-external")).toBeVisible();
+    await open("数据");
+    await expect(page.getByTestId("file-diagnostic")).toContainText("JSON 语法错误");
+    await open("图");
+    await expect(page.getByTestId("file-image")).toBeVisible();
+    await expect.poll(() => page.getByTestId("file-image").evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+    await open("矢量");
+    await expect(page.getByTestId("file-image")).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __svgpwn?: number }).__svgpwn)).toBeUndefined(); // SVG 里的脚本不会执行
+    await open("二进制");
+    await expect(page.getByTestId("file-size")).toHaveText("6 B");
+    await expect(page.getByTestId("file-text-view")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});

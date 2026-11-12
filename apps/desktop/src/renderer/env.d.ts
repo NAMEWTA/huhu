@@ -5,6 +5,7 @@ declare global {
     huhuHost: {
       appInfo(): Promise<{ name: string; version: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
       revealVault(): Promise<void>;
+      openVaultFile(rel: string): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;
       pickSavePath(defaultName: string): Promise<string | null>;
       pickOpenPath(kind: "zip" | "directory" | "file"): Promise<string | null>;
       cliStatus(): Promise<unknown>;

@@ -2,6 +2,8 @@
 export interface HostApi {
   appInfo(): Promise<{ name: string; version: string; commit?: string; builtAt?: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
   revealVault(): Promise<void>;
+  /** 用系统应用打开 Vault 里的文件（主进程校验路径在 Vault 内并按扩展名白名单放行；其余只在文件夹中显示）。 */
+  openVaultFile?(rel: string): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;
   pickSavePath(defaultName: string): Promise<string | null>;
   pickOpenPath(kind: "zip" | "directory" | "file"): Promise<string | null>;
   /** 弹出保存对话框并写出文本（扩展命令返回 saveFile 时用）；用户取消返回 false。 */

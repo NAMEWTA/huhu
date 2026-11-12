@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
@@ -215,6 +215,56 @@ if (!gotLock) {
     ipcMain.handle("huhu:revealVault", (event) => {
       assertTrusted(event.senderFrame?.url);
       if (current) shell.showItemInFolder(current.path);
+    });
+    // 用系统应用打开 Vault 里的文件：路径必须在当前 Vault 内（真实路径），且只放行文档 / 图片 / 压缩包等类型——
+    // 可执行文件、脚本、快捷方式绝不交给系统去运行，只在文件夹里显示它
+    const OPENABLE = new Set([
+      ".pdf",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp",
+      ".svg",
+      ".bmp",
+      ".txt",
+      ".csv",
+      ".json",
+      ".yaml",
+      ".yml",
+      ".docx",
+      ".xlsx",
+      ".pptx",
+      ".doc",
+      ".xls",
+      ".ppt",
+      ".odt",
+      ".ods",
+      ".odp",
+      ".rtf",
+      ".mp3",
+      ".mp4",
+      ".mov",
+      ".wav",
+      ".zip",
+    ]);
+    ipcMain.handle("huhu:openVaultFile", async (event, rel: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      if (!current || typeof rel !== "string" || rel.length === 0 || rel.length > 1000) return "denied";
+      const root = realpathSync(current.path);
+      let abs: string;
+      try {
+        abs = realpathSync(path.resolve(root, rel));
+      } catch {
+        return "missing";
+      }
+      if (abs !== root && !abs.startsWith(root + path.sep)) return "denied";
+      if (!OPENABLE.has(path.extname(abs).toLowerCase())) {
+        shell.showItemInFolder(abs);
+        return "revealed";
+      }
+      const err = await shell.openPath(abs);
+      return err ? "failed" : "opened";
     });
     // 文件对话框：只返回用户选中的路径，真正的读写由 Engine 进程完成
     ipcMain.handle("huhu:pickSavePath", async (event, defaultName: unknown) => {
