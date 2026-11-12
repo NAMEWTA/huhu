@@ -1094,12 +1094,24 @@ test("设置：数据与存储——重建索引、导出数据包（结果带 S
     await expect(page.getByTestId("note-item").filter({ hasText: "备份内容.md" })).toBeVisible();
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByTestId("settings-nav-data").click();
+    // 文件结构（默认分区）：受管文件列表与只读预览，可按领域筛选与搜索
+    await expect(page.getByTestId("storage-file").filter({ hasText: "备份内容.md" })).toBeVisible();
+    await expect(page.getByTestId("storage-file").filter({ hasText: "vault.json" })).toBeVisible(); // .huhu 下的配置
+    await page.getByTestId("storage-domain").selectOption("config");
+    await expect(page.getByTestId("storage-file").filter({ hasText: "备份内容.md" })).toHaveCount(0);
+    await page.getByTestId("storage-domain").selectOption("notes");
+    await page.getByTestId("storage-file").filter({ hasText: "备份内容.md" }).click();
+    await expect(page.getByTestId("storage-preview")).toContainText("备份内容");
+    await page.getByRole("tab", { name: "存储规则" }).click();
+    await expect(page.getByTestId("storage-rules")).toContainText("可靠性材料");
+    await page.getByRole("tab", { name: "索引与恢复" }).click();
     await expect(page.getByTestId("storage-counts")).toContainText("篇笔记已建立索引");
 
     await page.getByTestId("storage-reindex").click();
     await expect(page.getByTestId("storage-reindex-msg")).toHaveText("索引已重建", { timeout: 20_000 });
 
     const zip = path.join(out, "备份.zip");
+    await page.getByRole("tab", { name: "导出与迁移" }).click();
     await page.getByTestId("storage-export-path").fill("相对路径.zip");
     await page.getByTestId("storage-export").click();
     await expect(page.getByTestId("storage-export-msg")).toContainText("绝对路径");

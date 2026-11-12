@@ -102,6 +102,11 @@ describe("Engine 启动与关闭", () => {
     expect((await call("vault.search", { query: "知识库" })).data.hits[0]?.path).toBe("笔记.md");
     expect((await call("vault.readFile", { path: "笔记.md" })).data.text).toContain("想法");
     expect((await call("vault.readFile", { path: "../etc/passwd" })).error?.code).toBe("PATH_OUTSIDE_VAULT");
+    const managed = (await call("vault.managedFiles", {})).data as { files: { path: string; domain: string }[] };
+    expect(managed.files.find((f) => f.path === "笔记.md")?.domain).toBe("notes");
+    expect(managed.files.find((f) => f.path === ".huhu/vault.json")?.domain).toBe("config");
+    expect(managed.files.find((f) => f.path.startsWith("Automations/"))?.domain).toBe("automations");
+    expect(managed.files.some((f) => /^\.huhu\/(runtime|history|cache|safe|operations)\//.test(f.path))).toBe(false); // 运行态、历史、缓存、密文不列出
     // CLI 身份：readFile 默认不对外
     expect((await call("vault.readFile", { path: "笔记.md" }, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     expect((await call("vault.reindex", {}, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");

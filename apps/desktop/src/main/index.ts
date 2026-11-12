@@ -248,7 +248,7 @@ if (!gotLock) {
       ".wav",
       ".zip",
     ]);
-    ipcMain.handle("huhu:openVaultFile", async (event, rel: unknown) => {
+    ipcMain.handle("huhu:openVaultFile", async (event, rel: unknown, reveal?: unknown) => {
       assertTrusted(event.senderFrame?.url);
       if (!current || typeof rel !== "string" || rel.length === 0 || rel.length > 1000) return "denied";
       const root = realpathSync(current.path);
@@ -259,7 +259,7 @@ if (!gotLock) {
         return "missing";
       }
       if (abs !== root && !abs.startsWith(root + path.sep)) return "denied";
-      if (!OPENABLE.has(path.extname(abs).toLowerCase())) {
+      if (reveal === true || !OPENABLE.has(path.extname(abs).toLowerCase())) {
         shell.showItemInFolder(abs);
         return "revealed";
       }

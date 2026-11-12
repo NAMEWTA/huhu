@@ -1,10 +1,51 @@
-import { errors } from "@huhu/contracts";
+import { readdirSync, statSync } from "node:fs";
+import path from "node:path";
+import { errors, KINDS } from "@huhu/contracts";
 import { VaultIndex, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
 
 const TreeEntry = z.object({ path: z.string(), type: z.enum(["file", "dir"]), size: z.number(), mtimeMs: z.number() });
 const MAX_READ_BYTES = 10 * 1024 * 1024;
+
+const DOMAIN_BY_DIR: Record<string, string> = Object.fromEntries(
+  Object.values(KINDS).map((k) => [k.dir, k.plugin === "tasks" ? "tasks" : k.plugin === "archives" ? "archives" : k.plugin === "inbox" ? "inbox" : k.plugin === "notes" ? "comments" : k.dir === "Automations" ? "automations" : "runs"]),
+);
+/** .huhu 下不作为“受管数据”列出的目录：运行态、历史仓库、缓存、草稿/回收站/操作日志（可靠性材料）、保险箱密文、界面状态。 */
+const HIDDEN_STATE_DIRS = new Set(["runtime", "history", "cache", "drafts", "trash", "operations", "safe", "ui", "diagnostics", "tmp"]);
+const MANAGED_EXT = new Set([".md", ".json"]);
+const MAX_MANAGED = 20_000;
+
+function domainOf(rel: string): string {
+  const top = rel.split("/")[0] ?? "";
+  if (top === ".huhu") return rel.startsWith(".huhu/guide/") ? "guide" : "config";
+  return DOMAIN_BY_DIR[top] ?? "notes";
+}
+
+function walkState(root: string, dir: string, out: { path: string; size: number; mtimeMs: number }[]): void {
+  let names: import("node:fs").Dirent[];
+  try {
+    names = readdirSync(path.join(root, dir), { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of names) {
+    if (out.length >= MAX_MANAGED) return;
+    const rel = `${dir}/${e.name}`;
+    if (e.isDirectory()) {
+      if (dir === ".huhu" && HIDDEN_STATE_DIRS.has(e.name)) continue;
+      if (e.name === "backups") continue;
+      walkState(root, rel, out);
+    } else if (e.isFile() && MANAGED_EXT.has(path.extname(e.name).toLowerCase())) {
+      try {
+        const st = statSync(path.join(root, rel));
+        out.push({ path: rel, size: st.size, mtimeMs: st.mtimeMs });
+      } catch {
+        /* 文件刚被删除 */
+      }
+    }
+  }
+}
 
 /** 注册内核 vault.* 能力（interfaces.md §2 kernel 行）。返回注销函数。 */
 export function registerVaultCapabilities(registry: CapabilityRegistry, vault: Vault, index: VaultIndex): () => void {
@@ -59,6 +100,26 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
         exposable: true,
         defaultExposed: true,
         handler: (_c, i) => index.entries(i.prefix),
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "vault.managedFiles",
+        plugin: "kernel",
+        scope: "read",
+        input: z.object({}),
+        output: z.object({ files: z.array(z.object({ path: z.string(), domain: z.string(), size: z.number(), mtimeMs: z.number() })), truncated: z.boolean() }),
+        exposable: false,
+        defaultExposed: false,
+        handler: () => {
+          const files: { path: string; domain: string; size: number; mtimeMs: number }[] = [];
+          for (const e of index.entries()) if (e.type === "file" && MANAGED_EXT.has(path.extname(e.path).toLowerCase())) files.push({ path: e.path, domain: domainOf(e.path), size: e.size, mtimeMs: e.mtimeMs });
+          const state: { path: string; size: number; mtimeMs: number }[] = [];
+          walkState(vault.root, ".huhu", state);
+          for (const f of state) files.push({ ...f, domain: domainOf(f.path) });
+          files.sort((a, b) => a.path.localeCompare(b.path));
+          return { files: files.slice(0, MAX_MANAGED), truncated: files.length > MAX_MANAGED };
+        },
       }),
     ),
     registry.register(

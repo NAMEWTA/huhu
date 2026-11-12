@@ -15,6 +15,11 @@ export function useEngineEvents(handler: (e: HuhuEvent) => void): void {
   useEffect(() => bus?.subscribe((e) => ref.current(e)), [bus]);
 }
 
+/** 在没有 EngineProvider 的位置（引擎尚未连接时的外壳）取不到客户端，返回 null。 */
+export function useOptionalEngine(): EngineClient | null {
+  return useContext(Ctx);
+}
+
 export function useEngine(): EngineClient {
   const c = useContext(Ctx);
   if (!c) throw new Error("EngineProvider 缺失");

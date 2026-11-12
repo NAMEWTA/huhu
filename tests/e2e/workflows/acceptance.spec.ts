@@ -1019,3 +1019,30 @@ test("Agent CLI：Space 可以编辑（改名）与删除（只删配置，不�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("数据与存储：开启“关闭前提示导出数据包”后，切换 Vault 必须先导出并确认备份可用", async () => {
+  const out = mkdtempSync(path.join(tmpdir(), "huhu-bk-"));
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-data").click();
+    await page.getByRole("tab", { name: "导出与迁移" }).click();
+    await page.getByRole("switch", { name: "关闭前提示导出数据包" }).click();
+    await page.getByTestId("settings-nav-vault").click();
+    await page.getByTestId("svault-switch").click();
+    await expect(page.getByTestId("svault-backup")).toBeVisible();
+    const confirm = page.getByTestId("svault-switch-confirm");
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId("svault-backup-path").fill(path.join(out, "关闭前.zip"));
+    await page.getByTestId("svault-backup-export").click();
+    await expect(page.getByTestId("svault-backup-done")).toBeVisible({ timeout: 20_000 });
+    await expect(confirm).toBeDisabled(); // 还没勾选“我已确认备份文件可用”
+    await page.getByTestId("svault-backup-confirm").check();
+    await expect(confirm).toBeEnabled();
+    expect(existsSync(path.join(out, "关闭前.zip"))).toBe(true);
+  } finally {
+    await close();
+    rmSync(out, { recursive: true, force: true });
+  }
+});

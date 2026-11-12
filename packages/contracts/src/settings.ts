@@ -39,6 +39,7 @@ export const SettingsSchema = z.object({
     })
     .catch({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, weekStartsOn: 1 }),
   shortcuts: z.record(z.string(), z.string()).catch({}),
+  storage: z.object({ promptBackupBeforeClose: z.boolean().catch(false) }).catch({ promptBackupBeforeClose: false }),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
