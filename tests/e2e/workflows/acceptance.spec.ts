@@ -461,3 +461,28 @@ test("版本历史：对比基准“与当前内容 / 与前一版”切换，�
     await close();
   }
 });
+
+test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；拖到空白处回到 Vault 根", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect((await call("folders.create", { path: "归档" })).ok).toBe(true);
+    fs.writeFileSync(`${vault}/待移动.md`, "# 待移动\n\n正文\n");
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    const item = page.getByTestId("note-item").filter({ hasText: "待移动" });
+    await expect(item).toBeVisible();
+    await item.dragTo(page.getByTestId("folder-line").filter({ hasText: "归档" }));
+    await expect.poll(() => fs.existsSync(`${vault}/归档/待移动.md`)).toBe(true);
+    expect(fs.existsSync(`${vault}/待移动.md`)).toBe(false);
+    // 展开文件夹，把笔记拖回根（树容器的空白处）
+    await page.getByTestId("folder-line").filter({ hasText: "归档" }).getByRole("button").first().click();
+    const moved = page.getByTestId("note-item").filter({ hasText: "待移动" });
+    await expect(moved).toBeVisible();
+    await moved.dragTo(page.locator(".knowledge-explorer-tree"), { targetPosition: { x: 20, y: 300 } });
+    await expect.poll(() => fs.existsSync(`${vault}/待移动.md`)).toBe(true);
+  } finally {
+    await close();
+  }
+});

@@ -104,6 +104,15 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
   const selectedFile = fileRefs.find((f) => f.path === selected) ?? null;
+  /** 拖放移动：与“移动到…”对话框同一条路径（未保存的修改先落盘；已在目标文件夹则不动）。 */
+  async function moveByDrop(path: string, dir: string) {
+    const note = (every.data ?? []).find((x) => x.path === path);
+    const cur = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    if (!note || cur === dir) return;
+    if (!(await beforeMove(note))) return;
+    const r = await run("notes.move", { path, targetDir: dir });
+    if (r) remapSelected(path, `${dir ? `${dir}/` : ""}${path.split("/").at(-1)}`);
+  }
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   /** 改名 / 移动之后，打开着的笔记路径跟着变（文件夹则按前缀）。 */
   // 打开的文档标签（原型：编辑区上方的文档标签条）；文件已不存在（回收 / 永久删除 / 改名后）的标签自动消失
@@ -145,6 +154,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         notes={notes}
         allCount={(every.data ?? []).length}
         folders={folders.data ?? []}
+        onMoveNote={(path, dir) => void moveByDrop(path, dir)}
         tags={tags.data ?? []}
         tag={tag}
         onTag={setTag}

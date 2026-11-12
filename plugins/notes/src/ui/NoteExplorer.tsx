@@ -66,6 +66,8 @@ export interface ExplorerProps {
   expanded: Set<string>;
   onToggleFolder(path: string): void;
   onNewNote(folder?: string): void;
+  /** 拖放移动：把笔记拖到文件夹（dir = 文件夹路径）或空白处（dir = ""，Vault 根）。 */
+  onMoveNote(path: string, dir: string): void;
   onNewFolder(parent?: string): void;
   onMenu(note: NoteRef, anchor: HTMLElement): void;
   onOpenDaily(date: string): void;
@@ -80,9 +82,46 @@ export function NoteExplorer(p: ExplorerProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const caption = p.query ? n.caption.search(p.notes.length) : n.caption[p.section];
 
+  const trash = p.section === "trash";
+  const MIME = "application/x-huhu-file";
+  const dropOn = (e: React.DragEvent<HTMLElement>, dir: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove("is-drop-target");
+    if (trash) return;
+    // 从系统里拖进来的 .md / .txt 文件：导入到 Vault（与“导入”按钮同一条路径；导入目录由导入流程决定，不随拖到的文件夹变化）
+    if (dir === "" && e.dataTransfer.files.length > 0 && !e.dataTransfer.getData(MIME)) {
+      p.onImport(e.dataTransfer.files);
+      return;
+    }
+    try {
+      const v = JSON.parse(e.dataTransfer.getData(MIME) || "null") as { kind?: string; path?: string } | null;
+      if (v?.kind === "note" && v.path) p.onMoveNote(v.path, dir);
+    } catch {
+      /* 不是我们的拖动内容：忽略 */
+    }
+  };
+  const dropProps = (dir: string) => ({
+    onDragOver: (e: React.DragEvent<HTMLElement>) => {
+      if (trash) return;
+      e.preventDefault();
+      e.currentTarget.classList.add("is-drop-target");
+    },
+    onDragLeave: (e: React.DragEvent<HTMLElement>) => e.currentTarget.classList.remove("is-drop-target"),
+    onDrop: (e: React.DragEvent<HTMLElement>) => dropOn(e, dir),
+  });
+
   const fileRow = (note: NoteRef, depth: number) => (
     <div key={note.path} className={`knowledge-tree-line${note.path === p.selected ? " is-selected" : ""}`} style={{ ["--tree-depth" as string]: depth }}>
-      <button type="button" aria-current={note.path === p.selected ? "true" : undefined} className="knowledge-tree-item" data-testid={note.file ? "file-item" : "note-item"} onClick={() => p.onOpen(note.path)}>
+      <button
+        type="button"
+        aria-current={note.path === p.selected ? "true" : undefined}
+        className="knowledge-tree-item"
+        data-testid={note.file ? "file-item" : "note-item"}
+        draggable={!trash && !note.file}
+        onDragStart={(e) => (e.dataTransfer.setData(MIME, JSON.stringify({ kind: "note", path: note.path })), (e.dataTransfer.effectAllowed = "move"))}
+        onClick={() => p.onOpen(note.path)}
+      >
         <span className="knowledge-tree-spacer" />
         <FileText size={15} aria-hidden />
         <span className="knowledge-tree-label">{note.title}</span>
@@ -96,7 +135,7 @@ export function NoteExplorer(p: ExplorerProps) {
     const open = p.expanded.has(node.path);
     return (
       <div key={node.path} className="knowledge-tree-folder">
-        <div className="knowledge-tree-line knowledge-folder-line" style={{ ["--tree-depth" as string]: depth }}>
+        <div className="knowledge-tree-line knowledge-folder-line" style={{ ["--tree-depth" as string]: depth }} data-testid="folder-line" {...dropProps(node.path)}>
           <button type="button" aria-expanded={open} className="knowledge-tree-item" onClick={() => p.onToggleFolder(node.path)}>
             {open ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
             {open ? <FolderOpen size={15} aria-hidden /> : <Folder size={15} aria-hidden />}
@@ -125,7 +164,6 @@ export function NoteExplorer(p: ExplorerProps) {
       </div>
     );
   };
-  const trash = p.section === "trash";
 
   return (
     <aside className="resource-pane knowledge-note-list" aria-label="知识库">
@@ -179,7 +217,7 @@ export function NoteExplorer(p: ExplorerProps) {
           ))}
         </div>
       ) : null}
-      <div className="resource-list knowledge-explorer-tree" role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
+      <div className="resource-list knowledge-explorer-tree" {...dropProps("")} role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
         <div className="knowledge-list-caption">
           <button type="button" className="active">
             {caption}
