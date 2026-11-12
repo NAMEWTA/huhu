@@ -20,10 +20,6 @@ export function gitInstalled(bin = "git"): Promise<boolean> {
   });
   return installedCache;
 }
-/** 测试用：清掉缓存。 */
-export function resetGitInstalledCache(): void {
-  installedCache = null;
-}
 
 /** 串行的 Git 执行器：同一时刻只有一个命令；超时 120 秒；不经 shell。 */
 export class GitRunner {
