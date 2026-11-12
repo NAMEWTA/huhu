@@ -394,7 +394,11 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   await watcher.start();
   // 索引快照与监听器基线之间的写入不会有事件：对账一次，并按文件事件通知界面
-  for (const c of index.reconcile()) events.publish("vault.fileChanged", { path: c.path, change: c.change });
+  try {
+    for (const c of index.reconcile()) events.publish("vault.fileChanged", { path: c.path, change: c.change });
+  } catch {
+    // 对账只是补漏；失败不应阻止引擎启动，后续由监听器继续增量更新。
+  }
 
   // 只读引擎不取写者锁，也不能覆盖或删除写者的端点描述
   serverRef.current = server;
