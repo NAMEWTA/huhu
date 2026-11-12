@@ -922,3 +922,17 @@ test("阅读模式：数学公式（KaTeX）与 Mermaid 图表渲染；错误的
     await close();
   }
 });
+
+test("本机没有 git：Git 页显示“需要安装 Git”和安装说明，而不是错误", async () => {
+  test.skip(process.platform === "win32", "Windows 上去掉 PATH 会让 Electron 子进程找不到系统目录");
+  const { page, close } = await openApp({ PATH: "/nonexistent-huhu-bin" });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "版本历史", exact: true }).first().click();
+    await page.getByTestId("versioning-nav-git").click();
+    await expect(page.getByTestId("git-missing")).toContainText("需要安装 Git");
+    await expect(page.getByTestId("git-missing")).toContainText("git-scm.com");
+  } finally {
+    await close();
+  }
+});

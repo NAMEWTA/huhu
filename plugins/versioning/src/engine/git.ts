@@ -12,6 +12,19 @@ export interface RunOpts {
   /** 这些非零退出码视为正常结果（如 merge-tree 有冲突时退出 1）。 */ okCodes?: number[];
 }
 
+/** 这台电脑上有没有可用的 git（`git --version` 能运行）；结果缓存，不会每次请求都起进程。 */
+let installedCache: Promise<boolean> | null = null;
+export function gitInstalled(bin = "git"): Promise<boolean> {
+  installedCache ??= new Promise<boolean>((resolve) => {
+    execFile(bin, ["--version"], { timeout: 10_000, windowsHide: true }, (err) => resolve(!err));
+  });
+  return installedCache;
+}
+/** 测试用：清掉缓存。 */
+export function resetGitInstalledCache(): void {
+  installedCache = null;
+}
+
 /** 串行的 Git 执行器：同一时刻只有一个命令；超时 120 秒；不经 shell。 */
 export class GitRunner {
   private tail: Promise<unknown> = Promise.resolve();
@@ -49,6 +62,7 @@ export class GitRunner {
         (err, stdout, stderr) => {
           if (!err) return resolve(enc === "buffer" ? (stdout as unknown as Buffer) : { stdout: stdout as string, stderr: stderr as string, code: 0 });
           const code = (err as { code?: unknown }).code;
+          if (code === "ENOENT") return reject(new HuhuError("INTERNAL", "没有找到 git：请先安装 Git，并确认它在 PATH 里", { retryable: false }));
           if (typeof code === "number" && opts.okCodes?.includes(code)) return resolve(enc === "buffer" ? (stdout as unknown as Buffer) : { stdout: stdout as string, stderr: stderr as string, code });
           const msg = `${stderr}`.trim() || err.message;
           if (/index\.lock/.test(msg)) return reject(new HuhuError("INTERNAL", "另一个 Git 操作正在进行", { retryable: true }));

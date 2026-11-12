@@ -19,6 +19,7 @@ interface NoteRef {
 }
 interface GitStatus {
   isRepo: boolean;
+  installed?: boolean;
   branch: string | null;
   files: { path: string; index: string; worktree: string; from?: string }[];
 }
@@ -286,6 +287,19 @@ function GitPage() {
   const commit = (log.data ?? []).find((c) => c.id === selCommit) ?? (log.data ?? [])[0] ?? null;
   const diff = useCapability<{ diff: string }>("git.diff", area === "commits" ? (commit ? { commit: commit.id } : {}) : target ? { path: target.path, staged: area === "staged" } : {});
   if (!status.data) return <p>…</p>;
+  if (status.data.installed === false) {
+    return (
+      <div className="version-v9-body" data-testid="git-missing">
+        <main className="version-v9-main">
+          <EmptyState
+            icon={GitBranch}
+            title="需要安装 Git"
+            hint="Git 页与同步需要本机安装 Git。Windows：安装 Git for Windows（git-scm.com）；macOS：在终端运行 xcode-select --install 或用 Homebrew 安装 git；Linux：用发行版的包管理器安装 git。装好后重新打开此页。"
+          />
+        </main>
+      </div>
+    );
+  }
   if (!status.data.isRepo) {
     return (
       <div className="version-v9-body" data-testid="git-not-repo">

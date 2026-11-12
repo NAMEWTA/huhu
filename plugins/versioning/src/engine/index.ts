@@ -9,6 +9,7 @@ import { VaultGit } from "./repo.js";
 import { VaultSync } from "./sync.js";
 
 export { FileHistory } from "./history.js";
+import { gitInstalled } from "./git.js";
 export { GitRunner } from "./git.js";
 export { VaultGit } from "./repo.js";
 
@@ -130,8 +131,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       exposable: true,
       defaultExposed: true,
       input: z.object({}),
-      output: Status.extend({ isRepo: z.boolean() }),
-      handler: async () => (git.isRepo() ? { isRepo: true, ...(await git.status()) } : { isRepo: false, branch: null, files: [] }),
+      output: Status.extend({ isRepo: z.boolean(), installed: z.boolean().default(true) }),
+      handler: async () => {
+        // 这台电脑没有 git：界面给出安装说明，而不是一个看不懂的错误
+        if (!(await gitInstalled())) return { isRepo: false, installed: false, branch: null, files: [] };
+        return git.isRepo() ? { isRepo: true, installed: true, ...(await git.status()) } : { isRepo: false, installed: true, branch: null, files: [] };
+      },
     }),
   );
   api.defineCapability(
