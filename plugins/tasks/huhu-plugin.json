@@ -2,7 +2,7 @@
   "id": "tasks",
   "title": "任务",
   "description": "待办、截止日、提醒与 Agent 执行目标",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["agent-cli", "automations"],

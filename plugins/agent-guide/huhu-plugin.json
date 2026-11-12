@@ -2,7 +2,7 @@
   "id": "agent-guide",
   "title": "Agent 接入",
   "description": "维护 Vault 内的 HUHU 指南文件，让 Agent 知道如何使用 CLI 与 MCP",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": [],

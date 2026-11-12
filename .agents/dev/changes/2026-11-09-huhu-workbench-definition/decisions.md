@@ -38,3 +38,5 @@
 | D-32 | 当前版本号为 0.0.1（取代 release.md §2 中“首版为 1.0.0”的设定）；版本单一来源仍是根 `package.json`，`scripts/sync-version.mjs --check` 进 CI | 用户的目标明确为“可正式 release 0.0.1 版本” | 1.0.0 |
 | D-33 | 应用退出前由 Main 请求界面落盘（最多等 3 秒）：自动保存模式写文件，手动保存模式留草稿；`HUHU_VAULT` 只在路径已存在时才跳过启动页 | 防抖窗口内的编辑不能因退出丢失；环境里残留的错误路径不应静默建出空 Vault | 直接停 Engine |
 | D-34 | 全文索引由 `@orama/orama` 改为 Node 内置的 `node:sqlite`（FTS5 内存库），分词仍用自己的 `tokenize`（中文二元切分）；移除 `@orama/orama` 依赖（修改 architecture.md §技术选型与 reuse.md R-11） | quality.md §3 要求 scale-vault 下 Engine 常驻内存 ≤ 600 MiB；Orama 的 JS 对象索引实测 590–720 MiB 且不能稳定达标（压缩文档仓、建完整理堆都试过）；换成 SQLite 后为 385 MiB，建索引更快，且是运行时自带的能力、不新增依赖（复用优先级 ③ 之内的替换） | 继续用 Orama 并放宽目标；引入第三方 SQLite 绑定（原生模块，打包与三平台成本更高） |
+
+| D-35 | 首个预发布版本号为 0.0.1-rc.1（标签 `v0.0.1-rc.1`；release 工作流要求标签与根 package.json 的 version 一致，sync-version 支持预发布后缀）；rc 通过三平台 CI 与 release 草稿的人工验证后，再把版本改回 0.0.1 并打正式标签 | 用户要求先打预发布标签；三平台打包与冒烟此前从未在 CI 上跑过 | 直接用 v0.0.1 作为预发布标签（无法与正式版区分） |

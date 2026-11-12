@@ -2,7 +2,7 @@
   "id": "notes",
   "title": "知识库",
   "description": "Markdown 笔记、文件树、回收站与日记",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": [],

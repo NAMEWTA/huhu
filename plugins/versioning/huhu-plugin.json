@@ -2,7 +2,7 @@
   "id": "versioning",
   "title": "版本与同步",
   "description": "文件历史、Git 与同步",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["automations", "safe", "agent-guide"],

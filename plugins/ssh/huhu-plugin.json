@@ -2,7 +2,7 @@
   "id": "ssh",
   "title": "远程连接",
   "description": "SSH 主机、Shell、Exec 与 SFTP",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["safe", "agent-cli"],
