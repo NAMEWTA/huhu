@@ -5,6 +5,7 @@ import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { ModuleIconsContext, type ContributionRegistry } from "../contributions.js";
 import { host } from "../settings/host.js";
+import { useRegionCycle } from "./region-cycle.js";
 import { VaultMenu } from "./VaultMenu.js";
 import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
@@ -57,6 +58,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   const { modules } = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const s = useStore(ui);
   const [switchOpen, setSwitchOpen] = useState(false);
+  useRegionCycle();
   const [switchTarget, setSwitchTarget] = useState<{ path: string; name: string } | undefined>(undefined);
   const moduleIcons = useMemo(() => {
     const map: Record<string, ReactNode> = {};
@@ -130,14 +132,14 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
             </header>
             <div className="workbench">
               {!s.focusMode ? (
-                <nav className="rail" aria-label="功能图标栏">
+                <nav className="rail" aria-label="功能图标栏" data-region="rail">
                   <div className="rail-scroll">{main.map(railItem)}</div>
                   <div className="rail-bottom">{system.map(railItem)}</div>
                 </nav>
               ) : null}
               {!s.focusMode && shellNav && active && !s.sidebarCollapsed ? (
                 <>
-                  <aside className="primary-nav" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 220px)" : s.sidebarWidth }}>
+                  <aside className="primary-nav" aria-label="模块侧栏" data-region="sidebar" style={{ width: s.sidebarWidth === SIDEBAR_DEFAULT ? "var(--sidebar-w, 220px)" : s.sidebarWidth }}>
                     <div className="nav-heading">
                       <strong>{active.title}</strong>
                     </div>
@@ -168,7 +170,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                   />
                 </>
               ) : null}
-              <main className="main-shell">
+              <main className="main-shell" data-region="content">
                 <div className="tab-strip">
                   <nav className="tab-list" aria-label="已打开的功能">
                     {s.openTabs.map((id) => {

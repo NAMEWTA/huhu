@@ -51,7 +51,7 @@ export function NoteInspector({
   const title = n.props.tabs[tab];
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   return (
-    <aside className="knowledge-inspector" aria-label={n.props.title} data-testid="note-inspector">
+    <aside className="knowledge-inspector" aria-label={n.props.title} data-region="detail" data-testid="note-inspector">
       <header>
         <h3>{tab === "properties" ? n.props.title : tab === "outline" ? n.props.outline : tab === "links" ? n.props.links : tab === "comments" ? n.props.comments : n.props.history}</h3>
         <IconButton icon={X} label="关闭文档详情" onClick={onClose} />

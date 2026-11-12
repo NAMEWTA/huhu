@@ -1066,3 +1066,25 @@ test("顶栏 Vault 菜单：列出最近打开的 Vault、打开其他 Vault…�
     await close();
   }
 });
+
+test("F6 / Shift+F6 在功能栏、模块侧栏、内容之间循环焦点", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-data").click();
+    await page.getByRole("tab", { name: "索引与恢复" }).click();
+    const region = () => page.evaluate(() => document.activeElement?.closest("[data-region]")?.getAttribute("data-region") ?? "none");
+    expect(await region()).toBe("content");
+    await page.keyboard.press("F6");
+    expect(await region()).toBe("rail");
+    await page.keyboard.press("F6");
+    expect(await region()).toBe("sidebar");
+    await page.keyboard.press("F6");
+    expect(await region()).toBe("content");
+    await page.keyboard.press("Shift+F6");
+    expect(await region()).toBe("sidebar");
+  } finally {
+    await close();
+  }
+});
