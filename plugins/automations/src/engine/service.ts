@@ -57,6 +57,8 @@ export interface AutomationsDeps {
   hasRound?(runId: string, round: number): boolean;
   spaceState(spaceId: string): { state: "ok" | "missing" | "inaccessible"; root?: string };
   cliAvailable(provider: string): boolean;
+  /** 每次扫描前刷新“有哪些 CLI 可用”（启动时探测的结果会过期：之后才安装的 CLI、启动时探测超时的 CLI）；失败不影响扫描。 */
+  refreshClis?(): Promise<void>;
   holds(taskId: string, inputHash: string): boolean;
   scripts?: ScriptStore;
   /** 解析保险箱引用（plugin=automations）；锁定时抛 SAFE_LOCKED。 */
@@ -382,6 +384,7 @@ export class AutomationsService {
 
   private async scan(ruleId: string, maxConcurrent: number): Promise<{ processed: number; skipped: number } | { state: string }> {
     if (!this.d.taskQuery()) return { state: "tasks-disabled" }; // ACC-AU-10：任务插件已停用，跳过
+    await this.d.refreshClis?.().catch(() => undefined);
     const { candidates, skipped } = classify(this.allTasks(), this.scanEnv());
     let next = 0;
     let processed = 0;

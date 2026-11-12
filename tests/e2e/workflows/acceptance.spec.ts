@@ -548,20 +548,8 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
       .click();
     await expect(page.getByTestId("activation-row").first()).toBeVisible({ timeout: 30_000 }); // 激活记录出现
     // 4. 任务详情显示运行结果；任务仍未完成，用户阅读后自己勾选
-    console.log("W-A API 激活记录：", JSON.stringify((await call("automations.activations", {})).data), "规则：", JSON.stringify((await call("automations.list", {})).data).slice(0, 400));
-    console.log(
-      "W-A 激活记录：",
-      await page
-        .getByTestId("activation-row")
-        .allInnerTexts()
-        .catch(() => []),
-      await page
-        .locator(".tw-occurrence, .tw-rule-detail")
-        .allInnerTexts()
-        .catch(() => []),
-    );
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
-    await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).click();
+    await page.getByRole("button", { name: "打开任务 整理研究资料" }).click(); // 点任务名按钮：点行的中心在不同窗口宽度下可能落在空白处
     try {
       await expect(page.getByTestId("task-runs")).toContainText("已完成", { timeout: 30_000 });
     } catch (e) {

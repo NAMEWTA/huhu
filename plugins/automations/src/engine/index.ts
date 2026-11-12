@@ -46,6 +46,8 @@ export interface AutomationsOptions {
   notify?: (n: { title: string; module: string }) => void;
   spaceState?: (spaceId: string) => { state: "ok" | "missing" | "inaccessible"; root?: string };
   exeFor?: (provider: string) => string | null;
+  /** 扫描前刷新 CLI 可用性（见 AutomationsDeps.refreshClis）。 */
+  refreshClis?: () => Promise<void>;
   schedule?: boolean;
 }
 
@@ -68,6 +70,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     hasRound: (runId, round) => hasRunDir(roundDir(runsDir, runId, round)),
     spaceState: opts.spaceState ?? (() => ({ state: "missing" })),
     cliAvailable: (p) => exeFor(p) !== null,
+    ...(opts.refreshClis ? { refreshClis: opts.refreshClis } : {}),
     holds: (t, h) => holdStore.isHeld(t, h),
     scripts: scriptStore,
     resolveSecret: (ref, purpose) => {

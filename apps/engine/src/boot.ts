@@ -294,12 +294,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     apply: (ctx, api) => {
       const cli = api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: { detect(): Promise<{ provider: string; exe: string | null; status: string }[]> } }>("agentCli");
       let exes: Record<string, string> = {};
-      void cli?.detector.detect().then((r) => {
-        exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string]));
-      });
+      // 探测结果有 10 分钟缓存；每次扫描前再取一次（命中缓存就是即时的），这样启动时探测超时 / 之后才安装的 CLI 也能被用上
+      const refreshClis = async (): Promise<void> => {
+        const r = await cli?.detector.detect();
+        if (r) exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string]));
+      };
+      void refreshClis().catch(() => undefined);
       automations.apply(ctx, api, {
         zone: settingsZone,
         exeFor: (p) => exes[p] ?? null,
+        refreshClis,
         spaceState: (id) => {
           const s = cli?.spaces.list().find((x) => x.id === id);
           return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" };
