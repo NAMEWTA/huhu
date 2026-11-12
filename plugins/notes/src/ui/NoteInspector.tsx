@@ -1,6 +1,6 @@
 import { Button, EmptyState, IconButton } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
-import { ArrowUpRight, FileText, X } from "lucide-react";
+import { ArrowUpRight, Database, FileText, ListChecks, X } from "lucide-react";
 import { ChoiceSegmented } from "@huhu/ui";
 import { CommentsPanel, type CommentActions, type CommentView } from "./CommentsPanel.js";
 import { n } from "./i18n.js";
@@ -23,6 +23,7 @@ export function NoteInspector({
   onOpen,
   onJump,
   onOpenHistory,
+  onNavigate,
 }: {
   path: string;
   text: string;
@@ -37,9 +38,18 @@ export function NoteInspector({
   onOpen(path: string): void;
   onJump(line: number): void;
   onOpenHistory(): void;
+  /** 跳到其他模块（关联任务 / 档案）。 */
+  onNavigate?(module: string): void;
 }) {
   const setTab = onTab;
   const backlinks = useCapability<{ path: string; title: string }[]>("notes.backlinks", { path });
+  // 关联任务 / 档案（插件停用时这两个查询失败，对应分区不显示）
+  const allNotes = useCapability<{ path: string; id: string | null }[]>("notes.list", { filter: "all" });
+  const noteId = (allNotes.data ?? []).find((x) => x.path === path)?.id ?? null;
+  const tasks = useCapability<{ id: string; title: string; completed: boolean; resources: { kind: string; path: string }[] }[]>("tasks.list", { category: "all" });
+  const archives = useCapability<{ id: string; name: string; type: string; noteIds: string[] }[]>("archives.list", {});
+  const relatedTasks = (tasks.data ?? []).filter((x) => x.resources.some((r) => r.path === path || (r.kind === "folder" && r.path !== "" && path.startsWith(`${r.path}/`))));
+  const relatedArchives = noteId ? (archives.data ?? []).filter((x) => x.noteIds.includes(noteId)) : [];
   const headings = text
     .split("\n")
     .map((l, i) => ({ l, i }))
@@ -98,6 +108,32 @@ export function NoteInspector({
               </button>
             ))}
             {(backlinks.data ?? []).length === 0 ? <p className="small muted">{n.noBacklinks}</p> : null}
+            {!tasks.isError ? (
+              <>
+                <h4>关联任务 · {relatedTasks.length}</h4>
+                {relatedTasks.map((x) => (
+                  <button key={x.id} type="button" className="knowledge-link-row" data-testid="related-task" onClick={() => onNavigate?.("tasks")}>
+                    <ListChecks size={15} aria-hidden />
+                    <span>{x.completed ? `✓ ${x.title}` : x.title}</span>
+                    <ArrowUpRight size={13} aria-hidden />
+                  </button>
+                ))}
+                {relatedTasks.length === 0 ? <p className="small muted">没有任务关联这篇笔记（任务的“关联资料”里选它或它所在的文件夹）。</p> : null}
+              </>
+            ) : null}
+            {!archives.isError ? (
+              <>
+                <h4>关联档案 · {relatedArchives.length}</h4>
+                {relatedArchives.map((x) => (
+                  <button key={x.id} type="button" className="knowledge-link-row" data-testid="related-archive" onClick={() => onNavigate?.("archives")}>
+                    <Database size={15} aria-hidden />
+                    <span>{x.name}</span>
+                    <ArrowUpRight size={13} aria-hidden />
+                  </button>
+                ))}
+                {relatedArchives.length === 0 ? <p className="small muted">没有档案关联这篇笔记。</p> : null}
+              </>
+            ) : null}
           </section>
         ) : tab === "comments" ? (
           <CommentsPanel comments={comments} active={activeComment} readOnly={readOnly} actions={commentActions} />

@@ -960,3 +960,31 @@ test("远程连接：认证方式可选 密码 / SSH 私钥 / 系统 ssh-agent�
     await close();
   }
 });
+
+test("知识库：详情“关联”显示关联任务与关联档案；笔记菜单“保存版本”写入版本历史", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const note = (await call("notes.create", { name: "关联笔记" })).data as { path: string; id: string };
+    await call("tasks.create", { title: "引用这篇笔记的任务", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [{ kind: "file", path: note.path, id: note.id }], reminders: [] });
+    const type = (await call("archives.types.save", { name: "资料", fields: [] })).data as { id: string };
+    const arch = (await call("archives.create", { name: "引用这篇笔记的档案", type: type.id })).data as { id: string };
+    await call("archives.linkNote", { id: arch.id, noteId: note.id });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "关联笔记" }).click();
+    await page.getByRole("button", { name: "文档详情" }).first().click();
+    await page.getByRole("tab", { name: "关联" }).click();
+    await expect(page.getByTestId("related-task")).toContainText("引用这篇笔记的任务");
+    await expect(page.getByTestId("related-archive")).toContainText("引用这篇笔记的档案");
+    // 保存版本
+    await page.getByTestId("note-item").filter({ hasText: "关联笔记" }).hover();
+    await page.getByRole("button", { name: /文件操作 关联笔记/ }).click();
+    await page.getByTestId("menu-save-version").click();
+    await page.getByLabel("版本名称").fill("里程碑一");
+    await page.getByRole("button", { name: "保存版本" }).last().click();
+    await expect.poll(async () => ((await call("history.timeline", { path: note.path })).data as { title?: string }[]).some((e) => e.title === "里程碑一")).toBe(true);
+  } finally {
+    await close();
+  }
+});

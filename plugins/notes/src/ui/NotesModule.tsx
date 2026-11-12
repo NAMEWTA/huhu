@@ -10,7 +10,15 @@ import { NoteDocument } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 
-type DialogState = { kind: "new"; folder: string } | { kind: "folder"; parent: string } | { kind: "rename"; note: NoteRef } | { kind: "move"; note: NoteRef } | { kind: "trash"; note: NoteRef } | { kind: "purge"; note: NoteRef } | null;
+type DialogState =
+  | { kind: "new"; folder: string }
+  | { kind: "folder"; parent: string }
+  | { kind: "rename"; note: NoteRef }
+  | { kind: "move"; note: NoteRef }
+  | { kind: "trash"; note: NoteRef }
+  | { kind: "purge"; note: NoteRef }
+  | { kind: "version"; note: NoteRef }
+  | null;
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** 知识库（原型 NotesView）：左侧文件资源管理器 + 文档区 + 右侧详情抽屉。 */
@@ -295,6 +303,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             }
           }}
           onOpenHistory={() => onNavigate?.("versioning")}
+          {...(onNavigate ? { onNavigate } : {})}
         />
       ) : null}
       {menu ? (
@@ -341,6 +350,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               </button>
               <button type="button" role="menuitem" onClick={() => void run<{ path: string }>("notes.duplicate", { path: menu.note.path }).then((r) => (r && openNote(r.path), setMenu(null)))}>
                 {n.menu.duplicate}
+              </button>
+              <button type="button" role="menuitem" data-testid="menu-save-version" onClick={() => (setDialog({ kind: "version", note: menu.note }), setMenu(null))}>
+                {n.menu.saveVersion}
               </button>
               <button type="button" role="menuitem" onClick={() => (void run("notes.setFavorite", { path: menu.note.path, favorite: menu.note.favorite !== true }), setMenu(null))}>
                 {menu.note.favorite ? n.menu.unstar : n.menu.star}
@@ -416,6 +428,21 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               remapSelected(dialog.note.path, `${dir}${dialog.note.folder || name.endsWith(".md") ? name : `${name}.md`}`);
               setDialog(null);
             }
+          }}
+        />
+      ) : null}
+      {dialog?.kind === "version" ? (
+        <NameDialog
+          title={n.saveVersionTitle}
+          description={n.saveVersionDesc}
+          label="版本名称"
+          initial=""
+          submit={n.menu.saveVersion}
+          error={error}
+          onClose={() => setDialog(null)}
+          onSubmit={async (title) => {
+            if (!(await beforeMove(dialog.note))) return; // 先把未保存的修改落盘，版本里才是眼前这份内容
+            if (await run("history.checkpoint", { path: dialog.note.path, title })) setDialog(null);
           }}
         />
       ) : null}
