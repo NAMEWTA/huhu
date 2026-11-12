@@ -532,7 +532,11 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
       // 2. 转为任务：执行方式 Agent（Space 与 Codex）
       const spaces = (await call("agent.spaces.list", {})).data as { id: string }[];
       await expect.poll(async () => ((await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[]).find((x) => x.provider === "codex")?.status).toBe("found");
-      return (await call("tasks.create", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要", execution: { kind: "agent", spaceId: spaces[0]!.id, provider: "codex" } })).data as { id: string };
+      const created = await call("tasks.create", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要", execution: { kind: "agent", spaceId: spaces[0]!.id, provider: "codex" } });
+      expect(created.ok, JSON.stringify(created.error ?? created)).toBe(true);
+      const listed = ((await call("tasks.list", { category: "all" })).data as { title: string }[]).map((x) => x.title);
+      expect(listed, "创建后任务列表里应有这条任务").toContain("整理研究资料");
+      return created.data as { id: string };
     })();
     // 3. 自动化：内置规则立即运行
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();

@@ -363,8 +363,10 @@ test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字",
       for (const w of BrowserWindow.getAllWindows()) w.close();
     });
     // macOS 上关掉最后一个窗口应用不会退出（系统惯例），但窗口 close 时的落盘照样发生：此时直接检查文件，再退出应用
-    if (process.platform === "darwin") await expect.poll(() => readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
-    else await closed;
+    if (process.platform === "darwin") {
+      await expect.poll(() => readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
+      await app.close(); // 应用还在运行：必须退出，否则下一个用例的单实例锁会让新实例直接退出
+    } else await closed;
     expect(readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
   } finally {
     rmTree(vault);
