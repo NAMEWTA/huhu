@@ -936,3 +936,27 @@ test("本机没有 git：Git 页显示“需要安装 Git”和安装说明，�
     await close();
   }
 });
+
+test("远程连接：认证方式可选 密码 / SSH 私钥 / 系统 ssh-agent；选 ssh-agent 不需要保险箱与口令", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "新增 SSH 主机" }).first().click();
+    const dialog = page.getByTestId("ssh-host-dialog");
+    await dialog.getByLabel("显示名称").fill("代理机");
+    await dialog.getByLabel("主机名或 IP").fill("agent.example.internal");
+    await dialog.getByLabel("用户名").fill("ops");
+    await expect(dialog.getByTestId("ssh-host-save")).toBeDisabled(); // 默认是密码：还没填
+    await dialog.getByLabel("认证方式").selectOption("key");
+    await expect(dialog.getByLabel("私钥", { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId("ssh-host-save")).toBeDisabled(); // 私钥为空
+    await dialog.getByLabel("认证方式").selectOption("agent");
+    await expect(dialog.getByText("SSH_AUTH_SOCK")).toBeVisible();
+    await dialog.getByTestId("ssh-host-save").click();
+    await expect(page.getByRole("button", { name: /代理机/ }).first()).toBeVisible();
+    await expect(page.getByText("SSH Agent").first()).toBeVisible();
+  } finally {
+    await close();
+  }
+});

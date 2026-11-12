@@ -43,6 +43,18 @@ const swap = <T,>(xs: T[], i: number, j: number): T[] => {
   return n;
 };
 
+interface HostForm {
+  name: string;
+  host: string;
+  port: string;
+  user: string;
+  authKind: "password" | "key" | "agent";
+  password: string;
+  key: string;
+  passphrase: string;
+  jumps: string[];
+}
+
 type Tab = "overview" | "terminal" | "exec" | "files" | "audit";
 
 export function SshModule() {
@@ -54,7 +66,7 @@ export function SshModule() {
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: "", host: "", port: "22", user: "", password: "", jumps: [] as string[] });
+  const [form, setForm] = useState<HostForm>({ name: "", host: "", port: "22", user: "", authKind: "password", password: "", key: "", passphrase: "", jumps: [] });
   const [editing, setEditing] = useState<Host | null>(null);
   const [cmd, setCmd] = useState("");
   const [result, setResult] = useState<ExecResult | null>(null);
@@ -81,21 +93,32 @@ export function SshModule() {
 
   const message = (e: unknown) => (e instanceof CapabilityError && e.code === "SAFE_LOCKED" ? t.safeLocked : e instanceof Error ? e.message : String(e));
 
-  const emptyForm = { name: "", host: "", port: "22", user: "", password: "", jumps: [] as string[] };
+  const emptyForm: HostForm = { name: "", host: "", port: "22", user: "", authKind: "password", password: "", key: "", passphrase: "", jumps: [] };
   /** 新增或编辑主机。编辑时密码留空表示不更改；填了就更新保险箱里原来那一项（没有就新建）。 */
   async function saveHost(): Promise<boolean> {
     setError(null);
     try {
       // 密码只存进保险箱（只允许 ssh 模块引用）；主机配置里只保存 safe:// 引用
-      let auth: { kind: string; secretRef?: string } | undefined = editing?.auth;
-      if (!editing || (form.password && (auth?.kind ?? "password") === "password")) {
-        const existing = editing?.auth?.kind === "password" ? editing.auth.secretRef?.replace(/^safe:\/\//, "") : undefined;
+      let auth: { kind: string; secretRef?: string; passphraseRef?: string } | undefined = editing?.auth;
+      const sameKind = editing?.auth?.kind === form.authKind;
+      const existingRef = sameKind ? editing?.auth?.secretRef?.replace(/^safe:\/\//, "") : undefined;
+      if (form.authKind === "agent") auth = { kind: "agent" };
+      else if (form.authKind === "password" && (form.password || !sameKind)) {
         const item = await engine.call<{ id: string }>(
           "safe.items.save",
-          { ...(existing ? { id: existing } : {}), name: `${form.name} 密码`, type: "password", account: form.user, allowedModules: ["ssh"], value: form.password },
+          { ...(existingRef ? { id: existingRef } : {}), name: `${form.name} 密码`, type: "password", account: form.user, allowedModules: ["ssh"], value: form.password },
           { write: true },
         );
         auth = { kind: "password", secretRef: `safe://${item.id}` };
+      } else if (form.authKind === "key" && (form.key || !sameKind)) {
+        // 私钥与口令都只进保险箱（只允许 ssh 模块引用）；主机配置里只有 safe:// 引用
+        const keyItem = await engine.call<{ id: string }>(
+          "safe.items.save",
+          { ...(existingRef ? { id: existingRef } : {}), name: `${form.name} 私钥`, type: "ssh-key", account: form.user, allowedModules: ["ssh"], value: form.key },
+          { write: true },
+        );
+        const pass = form.passphrase ? await engine.call<{ id: string }>("safe.items.save", { name: `${form.name} 私钥口令`, type: "password", account: form.user, allowedModules: ["ssh"], value: form.passphrase }, { write: true }) : null;
+        auth = { kind: "key", secretRef: `safe://${keyItem.id}`, ...(pass ? { passphraseRef: `safe://${pass.id}` } : {}) };
       }
       const h = await engine.call<Host>(
         "ssh.hosts.save",
@@ -115,7 +138,7 @@ export function SshModule() {
   function openEditor(h: Host | null) {
     setError(null);
     setEditing(h);
-    setForm(h ? { name: h.name, host: h.host, port: String(h.port), user: h.user, password: "", jumps: h.jumpHostIds ?? [] } : emptyForm);
+    setForm(h ? { name: h.name, host: h.host, port: String(h.port), user: h.user, authKind: (h.auth?.kind as HostForm["authKind"] | undefined) ?? "password", password: "", key: "", passphrase: "", jumps: h.jumpHostIds ?? [] } : emptyForm);
     setAdding(true);
   }
   async function connect(h: Host) {
@@ -517,7 +540,12 @@ export function SshModule() {
           actions={
             <>
               <Button onClick={() => setAdding(false)}>{t.cancel}</Button>
-              <Button variant="primary" data-testid="ssh-host-save" disabled={!form.name || !form.host || !form.user || (!editing && !form.password)} onClick={() => void saveHost().then((ok) => ok && setAdding(false))}>
+              <Button
+                variant="primary"
+                data-testid="ssh-host-save"
+                disabled={!form.name || !form.host || !form.user || (form.authKind === "password" && !editing && !form.password) || (form.authKind === "key" && !editing && !form.key)}
+                onClick={() => void saveHost().then((ok) => ok && setAdding(false))}
+              >
                 {editing ? t.save : t.newHost}
               </Button>
             </>
@@ -538,11 +566,29 @@ export function SshModule() {
                 <input aria-label={t.user} value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
               </Field>
             </div>
-            {!editing || (editing.auth?.kind ?? "password") === "password" ? (
-              <Field label={t.password} description={editing ? "留空表示不更改保险箱里的密码。" : undefined}>
+            <Field label="认证方式">
+              <select aria-label="认证方式" value={form.authKind} onChange={(e) => setForm({ ...form, authKind: e.target.value as HostForm["authKind"] })}>
+                <option value="password">密码</option>
+                <option value="key">SSH 私钥</option>
+                <option value="agent">系统 ssh-agent</option>
+              </select>
+            </Field>
+            {form.authKind === "password" ? (
+              <Field label={t.password} description={editing?.auth?.kind === "password" ? "留空表示不更改保险箱里的密码。" : undefined}>
                 <input type="password" aria-label={t.password} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
               </Field>
             ) : null}
+            {form.authKind === "key" ? (
+              <>
+                <Field label="私钥（PEM）" description={editing?.auth?.kind === "key" ? "留空表示不更改保险箱里的私钥。" : "只存进保险箱；主机配置里只保存引用。"}>
+                  <textarea aria-label="私钥" rows={4} value={form.key} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" onChange={(e) => setForm({ ...form, key: e.target.value })} />
+                </Field>
+                <Field label="私钥口令（可选）">
+                  <input type="password" aria-label="私钥口令" value={form.passphrase} onChange={(e) => setForm({ ...form, passphrase: e.target.value })} />
+                </Field>
+              </>
+            ) : null}
+            {form.authKind === "agent" ? <p className="hint-text">使用本机正在运行的 ssh-agent（SSH_AUTH_SOCK）里的密钥；HUHU 不保存任何凭据。</p> : null}
             <Field label="跳板机" description="按顺序经过这些主机再连到目标；不能形成循环。">
               <div className="stack" data-testid="ssh-jump-picker">
                 {form.jumps.map((jid, i) => {
