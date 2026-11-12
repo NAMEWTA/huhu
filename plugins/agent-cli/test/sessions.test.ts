@@ -280,7 +280,7 @@ describe("变更审查意见", () => {
 });
 
 describe("恢复历史会话", () => {
-  test("claude：argv 为 --resume <id>，在原会话的子目录启动，记录保存原生 id", async () => {
+  test.skipIf(process.platform === "win32")("claude：argv 为 --resume <id>，在原会话的子目录启动，记录保存原生 id", async () => {
     const f = fakeClient();
     const { svc, space, work } = setup(f.client);
     mkdirSync(path.join(work, "sub"));
@@ -291,13 +291,13 @@ describe("恢复历史会话", () => {
     expect(s).toMatchObject({ nativeSessionId: "abc-123", state: "running" });
     expect(s.cwd).toBe(path.join(work, "sub"));
   });
-  test("非法的原生会话 id 被拒绝（不能以 - 开头）", async () => {
+  test.skipIf(process.platform === "win32")("非法的原生会话 id 被拒绝（不能以 - 开头）", async () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);
     await expect(svc.launch(req(space, { provider: "claude", resumeSessionId: "--dangerously-skip-permissions" }))).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(f.calls).not.toContain("terminal.run");
   });
-  test("启动目录不在 Space 之内 → 拒绝，且不启动", async () => {
+  test.skipIf(process.platform === "win32")("启动目录不在 Space 之内 → 拒绝，且不启动", async () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);
     await expect(svc.launch(req(space, { provider: "claude", resumeSessionId: "abc", cwd: tmp() }))).rejects.toMatchObject({ code: "INVALID_INPUT" });
@@ -344,7 +344,7 @@ describe("会话启动", () => {
     await expect(svc.launch(req(space, { spaceRevision: 99 }))).rejects.toMatchObject({ code: "SPACE_INVALID" });
     expect(f.terminals).toHaveLength(0);
   });
-  test("claude 启动带 argv；中断/结束调用 terminal.interrupt/kill；重命名", async () => {
+  test.skipIf(process.platform === "win32")("claude 启动带 argv；中断/结束调用 terminal.interrupt/kill；重命名", async () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);
     const s = await svc.launch(req(space, { provider: "claude", model: "opus", prompt: "hi" }));

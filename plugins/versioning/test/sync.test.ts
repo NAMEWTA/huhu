@@ -8,7 +8,7 @@ import { VaultSync, classify } from "../src/engine/sync.js";
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); // Windows 上 git 子进程刚退出时目录可能还被占着
 });
 const tmp = () => {
   const d = mkdtempSync(path.join(tmpdir(), "huhu-sy-"));
@@ -19,7 +19,12 @@ const put = (root: string, rel: string, text: string) => {
   mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
   writeFileSync(path.join(root, rel), text);
 };
-const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const git = (root: string, ...args: string[]) =>
+  execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" },
+  });
 
 async function twoVaults() {
   const remote = tmp();
@@ -129,7 +134,7 @@ describe("同步", () => {
 });
 
 describe("审计回归", () => {
-  test("文件名里的通配符不是 pathspec：排除的 xsecret.md 不会被纳入文件 x* 带上远端", async () => {
+  test.skipIf(process.platform === "win32")("文件名里的通配符不是 pathspec：排除的 xsecret.md 不会被纳入文件 x* 带上远端", async () => {
     const { a, remote } = await twoVaults();
     a.sync.update({ exclude: ["xsecret.md"] });
     put(a.root, "x*", "纳入");
@@ -143,7 +148,7 @@ describe("审计回归", () => {
     const { a } = await twoVaults();
     put(a.root, "旧名字.md", "内容内容内容内容内容\n");
     git(a.root, "add", "旧名字.md");
-    git(a.root, "commit", "-q", "-m", "init");
+    git(a.root, "-c", "user.name=u", "-c", "user.email=u@u", "commit", "-q", "-m", "init");
     git(a.root, "mv", "旧名字.md", "新名字.md");
     const p = await a.sync.preview();
     expect(p.push).toContain("新名字.md");
@@ -153,7 +158,7 @@ describe("审计回归", () => {
     const { a } = await twoVaults();
     put(a.root, "keep.md", "v1\n");
     git(a.root, "add", "keep.md");
-    git(a.root, "commit", "-q", "-m", "base");
+    git(a.root, "-c", "user.name=u", "-c", "user.email=u@u", "commit", "-q", "-m", "base");
     put(a.root, "keep.md", "STAGED\n");
     git(a.root, "add", "keep.md");
     put(a.root, "keep.md", "WORKTREE\n");
@@ -286,7 +291,7 @@ describe("审计回归", () => {
     const store = path.join(dir, "git-credentials");
     writeFileSync(store, `http://other:wrongtoken@127.0.0.1:${port}\n`);
     const gcfg = path.join(dir, "gitconfig");
-    writeFileSync(gcfg, `[credential]\n\thelper = store --file=${store}\n`);
+    writeFileSync(gcfg, `[credential]\n\thelper = store --file="${store.replace(/\\/g, "/")}"\n`); // 反斜杠在 git 配置里是转义符：Windows 路径换成正斜杠
     const old = process.env["GIT_CONFIG_GLOBAL"];
     process.env["GIT_CONFIG_GLOBAL"] = gcfg;
     try {

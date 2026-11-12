@@ -126,7 +126,7 @@ describe("变更审查：git diff HEAD", () => {
 });
 
 describe("变更审查：文件名与路径的边界", () => {
-  test("文件名里的通配符按字面处理：a*b.txt 的 diff 不会混入 aXb.txt", async () => {
+  test.skipIf(process.platform === "win32")("文件名里的通配符按字面处理：a*b.txt 的 diff 不会混入 aXb.txt", async () => {
     const r = repo();
     put(r, "a*b.txt", "星\n");
     put(r, "aXb.txt", "X\n");
@@ -143,7 +143,7 @@ describe("变更审查：文件名与路径的边界", () => {
         .map((l) => l.text),
     ).toEqual(["星2"]);
   });
-  test("含 tab 的文件名：统计与二进制标记仍然正确", async () => {
+  test.skipIf(process.platform === "win32")("含 tab 的文件名：统计与二进制标记仍然正确", async () => {
     const r = repo();
     put(r, "带\t制表.bin", Buffer.from([0, 1]));
     git(r, "add", "-A");

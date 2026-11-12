@@ -5,6 +5,9 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { FrameDecoder, FrameKind, HerdrClient, HerdrError, MAX_PAYLOAD, creditFrame, encodeFrame, resizeFrame } from "../src/index.js";
 
+/** 假 Core 的监听地址：Windows 用命名管道（临时目录里的 .sock 文件在 Windows 上不能 listen）。 */
+const sockIn = (dir: string, name: string): string => (process.platform === "win32" ? `\\\\.\\pipe\\huhu-${path.basename(dir)}-${name}` : path.join(dir, name));
+
 describe("帧编解码", () => {
   test("往返；任意切分都能还原；多帧粘包", () => {
     const a = encodeFrame({ channel: 7, kind: FrameKind.DATA, payload: Buffer.from("你好") });
@@ -46,7 +49,7 @@ describe("HerdrClient（假 Core）", () => {
   async function fakeCore() {
     const dir = mkdtempSync(path.join(tmpdir(), "huhu-hc-"));
     dirs.push(dir);
-    const sock = path.join(dir, "hc.sock");
+    const sock = sockIn(dir, "hc.sock");
     let framed = false;
     const dec = new FrameDecoder();
     const server = net.createServer((s) => {
@@ -121,7 +124,7 @@ describe("attachTerminal 审计回归", () => {
   async function core(onAttach: (s: net.Socket) => void) {
     const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-"));
     dirs2.push(dir);
-    const sock = path.join(dir, "c.sock");
+    const sock = sockIn(dir, "c.sock");
     const server = net.createServer((s) => {
       let framed = false;
       let buf = "";
@@ -182,7 +185,7 @@ describe("attachTerminal 审计回归", () => {
     let closed = 0;
     const dir = mkdtempSync(path.join(tmpdir(), "huhu-at-"));
     dirs2.push(dir);
-    const sock = path.join(dir, "c.sock");
+    const sock = sockIn(dir, "c.sock");
     const server = net.createServer((s) => {
       conns++;
       s.on("close", () => {

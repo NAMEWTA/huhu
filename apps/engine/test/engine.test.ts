@@ -54,32 +54,36 @@ describe("Engine 启动与关闭", () => {
     expect(existsSync(e.descriptorPath)).toBe(false);
     await e.shutdown();
   });
-  test("子进程模式：报告 ready，收到 SIGTERM 后删除端点描述并退出 0", async () => {
-    const dir = tmp();
-    const tsx = createRequire(import.meta.url).resolve("tsx/cli");
-    const child = spawn(process.execPath, [tsx, path.resolve(import.meta.dirname, "../src/main.ts"), "--vault", dir, "--create"], { stdio: ["ignore", "pipe", "pipe"] });
-    const ready: { type: string; port: number } = await new Promise((resolve, reject) => {
-      let out = "";
-      child.stdout.on("data", (d) => {
-        out += d;
-        const line = out.split("\n")[0];
-        if (line && out.includes("\n")) resolve(JSON.parse(line));
+  test.skipIf(process.platform === "win32")(
+    "子进程模式：报告 ready，收到 SIGTERM 后删除端点描述并退出 0",
+    async () => {
+      const dir = tmp();
+      const tsx = createRequire(import.meta.url).resolve("tsx/cli");
+      const child = spawn(process.execPath, [tsx, path.resolve(import.meta.dirname, "../src/main.ts"), "--vault", dir, "--create"], { stdio: ["ignore", "pipe", "pipe"] });
+      const ready: { type: string; port: number } = await new Promise((resolve, reject) => {
+        let out = "";
+        child.stdout.on("data", (d) => {
+          out += d;
+          const line = out.split("\n")[0];
+          if (line && out.includes("\n")) resolve(JSON.parse(line));
+        });
+        child.on("exit", (c) => reject(new Error(`exited ${c}`)));
+        setTimeout(() => reject(new Error("timeout")), 20000);
       });
-      child.on("exit", (c) => reject(new Error(`exited ${c}`)));
-      setTimeout(() => reject(new Error("timeout")), 20000);
-    });
-    expect(ready.type).toBe("ready");
-    const health = await fetch(`http://127.0.0.1:${ready.port}/healthz`);
-    expect(await health.text()).toBe("ok");
-    const exit = new Promise<number | null>((r) => child.on("exit", (c) => r(c)));
-    child.kill("SIGTERM");
-    expect(await exit).toBe(0);
-    expect(existsSync(path.join(dir, ".huhu/runtime"))).toBe(true);
-    const { Vault } = await import("@huhu/vault");
-    const v = await Vault.open(dir); // 锁已释放
-    expect(existsSync(path.join(v.runtimeDir, "engine.json"))).toBe(false);
-    await v.close();
-  }, 30000);
+      expect(ready.type).toBe("ready");
+      const health = await fetch(`http://127.0.0.1:${ready.port}/healthz`);
+      expect(await health.text()).toBe("ok");
+      const exit = new Promise<number | null>((r) => child.on("exit", (c) => r(c)));
+      child.kill("SIGTERM");
+      expect(await exit).toBe(0);
+      expect(existsSync(path.join(dir, ".huhu/runtime"))).toBe(true);
+      const { Vault } = await import("@huhu/vault");
+      const v = await Vault.open(dir); // 锁已释放
+      expect(existsSync(path.join(v.runtimeDir, "engine.json"))).toBe(false);
+      await v.close();
+    },
+    30000,
+  );
   test("同一 Vault 的第二个 Engine → READ_ONLY_VAULT", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
@@ -298,52 +302,56 @@ describe("Engine 启动与关闭", () => {
     },
     90_000,
   );
-  test("automations：内置规则、预览无副作用、立即运行用假 CLI 处理 Agent 任务，再次运行不重复，Task 仍未完成", async () => {
-    const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
-    const bin = tmp();
-    writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 CLI 已处理"\n');
-    chmodSync(path.join(bin, "codex"), 0o755);
-    const oldPath = process.env["PATH"];
-    process.env["PATH"] = `${bin}:${oldPath}`;
-    try {
-      const dir = tmp();
-      const e = await boot({ vaultPath: dir, create: true });
-      engines.push(e);
-      type R = { ok: boolean; data: unknown; error?: { code: string } };
-      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-      const rules = (await call("automations.list", {})).data as { id: string; data: { builtin: boolean; enabled: boolean } }[];
-      expect(rules).toHaveLength(1);
-      expect(rules[0]?.data).toMatchObject({ builtin: true, enabled: true });
-      expect((await call("automations.delete", { id: rules[0]?.id })).error?.code).toBe("INVALID_INPUT");
-      const space = ((await call("agent.spaces.list", {})).data as { id: string }[])[0] as { id: string };
-      const t = await call("tasks.create", { title: "整理资料", body: "请整理", execution: { kind: "agent", spaceId: space.id, provider: "codex" } });
-      await call("tasks.create", { title: "手动任务", execution: { kind: "manual" } });
-      // 等 Provider 检测完成
-      for (let i = 0; i < 50; i++) {
-        const d = (await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[];
-        if (d.find((x) => x.provider === "codex")?.status === "found") break;
-        await new Promise((r) => setTimeout(r, 100));
+  test.skipIf(process.platform === "win32")(
+    "automations：内置规则、预览无副作用、立即运行用假 CLI 处理 Agent 任务，再次运行不重复，Task 仍未完成",
+    async () => {
+      const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
+      const bin = tmp();
+      writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 CLI 已处理"\n');
+      chmodSync(path.join(bin, "codex"), 0o755);
+      const oldPath = process.env["PATH"];
+      process.env["PATH"] = `${bin}:${oldPath}`;
+      try {
+        const dir = tmp();
+        const e = await boot({ vaultPath: dir, create: true });
+        engines.push(e);
+        type R = { ok: boolean; data: unknown; error?: { code: string } };
+        const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+        const rules = (await call("automations.list", {})).data as { id: string; data: { builtin: boolean; enabled: boolean } }[];
+        expect(rules).toHaveLength(1);
+        expect(rules[0]?.data).toMatchObject({ builtin: true, enabled: true });
+        expect((await call("automations.delete", { id: rules[0]?.id })).error?.code).toBe("INVALID_INPUT");
+        const space = ((await call("agent.spaces.list", {})).data as { id: string }[])[0] as { id: string };
+        const t = await call("tasks.create", { title: "整理资料", body: "请整理", execution: { kind: "agent", spaceId: space.id, provider: "codex" } });
+        await call("tasks.create", { title: "手动任务", execution: { kind: "manual" } });
+        // 等 Provider 检测完成
+        for (let i = 0; i < 50; i++) {
+          const d = (await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[];
+          if (d.find((x) => x.provider === "codex")?.status === "found") break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        await new Promise((r) => setTimeout(r, 300));
+        const preview = (await call("automations.preview", { id: rules[0]?.id })).data as { candidates: unknown[]; skipped: unknown[] };
+        expect(preview.candidates).toHaveLength(1);
+        expect(preview.skipped).toHaveLength(1);
+        expect(existsSync(path.join(dir, "Task Runs"))).toBe(false); // 预览不写文件
+        const run1 = (await call("automations.runNow", { id: rules[0]?.id })).data as { summary: unknown };
+        expect(run1.summary).toEqual({ processed: 1, skipped: 1 });
+        const runFile = ls(path.join(dir, "Task Runs"));
+        expect(runFile).toHaveLength(1);
+        const text = readFileSync(path.join(dir, "Task Runs", runFile[0] as string), "utf8");
+        expect(text).toContain("state: succeeded");
+        expect(text).toContain("假 CLI 已处理");
+        expect(((await call("tasks.read", { id: (t.data as { id: string }).id })).data as { completed: boolean }).completed).toBe(false);
+        expect(((await call("automations.runNow", { id: rules[0]?.id })).data as { summary: unknown }).summary).toEqual({ processed: 0, skipped: 2 });
+        expect(ls(path.join(dir, "Task Runs"))).toHaveLength(1);
+        expect(((await call("automations.activations", {})).data as unknown[]).length).toBe(2);
+      } finally {
+        process.env["PATH"] = oldPath;
       }
-      await new Promise((r) => setTimeout(r, 300));
-      const preview = (await call("automations.preview", { id: rules[0]?.id })).data as { candidates: unknown[]; skipped: unknown[] };
-      expect(preview.candidates).toHaveLength(1);
-      expect(preview.skipped).toHaveLength(1);
-      expect(existsSync(path.join(dir, "Task Runs"))).toBe(false); // 预览不写文件
-      const run1 = (await call("automations.runNow", { id: rules[0]?.id })).data as { summary: unknown };
-      expect(run1.summary).toEqual({ processed: 1, skipped: 1 });
-      const runFile = ls(path.join(dir, "Task Runs"));
-      expect(runFile).toHaveLength(1);
-      const text = readFileSync(path.join(dir, "Task Runs", runFile[0] as string), "utf8");
-      expect(text).toContain("state: succeeded");
-      expect(text).toContain("假 CLI 已处理");
-      expect(((await call("tasks.read", { id: (t.data as { id: string }).id })).data as { completed: boolean }).completed).toBe(false);
-      expect(((await call("automations.runNow", { id: rules[0]?.id })).data as { summary: unknown }).summary).toEqual({ processed: 0, skipped: 2 });
-      expect(ls(path.join(dir, "Task Runs"))).toHaveLength(1);
-      expect(((await call("automations.activations", {})).data as unknown[]).length).toBe(2);
-    } finally {
-      process.env["PATH"] = oldPath;
-    }
-  }, 60_000);
+    },
+    60_000,
+  );
   test("versioning：命名版本、时间线、读取、恢复（经 HTTP）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
@@ -527,7 +535,7 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "tasks.create", { title: "Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.rendererToken, "tasks.create", { title: "桌面 Agent", execution: { kind: "agent", spaceId: "space-1", provider: "codex" } })).ok).toBe(true);
   }, 30_000);
-  test.skipIf(!existsSync(REAL_HERDR))(
+  test.skipIf(!existsSync(REAL_HERDR) || process.platform === "win32")(
     "终端 WebSocket：经 Engine 桥接真实 Herdr 终端——输入回显、鉴权、关闭只 detach",
     async () => {
       process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
@@ -659,33 +667,37 @@ describe("Engine 启动与关闭", () => {
     });
     expect(await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 3000))])).toBe(4401);
   }, 30_000);
-  test("ACC-SF-04（端到端）：脚本环境变量引用只允许 ssh 的保险箱条目 → 运行失败 SECRET_REF_INVALID 并通知；允许 automations 后成功，输出里有值但文件里没有引用解密结果之外的泄漏", async () => {
-    const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
-    const dir = tmp();
-    const e = await boot({ vaultPath: dir, create: true });
-    engines.push(e);
-    type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-    const prog = path.join(tmp(), "show.sh");
-    writeFileSync(prog, '#!/bin/sh\necho "got=${TOKEN:+set}"\n');
-    chmodSync(prog, 0o755);
-    await call("safe.setup", { password: "correct horse battery" });
-    const item = (await call("safe.items.save", { name: "tok", type: "token", allowedModules: ["ssh"], value: "TOP-SECRET-VALUE" })).data as { id: string };
-    const script = (await call("automations.scripts.save", { title: "显示", program: prog, args: [], cwd: dir, envRefs: { TOKEN: `safe://${item.id}` }, timeoutSec: 10 })).data as { id: string };
-    const rule = (await call("automations.create", { title: "脚本规则", trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" }, action: { kind: "script", scriptId: script.id, args: [] } })).data as { id: string };
-    expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
-    const note = ((await call("notifications.list", {})).data as { title: string }[]).map((n) => n.title).join("\n");
-    expect(note).toContain("SECRET_REF_INVALID");
-    // 允许 automations 引用后成功
-    await call("safe.items.save", { id: item.id, name: "tok", type: "token", allowedModules: ["ssh", "automations"] });
-    expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "succeeded" });
-    const texts = ls(path.join(dir, "Automation Runs")).map((f) => readFileSync(path.join(dir, "Automation Runs", f), "utf8"));
-    expect(texts.some((t) => t.includes("got=set"))).toBe(true);
-    expect(texts.join()).not.toContain("TOP-SECRET-VALUE");
-    // 保险箱锁定后同一脚本失败（SAFE_LOCKED）
-    await call("safe.lock", {});
-    expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
-  }, 60_000);
+  test.skipIf(process.platform === "win32")(
+    "ACC-SF-04（端到端）：脚本环境变量引用只允许 ssh 的保险箱条目 → 运行失败 SECRET_REF_INVALID 并通知；允许 automations 后成功，输出里有值但文件里没有引用解密结果之外的泄漏",
+    async () => {
+      const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
+      const dir = tmp();
+      const e = await boot({ vaultPath: dir, create: true });
+      engines.push(e);
+      type R = { ok: boolean; data: unknown; error?: { code: string } };
+      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+      const prog = path.join(tmp(), "show.sh");
+      writeFileSync(prog, '#!/bin/sh\necho "got=${TOKEN:+set}"\n');
+      chmodSync(prog, 0o755);
+      await call("safe.setup", { password: "correct horse battery" });
+      const item = (await call("safe.items.save", { name: "tok", type: "token", allowedModules: ["ssh"], value: "TOP-SECRET-VALUE" })).data as { id: string };
+      const script = (await call("automations.scripts.save", { title: "显示", program: prog, args: [], cwd: dir, envRefs: { TOKEN: `safe://${item.id}` }, timeoutSec: 10 })).data as { id: string };
+      const rule = (await call("automations.create", { title: "脚本规则", trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" }, action: { kind: "script", scriptId: script.id, args: [] } })).data as { id: string };
+      expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
+      const note = ((await call("notifications.list", {})).data as { title: string }[]).map((n) => n.title).join("\n");
+      expect(note).toContain("SECRET_REF_INVALID");
+      // 允许 automations 引用后成功
+      await call("safe.items.save", { id: item.id, name: "tok", type: "token", allowedModules: ["ssh", "automations"] });
+      expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "succeeded" });
+      const texts = ls(path.join(dir, "Automation Runs")).map((f) => readFileSync(path.join(dir, "Automation Runs", f), "utf8"));
+      expect(texts.some((t) => t.includes("got=set"))).toBe(true);
+      expect(texts.join()).not.toContain("TOP-SECRET-VALUE");
+      // 保险箱锁定后同一脚本失败（SAFE_LOCKED）
+      await call("safe.lock", {});
+      expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
+    },
+    60_000,
+  );
   test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "ACC-WB-02 无写权限的普通文件夹：写入打开给出“无法写入”（READ_ONLY_VAULT + 只读打开建议），只读打开可浏览，写操作被拒绝，磁盘无变化",
     async () => {

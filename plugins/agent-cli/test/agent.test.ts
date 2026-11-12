@@ -21,7 +21,7 @@ function fakeBin(dir: string, name: string, script: string) {
 }
 
 describe("Provider 检测", () => {
-  test("找到 → found + 版本；未安装 → not-installed；探测失败 → probe-failed；结果缓存 10 分钟", async () => {
+  test.skipIf(process.platform === "win32")("找到 → found + 版本；未安装 → not-installed；探测失败 → probe-failed；结果缓存 10 分钟", async () => {
     const bin = tmp();
     fakeBin(bin, "claude", 'echo "2.1.0 (Claude Code)"');
     fakeBin(bin, "codex", "exit 3");

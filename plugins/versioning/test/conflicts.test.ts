@@ -8,7 +8,7 @@ import { VaultSync } from "../src/engine/sync.js";
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); // Windows 上 git 子进程刚退出时目录可能还被占着
 });
 const tmp = () => {
   const d = mkdtempSync(path.join(tmpdir(), "huhu-cf-"));
@@ -20,7 +20,12 @@ const put = (root: string, rel: string, text: string | Buffer) => {
   writeFileSync(path.join(root, rel), text);
 };
 const read = (root: string, rel: string) => readFileSync(path.join(root, rel), "utf8");
-const git = (root: string, ...args: string[]) => execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const git = (root: string, ...args: string[]) =>
+  execFileSync("git", ["-C", root, "-c", "core.quotepath=false", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" },
+  });
 
 async function twoVaults(hooks = {}) {
   const remote = tmp();

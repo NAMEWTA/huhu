@@ -29,7 +29,7 @@ describe("HTTP", () => {
     const { base } = await boot();
     expect(await (await fetch(`${base}/healthz`)).text()).toBe("ok");
   });
-  test("401：无令牌/错误令牌", async () => {
+  test("ACC-PL-08 401：无令牌/错误令牌", async () => {
     const { base, tokens } = await boot();
     tokens.issue("desktop");
     expect((await call(base, null, REQ)).status).toBe(401);
@@ -42,7 +42,7 @@ describe("HTTP", () => {
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ ok: true, data: { name: "占位" } });
   });
-  test("403：非法 Origin、转发头；Host 不符", async () => {
+  test("ACC-PL-08 403：非法 Origin（https://evil.example）、转发头；Host 不符", async () => {
     const { base, tokens } = await boot();
     const t = tokens.issue("desktop");
     expect((await call(base, t, REQ, { origin: "https://evil.example" })).status).toBe(403);

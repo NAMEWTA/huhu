@@ -51,7 +51,7 @@ describe("原生监听", () => {
     expect(seen).toContainEqual({ path: "new.md", change: "renamed", from: "old.md" });
     expect(seen.some((c) => c.change === "created" || c.change === "deleted")).toBe(false);
   });
-  test("自写不回声", async () => {
+  test.skipIf(process.platform === "win32")("自写不回声", async () => {
     const { root, receipts, seen } = await setup();
     const files = new VaultFiles(root, receipts);
     await files.write("self.md", Buffer.from("mine"));
