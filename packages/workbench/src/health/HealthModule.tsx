@@ -5,6 +5,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
+import { host } from "../settings/host.js";
 import type { UiState } from "../state/ui-store.js";
 
 interface Check {
@@ -56,6 +57,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
   const [state, setState] = useState<"idle" | "running" | "done" | "cancelled" | "failed">("idle");
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const token = useRef(0);
   const running = state === "running";
   const events = useCapability<{ events: EventRow[]; modules: string[] }>("health.events", { limit: 500, ...(query ? { query } : {}) });
@@ -104,26 +106,41 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
     await call(a.capability, {}).catch(() => undefined);
     startDiagnostics();
   }
-  function exportDiagnostics() {
-    // 诊断包只含版本、模块状态和事件记录，不含凭据值或笔记正文
-    const body = JSON.stringify({ time: new Date().toISOString(), vault: vault.data, plugins: plugins.data, events: events.data?.events, checks: result?.checks }, null, 2);
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
-    a.download = "HUHU-Diagnostics.json";
-    a.click();
-    URL.revokeObjectURL(a.href);
+  async function exportDiagnostics() {
+    // 诊断包由引擎生成（版本、模块状态、检查结果、事件记录；不含凭据值或笔记正文）
+    try {
+      const data = await engine.call("health.exportDiagnostics", {});
+      const body = JSON.stringify(data, null, 2);
+      const h = host();
+      if (h?.saveTextFile) {
+        await h.saveTextFile("HUHU-Diagnostics.json", body);
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+      a.download = "HUHU-Diagnostics.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   return (
     <div className="module-layout" data-testid="health-module">
       <div className="view-content">
+        {error ? (
+          <div role="alert" className="callout danger">
+            <p>{error}</p>
+          </div>
+        ) : null}
         <PageHead
           eyebrow="VISIBLE AND RECOVERABLE"
           title={TITLE[section] ?? TITLE["all"]!}
           description="理解系统当前的状态，并从问题现场直接恢复。"
           actions={
             <>
-              <Button icon={Download} onClick={exportDiagnostics}>
+              <Button icon={Download} data-testid="health-export" onClick={() => void exportDiagnostics()}>
                 导出诊断
               </Button>
               <Button variant="primary" icon={running ? Square : RefreshCw} onClick={runDiagnostics} data-testid="health-run">

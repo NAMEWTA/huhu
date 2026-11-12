@@ -459,7 +459,13 @@ describe("Engine 启动与关闭", () => {
     await call("notes.save", { path, text: "HUHU-NOTE-MARKER\n", expectedVersion: (cur.data as unknown as { version: string }).version });
     expect((await call("safe.setup", { password: "correct horse battery" })).ok).toBe(true);
     expect((await call("safe.items.save", { name: "HUHU-SAFE-MARKER", type: "password", account: "x", allowedModules: [], value: "HUHU-SAFE-MARKER-VALUE" })).ok).toBe(true);
-    const dump = JSON.stringify([(await call("health.run", {})).data, (await call("health.events", { limit: 500 })).data, (await call("plugins.list", {})).data, (await call("vault.info", {})).data]);
+    const dump = JSON.stringify([
+      (await call("health.run", {})).data,
+      (await call("health.events", { limit: 500 })).data,
+      (await call("health.exportDiagnostics", {})).data,
+      (await call("plugins.list", {})).data,
+      (await call("vault.info", {})).data,
+    ]);
     expect(dump).not.toContain("HUHU-NOTE-MARKER");
     expect(dump).not.toContain("HUHU-SAFE-MARKER");
   });

@@ -88,8 +88,39 @@ export function registerHealthCapabilities(registry: CapabilityRegistry, d: Heal
         }),
       )
     : () => undefined;
+  // 诊断包：只含版本 / 模块状态 / 检查结果 / 事件记录（事件里是面向用户的一行描述），由引擎生成，不含笔记正文与凭据值
+  const off3 = registry.register(
+    defineCapability({
+      name: "health.exportDiagnostics",
+      plugin: "kernel",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({}),
+      output: z.object({
+        time: z.string(),
+        vault: z.object({ id: z.string(), readOnly: z.boolean(), counts: z.record(z.string(), z.number()) }),
+        plugins: z.array(z.object({ id: z.string(), version: z.string(), state: z.string(), error: z.string().optional() })),
+        overall: z.string(),
+        checks: z.array(CheckDto),
+        events: z.array(z.object({ time: z.string(), module: z.string(), message: z.string(), tone: z.string() })),
+      }),
+      handler: async () => {
+        const r = await runHealth(d);
+        return {
+          time: new Date().toISOString(),
+          vault: { id: d.vault.id, readOnly: d.vault.readOnly, counts: d.index.counts() },
+          plugins: d.plugins.list().map((p) => ({ id: p.id, version: p.manifest.version, state: p.state, ...(p.error ? { error: p.error } : {}) })),
+          overall: r.overall,
+          checks: r.checks,
+          events: (d.events?.list({ limit: 500 }) ?? []).map((e) => ({ time: e.time, module: e.module, message: e.message, tone: e.tone })),
+        };
+      },
+    }),
+  );
   return () => {
     off();
     off2();
+    off3();
   };
 }
