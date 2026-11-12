@@ -13,7 +13,7 @@ jobs:
       matrix:
         include:
           - { os: windows-2022, target: win32-x64 }
-          - { os: macos-14, target: darwin-arm64 }
+          - { os: macos-15, target: darwin-arm64 }
           - { os: ubuntu-22.04, target: linux-x64 }
     runs-on: ${{ matrix.os }}
     steps:
