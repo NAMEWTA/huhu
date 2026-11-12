@@ -107,7 +107,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   /** 拖放移动：与“移动到…”对话框同一条路径（未保存的修改先落盘；已在目标文件夹则不动）。 */
   async function moveByDrop(path: string, dir: string) {
     const cur = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    if (cur === dir) return;
+    if (cur === dir || dir === path || dir.startsWith(`${path}/`)) return; // 已在目标处，或把文件夹拖进自己 / 后代：什么都不做
     const note = (every.data ?? []).find((x) => x.path === path);
     if (note) {
       if (!(await beforeMove(note))) return;

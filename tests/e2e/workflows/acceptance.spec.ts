@@ -591,8 +591,10 @@ test("笔记拖放移动文件夹：拖到另一个文件夹下，其中的笔�
     const child = page.getByTestId("folder-line").filter({ hasText: "甲" }).first();
     await expect(child).toBeVisible();
     await parent.dragTo(child);
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(800); // UI 直接忽略这种拖放：磁盘不变，也没有错误提示
     expect(fs.existsSync(`${vault}/目标/甲/里面的笔记.md`)).toBe(true);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(fs.readdirSync(`${vault}/目标`)).toEqual(["甲"]);
   } finally {
     await close();
   }

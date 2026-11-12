@@ -1,6 +1,6 @@
 import { Button, EmptyState, IconButton, SearchBox } from "@huhu/ui";
 import { CalendarDays, ChevronDown, ChevronRight, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Hash, MoreHorizontal, Star, Trash2, Upload } from "lucide-react";
-import { VaultSwitchDialog } from "@huhu/workbench";
+import { VaultSwitchDialog, host } from "@huhu/workbench";
 import { useMemo, useRef, useState } from "react";
 import { n } from "./i18n.js";
 
@@ -79,6 +79,11 @@ export interface ExplorerProps {
 }
 
 /** 左侧资源栏（原型 knowledge-note-list）：Vault 头 → 文件资源管理器（新建 / 搜索 / 分类）→ 文件树 / 标签云 / 日记选择 → 底部导入。 */
+function SectionIcon({ section }: { section: Section }) {
+  const Icon = SECTION_ICON[section];
+  return <Icon size={13} aria-hidden />;
+}
+
 export function NoteExplorer(p: ExplorerProps) {
   const tree = useMemo(() => buildTree(p.notes, p.section === "all" ? p.folders : []), [p.notes, p.folders, p.section]);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -178,7 +183,7 @@ export function NoteExplorer(p: ExplorerProps) {
   return (
     <aside className="resource-pane knowledge-note-list" aria-label="知识库">
       <div className="knowledge-vault-head">
-        <button type="button" title="切换 Vault" data-testid="notes-vault-switch" onClick={() => setSwitchOpen(true)}>
+        <button type="button" title="切换 Vault" data-testid="notes-vault-switch" disabled={!host()?.vault} onClick={() => setSwitchOpen(true)}>
           <span className="knowledge-vault-symbol">
             <FolderOpen size={17} aria-hidden />
           </span>
@@ -188,7 +193,7 @@ export function NoteExplorer(p: ExplorerProps) {
           </span>
           <ChevronDown size={13} aria-hidden />
         </button>
-        <VaultSwitchDialog open={switchOpen} onClose={() => setSwitchOpen(false)} />
+        {host()?.vault ? <VaultSwitchDialog open={switchOpen} onClose={() => setSwitchOpen(false)} /> : null}
       </div>
       <div className="resource-head knowledge-explorer-head">
         <div className="row">
@@ -204,10 +209,7 @@ export function NoteExplorer(p: ExplorerProps) {
         <div className="knowledge-explorer-filters" role="tablist" aria-label="文件分类">
           {SECTIONS.map((s) => (
             <button key={s} type="button" role="tab" aria-selected={p.section === s} className={p.section === s ? "active" : ""} data-testid={`notes-section-${s}`} onClick={() => p.onSection(s)}>
-              {(() => {
-                const Icon = SECTION_ICON[s];
-                return <Icon size={13} aria-hidden />;
-              })()}
+              <SectionIcon section={s} />
               <span>{n.sections[s]}</span>
             </button>
           ))}
