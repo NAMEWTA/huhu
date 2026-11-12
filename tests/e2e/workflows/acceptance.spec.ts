@@ -107,3 +107,51 @@ test("ACC-SY-03 取消诊断：显示“已取消”，在途结果迟到也不�
     await close();
   }
 });
+
+test("ACC-TK-11 看板：把卡片拖到“已完成”列等同于勾选完成（并可拖回重开）", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    await call("tasks.create", { title: "拖拽任务", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByTestId("task-views").getByRole("tab", { name: "看板" }).click();
+    await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(1);
+    await page.getByTestId("board-open").getByTestId("board-card").dragTo(page.getByTestId("board-done"));
+    await expect(page.getByTestId("board-done").getByTestId("board-card")).toHaveCount(1, { timeout: 10_000 });
+    const done = await call("tasks.list", { category: "ended" });
+    expect((done.data as { title: string }[]).map((x) => x.title)).toContain("拖拽任务");
+    // 回执前同一任务不会重复提交，所以等上一次提交结束后再拖回（失败则重试拖拽）
+    await expect(async () => {
+      await page.getByTestId("board-done").getByTestId("board-card").dragTo(page.getByTestId("board-open"));
+      await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(1, { timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+  } finally {
+    await close();
+  }
+});
+
+test("ACC-TK-06 关联资料选择器：Enter 选中高亮的文件夹；输入的自由文字不会变成资源", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    fs.mkdirSync(`${vault}/Research`);
+    fs.writeFileSync(`${vault}/Research/资料.md`, "# 资料\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByTestId("task-new").click();
+    const picker = page.getByTestId("resource-picker");
+    await picker.getByRole("button", { name: "关联 Vault 文件或文件夹" }).click();
+    const search = page.getByRole("combobox", { name: "搜索 Vault 资源" });
+    await search.fill("不存在的路径xyz");
+    await search.press("Enter");
+    await expect(picker.locator(".vrp-chip")).toHaveCount(0);
+    await search.fill("Research");
+    await expect(page.getByRole("option").first()).toBeVisible();
+    await search.press("Enter");
+    await expect(picker.locator(".vrp-chip")).toHaveCount(1);
+    await expect(picker.locator(".vrp-chip").first()).toContainText("Research");
+  } finally {
+    await close();
+  }
+});
