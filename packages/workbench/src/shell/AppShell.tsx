@@ -57,7 +57,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   const s = useStore(ui);
   const [switchOpen, setSwitchOpen] = useState(false);
   const moduleIcons = useMemo(() => {
-    const map: Record<string, React.ReactNode> = {};
+    const map: Record<string, ReactNode> = {};
     for (const m of modules) map[m.plugin] ??= m.icon; // 一个插件有多个模块时取第一个
     return map;
   }, [modules]);

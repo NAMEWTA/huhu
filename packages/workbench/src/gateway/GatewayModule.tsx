@@ -78,7 +78,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   const mcp = gw.data?.mcp ?? { enabled: false, transport: "stdio" as const };
   const location = useCapability<{ root: string }>("vault.location", {});
   const [configOpen, setConfigOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
   /** 复制外部 MCP 客户端的配置片段：stdio 用 `huhu mcp --vault <目录>`，HTTP 用本机端点（令牌在“服务端”里创建）。 */
   async function copyClientConfig() {
     const cfg =
@@ -87,8 +87,12 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
         : { mcpServers: { huhu: { url: `${engine.endpoint.baseUrl}/mcp`, headers: { Authorization: "Bearer <在“服务端”里创建的令牌>" } } } };
     const text = JSON.stringify(cfg, null, 2);
     const host = (window as unknown as { huhuHost?: { copyText?(v: string): Promise<void> } }).huhuHost;
-    await (host?.copyText ? host.copyText(text) : navigator.clipboard.writeText(text)).catch(() => undefined);
-    setCopied(true);
+    try {
+      await (host?.copyText ? host.copyText(text) : navigator.clipboard.writeText(text));
+      setCopied("ok");
+    } catch {
+      setCopied("failed");
+    }
   }
   const all = caps.data ?? [];
   const list = all.filter((c) => c.name.includes(filter.trim()));
@@ -414,7 +418,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   <button type="button" data-testid="gateway-mcp-config" onClick={() => setConfigOpen(true)}>
                     <Settings size={14} aria-hidden /> 配置传输
                   </button>
-                  <button type="button" data-testid="gateway-mcp-copy" onClick={() => void copyClientConfig()}>
+                  <button type="button" data-testid="gateway-mcp-copy" disabled={mcp.transport === "stdio" && !location.data?.root} onClick={() => void copyClientConfig()}>
                     <Copy size={14} aria-hidden /> 复制客户端配置
                   </button>
                   <button type="button" onClick={() => ui.getState().openModule("plugins")}>
@@ -423,13 +427,13 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                 </div>
                 {copied ? (
                   <p role="status" className="small muted">
-                    客户端配置已复制
+                    {copied === "ok" ? "客户端配置已复制" : "复制失败：剪贴板不可用"}
                   </p>
                 ) : null}
               </section>
               <Dialog open={configOpen} title="MCP 配置" description="选择外部客户端连接 HUHU 的方式。" onClose={() => setConfigOpen(false)} testId="gateway-mcp-dialog" actions={<Button onClick={() => setConfigOpen(false)}>完成</Button>}>
                 <Field label={g.transport}>
-                  <select aria-label={g.transport} value={mcp.transport} onChange={(e) => void act("gateway.mcp.update", { enabled: mcp.enabled, transport: e.target.value })}>
+                  <select aria-label={g.transport} value={mcp.transport} onChange={(e) => (setCopied(null), void act("gateway.mcp.update", { enabled: mcp.enabled, transport: e.target.value }))}>
                     <option value="stdio">{g.stdio}</option>
                     <option value="http">{g.http}</option>
                   </select>

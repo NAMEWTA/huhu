@@ -17,10 +17,16 @@ export interface HomeDeps {
 const MAX_HABITS = 20;
 const MAX_TITLE = 60;
 
-/** 首页的专注计时、习惯、卡片显示：状态存 `.huhu/home/*.json`（原子写），跨日重置按设置的时区。 */
-/** 更新入参：order 接受任意字符串，由 setWidgets 逐项过滤（WidgetsStateSchema 对非法项会整体回退为空）。 */
-const WidgetsUpdateSchema = WidgetsStateSchema.extend({ order: z.array(z.string()).optional() });
+/** 更新入参：hidden / order 接受任意字符串，由 setWidgets 逐项过滤（WidgetsStateSchema 对非法项会整体回退为空）。 */
+const WidgetsUpdateSchema = z.object({ hidden: z.array(z.string()), order: z.array(z.string()).optional() });
 
+/** 只留下认识的卡片 id 并去重。 */
+const knownCards = (xs: unknown): string[] => {
+  const known = new Set<string>(HOME_CARDS);
+  return Array.isArray(xs) ? [...new Set(xs.filter((x): x is string => typeof x === "string" && known.has(x)))] : [];
+};
+
+/** 首页的专注计时、习惯、卡片显示：状态存 `.huhu/home/*.json`（原子写），跨日重置按设置的时区。 */
 export class HomeStore {
   constructor(private readonly d: HomeDeps) {}
 
@@ -128,17 +134,13 @@ export class HomeStore {
 
   widgets(): WidgetsState {
     return this.read("widgets.json", (v) => {
-      // 排序逐项过滤：个别不认识的卡片 id 不会让整份排序作废（不放进 schema：带 transform 的 schema 无法生成能力目录用的 JSON Schema）
-      const raw = (v ?? {}) as { order?: unknown };
-      const known = new Set<string>(HOME_CARDS);
-      const order = Array.isArray(raw.order) ? raw.order.filter((x): x is string => typeof x === "string" && known.has(x)) : raw.order;
-      return WidgetsStateSchema.parse({ ...(v as object), ...(order !== undefined ? { order } : {}) });
+      // 逐项过滤：个别不认识的卡片 id 不会让整份 hidden / order 作废（不放进 schema：带 transform 的 schema 无法生成能力目录用的 JSON Schema）
+      const raw = (v ?? {}) as { hidden?: unknown; order?: unknown };
+      return WidgetsStateSchema.parse({ hidden: knownCards(raw.hidden), ...(raw.order !== undefined ? { order: knownCards(raw.order) } : {}) });
     });
   }
   setWidgets(w: z.infer<typeof WidgetsUpdateSchema>): WidgetsState {
-    // 写入路径同样逐项过滤（schema 本身对 order 的非法项整体回退为空，所以要在解析前去掉）
-    const known = new Set<string>(HOME_CARDS);
-    const next = WidgetsStateSchema.parse({ hidden: [...new Set(w.hidden)], order: [...new Set((w.order ?? []).filter((x) => known.has(x)))] });
+    const next = WidgetsStateSchema.parse({ hidden: knownCards(w.hidden), order: knownCards(w.order ?? []) });
     this.write("widgets.json", next);
     return next;
   }

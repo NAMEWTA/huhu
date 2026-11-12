@@ -535,7 +535,11 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByTestId("rule-row").first().click();
     await page.getByRole("button", { name: "立即运行" }).click();
-    await expect(page.getByText("尚未激活。启用配置不等于已经运行。")).toHaveCount(0, { timeout: 30_000 }); // 激活记录出现
+    await page
+      .getByRole("button", { name: /激活记录/ })
+      .first()
+      .click();
+    await expect(page.getByTestId("activation-row").first()).toBeVisible({ timeout: 30_000 }); // 激活记录出现
     // 4. 任务详情显示运行结果；任务仍未完成，用户阅读后自己勾选
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).click();
