@@ -1,6 +1,6 @@
 export const t = {
   title: "任务",
-  categories: { all: "全部任务", today: "今日", tomorrow: "明日", week: "未来 7 天", ended: "已结束" },
+  categories: { all: "全部任务", today: "今日", tomorrow: "明日", week: "未来7天", ended: "已结束" },
   filterNav: "任务筛选",
   count: (n: number) => `${n} 件任务`,
   weekRange: (from: string, to: string) => `${from} 至 ${to}`,

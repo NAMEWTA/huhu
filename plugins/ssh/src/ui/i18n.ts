@@ -1,6 +1,6 @@
 export const t = {
   title: "远程连接",
-  hosts: "主机",
+  hosts: "SSH 主机",
   newHost: "新增主机",
   hostName: "显示名称",
   address: "主机名或 IP",

@@ -171,10 +171,10 @@ export function SshModule() {
   return (
     <div className="module-layout execution-module" data-testid="ssh-module">
       <aside className="resource-pane" aria-label={t.title}>
-        <div className="resource-head">
+        <div className="resource-head execution-resource-head">
           <div className="row">
-            <strong className="grow">{t.hosts}</strong>
-            <span className="knowledge-count">{(hosts.data ?? []).length}</span>
+            <span className="grow execution-resource-title">{t.hosts}</span>
+            <span className="execution-count">{(hosts.data ?? []).length}</span>
             <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => openEditor(null)} />
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索主机…" />
@@ -211,7 +211,7 @@ export function SshModule() {
           </div>
           <span className="muted small">连接、PTY 与 Exec 独立管理</span>
           <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
-            连接审计
+            全部连接审计
           </Button>
         </div>
       </aside>
