@@ -91,5 +91,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --draft --title "HUHU ${GITHUB_REF_NAME}" \
+          pre=""; case "${GITHUB_REF_NAME}" in *-*) pre="--prerelease" ;; esac # v0.0.1-rc.1 这样带后缀的标签是预发布
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --draft $pre --title "HUHU ${GITHUB_REF_NAME}" \
             --notes "未签名安装包。Windows SmartScreen 选择“仍要运行”；macOS 首次打开右键“打开”或执行 xattr -dr com.apple.quarantine /Applications/HUHU.app；Linux AppImage 需 chmod +x。校验：sha256sum -c SHA256SUMS.txt。"
