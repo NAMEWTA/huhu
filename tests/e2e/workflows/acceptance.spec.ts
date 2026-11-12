@@ -716,3 +716,29 @@ test("工作流 W-C 远程运维脚本：保险箱 → SSH 用密码引用连接
     await srv.close();
   }
 });
+
+test("Agent CLI 启动设置面板：选 CLI 后出现模型 / 推理深度 / 附加提示词，启动参数带上所选项（假 Claude 记录 argv）", async () => {
+  test.skip(process.platform === "win32", "假 Claude 是 POSIX shell 脚本");
+  const fs = await import("node:fs");
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-launch-bin-"));
+  const log = path.join(bin, "argv.log");
+  writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.0 (Claude Code)"; exit 0; fi\necho "$@" > "${log}"\nsleep 30\n`);
+  fs.chmodSync(path.join(bin, "claude"), 0o755);
+  const { page, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page.getByRole("button", { name: "新终端" }).first().click();
+    await page.getByRole("menuitem", { name: /Claude Code/ }).click();
+    const panel = page.getByTestId("launch-panel");
+    await expect(panel).toBeVisible();
+    await panel.getByRole("option", { name: /Opus/i }).click();
+    await panel.getByLabel("附加提示词").fill("整理周报");
+    await panel.getByTestId("launch-start").click();
+    await expect.poll(() => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : ""), { timeout: 20_000 }).toContain("整理周报");
+    expect(fs.readFileSync(log, "utf8")).toMatch(/--model\s+opus/i);
+  } finally {
+    await close();
+    rmSync(bin, { recursive: true, force: true });
+  }
+});

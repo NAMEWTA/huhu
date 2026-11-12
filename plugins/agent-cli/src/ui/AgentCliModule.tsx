@@ -1,3 +1,4 @@
+import { LaunchPanel, type LaunchOptions, type ModelOption } from "./LaunchPanel.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
 import { ChevronDown, Folder, FolderOpen, History, Plus } from "lucide-react";
 import { CapabilityError, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
@@ -28,6 +29,7 @@ interface Provider {
   provider: string;
   displayName: string;
   status: string;
+  models?: ModelOption[];
 }
 
 export function AgentCliModule() {
@@ -65,11 +67,11 @@ export function AgentCliModule() {
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
 
-  async function launch(provider: string) {
+  async function launch(provider: string, o: LaunchOptions = {}) {
     if (!space) return;
     setError(null);
     try {
-      const s = await engine.call<Session>("agent.sessions.launch", { spaceId: space.id, spaceRevision: space.revision, provider, requestId: crypto.randomUUID() }, { write: true });
+      const s = await engine.call<Session>("agent.sessions.launch", { spaceId: space.id, spaceRevision: space.revision, provider, ...o, requestId: crypto.randomUUID() }, { write: true });
       setActive(s.id);
       setMenu(false);
       await refresh();
@@ -87,6 +89,8 @@ export function AgentCliModule() {
     }
   }
 
+  const [chosen, setChosen] = useState<string | null>(null);
+  const chosenProvider = (providers.data ?? []).find((p) => p.provider === chosen) ?? null;
   const list = sessions.data ?? [];
   // 有会话在运行时每 5 秒刷新一次列表：程序结束后徽标会自己变成“已结束”
   const anyRunning = list.some((s) => s.state === "running");
@@ -217,25 +221,36 @@ export function AgentCliModule() {
           </div>
         </div>
         {menu ? (
-          <section role="menu" aria-label={t.newTerminal} className="v9-provider-menu" style={{ position: "static" }}>
-            <button type="button" role="menuitem" onClick={() => void launch("shell")}>
-              <span className="v9-provider-mark">›</span> {t.newTerminal}（shell）
-            </button>
-            <div className="v9-menu-divider" />
-            <div className="v9-menu-caption">当前 Space · {space?.name ?? "未选择"}</div>
-            <div className="v9-menu-folder" title={space?.root}>
-              {space?.root ?? "请先创建 Space"}
-            </div>
-            {(providers.data ?? [])
-              .filter((p) => p.status === "found")
-              .map((p) => (
-                <button key={p.provider} type="button" role="menuitem" onClick={() => void launch(p.provider)}>
-                  <span className={`v9-provider-mark provider-${p.provider}`}>{p.displayName.slice(0, 1)}</span>
-                  <span>{p.displayName}</span>
-                </button>
-              ))}
-            {(providers.data ?? []).every((p) => p.status !== "found") ? <p className="v9-small-empty">{t.noProviders}</p> : null}
-          </section>
+          <div className="v9-launcher" style={{ position: "static", flexShrink: 0, minHeight: "min-content", margin: "8px 16px", width: "fit-content", maxWidth: "calc(100% - 32px)" }}>
+            {chosenProvider ? (
+              <LaunchPanel
+                key={chosenProvider.provider}
+                label={chosenProvider.displayName}
+                models={chosenProvider.models ?? []}
+                space={space ? { name: space.name, root: space.root } : null}
+                onStart={(o) => void launch(chosenProvider.provider, o).then(() => setChosen(null))}
+              />
+            ) : null}
+            <section role="menu" aria-label={t.newTerminal} className="v9-provider-menu">
+              <button type="button" role="menuitem" onClick={() => void launch("shell")}>
+                <span className="v9-provider-mark">›</span> {t.newTerminal}（shell）
+              </button>
+              <div className="v9-menu-divider" />
+              <div className="v9-menu-caption">当前 Space · {space?.name ?? "未选择"}</div>
+              <div className="v9-menu-folder" title={space?.root}>
+                {space?.root ?? "请先创建 Space"}
+              </div>
+              {(providers.data ?? [])
+                .filter((p) => p.status === "found")
+                .map((p) => (
+                  <button key={p.provider} type="button" role="menuitem" className={chosen === p.provider ? "selected" : ""} aria-haspopup="true" aria-expanded={chosen === p.provider} onClick={() => setChosen(p.provider)}>
+                    <span className={`v9-provider-mark provider-${p.provider}`}>{p.displayName.slice(0, 1)}</span>
+                    <span>{p.displayName}</span>
+                  </button>
+                ))}
+              {(providers.data ?? []).every((p) => p.status !== "found") ? <p className="v9-small-empty">{t.noProviders}</p> : null}
+            </section>
+          </div>
         ) : null}
         {list.length === 0 ? (
           <EmptyState icon={FolderOpen} title={space ? "在这个 Space 开始工作" : "创建你的第一个 Space"} hint={space ? "点击顶部 + 选择检测到的 AI CLI，工作目录自动使用当前 Space。" : "Space 绑定一个工作目录，会话和历史按 Space 隔离。"} />
