@@ -31,4 +31,14 @@ export class PinStore {
     writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n");
     renameSync(tmp, this.file);
   }
+
+  /** 删除 Space 时一并清掉它的固定记录。 */
+  clear(spaceId: string): void {
+    const all = this.read();
+    if (!(spaceId in all)) return;
+    delete all[spaceId];
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n");
+    renameSync(tmp, this.file);
+  }
 }

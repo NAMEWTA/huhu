@@ -73,10 +73,15 @@ export class SpaceStore {
     rmSync(this.file(id), { force: true });
   }
 
-  /** 首次进入：以 Vault 根为目录创建默认 Space（已存在则返回它）。 */
-  ensureDefault(vaultRoot: string, name = "Vault"): Space {
+  /** 首次进入：以 Vault 根为目录创建默认 Space（已存在则返回它）。只创建一次：用户删掉它之后重启不会再冒出来（返回 null）。 */
+  ensureDefault(vaultRoot: string, name = "Vault"): Space | null {
     const root = this.canonical(vaultRoot);
-    return this.list().find((s) => s.root === root) ?? this.save({ name, root });
+    const marker = path.join(this.dir, ".default-created");
+    const hit = this.list().find((s) => s.root === root);
+    if (!hit && existsSync(marker)) return null;
+    const space = hit ?? this.save({ name, root });
+    writeFileSync(marker, "");
+    return space;
   }
 
   /** 启动前校验：Space 存在、revision 一致、目录仍可访问；否则 SPACE_INVALID。 */

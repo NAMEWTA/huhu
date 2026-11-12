@@ -70,7 +70,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       defaultExposed: false,
       input: z.object({ id: z.string() }),
       output: z.object({ ok: z.literal(true) }),
-      handler: (_c, i) => (spaces.delete(i.id), { ok: true as const }),
+      handler: async (_c, i) => {
+        await sessions.reconcile();
+        if (sessions.list(i.id).some((x) => x.state === "running" || x.state === "launching")) throw errors.invalidInput("这个 Space 还有运行中的会话，请先结束它们再删除");
+        spaces.delete(i.id);
+        pins.clear(i.id);
+        return { ok: true as const };
+      },
     }),
   );
   api.defineCapability(

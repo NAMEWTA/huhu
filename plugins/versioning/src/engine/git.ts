@@ -13,12 +13,17 @@ export interface RunOpts {
 }
 
 /** 这台电脑上有没有可用的 git（`git --version` 能运行）；结果缓存，不会每次请求都起进程。 */
+/** 本机有 git 的结果缓存（装好就不会消失）；没有时每次重新检查：用户装好 Git 后不必重启应用。 */
 let installedCache: Promise<boolean> | null = null;
 export function gitInstalled(bin = "git"): Promise<boolean> {
-  installedCache ??= new Promise<boolean>((resolve) => {
+  if (installedCache) return installedCache;
+  const probe = new Promise<boolean>((resolve) => {
     execFile(bin, ["--version"], { timeout: 10_000, windowsHide: true }, (err) => resolve(!err));
   });
-  return installedCache;
+  void probe.then((ok) => {
+    if (ok) installedCache = probe;
+  });
+  return probe;
 }
 
 /** 串行的 Git 执行器：同一时刻只有一个命令；超时 120 秒；不经 shell。 */

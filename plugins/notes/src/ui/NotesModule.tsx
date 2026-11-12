@@ -435,7 +435,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         <NameDialog
           title={n.saveVersionTitle}
           description={n.saveVersionDesc}
-          label="版本名称"
+          label={n.versionName}
           initial=""
           submit={n.menu.saveVersion}
           error={error}

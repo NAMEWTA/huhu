@@ -129,7 +129,10 @@ describe("Space", () => {
     const root = tmp();
     const vault = tmp();
     const store = new SpaceStore(path.join(root, "spaces"), "m1");
-    const a = store.ensureDefault(vault);
-    expect(store.ensureDefault(vault).id).toBe(a.id);
+    const a = store.ensureDefault(vault)!;
+    expect(store.ensureDefault(vault)!.id).toBe(a.id);
+    store.delete(a.id);
+    expect(store.ensureDefault(vault)).toBeNull(); // 删掉后不再重建
+    expect(store.list()).toEqual([]);
   });
 });

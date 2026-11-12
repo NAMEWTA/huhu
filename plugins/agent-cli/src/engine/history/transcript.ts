@@ -36,7 +36,7 @@ function blocksText(content: unknown, types: string[]): string {
 /** 环境注入、命令包装不是对话内容。 */
 function meaningful(t: string): boolean {
   const s = t.trim();
-  return s !== "" && !s.startsWith("<") && !s.startsWith("# AGENTS.md") && !s.startsWith("Caveat:");
+  return s !== "" && !/^<(command-|local-command|system-reminder|environment_context|user_instructions)/.test(s) && !s.startsWith("# AGENTS.md") && !s.startsWith("Caveat:");
 }
 
 function readTail(file: string): { text: string; cut: boolean } {
@@ -45,8 +45,13 @@ function readTail(file: string): { text: string; cut: boolean } {
     const size = fstatSync(fd).size;
     const len = Math.min(size, MAX_BYTES);
     const buf = Buffer.alloc(len);
-    readSync(fd, buf, 0, len, size - len);
-    let text = buf.toString("utf8");
+    let got = 0;
+    while (got < len) {
+      const n = readSync(fd, buf, got, len - got, size - len + got);
+      if (n === 0) break;
+      got += n;
+    }
+    let text = buf.subarray(0, got).toString("utf8");
     const cut = size > len;
     if (cut) text = text.slice(text.indexOf("\n") + 1); // 第一行可能被截断
     return { text, cut };
