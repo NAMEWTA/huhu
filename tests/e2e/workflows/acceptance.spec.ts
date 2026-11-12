@@ -373,3 +373,45 @@ test("Agent CLI 历史固定：固定后置顶、重新进入后仍在；取消�
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("ACC-SH-04 远程连接：编辑主机、从已有主机里按顺序选跳板；跳板链不能形成循环", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const mk = (name: string, host: string) => call("ssh.hosts.save", { name, host, port: 22, user: "ops", auth: { kind: "agent" }, jumpHostIds: [] });
+    const a = await mk("跳板甲", "a.example.internal");
+    const b = await mk("目标乙", "b.example.internal");
+    expect(a.ok && b.ok).toBe(true);
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page
+      .getByRole("button", { name: /目标乙/ })
+      .first()
+      .click();
+
+    // 编辑：改地址并选甲作为跳板
+    await page.getByTestId("ssh-host-edit").click();
+    const dialog = page.getByTestId("ssh-host-dialog");
+    await expect(dialog.getByLabel("显示名称")).toHaveValue("目标乙");
+    await dialog.getByLabel("主机名或 IP").fill("b2.example.internal");
+    await dialog.getByLabel("添加跳板").selectOption({ label: "跳板甲（a.example.internal）" });
+    await expect(dialog.getByTestId("ssh-jump-item")).toHaveCount(1);
+    await dialog.getByTestId("ssh-host-save").click();
+    await expect(page.getByTestId("ssh-route")).toContainText("跳板甲");
+    await expect(page.getByTestId("ssh-route")).toContainText("b2.example.internal");
+
+    // 反向再选乙作为甲的跳板：形成循环，被拒绝并提示
+    await page
+      .getByRole("button", { name: /跳板甲/ })
+      .first()
+      .click();
+    await page.getByTestId("ssh-host-edit").click();
+    await dialog.getByLabel("添加跳板").selectOption({ label: "目标乙（b2.example.internal）" });
+    await dialog.getByTestId("ssh-host-save").click();
+    await expect(dialog.getByRole("alert")).toContainText("跳板链不能形成循环");
+    const list = (await call("ssh.hosts.list", {})).data as { name: string; jumpHostIds: string[] }[];
+    expect(list.find((h) => h.name === "跳板甲")?.jumpHostIds).toEqual([]);
+  } finally {
+    await close();
+  }
+});

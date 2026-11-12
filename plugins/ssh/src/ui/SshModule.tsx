@@ -13,6 +13,8 @@ interface Host {
   user: string;
   auth?: { kind: string; secretRef?: string };
   jumpHostIds?: string[];
+  tags?: string[];
+  connectTimeoutSec?: number;
 }
 interface Shell {
   id: string;
@@ -35,6 +37,12 @@ interface ExecResult {
   interrupted: boolean;
 }
 
+const swap = <T,>(xs: T[], i: number, j: number): T[] => {
+  const n = [...xs];
+  [n[i], n[j]] = [n[j] as T, n[i] as T];
+  return n;
+};
+
 type Tab = "overview" | "terminal" | "exec" | "files" | "audit";
 
 export function SshModule() {
@@ -46,7 +54,8 @@ export function SshModule() {
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: "", host: "", port: "22", user: "", password: "" });
+  const [form, setForm] = useState({ name: "", host: "", port: "22", user: "", password: "", jumps: [] as string[] });
+  const [editing, setEditing] = useState<Host | null>(null);
   const [cmd, setCmd] = useState("");
   const [result, setResult] = useState<ExecResult | null>(null);
   const [activeShell, setActiveShell] = useState<string | null>(null);
@@ -72,13 +81,29 @@ export function SshModule() {
 
   const message = (e: unknown) => (e instanceof CapabilityError && e.code === "SAFE_LOCKED" ? t.safeLocked : e instanceof Error ? e.message : String(e));
 
+  const emptyForm = { name: "", host: "", port: "22", user: "", password: "", jumps: [] as string[] };
+  /** 新增或编辑主机。编辑时密码留空表示不更改；填了就更新保险箱里原来那一项（没有就新建）。 */
   async function saveHost(): Promise<boolean> {
     setError(null);
     try {
       // 密码只存进保险箱（只允许 ssh 模块引用）；主机配置里只保存 safe:// 引用
-      const item = await engine.call<{ id: string }>("safe.items.save", { name: `${form.name} 密码`, type: "password", account: form.user, allowedModules: ["ssh"], value: form.password }, { write: true });
-      const h = await engine.call<Host>("ssh.hosts.save", { name: form.name, host: form.host, port: Number(form.port), user: form.user, auth: { kind: "password", secretRef: `safe://${item.id}` } }, { write: true });
-      setForm({ name: "", host: "", port: "22", user: "", password: "" });
+      let auth: { kind: string; secretRef?: string } | undefined = editing?.auth;
+      if (!editing || (form.password && (auth?.kind ?? "password") === "password")) {
+        const existing = editing?.auth?.kind === "password" ? editing.auth.secretRef?.replace(/^safe:\/\//, "") : undefined;
+        const item = await engine.call<{ id: string }>(
+          "safe.items.save",
+          { ...(existing ? { id: existing } : {}), name: `${form.name} 密码`, type: "password", account: form.user, allowedModules: ["ssh"], value: form.password },
+          { write: true },
+        );
+        auth = { kind: "password", secretRef: `safe://${item.id}` };
+      }
+      const h = await engine.call<Host>(
+        "ssh.hosts.save",
+        { ...(editing ? { id: editing.id, tags: editing.tags ?? [], connectTimeoutSec: editing.connectTimeoutSec ?? 20 } : {}), name: form.name, host: form.host, port: Number(form.port), user: form.user, auth, jumpHostIds: form.jumps },
+        { write: true },
+      );
+      setForm(emptyForm);
+      setEditing(null);
       setSel(h.id);
       await refresh();
       return true;
@@ -86,6 +111,12 @@ export function SshModule() {
       setError(message(e));
       return false;
     }
+  }
+  function openEditor(h: Host | null) {
+    setError(null);
+    setEditing(h);
+    setForm(h ? { name: h.name, host: h.host, port: String(h.port), user: h.user, password: "", jumps: h.jumpHostIds ?? [] } : emptyForm);
+    setAdding(true);
   }
   async function connect(h: Host) {
     setError(null);
@@ -144,7 +175,7 @@ export function SshModule() {
           <div className="row">
             <strong className="grow">{t.hosts}</strong>
             <span className="knowledge-count">{(hosts.data ?? []).length}</span>
-            <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => setAdding(true)} />
+            <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => openEditor(null)} />
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索主机…" />
         </div>
@@ -230,7 +261,7 @@ export function SshModule() {
             icon={Server}
             title={t.noHosts}
             action={
-              <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+              <Button variant="primary" icon={Plus} onClick={() => openEditor(null)}>
                 新增主机
               </Button>
             }
@@ -342,6 +373,9 @@ export function SshModule() {
               </div>
               <div className="row">
                 <span className="grow" />
+                <Button data-testid="ssh-host-edit" onClick={() => openEditor(host)}>
+                  编辑主机
+                </Button>
                 <Button variant="danger" onClick={() => void engine.call("ssh.hosts.delete", { id: host.id }, { write: true }).then(() => (setSel(null), refresh()))}>
                   删除主机
                 </Button>
@@ -475,7 +509,7 @@ export function SshModule() {
       {adding ? (
         <Dialog
           open
-          title="新增 SSH 主机"
+          title={editing ? "编辑 SSH 主机" : "新增 SSH 主机"}
           description="密码只存进保险箱；主机配置里只保存 safe:// 引用。"
           onClose={() => setAdding(false)}
           error={error}
@@ -483,8 +517,8 @@ export function SshModule() {
           actions={
             <>
               <Button onClick={() => setAdding(false)}>{t.cancel}</Button>
-              <Button variant="primary" disabled={!form.name || !form.host || !form.user || !form.password} onClick={() => void saveHost().then((ok) => ok && setAdding(false))}>
-                {t.newHost}
+              <Button variant="primary" data-testid="ssh-host-save" disabled={!form.name || !form.host || !form.user || (!editing && !form.password)} onClick={() => void saveHost().then((ok) => ok && setAdding(false))}>
+                {editing ? t.save : t.newHost}
               </Button>
             </>
           }
@@ -504,8 +538,41 @@ export function SshModule() {
                 <input aria-label={t.user} value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
               </Field>
             </div>
-            <Field label={t.password}>
-              <input type="password" aria-label={t.password} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            {!editing || (editing.auth?.kind ?? "password") === "password" ? (
+              <Field label={t.password} description={editing ? "留空表示不更改保险箱里的密码。" : undefined}>
+                <input type="password" aria-label={t.password} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+              </Field>
+            ) : null}
+            <Field label="跳板机" description="按顺序经过这些主机再连到目标；不能形成循环。">
+              <div className="stack" data-testid="ssh-jump-picker">
+                {form.jumps.map((jid, i) => {
+                  const j = (hosts.data ?? []).find((x) => x.id === jid);
+                  return (
+                    <div className="row" key={jid} data-testid="ssh-jump-item">
+                      <span className="grow">
+                        {i + 1}. {j ? `${j.name}（${j.host}）` : jid}
+                      </span>
+                      <Button disabled={i === 0} aria-label={`上移 ${j?.name ?? jid}`} onClick={() => setForm({ ...form, jumps: swap(form.jumps, i, i - 1) })}>
+                        ↑
+                      </Button>
+                      <Button disabled={i === form.jumps.length - 1} aria-label={`下移 ${j?.name ?? jid}`} onClick={() => setForm({ ...form, jumps: swap(form.jumps, i, i + 1) })}>
+                        ↓
+                      </Button>
+                      <IconButton icon={X} label={`移除跳板 ${j?.name ?? jid}`} onClick={() => setForm({ ...form, jumps: form.jumps.filter((x) => x !== jid) })} />
+                    </div>
+                  );
+                })}
+                <select aria-label="添加跳板" value="" onChange={(e) => e.target.value && setForm({ ...form, jumps: [...form.jumps, e.target.value] })}>
+                  <option value="">添加跳板机…</option>
+                  {(hosts.data ?? [])
+                    .filter((h) => h.id !== editing?.id && !form.jumps.includes(h.id))
+                    .map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}（{h.host}）
+                      </option>
+                    ))}
+                </select>
+              </div>
             </Field>
           </div>
         </Dialog>
