@@ -562,7 +562,23 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
     );
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).click();
-    await expect(page.getByTestId("task-runs")).toContainText("已完成", { timeout: 30_000 });
+    try {
+      await expect(page.getByTestId("task-runs")).toContainText("已完成", { timeout: 30_000 });
+    } catch (e) {
+      // 诊断（macOS CI）：运行记录到底有没有落盘、状态是什么
+      const ls = (d: string) => (fs.existsSync(`${vault}/${d}`) ? fs.readdirSync(`${vault}/${d}`) : "（不存在）");
+      console.log(
+        "W-A 诊断：",
+        JSON.stringify({
+          taskRuns: ls("Task Runs"),
+          automationRuns: ls("Automation Runs"),
+          activations: (await call("automations.activations", {})).data,
+          runs: (await call("tasks.runs", { id: task.id })).data,
+          runsList: (await call("automations.runs.list", {})).data,
+        }).slice(0, 1500),
+      );
+      throw e;
+    }
     await page.getByTestId("task-runs").getByRole("button", { name: "展开结果" }).click();
     await expect(page.getByTestId("run-result")).toContainText("假 Codex 已整理完成");
     expect(((await call("tasks.read", { id: task.id })).data as { completed: boolean }).completed).toBe(false);
