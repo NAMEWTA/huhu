@@ -266,13 +266,13 @@ interface AgentProvider {
 
 | §2 设计 | 实际实现 | 说明 |
 | --- | --- | --- |
-| `folders.rename` / `folders.move` / `folders.delete` | `notes.rename` / `notes.move` / `notes.trash`（路径为目录时作用于目录） | 目录与笔记共用同一套移动/重命名/回收站语义；只保留 `folders.create` |
+| `folders.rename` / `folders.move` / `folders.delete` | `notes.rename` / `notes.move` / `notes.trash`（路径为目录时作用于目录） | 目录与笔记共用同一套移动/重命名语义（目录整体重命名、移动、进回收站，后代一并处理）；只保留 `folders.create` |
 | `notes.updateProperties` | `notes.save`（整篇保存，frontmatter 属性在编辑器内改动后随正文一起写入，带 `expectedVersion`） | 避免属性与正文两条写入路径各自维护版本 |
 | `guide.inspect` / `guide.repair` / `guide.restoreBackup` | `guide.check` / `guide.view` / `guide.preserve` / `guide.backups.list` / `guide.backups.restore` | 检查、查看、保留、备份列表与还原分开 |
 | `gateway.audit` | `gateway.audit.list` / `gateway.audit.clear` | |
 | `health.cancel` / `health.results` | `health.run`（运行后即返回结果，事件经 `health.events`） | 检查项很快，不提供取消 |
-| `plugins.grant` | 暂无：插件权限只在安装时由 manifest 声明，用户通过启用/停用与 Gateway 暴露开关控制 | 见 D-18 |
-| `plugins.wipeData` | 卸载时的 `plugins.uninstall`（`wipeData` 参数） | |
+| `plugins.grant` | 暂无：插件权限只在安装时由 manifest 声明，用户通过启用/停用与 Gateway 暴露开关控制 | 外部插件的授权见 §4 |
+| `plugins.wipeData` | `plugins.uninstall`（`eraseData` 参数） | |
 | `automations.runs.reconcile` | 引擎启动时 `reconcile`（不作为能力暴露） | 对账由 Engine 启动自动执行并写 stderr 日志 |
 
 **§2 之外实现阶段新增的能力**
