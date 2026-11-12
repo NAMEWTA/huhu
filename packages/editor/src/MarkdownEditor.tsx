@@ -1,4 +1,4 @@
-import { defaultKeymap, history, historyKeymap, indentWithTab, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, indentWithTab, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { HighlightStyle, Language, LanguageSupport, defineLanguageFacet, ensureSyntaxTree, languageDataProp, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { closeSearchPanel, openSearchPanel, search, searchKeymap } from "@codemirror/search";
 import { Annotation, Compartment, EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension } from "@codemirror/state";
@@ -254,6 +254,18 @@ interface DocRecord {
 }
 
 /**
+ * 编辑器卸载时留下每篇文档的快照（撤销历史、选区、滚动位置），同一篇文档再次挂载时恢复——
+ * 外层按笔记路径重建编辑器组件（切换笔记）时，撤销历史与滚动位置不会丢。只有文本与当时完全一致才恢复（外部改过就从头开始）。
+ */
+const SNAPSHOT_LIMIT = 32;
+const snapshots = new Map<string, { doc: string; json: unknown; scrollTop: number; scrollLeft: number }>();
+function rememberSnapshot(id: string, view: EditorView, record: { scrollTop: number; scrollLeft: number }): void {
+  snapshots.delete(id);
+  snapshots.set(id, { doc: view.state.doc.toString(), json: view.state.toJSON({ history: historyField }), scrollTop: record.scrollTop, scrollLeft: record.scrollLeft });
+  while (snapshots.size > SNAPSHOT_LIMIT) snapshots.delete(snapshots.keys().next().value as string);
+}
+
+/**
  * 包着一个持久 CodeMirror 视图的适配器（原型 editor.jsx）。
  * 每篇打开的文档有自己的 EditorState / 撤销历史；模式切换只重配置 Compartment，不替换编辑器。
  */
@@ -299,8 +311,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       tablePreviewField,
     ];
     const record: DocRecord = { id, state: undefined as unknown as EditorState, scrollTop: 0, scrollLeft: 0, visual, gutter, readOnly: ro, attributes, previewExtensions };
-    record.state = EditorState.create({
-      doc: text,
+    const config = {
       extensions: [
         markdownSupport,
         history(),
@@ -374,7 +385,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           if (update.docChanged || update.selectionSet || update.transactions.some((tr) => tr.reconfigured)) status(update.view);
         }),
       ],
-    });
+    };
+    const snap = snapshots.get(id);
+    snapshots.delete(id);
+    if (snap && snap.doc === text) {
+      try {
+        record.state = EditorState.fromJSON(snap.json, config, { history: historyField });
+        record.scrollTop = snap.scrollTop;
+        record.scrollLeft = snap.scrollLeft;
+      } catch {
+        record.state = EditorState.create({ doc: text, ...config });
+      }
+    } else record.state = EditorState.create({ doc: text, ...config });
     records.current.set(id, record);
     return record;
   };
@@ -387,9 +409,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const view = new EditorView({ state: record.state, parent: host.current });
     viewRef.current = view;
     status(view);
+    if (record.scrollTop > 0 || record.scrollLeft > 0) {
+      requestAnimationFrame(() => {
+        if (viewRef.current === view) {
+          view.scrollDOM.scrollTop = record.scrollTop;
+          view.scrollDOM.scrollLeft = record.scrollLeft;
+        }
+      });
+    }
     return () => {
       alive.current = false;
       if (flushTimer.current) clearTimeout(flushTimer.current);
+      if (active.current) rememberSnapshot(active.current.id, view, { scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft });
       view.destroy();
       viewRef.current = null;
       records.current.clear();

@@ -599,3 +599,30 @@ test("笔记拖放移动文件夹：拖到另一个文件夹下，其中的笔�
     await close();
   }
 });
+
+test("切换笔记再切回：撤销历史保留（编辑器按笔记路径重建时由快照恢复）", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    fs.writeFileSync(`${vault}/甲.md`, "# 甲\n\n原文\n");
+    fs.writeFileSync(`${vault}/乙.md`, "# 乙\n\n别的\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
+    const editor = page.getByTestId("markdown-editor");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("新增的一行");
+    await expect(editor).toContainText("新增的一行");
+    await expect.poll(() => fs.readFileSync(`${vault}/甲.md`, "utf8")).toContain("新增的一行");
+    await page.getByTestId("note-item").filter({ hasText: "乙" }).click();
+    await expect(editor).toContainText("别的");
+    await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
+    await expect(editor).toContainText("新增的一行");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(editor).not.toContainText("新增的一行"); // 撤销历史还在
+  } finally {
+    await close();
+  }
+});
