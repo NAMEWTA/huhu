@@ -775,3 +775,39 @@ test("Agent CLI 智能体设置：列出本机 CLI 的检测状态，设置默�
     rmSync(bin, { recursive: true, force: true });
   }
 });
+
+test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中心条目带正文、时间、来源，点击跳转来源并标已读", async () => {
+  test.setTimeout(120_000);
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const t = await call("tasks.create", {
+      title: "到点提醒任务",
+      body: "",
+      due: null,
+      project: null,
+      execution: { kind: "manual" },
+      resources: [],
+      reminders: [{ id: "rem-e2e", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }],
+    });
+    expect(t.ok).toBe(true);
+    // 到点检查每 30 秒一轮
+    const toast = page.locator("[data-sonner-toast]").filter({ hasText: "任务提醒：到点提醒任务" });
+    await expect(toast).toBeVisible({ timeout: 50_000 });
+    await page.waitForTimeout(4500); // 持久：过了普通提示的消失时间仍在
+    await expect(toast).toBeVisible();
+    await toast.getByRole("button", { name: "知道了" }).click();
+    await expect(toast).toHaveCount(0);
+    await page.getByTestId("bell").click();
+    const item = page.getByTestId("notice-item").filter({ hasText: "到点提醒任务" });
+    await expect(item).toContainText("提醒时间");
+    await expect(item).toContainText("任务");
+    await item.click();
+    await expect(page.getByTestId("task-detail").or(page.getByTestId("task-new"))).toBeVisible(); // 跳到任务模块
+    await page.getByTestId("bell").click();
+    await expect(page.getByTestId("notice-item").filter({ hasText: "到点提醒任务" })).toHaveAttribute("data-read", "true");
+  } finally {
+    await close();
+  }
+});

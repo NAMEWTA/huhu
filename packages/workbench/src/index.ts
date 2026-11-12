@@ -6,6 +6,7 @@ export * from "./shell/AppShell.js";
 export * from "./engine-client/react.js";
 export * from "./settings/SettingsModule.js";
 export * from "./notifications/NotificationBell.js";
+export * from "./notifications/ReminderToasts.js";
 export * from "./plugins/PluginCenterModule.js";
 export * from "./home/HomeModule.js";
 export * from "./health/HealthModule.js";

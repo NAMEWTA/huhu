@@ -26,6 +26,7 @@ import {
   EngineClient,
   GatewayModule,
   NotificationBell,
+  ReminderToasts,
   ShellStatusBar,
   ThemeToggle,
   PluginCenterModule,
@@ -55,6 +56,13 @@ function App() {
   const setEndpoint = (e: EngineEndpoint | null) => setEndpointRaw((cur) => (cur && e && cur.baseUrl === e.baseUrl && cur.token === e.token && cur.vaultId === e.vaultId ? cur : e));
   const [state, setState] = useState<EngineState>("starting");
   const [vaultName, setVaultName] = useState("HUHU");
+  const [version, setVersion] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    void window.huhuHost
+      .appInfo()
+      .then((i) => setVersion(i.version))
+      .catch(() => undefined); // 版本号的单一来源是应用本身，不在界面里写死
+  }, []);
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
     r.register(notesUi);
@@ -230,11 +238,11 @@ function App() {
       statusSlot={
         <>
           <ThemeToggle />
-          <NotificationBell />
+          <NotificationBell onOpenModule={(id) => ui.getState().openModule(id)} />
         </>
       }
       statusBar={<ShellStatusBar ui={ui} />}
-      version="0.0.1"
+      {...(version ? { version } : {})}
     />
   );
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
@@ -243,6 +251,7 @@ function App() {
       {shell}
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}
+      {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
       <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={() => ui.getState().openModule("notes")} />
     </>
   );

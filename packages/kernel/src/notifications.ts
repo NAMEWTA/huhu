@@ -6,6 +6,8 @@ export interface Notification {
   id: string;
   title: string;
   module: string;
+  /** 正文（一行）；可选。 */
+  body?: string;
   at: string;
   read: boolean;
 }
@@ -52,12 +54,13 @@ export class NotificationStore {
     renameSync(tmp, this.file); // 原子替换：崩溃不会留下被截断的文件
   }
 
-  create(input: { title: string; module: string }): Notification {
+  create(input: { title: string; module: string; body?: string }): Notification {
     const n: Notification = {
       // 通知可能在同一毫秒批量产生，newId 的 4 位随机后缀会碰撞；这里用完整 UUID
       id: `ntf-${randomUUID()}`,
       title: input.title,
       module: input.module,
+      ...(input.body ? { body: input.body } : {}),
       at: this.now().toISOString(),
       read: false,
     };

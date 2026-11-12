@@ -28,7 +28,7 @@ export interface TasksOptions {
   now?: () => Date;
   reminderCheckMs?: number;
   /** 站内通知：提醒到点时调用（通知中心属于 kernel）。 */
-  notify?: (n: { title: string; module: string }) => void;
+  notify?: (n: { title: string; module: string; body?: string }) => void;
   onError?: (e: unknown) => void;
 }
 
@@ -130,7 +130,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       for (const r of svc.dueReminders()) {
         try {
           await svc.markReminderDelivered(r.taskId, r.reminderId);
-          opts.notify?.({ title: `任务提醒：${r.title}`, module: "tasks" });
+          opts.notify?.({ title: `任务提醒：${r.title}`, module: "tasks", body: `提醒时间 ${r.at}` });
         } catch (e) {
           // 单个任务无法写入（只读文件、版本冲突）不得影响其他提醒，也不得让进程崩溃
           opts.onError?.(e);

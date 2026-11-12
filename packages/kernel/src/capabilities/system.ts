@@ -244,7 +244,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import path from "node:path";
 import type { NotificationStore } from "../notifications.js";
 
-const NotificationDto = z.object({ id: z.string(), title: z.string(), module: z.string(), at: z.string(), read: z.boolean() });
+const NotificationDto = z.object({ id: z.string(), title: z.string(), module: z.string(), body: z.string().optional(), at: z.string(), read: z.boolean() });
 
 /** 读取 settings.json；缺失或损坏时按默认值（原文件保留）。 */
 export function readSettingsFile(settingsFile: string): Settings {
