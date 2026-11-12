@@ -20,6 +20,8 @@
       "agent.history.pin",
       "agent.history.resume",
       "agent.providers.detect",
+      "agent.providers.prefs.get",
+      "agent.providers.prefs.set",
       "agent.review.comment.add",
       "agent.review.comment.delete",
       "agent.review.comments",

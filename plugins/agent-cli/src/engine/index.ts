@@ -8,6 +8,7 @@ import { HerdrCore } from "./herdr-core.js";
 import { isValidNativeId, scanHistory } from "./history/scanner.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
+import { ProviderPrefs } from "./prefs.js";
 import { ProviderDetector } from "./providers/index.js";
 import { SessionsService } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
@@ -158,6 +159,20 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   api.defineCapability(
     def({ name: "agent.sessions.rename", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: Id.extend({ name: z.string() }), output: Session, handler: (_c, i) => sessions.rename(i.id, i.name) }),
   );
+  const Pref = z.object({ model: z.string().optional(), effort: z.string().optional(), fast: z.boolean().optional() });
+  api.defineCapability(def({ name: "agent.providers.prefs.get", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.record(z.string(), Pref), handler: () => prefs.all() }));
+  api.defineCapability(
+    def({
+      name: "agent.providers.prefs.set",
+      plugin: "agent-cli",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ provider: z.enum(["claude", "claude-agent-teams", "codex", "pi"]), model: z.string().max(100).optional(), effort: z.string().max(40).optional(), fast: z.boolean().optional() }),
+      output: z.record(z.string(), Pref),
+      handler: (_c, i) => prefs.set(i.provider, { ...(i.model ? { model: i.model } : {}), ...(i.effort ? { effort: i.effort } : {}), ...(i.fast !== undefined ? { fast: i.fast } : {}) }),
+    }),
+  );
   api.defineCapability(
     def({
       name: "agent.core.status",
@@ -193,6 +208,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return sp;
   };
   // 列表请求很频繁（打开面板、切换 Space），短时间内复用结果；恢复时总是重新扫描
+  const prefs = new ProviderPrefs(path.join(api.vault.stateDir, "agent-cli", "providers.json"));
   const pins = new PinStore(path.join(api.vault.stateDir, "agent-cli", "pins.json"));
   const resuming = new Set<string>();
   const cache = new Map<string, { at: number; r: ReturnType<typeof scanHistory> }>();

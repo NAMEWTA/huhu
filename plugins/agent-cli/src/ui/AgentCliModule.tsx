@@ -1,6 +1,7 @@
+import { AgentSettings } from "./AgentSettings.js";
 import { LaunchPanel, type LaunchOptions, type ModelOption } from "./LaunchPanel.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
-import { ChevronDown, Folder, FolderOpen, History, Plus } from "lucide-react";
+import { ChevronDown, Folder, FolderOpen, History, Plus, Settings2 } from "lucide-react";
 import { CapabilityError, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
@@ -90,6 +91,8 @@ export function AgentCliModule() {
   }
 
   const [chosen, setChosen] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const prefs = useCapability<Record<string, { model?: string; effort?: string; fast?: boolean }>>("agent.providers.prefs.get", {});
   const chosenProvider = (providers.data ?? []).find((p) => p.provider === chosen) ?? null;
   const list = sessions.data ?? [];
   // 有会话在运行时每 5 秒刷新一次列表：程序结束后徽标会自己变成“已结束”
@@ -151,6 +154,10 @@ export function AgentCliModule() {
             <strong>{space?.name ?? t.title}</strong>
             <span className="v9-cwd">{space?.root ?? "先选择一个工作目录"}</span>
           </div>
+          <button type="button" className="v9-subtle-button" data-testid="agent-settings-open" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={14} aria-hidden />
+            <span>智能体设置</span>
+          </button>
           <button type="button" className="v9-history-toggle" aria-expanded={showHistory} aria-label={showHistory ? t.history.close : t.history.open} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>
             <History size={15} aria-hidden />
           </button>
@@ -227,6 +234,7 @@ export function AgentCliModule() {
                 key={chosenProvider.provider}
                 label={chosenProvider.displayName}
                 models={chosenProvider.models ?? []}
+                defaults={prefs.data?.[chosenProvider.provider]}
                 space={space ? { name: space.name, root: space.root } : null}
                 onStart={(o) => void launch(chosenProvider.provider, o).then(() => setChosen(null))}
               />
@@ -297,6 +305,7 @@ export function AgentCliModule() {
           <span>关闭标签只分离视图 · 会话记录保留</span>
         </footer>
       </section>
+      {settingsOpen ? <AgentSettings onClose={() => setSettingsOpen(false)} /> : null}
       {spaceForm ? (
         <Dialog
           open

@@ -18,12 +18,24 @@ export interface LaunchOptions {
  * 启动设置面板（原型 v9-model-panel）：模型搜索与选择、推理深度、Fast、附加提示词，底部显示当前 Space 与“启动终端”。
  * 模型列表与每个模型支持的推理深度 / Fast 来自 Provider 检测结果（引擎的 providers.detect）。
  */
-export function LaunchPanel({ label, models, space, onStart }: { label: string; models: ModelOption[]; space: { name: string; root: string } | null; onStart(o: LaunchOptions): void }) {
+export function LaunchPanel({
+  label,
+  models,
+  space,
+  defaults,
+  onStart,
+}: {
+  label: string;
+  models: ModelOption[];
+  space: { name: string; root: string } | null;
+  defaults?: { model?: string; effort?: string; fast?: boolean } | undefined;
+  onStart(o: LaunchOptions): void;
+}) {
   const [query, setQuery] = useState("");
-  const [model, setModel] = useState<string | undefined>(models[0]?.id);
+  const [model, setModel] = useState<string | undefined>(models.find((m) => m.id === defaults?.model)?.id ?? models[0]?.id);
   const current = models.find((m) => m.id === model) ?? models[0];
   const efforts = current?.efforts ?? [];
-  const [effort, setEffort] = useState<string | undefined>(efforts.at(-2) ?? efforts[0]);
+  const [effort, setEffort] = useState<string | undefined>(efforts.includes(defaults?.effort ?? "") ? defaults?.effort : (efforts.at(-2) ?? efforts[0]));
   const [fast, setFast] = useState(false);
   const [prompt, setPrompt] = useState("");
   const shown = models.filter((m) => m.label.toLowerCase().includes(query.trim().toLowerCase()));

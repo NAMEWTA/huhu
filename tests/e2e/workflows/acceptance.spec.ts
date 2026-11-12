@@ -742,3 +742,36 @@ test("Agent CLI 启动设置面板：选 CLI 后出现模型 / 推理深度 / �
     rmSync(bin, { recursive: true, force: true });
   }
 });
+
+test("Agent CLI 智能体设置：列出本机 CLI 的检测状态，设置默认模型并持久化，启动面板默认选中它；重新检测；重启 Core 需确认", async () => {
+  test.skip(process.platform === "win32", "假 Claude 是 POSIX shell 脚本");
+  const fs = await import("node:fs");
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-aset-bin-"));
+  writeFileSync(path.join(bin, "claude"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.0 (Claude Code)"; exit 0; fi\nsleep 30\n');
+  fs.chmodSync(path.join(bin, "claude"), 0o755);
+  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page.getByTestId("agent-settings-open").click();
+    const dialog = page.getByTestId("agent-settings");
+    const row = dialog.locator('[data-provider="claude"]');
+    await expect(row).toContainText("已找到", { timeout: 15_000 });
+    await expect(row).toContainText("2.1.0");
+    await row.getByLabel("Claude Code 默认模型").selectOption("opus");
+    await expect.poll(() => (fs.existsSync(`${vault}/.huhu/agent-cli/providers.json`) ? fs.readFileSync(`${vault}/.huhu/agent-cli/providers.json`, "utf8") : "")).toContain("opus");
+    await dialog.getByTestId("agent-redetect").click();
+    await expect(row).toContainText("已找到");
+    await dialog.getByTestId("agent-core-restart").click();
+    await expect(dialog.getByTestId("agent-core-restart-yes")).toBeVisible(); // 先确认，不会直接重启
+    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "完成" }).click();
+    // 启动面板默认选中设置里的默认模型
+    await page.getByRole("button", { name: "新终端" }).first().click();
+    await page.getByRole("menuitem", { name: /Claude Code/ }).click();
+    await expect(page.getByTestId("launch-panel").getByRole("option", { name: /Opus/i })).toHaveAttribute("aria-selected", "true");
+  } finally {
+    await close();
+    rmSync(bin, { recursive: true, force: true });
+  }
+});
