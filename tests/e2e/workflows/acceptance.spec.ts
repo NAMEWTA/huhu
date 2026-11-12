@@ -555,3 +555,17 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
     rmSync(bin, { recursive: true, force: true });
   }
 });
+
+test("知识库资源栏顶部的 Vault 名称按钮：打开“切换 Vault”对话框（原型 title=切换 Vault）", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("notes-vault-switch").click();
+    await expect(page.getByTestId("svault-switch-dialog")).toBeVisible();
+    await page.getByRole("button", { name: "取消" }).click();
+    await expect(page.getByTestId("svault-switch-dialog")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
