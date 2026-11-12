@@ -135,7 +135,34 @@ describe("CLI", () => {
     expect((await run1("tasks", "list", "--completed", "false")).code).toBe(0);
     expect((await run1("notes", "list")).code).toBe(0);
   });
-  test("MCP：只列出对外开放的能力；调用经 Dispatcher 授权；safe 能力不出现；资源可读", async () => {
+  test("ACC-PL-06 stdio 进程：stdout 只有 JSON-RPC 帧（日志不进 stdout），工具表只含对外开放的能力", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    const { spawn } = await import("node:child_process");
+    const { createRequire } = await import("node:module");
+    const tsx = createRequire(import.meta.url).resolve("tsx/cli");
+    const child = spawn(process.execPath, [tsx, path.resolve(import.meta.dirname, "../src/bin.ts"), "mcp", "--vault", dir], { stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (b) => (out += b.toString()));
+    const send = (m: unknown) => child.stdin.write(JSON.stringify(m) + "\n");
+    try {
+      send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+      await vi.waitFor(() => expect(out).toContain('"id":1'), { timeout: 20_000 });
+      send({ jsonrpc: "2.0", method: "notifications/initialized" });
+      send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+      await vi.waitFor(() => expect(out).toContain('"id":2'), { timeout: 20_000 });
+      const lines = out.split("\n").filter((l) => l.trim());
+      for (const l of lines) expect(() => JSON.parse(l)).not.toThrow(); // 每行都是协议帧
+      const list = lines.map((l) => JSON.parse(l) as { id?: number; result?: { tools?: { name: string }[] } }).find((m) => m.id === 2);
+      const names = (list?.result?.tools ?? []).map((t) => t.name);
+      expect(names).toContain("vault_info");
+      expect(names).not.toContain("safe_items_reveal");
+    } finally {
+      child.kill();
+    }
+  }, 60_000);
+  test("ACC-PL-06 MCP：只列出对外开放的能力；调用经 Dispatcher 授权；safe 能力不出现；资源可读", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
