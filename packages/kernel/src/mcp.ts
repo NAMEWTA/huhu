@@ -5,6 +5,8 @@ import { type CapabilityResult } from "@huhu/contracts";
 export interface McpBackend {
   /** 对当前调用者可见（已对外开放）的能力。 */
   list(): Promise<{ name: string; plugin: string; scope: string; input: unknown }[]> | { name: string; plugin: string; scope: string; input: unknown }[];
+  /** 全部已注册能力名（含当前不可见的）：客户端缓存了旧工具表时，调用交给 Dispatcher 得到 PLUGIN_DISABLED / CAPABILITY_NOT_EXPOSED，而不是含糊的“不存在”。 */
+  known?(): Promise<string[]> | string[];
   /** 经 Dispatcher 调用（授权在那里判定，MCP 层不做第二套权限）。 */
   call(capability: string, input: unknown): Promise<CapabilityResult<unknown>>;
 }
@@ -26,8 +28,9 @@ export function createMcpServer(backend: McpBackend, version: string): Server {
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const cap = (await backend.list()).find((c) => toolName(c.name) === req.params.name);
-    if (!cap) return { isError: true, content: [{ type: "text", text: `能力不存在或未对外开放：${req.params.name}` }] };
-    const r = await backend.call(cap.name, req.params.arguments ?? {});
+    const hidden = cap ? undefined : ((await backend.known?.()) ?? []).find((n) => toolName(n) === req.params.name);
+    if (!cap && !hidden) return { isError: true, content: [{ type: "text", text: `能力不存在或未对外开放：${req.params.name}` }] };
+    const r = await backend.call((cap?.name ?? hidden)!, req.params.arguments ?? {});
     if (!r.ok) return { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { content: [{ type: "text", text: JSON.stringify(r.data) }] };
   });

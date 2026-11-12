@@ -48,6 +48,11 @@ export class CapabilityRegistry {
     for (const n of names) if (!this.known.has(n)) this.known.set(n, plugin);
   }
 
+  /** 曾注册或在清单中声明过的全部能力名（含已停用插件的）。 */
+  knownNames(): string[] {
+    return [...this.known.keys()];
+  }
+
   knownPlugin(name: string): string | undefined {
     return this.known.get(name);
   }

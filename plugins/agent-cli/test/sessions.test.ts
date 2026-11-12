@@ -306,7 +306,7 @@ describe("恢复历史会话", () => {
 });
 
 describe("会话启动", () => {
-  test("shell：不传 argv，cwd=Space 根，带四个标签；记录先持久化后 running", async () => {
+  test("ACC-AG-02 shell：不传 argv，cwd=Space 根，带四个标签；记录先持久化后 running", async () => {
     const f = fakeClient();
     const { svc, space, work } = setup(f.client);
     const s = await svc.launch(req(space));
@@ -324,7 +324,7 @@ describe("会话启动", () => {
     expect(b.id).toBe(a.id);
     expect(f.calls.filter((c) => c === "terminal.run")).toHaveLength(1);
   });
-  test("响应丢失：按 huhu.launch 标签找回唯一终端，不重复 run", async () => {
+  test("ACC-AG-07 响应丢失：按 huhu.launch 标签找回唯一终端，不重复 run", async () => {
     const f = fakeClient({ failRun: "throw-after-create" });
     const { svc, space } = setup(f.client);
     const s = await svc.launch(req(space));

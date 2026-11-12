@@ -174,6 +174,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
             .list()
             .filter((c) => d.visibleTo(caller, c.name))
             .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, input: toJsonSchema(c.input) })),
+        known: () => d.registry.knownNames(),
         call: (capability, input) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
       },
       "0.0.1",

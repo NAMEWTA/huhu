@@ -686,6 +686,32 @@ describe("Engine 启动与关闭", () => {
     await call("safe.lock", {});
     expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
   }, 60_000);
+  test("ACC-PL-01 停用 tasks：MCP 工具列表不再含 tasks_*，已缓存工具的调用得到 PLUGIN_DISABLED，重新启用后恢复", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    const rpc = (body: unknown) =>
+      fetch(`http://127.0.0.1:${e.port}/mcp`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify(body),
+      }).then((r) => r.json() as Promise<{ result: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } }>);
+    const call = (capability: string, input: unknown) =>
+      fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
+      }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
+    await call("gateway.mcp.update", { enabled: true, transport: "http" });
+    const tools = async () => ((await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools ?? []).map((t) => t.name);
+    expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(true);
+    await call("plugins.setEnabled", { id: "tasks", enabled: false });
+    expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(false);
+    const stale = (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tasks_list", arguments: {} } })).result;
+    expect(stale.isError).toBe(true);
+    expect(stale.content?.[0]?.text ?? "").toContain("PLUGIN_DISABLED");
+    await call("plugins.setEnabled", { id: "tasks", enabled: true });
+    expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(true);
+  }, 30_000);
   test("MCP over HTTP：默认关闭(404)；开启后 mcp/http 令牌可用，桌面/cli 令牌 403；工具列表遵守开放规则；经 Dispatcher 授权", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

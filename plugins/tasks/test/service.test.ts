@@ -69,6 +69,33 @@ describe("TasksService", () => {
     expect((await svc.setCompleted(m.id, false, md.version)).inputRevision).toBe(1);
   });
 
+  test("ACC-TK-02 勾选正在运行的任务：进入已完成，run 保持 running", async () => {
+    const { svc, root } = setup();
+    const t = await svc.create({ title: "运行中", body: "", due: null, project: null, execution: agent, resources: [], reminders: [] });
+    mkdirSync(path.join(root, "Task Runs"));
+    writeFileSync(
+      path.join(root, "Task Runs/r--run-bbb222.md"),
+      `---\nhuhu: {kind: task-run, id: run-bbb222, schema: 1}\ntaskId: ${t.id}\nruleId: rule-1\nprocessingKey: k\nattempt: 1\nstate: running\nprovider: codex\nspaceId: space-1\ncwd: /x\nmachineId: m\n---\n`,
+    );
+    const done = await svc.setCompleted(t.id, true, t.version);
+    expect(done.completed).toBe(true);
+    expect(svc.list({ category: "ended" }).map((x) => x.id)).toContain(t.id);
+    expect(svc.runs(t.id)).toMatchObject([{ id: "run-bbb222", state: "running" }]);
+  });
+
+  test("ACC-TK-03 run 成功不会自动完成任务：任务仍未完成，run 结果可读", async () => {
+    const { svc, root } = setup();
+    const t = await svc.create({ title: "已跑完", body: "", due: null, project: null, execution: agent, resources: [], reminders: [] });
+    mkdirSync(path.join(root, "Task Runs"));
+    writeFileSync(
+      path.join(root, "Task Runs/r--run-ccc333.md"),
+      `---\nhuhu: {kind: task-run, id: run-ccc333, schema: 1}\ntaskId: ${t.id}\nruleId: rule-1\nprocessingKey: k\nattempt: 1\nstate: succeeded\nprovider: codex\nspaceId: space-1\ncwd: /x\nmachineId: m\n---\n`,
+    );
+    expect(svc.read(t.id).completed).toBe(false);
+    expect(svc.list({ category: "all" }).find((x) => x.id === t.id)?.completed).toBe(false);
+    expect(svc.runs(t.id)).toMatchObject([{ state: "succeeded" }]);
+  });
+
   test("版本冲突被拒", async () => {
     const { svc } = setup();
     const t = await svc.create({ title: "A", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
