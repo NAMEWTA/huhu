@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, root } from "../helpers/launch.js";
@@ -266,5 +266,71 @@ test("ACC-AG-05 切换 Space：右侧历史只显示当前 Space 目录的会话
   } finally {
     await close();
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+async function launchBare(): Promise<{ app: ElectronApplication; pick(...paths: string[]): Promise<void> }> {
+  const env = { ...process.env } as Record<string, string>;
+  delete env["HUHU_VAULT"];
+  const app = await electron.launch({ args: [root, "--no-sandbox"], env });
+  return {
+    app,
+    pick: (...paths: string[]) =>
+      app.evaluate(({ dialog }, queue) => {
+        dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [queue.shift() ?? ""] })) as typeof dialog.showOpenDialog;
+      }, paths),
+  };
+}
+
+test("ACC-WB-01 打开含 3 篇 Markdown 的普通文件夹：新增 .huhu/vault.json 与 Agent 指南三份文件，3 篇笔记字节与 mtime 不变", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-wb01-"));
+  const names = ["一.md", "二.md", "三.md"];
+  const raw = new Map<string, Buffer>();
+  const mtimes = new Map<string, number>();
+  for (const n of names) {
+    const b = Buffer.from(`\uFEFF# ${n}\r\n\r\n正文 ${n}\r\n`, "utf8");
+    writeFileSync(path.join(dir, n), b);
+    raw.set(n, b);
+    mtimes.set(n, statSync(path.join(dir, n)).mtimeMs);
+  }
+  const { app, pick } = await launchBare();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+    await pick(dir);
+    await page.getByTestId("vault-open").click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await expect(page.getByTestId("note-item")).toHaveCount(3);
+    expect(existsSync(path.join(dir, ".huhu/vault.json"))).toBe(true);
+    await expect.poll(() => (existsSync(path.join(dir, ".agents/skills/huhu")) ? readdirSync(path.join(dir, ".agents/skills/huhu"), { recursive: true }).filter((f) => String(f).endsWith(".md")).length : 0)).toBeGreaterThanOrEqual(3);
+    await page.waitForTimeout(1500);
+    for (const n of names) {
+      expect(readFileSync(path.join(dir, n)).equals(raw.get(n)!)).toBe(true);
+      expect(statSync(path.join(dir, n)).mtimeMs).toBe(mtimes.get(n));
+    }
+  } finally {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("目录无写权限：打开时给出“无法写入”提示且不创建任何文件（ACC-WB-02 的前半；“只读浏览”见 progress.md 缺口）", async () => {
+  test.skip(process.platform === "win32" || process.getuid?.() === 0, "需要非 root 的 POSIX 权限");
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-wb02-"));
+  writeFileSync(path.join(dir, "只读笔记.md"), "# 只读笔记\n\n内容\n");
+  chmodSync(dir, 0o555);
+  const { app, pick } = await launchBare();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+    await pick(dir);
+    await page.getByTestId("vault-open").click();
+    await expect(page.getByTestId("vault-error")).toContainText("无法写入");
+    expect(readdirSync(dir)).toEqual(["只读笔记.md"]); // 没有 .huhu、没有新文件
+  } finally {
+    await app.close();
+    chmodSync(dir, 0o755);
+    rmSync(dir, { recursive: true, force: true });
   }
 });

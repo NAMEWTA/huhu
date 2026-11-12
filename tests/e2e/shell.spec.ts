@@ -24,7 +24,7 @@ async function stubPick(app: ElectronApplication, ...paths: string[]): Promise<v
   }, paths);
 }
 
-test("启动页（ACC-WB-01/02）：新建空白 Vault、非空目录被拒绝、示例 Vault、切换 Vault 回到启动页", async () => {
+test("启动页：新建空白 Vault、非空目录被拒绝、示例 Vault、切换 Vault 回到启动页", async () => {
   const base = mkdtempSync(path.join(tmpdir(), "huhu-launch-"));
   const empty = path.join(base, "空白");
   const busy = path.join(base, "已有内容");

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -686,6 +686,17 @@ describe("Engine 启动与关闭", () => {
     await call("safe.lock", {});
     expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
   }, 60_000);
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("无写权限的目录：打开给出明确的“无法写入”，不创建任何文件", async () => {
+    const dir = tmp();
+    writeFileSync(path.join(dir, "只读笔记.md"), "# 只读笔记\n");
+    chmodSync(dir, 0o555);
+    try {
+      await expect(boot({ vaultPath: dir, create: true })).rejects.toMatchObject({ message: expect.stringContaining("无法写入") });
+      expect(readdirSync(dir)).toEqual(["只读笔记.md"]);
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+  });
   test("ACC-PL-01 停用 tasks：MCP 工具列表不再含 tasks_*，已缓存工具的调用得到 PLUGIN_DISABLED，重新启用后恢复", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

@@ -20,6 +20,13 @@ export type VaultJson = z.infer<typeof VaultJsonSchema>;
 
 export const FORMAT_VERSION = 1;
 
+/** 权限不足 / 只读文件系统 → “无法写入”；其他错误返回 null。注意：Engine 目前把运行状态写在 Vault 的 .huhu/ 里，所以不提供“只读打开”（见 progress.md 的缺口）。 */
+function notWritable(e: unknown, root: string): HuhuError | null {
+  const code = (e as { code?: string }).code;
+  if (code !== "EACCES" && code !== "EPERM" && code !== "EROFS") return null;
+  return new HuhuError("INVALID_INPUT", `无法写入此目录：${root}（没有写权限）。请修改目录权限，或选择其他目录。`);
+}
+
 /** 是否含控制字符（allowNewline 时允许 \n 与 \t）。逐码判断，避免控制字符正则。 */
 function hasControlChars(s: string, allowNewline: boolean): boolean {
   for (const ch of s) {
@@ -142,16 +149,24 @@ export class Vault {
       info = parsed.data;
     } else if (opts.create) {
       if (opts.readOnly) throw errors.readOnlyVault();
-      mkdirSync(path.join(real, HUHU_DIR), { recursive: true });
-      info = { kind: "huhu-vault", id: newVaultId(), name: opts.name ?? path.basename(real), description: "", formatVersion: FORMAT_VERSION, createdAt: new Date().toISOString() };
-      writeFileSync(metaPath, JSON.stringify(info, null, 2) + "\n");
+      try {
+        mkdirSync(path.join(real, HUHU_DIR), { recursive: true });
+        info = { kind: "huhu-vault", id: newVaultId(), name: opts.name ?? path.basename(real), description: "", formatVersion: FORMAT_VERSION, createdAt: new Date().toISOString() };
+        writeFileSync(metaPath, JSON.stringify(info, null, 2) + "\n");
+      } catch (e) {
+        throw notWritable(e, real) ?? e;
+      }
     } else {
       throw errors.notFound(`不是 HUHU Vault：${real}`);
     }
 
     let release: (() => Promise<void>) | null = null;
     if (!opts.readOnly) {
-      mkdirSync(path.join(real, HUHU_DIR), { recursive: true });
+      try {
+        mkdirSync(path.join(real, HUHU_DIR), { recursive: true });
+      } catch (e) {
+        throw notWritable(e, real) ?? e;
+      }
       const lockOpts = { lockfilePath: path.join(real, HUHU_DIR, "writer.lock"), stale: 15_000, update: 5_000, realpath: false };
       const acquire = () => lockfile.lock(path.join(real, HUHU_DIR), lockOpts);
       try {
@@ -172,7 +187,7 @@ export class Vault {
         if ((e as { code?: string }).code === "ELOCKED") {
           throw new HuhuError("READ_ONLY_VAULT", "Vault 正被另一个 HUHU 实例使用，可以只读打开", { recovery: [{ action: "open-readonly", label: "只读打开" }] });
         }
-        throw e;
+        throw notWritable(e, real) ?? e;
       }
     }
     return new Vault(real, info, opts.readOnly === true, new VaultFiles(real, new ReceiptLog(), opts.readOnly === true), release);
