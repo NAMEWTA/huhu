@@ -1,5 +1,5 @@
-import { Badge, Button, ChoiceSwitch, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
-import { Activity, Blocks, Code2, Command, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, ShieldCheck } from "lucide-react";
+import { Badge, Button, ChoiceSwitch, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
+import { Activity, BookOpen, Blocks, Code2, Command, Copy, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, Settings, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { ModuleProps } from "../contributions.js";
@@ -76,6 +76,20 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
     }
   }
   const mcp = gw.data?.mcp ?? { enabled: false, transport: "stdio" as const };
+  const location = useCapability<{ root: string }>("vault.location", {});
+  const [configOpen, setConfigOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  /** 复制外部 MCP 客户端的配置片段：stdio 用 `huhu mcp --vault <目录>`，HTTP 用本机端点（令牌在“服务端”里创建）。 */
+  async function copyClientConfig() {
+    const cfg =
+      mcp.transport === "stdio"
+        ? { mcpServers: { huhu: { command: "huhu", args: ["mcp", "--vault", location.data?.root ?? ""] } } }
+        : { mcpServers: { huhu: { url: `${engine.endpoint.baseUrl}/mcp`, headers: { Authorization: "Bearer <在“服务端”里创建的令牌>" } } } };
+    const text = JSON.stringify(cfg, null, 2);
+    const host = (window as unknown as { huhuHost?: { copyText?(v: string): Promise<void> } }).huhuHost;
+    await (host?.copyText ? host.copyText(text) : navigator.clipboard.writeText(text)).catch(() => undefined);
+    setCopied(true);
+  }
   const all = caps.data ?? [];
   const list = all.filter((c) => c.name.includes(filter.trim()));
   const open = all.filter((c) => c.exposed).length;
@@ -193,7 +207,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
           description="统一注册、统一鉴权、统一应用服务。任何客户端都可以调用，无需绑定大模型。"
           actions={
             <Button
-              icon={Command}
+              icon={BookOpen}
               data-testid="gateway-guide"
               onClick={() => {
                 ui.getState().setSection("settings", "agent-access");
@@ -397,15 +411,30 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   <ChoiceSwitch checked={mcp.enabled} label={g.mcpEnabled} onChange={(v) => void act("gateway.mcp.update", { enabled: v, transport: mcp.transport })} />
                 </div>
                 <div className="gateway-meta">
-                  <label className="row">
-                    {g.transport}
-                    <select aria-label={g.transport} value={mcp.transport} onChange={(e) => void act("gateway.mcp.update", { enabled: mcp.enabled, transport: e.target.value })}>
-                      <option value="stdio">{g.stdio}</option>
-                      <option value="http">{g.http}</option>
-                    </select>
-                  </label>
+                  <button type="button" data-testid="gateway-mcp-config" onClick={() => setConfigOpen(true)}>
+                    <Settings size={14} aria-hidden /> 配置传输
+                  </button>
+                  <button type="button" data-testid="gateway-mcp-copy" onClick={() => void copyClientConfig()}>
+                    <Copy size={14} aria-hidden /> 复制客户端配置
+                  </button>
+                  <button type="button" onClick={() => ui.getState().openModule("plugins")}>
+                    <Blocks size={14} aria-hidden /> 管理所属插件
+                  </button>
                 </div>
+                {copied ? (
+                  <p role="status" className="small muted">
+                    客户端配置已复制
+                  </p>
+                ) : null}
               </section>
+              <Dialog open={configOpen} title="MCP 配置" description="选择外部客户端连接 HUHU 的方式。" onClose={() => setConfigOpen(false)} testId="gateway-mcp-dialog" actions={<Button onClick={() => setConfigOpen(false)}>完成</Button>}>
+                <Field label={g.transport}>
+                  <select aria-label={g.transport} value={mcp.transport} onChange={(e) => void act("gateway.mcp.update", { enabled: mcp.enabled, transport: e.target.value })}>
+                    <option value="stdio">{g.stdio}</option>
+                    <option value="http">{g.http}</option>
+                  </select>
+                </Field>
+              </Dialog>
               <div className="capabilities-toolbar">
                 <Segmented<McpTab> label="MCP 条目类型" value={mcpTab} onChange={setMcpTab} options={MCP_TABS} />
                 {mcpTab === "tools" ? <SearchBox value={filter} onChange={setFilter} placeholder={g.filter} /> : null}

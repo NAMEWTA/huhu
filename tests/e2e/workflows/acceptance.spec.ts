@@ -494,3 +494,22 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await close();
   }
 });
+
+test("能力网关 MCP：配置传输（对话框）、复制客户端配置、管理所属插件", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    await page.getByTestId("gateway-mcp-config").click();
+    const dialog = page.getByTestId("gateway-mcp-dialog");
+    await dialog.getByLabel("传输方式").selectOption("http");
+    await expect(page.getByText("Streamable HTTP · 能力按模块授权")).toBeVisible();
+    await dialog.getByRole("button", { name: "完成" }).click();
+    await page.getByTestId("gateway-mcp-copy").click();
+    await expect(page.getByRole("status").filter({ hasText: "客户端配置已复制" })).toBeVisible();
+    await page.getByRole("button", { name: "管理所属插件" }).click();
+    await expect(page.getByTestId("plugin-center")).toBeVisible();
+  } finally {
+    await close();
+  }
+});

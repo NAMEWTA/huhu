@@ -170,7 +170,7 @@ export const tGateway = {
   allowed: "允许",
   denied: "拒绝",
   notFound: "没有这个能力",
-  scope: { read: "读", write: "写", execute: "执行", admin: "管理" },
+  scope: { read: "只读", write: "写入", execute: "执行", admin: "管理" },
 } as const;
 
 export const tCli = {
