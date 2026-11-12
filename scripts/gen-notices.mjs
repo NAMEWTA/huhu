@@ -7,6 +7,9 @@ import path from "node:path";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWED = [/^MIT/, /^ISC$/, /^BSD/, /^Apache-2\.0/, /^0BSD$/, /^BlueOak/, /^CC0/, /^Python-2\.0$/, /^MPL-2\.0$/, /^Unlicense$/, /^CC-BY-4\.0$/, /WTFPL/, /^\(?MIT OR/, /^\(?BSD/, /^\(?Apache/, /^\(MPL-2\.0 OR Apache-2\.0\)$/];
 
+// package.json 里没有 license 字段、但随包带有许可证文本的依赖：人工核对 LICENSE 文件后在这里登记（不是放宽允许列表）。
+const MANUAL = { "khroma@2.1.0": "MIT" }; // mermaid 的依赖；包内 license 文件为 MIT（Copyright Fabio Spampinato, Andrew Maney）
+
 // 工作区包（renderer/engine/CLI）都被打包进应用，其依赖大多声明为 devDependencies，所以直接读取 pnpm 虚拟仓库里
 // 安装的每个包（偏保守的超集：也包含构建工具；构建工具不随包分发，但列出不会有害）。
 const store = path.join(root, "node_modules", ".pnpm");
@@ -20,7 +23,7 @@ for (const entry of readdirSync(store)) {
   if (!existsSync(path.join(dir, "package.json"))) continue;
   const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
   const license = typeof pkg.license === "string" ? pkg.license : (pkg.license?.type ?? pkg.licenses?.map((l) => l.type).join(" OR ") ?? "UNKNOWN");
-  seen.set(`${name}@${m[2]}`, { name, version: m[2], license, homepage: typeof pkg.homepage === "string" ? pkg.homepage : "" });
+  seen.set(`${name}@${m[2]}`, { name, version: m[2], license: MANUAL[`${name}@${m[2]}`] ?? license, homepage: typeof pkg.homepage === "string" ? pkg.homepage : "" });
 }
 const rows = [...seen.values()];
 rows.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));

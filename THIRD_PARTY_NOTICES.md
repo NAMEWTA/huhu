@@ -505,7 +505,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | jsonfile | 6.2.1 | MIT |  |
 | katex | 0.16.22 | MIT | https://katex.org |
 | keyv | 4.5.4 | MIT | https://github.com/jaredwray/keyv |
-| khroma | 2.1.0 | UNKNOWN |  |
+| khroma | 2.1.0 | MIT |  |
 | knip | 6.44.2 | ISC | https://knip.dev |
 | langium | 3.3.1 | MIT | https://langium.org |
 | layout-base | 1.0.2 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
