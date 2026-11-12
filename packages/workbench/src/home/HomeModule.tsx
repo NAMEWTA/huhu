@@ -1,7 +1,7 @@
 import type { TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, IconButton, PageHead, Segmented } from "@huhu/ui";
-import { Activity, ArrowRight, ArrowUpRight, CheckCircle2, ChevronRight, Clock, FileText, Inbox, LayoutGrid, ListTodo, Plus, RefreshCw, Sparkles, Target } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, CheckCircle2, ChevronRight, Clock, FileText, Inbox, LayoutGrid, ListTodo, Plus, RefreshCw, Sparkles, Target } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
@@ -33,6 +33,11 @@ interface EventRow {
   tone: "success" | "error" | "neutral";
 }
 type Card = "focus" | "habits" | "tasks" | "inbox" | "recent" | "activity";
+/** 首页的两列：同一列里的卡片可以调整先后。 */
+const HOME_COLUMNS: Card[][] = [
+  ["tasks", "recent", "activity"],
+  ["focus", "inbox"],
+];
 const CARDS: Card[] = ["focus", "habits", "tasks", "inbox", "recent", "activity"];
 type Section = "overview" | "today" | "activity";
 
@@ -44,7 +49,7 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
   const engine = useEngine();
   const qc = useQueryClient();
   const s = useCapability<Summary>("home.summary", {});
-  const widgets = useCapability<{ hidden: Card[] }>("home.widgets.get", {});
+  const widgets = useCapability<{ hidden: Card[]; order: Card[] }>("home.widgets.get", {});
   const tasks = useCapability<TaskDto[]>("tasks.list", { completed: false });
   const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" });
   const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
@@ -60,11 +65,31 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
   const nav = (id: string) => ui.getState().openModule(id);
   const d = s.data;
 
+  /** 在同一列内上移 / 下移一张卡片（顺序写进 widgets.json 的 order）。 */
+  async function moveCard(c: Card, dir: -1 | 1) {
+    setError(null);
+    const col = HOME_COLUMNS.find((x) => x.includes(c)) ?? [c];
+    const cur = orderedCards(col);
+    const i = cur.indexOf(c);
+    const j = i + dir;
+    if (j < 0 || j >= cur.length) return;
+    const next = [...cur];
+    [next[i], next[j]] = [next[j] as Card, next[i] as Card];
+    // 其他列的顺序保持不变：order 只重写本列的相对顺序，并保留其他卡片已有的位置
+    const rest = (widgets.data?.order ?? []).filter((x) => !col.includes(x));
+    try {
+      await engine.call("home.widgets.update", { hidden: [...hidden], order: [...rest, ...next] }, { write: true });
+      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function toggleCard(c: Card) {
     setError(null);
     try {
       const next = hidden.has(c) ? [...hidden].filter((x) => x !== c) : [...hidden, c];
-      await engine.call("home.widgets.update", { hidden: next }, { write: true });
+      await engine.call("home.widgets.update", { hidden: next, order: widgets.data?.order ?? [] }, { write: true });
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -99,6 +124,129 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
       <ChevronRight size={14} aria-hidden />
     </button>
   );
+
+  const order = (widgets.data?.order ?? []).filter((c): c is Card => (CARDS as string[]).includes(c));
+  /** 同一列里的卡片按用户排的顺序显示；没排过的保持默认顺序（排在已排的后面）。 */
+  const orderedCards = (col: Card[]): Card[] => [...col].sort((x, y) => (order.indexOf(x) < 0 ? 99 : order.indexOf(x)) - (order.indexOf(y) < 0 ? 99 : order.indexOf(y)) || col.indexOf(x) - col.indexOf(y));
+  const mainNodes: Partial<Record<Card, React.ReactNode>> = {
+    tasks:
+      show("tasks") && d.enabled.tasks ? (
+        <section className="card home-task-card" data-testid="card-tasks">
+          <div className="card-head">
+            <h2>
+              <Target size={17} aria-hidden /> {tHome.tasksCard.title} <Badge>{pending.length}</Badge>
+            </h2>
+            <div className="row">
+              <Segmented<"all" | "today">
+                label={tHome.tasksCard.title}
+                value={section === "today" ? "today" : filter}
+                onChange={(v) => {
+                  setFilter(v);
+                  if (section === "today" && v === "all") setSection("overview");
+                }}
+                options={[
+                  { value: "all", label: tHome.tasksCard.all },
+                  { value: "today", label: tHome.tasksCard.today },
+                ]}
+              />
+              <IconButton icon={Plus} label={tHome.tasksCard.add} onClick={() => nav("tasks")} />
+            </div>
+          </div>
+          <div className="home-task-list">
+            {taskRows.map((t) => (
+              <div className="home-task-row" key={t.id}>
+                <button type="button" className="task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
+                <button type="button" className="grow task-open" onClick={() => nav("tasks")}>
+                  <strong>{t.title}</strong>
+                  <span>
+                    {t.project ?? tHome.tasksCard.personal}
+                    {t.due ? ` · ${t.due}` : ""}
+                  </span>
+                </button>
+                <Badge>{t.execution.kind === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
+              </div>
+            ))}
+            {pending.length === 0 ? <EmptyState icon={CheckCircle2} title={tHome.tasksCard.allDone} hint={tHome.tasksCard.rest} /> : null}
+          </div>
+          <button type="button" className="card-footer-link" onClick={() => nav("tasks")}>
+            {tHome.tasksCard.viewAll} <ArrowRight size={14} aria-hidden />
+          </button>
+        </section>
+      ) : null,
+    recent:
+      show("recent") && d.enabled.notes ? (
+        <section className="card" data-testid="card-recent">
+          <div className="card-head">
+            <h2>
+              <Clock size={17} aria-hidden /> {tHome.recentCard.title}
+            </h2>
+            <button type="button" className="link-button" onClick={() => nav("notes")}>
+              {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
+            </button>
+          </div>
+          {d.recentNotes.length === 0 ? (
+            <EmptyState title={tHome.noRecent} />
+          ) : (
+            <div className="recent-note-grid">
+              {d.recentNotes.map((n, i) => (
+                <button type="button" className="recent-note" key={n.path} onClick={() => nav("notes")}>
+                  <div className={`note-symbol note-symbol-${i % 3}`}>
+                    <FileText size={18} aria-hidden />
+                  </div>
+                  <strong>{n.title}</strong>
+                  <p>{n.snippet}</p>
+                  <div>
+                    <span>{n.folder}</span>
+                    <span>{fmtDate(n.updatedAt, zone)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null,
+    activity: show("activity") ? (
+      <section className="card" data-testid="card-activity">
+        <div className="card-head">
+          <h2>
+            <Activity size={17} aria-hidden /> {tHome.activityCard.title}
+          </h2>
+          <button type="button" className="link-button" onClick={() => setSection("activity")}>
+            {tHome.activityCard.all}
+          </button>
+        </div>
+        <ActivityFeed compact zone={zone} />
+      </section>
+    ) : null,
+  };
+  const sideNodes: Partial<Record<Card, React.ReactNode>> = {
+    focus: show("focus") ? <FocusCard>{show("habits") ? <HabitsCard /> : null}</FocusCard> : null,
+    inbox:
+      show("inbox") && d.enabled.inbox ? (
+        <section className="card home-inbox" data-testid="card-inbox-list">
+          <div className="card-head">
+            <h2>
+              <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
+            </h2>
+            <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
+          </div>
+          {(inbox.data ?? []).slice(0, 3).map((i) => (
+            <button type="button" className="inbox-preview" key={i.id} onClick={() => nav("inbox")}>
+              <span className="inbox-bullet" />
+              <span>
+                <strong>{i.title}</strong>
+                <small>{i.source}</small>
+              </span>
+              <ChevronRight size={13} aria-hidden />
+            </button>
+          ))}
+          {(inbox.data ?? []).length === 0 ? <div className="mini-empty">{tHome.inboxCard.empty}</div> : null}
+          <button type="button" className="card-footer-link" onClick={() => nav("inbox")}>
+            {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
+          </button>
+        </section>
+      ) : null,
+  };
 
   return (
     <div className="module-layout home-layout" data-testid="home-module">
@@ -136,120 +284,14 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
               </div>
               <div className="home-grid">
                 <div className="home-main-column">
-                  {show("tasks") && d.enabled.tasks ? (
-                    <section className="card home-task-card" data-testid="card-tasks">
-                      <div className="card-head">
-                        <h2>
-                          <Target size={17} aria-hidden /> {tHome.tasksCard.title} <Badge>{pending.length}</Badge>
-                        </h2>
-                        <div className="row">
-                          <Segmented<"all" | "today">
-                            label={tHome.tasksCard.title}
-                            value={section === "today" ? "today" : filter}
-                            onChange={(v) => {
-                              setFilter(v);
-                              if (section === "today" && v === "all") setSection("overview");
-                            }}
-                            options={[
-                              { value: "all", label: tHome.tasksCard.all },
-                              { value: "today", label: tHome.tasksCard.today },
-                            ]}
-                          />
-                          <IconButton icon={Plus} label={tHome.tasksCard.add} onClick={() => nav("tasks")} />
-                        </div>
-                      </div>
-                      <div className="home-task-list">
-                        {taskRows.map((t) => (
-                          <div className="home-task-row" key={t.id}>
-                            <button type="button" className="task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
-                            <button type="button" className="grow task-open" onClick={() => nav("tasks")}>
-                              <strong>{t.title}</strong>
-                              <span>
-                                {t.project ?? tHome.tasksCard.personal}
-                                {t.due ? ` · ${t.due}` : ""}
-                              </span>
-                            </button>
-                            <Badge>{t.execution.kind === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
-                          </div>
-                        ))}
-                        {pending.length === 0 ? <EmptyState icon={CheckCircle2} title={tHome.tasksCard.allDone} hint={tHome.tasksCard.rest} /> : null}
-                      </div>
-                      <button type="button" className="card-footer-link" onClick={() => nav("tasks")}>
-                        {tHome.tasksCard.viewAll} <ArrowRight size={14} aria-hidden />
-                      </button>
-                    </section>
-                  ) : null}
-                  {show("recent") && d.enabled.notes ? (
-                    <section className="card" data-testid="card-recent">
-                      <div className="card-head">
-                        <h2>
-                          <Clock size={17} aria-hidden /> {tHome.recentCard.title}
-                        </h2>
-                        <button type="button" className="link-button" onClick={() => nav("notes")}>
-                          {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
-                        </button>
-                      </div>
-                      {d.recentNotes.length === 0 ? (
-                        <EmptyState title={tHome.noRecent} />
-                      ) : (
-                        <div className="recent-note-grid">
-                          {d.recentNotes.map((n, i) => (
-                            <button type="button" className="recent-note" key={n.path} onClick={() => nav("notes")}>
-                              <div className={`note-symbol note-symbol-${i % 3}`}>
-                                <FileText size={18} aria-hidden />
-                              </div>
-                              <strong>{n.title}</strong>
-                              <p>{n.snippet}</p>
-                              <div>
-                                <span>{n.folder}</span>
-                                <span>{fmtDate(n.updatedAt, zone)}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  ) : null}
-                  {show("activity") ? (
-                    <section className="card" data-testid="card-activity">
-                      <div className="card-head">
-                        <h2>
-                          <Activity size={17} aria-hidden /> {tHome.activityCard.title}
-                        </h2>
-                        <button type="button" className="link-button" onClick={() => setSection("activity")}>
-                          {tHome.activityCard.all}
-                        </button>
-                      </div>
-                      <ActivityFeed compact zone={zone} />
-                    </section>
-                  ) : null}
+                  {orderedCards(["tasks", "recent", "activity"]).map((c) => (
+                    <Fragment key={c}>{mainNodes[c]}</Fragment>
+                  ))}
                 </div>
                 <div className="home-side-column">
-                  {show("focus") ? <FocusCard>{show("habits") ? <HabitsCard /> : null}</FocusCard> : null}
-                  {show("inbox") && d.enabled.inbox ? (
-                    <section className="card home-inbox" data-testid="card-inbox-list">
-                      <div className="card-head">
-                        <h2>
-                          <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
-                        </h2>
-                        <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
-                      </div>
-                      {(inbox.data ?? []).slice(0, 3).map((i) => (
-                        <button type="button" className="inbox-preview" key={i.id} onClick={() => nav("inbox")}>
-                          <span className="inbox-bullet" />
-                          <span>
-                            <strong>{i.title}</strong>
-                            <small>{i.source}</small>
-                          </span>
-                          <ChevronRight size={13} aria-hidden />
-                        </button>
-                      ))}
-                      {(inbox.data ?? []).length === 0 ? <div className="mini-empty">{tHome.inboxCard.empty}</div> : null}
-                      <button type="button" className="card-footer-link" onClick={() => nav("inbox")}>
-                        {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
-                      </button>
-                    </section>
-                  ) : null}
+                  {orderedCards(["focus", "inbox"]).map((c) => (
+                    <Fragment key={c}>{sideNodes[c]}</Fragment>
+                  ))}
                   {d.enabled.agentCli ? (
                     <button type="button" className="agent-invitation" onClick={() => nav("agent-cli")}>
                       <div className="agent-invitation-top">
@@ -276,11 +318,23 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
       </div>
       <Dialog open={editing} title={tHome.customize.title} description={tHome.customize.description} onClose={() => setEditing(false)} testId="home-customize-panel">
         <div className="form-body">
-          {CARDS.map((c) => (
-            <label key={c} className="checkbox-row">
-              <input type="checkbox" checked={show(c)} aria-label={tHome.customize.cards[c]} onChange={() => void toggleCard(c)} /> {tHome.customize.cards[c]}
-            </label>
-          ))}
+          {CARDS.map((c) => {
+            const col = HOME_COLUMNS.find((x) => x.includes(c));
+            const pos = col ? orderedCards(col).indexOf(c) : -1;
+            return (
+              <div key={c} className="row" data-testid="home-card-row">
+                <label className="checkbox-row grow">
+                  <input type="checkbox" checked={show(c)} aria-label={tHome.customize.cards[c]} onChange={() => void toggleCard(c)} /> {tHome.customize.cards[c]}
+                </label>
+                {col ? (
+                  <>
+                    <IconButton icon={ArrowUp} label={`上移 ${tHome.customize.cards[c]}`} disabled={pos <= 0} onClick={() => void moveCard(c, -1)} />
+                    <IconButton icon={ArrowDown} label={`下移 ${tHome.customize.cards[c]}`} disabled={pos < 0 || pos >= col.length - 1} onClick={() => void moveCard(c, 1)} />
+                  </>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </Dialog>
     </div>

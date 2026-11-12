@@ -57,6 +57,12 @@ export const HabitsActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("toggle"), id: z.string() }),
 ]);
 
-/** `.huhu/home/widgets.json`：隐藏的卡片（未列出的都显示）。 */
-export const WidgetsStateSchema = z.object({ hidden: z.array(z.enum(HOME_CARDS)).catch(() => []) });
+/** `.huhu/home/widgets.json`：隐藏的卡片（未列出的都显示）与用户排的卡片顺序（未列出的按默认顺序排在后面）。 */
+export const WidgetsStateSchema = z.object({
+  hidden: z.array(z.enum(HOME_CARDS)).catch(() => []),
+  order: z
+    .array(z.enum(HOME_CARDS))
+    .catch(() => [])
+    .optional(),
+});
 export type WidgetsState = z.infer<typeof WidgetsStateSchema>;

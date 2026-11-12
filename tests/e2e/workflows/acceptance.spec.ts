@@ -415,3 +415,21 @@ test("ACC-SH-04 远程连接：编辑主机、从已有主机里按顺序选跳�
     await close();
   }
 });
+
+test("首页自定义：卡片可在同一列内上移 / 下移，顺序持久化并立即生效", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const order = () => page.locator(".home-main-column > section").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    await expect.poll(order).toEqual(["card-tasks", "card-recent", "card-activity"]);
+    await page.getByTestId("home-customize").click();
+    const panel = page.getByTestId("home-customize-panel");
+    await panel.getByRole("button", { name: "下移 我的任务" }).click();
+    await expect.poll(order).toEqual(["card-recent", "card-tasks", "card-activity"]);
+    await panel.getByRole("button", { name: "上移 最近活动" }).click();
+    await expect.poll(order).toEqual(["card-recent", "card-activity", "card-tasks"]);
+    await expect(panel.getByRole("button", { name: "上移 最近笔记" })).toBeDisabled(); // 已经是第一个
+  } finally {
+    await close();
+  }
+});

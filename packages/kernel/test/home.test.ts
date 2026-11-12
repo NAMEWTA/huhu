@@ -138,10 +138,18 @@ describe("首页卡片", () => {
   test("隐藏列表持久化；非法条目回退；文件缺失为空", () => {
     const { dir, store } = setup();
     expect(store.widgets()).toEqual({ hidden: [] });
-    expect(store.setWidgets({ hidden: ["focus", "focus", "recent"] })).toEqual({ hidden: ["focus", "recent"] });
+    expect(store.setWidgets({ hidden: ["focus", "focus", "recent"] })).toEqual({ hidden: ["focus", "recent"], order: [] });
     expect(existsSync(path.join(dir, "widgets.json"))).toBe(true);
     expect(store.widgets().hidden).toEqual(["focus", "recent"]);
     writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: "bad" }));
     expect(store.widgets()).toEqual({ hidden: [] });
+  });
+
+  test("卡片顺序持久化（W18.1 显示/排序）：去重；非法条目回退为空", () => {
+    const { dir, store } = setup();
+    expect(store.setWidgets({ hidden: [], order: ["activity", "tasks", "activity"] }).order).toEqual(["activity", "tasks"]);
+    expect(store.widgets().order).toEqual(["activity", "tasks"]);
+    writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: [], order: ["nope"] }));
+    expect(store.widgets().order ?? []).toEqual([]);
   });
 });

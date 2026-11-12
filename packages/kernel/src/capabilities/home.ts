@@ -127,7 +127,7 @@ export class HomeStore {
     return this.read("widgets.json", (v) => WidgetsStateSchema.parse(v));
   }
   setWidgets(w: WidgetsState): WidgetsState {
-    const next = WidgetsStateSchema.parse({ hidden: [...new Set(w.hidden)] });
+    const next = WidgetsStateSchema.parse({ hidden: [...new Set(w.hidden)], order: [...new Set(w.order ?? [])] });
     this.write("widgets.json", next);
     return next;
   }
