@@ -252,7 +252,7 @@ function App() {
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}
       {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
-      <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={() => ui.getState().openModule("notes")} />
+      <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={(r) => ui.getState().openModule(r.kind === "task" ? "tasks" : r.kind === "archive" ? "archives" : r.kind === "capture" ? "inbox" : "notes")} />
     </>
   );
   return endpoint ? (

@@ -62,8 +62,6 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
   const running = state === "running";
   const events = useCapability<{ events: EventRow[]; modules: string[] }>("health.events", { limit: 500, ...(query ? { query } : {}) });
   const notices = useCapability<Notice[]>("notifications.list", {});
-  const plugins = useCapability<{ id: string; state: string }[]>("plugins.list", {});
-  const vault = useCapability<{ id: string; name: string }>("vault.info", {});
   const refresh = (cap: string) => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === cap });
   const call = (cap: string, input: unknown) => engine.call(cap, input, { write: true });
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;

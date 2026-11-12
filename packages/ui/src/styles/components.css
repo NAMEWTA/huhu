@@ -152,3 +152,10 @@ dialog.modal::backdrop {
   width: 28px;
   height: 28px;
 }
+/* 命令面板：搜索结果的分组小标题 */
+.command-results .command-group {
+  padding: 8px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}

@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 export interface PaletteItem {
   id: string;
   group: "module" | "command" | "result";
+  /** 搜索结果的分组名（笔记 / 任务 / 档案 / 收件箱…）。 */
+  groupLabel?: string;
   title: string;
   hint?: string;
   icon?: ReactNode;

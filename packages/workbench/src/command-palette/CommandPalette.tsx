@@ -1,6 +1,6 @@
 import { IconButton } from "@huhu/ui";
 import { ArrowUpRight, Command, FileText, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry } from "../contributions.js";
@@ -17,6 +17,18 @@ export interface CommandPaletteProps {
   /** 搜索结果被选中时的处理（例如在知识库里打开）。 */
   onOpenResult?(r: { path: string; kind: string; title: string }): void;
 }
+
+/** 搜索结果按来源分组（规格：最近、命令、笔记、任务、档案、收件箱）。 */
+const RESULT_GROUPS: { kind: string; label: string }[] = [
+  { kind: "note", label: "笔记" },
+  { kind: "task", label: "任务" },
+  { kind: "archive", label: "档案" },
+  { kind: "capture", label: "收件箱" },
+];
+const groupOf = (kind: string): { label: string; rank: number } => {
+  const i = RESULT_GROUPS.findIndex((g) => g.kind === kind);
+  return i >= 0 ? { label: RESULT_GROUPS[i]!.label, rank: i } : { label: "文件", rank: RESULT_GROUPS.length };
+};
 
 const RECENTS_KEY = "huhu.palette.recents";
 const readRecents = (): string[] => {
@@ -90,7 +102,11 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
         .call<{ indexing: boolean; hits: { path: string; kind: string; title: string }[] }>("vault.search", { query: q.trim(), limit: 8 })
         .then((r) => {
           if (!isLatest()) return;
-          setResults(r.hits.map((h) => ({ id: `res:${h.path}`, group: "result" as const, title: h.title || h.path, hint: h.path, icon: <FileText size={18} aria-hidden />, run: () => onOpenResult?.(h) })));
+          const mapped = r.hits.map((h) => ({
+            rank: groupOf(h.kind).rank,
+            item: { id: `res:${h.path}`, group: "result" as const, groupLabel: groupOf(h.kind).label, title: h.title || h.path, hint: h.path, icon: <FileText size={18} aria-hidden />, run: () => onOpenResult?.(h) },
+          }));
+          setResults(mapped.sort((a, b) => a.rank - b.rank).map((m) => m.item)); // 稳定排序：同组内保持相关度顺序
         })
         .catch(() => {
           if (isLatest()) setResults([]);
@@ -172,6 +188,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
                 e.preventDefault();
                 setSel(e.key === "Home" ? 0 : Math.max(0, items.length - 1));
               } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                // Enter 与 Mod+Enter 都执行并在标签里打开（模块与笔记本来就是在新标签里打开）
                 e.preventDefault();
                 const it = items[sel];
                 if (it) run(it);
@@ -182,26 +199,32 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
         </div>
         <div id="hu-palette-list" className="command-results" role="listbox" aria-label="搜索结果">
           {items.map((it, i) => (
-            <button
-              key={it.id}
-              id={`hu-palette-opt-${i}`}
-              type="button"
-              role="option"
-              tabIndex={-1}
-              aria-selected={i === sel}
-              className={i === sel ? "selected" : ""}
-              data-testid="palette-item"
-              data-group={it.group}
-              onPointerMove={() => setSel(i)}
-              onClick={() => run(it)}
-            >
-              <span className="command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
-              <span className="grow">
-                <strong>{it.title}</strong>
-                {it.hint ? <small>{it.hint}</small> : null}
-              </span>
-              <ArrowUpRight size={15} aria-hidden />
-            </button>
+            <Fragment key={it.id}>
+              {it.groupLabel && items[i - 1]?.groupLabel !== it.groupLabel ? (
+                <div className="command-group" role="presentation" data-testid="palette-group">
+                  {it.groupLabel}
+                </div>
+              ) : null}
+              <button
+                id={`hu-palette-opt-${i}`}
+                type="button"
+                role="option"
+                tabIndex={-1}
+                aria-selected={i === sel}
+                className={i === sel ? "selected" : ""}
+                data-testid="palette-item"
+                data-group={it.group}
+                onPointerMove={() => setSel(i)}
+                onClick={() => run(it)}
+              >
+                <span className="command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
+                <span className="grow">
+                  <strong>{it.title}</strong>
+                  {it.hint ? <small>{it.hint}</small> : null}
+                </span>
+                <ArrowUpRight size={15} aria-hidden />
+              </button>
+            </Fragment>
           ))}
           {items.length === 0 ? <p className="tw-empty-group">{searching ? "搜索中…" : "没有找到结果"}</p> : null}
         </div>

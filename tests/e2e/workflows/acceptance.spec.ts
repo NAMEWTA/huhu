@@ -811,3 +811,24 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
     await close();
   }
 });
+
+test("命令面板：搜索结果按来源分组（笔记 / 任务 / 档案 / 收件箱），选中任务结果跳到任务模块", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    await call("notes.create", { name: "分组测试笔记" });
+    await call("tasks.create", { title: "分组测试任务", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
+    await expect.poll(async () => ((await call("vault.search", { query: "分组测试" })).data as { hits: unknown[] }).hits.length).toBeGreaterThanOrEqual(2);
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByRole("combobox", { name: "搜索模块、命令和内容" }).fill("分组测试");
+    const groups = page.getByTestId("palette-group");
+    await expect(groups.first()).toBeVisible({ timeout: 10_000 });
+    await expect(groups.filter({ hasText: "笔记" })).toBeVisible();
+    await expect(groups.filter({ hasText: "任务" })).toBeVisible();
+    await page.getByTestId("palette-item").filter({ hasText: "分组测试任务" }).click();
+    await expect(page.getByTestId("task-new")).toBeVisible(); // 在任务模块
+  } finally {
+    await close();
+  }
+});
