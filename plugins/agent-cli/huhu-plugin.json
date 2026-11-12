@@ -17,6 +17,7 @@
       "agent.core.restart",
       "agent.core.status",
       "agent.history.list",
+      "agent.history.pin",
       "agent.history.resume",
       "agent.providers.detect",
       "agent.review.comment.add",

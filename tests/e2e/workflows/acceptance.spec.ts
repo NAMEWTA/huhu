@@ -334,3 +334,42 @@ test("目录无写权限：打开时给出“无法写入”提示且不创建�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Agent CLI 历史固定：固定后置顶、重新进入后仍在；取消固定恢复时间顺序（落盘 agent-cli/pins.json）", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "huhu-pin-"));
+  const dir = path.join(base, "项目");
+  const claude = path.join(base, "claude-config");
+  mkdirSync(dir);
+  const real = realpathSync(dir);
+  const enc = real.replace(/[^a-zA-Z0-9]/g, "-");
+  const proj = path.join(claude, "projects", enc);
+  mkdirSync(proj, { recursive: true });
+  const row = (text: string, id: string) => JSON.stringify({ type: "user", cwd: real, sessionId: id, isMeta: false, message: { role: "user", content: text } }) + "\n";
+  const { utimesSync } = await import("node:fs");
+  for (const [id, text, at] of [
+    ["old", "较旧的提问", new Date("2026-11-01T00:00:00Z")],
+    ["new", "较新的提问", new Date("2026-11-05T00:00:00Z")],
+  ] as const) {
+    writeFileSync(path.join(proj, `${id}.jsonl`), row(text, id));
+    utimesSync(path.join(proj, `${id}.jsonl`), at, at);
+  }
+  const { page, vault, close } = await openApp({ CLAUDE_CONFIG_DIR: claude });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page.getByTestId("space-new").click();
+    await page.getByLabel("Space 名称").fill("项目");
+    await page.getByLabel("工作目录").fill(dir);
+    await page.getByTestId("space-save").click();
+    const titles = page.getByTestId("history-title");
+    await expect(titles).toHaveText(["较新的提问", "较旧的提问"]);
+    await page.getByRole("button", { name: "固定 较旧的提问" }).click();
+    await expect(titles).toHaveText(["较旧的提问", "较新的提问"]); // 固定项置顶
+    expect(readFileSync(path.join(vault, ".huhu/agent-cli/pins.json"), "utf8")).toContain("claude:old");
+    await page.getByRole("button", { name: "取消固定 较旧的提问" }).click();
+    await expect(titles).toHaveText(["较新的提问", "较旧的提问"]);
+  } finally {
+    await close();
+    rmSync(base, { recursive: true, force: true });
+  }
+});

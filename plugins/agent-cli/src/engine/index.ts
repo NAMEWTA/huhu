@@ -7,6 +7,7 @@ import { z } from "zod";
 import { HerdrCore } from "./herdr-core.js";
 import { isValidNativeId, scanHistory } from "./history/scanner.js";
 import { reviewDiff } from "./review.js";
+import { PinStore } from "./pins.js";
 import { ProviderDetector } from "./providers/index.js";
 import { SessionsService } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
@@ -185,13 +186,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       },
     }),
   );
-  const Entry = z.object({ provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), cwd: z.string(), title: z.string(), updatedAt: z.string(), active: z.boolean() });
+  const Entry = z.object({ provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), cwd: z.string(), title: z.string(), updatedAt: z.string(), active: z.boolean(), pinned: z.boolean() });
   const spaceOf = (id: string) => {
     const sp = spaces.list().find((x) => x.id === id);
     if (!sp) throw errors.notFound("Space 不存在");
     return sp;
   };
   // 列表请求很频繁（打开面板、切换 Space），短时间内复用结果；恢复时总是重新扫描
+  const pins = new PinStore(path.join(api.vault.files.root, ".huhu", "agent-cli", "pins.json"));
   const resuming = new Set<string>();
   const cache = new Map<string, { at: number; r: ReturnType<typeof scanHistory> }>();
   const scanCached = (root: string) => {
@@ -221,7 +223,28 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
             .map((x) => `${x.provider}:${x.nativeSessionId}`),
         );
         const r = scanCached(sp.root);
-        return { entries: r.entries.slice(0, i.limit).map((e) => ({ ...e, active: live.has(`${e.provider}:${e.nativeSessionId}`) })), skipped: r.skipped };
+        const pinned = pins.list(sp.id);
+        const all = r.entries.map((e) => ({ ...e, active: live.has(`${e.provider}:${e.nativeSessionId}`), pinned: pinned.has(`${e.provider}:${e.nativeSessionId}`) }));
+        // 固定项置顶；其余保持扫描器给出的时间倒序（sort 稳定）
+        const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
+        return { entries: ordered.slice(0, i.limit), skipped: r.skipped };
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.history.pin",
+      plugin: "agent-cli",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ spaceId: z.string(), provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), pinned: z.boolean() }),
+      output: z.object({ pinned: z.boolean() }),
+      handler: async (_c, i) => {
+        if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
+        const sp = spaceOf(i.spaceId);
+        pins.set(sp.id, `${i.provider}:${i.nativeSessionId}`, i.pinned);
+        return { pinned: i.pinned };
       },
     }),
   );

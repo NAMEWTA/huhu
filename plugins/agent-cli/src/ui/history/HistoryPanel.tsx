@@ -1,6 +1,6 @@
 import { Button } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { History, Search } from "lucide-react";
+import { History, Pin, Search } from "lucide-react";
 import { useState } from "react";
 import { t } from "../i18n.js";
 
@@ -11,6 +11,7 @@ interface Entry {
   title: string;
   updatedAt: string;
   active: boolean;
+  pinned: boolean;
 }
 interface Session {
   id: string;
@@ -36,6 +37,16 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function togglePin(e: Entry) {
+    setError(null);
+    try {
+      await engine.call("agent.history.pin", { spaceId: space.id, provider: e.provider, nativeSessionId: e.nativeSessionId, pinned: !e.pinned }, { write: true });
+      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.history.list" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -101,6 +112,16 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
                 </small>
                 <time>{new Date(e.updatedAt).toLocaleString("zh-CN", { hour12: false })}</time>
               </span>
+              <button
+                type="button"
+                className={`v9-pin${e.pinned ? " pinned" : ""}`}
+                aria-pressed={e.pinned}
+                aria-label={e.pinned ? t.history.unpin(e.title) : t.history.pin(e.title)}
+                data-testid="history-pin"
+                onClick={() => void togglePin(e)}
+              >
+                <Pin size={12} aria-hidden />
+              </button>
               <Button disabled={!ok || e.active || busy !== null} loading={busy === e.nativeSessionId} title={ok ? undefined : t.history.notInstalled} data-testid="history-resume" onClick={() => void resume(e)}>
                 {busy === e.nativeSessionId ? t.history.resuming : t.history.resume}
               </Button>

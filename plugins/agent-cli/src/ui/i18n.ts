@@ -84,6 +84,8 @@ export const t = {
     resuming: "正在恢复…",
     active: "运行中",
     notInstalled: "未检测到对应的 CLI，无法恢复",
+    pin: (title: string) => `固定 ${title}`,
+    unpin: (title: string) => `取消固定 ${title}`,
     skipped: (n: number) => `${n} 个历史文件无法解析，已跳过`,
     provider: { claude: "Claude", codex: "Codex" } as Record<string, string>,
     note: "历史来自各 CLI 自己保存的会话记录，只读扫描；恢复会在原来的目录里重新打开它。",
