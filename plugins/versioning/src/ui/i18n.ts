@@ -1,7 +1,7 @@
 export const t = {
   title: "版本历史",
   nav: { history: "文件历史", git: "Git", sync: "同步" },
-  pickFile: "选择文件",
+  pickFile: "当前文件",
   checkpoint: "保存当前版本",
   checkpointName: "版本名称",
   noHistory: "这个文件还没有历史版本",

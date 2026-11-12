@@ -393,6 +393,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     onDegraded: () => undefined,
   });
   await watcher.start();
+  // 索引快照与监听器基线之间的写入不会有事件：对账一次，并按文件事件通知界面
+  for (const c of index.reconcile()) events.publish("vault.fileChanged", { path: c.path, change: c.change });
 
   // 只读引擎不取写者锁，也不能覆盖或删除写者的端点描述
   serverRef.current = server;

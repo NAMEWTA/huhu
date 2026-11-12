@@ -135,6 +135,23 @@ export class VaultIndex {
     search.upsert({ path: rel, kind: huhuKind ?? "note", title, body, tags: tags.join(" ") });
   }
 
+  /**
+   * 对账：按磁盘现状补上“建立索引的快照”与“监听器启动”之间发生的变化（监听器以自己的快照为基线，不会报告这段时间的写入）。
+   * 返回有变化的路径数；Engine 在监听器启动后调用一次。
+   */
+  reconcile(): { path: string; change: "created" | "modified" | "deleted" }[] {
+    const snap = takeSnapshot(this.root, false);
+    const changes: { path: string; change: "created" | "modified" | "deleted" }[] = [];
+    for (const [p, info] of snap) {
+      const known = this.tree.get(p);
+      if (!known || known.type !== "file") changes.push({ path: p, change: "created" });
+      else if (known.size !== info.size || known.mtimeMs !== info.mtimeMs) changes.push({ path: p, change: "modified" });
+    }
+    for (const [p, e] of this.tree) if (e.type === "file" && !snap.has(p)) changes.push({ path: p, change: "deleted" });
+    if (changes.length > 0) this.applyChanges(changes);
+    return changes;
+  }
+
   /** 监听事件的增量更新。 */
   applyChanges(changes: { path: string; change: "created" | "modified" | "deleted" | "renamed"; from?: string }[]): void {
     if (this._indexing)

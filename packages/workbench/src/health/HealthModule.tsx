@@ -35,6 +35,15 @@ interface Notice {
 
 const TITLE = { all: "健康中心", logs: "事件日志", notifications: "通知中心" } as Record<string, string>;
 const STATE = { ok: "success", warning: "warning", error: "danger" } as const;
+/** 没有故障时每项也给一个查看入口（原型：每行右侧的“备份与存储 >”之类）。 */
+const DEFAULT_ACTION: Record<string, { label: string; target: string; capability?: string }> = {
+  plugins: { label: "插件中心", target: "plugins" },
+  files: { label: "数据与存储", target: "settings" },
+  index: { label: "数据与存储", target: "settings" },
+  watcher: { label: "数据与存储", target: "settings" },
+  herdr: { label: "Agent CLI", target: "agent-cli" },
+  safe: { label: "保险箱", target: "safe" },
+};
 const UNCHECKED = ["插件", "文件", "索引", "文件监听", "Herdr Core", "保险箱"];
 const STATE_TEXT = { ok: "正常", warning: "需留意", error: "需处理" } as const;
 
@@ -118,7 +127,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                 导出诊断
               </Button>
               <Button variant="primary" icon={running ? Square : RefreshCw} onClick={runDiagnostics} data-testid="health-run">
-                {running ? "取消检查" : tHome.health.run}
+                {running ? "取消检查" : result || state === "cancelled" ? tHome.health.run : "运行诊断"}
               </Button>
             </>
           }
@@ -225,9 +234,10 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                       <p>{c.detail}</p>
                     </div>
                     <Badge tone={STATE[c.status]}>{STATE_TEXT[c.status]}</Badge>
-                    {c.action ? (
-                      <Button variant="ghost" onClick={() => void runAction(c.action!)}>
-                        {c.action.capability && confirmAction === c.action.capability ? "确认（会中断运行中的终端）" : c.action.label} <ChevronRight size={14} aria-hidden />
+                    {(c.action ?? DEFAULT_ACTION[c.id]) ? (
+                      <Button variant="ghost" onClick={() => void runAction((c.action ?? DEFAULT_ACTION[c.id])!)}>
+                        {(c.action ?? DEFAULT_ACTION[c.id])?.capability && confirmAction === (c.action ?? DEFAULT_ACTION[c.id])?.capability ? "确认（会中断运行中的终端）" : (c.action ?? DEFAULT_ACTION[c.id])?.label}{" "}
+                        <ChevronRight size={14} aria-hidden />
                       </Button>
                     ) : null}
                   </div>

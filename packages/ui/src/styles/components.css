@@ -128,3 +128,13 @@ dialog.modal::backdrop {
 .execution-connection-route {
   overflow: visible;
 }
+/* 版本历史头部：+n −m 配色，按钮组靠右（原型） */
+.version-v9-stats .added {
+  color: var(--success);
+}
+.version-v9-stats .removed {
+  color: var(--danger);
+}
+.version-v9-diff-heading > .row {
+  margin-left: auto;
+}

@@ -18,6 +18,23 @@ function vault(files: Record<string, string>) {
   return root;
 }
 
+describe("VaultIndex.reconcile", () => {
+  test("建立索引之后、监听器启动之前的写入（新建 / 修改 / 删除）由对账补上", async () => {
+    const root = vault({ "旧.md": "# 旧\n", "删.md": "# 删\n", "改.md": "# 改\n" });
+    const ix = new VaultIndex(root);
+    await ix.build();
+    writeFileSync(path.join(root, "新.md"), "# 新文件 独特词汇\n");
+    writeFileSync(path.join(root, "改.md"), "# 改了很多\n正文变长了\n");
+    rmSync(path.join(root, "删.md"));
+    const changes = ix.reconcile();
+    expect(changes.map((c) => `${c.change}:${c.path}`).sort()).toEqual(["created:新.md", "deleted:删.md", "modified:改.md"]);
+    expect(ix.entries().map((e) => e.path)).toContain("新.md");
+    expect(ix.entries().map((e) => e.path)).not.toContain("删.md");
+    expect(ix.query("独特词汇").hits.map((h) => h.path)).toEqual(["新.md"]);
+    expect(ix.reconcile()).toEqual([]); // 再对账没有变化
+  });
+});
+
 describe("VaultIndex", () => {
   test("树、检索、反链、标签", async () => {
     const root = vault({
