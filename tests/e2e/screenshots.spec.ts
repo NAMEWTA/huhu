@@ -22,7 +22,13 @@ for (const size of [
     try {
       await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), size);
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-      // 窗口被屏幕裁小时截图尺寸就不对（Xvfb 默认屏幕太小）：用 xvfb-run -a -s "-screen 0 1920x1080x24" 运行
+      // 窗口被屏幕裁小时截图尺寸就不对（Xvfb 默认屏幕太小）：此时跳过而不是产出尺寸不对的图。
+      // 用 xvfb-run -a -s "-screen 0 1920x1080x24" 运行
+      const fits = await app.evaluate(({ screen }, s) => {
+        const a = screen.getPrimaryDisplay().workAreaSize;
+        return a.width >= s.width && a.height >= s.height;
+      }, size);
+      test.skip(!fits, `屏幕工作区小于 ${size.width}×${size.height}`);
       await expect.poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual([size.width, size.height]);
       for (const name of MODULES) {
         const rail = page.getByRole("button", { name, exact: true }).first();

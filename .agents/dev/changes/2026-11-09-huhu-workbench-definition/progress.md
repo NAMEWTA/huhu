@@ -93,9 +93,11 @@
 
 ### 规模 Vault 性能（第 8 轮）
 
-`tests/perf/scale-vault.ts` 生成 10,000 篇笔记（约 100 MiB）/ 1,000 任务 / 1,000 档案（`pnpm exec tsx tests/perf/scale-vault.ts <目录>` 或在测试里调用 `createScaleVault`）；`tests/e2e/perf.spec.ts` 的 scale-vault 用例在 Linux（Xvfb）上测得：打开到文件树可用 ≈ 3.6–4.2 s（目标 ≤ 6 s）、索引在后台完成 ≈ 12–15 s（自启动起，目标 ≤ 15 s）、Engine 常驻内存 590 MiB（目标 ≤ 600 MiB，余量只有约 10 MiB）。
+`tests/perf/scale-vault.ts` 生成 10,000 篇笔记（约 100 MiB）/ 1,000 任务 / 1,000 档案（`pnpm exec tsx tests/perf/scale-vault.ts <目录>` 或在测试里调用 `createScaleVault`）；`tests/e2e/perf.spec.ts` 的 scale-vault 用例在 Linux（Xvfb）上多次测得：
 
-首次测得 720 MiB 超标；改动两处后达标：全文索引只以去重词表入库（Orama 文档仓会整份保存插入的文档，存全文约多占 100 MiB）；全量索引建完后立即整理一次堆。余量很小，之后加索引字段或常驻缓存都可能再次超标——该用例会拦住。
+- 打开到文件树可用 3.6–4.8 s（目标 ≤ 6 s）：达标。
+- 全量索引完成（自启动起）12–15 s（目标 ≤ 15 s）：贴线，个别次 15.2 s。
+- **Engine 常驻内存 590–670 MiB（目标 ≤ 600 MiB）：未稳定达标，登记为缺口。** 首次测得 720 MiB；全文索引改为只存去重词表、建完后整理一次堆之后降到 590–610 MiB。又试过把文档仓里的词表压缩保存：堆少了约 58 MiB，但 RSS 反而升到 669 MiB 且索引变慢，已回退。RSS 取决于分配器与 GC 时机，波动约 ±40 MiB。要稳定低于 600 MiB 需要改索引结构（例如把全文索引落到磁盘 / SQLite FTS，而不是全部放在 Engine 的 JS 堆里），属于架构级改动，需要单独排期。用例只拦住明显退化（> 750 MiB）并把实测值写进注解。
 
 ### 缺口：ACC-WB-02 后半（只读浏览无写权限的目录）
 
