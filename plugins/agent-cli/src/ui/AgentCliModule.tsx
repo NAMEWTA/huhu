@@ -1,7 +1,7 @@
 import { AgentSettings } from "./AgentSettings.js";
 import { LaunchPanel, type LaunchOptions, type ModelOption } from "./LaunchPanel.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
-import { ChevronDown, Folder, FolderOpen, History, Plus, Settings2 } from "lucide-react";
+import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import { CapabilityError, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
@@ -40,7 +40,8 @@ export function AgentCliModule() {
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
-  const [spaceForm, setSpaceForm] = useState<{ name: string; folder: string } | null>(null);
+  const [spaceForm, setSpaceForm] = useState<{ id?: string; revision?: number; name: string; folder: string } | null>(null);
+  const [spaceDelete, setSpaceDelete] = useState<Space | null>(null);
   const [spaceError, setSpaceError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(true); // 原型：会话历史在桌面宽度下常驻右侧
   const [showReview, setShowReview] = useState(false);
@@ -110,7 +111,11 @@ export function AgentCliModule() {
       <aside className="v9-spaces" aria-label={t.spaces}>
         <div className="v9-sidebar-head">
           <span>Spaces</span>
-          <IconButton icon={Plus} label="新建 Space" onClick={() => setSpaceForm({ name: "", folder: "" })} />
+          <span className="row">
+            {space ? <IconButton icon={Pencil} label="编辑 Space" data-testid="space-edit" onClick={() => setSpaceForm({ id: space.id, revision: space.revision, name: space.name, folder: space.root })} /> : null}
+            {space ? <IconButton icon={Trash2} label="删除 Space" data-testid="space-delete" onClick={() => setSpaceDelete(space)} /> : null}
+            <IconButton icon={Plus} label="新建 Space" onClick={() => setSpaceForm({ name: "", folder: "" })} />
+          </span>
         </div>
         <div className="v9-vault-caption">
           <Folder size={13} aria-hidden /> {t.spaces}
@@ -306,10 +311,48 @@ export function AgentCliModule() {
         </footer>
       </section>
       {settingsOpen ? <AgentSettings onClose={() => setSettingsOpen(false)} /> : null}
+      {spaceDelete ? (
+        <Dialog
+          open
+          title={`删除 Space “${spaceDelete.name}”`}
+          description="只删除 Space 配置，不会删除工作目录里的任何文件；已结束会话的历史记录保留。"
+          error={spaceError}
+          testId="space-delete-dialog"
+          onClose={() => (setSpaceDelete(null), setSpaceError(null))}
+          actions={
+            <>
+              <Button onClick={() => (setSpaceDelete(null), setSpaceError(null))}>取消</Button>
+              <Button
+                variant="danger"
+                icon={Trash2}
+                data-testid="space-delete-confirm"
+                onClick={() =>
+                  void (async () => {
+                    setSpaceError(null);
+                    try {
+                      await engine.call("agent.spaces.delete", { id: spaceDelete.id }, { write: true });
+                      setSpaceDelete(null);
+                      setSpaceId(null);
+                      setActive(null);
+                      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
+                    } catch (e) {
+                      setSpaceError(e instanceof CapabilityError || e instanceof Error ? e.message : String(e));
+                    }
+                  })()
+                }
+              >
+                删除 Space
+              </Button>
+            </>
+          }
+        >
+          <p>{spaceDelete.root}</p>
+        </Dialog>
+      ) : null}
       {spaceForm ? (
         <Dialog
           open
-          title="新建 Space"
+          title={spaceForm.id ? "编辑 Space" : "新建 Space"}
           description="为 Agent CLI 选择工作目录。这里不会创建或删除磁盘文件。"
           error={spaceError}
           testId="space-dialog"
@@ -326,7 +369,11 @@ export function AgentCliModule() {
                   void (async () => {
                     setSpaceError(null);
                     try {
-                      const created = await engine.call<Space>("agent.spaces.save", { name: spaceForm.name.trim(), root: spaceForm.folder.trim() }, { write: true });
+                      const created = await engine.call<Space>(
+                        "agent.spaces.save",
+                        { name: spaceForm.name.trim(), root: spaceForm.folder.trim(), ...(spaceForm.id ? { id: spaceForm.id, expectedRevision: spaceForm.revision ?? 0 } : {}) },
+                        { write: true },
+                      );
                       setSpaceForm(null);
                       setSpaceId(created.id);
                       setActive(null);
@@ -337,7 +384,7 @@ export function AgentCliModule() {
                   })()
                 }
               >
-                创建 Space
+                {spaceForm.id ? "保存 Space" : "创建 Space"}
               </Button>
             </>
           }

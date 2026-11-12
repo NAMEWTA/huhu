@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import { HerdrCore } from "./herdr-core.js";
 import { isValidNativeId, scanHistory } from "./history/scanner.js";
+import { readTranscript } from "./history/transcript.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
 import { ProviderPrefs } from "./prefs.js";
@@ -240,10 +241,29 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         );
         const r = scanCached(sp.root);
         const pinned = pins.list(sp.id);
-        const all = r.entries.map((e) => ({ ...e, active: live.has(`${e.provider}:${e.nativeSessionId}`), pinned: pinned.has(`${e.provider}:${e.nativeSessionId}`) }));
+        const all = r.entries.map(({ file: _file, ...e }) => ({ ...e, active: live.has(`${e.provider}:${e.nativeSessionId}`), pinned: pinned.has(`${e.provider}:${e.nativeSessionId}`) }));
         // 固定项置顶；其余保持扫描器给出的时间倒序（sort 稳定）
         const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
         return { entries: ordered.slice(0, i.limit), skipped: r.skipped };
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.history.read",
+      plugin: "agent-cli",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ spaceId: z.string(), provider: z.enum(["claude", "codex"]), nativeSessionId: z.string() }),
+      output: z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string(), at: z.string().nullable() })), truncated: z.boolean() }),
+      handler: (_c, i) => {
+        if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
+        const sp = spaceOf(i.spaceId);
+        // 只读扫描结果里确实存在的会话文件：不接受调用方给出的路径
+        const hit = scan(sp.root).entries.find((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
+        if (!hit) throw errors.notFound("没有找到这个历史会话");
+        return readTranscript(hit.provider, hit.file);
       },
     }),
   );

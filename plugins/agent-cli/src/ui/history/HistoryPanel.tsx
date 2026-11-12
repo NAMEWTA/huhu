@@ -1,6 +1,6 @@
-import { Button } from "@huhu/ui";
+import { Button, Dialog } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { History, Pin, Search } from "lucide-react";
+import { Eye, History, Pin, Search } from "lucide-react";
 import { useState } from "react";
 import { t } from "../i18n.js";
 
@@ -16,6 +16,34 @@ interface Entry {
 interface Session {
   id: string;
 }
+interface Transcript {
+  messages: { role: "user" | "assistant"; text: string; at: string | null }[];
+  truncated: boolean;
+}
+
+function TranscriptDialog({ spaceId, entry, onClose }: { spaceId: string; entry: Entry; onClose: () => void }) {
+  const transcript = useCapability<Transcript>("agent.history.read", { spaceId, provider: entry.provider, nativeSessionId: entry.nativeSessionId });
+  return (
+    <Dialog open title={entry.title} description="只读的对话记录（用户与助手的文字；不含工具调用）。" testId="history-transcript" onClose={onClose}>
+      {transcript.isError ? (
+        <div role="alert" className="callout danger">
+          <p>{transcript.error instanceof Error ? transcript.error.message : String(transcript.error)}</p>
+        </div>
+      ) : null}
+      {!transcript.data && !transcript.isError ? <p className="v9-small-empty">…</p> : null}
+      {transcript.data?.truncated ? <p className="v9-small-empty">记录较长，只显示最近的部分。</p> : null}
+      <div style={{ display: "grid", gap: 10, maxHeight: "55vh", overflow: "auto" }}>
+        {(transcript.data?.messages ?? []).map((m, i) => (
+          <div key={i} data-testid="transcript-message" data-role={m.role} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            <strong>{m.role === "user" ? "你" : "助手"}</strong>
+            <div>{m.text}</div>
+          </div>
+        ))}
+        {transcript.data && transcript.data.messages.length === 0 ? <p className="v9-small-empty">这次会话没有可显示的文字内容。</p> : null}
+      </div>
+    </Dialog>
+  );
+}
 
 export function HistoryPanel({ space, installed, onResumed }: { space: { id: string; revision: number; name?: string; root?: string }; installed: Set<string>; onResumed: (sessionId: string) => void }) {
   const engine = useEngine();
@@ -24,6 +52,7 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [viewing, setViewing] = useState<Entry | null>(null);
   const [filter, setFilter] = useState<"all" | "active" | "resumable">("all");
 
   async function resume(e: Entry) {
@@ -122,6 +151,9 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
               >
                 <Pin size={12} aria-hidden />
               </button>
+              <button type="button" className="v9-pin" aria-label={`查看记录 ${e.title}`} title="只读查看这次会话的对话记录" data-testid="history-view" onClick={() => setViewing(e)}>
+                <Eye size={12} aria-hidden />
+              </button>
               <Button disabled={!ok || e.active || busy !== null} loading={busy === e.nativeSessionId} title={ok ? undefined : t.history.notInstalled} data-testid="history-resume" onClick={() => void resume(e)}>
                 {busy === e.nativeSessionId ? t.history.resuming : t.history.resume}
               </Button>
@@ -130,6 +162,7 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
         })}
       </div>
       <div className="v9-history-footnote">{t.history.note}</div>
+      {viewing ? <TranscriptDialog spaceId={space.id} entry={viewing} onClose={() => setViewing(null)} /> : null}
     </section>
   );
 }

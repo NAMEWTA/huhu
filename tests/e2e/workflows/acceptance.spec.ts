@@ -377,6 +377,10 @@ test("Agent CLI 历史固定：固定后置顶、重新进入后仍在；取消�
     expect(readFileSync(path.join(vault, ".huhu/agent-cli/pins.json"), "utf8")).toContain("claude:old");
     await page.getByRole("button", { name: "取消固定 较旧的提问" }).click();
     await expect(titles).toHaveText(["较新的提问", "较旧的提问"]);
+    await page.getByRole("button", { name: "查看记录 较旧的提问" }).click();
+    await expect(page.getByTestId("history-transcript")).toBeVisible();
+    await expect(page.getByTestId("transcript-message").first()).toContainText("较旧的提问");
+    await expect(page.getByTestId("transcript-message").first()).toHaveAttribute("data-role", "user");
   } finally {
     await close();
     rmSync(base, { recursive: true, force: true });
@@ -986,5 +990,32 @@ test("知识库：详情“关联”显示关联任务与关联档案；笔记�
     await expect.poll(async () => ((await call("history.timeline", { path: note.path })).data as { title?: string }[]).some((e) => e.title === "里程碑一")).toBe(true);
   } finally {
     await close();
+  }
+});
+
+test("Agent CLI：Space 可以编辑（改名）与删除（只删配置，不动目录文件）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-space-"));
+  writeFileSync(path.join(dir, "keep.txt"), "x");
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page.getByTestId("space-new").click();
+    await page.getByLabel("Space 名称").fill("旧名字");
+    await page.getByLabel("工作目录").fill(dir);
+    await page.getByTestId("space-save").click();
+    await expect(page.locator(".v9-space-item", { hasText: "旧名字" })).toBeVisible();
+    await page.getByTestId("space-edit").click();
+    await page.getByLabel("Space 名称").fill("新名字");
+    await page.getByTestId("space-save").click();
+    await expect(page.locator(".v9-space-item", { hasText: "新名字" })).toBeVisible();
+    await expect(page.locator(".v9-space-item", { hasText: "旧名字" })).toHaveCount(0);
+    await page.getByTestId("space-delete").click();
+    await page.getByTestId("space-delete-confirm").click();
+    await expect(page.locator(".v9-space-item", { hasText: "新名字" })).toHaveCount(0);
+    expect(existsSync(path.join(dir, "keep.txt"))).toBe(true);
+  } finally {
+    await close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

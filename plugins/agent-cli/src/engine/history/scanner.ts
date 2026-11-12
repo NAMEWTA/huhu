@@ -10,6 +10,8 @@ export interface HistoryEntry {
   cwd: string;
   title: string;
   updatedAt: string;
+  /** 原生记录文件（仅引擎内部使用，不经能力返回）。 */
+  file: string;
 }
 
 export interface ScanOptions {
@@ -183,7 +185,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
   const roots = o.roots.map(real);
   const entries: HistoryEntry[] = [];
   let skipped = 0;
-  const accept = (provider: HistoryEntry["provider"], p: Parsed, fallbackId: string | null, mtime: Date) => {
+  const accept = (provider: HistoryEntry["provider"], p: Parsed, fallbackId: string | null, mtime: Date, file: string) => {
     const id = p.id ?? fallbackId;
     if (!id || !p.cwd || !isValidNativeId(id)) {
       skipped++;
@@ -192,7 +194,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
     const cwd = real(p.cwd);
     if (!roots.some((r) => within(r, cwd))) return;
     if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
-    entries.push({ provider, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString() });
+    entries.push({ provider, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file });
   };
 
   // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件
@@ -218,7 +220,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
     cFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
     for (const { file, id, mtime } of cFiles.slice(0, MAX_FILES)) {
       try {
-        accept("claude", parseClaude(file), id, mtime);
+        accept("claude", parseClaude(file), id, mtime, file);
       } catch {
         skipped++;
       }
@@ -238,7 +240,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
   files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
   for (const { file, mtime } of files.slice(0, MAX_FILES)) {
     try {
-      accept("codex", parseCodex(file), null, mtime);
+      accept("codex", parseCodex(file), null, mtime, file);
     } catch {
       skipped++;
     }
