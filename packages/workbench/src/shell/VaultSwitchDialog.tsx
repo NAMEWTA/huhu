@@ -10,7 +10,7 @@ import { listDirtyDocs, settleDirtyDocs } from "../state/flushers.js";
  * 切换 Vault（原型标题栏的“切换 Vault”）：有未保存文档时逐个列出，
  * 选项“全部保存并切换”“保留草稿并切换”“取消”；没有就直接确认。
  */
-export function VaultSwitchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
+export function VaultSwitchDialog({ open, onClose, target }: { open: boolean; onClose(): void; /** 直接切到这个 Vault（顶栏菜单里选了最近的 Vault / 其他目录）；缺省为回到启动页。 */ target?: { path: string; name: string } }) {
   const engine = useOptionalEngine();
   const [backupOk, setBackupOk] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -26,7 +26,19 @@ export function VaultSwitchDialog({ open, onClose }: { open: boolean; onClose():
         setError(`这些文档既没能保存也没能留下草稿，已取消切换：${lost.join("、")}`);
         return;
       }
-      await host()?.vault.close();
+      const vaultHost = host()?.vault;
+      if (target && vaultHost) {
+        const r = await vaultHost.open(target.path);
+        if (!r.ok) {
+          // 打开前的检查失败时当前 Vault 还开着：留在原地说明原因；否则（已被停掉）回到启动页
+          if ((await vaultHost.state()).path) {
+            setError(r.message);
+            return;
+          }
+        }
+      } else {
+        await vaultHost?.close();
+      }
       window.location.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -38,8 +50,8 @@ export function VaultSwitchDialog({ open, onClose }: { open: boolean; onClose():
   return (
     <Dialog
       open={open}
-      title="切换 Vault"
-      description={dirty ? "以下文档有未保存的修改，选择如何处理后再切换。" : "关闭当前 Vault 并回到启动页，可以打开另一个文件夹。"}
+      title={target ? `切换到 ${target.name}` : "切换 Vault"}
+      description={dirty ? "以下文档有未保存的修改，选择如何处理后再切换。" : target ? "关闭当前 Vault，并打开所选的文件夹。" : "关闭当前 Vault 并回到启动页，可以打开另一个文件夹。"}
       onClose={() => !busy && onClose()}
       testId="svault-switch-dialog"
       error={error}
@@ -59,7 +71,7 @@ export function VaultSwitchDialog({ open, onClose }: { open: boolean; onClose():
             </>
           ) : (
             <Button variant="primary" disabled={busy || !backupOk} data-testid="svault-switch-confirm" onClick={() => void go("save")}>
-              关闭并切换
+              {target ? "切换" : "关闭并切换"}
             </Button>
           )}
         </>

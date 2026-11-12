@@ -1046,3 +1046,23 @@ test("数据与存储：开启“关闭前提示导出数据包”后，切换 V
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+test("顶栏 Vault 菜单：列出最近打开的 Vault、打开其他 Vault…、关闭 Vault；选“关闭 Vault”回到启动页", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByTestId("vault-name").click();
+    const menu = page.getByTestId("vault-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "打开其他 Vault…" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "关闭 Vault" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await page.getByTestId("vault-name").click();
+    await menu.getByRole("menuitem", { name: "关闭 Vault" }).click();
+    await page.getByTestId("svault-switch-confirm").click();
+    await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+  } finally {
+    await close();
+  }
+});

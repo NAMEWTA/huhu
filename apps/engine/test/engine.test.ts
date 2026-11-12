@@ -102,7 +102,7 @@ describe("Engine 启动与关闭", () => {
     expect((await call("vault.search", { query: "知识库" })).data.hits[0]?.path).toBe("笔记.md");
     expect((await call("vault.readFile", { path: "笔记.md" })).data.text).toContain("想法");
     expect((await call("vault.readFile", { path: "../etc/passwd" })).error?.code).toBe("PATH_OUTSIDE_VAULT");
-    const managed = (await call("vault.managedFiles", {})).data as { files: { path: string; domain: string }[] };
+    const managed = (await call("vault.managedFiles", {})).data as unknown as { files: { path: string; domain: string }[] };
     expect(managed.files.find((f) => f.path === "笔记.md")?.domain).toBe("notes");
     expect(managed.files.find((f) => f.path === ".huhu/vault.json")?.domain).toBe("config");
     expect(managed.files.find((f) => f.path.startsWith("Automations/"))?.domain).toBe("automations");

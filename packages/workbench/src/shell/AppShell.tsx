@@ -5,6 +5,7 @@ import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { ModuleIconsContext, type ContributionRegistry } from "../contributions.js";
 import { host } from "../settings/host.js";
+import { VaultMenu } from "./VaultMenu.js";
 import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
 
@@ -56,6 +57,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   const { modules } = useSyncExternalStore(registry.subscribe, registry.getSnapshot);
   const s = useStore(ui);
   const [switchOpen, setSwitchOpen] = useState(false);
+  const [switchTarget, setSwitchTarget] = useState<{ path: string; name: string } | undefined>(undefined);
   const moduleIcons = useMemo(() => {
     const map: Record<string, ReactNode> = {};
     for (const m of modules) map[m.plugin] ??= m.icon; // 一个插件有多个模块时取第一个
@@ -109,11 +111,13 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                 </span>
               </button>
               {host()?.vault ? (
-                <button type="button" className="window-center vault-title-button" data-testid="vault-name" aria-label="切换 Vault" onClick={() => setSwitchOpen(true)}>
-                  <Folder size={13} aria-hidden />
-                  <span>{vaultName}</span>
-                  <ChevronDown size={12} aria-hidden />
-                </button>
+                <VaultMenu
+                  vaultName={vaultName}
+                  onSwitch={(target) => {
+                    setSwitchTarget(target);
+                    setSwitchOpen(true);
+                  }}
+                />
               ) : (
                 <div className="window-center vault-title-button" data-testid="vault-name">
                   <Folder size={13} aria-hidden />
@@ -121,7 +125,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                   <ChevronDown size={12} aria-hidden />
                 </div>
               )}
-              {host()?.vault ? <VaultSwitchDialog open={switchOpen} onClose={() => setSwitchOpen(false)} /> : null}
+              {host()?.vault ? <VaultSwitchDialog open={switchOpen} {...(switchTarget ? { target: switchTarget } : {})} onClose={() => setSwitchOpen(false)} /> : null}
               <div className="row">{version ? <Badge tone="neutral">{version}</Badge> : null}</div>
             </header>
             <div className="workbench">
