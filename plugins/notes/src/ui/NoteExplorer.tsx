@@ -82,7 +82,7 @@ export function NoteExplorer(p: ExplorerProps) {
 
   const fileRow = (note: NoteRef, depth: number) => (
     <div key={note.path} className={`knowledge-tree-line${note.path === p.selected ? " is-selected" : ""}`} style={{ ["--tree-depth" as string]: depth }}>
-      <button type="button" role="treeitem" aria-selected={note.path === p.selected} className="knowledge-tree-item" data-testid={note.file ? "file-item" : "note-item"} onClick={() => p.onOpen(note.path)}>
+      <button type="button" aria-current={note.path === p.selected ? "true" : undefined} className="knowledge-tree-item" data-testid={note.file ? "file-item" : "note-item"} onClick={() => p.onOpen(note.path)}>
         <span className="knowledge-tree-spacer" />
         <FileText size={15} aria-hidden />
         <span className="knowledge-tree-label">{note.title}</span>
@@ -97,7 +97,7 @@ export function NoteExplorer(p: ExplorerProps) {
     return (
       <div key={node.path} className="knowledge-tree-folder">
         <div className="knowledge-tree-line knowledge-folder-line" style={{ ["--tree-depth" as string]: depth }}>
-          <button type="button" role="treeitem" aria-expanded={open} className="knowledge-tree-item" onClick={() => p.onToggleFolder(node.path)}>
+          <button type="button" aria-expanded={open} className="knowledge-tree-item" onClick={() => p.onToggleFolder(node.path)}>
             {open ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
             {open ? <FolderOpen size={15} aria-hidden /> : <Folder size={15} aria-hidden />}
             <span className="knowledge-tree-label">{node.name}</span>
@@ -179,7 +179,7 @@ export function NoteExplorer(p: ExplorerProps) {
           ))}
         </div>
       ) : null}
-      <div className="resource-list knowledge-explorer-tree" role={p.notes.length > 0 ? "tree" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
+      <div className="resource-list knowledge-explorer-tree" role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
         <div className="knowledge-list-caption">
           <button type="button" className="active">
             {caption}
