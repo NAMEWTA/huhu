@@ -91,6 +91,10 @@
 
 笔记页的“文件目录”条（`knowledge-resource-bar`）在原型里只在窗口宽度 ≤ 900px 时显示，桌面宽度下是 `display:none`，不属于缺口。
 
+### 原型“保留”功能补齐（第 8 轮）
+
+此前列为缺口的功能核对后：档案表格 / 卡片切换与导出、首页“今日安排 / 最近活动”分区、版本历史的并排 / 统一与忽略空白早已实现；新补的有：Agent CLI 历史固定（`agent.history.pin`、`agent-cli/pins.json`、固定项置顶，e2e 覆盖）、SSH 主机编辑与按顺序选择跳板（ACC-SH-04 循环检测的错误显示在对话框内）、首页卡片在同列内排序（`widgets.json` 的 `order`，自定义面板上移 / 下移）、版本历史“与当前内容 / 与前一版”对比基准分段。仍未做：笔记拖放移动 / 外部拖入导入。
+
 ### 规模 Vault 性能（第 8 轮）
 
 `tests/perf/scale-vault.ts` 生成 10,000 篇笔记（约 100 MiB）/ 1,000 任务 / 1,000 档案（`pnpm exec tsx tests/perf/scale-vault.ts <目录>` 或在测试里调用 `createScaleVault`）；`tests/e2e/perf.spec.ts` 的 scale-vault 用例在 Linux（Xvfb）上多次测得：
@@ -112,7 +116,6 @@
 
 - 三平台：只在 Linux 上验证；Windows / macOS 的 Herdr、CLI 安装脚本、打包、冒烟、`ci.yml` / `release.yml` 从未在 GitHub 上运行；三台实机手动验证未做。
 - 笔记：切换笔记时编辑器整体重挂载（丢失每笔记撤销历史与滚动位置）；拖放移动 / 外部拖入导入。
-- 档案：表格 / 卡片视图切换、导出、关联任务；任务：多处细节（见 W08）。
 - W19：状态巡检只覆盖水平滚动 / Engine 断开 / 插件停用，缺少 1.5× 缩放、只读 Vault 与逐模块空态断言；工作流 W-A（委派给 Agent）、W-C（远程脚本）未写；其余性能指标已在 e2e/bench 中测量（见上节）。
 - 视觉：Agent CLI 评审面板（原型 `agent-review*` 无 CSS）、自动化运行记录面板、笔记默认行号与工具栏换行与原型存在差异；沙箱曾阻止截图，逐页像素对照未完成。
 - 宣布完成前仍需最终 audit 与顾问复核。

@@ -433,3 +433,31 @@ test("首页自定义：卡片可在同一列内上移 / 下移，顺序持久�
     await close();
   }
 });
+
+test("版本历史：对比基准“与当前内容 / 与前一版”切换，标签与 +n −m 随之变化", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const n = (await call("notes.create", { name: "基准笔记" })).data;
+    let v = (await call("notes.read", { path: n.path })).data.version;
+    v = (await call("notes.save", { path: n.path, text: "# 基准笔记\n\n一\n", expectedVersion: v })).data.version;
+    await call("history.checkpoint", { path: n.path, title: "版本一" });
+    v = (await call("notes.save", { path: n.path, text: "# 基准笔记\n\n一\n二\n三\n", expectedVersion: v })).data.version;
+    await call("history.checkpoint", { path: n.path, title: "版本二" });
+    await page.getByRole("button", { name: "版本历史" }).first().click();
+    await expect(page.getByTestId("history-entry")).toHaveCount(2, { timeout: 10_000 });
+    await page.getByTestId("history-entry").filter({ hasText: "版本二" }).click();
+    // 与当前内容：所选就是当前，没有差异
+    await expect(page.locator(".version-v9-diff-labels")).toContainText("当前有效内容");
+    // 与前一版：版本二相对版本一新增两行
+    await page.getByRole("tab", { name: "与前一版" }).click();
+    await expect(page.locator(".version-v9-diff-labels")).toContainText("前一版本");
+    await expect(page.getByTestId("history-stats")).toContainText("+2");
+    // 最早的一版没有前一版：与空文件比
+    await page.getByTestId("history-entry").filter({ hasText: "版本一" }).click();
+    await expect(page.locator(".version-v9-diff-labels")).toContainText("没有更早的版本");
+  } finally {
+    await close();
+  }
+});

@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, ReviewDiff, buildDiffRows } from "@huhu/ui";
+import { Badge, Button, EmptyState, ReviewDiff, Segmented, buildDiffRows } from "@huhu/ui";
 import { Cloud, FileText, GitBranch, History, Pencil, Plus, RotateCcw, Search } from "lucide-react";
 import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
@@ -104,8 +104,16 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
   const chosen = entries.find((e) => e.id === sel) ?? entries[0] ?? null;
   const content = useCapability<{ text: string }>("history.read", chosen && file ? { path: chosen.path, entryId: chosen.id } : { path: "x.md", entryId: "0".repeat(40) });
   const current = useCapability<{ text: string }>("notes.read", file ? { path: file } : { path: "x.md" });
-  // 头部的 +n −m：所选历史版本相对当前内容的行数变化（和下面的差异视图同一份数据）
-  const stats = chosen && content.data && current.data ? buildDiffRows(content.data.text, current.data.text) : null;
+  // 对比基准（规格：与前一版 / 与当前内容）：前一版 = 时间线里比所选版本更早的那一项；最早的一版与空文件比
+  const [base, setBase] = useState<"current" | "previous">("current");
+  const chosenIndex = chosen ? entries.findIndex((e) => e.id === chosen.id) : -1;
+  const previous = chosenIndex >= 0 ? (entries[chosenIndex + 1] ?? null) : null;
+  const previousContent = useCapability<{ text: string }>("history.read", previous && base === "previous" ? { path: previous.path, entryId: previous.id } : { path: "x.md", entryId: "0".repeat(40) });
+  const baseText = base === "current" ? (current.data?.text ?? null) : previous ? (previousContent.data?.text ?? null) : "";
+  // 与当前比：历史版本 → 当前内容；与前一版比：前一版 → 所选版本（这一版改了什么）。头部的 +n −m 与下面的差异视图同一份数据
+  const diffBefore = base === "current" ? (content.data?.text ?? null) : baseText;
+  const diffAfter = base === "current" ? baseText : (content.data?.text ?? null);
+  const stats = chosen && diffBefore !== null && diffAfter !== null ? buildDiffRows(diffBefore, diffAfter) : null;
 
   async function restore() {
     if (!file || !chosen) return;
@@ -190,6 +198,15 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
             <strong title={file ?? ""}>{file ?? "—"}</strong>
           </div>
           <div className="row">
+            <Segmented<"current" | "previous">
+              label="对比基准"
+              value={base}
+              onChange={setBase}
+              options={[
+                { value: "current", label: "与当前内容" },
+                { value: "previous", label: "与前一版" },
+              ]}
+            />
             {stats ? (
               <span className="version-v9-stats" data-testid="history-stats">
                 <span className="added">+{stats.added}</span> <span className="removed">−{stats.removed}</span>
@@ -208,10 +225,19 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
         {chosen ? (
           <div className="version-v9-diff" data-testid="history-content">
             <div className="version-v9-diff-labels">
-              <span>所选历史版本</span>
-              <span>当前有效内容</span>
+              {base === "current" ? (
+                <>
+                  <span>所选历史版本</span>
+                  <span>当前有效内容</span>
+                </>
+              ) : (
+                <>
+                  <span>{previous ? "前一版本" : "（没有更早的版本）"}</span>
+                  <span>所选历史版本</span>
+                </>
+              )}
             </div>
-            <ReviewDiff before={content.data?.text ?? ""} after={current.data?.text ?? ""} path={file ?? "document.md"} />
+            <ReviewDiff before={diffBefore ?? ""} after={diffAfter ?? ""} path={file ?? "document.md"} />
           </div>
         ) : (
           <EmptyState icon={History} title="选择文件查看历史" hint="查看和预览不会改写文件。" />
