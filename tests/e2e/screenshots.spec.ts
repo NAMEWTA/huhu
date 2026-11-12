@@ -18,7 +18,7 @@ for (const size of [
 ]) {
   test(`截图 ${size.width}×${size.height}：各模块主页面`, async () => {
     mkdirSync(DIR!, { recursive: true });
-    const { app, page, close } = await openApp();
+    const { page, close } = await openApp();
     try {
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       // 不依赖窗口管理器 / 屏幕大小：用 CDP 把页面视口固定为目标尺寸（Xvfb 下没有窗口管理器，setContentSize 会被随机裁剪）
