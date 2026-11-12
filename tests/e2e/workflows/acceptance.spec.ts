@@ -1088,3 +1088,38 @@ test("F6 / Shift+F6 在功能栏、模块侧栏、内容之间循环焦点", asy
     await close();
   }
 });
+
+test("Combobox：任务“项目”可从已有项目中搜索选择，也可直接输入新项目；版本历史“当前文件”可搜索", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    for (const project of ["工作", "家庭"]) await call("tasks.create", { title: `任务-${project}`, body: "", due: null, project, execution: { kind: "manual" }, resources: [], reminders: [] });
+    await call("notes.create", { name: "甲笔记" });
+    await call("notes.create", { name: "乙笔记" });
+    await page.getByRole("button", { name: "版本历史", exact: true }).first().click();
+    await page.getByTestId("versioning-nav-history").click();
+    const file = page.getByTestId("history-file");
+    await file.fill("乙");
+    await expect(page.getByRole("listbox", { name: "当前文件" }).getByRole("option")).toHaveText(["乙笔记.md"]);
+    await page.getByRole("listbox", { name: "当前文件" }).getByRole("option", { name: "乙笔记.md" }).click();
+    await expect(file).toHaveValue("乙笔记.md");
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByTestId("task-new").click();
+    const editor = page.getByTestId("task-editor");
+    const project = editor.getByLabel("任务项目");
+    await project.click();
+    await expect(page.getByRole("listbox", { name: "任务项目" }).getByRole("option")).toHaveCount(2);
+    await project.fill("家");
+    await expect(page.getByRole("listbox", { name: "任务项目" }).getByRole("option")).toHaveText(["家庭"]);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(project).toHaveValue("家庭");
+    await project.fill("全新项目");
+    await expect(page.getByText("按回车使用“全新项目”")).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(project).toHaveValue("全新项目");
+  } finally {
+    await close();
+  }
+});

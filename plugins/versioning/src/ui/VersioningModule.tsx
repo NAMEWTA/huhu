@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, ReviewDiff, Segmented, buildDiffRows } from "@huhu/ui";
+import { Badge, Button, Combobox, EmptyState, ReviewDiff, Segmented, buildDiffRows } from "@huhu/ui";
 import { Cloud, FileText, GitBranch, History, Pencil, Plus, RotateCcw, Search } from "lucide-react";
 import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
@@ -128,21 +128,18 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
         <div className="version-v9-sidebar-title">{t.nav.history}</div>
         <label className="version-v9-file-picker">
           {t.pickFile}
-          <select
-            aria-label={t.pickFile}
+          <Combobox
+            label={t.pickFile}
             value={file ?? ""}
-            onChange={(e) => {
-              setPath(e.target.value);
+            onChange={(v) => {
+              setPath(v);
               setSel(null);
               setOk(false);
             }}
-          >
-            {(notes.data ?? []).map((n) => (
-              <option key={n.path} value={n.path}>
-                {n.path}
-              </option>
-            ))}
-          </select>
+            options={(notes.data ?? []).map((n) => ({ value: n.path }))}
+            emptyText="没有匹配的笔记"
+            testId="history-file"
+          />
         </label>
         <form
           className="version-v9-sidebar-actions"

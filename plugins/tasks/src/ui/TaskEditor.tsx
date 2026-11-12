@@ -1,5 +1,5 @@
 import type { TaskDto } from "@huhu/contracts";
-import { Button, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
+import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
 import { useCapability, useEngine } from "@huhu/workbench";
 import { Bell, FileText, Plus, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
@@ -80,12 +80,16 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                 <DateTimePicker label={t.editor.due} mode="date" value={draft.due} onChange={(v) => set("due", v)} testId="task-due" />
               </Field>
               <Field label={t.editor.project}>
-                <input aria-label={t.editor.projectLabel} list="task-projects" value={draft.project} onChange={(e) => set("project", e.target.value)} placeholder={t.editor.projectPlaceholder} />
-                <datalist id="task-projects">
-                  {projects.map((p) => (
-                    <option key={p} value={p} />
-                  ))}
-                </datalist>
+                <Combobox
+                  label={t.editor.projectLabel}
+                  value={draft.project}
+                  onChange={(v) => set("project", v)}
+                  options={projects.map((p) => ({ value: p }))}
+                  placeholder={t.editor.projectPlaceholder}
+                  allowCustom
+                  emptyText="还没有项目，直接输入新的项目名"
+                  testId="task-project"
+                />
               </Field>
             </div>
             <div className="tw-resource-field">
