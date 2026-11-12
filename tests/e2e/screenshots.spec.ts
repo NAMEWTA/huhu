@@ -5,6 +5,7 @@ import { openApp, root } from "./helpers/launch.js";
 
 /**
  * 视觉自查截图（quality.md §4：1440×900 与 1024×768）：HUHU_SHOTS_DIR=<目录> 时才运行，截图写入该目录供与原型对照。
+ * 需要足够大的虚拟屏幕：xvfb-run -a -s "-screen 0 1920x1080x24" pnpm exec playwright test tests/e2e/screenshots.spec.ts
  */
 const DIR = process.env["HUHU_SHOTS_DIR"];
 test.skip(!DIR, "设置 HUHU_SHOTS_DIR 才截图");
@@ -21,6 +22,8 @@ for (const size of [
     try {
       await app.evaluate(({ BrowserWindow }, s) => BrowserWindow.getAllWindows()[0]?.setContentSize(s.width, s.height), size);
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      // 窗口被屏幕裁小时截图尺寸就不对（Xvfb 默认屏幕太小）：用 xvfb-run -a -s "-screen 0 1920x1080x24" 运行
+      await expect.poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual([size.width, size.height]);
       for (const name of MODULES) {
         const rail = page.getByRole("button", { name, exact: true }).first();
         if ((await rail.count()) === 0) continue;

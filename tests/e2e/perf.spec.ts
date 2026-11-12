@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createScaleVault } from "../perf/scale-vault.js";
 import { root } from "./helpers/launch.js";
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
@@ -260,6 +261,59 @@ test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", asyn
     note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
     expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);
     expect(v).toBeLessThanOrEqual(100);
+  } finally {
+    await app.close();
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
+
+test("scale-vault（10,000 篇笔记 / 1,000 任务 / 1,000 档案）：打开到文件树可用 ≤ 6 s；索引在后台完成；Engine 内存 ≤ 600 MiB", async () => {
+  test.setTimeout(600_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-scale-e2e-"));
+  const tg = Date.now();
+  const made = await createScaleVault(vault);
+  note("scale-vault 生成", `${made.notes} 篇 / ${made.tasks} 任务 / ${made.archives} 档案，${Date.now() - tg} ms`);
+  const t0 = Date.now();
+  const app = await electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 60_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    // 笔记都在文件夹里：展开第一个文件夹并看到其中的笔记，才算文件树可用
+    await page
+      .getByRole("button", { name: /^文件夹0\b/ })
+      .first()
+      .click({ timeout: 60_000 });
+    await expect(page.getByTestId("note-item").first()).toBeVisible({ timeout: 60_000 });
+    const tree = Date.now() - t0;
+    note("打开 scale-vault 到文件树可用", `${tree} ms（目标 ≤ 6000）`);
+    expect(tree).toBeLessThanOrEqual(6000);
+
+    const ep = await page.evaluate(() => window.huhuHost.engine());
+    const call = (capability: string, input: unknown = {}) =>
+      page.evaluate(
+        async ([e, cap, inp]) => {
+          const r = await fetch(`${e.baseUrl}/api/v1/call`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
+            body: JSON.stringify({ capability: cap, input: inp, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+          });
+          return r.json();
+        },
+        [ep, capability, input] as const,
+      );
+    await expect.poll(async () => ((await call("vault.search", { query: "笔记9999" })) as any).data?.indexing, { timeout: 120_000 }).toBe(false);
+    note("scale-vault 索引完成（自启动起）", `${Date.now() - t0} ms`);
+    const tasks = ((await call("tasks.list", { category: "all" })) as any).data as unknown[];
+    expect(tasks.length).toBe(1000);
+
+    const runtime = path.join(vault, ".huhu", "runtime");
+    const pid = Number(readFileSync(path.join(runtime, readdirSync(runtime).sort().at(-1) as string, "engine.json"), "utf8").match(/"pid":(\d+)/)?.[1]);
+    if (process.platform !== "win32") {
+      const rssKiB = Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim());
+      note("scale-vault Engine 常驻内存", `${(rssKiB / 1024).toFixed(0)} MiB（目标 ≤ 600）`);
+      expect(rssKiB / 1024).toBeLessThanOrEqual(600);
+    }
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });

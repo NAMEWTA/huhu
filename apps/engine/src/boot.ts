@@ -1,5 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { z } from "zod";
 import {
   CapabilityRegistry,
@@ -52,6 +54,16 @@ import * as ssh from "@huhu/plugin-ssh/engine";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
+
+/** 全量索引建完后立即整理一次堆：构建期间产生的大量临时字符串否则会一直占着 RSS。 */
+function compactMemory(): void {
+  try {
+    setFlagsFromString("--expose-gc");
+    (runInNewContext("gc") as () => void)();
+  } catch {
+    // 没有可用的 GC 入口时静默跳过；只影响内存峰值，不影响功能
+  }
+}
 
 export interface EndpointDescriptor {
   pid: number;
@@ -114,7 +126,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
   registerPackageCapabilities(registry, vault);
-  void index.build(); // 后台构建；构建期间 vault.tree 已可用，vault.search 返回 indexing=true
+  // 后台构建；构建期间 vault.tree 已可用，vault.search 返回 indexing=true。建完后做一次整理，把构建过程中的临时对象还给系统（常驻内存目标见 quality.md §3）
+  void index.build().then(() => compactMemory());
 
   const events = new EventBus(() => vault.id);
   const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")));

@@ -64,7 +64,10 @@ export class SearchIndex {
 
   upsert(doc: SearchDoc): void {
     this.removePath(doc.path);
-    const id = String(insert(this.db, { ...doc, pathText: doc.path } as never));
+    // 正文只以去重后的词表入库：Orama 的文档仓会整份保存插入的文档（删除时也要靠它还原倒排项），
+    // 存全文会让 scale-vault（约 100 MiB 正文）的 Engine 内存超标；词表与原文分词结果相同，检索行为不变。
+    const body = [...new Set(tokenize(doc.body))].join(" ");
+    const id = String(insert(this.db, { ...doc, body, pathText: doc.path } as never));
     this.ids.set(doc.path, id);
   }
 
