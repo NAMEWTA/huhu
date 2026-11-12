@@ -64,7 +64,12 @@ async function start(): Promise<{ app: ElectronApplication; page: Page; vault: s
         while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
         expect(alive(), "Engine 进程在退出后 10 秒内仍存在").toBe(false);
       }
-      rmSync(vault, { recursive: true, force: true });
+      // Windows 上 Herdr Core 等后台进程可能还占着 Vault 里的文件（EPERM）：重试，仍不行就留给系统清理
+      try {
+        rmSync(vault, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+      } catch (e) {
+        if (process.platform !== "win32") throw e;
+      }
     },
   };
 }
@@ -135,12 +140,16 @@ test("打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，C
 test("打包后：随包命令行 huhu --version 与应用版本一致，huhu call vault.info 返回 ok", async () => {
   const s = await start();
   try {
-    const bin = path.join(path.dirname(EXE!), "resources", "bin", process.platform === "win32" ? "huhu.cmd" : "huhu");
+    // 随包命令行的位置：Windows / Linux 在可执行文件旁的 resources/bin；macOS 在 HUHU.app/Contents/Resources/bin
+    const resources = process.platform === "darwin" ? path.join(path.dirname(EXE!), "..", "Resources") : path.join(path.dirname(EXE!), "resources");
+    const bin = path.join(resources, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu");
     expect(existsSync(bin)).toBe(true);
+    // Node 不允许不经 shell 直接 spawn .cmd（EINVAL）
+    const run = (args: string[]) => execFileSync(process.platform === "win32" ? `"${bin}"` : bin, args, { encoding: "utf8", timeout: 30_000, ...(process.platform === "win32" ? { shell: true } : {}) });
     const info = await s.page.evaluate(() => window.huhuHost.appInfo());
-    const version = execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 30_000 }).trim();
+    const version = run(["--version"]).trim();
     expect(version).toBe(info.version);
-    const out = execFileSync(bin, ["call", "vault.info", "--vault", s.vault, "--json"], { encoding: "utf8", timeout: 30_000 });
+    const out = run(["call", "vault.info", "--vault", process.platform === "win32" ? `"${s.vault}"` : s.vault, "--json"]);
     expect(JSON.parse(out).ok).toBe(true);
   } finally {
     await s.stop();
