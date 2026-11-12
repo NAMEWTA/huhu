@@ -183,7 +183,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               const name = (p.split("/").at(-1) ?? p).replace(/\.md$/i, "");
               return (
                 <div key={p} className={`knowledge-document-tab${p === selected ? " active" : ""}`}>
-                  <button type="button" aria-current={p === selected ? "page" : undefined} title={p} data-testid="document-tab" onClick={() => openNote(p)}>
+                  <button type="button" aria-current={p === selected ? "true" : undefined} title={p} data-testid="document-tab" onClick={() => openNote(p)}>
                     <FileText size={14} aria-hidden />
                     <span>{name}</span>
                   </button>

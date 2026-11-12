@@ -255,7 +255,7 @@ export function AgentCliModule() {
             <section className="v9-terminal-pane" aria-label={cur.name}>
               <div className="v9-terminal-heading">
                 <span className={`v9-provider-mark provider-${cur.provider}`}>{cur.provider === "shell" ? "›" : cur.provider.slice(0, 1).toUpperCase()}</span>
-                <strong>{cur.provider === "shell" ? "Shell" : ((providers.data ?? []).find((p) => p.provider === cur.provider)?.displayName ?? cur.provider)}</strong>
+                <strong title={cur.name}>{cur.provider === "shell" ? "Shell" : ((providers.data ?? []).find((p) => p.provider === cur.provider)?.displayName ?? cur.provider)}</strong>
                 {stateBadge(cur)}
                 <span className="grow" />
                 <Button onClick={() => void act("agent.sessions.interrupt", cur.id)}>{t.interrupt}</Button>
