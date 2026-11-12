@@ -14,7 +14,7 @@ export const t = {
     motionSystem: "跟随系统",
     motionStandard: "标准",
     motionReduced: "减少",
-    compact: "紧凑布局",
+    compact: "紧凑显示",
     navWidth: "导航栏宽度",
     editor: "编辑器",
     editorFontSize: "正文字号",

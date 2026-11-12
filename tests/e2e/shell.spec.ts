@@ -1144,8 +1144,8 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByLabel("导航栏宽度", { exact: true }).fill("280");
     await expect(page.locator("html")).toHaveCSS("--sidebar-w", "280px");
-    await page.getByRole("switch", { name: "紧凑布局" }).click();
-    await expect(page.getByRole("switch", { name: "紧凑布局" })).toBeChecked();
+    await page.getByRole("switch", { name: "紧凑显示" }).click();
+    await expect(page.getByRole("switch", { name: "紧凑显示" })).toBeChecked();
     await expect(page.locator("html")).toHaveAttribute("data-density", "compact");
 
     await page.getByTestId("settings-nav-editor").click();

@@ -138,3 +138,8 @@ dialog.modal::backdrop {
 .version-v9-diff-heading > .row {
   margin-left: auto;
 }
+/* 外壳页签里的模块图标按原型是 14px（侧栏图标栏用的是更大的尺寸） */
+.workspace-tab > button:not(.tab-close) > svg {
+  width: 14px;
+  height: 14px;
+}
