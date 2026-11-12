@@ -257,3 +257,40 @@ interface AgentProvider {
 ```
 
 “新终端”不是 provider：它以 Space 根为 cwd 调用 `terminal.run` 且不传 argv（Core 使用该机器默认 shell）。
+
+## 9. 实现对照（以代码为准）
+
+§2 的能力目录是设计时的命名；实现阶段按下表调整。除表中所列外，名称与语义以 §2 为准。能力名清单可用 `capabilities.list`（含 `includeInactive`）取得。
+
+**与 §2 命名不同或合并的**
+
+| §2 设计 | 实际实现 | 说明 |
+| --- | --- | --- |
+| `folders.rename` / `folders.move` / `folders.delete` | `notes.rename` / `notes.move` / `notes.trash`（路径为目录时作用于目录） | 目录与笔记共用同一套移动/重命名/回收站语义；只保留 `folders.create` |
+| `notes.updateProperties` | `notes.save`（整篇保存，frontmatter 属性在编辑器内改动后随正文一起写入，带 `expectedVersion`） | 避免属性与正文两条写入路径各自维护版本 |
+| `guide.inspect` / `guide.repair` / `guide.restoreBackup` | `guide.check` / `guide.view` / `guide.preserve` / `guide.backups.list` / `guide.backups.restore` | 检查、查看、保留、备份列表与还原分开 |
+| `gateway.audit` | `gateway.audit.list` / `gateway.audit.clear` | |
+| `health.cancel` / `health.results` | `health.run`（运行后即返回结果，事件经 `health.events`） | 检查项很快，不提供取消 |
+| `plugins.grant` | 暂无：插件权限只在安装时由 manifest 声明，用户通过启用/停用与 Gateway 暴露开关控制 | 见 D-18 |
+| `plugins.wipeData` | 卸载时的 `plugins.uninstall`（`wipeData` 参数） | |
+| `automations.runs.reconcile` | 引擎启动时 `reconcile`（不作为能力暴露） | 对账由 Engine 启动自动执行并写 stderr 日志 |
+
+**§2 之外实现阶段新增的能力**
+
+| 能力 | 用途 |
+| --- | --- |
+| `vault.readBinary` | 知识库文件查看器读取图片/SVG（有大小上限，路径限定在 Vault 内） |
+| `vault.location` / `vault.update` / `vault.reindexCancel` | Vault 位置、更新、取消重建索引 |
+| `health.exportDiagnostics` | 导出脱敏诊断包 |
+| `agent.providers.prefs.get` / `.set` | 智能体设置：各 provider 的启用与默认模型（存于 `agent-cli/providers.json`） |
+| `agent.history.pin` / `agent.history.read` | 历史会话固定；只读查看某次会话的对话记录（不接受调用方路径，只读扫描结果中的文件） |
+| `agent.core.status` / `agent.core.restart` | herdr-core 状态与重启 |
+| `agent.review.comments` / `.comment.add` / `.comment.delete` | 变更审查意见 |
+| `gateway.check` / `gateway.mcp.update` / `gateway.tokens.*` | 网关自检、MCP 配置、访问令牌 |
+| `home.widgets.get` / `home.focus.get` / `home.habits.get` | 首页卡片、专注、习惯 |
+| `plugins.commands.list` / `.run` / `plugins.examples` / `plugins.inspect` | 命令面板扩展、示例插件、清单检查 |
+| `ssh.sftp.upload` / `.download` / `.cancel` / `ssh.shells.list` | SFTP 传输与终端会话列表 |
+| `automations.cancel` / `automations.runs.list` / `conflicts.cancel` / `git.init` | 自动化取消与运行列表、冲突取消、初始化 Git |
+| `notes.files` / `notes.folders` / `notes.tags` / `notes.draft.get` | 文件树、目录、标签、草稿读取 |
+
+**不属于 Huhu 能力的条目**：§2/§5 中的 `terminal.*`、`events.subscribe`、`server.status` 是 herdr-core 或传输层的 RPC，由 `packages/herdr-client` / Engine 传输实现，不经 Dispatcher 的能力表。
