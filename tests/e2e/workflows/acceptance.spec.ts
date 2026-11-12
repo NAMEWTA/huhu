@@ -897,3 +897,28 @@ test("知识库查看器：文本 / JSON（带语法诊断）/ 图片 / SVG 直�
     await close();
   }
 });
+
+test("阅读模式：数学公式（KaTeX）与 Mermaid 图表渲染；错误的图表显示错误并保留源码；.mmd 文件有图表预览", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    fs.writeFileSync(
+      `${vault}/公式与图.md`,
+      ["# 公式与图", "", "行内公式 $E=mc^2$ 与块公式：", "", "$$", "\\int_0^1 x^2 dx = \\frac13", "$$", "", "```mermaid", "graph TD", "  A[开始] --> B[结束]", "```", "", "```mermaid", "这不是合法的图", "```", ""].join("\n"),
+    );
+    fs.writeFileSync(`${vault}/流程.mmd`, "graph LR\n  X --> Y\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "公式与图" }).click();
+    await page.getByRole("tab", { name: "阅读" }).click();
+    const pane = page.locator(".knowledge-reading-pane");
+    await expect(pane.locator(".katex").first()).toBeVisible({ timeout: 15_000 });
+    expect(await pane.locator(".katex").count()).toBeGreaterThanOrEqual(2); // 行内 + 块
+    await expect(pane.getByTestId("mermaid-diagram").locator("svg")).toBeVisible({ timeout: 30_000 });
+    await expect(pane.getByTestId("mermaid-error")).toContainText("这不是合法的图"); // 源码仍可见
+    await page.getByTestId("file-item").filter({ hasText: "流程" }).click();
+    await expect(page.getByTestId("file-mermaid").locator("svg")).toBeVisible({ timeout: 30_000 });
+  } finally {
+    await close();
+  }
+});

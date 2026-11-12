@@ -1,4 +1,4 @@
-import { MarkdownEditor } from "@huhu/editor";
+import { MarkdownEditor, MermaidBlock } from "@huhu/editor";
 import { Button } from "@huhu/ui";
 import { host, useEngine } from "@huhu/workbench";
 import { ExternalLink, FileQuestion, FolderSearch } from "lucide-react";
@@ -7,6 +7,8 @@ import { useEffect, useState } from "react";
 const humanSize = (b: number): string => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(2)} GiB` : b >= 1024 ** 2 ? `${(b / 1024 ** 2).toFixed(1)} MiB` : b >= 1024 ? `${(b / 1024).toFixed(1)} KiB` : `${b} B`);
 
 const TEXT_EXT = new Set([
+  "mmd",
+  "mermaid",
   "txt",
   "log",
   "csv",
@@ -120,6 +122,11 @@ export function FileCard({ path, size, mtimeMs }: { path: string; size: number; 
             <p className="hint-text" role="status" data-testid="file-diagnostic" style={{ margin: "6px 12px" }}>
               {preview.note}
             </p>
+          ) : null}
+          {ext === "mmd" || ext === "mermaid" ? (
+            <div style={{ overflow: "auto", maxHeight: "45%", padding: "0 12px" }} data-testid="file-mermaid">
+              <MermaidBlock source={preview.text} />
+            </div>
           ) : null}
           <div style={{ flex: 1, minHeight: 0 }}>
             <MarkdownEditor documentId={`file:${path}`} value={preview.text} mode="source" readOnly lineNumbers onChange={() => undefined} ariaLabel={`${name} 内容（只读）`} />

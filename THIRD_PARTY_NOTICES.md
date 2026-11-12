@@ -22,6 +22,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 
 | 包 | 版本 | 许可证 | 主页 |
 | --- | --- | --- | --- |
+| @antfu/install-pkg | 2.1.0 | MIT | https://github.com/antfu-collective/install-pkg#readme |
 | @babel/code-frame | 7.29.7 | MIT | https://babel.dev/docs/en/next/babel-code-frame |
 | @babel/compat-data | 7.29.7 | MIT |  |
 | @babel/core | 7.29.13 | MIT | https://babel.dev/docs/en/next/babel-core |
@@ -41,6 +42,12 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @babel/template | 7.29.7 | MIT | https://babel.dev/docs/en/next/babel-template |
 | @babel/traverse | 7.29.13 | MIT | https://babel.dev/docs/en/next/babel-traverse |
 | @babel/types | 7.29.11 | MIT | https://babel.dev/docs/en/next/babel-types |
+| @braintree/sanitize-url | 7.1.2 | MIT | https://github.com/braintree/sanitize-url#readme |
+| @chevrotain/cst-dts-gen | 11.0.3 | Apache-2.0 |  |
+| @chevrotain/gast | 11.0.3 | Apache-2.0 |  |
+| @chevrotain/regexp-to-ast | 11.0.3 | Apache-2.0 |  |
+| @chevrotain/types | 11.0.3 | Apache-2.0 | https://chevrotain.io/documentation/ |
+| @chevrotain/utils | 11.0.3 | Apache-2.0 |  |
 | @codemirror/commands | 6.11.1 | MIT |  |
 | @codemirror/language | 6.13.1 | MIT |  |
 | @codemirror/search | 6.7.2 | MIT |  |
@@ -64,6 +71,8 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @floating-ui/react-dom | 2.1.9 | MIT | https://floating-ui.com/docs/react-dom |
 | @floating-ui/utils | 0.2.12 | MIT | https://floating-ui.com |
 | @hono/node-server | 2.1.6 | MIT | https://github.com/honojs/node-server |
+| @iconify/types | 2.0.0 | MIT | https://github.com/iconify/iconify |
+| @iconify/utils | 3.1.7 | MIT | https://iconify.design/docs/libraries/utils/ |
 | @isaacs/fs-minipass | 4.0.1 | ISC |  |
 | @jridgewell/gen-mapping | 0.3.13 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping |
 | @jridgewell/remapping | 2.3.5 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/remapping |
@@ -77,6 +86,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @malept/cross-spawn-promise | 2.0.0 | Apache-2.0 |  |
 | @malept/flatpak-bundler | 0.4.0 | MIT | https://github.com/malept/flatpak-bundler#readme |
 | @marijn/find-cluster-break | 1.0.4 | MIT | https://code.haverbeke.berlin/marijn/find-cluster-break |
+| @mermaid-js/parser | 0.6.3 | MIT | https://github.com/mermaid-js/mermaid/tree/develop/packages/mermaid/parser/#readme |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | https://modelcontextprotocol.io |
 | @noble/hashes | 1.8.0 | MIT | https://paulmillr.com/noble/ |
 | @oxc-parser/binding-linux-x64-gnu | 0.156.0 | MIT | https://oxc.rs/docs/guide/usage/parser |
@@ -133,13 +143,46 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @types/aria-query | 5.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/aria-query |
 | @types/cacheable-request | 6.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/cacheable-request |
 | @types/chai | 5.2.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/chai |
+| @types/d3 | 7.4.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3 |
+| @types/d3-array | 3.2.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-array |
+| @types/d3-axis | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-axis |
+| @types/d3-brush | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-brush |
+| @types/d3-chord | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-chord |
+| @types/d3-color | 3.1.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-color |
+| @types/d3-contour | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-contour |
+| @types/d3-delaunay | 6.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-delaunay |
+| @types/d3-dispatch | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-dispatch |
+| @types/d3-drag | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-drag |
+| @types/d3-dsv | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-dsv |
+| @types/d3-ease | 3.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-ease |
+| @types/d3-fetch | 3.0.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-fetch |
+| @types/d3-force | 3.0.10 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-force |
+| @types/d3-format | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-format |
+| @types/d3-geo | 3.1.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-geo |
+| @types/d3-hierarchy | 3.1.7 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-hierarchy |
+| @types/d3-interpolate | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-interpolate |
+| @types/d3-path | 3.1.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-path |
+| @types/d3-polygon | 3.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-polygon |
+| @types/d3-quadtree | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-quadtree |
+| @types/d3-random | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-random |
+| @types/d3-scale | 4.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-scale |
+| @types/d3-scale-chromatic | 3.1.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-scale-chromatic |
+| @types/d3-selection | 3.0.12 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-selection |
+| @types/d3-shape | 3.2.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-shape |
+| @types/d3-time | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-time |
+| @types/d3-time-format | 4.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-time-format |
+| @types/d3-timer | 3.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-timer |
+| @types/d3-transition | 3.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-transition |
+| @types/d3-zoom | 3.0.9 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-zoom |
 | @types/debug | 4.1.13 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/debug |
 | @types/deep-eql | 4.0.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/deep-eql |
 | @types/estree | 1.0.10 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/estree |
 | @types/estree-jsx | 1.0.5 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/estree-jsx |
 | @types/fs-extra | 9.0.13 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/fs-extra |
+| @types/geojson | 7946.0.16 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/geojson |
 | @types/hast | 3.0.5 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/hast |
 | @types/http-cache-semantics | 4.2.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/http-cache-semantics |
+| @types/katex | 0.16.8 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/katex |
 | @types/keyv | 3.1.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/keyv |
 | @types/mdast | 4.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/mdast |
 | @types/ms | 2.1.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/ms |
@@ -225,6 +268,8 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | character-entities-legacy | 3.0.0 | MIT |  |
 | character-reference-invalid | 2.0.1 | MIT |  |
 | check-error | 2.1.3 | MIT |  |
+| chevrotain | 11.0.3 | Apache-2.0 | https://chevrotain.io/docs/ |
+| chevrotain-allstar | 0.3.1 | MIT |  |
 | chownr | 3.0.0 | BlueOak-1.0.0 |  |
 | chromium-pickle-js | 0.2.0 | MIT |  |
 | ci-info | 4.3.1 | MIT | https://github.com/watson/ci-info |
@@ -237,6 +282,8 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | comma-separated-tokens | 2.0.3 | MIT |  |
 | commander | 15.1.0 | MIT |  |
 | commander | 5.1.0 | MIT |  |
+| commander | 7.2.0 | MIT |  |
+| commander | 8.3.0 | MIT |  |
 | compare-version | 0.1.2 | MIT |  |
 | concat-map | 0.0.1 | MIT |  |
 | content-disposition | 2.0.1 | MIT |  |
@@ -247,13 +294,55 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | cookie-signature | 1.2.2 | MIT |  |
 | core-util-is | 1.0.3 | MIT |  |
 | cors | 2.8.6 | MIT |  |
+| cose-base | 1.0.3 | MIT | https://github.com/iVis-at-Bilkent/cose-base#readme |
+| cose-base | 2.2.0 | MIT | https://github.com/iVis-at-Bilkent/cose-base#readme |
 | cpu-features | 0.0.10 | MIT |  |
 | crelt | 1.0.7 | MIT | https://code.haverbeke.berlin/marijn/crelt |
 | croner | 11.0.0 | MIT | https://croner.56k.guru |
 | cross-spawn | 7.0.6 | MIT | https://github.com/moxystudio/node-cross-spawn |
 | csstype | 3.2.3 | MIT |  |
+| cytoscape | 3.35.0 | MIT | http://js.cytoscape.org |
+| cytoscape-cose-bilkent | 4.1.0 | MIT | https://github.com/cytoscape/cytoscape.js-cose-bilkent |
+| cytoscape-fcose | 2.2.0 | MIT | https://github.com/iVis-at-Bilkent/cytoscape.js-fcose |
+| d3 | 7.9.2 | ISC | https://d3js.org |
+| d3-array | 2.12.1 | BSD-3-Clause | https://d3js.org/d3-array/ |
+| d3-array | 3.2.5 | ISC | https://d3js.org/d3-array/ |
+| d3-axis | 3.0.1 | ISC | https://d3js.org/d3-axis/ |
+| d3-brush | 3.0.1 | ISC | https://d3js.org/d3-brush/ |
+| d3-chord | 3.0.2 | ISC | https://d3js.org/d3-chord/ |
+| d3-color | 3.1.1 | ISC | https://d3js.org/d3-color/ |
+| d3-contour | 4.0.3 | ISC | https://d3js.org/d3-contour/ |
+| d3-delaunay | 6.0.6 | ISC | https://github.com/d3/d3-delaunay |
+| d3-dispatch | 3.0.2 | ISC | https://d3js.org/d3-dispatch/ |
+| d3-drag | 3.0.1 | ISC | https://d3js.org/d3-drag/ |
+| d3-dsv | 3.0.2 | ISC | https://d3js.org/d3-dsv/ |
+| d3-ease | 3.0.2 | BSD-3-Clause | https://d3js.org/d3-ease/ |
+| d3-fetch | 3.0.2 | ISC | https://d3js.org/d3-fetch/ |
+| d3-force | 3.0.1 | ISC | https://d3js.org/d3-force/ |
+| d3-format | 3.1.3 | ISC | https://d3js.org/d3-format/ |
+| d3-geo | 3.1.2 | ISC | https://d3js.org/d3-geo/ |
+| d3-hierarchy | 3.1.3 | ISC | https://d3js.org/d3-hierarchy/ |
+| d3-interpolate | 3.0.2 | ISC | https://d3js.org/d3-interpolate/ |
+| d3-path | 1.0.9 | BSD-3-Clause | https://d3js.org/d3-path/ |
+| d3-path | 3.1.1 | ISC | https://d3js.org/d3-path/ |
+| d3-polygon | 3.0.2 | ISC | https://d3js.org/d3-polygon/ |
+| d3-quadtree | 3.0.2 | ISC | https://d3js.org/d3-quadtree/ |
+| d3-random | 3.0.2 | ISC | https://d3js.org/d3-random/ |
+| d3-sankey | 0.12.3 | BSD-3-Clause | https://github.com/d3/d3-sankey |
+| d3-scale | 4.0.3 | ISC | https://d3js.org/d3-scale/ |
+| d3-scale-chromatic | 3.1.1 | ISC | https://d3js.org/d3-scale-chromatic/ |
+| d3-selection | 3.0.1 | ISC | https://d3js.org/d3-selection/ |
+| d3-shape | 1.3.7 | BSD-3-Clause | https://d3js.org/d3-shape/ |
+| d3-shape | 3.2.1 | ISC | https://d3js.org/d3-shape/ |
+| d3-time | 3.1.1 | ISC | https://d3js.org/d3-time/ |
+| d3-time-format | 4.1.1 | ISC | https://d3js.org/d3-time-format/ |
+| d3-timer | 3.0.2 | ISC | https://d3js.org/d3-timer/ |
+| d3-transition | 3.0.2 | ISC | https://d3js.org/d3-transition/ |
+| d3-zoom | 3.0.1 | ISC | https://d3js.org/d3-zoom/ |
+| dagre-d3-es | 7.0.13 | MIT |  |
 | data-urls | 8.0.0 | MIT |  |
 | date-fns | 4.4.0 | MIT |  |
+| dayjs | 1.11.23 | MIT | https://day.js.org |
 | debug | 4.4.3 | MIT |  |
 | decimal.js | 10.6.0 | MIT |  |
 | decode-named-character-reference | 1.3.0 | MIT |  |
@@ -262,6 +351,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | defer-to-connect | 2.0.1 | MIT | https://github.com/szmarczak/defer-to-connect#readme |
 | define-data-property | 1.1.4 | MIT | https://github.com/ljharb/define-data-property#readme |
 | define-properties | 1.2.1 | MIT |  |
+| delaunator | 5.1.0 | ISC |  |
 | delayed-stream | 1.0.0 | MIT | https://github.com/felixge/node-delayed-stream |
 | depd | 2.0.0 | MIT |  |
 | dequal | 2.0.3 | MIT |  |
@@ -347,14 +437,22 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | gopd | 1.2.0 | MIT | https://github.com/ljharb/gopd#readme |
 | got | 11.8.6 | MIT |  |
 | graceful-fs | 4.2.11 | ISC |  |
+| hachure-fill | 0.5.2 | MIT | https://github.com/pshihn/hachure-fill#readme |
 | has-flag | 4.0.0 | MIT |  |
 | has-property-descriptors | 1.0.2 | MIT | https://github.com/inspect-js/has-property-descriptors#readme |
 | has-symbols | 1.1.0 | MIT | https://github.com/ljharb/has-symbols#readme |
 | has-tostringtag | 1.0.2 | MIT | https://github.com/inspect-js/has-tostringtag#readme |
 | hasown | 2.0.4 | MIT | https://github.com/inspect-js/hasOwn#readme |
+| hast-util-from-dom | 5.0.1 | ISC |  |
+| hast-util-from-html | 2.1.0 | MIT |  |
+| hast-util-from-html-isomorphic | 2.0.0 | MIT |  |
+| hast-util-from-parse5 | 8.0.4 | MIT |  |
+| hast-util-parse-selector | 4.0.0 | MIT |  |
 | hast-util-sanitize | 5.0.2 | MIT |  |
 | hast-util-to-jsx-runtime | 2.3.7 | MIT |  |
+| hast-util-to-text | 4.0.3 | MIT |  |
 | hast-util-whitespace | 3.0.0 | MIT |  |
+| hastscript | 9.0.3 | MIT |  |
 | hono | 4.13.17 | MIT | https://hono.dev |
 | hosted-git-info | 4.1.0 | ISC | https://github.com/npm/hosted-git-info |
 | html-encoding-sniffer | 7.0.0 | MIT |  |
@@ -364,10 +462,14 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | http-proxy-agent | 7.0.2 | MIT |  |
 | http2-wrapper | 1.0.3 | MIT | https://github.com/szmarczak/http2-wrapper#readme |
 | https-proxy-agent | 7.0.6 | MIT |  |
+| iconv-lite | 0.6.3 | MIT | https://github.com/ashtuchkin/iconv-lite |
 | iconv-lite | 0.7.3 | MIT | https://github.com/pillarjs/iconv-lite |
+| import-meta-resolve | 4.2.0 | MIT |  |
 | inflight | 1.0.6 | ISC | https://github.com/isaacs/inflight |
 | inherits | 2.0.4 | ISC |  |
 | inline-style-parser | 0.2.9 | MIT |  |
+| internmap | 1.0.1 | ISC | https://github.com/mbostock/internmap/ |
+| internmap | 2.0.3 | ISC | https://github.com/mbostock/internmap/ |
 | ip-address | 10.7.6 | MIT |  |
 | ipaddr.js | 1.9.1 | MIT |  |
 | is-alphabetical | 2.0.1 | MIT |  |
@@ -401,12 +503,19 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | json5 | 2.2.3 | MIT | http://json5.org/ |
 | jsonfile | 4.0.0 | MIT |  |
 | jsonfile | 6.2.1 | MIT |  |
+| katex | 0.16.22 | MIT | https://katex.org |
 | keyv | 4.5.4 | MIT | https://github.com/jaredwray/keyv |
+| khroma | 2.1.0 | UNKNOWN |  |
 | knip | 6.44.2 | ISC | https://knip.dev |
+| langium | 3.3.1 | MIT | https://langium.org |
+| layout-base | 1.0.2 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
+| layout-base | 2.0.1 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
 | lightningcss | 1.33.0 | MPL-2.0 |  |
 | lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |  |
 | lodash | 4.18.1 | MIT | https://lodash.com/ |
+| lodash-es | 4.17.21 | MIT | https://lodash.com/custom-builds |
+| lodash-es | 4.18.1 | MIT | https://lodash.com/custom-builds |
 | longest-streak | 3.1.0 | MIT |  |
 | loupe | 3.2.1 | MIT | https://github.com/chaijs/loupe |
 | lowercase-keys | 2.0.0 | MIT |  |
@@ -418,6 +527,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | magic-string | 0.30.21 | MIT |  |
 | magic-string | 1.4.5 | MIT |  |
 | markdown-table | 3.1.0 | MIT |  |
+| marked | 16.4.2 | MIT | https://marked.js.org |
 | marked | 17.0.5 | MIT | https://marked.js.org |
 | matcher | 3.0.0 | MIT |  |
 | math-intrinsics | 1.1.0 | MIT | https://github.com/es-shims/math-intrinsics#readme |
@@ -429,6 +539,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | mdast-util-gfm-strikethrough | 2.0.1 | MIT |  |
 | mdast-util-gfm-table | 2.0.1 | MIT |  |
 | mdast-util-gfm-task-list-item | 2.0.1 | MIT |  |
+| mdast-util-math | 3.0.0 | MIT |  |
 | mdast-util-mdx-expression | 2.0.1 | MIT |  |
 | mdast-util-mdx-jsx | 3.2.1 | MIT |  |
 | mdast-util-mdxjs-esm | 2.0.1 | MIT |  |
@@ -438,6 +549,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | mdast-util-to-string | 4.0.0 | MIT |  |
 | media-typer | 1.1.1 | MIT |  |
 | merge-descriptors | 2.0.0 | MIT |  |
+| mermaid | 11.12.2 | MIT |  |
 | micromark | 4.0.3 | MIT |  |
 | micromark-core-commonmark | 2.0.4 | MIT |  |
 | micromark-extension-gfm | 3.0.0 | MIT |  |
@@ -447,6 +559,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | micromark-extension-gfm-table | 2.1.2 | MIT |  |
 | micromark-extension-gfm-tagfilter | 2.0.0 | MIT |  |
 | micromark-extension-gfm-task-list-item | 2.1.0 | MIT |  |
+| micromark-extension-math | 3.1.0 | MIT |  |
 | micromark-factory-destination | 2.0.1 | MIT |  |
 | micromark-factory-label | 2.0.1 | MIT |  |
 | micromark-factory-space | 2.1.0 | MIT |  |
@@ -511,6 +624,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | parse5 | 8.1.1 | MIT | https://parse5.js.org |
 | parse5-parser-stream | 8.1.1 | MIT | https://parse5.js.org |
 | parseurl | 1.3.3 | MIT |  |
+| path-data-parser | 0.1.0 | MIT | https://github.com/pshihn/path-data-parser#readme |
 | path-is-absolute | 1.0.1 | MIT |  |
 | path-key | 3.1.1 | MIT |  |
 | path-to-regexp | 8.4.2 | MIT |  |
@@ -524,6 +638,8 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | playwright | 1.65.0 | Apache-2.0 | https://playwright.dev |
 | playwright-core | 1.65.0 | Apache-2.0 | https://playwright.dev |
 | plist | 3.1.0 | MIT |  |
+| points-on-curve | 0.2.0 | MIT | https://github.com/pshihn/bezier-points#readme |
+| points-on-path | 0.2.1 | MIT | https://github.com/pshihn/points-on-path#readme |
 | postcss | 8.5.32 | MIT | https://postcss.org/ |
 | pretty-format | 27.5.1 | MIT |  |
 | proc-log | 6.1.0 | ISC |  |
@@ -550,8 +666,10 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | react-style-singleton | 2.2.3 | MIT | https://github.com/theKashey/react-style-singleton#readme |
 | read-binary-file-arch | 1.0.6 | MIT | https://github.com/samuelmaddock/read-binary-file-arch#readme |
 | readable-stream | 2.3.8 | MIT |  |
+| rehype-katex | 7.0.1 | MIT |  |
 | rehype-sanitize | 6.0.0 | MIT |  |
 | remark-gfm | 4.0.1 | MIT |  |
+| remark-math | 6.0.0 | MIT |  |
 | remark-parse | 11.0.0 | MIT | https://remark.js.org |
 | remark-rehype | 11.1.2 | MIT |  |
 | remark-stringify | 11.0.0 | MIT | https://remark.js.org |
@@ -564,9 +682,12 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | retry | 0.12.0 | MIT | https://github.com/tim-kos/node-retry |
 | rimraf | 2.6.3 | ISC |  |
 | roarr | 2.15.4 | BSD-3-Clause |  |
+| robust-predicates | 3.0.3 | Unlicense |  |
 | rolldown | 1.2.18 | MIT | https://rolldown.rs/ |
 | rollup | 4.68.1 | MIT | https://rollupjs.org/ |
+| roughjs | 4.6.6 | MIT | https://roughjs.com |
 | router | 2.2.0 | MIT |  |
+| rw | 1.3.3 | BSD-3-Clause | https://github.com/mbostock/rw |
 | safe-buffer | 5.1.2 | MIT | https://github.com/feross/safe-buffer |
 | safer-buffer | 2.1.2 | MIT |  |
 | sanitize-filename | 1.6.5 | WTFPL OR ISC |  |
@@ -612,6 +733,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | strip-literal | 3.1.0 | MIT | https://github.com/antfu/strip-literal#readme |
 | style-mod | 4.1.4 | MIT | https://code.haverbeke.berlin/marijn/style-mod |
 | style-to-object | 2.0.2 | MIT |  |
+| stylis | 4.4.0 | MIT | https://github.com/thysultan/stylis.js |
 | sumchecker | 3.0.1 | Apache-2.0 | https://github.com/malept/sumchecker#readme |
 | supports-color | 7.2.0 | MIT |  |
 | tar | 7.5.22 | BlueOak-1.0.0 |  |
@@ -620,6 +742,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | tiny-async-pool | 1.3.0 | MIT |  |
 | tinybench | 2.9.0 | MIT |  |
 | tinyexec | 0.3.2 | MIT | https://github.com/tinylibs/tinyexec#readme |
+| tinyexec | 1.3.1 | MIT | https://github.com/tinylibs/tinyexec#readme |
 | tinyglobby | 0.2.17 | MIT | https://superchupu.dev/tinyglobby |
 | tinypool | 1.1.1 | MIT | https://github.com/tinylibs/tinypool#readme |
 | tinypool | 2.2.0 | MIT | https://github.com/tinylibs/tinypool#readme |
@@ -635,6 +758,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | trim-lines | 3.0.1 | MIT |  |
 | trough | 2.2.0 | MIT |  |
 | truncate-utf8-bytes | 1.0.2 | WTFPL | https://github.com/parshap/truncate-utf8-bytes#readme |
+| ts-dedent | 2.3.0 | MIT |  |
 | tslib | 2.9.1 | 0BSD | https://www.typescriptlang.org/ |
 | tsx | 4.23.15 | MIT | https://tsx.hirok.io |
 | tweetnacl | 0.14.5 | Unlicense | https://tweetnacl.js.org |
@@ -650,6 +774,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | unified | 11.0.5 | MIT | https://unifiedjs.com |
 | unist-util-is | 6.0.1 | MIT |  |
 | unist-util-position | 5.0.0 | MIT |  |
+| unist-util-remove-position | 5.0.0 | MIT |  |
 | unist-util-stringify-position | 4.0.0 | MIT |  |
 | unist-util-visit | 5.2.0 | MIT |  |
 | unist-util-visit-parents | 6.1.0 | MIT |  |
@@ -662,16 +787,25 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | use-sidecar | 1.1.3 | MIT | https://github.com/theKashey/use-sidecar |
 | utf8-byte-length | 1.0.5 | (WTFPL OR MIT) | https://github.com/parshap/utf8-byte-length#readme |
 | util-deprecate | 1.0.2 | MIT | https://github.com/TooTallNate/util-deprecate |
+| uuid | 11.1.1 | MIT |  |
 | vary | 1.1.2 | MIT |  |
 | vfile | 6.0.3 | MIT |  |
+| vfile-location | 5.0.4 | MIT |  |
 | vfile-message | 4.0.4 | MIT |  |
 | vite | 7.3.8 | MIT | https://vite.dev |
 | vite | 8.3.7 | MIT | https://vite.dev |
 | vite-node | 3.2.4 | MIT | https://github.com/vitest-dev/vitest/blob/main/packages/vite-node#readme |
 | vitest | 3.2.7 | MIT | https://github.com/vitest-dev/vitest#readme |
+| vscode-jsonrpc | 8.2.0 | MIT |  |
+| vscode-languageserver | 9.0.1 | MIT |  |
+| vscode-languageserver-protocol | 3.17.5 | MIT |  |
+| vscode-languageserver-textdocument | 1.0.16 | MIT | https://github.com/microsoft/vscode-languageserver-node/tree/main/textDocument |
+| vscode-languageserver-types | 3.17.5 | MIT |  |
+| vscode-uri | 3.0.8 | MIT | https://github.com/microsoft/vscode-uri#readme |
 | w3c-keyname | 2.2.8 | MIT | https://github.com/marijnh/w3c-keyname#readme |
 | w3c-xmlserializer | 6.0.0 | MIT |  |
 | walk-up-path | 4.0.0 | ISC |  |
+| web-namespaces | 2.0.1 | MIT |  |
 | webcrypto-core | 1.9.2 | MIT | https://github.com/PeculiarVentures/webcrypto-core#readme |
 | webidl-conversions | 8.0.1 | BSD-2-Clause |  |
 | whatwg-mimetype | 5.0.0 | MIT |  |

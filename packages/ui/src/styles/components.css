@@ -159,3 +159,25 @@ dialog.modal::backdrop {
   font-weight: 600;
   color: var(--muted);
 }
+/* Mermaid 图表（阅读模式）：居中、过宽时横向滚动；错误保留源码 */
+.hu-mermaid {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.hu-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.hu-mermaid-error {
+  display: block;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--danger);
+}
+.hu-mermaid-loading {
+  color: var(--muted);
+  font-size: 12px;
+}
