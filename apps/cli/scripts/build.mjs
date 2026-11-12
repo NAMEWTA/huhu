@@ -7,7 +7,7 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node22",
+  target: "node24",
   outfile: "dist/cli.mjs",
   // 打包后的 ESM 里仍可能有依赖使用 require / __dirname
   banner: { js: "import { createRequire as __huhuCreateRequire } from 'node:module';\nconst require = __huhuCreateRequire(import.meta.url);" },

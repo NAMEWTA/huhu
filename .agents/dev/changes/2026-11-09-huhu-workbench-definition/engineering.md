@@ -28,7 +28,7 @@ huhu/
   packages/
     contracts/                 zod 模式：capability、errors、events、plugin-manifest、kinds/*、dto/*
     kernel/                    Cordis 根上下文、能力注册与 Dispatcher、权限表、事件总线、插件管理器、网关服务、HTTP/WS/MCP 服务器
-    vault/                     Vault 生命周期、路径守卫、锁、原子写、回执、操作日志、语义 Markdown 仓储、文件监听、内存索引与 Orama、平台适配
+    vault/                     Vault 生命周期、路径守卫、锁、原子写、回执、操作日志、语义 Markdown 仓储、文件监听、内存索引与 SQLite 全文库、平台适配
     herdr-client/              Herdr JSON-RPC 与 framed 流客户端（generated/ 为生成类型）
     ui/                        tokens.css、shadcn 组件、业务无关复合组件（DataTable、ResourcePicker、DateTimePicker、CronPicker、DiffView、TerminalView、Banner、EmptyState）
     editor/                    MarkdownEditor、MarkdownPreview、live-preview（Atomic）、merge

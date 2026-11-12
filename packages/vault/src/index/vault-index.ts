@@ -108,6 +108,7 @@ export class VaultIndex {
       return true;
     } finally {
       this._indexing = false;
+      if (this.search !== nextSearch) nextSearch.close(); // 取消或出错：没被换入的新索引要释放（已换入的是当前索引，不能关）
     }
   }
 

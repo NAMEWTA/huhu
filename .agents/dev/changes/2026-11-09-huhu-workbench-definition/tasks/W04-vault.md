@@ -55,7 +55,7 @@
 - 前置：W04.3、W04.4、W02.5。
 - 位置：`packages/vault/src/index/{tree,entities,links,search}.ts`、`packages/kernel/src/capabilities/vault.ts`。
 - 复用：R-11、R-26。
-- 实现要点：启动全量构建在后台进行，构建期间 `vault.tree` 可用（先给出路径树）、`vault.search` 返回 `indexing: true`；双链解析与反链；增量更新；重建可取消；Orama 中文分词使用 Orama 内置 tokenizer 加 CJK 二元切分（bigram）处理中文。
+- 实现要点：启动全量构建在后台进行，构建期间 `vault.tree` 可用（先给出路径树）、`vault.search` 返回 `indexing: true`；双链解析与反链；增量更新；重建可取消；SQLite FTS5 中文分词使用 SQLite FTS5 内置 tokenizer 加 CJK 二元切分（bigram）处理中文。
 - 异常：取消重建保留旧索引；超过 10 MiB 的文件只索引元数据。
 - 测试：bench（quality §3 索引与检索指标）；中文检索单元测试；ACC-WB-07 E2E。
 - 完成：测试通过；scale-vault 指标记录在 PR。

@@ -41,14 +41,8 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @babel/template | 7.29.7 | MIT | https://babel.dev/docs/en/next/babel-template |
 | @babel/traverse | 7.29.13 | MIT | https://babel.dev/docs/en/next/babel-traverse |
 | @babel/types | 7.29.11 | MIT | https://babel.dev/docs/en/next/babel-types |
-| @codemirror/autocomplete | 6.20.4 | MIT |  |
 | @codemirror/commands | 6.11.1 | MIT |  |
-| @codemirror/lang-css | 6.3.1 | MIT |  |
-| @codemirror/lang-html | 6.4.12 | MIT |  |
-| @codemirror/lang-javascript | 6.2.5 | MIT |  |
-| @codemirror/lang-markdown | 6.5.2 | MIT |  |
 | @codemirror/language | 6.13.1 | MIT |  |
-| @codemirror/lint | 6.9.7 | MIT |  |
 | @codemirror/search | 6.7.2 | MIT |  |
 | @codemirror/state | 6.7.6 | MIT |  |
 | @codemirror/streamparser | 6.0.0 | MIT |  |
@@ -77,10 +71,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec |
 | @jridgewell/trace-mapping | 0.3.31 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping |
 | @lezer/common | 1.5.5 | MIT |  |
-| @lezer/css | 1.3.9 | MIT |  |
 | @lezer/highlight | 1.2.5 | MIT |  |
-| @lezer/html | 1.3.13 | MIT |  |
-| @lezer/javascript | 1.5.6 | MIT |  |
 | @lezer/lr | 1.4.12 | MIT |  |
 | @lezer/markdown | 1.8.1 | MIT |  |
 | @malept/cross-spawn-promise | 2.0.0 | Apache-2.0 |  |
@@ -88,7 +79,6 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @marijn/find-cluster-break | 1.0.4 | MIT | https://code.haverbeke.berlin/marijn/find-cluster-break |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | https://modelcontextprotocol.io |
 | @noble/hashes | 1.8.0 | MIT | https://paulmillr.com/noble/ |
-| @orama/orama | 3.1.18 | Apache-2.0 |  |
 | @oxc-parser/binding-linux-x64-gnu | 0.156.0 | MIT | https://oxc.rs/docs/guide/usage/parser |
 | @oxc-project/types | 0.156.0 | MIT | https://oxc.rs |
 | @oxc-resolver/binding-linux-x64-gnu | 11.24.2 | MIT | https://oxc.rs |
@@ -198,6 +188,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | asynckit | 0.4.0 | MIT | https://github.com/alexindigo/asynckit#readme |
 | at-least-node | 1.0.0 | ISC | https://github.com/RyanZim/at-least-node#readme |
 | aws4 | 1.13.2 | MIT |  |
+| axe-core | 4.14.0 | MPL-2.0 | https://www.deque.com/axe/ |
 | bail | 2.0.2 | MIT |  |
 | balanced-match | 1.0.2 | MIT | https://github.com/juliangruber/balanced-match |
 | balanced-match | 4.0.4 | MIT |  |
@@ -240,7 +231,6 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | ci-info | 4.5.0 | MIT | https://github.com/watson/ci-info |
 | cliui | 8.0.1 | ISC |  |
 | clone-response | 1.0.3 | MIT |  |
-| codemirror | 6.0.2 | MIT |  |
 | color-convert | 2.0.1 | MIT |  |
 | color-name | 1.1.4 | MIT | https://github.com/colorjs/color-name |
 | combined-stream | 1.0.8 | MIT | https://github.com/felixge/node-combined-stream |
@@ -423,7 +413,6 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | lru-cache | 11.5.3 | BlueOak-1.0.0 |  |
 | lru-cache | 5.1.1 | ISC |  |
 | lru-cache | 6.0.0 | ISC |  |
-| lucide-react | 0.577.0 | ISC | https://lucide.dev |
 | lucide-react | 1.70.0 | ISC | https://lucide.dev |
 | lz-string | 1.5.0 | MIT | http://pieroxy.net/blog/pages/lz-string/index.html |
 | magic-string | 0.30.21 | MIT |  |
@@ -500,6 +489,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | node-abi | 4.40.0 | MIT | https://github.com/electron/node-abi#readme |
 | node-addon-api | 7.1.1 | MIT | https://github.com/nodejs/node-addon-api |
 | node-api-version | 0.2.1 | MIT |  |
+| node-diff3 | 3.2.1 | MIT |  |
 | node-gyp | 12.4.0 | MIT |  |
 | node-int64 | 0.4.0 | MIT |  |
 | node-releases | 2.0.63 | MIT |  |

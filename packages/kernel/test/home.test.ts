@@ -149,6 +149,8 @@ describe("首页卡片", () => {
     const { dir, store } = setup();
     expect(store.setWidgets({ hidden: [], order: ["activity", "tasks", "activity"] }).order).toEqual(["activity", "tasks"]);
     expect(store.widgets().order).toEqual(["activity", "tasks"]);
+    // 写入路径：未知 id 同样只丢掉它自己
+    expect(store.setWidgets({ hidden: [], order: ["activity", "nope", "tasks"] }).order).toEqual(["activity", "tasks"]);
     writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: [], order: ["nope"] }));
     expect(store.widgets().order ?? []).toEqual([]);
     // 个别不认识的 id 只丢掉它自己，其余顺序保留

@@ -18,6 +18,9 @@ const MAX_HABITS = 20;
 const MAX_TITLE = 60;
 
 /** 首页的专注计时、习惯、卡片显示：状态存 `.huhu/home/*.json`（原子写），跨日重置按设置的时区。 */
+/** 更新入参：order 接受任意字符串，由 setWidgets 逐项过滤（WidgetsStateSchema 对非法项会整体回退为空）。 */
+const WidgetsUpdateSchema = WidgetsStateSchema.extend({ order: z.array(z.string()).optional() });
+
 export class HomeStore {
   constructor(private readonly d: HomeDeps) {}
 
@@ -132,8 +135,10 @@ export class HomeStore {
       return WidgetsStateSchema.parse({ ...(v as object), ...(order !== undefined ? { order } : {}) });
     });
   }
-  setWidgets(w: WidgetsState): WidgetsState {
-    const next = WidgetsStateSchema.parse({ hidden: [...new Set(w.hidden)], order: [...new Set(w.order ?? [])] });
+  setWidgets(w: z.infer<typeof WidgetsUpdateSchema>): WidgetsState {
+    // 写入路径同样逐项过滤（schema 本身对 order 的非法项整体回退为空，所以要在解析前去掉）
+    const known = new Set<string>(HOME_CARDS);
+    const next = WidgetsStateSchema.parse({ hidden: [...new Set(w.hidden)], order: [...new Set((w.order ?? []).filter((x) => known.has(x)))] });
     this.write("widgets.json", next);
     return next;
   }
@@ -149,7 +154,7 @@ export function registerHomeCapabilities(registry: CapabilityRegistry, store: Ho
     registry.register(defineCapability({ name: "home.habits.get", ...desktop, scope: "read", input: none, output: HabitsViewSchema, handler: () => store.habits() })),
     registry.register(defineCapability({ name: "home.habits.update", ...desktop, scope: "write", input: HabitsActionSchema, output: HabitsViewSchema, handler: (_c, i) => store.habitsAction(i) })),
     registry.register(defineCapability({ name: "home.widgets.get", ...desktop, scope: "read", input: none, output: WidgetsStateSchema, handler: () => store.widgets() })),
-    registry.register(defineCapability({ name: "home.widgets.update", ...desktop, scope: "write", input: WidgetsStateSchema, output: WidgetsStateSchema, handler: (_c, i) => store.setWidgets(i) })),
+    registry.register(defineCapability({ name: "home.widgets.update", ...desktop, scope: "write", input: WidgetsUpdateSchema, output: WidgetsStateSchema, handler: (_c, i) => store.setWidgets(i) })),
   ];
   return () => offs.forEach((o) => o());
 }

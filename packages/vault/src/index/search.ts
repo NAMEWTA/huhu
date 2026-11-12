@@ -92,7 +92,7 @@ export class SearchIndex {
 
   /** 释放数据库（索引被新建的一份替换后调用）。 */
   close(): void {
-    this.db.close();
+    if (this.db.isOpen) this.db.close();
     this.ids.clear();
   }
 
