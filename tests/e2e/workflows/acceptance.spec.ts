@@ -79,3 +79,31 @@ test("ACC-AG-11 本机没有任何受支持 CLI：“+”只提供“新终端�
     await close();
   }
 });
+
+test("ACC-SY-03 取消诊断：显示“已取消”，在途结果迟到也不会变成当前结果", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    // 让 health.run 的响应延迟，才能在它返回前点取消
+    await page.evaluate(() => {
+      const orig = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        const res = await orig(input, init);
+        if (body.includes('"health.run"')) await new Promise((r) => setTimeout(r, 2500));
+        return res;
+      };
+    });
+    await page.getByRole("button", { name: "健康中心" }).first().click();
+    await page.getByTestId("health-run").click();
+    await expect(page.getByTestId("health-overall")).toHaveText("正在检查Vault…");
+    await page.getByTestId("health-run").click(); // 取消
+    await expect(page.getByTestId("health-overall")).toHaveText("已取消");
+    await expect(page.getByTestId("health-check").first()).toHaveAttribute("data-status", "unchecked");
+    await page.waitForTimeout(3200); // 在途响应此时已返回
+    await expect(page.getByTestId("health-overall")).toHaveText("已取消");
+    await expect(page.getByText("检查已取消，之前的结果不再有效。")).toBeVisible();
+  } finally {
+    await close();
+  }
+});
