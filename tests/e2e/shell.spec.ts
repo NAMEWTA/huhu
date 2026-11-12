@@ -1,8 +1,9 @@
 import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { rmTree } from "./helpers/launch.js";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
@@ -65,7 +66,7 @@ test("启动页：新建空白 Vault、非空目录被拒绝、示例 Vault、�
     await expect(page.getByTestId("note-item").filter({ hasText: "欢迎使用 HUHU" })).toBeVisible();
   } finally {
     await app.close();
-    rmSync(base, { recursive: true, force: true });
+    rmTree(base);
   }
 });
 
@@ -84,7 +85,7 @@ test("窗口启动、appInfo 可用、window.open 被拒绝", async () => {
     expect(app.windows().length).toBe(before);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -122,7 +123,7 @@ test("任务：新建、勾选完成并写入 Vault 文件；杀死 Engine 后�
     await expect(page.getByTestId("task-row")).toHaveCount(1);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -178,7 +179,7 @@ test("知识库：新建笔记、编辑自动保存到文件、预览双链、�
     await expect.poll(() => readFileSync(path.join(vault, "来源.md"), "utf8")).toContain("[[新目标]]");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -216,7 +217,7 @@ test("知识库：文件夹重命名、移动、删除（整体进回收站）",
     await expect.poll(() => existsSync(path.join(vault, "归档"))).toBe(false);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -254,7 +255,7 @@ test("外部扩展（ACC-PL-03/04）：发现页安装快速剪藏，权限确�
     expect(existsSync(path.join(vault, ".huhu/plugins/data/quick-clip/keep.txt"))).toBe(true);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -299,7 +300,7 @@ test("手动保存：外部改动出现合并 Banner、合并后两边改动都�
     await expect(editor).toContainText("草稿里的字");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -317,7 +318,7 @@ test("大文件（ACC-KN-10）：50 MiB 日志在文件树中只显示元信息�
     await expect(page.getByTestId("markdown-editor")).toHaveCount(0);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -339,8 +340,8 @@ test("Agent CLI：新建 Space 指向 Vault 外目录，只写 .huhu/agent-cli/s
     expect(readdirSync(outside)).toEqual([]); // 不在目录里写任何东西
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
-    rmSync(outside, { recursive: true, force: true });
+    rmTree(vault);
+    rmTree(outside);
   }
 });
 
@@ -364,7 +365,7 @@ test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字",
     await closed;
     expect(readFileSync(path.join(vault, "退出落盘.md"), "utf8")).toContain("立刻关闭窗口前输入的内容");
   } finally {
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -391,7 +392,7 @@ test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打�
     expect(statSync(file).mtimeMs).toBe(before);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -426,7 +427,7 @@ test("ACC-SY-05：切换主题为 SuliWorld 深色，所有模块同时切换；
     await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -469,7 +470,7 @@ test("ACC-AG-08：有运行中的会话，退出 HUHU 再打开同一 Vault，�
     } catch {
       /* 清理尽力而为 */
     }
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -495,7 +496,7 @@ test("文档标签条：打开多篇笔记各有一个标签，点标签切换�
     await expect(tabs.first()).toHaveAttribute("aria-current", "true");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -547,7 +548,7 @@ test("批注：选中正文添加、回复、解决、删除；删除锚定句�
     await expect.poll(() => readdirSync(dir).length).toBe(0);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -568,7 +569,7 @@ test("快速捕获：任意页面 Mod+Shift+N 写入 Inbox，来源为 quick", a
     await expect(page.getByTestId("quick-capture")).toBeHidden();
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -631,7 +632,7 @@ test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建
       .toBe(2);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -681,7 +682,7 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
     expect(all).toEqual([]);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -711,7 +712,7 @@ test("设置与通知：切换主题立即生效并持久化，重启后仍保�
     await expect(page.getByText("没有通知")).toBeVisible();
   } finally {
     await app.close().catch(() => undefined);
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -741,7 +742,7 @@ test("插件中心：停用知识库后 rail 项消失，依赖提示；重启�
     await expect(page.getByRole("button", { name: "知识库", exact: true })).toBeVisible({ timeout: 5000 });
   } finally {
     await app.close().catch(() => undefined);
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -771,7 +772,7 @@ test("首页与健康中心：卡片反映真实数据；坏文件出现在健�
     await expect(page.getByTestId("health-check").filter({ hasText: "broken.md" })).toHaveAttribute("data-status", "warning");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -813,7 +814,7 @@ test("ACC-AG-04 Agent CLI：在 Space 里启动 shell，经 xterm 输入并看�
     } catch {
       /* 清理尽力而为 */
     }
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -907,11 +908,11 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
     await files.getByTestId("files-delete-yes").click();
     await expect.poll(() => srv.fs.files.has("/home/test/已改名.txt")).toBe(false);
     expect([...srv.fs.files.keys()].filter((k) => k.includes("huhu-upload"))).toEqual([]);
-    rmSync(local, { recursive: true, force: true });
+    rmTree(local);
   } finally {
     await app.close();
     await srv.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -967,7 +968,7 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
     expect(err).toBe("INVALID_INPUT");
   } finally {
     await app.close();
-    for (const d of [vault, cfg, cx]) rmSync(d, { recursive: true, force: true });
+    for (const d of [vault, cfg, cx]) rmTree(d);
   }
 });
 
@@ -1008,7 +1009,7 @@ test("同步凭据：下拉只列出保险箱里允许 versioning 的令牌；�
     expect(cfg).not.toContain("ghp_e2e_secret_value");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1044,7 +1045,7 @@ test("设置：当前 Vault 改名与描述（写入 vault.json）、快捷键�
     await expect(page.getByTestId("about-notices")).toContainText("Herdr Core");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1070,7 +1071,7 @@ test("设置·Agent 接入：指南文件自动创建；手改后为冲突且不
     expect(readFileSync(path.join(backups, id, ".agents/skills/huhu/SKILL.md"), "utf8")).toBe("我手改的指南");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1113,8 +1114,8 @@ test("设置：数据与存储——重建索引、导出数据包（结果带 S
     await expect(page.getByTestId("storage-import-msg")).toBeVisible({ timeout: 10_000 });
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
-    rmSync(out, { recursive: true, force: true });
+    rmTree(vault);
+    rmTree(out);
   }
 });
 
@@ -1134,7 +1135,7 @@ test("网关·命令行：开发运行时说明没有打包好的启动脚本，
     await expect(cli).toContainText("huhu call vault.info");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1195,7 +1196,7 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     await expect(page.getByTestId("note-save")).toHaveCount(0);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1245,7 +1246,7 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
     expect(existsSync(path.join(vault, "回收站前.md"))).toBe(false);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1306,7 +1307,7 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     await expect(page.getByTestId("card-today")).toHaveCount(0);
   } finally {
     await app.close().catch(() => undefined);
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1338,7 +1339,7 @@ test("设置：时区改变后页面显示该时区的当前日期，非法时�
     await expect(page.getByTestId("settings-zone-now")).toContainText(expected);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1392,7 +1393,7 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
     await expect(page.getByTestId("git-commit").filter({ hasText: "第一次提交" })).toBeVisible({ timeout: 10_000 });
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1445,7 +1446,7 @@ test("Agent CLI 分屏：左右两格同时显示两个会话并各自输入；�
   } finally {
     await page?.evaluate(() => localStorage.removeItem("huhu.agentcli.layout")).catch(() => undefined); // 布局偏好存在共享的 Electron profile 里：不要影响后面的单窗格用例
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1479,7 +1480,7 @@ test("Agent CLI：shell 里 exit 之后，会话标记为已结束（带退出�
     await expect(page.getByTestId("session-tab").filter({ hasText: "运行中" })).toHaveCount(1);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1520,7 +1521,7 @@ test("Agent CLI 变更审查（ACC-AG-10）：显示工作树差异，在行上�
     await expect(page.getByTestId("review-send")).toBeDisabled(); // 没有待发送的了
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1528,7 +1529,7 @@ test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲�
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const remote = mkdtempSync(path.join(tmpdir(), "huhu-e2e-remote-"));
   const clone = path.join(mkdtempSync(path.join(tmpdir(), "huhu-e2e-clone-")), "c");
-  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.name=远端", "-c", "user.email=r@r", ...args], { encoding: "utf8" });
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, "-c", "core.autocrlf=false", "-c", "user.name=远端", "-c", "user.email=r@r", ...args], { encoding: "utf8" });
   execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", remote]);
   const app = await launch(vault);
   try {
@@ -1570,7 +1571,7 @@ test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲�
     await expect(page.getByTestId("sync-message")).toContainText("同步完成", { timeout: 30_000 });
 
     // 另一台设备（克隆）改第 3 行并推送；本机也改第 3 行
-    execFileSync("git", ["clone", "-q", remote, clone]);
+    execFileSync("git", ["-c", "core.autocrlf=false", "clone", "-q", remote, clone]);
     writeFileSync(path.join(clone, "共享.md"), lines({ 3: "远端改的" }));
     git(clone, "commit", "-aq", "-m", "远端修改");
     git(clone, "push", "-q", "origin", "HEAD:main");
@@ -1600,9 +1601,9 @@ test("同步：配置本地远端 → 预览 → 同步；远端副本制造冲�
     expect(existsSync(path.join(vault, ".huhu/sync/conflict.json"))).toBe(false);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
-    rmSync(remote, { recursive: true, force: true });
-    rmSync(path.dirname(clone), { recursive: true, force: true });
+    rmTree(vault);
+    rmTree(remote);
+    rmTree(path.dirname(clone));
   }
 });
 
@@ -1638,7 +1639,7 @@ test("自动化：内置规则存在且不可删除；预览列出跳过原因�
     await expect(page.getByTestId("notification-panel")).toContainText("该喝水了", { timeout: 10_000 });
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1698,8 +1699,8 @@ test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 /
     expect(ruleFile()).not.toContain("请整理本周的工作记录");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
-    rmSync(bin, { recursive: true, force: true });
+    rmTree(vault);
+    rmTree(bin);
   }
 });
 
@@ -1738,8 +1739,8 @@ test("自动化运行：Agent 规则经监督进程运行，运行页显示已�
     await expect(page.getByTestId("run-body")).toContainText("周报已整理");
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
-    rmSync(bin, { recursive: true, force: true });
+    rmTree(vault);
+    rmTree(bin);
   }
 });
 
@@ -1832,7 +1833,7 @@ test("任务界面：分类计数、搜索、新建对话框（截止日 / 项�
     await expect(page.getByTestId("task-row")).toHaveCount(1);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1858,7 +1859,7 @@ test("命令面板：Ctrl+K 打开，搜索并跳转模块，Esc 关闭；内容
     await expect(page.getByTestId("command-palette")).toHaveCount(0);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1923,7 +1924,7 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await expect(page.getByTestId("cap-row").first()).toBeVisible();
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });
 
@@ -1949,6 +1950,6 @@ test("自动化脚本管理：创建（相对路径被拒）、列表显示、�
     await expect(page.getByTestId("script-row")).toHaveCount(0);
   } finally {
     await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    rmTree(vault);
   }
 });

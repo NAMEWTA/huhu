@@ -478,7 +478,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
     expect((await call("folders.create", { path: "归档" })).ok).toBe(true);
-    fs.writeFileSync(`${vault}/待移动.md`, "# 待移动\n\n正文\n");
+    expect((await call("notes.create", { name: "待移动" })).ok).toBe(true); // 经能力创建：不依赖文件监听的时机（Windows 上更慢）
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     const item = page.getByTestId("note-item").filter({ hasText: "待移动" });
     await expect(item).toBeVisible();
@@ -516,6 +516,7 @@ test("能力网关 MCP：配置传输（对话框）、复制客户端配置、�
 });
 
 test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果，任务仍未完成，可勾选完成", async () => {
+  test.skip(process.platform === "win32", "假 Codex 是 POSIX shell 脚本；Windows 需要 .cmd 假程序");
   const fs = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-wa-bin-"));
   writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 Codex 已整理完成"\n');
@@ -579,7 +580,7 @@ test("笔记拖放移动文件夹：拖到另一个文件夹下，其中的笔�
     const call = await caller(page);
     expect((await call("folders.create", { path: "甲" })).ok).toBe(true);
     expect((await call("folders.create", { path: "目标" })).ok).toBe(true);
-    fs.writeFileSync(`${vault}/甲/里面的笔记.md`, "# 里面的笔记\n\n正文\n");
+    expect((await call("notes.create", { name: "里面的笔记", folder: "甲" })).ok).toBe(true);
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     const lines = page.getByTestId("folder-line");
     await expect(lines.filter({ hasText: "甲" })).toBeVisible();

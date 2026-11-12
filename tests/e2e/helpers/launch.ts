@@ -3,6 +3,15 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+/** 删除临时目录：Windows 上 Herdr Core 等后台进程可能还占着里面的文件（EPERM / EBUSY），重试几次，仍不行就留给系统清理，不让用例因此失败。 */
+export function rmTree(p: string): void {
+  try {
+    rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (e) {
+    if (process.platform !== "win32") throw e;
+  }
+}
+
 export const root = path.resolve(import.meta.dirname, "../../../apps/desktop");
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
@@ -17,7 +26,7 @@ export async function openApp(extraEnv: Record<string, string> = {}): Promise<{ 
     vault,
     close: async () => {
       await app.close();
-      rmSync(vault, { recursive: true, force: true });
+      rmTree(vault);
     },
   };
 }
