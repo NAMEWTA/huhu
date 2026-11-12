@@ -63,7 +63,7 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
   const [creating, setCreating] = useState(false);
   const list = (rules.data ?? []).filter((r) => `${r.data.title}`.toLowerCase().includes(query.toLowerCase()));
   const heading: Record<string, [string, string]> = {
-    rules: [t.nav.rules, `${(rules.data ?? []).length} 条规则`],
+    rules: [t.nav.rules, "设置何时扫描任务或激活一个动作"],
     activations: [t.nav.activations, `${(acts.data ?? []).length} 条记录`],
     runs: [t.nav.runs, "Agent 与脚本的运行记录"],
     scripts: [t.scriptsTitle, "脚本只在这里定义；规则只引用脚本"],

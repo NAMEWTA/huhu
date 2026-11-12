@@ -72,7 +72,7 @@ export const t = {
   history: {
     open: "历史",
     close: "关闭历史",
-    title: "历史会话",
+    title: "会话历史",
     empty: "这个 Space 下还没有 Claude 或 Codex 的历史会话",
     resume: "恢复",
     filterAll: "全部",

@@ -43,7 +43,7 @@ export function VersioningModule({ onNavigate }: ModuleProps) {
       <header className="version-v9-top">
         <div className="version-v9-title">
           <History size={18} aria-hidden />
-          <strong>{t.title}</strong>
+          <strong>{t.heading}</strong>
         </div>
         <nav aria-label="版本功能">
           {(["history", "git", "sync"] as const).map((k) => {

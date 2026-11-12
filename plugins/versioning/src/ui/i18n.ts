@@ -1,5 +1,6 @@
 export const t = {
   title: "版本历史",
+  heading: "版本与同步",
   nav: { history: "文件历史", git: "Git", sync: "同步" },
   pickFile: "当前文件",
   checkpoint: "保存当前版本",
