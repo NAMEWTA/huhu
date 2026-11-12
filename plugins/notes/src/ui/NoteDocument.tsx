@@ -1,5 +1,5 @@
 import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
-import { Banner, Button, IconButton, Segmented } from "@huhu/ui";
+import { Banner, Button, Dialog, IconButton, ReviewDiff, Segmented } from "@huhu/ui";
 import { CapabilityError, queryKey, registerDirtyDoc, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
 import { diff3Merge } from "node-diff3";
@@ -134,6 +134,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   const autosaveRef = useRef(true);
   autosaveRef.current = ed?.autosave !== false;
   const [confirmReload, setConfirmReload] = useState(false);
+  const [diffOf, setDiffOf] = useState<string | null>(null); // 外部修改后的磁盘内容（查看差异对话框）
   const saveRef = useRef<(() => Promise<boolean>) | null>(null);
   const doSave = useCallback(async (): Promise<boolean> => {
     const { text: body, version: v } = latest.current;
@@ -231,6 +232,29 @@ export function NoteDocument(props: NoteDocumentProps) {
     registerEditor(editor.current);
     return () => registerEditor(null);
   });
+
+  /** 查看差异：读出磁盘上的新内容，与我的未保存修改并排对比。 */
+  const viewDiff = async (): Promise<void> => {
+    setFlushError(null);
+    try {
+      setDiffOf((await engine.call<NoteFile>("notes.read", { path })).text);
+    } catch (e) {
+      setFlushError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  /** 保留我的修改：以磁盘上的新版本为基线，继续编辑；下次保存会覆盖磁盘上的外部修改（用户明确选择）。 */
+  const keepMine = async (): Promise<void> => {
+    setFlushError(null);
+    try {
+      const theirs = await engine.call<NoteFile>("notes.read", { path });
+      latest.current = { text: latest.current.text, version: theirs.version };
+      savedText.current = theirs.text;
+      setState(latest.current.text === theirs.text ? "saved" : "dirty");
+      setDiffOf(null);
+    } catch (e) {
+      setFlushError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   /** 合并：以最后一次保存的内容为基线，把我的修改与磁盘上的新内容做三方合并；冲突处写入标记，由用户处理后再保存。 */
   const merge = async (): Promise<void> => {
@@ -359,9 +383,17 @@ export function NoteDocument(props: NoteDocumentProps) {
             ) : (
               <>
                 {latest.current.text !== savedText.current ? (
-                  <Button variant="primary" data-testid="note-merge" onClick={() => void merge()}>
-                    {n.merge}
-                  </Button>
+                  <>
+                    <Button variant="primary" data-testid="note-merge" onClick={() => void merge()}>
+                      {n.merge}
+                    </Button>
+                    <Button data-testid="note-view-diff" onClick={() => void viewDiff()}>
+                      {n.viewDiff}
+                    </Button>
+                    <Button data-testid="note-keep-mine" onClick={() => void keepMine()}>
+                      {n.keepMine}
+                    </Button>
+                  </>
                 ) : null}
                 <Button onClick={() => (latest.current.text === savedText.current ? void load() : setConfirmReload(true))}>{t.reload}</Button>
               </>
@@ -370,6 +402,11 @@ export function NoteDocument(props: NoteDocumentProps) {
         >
           {confirmReload ? n.discardReloadHint : t.conflict}
         </Banner>
+      ) : null}
+      {diffOf !== null ? (
+        <Dialog open wide title={n.diffTitle} onClose={() => setDiffOf(null)} testId="note-diff-dialog" actions={<Button onClick={() => setDiffOf(null)}>关闭</Button>}>
+          <ReviewDiff before={diffOf} after={latest.current.text} path={path} />
+        </Dialog>
       ) : null}
       {draft ? (
         <Banner

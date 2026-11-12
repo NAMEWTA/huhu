@@ -832,3 +832,37 @@ test("命令面板：搜索结果按来源分组（笔记 / 任务 / 档案 / �
     await close();
   }
 });
+
+test("笔记被外部修改且有未保存编辑：Banner 有“查看差异 / 保留我的修改”；保留后保存覆盖磁盘", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    await page.getByRole("switch", { name: "自动保存" }).click(); // 手动保存，才会有未保存编辑
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await page.getByRole("button", { name: "新建笔记" }).first().click();
+    await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("外改笔记");
+    await page.getByTestId("new-note-submit").click();
+    const editor = page.getByTestId("markdown-editor");
+    await editor.locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type("我的一行");
+    const file = `${vault}/外改笔记.md`;
+    fs.writeFileSync(file, `${fs.readFileSync(file, "utf8")}\n外部一行\n`);
+    await expect(page.getByTestId("note-view-diff")).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("note-view-diff").click();
+    const dialog = page.getByTestId("note-diff-dialog");
+    await expect(dialog).toContainText("外部一行");
+    await expect(dialog).toContainText("我的一行");
+    await dialog.getByRole("button", { name: "关闭" }).last().click();
+    await page.getByTestId("note-keep-mine").click();
+    await expect(page.getByTestId("note-keep-mine")).toHaveCount(0); // Banner 消失
+    await page.getByTestId("note-save").click();
+    await expect.poll(() => fs.readFileSync(file, "utf8")).toContain("我的一行");
+    expect(fs.readFileSync(file, "utf8")).not.toContain("外部一行"); // 用户明确选择保留自己的修改
+  } finally {
+    await close();
+  }
+});
