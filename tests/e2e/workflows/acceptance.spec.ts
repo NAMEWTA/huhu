@@ -569,3 +569,31 @@ test("知识库资源栏顶部的 Vault 名称按钮：打开“切换 Vault”�
     await close();
   }
 });
+
+test("笔记拖放移动文件夹：拖到另一个文件夹下，其中的笔记随之移动；不能拖进自己的后代", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect((await call("folders.create", { path: "甲" })).ok).toBe(true);
+    expect((await call("folders.create", { path: "目标" })).ok).toBe(true);
+    fs.writeFileSync(`${vault}/甲/里面的笔记.md`, "# 里面的笔记\n\n正文\n");
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    const lines = page.getByTestId("folder-line");
+    await expect(lines.filter({ hasText: "甲" })).toBeVisible();
+    await lines.filter({ hasText: "甲" }).dragTo(lines.filter({ hasText: "目标" }));
+    await expect.poll(() => fs.existsSync(`${vault}/目标/甲/里面的笔记.md`)).toBe(true);
+    expect(fs.existsSync(`${vault}/甲/里面的笔记.md`)).toBe(false);
+    // 拖进自己的后代：被拒绝，磁盘不变
+    await page.getByTestId("folder-line").filter({ hasText: "目标" }).getByRole("button").first().click();
+    const parent = page.getByTestId("folder-line").filter({ hasText: "目标" }).first();
+    const child = page.getByTestId("folder-line").filter({ hasText: "甲" }).first();
+    await expect(child).toBeVisible();
+    await parent.dragTo(child);
+    await page.waitForTimeout(800);
+    expect(fs.existsSync(`${vault}/目标/甲/里面的笔记.md`)).toBe(true);
+  } finally {
+    await close();
+  }
+});

@@ -106,10 +106,16 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const selectedFile = fileRefs.find((f) => f.path === selected) ?? null;
   /** 拖放移动：与“移动到…”对话框同一条路径（未保存的修改先落盘；已在目标文件夹则不动）。 */
   async function moveByDrop(path: string, dir: string) {
-    const note = (every.data ?? []).find((x) => x.path === path);
     const cur = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    if (!note || cur === dir) return;
-    if (!(await beforeMove(note))) return;
+    if (cur === dir) return;
+    const note = (every.data ?? []).find((x) => x.path === path);
+    if (note) {
+      if (!(await beforeMove(note))) return;
+    } else if ((folders.data ?? []).includes(path)) {
+      // 拖的是文件夹：先让正在编辑的、位于其中的笔记落盘
+      const open = selected ? (every.data ?? []).find((x) => x.path === selected && x.path.startsWith(`${path}/`)) : undefined;
+      if (open && !(await beforeMove(open))) return;
+    } else return;
     const r = await run("notes.move", { path, targetDir: dir });
     if (r) remapSelected(path, `${dir ? `${dir}/` : ""}${path.split("/").at(-1)}`);
   }

@@ -99,7 +99,7 @@ export function NoteExplorer(p: ExplorerProps) {
     }
     try {
       const v = JSON.parse(e.dataTransfer.getData(MIME) || "null") as { kind?: string; path?: string } | null;
-      if (v?.kind === "note" && v.path) p.onMoveNote(v.path, dir);
+      if ((v?.kind === "note" || v?.kind === "folder") && v.path) p.onMoveNote(v.path, dir);
     } catch {
       /* 不是我们的拖动内容：忽略 */
     }
@@ -139,7 +139,14 @@ export function NoteExplorer(p: ExplorerProps) {
     return (
       <div key={node.path} className="knowledge-tree-folder">
         <div className="knowledge-tree-line knowledge-folder-line" style={{ ["--tree-depth" as string]: depth }} data-testid="folder-line" {...dropProps(node.path)}>
-          <button type="button" aria-expanded={open} className="knowledge-tree-item" onClick={() => p.onToggleFolder(node.path)}>
+          <button
+            type="button"
+            aria-expanded={open}
+            className="knowledge-tree-item"
+            draggable={!trash}
+            onDragStart={(e) => (e.dataTransfer.setData(MIME, JSON.stringify({ kind: "folder", path: node.path })), (e.dataTransfer.effectAllowed = "move"))}
+            onClick={() => p.onToggleFolder(node.path)}
+          >
             {open ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
             {open ? <FolderOpen size={15} aria-hidden /> : <Folder size={15} aria-hidden />}
             <span className="knowledge-tree-label">{node.name}</span>
