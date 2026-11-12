@@ -30,12 +30,14 @@ export function listDirtyDocs(): DirtyDoc[] {
   return [...dirtyDocs].filter((d) => d.isDirty());
 }
 
-/** 按用户选择处理全部未保存文档；保存失败的文档改存草稿，不丢内容。 */
-export async function settleDirtyDocs(mode: "save" | "draft"): Promise<void> {
-  await Promise.allSettled(
+/** 按用户选择处理全部未保存文档；保存失败的改存草稿。返回仍然没能保住内容的文档名（保存与草稿都失败）。 */
+export async function settleDirtyDocs(mode: "save" | "draft"): Promise<string[]> {
+  const lost: string[] = [];
+  await Promise.all(
     listDirtyDocs().map(async (d) => {
       if (mode === "save" && (await d.save().catch(() => false))) return;
-      await d.keepDraft();
+      await d.keepDraft().catch(() => lost.push(d.label));
     }),
   );
+  return lost;
 }

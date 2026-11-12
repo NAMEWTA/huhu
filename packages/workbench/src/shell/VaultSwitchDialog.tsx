@@ -11,11 +11,23 @@ export function VaultSwitchDialog({ open, onClose }: { open: boolean; onClose():
   const [busy, setBusy] = useState(false);
   // 每次打开重新取一次未保存文档
   const labels = useMemo(() => (open ? listDirtyDocs().map((d) => d.label) : []), [open]);
+  const [error, setError] = useState<string | null>(null);
   const go = async (mode: "save" | "draft") => {
     setBusy(true);
-    await settleDirtyDocs(mode);
-    await host()?.vault.close();
-    window.location.reload();
+    setError(null);
+    try {
+      const lost = await settleDirtyDocs(mode);
+      if (lost.length > 0) {
+        setError(`这些文档既没能保存也没能留下草稿，已取消切换：${lost.join("、")}`);
+        return;
+      }
+      await host()?.vault.close();
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   };
   const dirty = labels.length > 0;
   return (
@@ -25,6 +37,7 @@ export function VaultSwitchDialog({ open, onClose }: { open: boolean; onClose():
       description={dirty ? "以下文档有未保存的修改，选择如何处理后再切换。" : "关闭当前 Vault 并回到启动页，可以打开另一个文件夹。"}
       onClose={() => !busy && onClose()}
       testId="svault-switch-dialog"
+      error={error}
       actions={
         <>
           <Button disabled={busy} onClick={onClose}>

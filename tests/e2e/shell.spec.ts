@@ -483,13 +483,13 @@ test("文档标签条：打开多篇笔记各有一个标签，点标签切换�
     await page.getByTestId("note-item").filter({ hasText: "乙" }).click();
     const tabs = page.getByTestId("document-tab");
     await expect(tabs).toHaveCount(2);
-    await expect(tabs.filter({ hasText: "乙" })).toHaveAttribute("aria-current", "page");
+    await expect(tabs.filter({ hasText: "乙" })).toHaveAttribute("aria-current", "true");
     await tabs.filter({ hasText: "甲" }).click();
-    await expect(tabs.filter({ hasText: "甲" })).toHaveAttribute("aria-current", "page");
+    await expect(tabs.filter({ hasText: "甲" })).toHaveAttribute("aria-current", "true");
     await page.getByRole("button", { name: "关闭 甲" }).click();
     await expect(tabs).toHaveCount(1);
     await expect(tabs.first()).toContainText("乙");
-    await expect(tabs.first()).toHaveAttribute("aria-current", "page");
+    await expect(tabs.first()).toHaveAttribute("aria-current", "true");
   } finally {
     await app.close();
     rmSync(vault, { recursive: true, force: true });
