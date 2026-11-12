@@ -53,14 +53,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const root = api.vault.files.root;
   const mid = machineId();
   const exeFor = opts.exeFor ?? (() => null);
-  const runsDir = path.join(root, ".huhu", "runtime", mid, "runs");
+  const runsDir = path.join(api.vault.stateDir, "runtime", mid, "runs");
   const realWorker = processWorker({ runsDir, exeFor });
-  const scriptStore = new ScriptStore(path.join(root, ".huhu", "automations", "scripts.json"));
-  const holdStore = new HoldStore(path.join(root, ".huhu", "automations", "holds.json"));
+  const scriptStore = new ScriptStore(path.join(api.vault.stateDir, "automations", "scripts.json"));
+  const holdStore = new HoldStore(path.join(api.vault.stateDir, "automations", "holds.json"));
   const svc = new AutomationsService({
     repo: api.vault.repo,
-    claims: new ClaimStore(path.join(root, ".huhu", "automations", "claims")),
-    activationsDir: path.join(root, ".huhu", "automations", "activations"),
+    claims: new ClaimStore(path.join(api.vault.stateDir, "automations", "claims")),
+    activationsDir: path.join(api.vault.stateDir, "automations", "activations"),
     taskQuery: () => api.service<TaskQueryLike>("taskQuery"),
     worker: opts.worker ?? realWorker.run,
     ...(opts.worker ? (opts.adopt ? { adopt: opts.adopt } : {}) : { adopt: realWorker.adopt }),

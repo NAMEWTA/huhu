@@ -25,7 +25,7 @@ const Ok = z.object({ ok: z.literal(true) });
 const desktop = { exposable: false, defaultExposed: false } as const;
 
 export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
-  const root = path.join(api.vault.files.root, ".huhu", "ssh");
+  const root = path.join(api.vault.stateDir, "ssh");
   const hosts = new HostStore(path.join(root, "hosts"));
   const manager = new SshManager({
     hosts,

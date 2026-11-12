@@ -15,7 +15,7 @@ const Item = z.object({ id: z.string(), name: z.string(), type: z.enum(["passwor
 const Ok = z.object({ ok: z.literal(true) });
 
 export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kdfParams?: { N: number; r: number; p: number } } = {}): Safe {
-  const safe = new Safe({ dir: path.join(api.vault.files.root, ".huhu", "safe"), now: opts.now ?? Date.now, publish: (t, p) => api.events.publish(t, p), ...(opts.kdfParams ? { kdfParams: opts.kdfParams } : {}) });
+  const safe = new Safe({ dir: path.join(api.vault.stateDir, "safe"), now: opts.now ?? Date.now, publish: (t, p) => api.events.publish(t, p), ...(opts.kdfParams ? { kdfParams: opts.kdfParams } : {}) });
   // Vault 关闭 / 插件停用：清零 DK
   ctx.effect(() => () => safe.lock("close"));
   api.provide("secretUse", { resolve: (ref, c) => safe.resolve(ref, c) } satisfies SecretUse);

@@ -41,6 +41,8 @@ export interface ExternalCommand {
 export interface ExternalDeps {
   /** Vault 根目录。 */
   root: string;
+  /** 状态目录；缺省为 `<root>/.huhu`。 */
+  stateDir?: string;
   plugins: PluginManager;
   tokens: TokenTable;
   /** Engine HTTP 基址（服务启动后才知道端口）。 */
@@ -82,20 +84,24 @@ export class ExternalPlugins {
 
   constructor(private readonly d: ExternalDeps) {}
 
+  private get stateDir(): string {
+    return this.d.stateDir ?? path.join(this.d.root, ".huhu");
+  }
+
   private get recordFile(): string {
-    return path.join(this.d.root, ".huhu", "plugins", "external.json");
+    return path.join(this.stateDir, "plugins", "external.json");
   }
   private get trustFile(): string {
-    return path.join(this.d.root, ".huhu", "local", "external-trust.json");
+    return path.join(this.stateDir, "local", "external-trust.json");
   }
   private pkgDir(id: string, version: string): string {
-    const base = path.join(this.d.root, ".huhu", "plugins", "external");
+    const base = path.join(this.stateDir, "plugins", "external");
     const dir = path.join(base, id, version);
     if (!dir.startsWith(path.join(base, id) + path.sep)) throw errors.invalidInput("扩展版本号不合法");
     return dir;
   }
   dataDir(id: string): string {
-    return path.join(this.d.root, ".huhu", "plugins", "data", id);
+    return path.join(this.stateDir, "plugins", "data", id);
   }
   private readJson<T>(file: string, fallback: T): T {
     try {
@@ -314,7 +320,7 @@ export class ExternalPlugins {
 
   private async rollback(id: string, eraseData: boolean): Promise<void> {
     await this.d.plugins.unregister(id).catch(() => undefined);
-    rmSync(path.join(this.d.root, ".huhu", "plugins", "external", id), { recursive: true, force: true });
+    rmSync(path.join(this.stateDir, "plugins", "external", id), { recursive: true, force: true });
     const records = this.records();
     if (Object.hasOwn(records, id)) {
       delete records[id];
@@ -335,7 +341,7 @@ export class ExternalPlugins {
     const r = Object.hasOwn(records, id) ? records[id] : undefined;
     if (!r) throw errors.notFound(`不是已安装的外部扩展：${id}`);
     await this.d.plugins.unregister(id);
-    rmSync(path.join(this.d.root, ".huhu", "plugins", "external", id), { recursive: true, force: true });
+    rmSync(path.join(this.stateDir, "plugins", "external", id), { recursive: true, force: true });
     delete records[id];
     this.writeJson(this.recordFile, records);
     const trust = this.trusted();

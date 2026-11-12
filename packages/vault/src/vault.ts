@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, newVaultId, errors } from "@huhu/contracts";
@@ -20,11 +20,11 @@ export type VaultJson = z.infer<typeof VaultJsonSchema>;
 
 export const FORMAT_VERSION = 1;
 
-/** 权限不足 / 只读文件系统 → “无法写入”；其他错误返回 null。注意：Engine 目前把运行状态写在 Vault 的 .huhu/ 里，所以不提供“只读打开”（见 progress.md 的缺口）。 */
+/** 权限不足 / 只读文件系统 → “无法写入”，并提示可以只读打开；其他错误返回 null。 */
 function notWritable(e: unknown, root: string): HuhuError | null {
   const code = (e as { code?: string }).code;
   if (code !== "EACCES" && code !== "EPERM" && code !== "EROFS") return null;
-  return new HuhuError("INVALID_INPUT", `无法写入此目录：${root}（没有写权限）。请修改目录权限，或选择其他目录。`);
+  return new HuhuError("READ_ONLY_VAULT", `无法写入此目录：${root}（没有写权限），可以只读打开`, { recovery: [{ action: "open-readonly", label: "只读打开" }] });
 }
 
 /** 是否含控制字符（allowNewline 时允许 \n 与 \t）。逐码判断，避免控制字符正则。 */
@@ -36,6 +36,22 @@ function hasControlChars(s: string, allowNewline: boolean): boolean {
   return false;
 }
 export const HUHU_DIR = ".huhu";
+
+/** 只读打开且磁盘不可写时的运行状态目录：按 Vault 路径固定在系统临时目录下，重复打开同一目录得到同一处。 */
+function scratchStateDir(real: string): string {
+  const dir = path.join(os.tmpdir(), `huhu-readonly-${createHash("sha1").update(real).digest("hex").slice(0, 12)}`, HUHU_DIR);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function isWritableDir(dir: string): boolean {
+  try {
+    accessSync(dir, fsConstants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** 本机标识：用于 runtime/<machineId>/ 目录名，同一台机器稳定。 */
 export function machineId(): string {
@@ -86,6 +102,8 @@ export class Vault {
     readonly readOnly: boolean,
     readonly files: VaultFiles,
     private readonly release: (() => Promise<void>) | null,
+    /** 运行状态（设置、索引缓存、通知、会话记录…）的根目录：通常是 `<root>/.huhu`；目录不可写、只读打开时指向系统临时目录，磁盘上的 Vault 不被改动。 */
+    readonly stateDir: string = path.join(root, HUHU_DIR),
   ) {}
 
   get id(): string {
@@ -93,7 +111,7 @@ export class Vault {
   }
 
   get runtimeDir(): string {
-    return path.join(this.root, HUHU_DIR, "runtime", machineId());
+    return path.join(this.stateDir, "runtime", machineId());
   }
 
   assertWritable(): void {
@@ -142,11 +160,14 @@ export class Vault {
     const real = path.resolve(root);
     const metaPath = path.join(real, HUHU_DIR, "vault.json");
     let info: VaultJson;
+    let stateDir: string | undefined;
     if (existsSync(metaPath)) {
       const parsed = VaultJsonSchema.safeParse(JSON.parse(readFileSync(metaPath, "utf8")));
       if (!parsed.success) throw errors.invalidInput("vault.json 格式不正确", parsed.error.issues);
       if (parsed.data.formatVersion > FORMAT_VERSION && !opts.readOnly) throw new HuhuError("READ_ONLY_VAULT", "该 Vault 由更新版本的 HUHU 创建，只能只读打开");
       info = parsed.data;
+      // 只读打开一个 .huhu 不可写的 Vault：运行状态改放临时目录
+      if (opts.readOnly && !isWritableDir(path.join(real, HUHU_DIR))) stateDir = scratchStateDir(real);
     } else if (opts.create) {
       if (opts.readOnly) throw errors.readOnlyVault();
       try {
@@ -156,6 +177,10 @@ export class Vault {
       } catch (e) {
         throw notWritable(e, real) ?? e;
       }
+    } else if (opts.readOnly) {
+      // 只读浏览一个普通文件夹（比如没有写权限）：不创建 .huhu；Vault 身份由路径派生，运行状态放临时目录
+      info = { kind: "huhu-vault", id: `vault-${createHash("sha1").update(real).digest("hex").slice(0, 12)}`, name: path.basename(real), description: "", formatVersion: FORMAT_VERSION, createdAt: new Date(0).toISOString() };
+      stateDir = scratchStateDir(real);
     } else {
       throw errors.notFound(`不是 HUHU Vault：${real}`);
     }
@@ -190,7 +215,7 @@ export class Vault {
         throw notWritable(e, real) ?? e;
       }
     }
-    return new Vault(real, info, opts.readOnly === true, new VaultFiles(real, new ReceiptLog(), opts.readOnly === true), release);
+    return new Vault(real, info, opts.readOnly === true, new VaultFiles(real, new ReceiptLog(), opts.readOnly === true), release, stateDir);
   }
 
   async close(): Promise<void> {

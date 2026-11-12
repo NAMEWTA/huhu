@@ -28,7 +28,7 @@ const TypeDto = z.object({ id: z.string(), path: z.string(), version: z.string()
 
 export function apply(_ctx: Context, api: HuhuApi, opts: { now?: () => Date } = {}): ArchivesService {
   const files = api.vault.files;
-  const svc = new ArchivesService({ repo: api.vault.repo, files, ops: new OperationLog(files, path.join(files.root, ".huhu", "operations")), publish: (t, p) => api.events.publish(t, p), now: opts.now ?? (() => new Date()) });
+  const svc = new ArchivesService({ repo: api.vault.repo, files, ops: new OperationLog(files, path.join(api.vault.stateDir, "operations")), publish: (t, p) => api.events.publish(t, p), now: opts.now ?? (() => new Date()) });
 
   api.defineCapability(
     def({

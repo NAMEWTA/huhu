@@ -686,17 +686,31 @@ describe("Engine 启动与关闭", () => {
     await call("safe.lock", {});
     expect(((await call("automations.runNow", { id: rule.id })).data as { summary: { state: string } }).summary).toEqual({ state: "failed" });
   }, 60_000);
-  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("无写权限的目录：打开给出明确的“无法写入”，不创建任何文件", async () => {
-    const dir = tmp();
-    writeFileSync(path.join(dir, "只读笔记.md"), "# 只读笔记\n");
-    chmodSync(dir, 0o555);
-    try {
-      await expect(boot({ vaultPath: dir, create: true })).rejects.toMatchObject({ message: expect.stringContaining("无法写入") });
-      expect(readdirSync(dir)).toEqual(["只读笔记.md"]);
-    } finally {
-      chmodSync(dir, 0o755);
-    }
-  });
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "ACC-WB-02 无写权限的普通文件夹：写入打开给出“无法写入”（READ_ONLY_VAULT + 只读打开建议），只读打开可浏览，写操作被拒绝，磁盘无变化",
+    async () => {
+      const dir = tmp();
+      writeFileSync(path.join(dir, "只读笔记.md"), "# 只读笔记\n");
+      chmodSync(dir, 0o555);
+      try {
+        await expect(boot({ vaultPath: dir, create: true })).rejects.toMatchObject({ code: "READ_ONLY_VAULT", message: expect.stringContaining("无法写入"), recovery: [{ action: "open-readonly" }] });
+        const e = await boot({ vaultPath: dir, readOnly: true });
+        engines.push(e);
+        const call = (capability: string, input: unknown) =>
+          post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<{ ok: boolean; data: unknown; error?: { code: string } }>;
+        const notes = (await call("notes.list", { filter: "all" })).data as { path: string }[];
+        expect(notes.map((n) => n.path)).toContain("只读笔记.md");
+        const w = await call("notes.create", { name: "新笔记" });
+        expect(w.ok).toBe(false);
+        expect(w.error?.code).toBe("READ_ONLY_VAULT");
+        await e.shutdown();
+        expect(readdirSync(dir)).toEqual(["只读笔记.md"]); // 没有 .huhu、没有新文件
+      } finally {
+        chmodSync(dir, 0o755);
+      }
+    },
+    30_000,
+  );
   test("ACC-PL-01 停用 tasks：MCP 工具列表不再含 tasks_*，已缓存工具的调用得到 PLUGIN_DISABLED，重新启用后恢复", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

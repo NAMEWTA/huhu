@@ -40,7 +40,7 @@ export interface NotesOptions {
 export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): NotesService {
   const svc = new NotesService({
     files: api.vault.files,
-    ops: new OperationLog(api.vault.files, path.join(api.vault.files.root, ".huhu", "operations")),
+    ops: new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations")),
     index: api.vault.index,
     trash: api.vault.trash,
     now: opts.now ?? (() => new Date()),
@@ -327,7 +327,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(def({ name: "comments.relocate", ...cw, input: Cid.extend({ start: z.number().int(), end: z.number().int() }), output: CommentDto, handler: (_c, i) => comments.relocate(i.id, i.start, i.end) }));
   api.defineCapability(def({ name: "comments.delete", ...cw, input: Cid, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await comments.delete(i.id), { ok: true as const }) }));
   // 手动保存模式下离开时保留的草稿：写在 .huhu/drafts/，不改动笔记文件（ACC-KN-04）
-  const draftFile = (rel: string) => path.join(api.vault.files.root, ".huhu", "drafts", `note-${createHash("sha1").update(rel).digest("hex").slice(0, 16)}.json`);
+  const draftFile = (rel: string) => path.join(api.vault.stateDir, "drafts", `note-${createHash("sha1").update(rel).digest("hex").slice(0, 16)}.json`);
   const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string() });
   const dw = { plugin: "notes", scope: "write" as const, exposable: false, defaultExposed: false };
   api.defineCapability(

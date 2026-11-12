@@ -40,6 +40,8 @@ export interface VaultServices {
   index: VaultIndex;
   trash: Trash;
   vaultId: string;
+  /** 运行状态目录（通常是 `<vault>/.huhu`；Vault 不可写、只读打开时在系统临时目录）。插件把自己的状态放在这里，而不是自己拼 `.huhu`。 */
+  stateDir: string;
 }
 
 export interface HuhuApi {

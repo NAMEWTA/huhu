@@ -30,14 +30,14 @@ export interface AgentCliOptions {
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: ProviderDetector; sessions: SessionsService; core: HerdrCore } {
   const root = api.vault.files.root;
-  const spaces = new SpaceStore(path.join(root, ".huhu", "agent-cli", "spaces"), machineId());
+  const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId());
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
   const detector = new ProviderDetector();
   const mid = machineId();
-  const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(root, ".huhu", "runtime", mid, "herdr") });
+  const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr") });
   ctx.effect(() => () => core.dispose()); // 停用只断开连接，不结束 Core
   const sessions = new SessionsService({
-    dir: path.join(root, ".huhu", "agent-cli", "sessions"),
+    dir: path.join(api.vault.stateDir, "agent-cli", "sessions"),
     vaultId: api.vault.vaultId,
     spaces,
     core: () => core.ensure(),
@@ -193,7 +193,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return sp;
   };
   // 列表请求很频繁（打开面板、切换 Space），短时间内复用结果；恢复时总是重新扫描
-  const pins = new PinStore(path.join(api.vault.files.root, ".huhu", "agent-cli", "pins.json"));
+  const pins = new PinStore(path.join(api.vault.stateDir, "agent-cli", "pins.json"));
   const resuming = new Set<string>();
   const cache = new Map<string, { at: number; r: ReturnType<typeof scanHistory> }>();
   const scanCached = (root: string) => {

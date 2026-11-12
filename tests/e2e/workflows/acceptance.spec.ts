@@ -315,7 +315,7 @@ test("ACC-WB-01 打开含 3 篇 Markdown 的普通文件夹：新增 .huhu/vault
   }
 });
 
-test("目录无写权限：打开时给出“无法写入”提示且不创建任何文件（ACC-WB-02 的前半；“只读浏览”见 progress.md 缺口）", async () => {
+test("ACC-WB-02 目录无写权限：提示“无法写入”并可“以只读方式打开”；打开后可浏览，写操作被拒绝，磁盘无变化", async () => {
   test.skip(process.platform === "win32" || process.getuid?.() === 0, "需要非 root 的 POSIX 权限");
   const dir = mkdtempSync(path.join(tmpdir(), "huhu-wb02-"));
   writeFileSync(path.join(dir, "只读笔记.md"), "# 只读笔记\n\n内容\n");
@@ -327,6 +327,14 @@ test("目录无写权限：打开时给出“无法写入”提示且不创建�
     await pick(dir);
     await page.getByTestId("vault-open").click();
     await expect(page.getByTestId("vault-error")).toContainText("无法写入");
+    await page.getByTestId("vault-readonly").click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await expect(page.getByTestId("note-item").filter({ hasText: "只读笔记" })).toBeVisible();
+    const call = await caller(page);
+    const created = await call("notes.create", { name: "新笔记" });
+    expect(created.ok).toBe(false);
+    expect(created.error?.code).toBe("READ_ONLY_VAULT");
     expect(readdirSync(dir)).toEqual(["只读笔记.md"]); // 没有 .huhu、没有新文件
   } finally {
     await app.close();

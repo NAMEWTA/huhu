@@ -130,9 +130,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   void index.build().then(() => compactMemory());
 
   const events = new EventBus(() => vault.id);
-  const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")));
+  const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.stateDir, "operations")));
   repo.onWritten = (paths) => index.refreshPaths(paths);
-  new OperationLog(vault.files, path.join(vault.root, ".huhu", "operations")).recover();
+  new OperationLog(vault.files, path.join(vault.stateDir, "operations")).recover();
   const trash = new Trash(vault.files);
   const dispatcherRef: { current?: Dispatcher } = {};
   const {
@@ -142,7 +142,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   } = createHuhuContext({
     registry,
     events,
-    vault: { repo, files: vault.files, index, trash, vaultId: vault.id },
+    vault: { repo, files: vault.files, index, trash, vaultId: vault.id, stateDir: vault.stateDir },
     call: async (caller, capability, input, idempotencyKey) => {
       const r = await dispatcherRef.current!.call(caller, { capability, input, requestId: `${caller}-${Date.now()}`, ...(idempotencyKey ? { idempotencyKey } : {}) });
       if (!r.ok) throw Object.assign(new Error(r.error.message), { code: r.error.code });
@@ -155,15 +155,15 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
   const serverRef: { current?: RunningServer } = {};
   const gatewayTokens = new GatewayTokens(
-    path.join(vault.root, ".huhu", "gateways.json"),
+    path.join(vault.stateDir, "gateways.json"),
     tokens,
     () => new Date(),
     () => serverRef.current?.closeConnectionsOf("http"),
   );
   const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
-  const exposure = new ExposureStore(path.join(vault.root, ".huhu", "plugins.json"));
+  const exposure = new ExposureStore(path.join(vault.stateDir, "plugins.json"));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
-  const settingsFile = path.join(vault.root, ".huhu", "settings.json");
+  const settingsFile = path.join(vault.stateDir, "settings.json");
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
@@ -199,7 +199,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
   });
   const notifications = new NotificationStore(
-    path.join(vault.root, ".huhu", "notifications.ndjson"),
+    path.join(vault.stateDir, "notifications.ndjson"),
     () => new Date(),
     (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }),
   );
@@ -266,7 +266,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       },
     }),
   );
-  const eventLog = new EventLog(path.join(vault.root, ".huhu", "diagnostics", "events.ndjson"));
+  const eventLog = new EventLog(path.join(vault.stateDir, "diagnostics", "events.ndjson"));
   registerHealthCapabilities(registry, {
     plugins,
     events: eventLog,
@@ -294,7 +294,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
-  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.root, ".huhu", "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }));
+  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }));
   registerSystemCapabilities(
     registry,
     plugins,
@@ -330,6 +330,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   const external = new ExternalPlugins({
     root: vault.root,
+    stateDir: vault.stateDir,
     plugins,
     tokens,
     baseUrl: () => `http://127.0.0.1:${serverRef.current?.port ?? 0}`,
