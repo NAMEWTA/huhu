@@ -258,11 +258,21 @@ interface DocRecord {
  * 外层按笔记路径重建编辑器组件（切换笔记）时，撤销历史与滚动位置不会丢。只有文本与当时完全一致才恢复（外部改过就从头开始）。
  */
 const SNAPSHOT_LIMIT = 32;
+/** 超大文档不留快照（快照要保存两份全文加撤销历史），所有快照的文本总量也有上限。 */
+const SNAPSHOT_DOC_CHARS = 256_000;
+const SNAPSHOT_TOTAL_CHARS = 2_000_000;
 const snapshots = new Map<string, { doc: string; json: unknown; scrollTop: number; scrollLeft: number }>();
 function rememberSnapshot(id: string, view: EditorView, record: { scrollTop: number; scrollLeft: number }): void {
   snapshots.delete(id);
+  if (view.state.doc.length > SNAPSHOT_DOC_CHARS) return;
   snapshots.set(id, { doc: view.state.doc.toString(), json: view.state.toJSON({ history: historyField }), scrollTop: record.scrollTop, scrollLeft: record.scrollLeft });
-  while (snapshots.size > SNAPSHOT_LIMIT) snapshots.delete(snapshots.keys().next().value as string);
+  let total = 0;
+  for (const v of snapshots.values()) total += v.doc.length;
+  while ((snapshots.size > SNAPSHOT_LIMIT || total > SNAPSHOT_TOTAL_CHARS) && snapshots.size > 1) {
+    const oldest = snapshots.keys().next().value as string;
+    total -= snapshots.get(oldest)?.doc.length ?? 0;
+    snapshots.delete(oldest);
+  }
 }
 
 /**

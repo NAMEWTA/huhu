@@ -78,12 +78,12 @@ export interface ExplorerProps {
   onDailyDate(d: string): void;
 }
 
-/** 左侧资源栏（原型 knowledge-note-list）：Vault 头 → 文件资源管理器（新建 / 搜索 / 分类）→ 文件树 / 标签云 / 日记选择 → 底部导入。 */
 function SectionIcon({ section }: { section: Section }) {
   const Icon = SECTION_ICON[section];
   return <Icon size={13} aria-hidden />;
 }
 
+/** 左侧资源栏（原型 knowledge-note-list）：Vault 头 → 文件资源管理器（新建 / 搜索 / 分类）→ 文件树 / 标签云 / 日记选择 → 底部导入。 */
 export function NoteExplorer(p: ExplorerProps) {
   const tree = useMemo(() => buildTree(p.notes, p.section === "all" ? p.folders : []), [p.notes, p.folders, p.section]);
   const fileInput = useRef<HTMLInputElement>(null);
