@@ -89,7 +89,7 @@ function App() {
             { id: "today", label: "今日安排", tabIcon: CalendarDays },
             { id: "activity", label: "最近活动", tabIcon: Activity },
           ],
-          component: (p) => <HomeModule ui={ui} section={p.section} onSection={p.onSection} />,
+          component: (p) => <HomeModule ui={ui} registry={r} section={p.section} onSection={p.onSection} />,
         },
       ],
     });

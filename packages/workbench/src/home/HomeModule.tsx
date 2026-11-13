@@ -1,9 +1,9 @@
 import type { TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, IconButton, PageHead, Segmented } from "@huhu/ui";
 import { Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, CheckCircle2, ChevronRight, Clock, FileText, Inbox, LayoutGrid, ListTodo, Plus, RefreshCw, Sparkles, Target } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useSyncExternalStore } from "react";
 import type { StoreApi } from "zustand/vanilla";
-import type { ModuleProps } from "../contributions.js";
+import type { ContributionRegistry, ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import type { UiState } from "../state/ui-store.js";
@@ -32,24 +32,31 @@ interface EventRow {
   message: string;
   tone: "success" | "error" | "neutral";
 }
-type Card = "focus" | "habits" | "tasks" | "inbox" | "recent" | "activity";
+/** 卡片 id：内置卡片，或插件贡献的 `widget:<插件>:<卡片>`。 */
+type Card = string;
 /** 首页的两列：同一列里的卡片可以调整先后。 */
-const HOME_COLUMNS: Card[][] = [
+const CORE_COLUMNS: Card[][] = [
   ["tasks", "recent", "activity"],
   ["focus", "inbox"],
 ];
-const CARDS: Card[] = ["focus", "habits", "tasks", "inbox", "recent", "activity"];
+const CORE_CARDS: Card[] = ["focus", "habits", "tasks", "inbox", "recent", "activity"];
+const NO_WIDGETS: ReturnType<ContributionRegistry["getSnapshot"]> = { modules: [], commands: [], homeWidgets: [] };
+const noop = () => () => undefined;
 type Section = "overview" | "today" | "activity";
 
 const fmtDate = (iso: string, zone: string): string => new Date(iso).toLocaleDateString("zh-CN", { timeZone: zone });
 const fmtTime = (iso: string, zone: string): string => new Date(iso).toLocaleString("zh-CN", { timeZone: zone });
 
 /** 首页（原型 Home）：页头 → 数字概览 → 左列（我的任务 / 继续上次的思考 / 最近活动）+ 右列（专注与习惯 / 灵感收件箱 / Agent CLI 入口）。 */
-export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreApi<UiState> } & Partial<Pick<ModuleProps, "section" | "onSection">>) {
+export function HomeModule({ ui, registry, section: sectionProp, onSection }: { ui: StoreApi<UiState>; registry?: ContributionRegistry } & Partial<Pick<ModuleProps, "section" | "onSection">>) {
   const engine = useEngine();
   const qc = useQueryClient();
+  const contributed = useSyncExternalStore(registry ? registry.subscribe : noop, registry ? registry.getSnapshot : () => NO_WIDGETS).homeWidgets;
+  const widgetIds = contributed.map((w) => `widget:${w.plugin}:${w.id}`);
+  const HOME_COLUMNS: Card[][] = [CORE_COLUMNS[0] as Card[], [...(CORE_COLUMNS[1] as Card[]), ...widgetIds]];
+  const CARDS: Card[] = [...CORE_CARDS, ...widgetIds];
   const s = useCapability<Summary>("home.summary", {});
-  const widgets = useCapability<{ hidden: Card[]; order: Card[] }>("home.widgets.get", {});
+  const widgets = useCapability<{ hidden: string[]; order: string[] }>("home.widgets.get", {});
   const tasks = useCapability<TaskDto[]>("tasks.list", { completed: false });
   const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" });
   const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
@@ -105,6 +112,7 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
     }
   }
 
+  const cardLabel = (c: Card): string => tHome.customize.cards[c] ?? contributed.find((w) => `widget:${w.plugin}:${w.id}` === c)?.title ?? c;
   const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date()); // “今天”按设置的时区，不是 UTC
   const pending = useMemo(() => (tasks.data ?? []).filter((t) => !t.completed), [tasks.data]);
@@ -125,10 +133,10 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
     </button>
   );
 
-  const order = (widgets.data?.order ?? []).filter((c): c is Card => (CARDS as string[]).includes(c));
+  const order = (widgets.data?.order ?? []).filter((c) => CARDS.includes(c));
   /** 同一列里的卡片按用户排的顺序显示；没排过的保持默认顺序（排在已排的后面）。 */
   const orderedCards = (col: Card[]): Card[] => [...col].sort((x, y) => (order.indexOf(x) < 0 ? 99 : order.indexOf(x)) - (order.indexOf(y) < 0 ? 99 : order.indexOf(y)) || col.indexOf(x) - col.indexOf(y));
-  const mainNodes: Partial<Record<Card, React.ReactNode>> = {
+  const mainNodes: Record<string, React.ReactNode> = {
     tasks:
       show("tasks") && d.enabled.tasks ? (
         <section className="card home-task-card" data-testid="card-tasks">
@@ -219,7 +227,7 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
       </section>
     ) : null,
   };
-  const sideNodes: Partial<Record<Card, React.ReactNode>> = {
+  const sideNodes: Record<string, React.ReactNode> = {
     focus: show("focus") ? <FocusCard>{show("habits") ? <HabitsCard /> : null}</FocusCard> : null,
     inbox:
       show("inbox") && d.enabled.inbox ? (
@@ -247,6 +255,18 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
         </section>
       ) : null,
   };
+  for (const w of contributed) {
+    const id = `widget:${w.plugin}:${w.id}`;
+    const W = w.component;
+    sideNodes[id] = show(id) ? (
+      <section className="card home-widget" data-testid={`card-${w.plugin}-${w.id}`}>
+        <div className="card-head">
+          <h2>{w.title}</h2>
+        </div>
+        <W onNavigate={nav} />
+      </section>
+    ) : null;
+  }
 
   return (
     <div className="module-layout home-layout" data-testid="home-module">
@@ -284,12 +304,12 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
               </div>
               <div className="home-grid">
                 <div className="home-main-column">
-                  {orderedCards(["tasks", "recent", "activity"]).map((c) => (
+                  {orderedCards(HOME_COLUMNS[0] as Card[]).map((c) => (
                     <Fragment key={c}>{mainNodes[c]}</Fragment>
                   ))}
                 </div>
                 <div className="home-side-column">
-                  {orderedCards(["focus", "inbox"]).map((c) => (
+                  {orderedCards(HOME_COLUMNS[1] as Card[]).map((c) => (
                     <Fragment key={c}>{sideNodes[c]}</Fragment>
                   ))}
                   {d.enabled.agentCli ? (
@@ -324,12 +344,12 @@ export function HomeModule({ ui, section: sectionProp, onSection }: { ui: StoreA
             return (
               <div key={c} className="row" data-testid="home-card-row">
                 <label className="checkbox-row grow">
-                  <input type="checkbox" checked={show(c)} aria-label={tHome.customize.cards[c]} onChange={() => void toggleCard(c)} /> {tHome.customize.cards[c]}
+                  <input type="checkbox" checked={show(c)} aria-label={cardLabel(c)} onChange={() => void toggleCard(c)} /> {cardLabel(c)}
                 </label>
                 {col ? (
                   <>
-                    <IconButton icon={ArrowUp} label={`上移 ${tHome.customize.cards[c]}`} disabled={pos <= 0} onClick={() => void moveCard(c, -1)} />
-                    <IconButton icon={ArrowDown} label={`下移 ${tHome.customize.cards[c]}`} disabled={pos < 0 || pos >= col.length - 1} onClick={() => void moveCard(c, 1)} />
+                    <IconButton icon={ArrowUp} label={`上移 ${cardLabel(c)}`} disabled={pos <= 0} onClick={() => void moveCard(c, -1)} />
+                    <IconButton icon={ArrowDown} label={`下移 ${cardLabel(c)}`} disabled={pos < 0 || pos >= col.length - 1} onClick={() => void moveCard(c, 1)} />
                   </>
                 ) : null}
               </div>

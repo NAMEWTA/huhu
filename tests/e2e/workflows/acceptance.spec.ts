@@ -192,7 +192,8 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
     await page.keyboard.type("\nA库未保存的内容");
     await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
 
-    await page.getByRole("button", { name: "切换 Vault" }).click(); // 标题栏的 Vault 切换器；笔记仍在编辑中
+    await page.getByRole("button", { name: "切换 Vault" }).click(); // 标题栏的 Vault 切换器（下拉菜单）；笔记仍在编辑中
+    await page.getByRole("menuitem", { name: "关闭 Vault" }).click();
     await expect(page.getByTestId("svault-dirty-list")).toContainText("草稿甲");
     await page.getByTestId("svault-switch-draft").click();
     await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
@@ -208,6 +209,7 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
 
     // 回到 A：笔记提示恢复草稿，内容与切换前一致
     await page.getByRole("button", { name: "切换 Vault" }).click();
+    await page.getByRole("menuitem", { name: "关闭 Vault" }).click();
     await page.getByTestId("svault-switch-confirm").click();
     await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("vault-recent").filter({ hasText: "甲库" }).click();
@@ -1165,6 +1167,30 @@ test("DataTable：网关“调用记录”显示外部调用；超过 200 行时
     await page.mouse.move(hb.x + 63, hb.y + 5, { steps: 4 });
     await page.mouse.up();
     expect((await th.boundingBox())!.width).toBeGreaterThan(before + 30);
+  } finally {
+    await close();
+  }
+});
+
+test("首页卡片可由插件贡献：SSH 主机与版本与同步卡片出现在首页，可在“自定义”里隐藏/调序并持久化，插件停用后消失", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    await expect(page.getByTestId("card-versioning-git")).toBeVisible();
+    await expect(page.getByTestId("card-ssh-hosts")).toBeVisible();
+    const contributed = () => page.locator(".home-side-column > section.home-widget").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    await expect.poll(contributed).toEqual(["card-versioning-git", "card-ssh-hosts"]);
+    await page.getByTestId("home-customize").click();
+    const panel = page.getByTestId("home-customize-panel");
+    await panel.getByRole("button", { name: "上移 SSH 主机" }).click();
+    await expect.poll(contributed).toEqual(["card-ssh-hosts", "card-versioning-git"]);
+    await panel.getByRole("checkbox", { name: "版本与同步" }).click();
+    await expect(page.getByTestId("card-versioning-git")).toHaveCount(0);
+    await expect.poll(() => (existsSync(path.join(vault, ".huhu/home/widgets.json")) ? readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8") : "")).toContain("widget:versioning:git");
+    await page.keyboard.press("Escape");
+    await call("plugins.setEnabled", { id: "ssh", enabled: false });
+    await expect(page.getByTestId("card-ssh-hosts")).toHaveCount(0);
   } finally {
     await close();
   }

@@ -141,9 +141,12 @@ describe("CLI", () => {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");
-    const server = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1");
+    const server = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1", { watchToolsMs: 200 });
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "t", version: "1" });
+    const { ToolListChangedNotificationSchema } = await import("@modelcontextprotocol/sdk/types.js");
+    let changed = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => void changed++);
     await Promise.all([server.connect(a), client.connect(b)]);
     expect((await client.listTools()).tools.some((t) => t.name === "tasks_list")).toBe(true);
     const off = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
@@ -152,6 +155,7 @@ describe("CLI", () => {
       body: JSON.stringify({ capability: "plugins.setEnabled", input: { id: "tasks", enabled: false }, requestId: "r", idempotencyKey: "key-disable-tasks-1" }),
     });
     expect(off.ok).toBe(true);
+    await vi.waitFor(() => expect(changed).toBeGreaterThan(0), { timeout: 10_000 }); // 开放的工具表变了：服务端主动通知（tools/list_changed）
     expect((await client.listTools()).tools.some((t) => t.name.startsWith("tasks_"))).toBe(false);
     const stale = await client.callTool({ name: "tasks_list", arguments: {} });
     expect(stale.isError).toBe(true);

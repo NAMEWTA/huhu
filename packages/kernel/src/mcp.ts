@@ -21,8 +21,41 @@ async function need<T>(p: Promise<CapabilityResult<T>>): Promise<T> {
 const toolName = (cap: string) => cap.replace(/\./g, "_");
 
 /** 把对外开放的能力映射为 MCP 工具，并提供资源（概览、最近笔记）、模板（`huhu://notes/{id}`）与提示词（daily-review、knowledge-synthesis）。stdio 与 HTTP 共用。 */
-export function createMcpServer(backend: McpBackend, version: string): Server {
-  const server = new Server({ name: "huhu", version }, { capabilities: { tools: {}, resources: {}, prompts: {} } });
+export function createMcpServer(
+  backend: McpBackend,
+  version: string,
+  opts: { /** 有长连接（stdio）时按这个间隔检查对外开放的工具表，变了就发 notifications/tools/list_changed；HTTP 是无状态的，不开启。 */ watchToolsMs?: number } = {},
+): Server {
+  const server = new Server({ name: "huhu", version }, { capabilities: { tools: { listChanged: opts.watchToolsMs !== undefined }, resources: {}, prompts: {} } });
+  if (opts.watchToolsMs !== undefined) {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let last: string | null = null;
+    const signature = async () =>
+      (await backend.list())
+        .map((c) => c.name)
+        .sort()
+        .join("\n");
+    server.oninitialized = () => {
+      void signature().then(
+        (s) => (last = s),
+        () => undefined,
+      );
+      timer = setInterval(() => {
+        void signature().then(
+          (s) => {
+            if (last !== null && s !== last) void server.sendToolListChanged().catch(() => undefined);
+            last = s;
+          },
+          () => undefined, // Engine 暂时连不上：下一轮再看
+        );
+      }, opts.watchToolsMs);
+      timer.unref();
+    };
+    server.onclose = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+  }
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: (await backend.list()).map((c) => ({ name: toolName(c.name), description: `${c.name}（${c.plugin} · ${c.scope}）`, inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" } })),
   }));

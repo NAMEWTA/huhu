@@ -1,6 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, HOME_CARDS, WidgetsStateSchema, errors } from "@huhu/contracts";
+import { FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, WidgetsStateSchema, errors, isKnownCard } from "@huhu/contracts";
 import type { FocusState, FocusView, HabitsState, HabitsView, WidgetsState } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
@@ -21,10 +21,7 @@ const MAX_TITLE = 60;
 const WidgetsUpdateSchema = z.object({ hidden: z.array(z.string()), order: z.array(z.string()).optional() });
 
 /** 只留下认识的卡片 id 并去重。 */
-const knownCards = (xs: unknown): string[] => {
-  const known = new Set<string>(HOME_CARDS);
-  return Array.isArray(xs) ? [...new Set(xs.filter((x): x is string => typeof x === "string" && known.has(x)))] : [];
-};
+const knownCards = (xs: unknown): string[] => (Array.isArray(xs) ? [...new Set(xs.filter(isKnownCard))] : []);
 
 /** 首页的专注计时、习惯、卡片显示：状态存 `.huhu/home/*.json`（原子写），跨日重置按设置的时区。 */
 export class HomeStore {

@@ -4,6 +4,9 @@ import { z } from "zod";
 export const FOCUS_SECONDS = 25 * 60;
 export const HOME_CARDS = ["focus", "habits", "tasks", "inbox", "recent", "activity"] as const;
 export type HomeCard = (typeof HOME_CARDS)[number];
+/** 插件贡献的首页卡片 id：`widget:<插件 id>:<卡片 id>`。 */
+export const WIDGET_ID = /^widget:[a-z0-9-]+:[a-z0-9-]+$/;
+export const isKnownCard = (x: unknown): x is string => typeof x === "string" && ((HOME_CARDS as readonly string[]).includes(x) || WIDGET_ID.test(x));
 
 /** `.huhu/home/focus.json`：运行中时 remainingSec 是 startedAt 那一刻的剩余秒数。 */
 export const FocusStateSchema = z.object({
@@ -59,9 +62,9 @@ export const HabitsActionSchema = z.discriminatedUnion("action", [
 
 /** `.huhu/home/widgets.json`：隐藏的卡片（未列出的都显示）与用户排的卡片顺序（未列出的按默认顺序排在后面）。 */
 export const WidgetsStateSchema = z.object({
-  hidden: z.array(z.enum(HOME_CARDS)).catch(() => []),
+  hidden: z.array(z.string().refine(isKnownCard)).catch(() => []),
   order: z
-    .array(z.enum(HOME_CARDS))
+    .array(z.string().refine(isKnownCard))
     .catch(() => [])
     .optional(),
 });

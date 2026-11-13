@@ -33,6 +33,17 @@ export interface ModuleContribution {
   badge?: () => number | null;
 }
 
+/** 首页卡片：由插件贡献，插件停用时随贡献一起消失（数据不删）。卡片内容自己取数。 */
+export interface HomeWidgetContribution {
+  /** 卡片 id（小写字母、数字、连字符）；存进 widgets.json 的完整 id 是 `widget:<plugin>:<id>`。 */
+  id: string;
+  plugin: string;
+  title: string;
+  /** 默认顺序，越小越靠前。 */
+  order: number;
+  component: ComponentType<{ onNavigate(moduleId: string): void }>;
+}
+
 export interface CommandContribution {
   id: string;
   plugin: string;
@@ -44,17 +55,20 @@ export interface CommandContribution {
 export class ContributionRegistry {
   private modules = new Map<string, ModuleContribution>();
   private commands = new Map<string, CommandContribution>();
+  private widgets = new Map<string, HomeWidgetContribution>();
   private listeners = new Set<() => void>();
   private enabled: ReadonlySet<string> | null = null;
-  private snapshotCache: { modules: ModuleContribution[]; commands: CommandContribution[] } | null = null;
+  private snapshotCache: { modules: ModuleContribution[]; commands: CommandContribution[]; homeWidgets: HomeWidgetContribution[] } | null = null;
 
-  register(c: { modules?: ModuleContribution[]; commands?: CommandContribution[] }): () => void {
+  register(c: { modules?: ModuleContribution[]; commands?: CommandContribution[]; homeWidgets?: HomeWidgetContribution[] }): () => void {
     for (const m of c.modules ?? []) this.modules.set(m.id, m);
     for (const cmd of c.commands ?? []) this.commands.set(cmd.id, cmd);
+    for (const w of c.homeWidgets ?? []) this.widgets.set(`widget:${w.plugin}:${w.id}`, w);
     this.changed();
     return () => {
       for (const m of c.modules ?? []) if (this.modules.get(m.id) === m) this.modules.delete(m.id);
       for (const cmd of c.commands ?? []) if (this.commands.get(cmd.id) === cmd) this.commands.delete(cmd.id);
+      for (const w of c.homeWidgets ?? []) if (this.widgets.get(`widget:${w.plugin}:${w.id}`) === w) this.widgets.delete(`widget:${w.plugin}:${w.id}`);
       this.changed();
     };
   }
@@ -69,6 +83,7 @@ export class ContributionRegistry {
   removePlugin(plugin: string): void {
     for (const [id, m] of this.modules) if (m.plugin === plugin) this.modules.delete(id);
     for (const [id, c] of this.commands) if (c.plugin === plugin) this.commands.delete(id);
+    for (const [id, w] of this.widgets) if (w.plugin === plugin) this.widgets.delete(id);
     this.changed();
   }
 
@@ -87,10 +102,11 @@ export class ContributionRegistry {
   };
 
   /** 稳定引用的快照（useSyncExternalStore 要求未变化时返回同一对象）。 */
-  getSnapshot = (): { modules: ModuleContribution[]; commands: CommandContribution[] } => {
+  getSnapshot = (): { modules: ModuleContribution[]; commands: CommandContribution[]; homeWidgets: HomeWidgetContribution[] } => {
     this.snapshotCache ??= {
       modules: [...this.modules.values()].filter((m) => this.visible(m.plugin)).sort((a, b) => GROUP_RANK[a.group] - GROUP_RANK[b.group] || a.order - b.order),
       commands: [...this.commands.values()].filter((c) => this.visible(c.plugin)),
+      homeWidgets: [...this.widgets.values()].filter((w) => this.visible(w.plugin)).sort((a, b) => a.order - b.order),
     };
     return this.snapshotCache;
   };
