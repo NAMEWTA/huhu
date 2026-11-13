@@ -496,7 +496,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await page.getByTestId("folder-line").filter({ hasText: "归档" }).getByRole("button").first().click();
     const moved = page.getByTestId("note-item").filter({ hasText: "待移动" });
     await expect(moved).toBeVisible();
-    await moved.dragTo(page.locator(".knowledge-explorer-tree"), { targetPosition: { x: 20, y: 300 } });
+    await moved.dragTo(page.locator(".knowledge-explorer-tree"), { targetPosition: { x: 20, y: 120 } });
     await expect.poll(() => fs.existsSync(`${vault}/待移动.md`)).toBe(true);
   } finally {
     await close();

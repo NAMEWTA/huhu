@@ -52,7 +52,13 @@ export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey
       const next = Math.max(0, Math.min(body.length - 1, to));
       if (virtual) virt.scrollToIndex(next);
       // 虚拟化时目标行可能还没渲染：下一帧再取
-      requestAnimationFrame(() => scroller.current?.querySelector<HTMLElement>(`[data-row-index="${next}"]`)?.focus());
+      let tries = 0;
+      const focusRow = () => {
+        const row = scroller.current?.querySelector<HTMLElement>(`[data-row-index="${next}"]`);
+        if (row) row.focus();
+        else if (tries++ < 5) requestAnimationFrame(focusRow);
+      };
+      requestAnimationFrame(focusRow);
     };
     if (e.key === "ArrowDown") move(index + 1);
     else if (e.key === "ArrowUp") move(index - 1);

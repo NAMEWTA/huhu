@@ -61,11 +61,23 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
         connectTimeoutSec: z.number().default(20),
       }),
       output: Host,
-      handler: (_c, i) => hosts.save(i as never),
+      handler: async (_c, i) => {
+        const saved = await hosts.save(i as never);
+        api.events.publish("entity.changed", { kind: "ssh-host", id: saved.id, op: i.id ? "updated" : "created" }); // 带外（CLI / MCP）改主机，界面也能刷新
+        return saved;
+      },
     }),
   );
   api.defineCapability(
-    def({ name: "ssh.hosts.delete", plugin: "ssh", scope: "write", ...desktop, input: z.object({ id: z.string() }), output: Ok, handler: (_c, i) => (manager.disconnect(i.id), hosts.delete(i.id), { ok: true as const }) }),
+    def({
+      name: "ssh.hosts.delete",
+      plugin: "ssh",
+      scope: "write",
+      ...desktop,
+      input: z.object({ id: z.string() }),
+      output: Ok,
+      handler: (_c, i) => (manager.disconnect(i.id), hosts.delete(i.id), api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" }), { ok: true as const }),
+    }),
   );
   api.defineCapability(
     def({ name: "ssh.connect", plugin: "ssh", scope: "execute", ...desktop, timeoutMs: 5 * 60_000, input: z.object({ hostId: z.string() }), output: z.object({ attemptId: z.string() }), handler: (_c, i) => manager.connect(i.hostId) }),

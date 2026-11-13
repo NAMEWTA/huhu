@@ -11,6 +11,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "archive-type": ["archives."],
   capture: ["inbox."],
   comment: ["comments."],
+  "ssh-host": ["ssh.hosts."],
 };
 
 /** 事件到达时让相关查询失效。 */

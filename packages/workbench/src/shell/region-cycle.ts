@@ -34,6 +34,7 @@ export function useRegionCycle(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "F6" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.querySelector("dialog[open]")) return; // 对话框打开时焦点留在对话框里
       if (cycleRegion(document, document.activeElement, e.shiftKey)) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);

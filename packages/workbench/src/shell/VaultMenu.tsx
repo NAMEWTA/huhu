@@ -8,7 +8,10 @@ export function VaultMenu({ vaultName, onSwitch }: { vaultName: string; onSwitch
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<VaultHostState | null>(null);
   useEffect(() => {
-    if (open) void host()?.vault.state().then(setState);
+    if (open)
+      void host()
+        ?.vault.state()
+        .then(setState, () => setState(null));
   }, [open]);
   const pick = (target?: { path: string; name: string }) => {
     setOpen(false);

@@ -106,8 +106,9 @@ function BackupGate({ open, onGate, onError, busy, setBusy }: { open: boolean; o
     }
   }, [open]); // 每次打开都要重新导出：备份必须是此刻的内容
   useEffect(() => {
-    onGate(!needBackup || (exported !== null && confirmed));
-  }, [needBackup, exported, confirmed, onGate]);
+    // 设置还没读到时先不放行：避免开启了备份提示却能在短暂的窗口里直接切换
+    onGate(settings.isError || (settings.data !== undefined && (!needBackup || (exported !== null && confirmed))));
+  }, [settings.isError, settings.data, needBackup, exported, confirmed, onGate]);
   useEffect(() => () => onGate(true), [onGate]);
   const doExport = async () => {
     setBusy(true);
