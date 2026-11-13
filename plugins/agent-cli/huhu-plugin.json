@@ -2,7 +2,7 @@
   "id": "agent-cli",
   "title": "Agent CLI",
   "description": "在 Space 目录中运行 AI CLI 与终端会话",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["safe"],

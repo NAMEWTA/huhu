@@ -2,7 +2,7 @@
   "id": "archives",
   "title": "档案",
   "description": "按类型组织的长期资料",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["tasks", "notes"],

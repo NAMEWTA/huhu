@@ -2,7 +2,7 @@
   "id": "automations",
   "title": "自动化",
   "description": "按时间激活动作；扫描未完成的 Agent 任务",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["tasks", "agent-cli", "safe"],
