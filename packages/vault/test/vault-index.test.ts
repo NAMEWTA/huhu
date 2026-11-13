@@ -143,3 +143,18 @@ describe("VaultIndex", () => {
     });
   });
 });
+
+describe("VaultIndex.clearSearch", () => {
+  test("清除搜索索引：搜索没有结果，路径树与笔记元数据不动；重建后恢复", async () => {
+    const root = vault({ "甲.md": "# 甲\n独特词汇\n" });
+    const ix = new VaultIndex(root);
+    await ix.build();
+    expect(ix.query("独特词汇").hits.length).toBe(1);
+    expect(ix.clearSearch()).toBe(true);
+    expect(ix.query("独特词汇").hits).toEqual([]);
+    expect(ix.entries().map((e) => e.path)).toContain("甲.md");
+    expect(ix.counts()["notes"]).toBe(1);
+    await ix.reindex();
+    expect(ix.query("独特词汇").hits.length).toBe(1);
+  });
+});

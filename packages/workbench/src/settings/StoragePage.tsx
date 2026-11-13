@@ -87,6 +87,15 @@ export function StoragePage() {
       void refresh();
     }
   }
+  async function clearIndex() {
+    setMsg(null);
+    try {
+      const r = await engine.call<{ cleared: boolean }>("vault.clearIndex", {}, { write: true });
+      setMsg({ kind: "ok", text: r.cleared ? "已清除搜索索引：搜索暂时没有结果，点“从原始文件重建索引”即可恢复" : "正在重建索引，完成后再清除", testid: "storage-reindex-msg" });
+    } catch (e) {
+      fail(e, "storage-reindex-msg");
+    }
+  }
   async function cancelReindex() {
     try {
       const r = await engine.call<{ cancelled: boolean }>("vault.reindexCancel", {}, { write: true });
@@ -195,6 +204,9 @@ export function StoragePage() {
                   {c.cancel}
                 </Button>
               ) : null}
+              <Button disabled={busy !== null || indexing || info.data.readOnly} onClick={() => void clearIndex()} data-testid="storage-index-clear">
+                清除搜索索引
+              </Button>
             </div>
           </section>
 

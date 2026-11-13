@@ -1109,6 +1109,10 @@ test("设置：数据与存储——重建索引、导出数据包（结果带 S
 
     await page.getByTestId("storage-reindex").click();
     await expect(page.getByTestId("storage-reindex-msg")).toHaveText("索引已重建", { timeout: 20_000 });
+    await page.getByTestId("storage-index-clear").click();
+    await expect(page.getByTestId("storage-reindex-msg")).toContainText("已清除搜索索引");
+    await page.getByTestId("storage-reindex").click();
+    await expect(page.getByTestId("storage-reindex-msg")).toHaveText("索引已重建", { timeout: 20_000 });
 
     const zip = path.join(out, "备份.zip");
     await page.getByRole("tab", { name: "导出与迁移" }).click();

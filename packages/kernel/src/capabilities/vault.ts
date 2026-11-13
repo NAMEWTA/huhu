@@ -203,6 +203,18 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
     ),
     registry.register(
       defineCapability({
+        name: "vault.clearIndex",
+        plugin: "kernel",
+        scope: "admin",
+        input: z.object({}),
+        output: z.object({ cleared: z.boolean() }),
+        exposable: false,
+        defaultExposed: false,
+        handler: () => ({ cleared: index.clearSearch() }),
+      }),
+    ),
+    registry.register(
+      defineCapability({
         name: "vault.reindexCancel",
         plugin: "kernel",
         scope: "admin",

@@ -55,6 +55,13 @@ export class VaultIndex {
     return this.build();
   }
 
+  /** 清除全文搜索索引（可随时从原文件重建）；路径树、笔记元数据与反链不动。正在重建时不清，返回 false。 */
+  clearSearch(): boolean {
+    if (this._indexing) return false;
+    this.search.clear();
+    return true;
+  }
+
   /** 是否有已完成的旧索引（首次建立索引时取消没有意义：取消后搜索会是空的）。 */
   get hasContentIndex(): boolean {
     return this.built;
