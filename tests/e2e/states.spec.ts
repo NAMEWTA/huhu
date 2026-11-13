@@ -100,7 +100,11 @@ test("ACC-WB-09 状态巡检：只读 Vault 下所有模块可以打开，没有
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [d] })) as typeof dialog.showOpenDialog;
     }, dir);
     await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId("vault-open").click();
+    // 启动页在读取宿主状态时会重绘；点击偶尔落在被替换的按钮上，所以点击和等待提示一起重试
+    await expect(async () => {
+      await page.getByTestId("vault-open").click({ timeout: 3000 });
+      await expect(page.getByTestId("vault-readonly")).toBeVisible({ timeout: 4000 });
+    }).toPass({ timeout: 30_000 });
     await page.getByTestId("vault-readonly").click();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     const wide: string[] = [];
