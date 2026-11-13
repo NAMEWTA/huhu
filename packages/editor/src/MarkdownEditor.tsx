@@ -464,9 +464,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     }
     const before = view.state.doc.toString();
     if (before !== value) view.dispatch({ changes: sourceChange(before, value), annotations: [externalUpdate.of(true), Transaction.addToHistory.of(false)] });
-    view.dispatch({ effects: modes(active.current as DocRecord) });
-    view.requestMeasure();
-    status(view);
+    const applyModes = () => {
+      if (viewRef.current !== view || active.current?.id !== documentId) return;
+      view.dispatch({ effects: modes(active.current as DocRecord) });
+      view.requestMeasure();
+      status(view);
+    };
+    // 输入法正在组合（拼音 / 注音等）时不切换模式：等组合结束再切，已输入的文字不丢（ACC-KN-02）
+    if (view.composing) view.contentDOM.addEventListener("compositionend", () => setTimeout(applyModes, 0), { once: true });
+    else applyModes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, mode, showNumbers, spellcheck, readOnly, ariaLabel]);
 

@@ -51,6 +51,7 @@ export function StoragePage() {
   const qc = useQueryClient();
   const info = useCapability<Info & { name: string }>("vault.info", {});
   const settings = useCapability<Settings>("settings.get", {});
+  const pending = useCapability<{ opId: string; kind: string; state: string; createdAt: string; attention: string[] }[]>("vault.pendingOperations", {});
   const files = useCapability<{ files: ManagedFile[]; truncated: boolean }>("vault.managedFiles", {});
   const c = t.settings.storage;
   const [tab, setTab] = useState<StorageTab>("files");
@@ -197,6 +198,22 @@ export function StoragePage() {
             </div>
           </section>
 
+          <section className="settings-section card" data-testid="storage-pending-ops">
+            <h2>未完成的操作</h2>
+            {(pending.data ?? []).length === 0 ? (
+              <p className="hint-text">没有未完成的操作。</p>
+            ) : (
+              <ul>
+                {(pending.data ?? []).map((o) => (
+                  <li key={o.opId} data-testid="storage-pending-op">
+                    <code>{o.kind}</code> · {o.state === "needs_attention" ? "需要人工处理" : "写入中断"} · {new Date(o.createdAt).toLocaleString("zh-CN")}
+                    {o.attention.length > 0 ? <small className="hint-text">（{o.attention.join("、")}）</small> : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="hint-text">多文件操作（如重命名带链接的笔记）写到一半被中断时会记在这里；启动时会尝试回滚，无法回滚的需要你确认文件内容。</p>
+          </section>
           <section className="settings-section card">
             <h2>保存与恢复的边界</h2>
             <ol className="storage-steps">

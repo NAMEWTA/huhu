@@ -16,6 +16,7 @@ import {
   AppShell,
   ContributionRegistry,
   EngineProvider,
+  FocusPauseOnClose,
   HealthModule,
   HomeModule,
   CommandPalette,
@@ -251,6 +252,7 @@ function App() {
       {shell}
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}
+      {endpoint ? <FocusPauseOnClose /> : null}
       {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
       <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={(r) => ui.getState().openModule(r.kind === "task" ? "tasks" : r.kind === "archive" ? "archives" : r.kind === "capture" ? "inbox" : "notes")} />
     </>

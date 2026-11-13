@@ -95,7 +95,9 @@ export function VaultSwitchDialog({ open, onClose, target }: { open: boolean; on
 function BackupGate({ open, onGate, onError, busy, setBusy }: { open: boolean; onGate(ok: boolean): void; onError(e: string | null): void; busy: boolean; setBusy(b: boolean): void }) {
   const engine = useEngine();
   const settings = useCapability<Settings>("settings.get", {});
-  const needBackup = settings.data?.storage.promptBackupBeforeClose === true;
+  const pending = useCapability<{ opId: string }[]>("vault.pendingOperations", {});
+  const hasPending = (pending.data?.length ?? 0) > 0; // 有未完成的操作时，无论设置如何都先备份（modules/system.md §4）
+  const needBackup = settings.data?.storage.promptBackupBeforeClose === true || hasPending;
   const [dest, setDest] = useState("");
   const [exported, setExported] = useState<{ path: string; sha256: string } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -107,8 +109,8 @@ function BackupGate({ open, onGate, onError, busy, setBusy }: { open: boolean; o
   }, [open]); // 每次打开都要重新导出：备份必须是此刻的内容
   useEffect(() => {
     // 设置还没读到时先不放行：避免开启了备份提示却能在短暂的窗口里直接切换
-    onGate(settings.isError || (settings.data !== undefined && (!needBackup || (exported !== null && confirmed))));
-  }, [settings.isError, settings.data, needBackup, exported, confirmed, onGate]);
+    onGate(settings.isError || (settings.data !== undefined && (pending.data !== undefined || pending.isError) && (!needBackup || (exported !== null && confirmed))));
+  }, [settings.isError, settings.data, pending.data, pending.isError, needBackup, exported, confirmed, onGate]);
   useEffect(() => () => onGate(true), [onGate]);
   const doExport = async () => {
     setBusy(true);
@@ -127,7 +129,7 @@ function BackupGate({ open, onGate, onError, busy, setBusy }: { open: boolean; o
     <section data-testid="svault-backup" className="callout">
       <div style={{ display: "grid", gap: 10, minWidth: 0, width: "100%" }}>
         <strong>先保存可读的数据包</strong>
-        <p className="hint-text">你开启了“关闭前提示导出数据包”。导出后确认文件可用，再继续。</p>
+        <p className="hint-text">{hasPending ? "有未完成的操作（见 设置 → 数据与存储 → 索引与恢复），关闭前请先导出数据包。" : "你开启了“关闭前提示导出数据包”。"}导出后确认文件可用，再继续。</p>
         <Field label="保存到">
           <div className="row">
             <input aria-label="数据包保存到" data-testid="svault-backup-path" value={dest} placeholder="/…/HUHU-备份.zip" onChange={(e) => setDest(e.target.value)} />

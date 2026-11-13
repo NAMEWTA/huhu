@@ -475,7 +475,6 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
 
-  packages/testkit: {}
 
   packages/ui:
     dependencies:
@@ -717,7 +716,6 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0
 
-  plugins/health: {}
 
   plugins/inbox:
     dependencies:

@@ -140,3 +140,11 @@
 - 首页卡片可由插件贡献（`contributions.homeWidgets`，SSH 主机与版本与同步两张卡片，见 D-37）；内置卡片仍由首页渲染。
 - stdio MCP 发 `notifications/tools/list_changed`（D-38）。
 - 验证：全量 e2e 97 通过 / 2 失败（均为本次改动导致的预期变化：快捷键表多了 F6、顶栏 Vault 按钮变成下拉菜单，已修正用例并单独重跑通过）/ 3 跳过；单元测试 609 通过。
+
+## 顾问复核后补齐
+
+- ACC-KN-02：模式切换遇到输入法组合时等 `compositionend` 再切（`MarkdownEditor`），新增 CDP `Input.imeSetComposition` 的 e2e。
+- 未完成操作：`vault.pendingOperations`；数据页“索引与恢复”列出，关闭 / 切换 Vault 前有未完成操作时即使没开提示也要先导出并确认备份。
+- 专注计时：退出前暂停并保存剩余时间（D-42），e2e 覆盖。
+- 删除空包 `packages/testkit` 与 `plugins/health`（D-40）；D-41 / D-43 记录不做的部分。
+- 仍待用户 / 真机：release §5（push 后三平台 CI 与 release.yml）、8 小时 soak、KN-03 / SF-07 / AG-06 真机手动记录、VS-05 / 08 真实远端；性能 p95 需在空闲机器上正式测量一次并记录。

@@ -1,4 +1,5 @@
 export * from "./contributions.js";
+export { FocusPauseOnClose } from "./home/FocusPauseOnClose.js";
 export * from "./engine-client/client.js";
 export * from "./engine-client/query.js";
 export * from "./state/ui-store.js";

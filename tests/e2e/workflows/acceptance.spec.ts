@@ -3,7 +3,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openApp, root } from "../helpers/launch.js";
+import { openApp, rmTree, root } from "../helpers/launch.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
 type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -1193,5 +1193,78 @@ test("首页卡片可由插件贡献：SSH 主机与版本与同步卡片出现�
     await expect(page.getByTestId("card-ssh-hosts")).toHaveCount(0);
   } finally {
     await close();
+  }
+});
+
+test("ACC-KN-02 输入法正在组合中文时点击“源码”：组合结束后才切换，已输入文字完整保留，撤销可撤回该段输入", async () => {
+  test.skip(process.platform === "win32", "CDP 输入法组合在 Windows 的 Electron 上不稳定");
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const n = (await call("notes.create", { name: "输入法" })).data;
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "输入法" }).click();
+    await page.getByRole("tab", { name: "实时预览" }).click();
+    const editor = page.getByTestId("markdown-editor");
+    const content = editor.locator(".cm-content");
+    await content.click();
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.imeSetComposition", { text: "你好", selectionStart: 2, selectionEnd: 2 });
+    await expect.poll(() => page.evaluate(() => document.querySelector(".cm-content")?.textContent ?? "")).toContain("你好");
+    await page.getByRole("tab", { name: "源码" }).click(); // 点击会使编辑区失焦、结束组合
+    await expect(editor).toHaveClass(/mode-source/, { timeout: 5000 });
+    await expect(content).toContainText("你好");
+    // 撤销可撤回该段输入
+    await content.click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(content).not.toContainText("你好");
+    expect(n.path).toContain("输入法");
+  } finally {
+    await close();
+  }
+});
+
+test("有未完成操作：数据页列出它，关闭 / 切换 Vault 前即使没开提示也要先导出并确认备份", async () => {
+  const { page, close, vault } = await openApp();
+  const out = mkdtempSync(path.join(tmpdir(), "huhu-pend-"));
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    mkdirSync(path.join(vault, ".huhu/operations"), { recursive: true });
+    writeFileSync(path.join(vault, ".huhu/operations/op-pending-1.json"), JSON.stringify({ opId: "op-pending-1", kind: "rename-note", state: "needs_attention", steps: [], createdAt: new Date().toISOString(), attention: ["a.md"] }));
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-data").click();
+    await page.getByRole("tab", { name: "索引与恢复" }).click();
+    await expect(page.getByTestId("storage-pending-op")).toContainText("rename-note");
+    await page.getByTestId("vault-name").click();
+    await page.getByRole("menuitem", { name: "关闭 Vault" }).click();
+    await expect(page.getByTestId("svault-backup")).toContainText("有未完成的操作");
+    await expect(page.getByTestId("svault-switch-confirm")).toBeDisabled();
+    await page.getByTestId("svault-backup-path").fill(path.join(out, "x.zip"));
+    await page.getByTestId("svault-backup-export").click();
+    await expect(page.getByTestId("svault-backup-done")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("svault-backup-confirm").check();
+    await expect(page.getByTestId("svault-switch-confirm")).toBeEnabled();
+  } finally {
+    await close();
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test("专注计时：运行中关闭应用，退出前暂停并保存剩余时间", async () => {
+  const { app, page, vault } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect((await call("home.focus.update", { action: "start" })).ok).toBe(true);
+    expect((await call("home.focus.get", {})).data.running).toBe(true);
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click(); // 首页卡片已卸载：暂停不能依赖它
+    await app.close();
+    const saved = JSON.parse(readFileSync(path.join(vault, ".huhu/home/focus.json"), "utf8")) as { running: boolean; remainingSec: number };
+    expect(saved.running).toBe(false);
+    expect(saved.remainingSec).toBeGreaterThan(0);
+    expect(saved.remainingSec).toBeLessThanOrEqual(25 * 60);
+  } finally {
+    rmTree(vault);
   }
 });

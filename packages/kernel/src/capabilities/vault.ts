@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { errors, KINDS } from "@huhu/contracts";
-import { VaultIndex, type Vault } from "@huhu/vault";
+import { OperationLog, VaultIndex, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
 
@@ -120,6 +120,23 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
           files.sort((a, b) => a.path.localeCompare(b.path));
           return { files: files.slice(0, MAX_MANAGED), truncated: files.length > MAX_MANAGED };
         },
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "vault.pendingOperations",
+        plugin: "kernel",
+        scope: "read",
+        input: z.object({}),
+        output: z.array(z.object({ opId: z.string(), kind: z.string(), state: z.string(), createdAt: z.string(), attention: z.array(z.string()) })),
+        exposable: false,
+        defaultExposed: false,
+        // 未完成操作：写到一半的多文件操作（prepared）与需要人工处理的（needs_attention）；用于数据页与“关闭前备份”
+        handler: () =>
+          new OperationLog(vault.files, path.join(vault.stateDir, "operations"))
+            .list()
+            .filter((o) => o.state === "prepared" || o.state === "needs_attention")
+            .map((o) => ({ opId: o.opId, kind: o.kind, state: o.state, createdAt: o.createdAt, attention: o.attention ?? [] })),
       }),
     ),
     registry.register(
