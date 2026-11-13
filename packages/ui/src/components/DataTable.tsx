@@ -21,6 +21,8 @@ export interface DataTableProps<T> {
   selectedKey?: string | null;
   onSelect?(row: T): void;
   rowTestId?: string;
+  /** 给每一行补的 data-* 属性（供测试与样式定位）。 */
+  rowAttrs?(row: T): Record<`data-${string}`, string>;
   /** 没有数据时显示的内容。 */
   empty?: ReactNode;
   /** 超过这个行数才虚拟化（design-system.md：200 行）。 */
@@ -32,7 +34,7 @@ export interface DataTableProps<T> {
 const ROW_H = 41;
 
 /** 数据表（design-system.md DataTable）：TanStack Table 管列与列宽，行数超过 200 用 react-virtual 只渲染可见行；吸顶表头、hover / 选中、↑↓ 移动、Enter 打开。仍然是语义化的 <table>。 */
-export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey = null, onSelect, rowTestId, empty, virtualizeAfter = 200, height = 480 }: DataTableProps<T>) {
+export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey = null, onSelect, rowTestId, rowAttrs, empty, virtualizeAfter = 200, height = 480 }: DataTableProps<T>) {
   const defs = useMemo<ColumnDef<T>[]>(() => columns.map((c) => ({ id: c.id, header: c.header, size: c.width ?? 160, minSize: 60, cell: (ctx) => c.cell(ctx.row.original), meta: { className: c.className } })), [columns]);
   const table = useReactTable<T>({ data: rows as T[], columns: defs, getCoreRowModel: getCoreRowModel(), getRowId: (r) => rowKey(r), columnResizeMode: "onChange", enableColumnResizing: true });
   const scroller = useRef<HTMLDivElement>(null);
@@ -107,6 +109,7 @@ export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey
                 key={r.id}
                 data-row-index={index}
                 data-testid={rowTestId}
+                {...rowAttrs?.(r.original)}
                 data-selected={selected || undefined}
                 aria-selected={onSelect ? selected : undefined}
                 aria-rowindex={index + 2}

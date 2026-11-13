@@ -1,3 +1,4 @@
+import { DataTable } from "@huhu/ui";
 import { useEffect, useState } from "react";
 import { SHORTCUTS, displayKeys } from "../shortcuts.js";
 import { t } from "../i18n/zh-CN.js";
@@ -21,26 +22,17 @@ export function ShortcutsPage() {
         <div className="card-head">
           <h2>{c.title}</h2>
         </div>
-        <table className="table">
-          <thead>
-            <tr>
-              <th scope="col">{c.action}</th>
-              <th scope="col">{c.keys}</th>
-              <th scope="col">{c.scope}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {SHORTCUTS.map((s) => (
-              <tr key={s.keys} data-testid="shortcut-row">
-                <td>{s.action}</td>
-                <td>
-                  <kbd>{displayKeys(s.keys, platform)}</kbd>
-                </td>
-                <td>{s.scope}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <DataTable
+          label={c.title}
+          rows={SHORTCUTS}
+          rowKey={(s) => s.keys}
+          rowTestId="shortcut-row"
+          columns={[
+            { id: "action", header: c.action, width: 420, cell: (s) => s.action },
+            { id: "keys", header: c.keys, width: 160, cell: (s) => <kbd>{displayKeys(s.keys, platform)}</kbd> },
+            { id: "scope", header: c.scope, width: 160, cell: (s) => s.scope },
+          ]}
+        />
         <p className="hint-text">{c.note}</p>
       </section>
     </div>

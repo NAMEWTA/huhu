@@ -281,30 +281,26 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                 {(tokens.data ?? []).length === 0 ? (
                   <EmptyState title={g.noTokens} />
                 ) : (
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>名称</th>
-                        <th>创建时间</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(tokens.data ?? []).map((t) => (
-                        <tr key={t.id} data-testid="token-row">
-                          <td>
-                            <strong>{t.name}</strong>
-                          </td>
-                          <td className="mono">{new Date(t.createdAt).toLocaleString("zh-CN")}</td>
-                          <td>
-                            <Button variant="danger" aria-label={`${g.revoke} ${t.name}`} onClick={() => void act("gateway.tokens.revoke", { id: t.id }).then(() => setFresh(null))}>
-                              {g.revoke}
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    label="访问令牌"
+                    rows={tokens.data ?? []}
+                    rowKey={(t) => t.id}
+                    rowTestId="token-row"
+                    columns={[
+                      { id: "name", header: "名称", width: 260, cell: (t) => <strong>{t.name}</strong> },
+                      { id: "createdAt", header: "创建时间", width: 200, className: "mono", cell: (t) => new Date(t.createdAt).toLocaleString("zh-CN") },
+                      {
+                        id: "revoke",
+                        header: "",
+                        width: 120,
+                        cell: (t) => (
+                          <Button variant="danger" aria-label={`${g.revoke} ${t.name}`} onClick={() => void act("gateway.tokens.revoke", { id: t.id }).then(() => setFresh(null))}>
+                            {g.revoke}
+                          </Button>
+                        ),
+                      },
+                    ]}
+                  />
                 )}
               </section>
               <section className="card" data-testid="gateway-audit">
@@ -432,57 +428,39 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
               </div>
               {mcpTab !== "tools" ? (
                 <section className="card" data-testid={`mcp-${mcpTab}`}>
-                  <table className="table capability-table">
-                    <thead>
-                      <tr>
-                        <th>名称</th>
-                        <th>说明</th>
-                        <th>来源</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {MCP_STATIC[mcpTab].map((r) => (
-                        <tr key={r.name}>
-                          <td>
-                            <code>{r.name}</code>
-                          </td>
-                          <td>{r.desc}</td>
-                          <td className="small muted">{r.source}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    label={`MCP ${mcpTab}`}
+                    rows={MCP_STATIC[mcpTab]}
+                    rowKey={(r) => r.name}
+                    columns={[
+                      { id: "name", header: "名称", width: 260, cell: (r) => <code>{r.name}</code> },
+                      { id: "desc", header: "说明", width: 420, cell: (r) => r.desc },
+                      { id: "source", header: "来源", width: 160, className: "small muted", cell: (r) => r.source },
+                    ]}
+                  />
                 </section>
               ) : null}
               <section className="card" hidden={mcpTab !== "tools"}>
-                <table className="table capability-table">
-                  <thead>
-                    <tr>
-                      <th>能力</th>
-                      <th>所属模块</th>
-                      <th>访问范围</th>
-                      <th>有效状态</th>
-                      <th>开放</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.map((c) => (
-                      <tr key={c.name} data-testid="cap-row" data-cap={c.name}>
-                        <td>
-                          <code>{c.name}</code>
-                        </td>
-                        <td>{c.plugin === "kernel" ? "基础能力" : c.plugin}</td>
-                        <td>
-                          <Badge tone={c.scope === "read" ? "neutral" : "warning"}>{g.scope[c.scope]}</Badge>
-                        </td>
-                        <td>
-                          <Badge tone={c.exposed ? "success" : "neutral"}>{c.exposable ? (c.exposed ? "可调用" : g.closed) : g.never}</Badge>
-                        </td>
-                        <td>{c.exposable ? <ChoiceSwitch checked={c.exposed} label={`暴露 ${c.name}`} onChange={(v) => void act("gateway.update", { capability: c.name, exposed: v })} /> : <span className="small muted">{g.never}</span>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable
+                  label="能力开放列表"
+                  rows={list}
+                  rowKey={(c) => c.name}
+                  rowTestId="cap-row"
+                  rowAttrs={(c) => ({ "data-cap": c.name })}
+                  columns={[
+                    { id: "name", header: "能力", width: 280, cell: (c) => <code>{c.name}</code> },
+                    { id: "plugin", header: "所属模块", width: 130, cell: (c) => (c.plugin === "kernel" ? "基础能力" : c.plugin) },
+                    { id: "scope", header: "访问范围", width: 110, cell: (c) => <Badge tone={c.scope === "read" ? "neutral" : "warning"}>{g.scope[c.scope]}</Badge> },
+                    { id: "state", header: "有效状态", width: 120, cell: (c) => <Badge tone={c.exposed ? "success" : "neutral"}>{c.exposable ? (c.exposed ? "可调用" : g.closed) : g.never}</Badge> },
+                    {
+                      id: "expose",
+                      header: "开放",
+                      width: 110,
+                      cell: (c) =>
+                        c.exposable ? <ChoiceSwitch checked={c.exposed} label={`暴露 ${c.name}`} onChange={(v) => void act("gateway.update", { capability: c.name, exposed: v })} /> : <span className="small muted">{g.never}</span>,
+                    },
+                  ]}
+                />
                 {list.length === 0 ? <EmptyState icon={Activity} title="没有匹配的能力" /> : null}
               </section>
               <div className="callout system-note">

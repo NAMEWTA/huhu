@@ -1,4 +1,4 @@
-import { Badge, Button, ChoiceSwitch, Dialog, EmptyState, PageHead, SearchBox, Segmented } from "@huhu/ui";
+import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Blocks, Command, ExternalLink, Info, Lock, Monitor, PackageOpen, Plug, RefreshCw, Settings as SettingsIcon, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useModuleIcons, type ModuleProps } from "../contributions.js";
@@ -174,38 +174,29 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                   <h2>生命周期与服务租约</h2>
                   <Badge>内部运行时不作为独立终端模块</Badge>
                 </div>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>插件</th>
-                      <th>来源</th>
-                      <th>状态</th>
-                      <th>贡献</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plugins.map((p) => (
-                      <tr key={p.id}>
-                        <td>
-                          <strong>{p.title}</strong>
-                        </td>
-                        <td>{p.origin === "builtin" ? "内置" : "外部"}</td>
-                        <td>
-                          <Badge tone={tone(p.state)}>{t.plugins.states[p.state]}</Badge>
-                        </td>
-                        <td>{p.state === "active" ? "已注册" : "已撤销"}</td>
-                        <td>
-                          {p.state === "failed" ? (
-                            <Button variant="ghost" disabled={busy} onClick={() => void setEnabled(p.id, true)}>
-                              重试恢复
-                            </Button>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable
+                  label="插件生命周期"
+                  rows={plugins}
+                  rowKey={(p) => p.id}
+                  rowTestId="plugin-lifecycle-row"
+                  columns={[
+                    { id: "title", header: "插件", width: 200, cell: (p) => <strong>{p.title}</strong> },
+                    { id: "origin", header: "来源", width: 90, cell: (p) => (p.origin === "builtin" ? "内置" : "外部") },
+                    { id: "state", header: "状态", width: 120, cell: (p) => <Badge tone={tone(p.state)}>{t.plugins.states[p.state]}</Badge> },
+                    { id: "contrib", header: "贡献", width: 100, cell: (p) => (p.state === "active" ? "已注册" : "已撤销") },
+                    {
+                      id: "action",
+                      header: "操作",
+                      width: 140,
+                      cell: (p) =>
+                        p.state === "failed" ? (
+                          <Button variant="ghost" disabled={busy} onClick={() => void setEnabled(p.id, true)}>
+                            重试恢复
+                          </Button>
+                        ) : null,
+                    },
+                  ]}
+                />
               </section>
             </>
           ) : section === "permissions" ? (
@@ -218,33 +209,28 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                 <div className="card-head">
                   <h2>权限与依赖清单</h2>
                 </div>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>插件 / 来源</th>
-                      <th>请求权限</th>
-                      <th>依赖</th>
-                      <th>状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plugins.map((p) => (
-                      <tr key={p.id}>
-                        <td>
+                <DataTable
+                  label="权限与依赖清单"
+                  rows={plugins}
+                  rowKey={(p) => p.id}
+                  rowTestId="plugin-permission-row"
+                  columns={[
+                    {
+                      id: "title",
+                      header: "插件 / 来源",
+                      width: 220,
+                      cell: (p) => (
+                        <>
                           {p.title}
                           <div className="small muted">{p.origin === "builtin" ? "内置功能" : "外部扩展"}</div>
-                        </td>
-                        <td>
-                          <div className="permission-tags">{p.permissions.length ? p.permissions.map((x) => <code key={x}>{x}</code>) : <span className="muted">无</span>}</div>
-                        </td>
-                        <td>{p.dependsOn.join(", ") || "无"}</td>
-                        <td>
-                          <Badge tone={tone(p.state)}>{t.plugins.states[p.state]}</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </>
+                      ),
+                    },
+                    { id: "permissions", header: "请求权限", width: 360, cell: (p) => <div className="permission-tags">{p.permissions.length ? p.permissions.map((x) => <code key={x}>{x}</code>) : <span className="muted">无</span>}</div> },
+                    { id: "deps", header: "依赖", width: 160, cell: (p) => p.dependsOn.join(", ") || "无" },
+                    { id: "state", header: "状态", width: 120, cell: (p) => <Badge tone={tone(p.state)}>{t.plugins.states[p.state]}</Badge> },
+                  ]}
+                />
               </section>
             </>
           ) : (

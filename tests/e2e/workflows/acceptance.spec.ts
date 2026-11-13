@@ -1158,7 +1158,7 @@ test("DataTable：网关“调用记录”显示外部调用；超过 200 行时
     await page.keyboard.press("ArrowDown");
     await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-row-index"))).toBe("1");
     // 表头列宽可拖动
-    const th = page.locator(".hu-data-table th").first();
+    const th = page.getByRole("table", { name: "外部调用记录" }).locator("th").first();
     const before = (await th.boundingBox())!.width;
     const handle = th.locator(".hu-col-resizer");
     const hb = (await handle.boundingBox())!;
