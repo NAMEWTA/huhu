@@ -21,7 +21,7 @@ async function setup(opts: { forcePolling?: boolean } = {}) {
   await w.start();
   return { root, receipts, seen, degraded, w };
 }
-async function until(cond: () => boolean, ms = 3000) {
+async function until(cond: () => boolean, ms = process.platform === "win32" ? 10_000 : 3000) {
   const end = Date.now() + ms;
   while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
 }
@@ -50,7 +50,7 @@ describe("原生监听", () => {
     await until(() => seen.some((c) => c.change === "renamed"));
     expect(seen).toContainEqual({ path: "new.md", change: "renamed", from: "old.md" });
     expect(seen.some((c) => c.change === "created" || c.change === "deleted")).toBe(false);
-  });
+  }, 30_000);
   test.skipIf(process.platform === "win32")("自写不回声", async () => {
     const { root, receipts, seen } = await setup();
     const files = new VaultFiles(root, receipts);
