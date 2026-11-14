@@ -2943,9 +2943,10 @@
     padding: 20px 12px 12px;
   }
   .hu-primary-nav .hu-nav-heading {
-    padding: 0 8px 14px;
-    font-size: 13px;
     color: var(--text);
+    padding: 0 8px 12px;
+    font-size: var(--fs-list);
+    font-weight: 600;
   }
   .hu-primary-nav .shell-section-nav {
     gap: 3px;
@@ -3173,18 +3174,13 @@
     width: 2px;
     top: 12px;
     bottom: 12px;
-    height: auto;
     border-radius: 0 2px 2px 0;
     background: var(--accent-strong);
+    height: 20px;
   }
   .hu-primary-nav {
     padding: 20px 12px 12px;
     background: var(--sidebar);
-  }
-  .hu-primary-nav .hu-nav-heading {
-    padding: 0 8px 12px;
-    font-size: var(--fs-list);
-    font-weight: 600;
   }
   .shell-section-nav button {
     min-height: 34px;
@@ -3823,9 +3819,6 @@
     background: var(--accent-strong);
     transform: translateY(-50%);
     transition: height var(--motion-base) var(--ease-out);
-  }
-  .shell-rail-item.active::before {
-    height: 20px;
   }
   .shell-contribution-grid > * {
     min-height: 0;

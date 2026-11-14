@@ -34,7 +34,9 @@
   border-top: 1px solid var(--line);
   height: 36px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  min-height: 40px;
 }
 .hu-card-footer-link:hover {
   background: var(--muted-bg);
@@ -42,13 +44,6 @@
 }
 .hu-card-alt:has(> table) {
   overflow-x: auto;
-}
-.hu-card-footer-link {
-  font-size: var(--fs-meta);
-  font-weight: 500;
-}
-.hu-card-footer-link {
-  min-height: 40px;
 }
 .hu-card-alt:is(a, button, [role="button"]):hover {
   box-shadow: var(--shadow-popover);

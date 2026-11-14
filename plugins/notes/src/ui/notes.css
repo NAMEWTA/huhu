@@ -916,7 +916,7 @@
     white-space: nowrap;
   }
   .hu-knowledge-tree-line.is-selected .notes-tree-label {
-    font-weight: 550;
+    font-weight: 500;
   }
   .hu-knowledge-tree-line .hu-knowledge-tree-more svg {
     width: 14px;
@@ -1051,9 +1051,6 @@
   .hu-knowledge-tree-line.is-selected {
     background: var(--accent-soft);
     border-color: transparent;
-  }
-  .hu-knowledge-tree-line.is-selected .notes-tree-label {
-    font-weight: 500;
   }
   .hu-knowledge-document-toolbar {
     min-height: 48px;

@@ -282,21 +282,6 @@
     color: var(--faint);
     flex-shrink: 0;
   }
-  .board-card {
-    position: absolute;
-    width: 220px;
-    min-height: 164px;
-    border: 1px solid var(--line);
-    background: var(--sidebar);
-    border-radius: 9px;
-    box-shadow: 0 3px 10px color-mix(in srgb, var(--shadow-ink) 2%, transparent);
-    padding: 0 17px 15px;
-    color: var(--muted);
-  }
-  .board-card.selected {
-    outline: 2px solid var(--tag-4);
-    outline-offset: 3px;
-  }
   /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
   .tasks-vault-name {
     padding: 0 9px 16px;
@@ -671,37 +656,11 @@
     border-color: var(--line);
     color: var(--muted);
   }
-  .board-card-drag {
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
-    color: currentColor;
-    opacity: 0.45;
-    margin-bottom: 4px;
-  }
-  .board-card-drag:active {
-    cursor: grabbing;
-  }
   .board-dot {
     width: 4px;
     height: 4px;
     background: currentColor;
     border-radius: 50%;
-  }
-  .board-card h3 {
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 9px;
-  }
-  .board-card p {
-    font-size: 12px;
-    white-space: pre-line;
-    line-height: 1.85;
-    opacity: 0.85;
   }
   .board-note-link {
     display: flex;

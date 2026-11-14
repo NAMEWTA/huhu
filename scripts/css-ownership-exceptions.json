@@ -35,7 +35,9 @@
     "shell-system-note",
     "shell-system-scroll",
     "shell-tw-empty-group",
+    "success",
     "task-row",
-    "tasks-hint"
+    "tasks-hint",
+    "warning"
   ]
 }

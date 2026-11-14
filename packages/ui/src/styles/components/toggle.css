@@ -1,12 +1,14 @@
 .toggle {
-  width: 32px;
-  height: 19px;
-  border-radius: 20px;
-  padding: 2px;
-  background: var(--line-strong);
   position: relative;
+  width: 36px;
+  min-width: 36px;
+  height: 22px;
+  min-height: 22px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  border: 0;
   flex-shrink: 0;
-  min-height: 19px;
 }
 .toggle span {
   width: 15px;
@@ -52,17 +54,6 @@
   .hu-switch:active:not(:disabled) > span {
     width: 16px;
   }
-}
-.toggle {
-  width: 36px;
-  min-width: 36px;
-  height: 22px;
-  min-height: 22px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--line-strong);
-  border: 0;
-  flex-shrink: 0;
 }
 .toggle > span {
   width: 16px;

@@ -8,10 +8,10 @@
   border-radius: 8px;
   padding: 6px 11px;
   background: var(--panel);
-  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   line-height: 1.5;
+  font-size: calc(var(--font-size) - 2px);
 }
 .hu-btn:hover {
   background: var(--muted-bg);
@@ -41,9 +41,6 @@
 }
 .hu-btn:disabled:hover {
   filter: none;
-}
-.hu-btn {
-  font-size: calc(var(--font-size) - 2px);
 }
 :where(.hu-btn, .hu-icon-btn, [data-press]):not(:disabled):not([aria-disabled="true"]):active {
   scale: 0.97;
