@@ -92,4 +92,4 @@
 ## 依赖
 
 - 任务 change 的 [T03](../feature_2026-11-13-task-issue-automation/tasks/T03-references-editor.md)：文件夹引用插入、`[[旧/]]` 前缀改写、`openWiki` 处理文件夹。本 change 在它的基础上加入“文件夹有 `index.md` 时，打开并解析为文件夹笔记”。
-- [设计系统重构](../../../../changes/2026-11-13-brand-and-windows-installer/design-system.md)：档案视图的样式遵循新的 token 与目录规则。两边哪个后合入，由后合入的一方适配。
+- [设计系统重构](../feature_2026-11-13-brand-and-windows-installer/design-system.md)：档案视图的样式遵循新的 token 与目录规则。两边哪个后合入，由后合入的一方适配。

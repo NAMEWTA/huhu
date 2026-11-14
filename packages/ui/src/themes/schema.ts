@@ -7,7 +7,7 @@ const Color = z.string().refine((v) => parse(v) !== undefined, "不是合法的 
 const Css = z.string().min(1);
 const Tags = z.tuple([Color, Color, Color, Color, Color, Color, Color, Color]);
 
-/** 每种模式必填的核心色（见 .agents/dev/changes/2026-11-13-brand-and-windows-installer/design-system.md §4.1）。 */
+/** 每种模式必填的核心色（见 .agents/dev/archive/changes/implemented/feature_2026-11-13-brand-and-windows-installer/design-system.md §4.1）。 */
 export const CorePalette = z.object({
   bg: Color,
   sidebar: Color,

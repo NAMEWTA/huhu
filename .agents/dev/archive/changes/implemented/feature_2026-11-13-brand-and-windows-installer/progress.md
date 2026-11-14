@@ -20,7 +20,7 @@
 
 ## 未做（如实说明）
 
-> 以下 DS 剩余项（`hu-` 类名统一、按组件重写、真实 `@layer`、PurgeCSS、DS-02 完整验收）已转入 [2026-11-14-design-system-completion](../2026-11-14-design-system-completion/README.md)，在那里实施与验证；本节保留作历史记录。
+> 以下 DS 剩余项（`hu-` 类名统一、按组件重写、真实 `@layer`、PurgeCSS、DS-02 完整验收）已转入 [2026-11-14-design-system-completion](../feature_2026-11-14-design-system-completion/README.md)，在那里实施与验证；本节保留作历史记录。
 
 - 死规则已删除：类名在整个仓库源码（TS / TSX / HTML / e2e）里都没有出现过的约 1130 个选择器（库生成的类名 `cm-` / `xterm` / `katex` / `mermaid` / `sonner` 等按白名单保留）。验证同样是 128 张截图逐像素比对，重复跑两次：第一次 `版本历史` 页有差异，看图是“没有历史版本”的数据时序（不是样式），第二次与基线噪声完全一致。此前那次大面积差异的真正原因是 sonner 放进了 `@layer vendor` 与规则顺序翻转，不是删规则。
   - 没有运行 PurgeCSS 报告；动态拼接类名、悬停 / 焦点等没有出现在截图里的状态，只有静态证据（类名在源码里不存在）。

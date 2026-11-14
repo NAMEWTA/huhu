@@ -1,6 +1,6 @@
 # 设计系统（现行规范）
 
-> 取代归档的 `design-system.md` 中与主题相关的部分；来源与取舍见 `changes/2026-11-13-brand-and-windows-installer`。
+> 取代归档的 `design-system.md` 中与主题相关的部分；来源与取舍见 `.agents/dev/archive/changes/implemented/feature_2026-11-13-brand-and-windows-installer`。
 
 ## 主题 = 数据
 - 四套主题（Claude、Apple、Notion、Vercel），每套有浅色与深色：`packages/ui/src/themes/<id>.ts`，字段由 `schema.ts`（zod）约束；`extends` 可以只改动部分字段。
@@ -14,7 +14,7 @@
 - 层序：`@layer theme, tokens, base, vendor, components, shell, modules;`（每个分层文件第一行重复这条声明，层序不依赖导入顺序）。
   - `theme`、`tokens`、`base`：生成的主题、共享 token、重置与全局基础。
   - `vendor`：**静态**第三方 CSS（xterm、katex，由使用它的包以 `@import … layer(vendor)` 引入）。
-  - `components`：共享组件样式 `packages/ui/src/styles/components/*.css`（16 个文件，在 `index.css` 里按拓扑顺序导入，**导入顺序不能随意调整**），以及 33 条“优先级依赖原特异性、无法放进更高层”的规则（登记在 `.agents/dev/changes/2026-11-14-design-system-completion/evidence/s3-stay-in-components.json`，它们分散在 `shell.css` 与各插件 CSS 末尾的 `@layer components` 块里）。
+  - `components`：共享组件样式 `packages/ui/src/styles/components/*.css`（16 个文件，在 `index.css` 里按拓扑顺序导入，**导入顺序不能随意调整**），以及 33 条“优先级依赖原特异性、无法放进更高层”的规则（登记在 `.agents/dev/archive/changes/implemented/feature_2026-11-14-design-system-completion/evidence/s3-stay-in-components.json`，它们分散在 `shell.css` 与各插件 CSS 末尾的 `@layer components` 块里）。
   - `shell`：工作台（`packages/workbench/src/shell/shell.css`）；`modules`：插件 `plugins/<id>/src/ui/<id>.css` 与编辑器 `packages/editor/src/editor.css`。
 - **不分层白名单**（唯二）：`packages/ui/src/styles/vendor-overrides.css`（覆盖 sonner）与 `packages/editor/src/editor-cm.css`（覆盖 CodeMirror 与编辑器 DOM 内的装饰类）。原因：CodeMirror、sonner 在**运行时**注入无层样式，不分层的普通声明永远压过分层声明，覆盖规则放进层里会失效。只能写第三方选择器。
 - `!important` 只允许两种：减少动效、覆盖元素的内联样式 / 第三方样式；必须用 `/* stylelint-disable declaration-no-important -- 原因 */` 说明（`reportDescriptionlessDisables` 开启）。

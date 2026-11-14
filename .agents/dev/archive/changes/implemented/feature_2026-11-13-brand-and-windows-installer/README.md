@@ -3,7 +3,7 @@
 - **来源**：
   - 2026-11-13 用户口头需求，以及 dev-grill 决定（安装范围由用户选择“仅为我 / 所有人”）。
   - 同日补充：用四份 DESIGN.md 完整重构项目设计，提供四套可切换主题；默认主题为 Claude。
-- **状态**：**实现完成，未归档**（见文末“收尾状态”）。品牌与安装器 BR-S1、BR-S2 已实现（安装器向导交互未经 Windows 实机验证）；设计系统 DS-S1 已完成，剩余部分已转入 design-system-completion。
+- **状态**：**已归档（implemented，2026-11-14）**（见文末“收尾记录”）。品牌与安装器 BR-S1、BR-S2 已实现（安装器向导交互未经 Windows 实机验证）；设计系统 DS-S1 已完成，剩余部分已由 [design-system-completion](../feature_2026-11-14-design-system-completion/README.md) 完成并一并归档。
 - **基线**：HEAD `8283c5c`；品牌源 `obsidian-huhu@d527f14`；设计参考 `VoltAgent/awesome-design-md@fcc7028`。
 
 | 文件 | 内容 |
@@ -14,9 +14,9 @@
 | [design-refs/](design-refs/) | claude、apple、notion、vercel 四份 DESIGN.md 原文，以及上游的 MIT LICENSE |
 | [plan.md](plan.md) | 七个切片的依赖、写入边界、代码指针、验证入口与完成边界 |
 
-**设计系统的剩余部分（DS-S2～S4 未完成项）已转入 [2026-11-14-design-system-completion](../2026-11-14-design-system-completion/README.md)**，本 change 保留 BR-S1、BR-S2、DS-S1 与已完成的样式拆分记录。
+**设计系统的剩余部分（DS-S2～S4 未完成项）已转入 [2026-11-14-design-system-completion](../feature_2026-11-14-design-system-completion/README.md)**，本 change 保留 BR-S1、BR-S2、DS-S1 与已完成的样式拆分记录。
 
-与 [任务 Issue 化 change](../../archive/changes/implemented/feature_2026-11-13-task-issue-automation/README.md) 互不依赖。与 [智能体启动设置](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md)、[档案文件夹笔记](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md) 有共享文件，约定见 plan。
+与 [任务 Issue 化 change](../feature_2026-11-13-task-issue-automation/README.md) 互不依赖。与 [智能体启动设置](../feature_2026-11-13-agent-launch-settings/README.md)、[档案文件夹笔记](../feature_2026-11-13-archives-as-folder-notes/README.md) 有共享文件，约定见 plan。
 
 ## 收尾记录（dev-archive，2026-11-14）
 

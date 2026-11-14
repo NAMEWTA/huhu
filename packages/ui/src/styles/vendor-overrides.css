@@ -1,5 +1,5 @@
 /* 不分层白名单：覆盖 sonner（运行时 __insertCSS 注入）
-   这些规则必须压过运行时注入的无层样式，放进 @layer 会全部失效（见 .agents/dev/changes/2026-11-14-design-system-completion/spec.md §3.2）。
+   这些规则必须压过运行时注入的无层样式，放进 @layer 会全部失效（见 .agents/dev/archive/changes/implemented/feature_2026-11-14-design-system-completion/spec.md §3.2）。
    只允许第三方选择器（scripts/check-css-layers.mjs 强制）。 */
 [data-sonner-toaster] {
   font-family: var(--font-ui);

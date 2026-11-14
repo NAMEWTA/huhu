@@ -14,7 +14,7 @@
 
 - 启动与夹具：`tests/e2e/helpers/launch.ts`（`openApp`、`root`）；`tests/e2e/screenshots.spec.ts`（CDP 固定视口 1440×900 的做法）。
 - 依赖：像素比对只用 Playwright 自带能力，不新增包；计算样式快照用 Playwright / CDP，不新增包。需要读 CSS 的脚本（S1 起）要把 `postcss`、`postcss-selector-parser` 声明为根 `devDependencies`（现在只是传递依赖，不能直接 import）。
-- 旧脚本做法摘要：[上游 progress.md“样式拆分”](../../2026-11-13-brand-and-windows-installer/progress.md)；临时脚本 `/tmp/ds/` 可能已不存在，不依赖它。
+- 旧脚本做法摘要：[上游 progress.md“样式拆分”](../../feature_2026-11-13-brand-and-windows-installer/progress.md)；临时脚本 `/tmp/ds/` 可能已不存在，不依赖它。
 - 拟新增：`tests/visual/{screens.ts,masks.ts,snapshot.ts,compare.ts,visual.spec.ts}`、`scripts/visual-compare.mjs`、`playwright.visual.config.ts`（独立配置，不进默认 `pnpm e2e`）。
 
 ## 实施要点

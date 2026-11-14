@@ -3,8 +3,8 @@
 ## 来源
 
 - 2026-11-14 用户要求：设计系统的剩余部分另开一个 change，激活相关 skills，把文档写完整。
-- 上游 change：[品牌、设计系统与 Windows 安装](../2026-11-13-brand-and-windows-installer/README.md)。该 change 的 DS-S1（主题引擎与四套主题）已完成并验证；DS-S2～DS-S4 只完成了一部分，剩余项逐条列在它的 [progress.md](../2026-11-13-brand-and-windows-installer/progress.md)“未做”一节。本 change 接手这些剩余项，不重新讨论已定稿的主题数据、token 契约、字体与四套取值（仍以上游 [design-system.md](../2026-11-13-brand-and-windows-installer/design-system.md) §1～§7 为准）。
-- 上游 [design-system.md §8](../2026-11-13-brand-and-windows-installer/design-system.md)“样式架构”与它的验收 DS-09～DS-11：本 change 重写 §8 的实施路径（原路径已被实践证伪，见下文），验收编号沿用。
+- 上游 change：[品牌、设计系统与 Windows 安装](../feature_2026-11-13-brand-and-windows-installer/README.md)。该 change 的 DS-S1（主题引擎与四套主题）已完成并验证；DS-S2～DS-S4 只完成了一部分，剩余项逐条列在它的 [progress.md](../feature_2026-11-13-brand-and-windows-installer/progress.md)“未做”一节。本 change 接手这些剩余项，不重新讨论已定稿的主题数据、token 契约、字体与四套取值（仍以上游 [design-system.md](../feature_2026-11-13-brand-and-windows-installer/design-system.md) §1～§7 为准）。
+- 上游 [design-system.md §8](../feature_2026-11-13-brand-and-windows-installer/design-system.md)“样式架构”与它的验收 DS-09～DS-11：本 change 重写 §8 的实施路径（原路径已被实践证伪，见下文），验收编号沿用。
 
 ## 问题
 

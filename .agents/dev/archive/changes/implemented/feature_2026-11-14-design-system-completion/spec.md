@@ -1,7 +1,7 @@
 # 规格：设计系统收尾（样式归属、类名治理与真实分层）
 
 > 性质：**行为保持型重构**。所有界面在四套主题 × 明暗下的渲染结果必须与重构前一致；结构（文件归属、类名、层序）才是被改变的对象。
-> 与上游的关系：沿用 [上游 design-system.md](../2026-11-13-brand-and-windows-installer/design-system.md) §1～§7（主题、token、字体）与 §10 的验收 DS-01～DS-15；**取代**它的 §8“样式架构”中关于层序、类名与实施路径的部分，取舍见本文 §8。
+> 与上游的关系：沿用 [上游 design-system.md](../feature_2026-11-13-brand-and-windows-installer/design-system.md) §1～§7（主题、token、字体）与 §10 的验收 DS-01～DS-15；**取代**它的 §8“样式架构”中关于层序、类名与实施路径的部分，取舍见本文 §8。
 
 > **与用户原话的对应**（实施前请用户确认这两处理解，见 README“需要用户确认”）：
 > 1. “`hu-` 类名统一” = 上游 design-system.md §8.1 已定的规则：共享组件用 `hu-`，工作台用区域前缀，插件用插件 id 前缀；不是把所有类名都改成 `hu-` 开头。
@@ -188,7 +188,7 @@ packages/editor/src/editor.css    # 编辑器自有规则 @layer modules；其�
 - 现有截图入口：`tests/e2e/screenshots.spec.ts`（`HUHU_SHOTS_DIR`）、`tests/e2e/helpers/launch.ts`（`openApp()` 每次用 `mkdtemp` 创建空 Vault，经 `HUHU_VAULT` 启动）。**仓库里没有“固定 Vault 种子数据”的夹具函数**，只有 `acceptance.spec.ts` 内联复制 `apps/desktop/resources/demo-vault`；S0 要新增夹具。
 - 构建与导入：Vite 8.3.7（electron-vite 6），渲染端无动态 `import()`，各插件 UI 同步导入，产出单个 CSS 文件；插件 CSS 的先后由 `apps/desktop/src/renderer/main.tsx` 的 import 顺序决定（automations → agent-cli → inbox → notes → safe → ssh → versioning → tasks）。同一层内的跨插件顺序因此是隐式的，S3/S4 之后各插件只含自己的前缀类，顺序不再影响结果。
 - 依赖现状：`postcss`、`postcss-selector-parser` 只是 stylelint / vite 的传递依赖，没有在任何 package.json 声明；`pixelmatch`、`pngjs`、`purgecss` 未安装。
-- 上游设计：[design-system.md](../2026-11-13-brand-and-windows-installer/design-system.md) §8、§10；[plan.md](../2026-11-13-brand-and-windows-installer/plan.md) DS-S2～DS-S4；现行规范 `.agents/dev/notes/context/design-system.md`。
+- 上游设计：[design-system.md](../feature_2026-11-13-brand-and-windows-installer/design-system.md) §8、§10；[plan.md](../feature_2026-11-13-brand-and-windows-installer/plan.md) DS-S2～DS-S4；现行规范 `.agents/dev/notes/context/design-system.md`。
 
 
 ## 12. 实施后修订（2026-11-14）

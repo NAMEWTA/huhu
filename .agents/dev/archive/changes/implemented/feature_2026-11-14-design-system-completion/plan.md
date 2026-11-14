@@ -64,7 +64,7 @@ flowchart LR
 
 ## 与其他 change 的冲突与冻结
 
-- 本 change 在 S4 会改几乎所有 TSX 的 `className`，而 `origin` 基线要求代码在整个过程中不被别的改动污染。**冻结从 S0 生成 `origin` 之前开始**，持续到 S5c 结束：确认 [任务 Issue 化](../../archive/changes/implemented/feature_2026-11-13-task-issue-automation/README.md)、[档案文件夹笔记](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md)、[智能体启动设置](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md) 三个 change 的代码已经稳定（它们当前都在同一个工作区、未提交）：要么先提交（需要用户授权），要么约定冻结期内不改界面与样式。冻结期内确需改动，则重新生成 `origin` 基线并在 progress.md 记录原因。
+- 本 change 在 S4 会改几乎所有 TSX 的 `className`，而 `origin` 基线要求代码在整个过程中不被别的改动污染。**冻结从 S0 生成 `origin` 之前开始**，持续到 S5c 结束：确认 [任务 Issue 化](../feature_2026-11-13-task-issue-automation/README.md)、[档案文件夹笔记](../feature_2026-11-13-archives-as-folder-notes/README.md)、[智能体启动设置](../feature_2026-11-13-agent-launch-settings/README.md) 三个 change 的代码已经稳定（它们当前都在同一个工作区、未提交）：要么先提交（需要用户授权），要么约定冻结期内不改界面与样式。冻结期内确需改动，则重新生成 `origin` 基线并在 progress.md 记录原因。
 - 新界面在 S2a 之后的写法：直接按层与前缀规则写，不进入 `shared.css`。
 
 ## 风险与停止条件

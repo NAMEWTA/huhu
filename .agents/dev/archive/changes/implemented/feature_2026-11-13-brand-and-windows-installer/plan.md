@@ -16,7 +16,7 @@
 | BR-S2 向导式安装 | 安装器可以选择范围和目录，界面为中文；从 rc 版升级不会留下重复安装 | 无 | `electron-builder.yml` 的 `nsis` 块 | BR-07～11 |
 | DS-S1 主题引擎与四套主题 | 外观页可以在四套主题 × 明暗之间切换；跟随系统实时生效；首帧没有闪烁；字体换为 Fontsource；旧主题与旧字体删除 | 无 | `packages/ui/src/themes/`（新增）、`theme.ts`、`styles/tokens.css`、`styles/themes.generated.css`（新增）；删除 proto 中的全局变量定义块（`style.css:2-104`、`refinement.css:9-149`，以及其他文件中的 `:root` / `[data-theme]` 变量块）与 `proto/fonts.css`；`contracts/settings.ts`；`SettingsModule.tsx` 外观页与 `ShellBars.tsx`；`main.tsx` 的应用流程；`scripts/gen-notices.mjs` 的字体一节；`package.json` 的 `gen:themes`；`theme.test.ts`；主题相关 e2e | DS-01（四张卡）、DS-03～08、DS-12、DS-14、BR-06 |
 | DS-S2 样式架构与共享组件 | 新的 `styles/` 目录与 `@layer` 顺序（含 vendor 层）生效；共享组件改用 `hu-` 类名，样式只使用 token；workbench 的全部界面（外壳、设置、启动页、插件中心、网关、健康、命令面板等）迁出 proto；stylelint 上线（已迁移目录启用全部规则） | DS-S1 | `packages/ui/src/styles/`（`index.css`、`base.css`、`components/*.css`）、`packages/ui/src/components/` 与 `proto/*.tsx`（类名）、`packages/workbench/src/**/*.css` 与组件类名；删除 proto 中的共享文件（style、refinement、controls、feedback、motion、design-system-v4、v2、v4、v9-layer、terminal-surface、review 等，以实际选择器归属为准）与 `components.css`；stylelint 配置与 `check-ui-colors.mjs` | DS-09（已迁移目录）、DS-13、shell 相关 e2e |
-| DS-S3a 模块样式迁入插件（内容类） | notes、archives、inbox、safe 的样式迁到各插件的 `src/ui/<id>.css`，只使用 token 与共享组件 | DS-S2 | 上述插件的 UI 与 CSS（`packages/editor` 的编辑器样式也在这里）；删除对应的 proto 文件（knowledge、editor、inline-preview、vault-resource-picker 等，以 DS-S2 的归属表为准）。archives：若 [AR change](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/plan.md) 已删除该插件就跳过，否则照常迁移 | 各插件 e2e、截图 |
+| DS-S3a 模块样式迁入插件（内容类） | notes、archives、inbox、safe 的样式迁到各插件的 `src/ui/<id>.css`，只使用 token 与共享组件 | DS-S2 | 上述插件的 UI 与 CSS（`packages/editor` 的编辑器样式也在这里）；删除对应的 proto 文件（knowledge、editor、inline-preview、vault-resource-picker 等，以 DS-S2 的归属表为准）。archives：若 [AR change](../feature_2026-11-13-archives-as-folder-notes/plan.md) 已删除该插件就跳过，否则照常迁移 | 各插件 e2e、截图 |
 | DS-S3b 模块样式迁入插件（执行类） | tasks、automations、agent-cli、ssh、versioning、agent-guide 的样式迁入各自插件 | DS-S2 | 上述插件的 UI 与 CSS；删除对应的 proto 文件（task-workbench、execution、agent-cli、ssh-console、version-workbench、git-v4、builtin-guide-v5 等） | 各插件 e2e、截图 |
 | DS-S4 收尾与守护 | `proto/` 目录不存在；stylelint 与颜色检查覆盖全仓库；PurgeCSS 报告为空；设计规范写入 notes | DS-S3a、DS-S3b | 删除剩余 proto 文件与目录、`packages/ui/package.json` 的 `./proto.css` 导出；stylelint 去掉迁移期的排除；`.agents/dev/notes/context/design-system.md`（新的现行规范，取代归档 design-system.md 中被替代的部分） | DS-02、DS-09～11、DS-15 |
 
@@ -39,11 +39,11 @@ graph LR
 - DS-S3a 与 DS-S3b 按插件划分写入边界，可以并行；它们都只读 DS-S2 冻结的共享组件类和 token，不修改 `packages/ui/src/styles/`。如果需要新增共享组件，先停下来，由 DS-S2 的负责人补上。
 - **迁移期的中间状态**：DS-S1 合入后，旧的 proto 规则仍在使用，只是全局变量改由主题生成。约 238 处硬编码颜色在 DS-S2、DS-S3 完成之前不会跟随主题，这是允许的中间状态，不对外发布 rc。**DS-S4 是必须整体通过验证的整合点**，之后才能发布。
 - 与其他 change 的共享文件：
-  - [agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/plan.md) 的 AL-S2 也改 `SettingsModule.tsx`（系统页改为注册）和 `ShellBars.tsx`（快捷键入口改为跳转）。约定如下：
+  - [agent-launch-settings](../feature_2026-11-13-agent-launch-settings/plan.md) 的 AL-S2 也改 `SettingsModule.tsx`（系统页改为注册）和 `ShellBars.tsx`（快捷键入口改为跳转）。约定如下：
     - DS-S1 把外观页抽成独立组件 `AppearancePage.tsx`，只改这个组件，以及 `ShellBars.tsx` 中的 `ThemeToggle`。
     - AL-S2 负责注册这个组件，并改 `ShellBars.tsx` 中的快捷键图标。
     - 两边改的是同一文件中不同的函数，后合入的一方负责合并。建议 AL-S2 先合入。
-  - 档案视图样式见 [archives change](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/plan.md) 的约定。
+  - 档案视图样式见 [archives change](../feature_2026-11-13-archives-as-folder-notes/plan.md) 的约定。
   - 任务、智能体设置等新界面：在 DS-S2 之后开发的，直接按新规则写；在 DS-S2 之前合入的，由 DS-S3 一并迁移。
 
 ## BR-S1 品牌与图标

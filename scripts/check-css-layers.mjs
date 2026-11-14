@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 层检查（DSC-01）：项目 CSS 要么整体在 @layer 里，要么是不分层白名单文件（只允许第三方选择器）。
-// 规则见 .agents/dev/changes/2026-11-14-design-system-completion/spec.md §3.1–§3.2。
+// 规则见 .agents/dev/archive/changes/implemented/feature_2026-11-14-design-system-completion/spec.md §3.1–§3.2。
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
