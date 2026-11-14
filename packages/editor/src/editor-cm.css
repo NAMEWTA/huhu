@@ -826,13 +826,14 @@
 }
 
 .editor-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
-  max-width: none;
   width: auto;
   min-width: 0;
   flex: 1 1 0%;
   margin: 0;
   padding: 20px 0 96px 12px;
   box-sizing: border-box;
+  max-width: var(--editor-measure, none);
+  margin-inline: auto;
 }
 
 .editor-markdown-editor > .cm-editor > .cm-scroller > .cm-gutters {
@@ -871,11 +872,6 @@
 .editor-markdown-editor .cm-atomic-table th,
 .huhu-live-table-scroll :is(strong, b, th) {
   font-weight: 600;
-}
-
-.editor-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
-  max-width: var(--editor-measure, none);
-  margin-inline: auto;
 }
 
 .cm-searchMatch {

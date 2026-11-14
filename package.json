@@ -5,7 +5,7 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs && stylelint \"packages/*/src/**/*.css\" \"plugins/*/src/**/*.css\" \"apps/*/src/**/*.css\" && node scripts/check-ui-colors.mjs && node scripts/check-css-layers.mjs && node scripts/check-css-classes.mjs && node scripts/check-css-ownership.mjs",
+    "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs && stylelint \"packages/*/src/**/*.css\" \"plugins/*/src/**/*.css\" \"apps/*/src/**/*.css\" && node scripts/check-ui-colors.mjs && node scripts/check-css-layers.mjs && node scripts/check-css-classes.mjs && node scripts/check-css-ownership.mjs && node scripts/check-css-duplicates.mjs",
     "typecheck": "pnpm --filter \"./vendor/*\" run build:types && pnpm -r --parallel run typecheck",
     "test": "vitest run",
     "bench": "vitest bench --run --project perf",

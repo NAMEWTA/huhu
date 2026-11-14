@@ -1,8 +1,8 @@
 .hu-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
   text-align: left;
+  font-size: var(--fs-list);
 }
 .hu-table th {
   font-size: 12px;
@@ -36,9 +36,6 @@
 }
 .hu-table td {
   font-variant-numeric: tabular-nums;
-}
-.hu-table {
-  font-size: var(--fs-list);
 }
 .hu-table th {
   font-size: var(--fs-meta);

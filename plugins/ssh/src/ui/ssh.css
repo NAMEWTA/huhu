@@ -369,6 +369,7 @@
   }
   .hu-execution-connection-route {
     padding: 20px;
+    overflow: visible;
   }
   .ssh-route {
     display: flex;
@@ -759,8 +760,5 @@
   }
   .ssh-resource-row {
     font-size: calc(var(--font-size) - 2px);
-  }
-  .hu-execution-connection-route {
-    overflow: visible;
   }
 }

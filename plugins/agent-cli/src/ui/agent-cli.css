@@ -9,6 +9,7 @@
     overflow: hidden;
     background: var(--panel);
     color: var(--text);
+    position: relative;
   }
   .agent-layout button,
   .agent-launcher button {
@@ -183,9 +184,6 @@
     .hu-module-layout.agent-layout {
       grid-template-columns: 125px minmax(230px, 1fr);
     }
-  }
-  .hu-module-layout.agent-layout {
-    position: relative;
   }
   .agent-launch-menu-row {
     display: flex;

@@ -690,6 +690,8 @@
 }
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 html,
 body,
@@ -716,14 +718,16 @@ select {
 }
 button {
   cursor: pointer;
+  border: 0;
+  background: none;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    border-color 0.12s;
 }
 button:disabled {
   cursor: not-allowed;
   opacity: 0.43;
-}
-button {
-  border: 0;
-  background: none;
 }
 button,
 a,
@@ -739,12 +743,6 @@ textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--tag-4);
-}
-button {
-  transition:
-    background 0.12s,
-    color 0.12s,
-    border-color 0.12s;
 }
 input,
 textarea,
@@ -832,10 +830,6 @@ pre {
   word-break: break-word;
   line-height: 1.7;
 }
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-}
 ::selection {
   background: var(--tag-4-bg);
   color: var(--text);
@@ -892,8 +886,8 @@ pre {
   max-width: 180px;
 }
 .hu-workspace-tab.active {
-  background: var(--bg);
   color: var(--text);
+  background: var(--panel);
 }
 .hu-tab-tools .hu-icon-btn,
 .hu-tab-list > .hu-icon-btn {
@@ -952,9 +946,11 @@ pre {
 }
 .hu-card-alt {
   border: 1px solid var(--line);
-  border-radius: var(--radius-card);
   background: var(--panel);
   overflow: hidden;
+  border-radius: var(--radius-card);
+  box-shadow: none;
+  box-shadow: var(--shadow-card);
 }
 .hu-card-footer-link {
   display: flex;
@@ -991,8 +987,8 @@ pre {
 }
 .hu-btn-primary {
   background: var(--accent-strong);
-  color: var(--accent-fg);
   border-color: var(--accent);
+  color: var(--accent-fg);
 }
 .hu-btn-primary:hover {
   background: var(--accent-strong);
@@ -2664,16 +2660,6 @@ select[aria-invalid="true"]:focus-visible {
   background: var(--muted-bg);
   border-color: var(--line-strong);
 }
-.hu-btn-primary {
-  background: var(--accent-strong);
-  border-color: var(--accent);
-  color: var(--accent-fg);
-}
-.hu-btn-danger {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: var(--danger-fg);
-}
 .hu-btn-danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 88%, var(--bg));
   filter: none;
@@ -2751,10 +2737,6 @@ select[aria-invalid="true"]:focus-visible {
     0 1px 3px color-mix(in srgb, var(--shadow-ink) 5%, transparent),
     0 0 0 1px color-mix(in srgb, var(--shadow-ink) 2%, transparent);
 }
-.hu-segmented[data-measured="true"] > button.active {
-  background: transparent;
-  box-shadow: none;
-}
 .toggle {
   width: 36px;
   min-width: 36px;
@@ -2777,9 +2759,6 @@ select[aria-invalid="true"]:focus-visible {
     transform var(--motion-move, 220ms) var(--ease-in-out, ease-in-out),
     width var(--motion-fast, 120ms) var(--ease-out, ease-out);
 }
-.toggle.is-on {
-  background: var(--accent-strong);
-}
 .toggle.is-on > span {
   background: var(--accent-fg);
   transform: translateX(14px);
@@ -2793,9 +2772,6 @@ select[aria-invalid="true"]:focus-visible {
 .hu-tab-list,
 .hu-workspace-tab {
   min-width: 0;
-}
-.hu-workspace-tab.active {
-  background: var(--panel);
 }
 .hu-tab-tools .hu-icon-btn {
   width: 28px;
@@ -2843,10 +2819,6 @@ select[aria-invalid="true"]:focus-visible {
   gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
-}
-.hu-card-alt {
-  border-radius: var(--radius-card);
-  box-shadow: none;
 }
 .hu-card-footer-link {
   font-size: var(--fs-meta);
@@ -3072,10 +3044,6 @@ select[aria-invalid="true"]:focus-visible {
 ::selection {
   background: color-mix(in srgb, var(--focus) 22%, transparent);
 }
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
-}
 .hu-page-head .grow > p,
 .hu-field-description {
   display: none;
@@ -3114,9 +3082,6 @@ textarea:focus-visible,
 select:focus-visible {
   border-color: var(--focus);
   box-shadow: var(--focus-ring);
-}
-.hu-card-alt {
-  box-shadow: var(--shadow-card);
 }
 .hu-card-alt:is(a, button, [role="button"]):hover {
   box-shadow: var(--shadow-popover);

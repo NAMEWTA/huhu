@@ -406,12 +406,12 @@
     z-index: 20;
     width: 330px;
     border-left: 1px solid var(--line);
-    background: var(--panel);
-    box-shadow: -12px 0 34px color-mix(in srgb, var(--shadow-ink) 3%, transparent);
     display: flex;
     flex-direction: column;
     min-height: 0;
     animation: knowledge-slide 0.14s ease-out;
+    background: var(--panel);
+    box-shadow: -12px 0 32px color-mix(in srgb, var(--shadow-ink) 3%, transparent);
   }
   .notes-inspector > header {
     display: flex;
@@ -865,11 +865,12 @@
     position: relative;
     display: flex;
     align-items: center;
-    min-height: 32px;
-    border-radius: 5px;
     margin: 1px 0;
     border: 1px solid transparent;
     isolation: isolate;
+    border-radius: 6px;
+    min-height: 32px;
+    border-color: transparent;
   }
   .hu-knowledge-tree-line:hover {
     background: var(--muted-bg);
@@ -1046,11 +1047,6 @@
   }
   .hu-knowledge-root .hu-resource-list.notes-explorer-tree {
     padding: 8px 8px 16px;
-  }
-  .hu-knowledge-tree-line {
-    border-radius: 6px;
-    min-height: 32px;
-    border-color: transparent;
   }
   .hu-knowledge-tree-line.is-selected {
     background: var(--accent-soft);
@@ -1398,10 +1394,6 @@
     font-size: 12px;
     line-height: 18px;
     min-height: 28px;
-  }
-  .notes-inspector {
-    background: var(--panel);
-    box-shadow: -12px 0 32px color-mix(in srgb, var(--shadow-ink) 3%, transparent);
   }
   @media (max-width: 900px) {
     .hu-knowledge-document-toolbar {

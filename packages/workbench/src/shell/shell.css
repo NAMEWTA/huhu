@@ -685,9 +685,9 @@
   .shell-brand-suffix {
     font-size: 12px;
     font-weight: 450;
-    letter-spacing: 1px;
     margin-left: 9px;
     color: var(--muted);
+    letter-spacing: 1.1px;
   }
   .rail {
     width: 52px;
@@ -2939,9 +2939,6 @@
   .hu-window-bar {
     height: 36px;
   }
-  .shell-brand-suffix {
-    letter-spacing: 1.1px;
-  }
   .hu-primary-nav {
     padding: 20px 12px 12px;
   }
@@ -2989,9 +2986,9 @@
     gap: 20px;
   }
   .hu-home-content {
-    max-width: 1480px;
     margin: 0 auto;
     width: 100%;
+    max-width: 1480px;
   }
   .hu-home-content .shell-overview-metrics {
     gap: 12px;
@@ -3189,9 +3186,6 @@
     font-size: var(--fs-list);
     font-weight: 600;
   }
-  .hu-primary-nav .shell-section-nav {
-    gap: 3px;
-  }
   .shell-section-nav button {
     min-height: 34px;
     padding: 6px 9px;
@@ -3304,9 +3298,6 @@
   .shell-link-button {
     font-size: var(--fs-meta);
     font-weight: 500;
-  }
-  .hu-home-content {
-    max-width: 1480px;
   }
   .shell-home-scroll {
     padding: 0 36px 32px;

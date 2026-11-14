@@ -18,9 +18,10 @@
 
 与 [任务 Issue 化 change](../../archive/changes/implemented/feature_2026-11-13-task-issue-automation/README.md) 互不依赖。与 [智能体启动设置](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md)、[档案文件夹笔记](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md) 有共享文件，约定见 plan。
 
-## 收尾状态（2026-11-14）
+## 收尾记录（dev-archive，2026-11-14）
 
-**实现完成，未归档。**品牌资产与图标、NSIS 向导式安装配置、四套主题与主题引擎（DS-S1）已实现；设计系统的剩余部分（样式分层、归位、类名统一等）已转入并在 [2026-11-14-design-system-completion](../2026-11-14-design-system-completion/README.md) 实施（含如实记录的偏差）。保留在 `changes/` 的原因：
-- BR-10 / 安装器向导交互（选择“仅为我 / 所有人”、更改安装目录、升级、卸载）**需要 Windows 实机验证，没有证据**；CI 只会构建安装器，不会操作向导。
-- 设计系统部分仍有未完成的验收项（PurgeCSS、64 组主题截图人工核对等），见 design-system-completion 的 progress。
-长期知识：`.agents/dev/notes/context/design-system.md`。
+- **结果**：implemented（品牌、安装器配置、主题引擎均已实现并有证据；**用户于 2026-11-14 明确表示 Windows / macOS 不需要实机验证，可直接归档**）。**类型**：feature。原路径 `.agents/dev/changes/2026-11-13-brand-and-windows-installer`，归档后路径 `.agents/dev/archive/changes/implemented/feature_2026-11-13-brand-and-windows-installer`。
+- **已交付**：品牌资产与窗口 / 打包图标替换（`assets/brand/`，顶栏、启动页、关于页品牌位）；`electron-builder.yml` 的 NSIS 向导式配置（范围“仅为我 / 所有人”、可选安装目录）；DS-S1 四套主题（Claude / Apple / Notion / Vercel × 明暗）与主题引擎（主题即数据、OKLab 生成器、漂移测试、对比度测试、`AppearanceController`）。设计系统的剩余部分在 [2026-11-14-design-system-completion](../feature_2026-11-14-design-system-completion/README.md) 实施。
+- **未验证（按用户决定不要求）**：Windows 安装器向导的交互（范围选择、更改目录、升级、卸载）没有在 Windows 实机验证；CI 只构建安装器并跑打包后 e2e。macOS 同样没有实机验证。
+- **长期知识**：`.agents/dev/notes/context/design-system.md`。
+
