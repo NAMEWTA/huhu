@@ -263,7 +263,7 @@ export function NoteExplorer(p: ExplorerProps) {
           ))}
         </div>
       ) : null}
-      <div className="hu-resource-list notes-explorer-tree" {...dropProps("")} role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
+      <div className="hu-resource-list notes-explorer-tree" data-testid="notes-explorer-tree" {...dropProps("")} role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
         <div className="notes-list-caption">
           <button type="button" className="active">
             {caption}

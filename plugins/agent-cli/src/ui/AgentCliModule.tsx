@@ -137,6 +137,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
               key={s.id}
               type="button"
               className={`agent-space-item${space?.id === s.id ? " active" : ""}`}
+              data-testid="agent-space-item"
               aria-pressed={space?.id === s.id}
               title={s.root}
               onClick={() => {

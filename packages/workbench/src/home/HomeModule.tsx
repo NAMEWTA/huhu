@@ -303,12 +303,12 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
                 {d.enabled.automations ? metric("rules", "card-rules", <RefreshCw size={19} aria-hidden />, "green", tHome.metrics.rules, d.rulesEnabled, "automations") : null}
               </div>
               <div className="shell-home-grid">
-                <div className="shell-home-main-column">
+                <div className="shell-home-main-column" data-testid="home-main-column">
                   {orderedCards(HOME_COLUMNS[0] as Card[]).map((c) => (
                     <Fragment key={c}>{mainNodes[c]}</Fragment>
                   ))}
                 </div>
-                <div className="shell-home-side-column">
+                <div className="shell-home-side-column" data-testid="home-side-column">
                   {orderedCards(HOME_COLUMNS[1] as Card[]).map((c) => (
                     <Fragment key={c}>{sideNodes[c]}</Fragment>
                   ))}

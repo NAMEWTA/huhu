@@ -33,4 +33,4 @@
 - 嵌套在别的视图里的对话框会继承外层的后代选择器：写 `.x h2` 这类后代选择器要限定到直接子元素或专用容器。
 
 ## 已知债务
-见 `.agents/dev/changes/2026-11-14-design-system-completion/progress.md`“偏差与未做”：`core.css` 未再细拆；`card` / `row` / `segmented` / `spin` 与已有 `hu-` 类并存；未运行 PurgeCSS 与覆盖率；规则级去重未做。
+见 `.agents/dev/changes/2026-11-14-design-system-completion/progress.md`“偏差与未做”：`core.css` 未再细拆；`card` / `row` / `segmented` / `spin` 与已有 `hu-` 类并存；覆盖率交叉未做；规则级去重未做；`pnpm css:purge` 是报告工具，判定“无用”必须再过渲染比对（模板片段拼出的类名会被误判）。

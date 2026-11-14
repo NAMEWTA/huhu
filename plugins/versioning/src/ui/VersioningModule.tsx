@@ -222,7 +222,7 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
         </div>
         {chosen ? (
           <div className="hu-version-v9-diff" data-testid="history-content">
-            <div className="version-diff-labels">
+            <div className="version-diff-labels" data-testid="version-diff-labels">
               {base === "current" ? (
                 <>
                   <span>所选历史版本</span>

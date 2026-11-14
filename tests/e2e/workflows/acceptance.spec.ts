@@ -54,7 +54,7 @@ test("ACC-KN-09 阅读模式：<script> 与 javascript: 链接不会执行，也
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "危险" }).click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    const pane = page.locator(".notes-reading-pane");
+    const pane = page.getByTestId("notes-reading-pane");
     await expect(pane).toContainText("危险");
     expect(await pane.locator("script").count()).toBe(0);
     expect(await pane.locator('a[href^="javascript:" i]').count()).toBe(0);
@@ -438,7 +438,11 @@ test("首页自定义：卡片可在同一列内上移 / 下移，顺序持久�
   const { page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    const order = () => page.locator(".shell-home-main-column > section").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    const order = () =>
+      page
+        .getByTestId("home-main-column")
+        .locator("> section.home-widget")
+        .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     await expect.poll(order).toEqual(["card-tasks", "card-recent", "card-activity"]);
     await page.getByTestId("home-customize").click();
     const panel = page.getByTestId("home-customize-panel");
@@ -467,14 +471,14 @@ test("版本历史：对比基准“与当前内容 / 与前一版”切换，�
     await expect(page.getByTestId("history-entry")).toHaveCount(2, { timeout: 10_000 });
     await page.getByTestId("history-entry").filter({ hasText: "版本二" }).click();
     // 与当前内容：所选就是当前，没有差异
-    await expect(page.locator(".version-diff-labels")).toContainText("当前有效内容");
+    await expect(page.getByTestId("version-diff-labels")).toContainText("当前有效内容");
     // 与前一版：版本二相对版本一新增两行
     await page.getByRole("tab", { name: "与前一版" }).click();
-    await expect(page.locator(".version-diff-labels")).toContainText("前一版本");
+    await expect(page.getByTestId("version-diff-labels")).toContainText("前一版本");
     await expect(page.getByTestId("history-stats")).toContainText("+2");
     // 最早的一版没有前一版：与空文件比
     await page.getByTestId("history-entry").filter({ hasText: "版本一" }).click();
-    await expect(page.locator(".version-diff-labels")).toContainText("没有更早的版本");
+    await expect(page.getByTestId("version-diff-labels")).toContainText("没有更早的版本");
   } finally {
     await close();
   }
@@ -499,7 +503,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await page.getByTestId("folder-line").filter({ hasText: "归档" }).getByRole("button").first().click();
     const moved = page.getByTestId("note-item").filter({ hasText: "待移动" });
     await expect(moved).toBeVisible();
-    await moved.dragTo(page.locator(".notes-explorer-tree"), { targetPosition: { x: 20, y: 120 } });
+    await moved.dragTo(page.getByTestId("notes-explorer-tree"), { targetPosition: { x: 20, y: 120 } });
     await expect.poll(() => fs.existsSync(`${vault}/待移动.md`)).toBe(true);
   } finally {
     await close();
@@ -933,7 +937,7 @@ test("阅读模式：数学公式（KaTeX）与 Mermaid 图表渲染；错误的
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "公式与图" }).click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    const pane = page.locator(".notes-reading-pane");
+    const pane = page.getByTestId("notes-reading-pane");
     await expect(pane.locator(".katex").first()).toBeVisible({ timeout: 15_000 });
     expect(await pane.locator(".katex").count()).toBeGreaterThanOrEqual(2); // 行内 + 块
     await expect(pane.getByTestId("mermaid-diagram").locator("svg")).toBeVisible({ timeout: 30_000 });
@@ -1018,15 +1022,15 @@ test("Agent CLI：Space 可以编辑（改名）与删除（只删配置，不�
     await page.getByLabel("Space 名称").fill("旧名字");
     await page.getByLabel("工作目录").fill(dir);
     await page.getByTestId("space-save").click();
-    await expect(page.locator(".agent-space-item", { hasText: "旧名字" })).toBeVisible();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "旧名字" })).toBeVisible();
     await page.getByTestId("space-edit").click();
     await page.getByLabel("Space 名称").fill("新名字");
     await page.getByTestId("space-save").click();
-    await expect(page.locator(".agent-space-item", { hasText: "新名字" })).toBeVisible();
-    await expect(page.locator(".agent-space-item", { hasText: "旧名字" })).toHaveCount(0);
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "新名字" })).toBeVisible();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "旧名字" })).toHaveCount(0);
     await page.getByTestId("space-delete").click();
     await page.getByTestId("space-delete-confirm").click();
-    await expect(page.locator(".agent-space-item", { hasText: "新名字" })).toHaveCount(0);
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "新名字" })).toHaveCount(0);
     expect(existsSync(path.join(dir, "keep.txt"))).toBe(true);
   } finally {
     await close();
@@ -1172,7 +1176,7 @@ test("DataTable：网关“调用记录”显示外部调用；超过 200 行时
     // 表头列宽可拖动
     const th = page.getByRole("table", { name: "外部调用记录" }).locator("th").first();
     const before = (await th.boundingBox())!.width;
-    const handle = th.locator(".hu-col-resizer");
+    const handle = th.getByTestId("col-resizer");
     const hb = (await handle.boundingBox())!;
     await page.mouse.move(hb.x + 3, hb.y + 5);
     await page.mouse.down();
@@ -1191,7 +1195,11 @@ test("首页卡片可由插件贡献：SSH 主机与版本与同步卡片出现�
     const call = await caller(page);
     await expect(page.getByTestId("card-versioning-git")).toBeVisible();
     await expect(page.getByTestId("card-ssh-hosts")).toBeVisible();
-    const contributed = () => page.locator(".shell-home-side-column > section.home-widget").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    const contributed = () =>
+      page
+        .getByTestId("home-side-column")
+        .locator("> section.home-widget")
+        .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     await expect.poll(contributed).toEqual(["card-versioning-git", "card-ssh-hosts"]);
     await page.getByTestId("home-customize").click();
     const panel = page.getByTestId("home-customize-panel");
@@ -1295,7 +1303,7 @@ test("AR-06 / AR-10 / AR-09 档案：笔记里的 [[Archives/…/]] 在阅读模
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "年度计划" }).first().click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    await page.locator('.hu-wikilink[data-target="Archives/通讯录/张三/"]').click();
+    await page.locator('a[data-target="Archives/通讯录/张三/"]').click();
     await expect(page.getByTestId("archive-view")).toContainText("张三");
     await expect(page.getByTestId("archive-backlink").filter({ hasText: "年度计划" })).toBeVisible();
     // AR-09：添加附件（pdf）→ 出现在档案文件列表，磁盘上也有

@@ -490,7 +490,7 @@ export function NoteDocument(props: NoteDocumentProps) {
           />
         </div>
         {showReading ? (
-          <div className="notes-reading-pane" data-editor-mode={mode} ref={reading} onScroll={onReadingScroll}>
+          <div className="notes-reading-pane" data-testid="notes-reading-pane" data-editor-mode={mode} ref={reading} onScroll={onReadingScroll}>
             <MarkdownPreview source={text} resolveWikiLink={(target) => known.has(target)} onOpenWikiLink={openWiki} />
           </div>
         ) : null}

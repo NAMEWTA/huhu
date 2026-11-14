@@ -14,7 +14,7 @@
 | S4 类名统一 | 完成（有登记债务） | 712 个类按归属加前缀（`evidence/class-map.json`）；209 个历史类名中 57 个仍作为例外登记（`scripts/css-class-exceptions.json`） |
 | S5a 按组件拆分 | **部分完成** | `components/{core,overlays,data,feedback}.css`；`shared.css` 已删除。`core.css` 仍含按钮 / 分段控件 / 标签栏 / 全局元素等彼此顺序耦合的规则 |
 | S5b 去重与同义类合并 | 部分完成 | 13 个同义类合并（`btn`、`badge`、`btn-primary`…）；`card`、`row`、`segmented`、`spin` 与已有 `hu-` 类并存，登记待合并；规则级“去重合并”未做 |
-| S5c 无用样式核查 | 完成（静态） | 基于 AST 的静态分析删除 378 条规则（`evidence/s5c-purge-candidates.json`）；**没有运行 PurgeCSS，也没有做覆盖率交叉** |
+| S5c 无用样式核查 | 完成（静态 + PurgeCSS，无覆盖率） | AST 静态分析删除 378 条规则（`evidence/s5c-purge-candidates.json`）；PurgeCSS 130 条 rejected 逐条核查后一条都不删（`evidence/s5c-purgecss-review.md`）；**没有做覆盖率交叉** |
 | S6 主题验收与收尾 | 部分完成 | 四主题比对完成；DSC-13 的人工逐张核对未做（见下）；文档已更新 |
 
 ## 偏差与未做（如实）
@@ -23,7 +23,7 @@
 - **S5a 没有做到“一个组件一个文件”**：细拆（7 个文件）产生 354 处计算样式差异，根因是按钮、分段控件、标签栏、全局元素选择器之间的同层顺序耦合。折中为 4 个文件，`core.css` 保留原相对顺序。要继续拆分需要把这些规则改写成与顺序无关的选择器，本期未做。
 - **类名统一不彻底**：共享组件类用 `hu-` + 原名（如 `hu-knowledge-resource-footer`、`hu-tw-workbench`），名字沿用历史语义，没有重新命名；工作台 `shell-`，插件用插件前缀。57 个类登记为例外（数据驱动 / 同义类待合并等）。
 - **stylelint 前缀规则未使用**：前缀规则由 `scripts/check-css-classes.mjs` 实现（含例外登记表），而不是 stylelint 的 `selector-class-pattern`；效果等价，位置不同。
-- **PurgeCSS 与覆盖率**：未安装 PurgeCSS，未做覆盖率交叉核查。无用规则判定是静态的（类名在 TS 字符串、模板片段里都没有出现），删除后由四主题比对验证；不在固定 Vault 屏幕上出现的状态只有静态证据。
+- **PurgeCSS 与覆盖率**：PurgeCSS 已补做（见 DSC-11），覆盖率交叉仍未做。无用规则判定是静态的（类名在 TS 字符串、模板片段里都没有出现），删除后由四主题比对验证；不在固定 Vault 屏幕上出现的状态只有静态证据。
 - **DSC-13 人工核对**：没有对 64 组截图逐张人工对照“标志特征”。替代证据：重构后与重构前（`origin` 基线，四套主题 × 明暗）计算样式与像素逐一相同，因此主题外观没有变化；人工查看了 Apple 浅色与 Vercel 深色的任务看板，符合上游 §6 的特征（Apple 蓝色强调与浅色外壳、Vercel 近黑背景与白字）。
 - **覆盖盲区**：启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单没有进入屏幕清单；xterm 终端与 Mermaid 的运行时样式夹具里没有出现（E0 只看到 sonner 与 CodeMirror）。
 - **DS-06 / DS-07 / DS-12 / DS-14 的单独运行证据**：未单独重做；它们依赖的主题引擎代码本期没有改动，且 e2e（含 a11y）覆盖主题切换与终端换主题。
@@ -47,10 +47,11 @@
 
 - DSC-05：保留了 34 处 `!important`，其中“覆盖第三方运行时样式”一类超出规格的两类例外（见上表）。
 - DSC-09：`no-duplicate-selectors` 没有启用，`.stylelintrc.json` 里 `declaration-block-no-duplicate-properties` 仍保留 `consecutive-duplicates-with-different-values` 例外；规则级去重未做。
-- DSC-10：`tests/**` 里仍有 16 处按项目类名的定位器（例如 `.shell-home-main-column`、`.agent-space-item`、`.hu-col-resizer`、`.hu-wikilink`），已随改名同步更新并通过，但没有改成 `getByTestId` / `getByRole`。
-- DSC-11 / DSC-12：没有运行 PurgeCSS，没有覆盖率交叉。
+- ~~DSC-10~~ **已完成（发布后补做）**：16 处项目类名定位器改成 `data-testid`（`notes-reading-pane`、`home-main-column`、`home-side-column`、`version-diff-labels`、`notes-explorer-tree`、`agent-space-item`、`col-resizer`），`.hu-wikilink` 改按 `a[data-target]`；仍保留 2 处按类名：`.home-widget`（区分插件贡献的首页卡片）与第三方 `.cm-*` / `.xterm-*`。受影响的 e2e 用例本地通过。
+- ~~DSC-11~~ **已完成（结论是“没有可安全删除的规则”）**：安装 PurgeCSS 8.0.0，`pnpm css:purge`；rejected 130 条逐条核查与结论见 `evidence/s5c-purgecss-review.md`。第一次按“类名在源码里不出现”删除 101 条被渲染比对否决（模板片段拼出的状态类），第二次只删确认无用的 12 条仍有 16 项差异，最终一条都不删。
+- DSC-12：覆盖率交叉没有做。
 - DSC-13：没有逐张人工核对 64 组截图。
-- DSC-15：没有记录 CSS 总字节数与 perf 对比。
+- DSC-15（部分）：项目 CSS 源文件合计 origin 302,555 B → 现在 316,663 B（+4.7%，增长来自层声明与 `@layer` 包装、前缀更长的类名与 33 条退回 `components` 的块，大于删除 378 条规则的减少）；构建产物 `index-*.css` 386,543 B（origin 构建产物字节数没有记录，S2a 时为 372,670 B）。`perf.spec.ts` 全量运行通过（一次全量里 17.4 ms 的偶发超出，单独复跑通过），没有保存 p95 数字对比。
 - DSC-16：`notes/context/workbench.md` 里没有 D-18 条目可标注，无法核实该项；其余文档已更新（`notes/context/design-system.md`、知识索引）。
 - DC-D10：不分层白名单文件里放行了编辑器 DOM 内的项目装饰类（`huhu-md-semibold`、`huhu-live-*`），不只是第三方选择器（`scripts/check-css-layers.mjs` 的 `THIRD_PARTY_CLASS`）；原因见 spec DC-D4。
 

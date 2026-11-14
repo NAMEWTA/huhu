@@ -89,7 +89,15 @@ export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey
               {g.headers.map((h) => (
                 <th key={h.id} scope="col" style={{ position: "sticky", top: 0 }}>
                   {flexRender(h.column.columnDef.header, h.getContext())}
-                  <span className="hu-col-resizer" role="separator" aria-orientation="vertical" aria-label={`调整“${h.column.columnDef.header as string}”列宽`} onMouseDown={h.getResizeHandler()} onTouchStart={h.getResizeHandler()} />
+                  <span
+                    className="hu-col-resizer"
+                    data-testid="col-resizer"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`调整“${h.column.columnDef.header as string}”列宽`}
+                    onMouseDown={h.getResizeHandler()}
+                    onTouchStart={h.getResizeHandler()}
+                  />
                 </th>
               ))}
             </tr>

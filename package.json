@@ -22,7 +22,8 @@
     "gen:themes": "pnpm --filter @huhu/ui run gen:themes",
     "visual:baseline": "node scripts/visual.mjs baseline",
     "visual:compare": "node scripts/visual.mjs compare",
-    "visual:noise": "node scripts/visual.mjs noise"
+    "visual:noise": "node scripts/visual.mjs noise",
+    "css:purge": "node scripts/css-purge.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
@@ -33,6 +34,7 @@
     "oxlint": "1.93.0",
     "postcss": "8.5.32",
     "postcss-selector-parser": "7.2.1",
+    "purgecss": "8.0.0",
     "stylelint": "^16.26.1",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
