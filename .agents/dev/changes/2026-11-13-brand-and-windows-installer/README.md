@@ -16,7 +16,7 @@
 
 **设计系统的剩余部分（DS-S2～S4 未完成项）已转入 [2026-11-14-design-system-completion](../2026-11-14-design-system-completion/README.md)**，本 change 保留 BR-S1、BR-S2、DS-S1 与已完成的样式拆分记录。
 
-与 [任务 Issue 化 change](../2026-11-13-task-issue-automation/README.md) 互不依赖。与 [智能体启动设置](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md)、[档案文件夹笔记](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md) 有共享文件，约定见 plan。
+与 [任务 Issue 化 change](../../archive/changes/implemented/feature_2026-11-13-task-issue-automation/README.md) 互不依赖。与 [智能体启动设置](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md)、[档案文件夹笔记](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md) 有共享文件，约定见 plan。
 
 ## 收尾状态（2026-11-14）
 

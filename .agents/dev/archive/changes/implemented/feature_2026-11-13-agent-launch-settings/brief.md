@@ -25,7 +25,7 @@
 | 用户决定 | 2026-11-13 | 权限**只需要默认完全访问**，不做 orca 的五档权限菜单 |
 | 用户决定 | 2026-11-13 | 新建菜单只放：终端、智能体、设置 |
 | 用户决定 | 2026-11-13 | 每个插件模块启用后，设置页自动多出一个对应的图标，点击进入该模块的设置页；按 Vault 保存；系统设置与插件设置用图标分开；插件关闭时，功能和设置页一起关闭；**现有设置页一并规范化** |
-| 关联 change | — | [任务 Issue 化](../../../../changes/2026-11-13-task-issue-automation/spec.md) 的 §3.5 / T05 依赖本 change 的 `resolveAgentLaunch` |
+| 关联 change | — | [任务 Issue 化](../feature_2026-11-13-task-issue-automation/spec.md) 的 §3.5 / T05 依赖本 change 的 `resolveAgentLaunch` |
 | 长期决定 | notes `context/workbench.md` | D-26：不做应用级数据库（因此设置按 Vault 存）；D-28：只有简体中文 |
 
 ## 当前事实（HEAD `8283c5c`，2026-11-13 由只读子代理核对）

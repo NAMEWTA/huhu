@@ -57,7 +57,7 @@
 - **双链与文件夹**：
   - `[[文件夹/]]` 目前无法解析（`links-rewrite.ts:63-68`、`NoteDocument.tsx:301-304`）。
   - 笔记模块没有“文件夹笔记”的概念，点击文件夹只展开或折叠。
-  - [任务 change 的 T03](../../../../changes/2026-11-13-task-issue-automation/tasks/T03-references-editor.md) 会加入文件夹引用的插入、文件夹前缀改写，以及在文件树中定位文件夹。
+  - [任务 change 的 T03](../feature_2026-11-13-task-issue-automation/tasks/T03-references-editor.md) 会加入文件夹引用的插入、文件夹前缀改写，以及在文件树中定位文件夹。
 - **附件**：`FileCard` 能内联显示图片，可以只读查看文本；PDF 只显示元信息，在桌面端可以用系统应用打开。`[[a.pdf]]` 不解析。
 - **其他消费者**：
   - inbox 的“转为档案”（`inbox/src/engine/index.ts:19-22,87`、`InboxModule.tsx:42,247,462`）。
@@ -91,5 +91,5 @@
 
 ## 依赖
 
-- 任务 change 的 [T03](../../../../changes/2026-11-13-task-issue-automation/tasks/T03-references-editor.md)：文件夹引用插入、`[[旧/]]` 前缀改写、`openWiki` 处理文件夹。本 change 在它的基础上加入“文件夹有 `index.md` 时，打开并解析为文件夹笔记”。
+- 任务 change 的 [T03](../feature_2026-11-13-task-issue-automation/tasks/T03-references-editor.md)：文件夹引用插入、`[[旧/]]` 前缀改写、`openWiki` 处理文件夹。本 change 在它的基础上加入“文件夹有 `index.md` 时，打开并解析为文件夹笔记”。
 - [设计系统重构](../../../../changes/2026-11-13-brand-and-windows-installer/design-system.md)：档案视图的样式遵循新的 token 与目录规则。两边哪个后合入，由后合入的一方适配。

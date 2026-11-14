@@ -8,7 +8,7 @@
 - effort 和 fast 只在 Provider 支持时显示。
 - 三列看板的拖拽体验完整。
 
-**依赖**：T01a 已合入（模型和三列看板的最低版本）。另需 [agent-launch-settings](../../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/plan.md) 的 AL-S1 已合入：它先改 `TaskEditor.tsx:29,38` 的检测读取（改调 `agent.catalog.detect`，模型读共享目录），T01b 在其上重写执行配置区；effort/fast 的可选值按共享目录中所选模型的 `efforts`、`fast` 显示。
+**依赖**：T01a 已合入（模型和三列看板的最低版本）。另需 [agent-launch-settings](../../feature_2026-11-13-agent-launch-settings/plan.md) 的 AL-S1 已合入：它先改 `TaskEditor.tsx:29,38` 的检测读取（改调 `agent.catalog.detect`，模型读共享目录），T01b 在其上重写执行配置区；effort/fast 的可选值按共享目录中所选模型的 `efforts`、`fast` 显示。
 
 **边界**：
 - 只**新增** UI，不改变契约，也不引入兼容逻辑。

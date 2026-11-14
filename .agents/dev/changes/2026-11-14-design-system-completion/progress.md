@@ -50,7 +50,7 @@
 - ~~DSC-10~~ **已完成（发布后补做）**：16 处项目类名定位器改成 `data-testid`（`notes-reading-pane`、`home-main-column`、`home-side-column`、`version-diff-labels`、`notes-explorer-tree`、`agent-space-item`、`col-resizer`），`.hu-wikilink` 改按 `a[data-target]`；仍保留 2 处按类名：`.home-widget`（区分插件贡献的首页卡片）与第三方 `.cm-*` / `.xterm-*`。受影响的 e2e 用例本地通过。
 - ~~DSC-11~~ **已完成（结论是“没有可安全删除的规则”）**：安装 PurgeCSS 8.0.0，`pnpm css:purge`；rejected 130 条逐条核查与结论见 `evidence/s5c-purgecss-review.md`。第一次按“类名在源码里不出现”删除 101 条被渲染比对否决（模板片段拼出的状态类），第二次只删确认无用的 12 条仍有 16 项差异，最终一条都不删。
 - DSC-12：覆盖率交叉没有做。
-- DSC-13：没有逐张人工核对 64 组截图。
+- DSC-13（抽查）：没有逐张人工核对 64 组截图；抽查了 4 张：Claude 深色的设置·外观页（四张主题预览卡各按自己的主题渲染：Claude 珊瑚 + 衬线、Apple 蓝色胶囊、Notion 紫色主按钮、Vercel 黑色 + 等宽小标签，满足 DS-01）、Apple 浅色与 Vercel 深色的任务看板、Notion 浅色的笔记编辑器，均符合上游 §6 的特征。其余仍以“与重构前基线逐元素一致”为证据。
 - DSC-15（部分）：项目 CSS 源文件合计 origin 302,555 B → 现在 316,663 B（+4.7%，增长来自层声明与 `@layer` 包装、前缀更长的类名与 33 条退回 `components` 的块，大于删除 378 条规则的减少）；构建产物 `index-*.css` 386,543 B（origin 构建产物字节数没有记录，S2a 时为 372,670 B）。`perf.spec.ts` 全量运行通过（一次全量里 17.4 ms 的偶发超出，单独复跑通过），没有保存 p95 数字对比。
 - DSC-16：`notes/context/workbench.md` 里没有 D-18 条目可标注，无法核实该项；其余文档已更新（`notes/context/design-system.md`、知识索引）。
 - DC-D10：不分层白名单文件里放行了编辑器 DOM 内的项目装饰类（`huhu-md-semibold`、`huhu-live-*`），不只是第三方选择器（`scripts/check-css-layers.mjs` 的 `THIRD_PARTY_CLASS`）；原因见 spec DC-D4。

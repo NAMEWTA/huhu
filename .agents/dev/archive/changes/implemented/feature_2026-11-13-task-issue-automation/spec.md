@@ -205,7 +205,7 @@ updatedAt: 2026-11-13T10:20:00+08:00
 - 文件移动或改名时，任务中的引用随之更新。需要两处小范围适配（reuse.md R-T04）：
   - `notes/engine/service.ts` 的改写范围加入 `Tasks/`（现在被 `isNoteFile` 排除）。
   - `links-rewrite` 支持文件夹前缀：文件夹改名或移动时，改写 `[[旧目录/]]` 和 `[[旧目录/…]]`。现在只改写指向文件的链接。
-- 档案引用就是指向档案文件的路径引用。档案模块改为“文件夹笔记”形态的事项另开 change（[2026-11-13-archives-as-folder-notes](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/spec.md)），本 change 不依赖它；它依赖本 change 的 T03（文件夹引用与前缀改写），并在其上加入“`[[目录/]]` 有 index.md 时打开该文件夹笔记”。
+- 档案引用就是指向档案文件的路径引用。档案模块改为“文件夹笔记”形态的事项另开 change（[2026-11-13-archives-as-folder-notes](../feature_2026-11-13-archives-as-folder-notes/spec.md)），本 change 不依赖它；它依赖本 change 的 T03（文件夹引用与前缀改写），并在其上加入“`[[目录/]]` 有 index.md 时打开该文件夹笔记”。
 
 ### 3.5 交给 Agent 的内容（TD-14）
 
@@ -216,7 +216,7 @@ updatedAt: 2026-11-13T10:20:00+08:00
   - 格式约定：`<task>` 是本次要完成的要求；`<comments>` 是讨论历史，每条带 `source`；`[[路径]]` 相对于 Vault 根。
 - 自动化规则的补充指令附在其后。
 - Agent 通过 Vault 绝对路径**自行读取**被引用的文件，worker 不内联文件内容，也不做容量裁剪。
-- **启动参数统一取自“智能体启动设置”**（用户 2026-11-13 第三轮决定：复刻 orca，交互会话与 headless 运行共用同一份设置，默认完全访问）。设置的定义与组装函数由 [2026-11-13-agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/spec.md) 负责。本 change 只依赖它的组装契约：
+- **启动参数统一取自“智能体启动设置”**（用户 2026-11-13 第三轮决定：复刻 orca，交互会话与 headless 运行共用同一份设置，默认完全访问）。设置的定义与组装函数由 [2026-11-13-agent-launch-settings](../feature_2026-11-13-agent-launch-settings/spec.md) 负责。本 change 只依赖它的组装契约：
   - `resolveAgentLaunch({agentId, mode: "interactive" | "headless", model?, effort?, fast?, prompt?, sessionId?, resume?})` 返回 `{command, argv, env, stdin?, warnings}`（另有仅供设置页预览的 `draft?`、`preview?`，worker 不用）。
   - 返回的参数已经合并了用户命令覆盖（或检测到的绝对路径）、默认参数（默认包含完全访问参数，例如 claude 的 `--dangerously-skip-permissions`、codex 的 `--dangerously-bypass-approvals-and-sandbox`）、新会话 id 与恢复会话参数。
   - headless 模式下，由组装函数加入无界面所需的参数：claude 是 `-p --output-format stream-json --verbose`，codex 是 `exec … --json -`（恢复会话为 `exec resume … --json <id> -`），提示词经 `stdin` 传入。
@@ -560,7 +560,7 @@ inbox 转换为任务时，调用者是 `plugin:inbox`：只能建 human 任务�
 | `agent.spaces.*` | 复用 |
 | `agent.catalog.detect`（取代 `agent.providers.detect`） | 由 agent-launch-settings 的 AL-S1 改名并提供 |
 | 权限表 | 新增内置专用权限组；`isGrantable` 按插件来源判定 |
-| 智能体启动设置 | 由 [agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/spec.md) 定义并提供 `resolveAgentLaunch`；本 change 的 worker 改用它 |
+| 智能体启动设置 | 由 [agent-launch-settings](../feature_2026-11-13-agent-launch-settings/spec.md) 定义并提供 `resolveAgentLaunch`；本 change 的 worker 改用它 |
 | `automations.scripts.list/save/delete` | **删除**，同时删除 `ScriptStore` 和 scripts 标签页 |
 | `tasks` 进程内服务 `taskQuery` | 删除。原使用方 automations 和 versioning 改为调用 `tasks.list`/`tasks.read` |
 | `packages/editor` | `MarkdownEditor` 新增 `extensions` 入参；新增依赖 `@codemirror/autocomplete` |

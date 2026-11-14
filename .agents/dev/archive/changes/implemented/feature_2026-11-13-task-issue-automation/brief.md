@@ -25,8 +25,8 @@
 | 用户决定（第二轮） | 2026-11-13 | **正文用固定 XML 标签分区**：`<task>` 存任务内容，`<comments>` 下每条 `<comment id at source …>`；标签内部仍是 Markdown |
 | 用户决定（第二轮） | 2026-11-13 | **关联统一用地址引用**：笔记、档案、文件都通过正文或评论中的 `@` 模糊补全插入 `[[Vault 相对路径]]`；frontmatter 不再保存关联列表，也不加档案 id 字段 |
 | 用户决定（第二轮） | 2026-11-13 | **Agent 看到完整任务**：快照里包含全部评论；提示词第一条写明 Vault 绝对路径；Agent 自行读写 Vault；headless 运行权限跟随 Provider 偏好，**默认最高权限（yolo）** |
-| 用户决定（第三轮） | 2026-11-13 | **智能体启动设置复刻 orca**：交互会话与 headless 运行共用同一份设置，默认完全访问；只保留 Claude Code、Codex、Pi，删除 Claude Agent Teams。另开 change [2026-11-13-agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/brief.md) |
-| 用户决定（第二轮） | 2026-11-13 | **档案改为文件夹笔记形态**（`Archives/<类型>/<名称>/index.md` 加附件，重名时才追加 4 位随机码）**另开 change**，见 [2026-11-13-archives-as-folder-notes](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/brief.md) |
+| 用户决定（第三轮） | 2026-11-13 | **智能体启动设置复刻 orca**：交互会话与 headless 运行共用同一份设置，默认完全访问；只保留 Claude Code、Codex、Pi，删除 Claude Agent Teams。另开 change [2026-11-13-agent-launch-settings](../feature_2026-11-13-agent-launch-settings/brief.md) |
+| 用户决定（第二轮） | 2026-11-13 | **档案改为文件夹笔记形态**（`Archives/<类型>/<名称>/index.md` 加附件，重名时才追加 4 位随机码）**另开 change**，见 [2026-11-13-archives-as-folder-notes](../feature_2026-11-13-archives-as-folder-notes/brief.md) |
 | 顾问审查 | 2026-11-13（Opus，只读） | 指出 9 个阻塞项与若干建议，已全部并入 spec。主要涉及：消息头伪造、第三方插件的权限、矩阵漏洞、schema 1 被静默接受、缺少 Herdr 后台轮询、对账顺序、Space 并发、权限机制复用、遗漏的消费者 |
 | 项目约束 | `CLAUDE.md` | 复用优先顺序 ①→⑥（同 Issue §10）；本仓库为 0→1 项目：不写兼容层、迁移层或双写 |
 

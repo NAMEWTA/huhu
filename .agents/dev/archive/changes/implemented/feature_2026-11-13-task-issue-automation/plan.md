@@ -18,7 +18,7 @@
 | [T02](tasks/T02-permissions.md) 权限 | 内置插件可以调用不对外暴露的能力，第三方插件仍按外部处理；外部调用方只能写 human 任务；委托链；各插件的权限授予表 | T01a（Dispatcher 部分无依赖） | kernel 的权限与 Dispatcher，tasks 引擎的 handler 守卫，4 处只看 caller 的判断，各插件清单的 `permissions` | D02、D03 |
 | [T03](tasks/T03-references-editor.md) 引用 | `@` 补全、可点击的双链、改名后联动更新 | T01a（补全扩展可以提前开发） | editor、旧 `stripCode`/`codeRanges` 的迁移、notes 的改写与 `openWiki`、任务内容编辑器 | A10 |
 | [T04](tasks/T04-comments.md) 评论 | 任务文件内的时间线、请求卡片、回复并继续，以及人工流转的系统评论、`attention` | T01a、T02 | `tasks.comments.add`、时间线 UI | B01、B03、B06、B09、B10、A06 与 A07（评论部分）、§4.1 人工部分 |
-| [T05](tasks/T05-automations.md) 自动化 | 三类动作、逐条派发、进入进行中、事件回写评论、终端命令、提醒 | T01a、T02、T04；[agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/plan.md) 的 AL-S1（`resolveAgentLaunch`） | automations、`markDispatched`、`activeFor`、agent-cli 的偏好与 launch 扩展、versioning 改为能力调用 | A04、A05（agent 部分）、A08、B01（快照）、B02、B06（脱敏）、B07、B08、C01–C09、D01、D04、E03 |
+| [T05](tasks/T05-automations.md) 自动化 | 三类动作、逐条派发、进入进行中、事件回写评论、终端命令、提醒 | T01a、T02、T04；[agent-launch-settings](../feature_2026-11-13-agent-launch-settings/plan.md) 的 AL-S1（`resolveAgentLaunch`） | automations、`markDispatched`、`activeFor`、agent-cli 的偏好与 launch 扩展、versioning 改为能力调用 | A04、A05（agent 部分）、A08、B01（快照）、B02、B06（脱敏）、B07、B08、C01–C09、D01、D04、E03 |
 | [T06](tasks/T06-live-waiting.md) 运行中等待 | Herdr 上报 blocked 后 ≤ 3 s 提示，可前往处理 | T04、T05 | herdr-client 订阅、agent-cli 的 watcher | B04a/b/c、B05、B07（会话） |
 | [T07](tasks/T07-integration.md) 整合交付 | 闭环可用，旧实现无残留，文档同步 | T01a–T06 | 只做整合与清理 | D05、D06、全量回归 |
 

@@ -10,7 +10,7 @@
 | [spec.md](spec.md) | 文件形态、命名与随机码、文件夹笔记规则、笔记模块中的档案视图、能力表、验收 AR-01～17 |
 | [plan.md](plan.md) | 切片、共享文件约定、代码指针、测试清单 |
 
-依赖 [任务 Issue 化 change](../../../../changes/2026-11-13-task-issue-automation/README.md) 的 T03（文件夹引用与改写）。
+依赖 [任务 Issue 化 change](../feature_2026-11-13-task-issue-automation/README.md) 的 T03（文件夹引用与改写）。
 
 ## 收尾记录（dev-archive，2026-11-14）
 

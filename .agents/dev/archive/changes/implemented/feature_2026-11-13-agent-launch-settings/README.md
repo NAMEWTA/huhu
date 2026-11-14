@@ -10,7 +10,7 @@
 | [spec.md](spec.md) | 设置贡献点与导航、智能体目录、`agents.json`、`resolveAgentLaunch`、新建菜单、智能体设置页、验收 SF / AG / LA / LM |
 | [plan.md](plan.md) | 四个切片的依赖、写入边界、代码指针、验证入口与遗留项 |
 
-[任务 Issue 化 change](../../../../changes/2026-11-13-task-issue-automation/README.md) 的 T05 依赖本 change 的 AL-S1；与 [品牌与安装器 change](../../../../changes/2026-11-13-brand-and-windows-installer/README.md) 互不依赖。
+[任务 Issue 化 change](../feature_2026-11-13-task-issue-automation/README.md) 的 T05 依赖本 change 的 AL-S1；与 [品牌与安装器 change](../../../../changes/2026-11-13-brand-and-windows-installer/README.md) 互不依赖。
 
 ## 收尾记录（dev-archive，2026-11-14）
 

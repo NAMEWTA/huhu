@@ -21,7 +21,7 @@
 ## 与其他 change 的关系
 
 - 上游：[brand-and-windows-installer](../2026-11-13-brand-and-windows-installer/README.md)（其 DS-S1 已完成）。本 change 完成后，上游的 DS-S2～S4 与“按 plan，rc 前必须通过”的约束以本 change 的结果为准。
-- 与 [task-issue-automation](../2026-11-13-task-issue-automation/README.md)、[archives-as-folder-notes](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md)、[agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md) 共享 TSX 与样式文件：从 S0 生成 `origin` 基线起到 S5c 结束需要冻结窗口，见 [plan.md](plan.md)“与其他 change 的冲突与冻结”。
+- 与 [task-issue-automation](../../archive/changes/implemented/feature_2026-11-13-task-issue-automation/README.md)、[archives-as-folder-notes](../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/README.md)、[agent-launch-settings](../../archive/changes/implemented/feature_2026-11-13-agent-launch-settings/README.md) 共享 TSX 与样式文件：从 S0 生成 `origin` 基线起到 S5c 结束需要冻结窗口，见 [plan.md](plan.md)“与其他 change 的冲突与冻结”。
 
 ## 需要用户确认（不阻塞文档，阻塞实施）
 

@@ -237,7 +237,7 @@ resolveAgentLaunch(input: {
 
 - 是 agent-cli 引擎内的纯函数，另读当前 Vault 的智能体设置与检测结果；单元测试直接测它。
 - **基础环境由启动方合并**：交互会话交给 Herdr `terminal.run` 的 env 参数，在继承环境上叠加（用户 2026-11-13 确认）；headless 由 automations worker 自己合并。这样不会把 Engine 的整个 `process.env` 经能力返回给渲染层或其他插件。
-- 对外以能力 `agent.launch.resolve` 提供，`exposable: false`，归入任务 change 的仅内置权限组 `agent.run`（[任务 spec §8](../../../../changes/2026-11-13-task-issue-automation/spec.md)）。
+- 对外以能力 `agent.launch.resolve` 提供，`exposable: false`，归入任务 change 的仅内置权限组 `agent.run`（[任务 spec §8](../feature_2026-11-13-task-issue-automation/spec.md)）。
 - 输入校验沿用 `sessions.ts:145-152`：`model`、`effort`、`prompt`、`resume`、`sessionId` 不得以 `-` 开头。
 - 错误：智能体已停用 → `AGENT_DISABLED`；`mode: "headless"` 而条目不支持 → `HEADLESS_UNSUPPORTED`；未检测到且无覆盖 → `AGENT_NOT_FOUND`。不回退到别的智能体。
 - **预览模式**（`preview: true`）：

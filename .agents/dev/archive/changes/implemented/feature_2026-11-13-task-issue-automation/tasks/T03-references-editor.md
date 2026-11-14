@@ -10,7 +10,7 @@
 **依赖**：
 - T01a 的 `<task>` 区段、`codeRanges()` 和任务编辑器结构。
 - `@` 补全扩展可以先行开发。
-- notes 侧子项（`links-rewrite` 的文件夹前缀改写、`openWiki` 打开文件夹）只依赖 T01a 的 `codeRanges()`，不依赖任务编辑器，可以作为独立提交先合入。[档案 change](../../../archive/changes/implemented/feature_2026-11-13-archives-as-folder-notes/plan.md) 的 AR-S1 依赖它。
+- notes 侧子项（`links-rewrite` 的文件夹前缀改写、`openWiki` 打开文件夹）只依赖 T01a 的 `codeRanges()`，不依赖任务编辑器，可以作为独立提交先合入。[档案 change](../../feature_2026-11-13-archives-as-folder-notes/plan.md) 的 AR-S1 依赖它。
 
 **边界**：
 - 负责：
