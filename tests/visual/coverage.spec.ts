@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import postcss from "postcss";
 import { seedVault } from "./fixture.js";
 import { openFixedApp } from "./launch.js";
 import { SCREENS } from "./screens.js";
@@ -40,25 +41,26 @@ test("导出 CSS 规则覆盖率", async () => {
       await screen.leave?.(page);
     }
     const { ruleUsage } = (await cdp.send("CSS.stopRuleUsageTracking")) as { ruleUsage: { styleSheetId: string; startOffset: number; endOffset: number; used: boolean }[] };
-    const texts = new Map<string, string>();
-    for (const u of ruleUsage) {
-      total++;
-      if (u.used) continue;
-      const info = sheets.get(u.styleSheetId);
-      // 只看打包出来的项目样式表（外链）；运行时注入的 <style> 不是本项目的规则
-      if (!info || info.isInline || !info.url) continue;
-      let text = texts.get(u.styleSheetId);
-      if (text === undefined) {
-        text = ((await cdp.send("CSS.getStyleSheetText", { styleSheetId: u.styleSheetId })) as { text: string }).text;
-        texts.set(u.styleSheetId, text);
+    // 注意：stopRuleUsageTracking 只返回“用过”的规则；没出现在结果里的才是覆盖率为 0 的规则，所以要自己枚举全部规则再相减
+    for (const [id, info] of sheets) {
+      if (info.isInline || !info.url) continue; // 只看打包出来的项目样式表（外链）；运行时注入的 <style> 不是本项目的规则
+      let text: string;
+      try {
+        text = ((await cdp.send("CSS.getStyleSheetText", { styleSheetId: id })) as { text: string }).text;
+      } catch {
+        continue; // 重载页面前的旧样式表已经不存在
       }
-      const src = text.slice(u.startOffset, u.endOffset);
-      const brace = src.indexOf("{");
-      const selector = (brace >= 0 ? src.slice(0, brace) : src).replace(/\s+/g, " ").trim();
-      if (!selector) continue;
-      unused.push({ sheet: path.basename(info.url), selector, at: selector.startsWith("@") ? "at-rule" : "rule" });
+      const usedStarts = new Set(ruleUsage.filter((u) => u.styleSheetId === id && u.used).map((u) => u.startOffset));
+      const root = postcss.parse(text);
+      root.walkRules((r) => {
+        total++;
+        const start = r.source?.start?.offset;
+        if (start === undefined || usedStarts.has(start)) return;
+        const at: string[] = [];
+        for (let p = r.parent; p && p.type !== "root"; p = p.parent) if (p.type === "atrule") at.push(`@${(p as postcss.AtRule).name} ${(p as postcss.AtRule).params}`);
+        unused.push({ sheet: path.basename(info.url), selector: r.selector.replace(/\s+/g, " "), at: at.reverse().join(" > ") });
+      });
     }
-    unused = unused.filter((u) => u.at === "rule");
   } finally {
     await close();
   }

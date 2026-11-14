@@ -1,0 +1,7064 @@
+{
+ "D 状态/属性变体(主题、字号、密度、交互态)": [
+  [
+   "[data-theme=\"claude\"][data-mode=\"dark\"]",
+   ""
+  ],
+  [
+   "[data-theme=\"apple\"][data-mode=\"dark\"]",
+   ""
+  ],
+  [
+   "[data-theme=\"notion\"][data-mode=\"dark\"]",
+   ""
+  ],
+  [
+   "[data-theme=\"vercel\"][data-mode=\"dark\"]",
+   ""
+  ],
+  [
+   ":root:not([data-theme])",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] *",
+   ""
+  ],
+  [
+   ".hu-review-side > button.selected, .hu-review-side > button:hover",
+   ""
+  ],
+  [
+   ".hu-review-fold:hover",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .hu-review-side.added, [data-mode=\"dark\"] .hu-review-unified-row.add",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .hu-review-side.removed, [data-mode=\"dark\"] .hu-review-unified-row.remove",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .hu-review-word-added",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .hu-review-word-removed",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .hu-review-count-add",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .hu-review-count-remove",
+   ""
+  ],
+  [
+   ".hu-change-tree-file.active, .hu-change-tree-file:hover",
+   ""
+  ],
+  [
+   ".hu-card-footer-link:hover",
+   ""
+  ],
+  [
+   ".hu-card-alt:has(> table)",
+   ""
+  ],
+  [
+   ".hu-card-alt:is(a, button, [role=\"button\"]):hover",
+   ""
+  ],
+  [
+   ".hu-btn-primary:hover",
+   ""
+  ],
+  [
+   ".hu-btn:disabled:hover",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] :where(.hu-btn, .hu-icon-btn, [data-press]):active",
+   ""
+  ],
+  [
+   ".toggle:disabled",
+   ""
+  ],
+  [
+   ".hu-switch:active:not(:disabled) > span",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] .hu-switch > span",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] .hu-switch:active:not(:disabled) > span",
+   ""
+  ],
+  [
+   ".toggle.is-on.hu-switch:active:not(:disabled) > span",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] .toggle > span",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] .toggle.is-on.hu-switch:active:not(:disabled) > span",
+   ""
+  ],
+  [
+   ".hu-search-box input:focus-visible, .hu-app .hu-search-box input:focus-visible",
+   ""
+  ],
+  [
+   ".hu-app .hu-palette-search input:focus-visible",
+   ""
+  ],
+  [
+   ".markdown > *:first-child",
+   ""
+  ],
+  [
+   ".markdown code:not(pre code)",
+   ""
+  ],
+  [
+   ".markdown a:hover",
+   ""
+  ],
+  [
+   ".hu-knowledge-task-check:hover",
+   ""
+  ],
+  [
+   "[data-huhu-popover]",
+   ""
+  ],
+  [
+   "[data-huhu-popover][data-state=\"open\"]",
+   ""
+  ],
+  [
+   "[data-huhu-popover][data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-tooltip[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] .hu-tooltip, :root[data-motion=\"reduced\"] .hu-segmented-indicator",
+   ""
+  ],
+  [
+   "input[aria-invalid=\"true\"], textarea[aria-invalid=\"true\"], select[aria-invalid=\"true\"]",
+   ""
+  ],
+  [
+   "input[aria-invalid=\"true\"]:focus-visible, textarea[aria-invalid=\"true\"]:focus-visible, select[aria-invalid=\"true\"]:focus-visible",
+   ""
+  ],
+  [
+   ".hu-search-box:focus-within",
+   ""
+  ],
+  [
+   ".hu-page-head ~ :nth-child(n + 4)",
+   ""
+  ],
+  [
+   ".hu-combobox-list li[data-active]",
+   ""
+  ],
+  [
+   ".hu-combobox-list li[aria-selected=\"true\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-overlay[data-state=\"open\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-overlay[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-content[data-state=\"open\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-content[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-overlay[data-variant=\"drawer\"]",
+   ""
+  ],
+  [
+   ".hu-motion-surface[data-state=\"open\"]",
+   ""
+  ],
+  [
+   ".hu-motion-surface[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-data-table tbody tr:focus-visible",
+   ""
+  ],
+  [
+   ".hu-data-table tbody tr[data-selected]",
+   ""
+  ],
+  [
+   ".hu-col-resizer:hover",
+   ""
+  ],
+  [
+   ".shell-brand-logo .shell-brand-logo-dark, [data-mode=\"dark\"] .shell-brand-logo .shell-brand-logo-light",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .shell-brand-logo .shell-brand-logo-dark",
+   ""
+  ],
+  [
+   ".hu-vault-recent:hover",
+   ""
+  ],
+  [
+   ".shell-storage-file-list > button:hover",
+   ""
+  ],
+  [
+   ".shell-storage-rules td:first-child",
+   ""
+  ],
+  [
+   ".shell-storage-rules td:last-child",
+   ""
+  ],
+  [
+   ":root[data-mode=\"dark\"] .shell-brand-mark img, :root[data-mode=\"dark\"] .shell-about-mark img",
+   ""
+  ],
+  [
+   ".shell-nav-bottom > button:hover",
+   ""
+  ],
+  [
+   ".shell-nav-bottom > button > span:nth-child(2)",
+   ""
+  ],
+  [
+   ".shell-column-resizer:hover",
+   ""
+  ],
+  [
+   ".shell-tab-close:hover",
+   ""
+  ],
+  [
+   ".shell-link-button:hover",
+   ""
+  ],
+  [
+   ".shell-command-results > button:hover",
+   ""
+  ],
+  [
+   ".shell-notice-item:hover",
+   ""
+  ],
+  [
+   ".shell-notice-item > span:nth-child(2)",
+   ""
+  ],
+  [
+   ".shell-overview-metrics > button:hover",
+   ""
+  ],
+  [
+   ".shell-task-check:hover",
+   ""
+  ],
+  [
+   ".shell-recent-note:hover",
+   ""
+  ],
+  [
+   ".shell-habit-row:last-child",
+   ""
+  ],
+  [
+   ".shell-inbox-preview:hover",
+   ""
+  ],
+  [
+   ".shell-inbox-preview > span:nth-child(2)",
+   ""
+  ],
+  [
+   ".shell-agent-invitation:hover",
+   ""
+  ],
+  [
+   ".shell-activity-row:first-child .shell-activity-marker:before",
+   ""
+  ],
+  [
+   ".shell-activity-row:last-child .shell-activity-marker:before",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu > button:hover",
+   ""
+  ],
+  [
+   ".shell-plugin-list-row:hover",
+   ""
+  ],
+  [
+   ".shell-gateway-meta button:hover",
+   ""
+  ],
+  [
+   ".shell-cli-suggestions button:hover",
+   ""
+  ],
+  [
+   ".shell-source-link-list a:hover",
+   ""
+  ],
+  [
+   ".shell-vault-title-button:hover",
+   ""
+  ],
+  [
+   ".hu-breadcrumb button:hover",
+   ""
+  ],
+  [
+   ".shell-column-resizer:hover::after",
+   ""
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics > button:hover",
+   ""
+  ],
+  [
+   ".shell-home-main-column .hu-card-footer-link:hover",
+   ""
+  ],
+  [
+   ".shell-recent-note:hover",
+   ""
+  ],
+  [
+   ".shell-notification-popover[data-huhu-popover]",
+   ""
+  ],
+  [
+   ".shell-contribution-grid > *:hover",
+   ""
+  ],
+  [
+   ".hu-nav-item[aria-current=\"true\"]",
+   ""
+  ],
+  [
+   ".hu-tw-navigation nav button:hover",
+   ""
+  ],
+  [
+   ".hu-tw-rule-detail-header > div:last-child",
+   ""
+  ],
+  [
+   ".hu-btn-ghost:hover",
+   ""
+  ],
+  [
+   ".hu-btn-ghost:hover:not(:disabled)",
+   ""
+  ],
+  [
+   ".automations-occurrence > button > span:nth-child(2)",
+   ""
+  ],
+  [
+   ".agent-space-item:hover, .agent-history-item:hover",
+   ""
+  ],
+  [
+   ".agent-layout button:focus-visible, .agent-launcher button:focus-visible",
+   ""
+  ],
+  [
+   ".agent-launch-menu-row:hover:not(:disabled)",
+   ""
+  ],
+  [
+   ".agent-launch-menu-row:disabled",
+   ""
+  ],
+  [
+   ".hu-btn-primary:hover:not(:disabled)",
+   ""
+  ],
+  [
+   ".agent-session-tab > button:first-child",
+   ""
+  ],
+  [
+   ".agent-add-cli:hover",
+   ""
+  ],
+  [
+   ".agent-history-item > button:first-child",
+   ""
+  ],
+  [
+   ".agent-history-item > button > span:last-child",
+   ""
+  ],
+  [
+   ".agent-pin.agent-pinned, .agent-history-item:hover .agent-pin",
+   ""
+  ],
+  [
+   "[data-motion=\"reduced\"] .agent-launcher",
+   ""
+  ],
+  [
+   ".hu-knowledge-root button:focus-visible",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item:hover",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-note .markdown p:last-child",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-note .markdown p:first-child",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button:hover:not(:disabled)",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button:nth-child(1) > span",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button:nth-child(2) > span",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button:nth-child(3) > span",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > svg:last-child",
+   ""
+  ],
+  [
+   ".huhu-live-block-edit:hover, .huhu-live-block-edit:focus-visible",
+   ""
+  ],
+  [
+   ".notes-editor-mode-hint button[aria-pressed=\"true\"]",
+   ""
+  ],
+  [
+   ".notes-reading-pane[data-editor-mode=\"split\"]",
+   ""
+  ],
+  [
+   ".notes-list-caption button:hover",
+   ""
+  ],
+  [
+   ".notes-document-tab > button:last-child:hover",
+   ""
+  ],
+  [
+   ".notes-document-status button:hover",
+   ""
+  ],
+  [
+   ".hu-knowledge-trash-banner > div:first-child",
+   ""
+  ],
+  [
+   ".notes-outline button:hover",
+   ""
+  ],
+  [
+   ".notes-comment > .row:last-child",
+   ""
+  ],
+  [
+   ".notes-text-button:hover",
+   ""
+  ],
+  [
+   ".notes-link-row:hover",
+   ""
+  ],
+  [
+   ".notes-link-row > svg:last-child",
+   ""
+  ],
+  [
+   ".hu-knowledge-detail-section > .row:first-child h3",
+   ""
+  ],
+  [
+   ".hu-knowledge-detail-section > .row:first-child",
+   ""
+  ],
+  [
+   ".notes-explorer-filters > button:hover",
+   ""
+  ],
+  [
+   ".notes-explorer-filters > button.active:hover",
+   ""
+  ],
+  [
+   ".notes-explorer-tree > .notes-list-caption > button:first-child span",
+   ""
+  ],
+  [
+   ".notes-explorer-tree > .notes-list-caption > button:last-child",
+   ""
+  ],
+  [
+   ".hu-knowledge-undo-banner > button:not(.hu-icon-btn)",
+   ""
+  ],
+  [
+   ".notes-vault-head > button:hover",
+   ""
+  ],
+  [
+   ".notes-tree-chevron:hover",
+   ""
+  ],
+  [
+   ".notes-tree-empty:hover",
+   ""
+  ],
+  [
+   ".safe-secret-row:hover",
+   ""
+  ],
+  [
+   "[data-mode=\"dark\"] .ssh-console-panel",
+   ""
+  ],
+  [
+   ".ssh-resource-row:hover",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .ssh-resource-row:hover",
+   ""
+  ],
+  [
+   ".ssh-session-row:hover",
+   ""
+  ],
+  [
+   ".ssh-definition > span:nth-child(odd)",
+   ""
+  ],
+  [
+   ".ssh-command-presets button:hover",
+   ""
+  ],
+  [
+   ".version-entry-list > button:hover",
+   ""
+  ],
+  [
+   ".version-git-filters button[aria-pressed=\"true\"]",
+   ""
+  ],
+  [
+   ".version-v9 button:focus-visible",
+   ""
+  ]
+ ],
+ "B 媒体查询内(宽度/减少动效等，固定视口走不到)": [
+  [
+   ":root:not([data-theme])",
+   "@media (prefers-color-scheme: dark)"
+  ],
+  [
+   ":root[data-motion=\"system\"] *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-v9-terminal-heading .hu-badge",
+   "@media (max-width: 1199px)"
+  ],
+  [
+   ".hu-tw-rule-item .hu-badge",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-storage-browser > header .hu-search-box",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".hu-storage-local-tabs .hu-segmented-alt",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".hu-window-center",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-window-center",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-switch > span",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-switch:active:not(:disabled) > span",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".toggle > span",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".toggle.is-on.hu-switch:active:not(:disabled) > span",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".toggle",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".toggle.is-on",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".toggle > span",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".hu-resource-pane",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-resource-pane",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-resource-pane",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-resource-pane",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar > .hu-segmented-alt",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar .hu-segmented-alt button",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar > .hu-segmented-alt",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar .hu-segmented-alt button",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-home-content > .hu-page-head",
+   "@media (min-width: 1700px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-page-head h1",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-page-actions",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-page-head p",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-breadcrumb > .hu-badge",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head h1",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-page-actions .hu-btn",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head .hu-eyebrow",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head h1",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head p",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-home-task-row .hu-badge",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-knowledge-resource-footer .hu-btn",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-view-content > .hu-page-head",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head p",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head h1",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-view-content > .hu-page-head",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head h1",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head .hu-eyebrow",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head p",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head .hu-page-actions",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head .hu-btn",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar > .hu-segmented-alt",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-quick-capture",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-quick-capture input",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-quick-capture > .hu-btn",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta > .hu-icon-btn",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta .hu-badge",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-tree-line .hu-knowledge-tree-more",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-tree-line .hu-knowledge-tree-more",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head h1",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head p",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar .hu-segmented-alt button",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-execution-module .hu-page-head",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".hu-execution-module .hu-page-head .hu-page-actions",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".hu-execution-module .hu-page-head h1",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".hu-execution-module .hu-page-head p",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".hu-execution-module .hu-page-head .hu-page-actions .hu-icon-btn",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-execution-module .hu-page-head .hu-page-actions .hu-icon-btn svg",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-execution-module .hu-segmented-alt button",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-execution-module .hu-segmented-alt button > svg",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-settings-section",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-setting-row",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-setting-row",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-setting-row > div:first-child",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-setting-row > .row, .hu-setting-row > select",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-setting-row > .row > input[type=\"range\"]",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-setting-row > .hu-segmented-alt",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-plugin-detail-actions > .hu-btn",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 1180px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head",
+   "@media (max-width: 1180px)"
+  ],
+  [
+   ".hu-module-local-tabs",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-page-actions",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tooltip, .hu-segmented-indicator",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-tooltip",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ":root",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ":root",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-page-head",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-page-head h1, .hu-knowledge-root .hu-view-content > .hu-page-head h1",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-home-content .hu-page-head h1",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-settings-section",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-setting-row",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-setting-row > div:first-child",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-home-task-row .hu-badge",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-knowledge-tree-line .hu-knowledge-tree-more",
+   "@media (hover: none)"
+  ],
+  [
+   ".hu-segmented-alt button.active",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".hu-page-head, .hu-page-head ~ *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   "*",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-gateway-overview > .row > .hu-badge",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-capabilities-toolbar > .hu-search-box",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-system-pane-search .hu-search-box",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-system-pane-search .hu-search-box input",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-modal-backdrop",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-modal",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".toast",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-modal-head, .hu-modal-body",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-modal-backdrop",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-modal",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-modal-head",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-modal-body",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-modal-footer",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-dialog-overlay[data-variant=\"drawer\"]",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-health-check > .hu-btn",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-health-notification .hu-btn",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-health-check > .hu-btn",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-vault-launch-main",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-vault-launch-intro h1",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-vault-launch-intro > p",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-vault-intro-points, .shell-vault-local-note, .shell-vault-illustration > div",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-brand-logo img",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-vault-launch-bar",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-vault-launch-card",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-vault-launch-footer",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".shell-storage-ownership",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".shell-storage-metrics",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".shell-storage-two-cards",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".shell-storage-export-grid",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".shell-storage-file-panes",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".hu-storage-browser > header",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".shell-storage-file-panes",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".shell-storage-file-list",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".shell-storage-file-preview",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".shell-storage-rules",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".shell-storage-metrics",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".hu-storage-local-tabs",
+   "@media (max-width: 740px)"
+  ],
+  [
+   ".shell-home-grid",
+   "@media (min-width: 1700px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (min-width: 1700px)"
+  ],
+  [
+   ".hu-primary-nav",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-quiet-button span",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-overview-metrics > button > div > span",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-home-grid",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-primary-nav",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-window-bar .shell-brand-suffix",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-home-grid",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-home-side-column",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-agent-invitation",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-overview-metrics",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-home-task-card .shell-card-head",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-status-local",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-breadcrumb > span:not(.current)",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-status-bar .row",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-field-grid",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-primary-nav",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-column-resizer",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-home-side-column",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-breadcrumb-bar",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".rail",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-rail-item",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-rail-scroll",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-rail-bottom",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-notification-popover",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-status-bar .row:first-child button:nth-of-type(2)",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-palette-foot",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".shell-home-side-column",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-overview-metrics > button",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-recent-note-grid",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-home-task-row",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-card-head",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-breadcrumb .current",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-breadcrumb > svg:nth-of-type(2)",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-status-bar",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-status-bar button",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-window-bar",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-metric-grid",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-desktop-layer-grid",
+   "@media (max-width: 1250px)"
+  ],
+  [
+   ".shell-desktop-action-grid",
+   "@media (max-width: 1250px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-pane",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-system-scroll",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-plugin-list-row",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-plugin-list-row strong",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-plugin-mini-icon",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-plugin-detail-top",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-plugin-detail-top .grow",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-plugin-meta",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-contribution-grid",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-contribution-grid > div",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-contribution-grid > div > svg",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-contribution-grid strong",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-tester-grid",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-tester-output",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-health-check",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-health-check .grow",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-theme-options",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-gateway-overview",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-gateway-meta",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-desktop-layer-grid",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-desktop-layer",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-pane",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-system-layout .shell-plugin-mini-icon",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-plugin-detail-top",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-plugin-detail-top h1",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-plugin-hero-icon",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-plugin-detail-body",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-plugin-detail-actions",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-plugin-filter-row",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-plugin-meta code",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-plugin-detail-body .hu-field-grid",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-system-scroll",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-capabilities-toolbar",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-gateway-overview h2",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-gateway-overview .grow",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-health-hero",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-health-orb",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-health-orb svg",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-health-hero h1",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-health-hero p",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-theme-options",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-theme-option strong",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-theme-option small",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-about-hero",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-about-mark",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-about-hero h1",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-desktop-action-grid",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".hu-health-notification",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-source-link-list a",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-pane",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-system-resource-list",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-plugin-list-row small",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-plugin-list-row strong",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-head",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-system-pane-search",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-resource-footer",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-plugin-detail-actions",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-plugin-detail-top .grow",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-plugin-detail-top h1",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-plugin-detail-top p",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-plugin-hero-icon",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-desktop-layer-grid",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-theme-options",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-theme-option",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-theme-option strong",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-theme-option small",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-about-hero",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-about-hero > .shell-about-mark",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-about-hero .row",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-health-check .grow",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-metric-grid > div",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-metric-grid strong",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".shell-system-scroll",
+   "@media (max-width: 1180px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (max-width: 1180px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-pane",
+   "@media (max-width: 1180px)"
+  ],
+  [
+   ".hu-primary-nav",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-date-help-grid",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".rail",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-pane",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-status-bar",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-status-local",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-home-grid",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-home-side-column",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics > button:nth-child(2n)",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics > button:nth-child(n + 3)",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-status-bar",
+   "@media (max-width: 1080px)"
+  ],
+  [
+   ".shell-system-layout .hu-resource-pane",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".shell-theme-options",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".rail",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-rail-item",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-rail-item.active::before",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-window-bar",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-breadcrumb-bar",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-breadcrumb",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-home-scroll",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-recent-note-grid",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-recent-note > p",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-status-bar",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-status-bar > .row",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".shell-home-side-column",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics > button",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-home-content .shell-overview-metrics .shell-metric-icon",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-home-task-row",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-home-task-card .shell-card-head",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".shell-theme-options",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".shell-rail-item.active, .shell-section-nav button.active",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".hu-primary-nav[aria-label=\"模块侧栏\"] .shell-section-nav > button > span:first-of-type, .hu-primary-nav .shell-section-nav-group",
+   "@media (max-width: 520px)"
+  ],
+  [
+   ".hu-tw-navigation",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-tw-editor-grid",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-tw-heading",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-tw-heading h1",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-module-layout.hu-tw-workbench",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-navigation",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-editor-grid",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-editor-aside",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-search",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-rule-item",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-rule-item > div",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-workbench *, .hu-tw-editor-grid *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".automations-rule-detail",
+   "@media (max-width: 1250px)"
+  ],
+  [
+   ".automations-rule-list",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".automations-rule-detail",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-tw-rule-detail-header",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".automations-rule-list",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-rule-detail",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-tw-rule-detail-header h2",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-rule-flow",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-rule-flow span",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-occurrence > header",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-occurrence > header time",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-scan-list > div",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".automations-scan-list small",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-module-layout.agent-layout",
+   "@media (max-width: 1199px)"
+  ],
+  [
+   ".hu-module-layout.agent-layout",
+   "@media (max-width: 999px)"
+  ],
+  [
+   ".agent-subtle-button span",
+   "@media (max-width: 999px)"
+  ],
+  [
+   ".hu-v9-terminal-heading",
+   "@media (max-width: 999px)"
+  ],
+  [
+   ".hu-v9-terminal-heading > span:not(.agent-provider-mark):not(.grow)",
+   "@media (max-width: 999px)"
+  ],
+  [
+   ".hu-module-layout.agent-layout",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-cwd",
+   "@media (max-width: 1199px)"
+  ],
+  [
+   ".hu-v9-core-note > span:last-child",
+   "@media (max-width: 1199px)"
+  ],
+  [
+   ".agent-space-header",
+   "@media (max-width: 999px)"
+  ],
+  [
+   ".agent-main-footer > span:last-child",
+   "@media (max-width: 999px)"
+  ],
+  [
+   ".agent-history",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-launcher",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-space-item",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-space-item small, .agent-space-item .agent-count",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-history-toggle",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-space-header > .agent-history-toggle",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-layout.agent-history-open > .agent-history",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".agent-launcher",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-pane",
+   "@media (min-width: 1750px)"
+  ],
+  [
+   ".hu-knowledge-root .inbox-knowledge-inbox-list",
+   "@media (min-width: 1750px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-pane",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .inbox-knowledge-inbox-list",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-head",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-list",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .inbox-knowledge-inbox-list .hu-resource-list",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-resource-footer",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-resource-footer > span",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-note",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-head",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-root .inbox-knowledge-inbox-list .hu-resource-list",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-quick-capture > svg",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-note",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-note .markdown",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".inbox-knowledge-inbox-detail",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-detail > h2",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > p",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > span",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > strong",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > p",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > svg:last-child",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-inbox-bottom",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-item",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-item > input",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-item strong",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > span",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > p",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > svg:last-child",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-inbox-bottom",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-detail > h2",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-detail",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-inbox-detail > h2",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-processing-heading",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-processing-heading h3",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-processing-heading p",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > span",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > strong",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > p",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > svg:last-child",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-inbox-bottom",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-converted-result",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-result-check",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-converted-result h3",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-converted-result p",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button:hover:not(:disabled)",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".inbox-knowledge-inbox-detail > h2",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > p",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".cm-atomic-task-checkbox:focus-visible",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".editor-markdown-editor .cm-content",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".editor-markdown-editor .cm-content",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".editor-markdown-editor > .cm-editor > .cm-scroller",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".editor-markdown-editor > .cm-editor > .cm-scroller > .cm-content",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar > .row.grow",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".notes-editor-mode-hint",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".notes-editor-mode-hint > span > span",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".notes-editor-body.is-split",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".notes-editor-body.is-split > .notes-source-pane, .notes-editor-body.is-split > .notes-reading-pane",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".notes-document-status .notes-huhu-editor-position",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".notes-editor-body > .notes-reading-pane",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".notes-reading-pane",
+   "@media (min-width: 1750px)"
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".notes-document-status .row",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-document-status .row:last-child > span",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-reading-pane",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-reading-pane",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar > .row",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-reading-pane",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-reading-pane .markdown h2",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-reading-pane .markdown table",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-reading-pane .markdown > blockquote",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-document-status",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-document-status button",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-document-status > .row:first-child > span:nth-last-child(1)",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-document-status > .row:last-child > button:first-child",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-editor-body.is-split",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-editor-body.is-split > .notes-source-pane",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-editor-body.is-split > .notes-reading-pane",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-trash-banner",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-trash-banner > .row",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-root .notes-note-list",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-explorer-head > .row",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-head.hu-knowledge-explorer-head",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-document-status > .row:first-child > span:last-child",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-tree-line.is-selected",
+   "@media (forced-colors: active)"
+  ],
+  [
+   ".notes-inspector",
+   "@media (min-width: 1750px)"
+  ],
+  [
+   ".notes-inspector",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-toolbar-divider",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".notes-document-area:has(.notes-inspector)",
+   "@media (min-width: 1440px)"
+  ],
+  [
+   ".notes-tree-item",
+   "@media (max-width: 1050px)"
+  ],
+  [
+   ".notes-tree-item",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".notes-document-status",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-knowledge-document-toolbar",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".notes-inspector",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".notes-reading-pane",
+   "@media (max-width: 560px)"
+  ],
+  [
+   ".hu-safe-locked",
+   "@media (max-width: 760px)"
+  ],
+  [
+   ".safe-grid",
+   "@media (max-width: 1250px)"
+  ],
+  [
+   ".safe-grid",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-console-stage.is-split",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".ssh-console-stage.is-split > .ssh-console-panel",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".ssh-console-stage",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".hu-view-content .hu-toolbar",
+   "@media (max-width: 700px)"
+  ],
+  [
+   ".hu-execution-module .hu-resource-pane",
+   "@media (min-width: 1600px)"
+  ],
+  [
+   ".hu-execution-connection-route .ssh-route",
+   "@media (min-width: 1600px)"
+  ],
+  [
+   ".hu-execution-module .hu-resource-pane",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-stat",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-stat > strong",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-route",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-route > div",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-connection-hero",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".hu-execution-module .hu-resource-pane",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-session-row",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-session-row strong",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-session-row .small",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-route > div",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-route strong",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-route span",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-stat",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-stat > .small",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-definition",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".hu-execution-module .hu-resource-pane",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-execution-module .hu-toolbar",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".ssh-route",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".ssh-route > div",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-execution-module .hu-resource-pane",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-session-row > svg",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-pane-foot",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-pane-foot .small",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-route > svg",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-route > div",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-definition",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".ssh-definition > span:nth-child(odd)",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-execution-module *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".ssh-pad",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-meta-grid",
+   "@media (max-width: 1200px)"
+  ],
+  [
+   ".ssh-pad",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-meta-grid",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-stat > strong",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-command-presets button",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".ssh-meta-grid",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".ssh-stat",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".ssh-connection-config, .hu-execution-connection-route",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".ssh-resource-title",
+   "@media (max-width: 620px)"
+  ],
+  [
+   ".hu-version-v9-diff-heading",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".hu-version-v9-diff-heading",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".hu-version-v9-diff-heading > div",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".version-sidebar",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".version-top",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".version-sync-main",
+   "@media (max-width: 1100px)"
+  ],
+  [
+   ".version-sidebar",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".version-top",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".version-top nav",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".version-top nav button",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".version-sync-main",
+   "@media (max-width: 800px)"
+  ],
+  [
+   ".version-v9 *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".tasks-main-footer",
+   "@media (max-width: 1000px)"
+  ],
+  [
+   ".tasks-task-detail",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".tasks-list-toolbar",
+   "@media (max-width: 780px)"
+  ]
+ ],
+ "E 其他纯类选择器": [
+  [
+   ".hu-spin",
+   ""
+  ],
+  [
+   "to",
+   "@keyframes hu-spin"
+  ],
+  [
+   ".hu-banner",
+   ""
+  ],
+  [
+   ".hu-terminal-wrap",
+   ""
+  ],
+  [
+   ".hu-split .hu-terminal-wrap",
+   ""
+  ],
+  [
+   ".hu-terminal",
+   ""
+  ],
+  [
+   ".hu-terminal-overlay",
+   ""
+  ],
+  [
+   ".hu-review-side.added, .hu-review-unified-row.add",
+   ""
+  ],
+  [
+   ".hu-review-side.removed, .hu-review-unified-row.remove",
+   ""
+  ],
+  [
+   ".hu-review-word-added",
+   ""
+  ],
+  [
+   ".hu-review-word-removed",
+   ""
+  ],
+  [
+   ".hu-review-void",
+   ""
+  ],
+  [
+   ".hu-review-current",
+   ""
+  ],
+  [
+   ".hu-review-unified-row",
+   ""
+  ],
+  [
+   ".hu-review-unified-row > button",
+   ""
+  ],
+  [
+   ".hu-review-unified-row > button span",
+   ""
+  ],
+  [
+   ".hu-review-unified-row > i",
+   ""
+  ],
+  [
+   ".hu-review-large",
+   ""
+  ],
+  [
+   ".hu-review-copy",
+   ""
+  ],
+  [
+   ".hu-change-file-tree",
+   ""
+  ],
+  [
+   ".hu-change-tree-title",
+   ""
+  ],
+  [
+   ".hu-change-tree-folder, .hu-change-tree-file",
+   ""
+  ],
+  [
+   ".hu-change-tree-folder span, .hu-change-tree-file span",
+   ""
+  ],
+  [
+   ".hu-change-tree-folder",
+   ""
+  ],
+  [
+   ".hu-change-tree-file",
+   ""
+  ],
+  [
+   ".hu-change-tree-file .accepted",
+   ""
+  ],
+  [
+   ".hu-change-tree-file .modified",
+   ""
+  ],
+  [
+   "from",
+   "@keyframes temporal-in"
+  ],
+  [
+   "to",
+   "@keyframes temporal-in"
+  ],
+  [
+   "0%",
+   "@keyframes atomic-initial-reveal-fade"
+  ],
+  [
+   "65%",
+   "@keyframes atomic-initial-reveal-fade"
+  ],
+  [
+   "100%",
+   "@keyframes atomic-initial-reveal-fade"
+  ],
+  [
+   "from",
+   "@keyframes slide-in"
+  ],
+  [
+   "to",
+   "@keyframes slide-in"
+  ],
+  [
+   "to",
+   "@keyframes spin"
+  ],
+  [
+   "from",
+   "@keyframes knowledge-slide"
+  ],
+  [
+   "to",
+   "@keyframes knowledge-slide"
+  ],
+  [
+   "to",
+   "@keyframes execution-spin"
+  ],
+  [
+   "from",
+   "@keyframes huhu-overlay-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-overlay-in"
+  ],
+  [
+   "from",
+   "@keyframes huhu-overlay-out"
+  ],
+  [
+   "to",
+   "@keyframes huhu-overlay-out"
+  ],
+  [
+   "from",
+   "@keyframes huhu-dialog-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-dialog-in"
+  ],
+  [
+   "from",
+   "@keyframes huhu-dialog-out"
+  ],
+  [
+   "to",
+   "@keyframes huhu-dialog-out"
+  ],
+  [
+   "from",
+   "@keyframes huhu-drawer-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-drawer-in"
+  ],
+  [
+   "from",
+   "@keyframes huhu-drawer-out"
+  ],
+  [
+   "to",
+   "@keyframes huhu-drawer-out"
+  ],
+  [
+   "from",
+   "@keyframes huhu-content-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-content-in"
+  ],
+  [
+   "from",
+   "@keyframes huhu-content-out"
+  ],
+  [
+   "to",
+   "@keyframes huhu-content-out"
+  ],
+  [
+   "from",
+   "@keyframes huhu-panel-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-panel-in"
+  ],
+  [
+   "from",
+   "@keyframes huhu-panel-out"
+  ],
+  [
+   "to",
+   "@keyframes huhu-panel-out"
+  ],
+  [
+   "from",
+   "@keyframes huhu-popover-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-popover-in"
+  ],
+  [
+   "from",
+   "@keyframes huhu-popover-out"
+  ],
+  [
+   "to",
+   "@keyframes huhu-popover-out"
+  ],
+  [
+   "from",
+   "@keyframes huhu-hint-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-hint-in"
+  ],
+  [
+   "to",
+   "@keyframes huhu-hint-out"
+  ],
+  [
+   "from",
+   "@keyframes v9-in"
+  ],
+  [
+   ".hu-v9-terminal-heading .hu-badge",
+   ""
+  ],
+  [
+   ".hu-vault-recent .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-vault-launch-actions > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-ssh-console-bar > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-ssh-console-bar > .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-ssh-console-panel-head .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-ssh-console-panel-head .hu-icon-btn svg",
+   ""
+  ],
+  [
+   ".hu-ssh-console .hu-btn, .hu-ssh-console .hu-segmented-alt button",
+   ""
+  ],
+  [
+   ".hu-version-v9-sidebar-title .hu-badge",
+   ""
+  ],
+  [
+   ".hu-version-v9-diff-heading > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-version-v9-diff > .hu-review-diff",
+   ""
+  ],
+  [
+   ".hu-version-v9-manual .hu-btn",
+   ""
+  ],
+  [
+   ".hu-tw-workbench .hu-tw-completion",
+   ""
+  ],
+  [
+   ".hu-tw-workbench .hu-tw-completion.is-completed",
+   ""
+  ],
+  [
+   ".hu-tw-detail-title .hu-tw-completion",
+   ""
+  ],
+  [
+   ".hu-tw-content-tabs .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-tw-source-preview",
+   ""
+  ],
+  [
+   ".hu-tw-detail-section > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-tw-reminders-editor > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-tw-reminder-config .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item .hu-badge",
+   ""
+  ],
+  [
+   ".hu-tw-rule-detail-header .hu-btn",
+   ""
+  ],
+  [
+   ".hu-vault-secondary-actions > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-version-v9-stats .added",
+   ""
+  ],
+  [
+   ".hu-nav-heading .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-field-error",
+   ""
+  ],
+  [
+   ".hu-confirm-description",
+   ""
+  ],
+  [
+   "pre",
+   ""
+  ],
+  [
+   ".hu-breadcrumb .hu-badge",
+   ""
+  ],
+  [
+   ".hu-search-box button",
+   ""
+  ],
+  [
+   ".markdown",
+   ""
+  ],
+  [
+   ".markdown h1",
+   ""
+  ],
+  [
+   ".markdown h2",
+   ""
+  ],
+  [
+   ".markdown h3",
+   ""
+  ],
+  [
+   ".markdown p",
+   ""
+  ],
+  [
+   ".markdown ul, .markdown ol",
+   ""
+  ],
+  [
+   ".markdown li",
+   ""
+  ],
+  [
+   ".markdown blockquote",
+   ""
+  ],
+  [
+   ".markdown pre",
+   ""
+  ],
+  [
+   ".markdown table",
+   ""
+  ],
+  [
+   ".markdown th, .markdown td",
+   ""
+  ],
+  [
+   ".markdown th",
+   ""
+  ],
+  [
+   ".markdown hr",
+   ""
+  ],
+  [
+   ".markdown img",
+   ""
+  ],
+  [
+   ".markdown a",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .hu-icon-btn.active",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .hu-empty-state .row",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .hu-page-head .hu-eyebrow",
+   ""
+  ],
+  [
+   ".hu-knowledge-trash-banner .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-inspector-nav .hu-segmented-alt",
+   ""
+  ],
+  [
+   ".hu-knowledge-inspector-nav .hu-segmented-alt button",
+   ""
+  ],
+  [
+   ".hu-knowledge-comment-compose .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-task-check",
+   ""
+  ],
+  [
+   ".hu-knowledge-detail-section > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta > .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta > .hu-icon-btn svg",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-bottom .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-converted-result .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-converted-result .hu-btn svg",
+   ""
+  ],
+  [
+   ".hu-knowledge-dismissed-result .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-daily-picker .hu-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-undo-banner > .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-knowledge-undo-banner > .hu-icon-btn svg",
+   ""
+  ],
+  [
+   ".hu-execution-status-dot.connecting",
+   ""
+  ],
+  [
+   ".hu-execution-connection-route > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-execution-module .hu-badge",
+   ""
+  ],
+  [
+   ".hu-execution-module .hu-badge > svg",
+   ""
+  ],
+  [
+   ".hu-safe-detail-body > .hu-btn",
+   ""
+  ],
+  [
+   ".hu-secret-value .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-settings-section > .hu-btn",
+   ""
+  ],
+  [
+   ".markdown img",
+   ""
+  ],
+  [
+   ".hu-focus-mode .hu-resource-pane",
+   ""
+  ],
+  [
+   ".hu-app .hu-nav-heading .hu-icon-btn",
+   ""
+  ],
+  [
+   ".hu-tooltip",
+   ""
+  ],
+  [
+   ".hu-combobox-list",
+   ""
+  ],
+  [
+   ".hu-combobox-list ul",
+   ""
+  ],
+  [
+   ".hu-combobox-list li[role=\"option\"]",
+   ""
+  ],
+  [
+   ".hu-combobox-list li small, .hu-combobox-empty",
+   ""
+  ],
+  [
+   ".hu-combobox-empty",
+   ""
+  ],
+  [
+   ".hu-modal-footer",
+   ""
+  ],
+  [
+   ".toast",
+   ""
+  ],
+  [
+   ".toast > svg",
+   ""
+  ],
+  [
+   ".toast.error > svg",
+   ""
+  ],
+  [
+   ".toast > button",
+   ""
+  ],
+  [
+   ".hu-dialog-content",
+   ""
+  ],
+  [
+   ".hu-motion-surface",
+   ""
+  ],
+  [
+   ".hu-modal-footer",
+   ""
+  ],
+  [
+   ".hu-table td .row",
+   ""
+  ],
+  [
+   ".hu-table button",
+   ""
+  ],
+  [
+   ".hu-callout.danger",
+   ""
+  ],
+  [
+   ".hu-callout.warning",
+   ""
+  ],
+  [
+   ".hu-callout.success",
+   ""
+  ],
+  [
+   ".hu-callout.info",
+   ""
+  ],
+  [
+   ".hu-spin-alt",
+   ""
+  ],
+  [
+   ".hu-health-check .hu-btn",
+   ""
+  ],
+  [
+   ".shell-plugin-origin-explainer > svg",
+   ""
+  ],
+  [
+   ".shell-plugin-origin-explainer strong",
+   ""
+  ],
+  [
+   ".shell-plugin-origin-explainer p",
+   ""
+  ],
+  [
+   ".shell-vault-launch",
+   ""
+  ],
+  [
+   ".shell-vault-launch-bar",
+   ""
+  ],
+  [
+   ".shell-vault-launch-main",
+   ""
+  ],
+  [
+   ".shell-vault-launch-intro h1",
+   ""
+  ],
+  [
+   ".shell-vault-launch-intro > p",
+   ""
+  ],
+  [
+   ".shell-vault-illustration",
+   ""
+  ],
+  [
+   ".shell-brand-logo img",
+   ""
+  ],
+  [
+   ".shell-vault-illustration > div",
+   ""
+  ],
+  [
+   ".shell-vault-intro-points",
+   ""
+  ],
+  [
+   ".shell-vault-intro-points > div",
+   ""
+  ],
+  [
+   ".shell-vault-local-note",
+   ""
+  ],
+  [
+   ".shell-vault-local-note .shell-status-dot",
+   ""
+  ],
+  [
+   ".shell-vault-local-note small",
+   ""
+  ],
+  [
+   ".shell-vault-launch-card",
+   ""
+  ],
+  [
+   ".shell-vault-card-heading",
+   ""
+  ],
+  [
+   ".shell-vault-card-heading h2",
+   ""
+  ],
+  [
+   ".shell-vault-card-heading p",
+   ""
+  ],
+  [
+   ".shell-vault-recents",
+   ""
+  ],
+  [
+   ".hu-vault-recent",
+   ""
+  ],
+  [
+   ".shell-vault-recent-open",
+   ""
+  ],
+  [
+   ".shell-vault-file-icon",
+   ""
+  ],
+  [
+   ".shell-vault-recent-open strong",
+   ""
+  ],
+  [
+   ".shell-vault-recent-open small",
+   ""
+  ],
+  [
+   ".shell-vault-recent-open > svg",
+   ""
+  ],
+  [
+   ".hu-vault-launch-actions",
+   ""
+  ],
+  [
+   ".shell-vault-privacy",
+   ""
+  ],
+  [
+   ".shell-vault-launch-footer",
+   ""
+  ],
+  [
+   ".shell-vault-launch-error",
+   ""
+  ],
+  [
+   ".shell-tw-empty-group",
+   ""
+  ],
+  [
+   ".hu-vault-secondary-actions",
+   ""
+  ],
+  [
+   ".shell-storage-file-list > button.selected",
+   ""
+  ],
+  [
+   ".shell-storage-preview-head",
+   ""
+  ],
+  [
+   ".shell-storage-preview-head > code",
+   ""
+  ],
+  [
+   ".shell-storage-file-preview > pre",
+   ""
+  ],
+  [
+   ".shell-storage-file-preview > footer",
+   ""
+  ],
+  [
+   ".shell-storage-two-cards",
+   ""
+  ],
+  [
+   ".shell-storage-two-cards .shell-card-head",
+   ""
+  ],
+  [
+   ".shell-storage-two-cards h2",
+   ""
+  ],
+  [
+   ".shell-storage-two-cards p",
+   ""
+  ],
+  [
+   ".shell-storage-steps",
+   ""
+  ],
+  [
+   ".shell-storage-steps > li",
+   ""
+  ],
+  [
+   ".shell-storage-steps strong",
+   ""
+  ],
+  [
+   ".shell-storage-steps p",
+   ""
+  ],
+  [
+   ".shell-storage-export-grid",
+   ""
+  ],
+  [
+   ".shell-storage-export-grid > div",
+   ""
+  ],
+  [
+   ".shell-storage-export-grid strong",
+   ""
+  ],
+  [
+   ".shell-storage-export-grid p",
+   ""
+  ],
+  [
+   ".shell-storage-rules",
+   ""
+  ],
+  [
+   ".shell-storage-rules td",
+   ""
+  ],
+  [
+   ".shell-storage-rules code",
+   ""
+  ],
+  [
+   ".shell-rail-dot",
+   ""
+  ],
+  [
+   ".hu-nav-heading svg",
+   ""
+  ],
+  [
+   ".shell-nav-bottom > button",
+   ""
+  ],
+  [
+   ".shell-notification-button i",
+   ""
+  ],
+  [
+   ".hu-focus-mode .hu-window-bar",
+   ""
+  ],
+  [
+   ".hu-focus-mode .hu-breadcrumb-bar",
+   ""
+  ],
+  [
+   ".shell-success-text",
+   ""
+  ],
+  [
+   ".shell-drawer-head",
+   ""
+  ],
+  [
+   ".shell-drawer-head h3",
+   ""
+  ],
+  [
+   ".shell-notification-popover",
+   ""
+  ],
+  [
+   ".shell-notice-item",
+   ""
+  ],
+  [
+   ".shell-notice-item strong",
+   ""
+  ],
+  [
+   ".shell-notice-item p",
+   ""
+  ],
+  [
+   ".shell-notice-dot",
+   ""
+  ],
+  [
+   ".shell-notice-item.shell-unread .shell-notice-dot",
+   ""
+  ],
+  [
+   ".shell-popover-footer",
+   ""
+  ],
+  [
+   ".shell-habit-row",
+   ""
+  ],
+  [
+   ".shell-habit-row > span",
+   ""
+  ],
+  [
+   ".shell-habit-row.done > span",
+   ""
+  ],
+  [
+   ".shell-habit-row.done",
+   ""
+  ],
+  [
+   ".shell-inbox-preview",
+   ""
+  ],
+  [
+   ".shell-inbox-preview strong",
+   ""
+  ],
+  [
+   ".shell-inbox-preview small",
+   ""
+  ],
+  [
+   ".shell-inbox-bullet",
+   ""
+  ],
+  [
+   ".shell-inbox-preview > svg",
+   ""
+  ],
+  [
+   ".shell-activity-row",
+   ""
+  ],
+  [
+   ".shell-activity-marker",
+   ""
+  ],
+  [
+   ".shell-activity-marker:before",
+   ""
+  ],
+  [
+   ".shell-activity-marker > span",
+   ""
+  ],
+  [
+   ".shell-activity-row strong",
+   ""
+  ],
+  [
+   ".shell-activity-row .grow > div",
+   ""
+  ],
+  [
+   ".shell-activity-row .grow > div span",
+   ""
+  ],
+  [
+   ".shell-knowledge-inline-check",
+   ""
+  ],
+  [
+   ".shell-knowledge-inline-check input",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .shell-knowledge-inline-check input[type=\"checkbox\"]",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu > button",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu > button.danger",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu > button > kbd",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu > hr",
+   ""
+  ],
+  [
+   ".shell-tiny-status.failed",
+   ""
+  ],
+  [
+   ".shell-contribution-grid span",
+   ""
+  ],
+  [
+   ".shell-gateway-meta label",
+   ""
+  ],
+  [
+   ".shell-gateway-meta label input",
+   ""
+  ],
+  [
+   ".shell-tester-grid textarea",
+   ""
+  ],
+  [
+   ".shell-tester-output > .row",
+   ""
+  ],
+  [
+   ".shell-tester-output > pre",
+   ""
+  ],
+  [
+   ".shell-cli-suggestions",
+   ""
+  ],
+  [
+   ".shell-cli-suggestions button",
+   ""
+  ],
+  [
+   ".shell-cli-suggestions code",
+   ""
+  ],
+  [
+   ".shell-desktop-layer-grid",
+   ""
+  ],
+  [
+   ".shell-desktop-layer",
+   ""
+  ],
+  [
+   ".shell-desktop-layer > svg",
+   ""
+  ],
+  [
+   ".shell-desktop-layer h3",
+   ""
+  ],
+  [
+   ".shell-desktop-layer strong",
+   ""
+  ],
+  [
+   ".shell-desktop-layer p",
+   ""
+  ],
+  [
+   ".shell-desktop-action-grid",
+   ""
+  ],
+  [
+   ".hu-safe-detail .shell-card-head",
+   ""
+  ],
+  [
+   ".shell-health-check-icon.success",
+   ""
+  ],
+  [
+   ".shell-health-check-icon.danger, .shell-health-check-icon.warning",
+   ""
+  ],
+  [
+   ".hu-health-notification",
+   ""
+  ],
+  [
+   ".hu-health-notification.shell-unread",
+   ""
+  ],
+  [
+   ".hu-health-notification > svg",
+   ""
+  ],
+  [
+   ".hu-health-notification.shell-unread > svg",
+   ""
+  ],
+  [
+   ".hu-health-notification h3",
+   ""
+  ],
+  [
+   ".hu-health-notification p",
+   ""
+  ],
+  [
+   ".shell-system-scroll > .hu-card-alt > table",
+   ""
+  ],
+  [
+   ".hu-breadcrumb button",
+   ""
+  ],
+  [
+   ".shell-date-format-samples > div + div",
+   ""
+  ],
+  [
+   ".hu-focus-mode .hu-window-center",
+   ""
+  ],
+  [
+   ".shell-source-full-url + svg",
+   ""
+  ],
+  [
+   ".shell-habit-row",
+   ""
+  ],
+  [
+   ".shell-inbox-preview strong",
+   ""
+  ],
+  [
+   ".shell-drawer-head",
+   ""
+  ],
+  [
+   ".shell-drawer-head h3",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu, .shell-notification-popover",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu",
+   ""
+  ],
+  [
+   ".shell-knowledge-file-menu > button",
+   ""
+  ],
+  [
+   ".shell-notification-popover",
+   ""
+  ],
+  [
+   ".shell-notice-item",
+   ""
+  ],
+  [
+   ".shell-notice-item h3, .shell-notice-item strong",
+   ""
+  ],
+  [
+   ".shell-notice-item p",
+   ""
+  ],
+  [
+   ".shell-gateway-meta label.row select",
+   ""
+  ],
+  [
+   ".hu-empty-main",
+   ""
+  ],
+  [
+   ".hu-module-error",
+   ""
+  ],
+  [
+   ".hu-nav-item",
+   ""
+  ],
+  [
+   ".hu-overdue",
+   ""
+  ],
+  [
+   ".hu-wikilink-missing",
+   ""
+  ],
+  [
+   ".hu-card",
+   ""
+  ],
+  [
+   ".hu-card strong",
+   ""
+  ],
+  [
+   ".automations-markdown .markdown",
+   ""
+  ],
+  [
+   ".automations-markdown h3",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item.active",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item > div",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item strong",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item p",
+   ""
+  ],
+  [
+   ".hu-tw-rule-item small",
+   ""
+  ],
+  [
+   ".hu-tw-rule-detail-header",
+   ""
+  ],
+  [
+   ".hu-tw-rule-detail-header h2",
+   ""
+  ],
+  [
+   ".automations-run-summary",
+   ""
+  ],
+  [
+   ".automations-run-summary .markdown",
+   ""
+  ],
+  [
+   ".automations-scan-list",
+   ""
+  ],
+  [
+   ".automations-scan-list > div",
+   ""
+  ],
+  [
+   ".automations-scan-list strong",
+   ""
+  ],
+  [
+   ".automations-scan-list small",
+   ""
+  ],
+  [
+   ".automations-scan-list .skipped",
+   ""
+  ],
+  [
+   ".automations-rule-detail",
+   ""
+  ],
+  [
+   ".automations-rule-flow",
+   ""
+  ],
+  [
+   ".automations-rule-flow span",
+   ""
+  ],
+  [
+   ".automations-action-fields",
+   ""
+  ],
+  [
+   ".automations-scan-contract",
+   ""
+  ],
+  [
+   ".automations-scan-contract strong",
+   ""
+  ],
+  [
+   ".automations-scan-contract p",
+   ""
+  ],
+  [
+   ".automations-schedule-preview",
+   ""
+  ],
+  [
+   ".automations-schedule-preview strong",
+   ""
+  ],
+  [
+   ".automations-schedule-preview small",
+   ""
+  ],
+  [
+   ".automations-schedule-preview time",
+   ""
+  ],
+  [
+   ".automations-schedule-error",
+   ""
+  ],
+  [
+   ".automations-rule-preview-action",
+   ""
+  ],
+  [
+   ".automations-rule-preview-action > p",
+   ""
+  ],
+  [
+   ".automations-rule-linked",
+   ""
+  ],
+  [
+   ".automations-rule-linked h3",
+   ""
+  ],
+  [
+   ".automations-rule-linked > button",
+   ""
+  ],
+  [
+   ".automations-rule-linked > button > span",
+   ""
+  ],
+  [
+   ".automations-rule-linked small",
+   ""
+  ],
+  [
+   ".automations-occurrence-list",
+   ""
+  ],
+  [
+   ".automations-occurrence",
+   ""
+  ],
+  [
+   ".automations-occurrence > header",
+   ""
+  ],
+  [
+   ".automations-occurrence > header strong",
+   ""
+  ],
+  [
+   ".automations-occurrence > header time",
+   ""
+  ],
+  [
+   ".automations-occurrence > button",
+   ""
+  ],
+  [
+   ".automations-occurrence > button > small",
+   ""
+  ],
+  [
+   ".automations-scan-list > p",
+   ""
+  ],
+  [
+   ".agent-session-tab",
+   ""
+  ],
+  [
+   ".agent-session-tab.active",
+   ""
+  ],
+  [
+   ".agent-terminal-pane",
+   ""
+  ],
+  [
+   ".hu-v9-terminal-heading",
+   ""
+  ],
+  [
+   ".hu-v9-terminal-heading strong",
+   ""
+  ],
+  [
+   ".agent-history-item",
+   ""
+  ],
+  [
+   ".agent-history-item.active",
+   ""
+  ],
+  [
+   ".agent-provider-mark",
+   ""
+  ],
+  [
+   ".agent-launcher",
+   ""
+  ],
+  [
+   ".agent-launch-menu-row",
+   ""
+  ],
+  [
+   ".agent-launch-menu-row.focused",
+   ""
+  ],
+  [
+   ".agent-launch-menu-row.off",
+   ""
+  ],
+  [
+   ".agent-launch-menu-hint",
+   ""
+  ],
+  [
+   ".agent-row",
+   ""
+  ],
+  [
+   ".agent-row.off",
+   ""
+  ],
+  [
+   ".agent-row-body",
+   ""
+  ],
+  [
+   ".agent-chip-input",
+   ""
+  ],
+  [
+   ".hu-version-v9-stats .removed",
+   ""
+  ],
+  [
+   ".agent-session-tab button",
+   ""
+  ],
+  [
+   ".agent-terminal-grid",
+   ""
+  ],
+  [
+   ".agent-history-item strong",
+   ""
+  ],
+  [
+   ".agent-history-item small, .agent-history-item time",
+   ""
+  ],
+  [
+   ".agent-pin",
+   ""
+  ],
+  [
+   ".agent-launch-menu",
+   ""
+  ],
+  [
+   ".agent-launch-menu-list",
+   ""
+  ],
+  [
+   ".agent-launch-menu-search",
+   ""
+  ],
+  [
+   ".agent-launch-menu-search input",
+   ""
+  ],
+  [
+   ".agent-launch-menu-row kbd, .agent-launch-menu-tag",
+   ""
+  ],
+  [
+   ".agent-launch-menu-sep",
+   ""
+  ],
+  [
+   ".agent-launch-menu-sub",
+   ""
+  ],
+  [
+   ".agent-launch-menu-sub label",
+   ""
+  ],
+  [
+   ".agent-icon-fallback",
+   ""
+  ],
+  [
+   ".agent-rows",
+   ""
+  ],
+  [
+   ".agent-row-head",
+   ""
+  ],
+  [
+   ".agent-row-main",
+   ""
+  ],
+  [
+   ".agent-row-title",
+   ""
+  ],
+  [
+   ".agent-row-title code",
+   ""
+  ],
+  [
+   ".agent-chips",
+   ""
+  ],
+  [
+   ".agent-chip",
+   ""
+  ],
+  [
+   ".agent-effective-line",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .hu-resource-head > p",
+   ""
+  ],
+  [
+   ".hu-knowledge-root input[type=\"checkbox\"]",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item.active",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item > input",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item > button",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item-meta",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item-meta > span",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item strong",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item p",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-converted",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-bulk",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-bulk > span",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-bulk > button",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-detail",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-detail > h2",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-note",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-note .markdown",
+   ""
+  ],
+  [
+   ".inbox-knowledge-processing-heading",
+   ""
+  ],
+  [
+   ".inbox-knowledge-processing-heading h3",
+   ""
+  ],
+  [
+   ".inbox-knowledge-processing-heading p",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > span",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > strong",
+   ""
+  ],
+  [
+   ".inbox-knowledge-convert-options > button > p",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-bottom",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-bottom > .small",
+   ""
+  ],
+  [
+   ".hu-knowledge-converted-result",
+   ""
+  ],
+  [
+   ".inbox-knowledge-result-check",
+   ""
+  ],
+  [
+   ".hu-knowledge-converted-result > div",
+   ""
+  ],
+  [
+   ".hu-knowledge-converted-result h3",
+   ""
+  ],
+  [
+   ".hu-knowledge-converted-result p",
+   ""
+  ],
+  [
+   ".hu-knowledge-dismissed-result",
+   ""
+  ],
+  [
+   ".hu-knowledge-dismissed-result > svg",
+   ""
+  ],
+  [
+   ".hu-knowledge-dismissed-result h3",
+   ""
+  ],
+  [
+   ".hu-knowledge-dismissed-result p",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item strong",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item-meta",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item-meta time",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-item p",
+   ""
+  ],
+  [
+   ".hu-knowledge-inbox-detail-meta",
+   ""
+  ],
+  [
+   ".inbox-knowledge-inbox-detail > h2",
+   ""
+  ],
+  [
+   ".hu-mermaid",
+   ""
+  ],
+  [
+   ".hu-mermaid svg",
+   ""
+  ],
+  [
+   ".hu-mermaid-error",
+   ""
+  ],
+  [
+   ".hu-mermaid-loading",
+   ""
+  ],
+  [
+   ".huhu-live-block-edit",
+   ""
+  ],
+  [
+   ".notes-editor-mode-hint > span",
+   ""
+  ],
+  [
+   ".notes-editor-mode-hint strong",
+   ""
+  ],
+  [
+   ".notes-editor-mode-hint button",
+   ""
+  ],
+  [
+   ".notes-chip",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .notes-chip",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .notes-chip.active",
+   ""
+  ],
+  [
+   ".notes-star",
+   ""
+  ],
+  [
+   ".notes-tag-cloud",
+   ""
+  ],
+  [
+   ".notes-tag-cloud .notes-chip",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown h2",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown h3",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown p",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown > blockquote",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown > blockquote p",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown li",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown table",
+   ""
+  ],
+  [
+   ".notes-editor-body.is-split > .notes-source-pane",
+   ""
+  ],
+  [
+   ".notes-editor-body.is-split > .notes-reading-pane",
+   ""
+  ],
+  [
+   ".notes-editor-body.is-split .markdown",
+   ""
+  ],
+  [
+   ".notes-editor-body.is-split .markdown h1",
+   ""
+  ],
+  [
+   ".notes-editor-body.is-split .markdown h2",
+   ""
+  ],
+  [
+   ".notes-document-status .row",
+   ""
+  ],
+  [
+   ".notes-document-status button",
+   ""
+  ],
+  [
+   ".hu-knowledge-trash-banner",
+   ""
+  ],
+  [
+   ".notes-inspector",
+   ""
+  ],
+  [
+   ".notes-inspector > header",
+   ""
+  ],
+  [
+   ".notes-inspector > header strong",
+   ""
+  ],
+  [
+   ".hu-knowledge-inspector-nav",
+   ""
+  ],
+  [
+   ".notes-inspector-scroll",
+   ""
+  ],
+  [
+   ".notes-property-grid",
+   ""
+  ],
+  [
+   ".notes-property-grid dt",
+   ""
+  ],
+  [
+   ".notes-property-grid dd",
+   ""
+  ],
+  [
+   ".notes-property-grid dd a",
+   ""
+  ],
+  [
+   ".notes-outline",
+   ""
+  ],
+  [
+   ".notes-outline button",
+   ""
+  ],
+  [
+   ".notes-comment-filter",
+   ""
+  ],
+  [
+   ".notes-comment-filter .small",
+   ""
+  ],
+  [
+   ".notes-comment",
+   ""
+  ],
+  [
+   ".notes-comment .row strong",
+   ""
+  ],
+  [
+   ".notes-comment .row .small",
+   ""
+  ],
+  [
+   ".notes-comment.is-resolved",
+   ""
+  ],
+  [
+   ".notes-avatar",
+   ""
+  ],
+  [
+   ".notes-comment blockquote",
+   ""
+  ],
+  [
+   ".notes-comment p",
+   ""
+  ],
+  [
+   ".notes-text-button",
+   ""
+  ],
+  [
+   ".notes-text-button.danger",
+   ""
+  ],
+  [
+   ".hu-knowledge-comment-compose",
+   ""
+  ],
+  [
+   ".notes-comment-input",
+   ""
+  ],
+  [
+   ".hu-knowledge-detail-section",
+   ""
+  ],
+  [
+   ".hu-knowledge-detail-section h3",
+   ""
+  ],
+  [
+   ".hu-knowledge-tree-line.is-drop-target",
+   ""
+  ],
+  [
+   ".hu-knowledge-daily-picker",
+   ""
+  ],
+  [
+   ".hu-knowledge-undo-banner",
+   ""
+  ],
+  [
+   ".hu-knowledge-undo-banner > span",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   ""
+  ],
+  [
+   ".notes-document-status button",
+   ""
+  ],
+  [
+   ".notes-archive-invalid",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown h1",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown h2",
+   ""
+  ],
+  [
+   ".notes-reading-pane .markdown blockquote",
+   ""
+  ],
+  [
+   ".notes-save-dot.notes-unsaved",
+   ""
+  ],
+  [
+   ".notes-tree-empty",
+   ""
+  ],
+  [
+   ".notes-inspector .notes-property-grid, .knowledge-task-detail .notes-property-grid",
+   ""
+  ],
+  [
+   ".notes-property-grid dd",
+   ""
+  ],
+  [
+   ".notes-archive-crumb-bar",
+   ""
+  ],
+  [
+   ".notes-archive-menu",
+   ""
+  ],
+  [
+   ".notes-archive-field-rows",
+   ""
+  ],
+  [
+   ".notes-archive-field-row",
+   ""
+  ],
+  [
+   ".notes-chip",
+   ""
+  ],
+  [
+   ".hu-safe-locked > span",
+   ""
+  ],
+  [
+   ".hu-safe-locked > span code",
+   ""
+  ],
+  [
+   ".safe-grid",
+   ""
+  ],
+  [
+   ".safe-grid > .hu-card-alt",
+   ""
+  ],
+  [
+   ".safe-secret-row",
+   ""
+  ],
+  [
+   ".safe-secret-row.active",
+   ""
+  ],
+  [
+   ".hu-safe-detail-body",
+   ""
+  ],
+  [
+   ".hu-secret-value",
+   ""
+  ],
+  [
+   ".hu-secret-value code",
+   ""
+  ],
+  [
+   ".safe-secret-row strong",
+   ""
+  ],
+  [
+   ".safe-secret-row small",
+   ""
+  ],
+  [
+   ".hu-safe-detail h2",
+   ""
+  ],
+  [
+   ".safe-read-value",
+   ""
+  ],
+  [
+   ".hu-ssh-console",
+   ""
+  ],
+  [
+   ".hu-ssh-console-bar",
+   ""
+  ],
+  [
+   ".ssh-console-tabs",
+   ""
+  ],
+  [
+   ".ssh-console-tabs > button",
+   ""
+  ],
+  [
+   ".ssh-console-tabs > button.active",
+   ""
+  ],
+  [
+   ".ssh-console-stage",
+   ""
+  ],
+  [
+   ".ssh-console-stage.is-split",
+   ""
+  ],
+  [
+   ".ssh-console-panel",
+   ""
+  ],
+  [
+   ".hu-ssh-console-panel-head",
+   ""
+  ],
+  [
+   ".hu-ssh-console-panel-head strong",
+   ""
+  ],
+  [
+   ".hu-ssh-console-panel-head code",
+   ""
+  ],
+  [
+   ".ssh-resource-row",
+   ""
+  ],
+  [
+   ".ssh-resource-row.active",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .ssh-resource-row",
+   ""
+  ],
+  [
+   ".hu-knowledge-root .ssh-resource-row.active",
+   ""
+  ],
+  [
+   ".ssh-session-row",
+   ""
+  ],
+  [
+   ".ssh-session-row > svg",
+   ""
+  ],
+  [
+   ".ssh-session-row .grow",
+   ""
+  ],
+  [
+   ".ssh-session-row strong",
+   ""
+  ],
+  [
+   ".ssh-session-row .small",
+   ""
+  ],
+  [
+   ".ssh-session-row.active",
+   ""
+  ],
+  [
+   ".ssh-session-row.active > svg",
+   ""
+  ],
+  [
+   ".ssh-pad",
+   ""
+  ],
+  [
+   ".ssh-pad.hu-scroll",
+   ""
+  ],
+  [
+   ".ssh-section-heading",
+   ""
+  ],
+  [
+   ".ssh-section-heading h3, .ssh-pad h3",
+   ""
+  ],
+  [
+   ".ssh-section-heading p",
+   ""
+  ],
+  [
+   ".ssh-section-heading select",
+   ""
+  ],
+  [
+   ".ssh-stat",
+   ""
+  ],
+  [
+   ".ssh-stat > .small",
+   ""
+  ],
+  [
+   ".ssh-stat > strong",
+   ""
+  ],
+  [
+   ".ssh-meta-grid",
+   ""
+  ],
+  [
+   ".hu-execution-status-dot",
+   ""
+  ],
+  [
+   ".hu-execution-status-dot.connected",
+   ""
+  ],
+  [
+   ".hu-execution-status-dot.failed",
+   ""
+  ],
+  [
+   ".ssh-warning-text",
+   ""
+  ],
+  [
+   ".ssh-connection-hero",
+   ""
+  ],
+  [
+   ".ssh-server-icon",
+   ""
+  ],
+  [
+   ".ssh-server-icon.connected",
+   ""
+  ],
+  [
+   ".ssh-connection-hero h2",
+   ""
+  ],
+  [
+   ".ssh-connection-hero p",
+   ""
+  ],
+  [
+   ".hu-execution-connection-route",
+   ""
+  ],
+  [
+   ".ssh-route",
+   ""
+  ],
+  [
+   ".ssh-route > div",
+   ""
+  ],
+  [
+   ".ssh-route > div > svg",
+   ""
+  ],
+  [
+   ".ssh-route strong",
+   ""
+  ],
+  [
+   ".ssh-route span",
+   ""
+  ],
+  [
+   ".ssh-route > svg",
+   ""
+  ],
+  [
+   ".ssh-definition",
+   ""
+  ],
+  [
+   ".ssh-definition code",
+   ""
+  ],
+  [
+   ".ssh-trust-heading",
+   ""
+  ],
+  [
+   ".ssh-trust-heading > svg",
+   ""
+  ],
+  [
+   ".ssh-trust-heading strong",
+   ""
+  ],
+  [
+   ".ssh-trust-heading p",
+   ""
+  ],
+  [
+   ".ssh-trust-heading.warning",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-session-row strong",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-session-row .small",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-definition",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-definition code",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-connection-hero p, .hu-execution-module .execution-fault-control p",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-route strong",
+   ""
+  ],
+  [
+   ".hu-execution-module .ssh-route span",
+   ""
+  ],
+  [
+   ".ssh-route-target > svg",
+   ""
+  ],
+  [
+   ".ssh-connection-config",
+   ""
+  ],
+  [
+   ".ssh-connection-config h3",
+   ""
+  ],
+  [
+   ".ssh-command-card",
+   ""
+  ],
+  [
+   ".ssh-command-card input",
+   ""
+  ],
+  [
+   ".ssh-command-presets",
+   ""
+  ],
+  [
+   ".ssh-command-presets button",
+   ""
+  ],
+  [
+   ".ssh-exec-result",
+   ""
+  ],
+  [
+   ".ssh-exec-result code",
+   ""
+  ],
+  [
+   ".ssh-exec-result pre",
+   ""
+  ],
+  [
+   ".ssh-resource-row",
+   ""
+  ],
+  [
+   ".version-entry-list > button",
+   ""
+  ],
+  [
+   ".version-entry-list > button.active",
+   ""
+  ],
+  [
+   ".hu-version-v9-diff",
+   ""
+  ],
+  [
+   ".hu-version-v9-manual",
+   ""
+  ],
+  [
+   ".hu-version-v9-manual summary",
+   ""
+  ],
+  [
+   ".hu-version-v9-manual > div",
+   ""
+  ],
+  [
+   ".version-file-picker select",
+   ""
+  ],
+  [
+   ".version-entry-list > button > span",
+   ""
+  ],
+  [
+   ".version-entry-list strong",
+   ""
+  ],
+  [
+   ".version-entry-list small",
+   ""
+  ],
+  [
+   ".version-diff-labels",
+   ""
+  ],
+  [
+   ".version-error",
+   ""
+  ],
+  [
+   ".version-git-filters",
+   ""
+  ],
+  [
+   ".version-git-filters button",
+   ""
+  ],
+  [
+   ".version-search",
+   ""
+  ],
+  [
+   ".version-search input",
+   ""
+  ],
+  [
+   ".hu-version-v9-manual input",
+   ""
+  ],
+  [
+   ".hu-version-v9-manual p",
+   ""
+  ],
+  [
+   ".version-sync-main",
+   ""
+  ],
+  [
+   ".tasks-task-run",
+   ""
+  ],
+  [
+   ".tasks-task-run header",
+   ""
+  ],
+  [
+   ".tasks-task-run small",
+   ""
+  ],
+  [
+   ".tasks-task-run .markdown",
+   ""
+  ],
+  [
+   ".tasks-task-run .markdown h2",
+   ""
+  ],
+  [
+   ".hu-tw-reminder-config",
+   ""
+  ],
+  [
+   ".hu-tw-reminder-config > div",
+   ""
+  ],
+  [
+   ".hu-tw-reminder-config select",
+   ""
+  ],
+  [
+   ".tasks-calendar-task.is-completed",
+   ""
+  ],
+  [
+   ".tasks-tag-filter > button.active",
+   ""
+  ],
+  [
+   ".hu-knowledge-task-name > small",
+   ""
+  ],
+  [
+   ".hu-knowledge-task-name > svg",
+   ""
+  ],
+  [
+   ".board-card",
+   ""
+  ],
+  [
+   ".board-card.selected",
+   ""
+  ],
+  [
+   ".tasks-task-name > svg",
+   ""
+  ],
+  [
+   ".tasks-fold-group.tasks-folded svg",
+   ""
+  ],
+  [
+   ".tasks-reminder-read",
+   ""
+  ],
+  [
+   ".tasks-reminder-read time, .tasks-reminder-read small",
+   ""
+  ],
+  [
+   ".hu-tw-reminder-config > small",
+   ""
+  ],
+  [
+   ".tasks-form-error",
+   ""
+  ],
+  [
+   ".tasks-attention",
+   ""
+  ],
+  [
+   ".tasks-comment",
+   ""
+  ],
+  [
+   ".tasks-comment > header",
+   ""
+  ],
+  [
+   ".tasks-ask",
+   ""
+  ],
+  [
+   ".tasks-reference.is-missing button",
+   ""
+  ],
+  [
+   ".board-card h3",
+   ""
+  ],
+  [
+   ".board-card p",
+   ""
+  ]
+ ],
+ "A purge也判无用(已逐条核查)": [
+  [
+   ".hu-banner-warning",
+   ""
+  ],
+  [
+   ".hu-banner-danger",
+   ""
+  ],
+  [
+   ".hu-banner-blue",
+   ""
+  ],
+  [
+   ".vault-opened",
+   ""
+  ],
+  [
+   ".vault-back",
+   ""
+  ],
+  [
+   ".vault-import-summary",
+   ""
+  ],
+  [
+   ".vault-import-summary h3",
+   ""
+  ],
+  [
+   ".vault-import-summary p",
+   ""
+  ],
+  [
+   ".vault-import-summary small",
+   ""
+  ],
+  [
+   ".vault-resource-picker",
+   ""
+  ],
+  [
+   ".ssh-console-input",
+   ""
+  ],
+  [
+   ".ssh-console-input > span",
+   ""
+  ],
+  [
+   ".ssh-console-input input",
+   ""
+  ],
+  [
+   ".ssh-console-input input::placeholder",
+   ""
+  ],
+  [
+   ".ssh-console-input .hu-icon-btn",
+   ""
+  ],
+  [
+   ".ssh-console-offline",
+   ""
+  ],
+  [
+   ".ssh-console-footer",
+   ""
+  ],
+  [
+   ".ssh-console-footer > .mono",
+   ""
+  ],
+  [
+   ".ssh-console-footer .hu-btn",
+   ""
+  ],
+  [
+   ".ssh-console-explainer",
+   ""
+  ],
+  [
+   ".ssh-console-history",
+   ""
+  ],
+  [
+   ".ssh-console-history > div:not(.empty)",
+   ""
+  ],
+  [
+   ".ssh-console-history strong",
+   ""
+  ],
+  [
+   ".ssh-console-history p",
+   ""
+  ],
+  [
+   ".ssh-console-history .hu-btn",
+   ""
+  ],
+  [
+   ".ssh-console-footer > .mono",
+   "@media (max-width: 900px)"
+  ],
+  [
+   ".vault-write-warning",
+   ""
+  ],
+  [
+   ".vault-write-warning > span",
+   ""
+  ],
+  [
+   ".vault-write-warning > button",
+   ""
+  ],
+  [
+   ".huhu-reading-task",
+   ""
+  ],
+  [
+   ".huhu-markdown-reading [align=\"right\"]",
+   ""
+  ],
+  [
+   ".huhu-markdown-reading [align=\"center\"]",
+   ""
+  ],
+  [
+   ".hu-btn-danger",
+   ""
+  ],
+  [
+   ".hu-btn-danger:hover",
+   ""
+  ],
+  [
+   ":where(.hu-btn, .hu-icon-btn, [data-press]):active",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-btn-danger:hover:not(:disabled)",
+   ""
+  ],
+  [
+   ".badge-neutral",
+   ""
+  ],
+  [
+   ".badge-accent, .badge-purple, .hu-badge-violet",
+   ""
+  ],
+  [
+   ".badge-info, .hu-badge-blue",
+   ""
+  ],
+  [
+   ".hu-badge-danger, .badge-error",
+   ""
+  ],
+  [
+   ".hu-module-nav-hidden > .hu-module-layout > .hu-resource-pane",
+   ""
+  ],
+  [
+   ".hu-module-versioning .hu-resource-pane",
+   ""
+  ],
+  [
+   ".hu-module-nav-hidden .hu-resource-pane",
+   ""
+  ],
+  [
+   ".hu-module-versioning .hu-resource-pane",
+   "@media (max-width: 1180px)"
+  ],
+  [
+   ".hu-module-versioning .hu-resource-pane",
+   "@media (max-width: 780px)"
+  ],
+  [
+   ".hu-module-plugins:not(.hu-module-section-installed) .hu-resource-pane, .hu-module-versioning.hu-module-section-sync .hu-resource-pane",
+   ""
+  ],
+  [
+   "[data-stagger-enter] > :nth-child(-n + 5)",
+   ""
+  ],
+  [
+   "[data-stagger-enter] > :nth-child(2)",
+   ""
+  ],
+  [
+   "[data-stagger-enter] > :nth-child(3)",
+   ""
+  ],
+  [
+   "[data-stagger-enter] > :nth-child(4)",
+   ""
+  ],
+  [
+   "[data-stagger-enter] > :nth-child(5)",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] [data-stagger-enter] > *",
+   ""
+  ],
+  [
+   "[data-stagger-enter] > *",
+   "@media (prefers-reduced-motion: reduce)"
+  ],
+  [
+   ".hu-tooltip[data-state=\"delayed-open\"]",
+   ""
+  ],
+  [
+   ".hu-tooltip[data-state=\"instant-open\"]",
+   ""
+  ],
+  [
+   ".hu-module-versioning .hu-resource-pane",
+   "@media (max-width: 900px)"
+  ],
+  [
+   "[data-radix-popper-content-wrapper] > *",
+   ""
+  ],
+  [
+   ".data-backup-actions",
+   ""
+  ],
+  [
+   ".hu-dialog-drawer",
+   ""
+  ],
+  [
+   ".hu-dialog-drawer[data-state=\"open\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-drawer[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-motion-panel[data-state=\"open\"]",
+   ""
+  ],
+  [
+   ".hu-motion-panel[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-motion-menu[data-state=\"open\"]",
+   ""
+  ],
+  [
+   ".hu-motion-menu[data-state=\"closed\"]",
+   ""
+  ],
+  [
+   ".hu-dialog-drawer",
+   "@media (max-width: 560px)"
+  ],
+  [
+   "[data-sonner-toast].huhu-toast[data-removed=\"true\"]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast [data-title]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast [data-description]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast [data-close-button]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast[data-type=\"success\"] [data-icon]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast[data-type=\"error\"] [data-icon]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast[data-type=\"warning\"] [data-icon]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast[data-swiping=\"true\"]",
+   ""
+  ],
+  [
+   ".hu-module-nav-hidden .shell-system-layout > .hu-resource-pane",
+   ""
+  ],
+  [
+   ".task-row.done .task-title, .task-item.done .task-title",
+   ""
+  ],
+  [
+   ".hu-module-sidebar",
+   ""
+  ],
+  [
+   ".hu-module-sidebar h2",
+   ""
+  ],
+  [
+   ":root[data-density=\"compact\"]",
+   ""
+  ],
+  [
+   ":root[data-density=\"compact\"] .hu-row",
+   ""
+  ],
+  [
+   ".hu-tw-workbench .hu-btn-danger",
+   ""
+  ],
+  [
+   ".provider-claude, .provider-claude-agent-teams",
+   ""
+  ],
+  [
+   ".provider-codex",
+   ""
+  ],
+  [
+   ".provider-pi",
+   ""
+  ],
+  [
+   ".huhu-drawer-presence",
+   ""
+  ],
+  [
+   ".huhu-markdown-reading :is(h1, h2, h3, h4, h5, h6, strong, b, th)",
+   ""
+  ],
+  [
+   ".huhu-drawer-presence",
+   "@media (max-width: 1280px)"
+  ],
+  [
+   ".atomic-cm-editor",
+   ""
+  ],
+  [
+   ".atomic-cm-editor .cm-content",
+   ""
+  ],
+  [
+   ".atomic-editor-search-panel",
+   ""
+  ],
+  [
+   ".atomic-editor-search-panel form",
+   ""
+  ],
+  [
+   ".notes-editor-body > .notes-reading-pane > .huhu-markdown-reading",
+   ""
+  ],
+  [
+   ".tasks-comment-system",
+   ""
+  ],
+  [
+   ".board-links",
+   ""
+  ],
+  [
+   ".board-links path",
+   ""
+  ],
+  [
+   ".board-purple",
+   ""
+  ],
+  [
+   ".board-green",
+   ""
+  ],
+  [
+   ".board-blue",
+   ""
+  ],
+  [
+   ".board-card-drag",
+   ""
+  ],
+  [
+   ".board-card-drag:active",
+   ""
+  ],
+  [
+   ".board-dot",
+   ""
+  ],
+  [
+   ".board-note-link",
+   ""
+  ],
+  [
+   ".board-note-link > span",
+   ""
+  ]
+ ],
+ "C 编辑器/第三方内容类(运行时生成，Vault夹具里没出现)": [
+  [
+   ".xterm",
+   ""
+  ],
+  [
+   ".xterm.focus, .xterm:focus",
+   ""
+  ],
+  [
+   ".xterm .xterm-helpers",
+   ""
+  ],
+  [
+   ".xterm .xterm-helper-textarea",
+   ""
+  ],
+  [
+   ".xterm .composition-view",
+   ""
+  ],
+  [
+   ".xterm .composition-view.active",
+   ""
+  ],
+  [
+   ".xterm .xterm-viewport",
+   ""
+  ],
+  [
+   ".xterm .xterm-screen",
+   ""
+  ],
+  [
+   ".xterm .xterm-screen canvas",
+   ""
+  ],
+  [
+   ".xterm-char-measure-element",
+   ""
+  ],
+  [
+   ".xterm.enable-mouse-events",
+   ""
+  ],
+  [
+   ".xterm.xterm-cursor-pointer, .xterm .xterm-cursor-pointer",
+   ""
+  ],
+  [
+   ".xterm.column-select.focus",
+   ""
+  ],
+  [
+   ".xterm .xterm-accessibility:not(.debug), .xterm .xterm-message",
+   ""
+  ],
+  [
+   ".xterm .xterm-accessibility-tree:not(.debug) *::selection",
+   ""
+  ],
+  [
+   ".xterm .xterm-accessibility-tree",
+   ""
+  ],
+  [
+   ".xterm .xterm-accessibility-tree > div",
+   ""
+  ],
+  [
+   ".xterm .live-region",
+   ""
+  ],
+  [
+   ".xterm-dim",
+   ""
+  ],
+  [
+   ".xterm-underline-1",
+   ""
+  ],
+  [
+   ".xterm-underline-2",
+   ""
+  ],
+  [
+   ".xterm-underline-3",
+   ""
+  ],
+  [
+   ".xterm-underline-4",
+   ""
+  ],
+  [
+   ".xterm-underline-5",
+   ""
+  ],
+  [
+   ".xterm-overline",
+   ""
+  ],
+  [
+   ".xterm-overline.xterm-underline-1",
+   ""
+  ],
+  [
+   ".xterm-overline.xterm-underline-2",
+   ""
+  ],
+  [
+   ".xterm-overline.xterm-underline-3",
+   ""
+  ],
+  [
+   ".xterm-overline.xterm-underline-4",
+   ""
+  ],
+  [
+   ".xterm-overline.xterm-underline-5",
+   ""
+  ],
+  [
+   ".xterm-strikethrough",
+   ""
+  ],
+  [
+   ".xterm-screen .xterm-decoration-container .xterm-decoration",
+   ""
+  ],
+  [
+   ".xterm-screen .xterm-decoration-container .xterm-decoration.xterm-decoration-top-layer",
+   ""
+  ],
+  [
+   ".xterm-decoration-overview-ruler",
+   ""
+  ],
+  [
+   ".xterm-decoration-top",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .scrollbar",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .scrollbar > .scra",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .visible",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .invisible",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .invisible.fade",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .shadow",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .shadow.top",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .shadow.left",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .shadow.top-left-corner",
+   ""
+  ],
+  [
+   ".xterm .xterm-scrollable-element > .shadow.top.left",
+   ""
+  ],
+  [
+   "[data-sonner-toaster]",
+   ""
+  ],
+  [
+   "[data-sonner-toast].huhu-toast",
+   ""
+  ],
+  [
+   ":root[data-motion=\"reduced\"] [data-sonner-toast].huhu-toast",
+   ""
+  ],
+  [
+   "[data-sonner-toast]",
+   ""
+  ],
+  [
+   ".katex",
+   ""
+  ],
+  [
+   ".katex *",
+   ""
+  ],
+  [
+   ".katex .katex-version:after",
+   ""
+  ],
+  [
+   ".katex .katex-mathml",
+   ""
+  ],
+  [
+   ".katex .katex-html>.newline",
+   ""
+  ],
+  [
+   ".katex .base",
+   ""
+  ],
+  [
+   ".katex .base,.katex .strut",
+   ""
+  ],
+  [
+   ".katex .textbf",
+   ""
+  ],
+  [
+   ".katex .textit",
+   ""
+  ],
+  [
+   ".katex .textrm",
+   ""
+  ],
+  [
+   ".katex .textsf",
+   ""
+  ],
+  [
+   ".katex .texttt",
+   ""
+  ],
+  [
+   ".katex .mathnormal",
+   ""
+  ],
+  [
+   ".katex .mathit",
+   ""
+  ],
+  [
+   ".katex .mathrm",
+   ""
+  ],
+  [
+   ".katex .mathbf",
+   ""
+  ],
+  [
+   ".katex .boldsymbol",
+   ""
+  ],
+  [
+   ".katex .amsrm,.katex .mathbb,.katex .textbb",
+   ""
+  ],
+  [
+   ".katex .mathcal",
+   ""
+  ],
+  [
+   ".katex .mathfrak,.katex .textfrak",
+   ""
+  ],
+  [
+   ".katex .mathboldfrak,.katex .textboldfrak",
+   ""
+  ],
+  [
+   ".katex .mathtt",
+   ""
+  ],
+  [
+   ".katex .mathscr,.katex .textscr",
+   ""
+  ],
+  [
+   ".katex .mathsf,.katex .textsf",
+   ""
+  ],
+  [
+   ".katex .mathboldsf,.katex .textboldsf",
+   ""
+  ],
+  [
+   ".katex .mathitsf,.katex .mathsfit,.katex .textitsf",
+   ""
+  ],
+  [
+   ".katex .mainrm",
+   ""
+  ],
+  [
+   ".katex .vlist-t",
+   ""
+  ],
+  [
+   ".katex .vlist-r",
+   ""
+  ],
+  [
+   ".katex .vlist",
+   ""
+  ],
+  [
+   ".katex .vlist>span",
+   ""
+  ],
+  [
+   ".katex .vlist>span>span",
+   ""
+  ],
+  [
+   ".katex .vlist>span>.pstrut",
+   ""
+  ],
+  [
+   ".katex .vlist-t2",
+   ""
+  ],
+  [
+   ".katex .vlist-s",
+   ""
+  ],
+  [
+   ".katex .vbox",
+   ""
+  ],
+  [
+   ".katex .hbox",
+   ""
+  ],
+  [
+   ".katex .hbox,.katex .thinbox",
+   ""
+  ],
+  [
+   ".katex .thinbox",
+   ""
+  ],
+  [
+   ".katex .msupsub",
+   ""
+  ],
+  [
+   ".katex .mfrac>span>span",
+   ""
+  ],
+  [
+   ".katex .mfrac .frac-line",
+   ""
+  ],
+  [
+   ".katex .hdashline,.katex .hline,.katex .mfrac .frac-line,.katex .overline .overline-line,.katex .rule,.katex .underline .underline-line",
+   ""
+  ],
+  [
+   ".katex .mspace",
+   ""
+  ],
+  [
+   ".katex .clap,.katex .llap,.katex .rlap",
+   ""
+  ],
+  [
+   ".katex .clap>.inner,.katex .llap>.inner,.katex .rlap>.inner",
+   ""
+  ],
+  [
+   ".katex .clap>.fix,.katex .llap>.fix,.katex .rlap>.fix",
+   ""
+  ],
+  [
+   ".katex .llap>.inner",
+   ""
+  ],
+  [
+   ".katex .clap>.inner,.katex .rlap>.inner",
+   ""
+  ],
+  [
+   ".katex .clap>.inner>span",
+   ""
+  ],
+  [
+   ".katex .rule",
+   ""
+  ],
+  [
+   ".katex .hline,.katex .overline .overline-line,.katex .underline .underline-line",
+   ""
+  ],
+  [
+   ".katex .hdashline",
+   ""
+  ],
+  [
+   ".katex .sqrt>.root",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size1,.katex .sizing.reset-size1.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size2,.katex .sizing.reset-size1.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size3,.katex .sizing.reset-size1.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size4,.katex .sizing.reset-size1.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size5,.katex .sizing.reset-size1.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size6,.katex .sizing.reset-size1.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size7,.katex .sizing.reset-size1.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size8,.katex .sizing.reset-size1.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size9,.katex .sizing.reset-size1.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size10,.katex .sizing.reset-size1.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size1.size11,.katex .sizing.reset-size1.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size1,.katex .sizing.reset-size2.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size2,.katex .sizing.reset-size2.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size3,.katex .sizing.reset-size2.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size4,.katex .sizing.reset-size2.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size5,.katex .sizing.reset-size2.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size6,.katex .sizing.reset-size2.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size7,.katex .sizing.reset-size2.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size8,.katex .sizing.reset-size2.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size9,.katex .sizing.reset-size2.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size10,.katex .sizing.reset-size2.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size2.size11,.katex .sizing.reset-size2.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size1,.katex .sizing.reset-size3.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size2,.katex .sizing.reset-size3.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size3,.katex .sizing.reset-size3.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size4,.katex .sizing.reset-size3.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size5,.katex .sizing.reset-size3.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size6,.katex .sizing.reset-size3.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size7,.katex .sizing.reset-size3.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size8,.katex .sizing.reset-size3.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size9,.katex .sizing.reset-size3.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size10,.katex .sizing.reset-size3.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size3.size11,.katex .sizing.reset-size3.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size1,.katex .sizing.reset-size4.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size2,.katex .sizing.reset-size4.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size3,.katex .sizing.reset-size4.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size4,.katex .sizing.reset-size4.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size5,.katex .sizing.reset-size4.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size6,.katex .sizing.reset-size4.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size7,.katex .sizing.reset-size4.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size8,.katex .sizing.reset-size4.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size9,.katex .sizing.reset-size4.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size10,.katex .sizing.reset-size4.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size4.size11,.katex .sizing.reset-size4.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size1,.katex .sizing.reset-size5.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size2,.katex .sizing.reset-size5.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size3,.katex .sizing.reset-size5.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size4,.katex .sizing.reset-size5.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size5,.katex .sizing.reset-size5.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size6,.katex .sizing.reset-size5.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size7,.katex .sizing.reset-size5.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size8,.katex .sizing.reset-size5.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size9,.katex .sizing.reset-size5.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size10,.katex .sizing.reset-size5.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size5.size11,.katex .sizing.reset-size5.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size1,.katex .sizing.reset-size6.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size2,.katex .sizing.reset-size6.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size3,.katex .sizing.reset-size6.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size4,.katex .sizing.reset-size6.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size5,.katex .sizing.reset-size6.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size6,.katex .sizing.reset-size6.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size7,.katex .sizing.reset-size6.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size8,.katex .sizing.reset-size6.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size9,.katex .sizing.reset-size6.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size10,.katex .sizing.reset-size6.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size6.size11,.katex .sizing.reset-size6.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size1,.katex .sizing.reset-size7.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size2,.katex .sizing.reset-size7.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size3,.katex .sizing.reset-size7.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size4,.katex .sizing.reset-size7.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size5,.katex .sizing.reset-size7.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size6,.katex .sizing.reset-size7.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size7,.katex .sizing.reset-size7.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size8,.katex .sizing.reset-size7.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size9,.katex .sizing.reset-size7.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size10,.katex .sizing.reset-size7.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size7.size11,.katex .sizing.reset-size7.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size1,.katex .sizing.reset-size8.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size2,.katex .sizing.reset-size8.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size3,.katex .sizing.reset-size8.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size4,.katex .sizing.reset-size8.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size5,.katex .sizing.reset-size8.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size6,.katex .sizing.reset-size8.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size7,.katex .sizing.reset-size8.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size8,.katex .sizing.reset-size8.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size9,.katex .sizing.reset-size8.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size10,.katex .sizing.reset-size8.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size8.size11,.katex .sizing.reset-size8.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size1,.katex .sizing.reset-size9.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size2,.katex .sizing.reset-size9.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size3,.katex .sizing.reset-size9.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size4,.katex .sizing.reset-size9.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size5,.katex .sizing.reset-size9.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size6,.katex .sizing.reset-size9.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size7,.katex .sizing.reset-size9.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size8,.katex .sizing.reset-size9.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size9,.katex .sizing.reset-size9.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size10,.katex .sizing.reset-size9.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size9.size11,.katex .sizing.reset-size9.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size1,.katex .sizing.reset-size10.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size2,.katex .sizing.reset-size10.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size3,.katex .sizing.reset-size10.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size4,.katex .sizing.reset-size10.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size5,.katex .sizing.reset-size10.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size6,.katex .sizing.reset-size10.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size7,.katex .sizing.reset-size10.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size8,.katex .sizing.reset-size10.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size9,.katex .sizing.reset-size10.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size10,.katex .sizing.reset-size10.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size10.size11,.katex .sizing.reset-size10.size11",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size1,.katex .sizing.reset-size11.size1",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size2,.katex .sizing.reset-size11.size2",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size3,.katex .sizing.reset-size11.size3",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size4,.katex .sizing.reset-size11.size4",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size5,.katex .sizing.reset-size11.size5",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size6,.katex .sizing.reset-size11.size6",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size7,.katex .sizing.reset-size11.size7",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size8,.katex .sizing.reset-size11.size8",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size9,.katex .sizing.reset-size11.size9",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size10,.katex .sizing.reset-size11.size10",
+   ""
+  ],
+  [
+   ".katex .fontsize-ensurer.reset-size11.size11,.katex .sizing.reset-size11.size11",
+   ""
+  ],
+  [
+   ".katex .delimsizing.size1",
+   ""
+  ],
+  [
+   ".katex .delimsizing.size2",
+   ""
+  ],
+  [
+   ".katex .delimsizing.size3",
+   ""
+  ],
+  [
+   ".katex .delimsizing.size4",
+   ""
+  ],
+  [
+   ".katex .delimsizing.mult .delim-size1>span",
+   ""
+  ],
+  [
+   ".katex .delimsizing.mult .delim-size4>span",
+   ""
+  ],
+  [
+   ".katex .nulldelimiter",
+   ""
+  ],
+  [
+   ".katex .delimcenter,.katex .op-symbol",
+   ""
+  ],
+  [
+   ".katex .op-symbol.small-op",
+   ""
+  ],
+  [
+   ".katex .op-symbol.large-op",
+   ""
+  ],
+  [
+   ".katex .accent>.vlist-t,.katex .op-limits>.vlist-t",
+   ""
+  ],
+  [
+   ".katex .accent .accent-body",
+   ""
+  ],
+  [
+   ".katex .accent .accent-body:not(.accent-full)",
+   ""
+  ],
+  [
+   ".katex .overlay",
+   ""
+  ],
+  [
+   ".katex .mtable .vertical-separator",
+   ""
+  ],
+  [
+   ".katex .mtable .arraycolsep",
+   ""
+  ],
+  [
+   ".katex .mtable .col-align-c>.vlist-t",
+   ""
+  ],
+  [
+   ".katex .mtable .col-align-l>.vlist-t",
+   ""
+  ],
+  [
+   ".katex .mtable .col-align-r>.vlist-t",
+   ""
+  ],
+  [
+   ".katex .svg-align",
+   ""
+  ],
+  [
+   ".katex svg",
+   ""
+  ],
+  [
+   ".katex svg path",
+   ""
+  ],
+  [
+   ".katex img",
+   ""
+  ],
+  [
+   ".katex .stretchy",
+   ""
+  ],
+  [
+   ".katex .stretchy:after,.katex .stretchy:before",
+   ""
+  ],
+  [
+   ".katex .hide-tail",
+   ""
+  ],
+  [
+   ".katex .halfarrow-left",
+   ""
+  ],
+  [
+   ".katex .halfarrow-right",
+   ""
+  ],
+  [
+   ".katex .brace-left",
+   ""
+  ],
+  [
+   ".katex .brace-center",
+   ""
+  ],
+  [
+   ".katex .brace-right",
+   ""
+  ],
+  [
+   ".katex .x-arrow-pad",
+   ""
+  ],
+  [
+   ".katex .cd-arrow-pad",
+   ""
+  ],
+  [
+   ".katex .mover,.katex .munder,.katex .x-arrow",
+   ""
+  ],
+  [
+   ".katex .boxpad",
+   ""
+  ],
+  [
+   ".katex .fbox,.katex .fcolorbox",
+   ""
+  ],
+  [
+   ".katex .cancel-pad",
+   ""
+  ],
+  [
+   ".katex .cancel-lap",
+   ""
+  ],
+  [
+   ".katex .sout",
+   ""
+  ],
+  [
+   ".katex .angl",
+   ""
+  ],
+  [
+   ".katex .anglpad",
+   ""
+  ],
+  [
+   ".katex .eqn-num:before",
+   ""
+  ],
+  [
+   ".katex .mml-eqn-num:before",
+   ""
+  ],
+  [
+   ".katex .mtr-glue",
+   ""
+  ],
+  [
+   ".katex .cd-vert-arrow",
+   ""
+  ],
+  [
+   ".katex .cd-label-left",
+   ""
+  ],
+  [
+   ".katex .cd-label-right",
+   ""
+  ],
+  [
+   ".katex-display",
+   ""
+  ],
+  [
+   ".katex-display>.katex",
+   ""
+  ],
+  [
+   ".katex-display>.katex>.katex-html",
+   ""
+  ],
+  [
+   ".katex-display>.katex>.katex-html>.tag",
+   ""
+  ],
+  [
+   ".katex-display.leqno>.katex>.katex-html>.tag",
+   ""
+  ],
+  [
+   ".katex-display.fleqn>.katex",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-h2",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-h3",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-h4",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-h5",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-h6",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-fenced-code",
+   ""
+  ],
+  [
+   ".cm-atomic-fenced-selection",
+   ""
+  ],
+  [
+   ".cm-atomic-em",
+   ""
+  ],
+  [
+   ".cm-atomic-strike",
+   ""
+  ],
+  [
+   ".cm-atomic-highlight",
+   ""
+  ],
+  [
+   ".cm-atomic-strong-mark",
+   ""
+  ],
+  [
+   ".cm-atomic-em-mark",
+   ""
+  ],
+  [
+   ".cm-atomic-strike-mark",
+   ""
+  ],
+  [
+   ".cm-atomic-highlight-mark",
+   ""
+  ],
+  [
+   ".cm-atomic-link:hover",
+   ""
+  ],
+  [
+   ".cm-atomic-link-icon",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-source .cm-atomic-link::after",
+   ""
+  ],
+  [
+   ".cm-atomic-link:hover::after, .cm-atomic-link-icon:hover",
+   ""
+  ],
+  [
+   ".cm-atomic-wiki-link:hover",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-hr",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-hr::after",
+   ""
+  ],
+  [
+   ".cm-atomic-image",
+   ""
+  ],
+  [
+   ".cm-atomic-image img",
+   ""
+  ],
+  [
+   ".cm-atomic-task-checkbox",
+   ""
+  ],
+  [
+   ".cm-atomic-task-checkbox::after",
+   ""
+  ],
+  [
+   ".cm-atomic-task-checkbox:checked",
+   ""
+  ],
+  [
+   ".cm-atomic-task-checkbox:checked::after",
+   ""
+  ],
+  [
+   ".cm-atomic-task-checkbox:focus-visible",
+   ""
+  ],
+  [
+   ".cm-line.cm-atomic-task-done",
+   ""
+  ],
+  [
+   ".cm-atomic-table",
+   ""
+  ],
+  [
+   ".cm-atomic-table table",
+   ""
+  ],
+  [
+   ".cm-atomic-table th, .cm-atomic-table td",
+   ""
+  ],
+  [
+   ".cm-atomic-table th",
+   ""
+  ],
+  [
+   ".cm-atomic-table th:focus-within, .cm-atomic-table td:focus-within",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-source",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-source .cm-atomic-mark",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-source .cm-atomic-strong-wrap.active > .cm-atomic-mark, .cm-atomic-table-cell-source .cm-atomic-em-wrap.active > .cm-atomic-mark, .cm-atomic-table-cell-source .cm-atomic-strike-wrap.active > .cm-atomic-mark, .cm-atomic-table-cell-source .cm-atomic-highlight-wrap.active > .cm-atomic-mark, .cm-atomic-table-cell-source .cm-atomic-link-wrap.active > .cm-atomic-mark",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-source .cm-atomic-link-wrap.active > .cm-atomic-link-url",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-source .cm-atomic-highlight",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-preview",
+   ""
+  ],
+  [
+   ".cm-atomic-table th[data-has-image]:not(:focus-within) .cm-atomic-table-cell-source, .cm-atomic-table td[data-has-image]:not(:focus-within) .cm-atomic-table-cell-source",
+   ""
+  ],
+  [
+   ".cm-atomic-table-cell-image",
+   ""
+  ],
+  [
+   ".cm-atomic-table-menu",
+   ""
+  ],
+  [
+   ".cm-atomic-table-menu-item",
+   ""
+  ],
+  [
+   ".cm-atomic-table-menu-item:hover",
+   ""
+  ],
+  [
+   ".cm-atomic-table-menu-sep",
+   ""
+  ],
+  [
+   ".cm-atomic-search-input",
+   ""
+  ],
+  [
+   ".cm-atomic-search-input:focus",
+   ""
+  ],
+  [
+   ".cm-atomic-search-input::placeholder",
+   ""
+  ],
+  [
+   ".cm-atomic-search-count",
+   ""
+  ],
+  [
+   ".cm-atomic-search-btn",
+   ""
+  ],
+  [
+   ".cm-atomic-search-btn:hover",
+   ""
+  ],
+  [
+   ".cm-atomic-search-btn:focus-visible",
+   ""
+  ],
+  [
+   ".cm-atomic-search-btn svg",
+   ""
+  ],
+  [
+   ".cm-searchMatch-selected",
+   ""
+  ],
+  [
+   ".cm-initialRevealMatch",
+   ""
+  ],
+  [
+   ".cm-atomic-readonly .cm-atomic-link, .cm-atomic-readonly .cm-atomic-wiki-link, .cm-atomic-readonly .cm-atomic-link-wrap",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-line.cm-atomic-h2",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-line.cm-atomic-h3",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-line.cm-atomic-fenced-code",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-atomic-task-checkbox",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search input:not([type=\"checkbox\"])",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search button",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search button:hover",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search label",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search input[type=\"checkbox\"]",
+   ""
+  ],
+  [
+   ".editor-markdown-editor .cm-search [name=\"close\"]",
+   ""
+  ],
+  [
+   ".huhu-live-table",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll table",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll th, .huhu-live-table-scroll td",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll [align=\"right\"]",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll [align=\"center\"]",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll tr:last-child td",
+   ""
+  ],
+  [
+   ".huhu-live-table-scroll th",
+   ""
+  ],
+  [
+   ".cm-searchMatch",
+   ""
+  ],
+  [
+   ".cm-atomic-readonly .cm-atomic-table-cell-source",
+   ""
+  ]
+ ]
+}

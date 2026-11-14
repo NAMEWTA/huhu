@@ -12,18 +12,18 @@
 | S2b 去除 `!important` | 完成 | 73 处 → 保留 37 处带说明（减少动效 / 覆盖第三方 / 覆盖内联 width）；stylelint `declaration-no-important` |
 | S3 样式归位与分层 | 完成（有登记债务） | 约 1,300 个规则块迁到 `shell` / `modules` 层；33 条规则退回 `components`（`evidence/s3-stay-in-components.json`）；36 个跨包共用类登记在 `scripts/css-ownership-exceptions.json` |
 | S4 类名统一 | 完成（有登记债务） | 712 个类按归属加前缀（`evidence/class-map.json`）；209 个历史类名中 57 个仍作为例外登记（`scripts/css-class-exceptions.json`） |
-| S5a 按组件拆分 | **部分完成** | `components/{core,overlays,data,feedback}.css`；`shared.css` 已删除。`core.css` 仍含按钮 / 分段控件 / 标签栏 / 全局元素等彼此顺序耦合的规则 |
-| S5b 去重与同义类合并 | 部分完成 | 13 个同义类合并（`btn`、`badge`、`btn-primary`…）；`card`、`row`、`segmented`、`spin` 与已有 `hu-` 类并存，登记待合并；规则级“去重合并”未做 |
-| S5c 无用样式核查 | 完成（静态 + PurgeCSS，无覆盖率） | AST 静态分析删除 378 条规则（`evidence/s5c-purge-candidates.json`）；PurgeCSS 130 条 rejected 逐条核查后一条都不删（`evidence/s5c-purgecss-review.md`）；**没有做覆盖率交叉** |
+| S5a 按组件拆分 | 完成（有登记限度） | `components/` 下 16 个文件（`shared.css` 已删除）：先按领域拆 `overlays / data / feedback`，再对 `core.css` 用“同层顺序约束强连通分量”算法拆成 13 个文件（见偏差）；对 rc.3 基线计算样式 / 宽度矩阵 0 差异。最大的一块（≈351 条规则，互相顺序耦合）仍是 `core.css` |
+| S5b 去重与同义类合并 | 完成（有登记债务） | 13 个同义类合并；`card`、`row`、`segmented`、`spin` 与已有 `hu-` 类并存，登记待合并；规则级去重：证明与顺序无关的 24 处已合并，其余 163 条重复选择器登记在 `scripts/css-duplicates-baseline.json`，新增重复会让 `pnpm lint` 失败 |
+| S5c 无用样式核查 | 完成（静态 + PurgeCSS + 覆盖率线索） | AST 静态分析删除 378 条规则（`evidence/s5c-purge-candidates.json`）；PurgeCSS 130 条 rejected 逐条核查后一条都不删（`evidence/s5c-purgecss-review.md`）；覆盖率交叉见 DSC-12 |
 | S6 主题验收与收尾 | 部分完成 | 四主题比对完成；DSC-13 的人工逐张核对未做（见下）；文档已更新 |
 
 ## 偏差与未做（如实）
 
 - **层结构与规格不同**：规格要求 `components / shell / modules` 一次到位；实测证明按文件一次分三层会产生上千组翻转（E1）。实际做法是 DC-D11：先整体放进 `components`（S2a），归位后（S3）再启用 `shell` / `modules`，并用“收敛循环”把无法保持原优先级的规则退回 `components`（33 条，包括各插件文件自己原有的规则）。`vendor` 层只承载静态第三方 CSS（xterm、katex）；运行时注入的 CodeMirror、sonner 样式无层，覆盖它们的规则在不分层白名单里。
-- **S5a 没有做到“一个组件一个文件”**：细拆（7 个文件）产生 354 处计算样式差异，根因是按钮、分段控件、标签栏、全局元素选择器之间的同层顺序耦合。折中为 4 个文件，`core.css` 保留原相对顺序。要继续拆分需要把这些规则改写成与顺序无关的选择器，本期未做。
+- **S5a 没有做到“一个组件一个文件”**：第一次细拆（7 个文件）产生 354 处计算样式差异，根因是按钮、分段控件、标签栏、全局元素选择器之间的同层顺序耦合。后来改用算法拆分：同层里只有“同特异性、选择器可能重叠、设置同一属性族”的规则对顺序敏感，把这些对连成图，强连通分量必须同文件，其余按拓扑序成文件。`core.css`（603 条规则、75 个属性族、1753 对冲突、49 个分量）拆成 13 个文件，其中最大的一个分量约 351 条规则仍在 `core.css`。小文件按“第一条规则的主题”命名（`btn.css`、`toggle.css`、`tw.css`…），多数是 `*-etc.css` 这类混合文件，不是严格的“一个组件一个文件”；`DSC-06` 的“归属唯一”由 `check-css-ownership` 保证，文件名粒度没有达到规格字面要求。
 - **类名统一不彻底**：共享组件类用 `hu-` + 原名（如 `hu-knowledge-resource-footer`、`hu-tw-workbench`），名字沿用历史语义，没有重新命名；工作台 `shell-`，插件用插件前缀。57 个类登记为例外（数据驱动 / 同义类待合并等）。
 - **stylelint 前缀规则未使用**：前缀规则由 `scripts/check-css-classes.mjs` 实现（含例外登记表），而不是 stylelint 的 `selector-class-pattern`；效果等价，位置不同。
-- **PurgeCSS 与覆盖率**：PurgeCSS 已补做（见 DSC-11），覆盖率交叉仍未做。无用规则判定是静态的（类名在 TS 字符串、模板片段里都没有出现），删除后由四主题比对验证；不在固定 Vault 屏幕上出现的状态只有静态证据。
+- **PurgeCSS 与覆盖率**：PurgeCSS（DSC-11）与覆盖率交叉（DSC-12）都已做。无用规则判定是静态的（类名在 TS 字符串、模板片段里都没有出现），删除后由四主题比对验证；不在固定 Vault 屏幕上出现的状态只有静态证据。
 - **DSC-13 人工核对**：没有对 64 组截图逐张人工对照“标志特征”。替代证据：重构后与重构前（`origin` 基线，四套主题 × 明暗）计算样式与像素逐一相同，因此主题外观没有变化；人工查看了 Apple 浅色与 Vercel 深色的任务看板，符合上游 §6 的特征（Apple 蓝色强调与浅色外壳、Vercel 近黑背景与白字）。
 - **覆盖盲区**：启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单没有进入屏幕清单；xterm 终端与 Mermaid 的运行时样式夹具里没有出现（E0 只看到 sonner 与 CodeMirror）。
 - **DS-06 / DS-07 / DS-12 / DS-14 的单独运行证据**：未单独重做；它们依赖的主题引擎代码本期没有改动，且 e2e（含 a11y）覆盖主题切换与终端换主题。
@@ -41,16 +41,17 @@
 
 - **最终审计**（快照 `a49dac2092bd366ae959df03dd7f434318d07314`，隔离 worktree）：`pnpm install --frozen-lockfile` 通过；`pnpm typecheck` 通过；`pnpm lint`（oxlint、`check-lint-rules`、stylelint、`check-ui-colors`、`check-css-layers`、`check-css-classes`、`check-css-ownership`）通过；`pnpm test` 695 passed / 7 skipped / 0 failed；`pnpm build` 通过；全量 e2e 105 passed / 3 skipped（截图用例，设计上条件跳过）/ 0 failed。
 - **视觉等价性**：S5a 完成后对四套主题 × 明暗运行 `pnpm visual:compare origin`：计算样式失败 0、宽度矩阵失败 0、像素比对通过（容差见 `tests/visual/masks.ts`）。之后只改了文档与脚本注释。
-- 没有跑：`pnpm knip`、`pnpm format:check`（CI 里会跑，发布前补跑，见下）、打包后 e2e（`e2e:packaged`）、Windows / macOS 任何验证。
+- 拆分 `core.css` 与规则去重之后（提交 `75ca137`、`3256388`）：`pnpm lint`（含 `check-css-duplicates`）、`pnpm format:check` 通过；对 rc.3 基线（claude 主题，含状态矩阵）计算样式 0 差异、宽度矩阵 0 差异，像素只有 `settings-about` 的构建哈希文字不同（内容，不是样式，两张）。其余主题的拆分后复核见下方“最终审计”。
+- 没有跑：打包后 e2e（`e2e:packaged`）、Windows / macOS 任何验证（用户决定归档不需要实机验证）。
 
 ### 未完成的验收项（编号对应 spec）
 
 - DSC-05：保留了 34 处 `!important`，其中“覆盖第三方运行时样式”一类超出规格的两类例外（见上表）。
-- DSC-09（评估后未做）：`no-duplicate-selectors` 共 218 处重复选择器；写了一个保守的合并脚本（后块声明并入首块，要求中间没有“选择器可能重叠且设置同一属性”的规则），只有 7 处能证明与顺序无关，其余 210 处都因顺序耦合不能自动合并，已回退（7 处也未验证，没有保留）。手工合并每一处都要重跑渲染比对。`no-duplicate-selectors` 没有启用，`.stylelintrc.json` 里 `declaration-block-no-duplicate-properties` 仍保留 `consecutive-duplicates-with-different-values` 例外；规则级去重未做。
+- DSC-09（部分完成）：`no-duplicate-selectors` 起点 218 处重复。v1 脚本（后块并入首块，要求中间没有“可能重叠且设置同一属性”的规则）只有 7 处安全；之后改为按“属性根”（`overflow` 与 `overflow-y` 等简写 / 长写同根）判定冲突，24 处可证明与顺序无关的重复已合并，对 rc.3 基线计算样式 / 宽度矩阵 / 像素 0 差异；合并产生的同块重复属性已删除。其余 193 处合并要改变层叠结果，没有合并，其中 163 条（拆文件后按文件计）登记在 `scripts/css-duplicates-baseline.json`，`check-css-duplicates`（`pnpm lint`）保证只减不增。stylelint 的 `no-duplicate-selectors` 没有启用（它会把这些历史登记项报为错误），由自写检查器代替；`declaration-block-no-duplicate-properties` 的 `consecutive-duplicates-with-different-values` 例外仍保留。
 - ~~DSC-10~~ **已完成（发布后补做）**：16 处项目类名定位器改成 `data-testid`（`notes-reading-pane`、`home-main-column`、`home-side-column`、`version-diff-labels`、`notes-explorer-tree`、`agent-space-item`、`col-resizer`），`.hu-wikilink` 改按 `a[data-target]`；仍保留 2 处按类名：`.home-widget`（区分插件贡献的首页卡片）与第三方 `.cm-*` / `.xterm-*`。受影响的 e2e 用例本地通过。
 - ~~DSC-11~~ **已完成（结论是“没有可安全删除的规则”）**：安装 PurgeCSS 8.0.0，`pnpm css:purge`；rejected 130 条逐条核查与结论见 `evidence/s5c-purgecss-review.md`。第一次按“类名在源码里不出现”删除 101 条被渲染比对否决（模板片段拼出的状态类），第二次只删确认无用的 12 条仍有 16 项差异，最终一条都不删。
-- DSC-12：覆盖率交叉没有做。
-- DSC-13（抽查）：没有逐张人工核对 64 组截图；抽查了 4 张：Claude 深色的设置·外观页（四张主题预览卡各按自己的主题渲染：Claude 珊瑚 + 衬线、Apple 蓝色胶囊、Notion 紫色主按钮、Vercel 黑色 + 等宽小标签，满足 DS-01）、Apple 浅色与 Vercel 深色的任务看板、Notion 浅色的笔记编辑器，均符合上游 §6 的特征。其余仍以“与重构前基线逐元素一致”为证据。
+- ~~DSC-12~~ **已完成（结论：没有可据以删除的规则，只有线索）**：`tests/visual/coverage.spec.ts`（`CSS.startRuleUsageTracking`，在固定 Vault 全部屏幕、claude 主题、1440 宽上收集）。打包样式表共 2846 条规则，1763 条从未匹配任何元素（注意 `stopRuleUsageTracking` 只返回“用过”的规则，未用的要自己枚举再相减）。归类（`evidence/dsc12-zero-coverage-rules.json`）：PurgeCSS 也判无用 103（已在 DSC-11 逐条核查）；媒体查询内 512（窄屏 / 减少动效 / 触屏，固定视口走不到）；编辑器与第三方内容类 355（CodeMirror 装饰、表格、搜索面板，夹具里没有）；状态 / 属性变体 150；其他纯类选择器 643（集中在启动页、SSH 控制台、保险箱、自动化规则编辑、变更评审 / 树、收件箱、Agent 启动菜单等夹具没走到的界面）。抽查 33 个 PurgeCSS 判“有用”的类名（`grep` 子代理，源码字符串与模板拼接都搜）：28 个在源码里有使用；5 个没有——`.board-card`（旧类名，TSX 实际用 `tasks-board-card`，`tasks.css` 里 `.board-card`、`.board-card.selected`、`.board-card h3`、`.board-card p` 是类名改造前的残留）和 `.hu-callout` 的 `warning / success / info` 三个修饰变体。这 5 项只是**候选**：没有删除，因为 PurgeCSS 与覆盖率都不能证明它们不会被运行时数据拼出来（教训见 DSC-11），要删需要单独的一次渲染比对。
+- DSC-13（基本完成，缺启动页）：把 `origin` 基线里 7 个界面（首页、笔记编辑器、任务看板、Agent CLI、设置·外观、新建任务对话框、命令面板）× 四套主题 × 明暗共 56 张截图拼成 4 张对照图（`evidence/dsc13/{claude,apple,notion,vercel}.jpg`）逐张查看：Claude 为奶油底 + 珊瑚主色 + 衬线标题；Apple 为白 / 浅灰底 + 蓝色主按钮与蓝色焦点环；Notion 为暖白底 + 紫色主按钮与紫色焦点环；Vercel 为白 / 近黑底 + 黑（深色下为白）主按钮、等宽小标签；四套主题的明暗两种模式都没有错位、溢出或缺色，设置·外观页的四张主题预览卡也各自按自己的主题渲染，符合上游 §6 的“标志特征”和 DS-01。**启动页没有进入夹具屏幕清单**（固定 Vault 已打开），所以第 8 个界面（共 64 张中的 8 张）没有截图。这是外观目视核对，不是数值验收；数值证据仍是“与重构前基线逐元素一致”。
 - DSC-15（部分）：项目 CSS 源文件合计 origin 302,555 B → 现在 316,663 B（+4.7%，增长来自层声明与 `@layer` 包装、前缀更长的类名与 33 条退回 `components` 的块，大于删除 378 条规则的减少）；构建产物 `index-*.css` 386,543 B（origin 构建产物字节数没有记录，S2a 时为 372,670 B）。`perf.spec.ts` 全量运行通过（一次全量里 17.4 ms 的偶发超出，单独复跑通过），没有保存 p95 数字对比。
 - DSC-16：`notes/context/workbench.md` 里没有 D-18 条目可标注，无法核实该项；其余文档已更新（`notes/context/design-system.md`、知识索引）。
 - DC-D10：不分层白名单文件里放行了编辑器 DOM 内的项目装饰类（`huhu-md-semibold`、`huhu-live-*`），不只是第三方选择器（`scripts/check-css-layers.mjs` 的 `THIRD_PARTY_CLASS`）；原因见 spec DC-D4。
