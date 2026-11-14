@@ -71,7 +71,7 @@ test("ACC-KN-09 阅读模式：<script> 与 javascript: 链接不会执行，也
 
 test("ACC-AG-11 本机没有任何受支持 CLI：新建菜单提供“新终端”，智能体显示“未检测到”且不可启动", async () => {
   const home = mkdtempSync(path.join(tmpdir(), "huhu-nohome-")); // 检测会回退到各 CLI 的默认安装目录（~/.local/bin 等）：用空的 HOME 才算“本机没有”
-  const { page, close } = await openApp({ PATH: "/nonexistent-huhu-bin", HOME: home, USERPROFILE: home });
+  const { page, close } = await openApp({ PATH: process.platform === "win32" ? path.join(process.env["SystemRoot"] ?? "C:\\Windows", "System32") : "/nonexistent-huhu-bin", HOME: home, USERPROFILE: home });
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();

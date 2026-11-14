@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { errors, newId, type AutomationRuleFrontmatter, type EventPayload, type EventType, type TaskDto } from "@huhu/contracts";
 import type { Entity, SemanticRepository } from "@huhu/vault";
@@ -7,6 +7,20 @@ import { nextRuns, validateSchedule } from "../shared/cron.js";
 import { redactSecrets } from "../shared/redact.js";
 import type { ClaimStore } from "./claims.js";
 import { ACTIVE_CLAIM, classify, type ScanEnv, type SnapshotTask } from "./scan.js";
+
+/** 两个目录是否是同一个目录（macOS 上临时目录 /var 是 /private/var 的符号链接，Windows 上大小写不敏感）：优先比 realpath。 */
+function sameDir(a: string, b: string): boolean {
+  const norm = (p: string): string => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const x = norm(a);
+  const y = norm(b);
+  return process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
 
 export interface TaskQueryLike {
   listAll(): TaskDto[];
@@ -372,7 +386,7 @@ export class AutomationsService {
     const usedEnv = Object.keys(a.envRefs).length > 0;
     try {
       const spaces = (await this.d.call("agent.spaces.list", {})) as { id: string; revision: number; root: string }[];
-      const space = a.spaceId ? spaces.find((x) => x.id === a.spaceId) : spaces.find((x) => path.resolve(x.root) === path.resolve(this.d.vaultRoot));
+      const space = a.spaceId ? spaces.find((x) => x.id === a.spaceId) : spaces.find((x) => sameDir(x.root, this.d.vaultRoot));
       if (!space) throw errors.invalidInput(a.spaceId ? "Space 不存在或目录不可访问" : "没有以 Vault 根为目录的 Space，请在规则里选择一个 Space");
       const key = `autorun-${run.id}`;
       const sess = (await this.d.call(
