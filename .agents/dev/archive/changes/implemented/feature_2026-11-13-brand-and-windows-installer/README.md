@@ -3,7 +3,7 @@
 - **来源**：
   - 2026-11-13 用户口头需求，以及 dev-grill 决定（安装范围由用户选择“仅为我 / 所有人”）。
   - 同日补充：用四份 DESIGN.md 完整重构项目设计，提供四套可切换主题；默认主题为 Claude。
-- **状态**：**已归档（implemented，2026-11-14）**（见文末“收尾记录”）。品牌与安装器 BR-S1、BR-S2 已实现（安装器向导交互未经 Windows 实机验证）；设计系统 DS-S1 已完成，剩余部分已由 [design-system-completion](../feature_2026-11-14-design-system-completion/README.md) 完成并一并归档。
+- **状态**：**已归档（implemented，2026-11-14）**（见文末“收尾记录”）。品牌与安装器 BR-S1、BR-S2 已实现（安装器向导交互未经 Windows 实机验证）；设计系统 DS-S1 已完成，剩余部分以 [design-system-completion](../feature_2026-11-14-design-system-completion/README.md) 的结果为准（含登记的限度：`core.css` 最大块约 351 条规则未拆、182 条重复选择器登记在案、DSC-02 按字面未通过等），一并归档。
 - **基线**：HEAD `8283c5c`；品牌源 `obsidian-huhu@d527f14`；设计参考 `VoltAgent/awesome-design-md@fcc7028`。
 
 | 文件 | 内容 |

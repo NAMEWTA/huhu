@@ -23,7 +23,7 @@
 - 上游：[brand-and-windows-installer](../feature_2026-11-13-brand-and-windows-installer/README.md)（其 DS-S1 已完成）。本 change 完成后，上游的 DS-S2～S4 与“按 plan，rc 前必须通过”的约束以本 change 的结果为准。
 - 与 [task-issue-automation](../feature_2026-11-13-task-issue-automation/README.md)、[archives-as-folder-notes](../feature_2026-11-13-archives-as-folder-notes/README.md)、[agent-launch-settings](../feature_2026-11-13-agent-launch-settings/README.md) 共享 TSX 与样式文件：从 S0 生成 `origin` 基线起到 S5c 结束需要冻结窗口，见 [plan.md](plan.md)“与其他 change 的冲突与冻结”。
 
-## 需要用户确认（不阻塞文档，阻塞实施）
+## 需要用户确认（文档阶段提出；**这四项在 change 目录里没有留下明确的确认记录**，实施按各项“理解”进行，实施中没有发现需要批准的有意外观变化）
 
 1. **“`hu-` 类名统一”**：按上游已定规则理解为——共享组件 `hu-`、工作台用区域前缀、插件用插件 id 前缀，而不是把全部类名改成 `hu-` 开头。
 2. **“按组件重写共享样式”**：理解为按组件拆成 `components/<name>.css` 并去重、合并同义类，**规则内容以渲染不变为准**；不按新设计重新设计样式。
@@ -34,5 +34,5 @@
 
 - **归档结论**：`implemented`（主类型 `feature`：新增的是守护与验证能力 + 样式结构，外观不变）。用户明确：Windows / macOS 实机验证不是归档条件。
 - **已交付并有证据**：层叠分层与不分层白名单（`check-css-layers`）、73 → 34 处 `!important`（带说明）、规则按使用者归位（`check-css-ownership`）、类名前缀统一（`check-css-classes`）、共享样式拆成 16 个文件、24 处重复选择器合并并登记其余 182 条（`components/*.css` 按同一文件计）（`check-css-duplicates`）、无用样式核查（PurgeCSS + Chromium 覆盖率，结论：无可据以删除的规则）、渲染等价性验证入库（`pnpm visual:*`、`tests/visual/`）。拆分与去重对 rc.3 基线 0 差异；四主题完整比对与最终审计见 [progress.md](progress.md)“最终审计”。
-- **没有交付 / 没有验证（如实）**：最大的一块顺序耦合规则（≈351 条）仍在 `core.css`，小文件多为 `*-etc.css` 混合命名，没有做到规格字面的“一个组件一个文件”；182 条历史重复选择器、57 个历史类名、36 个跨包共用类只是登记，没有清零；5 个无用规则候选（`.board-card*`、`.hu-callout` 的 warning / success / info）没有删除；`!important` 保留 34 处，其中覆盖 CodeMirror / sonner 的 14 处超出规格允许的两类；没有用 stylelint 的 `selector-class-pattern` / `no-duplicate-selectors`（用自写检查器与登记表代替）；DSC-14（DS-06 / 07 / 12 / 13 / 14 单独运行证据）与 DSC-15（perf p95、CSS 字节数）没有重做；启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单不在视觉验证屏幕清单，DSC-13 的“下拉菜单”用命令面板顶替；Windows / macOS 渲染、`e2e:packaged`、真实 claude / codex 路径未验证。完整逐条 DSC 状态见 [progress.md](progress.md)“未做 / 未验证”。
+- **没有交付 / 没有验证（如实）**：最大的一块顺序耦合规则（≈351 条）仍在 `core.css`，小文件多为 `*-etc.css` 混合命名，没有做到规格字面的“一个组件一个文件”；182 条历史重复选择器、57 个历史类名、36 个跨包共用类只是登记，没有清零；5 个无用规则候选（`.board-card*`、`.hu-callout` 的 warning / success / info）没有删除；`!important` 保留 34 处，其中覆盖 CodeMirror / sonner 的 14 处超出规格允许的两类；没有用 stylelint 的 `selector-class-pattern` / `no-duplicate-selectors`（用自写检查器与登记表代替）；**DSC-02 按规格字面未通过**（对 `origin` 的 3 类非样式差异没有逐项批准，以对 `rc3` 基线 0 差异代替）；DSC-14（DS-06 / 07 / 12 / 13 / 14 单独运行证据）与 DSC-15（perf p95、CSS 字节数）没有重做；启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单不在视觉验证屏幕清单，DSC-13 的“下拉菜单”用命令面板顶替；Windows / macOS 渲染、`e2e:packaged`、真实 claude / codex 路径未验证。完整逐条 DSC 状态见 [progress.md](progress.md)“未做 / 未验证”。
 - **值得保留的结论**：已写入 [notes/context/design-system.md](../../../../notes/context/design-system.md)（层与文件规范、拆文件 / 去重方法、守护脚本）与 [notes/errors/css-layering-and-refactor-pitfalls.md](../../../../notes/errors/css-layering-and-refactor-pitfalls.md)（层序先于特异性、运行时注入样式、PurgeCSS 对模板片段误判、简写 / 长写冲突等）。

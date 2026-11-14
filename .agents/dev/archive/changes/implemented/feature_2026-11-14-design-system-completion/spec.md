@@ -200,4 +200,5 @@ packages/editor/src/editor.css    # 编辑器自有规则 @layer modules；其�
 - **DC-D13 `core.css`**：§3.1 的“一个共享组件一个文件”最终做到 `components/` 下 16 个文件：先 `overlays / data / feedback`，再用“同层顺序约束强连通分量”算法把 `core.css` 拆成 13 个文件（细拆最初产生过 354 处差异）；最大的一块（≈351 条规则）仍是 `core.css`，小文件多为 `*-etc.css` 混合命名，未达“一个组件一个文件”的字面要求。
 - **DC-D14 类名**：共享组件类 `hu-<原名>`、工作台 `shell-`、插件用插件前缀（`agent-`、`version-`…）；同义类合并分两步（先改名成 `-alt`，S5c 删除 `base.css` 里无人使用的 `.hu-btn*` 后合并）；仍有 57 个类登记为例外。前缀与悬空检查由 `scripts/check-css-classes.mjs` 完成（不是 stylelint）。
 - **DC-D15 去重与无用样式**：（收尾修订）规则级去重：24 处可证明与顺序无关的已合并，其余登记在 `scripts/css-duplicates-baseline.json`（182 条）；无用样式：静态 AST 删除 378 条，之后补做了 PurgeCSS（130 条 rejected 逐条核查，一条都不删）与 Chromium 覆盖率交叉（DSC-12），无可据以删除的规则，只留 5 个候选。
+- **DC-D16 `rc3` 基线（实施中的决定）**：rc.3 提交之后 `origin` 基线对三个屏幕有内容差异（见 progress.md“已登记的非样式差异”），改用 `rc3`（rc.3 发布提交的状态，Claude 主题）作为 S5 之后拆文件 / 去重的比对基准；对 `origin` 仍做四主题总体比对。
 - 新增的守护脚本（均在 `pnpm lint` 里）：`check-css-layers.mjs`（DSC-01）、`check-css-classes.mjs`（DSC-07/08）、`check-css-ownership.mjs`（DSC-06）。登记表：`scripts/css-class-exceptions.json`、`scripts/css-ownership-exceptions.json`。
