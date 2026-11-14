@@ -2,20 +2,20 @@
 
 ## 状态（2026-11-14 实施结束）
 
-**核心目标达成，验证覆盖与规格有若干如实记录的降级和偏差**（见“偏差与未做”）。所有切片都以“与冻结的 `origin` 基线渲染零差异”为门槛：Claude 主题含状态矩阵，四套主题 × 明暗的默认状态计算样式 + 像素，10 个宽度 + compact + reduced-motion。
+**核心目标达成，验证覆盖与规格有若干如实记录的降级和偏差**（见“偏差与未做”）。每个切片以“与冻结基线渲染等价”为门槛，但覆盖是分档的：**对 rc.3 基线（`rc3`）**——Claude 主题含状态矩阵（hover / focus / active 整棵子树）、10 个宽度 + compact + reduced-motion、像素，差异为 0（仅 `settings-about` 的构建哈希文字不同）；**对冻结的 `origin` 基线**——四套主题 × 明暗的默认状态计算样式 + 像素，差异只在下面“已登记的非样式差异”里；**状态矩阵只跑了 Claude 主题（部分覆盖）**，其余三套主题只有默认状态。
 
 | 切片 | 状态 | 结果 / 证据入口 |
 | --- | --- | --- |
 | S0 等价性验证入库 | 完成 | `tests/visual/`、`scripts/visual.mjs`；见“S0 证据” |
 | S1 层叠审计与根因 | 完成 | E0、E1；`evidence/`；见“S1 证据” |
 | S2a 整体入层与不分层白名单 | 完成 | 项目样式整体在 `components` 层；`vendor-overrides.css`、`editor-cm.css` 为白名单；`scripts/check-css-layers.mjs` |
-| S2b 去除 `!important` | 完成 | 73 处 → 保留 37 处带说明（减少动效 / 覆盖第三方 / 覆盖内联 width）；stylelint `declaration-no-important` |
+| S2b 去除 `!important` | 完成 | 73 处 → 保留 34 处带说明（减少动效 4+4 / 覆盖第三方运行时样式 / 覆盖内联 width；第三类超出规格的两类，见偏差）；stylelint `declaration-no-important` |
 | S3 样式归位与分层 | 完成（有登记债务） | 约 1,300 个规则块迁到 `shell` / `modules` 层；33 条规则退回 `components`（`evidence/s3-stay-in-components.json`）；36 个跨包共用类登记在 `scripts/css-ownership-exceptions.json` |
 | S4 类名统一 | 完成（有登记债务） | 712 个类按归属加前缀（`evidence/class-map.json`）；209 个历史类名中 57 个仍作为例外登记（`scripts/css-class-exceptions.json`） |
 | S5a 按组件拆分 | 完成（有登记限度） | `components/` 下 16 个文件（`shared.css` 已删除）：先按领域拆 `overlays / data / feedback`，再对 `core.css` 用“同层顺序约束强连通分量”算法拆成 13 个文件（见偏差）；对 rc.3 基线计算样式 / 宽度矩阵 0 差异。最大的一块（≈351 条规则，互相顺序耦合）仍是 `core.css` |
 | S5b 去重与同义类合并 | 完成（有登记债务） | 13 个同义类合并；`card`、`row`、`segmented`、`spin` 与已有 `hu-` 类并存，登记待合并；规则级去重：证明与顺序无关的 24 处已合并，其余 182 条（`components/*.css` 按同一文件计）重复选择器登记在 `scripts/css-duplicates-baseline.json`，新增重复会让 `pnpm lint` 失败 |
 | S5c 无用样式核查 | 完成（静态 + PurgeCSS + 覆盖率线索） | AST 静态分析删除 378 条规则（`evidence/s5c-purge-candidates.json`）；PurgeCSS 130 条 rejected 逐条核查后一条都不删（`evidence/s5c-purgecss-review.md`）；覆盖率交叉见 DSC-12 |
-| S6 主题验收与收尾 | 部分完成 | 四主题比对完成；DSC-13 的人工逐张核对未做（见下）；文档已更新 |
+| S6 主题验收与收尾 | 基本完成 | 四主题比对完成；DSC-13 目视核对 56 张（缺启动页），见 DSC-13；文档已更新 |
 
 ## 偏差与未做（如实）
 
@@ -24,7 +24,7 @@
 - **类名统一不彻底**：共享组件类用 `hu-` + 原名（如 `hu-knowledge-resource-footer`、`hu-tw-workbench`），名字沿用历史语义，没有重新命名；工作台 `shell-`，插件用插件前缀。57 个类登记为例外（数据驱动 / 同义类待合并等）。
 - **stylelint 前缀规则未使用**：前缀规则由 `scripts/check-css-classes.mjs` 实现（含例外登记表），而不是 stylelint 的 `selector-class-pattern`；效果等价，位置不同。
 - **PurgeCSS 与覆盖率**：PurgeCSS（DSC-11）与覆盖率交叉（DSC-12）都已做。无用规则判定是静态的（类名在 TS 字符串、模板片段里都没有出现），删除后由四主题比对验证；不在固定 Vault 屏幕上出现的状态只有静态证据。
-- **DSC-13 人工核对**：没有对 64 组截图逐张人工对照“标志特征”。替代证据：重构后与重构前（`origin` 基线，四套主题 × 明暗）计算样式与像素逐一相同，因此主题外观没有变化；人工查看了 Apple 浅色与 Vercel 深色的任务看板，符合上游 §6 的特征（Apple 蓝色强调与浅色外壳、Vercel 近黑背景与白字）。
+- **DSC-13 人工核对**：7 个界面 × 四主题 × 明暗共 56 张已逐张目视核对（拼图在 `evidence/dsc13/`），第 8 个界面（启动页）不在夹具里，且“下拉菜单”用命令面板顶替；详见下面 DSC-13 条目。
 - **覆盖盲区**：启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单没有进入屏幕清单；xterm 终端与 Mermaid 的运行时样式夹具里没有出现（E0 只看到 sonner 与 CodeMirror）。
 - **DS-06 / DS-07 / DS-12 / DS-14 的单独运行证据**：未单独重做；它们依赖的主题引擎代码本期没有改动，且 e2e（含 a11y）覆盖主题切换与终端换主题。
 
@@ -39,10 +39,10 @@
 
 ## 最终验证
 
-- **最终审计**（快照 `a49dac2092bd366ae959df03dd7f434318d07314`，隔离 worktree）：`pnpm install --frozen-lockfile` 通过；`pnpm typecheck` 通过；`pnpm lint`（oxlint、`check-lint-rules`、stylelint、`check-ui-colors`、`check-css-layers`、`check-css-classes`、`check-css-ownership`）通过；`pnpm test` 695 passed / 7 skipped / 0 failed；`pnpm build` 通过；全量 e2e 105 passed / 3 skipped（截图用例，设计上条件跳过）/ 0 failed。
-- **视觉等价性**：S5a 完成后对四套主题 × 明暗运行 `pnpm visual:compare origin`：计算样式失败 0、宽度矩阵失败 0、像素比对通过（容差见 `tests/visual/masks.ts`）。之后只改了文档与脚本注释。
+- **拆分前审计**（快照 `a49dac2092bd366ae959df03dd7f434318d07314`，隔离 worktree）：`pnpm install --frozen-lockfile` 通过；`pnpm typecheck` 通过；`pnpm lint`（oxlint、`check-lint-rules`、stylelint、`check-ui-colors`、`check-css-layers`、`check-css-classes`、`check-css-ownership`）通过；`pnpm test` 695 passed / 7 skipped / 0 failed；`pnpm build` 通过；全量 e2e 105 passed / 3 skipped（截图用例，设计上条件跳过）/ 0 failed。
+- **视觉等价性**：S5a 完成后对四套主题 × 明暗运行 `pnpm visual:compare origin`：计算样式失败 0、宽度矩阵失败 0、像素比对通过（容差见 `tests/visual/masks.ts`）。这是拆分 `core.css` 与去重之前的结果；之后的结果见下面两条。
 - 拆分 `core.css` 与规则去重之后（提交 `75ca137`、`3256388`）：`pnpm lint`（含 `check-css-duplicates`）、`pnpm format:check` 通过；对 rc.3 基线（claude 主题，含状态矩阵）计算样式 0 差异、宽度矩阵 0 差异，像素只有 `settings-about` 的构建哈希文字不同（内容，不是样式，两张）。四套主题 × 明暗对冻结的 `origin` 基线再比一次（拆分与去重之后，约 9 + 3 分钟）：计算样式 / 宽度矩阵的差异只出现在 `m-插件中心`、`settings-about` 两个屏幕（`m-插件中心` 里一个 `span` 的文字宽度 59.20px → 58.98px，`settings-about` 是版本 / 构建哈希文字——rc.3 的内容改动，不是样式），其余屏幕 0 差异；像素差异除这两个屏幕外还有 `task-new-dialog` 8 张（116～189 像素，超过该屏幕 100 的容差，集中在任务名称输入框聚焦环）——`origin` 与 `rc3` 两份基线之间这张图本来就差 248 / 194 像素（claude 浅 / 深），而当前代码对 `rc3` 比对通过，说明差异来自 rc.3 的功能改动（新建任务对话框的提醒区），不是本次重构。
-- **最终审计**（快照 `f33ba9ae4616a7d05a482d224e18437dbe90273c`，隔离 worktree）：`pnpm install --frozen-lockfile`、`typecheck`、`lint`、`format:check`、`knip`、`pnpm test`（695 passed / 7 skipped）、`build` 全部通过；e2e 在该 worktree 里 95 passed / 9 skipped / 4 failed（`shell.spec.ts` 自动化 terminal 规则、`acceptance.spec.ts` 的首页卡片、远程运维脚本、Agent CLI 新建菜单），同样的 4 条在父提交 `75ca137` 上也失败；worktree 里没有被 git 忽略的 `resources/herdr` 二进制，这几条都依赖 Herdr，很可能是环境原因（未证实）。主 checkout（有 herdr）上同一份代码的全量 e2e 此前为 105 passed / 3 skipped / 0 failed（拆分前一次、拆分后没有重跑全量 e2e，只有视觉比对）。审计发现并已修的问题：`check-css-duplicates` 只按单文件统计，拆分后 4 组跨文件重复漏检 → 改为 `components/*.css` 按同一文件计，登记 163 → 182 条；`coverage.spec.ts` 注释里的文件名不存在、`index.css` 头注释过时。
+- **最终审计**（快照 `f33ba9ae4616a7d05a482d224e18437dbe90273c`，隔离 worktree）：`pnpm install --frozen-lockfile`、`typecheck`、`lint`、`format:check`、`knip`、`pnpm test`（695 passed / 7 skipped）、`build` 全部通过；e2e 在该 worktree 里 95 passed / 9 skipped / 4 failed（`shell.spec.ts` 自动化 terminal 规则、`acceptance.spec.ts` 的首页卡片、远程运维脚本、Agent CLI 新建菜单），同样的 4 条在父提交 `75ca137` 上也失败；worktree 里没有被 git 忽略的 `resources/herdr` 二进制，这几条都依赖 Herdr，很可能是环境原因（未证实）。主 checkout（有 herdr）上对 `e8518cd` 的全量 e2e：104 passed / 3 skipped / 1 failed——失败的是 `acceptance.spec.ts:437`（首页卡片上移 / 下移），**是 DSC-10 提交 `ac706d7` 引入的测试缺陷**：我把定位器写成 `> section.home-widget`，而内置三张卡片（`card-tasks / card-recent / card-activity`）没有 `home-widget` 类，只有插件贡献的卡片才有；已改回 `> section`，该用例与同类的 `acceptance.spec.ts:1191` 单独重跑通过。审计 worktree 里另外 3 条失败（自动化 terminal 规则、远程运维脚本、Agent CLI 新建菜单）在主 checkout 上都通过，确认是缺 Herdr 的环境原因。（教训：改测试定位器后要把所有受影响用例跑一遍，而不是只跑“看起来相关”的几条。）审计发现并已修的问题：`check-css-duplicates` 只按单文件统计，拆分后 4 组跨文件重复漏检 → 改为 `components/*.css` 按同一文件计，登记 163 → 182 条；`coverage.spec.ts` 注释里的文件名不存在、`index.css` 头注释过时。
 - 没有跑：打包后 e2e（`e2e:packaged`）、Windows / macOS 任何验证（用户决定归档不需要实机验证）。
 
 ### 未完成的验收项（编号对应 spec）
@@ -76,6 +76,16 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | — | — | — | — | — | — | — |
 
+### 已登记的非样式差异（对 `origin` 基线，2026-11-14 最终比对）
+
+这些**没有**经过逐项批准，只登记为已知差异并说明来源；它们都来自 rc.3 的内容 / 功能改动（`rc3` 基线创建的原因），对 `rc3` 比对为 0：
+
+| 屏幕 | 差异 | 来源 |
+| --- | --- | --- |
+| `settings-about`（8 张） | 版本 / 构建哈希文字 | rc.3 版本号与构建信息 |
+| `m-插件中心`（8 张） | 一个 `span` 文字宽度 59.20px → 58.98px | 插件说明文字 |
+| `task-new-dialog`（8 张） | 像素 116～189 > 容差 100，集中在任务名称输入框聚焦环；计算样式 0 差异；`origin` 与 `rc3` 两份基线本身就差 248 / 194 像素 | rc.3 对新建任务对话框的改动（提醒区） |
+
 ## `!important` 例外清单（最终状态，共 34 处；类别只有三种）
 
 > 第三类“覆盖第三方运行时样式”是对规格“只允许两类”的偏差：editor-cm.css / vendor-overrides.css 里覆盖 CodeMirror / sonner 的声明仍用 `!important`（运行时样式表在文档顺序上晚于本文件，等特异性时它们赢）；实测未验证能否全部去掉。
@@ -98,10 +108,10 @@
 | packages/ui/src/styles/base.css:5 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `animation: none !important;` |
 | packages/ui/src/styles/base.css:11 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `transition: none !important;` |
 | packages/ui/src/styles/base.css:12 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `animation: none !important;` |
-| packages/ui/src/styles/components/core.css:2478 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `animation: none !important;` |
-| packages/ui/src/styles/components/core.css:2484 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `scale: 1 !important;` |
-| packages/ui/src/styles/components/core.css:2491 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `animation: none !important;` |
-| packages/ui/src/styles/components/core.css:3157 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `transition-duration: 0.01ms !important;` |
+| packages/ui/src/styles/components/core.css:1290 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `animation: none !important;` |
+| packages/ui/src/styles/components/btn.css:58 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `scale: 1 !important;` |
+| packages/ui/src/styles/components/core.css:1295 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `animation: none !important;` |
+| packages/ui/src/styles/components/core.css:1752 | 减少动效 | 减少动效：必须压过组件自己的动画 / 过渡声明 | `transition-duration: 0.01ms !important;` |
 | packages/ui/src/styles/vendor-overrides.css:81 | 覆盖第三方运行时样式 | 覆盖 sonner 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） | `border-radius: 12px !important;` |
 | packages/ui/src/styles/vendor-overrides.css:82 | 覆盖第三方运行时样式 | 覆盖 sonner 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） | `box-shadow: var(--shadow-popover) !important;` |
 | packages/workbench/src/shell/shell.css:1600 | 覆盖元素内联样式 | 覆盖元素上的内联 width（AppShell 的 style 属性按侧栏宽度设置） | `width: 184px !important;` |
@@ -123,11 +133,22 @@
 | --- | --- | --- | --- | --- |
 | origin | `8283c5c`（HEAD）+ 工作区 | `51681e7a5159feaf8ef8e48aa5fb9793999cb334` | 2026-11-13T23:36Z | 四套主题 × 明暗 × 30 屏（Claude 含状态矩阵）+ 宽度矩阵 + 运行时样式表 |
 
-CSS 总字节数：S0 起点 `packages/ui/src/styles/*.css` 合计约 287 KB（shared.css 245 KB）；构建产物里的 CSS 文件由 vite 生成，S0 / 最终都**没有单独记录字节数与 perf 指标**（DSC-15 的这两项未做；全量 e2e 含 perf 用例通过，`perf.spec.ts` 在一次全量运行中出现 17.4 ms 的偶发超出，单独复跑通过）。
+CSS 总字节数：S0 起点 `packages/ui/src/styles/*.css` 合计约 287 KB（shared.css 245 KB）；构建产物里的 CSS 文件由 vite 生成，S0 / 最终都**没有单独记录字节数与 perf 指标**（DSC-15 的这两项未做（“+5%”无法核验；源码从约 287 KB 到现在 +4.7% 左右）；全量 e2e 含 perf 用例通过，`perf.spec.ts` 在一次全量运行中出现 17.4 ms 的偶发超出，单独复跑通过）。
 
 ## 未做 / 未验证（实施结束时如实更新）
 
-- 非 Linux 平台的渲染；真实用户长期使用感受。
+- 非 Linux 平台的渲染；真实用户长期使用感受（用户决定归档不需要实机验证）。
+- **DSC-01 运行时检查**：xterm 与 Mermaid 的运行时样式不在夹具里（E0 只看到 sonner 与 CodeMirror）。
+- **DSC-05**：第三类 `!important` 例外（覆盖 CodeMirror / sonner 运行时样式，共 14 处）超出规格允许的两类；实测未验证能否全部去掉。
+- **DSC-07**：用 `scripts/check-css-classes.mjs` 而不是 stylelint `selector-class-pattern`；规格里“故意写 `.row {}` 看 `pnpm lint` 失败”的反向演示没有留证据。
+- **DSC-09**：stylelint `no-duplicate-selectors` 没有启用，`consecutive-duplicates` 例外仍保留；用自写检查器与登记表代替。
+- **DSC-10**：保留 `.home-widget` 与第三方类的类名定位器；拆分之后主 checkout 的全量 e2e 结果见“最终验证”。
+- **DSC-11**：核查完成，没有清理（5 个候选未删）。
+- **DSC-14**：DS-06 / 07 / 12 / 13 / 14 没有本 change 之后的单独运行证据（主题引擎代码本期没改，e2e 覆盖主题切换与终端换主题）。
+- **DSC-15**：没有记录构建 CSS 字节数与 perf p95 对比。
+- **DSC-16**：上游 D-18 只在已归档的 `feature_2026-11-09-huhu-workbench-definition/decisions.md`，不在 `workbench.md`；归档历史不改写，本项不适用。
+- **DC-D10 偏差**：不分层白名单还放行了项目自己的编辑器装饰类（`huhu-md-*`、`huhu-live-*`）。**DC-D12**：33 条规则退回 `components` 层。
+- **覆盖盲区**：启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单不在屏幕清单；DSC-13 的“下拉菜单”用命令面板顶替。S5c 删除的 378 条规则是静态 AST 依据，不在固定屏幕上的状态没有渲染证据（四主题比对通过）。
 
 
 ## S0 证据（2026-11-14）

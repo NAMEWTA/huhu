@@ -441,7 +441,7 @@ test("首页自定义：卡片可在同一列内上移 / 下移，顺序持久�
     const order = () =>
       page
         .getByTestId("home-main-column")
-        .locator("> section.home-widget")
+        .locator("> section")
         .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     await expect.poll(order).toEqual(["card-tasks", "card-recent", "card-activity"]);
     await page.getByTestId("home-customize").click();

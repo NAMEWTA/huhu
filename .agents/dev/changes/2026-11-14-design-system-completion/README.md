@@ -1,7 +1,7 @@
 # Change：设计系统收尾（样式归属、类名治理与真实分层）
 
 - **来源**：2026-11-14 用户要求，把设计系统剩余部分另开 change。接手 [品牌、设计系统与 Windows 安装](../2026-11-13-brand-and-windows-installer/README.md) 中 DS-S2～DS-S4 未完成的部分（见该 change 的 progress.md“未做”）。
-- **状态**：**已实施并归档（2026-11-14）**。S0～S6 与 DSC-09～13 都有结论，其中 S5a（最大的一块顺序耦合规则仍在 `core.css`）、S5b（182 条重复选择器登记在案）、DSC-13（缺启动页）有如实记录的限度，见 [progress.md](progress.md)。性质是行为保持型重构：外观不变，结构变化，每一步用“渲染等价性”证明；与冻结基线的计算样式、宽度矩阵、像素均零差异（已批准的内容差异除外）。
+- **状态**：**已实施并归档（2026-11-14）**。S0～S6 与 DSC-09～13 都有结论，其中 S5a（最大的一块顺序耦合规则仍在 `core.css`）、S5b（182 条重复选择器登记在案）、DSC-13（缺启动页）有如实记录的限度，见 [progress.md](progress.md)。性质是行为保持型重构：外观不变，结构变化，每一步用“渲染等价性”证明；对 rc.3 基线（Claude 主题含状态矩阵）计算样式、宽度矩阵、像素等价（仅构建哈希文字不同）；对冻结的 `origin` 基线的差异只来自 rc.3 的内容 / 功能改动，已在 progress.md“已登记的非样式差异”列出——**这些差异没有经过逐项批准**；状态矩阵只覆盖 Claude 主题。
 - **基线**：HEAD `8283c5c` + 工作区快照 `51681e7`（`origin` 基线，见 progress.md）。起点数字观察于 2026-11-14。
 - **不包含**：主题数据 / token / 字体（已完成并验证）；Windows 安装器与真实 CLI 验证（上游遗留，与样式无关）。
 
@@ -12,7 +12,7 @@
 | [verification.md](verification.md) | 等价性验证方案：命令、屏幕清单、计算样式快照、像素比对、层叠冲突报告、每切片操作规程 |
 | [plan.md](plan.md) | 十个切片（S0、S1、S2a、S2b、S3、S4、S5a、S5b、S5c、S6）的依赖、边界、规格覆盖、复用核对、风险与停止条件 |
 | [tasks/](tasks/) | 每个切片一份可独立接手的任务文件 |
-| [progress.md](progress.md) | 进度与证据（实施时维护；现在只有起点记录） |
+| [progress.md](progress.md) | 进度、偏差、验证证据与未交付清单（最终状态） |
 
 ## 一句话路线
 
@@ -30,13 +30,9 @@
 3. **冻结窗口**：S0 生成 `origin` 基线前，其他三个 change 的界面代码要稳定（先提交，或同意冻结期内不改界面与样式）。提交需要用户授权，本 change 不会擅自提交。
 4. **有意改变外观**：本 change 不允许；若实施中发现“新结果更合理”的差异，会停下来问用户，批准后才记入“已批准差异”表。
 
-## 收尾状态（2026-11-14）
-
-**实施完成，未归档。**核心目标（样式归位、类名统一、真实 `@layer`、与冻结基线渲染零差异的等价性验证）已达成；仍有如实记录的未完成项（`core.css` 未再细拆、PurgeCSS 与覆盖率未运行、规则级去重未做、64 组主题截图未逐张人工核对、DSC-05 / 09 / 10 / 15 的偏差），详见 [progress.md](progress.md)。保留在 `changes/`，等用户决定“接受缩减范围后归档”或另开后续 change。
-
 ## 收尾记录（dev-archive，2026-11-14）
 
 - **归档结论**：`implemented`（主类型 `feature`：新增的是守护与验证能力 + 样式结构，外观不变）。用户明确：Windows / macOS 实机验证不是归档条件。
 - **已交付并有证据**：层叠分层与不分层白名单（`check-css-layers`）、73 → 34 处 `!important`（带说明）、规则按使用者归位（`check-css-ownership`）、类名前缀统一（`check-css-classes`）、共享样式拆成 16 个文件、24 处重复选择器合并并登记其余 182 条（`components/*.css` 按同一文件计）（`check-css-duplicates`）、无用样式核查（PurgeCSS + Chromium 覆盖率，结论：无可据以删除的规则）、渲染等价性验证入库（`pnpm visual:*`、`tests/visual/`）。拆分与去重对 rc.3 基线 0 差异；四主题完整比对与最终审计见 [progress.md](progress.md)“最终审计”。
-- **没有交付 / 没有验证（如实）**：最大的一块顺序耦合规则（≈351 条）仍在 `core.css`，小文件多为 `*-etc.css` 混合命名，没有做到规格字面的“一个组件一个文件”；182 条历史重复选择器与 57 个历史类名、36 个跨包共用类只是登记，没有清零；5 个无用规则候选（`.board-card*`、`.hu-callout` 的 warning / success / info）没有删除；启动页不在视觉验证屏幕清单里；Windows / macOS 渲染、`e2e:packaged`、真实 claude / codex 路径未验证。
+- **没有交付 / 没有验证（如实）**：最大的一块顺序耦合规则（≈351 条）仍在 `core.css`，小文件多为 `*-etc.css` 混合命名，没有做到规格字面的“一个组件一个文件”；182 条历史重复选择器、57 个历史类名、36 个跨包共用类只是登记，没有清零；5 个无用规则候选（`.board-card*`、`.hu-callout` 的 warning / success / info）没有删除；`!important` 保留 34 处，其中覆盖 CodeMirror / sonner 的 14 处超出规格允许的两类；没有用 stylelint 的 `selector-class-pattern` / `no-duplicate-selectors`（用自写检查器与登记表代替）；DSC-14（DS-06 / 07 / 12 / 13 / 14 单独运行证据）与 DSC-15（perf p95、CSS 字节数）没有重做；启动页、自动化规则编辑器、档案字段编辑对话框、新建菜单不在视觉验证屏幕清单，DSC-13 的“下拉菜单”用命令面板顶替；Windows / macOS 渲染、`e2e:packaged`、真实 claude / codex 路径未验证。完整逐条 DSC 状态见 [progress.md](progress.md)“未做 / 未验证”。
 - **值得保留的结论**：已写入 [notes/context/design-system.md](../../../notes/context/design-system.md)（层与文件规范、拆文件 / 去重方法、守护脚本）与 [notes/errors/css-layering-and-refactor-pitfalls.md](../../../notes/errors/css-layering-and-refactor-pitfalls.md)（层序先于特异性、运行时注入样式、PurgeCSS 对模板片段误判、简写 / 长写冲突等）。
