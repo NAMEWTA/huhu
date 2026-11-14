@@ -15,7 +15,7 @@ export interface CommandPaletteProps {
   /** 用于 vault.search；缺省时只有模块与命令。 */
   client?: EngineClient | null;
   /** 搜索结果被选中时的处理（例如在知识库里打开）。 */
-  onOpenResult?(r: { path: string; kind: string; title: string }): void;
+  onOpenResult?(r: { path: string; kind: string; title: string; archive?: boolean }): void;
 }
 
 /** 搜索结果按来源分组（规格：最近、命令、笔记、任务、档案、收件箱）。 */
@@ -99,12 +99,12 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     setResults([]); // 查询变了：旧结果不再显示
     const timer = setTimeout(() => {
       client
-        .call<{ indexing: boolean; hits: { path: string; kind: string; title: string }[] }>("vault.search", { query: q.trim(), limit: 8 })
+        .call<{ indexing: boolean; hits: { path: string; kind: string; title: string; archive?: boolean }[] }>("vault.search", { query: q.trim(), limit: 8 })
         .then((r) => {
           if (!isLatest()) return;
           const mapped = r.hits.map((h) => ({
-            rank: groupOf(h.kind).rank,
-            item: { id: `res:${h.path}`, group: "result" as const, groupLabel: groupOf(h.kind).label, title: h.title || h.path, hint: h.path, icon: <FileText size={18} aria-hidden />, run: () => onOpenResult?.(h) },
+            rank: groupOf(h.archive ? "archive" : h.kind).rank,
+            item: { id: `res:${h.path}`, group: "result" as const, groupLabel: groupOf(h.archive ? "archive" : h.kind).label, title: h.title || h.path, hint: h.path, icon: <FileText size={18} aria-hidden />, run: () => onOpenResult?.(h) },
           }));
           setResults(mapped.sort((a, b) => a.rank - b.rank).map((m) => m.item)); // 稳定排序：同组内保持相关度顺序
         })
@@ -151,15 +151,15 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     it.run();
   };
   return (
-    <div className="modal-backdrop" onMouseDown={() => setOpen(false)}>
-      <div role="dialog" aria-modal="true" aria-label="命令面板" className="modal modal-wide" data-testid="command-palette" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-head">
+    <div className="hu-modal-backdrop" onMouseDown={() => setOpen(false)}>
+      <div role="dialog" aria-modal="true" aria-label="命令面板" className="hu-modal shell-modal-wide" data-testid="command-palette" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="hu-modal-head">
           <div>
             <h2>搜索与命令</h2>
           </div>
           <IconButton icon={X} label="关闭" onClick={() => setOpen(false)} />
         </div>
-        <div className="palette-search">
+        <div className="hu-palette-search">
           <Search size={20} aria-hidden />
           <input
             ref={input}
@@ -197,11 +197,11 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
           />
           <kbd>ESC</kbd>
         </div>
-        <div id="hu-palette-list" className="command-results" role="listbox" aria-label="搜索结果">
+        <div id="hu-palette-list" className="shell-command-results" role="listbox" aria-label="搜索结果">
           {items.map((it, i) => (
             <Fragment key={it.id}>
               {it.groupLabel && items[i - 1]?.groupLabel !== it.groupLabel ? (
-                <div className="command-group" role="presentation" data-testid="palette-group">
+                <div className="shell-command-group" role="presentation" data-testid="palette-group">
                   {it.groupLabel}
                 </div>
               ) : null}
@@ -217,7 +217,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
                 onPointerMove={() => setSel(i)}
                 onClick={() => run(it)}
               >
-                <span className="command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
+                <span className="shell-command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
                 <span className="grow">
                   <strong>{it.title}</strong>
                   {it.hint ? <small>{it.hint}</small> : null}
@@ -226,9 +226,9 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
               </button>
             </Fragment>
           ))}
-          {items.length === 0 ? <p className="tw-empty-group">{searching ? "搜索中…" : "没有找到结果"}</p> : null}
+          {items.length === 0 ? <p className="shell-tw-empty-group">{searching ? "搜索中…" : "没有找到结果"}</p> : null}
         </div>
-        <div className="palette-foot">
+        <div className="shell-palette-foot">
           <span>↑ ↓ 选择 · Enter 打开</span>
           <span>ESC 关闭</span>
           <span>所有结果遵循当前插件状态</span>

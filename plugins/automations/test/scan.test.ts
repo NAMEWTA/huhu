@@ -4,35 +4,67 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { ClaimStore } from "../src/engine/claims.js";
 import { classify, processingKeyOf, type Claim, type ScanEnv, type SnapshotTask } from "../src/engine/scan.js";
-import { builtinScanRule } from "../src/shared/builtin.js";
 
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-const agent = (id: string, over: Partial<SnapshotTask> = {}): SnapshotTask => ({ id, title: id, completed: false, execution: { kind: "agent", spaceId: "space-1", provider: "codex" }, inputRevision: 1, inputHash: `h-${id}`, ...over });
+const agent = (id: string, over: Partial<SnapshotTask> = {}): SnapshotTask => ({
+  id,
+  title: id,
+  type: "agent",
+  status: "not_started",
+  tags: [],
+  execution: { spaceId: "space-1", provider: "codex" },
+  inputRevision: 1,
+  inputHash: `h-${id}`,
+  dispatchBlockers: [],
+  ...over,
+});
 function env(over: Partial<ScanEnv> = {}, claims: Claim[] = []): ScanEnv {
-  return { claims: (k) => claims.find((c) => c.processingKey === k) ?? null, holds: () => false, spaceAccessible: () => "ok", cliAvailable: () => true, ...over };
+  return { claims: (k) => claims.find((c) => c.processingKey === k) ?? null, holds: () => false, spaceAccessible: () => "ok", spaceBusy: () => false, cliAvailable: () => true, ...over };
 }
 
 describe("classify（预览与扫描共用）", () => {
-  test("ACC-AU-02 2 个未完成 Agent、1 手动、1 已完成 Agent → 候选 2，跳过 2 并带原因", () => {
-    const tasks: SnapshotTask[] = [agent("a"), agent("b"), { ...agent("m"), execution: { kind: "manual" } }, agent("d", { completed: true })];
+  test("只有 type=agent 且 status=not_started 的任务才是候选；跳过项带原因", () => {
+    const tasks: SnapshotTask[] = [
+      agent("a"),
+      agent("b", { execution: { spaceId: "space-2", provider: "codex" } }),
+      agent("h", { type: "human", execution: null }),
+      agent("d", { status: "completed" }),
+      agent("p", { status: "in_progress" }),
+    ];
     const r = classify(tasks, env());
     expect(r.candidates.map((c) => c.task.id)).toEqual(["a", "b"]);
     expect(r.skipped.map((s) => [s.task.id, s.reason])).toEqual([
-      ["m", "not-agent"],
-      ["d", "completed"],
+      ["h", "not-agent"],
+      ["d", "not-open"],
+      ["p", "not-open"],
     ]);
   });
-  test("同输入已有 claim 跳过（各状态原因不同）；修改正文（hash 变）再次成为候选；只改截止日不变", () => {
+  test("标签筛选：全部匹配才通过；规则无标签 = 不筛选", () => {
+    const tasks = [agent("a", { tags: ["周报", "接口"] }), agent("b", { tags: ["周报"] }), agent("c")];
+    expect(classify(tasks, env(), { tags: ["周报"] }).candidates.map((c) => c.task.id)).toEqual(["a"]); // a、b 同在 space-1：一次只选一个
+    expect(classify(tasks, env(), { tags: ["周报", "接口"] }).candidates.map((c) => c.task.id)).toEqual(["a"]);
+    expect(classify(tasks, env(), { tags: ["周报", "接口"] }).skipped.map((s) => [s.task.id, s.reason])).toEqual([
+      ["b", "tag-mismatch"],
+      ["c", "tag-mismatch"],
+    ]);
+    expect(classify(tasks, env(), {}).candidates).toHaveLength(1); // 同一 Space 一次只选一个
+  });
+  test("任务自身原因（引用越界、结构错误等）→ task-blocked，并带详情", () => {
+    const r = classify([agent("a", { dispatchBlockers: ["引用越界：../x.md", "任务内容为空"] })], env());
+    expect(r.skipped[0]).toMatchObject({ reason: "task-blocked", detail: "引用越界：../x.md；任务内容为空" });
+  });
+  test("同输入已有 claim 跳过（各状态原因不同）；输入变化或重开（inputRevision+1）后再次成为候选", () => {
     const t = agent("a");
     const mk = (state: Claim["state"]): Claim => ({ processingKey: processingKeyOf(t), taskId: "a", runId: "run-1", state, claimedAt: "" });
     for (const [state, reason] of [
-      ["succeeded", "already-processed"],
-      ["failed", "already-processed"],
-      ["unknown", "already-processed"],
+      ["succeeded", "succeeded"],
+      ["failed", "retryable"],
+      ["cancelled", "retryable"],
+      ["unknown", "running"],
       ["running", "running"],
       ["queued", "running"],
       ["waiting_input", "running"],
@@ -40,16 +72,23 @@ describe("classify（预览与扫描共用）", () => {
       expect(classify([t], env({}, [mk(state)])).skipped[0]).toMatchObject({ reason });
     }
     const done = [mk("succeeded")];
-    expect(classify([agent("a", { inputHash: "changed" })], env({}, done)).candidates).toHaveLength(1); // ACC-AU-04
-    expect(classify([agent("a")], env({}, done)).candidates).toHaveLength(0); // ACC-AU-05：输入未变
-    expect(classify([agent("a", { inputRevision: 2 })], env({}, done)).candidates).toHaveLength(1); // 重新打开 inputRevision+1
+    expect(classify([agent("a", { inputHash: "changed" })], env({}, done)).candidates).toHaveLength(1);
+    expect(classify([agent("a")], env({}, done)).candidates).toHaveLength(0);
+    expect(classify([agent("a", { inputRevision: 2 })], env({}, done)).candidates).toHaveLength(1);
   });
-  test("ACC-AU-12 恢复后暂停；缺 Space / 目录不可访问 / CLI 未安装", () => {
+  test("恢复后暂停；缺 Space / 目录不可访问 / CLI 未安装", () => {
     expect(classify([agent("a")], env({ holds: (id) => id === "a" })).skipped[0]?.reason).toBe("held-after-restore");
-    expect(classify([agent("a", { execution: { kind: "agent", spaceId: null, provider: "codex" } })], env()).skipped[0]?.reason).toBe("missing-space");
+    expect(classify([agent("a", { execution: { spaceId: null, provider: "codex" } })], env()).skipped[0]?.reason).toBe("missing-space");
+    expect(classify([agent("a", { execution: null })], env()).skipped[0]?.reason).toBe("missing-space");
     expect(classify([agent("a")], env({ spaceAccessible: () => "missing" })).skipped[0]?.reason).toBe("missing-space");
     expect(classify([agent("a")], env({ spaceAccessible: () => "inaccessible" })).skipped[0]?.reason).toBe("space-inaccessible");
     expect(classify([agent("a")], env({ cliAvailable: () => false })).skipped[0]?.reason).toBe("cli-missing");
+  });
+  test("同一 Space 同一时间只跑一个：已有活动运行或本次已选其他候选 → space-busy", () => {
+    expect(classify([agent("a")], env({ spaceBusy: () => true })).skipped[0]?.reason).toBe("space-busy");
+    const r = classify([agent("a"), agent("b"), agent("c", { execution: { spaceId: "space-2", provider: "codex" } })], env());
+    expect(r.candidates.map((c) => c.task.id)).toEqual(["a", "c"]);
+    expect(r.skipped.map((s) => [s.task.id, s.reason])).toEqual([["b", "space-busy"]]);
   });
 });
 
@@ -65,12 +104,6 @@ describe("ClaimStore", () => {
     expect(store.update(c.processingKey, { state: "running" }).state).toBe("running");
     expect(store.list()).toHaveLength(1);
     expect(store.get("nope")).toBeNull();
-  });
-});
-
-describe("内置规则（ACC-AU-01）", () => {
-  test("每 5 分钟、已启用、内置", () => {
-    expect(builtinScanRule("Asia/Taipei", "2026-11-10T00:00:00Z")).toMatchObject({ builtin: true, enabled: true, trigger: { cron: "*/5 * * * *", zone: "Asia/Taipei" }, action: { kind: "scan_agent_tasks" } });
   });
 });
 

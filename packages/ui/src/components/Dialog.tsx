@@ -28,7 +28,7 @@ export function Dialog({ open, title, description, onClose, children, actions, t
     if (open && !d.open) {
       d.showModal();
       // 焦点进入第一个表单控件（没有就保持在对话框内）；关闭后回到打开它的按钮
-      d.querySelector<HTMLElement>(".modal-body input:not([type=hidden]), .modal-body textarea, .modal-body select")?.focus();
+      d.querySelector<HTMLElement>(".hu-modal-body input:not([type=hidden]), .hu-modal-body textarea, .hu-modal-body select")?.focus();
     }
     if (!open && d.open) d.close();
     return () => {
@@ -39,7 +39,7 @@ export function Dialog({ open, title, description, onClose, children, actions, t
   return (
     <dialog
       ref={ref}
-      className={`modal${wide ? " modal-wide" : ""}`}
+      className={`hu-modal${wide ? " shell-modal-wide" : ""}`}
       aria-labelledby={titleId}
       data-testid={testId}
       onCancel={(e) => {
@@ -47,22 +47,22 @@ export function Dialog({ open, title, description, onClose, children, actions, t
         onClose();
       }}
     >
-      <div className="modal-head">
+      <div className="hu-modal-head">
         <div>
           <h2 id={titleId}>{title}</h2>
           {description ? <p>{description}</p> : null}
         </div>
         <IconButton icon={X} label="关闭" onClick={onClose} />
       </div>
-      <div className="modal-body">
+      <div className="hu-modal-body">
         {error ? (
-          <p role="alert" className="field-error">
+          <p role="alert" className="hu-field-error">
             {error}
           </p>
         ) : null}
         {children}
       </div>
-      {actions ? <div className="modal-footer">{actions}</div> : null}
+      {actions ? <div className="hu-modal-footer">{actions}</div> : null}
     </dialog>
   );
 }

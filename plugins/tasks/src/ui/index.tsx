@@ -1,3 +1,4 @@
+import "./tasks.css";
 import type { ModuleContribution } from "@huhu/workbench";
 import { ListTodo } from "lucide-react";
 import { TasksModule } from "./TasksModule.js";

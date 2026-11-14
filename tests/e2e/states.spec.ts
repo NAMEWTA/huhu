@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, root } from "./helpers/launch.js";
 
-const MODULES = ["工作台", "任务", "知识库", "收件箱", "档案", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
+const MODULES = ["工作台", "任务", "知识库", "收件箱", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
 
 for (const size of [
   { width: 1024, height: 768 },
@@ -52,9 +52,9 @@ test("插件停用：模块入口消失，页面不报错", async () => {
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "插件中心" }).first().click();
-    await page.locator('[data-plugin="archives"]').click();
-    await page.getByRole("switch", { name: "停用 档案" }).click();
-    await expect(page.getByRole("button", { name: "档案", exact: true })).toHaveCount(0, { timeout: 5000 });
+    await page.locator('[data-plugin="inbox"]').click();
+    await page.getByRole("switch", { name: "停用 收件箱" }).click();
+    await expect(page.getByRole("button", { name: "收件箱", exact: true })).toHaveCount(0, { timeout: 5000 });
     await expect(page.getByTestId("plugin-detail")).toContainText("已停用");
   } finally {
     await close();

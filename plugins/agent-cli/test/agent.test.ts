@@ -2,7 +2,9 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { PROVIDERS, ProviderDetector, findOnPath } from "../src/engine/providers/index.js";
+import { AgentDetector, findOnPath, probeVersion } from "../src/engine/detect.js";
+import { resolveAgentLaunch } from "../src/engine/launch.js";
+import { AGENT_CATALOG, emptyAgentSettings, type AgentCatalogEntry, type AgentSettingsFile } from "../src/shared/index.js";
 import { SpaceStore } from "../src/engine/spaces.js";
 
 const dirs: string[] = [];
@@ -20,36 +22,53 @@ function fakeBin(dir: string, name: string, script: string) {
   chmodSync(f, 0o755);
 }
 
-describe("Provider 检测", () => {
-  test.skipIf(process.platform === "win32")("找到 → found + 版本；未安装 → not-installed；探测失败 → probe-failed；结果缓存 10 分钟", async () => {
+const settingsWith = (agents: AgentSettingsFile["agents"] = {}, defaultAgent: AgentSettingsFile["defaultAgent"] = null): AgentSettingsFile => ({ ...emptyAgentSettings(), defaultAgent, agents });
+
+describe("智能体检测", () => {
+  test.skipIf(process.platform === "win32")("找到 → 已检测 + 版本；未安装 → 未检测到；结果缓存 10 分钟；停用的不探测", async () => {
     const bin = tmp();
     fakeBin(bin, "claude", 'echo "2.1.0 (Claude Code)"');
     fakeBin(bin, "codex", "exit 3");
     let now = 1_000_000;
-    const det = new ProviderDetector(() => now, { PATH: bin });
-    const r = await det.detect();
-    const by = Object.fromEntries(r.map((x) => [x.provider, x]));
-    expect(by["claude"]).toMatchObject({ status: "found", version: "2.1.0 (Claude Code)", exe: path.join(bin, "claude") });
-    expect(by["claude-agent-teams"]?.status).toBe("found");
-    expect(by["codex"]).toMatchObject({ status: "probe-failed", version: null });
-    expect(by["pi"]).toMatchObject({ status: "not-installed", exe: null });
+    let settings = settingsWith();
+    const det = new AgentDetector({ settings: () => settings, now: () => now, env: { PATH: bin }, home: tmp() });
+    const by = Object.fromEntries((await det.detect()).map((x) => [x.id, x]));
+    expect(by["claude"]).toMatchObject({ installed: true, version: "2.1.0 (Claude Code)", path: path.join(bin, "claude"), via: "path", headless: true });
+    expect(by["codex"]).toMatchObject({ installed: true, path: path.join(bin, "codex") }); // 版本探测失败仍算已检测
+    expect(by["codex"]?.version).toBeUndefined();
+    expect(by["pi"]).toMatchObject({ installed: false, headless: false });
     // 缓存
     fakeBin(bin, "pi", "echo pi-1");
-    expect((await det.detect()).find((x) => x.provider === "pi")?.status).toBe("not-installed");
-    expect((await det.detect(true)).find((x) => x.provider === "pi")?.status).toBe("found");
+    expect((await det.detect()).find((x) => x.id === "pi")?.installed).toBe(false);
+    expect((await det.detect(true)).find((x) => x.id === "pi")?.installed).toBe(true);
     now += 11 * 60_000;
-    expect((await det.detect()).find((x) => x.provider === "pi")?.checkedAt).toBe(new Date(now).toISOString());
+    expect((await det.detect()).find((x) => x.id === "pi")?.detectedAt).toBe(new Date(now).toISOString());
+    settings = settingsWith({ codex: { enabled: false } });
+    expect((await det.detect(true)).find((x) => x.id === "codex")).toMatchObject({ installed: false, skipped: true });
   });
-  test("Agent Teams 需要 claude：没有 claude 时不可用", async () => {
-    const r = await new ProviderDetector(() => 0, { PATH: tmp() }).detect();
-    expect(r.every((x) => x.status === "not-installed")).toBe(true);
+  test.skipIf(process.platform === "win32")("命令覆盖：存在的绝对路径视为已检测（via=override）；invalidate 后立即生效", async () => {
+    const bin = tmp();
+    const other = tmp();
+    fakeBin(other, "mypi", "echo mypi-1");
+    let settings = settingsWith();
+    const det = new AgentDetector({ settings: () => settings, env: { PATH: bin }, home: tmp() });
+    expect((await det.detect()).find((x) => x.id === "pi")?.installed).toBe(false);
+    settings = settingsWith({ pi: { command: path.join(other, "mypi") } });
+    det.invalidate();
+    expect((await det.detect()).find((x) => x.id === "pi")).toMatchObject({ installed: true, via: "override", version: "mypi-1" });
+  });
+  test.skipIf(process.platform === "win32")("PATH 里没有时回退到安装目录（via=installDir）", async () => {
+    const home = tmp();
+    mkdirSync(path.join(home, ".local", "bin"), { recursive: true });
+    fakeBin(path.join(home, ".local", "bin"), "claude", "echo 9.9.9");
+    const det = new AgentDetector({ settings: () => settingsWith(), env: { PATH: tmp() }, home });
+    expect((await det.detect()).find((x) => x.id === "claude")).toMatchObject({ installed: true, via: "installDir", version: "9.9.9" });
   });
   test("版本探测 5 秒超时被杀（用短超时验证）", async () => {
     const bin = tmp();
     fakeBin(bin, "claude", "sleep 5; echo late");
-    const { probeVersion } = await import("../src/engine/providers/index.js");
     const t0 = Date.now();
-    expect(await probeVersion(path.join(bin, "claude"), 300)).toBeNull();
+    expect(await probeVersion(path.join(bin, "claude"), ["--version"], 300)).toBeNull();
     expect(Date.now() - t0).toBeLessThan(3000);
   });
   test("findOnPath：非可执行文件与目录被忽略；Windows 用 PATHEXT", () => {
@@ -63,18 +82,124 @@ describe("Provider 检测", () => {
   });
 });
 
-describe("启动参数", () => {
-  const p = (id: string) => PROVIDERS.find((x) => x.id === id)!;
-  test("claude / codex / pi 的 argv", () => {
-    expect(p("claude").interactiveArgv({ exe: "/b/claude", model: "opus", prompt: "做事" })).toEqual(["/b/claude", "--model", "opus", "做事"]);
-    expect(p("claude").interactiveArgv({ exe: "/b/claude", resumeSessionId: "abc" })).toEqual(["/b/claude", "--resume", "abc"]);
-    expect(p("codex").interactiveArgv({ exe: "codex", model: "gpt-5.5", effort: "high", prompt: "x" })).toEqual(["codex", "-m", "gpt-5.5", "-c", 'model_reasoning_effort="high"', "x"]);
-    expect(p("codex").interactiveArgv({ exe: "codex", resumeSessionId: "s1", prompt: "忽略" })).toEqual(["codex", "resume", "s1"]);
-    expect(p("pi").interactiveArgv({ exe: "pi" })).toEqual(["pi"]);
-    expect(p("claude-agent-teams").env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1" });
+describe("智能体目录（AG-01）", () => {
+  test("三个条目的关键字段", () => {
+    expect(AGENT_CATALOG.map((e) => [e.id, e.displayName, e.detect.command, e.fullAccessArgs, e.headless !== undefined])).toEqual([
+      ["claude", "Claude Code", "claude", ["--dangerously-skip-permissions"], true],
+      ["codex", "Codex", "codex", ["--dangerously-bypass-approvals-and-sandbox"], true],
+      ["pi", "Pi", "pi", [], false],
+    ]);
+    expect(AGENT_CATALOG.find((e) => e.id === "claude")?.options.models?.map((m) => [m.id, m.fast, m.efforts.length])).toEqual([
+      ["fable", false, 5],
+      ["opus", true, 5],
+      ["sonnet", false, 5],
+      ["haiku", false, 0],
+    ]);
+    expect(AGENT_CATALOG.find((e) => e.id === "codex")?.options.models?.map((m) => m.id)).toEqual(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.2-codex"]);
   });
-  test("无界面能力：仅 claude 与 codex", () => {
-    expect(PROVIDERS.filter((x) => x.headless).map((x) => x.id)).toEqual(["claude", "codex"]);
+  test("没有任何 Agent Teams 残留", () => {
+    expect(JSON.stringify(AGENT_CATALOG)).not.toMatch(/agent-teams|AGENT_TEAMS/i);
+  });
+});
+
+describe("启动合成 resolveAgentLaunch", () => {
+  const det = (id: string, p = `/b/${id}`) => ({ id, displayName: id, installed: true, path: p, headless: true, detectedAt: "x" }) as never;
+  const run = (agentId: string, over: Record<string, unknown> = {}, settings = settingsWith()) => resolveAgentLaunch({ settings, detected: det(agentId) }, { agentId, mode: "interactive", ...over } as never);
+
+  test("LA-01 缺省设置：完全访问参数", () => {
+    expect(run("claude")).toMatchObject({ command: "/b/claude", argv: ["--dangerously-skip-permissions"], env: {} });
+    expect(run("codex")).toMatchObject({ command: "/b/codex", argv: ["--dangerously-bypass-approvals-and-sandbox"] });
+    expect(run("pi")).toMatchObject({ command: "/b/pi", argv: [] });
+  });
+  test("交互：模型 / effort / 提示词；恢复会话", () => {
+    expect(run("claude", { model: "opus", prompt: "做事" }).argv).toEqual(["--model", "opus", "--dangerously-skip-permissions", "做事"]);
+    expect(run("claude", { resume: "abc" }).argv).toEqual(["--dangerously-skip-permissions", "--resume", "abc"]);
+    expect(run("codex", { model: "gpt-5.5", effort: "high", prompt: "x" }).argv).toEqual(["-m", "gpt-5.5", "-c", "model_reasoning_effort=high", "--dangerously-bypass-approvals-and-sandbox", "x"]);
+    // LA-04：codex 恢复以 resume <id> 紧跟命令，恢复时不追加提示词
+    expect(run("codex", { resume: "s1", prompt: "忽略" }).argv).toEqual(["resume", "s1", "--dangerously-bypass-approvals-and-sandbox"]);
+  });
+  test("LA-02 claude headless：参数顺序，--disallowedTools 在最后", () => {
+    const r = run("claude", { mode: "headless", model: "sonnet", sessionId: "11111111-1111-1111-1111-111111111111", prompt: "任务" });
+    expect(r.argv).toEqual([
+      "--model",
+      "sonnet",
+      "--dangerously-skip-permissions",
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--session-id",
+      "11111111-1111-1111-1111-111111111111",
+      "--disallowedTools",
+      "EnterWorktree,ExitWorktree",
+    ]);
+    expect(r.stdin).toBe("任务");
+    expect(run("claude", { mode: "headless", resume: "abc" }).argv.slice(-4)).toEqual(["--resume", "abc", "--disallowedTools", "EnterWorktree,ExitWorktree"]);
+  });
+  test("LA-03 codex headless：exec 紧跟命令；恢复为 exec resume … <id> -", () => {
+    expect(run("codex", { mode: "headless", model: "gpt-5.5", prompt: "任务" }).argv).toEqual(["exec", "-m", "gpt-5.5", "--dangerously-bypass-approvals-and-sandbox", "--json", "-"]);
+    expect(run("codex", { mode: "headless", resume: "t1" }).argv).toEqual(["exec", "resume", "--dangerously-bypass-approvals-and-sandbox", "--json", "t1", "-"]);
+  });
+  test("LA-05 错误：pi 无 headless；停用；未检测到；非法值", () => {
+    const code = (f: () => unknown) => {
+      try {
+        f();
+      } catch (e) {
+        return (e as { code: string }).code;
+      }
+      return null;
+    };
+    expect(code(() => run("pi", { mode: "headless" }))).toBe("HEADLESS_UNSUPPORTED");
+    expect(code(() => run("claude", {}, settingsWith({ claude: { enabled: false } })))).toBe("AGENT_DISABLED");
+    expect(code(() => resolveAgentLaunch({ settings: settingsWith() }, { agentId: "claude", mode: "interactive" }))).toBe("AGENT_NOT_FOUND");
+    expect(code(() => run("claude", { model: "-x" }))).toBe("INVALID_INPUT");
+    expect(code(() => run("nope"))).toBe("INVALID_INPUT");
+    expect(code(() => run("claude", { draft: {} }))).toBe("INVALID_INPUT"); // draft 只能与 preview 一起用
+  });
+  test("LA-06 fast：claude opus → --settings；haiku 不支持并告警；codex → service_tier=priority", () => {
+    expect(run("claude", { model: "opus", fast: true }).argv).toEqual(["--model", "opus", "--settings", '{"fastMode":true}', "--dangerously-skip-permissions"]);
+    const h = run("claude", { model: "haiku", fast: true });
+    expect(h.argv).toEqual(["--model", "haiku", "--dangerously-skip-permissions"]);
+    expect(h.warnings.join()).toMatch(/速度/);
+    expect(run("codex", { fast: true }).argv).toContain("service_tier=priority");
+  });
+  test("LA-07 冲突：用户参数里已有的选项以用户为准，其他选项照常", () => {
+    const s = settingsWith({ claude: { args: ["--model", "opus"] }, codex: { args: ["-c", "model_reasoning_effort=low"] } });
+    const a = run("claude", { model: "sonnet", effort: "high" }, s);
+    expect(a.argv).toEqual(["--effort", "high", "--model", "opus"]);
+    expect(a.warnings.join()).toMatch(/模型/);
+    const b = run("codex", { model: "gpt-5.5", effort: "high" }, s);
+    expect(b.argv).toEqual(["-m", "gpt-5.5", "-c", "model_reasoning_effort=low"]);
+    expect(run("codex", { effort: "high" }, settingsWith({ codex: { args: ["-c", "foo=bar"] } })).argv).toEqual(["-c", "model_reasoning_effort=high", "-c", "foo=bar"]); // 无关的 -c 不触发冲突
+  });
+  test("LA-08 env 只含条目与用户覆盖层；设置里的命令覆盖优先于检测路径；空参数数组 = 不加任何参数", () => {
+    const r = run("claude", {}, settingsWith({ claude: { env: { FOO: "1" }, command: "/my/claude", args: [] } }));
+    expect(r).toMatchObject({ command: "/my/claude", argv: [], env: { FOO: "1" } });
+  });
+  test("预览：未检测到 / 停用也能预览；env 值打码；不支持 headless 返回标记", () => {
+    const p = resolveAgentLaunch({ settings: settingsWith() }, { agentId: "claude", mode: "interactive", preview: true, draft: { enabled: false, env: { TOKEN: "abc" } } });
+    expect(p).toMatchObject({ command: "claude", argv: ["--dangerously-skip-permissions"], env: { TOKEN: "…" } });
+    expect(resolveAgentLaunch({ settings: settingsWith() }, { agentId: "pi", mode: "headless", preview: true }).unsupported).toBe("headless");
+  });
+  test("AG-02 新增一个虚构条目：不改其他代码即可检测与启动", async () => {
+    const fake: AgentCatalogEntry = {
+      id: "fake" as never,
+      displayName: "Fake",
+      homepage: "https://example.com",
+      detect: { command: "fakecli", versionArgs: ["--version"] },
+      launch: { command: "fakecli" },
+      fullAccessArgs: ["--yolo"],
+      options: {},
+      interactive: { prompt: "positional" },
+    };
+    const r = resolveAgentLaunch({ settings: settingsWith(), catalog: [fake], detected: det("fake", "/b/fakecli") }, { agentId: "fake", mode: "interactive", prompt: "hi" });
+    expect(r).toMatchObject({ command: "/b/fakecli", argv: ["--yolo", "hi"] });
+    if (process.platform !== "win32") {
+      const bin = tmp();
+      fakeBin(bin, "fakecli", "echo fake-1");
+      const d = await new AgentDetector({ settings: () => settingsWith(), env: { PATH: bin }, catalog: [fake], home: tmp() }).detect();
+      expect(d).toEqual([expect.objectContaining({ id: "fake", installed: true, version: "fake-1" })]);
+    }
   });
 });
 

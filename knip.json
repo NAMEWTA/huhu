@@ -4,7 +4,7 @@
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts", "tests/e2e/workflows/*.spec.ts", "tests/perf/*.bench.ts", "tests/perf/vitest.config.ts"]
+      "entry": ["scripts/*.mjs", "tests/e2e/*.spec.ts", "tests/e2e/workflows/*.spec.ts", "tests/perf/*.bench.ts", "tests/perf/vitest.config.ts", "tests/visual/*.spec.ts", "playwright.visual.config.ts"]
     },
     "packages/vault": {
       "entry": ["test/fixtures/*.mjs"],
@@ -19,6 +19,12 @@
     },
     "plugins/tasks": {
       "ignoreDependencies": ["tsx"]
+    },
+    "packages/editor": {
+      "ignoreDependencies": ["katex"]
+    },
+    "packages/ui": {
+      "ignoreDependencies": ["@fontsource-variable/geist", "@fontsource-variable/geist-mono", "@fontsource-variable/inter", "@fontsource-variable/jetbrains-mono", "@fontsource-variable/newsreader"]
     }
   }
 }

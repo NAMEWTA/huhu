@@ -38,7 +38,7 @@ describe("MarkdownEditor", () => {
   test("三种可编辑模式都能挂载；阅读模式只读", () => {
     for (const mode of ["live", "source", "split", "preview"] as const) {
       const { container, unmount } = render(<MarkdownEditor documentId="a" mode={mode} value="# 标题\n\n| a | b |\n| - | - |\n| 1 | 2 |" onChange={() => undefined} ariaLabel="x" />);
-      expect(container.querySelector(".huhu-markdown-editor")?.className).toContain(`mode-${mode}`);
+      expect(container.querySelector(".editor-markdown-editor")?.className).toContain(`mode-${mode}`);
       unmount();
     }
   });

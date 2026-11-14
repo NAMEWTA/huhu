@@ -6,11 +6,11 @@ const op = z.enum(["created", "updated", "deleted"]);
 /** 事件类型与 payload；interfaces.md §5 的唯一实现。 */
 export const EVENT_PAYLOADS = {
   "vault.fileChanged": z.object({ path: z.string(), kind: z.string().optional(), id: z.string().optional(), change, from: z.string().optional() }),
-  "entity.changed": z.object({ kind: z.string(), id: z.string(), op }),
+  "entity.changed": z.object({ kind: z.string(), id: z.string(), op, /** 档案等按路径标识的实体：文件夹路径与其 index.md 的笔记 id。 */ path: z.string().optional(), noteId: z.string().nullable().optional() }),
   /** 保险箱解锁成功（依赖保险箱凭据而暂停的功能据此恢复）。 */
   "safe.unlocked": z.object({}),
   "plugin.stateChanged": z.object({ id: z.string(), state: z.enum(["active", "disabled", "failed"]), error: z.string().optional() }),
-  "task.completedChanged": z.object({ taskId: z.string(), completed: z.boolean() }),
+  "task.statusChanged": z.object({ taskId: z.string(), status: z.enum(["not_started", "in_progress", "completed"]), previous: z.enum(["not_started", "in_progress", "completed"]) }),
   "task.inputChanged": z.object({ taskId: z.string(), inputRevision: z.number().int(), inputHash: z.string() }),
   "automation.activated": z.object({ ruleId: z.string(), activationId: z.string(), trigger: z.string() }),
   "run.stateChanged": z.object({ runId: z.string(), kind: z.enum(["task-run", "automation-run"]), state: z.string() }),

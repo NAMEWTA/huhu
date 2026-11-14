@@ -152,7 +152,7 @@ export function ConflictView({ onBack }: { onBack: () => void }) {
         <Button disabled={busy} onClick={() => void cancel()} data-testid="conflict-cancel">
           {t.conflicts.cancel}
         </Button>
-        <span className="hu-meta">{t.conflicts.cancelNote}</span>
+        <span>{t.conflicts.cancelNote}</span>
       </div>
     </div>
   );
@@ -172,7 +172,7 @@ function FileBody({ path, choices, pick, onChoice, onPick }: { path: string; cho
     const sideText = (s: Side) => (!s.exists ? t.conflicts.absent : s.binary ? `${t.conflicts.binary}（${t.conflicts.size(s.size ?? 0)}）` : (s.preview ?? t.conflicts.size(s.size ?? 0)));
     return (
       <div data-testid="conflict-whole">
-        <p className="hu-meta">
+        <p>
           {t.conflicts.whole}：{v.reason}
         </p>
         <div className="hu-row" style={{ alignItems: "flex-start" }}>
@@ -214,10 +214,10 @@ function Common({ text, first, last }: { text: string; first: boolean; last: boo
   const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   const head = first ? 0 : CONTEXT;
   const tail = last ? 0 : CONTEXT;
-  if (lines.length <= head + tail + 1) return <pre className="hu-meta">{text}</pre>;
+  if (lines.length <= head + tail + 1) return <pre>{text}</pre>;
   const hidden = lines.length - head - tail;
   return (
-    <pre className="hu-meta">
+    <pre>
       {lines.slice(0, head).join("")}
       <em>
         {t.conflicts.unchanged(hidden)}

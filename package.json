@@ -1,11 +1,11 @@
 {
   "name": "huhu",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "private": true,
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs",
+    "lint": "oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs && stylelint \"packages/*/src/**/*.css\" \"plugins/*/src/**/*.css\" \"apps/*/src/**/*.css\" && node scripts/check-ui-colors.mjs && node scripts/check-css-layers.mjs && node scripts/check-css-classes.mjs && node scripts/check-css-ownership.mjs",
     "typecheck": "pnpm --filter \"./vendor/*\" run build:types && pnpm -r --parallel run typecheck",
     "test": "vitest run",
     "bench": "vitest bench --run --project perf",
@@ -18,7 +18,11 @@
     "knip": "knip --no-progress",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "fetch:herdr": "node scripts/fetch-herdr.mjs"
+    "fetch:herdr": "node scripts/fetch-herdr.mjs",
+    "gen:themes": "pnpm --filter @huhu/ui run gen:themes",
+    "visual:baseline": "node scripts/visual.mjs baseline",
+    "visual:compare": "node scripts/visual.mjs compare",
+    "visual:noise": "node scripts/visual.mjs noise"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
@@ -27,6 +31,9 @@
     "knip": "^6.44.2",
     "oxfmt": "^0.78.0",
     "oxlint": "1.93.0",
+    "postcss": "8.5.32",
+    "postcss-selector-parser": "7.2.1",
+    "stylelint": "^16.26.1",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },

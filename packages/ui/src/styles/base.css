@@ -1,0 +1,94 @@
+/* 基础：重置、正文、标题、焦点环、选区、减少动效，以及尚未迁移的 .hu-* 共享类（DS-S2 会按组件拆分）。 */
+/* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+:root[data-motion="reduced"] * {
+  transition: none !important;
+  animation: none !important;
+}
+/* stylelint-enable declaration-no-important */
+@media (prefers-reduced-motion: reduce) {
+  /* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+  :root[data-motion="system"] * {
+    transition: none !important;
+    animation: none !important;
+  }
+  /* stylelint-enable declaration-no-important */
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 var(--font-size) / var(--body-leading) var(--font-ui);
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: var(--title-weight);
+  letter-spacing: var(--title-tracking);
+}
+strong,
+b {
+  font-weight: var(--strong-weight);
+}
+::selection {
+  background: var(--selection);
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.hu-spin {
+  animation: hu-spin 1s linear infinite;
+}
+@keyframes hu-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hu-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line);
+}
+.hu-banner-warning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+.hu-banner-danger {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.hu-banner-blue {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+.hu-terminal-wrap {
+  position: relative;
+  height: 100%;
+  min-height: 240px;
+  background: var(--term-bg);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.hu-split .hu-terminal-wrap {
+  min-height: 0; /* 分屏的格子由网格决定高度，不要被 240px 的下限撑出格子 */
+}
+.hu-terminal {
+  height: 100%;
+  padding: var(--space-2);
+}
+.hu-terminal-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--chrome);
+  color: var(--text);
+  text-align: center;
+}

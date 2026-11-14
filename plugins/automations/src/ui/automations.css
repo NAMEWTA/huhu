@@ -1,0 +1,602 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer modules {
+  .automations-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--line);
+  }
+  .hu-module-layout.hu-tw-workbench {
+    display: flex;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .hu-tw-navigation {
+    width: 184px;
+    flex: 0 0 184px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 9px;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .hu-tw-nav-title {
+    height: 58px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 7px;
+    font-size: 13px;
+  }
+  .hu-tw-navigation nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hu-tw-navigation nav button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    padding: 10px;
+    text-align: left;
+    font-size: 12px;
+  }
+  .hu-tw-navigation nav button:hover {
+    background: var(--muted-bg);
+  }
+  .hu-tw-navigation nav button.active {
+    background: var(--accent-soft);
+    font-weight: 600;
+  }
+  .hu-tw-nav-bottom {
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding: 14px 0;
+  }
+  .hu-tw-nav-bottom p {
+    margin: 0;
+    padding: 8px 9px 0;
+    font-size: 11px;
+    line-height: 1.8;
+    color: var(--muted);
+  }
+  .hu-tw-heading {
+    padding: 24px 28px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .hu-tw-heading h1 {
+    font-size: 22px;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    margin: 0;
+  }
+  .hu-tw-heading p {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 8px 0 0;
+  }
+  .hu-tw-search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--bg);
+    padding: 4px 8px;
+    max-width: 280px;
+    min-width: 0;
+  }
+  .automations-task-content {
+    min-height: 0;
+    flex: 1;
+    overflow: auto;
+    padding: 0 24px 22px;
+  }
+  .automations-markdown .markdown {
+    font-size: 13px;
+    line-height: 1.85;
+  }
+  .automations-markdown h3 {
+    font-size: 13px;
+    font-weight: 550;
+    margin: 20px 0 12px;
+  }
+  .hu-tw-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    min-height: 0;
+    max-height: calc(100dvh - 200px);
+    overflow: auto;
+  }
+  .automations-editor-body {
+    display: flex;
+    flex-direction: column;
+    gap: 19px;
+    min-width: 0;
+    padding: 24px;
+  }
+  .automations-editor-aside {
+    display: flex;
+    flex-direction: column;
+    gap: 19px;
+    min-width: 0;
+    padding: 24px 20px;
+    border-left: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .automations-description-input {
+    min-height: 220px;
+    line-height: 1.85;
+    padding: 12px;
+    resize: vertical;
+  }
+  .hu-tw-section-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 550;
+  }
+  .hu-tw-section-label strong {
+    font-size: 12px;
+    font-weight: 550;
+  }
+  .automations-rule-list {
+    width: 305px;
+    flex: 0 0 305px;
+    overflow: auto;
+    padding: 16px;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .automations-rule-list .hu-tw-search {
+    max-width: none;
+    background: var(--panel);
+    margin-bottom: 15px;
+  }
+  .hu-tw-rule-item {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--panel);
+    padding: 15px;
+    margin-bottom: 10px;
+    text-align: left;
+  }
+  .hu-tw-rule-item.active {
+    border-color: var(--line-strong);
+  }
+  .hu-tw-rule-item > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .hu-tw-rule-item strong {
+    min-width: 0;
+    flex: 1;
+    font-size: 12px;
+    font-weight: 550;
+    line-height: 1.7;
+  }
+  .hu-tw-rule-item p {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin: 10px 0 7px;
+  }
+  .hu-tw-rule-item small {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .hu-tw-rule-detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 15px;
+  }
+  .hu-tw-rule-detail-header h2 {
+    font-size: 21px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin: 10px 0 16px;
+  }
+  .hu-tw-rule-detail-header > div:last-child {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .automations-run-summary {
+    padding: 10px 16px;
+  }
+  .automations-run-summary .markdown {
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .automations-scan-list {
+    max-height: 300px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+  }
+  .automations-scan-list > div {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 12px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .automations-scan-list strong {
+    font-size: 12px;
+    font-weight: 550;
+    flex: 1;
+  }
+  .automations-scan-list small {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .automations-scan-list .skipped {
+    background: var(--bg);
+    color: var(--muted);
+  }
+  .hu-tw-workbench button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  @media (max-width: 1250px) {
+    .hu-tw-navigation {
+      width: 158px;
+      flex-basis: 158px;
+    }
+  }
+  @media (max-width: 1250px) {
+    .hu-tw-heading {
+      padding: 22px;
+    }
+  }
+  @media (max-width: 1250px) {
+    .automations-task-content {
+      padding: 0 18px 20px;
+    }
+  }
+  @media (max-width: 1000px) {
+    .hu-tw-navigation {
+      width: 138px;
+      flex-basis: 138px;
+    }
+  }
+  @media (max-width: 1000px) {
+    .hu-tw-editor-grid {
+      grid-template-columns: minmax(0, 1fr) 270px;
+    }
+  }
+  @media (max-width: 1000px) {
+    .hu-tw-heading {
+      padding: 18px 16px;
+    }
+  }
+  @media (max-width: 1000px) {
+    .hu-tw-heading h1 {
+      font-size: 20px;
+    }
+  }
+  @media (max-width: 780px) {
+    .hu-module-layout.hu-tw-workbench {
+      position: relative;
+    }
+  }
+  @media (max-width: 780px) {
+    .hu-tw-navigation {
+      width: 125px;
+      flex-basis: 125px;
+      padding: 0 6px;
+    }
+  }
+  @media (max-width: 780px) {
+    .hu-tw-editor-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 780px) {
+    .automations-editor-aside {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+  }
+  @media (max-width: 780px) {
+    .hu-tw-search {
+      flex: 1;
+    }
+  }
+  @media (max-width: 780px) {
+    .hu-tw-rule-item {
+      padding: 11px;
+    }
+  }
+  @media (max-width: 780px) {
+    .hu-tw-rule-item > div {
+      flex-wrap: wrap;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+    .hu-tw-workbench *,
+    .hu-tw-editor-grid * {
+      animation: none !important;
+      transition: none !important;
+    }
+    /* stylelint-enable declaration-no-important */
+  }
+  .hu-btn-ghost:hover {
+    color: var(--text);
+  }
+  .hu-btn-ghost:hover:not(:disabled) {
+    background: var(--muted-bg);
+    color: var(--text);
+  }
+  .automations-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 0 0;
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .hu-tw-workbench .hu-btn-danger {
+    color: var(--danger-fg);
+  }
+  /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
+  .automations-automation-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+  }
+  .automations-automation-columns {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+  .automations-rule-detail {
+    min-width: 0;
+    flex: 1;
+    overflow: auto;
+    padding: 27px 30px;
+  }
+  .automations-rule-flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    padding: 15px;
+    margin: 5px 0 23px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .automations-rule-flow span {
+    padding: 5px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .automations-action-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 17px;
+  }
+  .automations-scan-contract {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    padding: 15px;
+    margin: 3px 0;
+    font-size: 12px;
+    line-height: 1.85;
+  }
+  .automations-scan-contract strong {
+    font-size: 13px;
+    font-weight: 550;
+  }
+  .automations-scan-contract p {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 8px 0 0;
+  }
+  .automations-schedule-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--bg);
+    padding: 12px;
+    margin: 18px 0 8px;
+    font-size: 11px;
+  }
+  .automations-schedule-preview strong {
+    font-size: 11px;
+    font-weight: 550;
+  }
+  .automations-schedule-preview small {
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .automations-schedule-preview time {
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .automations-schedule-error {
+    font-size: 11px;
+    color: var(--danger-text);
+    line-height: 1.8;
+  }
+  .automations-rule-preview-action {
+    border-top: 1px solid var(--line);
+    padding-top: 21px;
+    margin-top: 23px;
+  }
+  .automations-rule-preview-action > p {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin: 10px 0 0;
+  }
+  .automations-rule-linked {
+    border-top: 1px solid var(--line);
+    margin-top: 23px;
+    padding-top: 3px;
+  }
+  .automations-rule-linked h3 {
+    font-size: 12px;
+    font-weight: 550;
+    margin: 18px 0 12px;
+  }
+  .automations-rule-linked > button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 0;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    font-size: 12px;
+  }
+  .automations-rule-linked > button > span {
+    flex: 1;
+  }
+  .automations-rule-linked small {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .automations-occurrence-list {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 24px;
+  }
+  .automations-occurrence {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .automations-occurrence > header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    font-size: 12px;
+  }
+  .automations-occurrence > header strong {
+    font-weight: 550;
+  }
+  .automations-occurrence > header time {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .automations-occurrence > button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--line);
+    background: transparent;
+    padding: 13px 16px;
+    text-align: left;
+    font-size: 12px;
+  }
+  .automations-occurrence > button > span:nth-child(2) {
+    flex: 1;
+  }
+  .automations-occurrence > button > small {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .automations-scan-list > p {
+    padding: 15px;
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0;
+  }
+  @media (max-width: 1250px) {
+    .automations-rule-list {
+      width: 270px;
+      flex-basis: 270px;
+    }
+    .automations-rule-detail {
+      padding: 24px;
+    }
+  }
+  @media (max-width: 1000px) {
+    .automations-rule-list {
+      width: 225px;
+      flex-basis: 225px;
+      padding: 12px;
+    }
+    .automations-rule-detail {
+      padding: 20px;
+    }
+    .hu-tw-rule-detail-header {
+      flex-wrap: wrap;
+    }
+  }
+  @media (max-width: 780px) {
+    .automations-rule-list {
+      width: 190px;
+      flex-basis: 190px;
+    }
+    .automations-rule-detail {
+      padding: 17px;
+    }
+    .hu-tw-rule-detail-header h2 {
+      font-size: 18px;
+    }
+    .automations-rule-flow {
+      gap: 5px;
+      padding: 10px;
+    }
+    .automations-rule-flow span {
+      padding: 4px;
+    }
+    .automations-occurrence > header {
+      flex-wrap: wrap;
+    }
+    .automations-occurrence > header time {
+      margin-left: 0;
+    }
+    .automations-scan-list > div {
+      flex-wrap: wrap;
+    }
+    .automations-scan-list small {
+      flex-basis: 100%;
+    }
+  }
+}

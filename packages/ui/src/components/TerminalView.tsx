@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
+import { APPEARANCE_CHANGED } from "../theme.js";
 
 export interface TerminalViewProps {
   /** Engine 基址（http://127.0.0.1:port）与令牌；WebSocket 经 `Sec-WebSocket-Protocol: bearer.<token>` 鉴权。 */
@@ -15,6 +15,17 @@ export interface TerminalViewProps {
   onExit?(reason: string): void;
 }
 
+const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
+
+/** xterm 不解析 CSS 变量：从宿主元素读出主题生成的 --term-* 与 --font-mono 的具体值。 */
+function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily: string } {
+  const cs = getComputedStyle(el);
+  const v = (name: string) => cs.getPropertyValue(`--${name}`).trim();
+  const theme: Record<string, string> = { background: v("term-bg"), foreground: v("term-fg"), cursor: v("term-cursor"), selectionBackground: v("term-selection") };
+  ANSI.forEach((name, i) => (theme[name] = v(`term-ansi-${i}`)));
+  return { theme, fontFamily: v("font-mono") || "monospace" };
+}
+
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
 export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -26,7 +37,16 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
 
   useEffect(() => {
     if (!host.current) return;
-    const term = new Terminal({ cursorBlink: true, fontFamily: "var(--font-mono), monospace", fontSize: 13, convertEol: false, scrollback: 5000 });
+    const look = readTheme(host.current);
+    // minimumContrastRatio：xterm 自带，保证任何 ANSI 前景 / 背景组合都可读（例如浅色主题下的“白色”文字）
+    const term = new Terminal({ cursorBlink: true, fontFamily: look.fontFamily, theme: look.theme, minimumContrastRatio: 4.5, fontSize: 13, convertEol: false, scrollback: 5000 });
+    const el = host.current;
+    const restyle = () => {
+      const next = readTheme(el);
+      term.options.theme = next.theme;
+      term.options.fontFamily = next.fontFamily;
+    };
+    window.addEventListener(APPEARANCE_CHANGED, restyle);
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host.current);
@@ -85,6 +105,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     ro.observe(host.current);
     return () => {
       disposed = true;
+      window.removeEventListener(APPEARANCE_CHANGED, restyle);
       ro.disconnect();
       inputSub.dispose();
       resizeSub.dispose();

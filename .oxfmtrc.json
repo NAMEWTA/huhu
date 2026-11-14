@@ -15,7 +15,7 @@
     "pnpm-lock.yaml",
     "THIRD_PARTY_NOTICES.md",
     "**/*.md",
-    "packages/ui/src/styles/tokens.css",
+    "packages/ui/src/styles/*.generated.css",
     "packages/ui/src/styles/proto/**",
     "packages/editor/src/vendor/**"
   ]

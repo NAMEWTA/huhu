@@ -64,6 +64,13 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
   return store;
 }
 
+/** 打开设置并定位到某一页（不走 openModule 的“再次点击折叠侧栏”逻辑）。页不存在时由外壳回退到第一项。 */
+export function openSettings(ui: StoreApi<UiState>, page?: string): void {
+  const s = ui.getState();
+  if (page) s.setSection("settings", page);
+  if (s.activeModule !== "settings") s.openModule("settings");
+}
+
 function clampWidth(w: number): number {
   return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(w)));
 }

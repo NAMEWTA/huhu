@@ -92,14 +92,14 @@ function VaultForm({
   return (
     <div data-testid="settings-vault">
       {info.readOnly ? (
-        <div role="status" className="callout">
+        <div role="status" className="hu-callout">
           <p>{c.readOnly}</p>
         </div>
       ) : null}
-      <section className="settings-section card">
+      <section className="hu-settings-section hu-card-alt">
         <h2>知识库信息</h2>
         <form
-          className="form-body"
+          className="hu-form-body"
           onSubmit={(e) => {
             e.preventDefault();
             if (dirty && valid) void onSave(name.trim(), desc.trim());
@@ -118,12 +118,12 @@ function VaultForm({
           </div>
         </form>
         {note ? (
-          <div role="status" data-testid="svault-note" className="hint-text">
+          <div role="status" data-testid="svault-note" className="hu-hint-text">
             {note}
           </div>
         ) : null}
         {error ? (
-          <div role="alert" className="field-error">
+          <div role="alert" className="hu-field-error">
             {error}
           </div>
         ) : null}
@@ -138,10 +138,10 @@ function VaultForm({
           </div>
         </Field>
         {host()?.vault ? (
-          <div className="setting-row">
+          <div className="hu-setting-row">
             <div>
               <strong>切换 Vault</strong>
-              <p className="hint-text">关闭当前 Vault 并回到启动页；有未保存的文档时可选择保存或保留为草稿，可以打开另一个文件夹。</p>
+              <p className="hu-hint-text">关闭当前 Vault 并回到启动页；有未保存的文档时可选择保存或保留为草稿，可以打开另一个文件夹。</p>
             </div>
             <Button icon={FolderOpen} data-testid="svault-switch" onClick={() => setConfirmSwitch(true)}>
               切换 Vault…
@@ -149,7 +149,7 @@ function VaultForm({
             <VaultSwitchDialog open={confirmSwitch} onClose={() => setConfirmSwitch(false)} />
           </div>
         ) : null}
-        <div className="setting-row">
+        <div className="hu-setting-row">
           <div>
             <strong>{c.id}</strong>
             <p className="mono" data-testid="svault-id">
@@ -170,9 +170,9 @@ function VaultForm({
           </Button>
         </div>
       </section>
-      <section className="settings-section card">
+      <section className="hu-settings-section hu-card-alt">
         <h2>{c.overview}</h2>
-        <div className="metric-grid" data-testid="svault-counts">
+        <div className="shell-metric-grid" data-testid="svault-counts">
           <div>
             <strong>{info.counts["files"] ?? 0}</strong>
             <span>文件</span>
@@ -190,7 +190,7 @@ function VaultForm({
             <span>待整理收件</span>
           </div>
         </div>
-        {info.indexing ? <p className="hint-text">{c.indexing}</p> : null}
+        {info.indexing ? <p className="hu-hint-text">{c.indexing}</p> : null}
       </section>
     </div>
   );

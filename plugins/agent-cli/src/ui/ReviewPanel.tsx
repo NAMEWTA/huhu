@@ -104,12 +104,8 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
   return (
     <section data-testid="review-panel" aria-label={c.title}>
       <h2>{c.title}</h2>
-      {!diff.hasHead ? <p className="hu-meta">{c.noHead}</p> : null}
-      {diff.truncated ? (
-        <p className="hu-meta" role="status">
-          {c.truncated}
-        </p>
-      ) : null}
+      {!diff.hasHead ? <p>{c.noHead}</p> : null}
+      {diff.truncated ? <p role="status">{c.truncated}</p> : null}
       {error ? (
         <div role="alert" className="hu-overdue">
           {error}
@@ -135,7 +131,7 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
         >
           {c.send(pending.length)}
         </Button>
-        {!running ? <span className="hu-meta">{c.notRunning}</span> : null}
+        {!running ? <span>{c.notRunning}</span> : null}
       </div>
       {preview !== null ? (
         <div role="alertdialog" aria-label={c.confirmTitle} data-testid="review-confirm">
@@ -199,7 +195,7 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
                 >
                   <span>{f.path}</span>
                   <Badge tone={f.status === "deleted" ? "danger" : f.status === "modified" ? "warning" : "success"}>{statusLabel[f.status]}</Badge>
-                  <span className="hu-meta">{f.binary ? "二进制" : `+${f.additions} −${f.deletions}`}</span>
+                  <span>{f.binary ? "二进制" : `+${f.additions} −${f.deletions}`}</span>
                 </button>
               </li>
             ))}
@@ -209,17 +205,15 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
               <>
                 <h3 data-testid="review-file-title">{file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}</h3>
                 {file.binary ? (
-                  <p className="hu-meta">{c.binary}</p>
+                  <p>{c.binary}</p>
                 ) : file.tooLarge ? (
-                  <p className="hu-meta">{c.tooLarge}</p>
+                  <p>{c.tooLarge}</p>
                 ) : file.hunks.length === 0 ? (
-                  <p className="hu-meta">{c.noChanges}</p>
+                  <p>{c.noChanges}</p>
                 ) : (
                   file.hunks.map((h, hi) => (
-                    <table key={hi} className="hu-diff" aria-label={h.header} style={{ fontFamily: "monospace", width: "100%", borderCollapse: "collapse" }}>
-                      <caption className="hu-meta" style={{ textAlign: "left" }}>
-                        {h.header}
-                      </caption>
+                    <table key={hi} aria-label={h.header} style={{ fontFamily: "monospace", width: "100%", borderCollapse: "collapse" }}>
+                      <caption style={{ textAlign: "left" }}>{h.header}</caption>
                       <thead>
                         <tr>
                           <th scope="col">{c.oldCol}</th>
@@ -235,7 +229,7 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
                           const here = n === null ? [] : forFile(side, n);
                           return (
                             <Fragment key={`${hi}-${li}`}>
-                              <tr data-testid="diff-line" data-kind={l.kind} style={{ background: l.kind === "add" ? "var(--success-soft, #e6f6ea)" : l.kind === "del" ? "var(--danger-soft, #fdeaea)" : undefined }}>
+                              <tr data-testid="diff-line" data-kind={l.kind} style={{ background: l.kind === "add" ? "var(--success-bg, #e6f6ea)" : l.kind === "del" ? "var(--danger-bg, #fdeaea)" : undefined }}>
                                 <td style={{ width: "3.5rem", textAlign: "right", opacity: 0.6 }}>{l.oldLine ?? ""}</td>
                                 <td style={{ width: "3.5rem", textAlign: "right", opacity: 0.6 }}>{l.newLine ?? ""}</td>
                                 <td style={{ width: "1.5rem" }}>
@@ -256,7 +250,7 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
                                 <td style={{ whiteSpace: "pre-wrap" }}>
                                   {l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}
                                   {l.text}
-                                  {l.noNewline ? <em className="hu-meta"> {c.noNewline}</em> : null}
+                                  {l.noNewline ? <em> {c.noNewline}</em> : null}
                                 </td>
                               </tr>
                               {here.map((x) => (

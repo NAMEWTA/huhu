@@ -2,7 +2,7 @@
   "id": "versioning",
   "title": "版本与同步",
   "description": "文件历史、Git 与同步",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["automations", "safe", "agent-guide"],
@@ -10,7 +10,7 @@
   "activation": "vault-open",
   "contributes": {
     "modules": ["versioning"],
-    "settingsPages": [],
+    "settingsPages": ["versioning"],
     "homeWidgets": [],
     "commands": [],
     "capabilities": [

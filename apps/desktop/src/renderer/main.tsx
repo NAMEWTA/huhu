@@ -1,11 +1,9 @@
-import "@huhu/ui/tokens.css";
-import "@huhu/ui/proto.css";
-import "@huhu/ui/components.css";
+import "@huhu/ui/styles.css";
 import "@huhu/workbench/shell.css";
-import { applyAppearance } from "@huhu/ui";
+import { appearanceController } from "@huhu/ui";
+import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
-import { contributions as archivesUi } from "@huhu/plugin-archives/ui";
 import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
@@ -20,6 +18,7 @@ import {
   HealthModule,
   HomeModule,
   CommandPalette,
+  requestOpenPath,
   runFlushers,
   LaunchPage,
   type VaultHostState,
@@ -32,13 +31,17 @@ import {
   ThemeToggle,
   PluginCenterModule,
   SettingsModule,
+  systemSettingsPages,
   useCapability,
   createUiStore,
   type EngineEndpoint,
 } from "@huhu/workbench";
-import { Activity, Bell, Blocks, BookOpen, CalendarDays, Command, Database, Folder, HeartPulse, House, LayoutGrid, Monitor, NotebookPen, Palette, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
+import { Activity, Bell, Blocks, CalendarDays, HeartPulse, House, LayoutGrid, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+
+// 首帧：用 localStorage 里缓存的最近一次外观（没有就是默认主题 + 跟随系统），打开 Vault 后再以 Vault 的设置为准
+appearanceController().refresh();
 
 type EngineState = "starting" | "ready" | "stopped" | "crashed";
 
@@ -68,13 +71,14 @@ function App() {
     const r = new ContributionRegistry();
     r.register(notesUi);
     r.register(tasksUi);
-    r.register(archivesUi);
     r.register(inboxUi);
     r.register(safeUi);
     r.register(agentCliUi);
     r.register(automationsUi);
     r.register(sshUi);
     r.register(versioningUi);
+    r.register(agentGuideUi);
+    r.register({ settingsPages: systemSettingsPages() });
     r.register({
       modules: [
         {
@@ -167,16 +171,6 @@ function App() {
           icon: <Settings size={18} aria-hidden />,
           nav: "shell",
           description: "你的工作方式，由你定义",
-          sections: [
-            { id: "appearance", label: "外观", icon: <Palette size={16} aria-hidden /> },
-            { id: "vault", label: "当前 Vault", icon: <Folder size={16} aria-hidden /> },
-            { id: "agent-access", label: "Agent 接入", icon: <BookOpen size={16} aria-hidden /> },
-            { id: "editor", label: "编辑器", icon: <NotebookPen size={16} aria-hidden /> },
-            { id: "date-time", label: "日期与时间", icon: <CalendarDays size={16} aria-hidden /> },
-            { id: "shortcuts", label: "快捷键", icon: <Command size={16} aria-hidden /> },
-            { id: "data", label: "数据与存储", icon: <Database size={16} aria-hidden /> },
-            { id: "about", label: "关于与来源", icon: <BookOpen size={16} aria-hidden /> },
-          ],
           component: SettingsModule,
         },
       ],
@@ -186,7 +180,6 @@ function App() {
   const ui = useMemo(() => createUiStore({ activeModule: "home", openTabs: ["home"] }), []);
 
   useEffect(() => {
-    applyAppearance(document.documentElement, { theme: "pearl", mode: "system" }, window.matchMedia("(prefers-color-scheme: dark)").matches);
     const off = window.huhuHost.onEngineState((s) => {
       setState(s);
       if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
@@ -213,7 +206,7 @@ function App() {
     })
       .then((r) => r.json() as Promise<{ ok: boolean; data?: { appearance: Record<string, unknown> } }>)
       .then((r) => {
-        if (r.ok && r.data) applyAppearance(document.documentElement, r.data.appearance, window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (r.ok && r.data) appearanceController().set(r.data.appearance);
       })
       .catch(() => undefined);
     void fetch(`${endpoint.baseUrl}/api/v1/call`, {
@@ -254,7 +247,17 @@ function App() {
       {endpoint ? <QuickCapture /> : null}
       {endpoint ? <FocusPauseOnClose /> : null}
       {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
-      <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={(r) => ui.getState().openModule(r.kind === "task" ? "tasks" : r.kind === "archive" ? "archives" : r.kind === "capture" ? "inbox" : "notes")} />
+      <CommandPalette
+        registry={registry}
+        ui={ui}
+        client={client}
+        onOpenResult={(r) => {
+          if (r.kind === "task") return ui.getState().openModule("tasks");
+          if (r.kind === "capture") return ui.getState().openModule("inbox");
+          requestOpenPath(r.path); // 笔记与档案（档案是 Archives/ 下的文件夹笔记）：笔记模块打开对应文件
+          ui.getState().openModule("notes");
+        }}
+      />
     </>
   );
   return endpoint ? (
@@ -271,7 +274,6 @@ function App() {
 function Root() {
   const [vault, setVault] = useState<VaultHostState | null>(null);
   useEffect(() => {
-    applyAppearance(document.documentElement, { theme: "pearl", mode: "system" }, window.matchMedia("(prefers-color-scheme: dark)").matches);
     window.huhuHost.onFlush(runFlushers);
     void window.huhuHost.vault.state().then(setVault);
   }, []);

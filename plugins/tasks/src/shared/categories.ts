@@ -15,7 +15,7 @@ function plusDays(date: string, n: number): string {
 
 export interface CategorizableTask {
   due: string | null;
-  completed: boolean;
+  status: "not_started" | "in_progress" | "completed";
 }
 
 /** 分类判定（modules/tasks.md §5）：today=due==T；tomorrow=T+1；week=T≤due≤T+6；ended=已完成；all=全部。 */
@@ -24,7 +24,7 @@ export function inCategory(task: CategorizableTask, category: TaskCategory, toda
     case "all":
       return true;
     case "ended":
-      return task.completed;
+      return task.status === "completed";
     case "today":
       return task.due === today;
     case "tomorrow":
@@ -36,8 +36,8 @@ export function inCategory(task: CategorizableTask, category: TaskCategory, toda
 
 /** 侧栏计数：已结束 = 已完成总数，其余 = 该分类下未完成数。 */
 export function categoryCount<T extends CategorizableTask>(tasks: readonly T[], category: TaskCategory, today: string): number {
-  if (category === "ended") return tasks.filter((t) => t.completed).length;
-  return tasks.filter((t) => !t.completed && inCategory(t, category, today)).length;
+  if (category === "ended") return tasks.filter((t) => t.status === "completed").length;
+  return tasks.filter((t) => t.status !== "completed" && inCategory(t, category, today)).length;
 }
 
 /** 未来 7 天范围（页头显示）。 */
@@ -46,5 +46,5 @@ export function weekRange(today: string): { from: string; to: string } {
 }
 
 export function isOverdue(task: CategorizableTask, today: string): boolean {
-  return !task.completed && task.due !== null && task.due < today;
+  return task.status !== "completed" && task.due !== null && task.due < today;
 }

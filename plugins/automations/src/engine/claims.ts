@@ -61,6 +61,15 @@ export class ClaimStore {
     return next;
   }
 
+  /** 派发回滚：markDispatched 失败时撤回刚创建的 claim。 */
+  delete(key: string): void {
+    try {
+      unlinkSync(this.file(key));
+    } catch {
+      /* 已不存在 */
+    }
+  }
+
   list(): Claim[] {
     if (!existsSync(this.dir)) return [];
     return readdirSync(this.dir)

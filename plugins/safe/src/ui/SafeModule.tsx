@@ -1,7 +1,7 @@
 import type { ModuleProps } from "@huhu/workbench";
-import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox } from "@huhu/ui";
+import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { ChevronRight, Copy, Eye, EyeOff, History, Info, KeyRound, Lock, Plus, Settings, Trash2, Unlock as UnlockIcon } from "lucide-react";
+import { ChevronRight, Copy, Eye, EyeOff, History, KeyRound, Lock, Plus, Settings, Trash2, Unlock as UnlockIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formatSecretRef } from "../shared/secret-ref.js";
 import { t } from "./i18n.js";
@@ -43,8 +43,8 @@ const ACTION_TEXT: Record<string, string> = {
   "change-password": "修改主密码",
 };
 
-/** 保险箱（原型 Safe）：凭据双栏 / 访问记录 / 锁定设置；未初始化或锁定时是居中的锁屏。 */
-export function SafeModule({ section }: ModuleProps) {
+/** 保险箱（原型 Safe）：凭据双栏 / 访问记录；锁定策略与主密码在设置页的“保险箱”里；未初始化或锁定时是居中的锁屏。 */
+export function SafeModule({ section, onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const status = useCapability<Status>("safe.status", {});
@@ -83,33 +83,38 @@ export function SafeModule({ section }: ModuleProps) {
       return null;
     }
   }
-  if (!status.data) return <div className="module-layout" data-testid="safe-module" />;
+  if (!status.data) return <div className="hu-module-layout" data-testid="safe-module" />;
   const st = status.data;
   const usable = st.initialized && !st.locked && !st.corrupt;
   return (
-    <div className="module-layout" data-testid="safe-module">
-      <div className="view-content">
+    <div className="hu-module-layout" data-testid="safe-module">
+      <div className="hu-view-content">
         <PageHead
           eyebrow="SECRETS BY REFERENCE"
           title="保险箱"
           description="凭据通过引用传递。秘密的读取与使用应有明确的边界。"
           actions={
-            usable ? (
-              <Button icon={Lock} onClick={() => void act("safe.lock", {})}>
-                {t.lock}
-              </Button>
-            ) : null
+            <>
+              {onNavigate ? (
+                <Button icon={Settings} data-testid="safe-open-settings" onClick={() => onNavigate("settings", "safe")}>
+                  设置
+                </Button>
+              ) : null}
+              {usable ? (
+                <Button icon={Lock} onClick={() => void act("safe.lock", {})}>
+                  {t.lock}
+                </Button>
+              ) : null}
+            </>
           }
         />
-        <div className="system-scroll scroll">
+        <div className="shell-system-scroll hu-scroll">
           {st.corrupt ? (
-            <div role="alert" className="callout danger">
+            <div role="alert" className="hu-callout danger">
               <p>keyring 文件损坏，保险箱不可用。</p>
             </div>
           ) : !st.initialized ? (
             <Setup onSetup={(password) => act("safe.setup", { password })} error={error} />
-          ) : section === "settings" && !st.locked ? (
-            <LockSettings st={st} act={act} error={error} />
           ) : section === "audit" ? (
             <Audit />
           ) : st.locked ? (
@@ -129,7 +134,7 @@ function Setup({ onSetup, error }: { onSetup(p: string): void; error: string | n
   const [ok, setOk] = useState(false);
   const valid = [...pw].length >= 10 && pw === pw2 && ok;
   return (
-    <div className="safe-locked" data-testid="safe-setup">
+    <div className="hu-safe-locked" data-testid="safe-setup">
       <div className="safe-lock-icon">
         <Lock size={31} aria-hidden />
       </div>
@@ -154,7 +159,7 @@ function Setup({ onSetup, error }: { onSetup(p: string): void; error: string | n
           {t.create}
         </Button>
         {error ? (
-          <p role="alert" className="field-error">
+          <p role="alert" className="hu-field-error">
             {error}
           </p>
         ) : null}
@@ -166,7 +171,7 @@ function Setup({ onSetup, error }: { onSetup(p: string): void; error: string | n
 function UnlockScreen({ onUnlock, error, cooldown }: { onUnlock(p: string): void; error: string | null; cooldown: number }) {
   const [pw, setPw] = useState("");
   return (
-    <div className="safe-locked" data-testid="safe-locked">
+    <div className="hu-safe-locked" data-testid="safe-locked">
       <div className="safe-lock-icon">
         <Lock size={31} aria-hidden />
       </div>
@@ -183,7 +188,7 @@ function UnlockScreen({ onUnlock, error, cooldown }: { onUnlock(p: string): void
           <input type="password" aria-label={t.password} autoComplete="off" value={pw} onChange={(e) => setPw(e.target.value)} />
         </Field>
         {cooldown > 0 ? (
-          <p role="alert" className="field-error">
+          <p role="alert" className="hu-field-error">
             {t.cooldown}（{cooldown}s）
           </p>
         ) : null}
@@ -210,19 +215,19 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
   const reveal = shown[current?.id ?? ""];
   return (
     <div className="safe-grid" data-testid="safe-unlocked">
-      <section className="card">
-        <div className="card-head">
+      <section className="hu-card-alt">
+        <div className="shell-card-head">
           <h2>
             {t.items} <Badge>{(items.data ?? []).length}</Badge>
           </h2>
           <IconButton icon={Plus} label={t.newItem} onClick={() => setCreating(true)} data-testid="safe-new" />
         </div>
-        <div className="system-pane-search">
+        <div className="hu-system-pane-search">
           <SearchBox value={query} onChange={setQuery} placeholder="搜索名称或账户…" />
         </div>
         {items.isSuccess && (items.data ?? []).length === 0 ? <EmptyState icon={KeyRound} title={t.empty} /> : null}
         {list.map((it) => (
-          <button key={it.id} type="button" className={`secret-row ${it.id === selectedId ? "active" : ""}`} data-testid="safe-item" onClick={() => setSelectedId(it.id)}>
+          <button key={it.id} type="button" className={`safe-secret-row ${it.id === selectedId ? "active" : ""}`} data-testid="safe-item" onClick={() => setSelectedId(it.id)}>
             <KeyRound size={18} aria-hidden />
             <span className="grow">
               <strong>{it.name}</strong>
@@ -234,21 +239,21 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
           </button>
         ))}
       </section>
-      <section className="card safe-detail">
+      <section className="hu-card-alt hu-safe-detail">
         {current ? (
           <>
-            <div className="card-head">
+            <div className="shell-card-head">
               <div>
                 <Badge>{current.type}</Badge>
                 <h2>{current.name}</h2>
               </div>
             </div>
-            <div className="stack safe-detail-body">
+            <div className="hu-stack hu-safe-detail-body">
               <Field label="账户">
-                <div className="read-value">{current.account || "未设置"}</div>
+                <div className="safe-read-value">{current.account || "未设置"}</div>
               </Field>
               <Field label="秘密值">
-                <div className="secret-value">
+                <div className="hu-secret-value">
                   <code data-testid="secret-value">{reveal ?? "••••••••"}</code>
                   <Button
                     onClick={() => {
@@ -282,7 +287,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
                 </div>
               </Field>
               {copyError ? (
-                <p role="alert" className="field-error">
+                <p role="alert" className="hu-field-error">
                   {copyError}
                 </p>
               ) : null}
@@ -294,7 +299,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
               </Field>
               <div>
                 <div className="small muted">允许引用</div>
-                <div className="permission-tags">{current.allowedModules.length === 0 ? <span className="small muted">尚未允许任何模块</span> : current.allowedModules.map((m) => <Badge key={m}>{m}</Badge>)}</div>
+                <div className="shell-permission-tags">{current.allowedModules.length === 0 ? <span className="small muted">尚未允许任何模块</span> : current.allowedModules.map((m) => <Badge key={m}>{m}</Badge>)}</div>
               </div>
               <Button variant="danger" icon={Trash2} onClick={() => setConfirmDelete(true)}>
                 {t.delete}
@@ -314,7 +319,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
         )}
       </section>
       {error ? (
-        <div role="alert" className="field-error">
+        <div role="alert" className="hu-field-error">
           {error}
         </div>
       ) : null}
@@ -364,7 +369,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
             </>
           }
         >
-          <p className="confirm-description">秘密值会从 keyring 中移除，无法恢复。</p>
+          <p className="hu-confirm-description">秘密值会从 keyring 中移除，无法恢复。</p>
         </Dialog>
       ) : null}
     </div>
@@ -390,7 +395,7 @@ function ItemDialog({ error, onClose, onSave }: { error: string | null; onClose(
         </>
       }
     >
-      <form className="form-body" onSubmit={(e) => e.preventDefault()}>
+      <form className="hu-form-body" onSubmit={(e) => e.preventDefault()}>
         <Field label={t.itemName}>
           <input autoFocus aria-label={t.itemName} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} />
         </Field>
@@ -420,8 +425,8 @@ function Audit() {
   const rows = useCapability<AuditRow[]>("safe.audit.list", { limit: 200 });
   const fmt = (iso: string) => new Date(iso).toLocaleString("zh-CN");
   return (
-    <section className="card" data-testid="safe-audit">
-      <div className="card-head">
+    <section className="hu-card-alt" data-testid="safe-audit">
+      <div className="shell-card-head">
         <h2>凭据访问记录</h2>
       </div>
       {(rows.data ?? []).length ? (
@@ -442,81 +447,5 @@ function Audit() {
         <EmptyState icon={History} title="暂无访问记录" hint="解锁、查看、复制等操作都会记录，不记录秘密内容。" />
       )}
     </section>
-  );
-}
-
-function LockSettings({ st, act, error }: { st: Status; act<T>(c: string, i: unknown): Promise<T | null>; error: string | null }) {
-  const [oldPw, setOldPw] = useState("");
-  const [newPw, setNewPw] = useState("");
-  const [note, setNote] = useState<string | null>(null);
-  return (
-    <div data-testid="safe-settings">
-      <section className="settings-section card">
-        <h2>锁定策略</h2>
-        <div className="setting-row">
-          <div>
-            <strong>自动锁定</strong>
-            <p>在此保险箱页面没有交互达到指定时间后锁定。</p>
-          </div>
-          <select aria-label="自动锁定" value={String(st.autoLockMinutes)} onChange={(e) => void act("safe.settings.update", { autoLockMinutes: Number(e.target.value) })}>
-            {[1, 5, 15, 30].map((m) => (
-              <option key={m} value={m}>
-                {m} 分钟
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="setting-row">
-          <div>
-            <strong>离开页面时锁定</strong>
-            <p>离开保险箱后，临时解锁状态立即销毁。</p>
-          </div>
-          <ChoiceSwitch checked={st.lockOnLeave} onChange={(v) => void act("safe.settings.update", { lockOnLeave: v })} label="离开页面时锁定" />
-        </div>
-      </section>
-      <section className="settings-section card">
-        <h2>修改主密码</h2>
-        <p>需要先解锁；新主密码至少 10 个字符。忘记主密码无法恢复已保存的秘密。</p>
-        <form
-          className="form-body"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setNote(null);
-            void act("safe.changePassword", { oldPassword: oldPw, newPassword: newPw }).then((r) => {
-              if (r) {
-                setOldPw("");
-                setNewPw("");
-                setNote("主密码已修改");
-              }
-            });
-          }}
-        >
-          <Field label="当前主密码">
-            <input type="password" aria-label="当前主密码" autoComplete="current-password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} />
-          </Field>
-          <Field label="新主密码">
-            <input type="password" aria-label="新主密码" autoComplete="new-password" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
-          </Field>
-          <div className="row">
-            <Button type="submit" variant="primary" disabled={!oldPw || [...newPw].length < 10}>
-              修改主密码
-            </Button>
-            <Button icon={Settings} variant="ghost" onClick={() => void act("safe.lock", {})}>
-              立即锁定
-            </Button>
-          </div>
-        </form>
-        {note ? <p role="status">{note}</p> : null}
-        {error ? (
-          <p role="alert" className="field-error">
-            {error}
-          </p>
-        ) : null}
-      </section>
-      <div className="callout system-note">
-        <Info size={17} aria-hidden />
-        <p>访问记录只记录动作、凭据引用与主体，不记录秘密内容。</p>
-      </div>
-    </div>
   );
 }

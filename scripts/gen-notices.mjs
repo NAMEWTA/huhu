@@ -5,7 +5,25 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ALLOWED = [/^MIT/, /^ISC$/, /^BSD/, /^Apache-2\.0/, /^0BSD$/, /^BlueOak/, /^CC0/, /^Python-2\.0$/, /^MPL-2\.0$/, /^Unlicense$/, /^CC-BY-4\.0$/, /WTFPL/, /^\(?MIT OR/, /^\(?BSD/, /^\(?Apache/, /^\(MPL-2\.0 OR Apache-2\.0\)$/];
+const ALLOWED = [
+  /^MIT/,
+  /^ISC$/,
+  /^BSD/,
+  /^Apache-2\.0/,
+  /^0BSD$/,
+  /^BlueOak/,
+  /^CC0/,
+  /^Python-2\.0$/,
+  /^MPL-2\.0$/,
+  /^Unlicense$/,
+  /^CC-BY-4\.0$/,
+  /^OFL-1\.1$/,
+  /WTFPL/,
+  /^\(?MIT OR/,
+  /^\(?BSD/,
+  /^\(?Apache/,
+  /^\(MPL-2\.0 OR Apache-2\.0\)$/,
+];
 
 // package.json 里没有 license 字段、但随包带有许可证文本的依赖：人工核对 LICENSE 文件后在这里登记（不是放宽允许列表）。
 const MANUAL = { "khroma@2.1.0": "MIT" }; // mermaid 的依赖；包内 license 文件为 MIT（Copyright Fabio Spampinato, Andrew Maney）
@@ -29,6 +47,38 @@ const rows = [...seen.values()];
 rows.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
 const bad = rows.filter((r) => !ALLOWED.some((re) => re.test(r.license)));
 
+// 随包字体（Fontsource 包，SIL OFL 1.1）：版权行与许可全文从各包的 LICENSE 读取，不手抄。
+const FONTS = [
+  ["inter", "Inter"],
+  ["newsreader", "Newsreader"],
+  ["geist", "Geist"],
+  ["geist-mono", "Geist Mono"],
+  ["jetbrains-mono", "JetBrains Mono"],
+];
+const fontLicense = (pkg) => {
+  const dir = path.join(
+    store,
+    ...readdirSync(store)
+      .filter((e) => e.startsWith(`@fontsource-variable+${pkg}@`))
+      .slice(0, 1),
+    "node_modules",
+    "@fontsource-variable",
+    pkg,
+  );
+  const text = readFileSync(path.join(dir, "LICENSE"), "utf8");
+  const version = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8")).version;
+  return {
+    copyright: text
+      .split("\n")[0]
+      .replace(/\s+\S+\[[^\]]*\]\.ttf:.*$/, "")
+      .trim(),
+    version,
+    text,
+  };
+};
+const fonts = FONTS.map(([pkg, family]) => ({ family, pkg, ...fontLicense(pkg) }));
+const oflText = fonts[0].text.slice(fonts[0].text.indexOf("SIL OPEN FONT LICENSE")).trim();
+
 const ledger = readFileSync(path.join(root, "docs/upstream/ledger.md"), "utf8");
 const lines = [
   "# 第三方声明",
@@ -39,6 +89,18 @@ const lines = [
   "",
   "- Electron / Chromium：见应用目录中的 `LICENSE.electron.txt` 与 `LICENSES.chromium.html`。",
   "- Herdr Core（`herdr-core`）：Apache-2.0，官方发布包 https://releases.herdr.dev/core/（版本与 SHA-256 见 `scripts/herdr.lock.json`），源码 https://github.com/herdrdev/herdr-core；其内含 ghostty（MIT）；Windows 包另含 Microsoft ConPTY（MIT）。完整声明随包放在 `resources/herdr/<平台>/THIRD-PARTY-NOTICES`。",
+  "",
+  "## 随包字体",
+  "",
+  "应用随包带有以下字体（均为 SIL Open Font License 1.1，经 Fontsource 的 npm 包分发，只取 latin 与 latin-ext 子集；中文使用系统字体，不随包）。HUHU 横版 logo 的字标是 Geist 字形的轮廓化图形。",
+  "",
+  "| 字族 | 版权 | npm 包 |",
+  "| --- | --- | --- |",
+  ...fonts.map((f) => `| ${f.family} | ${f.copyright} | @fontsource-variable/${f.pkg}@${f.version} |`),
+  "",
+  "```text",
+  oflText,
+  "```",
   "",
   "## 复制或改造的源码（`docs/upstream/ledger.md`）",
   "",

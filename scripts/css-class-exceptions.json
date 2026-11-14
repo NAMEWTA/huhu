@@ -1,0 +1,40 @@
+{
+  "说明": "历史遗留的不符合前缀的类名：改名会破坏动态拼接（数据驱动）或需要先做同义类合并。分组写明原因；新增的不符合类名会让 scripts/check-css-classes.mjs 失败。",
+  "classes": {
+    "ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "accepted",
+      "added",
+      "badge-accent",
+      "badge-error",
+      "badge-info",
+      "badge-neutral",
+      "badge-purple",
+      "blue",
+      "connecting",
+      "data-backup-actions",
+      "green",
+      "huhu-reading-task",
+      "toast",
+      "toggle",
+      "vault-back",
+      "vault-import-summary",
+      "vault-opened",
+      "vault-resource-picker",
+      "vault-write-warning",
+      "violet",
+      "workbench"
+    ],
+    "agent-cli+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["removed"],
+    "agent-cli+notes+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["huhu-markdown-reading"],
+    "inbox+notes+ssh+ui+versioning+workbench｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["row"],
+    "automations+inbox+notes+tasks+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["markdown"],
+    "第三方覆盖｜原因：覆盖 sonner 运行时注入的样式": ["huhu-toast"],
+    "workbench｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["amber", "brand", "done", "knowledge-container", "rail", "task-item", "task-row", "task-title"],
+    "编辑器装饰类｜原因：CodeMirror 内容里的装饰类，由编辑器代码生成": ["huhu-live-block-edit", "huhu-live-table", "huhu-live-table-scroll", "huhu-md-semibold", "mode-live", "mode-source", "mode-split"],
+    "automations｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["skipped"],
+    "agent-cli｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["huhu-drawer-presence", "provider-claude", "provider-claude-agent-teams", "provider-codex", "provider-pi"],
+    "notes｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["knowledge-task-detail"],
+    "ssh｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["execution-fault-control"],
+    "tasks｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["board-blue", "board-card", "board-card-drag", "board-dot", "board-green", "board-links", "board-note-link", "board-purple"]
+  }
+}

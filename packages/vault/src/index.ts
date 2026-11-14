@@ -10,6 +10,7 @@ export * from "./identity.js";
 export * from "./watch/snapshot.js";
 export * from "./watch/watcher.js";
 export * from "./index/links.js";
+export * from "./markdown/index.js";
 export * from "./index/search.js";
 export * from "./index/vault-index.js";
 export * from "./package/package.js";

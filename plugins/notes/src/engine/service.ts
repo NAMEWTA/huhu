@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path/posix";
 import { errors, KINDS, newId } from "@huhu/contracts";
-import { normalizeRelPath, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { folderNoteDir, normalizeRelPath, splitDocument, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
 
@@ -26,6 +26,17 @@ function withExtension(name: string, ext: string): string {
 const SEMANTIC_DIRS = new Set(Object.values(KINDS).map((k) => k.dir));
 /** 笔记 = 普通 Markdown。Tasks/、Automations/ 等语义目录里的文件由各自的插件管理，不是笔记。 */
 const isNoteFile = (p: string) => /\.md$/i.test(p) && !SEMANTIC_DIRS.has(p.split("/")[0] ?? "");
+/** 任务文件：改名 / 移动时只改写正文（`<task>`、`<comments>`）里的双链，frontmatter 不动（任务 spec §3.4）。 */
+const isTaskFile = (p: string) => /^Tasks\/.+\.md$/i.test(p);
+
+/** 改写文本里的双链；任务文件只改写正文部分，frontmatter 原样保留。 */
+function rewriteFile(p: string, text: string, ctx: Parameters<typeof rewriteLinks>[1]): ReturnType<typeof rewriteLinks> {
+  if (!isTaskFile(p)) return rewriteLinks(text, ctx);
+  const doc = splitDocument(text);
+  const head = text.slice(0, text.length - doc.body.length);
+  const r = rewriteLinks(doc.body, ctx);
+  return { ...r, text: `${head}${r.text}` };
+}
 
 export interface MoveResult {
   moved: Record<string, string>;
@@ -185,7 +196,8 @@ export class NotesService {
     return this.moveEntry(rel, `${dir ? `${dir}/` : ""}${path.basename(rel)}`);
   }
 
-  private async moveEntry(from: string, to: string): Promise<MoveResult> {
+  /** 移动或改名到完整的目标路径（双链改写与笔记 id 迁移都在这里完成）；档案层先算好不重名的目标。 */
+  async moveEntry(from: string, to: string): Promise<MoveResult> {
     from = normalizeRelPath(from);
     to = normalizeRelPath(to);
     if (from === to) return { moved: {}, rewrittenFiles: [], ambiguous: [] };
@@ -203,6 +215,7 @@ export class NotesService {
     if (isDir) {
       for (const p of all) if (p.startsWith(`${from}/`)) moves.set(p, `${to}${p.slice(from.length)}`);
     } else moves.set(from, to);
+    const folderMoves = isDir ? new Map([[from, to]]) : undefined;
     if (isDir && moves.size === 0) {
       // 空文件夹：只改登记
       const list = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
@@ -220,8 +233,8 @@ export class NotesService {
       if (!f) continue;
       let bytes: Uint8Array = f.bytes;
       let changed = false;
-      if (isNoteFile(p)) {
-        const r = rewriteLinks(f.bytes.toString("utf8"), { filePath: p, newFilePath: newPath, moves, allPaths: all });
+      if (isNoteFile(p) || isTaskFile(p)) {
+        const r = rewriteFile(p, f.bytes.toString("utf8"), { filePath: p, newFilePath: newPath, moves, allPaths: all, ...(folderMoves ? { folderMoves } : {}) });
         r.ambiguous.forEach((a) => ambiguous.add(a));
         if (r.changes > 0) {
           bytes = Buffer.from(r.text);
@@ -257,6 +270,7 @@ export class NotesService {
     if (isDir) {
       for (const p of all) if (p.startsWith(`${from}/`)) moves.set(p, `${to}${p.slice(from.length)}`);
     } else moves.set(from, to);
+    const folderMoves = isDir ? new Map([[from, to]]) : undefined;
     const tmp = `${from}.huhu-case-tmp`;
     renameSync(this.d.files.abs(from), this.d.files.abs(tmp));
     renameSync(this.d.files.abs(tmp), this.d.files.abs(to));
@@ -264,10 +278,10 @@ export class NotesService {
     const rewritten: string[] = [];
     const ambiguous = new Set<string>();
     for (const p of all) {
-      if (moves.has(p) || !isNoteFile(p)) continue;
+      if (moves.has(p) || !(isNoteFile(p) || isTaskFile(p))) continue;
       const f = this.d.files.read(p);
       if (!f) continue;
-      const r = rewriteLinks(f.bytes.toString("utf8"), { filePath: p, newFilePath: p, moves, allPaths: all });
+      const r = rewriteFile(p, f.bytes.toString("utf8"), { filePath: p, newFilePath: p, moves, allPaths: all, ...(folderMoves ? { folderMoves } : {}) });
       r.ambiguous.forEach((a) => ambiguous.add(a));
       if (r.changes > 0) {
         steps.push({ action: "write", path: p, bytes: Buffer.from(r.text) });
@@ -381,7 +395,7 @@ export class NotesService {
         if (filter === "daily") return p.startsWith("日记/");
         return this.d.index.tagsOf(p).includes(filter.tag);
       })
-      .map((p) => ({ path: p, id: ids[p] ?? null, title: path.basename(p, ".md"), favorite: fav.has(ids[p] ?? ""), tags: this.d.index.tagsOf(p) }));
+      .map((p) => ({ path: p, id: ids[p] ?? null, title: folderNoteDir(p) !== null ? path.basename(folderNoteDir(p) as string) : path.basename(p, ".md"), favorite: fav.has(ids[p] ?? ""), tags: this.d.index.tagsOf(p) }));
   }
 
   read(rel: string): { path: string; text: string; version: string } {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const KIND_NAMES = ["task", "task-run", "automation-rule", "automation-run", "archive-type", "archive", "capture", "comment"] as const;
+export const KIND_NAMES = ["task", "task-run", "automation-rule", "automation-run", "capture", "comment"] as const;
 export type KindName = (typeof KIND_NAMES)[number];
 
 export const HuhuHeaderSchema = <K extends KindName>(kind: K) => z.object({ kind: z.literal(kind), id: z.string().min(1), schema: z.number().int().min(1) });

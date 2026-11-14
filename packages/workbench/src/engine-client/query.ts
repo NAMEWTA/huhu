@@ -6,9 +6,8 @@ export const queryKey = (vaultId: string, capability: string, input: unknown = {
 
 const ENTITY_CAPS: Record<string, string[]> = {
   task: ["tasks."],
-  note: ["notes.", "vault."],
-  archive: ["archives."],
-  "archive-type": ["archives."],
+  note: ["notes.", "vault.", "archives."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新
+  archive: ["archives.", "notes.", "vault."],
   capture: ["inbox."],
   comment: ["comments."],
   "ssh-host": ["ssh.hosts."],
@@ -19,8 +18,8 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   const prefixes: string[] = [];
   const p = e.payload as Record<string, unknown>;
   if (e.type === "entity.changed") prefixes.push(...(ENTITY_CAPS[String(p["kind"])] ?? []));
-  else if (e.type === "task.completedChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
-  else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations."); // 外部直接改 Tasks/ 或 Automations/ 下的文件也要刷新界面
+  else if (e.type === "task.statusChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
+  else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives."); // 外部直接改 Tasks/、Automations/ 或档案的 index.md 也要刷新界面
   else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");
   else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
   else if (e.type === "notification.created") prefixes.push("notifications.");

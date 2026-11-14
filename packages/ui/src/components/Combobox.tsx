@@ -47,7 +47,7 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
       <Popover.Anchor asChild>
         <input
           ref={input}
-          className="hu-combobox"
+
           role="combobox"
           aria-label={label}
           aria-expanded={open}

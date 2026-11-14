@@ -12,6 +12,11 @@ export const TaskRunFrontmatterSchema = z.object({
   state: RunState,
   provider: z.string(),
   model: z.string().nullable().default(null),
+  effort: z.string().nullable().default(null),
+  fast: z.boolean().default(false),
+  /** 本次运行的输入快照：整份任务文件的 SHA-256 与 `<comments>` 末条评论 id，方便事后复查这次运行看到了哪些内容。 */
+  snapshotSha256: z.string().nullable().default(null),
+  lastCommentId: z.string().nullable().default(null),
   spaceId: z.string(),
   cwd: z.string(),
   machineId: z.string(),

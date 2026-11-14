@@ -20,6 +20,7 @@ export type CapabilityResult<T> = { ok: true; data: T; opId?: string } | { ok: f
 export const CapabilityResultSchema = z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), data: z.unknown(), opId: z.string().optional() }), z.object({ ok: z.literal(false), error: HuhuErrorSchema })]);
 
 /** 把 zod 模式导出为 JSON Schema，供 capabilities.list 与 MCP 使用。 */
-export function toJsonSchema(schema: z.ZodType): unknown {
-  return z.toJSONSchema(schema);
+export function toJsonSchema(schema: z.ZodType, io: "input" | "output" = "input"): unknown {
+  // 入参按“调用方要传什么”导出（带默认值的字段可省略，transform 取其输入形态）；出参按返回值导出
+  return z.toJSONSchema(schema, { io, unrepresentable: "any" });
 }

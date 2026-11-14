@@ -1,3 +1,4 @@
+import { codeRanges } from "@huhu/vault/markdown";
 import path from "node:path/posix";
 
 export interface RewriteContext {
@@ -8,6 +9,8 @@ export interface RewriteContext {
   moves: ReadonlyMap<string, string>;
   /** 操作前 Vault 内所有文件路径，用于裸名称唯一性判断。 */
   allPaths: readonly string[];
+  /** 被改名/移动的文件夹：旧路径 → 新路径（不带结尾 /）。用于改写 `[[旧目录/]]` 这类指向文件夹本身的链接。 */
+  folderMoves?: ReadonlyMap<string, string>;
 }
 
 export interface RewriteResult {
@@ -19,17 +22,6 @@ export interface RewriteResult {
 
 const stripExt = (p: string) => p.replace(/\.[^./]+$/, "");
 const baseNoExt = (p: string) => stripExt(path.basename(p));
-
-/** 找出代码区域（围栏与行内代码）的 [start,end) 区间，链接改写不触碰它们。 */
-function codeRanges(text: string): [number, number][] {
-  const out: [number, number][] = [];
-  for (const m of text.matchAll(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm)) out.push([m.index as number, (m.index as number) + m[0].length]);
-  for (const m of text.matchAll(/`[^`\n]*`/g)) {
-    const s = m.index as number;
-    if (!out.some(([a, b]) => s >= a && s < b)) out.push([s, s + m[0].length]);
-  }
-  return out;
-}
 
 function uniqueByBasename(allPaths: readonly string[], name: string): string | null | "ambiguous" {
   const lower = name.toLowerCase();
@@ -60,6 +52,17 @@ export function rewriteLinks(text: string, ctx: RewriteContext): RewriteResult {
     const heading = hash >= 0 ? left.slice(hash + 1) : undefined;
     const t = target.trim();
     if (!t) return full;
+    // 指向文件夹的链接 `[[目录/]]`：文件夹改名或移动后跟着改（含其子文件夹）
+    if (t.endsWith("/") && ctx.folderMoves) {
+      const dir = t.replace(/\/+$/, "");
+      for (const [from, to] of ctx.folderMoves) {
+        if (dir === from || dir.startsWith(`${from}/`)) {
+          changes++;
+          return `[[${to}${dir.slice(from.length)}/${heading !== undefined ? `#${heading}` : ""}${alias !== undefined ? `|${alias}` : ""}]]`;
+        }
+      }
+      return full;
+    }
     const isPath = t.includes("/");
     const bareHasMd = !isPath && /\.md$/i.test(t); // `[[名称.md]]`：带扩展名的裸写法
     let resolved: string | null = null;

@@ -2,31 +2,25 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { machineId } from "@huhu/vault";
-import { errors } from "@huhu/contracts";
+import { AutomationActionSchema, errors } from "@huhu/contracts";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
-import { ScriptStore } from "./scripts.js";
 import { HoldStore } from "./holds.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
 import { hasRunDir, killRound, roundActive } from "./supervised.js";
-import { processWorker, roundDir } from "./worker.js";
+import { processWorker, roundDir, type ResolveLaunch } from "./worker.js";
 
 export { AutomationsService } from "./service.js";
 export { Scheduler } from "./scheduler.js";
 
 const Trigger = z.object({ preset: z.string(), cron: z.string(), zone: z.string() });
-const Action = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("scan_agent_tasks"), maxConcurrent: z.number().int().min(1).max(4).default(1) }),
-  z.object({ kind: z.literal("agent_prompt"), spaceId: z.string(), provider: z.string(), model: z.string().nullable().default(null), effort: z.string().nullable().default(null), fast: z.boolean().default(false) }),
-  z.object({ kind: z.literal("script"), scriptId: z.string(), args: z.array(z.string()).default([]) }),
-  z.object({ kind: z.literal("notify"), channel: z.literal("in_app"), text: z.string() }),
-]);
-/** Agent 执行永不对外（security.md §1）：外部入口即使被开放 automations.create/update/setEnabled，也不能创建、修改或启用 agent_prompt 规则。 */
-function assertNoAgentAction(caller: string, action: { kind: string; model?: string | null } | undefined): void {
-  // 两类动作都会启动 Agent CLI；security.md：Agent 执行永不对外
-  if ((action?.kind === "agent_prompt" || action?.kind === "scan_agent_tasks") && caller !== "desktop") throw errors.permissionDenied("会启动 Agent 的规则（仅桌面可用）");
-  if (action?.model && action.model.startsWith("-")) throw errors.invalidInput("model 不能以 - 开头");
+const Action = AutomationActionSchema;
+/** Agent 执行与命令执行永不对外（security.md §1）：外部入口即使被开放 automations.create/update/setEnabled，也不能创建、修改或启用会启动 Agent 或运行命令的规则。 */
+function assertNoAgentAction(caller: string, action: { kind: string; input?: { source: string; model?: string | null } } | undefined): void {
+  if ((action?.kind === "agent" || action?.kind === "terminal") && caller !== "desktop") throw errors.permissionDenied("会启动 Agent 或运行命令的规则（仅桌面可用）");
+  const model = action?.input && "model" in action.input ? action.input.model : undefined;
+  if (model && model.startsWith("-")) throw errors.invalidInput("model 不能以 - 开头");
 }
 
 const Rule = z.object({
@@ -34,7 +28,7 @@ const Rule = z.object({
   path: z.string(),
   version: z.string(),
   body: z.string(),
-  data: z.object({ title: z.string(), enabled: z.boolean(), builtin: z.boolean(), trigger: Trigger, missedRunGraceMinutes: z.number(), action: Action }).passthrough(),
+  data: z.object({ title: z.string(), enabled: z.boolean(), trigger: Trigger, missedRunGraceMinutes: z.number(), action: Action }).passthrough(),
 });
 
 export interface AutomationsOptions {
@@ -45,7 +39,10 @@ export interface AutomationsOptions {
   adopt?: AutomationsDeps["adopt"];
   notify?: (n: { title: string; module: string }) => void;
   spaceState?: (spaceId: string) => { state: "ok" | "missing" | "inaccessible"; root?: string };
-  exeFor?: (provider: string) => string | null;
+  /** CLI 是否已检测到（来自智能体目录的检测结果）。 */
+  cliAvailable?: (provider: string) => boolean;
+  /** 启动合成：由 agent-cli 的 agent.launch.resolve 提供；默认经能力调用。 */
+  resolveLaunch?: ResolveLaunch;
   /** 扫描前刷新 CLI 可用性（见 AutomationsDeps.refreshClis）。 */
   refreshClis?: () => Promise<void>;
   schedule?: boolean;
@@ -53,10 +50,10 @@ export interface AutomationsOptions {
 
 export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {}): { service: AutomationsService; scheduler: Scheduler } {
   const mid = machineId();
-  const exeFor = opts.exeFor ?? (() => null);
+  const cliAvailable = opts.cliAvailable ?? (() => false);
   const runsDir = path.join(api.vault.stateDir, "runtime", mid, "runs");
-  const realWorker = processWorker({ runsDir, exeFor });
-  const scriptStore = new ScriptStore(path.join(api.vault.stateDir, "automations", "scripts.json"));
+  const resolveLaunch: ResolveLaunch = opts.resolveLaunch ?? ((i) => api.call("agent.launch.resolve", i) as ReturnType<ResolveLaunch>);
+  const realWorker = processWorker({ runsDir, resolveLaunch });
   const holdStore = new HoldStore(path.join(api.vault.stateDir, "automations", "holds.json"));
   const svc = new AutomationsService({
     repo: api.vault.repo,
@@ -69,15 +66,18 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     killRound: (runId, round) => killRound(roundDir(runsDir, runId, round)),
     hasRound: (runId, round) => hasRunDir(roundDir(runsDir, runId, round)),
     spaceState: opts.spaceState ?? (() => ({ state: "missing" })),
-    cliAvailable: (p) => exeFor(p) !== null,
+    cliAvailable,
     ...(opts.refreshClis ? { refreshClis: opts.refreshClis } : {}),
     holds: (t, h) => holdStore.isHeld(t, h),
-    scripts: scriptStore,
-    resolveSecret: (ref, purpose) => {
-      const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
-      if (!su) throw Object.assign(new Error("保险箱插件未启用"), { code: "SECRET_REF_INVALID" });
-      return su.resolve(ref, { plugin: "automations", purpose });
+    vaultRoot: api.vault.files.root,
+    readVaultFile: (rel) => {
+      try {
+        return api.vault.files.read(rel)?.bytes.toString("utf8") ?? null;
+      } catch {
+        return null;
+      }
     },
+    call: (capability, input, idempotencyKey) => api.call(capability, input, idempotencyKey ? { idempotencyKey } : undefined),
     notify: opts.notify ?? (() => undefined),
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
@@ -93,10 +93,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     now: () => new Date(),
   });
   const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes, updatedAt: r.data.updatedAt })));
-  // 能力在内置规则写入完成后才开始服务；写入失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
+  // 能力在启动对账完成后才开始服务；对账失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
   const ready = svc
-    .ensureBuiltin()
-    .then(() => svc.reconcile().catch(() => 0))
+    .reconcile()
+    .catch(() => 0)
     .then(() => {
       if (opts.schedule !== false) sync();
     })
@@ -114,33 +114,19 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     const p = e.payload as { path?: string; kind?: string };
     if ((e.type === "vault.fileChanged" && p.path?.startsWith("Automations/")) || (e.type === "entity.changed" && p.kind === "automation-rule")) resync();
   });
-  api.provide("automations", { holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
+  api.provide("automations", { activeFor: (ids: string[]) => svc.activeFor(ids), holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
 
   const Id = z.object({ id: z.string() });
-  const Script = z.object({ id: z.string(), title: z.string(), program: z.string(), args: z.array(z.string()), cwd: z.string(), envRefs: z.record(z.string(), z.string()), timeoutSec: z.number() });
-  api.defineCapability(def({ name: "automations.scripts.list", plugin: "automations", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(Script), handler: () => scriptStore.list() }));
   api.defineCapability(
     def({
-      name: "automations.scripts.save",
+      name: "automations.runs.activeFor",
       plugin: "automations",
-      scope: "admin",
+      scope: "read",
       exposable: false,
       defaultExposed: false,
-      input: Script.omit({ id: true }).extend({ id: z.string().optional() }),
-      output: Script,
-      handler: (_c, i) => scriptStore.save(i),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.scripts.delete",
-      plugin: "automations",
-      scope: "admin",
-      exposable: false,
-      defaultExposed: false,
-      input: Id,
-      output: z.object({ ok: z.literal(true) }),
-      handler: (_c, i) => (scriptStore.delete(i.id), { ok: true as const }),
+      input: z.object({ taskIds: z.array(z.string()).max(1000) }),
+      output: z.record(z.string(), z.boolean()),
+      handler: (_c, i) => svc.activeFor(i.taskIds),
     }),
   );
   api.defineCapability(
@@ -183,7 +169,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }),
       output: Rule,
       handler: async (c, i) => {
-        assertNoAgentAction(c.caller, i.action);
+        assertNoAgentAction(c.caller, i.action as never);
         const r = await svc.create(i as never);
         resync();
         return r as never;
@@ -204,12 +190,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       }),
       output: Rule,
       handler: async (c, i) => {
-        assertNoAgentAction(c.caller, i.patch.action);
+        assertNoAgentAction(c.caller, i.patch.action as never);
         {
-          const stored = svc.rule(i.id).data.action;
-          if (i.patch.action || stored.kind !== "scan_agent_tasks") assertNoAgentAction(c.caller, stored);
+          assertNoAgentAction(c.caller, svc.rule(i.id).data.action as never);
         }
-        /* scan 规则 action 不可改，外部可改标题/时间 */ const r = await svc.update(i.id, i.expectedVersion, i.patch as never, i.body);
+        const r = await svc.update(i.id, i.expectedVersion, i.patch as never, i.body);
         resync();
         return r as never;
       },
@@ -241,7 +226,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: Id.extend({ enabled: z.boolean() }),
       output: Rule,
       handler: async (c, i) => {
-        if (i.enabled) assertNoAgentAction(c.caller, svc.rule(i.id).data.action);
+        if (i.enabled) assertNoAgentAction(c.caller, svc.rule(i.id).data.action as never);
         /* 暂停永远允许 */ const r = await svc.setEnabled(i.id, i.enabled);
         resync();
         return r as never;

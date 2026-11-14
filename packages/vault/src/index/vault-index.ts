@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { splitDocument, parseFrontmatter } from "../semantic/frontmatter.js";
 import { isIgnored, takeSnapshot } from "../watch/snapshot.js";
+import { folderNoteDir, folderNoteLinkTargets } from "../markdown/folder-note.js";
 import { parseTags, parseWikiLinks, type WikiLink } from "./links.js";
 import { SearchIndex, type SearchHit } from "./search.js";
 
@@ -140,7 +141,9 @@ export class VaultIndex {
     const fm = parseFrontmatter(text);
     const body = splitDocument(text).body;
     const huhuKind = (fm.data["huhu"] as { kind?: string } | undefined)?.kind;
-    const title = typeof fm.data["title"] === "string" ? (fm.data["title"] as string) : (/^#\s+(.+)$/m.exec(body)?.[1] ?? base);
+    // 文件夹笔记（文件夹里的 index.md）没有显式标题时，以文件夹名为标题（不取 H1）
+    const folder = folderNoteDir(rel);
+    const title = typeof fm.data["title"] === "string" ? (fm.data["title"] as string) : folder !== null ? path.posix.basename(folder) : (/^#\s+(.+)$/m.exec(body)?.[1] ?? base);
     const fmTags = Array.isArray(fm.data["tags"]) ? (fm.data["tags"] as unknown[]).map(String) : [];
     const tags = [...new Set([...fmTags, ...parseTags(body)])];
     const links = parseWikiLinks(body);
@@ -217,11 +220,16 @@ export class VaultIndex {
     return { indexing: this._indexing, hits: this.search.query(term, opts) };
   }
 
-  /** 反向链接：按目标笔记的文件名（不含扩展名）或完整路径匹配。 */
+  /**
+   * 反向链接：按目标笔记的文件名（不含扩展名）或完整路径匹配。
+   * 文件夹笔记（`目录/index.md`）不参与裸名匹配（否则 `[[index]]` 会算成每个文件夹笔记的反链），只认 `[[目录/]]`、`[[目录]]` 和完整路径。
+   */
   backlinks(targetPath: string): { path: string; title: string }[] {
     const base = path.basename(targetPath, path.extname(targetPath));
     const noExt = targetPath.replace(/\.[^./]+$/, "");
-    return [...this.notes.values()].filter((n) => n.path !== targetPath && n.links.some((l) => l.target === base || l.target === noExt || l.target === targetPath)).map((n) => ({ path: n.path, title: n.title }));
+    const folderForms = folderNoteLinkTargets(targetPath);
+    const accepts = (t: string): boolean => (folderForms ? folderForms.includes(t) : t === base || t === noExt || t === targetPath);
+    return [...this.notes.values()].filter((n) => n.path !== targetPath && n.links.some((l) => accepts(l.target))).map((n) => ({ path: n.path, title: n.title }));
   }
 
   /** 全部标签及出现的笔记数（标签云用）。 */

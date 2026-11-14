@@ -207,3 +207,26 @@ describe("审计回归", () => {
     expect(rd(root, "dest/a/b/c.md")).toBe("c");
   });
 });
+
+describe("任务文件与文件夹链接的改写（任务 spec §3.4）", () => {
+  const task = (body: string) =>
+    `---\nhuhu: {kind: task, id: task-1, schema: 2}\ntitle: 含 [[设计/旧/]] 的标题不应被改\nstatus: not_started\n---\n\n<task>\n\n${body}\n\n</task>\n\n<comments>\n\n<comment id="c1" at="2026-11-10T12:00:00Z" source="human">\n\n评论里也有 [[设计/旧/a.md]]\n\n</comment>\n\n</comments>\n`;
+  test("文件夹改名：Tasks/ 里 <task> 与评论中的 [[旧/]]、[[旧/a.md]] 同步更新；frontmatter 不动；笔记里的 [[旧/]] 也更新", async () => {
+    const { svc, root, rebuild } = await setup({ "设计/旧/a.md": "# a\n", "Tasks/t--task-1.md": task("参考 [[设计/旧/]] 与 `[[设计/旧/]]`"), "笔记.md": "见 [[设计/旧/]]\n" });
+    await rebuild();
+    const r = await svc.rename("设计/旧", "新");
+    expect(r.rewrittenFiles.sort()).toEqual(["Tasks/t--task-1.md", "笔记.md"]);
+    const text = rd(root, "Tasks/t--task-1.md");
+    expect(text).toContain("参考 [[设计/新/]] 与 `[[设计/旧/]]`");
+    expect(text).toContain("评论里也有 [[设计/新/a.md]]");
+    expect(text).toContain("title: 含 [[设计/旧/]] 的标题不应被改");
+    expect(text).toContain("schema: 2");
+    expect(rd(root, "笔记.md")).toBe("见 [[设计/新/]]\n");
+  });
+  test("单个文件移动不会改写指向其所在文件夹的 [[目录/]]", async () => {
+    const { svc, root, rebuild } = await setup({ "设计/a.md": "# a\n", "笔记.md": "见 [[设计/]] 和 [[设计/a.md]]\n" });
+    await rebuild();
+    await svc.move("设计/a.md", "归档");
+    expect(rd(root, "笔记.md")).toBe("见 [[设计/]] 和 [[归档/a.md]]\n");
+  });
+});

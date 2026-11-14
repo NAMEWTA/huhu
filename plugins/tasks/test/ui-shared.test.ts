@@ -1,6 +1,7 @@
+import type { TaskDto } from "@huhu/contracts";
 import { describe, expect, test } from "vitest";
 import { groupByDue, monthGrid, shiftMonth } from "../src/shared/calendar.js";
-import { buildCandidates, scorePath, searchCandidates } from "../src/shared/resources.js";
+import { buildCandidates, scorePath, searchCandidates } from "../src/shared/references.js";
 import { matchesQuery } from "../src/shared/search.js";
 
 describe("月历", () => {
@@ -31,15 +32,15 @@ describe("搜索", () => {
   });
 });
 
-describe("关联资料搜索", () => {
+describe("@ 引用候选搜索", () => {
   const c = buildCandidates([
     { path: "Notes/周报.md", type: "file" },
     { path: "Notes", type: "dir" },
     { path: "Archive/周报备份.md", type: "file" },
     { path: ".huhu/index.json", type: "file" },
   ]);
-  test("根目录排第一；内部目录不出现", () => {
-    expect(c[0]?.kind).toBe("root");
+  test("内部目录不出现；文件夹与文件都可作为候选", () => {
+    expect(c.map((x) => x.kind).sort()).toEqual(["file", "file", "folder"]);
     expect(c.some((x) => x.path.startsWith(".huhu"))).toBe(false);
   });
   test("文件名完全匹配优先于路径包含；多个词缩小范围；不匹配的不出现", () => {
@@ -51,47 +52,53 @@ describe("关联资料搜索", () => {
     expect(searchCandidates(c, "", 2)).toHaveLength(2);
     const many = buildCandidates(Array.from({ length: 30 }, (_, i) => ({ path: `n${i}.md`, type: "file" as const, mtimeMs: i })));
     const recent = searchCandidates(many, "");
-    expect(recent).toHaveLength(21); // 根目录 + 最近 20 项
-    expect(recent[1]?.path).toBe("n29.md");
+    expect(recent).toHaveLength(20); // 最近 20 项
+    expect(recent[0]?.path).toBe("n29.md");
   });
 });
 
 import { draftFromTask, draftToWritable, emptyDraft, validateDraft } from "../src/shared/draft.js";
 
 describe("编辑表单", () => {
-  test("手动任务：标题必填；保存内容裁掉首尾空白，项目为空存 null", () => {
+  test("human 任务：标题必填；保存内容裁掉首尾空白，项目为空存 null，不带执行配置", () => {
     expect(validateDraft(emptyDraft())).toEqual(["title"]);
-    const w = draftToWritable(emptyDraft({ title: "  买菜 ", project: " " }));
-    expect(w).toMatchObject({ title: "买菜", project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
+    const w = draftToWritable(emptyDraft({ title: "  买菜 ", project: " ", tags: ["#家务", "家务"] }));
+    expect(w).toMatchObject({ title: "买菜", type: "human", project: null, execution: null, tags: ["家务"], reminders: [] });
   });
-  test("Agent 任务必须有 Space 和 CLI；提醒必须选了时间", () => {
-    expect(validateDraft(emptyDraft({ title: "x", kind: "agent" }))).toEqual(["space", "provider"]);
+  test("agent 任务必须有 Space 和 CLI；提醒必须选了时间", () => {
+    expect(validateDraft(emptyDraft({ title: "x", type: "agent" }))).toEqual(["space", "provider"]);
     expect(validateDraft(emptyDraft({ title: "x", reminders: [{ id: "r1", at: null, enabled: true, deliveredAt: null }] }))).toEqual(["reminder"]);
-    const ok = emptyDraft({ title: "x", kind: "agent", spaceId: "s1", provider: "claude", model: "m" });
+    const ok = emptyDraft({ title: "x", type: "agent", spaceId: "s1", provider: "claude", model: "m" });
     expect(validateDraft(ok)).toEqual([]);
-    expect(draftToWritable(ok).execution).toEqual({ kind: "agent", spaceId: "s1", provider: "claude", model: "m", effort: null, fast: false });
+    expect(draftToWritable(ok).execution).toEqual({ spaceId: "s1", provider: "claude", model: "m", effort: null, fast: false });
   });
   test("任务 ↔ 表单往返不丢字段", () => {
-    const task = {
+    const task: TaskDto = {
       id: "t",
       path: "Tasks/t.md",
       version: "v",
       title: "T",
-      body: "正文",
-      completed: false,
+      body: "正文 [[Notes/a.md]]",
+      type: "agent",
+      status: "not_started",
       completedAt: null,
+      tags: ["周报"],
       due: "2026-11-12",
       project: "工作",
-      execution: { kind: "agent" as const, spaceId: "s", provider: "codex", model: null, effort: null, fast: false },
-      resources: [{ kind: "file" as const, path: "Notes/a.md", id: null }],
-      reminders: [{ id: "r", channel: "in_app" as const, at: "2026-11-12T01:00:00Z", enabled: true, deliveredAt: null }],
+      origin: { kind: "desktop" },
+      execution: { spaceId: "s", provider: "codex", model: null, effort: null, fast: false },
+      reminders: [{ id: "r", channel: "in_app", at: "2026-11-12T01:00:00Z", enabled: true, deliveredAt: null }],
       inputRevision: 1,
       inputHash: "h",
       createdAt: "",
       updatedAt: "",
       readOnly: false,
+      comments: [],
+      references: [],
+      problems: [],
+      dispatchBlockers: [],
     };
     const w = draftToWritable(draftFromTask(task));
-    expect(w).toMatchObject({ title: "T", body: "正文", due: "2026-11-12", project: "工作", execution: { kind: "agent", spaceId: "s", provider: "codex" }, resources: task.resources, reminders: task.reminders });
+    expect(w).toMatchObject({ title: "T", body: "正文 [[Notes/a.md]]", type: "agent", tags: ["周报"], due: "2026-11-12", project: "工作", execution: { spaceId: "s", provider: "codex" }, reminders: task.reminders });
   });
 });

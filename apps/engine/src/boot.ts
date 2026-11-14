@@ -33,7 +33,6 @@ import {
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
 import agentGuideManifest from "@huhu/plugin-agent-guide/manifest" with { type: "json" };
-import archivesManifest from "@huhu/plugin-archives/manifest" with { type: "json" };
 import inboxManifest from "@huhu/plugin-inbox/manifest" with { type: "json" };
 import safeManifest from "@huhu/plugin-safe/manifest" with { type: "json" };
 import agentCliManifest from "@huhu/plugin-agent-cli/manifest" with { type: "json" };
@@ -44,7 +43,6 @@ import { PluginManifestSchema } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
-import * as archives from "@huhu/plugin-archives/engine";
 import * as automations from "@huhu/plugin-automations/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
 import * as notes from "@huhu/plugin-notes/engine";
@@ -169,10 +167,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   plugins.register({
-    manifest: PluginManifestSchema.parse(archivesManifest),
-    apply: (ctx, api) => void archives.apply(ctx, api),
-  });
-  plugins.register({
     manifest: PluginManifestSchema.parse(inboxManifest),
     apply: (ctx, api) => void inbox.apply(ctx, api, { isPluginEnabled: (id) => plugins.isEnabled(id) }),
   });
@@ -184,7 +178,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(agentCliManifest),
-    apply: (ctx, api) => void agentCli.apply(ctx, api, process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
+    apply: (ctx, api) => void agentCli.apply(ctx, api, { notify: (n) => void notifications.create(n), ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}) }),
   });
   const notifications = new NotificationStore(
     path.join(vault.stateDir, "notifications.ndjson"),
@@ -215,8 +209,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
           const r = await dispatcherRef.current?.call(hc.caller as never, { capability: cap, input, requestId: "home" }); // 以调用者本人的身份取数：外部入口看不到未对其开放的数据
           return r?.ok ? (r.data as T) : fallback;
         };
-        const open = await ask<{ id: string }[]>("tasks.list", { completed: false }, []);
-        const today = await ask<{ id: string }[]>("tasks.list", { category: "today", completed: false }, []);
+        const open = await ask<{ id: string }[]>("tasks.list", { status: ["not_started", "in_progress"] }, []);
+        const today = await ask<{ id: string }[]>("tasks.list", { category: "today", status: ["not_started", "in_progress"] }, []);
         const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
         const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
         const rules = await ask<{ data: { enabled: boolean } }[]>("automations.list", {}, []);
@@ -292,17 +286,17 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
-      const cli = api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: { detect(): Promise<{ provider: string; exe: string | null; status: string }[]> } }>("agentCli");
+      const cli = api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: agentCli.AgentDetector }>("agentCli");
       let exes: Record<string, string> = {};
       // 探测结果有 10 分钟缓存；每次扫描前再取一次（命中缓存就是即时的），这样启动时探测超时 / 之后才安装的 CLI 也能被用上
       const refreshClis = async (): Promise<void> => {
         const r = await cli?.detector.detect();
-        if (r) exes = Object.fromEntries(r.filter((x) => x.status === "found" && x.exe).map((x) => [x.provider, x.exe as string]));
+        if (r) exes = Object.fromEntries(r.flatMap((x) => (x.installed && x.path && x.headless ? [[x.id, x.path] as const] : [])));
       };
       void refreshClis().catch(() => undefined);
       automations.apply(ctx, api, {
         zone: settingsZone,
-        exeFor: (p) => exes[p] ?? null,
+        cliAvailable: (p) => exes[p] !== undefined,
         refreshClis,
         spaceState: (id) => {
           const s = cli?.spaces.list().find((x) => x.id === id);
@@ -344,6 +338,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       lastSync = st;
     }
     const titleOf = (kind: string, id: string): string | null => {
+      if (kind === "archive") return id.replace(/\/+$/, "").split("/").at(-1) ?? null; // 档案按路径标识，标题就是文件夹名
       try {
         const d = repo.read(kind as never, id).data as Record<string, unknown>;
         const t = d["title"] ?? d["name"];
@@ -372,6 +367,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     isPluginEnabled: (id) => plugins.isEnabled(id),
     exposureOverride: (n) => exposure.override(n),
     grantedPermissions: (id) => plugins.permissionsOf(id),
+    pluginOrigin: (id) => plugins.originOf(id),
   });
 
   dispatcherRef.current = real;

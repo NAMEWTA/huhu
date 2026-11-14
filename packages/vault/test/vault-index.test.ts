@@ -158,3 +158,37 @@ describe("VaultIndex.clearSearch", () => {
     expect(ix.query("独特词汇").hits.length).toBe(1);
   });
 });
+
+describe("文件夹笔记（AR-S1）", () => {
+  const files = {
+    "Archives/通讯录/index.md": "---\nicon: users\n---\n类型说明\n",
+    "Archives/通讯录/张三/index.md": "---\n电话: '1'\n---\n# 不应取 H1\n正文\n",
+    "Archives/通讯录/张三/资料.md": "# 资料\n内部链接 [[Archives/通讯录/张三/]]\n",
+    "项目/年度计划.md": "# 年度计划\n见 [[Archives/通讯录/张三/]]\n",
+    "项目/杂记.md": "# 杂记\n裸名 [[index]]\n",
+    "项目/带标题/index.md": "---\ntitle: 显式标题\n---\n内容\n",
+    "index.md": "# 根首页\n",
+    "写法.md": "三种写法 [[Archives/通讯录/张三]] [[Archives/通讯录/张三/index.md]]\n",
+  };
+  test("标题：文件夹里的 index.md 取文件夹名（不取 H1）；有显式 title 取 title；根目录 index.md 沿用原规则", async () => {
+    const ix = new VaultIndex(vault(files));
+    await ix.build();
+    const title = (q: string, p: string) => ix.query(q).hits.find((h) => h.path === p)?.title;
+    expect(title("正文", "Archives/通讯录/张三/index.md")).toBe("张三");
+    expect(title("类型说明", "Archives/通讯录/index.md")).toBe("通讯录");
+    expect(title("内容", "项目/带标题/index.md")).toBe("显式标题");
+    expect(title("根首页", "index.md")).toBe("根首页");
+  });
+  test("反链：[[目录/]]、[[目录]]、完整路径都算；裸 [[index]] 不算；文件夹内部文件之间的链接由调用方按路径过滤", async () => {
+    const ix = new VaultIndex(vault(files));
+    await ix.build();
+    const back = ix
+      .backlinks("Archives/通讯录/张三/index.md")
+      .map((b) => b.path)
+      .sort();
+    expect(back).toEqual(["Archives/通讯录/张三/资料.md", "写法.md", "项目/年度计划.md"]);
+    expect(back).not.toContain("项目/杂记.md");
+    // 根目录的 index.md 仍然可以被裸名链接
+    expect(ix.backlinks("index.md").map((b) => b.path)).toEqual(["项目/杂记.md"]);
+  });
+});

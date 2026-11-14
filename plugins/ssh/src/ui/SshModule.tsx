@@ -192,23 +192,23 @@ export function SshModule() {
       }),
     );
   return (
-    <div className="module-layout execution-module" data-testid="ssh-module">
-      <aside className="resource-pane" aria-label={t.title}>
-        <div className="resource-head execution-resource-head">
+    <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
+      <aside className="hu-resource-pane" aria-label={t.title}>
+        <div className="hu-resource-head ssh-resource-head">
           <div className="row">
-            <span className="grow execution-resource-title">{t.hosts}</span>
-            <span className="execution-count">{(hosts.data ?? []).length}</span>
+            <span className="grow ssh-resource-title">{t.hosts}</span>
+            <span className="ssh-count">{(hosts.data ?? []).length}</span>
             <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => openEditor(null)} />
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索主机…" />
         </div>
-        <div className="resource-list">
-          <div className="execution-list-label">连接配置</div>
+        <div className="hu-resource-list">
+          <div className="ssh-list-label">连接配置</div>
           {shown.map((h) => (
             <button
               key={h.id}
               type="button"
-              className={`resource-row execution-session-row${host?.id === h.id ? " active" : ""}`}
+              className={`ssh-resource-row ssh-session-row${host?.id === h.id ? " active" : ""}`}
               aria-current={host?.id === h.id}
               onClick={() => {
                 setSel(h.id);
@@ -224,11 +224,11 @@ export function SshModule() {
                   {h.user}@{h.host}
                 </span>
               </span>
-              <span className={`execution-status-dot ${connected.has(h.id) ? "connected" : "disconnected"}`} aria-label={connected.has(h.id) ? t.connected : t.notConnected} />
+              <span className={`hu-execution-status-dot ${connected.has(h.id) ? "connected" : "disconnected"}`} aria-label={connected.has(h.id) ? t.connected : t.notConnected} />
             </button>
           ))}
         </div>
-        <div className="execution-pane-foot">
+        <div className="ssh-pane-foot">
           <div className="row">
             <LockKeyhole size={15} aria-hidden /> 凭证以引用方式保存
           </div>
@@ -238,7 +238,7 @@ export function SshModule() {
           </Button>
         </div>
       </aside>
-      <main className="view-content">
+      <main className="hu-view-content">
         <PageHead
           title={host?.name ?? t.title}
           description={host ? `${host.host}:${host.port}` : "通过统一连接配置管理远程工作环境。"}
@@ -258,7 +258,7 @@ export function SshModule() {
             ) : null
           }
         />
-        <div className="toolbar">
+        <div className="hu-toolbar">
           <Segmented<Tab>
             label="SSH 功能"
             value={tab}
@@ -275,7 +275,7 @@ export function SshModule() {
           {host ? <Badge tone={status === "connected" ? "success" : "neutral"}>{status === "connected" ? t.connected : status === "connecting" ? "连接中" : t.notConnected}</Badge> : null}
         </div>
         {error ? (
-          <div role="alert" className="callout danger">
+          <div role="alert" className="hu-callout danger">
             <p>{error}</p>
           </div>
         ) : null}
@@ -291,8 +291,8 @@ export function SshModule() {
           />
         ) : null}
         {tab === "audit" ? (
-          <div className="scroll execution-pad" data-testid="ssh-audit">
-            <div className="row execution-section-heading">
+          <div className="hu-scroll ssh-pad" data-testid="ssh-audit">
+            <div className="row ssh-section-heading">
               <h3 className="grow">全部连接审计</h3>
             </div>
             <DataTable
@@ -310,9 +310,9 @@ export function SshModule() {
             {(audit.data ?? []).length === 0 ? <EmptyState icon={Activity} title="还没有连接审计记录" /> : null}
           </div>
         ) : host && tab === "overview" ? (
-          <div className="scroll execution-pad">
-            <div className="execution-connection-hero">
-              <div className={`execution-server-icon ${status}`}>
+          <div className="hu-scroll ssh-pad">
+            <div className="ssh-connection-hero">
+              <div className={`ssh-server-icon ${status}`}>
                 <Server size={30} aria-hidden />
               </div>
               <div className="grow">
@@ -327,13 +327,13 @@ export function SshModule() {
                 </Button>
               ) : null}
             </div>
-            <div className="execution-meta-grid">
+            <div className="ssh-meta-grid">
               {[
                 { Icon: KeyRound, label: "认证方式", value: { key: "SSH 私钥", agent: "SSH Agent", password: "密码引用" }[host.auth?.kind ?? "password"] ?? "密码引用" },
                 { Icon: Network, label: "连接路径", value: (host.jumpHostIds ?? []).length > 0 ? "经跳板转发" : "直接连接" },
                 { Icon: ShieldCheck, label: "主机信任", value: isConn ? "已保存信任" : "首次连接待确认" },
               ].map(({ Icon, label, value }) => (
-                <div key={label} className="execution-stat">
+                <div key={label} className="ssh-stat">
                   <span className="muted small">
                     <Icon size={13} aria-hidden /> {label}
                   </span>
@@ -341,12 +341,12 @@ export function SshModule() {
                 </div>
               ))}
             </div>
-            <section className="card execution-connection-route" data-testid="ssh-route">
-              <div className="execution-section-heading">
+            <section className="hu-card-alt hu-execution-connection-route" data-testid="ssh-route">
+              <div className="ssh-section-heading">
                 <h3>连接路径</h3>
                 <span className="muted small">可视化跳板链</span>
               </div>
-              <div className="execution-route">
+              <div className="ssh-route">
                 <div>
                   <Monitor size={22} aria-hidden />
                   <strong>本地工作台</strong>
@@ -366,7 +366,7 @@ export function SshModule() {
                     </Fragment>
                   );
                 })}
-                <div className="execution-route-target">
+                <div className="ssh-route-target">
                   <Server size={22} aria-hidden />
                   <strong>{host.name}</strong>
                   <span>
@@ -375,10 +375,10 @@ export function SshModule() {
                 </div>
               </div>
             </section>
-            <section className="card execution-connection-config">
+            <section className="hu-card-alt ssh-connection-config">
               <h3>连接与安全</h3>
               <p className="muted small">密码只保存在保险箱；这里只保存 safe:// 引用，不保存明文凭证。</p>
-              <div className="execution-definition">
+              <div className="ssh-definition">
                 <span>凭证引用</span>
                 <code>{host.auth?.secretRef ?? "—"}</code>
                 <span>主机密钥</span>
@@ -398,12 +398,12 @@ export function SshModule() {
             </section>
           </div>
         ) : host && tab === "exec" ? (
-          <div className="scroll execution-pad">
-            <div className="execution-section-heading">
+          <div className="hu-scroll ssh-pad">
+            <div className="ssh-section-heading">
               <h3>独立远程命令</h3>
               <p className="muted">Exec 不占用交互终端；输出与连接审计分别记录。</p>
             </div>
-            <div className="execution-command-card">
+            <div className="ssh-command-card">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -414,7 +414,7 @@ export function SshModule() {
                   <input aria-label={t.exec} placeholder="uname -a" value={cmd} onChange={(e) => setCmd(e.target.value)} disabled={!isConn} />
                 </Field>
                 <div className="row">
-                  <div className="execution-command-presets">
+                  <div className="ssh-command-presets">
                     {["uname -a", "pwd", "df -h", "whoami"].map((c) => (
                       <button key={c} type="button" onClick={() => setCmd(c)}>
                         {c}
@@ -426,11 +426,11 @@ export function SshModule() {
                     {t.run}
                   </Button>
                 </div>
-                {!isConn ? <p className="execution-warning-text small">请先连接主机，才能使用 Exec。</p> : null}
+                {!isConn ? <p className="ssh-warning-text small">请先连接主机，才能使用 Exec。</p> : null}
               </form>
             </div>
             {result ? (
-              <div className="execution-exec-result">
+              <div className="ssh-exec-result">
                 <div className="row">
                   <code className="grow">$ {cmd}</code>
                   <span className="small muted">{result.ms} ms</span>
@@ -447,8 +447,8 @@ export function SshModule() {
             )}
           </div>
         ) : host && tab === "terminal" ? (
-          <div className="ssh-console">
-            <div className="ssh-console-bar">
+          <div className="hu-ssh-console">
+            <div className="hu-ssh-console-bar">
               <div className="ssh-console-tabs" role="tablist" aria-label={t.shells}>
                 {(shells.data ?? []).map((s) => (
                   <button key={s.id} type="button" role="tab" aria-selected={s.id === activeShell} className={s.id === activeShell ? "active" : ""} data-testid="shell-tab" onClick={() => setActiveShell(s.id)}>
@@ -462,7 +462,7 @@ export function SshModule() {
             {activeShell ? (
               <div className="ssh-console-stage">
                 <div className="ssh-console-panel" style={{ height: "52vh" }}>
-                  <div className="ssh-console-panel-head">
+                  <div className="hu-ssh-console-panel-head">
                     <Terminal size={13} aria-hidden />
                     <strong className="grow">{(shells.data ?? []).find((s) => s.id === activeShell)?.name}</strong>
                     <Button variant="danger" icon={X} onClick={() => void engine.call("ssh.shells.close", { id: activeShell }, { write: true }).then(refresh)}>
@@ -487,7 +487,7 @@ export function SshModule() {
           </div>
         ) : host && tab === "files" ? (
           isConn ? (
-            <div className="scroll execution-pad">
+            <div className="hu-scroll ssh-pad">
               <FilesPanel key={host.id} hostId={host.id} />
             </div>
           ) : (
@@ -513,8 +513,8 @@ export function SshModule() {
             </>
           }
         >
-          <div className="stack">
-            <div className="execution-trust-heading">
+          <div className="hu-stack">
+            <div className="ssh-trust-heading">
               <Fingerprint size={28} aria-hidden />
               <strong>{prompt.reason === "first" ? t.trustFirst(prompt.hop, prompt.keyType, prompt.fingerprint) : t.trustChanged}</strong>
             </div>
@@ -543,14 +543,14 @@ export function SshModule() {
             </>
           }
         >
-          <div className="form-body">
+          <div className="hu-form-body">
             <Field label={t.hostName}>
               <input aria-label={t.hostName} autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </Field>
             <Field label={t.address}>
               <input aria-label={t.address} placeholder="dev.example.internal" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
             </Field>
-            <div className="field-grid">
+            <div className="hu-field-grid">
               <Field label={t.port}>
                 <input aria-label={t.port} value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} />
               </Field>
@@ -580,9 +580,9 @@ export function SshModule() {
                 </Field>
               </>
             ) : null}
-            {form.authKind === "agent" ? <p className="hint-text">使用本机正在运行的 ssh-agent（SSH_AUTH_SOCK）里的密钥；HUHU 不保存任何凭据。</p> : null}
+            {form.authKind === "agent" ? <p className="hu-hint-text">使用本机正在运行的 ssh-agent（SSH_AUTH_SOCK）里的密钥；HUHU 不保存任何凭据。</p> : null}
             <Field label="跳板机" description="按顺序经过这些主机再连到目标；不能形成循环。">
-              <div className="stack" data-testid="ssh-jump-picker">
+              <div className="hu-stack" data-testid="ssh-jump-picker">
                 {form.jumps.map((jid, i) => {
                   const j = (hosts.data ?? []).find((x) => x.id === jid);
                   return (

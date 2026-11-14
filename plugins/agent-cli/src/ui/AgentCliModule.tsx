@@ -1,9 +1,9 @@
-import { AgentSettings } from "./AgentSettings.js";
-import { LaunchPanel, type LaunchOptions, type ModelOption } from "./LaunchPanel.js";
+import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
-import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Settings2, Trash2 } from "lucide-react";
-import { CapabilityError, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { useEffect, useState } from "react";
+import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
+import { CapabilityError, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { agentById, emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
+import { useEffect, useRef, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { SplitView } from "./SplitView.js";
@@ -25,15 +25,16 @@ interface Session {
   terminalId: string | null;
   exitCode?: number | null;
   error?: string;
+  /** 程序经 OSC 7501 上报“等人工”。 */
+  waiting?: { active: boolean; kind: string | null; msg: string | null };
 }
-interface Provider {
-  provider: string;
+interface Detected {
+  id: string;
   displayName: string;
-  status: string;
-  models?: ModelOption[];
+  installed: boolean;
 }
 
-export function AgentCliModule() {
+export function AgentCliModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
@@ -65,7 +66,8 @@ export function AgentCliModule() {
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
   const sessions = useCapability<Session[]>("agent.sessions.list", space ? { spaceId: space.id } : {});
-  const providers = useCapability<Provider[]>("agent.providers.detect", {});
+  const detected = useCapability<Detected[]>("agent.catalog.detect", {});
+  const agentSettings = useCapability<{ settings: AgentSettingsFile }>("agent.settings.get", {});
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
 
@@ -81,6 +83,19 @@ export function AgentCliModule() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  // Ctrl+T（macOS ⌘T）：新建普通终端。只在本模块激活时生效；终端获得焦点时不拦截（Claude Code 的 TUI 自己用 Ctrl+T）
+  const newShell = useRef<() => void>(() => undefined);
+  newShell.current = () => (space ? void launch("shell") : setError("先选择或创建 Space"));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "t") return;
+      if (e.target instanceof Element && e.target.closest(".xterm")) return;
+      e.preventDefault();
+      newShell.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   async function act(cap: string, id: string) {
     setError(null);
     try {
@@ -91,10 +106,6 @@ export function AgentCliModule() {
     }
   }
 
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const prefs = useCapability<Record<string, { model?: string; effort?: string; fast?: boolean }>>("agent.providers.prefs.get", {});
-  const chosenProvider = (providers.data ?? []).find((p) => p.provider === chosen) ?? null;
   const list = sessions.data ?? [];
   // 有会话在运行时每 5 秒刷新一次列表：程序结束后徽标会自己变成“已结束”
   const anyRunning = list.some((s) => s.state === "running");
@@ -107,9 +118,9 @@ export function AgentCliModule() {
   const shown = layout === 1 ? [] : fillCells(layout, split.picks, list, active, split.hidden);
   const stateBadge = (s: Session) => <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>;
   return (
-    <div className={`module-layout v9-agent-layout${showHistory ? " history-open" : ""}`} data-testid="agent-cli-module" style={showHistory && space ? undefined : { gridTemplateColumns: "224px minmax(300px, 1fr)" }}>
-      <aside className="v9-spaces" aria-label={t.spaces}>
-        <div className="v9-sidebar-head">
+    <div className={`hu-module-layout agent-layout${showHistory ? " agent-history-open" : ""}`} data-testid="agent-cli-module" style={showHistory && space ? undefined : { gridTemplateColumns: "224px minmax(300px, 1fr)" }}>
+      <aside className="agent-spaces" aria-label={t.spaces}>
+        <div className="agent-sidebar-head">
           <span>Spaces</span>
           <span className="row">
             {space ? <IconButton icon={Pencil} label="编辑 Space" data-testid="space-edit" onClick={() => setSpaceForm({ id: space.id, revision: space.revision, name: space.name, folder: space.root })} /> : null}
@@ -117,15 +128,15 @@ export function AgentCliModule() {
             <IconButton icon={Plus} label="新建 Space" onClick={() => setSpaceForm({ name: "", folder: "" })} />
           </span>
         </div>
-        <div className="v9-vault-caption">
+        <div className="agent-vault-caption">
           <Folder size={13} aria-hidden /> {t.spaces}
         </div>
-        <div className="v9-space-list">
+        <div className="agent-space-list">
           {(spaces.data ?? []).map((s) => (
             <button
               key={s.id}
               type="button"
-              className={`v9-space-item${space?.id === s.id ? " active" : ""}`}
+              className={`agent-space-item${space?.id === s.id ? " active" : ""}`}
               aria-pressed={space?.id === s.id}
               title={s.root}
               onClick={() => {
@@ -139,43 +150,39 @@ export function AgentCliModule() {
                 <strong>{s.name}</strong>
                 <small title={s.root}>{s.root}</small>
               </span>
-              <span className="v9-count">{space?.id === s.id ? list.length : ""}</span>
+              <span className="agent-count">{space?.id === s.id ? list.length : ""}</span>
             </button>
           ))}
         </div>
-        <button type="button" className="v9-create-space" data-testid="space-new" onClick={() => setSpaceForm({ name: "", folder: "" })}>
+        <button type="button" className="agent-create-space" data-testid="space-new" onClick={() => setSpaceForm({ name: "", folder: "" })}>
           <Plus size={14} aria-hidden />
           新建 Space
         </button>
-        <div className="v9-core-note" data-testid="core-status">
-          <span className="status-dot" />
+        <div className="hu-v9-core-note" data-testid="core-status">
+          <span className="shell-status-dot" />
           {t.coreStatus} · {core.data?.state === "connected" ? `${core.data.version} ${t.connected}` : t.unavailable}
         </div>
       </aside>
-      <section className="v9-session-main">
-        <header className="v9-space-header">
+      <section className="hu-v9-session-main">
+        <header className="agent-space-header">
           <div>
             <FolderOpen size={16} aria-hidden />
             <strong>{space?.name ?? t.title}</strong>
-            <span className="v9-cwd">{space?.root ?? "先选择一个工作目录"}</span>
+            <span className="agent-cwd">{space?.root ?? "先选择一个工作目录"}</span>
           </div>
-          <button type="button" className="v9-subtle-button" data-testid="agent-settings-open" onClick={() => setSettingsOpen(true)}>
-            <Settings2 size={14} aria-hidden />
-            <span>智能体设置</span>
-          </button>
-          <button type="button" className="v9-history-toggle" aria-expanded={showHistory} aria-label={showHistory ? t.history.close : t.history.open} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>
+          <button type="button" className="agent-history-toggle" aria-expanded={showHistory} aria-label={showHistory ? t.history.close : t.history.open} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>
             <History size={15} aria-hidden />
           </button>
         </header>
         {error ? (
-          <div role="alert" className="callout danger">
+          <div role="alert" className="hu-callout danger">
             <p>{error}</p>
           </div>
         ) : null}
-        <div className="v9-tabs">
-          <div className="v9-open-tabs" role="tablist" aria-label={t.sessions}>
+        <div className="agent-tabs">
+          <div className="agent-open-tabs" role="tablist" aria-label={t.sessions}>
             {list.map((s) => (
-              <div key={s.id} className={`v9-session-tab${s.id === active ? " active" : ""}`}>
+              <div key={s.id} className={`agent-session-tab${s.id === active ? " active" : ""}`}>
                 <button
                   type="button"
                   role="tab"
@@ -187,14 +194,19 @@ export function AgentCliModule() {
                     else if (split.hidden.includes(s.id)) setSplit({ ...split, hidden: split.hidden.filter((h) => h !== s.id) });
                   }}
                 >
-                  <span className={`v9-provider-mark provider-${s.provider}`}>{s.provider === "shell" ? "›" : s.provider.slice(0, 1).toUpperCase()}</span>
+                  <span className={`agent-provider-mark provider-${s.provider}`}>{s.provider === "shell" ? "›" : s.provider.slice(0, 1).toUpperCase()}</span>
                   {s.name} {stateBadge(s)}
+                  {s.waiting?.active ? (
+                    <Badge tone="warning" data-testid="session-waiting">
+                      {t.needsYou}
+                    </Badge>
+                  ) : null}
                 </button>
               </div>
             ))}
           </div>
-          <div className="v9-tab-actions">
-            <button type="button" className="v9-add-cli" aria-label={t.newTerminal} aria-expanded={menu} onClick={() => setMenu(!menu)}>
+          <div className="agent-tab-actions">
+            <button type="button" className="agent-add-cli" aria-label={t.newTerminal} aria-expanded={menu} onClick={() => setMenu(!menu)}>
               <Plus size={17} aria-hidden />
               <ChevronDown size={12} aria-hidden />
             </button>
@@ -211,7 +223,7 @@ export function AgentCliModule() {
                   type="button"
                   role="radio"
                   aria-checked={layout === l}
-                  className={`v9-subtle-button${layout === l ? " active" : ""}`}
+                  className={`agent-subtle-button${layout === l ? " active" : ""}`}
                   data-testid={`layout-${l}`}
                   onClick={() => setLayout(l)}
                   onKeyDown={(e) => {
@@ -233,36 +245,15 @@ export function AgentCliModule() {
           </div>
         </div>
         {menu ? (
-          <div className="v9-launcher" style={{ position: "static", flexShrink: 0, minHeight: "min-content", margin: "8px 16px", width: "fit-content", maxWidth: "calc(100% - 32px)" }}>
-            {chosenProvider ? (
-              <LaunchPanel
-                key={chosenProvider.provider}
-                label={chosenProvider.displayName}
-                models={chosenProvider.models ?? []}
-                defaults={prefs.data?.[chosenProvider.provider]}
-                space={space ? { name: space.name, root: space.root } : null}
-                onStart={(o) => void launch(chosenProvider.provider, o).then(() => setChosen(null))}
-              />
-            ) : null}
-            <section role="menu" aria-label={t.newTerminal} className="v9-provider-menu">
-              <button type="button" role="menuitem" onClick={() => void launch("shell")}>
-                <span className="v9-provider-mark">›</span> {t.newTerminal}（shell）
-              </button>
-              <div className="v9-menu-divider" />
-              <div className="v9-menu-caption">当前 Space · {space?.name ?? "未选择"}</div>
-              <div className="v9-menu-folder" title={space?.root}>
-                {space?.root ?? "请先创建 Space"}
-              </div>
-              {(providers.data ?? [])
-                .filter((p) => p.status === "found")
-                .map((p) => (
-                  <button key={p.provider} type="button" role="menuitem" className={chosen === p.provider ? "selected" : ""} aria-haspopup="true" aria-expanded={chosen === p.provider} onClick={() => setChosen(p.provider)}>
-                    <span className={`v9-provider-mark provider-${p.provider}`}>{p.displayName.slice(0, 1)}</span>
-                    <span>{p.displayName}</span>
-                  </button>
-                ))}
-              {(providers.data ?? []).every((p) => p.status !== "found") ? <p className="v9-small-empty">{t.noProviders}</p> : null}
-            </section>
+          <div className="agent-launcher" style={{ position: "static", flexShrink: 0, minHeight: "min-content", margin: "8px 16px", width: "fit-content", maxWidth: "calc(100% - 32px)" }}>
+            <LaunchMenu
+              detected={detected.data ?? []}
+              settings={agentSettings.data?.settings ?? emptyAgentSettings()}
+              noSpace={!space}
+              onLaunch={(provider, o) => void launch(provider, o)}
+              onOpenSettings={() => (setMenu(false), onNavigate?.("settings", "agent-cli"))}
+              onClose={() => setMenu(false)}
+            />
           </div>
         ) : null}
         {list.length === 0 ? (
@@ -279,11 +270,11 @@ export function AgentCliModule() {
             <SplitView layout={layout} cells={shown} sessions={list} onChange={(i, v) => setSplit(choose(shown, split, i, v))} onAct={(cap, id) => void act(cap, id)} />
           </>
         ) : cur && cur.state === "running" ? (
-          <div className="v9-terminal-grid panes-1">
-            <section className="v9-terminal-pane" aria-label={cur.name}>
-              <div className="v9-terminal-heading">
-                <span className={`v9-provider-mark provider-${cur.provider}`}>{cur.provider === "shell" ? "›" : cur.provider.slice(0, 1).toUpperCase()}</span>
-                <strong title={cur.name}>{cur.provider === "shell" ? "Shell" : ((providers.data ?? []).find((p) => p.provider === cur.provider)?.displayName ?? cur.provider)}</strong>
+          <div className="agent-terminal-grid">
+            <section className="agent-terminal-pane" aria-label={cur.name}>
+              <div className="hu-v9-terminal-heading">
+                <span className={`agent-provider-mark provider-${cur.provider}`}>{cur.provider === "shell" ? "›" : cur.provider.slice(0, 1).toUpperCase()}</span>
+                <strong title={cur.name}>{cur.provider === "shell" ? "Shell" : (agentById(cur.provider)?.displayName ?? cur.provider)}</strong>
                 {stateBadge(cur)}
                 <span className="grow" />
                 <Button onClick={() => void act("agent.sessions.interrupt", cur.id)}>{t.interrupt}</Button>
@@ -305,12 +296,11 @@ export function AgentCliModule() {
           <EmptyState icon={FolderOpen} title={t.selectSession} />
         ) : null}
         {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
-        <footer className="v9-main-footer">
+        <footer className="agent-main-footer">
           <span>{space ? `${list.length} 个会话 · 当前 Space` : "尚无 Space"}</span>
           <span>关闭标签只分离视图 · 会话记录保留</span>
         </footer>
       </section>
-      {settingsOpen ? <AgentSettings onClose={() => setSettingsOpen(false)} /> : null}
       {spaceDelete ? (
         <Dialog
           open
@@ -408,15 +398,15 @@ export function AgentCliModule() {
               ) : null}
             </div>
           </Field>
-          <p className="hint-text">当前 Space 新建的每个 CLI 都使用这个目录。</p>
+          <p className="hu-hint-text">当前 Space 新建的每个 CLI 都使用这个目录。</p>
         </Dialog>
       ) : null}
       {showHistory && space ? (
-        <aside className="v9-history" aria-label="当前 Space 会话历史">
+        <aside className="agent-history" aria-label="当前 Space 会话历史">
           <HistoryPanel
             key={space.id} // 切换 Space 时历史面板重新挂载：搜索框与筛选被清空（ACC-AG-05）
             space={space}
-            installed={new Set((providers.data ?? []).filter((p) => p.status === "found").map((p) => p.provider))}
+            installed={new Set((detected.data ?? []).filter((p) => p.installed).map((p) => p.id))}
             onResumed={(id) => {
               setActive(id);
             }}

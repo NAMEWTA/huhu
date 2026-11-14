@@ -9,8 +9,11 @@ import { isValidNativeId, scanHistory } from "./history/scanner.js";
 import { readTranscript } from "./history/transcript.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
-import { ProviderPrefs } from "./prefs.js";
-import { ProviderDetector } from "./providers/index.js";
+import { AgentDetector } from "./detect.js";
+import { resolveAgentLaunch } from "./launch.js";
+import { AgentSettingsStore } from "./settings.js";
+import { AgentSettingsEntry } from "../shared/settings.js";
+import { WaitingWatcher } from "./waiting.js";
 import { SessionsService } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
 import { SpaceStore } from "./spaces.js";
@@ -18,7 +21,9 @@ import { SpaceStore } from "./spaces.js";
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
 export { createTerminalBridge, type TerminalBridge } from "./terminal-bridge.js";
-export { PROVIDERS, ProviderDetector } from "./providers/index.js";
+export { AgentDetector } from "./detect.js";
+export { resolveAgentLaunch } from "./launch.js";
+export { AgentSettingsStore } from "./settings.js";
 export { SpaceStore } from "./spaces.js";
 
 const SpaceDto = z.object({ id: z.string(), name: z.string(), root: z.string(), machineId: z.string(), createdAt: z.string(), revision: z.number() });
@@ -28,13 +33,22 @@ export interface AgentCliOptions {
   history?: { home?: string; env?: NodeJS.ProcessEnv };
   /** herdr-core 可执行文件；缺省读 HUHU_HERDR_BIN，再退回应用资源目录。 */
   herdrBin?: string;
+  /** 站内通知（程序在会话里等人工时）。 */
+  notify?: (n: { title: string; module: string }) => void;
+  /** 测试用：缩短订阅的重连间隔。 */
+  waitingBackoffMs?: { min: number; max: number };
 }
 
-export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: ProviderDetector; sessions: SessionsService; core: HerdrCore } {
+export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
   const root = api.vault.files.root;
   const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId());
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
-  const detector = new ProviderDetector();
+  const settingsStore = new AgentSettingsStore(path.join(api.vault.stateDir, "agent-cli", "agents.json"));
+  const detector = new AgentDetector({ settings: () => settingsStore.get() });
+  const resolve = async (input: Parameters<typeof resolveAgentLaunch>[1]) => {
+    const detected = input.preview ? undefined : (await detector.detect()).find((r) => r.id === input.agentId);
+    return resolveAgentLaunch({ settings: settingsStore.get(), detected }, input);
+  };
   const mid = machineId();
   const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr") });
   ctx.effect(() => () => core.dispose()); // 停用只断开连接，不结束 Core
@@ -44,9 +58,37 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     spaces,
     core: () => core.ensure(),
     peekCore: () => core.peek(),
-    detect: () => detector.detect(),
+    resolve,
     now: () => new Date(),
   });
+
+  // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
+  const waiting = new WaitingWatcher({
+    endpoint: core.endpoint,
+    vaultId: api.vault.vaultId,
+    sessions,
+    ...(opts.waitingBackoffMs ? { backoffMs: opts.waitingBackoffMs } : {}),
+    onBlocked: async (sess) => {
+      const w = sess.waiting;
+      if (!w) return;
+      const what = w.kind === "permission" ? "需要批准" : w.kind === "question" ? "有问题要回答" : w.kind === "auth" ? "需要登录授权" : "需要你操作";
+      opts.notify?.({ title: `${sess.name}：${what}${w.msg ? `（${w.msg}）` : ""}`, module: "agent-cli" });
+      if (settingsStore.get().waitingTasks === false) return;
+      // 独立会话：在为它自动建立的 human 任务上追加评论（任务按会话 id 幂等创建，评论 id 由发生标识派生）
+      const created = w.taskId
+        ? { id: w.taskId }
+        : ((await api.call(
+            "tasks.create",
+            { title: `${sess.name} 需要你操作`, type: "human", body: `终端会话「${sess.name}」里的程序在等你处理。\n\n在 Agent CLI 模块里点“前往处理”回到原终端。` },
+            { idempotencyKey: `session-task-${sess.id}` },
+          )) as { id: string });
+      if (!w.taskId) sessions.setWaitingTask(sess.id, created.id);
+      const commentId = `session-${sess.id}-w-${w.n}`;
+      await api.call("tasks.comments.add", { taskId: created.id, id: commentId, source: "agent", author: sess.name, session: sess.id, event: "waiting", body: `${what}${w.msg ? `：${w.msg}` : ""}` }, { idempotencyKey: commentId });
+    },
+  });
+  waiting.start();
+  ctx.effect(() => () => waiting.stop()); // 停用时关闭订阅连接；重新启用后 apply 再次运行，重连并用快照补齐期间的 blocked
 
   api.defineCapability(def({ name: "agent.spaces.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(SpaceDto), handler: () => spaces.list() }));
   api.defineCapability(
@@ -79,27 +121,71 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       },
     }),
   );
+  const DetectOut = z.object({
+    id: z.string(),
+    displayName: z.string(),
+    installed: z.boolean(),
+    skipped: z.literal(true).optional(),
+    path: z.string().optional(),
+    version: z.string().optional(),
+    via: z.enum(["path", "installDir", "override"]).optional(),
+    headless: z.boolean(),
+    detectedAt: z.string(),
+  });
   api.defineCapability(
     def({
-      name: "agent.providers.detect",
+      name: "agent.catalog.detect",
       plugin: "agent-cli",
       scope: "read",
       exposable: false,
       defaultExposed: false,
       input: z.object({ refresh: z.boolean().optional() }),
-      output: z.array(
-        z.object({
-          provider: z.string(),
-          displayName: z.string(),
-          status: z.string(),
-          exe: z.string().nullable(),
-          version: z.string().nullable(),
-          checkedAt: z.string(),
-          headless: z.boolean(),
-          models: z.array(z.object({ id: z.string(), label: z.string(), efforts: z.array(z.string()), fast: z.boolean() })),
-        }),
-      ),
+      output: z.array(DetectOut),
       handler: (_c, i) => detector.detect(i.refresh === true),
+    }),
+  );
+  const SettingsOut = z.object({
+    settings: z.object({ schema: z.literal(1), revision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),
+    warning: z.string().optional(),
+  });
+  api.defineCapability(def({ name: "agent.settings.get", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: SettingsOut, handler: () => settingsStore.read() }));
+  api.defineCapability(
+    def({
+      name: "agent.settings.update",
+      plugin: "agent-cli",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ expectedRevision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),
+      output: SettingsOut.shape.settings,
+      handler: (_c, i) => {
+        const out = settingsStore.write({ defaultAgent: i.defaultAgent, ...(i.waitingTasks !== undefined ? { waitingTasks: i.waitingTasks } : {}), agents: i.agents }, i.expectedRevision);
+        detector.invalidate(); // command / enabled 可能变了，旧检测结果不再可信
+        return out;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.launch.resolve",
+      plugin: "agent-cli",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({
+        agentId: z.string(),
+        mode: z.enum(["interactive", "headless"]),
+        model: z.string().optional(),
+        effort: z.string().optional(),
+        fast: z.boolean().optional(),
+        prompt: z.string().optional(),
+        sessionId: z.string().optional(),
+        resume: z.string().optional(),
+        draft: AgentSettingsEntry.optional(),
+        preview: z.boolean().optional(),
+      }),
+      output: z.object({ command: z.string(), argv: z.array(z.string()), env: z.record(z.string(), z.string()), stdin: z.string().optional(), warnings: z.array(z.string()), unsupported: z.literal("headless").optional() }),
+      handler: (_c, i) => resolve(i),
     }),
   );
 
@@ -118,6 +204,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     exitCode: z.number().nullable().optional(),
     exitedAt: z.string().optional(),
     error: z.string().optional(),
+    command: z.string().optional(),
+    hasEnv: z.boolean().optional(),
+    waiting: z
+      .object({
+        n: z.number(),
+        active: z.boolean(),
+        expired: z.boolean().optional(),
+        kind: z.string().nullable(),
+        msg: z.string().nullable(),
+        app: z.string().nullable(),
+        since: z.string(),
+        taskId: z.string().optional(),
+        handled: z.number().optional(),
+      })
+      .optional(),
   });
   const Id = z.object({ id: z.string() });
   const Ok = z.object({ ok: z.literal(true) });
@@ -131,15 +232,60 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       input: z.object({
         spaceId: z.string(),
         spaceRevision: z.number(),
-        provider: z.enum(["claude", "claude-agent-teams", "codex", "pi", "shell"]),
+        provider: z.enum(["claude", "codex", "pi", "shell"]),
         model: z.string().optional(),
         effort: z.string().optional(),
         fast: z.boolean().optional(),
         prompt: z.string().optional(),
         requestId: z.string().min(8),
+        /** 终端命令（automations 的 terminal 动作）：provider 必须是 shell；命令里的 shell 语义只来自规则作者写下的文本。 */
+        command: z.string().min(1).max(4000).optional(),
+        shell: z.enum(["default", "bash", "zsh", "sh", "powershell", "cmd"]).optional(),
+        /** 环境变量名 → 保险箱引用：在引擎侧解析（调用方插件的身份），值只传给 terminal.run，不落盘、不回显。 */
+        envRefs: z.record(z.string(), z.string()).optional(),
       }),
       output: Session,
-      handler: (_c, i) => sessions.launch(i),
+      handler: async (c, i) => {
+        let env: Record<string, string> | undefined;
+        if (i.command !== undefined || i.envRefs) {
+          if (i.provider !== "shell") throw errors.invalidInput("command / envRefs 只能与终端（shell）一起用");
+          if (i.envRefs && Object.keys(i.envRefs).length > 0) {
+            if (!c.caller.startsWith("plugin:")) throw errors.permissionDenied("环境变量引用（仅内置插件可用）");
+            const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
+            if (!su) throw errors.invalidInput("保险箱插件未启用");
+            env = {};
+            for (const [k, ref] of Object.entries(i.envRefs)) env[k] = su.resolve(ref, { plugin: c.caller.slice("plugin:".length), purpose: "terminal" });
+          }
+        }
+        const s = await sessions.launch({ ...i, ...(env ? { env } : {}) });
+        if (env) sessions.rememberSecrets(s.id, Object.values(env));
+        waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
+        return s;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.sessions.output",
+      plugin: "agent-cli",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ id: z.string(), lines: z.number().int().min(1).max(2000).optional() }),
+      output: z.object({ text: z.string(), complete: z.boolean() }),
+      handler: (_c, i) => sessions.output(i.id, i.lines ?? 200),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.sessions.release",
+      plugin: "agent-cli",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ id: z.string() }),
+      output: z.object({ ok: z.literal(true) }),
+      handler: async (_c, i) => (await sessions.release(i.id), { ok: true as const }),
     }),
   );
   api.defineCapability(
@@ -165,20 +311,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   );
   api.defineCapability(
     def({ name: "agent.sessions.rename", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: Id.extend({ name: z.string() }), output: Session, handler: (_c, i) => sessions.rename(i.id, i.name) }),
-  );
-  const Pref = z.object({ model: z.string().optional(), effort: z.string().optional(), fast: z.boolean().optional() });
-  api.defineCapability(def({ name: "agent.providers.prefs.get", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.record(z.string(), Pref), handler: () => prefs.all() }));
-  api.defineCapability(
-    def({
-      name: "agent.providers.prefs.set",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ provider: z.enum(["claude", "claude-agent-teams", "codex", "pi"]), model: z.string().max(100).optional(), effort: z.string().max(40).optional(), fast: z.boolean().optional() }),
-      output: z.record(z.string(), Pref),
-      handler: (_c, i) => prefs.set(i.provider, { ...(i.model ? { model: i.model } : {}), ...(i.effort ? { effort: i.effort } : {}), ...(i.fast !== undefined ? { fast: i.fast } : {}) }),
-    }),
   );
   api.defineCapability(
     def({
@@ -215,7 +347,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return sp;
   };
   // 列表请求很频繁（打开面板、切换 Space），短时间内复用结果；恢复时总是重新扫描
-  const prefs = new ProviderPrefs(path.join(api.vault.stateDir, "agent-cli", "providers.json"));
   const pins = new PinStore(path.join(api.vault.stateDir, "agent-cli", "pins.json"));
   const resuming = new Set<string>();
   const cache = new Map<string, { at: number; r: ReturnType<typeof scanHistory> }>();

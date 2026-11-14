@@ -1,3 +1,4 @@
+import "./automations.css";
 import type { ModuleContribution } from "@huhu/workbench";
 import { Workflow } from "lucide-react";
 import { AutomationsModule } from "./AutomationsModule.js";

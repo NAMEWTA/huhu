@@ -10,7 +10,7 @@ import { openApp, root } from "./helpers/launch.js";
 const DIR = process.env["HUHU_SHOTS_DIR"];
 test.skip(!DIR, "设置 HUHU_SHOTS_DIR 才截图");
 
-const MODULES = ["工作台", "任务", "知识库", "收件箱", "档案", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
+const MODULES = ["工作台", "任务", "知识库", "收件箱", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
 
 for (const size of [
   { width: 1440, height: 900 },

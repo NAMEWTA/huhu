@@ -2,6 +2,7 @@ appId: dev.huhu.workbench
 productName: HUHU
 directories:
   output: release
+icon: ../../assets/brand/huhu-icon-1024.png
 beforePack: scripts/before-pack.cjs
 npmRebuild: false # 没有需要针对 Electron ABI 编译的模块（@parcel/watcher 用预编译包；ssh2 的原生加速可选）
 files:
@@ -26,6 +27,16 @@ extraResources:
 win:
   target: [{ target: nsis, arch: x64 }]
   artifactName: HUHU-${version}-win32-x64.${ext}
+nsis:
+  oneClick: false
+  perMachine: false # oneClick:false + perMachine:false → 向导里出现“仅为我 / 所有人”安装范围页
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: HUHU
+  runAfterFinish: true
+  installerLanguages: [zh_CN] # 只插入简体中文；不要设置 multiLanguageInstaller:false（会固定为英文）
+  language: "2052" # 只影响 exe 版本资源的语言字段
 mac:
   target: [{ target: dmg, arch: arm64 }]
   identity: null

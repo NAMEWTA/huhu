@@ -15,7 +15,7 @@ export function Button({ variant = "secondary", loading = false, icon: Icon, dis
     <button
       type="button"
       {...rest}
-      className={`btn${variant === "secondary" ? "" : ` btn-${variant}`} ${className}`.trim()}
+      className={`hu-btn${variant === "secondary" ? "" : ` hu-btn-${variant}`} ${className}`.trim()}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       onClick={(e) => {
@@ -38,7 +38,7 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
 /** 图标按钮（原型 .icon-btn，32×32）：只有图标，所以必须给 label。 */
 export function IconButton({ icon: Icon, label, size = 16, className = "", ...rest }: IconButtonProps) {
   return (
-    <button type="button" {...rest} className={`icon-btn ${className}`.trim()} aria-label={label} title={label}>
+    <button type="button" {...rest} className={`hu-icon-btn ${className}`.trim()} aria-label={label} title={label}>
       <Icon size={size} aria-hidden />
     </button>
   );
@@ -46,12 +46,12 @@ export function IconButton({ icon: Icon, label, size = 16, className = "", ...re
 
 export function Field({ label, description, error, children }: { label: string; description?: string | undefined; error?: string | null | undefined; children: ReactNode }) {
   return (
-    <div className="field">
-      <span className="field-label">{label}</span>
+    <div className="hu-field">
+      <span className="hu-field-label">{label}</span>
       {children}
-      {description ? <span className="field-description">{description}</span> : null}
+      {description ? <span className="hu-field-description">{description}</span> : null}
       {error ? (
-        <span role="alert" className="field-error">
+        <span role="alert" className="hu-field-error">
           {error}
         </span>
       ) : null}
@@ -78,7 +78,7 @@ export function CompletionCircle({ checked, pending = false, label, onToggle }: 
       aria-busy={pending || undefined}
       aria-disabled={pending || undefined}
       data-pending={pending || undefined}
-      className={`knowledge-task-check tw-completion${checked ? " is-completed" : ""}`}
+      className={`hu-knowledge-task-check hu-tw-completion${checked ? " is-completed" : ""}`}
       onClick={(e) => {
         e.stopPropagation(); // 圆框在可点击的行 / 卡片里：只勾选，不顺带打开详情
         if (!pending) onToggle(!checked);
@@ -91,13 +91,17 @@ export function CompletionCircle({ checked, pending = false, label, onToggle }: 
 
 export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "blue" | "violet";
 
-export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>;
+export function Badge({ tone = "neutral", children, "data-testid": testId }: { tone?: BadgeTone; children: ReactNode; "data-testid"?: string }) {
+  return (
+    <span className={`hu-badge hu-badge-${tone}`} {...(testId ? { "data-testid": testId } : {})}>
+      {children}
+    </span>
+  );
 }
 
-export function Banner({ tone = "warning", children, action }: { tone?: "warning" | "danger" | "blue"; children: ReactNode; action?: ReactNode }) {
+export function Banner({ tone = "warning", children, action, "data-testid": testId }: { tone?: "warning" | "danger" | "blue"; children: ReactNode; action?: ReactNode; "data-testid"?: string }) {
   return (
-    <div role={tone === "danger" ? "alert" : "status"} className={`hu-banner hu-banner-${tone}`}>
+    <div role={tone === "danger" ? "alert" : "status"} className={`hu-banner hu-banner-${tone}`} {...(testId ? { "data-testid": testId } : {})}>
       <span>{children}</span>
       {action}
     </div>
@@ -106,8 +110,8 @@ export function Banner({ tone = "warning", children, action }: { tone?: "warning
 
 export function EmptyState({ title, hint, action, icon: Icon = Search }: { title: string; hint?: string | undefined; action?: ReactNode; icon?: LucideIcon }) {
   return (
-    <div className="empty-state">
-      <div className="empty-icon">
+    <div className="hu-empty-state">
+      <div className="hu-empty-icon">
         <Icon size={26} aria-hidden />
       </div>
       <h3>{title}</h3>
@@ -120,14 +124,14 @@ export function EmptyState({ title, hint, action, icon: Icon = Search }: { title
 /** 页头（原型 PageHead）：eyebrow / 标题 / 说明 + 右侧操作区。 */
 export function PageHead({ eyebrow, title, description, actions, children }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode; children?: ReactNode }) {
   return (
-    <header className="page-head">
+    <header className="hu-page-head">
       <div className="grow">
-        {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
+        {eyebrow ? <div className="hu-eyebrow">{eyebrow}</div> : null}
         <h1>{title}</h1>
         {description ? <p>{description}</p> : null}
         {children}
       </div>
-      {actions ? <div className="page-actions">{actions}</div> : null}
+      {actions ? <div className="hu-page-actions">{actions}</div> : null}
     </header>
   );
 }
@@ -135,7 +139,7 @@ export function PageHead({ eyebrow, title, description, actions, children }: { e
 /** 搜索框（原型 SearchBox）：左侧放大镜，有内容时右侧出现清空按钮。 */
 export function SearchBox({ value, onChange, placeholder = "搜索…", className = "" }: { value: string; onChange(v: string): void; placeholder?: string; className?: string }) {
   return (
-    <div className={`search-box ${className}`.trim()}>
+    <div className={`hu-search-box ${className}`.trim()}>
       <Search size={15} aria-hidden />
       <input aria-label={placeholder} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
       {value ? (

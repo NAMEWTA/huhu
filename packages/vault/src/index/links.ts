@@ -1,12 +1,20 @@
+import { codeRanges } from "../markdown/codeRanges.js";
+
 export interface WikiLink {
   target: string;
   alias: string | null;
   heading: string | null;
 }
 
-/** 去掉围栏代码块与行内代码，避免解析其中的 [[...]]。 */
+/** 去掉围栏代码块、缩进代码块与行内代码，避免解析其中的 [[...]]（共享 codeRanges）。 */
 export function stripCode(markdown: string): string {
-  return markdown.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, "").replace(/`[^`\n]*`/g, "");
+  let out = "";
+  let cursor = 0;
+  for (const [a, b] of codeRanges(markdown)) {
+    out += markdown.slice(cursor, a);
+    cursor = b;
+  }
+  return out + markdown.slice(cursor);
 }
 
 /** 解析 [[目标]]、[[目标|别名]]、[[目标#标题]]。 */

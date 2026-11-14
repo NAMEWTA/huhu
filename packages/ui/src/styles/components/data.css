@@ -1,0 +1,90 @@
+.hu-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.hu-table th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 11px 16px;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.hu-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.hu-table tr:last-child td {
+  border-bottom: 0;
+}
+.hu-table tbody tr:hover {
+  background: var(--muted-bg);
+}
+.hu-table td .row {
+  gap: 7px;
+}
+.hu-table th:first-child,
+.hu-table td:first-child {
+  padding-left: 20px;
+}
+.hu-table button {
+  font-size: inherit;
+}
+.hu-table td {
+  font-variant-numeric: tabular-nums;
+}
+.hu-table {
+  font-size: var(--fs-list);
+}
+.hu-table th {
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  padding: 12px 16px;
+  background: var(--sidebar);
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.hu-table td {
+  padding: 12px 16px;
+}
+.hu-data-table-scroll {
+  overflow: auto;
+  position: relative;
+}
+.hu-data-table {
+  table-layout: fixed;
+}
+.hu-data-table th {
+  background: var(--panel);
+  z-index: 1;
+  position: relative;
+}
+.hu-data-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hu-data-table tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.hu-data-table tbody tr[data-selected] {
+  background: var(--accent-soft);
+}
+.hu-col-resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+.hu-col-resizer:hover {
+  background: var(--line);
+}

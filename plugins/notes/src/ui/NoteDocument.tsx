@@ -1,6 +1,7 @@
 import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
 import { Banner, Button, Dialog, IconButton, ReviewDiff, Segmented } from "@huhu/ui";
-import { CapabilityError, queryKey, registerDirtyDoc, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, queryKey, registerDirtyDoc, registerFlusher, requestOpenPath, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { folderNoteDir, resolveFolderLink } from "@huhu/vault/markdown";
 import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
 import { diff3Merge } from "node-diff3";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -82,6 +83,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   const reading = useRef<HTMLDivElement>(null);
   const lock = useRef(false);
   const all = useCapability<NoteRef[]>("notes.list", { filter: "all" });
+  const dirs = useCapability<string[]>("notes.folders", {});
   const settings = useCapability<{ editor: { fontSize: number; lineHeight: number; autosave: boolean; lineNumbers: boolean; spellcheck: boolean; readableWidth: "680" | "760" | "880" | "full" } }>("settings.get", {});
   const ed = settings.data?.editor;
   const { registerFlush, registerEditor, onText } = props;
@@ -298,9 +300,19 @@ export function NoteDocument(props: NoteDocumentProps) {
     if (ed?.autosave !== false) timer.current = setTimeout(() => void save(), AUTOSAVE_MS); // 关闭自动保存：只在 Mod+S 或点“保存”时写入
   };
 
-  const known = new Set((all.data ?? []).flatMap((x) => [x.path, x.path.replace(/\.md$/, ""), x.title]));
+  // 文件夹笔记：`[[目录/]]` 解析为 `目录/index.md`；index.md 不参与裸名匹配（标题是文件夹名，不能让 `[[index]]` 命中所有文件夹笔记）
+  const paths = new Set((all.data ?? []).map((x) => x.path));
+  const known = new Set((dirs.data ?? []).map((d) => `${d}/`));
+  for (const x of all.data ?? []) {
+    const dir = folderNoteDir(x.path);
+    if (dir !== null) [x.path, `${dir}/`, dir].forEach((k) => known.add(k));
+    else [x.path, x.path.replace(/\.md$/, ""), x.title].forEach((k) => known.add(k));
+  }
   const openWiki = (target: string) => {
-    const hit = (all.data ?? []).find((x) => x.path === target || x.path === `${target}.md` || x.title === target);
+    const folderNote = resolveFolderLink(target, (rel) => paths.has(rel));
+    if (folderNote) return props.onOpen(folderNote);
+    if (target.endsWith("/")) return requestOpenPath(target); // 没有 index.md 的文件夹：在文件树里展开并定位
+    const hit = (all.data ?? []).find((x) => x.path === target || x.path === `${target}.md` || (folderNoteDir(x.path) === null && x.title === target));
     if (hit) props.onOpen(hit.path);
   };
   if (text === null) return <p>{t.loading}</p>;
@@ -326,22 +338,22 @@ export function NoteDocument(props: NoteDocumentProps) {
   };
 
   return (
-    <section className="knowledge-document-area" data-testid="note-document">
-      <div className="knowledge-document-toolbar">
+    <section className="notes-document-area" data-testid="note-document">
+      <div className="hu-knowledge-document-toolbar">
         <div className="row grow">
-          <span className="knowledge-breadcrumb">{folder}</span>
+          <span className="notes-breadcrumb">{folder}</span>
           <ChevronRight size={12} aria-hidden />
-          <span className="knowledge-filename">{filename}</span>
+          <span className="notes-filename">{filename}</span>
         </div>
         <Segmented<EditorMode> label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
-        <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "knowledge-star" : ""} onClick={props.onToggleFavorite} />
+        <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
         <IconButton icon={PanelRight} label={n.inspector} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
       </div>
       <div className="knowledge-editor-toolbar">
         <div className="row">
           <IconButton icon={Undo2} label={n.undoEdit} disabled={!status?.canUndo || mode === "preview"} onClick={() => editor.current?.undo()} />
           <IconButton icon={Redo2} label={n.redoEdit} disabled={!status?.canRedo || mode === "preview"} onClick={() => editor.current?.redo()} />
-          <span className="knowledge-toolbar-divider" />
+          <span className="notes-toolbar-divider" />
           <IconButton icon={Heading2} label={n.heading} disabled={mode === "preview"} onClick={() => edit("\n## ", "", "标题")} />
           <IconButton icon={Bold} label={n.bold} disabled={mode === "preview"} onClick={() => edit("**", "**")} />
           <IconButton icon={Italic} label={n.italic} disabled={mode === "preview"} onClick={() => edit("*", "*")} />
@@ -352,7 +364,7 @@ export function NoteDocument(props: NoteDocumentProps) {
           <IconButton icon={Code2} label={n.code} disabled={mode === "preview"} onClick={() => edit("\n```ts\n", "\n```\n", "代码")} />
           <IconButton icon={Table2} label={n.table} disabled={mode === "preview"} onClick={() => edit("\n| 列 1 | 列 2 |\n| --- | --- |\n| ", " |  |\n", "内容")} />
         </div>
-        <div className="row huhu-editor-secondary">
+        <div className="row">
           <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={mode === "preview"} onClick={props.onAddComment} />
           <IconButton icon={Search} label={n.find} disabled={mode === "preview"} onClick={() => editor.current?.openSearch()} />
           <IconButton
@@ -445,7 +457,7 @@ export function NoteDocument(props: NoteDocumentProps) {
         </Banner>
       ) : null}
       {flushError ? <Banner tone="danger">{n.saveFailed(flushError)}</Banner> : null}
-      <div className="knowledge-editor-mode-hint">
+      <div className="notes-editor-mode-hint">
         <strong>{n.modes[mode]}</strong>
         <span>{n.modeHint[mode]}</span>
         <span className="grow" />
@@ -457,8 +469,8 @@ export function NoteDocument(props: NoteDocumentProps) {
           <span>{ed?.autosave === false ? n.manualSave : n.autosave}</span>
         )}
       </div>
-      <div className={`knowledge-editor-body${split ? " is-split" : ""}`}>
-        <div className="knowledge-source-pane huhu-cm-pane" hidden={!showSource}>
+      <div className={`notes-editor-body${split ? " is-split" : ""}`}>
+        <div className="notes-source-pane notes-huhu-cm-pane" hidden={!showSource}>
           <MarkdownEditor
             ref={editor}
             documentId={path}
@@ -478,18 +490,18 @@ export function NoteDocument(props: NoteDocumentProps) {
           />
         </div>
         {showReading ? (
-          <div className="knowledge-reading-pane" data-editor-mode={mode} ref={reading} onScroll={onReadingScroll}>
+          <div className="notes-reading-pane" data-editor-mode={mode} ref={reading} onScroll={onReadingScroll}>
             <MarkdownPreview source={text} resolveWikiLink={(target) => known.has(target)} onOpenWikiLink={openWiki} />
           </div>
         ) : null}
       </div>
-      <div className="knowledge-document-status">
-        <span className={`knowledge-save-dot${state === "saved" ? "" : " unsaved"}`} />
+      <div className="notes-document-status">
+        <span className={`notes-save-dot${state === "saved" ? "" : " notes-unsaved"}`} />
         <span data-testid="save-state">{state === "saved" ? n.status.saved : state === "saving" ? n.status.saving : state === "conflict" ? n.status.conflict : n.status.dirty}</span>
         <span>{n.words(stats.chars)}</span>
         <span>{n.lines(stats.lines)}</span>
         <span className="grow" />
-        <span className="huhu-editor-position">{status ? n.position(status.line, status.column, status.selected) : ""}</span>
+        <span className="notes-huhu-editor-position">{status ? n.position(status.line, status.column, status.selected) : ""}</span>
         <span>UTF-8</span>
         {ed?.autosave === false ? (
           <Button variant="primary" icon={Save} disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>

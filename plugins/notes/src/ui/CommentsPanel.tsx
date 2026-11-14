@@ -37,9 +37,9 @@ export function CommentsPanel({ comments, active, readOnly, actions }: { comment
   const shown = comments.filter((c) => showResolved || !c.resolved);
   return (
     <section data-testid="comments-panel">
-      <div className="row knowledge-comment-filter">
+      <div className="row notes-comment-filter">
         <span className="grow small muted">{comments.filter((c) => !c.resolved).length} 条待处理</span>
-        <label className="knowledge-inline-check">
+        <label className="shell-knowledge-inline-check">
           <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} />
           显示已解决
         </label>
@@ -49,18 +49,18 @@ export function CommentsPanel({ comments, active, readOnly, actions }: { comment
         return (
           <article
             key={c.id}
-            className={`knowledge-comment${c.resolved ? " is-resolved" : ""}`}
+            className={`notes-comment${c.resolved ? " is-resolved" : ""}`}
             data-testid="comment-thread"
             data-state={c.resolved ? "resolved" : c.state}
             aria-current={c.id === active ? "true" : undefined}
             style={c.id === active ? { borderColor: "var(--accent)" } : undefined}
           >
             <div className="row">
-              <span className="knowledge-avatar">{(first?.author ?? "我").slice(0, 1)}</span>
+              <span className="notes-avatar">{(first?.author ?? "我").slice(0, 1)}</span>
               <strong className="grow">{first?.author ?? "我"}</strong>
               <span className="small muted">{first ? shortDate(first.at) : ""}</span>
             </div>
-            <button type="button" className="knowledge-text-button" onClick={() => actions.jump(c)} aria-label="定位到批注位置">
+            <button type="button" className="notes-text-button" onClick={() => actions.jump(c)} aria-label="定位到批注位置">
               {c.target === "body" ? "定位到正文" : c.target === "property" ? `属性 · ${c.property}` : "整篇笔记"}
             </button>
             {c.target === "body" && c.anchor ? <blockquote>{c.anchor.exact}</blockquote> : null}
@@ -68,7 +68,7 @@ export function CommentsPanel({ comments, active, readOnly, actions }: { comment
               <p className="small muted" data-testid="comment-orphaned">
                 原文已变化{" "}
                 {readOnly ? null : (
-                  <button type="button" className="knowledge-text-button" onClick={() => void actions.relocate(c.id)}>
+                  <button type="button" className="notes-text-button" onClick={() => void actions.relocate(c.id)}>
                     重新选择位置
                   </button>
                 )}
@@ -95,20 +95,20 @@ export function CommentsPanel({ comments, active, readOnly, actions }: { comment
             )}
             {readOnly ? null : (
               <div className="row">
-                <button type="button" className="knowledge-text-button" onClick={() => void actions.setResolved(c.id, !c.resolved)}>
+                <button type="button" className="notes-text-button" onClick={() => void actions.setResolved(c.id, !c.resolved)}>
                   {c.resolved ? <RotateCcw size={13} aria-hidden /> : <Check size={13} aria-hidden />} {c.resolved ? "重新打开" : "标记解决"}
                 </button>
                 {confirmDelete === c.id ? (
                   <span className="row">
-                    <button type="button" className="knowledge-text-button danger" data-testid="comment-delete-confirm" onClick={() => (setConfirmDelete(null), void actions.remove(c.id))}>
+                    <button type="button" className="notes-text-button danger" data-testid="comment-delete-confirm" onClick={() => (setConfirmDelete(null), void actions.remove(c.id))}>
                       确认删除（正文不变）
                     </button>
-                    <button type="button" className="knowledge-text-button" onClick={() => setConfirmDelete(null)}>
+                    <button type="button" className="notes-text-button" onClick={() => setConfirmDelete(null)}>
                       取消
                     </button>
                   </span>
                 ) : (
-                  <button type="button" className="knowledge-text-button danger" onClick={() => setConfirmDelete(c.id)}>
+                  <button type="button" className="notes-text-button danger" onClick={() => setConfirmDelete(c.id)}>
                     删除
                   </button>
                 )}
@@ -120,13 +120,13 @@ export function CommentsPanel({ comments, active, readOnly, actions }: { comment
       {shown.length === 0 ? <EmptyState icon={MessageSquare} title="没有待处理批注" hint="选中正文后点击工具栏的批注，可以保留引用上下文。" /> : null}
       {readOnly ? null : (
         <form
-          className="knowledge-comment-compose"
+          className="hu-knowledge-comment-compose"
           onSubmit={(e) => {
             e.preventDefault();
             if (draft.trim()) void actions.add(draft).then(() => setDraft(""));
           }}
         >
-          <textarea className="knowledge-comment-input" placeholder="写下整篇笔记的批注…" aria-label="整篇笔记批注" value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <textarea className="notes-comment-input" placeholder="写下整篇笔记的批注…" aria-label="整篇笔记批注" value={draft} onChange={(e) => setDraft(e.target.value)} />
           <Button type="submit" variant="primary" icon={Send} disabled={!draft.trim()} data-testid="comment-add-file">
             添加批注
           </Button>

@@ -1,19 +1,9 @@
 import { Badge, Banner, Button, EmptyState } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { t } from "../i18n.js";
 import { useCall } from "../useCall.js";
-
-interface Cfg {
-  remote: string;
-  branch: string;
-  mode: "off" | "follow" | "full";
-  pullIntervalSec: number;
-  pushIntervalSec: number;
-  credential: string;
-  credentialUser: string;
-  exclude: string[];
-}
+import type { Cfg, SyncStatus } from "./types.js";
 interface Preview {
   push: string[];
   skipped: { path: string; reason: string }[];
@@ -27,10 +17,9 @@ interface RunResult {
   committed: boolean;
 }
 
-export function SyncPage({ onResolve }: { onResolve: () => void }) {
+export function SyncPage({ onResolve, onOpenSettings }: { onResolve: () => void; onOpenSettings: () => void }) {
   const cfg = useCapability<Cfg>("sync.get", {});
-  const items = useCapability<{ id: string; name: string; type: string; allowedModules: string[] }[]>("safe.items.list", {}); // 保险箱插件停用/未解锁时会报错，忽略即可
-  const status = useCapability<{ name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }>("sync.status", {});
+  const status = useCapability<SyncStatus>("sync.status", {});
   if (cfg.isError)
     return (
       <div role="alert" className="hu-overdue" data-testid="sync-load-error">
@@ -38,61 +27,15 @@ export function SyncPage({ onResolve }: { onResolve: () => void }) {
       </div>
     );
   if (!cfg.data) return <p>…</p>;
-  // 不能用配置值做 key：保存后配置变化会让表单重挂载，把“已保存”提示一并清掉
-  return (
-    <SyncForm
-      cfg={cfg.data}
-      safeItems={(items.data ?? []).filter((i) => i.allowedModules.includes("versioning") && (i.type === "token" || i.type === "password"))}
-      status={status.data ?? { name: "unknown", detail: "", pausedReason: null }}
-      onResolve={onResolve}
-    />
-  );
+  return <SyncActions configured={cfg.data.remote.trim() !== ""} status={status.data ?? { name: "unknown", detail: "", pausedReason: null }} onResolve={onResolve} onOpenSettings={onOpenSettings} />;
 }
 
-function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: { id: string; name: string }[]; status: { name: string; detail: string; pausedReason: "conflict" | "auth-failed" | null }; onResolve: () => void }) {
+function SyncActions({ configured, status, onResolve, onOpenSettings }: { configured: boolean; status: SyncStatus; onResolve: () => void; onOpenSettings: () => void }) {
   const call = useCall();
-  const remoteRef = useRef<HTMLInputElement>(null);
-  const [remote, setRemote] = useState(cfg.remote);
-  const [branch, setBranch] = useState(cfg.branch);
-  const [mode, setMode] = useState(cfg.mode);
-  const [exclude, setExclude] = useState(cfg.exclude.join("\n"));
-  const [credential, setCredential] = useState(cfg.credential);
-  const [credUser, setCredUser] = useState(cfg.credentialUser);
-  const [pullSec, setPullSec] = useState(String(cfg.pullIntervalSec));
-  const [pushSec, setPushSec] = useState(String(cfg.pushIntervalSec));
-  const okSec = (v: string) => /^\d+$/.test(v) && Number(v) >= 30 && Number(v) <= 3600;
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const configured = cfg.remote.trim() !== "";
-  const dirty =
-    remote !== cfg.remote ||
-    branch !== cfg.branch ||
-    mode !== cfg.mode ||
-    exclude !== cfg.exclude.join("\n") ||
-    credential !== cfg.credential ||
-    credUser !== cfg.credentialUser ||
-    pullSec !== String(cfg.pullIntervalSec) ||
-    pushSec !== String(cfg.pushIntervalSec);
   const conflictCount = status.name === "conflict" ? status.detail.split("、").filter(Boolean).length : 0;
-
-  async function save() {
-    setMsg(null);
-    const r = await call<Cfg>("sync.update", {
-      remote: remote.trim(),
-      branch: branch.trim(),
-      mode,
-      credential,
-      credentialUser: credUser.trim() || "git",
-      pullIntervalSec: okSec(pullSec) ? Number(pullSec) : cfg.pullIntervalSec,
-      pushIntervalSec: okSec(pushSec) ? Number(pushSec) : cfg.pushIntervalSec,
-      exclude: exclude
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean),
-    });
-    setMsg(r.ok ? { tone: "ok", text: t.sync.saved } : { tone: "error", text: r.message });
-  }
 
   async function doPreview() {
     setBusy(true);
@@ -138,7 +81,7 @@ function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: 
         <Banner
           tone="danger"
           action={
-            <Button onClick={() => remoteRef.current?.focus()} data-testid="sync-reconfigure">
+            <Button onClick={onOpenSettings} data-testid="sync-reconfigure">
               {t.sync.reconfigure}
             </Button>
           }
@@ -151,81 +94,6 @@ function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: 
           <span data-testid="sync-offline">{t.sync.offline}</span>
         </Banner>
       ) : null}
-
-      <form
-        className="hu-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-        aria-label={t.sync.settings}
-      >
-        <label>
-          {t.sync.remote}
-          <input ref={remoteRef} className="hu-input" data-testid="sync-remote" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="https://… 或 /path/to/repo.git" />
-        </label>
-        <label>
-          {t.sync.branch}
-          <input className="hu-input" data-testid="sync-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
-        </label>
-        <label>
-          {t.sync.credential}
-          <select data-testid="sync-credential" aria-label={t.sync.credential} value={credential} onChange={(e) => setCredential(e.target.value)}>
-            <option value="">{t.sync.credentialNone}</option>
-            {safeItems.map((i) => (
-              <option key={i.id} value={`safe://${i.id}`}>
-                {i.name}
-              </option>
-            ))}
-            {credential && !safeItems.some((i) => `safe://${i.id}` === credential) ? <option value={credential}>{t.sync.credentialMissing}</option> : null}
-          </select>
-        </label>
-        {credential ? (
-          <label>
-            {t.sync.credentialUser}
-            <input className="hu-input" data-testid="sync-credential-user" value={credUser} onChange={(e) => setCredUser(e.target.value)} />
-          </label>
-        ) : null}
-        <p className="hu-meta">{safeItems.length === 0 ? t.sync.credentialHint : t.sync.credentialNote}</p>
-        <fieldset>
-          <legend>{t.sync.mode}</legend>
-          <div role="radiogroup" aria-label={t.sync.mode} className="hu-row">
-            {(["off", "follow", "full"] as const).map((m) => (
-              <Button key={m} type="button" role="radio" aria-checked={mode === m} variant={mode === m ? "primary" : "secondary"} data-testid={`sync-mode-${m}`} onClick={() => setMode(m)}>
-                {t.sync.modes[m]}
-              </Button>
-            ))}
-          </div>
-          <p className="hu-meta">{t.sync.modeNote}</p>
-          {mode !== "off" ? (
-            <div className="hu-row">
-              <label>
-                {t.sync.pullEvery}
-                <input className="hu-input" inputMode="numeric" data-testid="sync-pull-sec" aria-invalid={!okSec(pullSec)} value={pullSec} onChange={(e) => setPullSec(e.target.value)} />
-              </label>
-              {mode === "full" ? (
-                <label>
-                  {t.sync.pushEvery}
-                  <input className="hu-input" inputMode="numeric" data-testid="sync-push-sec" aria-invalid={!okSec(pushSec)} value={pushSec} onChange={(e) => setPushSec(e.target.value)} />
-                </label>
-              ) : null}
-              <span className="hu-meta">{t.sync.intervalRange}</span>
-            </div>
-          ) : null}
-          {status.pausedReason ? (
-            <p role="status" className="hu-overdue" data-testid="sync-auto-paused">
-              {t.sync.autoPaused[status.pausedReason]}
-            </p>
-          ) : null}
-        </fieldset>
-        <label>
-          {t.sync.exclude}
-          <textarea className="hu-input" data-testid="sync-exclude" rows={3} value={exclude} onChange={(e) => setExclude(e.target.value)} />
-        </label>
-        <Button type="submit" variant="primary" disabled={!dirty || !remote.trim() || !branch.trim() || (mode !== "off" && !okSec(pullSec)) || (mode === "full" && !okSec(pushSec))} data-testid="sync-save">
-          {t.sync.save}
-        </Button>
-      </form>
 
       <div className="hu-row" role="group" aria-label={t.nav.sync}>
         <Button disabled={!configured || busy} onClick={() => void doPreview()} data-testid="sync-preview">
@@ -240,7 +108,14 @@ function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: 
         <Button variant="primary" disabled={!configured || busy} onClick={() => void doRun("sync")} data-testid="sync-run">
           {t.sync.run}
         </Button>
-        {!configured ? <span className="hu-meta">{t.sync.needRemote}</span> : null}
+        {!configured ? (
+          <>
+            <span>{t.sync.needRemote}</span>
+            <Button variant="ghost" onClick={onOpenSettings} data-testid="sync-open-settings">
+              {t.sync.settings}
+            </Button>
+          </>
+        ) : null}
       </div>
 
       {msg ? (
@@ -251,7 +126,7 @@ function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: 
 
       {preview ? (
         <div data-testid="sync-preview-result">
-          <p className="hu-meta">
+          <p>
             {t.sync.ahead} {preview.ahead} · {t.sync.behind} {preview.behind}
           </p>
           <FileList title={t.sync.willPush} items={preview.push} testid="preview-push" />
@@ -263,7 +138,7 @@ function SyncForm({ cfg, safeItems, status, onResolve }: { cfg: Cfg; safeItems: 
             preview.skipped.map((s) => (
               <div key={s.path} className="hu-row" data-testid="preview-skipped">
                 <span>{s.path}</span>
-                <span className="hu-meta">{s.reason}</span>
+                <span>{s.reason}</span>
               </div>
             ))
           )}

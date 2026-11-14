@@ -13,6 +13,8 @@ export interface DispatcherDeps {
   exposureOverride(capability: string): boolean | undefined;
   /** plugin:<id> 已授予的权限。 */
   grantedPermissions(pluginId: string): readonly string[];
+  /** 插件来源：内置插件与第三方插件的授权规则不同（见 permissionsAllow）。 */
+  pluginOrigin(pluginId: string): "builtin" | "external";
   idempotency: IdempotencyStore;
   audit: GatewayAudit;
   log?: (level: "error" | "warn", msg: string, extra?: Record<string, unknown>) => void;
@@ -116,7 +118,9 @@ export class Dispatcher {
     if (caller === "desktop") return null;
     if (caller.startsWith("plugin:")) {
       const id = caller.slice("plugin:".length);
-      return def.exposable && permissionsAllow(this.d.grantedPermissions(id), def.name, def.scope) ? null : errors.permissionDenied(def.name);
+      const origin = this.d.pluginOrigin(id);
+      // 内置插件按权限组授权（内部能力不必 exposable）；第三方插件必须是 exposable 的能力，且只能是 read / write
+      return (origin === "builtin" || def.exposable) && permissionsAllow(this.d.grantedPermissions(id), def.name, def.scope, origin) ? null : errors.permissionDenied(def.name);
     }
     const exposed = this.d.exposureOverride(def.name) ?? def.defaultExposed;
     return def.exposable && exposed ? null : errors.capabilityNotExposed(def.name);

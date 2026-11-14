@@ -1,14 +1,17 @@
 import { Button, Dialog, EmptyState, Field, IconButton } from "@huhu/ui";
 import type { MarkdownEditorHandle } from "@huhu/editor";
-import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { FileText, Plus, X } from "lucide-react";
+import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { FileText, Folder, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
+import { a } from "./archives/i18n.js";
 import { FileCard } from "./FileCard.js";
 import { NoteDocument } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
+import { ArchiveTypeView, ArchiveView, ArchivesHome } from "./archives/ArchivesViews.js";
+import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
 
 type DialogState =
   | { kind: "new"; folder: string }
@@ -29,6 +32,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  /** 档案首页 / 类型视图对应的文件夹（Archives、Archives/<类型>）；打开笔记后清除。 */
+  const [folderView, setFolderView] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
@@ -148,7 +153,33 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     setExpanded((set) => new Set([...set].map(re)));
   };
   const toggleFolder = (p: string) => setExpanded((s) => (s.has(p) ? new Set([...s].filter((x) => x !== p)) : new Set(s).add(p)));
+  const expandTo = (dir: string) => {
+    const parts = dir.split("/").filter(Boolean);
+    setExpanded((set) => new Set([...set, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
+  };
+  /** 打开档案首页或类型视图。 */
+  const openArchiveFolder = (dir: string) => {
+    const norm = dir.replace(/\/+$/, "");
+    setFolderView(norm);
+    setSection((s) => (s === "trash" ? "all" : s));
+    expandTo(norm);
+  };
+  /** 档案以文件夹路径标识；它的 index.md 就是档案视图。 */
+  const openArchive = (dir: string) => openNote(`${dir.replace(/\/+$/, "")}/index.md`);
+  /** 双链 / 出链 / 反链的目标：文件夹按文件夹打开，其余在笔记里找。 */
+  const openTarget = (target: string) => {
+    if (target.endsWith("/")) {
+      const dir = target.replace(/\/+$/, "");
+      const idx = (every.data ?? []).find((x) => x.path.toLowerCase() === `${dir.toLowerCase()}/index.md`);
+      if (idx) return openNote(idx.path);
+      return archiveFolderRoute(dir) ? openArchiveFolder(dir) : (setSection("all"), expandTo(dir));
+    }
+    const hit = (every.data ?? []).find((x) => x.path === target || x.path === `${target}.md`);
+    if (hit) openNote(hit.path);
+    else if (/\.[A-Za-z0-9]+$/.test(target) && target.includes("/")) openNote(target); // 刚创建、列表还没刷新的文件
+  };
   const openNote = (path: string) => {
+    setFolderView(null);
     setSelected(path);
     setSection((s) => (s === "trash" ? "all" : s));
     // 展开它所在的文件夹，树里能定位到
@@ -156,8 +187,31 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     setExpanded((s) => new Set([...s, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
   };
 
+  const everyRef = useRef(every.data);
+  everyRef.current = every.data;
+  // 其他模块（例如任务里的 [[路径]]）请求打开某个路径：文件直接打开，文件夹在文件树里展开并定位
+  useEffect(() => {
+    const take = () => {
+      const r = takeOpenRequest();
+      if (!r) return;
+      if (!r.folder) return openNote(r.path);
+      const folderNote = (everyRef.current ?? []).find((x) => x.path.toLowerCase() === `${r.path.toLowerCase()}/index.md`);
+      if (folderNote) return openNote(folderNote.path); // 文件夹笔记：直接打开 index.md
+      if (archiveFolderRoute(r.path)?.kind === "archive") return openNote(`${r.path}/index.md`); // 还没有 index.md 的档案
+      if (archiveFolderRoute(r.path)) return openArchiveFolder(r.path);
+      setSection("all");
+      const parts = r.path.split("/").filter(Boolean);
+      setExpanded((set) => new Set([...set, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
+    };
+    take();
+    return onOpenRequest(take);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const archiveRoute = folderView ? archiveFolderRoute(folderView) : selected ? archiveNoteRoute(selected) : null;
+  const owningArchive = selected ? archiveOfFile(selected) : null;
   return (
-    <div className="module-layout knowledge-root knowledge-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+    <div className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
       <NoteExplorer
         vaultName={vault.data?.name ?? "Vault"}
         section={section}
@@ -178,6 +232,10 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onOpen={openNote}
         expanded={expanded}
         onToggleFolder={toggleFolder}
+        onOpenArchives={() => openArchiveFolder("Archives")}
+        onFolderClick={(dir) => {
+          if (archiveFolderRoute(dir)?.kind === "home" || archiveFolderRoute(dir)?.kind === "type") openArchiveFolder(dir);
+        }}
         onNewNote={(folder) => setDialog({ kind: "new", folder: folder ?? "" })}
         onNewFolder={(parent) => setDialog({ kind: "folder", parent: parent ?? "" })}
         onMenu={(note, el) => {
@@ -200,13 +258,13 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         dailyDate={dailyDate}
         onDailyDate={setDailyDate}
       />
-      <div className="knowledge-main">
+      <div className="notes-main">
         {section !== "trash" && visibleTabs.length > 0 ? (
-          <nav className="knowledge-document-tabs" aria-label="打开的文档" data-testid="document-tabs">
+          <nav className="hu-knowledge-document-tabs" aria-label="打开的文档" data-testid="document-tabs">
             {visibleTabs.map((p) => {
-              const name = (p.split("/").at(-1) ?? p).replace(/\.md$/i, "");
+              const name = archiveNoteRoute(p) ? folderName(p.replace(/\/index\.md$/i, "")) : (p.split("/").at(-1) ?? p).replace(/\.md$/i, "");
               return (
-                <div key={p} className={`knowledge-document-tab${p === selected ? " active" : ""}`}>
+                <div key={p} className={`notes-document-tab${p === selected ? " active" : ""}`}>
                   <button type="button" aria-current={p === selected ? "true" : undefined} title={p} data-testid="document-tab" onClick={() => openNote(p)}>
                     <FileText size={14} aria-hidden />
                     <span>{name}</span>
@@ -221,34 +279,59 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           </nav>
         ) : null}
         {error ? (
-          <div role="alert" className="field-error">
+          <div role="alert" className="hu-field-error">
             {error}
           </div>
         ) : null}
-        {selectedFile?.file && section !== "trash" ? (
+        {section !== "trash" && archiveRoute ? (
+          archiveRoute.kind === "home" ? (
+            <ArchivesHome onOpenType={openArchiveFolder} />
+          ) : archiveRoute.kind === "type" ? (
+            <ArchiveTypeView path={archiveRoute.path} onOpenArchive={openArchive} onOpenHome={() => openArchiveFolder("Archives")} />
+          ) : (
+            <ArchiveView
+              key={archiveRoute.path}
+              path={archiveRoute.path}
+              onOpenType={openArchiveFolder}
+              onOpenFile={openTarget}
+              onOpenFolder={openArchive}
+              onGone={() => (setSelected(null), openArchiveFolder(archiveRoute.path.split("/").slice(0, 2).join("/")))}
+            />
+          )
+        ) : selectedFile?.file && section !== "trash" ? (
           <FileCard path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
         ) : selected && section !== "trash" ? (
-          <NoteDocument
-            key={selected}
-            path={selected}
-            favorite={current?.favorite === true}
-            inspectorOpen={inspector}
-            onToggleInspector={() => setInspector((v) => !v)}
-            onToggleFavorite={() => void run("notes.setFavorite", { path: selected, favorite: !(current?.favorite === true) })}
-            onOpen={openNote}
-            onMenu={(el) => {
-              const r = el.getBoundingClientRect();
-              if (current) setMenu({ note: current, x: r.right, y: r.bottom });
-            }}
-            onText={setDocText}
-            registerFlush={(fn) => (flushRef.current = fn)}
-            registerEditor={(h) => (editorRef.current = h)}
-            comments={commentMarks}
-            onCommentClick={(id) => openComments(id)}
-            onAddComment={addComment}
-          />
+          <>
+            {owningArchive ? (
+              <div className="notes-archive-crumb-bar">
+                <Folder size={13} aria-hidden />
+                <button type="button" data-testid="archive-breadcrumb" onClick={() => openArchive(owningArchive)}>
+                  {a.breadcrumbBack(folderName(owningArchive))}
+                </button>
+              </div>
+            ) : null}
+            <NoteDocument
+              key={selected}
+              path={selected}
+              favorite={current?.favorite === true}
+              inspectorOpen={inspector}
+              onToggleInspector={() => setInspector((v) => !v)}
+              onToggleFavorite={() => void run("notes.setFavorite", { path: selected, favorite: !(current?.favorite === true) })}
+              onOpen={openNote}
+              onMenu={(el) => {
+                const r = el.getBoundingClientRect();
+                if (current) setMenu({ note: current, x: r.right, y: r.bottom });
+              }}
+              onText={setDocText}
+              registerFlush={(fn) => (flushRef.current = fn)}
+              registerEditor={(h) => (editorRef.current = h)}
+              comments={commentMarks}
+              onCommentClick={(id) => openComments(id)}
+              onAddComment={addComment}
+            />
+          </>
         ) : section === "trash" && selected && current === null ? null : (
-          <section className="knowledge-document-area">
+          <section className="notes-document-area">
             <EmptyState
               icon={FileText}
               title={section === "trash" ? n.noTrashDoc : n.noDoc}
@@ -263,7 +346,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         )}
         {section === "trash" ? <TrashList notes={list.data ?? []} onRestore={(x) => x.trashId && void run("notes.restore", { trashId: x.trashId })} onPurge={(x) => setDialog({ kind: "purge", note: x })} /> : null}
         {undo ? (
-          <div className="knowledge-undo-banner">
+          <div className="hu-knowledge-undo-banner">
             <span>{n.undoRemoved(undo.label)}</span>
             <button
               type="button"
@@ -307,7 +390,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         />
       ) : null}
       {menu ? (
-        <div className="knowledge-file-menu" role="menu" aria-label="文件操作菜单" style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y }} onClick={(e) => e.stopPropagation()}>
+        <div className="shell-knowledge-file-menu" role="menu" aria-label="文件操作菜单" style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y }} onClick={(e) => e.stopPropagation()}>
           <div className="knowledge-menu-caption">{menu.note.path.split("/").at(-1)}</div>
           {menu.note.folder ? (
             <>
@@ -495,7 +578,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             </>
           }
         >
-          <p className="confirm-description">内部 ID 与关联保留；恢复后双链继续有效。</p>
+          <p className="hu-confirm-description">内部 ID 与关联保留；恢复后双链继续有效。</p>
         </Dialog>
       ) : null}
       {dialog?.kind === "purge" ? (
@@ -514,7 +597,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             </>
           }
         >
-          <p className="confirm-description">「{dialog.note.title}」将被永久删除。</p>
+          <p className="hu-confirm-description">「{dialog.note.title}」将被永久删除。</p>
         </Dialog>
       ) : null}
     </div>
@@ -524,7 +607,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
 function TrashList({ notes, onRestore, onPurge }: { notes: NoteRef[]; onRestore(n: NoteRef): void; onPurge(n: NoteRef): void }) {
   if (notes.length === 0) return null;
   return (
-    <div className="knowledge-trash-banner" role="list" aria-label="已删除的笔记" data-testid="trash-list">
+    <div className="hu-knowledge-trash-banner" role="list" aria-label="已删除的笔记" data-testid="trash-list">
       {notes.map((x) => (
         <div key={x.trashId ?? x.path} role="listitem" className="row">
           <span className="grow">
@@ -577,7 +660,7 @@ function NameDialog({
       }
     >
       <form
-        className="form-body"
+        className="hu-form-body"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim()) void onSubmit(name.trim());
@@ -613,7 +696,7 @@ function NewNoteDialog({ folder, folders, error, onClose, onCreate }: { folder: 
       }
     >
       <form
-        className="form-body"
+        className="hu-form-body"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim()) void onCreate({ name: name.trim(), folder: dir, template });

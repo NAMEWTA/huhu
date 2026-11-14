@@ -32,7 +32,7 @@ interface RunDetail {
 const fmt = (v: unknown): string => (typeof v === "string" && v ? new Date(v).toLocaleString() : "—");
 
 /** 运行列表 + 详情：状态、时间、Space、cwd、CLI、模型、会话 id、结果、问题与回答；取消 / 标记失败并重试。 */
-export function RunsPanel() {
+export function RunsPanel({ onNavigate }: { onNavigate?: (module: string) => void }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const runs = useCapability<RunRow[]>("automations.runs.list", {});
@@ -70,18 +70,18 @@ export function RunsPanel() {
                 <span>{r.title}</span>
               </button>
               <Badge>{t.runs.state[r.state] ?? r.state}</Badge>
-              {r.attempt && r.attempt > 1 ? <span className="hu-meta">{t.runs.attempt(r.attempt)}</span> : null}
-              <span className="hu-meta">{fmt(r.startedAt)}</span>
+              {r.attempt && r.attempt > 1 ? <span>{t.runs.attempt(r.attempt)}</span> : null}
+              <span>{fmt(r.startedAt)}</span>
             </div>
           ))}
         </div>
       )}
-      {sel ? <RunDetailView key={sel} runId={sel} act={act} /> : null}
+      {sel ? <RunDetailView key={sel} runId={sel} act={act} {...(onNavigate ? { onNavigate } : {})} /> : null}
     </>
   );
 }
 
-function RunDetailView({ runId, act }: { runId: string; act(cap: string, input: unknown): Promise<boolean> }) {
+function RunDetailView({ runId, act, onNavigate }: { runId: string; act(cap: string, input: unknown): Promise<boolean>; onNavigate?: (module: string) => void }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [confirmRetry, setConfirmRetry] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -96,7 +96,7 @@ function RunDetailView({ runId, act }: { runId: string; act(cap: string, input: 
       {d ? (
         <section aria-label={t.runs.detail} data-testid="run-detail" className="hu-card">
           <h2>{d.title}</h2>
-          <dl className="hu-meta">
+          <dl>
             <dt>{t.runs.status}</dt>
             <dd data-testid="run-state">{t.runs.state[state] ?? state}</dd>
             <dt>{t.runs.started}</dt>
@@ -118,6 +118,25 @@ function RunDetailView({ runId, act }: { runId: string; act(cap: string, input: 
                 </dd>
               </>
             ) : null}
+            {d.kind === "task-run" ? (
+              <>
+                <dt>{t.runs.askMode}</dt>
+                <dd data-testid="run-ask-mode">{t.runs.askAfterExit}</dd>
+              </>
+            ) : null}
+            {d.kind === "automation-run" && data["sessionId"] ? (
+              <>
+                <dt>{t.runs.terminal}</dt>
+                <dd>
+                  <code>{String(data["sessionId"])}</code>{" "}
+                  {onNavigate ? (
+                    <button type="button" className="hu-btn hu-btn-ghost" data-testid="run-open-terminal" onClick={() => onNavigate("agent-cli")}>
+                      {t.runs.openTerminal}
+                    </button>
+                  ) : null}
+                </dd>
+              </>
+            ) : null}
             <dt>{t.runs.session}</dt>
             <dd data-testid="run-session">{data["nativeSessionId"] ? String(data["nativeSessionId"]) : "—"}</dd>
             {data["exitCode"] !== null && data["exitCode"] !== undefined ? (
@@ -134,7 +153,7 @@ function RunDetailView({ runId, act }: { runId: string; act(cap: string, input: 
                 <div key={q.id} className="hu-form">
                   <p>{q.text}</p>
                   {q.answer !== null ? (
-                    <p className="hu-meta">
+                    <p>
                       {t.runs.answered}：{q.answer}
                     </p>
                   ) : state === "waiting_input" ? (
@@ -172,9 +191,7 @@ function RunDetailView({ runId, act }: { runId: string; act(cap: string, input: 
             </div>
           ) : null}
           <h3>{t.runs.result}</h3>
-          <pre className="hu-pre" data-testid="run-body">
-            {d.body.trim() || "—"}
-          </pre>
+          <pre data-testid="run-body">{d.body.trim() || "—"}</pre>
           <div className="hu-row">
             {d.live || state === "waiting_input" ? (
               <Button

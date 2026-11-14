@@ -56,3 +56,28 @@ describe("rewriteLinks", () => {
     expect(r.text).toBe("[p](Z(1).md)");
   });
 });
+
+describe("文件夹前缀改写（A10 / AR-S1）", () => {
+  const paths = ["A.md", "设计/旧接口/index.md", "设计/旧接口/说明.md", "设计/旧接口/sub/x.md"];
+  const fctx = {
+    filePath: "A.md",
+    newFilePath: "A.md",
+    moves: new Map([
+      ["设计/旧接口/index.md", "设计/新接口/index.md"],
+      ["设计/旧接口/说明.md", "设计/新接口/说明.md"],
+      ["设计/旧接口/sub/x.md", "设计/新接口/sub/x.md"],
+    ]),
+    allPaths: paths,
+    folderMoves: new Map([["设计/旧接口", "设计/新接口"]]),
+  };
+  test("[[旧/]]、[[旧/子目录/]] 与其下文件的路径链接都跟着改；带标题与别名的写法保留", () => {
+    const r = rewriteLinks("[[设计/旧接口/]] [[设计/旧接口/sub/|子]] [[设计/旧接口/说明]] [[设计/旧接口/说明.md#小节|别名]] [[设计/其他/]]", fctx);
+    expect(r.text).toBe("[[设计/新接口/]] [[设计/新接口/sub/|子]] [[设计/新接口/说明]] [[设计/新接口/说明.md#小节|别名]] [[设计/其他/]]");
+    expect(r.changes).toBe(4);
+  });
+  test("代码块内的文件夹链接不变；前缀相似但不是同一目录的不误改", () => {
+    const r = rewriteLinks("`[[设计/旧接口/]]`\n```\n[[设计/旧接口/]]\n```\n[[设计/旧接口2/]]\n", fctx);
+    expect(r.changes).toBe(0);
+    expect(r.text).toContain("[[设计/旧接口2/]]");
+  });
+});

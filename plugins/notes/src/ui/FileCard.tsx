@@ -104,11 +104,11 @@ export function FileCard({ path, size, mtimeMs }: { path: string; size: number; 
   };
 
   return (
-    <section className="knowledge-document-area" data-testid="file-card">
-      <div className="knowledge-document-toolbar">
+    <section className="notes-document-area" data-testid="file-card">
+      <div className="hu-knowledge-document-toolbar">
         <div className="row grow">
-          <span className="knowledge-breadcrumb">{path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录"}</span>
-          <span className="knowledge-filename">{name}</span>
+          <span className="notes-breadcrumb">{path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录"}</span>
+          <span className="notes-filename">{name}</span>
         </div>
         {host()?.openVaultFile ? (
           <Button icon={ExternalLink} data-testid="file-open-external" onClick={() => void openExternally()}>
@@ -119,7 +119,7 @@ export function FileCard({ path, size, mtimeMs }: { path: string; size: number; 
       {preview?.kind === "text" ? (
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }} data-testid="file-text-view">
           {preview.note ? (
-            <p className="hint-text" role="status" data-testid="file-diagnostic" style={{ margin: "6px 12px" }}>
+            <p className="hu-hint-text" role="status" data-testid="file-diagnostic" style={{ margin: "6px 12px" }}>
               {preview.note}
             </p>
           ) : null}
@@ -137,10 +137,10 @@ export function FileCard({ path, size, mtimeMs }: { path: string; size: number; 
           <img src={preview.src} alt={name} data-testid="file-image" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
         </div>
       ) : (
-        <div className="empty-state" style={{ margin: "auto" }}>
+        <div className="hu-empty-state" style={{ margin: "auto" }}>
           <FileQuestion size={36} aria-hidden />
           <h3>{name}</h3>
-          <dl className="knowledge-property-grid" style={{ textAlign: "left" }}>
+          <dl className="notes-property-grid" style={{ textAlign: "left" }}>
             <div>
               <dt>类型</dt>
               <dd>{ext ? `${ext.toUpperCase()} 文件` : "无扩展名"}</dd>
@@ -154,7 +154,7 @@ export function FileCard({ path, size, mtimeMs }: { path: string; size: number; 
               <dd>{new Date(mtimeMs).toLocaleString("zh-CN", { hour12: false })}</dd>
             </div>
           </dl>
-          {preview?.kind === "error" ? <p className="field-error">{preview.message}</p> : <p className="hint-text">{preview === null ? "正在读取…" : "这个文件没有文本预览；请用对应的应用打开。HUHU 不会把它当作文本加载。"}</p>}
+          {preview?.kind === "error" ? <p className="hu-field-error">{preview.message}</p> : <p className="hu-hint-text">{preview === null ? "正在读取…" : "这个文件没有文本预览；请用对应的应用打开。HUHU 不会把它当作文本加载。"}</p>}
         </div>
       )}
       <div className="row small muted" style={{ padding: "6px 12px", gap: 12 }}>
@@ -162,7 +162,7 @@ export function FileCard({ path, size, mtimeMs }: { path: string; size: number; 
         <span>{new Date(mtimeMs).toLocaleString("zh-CN", { hour12: false })}</span>
         {opened ? <span role="status">{opened}</span> : null}
         {host()?.revealVault ? (
-          <button type="button" className="link-button" onClick={() => void host()?.revealVault()}>
+          <button type="button" className="shell-link-button" onClick={() => void host()?.revealVault()}>
             <FolderSearch size={12} aria-hidden /> 在文件夹中显示 Vault
           </button>
         ) : null}

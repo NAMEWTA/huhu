@@ -1,0 +1,131 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer modules {
+  .hu-safe-locked {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    max-width: 420px;
+    margin: 35px auto 70px;
+    padding: 30px 30px;
+    text-align: center;
+  }
+  .hu-safe-locked h2 {
+    font-size: 22px;
+    margin-bottom: 8px;
+  }
+  .hu-safe-locked > p {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .hu-safe-locked form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    text-align: left;
+    margin: 28px 0 22px;
+  }
+  .hu-safe-locked > span {
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .hu-safe-locked > span code {
+    font-size: 12px;
+  }
+  .safe-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 22px;
+  }
+  .safe-grid > .hu-card-alt {
+    min-width: 0;
+    align-self: start;
+  }
+  .safe-secret-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 16px;
+    text-align: left;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .safe-secret-row:hover {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  .safe-secret-row.active {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  .hu-safe-detail-body {
+    padding: 0 22px 22px;
+  }
+  .hu-secret-value {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    background: var(--sidebar);
+    border-radius: 7px;
+    padding: 5px 9px;
+    gap: 4px;
+    min-width: 0;
+  }
+  .hu-secret-value code {
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+    font-size: 12px;
+  }
+  @media (max-width: 760px) {
+    .hu-safe-locked {
+      margin-top: 10px;
+      padding: 20px 10px;
+    }
+  }
+  /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
+  .safe-lock-icon {
+    display: grid;
+    place-items: center;
+    width: 78px;
+    height: 78px;
+    background: var(--muted-bg);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    margin-bottom: 27px;
+    color: var(--muted);
+  }
+  .safe-secret-row strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .safe-secret-row small {
+    display: block;
+    font-size: 12px;
+    color: var(--faint);
+    margin-top: 5px;
+  }
+  .hu-safe-detail h2 {
+    font-size: 18px;
+    margin-top: 12px;
+  }
+  .safe-read-value {
+    background: var(--sidebar);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 9px 12px;
+    font-size: 12px;
+  }
+  @media (max-width: 1250px) {
+    .safe-grid {
+      grid-template-columns: 230px 1fr;
+    }
+  }
+  @media (max-width: 1000px) {
+    .safe-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+}

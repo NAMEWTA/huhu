@@ -1,0 +1,64 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@import "katex/dist/katex.min.css" layer(vendor);
+@layer modules {
+  .editor-markdown-editor {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    --atomic-editor-font: var(--font-ui);
+    --atomic-editor-font-mono: var(--font-mono);
+    --atomic-editor-body-size: var(--fs-editor);
+    --atomic-editor-body-leading: var(--editor-line);
+    --atomic-editor-measure: 790px;
+    --atomic-editor-fg: var(--text);
+    --atomic-editor-fg-muted: var(--muted);
+    --atomic-editor-fg-faint: var(--faint);
+    --atomic-editor-bg: var(--bg);
+    --atomic-editor-bg-panel: var(--panel);
+    --atomic-editor-bg-surface: var(--muted-bg);
+    --atomic-editor-border: var(--line);
+    --atomic-editor-accent: var(--text);
+    --atomic-editor-accent-bright: var(--text);
+    --atomic-editor-accent-soft: var(--accent-soft);
+    --atomic-editor-link: var(--info);
+    --atomic-editor-link-hover: var(--text);
+    --atomic-editor-code-bg: var(--muted-bg);
+    --atomic-editor-selection-bg: var(--accent-soft);
+    --atomic-editor-search-bg: var(--warning-bg);
+    --atomic-editor-search-bg-active: var(--accent-soft);
+    --atomic-editor-hl-keyword: var(--accent);
+    --atomic-editor-hl-string: var(--success);
+    --atomic-editor-hl-comment: var(--faint);
+    --atomic-editor-hl-type: var(--warning);
+    --atomic-editor-hl-number: var(--warning);
+    --atomic-editor-hl-function: var(--accent);
+    --atomic-editor-hl-property: var(--text);
+    --atomic-editor-hl-variable: var(--text);
+    --atomic-editor-hl-operator: var(--muted);
+    --atomic-editor-hl-punctuation: var(--muted);
+    --atomic-editor-hl-invalid: var(--danger);
+  }
+  /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
+  .hu-mermaid {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+    margin: 12px 0;
+  }
+  .hu-mermaid svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .hu-mermaid-error {
+    display: block;
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--danger-text);
+  }
+  .hu-mermaid-loading {
+    color: var(--muted);
+    font-size: 12px;
+  }
+}

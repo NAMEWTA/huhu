@@ -31,17 +31,17 @@ export function HabitsCard() {
   const list = habits.data?.habits ?? [];
   return (
     <div data-testid="card-habits" aria-label={tHome.habits.title}>
-      <div className="habit-divider" />
-      <div className="habit-title">
+      <div className="shell-habit-divider" />
+      <div className="shell-habit-title">
         {tHome.focusCard.habits}{" "}
         <span>
           {list.filter((h) => h.done).length} / {list.length}
         </span>
       </div>
-      {list.length === 0 ? <div className="mini-empty">{tHome.habits.empty}</div> : null}
+      {list.length === 0 ? <div className="hu-mini-empty">{tHome.habits.empty}</div> : null}
       {list.map((h) => (
         <div key={h.id} className="row" data-testid="habit-row">
-          <button type="button" role="checkbox" aria-checked={h.done} aria-label={h.title} className={`habit-row ${h.done ? "done" : ""}`} onClick={() => void act({ action: "toggle", id: h.id })}>
+          <button type="button" role="checkbox" aria-checked={h.done} aria-label={h.title} className={`shell-habit-row ${h.done ? "done" : ""}`} onClick={() => void act({ action: "toggle", id: h.id })}>
             <span>{h.done ? <Check size={12} aria-hidden /> : null}</span>
             {h.title}
           </button>
@@ -66,7 +66,7 @@ export function HabitsCard() {
         </Button>
       </form>
       {error ? (
-        <div role="alert" className="field-error">
+        <div role="alert" className="hu-field-error">
           {error}
         </div>
       ) : null}

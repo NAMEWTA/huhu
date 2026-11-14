@@ -1,5 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { ContributionRegistry, SIDEBAR_MAX, SIDEBAR_MIN, createUiStore, type ModuleContribution } from "../src/index.js";
+import { ContributionRegistry, SIDEBAR_MAX, SIDEBAR_MIN, createUiStore, openSettings, type ModuleContribution } from "../src/index.js";
+
+describe("openSettings", () => {
+  test("打开设置并定位到某一页；已在设置时不切换侧栏折叠", () => {
+    const s = createUiStore({ activeModule: "home", openTabs: ["home"] });
+    openSettings(s, "agent-cli");
+    expect(s.getState()).toMatchObject({ activeModule: "settings", sections: { settings: "agent-cli" }, sidebarCollapsed: false });
+    openSettings(s, "safe");
+    expect(s.getState()).toMatchObject({ activeModule: "settings", sections: { settings: "safe" }, sidebarCollapsed: false });
+  });
+});
 
 describe("ui-store", () => {
   test("打开模块：每个模块最多一个标签；再点当前模块切换侧栏折叠", () => {

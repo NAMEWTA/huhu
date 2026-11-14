@@ -38,7 +38,7 @@ describe("schemas", () => {
   });
   test("事件模式与 JSON Schema 导出", () => {
     for (const s of Object.values(EVENT_PAYLOADS)) expect(toJsonSchema(s)).toBeTypeOf("object");
-    expect(EVENT_PAYLOADS["task.completedChanged"].safeParse({ taskId: "t", completed: "yes" }).success).toBe(false);
+    expect(EVENT_PAYLOADS["task.statusChanged"].safeParse({ taskId: "t", status: "done", previous: "not_started" }).success).toBe(false);
     expect(toJsonSchema(z.object({ a: z.string() }))).toMatchObject({ type: "object" });
   });
   test("插件清单与循环依赖", () => {

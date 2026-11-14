@@ -1,17 +1,22 @@
 import { z } from "zod";
 
+/** 内置主题 id（设置、界面与主题定义共用这一份；新增内置主题时先在这里加一项）。 */
+export const THEME_IDS = ["claude", "apple", "notion", "vercel"] as const;
+export type ThemeId = (typeof THEME_IDS)[number];
+export const DEFAULT_THEME: ThemeId = "claude";
+
 /** `.huhu/settings.json`（data-model.md §6）。读取时缺省补全，非法值回退默认。 */
 export const SettingsSchema = z.object({
   appearance: z
     .object({
-      theme: z.enum(["pearl", "suliworld", "soft"]).catch("pearl"),
+      theme: z.enum(THEME_IDS).catch(DEFAULT_THEME),
       mode: z.enum(["light", "dark", "system"]).catch("system"),
       fontSize: z.number().int().min(12).max(18).catch(14),
-      compact: z.boolean().catch(false),
+      density: z.enum(["comfortable", "compact"]).catch("comfortable"),
       motion: z.enum(["system", "standard", "reduced"]).catch("system"),
       navWidth: z.number().int().min(176).max(300).catch(220),
     })
-    .catch({ theme: "pearl", mode: "system", fontSize: 14, compact: false, motion: "system", navWidth: 220 }),
+    .catch({ theme: DEFAULT_THEME, mode: "system", fontSize: 14, density: "comfortable", motion: "system", navWidth: 220 }),
   editor: z
     .object({
       fontSize: z.number().int().min(14).max(20).catch(16),

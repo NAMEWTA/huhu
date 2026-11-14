@@ -18,8 +18,8 @@ export function ShortcutsPage() {
   const c = t.settings.shortcuts;
   return (
     <div data-testid="settings-shortcuts">
-      <section className="card">
-        <div className="card-head">
+      <section className="hu-card-alt">
+        <div className="shell-card-head">
           <h2>{c.title}</h2>
         </div>
         <DataTable
@@ -33,7 +33,7 @@ export function ShortcutsPage() {
             { id: "scope", header: c.scope, width: 160, cell: (s) => s.scope },
           ]}
         />
-        <p className="hint-text">{c.note}</p>
+        <p className="hu-hint-text">{c.note}</p>
       </section>
     </div>
   );

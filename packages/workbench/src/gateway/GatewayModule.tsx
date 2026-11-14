@@ -6,7 +6,7 @@ import type { ModuleProps } from "../contributions.js";
 import { CapabilityError } from "../engine-client/client.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tGateway as g } from "../i18n/zh-CN.js";
-import type { UiState } from "../state/ui-store.js";
+import { openSettings, type UiState } from "../state/ui-store.js";
 import { CliSection } from "./CliSection.js";
 
 interface Cap {
@@ -47,7 +47,7 @@ const MCP_STATIC: Record<Exclude<McpTab, "tools">, { name: string; desc: string;
 const TITLE: Record<string, string> = { mcp: "HUHU MCP 服务", cli: "CLI 命令行", server: "服务端", desktop: "桌面宿主" };
 
 /** 能力网关（原型 Interfaces）：MCP / CLI / 服务端 / 桌面宿主四个分区。不可开放的能力（保险箱明文、Agent/SSH 执行）没有开关。 */
-export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiState> }) {
+export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: StoreApi<UiState> }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const caps = useCapability<Cap[]>("capabilities.list", {});
@@ -118,22 +118,22 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   }
 
   const tester = (
-    <section className="card capability-tester" id="capability-tester">
-      <div className="card-head">
+    <section className="hu-card-alt shell-capability-tester" id="capability-tester">
+      <div className="shell-card-head">
         <h2>
           <Code2 size={17} aria-hidden /> {g.bench}
         </h2>
         <Badge>共享应用服务</Badge>
       </div>
-      <p className="hint-text">{g.benchHint}</p>
+      <p className="hu-hint-text">{g.benchHint}</p>
       <form
-        className="tester-grid"
+        className="shell-tester-grid"
         onSubmit={(e) => {
           e.preventDefault();
           void act<Verdict>("gateway.check", { capability: bench.trim() }).then((r) => setVerdict(r));
         }}
       >
-        <div className="stack">
+        <div className="hu-stack">
           <Field label="能力">
             <input
               aria-label={g.bench}
@@ -149,7 +149,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
             {g.check}
           </Button>
         </div>
-        <div className="tester-output">
+        <div className="shell-tester-output">
           {verdict ? (
             verdict.found ? (
               verdict.identities.map((v) => (
@@ -165,7 +165,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
               </p>
             )
           ) : (
-            <div className="tester-empty">
+            <div className="shell-tester-empty">
               <Plug size={27} aria-hidden />
               <p>
                 选择能力并发起检查
@@ -193,7 +193,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
           <span className="small muted">测试台以桌面身份调用，与外部开放状态无关；写入类调用会真实执行。</span>
         </div>
         {invoked ? (
-          <div className="tester-output" data-testid="bench-result" data-ok={invoked.ok}>
+          <div className="shell-tester-output" data-testid="bench-result" data-ok={invoked.ok}>
             <Badge tone={invoked.ok ? "success" : "danger"}>{invoked.ok ? "成功" : `失败 · ${invoked.code}`}</Badge>
             <pre className="code-block">{invoked.body}</pre>
           </div>
@@ -203,8 +203,8 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
   );
 
   return (
-    <div className="module-layout" data-testid="gateway-module">
-      <div className="view-content interfaces-view">
+    <div className="hu-module-layout" data-testid="gateway-module">
+      <div className="hu-view-content interfaces-view">
         <PageHead
           eyebrow="ONE CAPABILITY, EVERYWHERE"
           title={TITLE[section] ?? TITLE["mcp"]!}
@@ -214,17 +214,17 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
               icon={BookOpen}
               data-testid="gateway-guide"
               onClick={() => {
-                ui.getState().setSection("settings", "agent-access");
-                ui.getState().openModule("settings");
+                if (onNavigate) onNavigate("settings", "agent-access");
+                else openSettings(ui, "agent-access");
               }}
             >
               HUHU 使用指南
             </Button>
           }
         />
-        <div className="system-scroll scroll">
+        <div className="shell-system-scroll hu-scroll">
           {error ? (
-            <div role="alert" className="callout danger">
+            <div role="alert" className="hu-callout danger">
               <p>{error}</p>
             </div>
           ) : null}
@@ -232,9 +232,9 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
             <CliSection />
           ) : section === "server" ? (
             <>
-              <section className="card gateway-overview">
+              <section className="hu-card-alt hu-gateway-overview">
                 <div className="row">
-                  <span className="plugin-large-icon">
+                  <span className="shell-plugin-large-icon">
                     <Server size={24} aria-hidden />
                   </span>
                   <div className="grow">
@@ -244,12 +244,12 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   <Badge tone="success">随引擎运行</Badge>
                 </div>
               </section>
-              <section className="settings-section card">
-                <div className="card-head">
+              <section className="hu-settings-section hu-card-alt">
+                <div className="shell-card-head">
                   <h2>{g.tokens}</h2>
                 </div>
                 <form
-                  className="form-body"
+                  className="hu-form-body"
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (name.trim())
@@ -271,7 +271,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   </Field>
                 </form>
                 {fresh ? (
-                  <div role="status" data-testid="fresh-token" className="callout">
+                  <div role="status" data-testid="fresh-token" className="hu-callout">
                     <p>
                       {g.tokenOnce}
                       <code>{fresh}</code>
@@ -303,14 +303,14 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   />
                 )}
               </section>
-              <section className="card" data-testid="gateway-audit">
-                <div className="card-head">
+              <section className="hu-card-alt" data-testid="gateway-audit">
+                <div className="shell-card-head">
                   <h2>调用记录</h2>
                   <Button disabled={(audit.data ?? []).length === 0} data-testid="audit-clear" onClick={() => void act("gateway.audit.clear", {})}>
                     清空
                   </Button>
                 </div>
-                <p className="hint-text">只记录外部入口（CLI / MCP / HTTP）的调用：时间、入口、能力、结果与耗时，不含输入内容。</p>
+                <p className="hu-hint-text">只记录外部入口（CLI / MCP / HTTP）的调用：时间、入口、能力、结果与耗时，不含输入内容。</p>
                 {(audit.data ?? []).length === 0 ? (
                   <EmptyState icon={Activity} title="还没有外部调用" />
                 ) : (
@@ -333,9 +333,9 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
             </>
           ) : section === "desktop" ? (
             <>
-              <section className="card gateway-overview">
+              <section className="hu-card-alt hu-gateway-overview">
                 <div className="row">
-                  <span className="plugin-large-icon">
+                  <span className="shell-plugin-large-icon">
                     <Monitor size={26} aria-hidden />
                   </span>
                   <div className="grow">
@@ -345,7 +345,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   <Badge tone="success">Electron Vault 端口已接入</Badge>
                 </div>
               </section>
-              <div className="desktop-layer-grid">
+              <div className="shell-desktop-layer-grid">
                 {[
                   ["Renderer", Monitor, "React 视图与交互状态", "不直接访问文件、数据库、凭据或进程。"],
                   ["Preload Bridge", ShieldCheck, "窄接口 / 输入验证", "按能力提供类型化入口，禁止暴露任意 invoke。"],
@@ -354,7 +354,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                 ].map(([title, Icon, strong, text]) => {
                   const I = Icon as typeof Monitor;
                   return (
-                    <div className="card desktop-layer" key={String(title)}>
+                    <div className="hu-card-alt shell-desktop-layer" key={String(title)}>
                       <I size={24} aria-hidden />
                       <h3>{String(title)}</h3>
                       <strong>{String(strong)}</strong>
@@ -363,12 +363,12 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   );
                 })}
               </div>
-              <section className="card system-section">
-                <div className="card-head">
+              <section className="hu-card-alt shell-system-section">
+                <div className="shell-card-head">
                   <h2>桌面交互入口</h2>
                 </div>
-                <div className="desktop-action-grid">
-                  <Button icon={Folder} onClick={() => ui.getState().openModule("settings")}>
+                <div className="shell-desktop-action-grid">
+                  <Button icon={Folder} onClick={() => openSettings(ui, "vault")}>
                     Vault配置
                   </Button>
                   <Button icon={Command} onClick={() => ui.getState().setPaletteOpen(true)}>
@@ -385,9 +385,9 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
             </>
           ) : (
             <>
-              <section className="card gateway-overview">
+              <section className="hu-card-alt hu-gateway-overview">
                 <div className="row">
-                  <span className="plugin-large-icon">
+                  <span className="shell-plugin-large-icon">
                     <Plug size={24} aria-hidden />
                   </span>
                   <div className="grow">
@@ -397,7 +397,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   <Badge tone={mcp.enabled ? "success" : "neutral"}>{mcp.enabled ? `已开启 · ${open}/${all.length}` : `已关闭 · 0/${all.length}`}</Badge>
                   <ChoiceSwitch checked={mcp.enabled} label={g.mcpEnabled} onChange={(v) => void act("gateway.mcp.update", { enabled: v, transport: mcp.transport })} />
                 </div>
-                <div className="gateway-meta">
+                <div className="shell-gateway-meta">
                   <button type="button" data-testid="gateway-mcp-config" onClick={() => setConfigOpen(true)}>
                     <Settings size={14} aria-hidden /> 配置传输
                   </button>
@@ -422,12 +422,12 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   </select>
                 </Field>
               </Dialog>
-              <div className="capabilities-toolbar">
+              <div className="hu-capabilities-toolbar">
                 <Segmented<McpTab> label="MCP 条目类型" value={mcpTab} onChange={setMcpTab} options={MCP_TABS} />
                 {mcpTab === "tools" ? <SearchBox value={filter} onChange={setFilter} placeholder={g.filter} /> : null}
               </div>
               {mcpTab !== "tools" ? (
-                <section className="card" data-testid={`mcp-${mcpTab}`}>
+                <section className="hu-card-alt" data-testid={`mcp-${mcpTab}`}>
                   <DataTable
                     label={`MCP ${mcpTab}`}
                     rows={MCP_STATIC[mcpTab]}
@@ -440,7 +440,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                   />
                 </section>
               ) : null}
-              <section className="card" hidden={mcpTab !== "tools"}>
+              <section className="hu-card-alt" hidden={mcpTab !== "tools"}>
                 <DataTable
                   label="能力开放列表"
                   rows={list}
@@ -463,7 +463,7 @@ export function GatewayModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSt
                 />
                 {list.length === 0 ? <EmptyState icon={Activity} title="没有匹配的能力" /> : null}
               </section>
-              <div className="callout system-note">
+              <div className="hu-callout shell-system-note">
                 <ShieldCheck size={17} aria-hidden />
                 <p>列表发现和实际调用都会检查模块状态与开放设置。Agent 执行永不对外。</p>
               </div>

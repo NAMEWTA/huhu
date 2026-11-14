@@ -2,7 +2,7 @@
   "id": "safe",
   "title": "保险箱",
   "description": "主密码加密的凭据与秘密",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": [],
@@ -10,7 +10,7 @@
   "activation": "vault-open",
   "contributes": {
     "modules": ["safe"],
-    "settingsPages": [],
+    "settingsPages": ["safe"],
     "homeWidgets": [],
     "commands": ["safe.lock"],
     "capabilities": ["safe.status", "safe.setup", "safe.unlock", "safe.lock", "safe.changePassword", "safe.settings.update", "safe.items.list", "safe.items.save", "safe.items.delete", "safe.items.reveal", "safe.audit.list"],

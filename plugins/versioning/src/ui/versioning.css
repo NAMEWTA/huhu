@@ -1,0 +1,351 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer modules {
+  .hu-module-layout.version-v9 {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .version-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+  }
+  .hu-version-v9-sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 17px 15px 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .hu-version-v9-sidebar-actions {
+    padding: 0 12px 12px;
+  }
+  .version-entry-list {
+    padding: 0 7px;
+    overflow: auto;
+    flex: 1;
+  }
+  .version-entry-list > button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 11px 8px;
+    margin-bottom: 4px;
+    border-radius: 7px;
+    text-align: left;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .version-entry-list > button.active {
+    background: var(--panel);
+    border-color: var(--line);
+  }
+  .hu-version-v9-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+  .hu-version-v9-diff-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--line);
+    min-height: 59px;
+    flex-shrink: 0;
+  }
+  .hu-version-v9-diff-heading > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .hu-version-v9-diff-heading strong {
+    font-size: 12px;
+    font-weight: 550;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .hu-version-v9-diff {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .hu-version-v9-manual {
+    padding: 12px 18px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .hu-version-v9-manual summary {
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .hu-version-v9-manual > div {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding-top: 12px;
+  }
+  @media (max-width: 1100px) {
+    .hu-version-v9-diff-heading {
+      padding: 10px 12px;
+    }
+  }
+  @media (max-width: 800px) {
+    .hu-version-v9-diff-heading {
+      flex-wrap: wrap;
+    }
+  }
+  @media (max-width: 800px) {
+    .hu-version-v9-diff-heading > div {
+      flex-basis: 70%;
+    }
+  }
+  .hu-version-v9-diff-heading > .row {
+    margin-left: auto;
+  }
+  /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
+  .version-top {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    height: 56px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 0 20px;
+  }
+  .version-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .version-title strong {
+    font-weight: 600;
+  }
+  .version-top nav {
+    display: flex;
+    height: 100%;
+    gap: 4px;
+  }
+  .version-top nav button {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    padding: 0 13px;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .version-top nav button[aria-pressed="true"] {
+    border-bottom-color: var(--text);
+    color: var(--text);
+  }
+  .version-sidebar {
+    width: 250px;
+    flex: 0 0 250px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .version-file-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 11px;
+    padding: 0 12px 10px;
+  }
+  .version-file-picker select {
+    width: 100%;
+    font-size: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    height: 33px;
+    padding: 0 7px;
+    color: var(--text);
+  }
+  .version-entry-list > button:hover {
+    background: var(--muted-bg);
+  }
+  .version-entry-list > button > span {
+    flex: 1;
+    min-width: 0;
+  }
+  .version-entry-list strong {
+    display: block;
+    font-size: 12px;
+    font-weight: 550;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    line-height: 1.6;
+  }
+  .version-entry-list small {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .version-note {
+    padding: 13px 15px;
+    font-size: 11px;
+    line-height: 1.8;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    margin: 0;
+  }
+  .version-empty {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 20px 8px;
+    line-height: 1.8;
+  }
+  .version-diff-labels {
+    display: flex;
+    justify-content: space-around;
+    background: var(--bg);
+    padding: 8px 15px;
+    font-size: 11px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+  .version-error {
+    color: var(--danger-text, var(--accent-strong));
+    padding: 8px 18px;
+    margin: 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .version-git-filters {
+    display: flex;
+    gap: 3px;
+    padding: 0 9px 12px;
+  }
+  .version-git-filters button {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    padding: 5px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .version-git-filters button[aria-pressed="true"] {
+    background: var(--muted-bg);
+    color: var(--text);
+  }
+  .version-search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 12px 12px;
+    padding: 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    background: var(--panel);
+  }
+  .version-search input {
+    border: 0;
+    background: transparent;
+    min-width: 0;
+    width: 100%;
+    height: 30px;
+    font-size: 12px;
+    padding: 0;
+    box-shadow: none;
+  }
+  .hu-version-v9-manual input {
+    height: 31px;
+    flex: 1;
+    min-width: 140px;
+    font-size: 12px;
+  }
+  .hu-version-v9-manual p {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin: 9px 0 0;
+  }
+  .version-sync-main {
+    padding: 22px;
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .version-v9 button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  @media (max-width: 1100px) {
+    .version-sidebar {
+      width: 220px;
+      flex-basis: 220px;
+    }
+    .version-top {
+      gap: 10px;
+      padding: 0 14px;
+    }
+    .version-sync-main {
+      padding: 16px;
+    }
+  }
+  @media (max-width: 800px) {
+    .version-sidebar {
+      width: 185px;
+      flex-basis: 185px;
+    }
+    .version-top {
+      height: auto;
+      min-height: 65px;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 9px 12px;
+    }
+    .version-top nav {
+      height: 35px;
+      margin-left: auto;
+    }
+    .version-top nav button {
+      padding: 0 9px;
+    }
+    .version-sync-main {
+      padding: 12px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+    .version-v9 * {
+      animation: none !important;
+      transition: none !important;
+    }
+    /* stylelint-enable declaration-no-important */
+  }
+}

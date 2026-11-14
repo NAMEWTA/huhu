@@ -77,7 +77,7 @@ export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey
 
   return (
     <div ref={scroller} className="hu-data-table-scroll" style={virtual ? { maxHeight: height } : undefined} data-virtual={virtual || undefined}>
-      <table className="table hu-data-table" aria-label={label} aria-rowcount={body.length + 1} style={{ width: table.getTotalSize(), minWidth: "100%" }}>
+      <table className="hu-table hu-data-table" aria-label={label} aria-rowcount={body.length + 1} style={{ width: table.getTotalSize(), minWidth: "100%" }}>
         <colgroup>
           {table.getFlatHeaders().map((h) => (
             <col key={h.id} style={{ width: h.getSize() }} />

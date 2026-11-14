@@ -103,6 +103,7 @@ function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; grante
     isPluginEnabled: (p) => (opts.enabled === false ? p !== "tasks" : true),
     exposureOverride: () => opts.exposure,
     grantedPermissions: () => opts.granted ?? [],
+    pluginOrigin: () => "external",
     log: (...a) => logs.push(a),
   });
   return { d, audit, logs, dir };
@@ -191,7 +192,7 @@ describe("Dispatcher 管线", () => {
     );
     const dir = mkdtempSync(path.join(tmpdir(), "huhu-k-"));
     dirs.push(dir);
-    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [] });
+    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
     const a = await d.call("desktop", req("x.w", {}, "key-slow1"));
     const b = await d.call("desktop", req("x.w", {}, "key-slow1"));
     expect(a).toEqual(b);

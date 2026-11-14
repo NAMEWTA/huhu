@@ -1,12 +1,12 @@
 import { IconButton } from "@huhu/ui";
-import { applyAppearance } from "@huhu/ui";
+import { appearanceController, type ThemeId } from "@huhu/ui";
 import { Command, Keyboard, Moon, Sun } from "lucide-react";
 import type { StoreApi } from "zustand/vanilla";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
-import type { UiState } from "../state/ui-store.js";
+import { openSettings, type UiState } from "../state/ui-store.js";
 
 interface Settings {
-  appearance: { theme: "pearl" | "suliworld" | "soft"; mode: "light" | "dark" | "system" } & Record<string, unknown>;
+  appearance: { theme: ThemeId; mode: "light" | "dark" | "system" } & Record<string, unknown>;
 }
 const prefersDark = (): boolean => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
@@ -26,7 +26,7 @@ export function ThemeToggle() {
         void engine
           .call<Settings>("settings.update", { patch: { appearance: { mode: dark ? "light" : "dark" } } }, { write: true })
           .then((next) => {
-            applyAppearance(document.documentElement, next.appearance, prefersDark());
+            appearanceController().set(next.appearance);
             return qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "settings.get" });
           })
           .catch(() => undefined);
@@ -44,11 +44,11 @@ export function ShellStatusBar({ ui }: { ui: StoreApi<UiState> }) {
   return (
     <>
       <div className="row">
-        <span className="status-dot" />
+        <span className="shell-status-dot" />
         <button type="button" onClick={() => open("health")}>
           Vault就绪
         </button>
-        <span className="status-divider" />
+        <span className="shell-status-divider" />
         <button type="button" onClick={() => open("plugins")}>
           {active} 个插件
         </button>
@@ -57,12 +57,12 @@ export function ShellStatusBar({ ui }: { ui: StoreApi<UiState> }) {
         </button>
       </div>
       <div className="row">
-        <span className="status-local">Vault 文件读写</span>
-        <span className="status-divider" />
+        <span className="shell-status-local">Vault 文件读写</span>
+        <span className="shell-status-divider" />
         <button type="button" onClick={() => ui.getState().setPaletteOpen(true)}>
           <Command size={11} aria-hidden /> 命令面板
         </button>
-        <button type="button" aria-label="快捷键" onClick={() => open("settings")}>
+        <button type="button" aria-label="快捷键" onClick={() => openSettings(ui, "shortcuts")}>
           <Keyboard size={13} aria-hidden />
         </button>
       </div>

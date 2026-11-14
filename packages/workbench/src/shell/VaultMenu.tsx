@@ -21,14 +21,14 @@ export function VaultMenu({ vaultName, onSwitch }: { vaultName: string; onSwitch
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button type="button" className="window-center vault-title-button" data-testid="vault-name" aria-label="切换 Vault" aria-haspopup="menu" aria-expanded={open}>
+        <button type="button" className="hu-window-center shell-vault-title-button" data-testid="vault-name" aria-label="切换 Vault" aria-haspopup="menu" aria-expanded={open}>
           <Folder size={13} aria-hidden />
           <span>{vaultName}</span>
           <ChevronDown size={12} aria-hidden />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className="knowledge-file-menu vault-menu" role="menu" aria-label="Vault 菜单" sideOffset={6} align="center" data-testid="vault-menu" style={{ minWidth: 260 }}>
+        <Popover.Content className="shell-knowledge-file-menu vault-menu" role="menu" aria-label="Vault 菜单" sideOffset={6} align="center" data-testid="vault-menu" style={{ minWidth: 260 }}>
           <div className="knowledge-menu-caption">最近打开过的 Vault</div>
           {recent.length === 0 ? <div className="knowledge-menu-caption">没有其他记录</div> : null}
           {recent.map((r) => {

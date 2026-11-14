@@ -85,8 +85,8 @@ test("打包后：创建笔记并保存；新建任务并勾选；导出数据�
 
     const task = await s.call("tasks.create", { title: "打包后的任务" });
     expect(task.ok).toBe(true);
-    const done = await s.call("tasks.setCompleted", { id: task.data.id, completed: true, expectedVersion: task.data.version });
-    expect(done.data.completed).toBe(true);
+    const done = await s.call("tasks.setStatus", { id: task.data.id, status: "completed", expectedVersion: task.data.version });
+    expect(done.data.status).toBe("completed");
 
     const out = path.join(mkdtempSync(path.join(tmpdir(), "huhu-pk-out-")), "导出.zip");
     const exp = await s.call("vault.exportPackage", { dest: out });

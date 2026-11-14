@@ -83,7 +83,7 @@ describe("CLI", () => {
     while (existsSync(desc) && Date.now() < deadline) await new Promise((r2) => setTimeout(r2, 200));
     expect(existsSync(desc)).toBe(false);
   }, 60000);
-  test("便捷命令：tasks create/list/complete、plugins list、capabilities list、inbox capture", async () => {
+  test("便捷命令：tasks create/status/list、plugins list、capabilities list、inbox capture", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
@@ -95,8 +95,8 @@ describe("CLI", () => {
     const created = await run1("tasks", "create", "--title", "写周报");
     expect(created.code).toBe(1); // 默认不对外开放
     expect((created.out as unknown as { error: { code: string } }).error.code).toBe("CAPABILITY_NOT_EXPOSED");
-    // 用户在网关里开放 tasks.create / tasks.setCompleted 后，CLI 便捷命令可用
-    for (const cap of ["tasks.create", "tasks.setCompleted"]) {
+    // 用户在网关里开放 tasks.create / tasks.setStatus 后，CLI 便捷命令可用
+    for (const cap of ["tasks.create", "tasks.setStatus"]) {
       const r = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
         method: "POST",
         headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
@@ -107,9 +107,9 @@ describe("CLI", () => {
     const created2 = await run1("tasks", "create", "--title", "写周报");
     expect(created2.code).toBe(0);
     const id = (created2.out.data as { id: string }).id;
-    const done = await run1("tasks", "complete", id);
+    const done = await run1("tasks", "status", id, "completed");
     expect(done.code).toBe(0);
-    expect((done.out.data as { completed: boolean }).completed).toBe(true);
+    expect((done.out.data as { status: string }).status).toBe("completed");
     // 不可开放的能力永远不能被网关开放
     const bad = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
       method: "POST",
@@ -132,7 +132,7 @@ describe("CLI", () => {
     const cap = await run1("inbox", "capture", "--title", "来自命令行");
     expect(cap.code).toBe(0);
     expect((cap.out.data as { source: string }).source).toBe("cli");
-    expect((await run1("tasks", "list", "--completed", "false")).code).toBe(0);
+    expect((await run1("tasks", "list", "--status", "not_started,in_progress", "--tag", "周报")).code).toBe(0);
     expect((await run1("notes", "list")).code).toBe(0);
   });
   test("ACC-PL-01 stdio：停用 tasks 后，已缓存工具表的客户端调用 tasks_list 得到 PLUGIN_DISABLED，且工具表不再含 tasks_*", async () => {

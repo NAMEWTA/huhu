@@ -16,7 +16,7 @@ interface Capture {
   createdAt?: string;
 }
 interface ArchiveType {
-  id: string;
+  path: string;
   name: string;
 }
 type Target = "task" | "note" | "archive";
@@ -69,17 +69,17 @@ export function InboxModule() {
   const noTypes = (types.data ?? []).length === 0;
 
   return (
-    <div className="module-layout knowledge-root knowledge-inbox" data-testid="inbox-module">
-      <aside className="resource-pane knowledge-inbox-list" aria-label={t.title}>
-        <div className="resource-head">
+    <div className="hu-module-layout hu-knowledge-root knowledge-inbox" data-testid="inbox-module">
+      <aside className="hu-resource-pane inbox-knowledge-inbox-list" aria-label={t.title}>
+        <div className="hu-resource-head">
           <div className="row">
             <strong className="grow">
               {t.title}
-              <span className="knowledge-count">{items.length}</span>
+              <span className="inbox-knowledge-count">{items.length}</span>
             </strong>
             <IconButton icon={Plus} label="新建收集条目" onClick={() => setDialog({ kind: "edit", item: null })} />
           </div>
-          <div className="knowledge-inbox-status-tabs">
+          <div className="hu-knowledge-inbox-status-tabs">
             <Segmented<Status>
               label="收集状态"
               value={status}
@@ -102,7 +102,7 @@ export function InboxModule() {
           </select>
         </div>
         {checked.size > 0 ? (
-          <div className="knowledge-inbox-bulk">
+          <div className="inbox-knowledge-inbox-bulk">
             <span>已选 {checked.size} 条</span>
             {status !== "dismissed" ? (
               <button
@@ -122,9 +122,9 @@ export function InboxModule() {
             </button>
           </div>
         ) : null}
-        <div className="resource-list">
+        <div className="hu-resource-list">
           {items.map((c) => (
-            <div key={c.id} className={`knowledge-inbox-item ${c.id === selected ? "active" : ""}`}>
+            <div key={c.id} className={`inbox-knowledge-inbox-item ${c.id === selected ? "active" : ""}`}>
               <input
                 type="checkbox"
                 aria-label={`选择收集记录 ${c.title}`}
@@ -139,14 +139,14 @@ export function InboxModule() {
                 }
               />
               <button type="button" data-testid="capture-item" onClick={() => setSelected(c.id)}>
-                <div className="knowledge-inbox-item-meta">
+                <div className="inbox-knowledge-inbox-item-meta">
                   <span>{c.source}</span>
                   <time>{shortDate(c.createdAt)}</time>
                 </div>
                 <strong>{c.title}</strong>
                 <p>{c.body.slice(0, 90)}</p>
                 {c.result ? (
-                  <span className="knowledge-inbox-converted">
+                  <span className="inbox-knowledge-inbox-converted">
                     <Check size={12} aria-hidden /> 已转为{TARGET_TEXT[c.result.kind as Target] ?? "关联内容"}
                   </span>
                 ) : null}
@@ -172,12 +172,12 @@ export function InboxModule() {
             />
           ) : null}
         </div>
-        <div className="knowledge-resource-footer">
+        <div className="hu-knowledge-resource-footer">
           <span>保留来源 · 保留上下文</span>
           <Inbox size={14} aria-hidden />
         </div>
       </aside>
-      <section className="view-content knowledge-inbox-main">
+      <section className="hu-view-content inbox-knowledge-inbox-main">
         <PageHead
           title={t.title}
           description="捕获想法，整理为笔记、任务或档案。"
@@ -188,7 +188,7 @@ export function InboxModule() {
           }
         />
         <form
-          className="knowledge-quick-capture"
+          className="hu-knowledge-quick-capture"
           onSubmit={(e) => {
             e.preventDefault();
             const body = draft.trim();
@@ -202,13 +202,13 @@ export function InboxModule() {
           </Button>
         </form>
         {error ? (
-          <div role="alert" className="field-error">
+          <div role="alert" className="hu-field-error">
             {error}
           </div>
         ) : null}
         {cur ? (
-          <article className="knowledge-inbox-detail">
-            <div className="knowledge-inbox-detail-meta">
+          <article className="inbox-knowledge-inbox-detail">
+            <div className="hu-knowledge-inbox-detail-meta">
               <Badge tone={cur.status === "pending" ? "violet" : cur.status === "processed" ? "success" : "neutral"}>{t.statuses[cur.status]}</Badge>
               <span>{cur.source}</span>
               <span>·</span>
@@ -218,16 +218,16 @@ export function InboxModule() {
               <IconButton icon={Trash2} label="删除收集记录" onClick={() => setDialog({ kind: "delete", item: cur })} />
             </div>
             <h2>{cur.title}</h2>
-            <div className="knowledge-inbox-note">
+            <div className="inbox-knowledge-inbox-note">
               <MarkdownPreview source={cur.body.trim() || "这条记录还没有补充内容。"} />
             </div>
             {cur.status === "pending" ? (
               <>
-                <div className="knowledge-processing-heading">
+                <div className="inbox-knowledge-processing-heading">
                   <h3>{t.next}</h3>
                   <p>选择一种整理方式，保留原始记录与关联。</p>
                 </div>
-                <div className="knowledge-convert-options">
+                <div className="inbox-knowledge-convert-options">
                   <button type="button" onClick={() => setDialog({ kind: "convert", item: cur, target: "task" })}>
                     <span>
                       <CircleCheck size={21} aria-hidden />
@@ -253,7 +253,7 @@ export function InboxModule() {
                     <ArrowUpRight size={15} aria-hidden />
                   </button>
                 </div>
-                <div className="knowledge-inbox-bottom">
+                <div className="hu-knowledge-inbox-bottom">
                   <span className="muted small">暂时没有后续行动？可以归档保留。</span>
                   <Button icon={Archive} onClick={() => void act("inbox.dismiss", { id: cur.id })}>
                     {t.dismiss}
@@ -262,8 +262,8 @@ export function InboxModule() {
               </>
             ) : null}
             {cur.status === "processed" ? (
-              <div className="knowledge-converted-result">
-                <span className="knowledge-result-check">
+              <div className="hu-knowledge-converted-result">
+                <span className="inbox-knowledge-result-check">
                   <Check size={22} aria-hidden />
                 </span>
                 <div>
@@ -283,7 +283,7 @@ export function InboxModule() {
               </div>
             ) : null}
             {cur.status === "dismissed" ? (
-              <div className="knowledge-dismissed-result">
+              <div className="hu-knowledge-dismissed-result">
                 <Archive size={26} aria-hidden />
                 <h3>这条记录已归档</h3>
                 <p>内容仍然保留。需要继续处理时，可以放回收件箱。</p>
@@ -344,7 +344,7 @@ export function InboxModule() {
             </>
           }
         >
-          <p className="confirm-description">记录会移到回收站。</p>
+          <p className="hu-confirm-description">记录会移到回收站。</p>
         </Dialog>
       ) : null}
       {dialog?.kind === "undo" ? (
@@ -363,7 +363,7 @@ export function InboxModule() {
             </>
           }
         >
-          <p className="confirm-description">撤销后可以重新选择整理方式。</p>
+          <p className="hu-confirm-description">撤销后可以重新选择整理方式。</p>
         </Dialog>
       ) : null}
     </div>
@@ -388,7 +388,7 @@ function EditDialog({ error, item, onClose, onSave }: { error: string | null; it
         </>
       }
     >
-      <div className="form-body">
+      <div className="hu-form-body">
         <Field label="标题">
           <input autoFocus aria-label="标题" placeholder="记录一个想法、链接或行动" value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} />
         </Field>
@@ -428,7 +428,7 @@ function ConvertDialog({
   const [name, setName] = useState(item.title);
   const [body, setBody] = useState(item.body);
   const [due, setDue] = useState("");
-  const [type, setType] = useState(types[0]?.id ?? "");
+  const [type, setType] = useState(types[0]?.path ?? "");
   return (
     <Dialog
       open
@@ -450,7 +450,7 @@ function ConvertDialog({
         </>
       }
     >
-      <div className="form-body">
+      <div className="hu-form-body">
         <Field label={`${label}名称`}>
           <input autoFocus aria-label={`${label}名称`} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -463,7 +463,7 @@ function ConvertDialog({
           <Field label="档案类型">
             <select aria-label="档案类型" value={type} onChange={(e) => setType(e.target.value)}>
               {types.map((x) => (
-                <option key={x.id} value={x.id}>
+                <option key={x.path} value={x.path}>
                   {x.name}
                 </option>
               ))}

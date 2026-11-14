@@ -60,10 +60,10 @@ test("冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；
     await expect.poll(async () => ((await call("vault.search", { query: "笔记1999" })) as any).data?.indexing, { timeout: 60_000 }).toBe(false);
 
     const t1 = Date.now();
-    expect(((await call("plugins.setEnabled", { id: "archives", enabled: false })) as any).ok).toBe(true);
+    expect(((await call("plugins.setEnabled", { id: "inbox", enabled: false })) as any).ok).toBe(true);
     const off = Date.now() - t1;
     const t2 = Date.now();
-    expect(((await call("plugins.setEnabled", { id: "archives", enabled: true })) as any).ok).toBe(true);
+    expect(((await call("plugins.setEnabled", { id: "inbox", enabled: true })) as any).ok).toBe(true);
     const on = Date.now() - t2;
     note("插件停用 / 启用", `${off} ms / ${on} ms（目标 ≤ 300）`);
     atMost(off, 300);
@@ -153,7 +153,7 @@ test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", asy
     expect(lat.length).toBeGreaterThan(60);
     const stages = await page.evaluate(() => (window as unknown as { __huhuPerf: { cm: number[]; toString: number[]; onChange: number[] } }).__huhuPerf);
     const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
-    note("输入延迟分阶段（中位数）", `keydown→CM 事务完成 ${med(stages.cm).toFixed(1)} ms；doc.toString ${med(stages.toString).toFixed(1)} ms；onChange 同步部分 ${med(stages.onChange).toFixed(1)} ms`);
+    note("输入延迟分阶段（中位数）", `keydown→CM 事务完成 ${med(stages.cm).toFixed(1)} ms；doc.function toString() { [native code] } ${med(stages.toString).toFixed(1)} ms；onChange 同步部分 ${med(stages.onChange).toFixed(1)} ms`);
     const v = p95(lat);
     note("编辑输入延迟（keydown→编辑区 DOM 更新）", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 p95 ≤ 16 ms）`);
     atMost(v, 16);
@@ -175,7 +175,7 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
       const r = await fetch(`${e.baseUrl}/api/v1/call`, {
         method: "POST",
         headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
-        body: JSON.stringify({ capability: "tasks.create", input: { title: "模板任务", execution: { kind: "manual" } }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        body: JSON.stringify({ capability: "tasks.create", input: { title: "模板任务", type: "human" }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
       });
       return (await r.json()) as { data: { id: string; path: string } };
     }, ep);
@@ -235,7 +235,7 @@ test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", asyn
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
     await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.getByRole("button", { name: "新终端", exact: true }).click();
-    await page.getByRole("menuitem", { name: /新终端（shell）/ }).click();
+    await page.getByTestId("launch-shell").click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
     await page.locator(".xterm-helper-textarea").focus();
     await page.keyboard.type("yes 0123456789abcdef | head -c 10485760; echo FLOOD-DONE-$((6*7))");

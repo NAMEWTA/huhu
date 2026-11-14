@@ -14,16 +14,15 @@ export function canonicalJson(value: unknown): string {
 }
 
 export interface TaskInput {
-  title: string;
+  /** `<task>` 区段的内容。 */
   body: string;
-  resources: unknown;
   execution: unknown;
 }
 
-/** inputHash = sha256(title + body + canonical(resources) + canonical(execution)) 前 16 位。 */
+/** inputHash = sha256(canonical([`<task>` 内容, execution])) 前 16 位。标题、评论、标签与其他 frontmatter 字段都不计入（spec §4.4）。 */
 export function inputHash(i: TaskInput): string {
   return createHash("sha256")
-    .update(canonicalJson([i.title, i.body, i.resources, i.execution]))
+    .update(canonicalJson([i.body, i.execution]))
     .digest("hex")
     .slice(0, 16);
 }

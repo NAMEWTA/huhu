@@ -63,7 +63,7 @@ function sameJson(a: unknown, b: unknown): boolean {
  * 局部改写：只修改 `changes` 中值确实变化的顶层键（值为 undefined 表示删除）。
  * 未知键、注释、键顺序、正文、换行符与 BOM 原样保留；没有实际变化时原样返回输入。
  */
-export function patchFrontmatter(text: string, changes: Record<string, unknown>): string {
+export function patchFrontmatter(text: string, changes: Record<string, unknown>, opts: { quoted?: readonly string[] } = {}): string {
   const split = splitDocument(text);
   const ydoc = parseDocument(split.yaml ?? "");
   if (ydoc.errors.length) throw new Error(`frontmatter 无法解析：${ydoc.errors[0]?.message}`);
@@ -73,6 +73,11 @@ export function patchFrontmatter(text: string, changes: Record<string, unknown>)
     if (v === undefined ? !(k in current) : sameJson(current[k], v)) continue;
     if (!isMap(ydoc.contents) && split.yaml !== null && split.yaml.trim() !== "") throw new Error("frontmatter 顶层不是映射");
     setPath(ydoc, [k], v);
+    // 文本字段一律加引号：`0123` 不能被下次读取当成数字 123
+    if (typeof v === "string" && opts.quoted?.includes(k)) {
+      const node = ydoc.getIn([k], true);
+      if (isScalar(node)) node.type = "QUOTE_DOUBLE";
+    }
     changed = true;
   }
   if (!changed) return text;
@@ -87,4 +92,38 @@ export function replaceBody(text: string, body: string): string {
   if (split.yaml === null) return split.bom + body;
   const idx = text.length - split.body.length;
   return text.slice(0, idx) + body;
+}
+
+/** 顶层标量的 YAML 原文（`电话: 0123` 读出 "0123" 而不是数字 123）；非标量与语法错误的文档不返回。 */
+export function frontmatterScalarSources(text: string): Record<string, string> {
+  const split = splitDocument(text);
+  if (split.yaml === null) return {};
+  const ydoc = parseDocument(split.yaml);
+  const out: Record<string, string> = {};
+  if (ydoc.errors.length || !isMap(ydoc.contents)) return out;
+  for (const pair of ydoc.contents.items) if (isScalar(pair.key) && isScalar(pair.value) && pair.value.source !== undefined) out[String(pair.key.value)] = pair.value.source;
+  return out;
+}
+
+/** 顶层键改名并保持位置：键值对在原处改名，其余键、注释与顺序不变。目标键已存在或文档无法解析时抛错。 */
+export function renameFrontmatterKeys(text: string, renames: readonly { from: string; to: string }[]): string {
+  const split = splitDocument(text);
+  if (split.yaml === null) return text;
+  const ydoc = parseDocument(split.yaml);
+  if (ydoc.errors.length) throw new Error(`frontmatter 无法解析：${ydoc.errors[0]?.message}`);
+  if (!isMap(ydoc.contents)) return text;
+  const pairs = ydoc.contents.items;
+  let changed = false;
+  for (const { from, to } of renames) {
+    if (from === to) continue;
+    const pair = pairs.find((x) => isScalar(x.key) && x.key.value === from);
+    if (!pair) continue;
+    if (pairs.some((x) => isScalar(x.key) && x.key.value === to)) throw new Error(`目标键「${to}」已存在`);
+    (pair.key as { value: unknown }).value = to;
+    changed = true;
+  }
+  if (!changed) return text;
+  let out = ydoc.toString({ lineWidth: 0 });
+  if (split.eol === "\r\n") out = out.replace(/\r?\n/g, "\r\n");
+  return joinDocument({ ...split, yaml: out });
 }

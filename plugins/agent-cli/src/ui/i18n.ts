@@ -14,6 +14,7 @@ export const t = {
   selectSession: "选择或新建一个会话",
   terminalLabel: "终端",
   running: "运行中",
+  needsYou: "需要你操作 · 点此前往处理",
   failed: "启动失败",
   exited: "已结束",
   exitedTitle: (code: number | null) => (code === null ? "这个会话已经结束" : `这个会话已经结束（退出码 ${code}）`),

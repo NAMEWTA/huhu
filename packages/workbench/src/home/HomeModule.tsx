@@ -40,7 +40,7 @@ const CORE_COLUMNS: Card[][] = [
   ["focus", "inbox"],
 ];
 const CORE_CARDS: Card[] = ["focus", "habits", "tasks", "inbox", "recent", "activity"];
-const NO_WIDGETS: ReturnType<ContributionRegistry["getSnapshot"]> = { modules: [], commands: [], homeWidgets: [] };
+const NO_WIDGETS: ReturnType<ContributionRegistry["getSnapshot"]> = { modules: [], commands: [], homeWidgets: [], settingsPages: [] };
 const noop = () => () => undefined;
 type Section = "overview" | "today" | "activity";
 
@@ -57,7 +57,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const CARDS: Card[] = [...CORE_CARDS, ...widgetIds];
   const s = useCapability<Summary>("home.summary", {});
   const widgets = useCapability<{ hidden: string[]; order: string[] }>("home.widgets.get", {});
-  const tasks = useCapability<TaskDto[]>("tasks.list", { completed: false });
+  const tasks = useCapability<TaskDto[]>("tasks.list", { status: ["not_started", "in_progress"] });
   const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" });
   const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
   // 分区由外壳的模块页签（原型：标题上方的“总览 / 今日安排 / 最近活动”）提供；没有外壳时用本地状态
@@ -105,7 +105,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   async function complete(t: TaskDto) {
     setError(null);
     try {
-      await engine.call("tasks.setCompleted", { id: t.id, completed: true, expectedVersion: t.version }, { write: true });
+      await engine.call("tasks.setStatus", { id: t.id, status: "completed", expectedVersion: t.version }, { write: true });
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -115,13 +115,13 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const cardLabel = (c: Card): string => tHome.customize.cards[c] ?? contributed.find((w) => `widget:${w.plugin}:${w.id}` === c)?.title ?? c;
   const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date()); // “今天”按设置的时区，不是 UTC
-  const pending = useMemo(() => (tasks.data ?? []).filter((t) => !t.completed), [tasks.data]);
+  const pending = useMemo(() => (tasks.data ?? []).filter((t) => t.status !== "completed"), [tasks.data]);
   const taskRows = pending.filter((t) => (section !== "today" && filter === "all") || (d && t.due === today)).slice(0, 5);
-  if (!d) return <div className="module-layout home-layout" data-testid="home-module" />;
+  if (!d) return <div className="hu-module-layout home-layout" data-testid="home-module" />;
 
   const metric = (id: string, testId: string, icon: React.ReactNode, tone: string, [label, unit]: readonly [string, string], value: number, target: string) => (
     <button key={id} type="button" data-testid={testId} onClick={() => nav(target)}>
-      <span className={`metric-icon ${tone}`}>{icon}</span>
+      <span className={`shell-metric-icon ${tone}`}>{icon}</span>
       <div>
         <span>{label}</span>
         <strong>
@@ -139,8 +139,8 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const mainNodes: Record<string, React.ReactNode> = {
     tasks:
       show("tasks") && d.enabled.tasks ? (
-        <section className="card home-task-card" data-testid="card-tasks">
-          <div className="card-head">
+        <section className="hu-card-alt hu-home-task-card" data-testid="card-tasks">
+          <div className="shell-card-head">
             <h2>
               <Target size={17} aria-hidden /> {tHome.tasksCard.title} <Badge>{pending.length}</Badge>
             </h2>
@@ -162,43 +162,43 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
           </div>
           <div className="home-task-list">
             {taskRows.map((t) => (
-              <div className="home-task-row" key={t.id}>
-                <button type="button" className="task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
-                <button type="button" className="grow task-open" onClick={() => nav("tasks")}>
+              <div className="hu-home-task-row" key={t.id}>
+                <button type="button" className="shell-task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
+                <button type="button" className="grow shell-task-open" onClick={() => nav("tasks")}>
                   <strong>{t.title}</strong>
                   <span>
                     {t.project ?? tHome.tasksCard.personal}
                     {t.due ? ` · ${t.due}` : ""}
                   </span>
                 </button>
-                <Badge>{t.execution.kind === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
+                <Badge>{t.type === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
               </div>
             ))}
             {pending.length === 0 ? <EmptyState icon={CheckCircle2} title={tHome.tasksCard.allDone} hint={tHome.tasksCard.rest} /> : null}
           </div>
-          <button type="button" className="card-footer-link" onClick={() => nav("tasks")}>
+          <button type="button" className="hu-card-footer-link" onClick={() => nav("tasks")}>
             {tHome.tasksCard.viewAll} <ArrowRight size={14} aria-hidden />
           </button>
         </section>
       ) : null,
     recent:
       show("recent") && d.enabled.notes ? (
-        <section className="card" data-testid="card-recent">
-          <div className="card-head">
+        <section className="hu-card-alt" data-testid="card-recent">
+          <div className="shell-card-head">
             <h2>
               <Clock size={17} aria-hidden /> {tHome.recentCard.title}
             </h2>
-            <button type="button" className="link-button" onClick={() => nav("notes")}>
+            <button type="button" className="shell-link-button" onClick={() => nav("notes")}>
               {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
             </button>
           </div>
           {d.recentNotes.length === 0 ? (
             <EmptyState title={tHome.noRecent} />
           ) : (
-            <div className="recent-note-grid">
+            <div className="shell-recent-note-grid">
               {d.recentNotes.map((n, i) => (
-                <button type="button" className="recent-note" key={n.path} onClick={() => nav("notes")}>
-                  <div className={`note-symbol note-symbol-${i % 3}`}>
+                <button type="button" className="shell-recent-note" key={n.path} onClick={() => nav("notes")}>
+                  <div className={`shell-note-symbol hu-note-symbol-${i % 3}`}>
                     <FileText size={18} aria-hidden />
                   </div>
                   <strong>{n.title}</strong>
@@ -214,12 +214,12 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
         </section>
       ) : null,
     activity: show("activity") ? (
-      <section className="card" data-testid="card-activity">
-        <div className="card-head">
+      <section className="hu-card-alt" data-testid="card-activity">
+        <div className="shell-card-head">
           <h2>
             <Activity size={17} aria-hidden /> {tHome.activityCard.title}
           </h2>
-          <button type="button" className="link-button" onClick={() => setSection("activity")}>
+          <button type="button" className="shell-link-button" onClick={() => setSection("activity")}>
             {tHome.activityCard.all}
           </button>
         </div>
@@ -231,16 +231,16 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
     focus: show("focus") ? <FocusCard>{show("habits") ? <HabitsCard /> : null}</FocusCard> : null,
     inbox:
       show("inbox") && d.enabled.inbox ? (
-        <section className="card home-inbox" data-testid="card-inbox-list">
-          <div className="card-head">
+        <section className="hu-card-alt shell-home-inbox" data-testid="card-inbox-list">
+          <div className="shell-card-head">
             <h2>
               <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
             </h2>
             <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
           </div>
           {(inbox.data ?? []).slice(0, 3).map((i) => (
-            <button type="button" className="inbox-preview" key={i.id} onClick={() => nav("inbox")}>
-              <span className="inbox-bullet" />
+            <button type="button" className="shell-inbox-preview" key={i.id} onClick={() => nav("inbox")}>
+              <span className="shell-inbox-bullet" />
               <span>
                 <strong>{i.title}</strong>
                 <small>{i.source}</small>
@@ -248,8 +248,8 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
               <ChevronRight size={13} aria-hidden />
             </button>
           ))}
-          {(inbox.data ?? []).length === 0 ? <div className="mini-empty">{tHome.inboxCard.empty}</div> : null}
-          <button type="button" className="card-footer-link" onClick={() => nav("inbox")}>
+          {(inbox.data ?? []).length === 0 ? <div className="hu-mini-empty">{tHome.inboxCard.empty}</div> : null}
+          <button type="button" className="hu-card-footer-link" onClick={() => nav("inbox")}>
             {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
           </button>
         </section>
@@ -259,8 +259,8 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
     const id = `widget:${w.plugin}:${w.id}`;
     const W = w.component;
     sideNodes[id] = show(id) ? (
-      <section className="card home-widget" data-testid={`card-${w.plugin}-${w.id}`}>
-        <div className="card-head">
+      <section className="hu-card-alt home-widget" data-testid={`card-${w.plugin}-${w.id}`}>
+        <div className="shell-card-head">
           <h2>{w.title}</h2>
         </div>
         <W onNavigate={nav} />
@@ -269,8 +269,8 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   }
 
   return (
-    <div className="module-layout home-layout" data-testid="home-module">
-      <div className="view-content home-content">
+    <div className="hu-module-layout home-layout" data-testid="home-module">
+      <div className="hu-view-content hu-home-content">
         <PageHead
           eyebrow={tHome.eyebrow}
           title={tHome.headline[section]}
@@ -287,34 +287,34 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
           }
         />
         {error ? (
-          <div role="alert" className="field-error">
+          <div role="alert" className="hu-field-error">
             {error}
           </div>
         ) : null}
-        <div className="home-scroll scroll">
+        <div className="shell-home-scroll hu-scroll">
           {section === "activity" ? (
             <ActivityFeed zone={zone} />
           ) : (
             <>
-              <div className="overview-metrics">
+              <div className="shell-overview-metrics">
                 {d.enabled.tasks ? metric("tasks", "card-open", <ListTodo size={19} aria-hidden />, "amber", tHome.metrics.tasks, d.tasksOpen, "tasks") : null}
                 {d.enabled.notes ? metric("notes", "card-notes", <FileText size={19} aria-hidden />, "violet", tHome.metrics.notes, d.notes, "notes") : null}
                 {d.enabled.inbox ? metric("inbox", "card-inbox", <Inbox size={19} aria-hidden />, "blue", tHome.metrics.inbox, d.inboxPending, "inbox") : null}
                 {d.enabled.automations ? metric("rules", "card-rules", <RefreshCw size={19} aria-hidden />, "green", tHome.metrics.rules, d.rulesEnabled, "automations") : null}
               </div>
-              <div className="home-grid">
-                <div className="home-main-column">
+              <div className="shell-home-grid">
+                <div className="shell-home-main-column">
                   {orderedCards(HOME_COLUMNS[0] as Card[]).map((c) => (
                     <Fragment key={c}>{mainNodes[c]}</Fragment>
                   ))}
                 </div>
-                <div className="home-side-column">
+                <div className="shell-home-side-column">
                   {orderedCards(HOME_COLUMNS[1] as Card[]).map((c) => (
                     <Fragment key={c}>{sideNodes[c]}</Fragment>
                   ))}
                   {d.enabled.agentCli ? (
-                    <button type="button" className="agent-invitation" onClick={() => nav("agent-cli")}>
-                      <div className="agent-invitation-top">
+                    <button type="button" className="shell-agent-invitation" onClick={() => nav("agent-cli")}>
+                      <div className="shell-agent-invitation-top">
                         <Sparkles size={21} aria-hidden />
                         <ArrowUpRight size={18} aria-hidden />
                       </div>
@@ -333,11 +333,11 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
               </div>
             </>
           )}
-          <div className="home-footnote">{tHome.footnote}</div>
+          <div className="shell-home-footnote">{tHome.footnote}</div>
         </div>
       </div>
       <Dialog open={editing} title={tHome.customize.title} description={tHome.customize.description} onClose={() => setEditing(false)} testId="home-customize-panel">
-        <div className="form-body">
+        <div className="hu-form-body">
           {CARDS.map((c) => {
             const col = HOME_COLUMNS.find((x) => x.includes(c));
             const pos = col ? orderedCards(col).indexOf(c) : -1;
@@ -367,7 +367,7 @@ function ActivityFeed({ compact = false, zone }: { compact?: boolean; zone: stri
   const ev = useCapability<{ events: EventRow[]; modules: string[] }>("health.events", { limit: compact ? 4 : 100, ...(module ? { module } : {}) });
   const rows = ev.data?.events ?? [];
   return (
-    <div className={`activity-feed${compact ? " compact" : ""}`}>
+    <div className={`shell-activity-feed${compact ? " compact" : ""}`}>
       {!compact && (ev.data?.modules.length ?? 0) > 0 ? (
         <select aria-label={tHome.activityCard.module} value={module} onChange={(e) => setModule(e.target.value)}>
           <option value="">{tHome.activityCard.allModules}</option>
@@ -379,8 +379,8 @@ function ActivityFeed({ compact = false, zone }: { compact?: boolean; zone: stri
         </select>
       ) : null}
       {rows.map((e) => (
-        <div className="activity-row" key={e.id}>
-          <div className="activity-marker">
+        <div className="shell-activity-row" key={e.id}>
+          <div className="shell-activity-marker">
             <span />
           </div>
           <div className="grow">
@@ -389,10 +389,10 @@ function ActivityFeed({ compact = false, zone }: { compact?: boolean; zone: stri
               {e.module} <span>·</span> {fmtTime(e.time, zone)}
             </div>
           </div>
-          {e.tone === "success" ? <CheckCircle2 size={14} className="success-text" aria-hidden /> : null}
+          {e.tone === "success" ? <CheckCircle2 size={14} className="shell-success-text" aria-hidden /> : null}
         </div>
       ))}
-      {rows.length === 0 ? <div className="mini-empty">{tHome.activityCard.empty}</div> : null}
+      {rows.length === 0 ? <div className="hu-mini-empty">{tHome.activityCard.empty}</div> : null}
     </div>
   );
 }

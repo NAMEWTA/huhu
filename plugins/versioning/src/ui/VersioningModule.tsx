@@ -40,9 +40,9 @@ export function VersioningModule({ onNavigate }: ModuleProps) {
   const syncStatus = useCapability<{ name: string; detail: string }>("sync.status", {});
   const state = syncStatus.data?.name ?? "idle";
   return (
-    <div className="module-layout version-v9" data-testid="versioning-module">
-      <header className="version-v9-top">
-        <div className="version-v9-title">
+    <div className="hu-module-layout version-v9" data-testid="versioning-module">
+      <header className="version-top">
+        <div className="version-title">
           <History size={18} aria-hidden />
           <strong>{t.heading}</strong>
         </div>
@@ -63,9 +63,9 @@ export function VersioningModule({ onNavigate }: ModuleProps) {
       ) : tab === "git" ? (
         <GitPage />
       ) : (
-        <div className="version-v9-body">
-          <main className="version-v9-main">
-            <div className="version-v9-sync-main">{tab === "sync" ? <SyncPage onResolve={() => setTab("conflicts")} /> : <ConflictView onBack={() => setTab("sync")} />}</div>
+        <div className="version-body">
+          <main className="hu-version-v9-main">
+            <div className="version-sync-main">{tab === "sync" ? <SyncPage onResolve={() => setTab("conflicts")} onOpenSettings={() => onNavigate?.("settings", "versioning")} /> : <ConflictView onBack={() => setTab("sync")} />}</div>
           </main>
         </div>
       )}
@@ -123,10 +123,10 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
     setOk(r !== null);
   }
   return (
-    <div className="version-v9-body" data-testid="file-history">
-      <aside className="version-v9-sidebar">
-        <div className="version-v9-sidebar-title">{t.nav.history}</div>
-        <label className="version-v9-file-picker">
+    <div className="version-body" data-testid="file-history">
+      <aside className="version-sidebar">
+        <div className="hu-version-v9-sidebar-title">{t.nav.history}</div>
+        <label className="version-file-picker">
           {t.pickFile}
           <Combobox
             label={t.pickFile}
@@ -142,7 +142,7 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
           />
         </label>
         <form
-          className="version-v9-sidebar-actions"
+          className="hu-version-v9-sidebar-actions"
           onSubmit={(e) => {
             e.preventDefault();
             if (file && name.trim()) void act("history.checkpoint", { path: file, title: name.trim() }).then((r) => r !== null && setName(""));
@@ -153,7 +153,7 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
             {t.checkpoint}
           </Button>
         </form>
-        <div className="version-v9-entry-list">
+        <div className="version-entry-list">
           {entries.map((e) => (
             <button
               key={e.id}
@@ -175,22 +175,22 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
               </span>
             </button>
           ))}
-          {entries.length === 0 ? <p className="version-v9-empty">{t.noHistory}</p> : null}
+          {entries.length === 0 ? <p className="version-empty">{t.noHistory}</p> : null}
         </div>
-        <p className="version-v9-note">每条历史属于一个文件。恢复前保留当前有效正文；查看差异不会改写内容。</p>
+        <p className="version-note">每条历史属于一个文件。恢复前保留当前有效正文；查看差异不会改写内容。</p>
       </aside>
-      <main className="version-v9-main">
+      <main className="hu-version-v9-main">
         {error ? (
-          <p role="alert" className="version-v9-error">
+          <p role="alert" className="version-error">
             {error}
           </p>
         ) : null}
         {ok ? (
-          <div role="status" className="version-v9-note">
+          <div role="status" className="version-note">
             {t.restored}
           </div>
         ) : null}
-        <div className="version-v9-diff-heading">
+        <div className="hu-version-v9-diff-heading">
           <div>
             <FileText size={15} aria-hidden />
             <strong title={file ?? ""}>{file ?? "—"}</strong>
@@ -206,7 +206,7 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
               ]}
             />
             {stats ? (
-              <span className="version-v9-stats" data-testid="history-stats">
+              <span className="hu-version-v9-stats" data-testid="history-stats">
                 <span className="added">+{stats.added}</span> <span className="removed">−{stats.removed}</span>
               </span>
             ) : null}
@@ -221,8 +221,8 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
           </div>
         </div>
         {chosen ? (
-          <div className="version-v9-diff" data-testid="history-content">
-            <div className="version-v9-diff-labels">
+          <div className="hu-version-v9-diff" data-testid="history-content">
+            <div className="version-diff-labels">
               {base === "current" ? (
                 <>
                   <span>所选历史版本</span>
@@ -249,12 +249,12 @@ function FileHistory({ onNavigate }: { onNavigate?: ModuleProps["onNavigate"] })
 function PatchView({ patch }: { patch: string }) {
   const rows = patch.split("\n");
   return (
-    <section className="review-diff" aria-label="Git 差异">
-      <div className="review-body review-unified">
+    <section className="hu-review-diff" aria-label="Git 差异">
+      <div className="hu-review-body review-unified">
         {rows.map((line, i) => {
           const kind = line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "remove" : "same";
           return (
-            <div key={i} className={`review-unified-row ${kind}`}>
+            <div key={i} className={`hu-review-unified-row ${kind}`}>
               <i>{kind === "add" ? "+" : kind === "remove" ? "−" : " "}</i>
               <code>{kind === "same" ? line : line.slice(1) || " "}</code>
             </div>
@@ -286,8 +286,8 @@ function GitPage() {
   if (!status.data) return <p>…</p>;
   if (status.data.installed === false) {
     return (
-      <div className="version-v9-body" data-testid="git-missing">
-        <main className="version-v9-main">
+      <div className="version-body" data-testid="git-missing">
+        <main className="hu-version-v9-main">
           <EmptyState
             icon={GitBranch}
             title="需要安装 Git"
@@ -299,8 +299,8 @@ function GitPage() {
   }
   if (!status.data.isRepo) {
     return (
-      <div className="version-v9-body" data-testid="git-not-repo">
-        <main className="version-v9-main">
+      <div className="version-body" data-testid="git-not-repo">
+        <main className="hu-version-v9-main">
           <EmptyState
             icon={GitBranch}
             title={t.git.notRepo}
@@ -312,7 +312,7 @@ function GitPage() {
             }
           />
           {error ? (
-            <p role="alert" className="version-v9-error">
+            <p role="alert" className="version-error">
               {error}
             </p>
           ) : null}
@@ -321,12 +321,12 @@ function GitPage() {
     );
   }
   return (
-    <div className="version-v9-body" data-testid="git-page">
-      <aside className="version-v9-sidebar">
-        <div className="version-v9-sidebar-title">
+    <div className="version-body" data-testid="git-page">
+      <aside className="version-sidebar">
+        <div className="hu-version-v9-sidebar-title">
           <GitBranch size={14} aria-hidden /> {status.data.branch ?? "-"}
         </div>
-        <div className="version-v9-git-filters">
+        <div className="version-git-filters">
           {(
             [
               ["worktree", "工作区"],
@@ -339,11 +339,11 @@ function GitPage() {
             </button>
           ))}
         </div>
-        <div className="version-v9-search">
+        <div className="version-search">
           <Search size={13} aria-hidden />
           <input aria-label="搜索变更文件" placeholder="搜索文件…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <div className="version-v9-entry-list">
+        <div className="version-entry-list">
           {area === "commits"
             ? (log.data ?? []).map((c) => (
                 <button key={c.id} type="button" className={commit?.id === c.id ? "active" : ""} data-testid="git-commit" onClick={() => setSelCommit(c.id)}>
@@ -357,7 +357,7 @@ function GitPage() {
                 </button>
               ))
             : shown.map((f) => (
-                <div key={`${area}-${f.path}`} className={`version-v9-file-row${target?.path === f.path ? " active" : ""}`} data-testid={area === "staged" ? "git-staged" : "git-change"}>
+                <div key={`${area}-${f.path}`} className={`${target?.path === f.path ? " active" : ""}`} data-testid={area === "staged" ? "git-staged" : "git-change"}>
                   <button type="button" className={target?.path === f.path ? "active" : ""} onClick={() => setSelPath(f.path)}>
                     <FileText size={14} aria-hidden />
                     <span>
@@ -370,28 +370,28 @@ function GitPage() {
                   {area === "staged" ? <Button onClick={() => void act("git.unstage", { paths: [f.path] })}>{t.git.unstage}</Button> : <Button onClick={() => void act("git.stage", { paths: [f.path] })}>{t.git.stage}</Button>}
                 </div>
               ))}
-          {area !== "commits" && shown.length === 0 ? <p className="version-v9-empty">{files.length === 0 ? t.git.clean : "此区域没有变更"}</p> : null}
-          {area === "commits" && (log.data ?? []).length === 0 ? <p className="version-v9-empty">尚无提交</p> : null}
+          {area !== "commits" && shown.length === 0 ? <p className="version-empty">{files.length === 0 ? t.git.clean : "此区域没有变更"}</p> : null}
+          {area === "commits" && (log.data ?? []).length === 0 ? <p className="version-empty">尚无提交</p> : null}
         </div>
-        <p className="version-v9-note">工作区、暂存区和提交分别保存。暂存后的新编辑仍留在工作区。</p>
+        <p className="version-note">工作区、暂存区和提交分别保存。暂存后的新编辑仍留在工作区。</p>
       </aside>
-      <main className="version-v9-main">
+      <main className="hu-version-v9-main">
         {error ? (
-          <p role="alert" className="version-v9-error">
+          <p role="alert" className="version-error">
             {error}
           </p>
         ) : null}
-        <div className="version-v9-diff-heading">
+        <div className="hu-version-v9-diff-heading">
           <div>
             <FileText size={15} aria-hidden />
             <strong>{area === "commits" ? (commit?.subject ?? "—") : (target?.path ?? "—")}</strong>
           </div>
         </div>
         {diff.data?.diff ? <PatchView patch={diff.data.diff} /> : <EmptyState icon={GitBranch} title="当前没有可比较的变更" hint="查看和预览不会改写文件。" />}
-        <details className="version-v9-manual" open={area === "staged"}>
+        <details className="hu-version-v9-manual" open={area === "staged"}>
           <summary>手动暂存与提交</summary>
           <form
-            className="version-v9-sidebar-actions"
+            className="hu-version-v9-sidebar-actions"
             onSubmit={(e) => {
               e.preventDefault();
               if (msg.trim() && staged.length) void act("git.commit", { message: msg }).then((r) => r !== null && setMsg(""));

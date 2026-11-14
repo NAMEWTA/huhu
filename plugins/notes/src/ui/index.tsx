@@ -1,3 +1,4 @@
+import "./notes.css";
 import type { ModuleContribution } from "@huhu/workbench";
 import { NotebookPen } from "lucide-react";
 import { NotesModule } from "./NotesModule.js";

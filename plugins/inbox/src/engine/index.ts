@@ -19,7 +19,7 @@ const Dto = z.object({
   result: z.object({ kind: z.enum(["task", "note", "archive"]), id: z.string() }).nullable(),
 });
 const CREATE_CAP: Record<ConvertTarget, string> = { task: "tasks.create", note: "notes.create", archive: "archives.create" };
-const TARGET_PLUGIN: Record<ConvertTarget, string> = { task: "tasks", note: "notes", archive: "archives" };
+const TARGET_PLUGIN: Record<ConvertTarget, string> = { task: "tasks", note: "notes", archive: "notes" };
 
 export interface InboxOptions {
   now?: () => Date;
@@ -35,7 +35,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
     isTargetEnabled: (k) => opts.isPluginEnabled?.(TARGET_PLUGIN[k]) ?? true,
     createTarget: async (kind, fields, key) => {
       const r = (await api.call(CREATE_CAP[kind], fields, { idempotencyKey: key })) as { id?: string; path?: string };
-      const id = r.id;
+      const id = kind === "archive" ? r.path : r.id; // 档案以文件夹路径标识
       if (!id) throw new Error("目标插件没有返回对象 id");
       return { id };
     },

@@ -1,5 +1,6 @@
 import path from "node:path";
-import { normalizeRelPath, parseFrontmatter, patchFrontmatter } from "@huhu/vault";
+import { errors } from "@huhu/contracts";
+import { normalizeRelPath, parseFrontmatter, parseTaskBody, patchFrontmatter, replaceBody, replaceTaskSection, splitDocument } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
@@ -26,15 +27,22 @@ export interface VersioningOptions {
 /**
  * 恢复后对语义文件的保护：
  * - 自动化规则恢复后一律暂停（旧版本里的 enabled: true 不能立刻重新生效）；
- * - 任务文件恢复输入内容，但完成状态保持当前值（ACC-VS-03：completed 仍为 true）。
+ * - 任务文件只恢复 `<task>` 内容与普通字段；当前的 `status`、`completedAt`、`origin` 与整个 `<comments>` 区段保持不变；
+ *   恢复到旧版（schema 1）的任务文件会被拒绝（项目不再读取旧格式）。
  */
 export function guardRestoredContent(relInput: string, restored: string, current = ""): string {
   const rel = normalizeRelPath(relInput); // 与 restore 内部一致：忽略 "./"、重复斜杠
   // 大小写不敏感的文件系统上 automations/ 与 Automations/ 是同一目录
   if (rel.toLowerCase().startsWith("automations/")) return patchFrontmatter(restored, { enabled: false });
-  if (rel.startsWith("Tasks/") && current) {
+  if (rel.startsWith("Tasks/")) {
+    const old = parseFrontmatter(restored).data;
+    if ((old["huhu"] as { schema?: number } | undefined)?.schema !== 2) throw errors.invalidInput("这个版本是旧版任务文件（schema 1），不能恢复");
+    if (!current) return restored;
     const cur = parseFrontmatter(current).data;
-    return patchFrontmatter(restored, { completed: cur["completed"] ?? false, completedAt: cur["completedAt"] ?? null });
+    const withMeta = patchFrontmatter(restored, { status: cur["status"], completedAt: cur["completedAt"] ?? null, origin: cur["origin"] });
+    const oldTask = parseTaskBody(splitDocument(restored).body).task;
+    const curBody = splitDocument(current).body;
+    return replaceBody(withMeta, oldTask === null ? curBody : replaceTaskSection(curBody, oldTask));
   }
   return restored;
 }

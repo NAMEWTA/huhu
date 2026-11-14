@@ -1,5 +1,5 @@
 {
   "env": {
-    "DISABLE_TELEMETRY": ""
+    "DISABLE_TELEMETRY": "1"
   }
 }

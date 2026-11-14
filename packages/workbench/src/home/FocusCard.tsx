@@ -52,8 +52,8 @@ export function FocusCard({ children }: { children?: ReactNode }) {
 
   if (!v)
     return (
-      <section className="card focus-card" data-testid="card-focus">
-        <div className="card-head">
+      <section className="hu-card-alt hu-focus-card" data-testid="card-focus">
+        <div className="shell-card-head">
           <h2>
             <Flame size={17} aria-hidden /> {tHome.focusCard.title}
           </h2>
@@ -61,8 +61,8 @@ export function FocusCard({ children }: { children?: ReactNode }) {
       </section>
     );
   return (
-    <section className="card focus-card" data-testid="card-focus" aria-label={tHome.focusCard.title}>
-      <div className="card-head">
+    <section className="hu-card-alt hu-focus-card" data-testid="card-focus" aria-label={tHome.focusCard.title}>
+      <div className="shell-card-head">
         <h2>
           <Flame size={17} aria-hidden /> {tHome.focusCard.title}
         </h2>
@@ -70,13 +70,13 @@ export function FocusCard({ children }: { children?: ReactNode }) {
           <span data-testid="focus-completed">{tHome.focus.completedToday(v.completedToday)}</span>
         </Badge>
       </div>
-      <div className="timer-display" data-testid="focus-time" role="timer" aria-live="off">
+      <div className="shell-timer-display" data-testid="focus-time" role="timer" aria-live="off">
         {fmt(remaining).slice(0, 2)}
         <span>:</span>
         {fmt(remaining).slice(3)}
       </div>
       <p>{v.running ? tHome.focusCard.runningHint : tHome.focusCard.idleHint}</p>
-      <div className="timer-buttons">
+      <div className="hu-timer-buttons">
         {v.running ? (
           <Button variant="primary" icon={Pause} onClick={() => void act("pause")} data-testid="focus-pause">
             {tHome.focusCard.pause}
@@ -89,7 +89,7 @@ export function FocusCard({ children }: { children?: ReactNode }) {
         <IconButton icon={RotateCcw} label={tHome.focusCard.reset} onClick={() => void act("reset")} data-testid="focus-reset" />
       </div>
       {error ? (
-        <div role="alert" className="field-error">
+        <div role="alert" className="hu-field-error">
           {error}
         </div>
       ) : null}

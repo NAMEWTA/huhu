@@ -1,10 +1,11 @@
 {
   "name": "@huhu/vault",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./markdown": "./src/markdown/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

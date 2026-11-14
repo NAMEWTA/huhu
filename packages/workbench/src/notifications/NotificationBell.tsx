@@ -40,33 +40,33 @@ export function NotificationBell({ onOpenModule }: { onOpenModule?: (module: str
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "notifications.list" });
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <div className="notification-button">
+      <div className="shell-notification-button">
         <Popover.Trigger asChild>
           <IconButton icon={Bell} label={t.notifications.unread(unread)} data-testid="bell" />
         </Popover.Trigger>
         {unread > 0 ? <i data-testid="unread-count" aria-hidden /> : null}
       </div>
       <Popover.Portal>
-        <Popover.Content className="notification-popover" data-huhu-popover align="end" sideOffset={10} collisionPadding={12} aria-labelledby="huhu-notifications-title" data-testid="notification-panel">
-          <div className="drawer-head">
+        <Popover.Content className="shell-notification-popover" data-huhu-popover align="end" sideOffset={10} collisionPadding={12} aria-labelledby="huhu-notifications-title" data-testid="notification-panel">
+          <div className="shell-drawer-head">
             <h3 id="huhu-notifications-title">
               {t.notifications.title} <Badge>{unread}</Badge>
             </h3>
             <div className="row">
-              <button type="button" className="link-button" onClick={() => void engine.call("notifications.markRead", { ids: "all" }, { write: true }).then(refresh)}>
+              <button type="button" className="shell-link-button" onClick={() => void engine.call("notifications.markRead", { ids: "all" }, { write: true }).then(refresh)}>
                 {t.notifications.markAll}
               </button>
               <IconButton icon={X} label="关闭通知" onClick={() => setOpen(false)} />
             </div>
           </div>
           {(list.data ?? []).length === 0 ? (
-            <p className="tw-empty-group">{t.notifications.empty}</p>
+            <p className="shell-tw-empty-group">{t.notifications.empty}</p>
           ) : (
             (list.data ?? []).map((n) => (
               <button
                 key={n.id}
                 type="button"
-                className={`notice-item${n.read ? "" : " unread"}`}
+                className={`shell-notice-item${n.read ? "" : " shell-unread"}`}
                 data-read={n.read}
                 data-testid="notice-item"
                 onClick={() => {
@@ -77,7 +77,7 @@ export function NotificationBell({ onOpenModule }: { onOpenModule?: (module: str
                   }
                 }}
               >
-                <span className="notice-dot" />
+                <span className="shell-notice-dot" />
                 <span>
                   <strong>{n.title}</strong>
                   {n.body ? <small>{n.body}</small> : null}
@@ -89,7 +89,7 @@ export function NotificationBell({ onOpenModule }: { onOpenModule?: (module: str
               </button>
             ))
           )}
-          <div className="popover-footer">
+          <div className="shell-popover-footer">
             {onOpenModule ? (
               <Button
                 variant="ghost"

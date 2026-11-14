@@ -3,6 +3,7 @@ import { BookOpen, ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useCapability } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
+import { BrandMark } from "../shell/BrandMark.js";
 import { host } from "./host.js";
 
 type AppInfo = Awaited<ReturnType<NonNullable<ReturnType<typeof host>>["appInfo"]>>;
@@ -25,7 +26,7 @@ export function AboutPage() {
   }, []);
   const c = t.settings.about;
   const row = (label: string, value: string, testid: string) => (
-    <div className="setting-row" key={testid}>
+    <div className="hu-setting-row" key={testid}>
       <div>
         <strong>{label}</strong>
       </div>
@@ -34,8 +35,8 @@ export function AboutPage() {
   );
   return (
     <div data-testid="settings-about">
-      <section className="card about-hero">
-        <span className="about-mark">h</span>
+      <section className="hu-card-alt shell-about-hero">
+        <BrandMark className="shell-about-mark" />
         <div>
           <h1>HUHU Workbench</h1>
           <p>围绕 Vault 的本地工作台。</p>
@@ -46,10 +47,10 @@ export function AboutPage() {
           </div>
         </div>
       </section>
-      <section className="settings-section card">
+      <section className="hu-settings-section hu-card-alt">
         <h2>{c.title}</h2>
         {unavailable ? (
-          <p className="hint-text">{c.hostOnly}</p>
+          <p className="hu-hint-text">{c.hostOnly}</p>
         ) : !info ? (
           <p>{t.loading}</p>
         ) : (
@@ -64,32 +65,32 @@ export function AboutPage() {
           </>
         )}
       </section>
-      <section className="settings-section card">
+      <section className="hu-settings-section hu-card-alt">
         <h2>学习与复用来源</h2>
         <p>完整路径、固定提交与采用边界见随应用的开源声明与架构文档。</p>
-        <div className="source-link-list">
+        <div className="shell-source-link-list">
           {SOURCES.map(([label, url]) => (
             <a key={url} href={url} target="_blank" rel="noopener noreferrer">
               <BookOpen size={15} aria-hidden />
               <span>
                 <strong>{label}</strong>
-                <code className="source-full-url">{url}</code>
+                <code className="shell-source-full-url">{url}</code>
               </span>
               <ExternalLink size={13} aria-hidden />
             </a>
           ))}
         </div>
       </section>
-      <section className="settings-section card">
+      <section className="hu-settings-section hu-card-alt">
         <h2>{c.notices}</h2>
         {notices === null ? (
           <p>{t.loading}</p>
         ) : notices === "" ? (
-          <p className="hint-text">{c.noNotices}</p>
+          <p className="hu-hint-text">{c.noNotices}</p>
         ) : (
           <details data-testid="about-notices">
             <summary>{c.showNotices}</summary>
-            <pre className="tw-source-preview">{notices}</pre>
+            <pre className="hu-tw-source-preview">{notices}</pre>
           </details>
         )}
       </section>

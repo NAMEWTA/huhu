@@ -33,7 +33,7 @@ describe("事件日志", () => {
   });
   test("翻译引擎事件：只有面向用户的事件会被记录，带上标题", () => {
     const title = (k: string, id: string) => (k === "task" && id === "t1" ? "写周报" : null);
-    expect(describeEvent({ type: "task.completedChanged", payload: { taskId: "t1", completed: true } }, title)).toEqual({ module: "任务", message: "任务「写周报」已完成", tone: "success" });
+    expect(describeEvent({ type: "task.statusChanged", payload: { taskId: "t1", status: "completed", previous: "in_progress" } }, title)).toEqual({ module: "任务", message: "任务「写周报」已完成", tone: "success" });
     expect(describeEvent({ type: "entity.changed", payload: { kind: "task", id: "t1", op: "created" } }, title)?.message).toBe("任务「写周报」已创建");
     expect(describeEvent({ type: "run.stateChanged", payload: { runId: "r", kind: "task-run", state: "failed" } })).toMatchObject({ module: "自动化", tone: "error" });
     expect(describeEvent({ type: "run.stateChanged", payload: { runId: "r", kind: "task-run", state: "running" } })).toBeNull();

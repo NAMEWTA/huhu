@@ -8,6 +8,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import { z } from "zod";
 import { CommentsService } from "./comments/service.js";
+import { ArchivesService } from "./archives/service.js";
+import { registerArchiveCapabilities } from "./archives/capabilities.js";
 import { NotesService } from "./service.js";
 
 /** 自动化规则（含 agent_prompt）是"会被调度器执行"的 Markdown：外部入口不得通过通用笔记写入口在 Automations/ 下创建、改写、复制或移出它们。 */
@@ -24,6 +26,7 @@ function assertNotAutomationsDir(caller: string, ...paths: (string | undefined)[
 }
 
 export { NotesService } from "./service.js";
+export { ArchivesService } from "./archives/service.js";
 export { CommentsService } from "./comments/service.js";
 
 const Path = z.object({ path: z.string().min(1) });
@@ -367,5 +370,16 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     }),
   );
   api.defineCapability(def({ name: "notes.draft.discard", ...dw, input: Path, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (rmSync(draftFile(i.path), { force: true }), { ok: true as const }) }));
+  registerArchiveCapabilities(
+    api,
+    new ArchivesService({
+      files: api.vault.files,
+      ops: new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations")),
+      index: api.vault.index,
+      notes: svc,
+      publish: (t, p) => api.events.publish(t, p),
+      now: opts.now ?? (() => new Date()),
+    }),
+  );
   return svc;
 }

@@ -4,7 +4,7 @@ import { ConnectError, connect } from "./connect.js";
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
 import { createMcpServer } from "./mcp.js";
 
-export const VERSION = "0.0.1-rc.2";
+export const VERSION = "0.0.1-rc.3";
 
 /** 运行 CLI，返回退出码。 */
 export async function run(argv: string[], io: { out: (s: string) => void; err: (s: string) => void } = { out: (s) => process.stdout.write(s + "\n"), err: (s) => process.stderr.write(s + "\n") }): Promise<number> {
@@ -92,26 +92,51 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
         }
       });
   };
-  const bool = (v: unknown) => (v === undefined ? undefined : String(v) === "true");
   shortcut(program.command("guide").description("Agent 指南").command("status"), "guide.status", () => ({}));
   shortcut(program.command("plugins").description("插件").command("list"), "plugins.list", () => ({}));
   shortcut(program.command("capabilities").description("能力目录").command("list"), "capabilities.list", () => ({}));
   shortcut(program.command("notes").description("笔记").command("list"), "notes.list", () => ({}));
   const tasks = program.command("tasks").description("任务");
-  shortcut(tasks.command("list").option("--category <c>", "all|today|tomorrow|week|ended").option("--completed <bool>", "true|false"), "tasks.list", (o) => ({
-    ...(o["category"] ? { category: o["category"] } : {}),
-    ...(bool(o["completed"]) !== undefined ? { completed: bool(o["completed"]) } : {}),
-  }));
+  shortcut(
+    tasks
+      .command("list")
+      .option("--category <c>", "all|today|tomorrow|week|ended")
+      .option("--status <s>", "not_started|in_progress|completed（可用逗号分隔多个）")
+      .option("--type <t>", "human|agent")
+      .option("--tag <tags>", "标签，逗号分隔，全部匹配"),
+    "tasks.list",
+    (o) => ({
+      ...(o["category"] ? { category: o["category"] } : {}),
+      ...(o["status"]
+        ? {
+            status: String(o["status"])
+              .split(",")
+              .map((x) => x.trim())
+              .filter(Boolean),
+          }
+        : {}),
+      ...(o["type"] ? { type: o["type"] } : {}),
+      ...(o["tag"]
+        ? {
+            tags: String(o["tag"])
+              .split(",")
+              .map((x) => x.trim())
+              .filter(Boolean),
+          }
+        : {}),
+    }),
+  );
   shortcut(tasks.command("create").requiredOption("--title <t>").option("--due <date>"), "tasks.create", (o) => ({ title: o["title"], ...(o["due"] ? { due: o["due"] } : {}) }));
   tasks
-    .command("complete <id>")
+    .command("status <id> <status>")
+    .description("修改任务状态：not_started | in_progress | completed")
     .option("--vault <path>")
     .option("--json")
-    .action(async (id: string, o: { vault?: string; json?: boolean }) => {
+    .action(async (id: string, status: string, o: { vault?: string; json?: boolean }) => {
       try {
         const conn = await connect(o.vault);
         const cur = await callCapability(conn, "tasks.read", { id });
-        const r = cur.ok ? await callCapability(conn, "tasks.setCompleted", { id, completed: true, expectedVersion: (cur.data as { version: string }).version }) : cur;
+        const r = cur.ok ? await callCapability(conn, "tasks.setStatus", { id, status, expectedVersion: (cur.data as { version: string }).version }) : cur;
         const out = render(r, o.json === true);
         io.out(out.out);
         code = out.code;

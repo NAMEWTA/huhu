@@ -115,7 +115,9 @@ describe("恢复保护（ACC-VS-04）", () => {
     expect(guardRestoredContent("Automations//r--rule-1.md", rule)).toContain("enabled: false");
     expect(guardRestoredContent("automations/r--rule-1.md", rule)).toContain("enabled: false");
     expect(() => guardRestoredContent("../x.md", rule)).toThrow();
-    expect(guardRestoredContent("Tasks/t.md", rule)).toBe(rule);
+    const task = "---\nhuhu: {kind: task, id: task-1, schema: 2}\ntitle: t\n---\n";
+    expect(guardRestoredContent("Tasks/t.md", task)).toBe(task);
+    expect(() => guardRestoredContent("Tasks/t.md", task.replace("schema: 2", "schema: 1"))).toThrow(/schema 1/);
   });
   test("restore 钩子：先 transform 再写入，写入后触发 afterWrite", async () => {
     const { root, files, h } = setup();
@@ -155,14 +157,23 @@ describe("审计回归", () => {
     await expect(h.read({ id: "--output=/tmp/pwned", path: "n.md" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(existsSync("/tmp/pwned:n.md")).toBe(false);
   });
-  test("ACC-VS-03：任务恢复旧输入，但 completed 保持当前值", async () => {
+  test("ACC-VS-03：任务恢复旧输入，但 status / completedAt / origin / <comments> 保持当前值", async () => {
     const { guardRestoredContent } = await import("../src/engine/index.js");
-    const old = "---\nhuhu: {kind: task, id: task-1, schema: 1}\ntitle: 旧标题\ncompleted: false\ncompletedAt: null\n---\n旧正文\n";
-    const cur = "---\nhuhu: {kind: task, id: task-1, schema: 1}\ntitle: 新标题\ncompleted: true\ncompletedAt: 2026-11-10T00:00:00Z\n---\n新正文\n";
+    const head = (title: string, status: string, done: string, origin: string) => `---\nhuhu: {kind: task, id: task-1, schema: 2}\ntitle: ${title}\ntype: human\nstatus: ${status}\ncompletedAt: ${done}\norigin: {kind: ${origin}}\n---\n`;
+    const old = `${head("旧标题", "not_started", "null", "desktop")}\n<task>\n\n旧正文\n\n</task>\n`;
+    const cur = `${head("新标题", "completed", "2026-11-10T00:00:00Z", "inbox")}\n<task>\n\n新正文\n\n</task>\n\n<comments>\n\n<comment id="c1" at="2026-11-10T00:00:00Z" source="human">\n\n保留我\n\n</comment>\n\n</comments>\n`;
     const out = guardRestoredContent("Tasks/t--task-1.md", old, cur);
     expect(out).toContain("title: 旧标题");
     expect(out).toContain("旧正文");
-    expect(out).toContain("completed: true");
+    expect(out).not.toContain("新正文");
+    expect(out).toContain("status: completed");
     expect(out).toContain("completedAt: 2026-11-10T00:00:00Z");
+    expect(out).toContain("kind: inbox");
+    expect(out).toContain("保留我"); // 评论区段整体保留
+  });
+  test("恢复到旧版（schema 1）任务文件被拒绝", async () => {
+    const { guardRestoredContent } = await import("../src/engine/index.js");
+    const v1 = "---\nhuhu: {kind: task, id: task-1, schema: 1}\ntitle: 旧\ncompleted: false\n---\n正文\n";
+    expect(() => guardRestoredContent("Tasks/t--task-1.md", v1, "")).toThrow(/schema 1/);
   });
 });

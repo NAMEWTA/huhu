@@ -1,6 +1,6 @@
 {
   "name": "@huhu/engine",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "private": true,
   "type": "module",
   "exports": {
@@ -14,7 +14,6 @@
     "@huhu/kernel": "workspace:*",
     "@huhu/plugin-agent-cli": "workspace:*",
     "@huhu/plugin-agent-guide": "workspace:*",
-    "@huhu/plugin-archives": "workspace:*",
     "@huhu/plugin-automations": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",

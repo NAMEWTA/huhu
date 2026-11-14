@@ -6,14 +6,14 @@ import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import { host } from "../settings/host.js";
-import type { UiState } from "../state/ui-store.js";
+import { openSettings, type UiState } from "../state/ui-store.js";
 
 interface Check {
   id: string;
   title: string;
   status: "ok" | "warning" | "error";
   detail: string;
-  action?: { label: string; target: string; capability?: string };
+  action?: { label: string; target: string; section?: string; capability?: string };
 }
 interface Run {
   overall: "ok" | "warning" | "error";
@@ -37,11 +37,11 @@ interface Notice {
 const TITLE = { all: "健康中心", logs: "事件日志", notifications: "通知中心" } as Record<string, string>;
 const STATE = { ok: "success", warning: "warning", error: "danger" } as const;
 /** 没有故障时每项也给一个查看入口（原型：每行右侧的“备份与存储 >”之类）。 */
-const DEFAULT_ACTION: Record<string, { label: string; target: string; capability?: string }> = {
+const DEFAULT_ACTION: Record<string, { label: string; target: string; section?: string; capability?: string }> = {
   plugins: { label: "插件中心", target: "plugins" },
-  files: { label: "数据与存储", target: "settings" },
-  index: { label: "数据与存储", target: "settings" },
-  watcher: { label: "数据与存储", target: "settings" },
+  files: { label: "数据与存储", target: "settings", section: "data" },
+  index: { label: "数据与存储", target: "settings", section: "data" },
+  watcher: { label: "数据与存储", target: "settings", section: "data" },
   herdr: { label: "Agent CLI", target: "agent-cli" },
   safe: { label: "保险箱", target: "safe" },
 };
@@ -97,8 +97,8 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
     }
     startDiagnostics();
   }
-  async function runAction(a: { label: string; target: string; capability?: string }) {
-    if (!a.capability) return ui.getState().openModule(a.target);
+  async function runAction(a: { label: string; target: string; section?: string; capability?: string }) {
+    if (!a.capability) return a.target === "settings" ? openSettings(ui, a.section) : ui.getState().openModule(a.target);
     if (confirmAction !== a.capability) return setConfirmAction(a.capability); // 重启会中断 Core 上运行中的终端：先确认
     setConfirmAction(null);
     await call(a.capability, {}).catch(() => undefined);
@@ -125,10 +125,10 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
   }
 
   return (
-    <div className="module-layout" data-testid="health-module">
-      <div className="view-content">
+    <div className="hu-module-layout" data-testid="health-module">
+      <div className="hu-view-content">
         {error ? (
-          <div role="alert" className="callout danger">
+          <div role="alert" className="hu-callout danger">
             <p>{error}</p>
           </div>
         ) : null}
@@ -147,10 +147,10 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
             </>
           }
         />
-        <div className="system-scroll scroll" tabIndex={0} role="region" aria-label="健康中心内容">
+        <div className="shell-system-scroll hu-scroll" tabIndex={0} role="region" aria-label="健康中心内容">
           {section === "notifications" ? (
-            <section className="card">
-              <div className="card-head">
+            <section className="hu-card-alt">
+              <div className="shell-card-head">
                 <h2>
                   通知 <Badge>{unread} 未读</Badge>
                 </h2>
@@ -163,7 +163,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
               </div>
               {(notices.data ?? []).length ? (
                 (notices.data ?? []).map((n) => (
-                  <div className={`health-notification ${n.read ? "" : "unread"}`} key={n.id}>
+                  <div className={`hu-health-notification ${n.read ? "" : "shell-unread"}`} key={n.id}>
                     <Bell size={18} aria-hidden />
                     <div className="grow">
                       <h3>{n.title}</h3>
@@ -188,7 +188,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
           ) : section === "logs" ? (
             <>
               <SearchBox value={query} onChange={setQuery} placeholder="搜索事件内容或来源…" />
-              <section className="card system-section">
+              <section className="hu-card-alt shell-system-section">
                 <DataTable
                   label="事件日志"
                   rows={events.data?.events ?? []}
@@ -211,8 +211,8 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
             </>
           ) : (
             <>
-              <div className="health-hero card">
-                <div className="health-orb">
+              <div className="hu-health-hero hu-card-alt">
+                <div className="shell-health-orb">
                   <HeartPulse size={36} aria-hidden />
                 </div>
                 <div>
@@ -221,11 +221,11 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                 </div>
                 <Badge tone={running ? "warning" : overall === "error" ? "danger" : overall === "warning" ? "warning" : overall ? "success" : "neutral"}>{running ? "检查中" : overall ? "LOCAL READY" : "未检查"}</Badge>
               </div>
-              <section className="card system-section">
+              <section className="hu-card-alt shell-system-section">
                 {result === null
                   ? UNCHECKED.map((title) => (
-                      <div className="health-check" key={title} data-testid="health-check" data-status="unchecked">
-                        <span className="health-check-icon">
+                      <div className="hu-health-check" key={title} data-testid="health-check" data-status="unchecked">
+                        <span className="shell-health-check-icon">
                           <HeartPulse size={20} aria-hidden />
                         </span>
                         <div className="grow">
@@ -237,8 +237,8 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                     ))
                   : null}
                 {(result?.checks ?? []).map((c) => (
-                  <div className="health-check" key={c.id} data-testid="health-check" data-status={c.status}>
-                    <span className={`health-check-icon ${c.status === "ok" ? "success" : STATE[c.status]}`}>{c.status === "ok" ? <CheckCircle2 size={20} aria-hidden /> : <AlertTriangle size={20} aria-hidden />}</span>
+                  <div className="hu-health-check" key={c.id} data-testid="health-check" data-status={c.status}>
+                    <span className={`shell-health-check-icon ${c.status === "ok" ? "success" : STATE[c.status]}`}>{c.status === "ok" ? <CheckCircle2 size={20} aria-hidden /> : <AlertTriangle size={20} aria-hidden />}</span>
                     <div className="grow">
                       <h3>{c.title}</h3>
                       <p>{c.detail}</p>
@@ -253,7 +253,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                   </div>
                 ))}
               </section>
-              <div className="callout system-note">
+              <div className="hu-callout shell-system-note">
                 <ShieldCheck size={17} aria-hidden />
                 <p>诊断导出包含版本、模块状态与事件记录，不包含凭据值或笔记正文。</p>
               </div>

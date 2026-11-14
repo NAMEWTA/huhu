@@ -31,8 +31,6 @@ const ID_PREFIX: Record<KindName, IdPrefix> = {
   "task-run": "run",
   "automation-rule": "rule",
   "automation-run": "arun",
-  "archive-type": "atype",
-  archive: "archive",
   capture: "cap",
   comment: "cmt",
 };

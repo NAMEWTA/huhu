@@ -1,0 +1,85 @@
+/* 不分层白名单：覆盖 sonner（运行时 __insertCSS 注入）
+   这些规则必须压过运行时注入的无层样式，放进 @layer 会全部失效（见 .agents/dev/changes/2026-11-14-design-system-completion/spec.md §3.2）。
+   只允许第三方选择器（scripts/check-css-layers.mjs 强制）。 */
+[data-sonner-toaster] {
+  font-family: var(--font-ui);
+  --normal-bg: var(--panel);
+  --normal-text: var(--text);
+  --normal-border: var(--line);
+  --success-bg: var(--panel);
+  --success-text: var(--text);
+  --success-border: var(--line);
+  --error-bg: var(--panel);
+  --error-text: var(--text);
+  --error-border: var(--line);
+}
+
+[data-sonner-toast].huhu-toast {
+  min-height: 52px;
+  border-radius: 10px;
+  padding: 13px 34px 13px 14px;
+  gap: 10px;
+  box-shadow:
+    0 4px 16px color-mix(in srgb, var(--shadow-ink) 6%, transparent),
+    0 1px 3px color-mix(in srgb, var(--shadow-ink) 3%, transparent);
+  animation: none;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 144ms ease-out,
+    height 180ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 120ms ease-out;
+}
+
+[data-sonner-toast].huhu-toast[data-removed="true"] {
+  transition-duration: 144ms;
+}
+
+[data-sonner-toast].huhu-toast [data-title] {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+[data-sonner-toast].huhu-toast [data-description] {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+[data-sonner-toast].huhu-toast [data-close-button] {
+  inset: 50% 8px auto auto;
+  transform: translateY(-50%);
+  margin: 0;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+}
+
+[data-sonner-toast].huhu-toast[data-type="success"] [data-icon] {
+  color: var(--success-text);
+}
+
+[data-sonner-toast].huhu-toast[data-type="error"] [data-icon] {
+  color: var(--danger-text);
+}
+
+[data-sonner-toast].huhu-toast[data-type="warning"] [data-icon] {
+  color: var(--warning-text);
+}
+
+[data-sonner-toast].huhu-toast[data-swiping="true"] {
+  transition: none;
+}
+
+:root[data-motion="reduced"] [data-sonner-toast].huhu-toast {
+  transition-property: opacity;
+  transition-duration: 80ms;
+}
+
+/* stylelint-disable declaration-no-important -- 覆盖 sonner 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+[data-sonner-toast] {
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-popover) !important;
+}
+
+/* stylelint-enable declaration-no-important */

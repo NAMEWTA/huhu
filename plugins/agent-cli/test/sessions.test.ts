@@ -4,7 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { HerdrCore } from "../src/engine/herdr-core.js";
-import { ProviderDetector } from "../src/engine/providers/index.js";
+import { AgentDetector } from "../src/engine/detect.js";
+import { resolveAgentLaunch } from "../src/engine/launch.js";
+import { emptyAgentSettings } from "../src/shared/index.js";
 import { SessionsService } from "../src/engine/sessions.js";
 import { SpaceStore } from "../src/engine/spaces.js";
 
@@ -68,7 +70,10 @@ function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof S
     vaultId: "vault-x",
     spaces,
     core: async () => client,
-    detect: () => new ProviderDetector(() => 0, { PATH: bin }).detect(),
+    resolve: async (i) => {
+      const detector = new AgentDetector({ settings: () => emptyAgentSettings(), now: () => 0, env: { PATH: bin }, home: tmp() });
+      return resolveAgentLaunch({ settings: emptyAgentSettings(), detected: (await detector.detect()).find((r) => r.id === i.agentId) }, i);
+    },
     now: () => new Date("2026-11-11T00:00:00Z"),
     ...over,
   });
@@ -286,7 +291,7 @@ describe("恢复历史会话", () => {
     mkdirSync(path.join(work, "sub"));
     const s = await svc.launch(req(space, { provider: "claude", resumeSessionId: "abc-123", cwd: path.join(work, "sub") }));
     const run = f.runs[0];
-    expect(run?.argv?.slice(1)).toEqual(["--resume", "abc-123"]);
+    expect(run?.argv?.slice(1)).toEqual(["--dangerously-skip-permissions", "--resume", "abc-123"]);
     expect(run?.cwd).toBe(path.join(work, "sub"));
     expect(s).toMatchObject({ nativeSessionId: "abc-123", state: "running" });
     expect(s.cwd).toBe(path.join(work, "sub"));
@@ -337,10 +342,10 @@ describe("会话启动", () => {
     await expect(svc.launch(req(space))).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
     expect(svc.list()[0]?.state).toBe("failed");
   });
-  test("provider 未检测到 → PROVIDER_NOT_FOUND，且不创建终端；revision 变化 → SPACE_INVALID", async () => {
+  test("provider 未检测到 → AGENT_NOT_FOUND，且不创建终端；revision 变化 → SPACE_INVALID", async () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);
-    await expect(svc.launch(req(space, { provider: "codex" }))).rejects.toMatchObject({ code: "PROVIDER_NOT_FOUND" });
+    await expect(svc.launch(req(space, { provider: "codex" }))).rejects.toMatchObject({ code: "AGENT_NOT_FOUND" });
     await expect(svc.launch(req(space, { spaceRevision: 99 }))).rejects.toMatchObject({ code: "SPACE_INVALID" });
     expect(f.terminals).toHaveLength(0);
   });

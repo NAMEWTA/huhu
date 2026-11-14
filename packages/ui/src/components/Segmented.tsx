@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { ChoiceSegmented } from "../proto/controls.js";
+import { ChoiceSegmented } from "./controls.js";
 
 export interface SegmentedProps<T extends string> {
   label: string;

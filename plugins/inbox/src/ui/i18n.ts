@@ -13,6 +13,6 @@ export const t = {
   delete: "删除",
   cleared: "收件箱已清空 · 现在可以安心专注于真正重要的事情。",
   select: "选择一条捕获",
-  noArchiveType: "还没有档案类型，请先在档案模块创建",
+  noArchiveType: "还没有档案类型，请先在笔记里的 Archives/ 下创建",
   processed: "这个想法已经开始行动",
 } as const;

@@ -12,28 +12,31 @@ export interface EditableRule {
   body: string;
   data: {
     title: string;
-    builtin: boolean;
     trigger: { preset: string; cron: string; zone: string };
-    action: { kind: string; text?: string; spaceId?: string; provider?: string; model?: string | null; effort?: string | null; fast?: boolean; scriptId?: string; args?: string[] };
+    action: Action;
   };
 }
+type Action =
+  | { kind: "agent"; input: { source: "tasks"; tags: string[]; maxConcurrent: number } | { source: "prompt"; spaceId: string; provider: string; model: string | null; effort: string | null; fast: boolean } }
+  | { kind: "terminal"; command: string; shell: string; spaceId: string | null; envRefs: Record<string, string> }
+  | { kind: "reminder"; mode: "notification" | "task" | "both"; text: string; taskId: string | null };
+/** 表单里的动作种类：agent 动作按输入来源拆成两项。 */
+type FormKind = "agent_tasks" | "agent_prompt" | "terminal" | "reminder";
+const formKindOf = (a: Action | undefined): FormKind => (!a ? "reminder" : a.kind === "agent" ? (a.input.source === "tasks" ? "agent_tasks" : "agent_prompt") : a.kind);
+
 interface Space {
   id: string;
   name: string;
   root: string;
 }
-interface Provider {
-  provider: string;
+interface Detected {
+  id: string;
   displayName: string;
-  status: string;
+  installed: boolean;
   headless: boolean;
 }
-interface ScriptRow {
-  id: string;
-  title: string;
-}
 
-/** 规则编辑器（新建 / 编辑）：标题、触发（预设+时刻或 cron+时区）、动作（通知 / 让 Agent 执行 / 运行脚本），保存时默认保持暂停。 */
+/** 规则编辑器（新建 / 编辑）：标题、触发（预设+时刻或 cron+时区）、动作（让 Agent 执行 / 运行终端命令 / 提醒），保存时默认保持暂停。 */
 export function RuleEditor({
   rule,
   zone,
@@ -46,8 +49,7 @@ export function RuleEditor({
   onCancel?(): void;
 }) {
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
-  const providers = useCapability<Provider[]>("agent.providers.detect", {});
-  const scripts = useCapability<ScriptRow[]>("automations.scripts.list", {});
+  const providers = useCapability<Detected[]>("agent.catalog.detect", {});
   const init = rule ? presetOf(rule.data.trigger.cron) : { preset: "every5" as PresetId, time: "09:00" };
   const a = rule?.data.action;
   const [title, setTitle] = useState(rule?.data.title ?? "");
@@ -55,19 +57,28 @@ export function RuleEditor({
   const [time, setTime] = useState(init.time);
   const [custom, setCustom] = useState(rule?.data.trigger.cron ?? "*/5 * * * *");
   const [tz, setTz] = useState(rule?.data.trigger.zone ?? zone);
-  const [kind, setKind] = useState<"notify" | "agent_prompt" | "script" | "scan_agent_tasks">((a?.kind as never) ?? "notify");
-  const [text, setText] = useState(a?.kind === "notify" ? (a.text ?? "") : "");
-  const [spaceId, setSpaceId] = useState(a?.kind === "agent_prompt" ? (a.spaceId ?? "") : "");
-  const [provider, setProvider] = useState(a?.kind === "agent_prompt" ? (a.provider ?? "") : "");
-  const [model, setModel] = useState(a?.kind === "agent_prompt" ? (a.model ?? "") : "");
-  const [prompt, setPrompt] = useState(a?.kind === "agent_prompt" ? (rule?.body ?? "") : "");
-  const [scriptId, setScriptId] = useState(a?.kind === "script" ? (a.scriptId ?? "") : "");
+  const [kind, setKind] = useState<FormKind>(formKindOf(a));
+  const prompt0 = a?.kind === "agent" && a.input.source === "prompt" ? a.input : null;
+  const [text, setText] = useState(a?.kind === "reminder" ? a.text : "");
+  const [mode, setMode] = useState<"notification" | "task" | "both">(a?.kind === "reminder" ? a.mode : "notification");
+  const [spaceId, setSpaceId] = useState(prompt0?.spaceId ?? (a?.kind === "terminal" ? (a.spaceId ?? "") : ""));
+  const [provider, setProvider] = useState(prompt0?.provider ?? "");
+  const [model, setModel] = useState(prompt0?.model ?? "");
+  const [prompt, setPrompt] = useState(prompt0 || (a?.kind === "agent" && a.input.source === "tasks") ? (rule?.body ?? "") : "");
+  const [tagsText, setTagsText] = useState(a?.kind === "agent" && a.input.source === "tasks" ? a.input.tags.join(", ") : "");
+  const [command, setCommand] = useState(a?.kind === "terminal" ? a.command : "");
+  const [envText, setEnvText] = useState(
+    a?.kind === "terminal"
+      ? Object.entries(a.envRefs)
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n")
+      : "",
+  );
   const [busy, setBusy] = useState(false);
-  const builtin = rule?.data.builtin === true;
   const cron = cronFor(preset, time, custom);
-  const found = (providers.data ?? []).filter((p) => p.status === "found" && p.headless);
+  const found = (providers.data ?? []).filter((p) => p.installed && p.headless);
 
-  const actionValid = kind === "notify" ? text.trim() !== "" : kind === "agent_prompt" ? spaceId !== "" && provider !== "" && prompt.trim() !== "" : kind === "script" ? scriptId !== "" : true;
+  const actionValid = kind === "reminder" ? text.trim() !== "" : kind === "agent_prompt" ? spaceId !== "" && provider !== "" && prompt.trim() !== "" : kind === "terminal" ? command.trim() !== "" : true;
   const timeOk = !PRESETS.find((p) => p.id === preset)?.time || /^\d{1,2}:\d{2}$/.test(time);
   // 触发设置的即时校验：cron 或时区不合法时在表单里就给出原因，并显示接下来三次激活
   let upcoming: string[] = [];
@@ -86,15 +97,27 @@ export function RuleEditor({
 
   async function submit() {
     setBusy(true);
+    const tags = tagsText
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const envRefs = Object.fromEntries(
+      envText
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()] as const)
+        .filter(([k]) => k !== ""),
+    );
     const action: Record<string, unknown> =
-      kind === "notify"
-        ? { kind, channel: "in_app", text: text.trim() }
+      kind === "reminder"
+        ? { kind: "reminder", mode, text: text.trim(), taskId: a?.kind === "reminder" ? a.taskId : null }
         : kind === "agent_prompt"
-          ? { kind, spaceId, provider, model: model.trim() || null, effort: a?.kind === "agent_prompt" ? (a.effort ?? null) : null, fast: a?.kind === "agent_prompt" ? (a.fast ?? false) : false }
-          : kind === "script"
-            ? { kind, scriptId, args: [] }
-            : (a as Record<string, unknown>);
-    const ok = await onSave({ title: title.trim(), trigger: { preset, cron, zone: tz.trim() }, action, body: kind === "agent_prompt" ? prompt.trim() : (rule?.body ?? "") });
+          ? { kind: "agent", input: { source: "prompt", spaceId, provider, model: model.trim() || null, effort: prompt0?.effort ?? null, fast: prompt0?.fast ?? false } }
+          : kind === "agent_tasks"
+            ? { kind: "agent", input: { source: "tasks", tags, maxConcurrent: a?.kind === "agent" && a.input.source === "tasks" ? a.input.maxConcurrent : 1 } }
+            : { kind: "terminal", command: command.trim(), shell: "default", spaceId: spaceId || null, envRefs: a?.kind === "terminal" ? { ...a.envRefs, ...envRefs } : envRefs };
+    const ok = await onSave({ title: title.trim(), trigger: { preset, cron, zone: tz.trim() }, action, body: kind === "agent_prompt" || kind === "agent_tasks" ? prompt.trim() : "" });
     setBusy(false);
     if (ok && !rule) {
       setTitle("");
@@ -112,31 +135,48 @@ export function RuleEditor({
         if (valid) void submit();
       }}
     >
-      <div className="tw-editor-grid">
-        <div className="tw-editor-body">
+      <div className="hu-tw-editor-grid">
+        <div className="automations-editor-body">
           <Field label={t.ruleTitle}>
             <input autoFocus aria-label={t.ruleTitle} placeholder={t.ruleTitle} value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <div className="tw-action-fields">
+          <div className="automations-action-fields">
             <Field label={t.actionKind}>
-              <select aria-label={t.actionKind} data-testid="rule-kind" value={kind} disabled={builtin} onChange={(e) => setKind(e.target.value as typeof kind)}>
-                <option value="notify">{t.kinds.notify}</option>
+              <select aria-label={t.actionKind} data-testid="rule-kind" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
+                <option value="agent_tasks">{t.kinds.agent_tasks}</option>
                 <option value="agent_prompt">{t.kinds.agent_prompt}</option>
-                <option value="script">{t.kinds.script}</option>
-                {builtin ? <option value="scan_agent_tasks">{t.kinds.scan_agent_tasks}</option> : null}
+                <option value="terminal">{t.kinds.terminal}</option>
+                <option value="reminder">{t.kinds.reminder}</option>
               </select>
             </Field>
-            {kind === "scan_agent_tasks" ? (
-              <div className="tw-scan-contract">
-                <strong>扫描已有任务</strong>
-                <p>只处理未完成且执行方式为Agent的任务；按任务输入版本避免重复调用。</p>
-                <p>不会创建另一份待办，也不会自动勾选完成。</p>
-              </div>
+            {kind === "agent_tasks" ? (
+              <>
+                <div className="automations-scan-contract">
+                  <strong>{t.scanTitle}</strong>
+                  <p>{t.scanHintA}</p>
+                  <p>{t.scanHintB}</p>
+                </div>
+                <Field label={t.tagFilter}>
+                  <input aria-label={t.tagFilter} data-testid="rule-tags" placeholder={t.tagFilterPlaceholder} value={tagsText} onChange={(e) => setTagsText(e.target.value)} />
+                </Field>
+                <Field label={t.instruction}>
+                  <textarea className="automations-description-input" rows={4} aria-label={t.instruction} placeholder={t.instructionPlaceholder} data-testid="rule-instruction" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                </Field>
+              </>
             ) : null}
-            {kind === "notify" ? (
-              <Field label={t.ruleText}>
-                <input aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} />
-              </Field>
+            {kind === "reminder" ? (
+              <>
+                <Field label={t.reminderMode}>
+                  <select aria-label={t.reminderMode} data-testid="rule-reminder-mode" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+                    <option value="notification">{t.reminderModes.notification}</option>
+                    <option value="task">{t.reminderModes.task}</option>
+                    <option value="both">{t.reminderModes.both}</option>
+                  </select>
+                </Field>
+                <Field label={t.ruleText}>
+                  <input aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} />
+                </Field>
+              </>
             ) : null}
             {kind === "agent_prompt" ? (
               <>
@@ -154,42 +194,50 @@ export function RuleEditor({
                   <select aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
                     <option value="">{t.choose}</option>
                     {found.map((p) => (
-                      <option key={p.provider} value={p.provider}>
+                      <option key={p.id} value={p.id}>
                         {p.displayName}
                       </option>
                     ))}
-                    {provider && !found.some((p) => p.provider === provider) ? (
+                    {provider && !found.some((p) => p.id === provider) ? (
                       <option value={provider}>
                         {provider}（{t.unavailable}）
                       </option>
                     ) : null}
                   </select>
                 </Field>
-                {found.length === 0 && providers.data ? <p className="tw-hint">{t.noProvider}</p> : null}
+                {found.length === 0 && providers.data ? <p className="tasks-hint">{t.noProvider}</p> : null}
                 <Field label={t.model}>
                   <input aria-label={t.model} placeholder={t.model} value={model} onChange={(e) => setModel(e.target.value)} />
                 </Field>
                 <Field label={t.prompt}>
-                  <textarea className="tw-description-input" rows={7} aria-label={t.prompt} placeholder={t.prompt} data-testid="rule-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                  <textarea className="automations-description-input" rows={7} aria-label={t.prompt} placeholder={t.prompt} data-testid="rule-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
                 </Field>
               </>
             ) : null}
-            {kind === "script" ? (
-              <Field label={t.script}>
-                <select aria-label={t.script} data-testid="rule-script" value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
-                  <option value="">{t.choose}</option>
-                  {(scripts.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.title}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+            {kind === "terminal" ? (
+              <>
+                <Field label={t.command}>
+                  <textarea className="automations-description-input" rows={3} aria-label={t.command} placeholder={t.commandPlaceholder} data-testid="rule-command" value={command} onChange={(e) => setCommand(e.target.value)} />
+                </Field>
+                <Field label={t.space}>
+                  <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
+                    <option value="">{t.vaultRoot}</option>
+                    {(spaces.data ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={t.envRefs}>
+                  <textarea rows={3} aria-label={t.envRefs} placeholder={t.envRefsPlaceholder} value={envText} onChange={(e) => setEnvText(e.target.value)} />
+                </Field>
+              </>
             ) : null}
           </div>
         </div>
-        <aside className="tw-editor-aside">
-          <div className="tw-section-label">
+        <aside className="automations-editor-aside">
+          <div className="hu-tw-section-label">
             <Clock size={14} aria-hidden />
             <strong>何时激活</strong>
           </div>
@@ -221,11 +269,11 @@ export function RuleEditor({
             <input aria-label={t.zone} placeholder={t.zone} value={tz} aria-invalid={triggerError === t.zoneInvalid} onChange={(e) => setTz(e.target.value)} />
           </Field>
           {triggerError ? (
-            <p role="alert" className="tw-schedule-error" data-testid="rule-trigger-error">
+            <p role="alert" className="automations-schedule-error" data-testid="rule-trigger-error">
               {triggerError}
             </p>
           ) : (
-            <div className="tw-schedule-preview" data-testid="rule-upcoming">
+            <div className="automations-schedule-preview" data-testid="rule-upcoming">
               <strong>{t.upcoming}</strong>
               <small>{tz.trim() || zone} · 仅预览</small>
               {upcoming.map((x) => (
@@ -233,10 +281,10 @@ export function RuleEditor({
               ))}
             </div>
           )}
-          <p className="tw-hint">{t.savedPaused}</p>
+          <p className="tasks-hint">{t.savedPaused}</p>
         </aside>
       </div>
-      <div className="modal-actions">
+      <div className="automations-modal-actions">
         {onCancel ? (
           <Button type="button" variant="ghost" onClick={onCancel}>
             {t.cancelEdit}

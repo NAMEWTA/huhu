@@ -1,0 +1,28 @@
+HUHU 品牌概念图来源
+
+本轮方向：整体协调的完整虎虎形象，沿用用户偏好的仰躺抬爪构图。
+工具：image_gen（透明背景编辑）。
+轮次：本轮共 1 次编辑生成，保留该次输出为 huhu-imagegen.png。
+
+输入角色：
+1. 指定的当前大头版品牌图：本轮编辑目标，用于明确被修改的既有品牌资产。
+2. 用户本轮附上的完整虎虎卡通截图：本轮构图、头身比例和姿态的主要参考；截图中的棋盘格、编辑／分享控件不属于设计。
+3. 一张用户提供的虎虎原始照片：只辅助橘色虎斑、黄绿眼、粉鼻、白胸腹与白袜爪等身份特征，不覆盖用户指定的卡通表情和姿态。
+
+上述输入图片不随本 PR 上传。huhu-imagegen.png 保留生成输出的原始字节。
+正式 huhu-mark.svg 等文件为依据最终概念图绘制的原生 SVG 适配稿，使用独立路径和统一平面配色。SVG 保留完整身体、抬爪、白腹和卷尾；它与生成概念图在局部色块、轮廓、阴影和细节上存在矢量化调整，不是 PNG 的无损转换，也不嵌入位图。
+
+完整生成提示词（原文）
+----------------------
+Edit the cat logo in reference image 1 (the existing huge-head orange cat brand asset) to fulfill the user's correction, using reference image 2 as the PRIMARY desired final character composition and proportions. Reference image 3 is a real photograph of the user's cat Huhu for markings and identity only.
+
+The user dislikes the huge head and tiny body of image 1 and explicitly prefers the harmonious FULL-BODY reclining cartoon in image 2. Transform image 1 accordingly. Preserve the character identity, but return to the lively, balanced full-body pose in image 2: slightly tilted head in the upper-left; upright triangular cat ears with rounded tips; joyful open smile and small pink tongue; one front white-mitten paw folded softly over the chest, the other front paw raised at upper-right showing a cute soft pink heart-like central pad and small toe pads; a large visible cream-white chest and belly; one visible lower white hind paw; the other naturally occluded behind the body; one striped tail curling along the right side and the lower edge.
+
+Match image 2 closely in the overall silhouette and body language. Make a careful refinement, not a different mascot. The lower body and belly must have real volume and length and visually balance the head. Reduce the head very modestly compared with image 2, while keeping it expressive: the head including ears should occupy approximately half of the total silhouette height, and the facial mass alone less than 40 percent. Do not preserve the enormous head from image 1. Do not compress the torso into a tiny bean. Do not turn it into a seated or frontal chibi doll. The head, ears, shoulders, wrist, hind paw, and tail should connect naturally. The raised paw should be rounded but not oversized. Keep a clear separation between forearm and tail; one continuous elegant tapering tail, not a balloon ring.
+
+Identity from image 3: warm orange domestic tabby with copper-brown forehead M stripes and cheek stripes, yellow-green eyes with dark pupils, pink nose, white chin/chest/belly and white mittens. Image 2 is still the authoritative cartoon expression and pose; keep its smile and raised paw, even though the photo differs. Preserve cheerful cuteness through soft curves and bright eyes rather than head enlargement. Keep the eyes proportional to image 2, not much larger.
+
+Style: polished professional cartoon brand mascot with clean smooth warm deep-brown outlines, warm golden-orange fur, soft apricot highlights, copper tabby stripes, ivory cream belly, yellow-green irises, restrained pink ears and pads. Friendly, cohesive, lively, not generic baby plush. Use flat vector-friendly color shapes and very restrained simple shading; no photographic fur texture, no airbrush bloom, no intricate clutter. Balanced detail and clear small-size silhouette. Refine the paw anatomy, keep uncluttered short whiskers, remove awkward overlaps and jagged shapes.
+
+Output ONE centered complete mascot only on a genuinely transparent background with alpha. Square canvas, healthy 6–8 percent clear margin around every extremity, all ears, paws and tail fully visible. Absolutely no checkerboard pixels, no screenshot UI or bottom dark gradient from image 2, no edit/share buttons, no lettering, no HUHU text, no badge border, no decorative stars, no extra characters, no ground shadow.
+

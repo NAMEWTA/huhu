@@ -1,6 +1,6 @@
 import { randomInt } from "node:crypto";
 
-export const ID_PREFIXES = ["note", "task", "run", "rule", "arun", "archive", "atype", "cap", "cmt", "space", "host", "item", "script"] as const;
+export const ID_PREFIXES = ["note", "task", "run", "rule", "arun", "cap", "cmt", "space", "host", "item"] as const;
 export type IdPrefix = (typeof ID_PREFIXES)[number];
 
 const ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";

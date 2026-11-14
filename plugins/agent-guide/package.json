@@ -1,11 +1,11 @@
 {
   "name": "@huhu/plugin-agent-guide",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "private": true,
   "type": "module",
   "exports": {
     "./engine": "./src/engine/index.ts",
-    "./ui": "./src/ui/index.ts",
+    "./ui": "./src/ui/index.tsx",
     "./shared": "./src/shared/index.ts",
     "./manifest": "./huhu-plugin.json"
   },
@@ -16,7 +16,14 @@
     "@huhu/contracts": "workspace:*",
     "@huhu/cordis": "workspace:*",
     "@huhu/kernel": "workspace:*",
+    "@huhu/ui": "workspace:*",
     "@huhu/vault": "workspace:*",
+    "@huhu/workbench": "workspace:*",
+    "lucide-react": "^1.70.0",
+    "react": "^19.3.1",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
   }
 }

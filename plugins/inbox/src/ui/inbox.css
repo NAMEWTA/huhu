@@ -1,0 +1,724 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer modules {
+  .hu-knowledge-root {
+    position: relative;
+    font-size: 13px;
+    isolation: isolate;
+  }
+  .hu-knowledge-root .hu-resource-pane {
+    width: 240px;
+    flex: 0 0 240px;
+    background: var(--panel);
+  }
+  .hu-knowledge-root .hu-resource-head {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 18px 16px 13px;
+    min-height: auto;
+    font-weight: 400;
+    border-bottom: 1px solid var(--line);
+  }
+  .hu-knowledge-root .hu-resource-head > .row {
+    gap: 4px;
+  }
+  .hu-knowledge-root .hu-resource-head strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .hu-knowledge-root .hu-resource-head > p {
+    font-size: 12px;
+    margin-top: -6px;
+  }
+  .hu-knowledge-root .hu-resource-head select {
+    font-size: 12px;
+    padding: 6px 8px;
+    min-height: 30px;
+  }
+  .hu-knowledge-root .hu-resource-list {
+    padding: 9px 8px 18px;
+  }
+  .hu-knowledge-root .hu-view-content {
+    position: relative;
+  }
+  .hu-knowledge-root input[type="checkbox"] {
+    flex-shrink: 0;
+    border-radius: 4px;
+    width: 15px;
+    height: 15px;
+    min-height: 15px;
+    cursor: pointer;
+  }
+  .hu-knowledge-root button:focus-visible {
+    outline: 2px solid var(--tag-4);
+    outline-offset: 2px;
+  }
+  .hu-knowledge-resource-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-height: 43px;
+    flex-shrink: 0;
+    border-top: 1px solid var(--line);
+    padding: 7px 13px;
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .inbox-knowledge-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    line-height: 1;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--faint);
+    background: var(--muted-bg);
+    margin-left: 5px;
+    padding: 1px 4px;
+  }
+  .hu-knowledge-root .inbox-knowledge-inbox-list {
+    width: 270px;
+    flex-basis: 270px;
+  }
+  .inbox-knowledge-inbox-list .hu-resource-list {
+    padding: 0;
+  }
+  .inbox-knowledge-inbox-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 17px 15px 17px 12px;
+    border-bottom: 1px solid var(--line);
+    border-left: 2px solid transparent;
+    background: var(--panel);
+    transition: background 0.12s;
+  }
+  .inbox-knowledge-inbox-item:hover {
+    background: var(--muted-bg);
+  }
+  .inbox-knowledge-inbox-item.active {
+    background: var(--accent-soft);
+    border-left-color: var(--text);
+  }
+  .inbox-knowledge-inbox-item > input {
+    margin: 3px 10px 0 0;
+  }
+  .inbox-knowledge-inbox-item > button {
+    flex: 1;
+    min-width: 0;
+    display: block;
+    text-align: left;
+    padding: 0;
+  }
+  .inbox-knowledge-inbox-item-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--faint);
+    margin-bottom: 7px;
+  }
+  .inbox-knowledge-inbox-item-meta > span {
+    color: var(--muted);
+  }
+  .inbox-knowledge-inbox-item strong {
+    display: block;
+    font-size: 12px;
+    line-height: 1.7;
+    font-weight: 550;
+    overflow-wrap: anywhere;
+  }
+  .inbox-knowledge-inbox-item p {
+    font-size: 12px;
+    line-height: 1.9;
+    color: var(--muted);
+    margin-top: 7px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .inbox-knowledge-inbox-converted {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--success-text);
+  }
+  .inbox-knowledge-inbox-bulk {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 34px;
+    padding: 7px 15px;
+    font-size: 12px;
+    background: var(--muted-bg);
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .inbox-knowledge-inbox-bulk > span {
+    margin-right: auto;
+  }
+  .inbox-knowledge-inbox-bulk > button {
+    font-size: 12px;
+    color: var(--text);
+    padding: 0;
+  }
+  .inbox-knowledge-inbox-main {
+    overflow: auto;
+  }
+  .hu-knowledge-quick-capture > svg {
+    color: var(--faint);
+  }
+  .inbox-knowledge-inbox-detail {
+    padding: 28px 30px 38px;
+    border-top: 1px solid var(--line);
+    flex: 1;
+  }
+  .hu-knowledge-inbox-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12px;
+    color: var(--faint);
+    margin-bottom: 23px;
+  }
+  .inbox-knowledge-inbox-detail > h2 {
+    font-size: 23px;
+    font-weight: 600;
+    line-height: 1.6;
+    letter-spacing: -0.3px;
+    max-width: 720px;
+    margin-bottom: 20px;
+  }
+  .inbox-knowledge-inbox-note {
+    padding: 20px 22px;
+    background: var(--muted-bg);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    max-width: 850px;
+  }
+  .inbox-knowledge-inbox-note .markdown {
+    font-size: 13px;
+    line-height: 1.95;
+    color: var(--muted);
+  }
+  .inbox-knowledge-inbox-note .markdown p:last-child {
+    margin-bottom: 0;
+  }
+  .inbox-knowledge-inbox-note .markdown p:first-child {
+    margin-top: 0;
+  }
+  .inbox-knowledge-processing-heading {
+    margin-top: 37px;
+  }
+  .inbox-knowledge-processing-heading h3 {
+    font-size: 13px;
+    font-weight: 550;
+  }
+  .inbox-knowledge-processing-heading p {
+    font-size: 12px;
+    color: var(--faint);
+    margin-top: 7px;
+  }
+  .inbox-knowledge-convert-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 13px;
+    margin-top: 20px;
+    max-width: 850px;
+  }
+  .inbox-knowledge-convert-options > button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 15px;
+    text-align: left;
+    background: var(--panel);
+    min-height: 142px;
+  }
+  .inbox-knowledge-convert-options > button:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--text) 30%, var(--line));
+    background: var(--muted-bg);
+    transform: translateY(-1px);
+  }
+  .inbox-knowledge-convert-options > button > span {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    background: var(--accent-soft);
+    border-radius: 8px;
+    color: var(--muted);
+    margin-bottom: 13px;
+  }
+  .inbox-knowledge-convert-options > button:nth-child(1) > span {
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+  .inbox-knowledge-convert-options > button:nth-child(2) > span {
+    background: var(--info-bg);
+    color: var(--info-text);
+  }
+  .inbox-knowledge-convert-options > button:nth-child(3) > span {
+    background: var(--tag-4-bg);
+    color: var(--tag-4-text);
+  }
+  .inbox-knowledge-convert-options > button > strong {
+    font-size: 12px;
+    font-weight: 550;
+  }
+  .inbox-knowledge-convert-options > button > p {
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--faint);
+    margin-top: 5px;
+  }
+  .inbox-knowledge-convert-options > button > svg:last-child {
+    position: absolute;
+    right: 13px;
+    top: 15px;
+    color: var(--faint);
+  }
+  .hu-knowledge-inbox-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 22px;
+    margin-top: 28px;
+    max-width: 850px;
+  }
+  .hu-knowledge-inbox-bottom > .small {
+    font-size: 12px;
+  }
+  .hu-knowledge-converted-result {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 24px;
+    margin-top: 28px;
+    border: 1px solid var(--line);
+    background: var(--success-bg);
+    border-radius: 10px;
+    max-width: 850px;
+  }
+  .inbox-knowledge-result-check {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    color: var(--success-text);
+    background: color-mix(in srgb, var(--success) 12%, var(--panel));
+    flex-shrink: 0;
+  }
+  .hu-knowledge-converted-result > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .hu-knowledge-converted-result h3 {
+    font-size: 14px;
+    font-weight: 550;
+  }
+  .hu-knowledge-converted-result p {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.9;
+  }
+  .hu-knowledge-dismissed-result {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 35px 20px;
+    margin-top: 24px;
+    text-align: center;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+  }
+  .hu-knowledge-dismissed-result > svg {
+    color: var(--faint);
+    margin-bottom: 15px;
+  }
+  .hu-knowledge-dismissed-result h3 {
+    font-size: 14px;
+    font-weight: 550;
+  }
+  .hu-knowledge-dismissed-result p {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 8px 0 20px;
+    line-height: 1.8;
+  }
+  @media (min-width: 1750px) {
+    .hu-knowledge-root .hu-resource-pane {
+      width: 265px;
+      flex-basis: 265px;
+    }
+  }
+  @media (min-width: 1750px) {
+    .hu-knowledge-root .inbox-knowledge-inbox-list {
+      width: 300px;
+      flex-basis: 300px;
+    }
+  }
+  @media (max-width: 1280px) {
+    .hu-knowledge-root .hu-resource-pane {
+      width: 210px;
+      flex-basis: 210px;
+    }
+  }
+  @media (max-width: 1280px) {
+    .hu-knowledge-root .inbox-knowledge-inbox-list {
+      width: 240px;
+      flex-basis: 240px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-root .hu-resource-pane {
+      width: 190px;
+      flex-basis: 190px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-root .inbox-knowledge-inbox-list {
+      width: 210px;
+      flex-basis: 210px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-root .hu-resource-head {
+      padding: 14px 12px;
+      gap: 10px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-root .hu-resource-list {
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-root .inbox-knowledge-inbox-list .hu-resource-list {
+      padding: 0;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-resource-footer {
+      padding-left: 10px;
+      padding-right: 10px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-resource-footer > span {
+      font-size: 12px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .inbox-knowledge-inbox-note {
+      padding: 17px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .hu-knowledge-inbox-detail-meta {
+      flex-wrap: wrap;
+      gap: 7px;
+      font-size: 12px;
+    }
+  }
+  @media (max-width: 900px) {
+    .hu-knowledge-root .hu-resource-head {
+      padding: 16px;
+    }
+  }
+  @media (max-width: 900px) {
+    .hu-knowledge-root .inbox-knowledge-inbox-list .hu-resource-list {
+      padding: 0;
+    }
+  }
+  @media (max-width: 620px) {
+    .hu-knowledge-quick-capture > svg {
+      width: 15px;
+    }
+  }
+  @media (max-width: 620px) {
+    .hu-knowledge-inbox-detail-meta {
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 17px;
+    }
+  }
+  @media (max-width: 620px) {
+    .inbox-knowledge-inbox-note {
+      padding: 16px;
+    }
+  }
+  @media (max-width: 620px) {
+    .inbox-knowledge-inbox-note .markdown {
+      font-size: 12px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+    .hu-knowledge-root * {
+      animation: none !important;
+      transition: none !important;
+    }
+    /* stylelint-enable declaration-no-important */
+  }
+  .hu-knowledge-root .hu-resource-pane {
+    width: 252px;
+    flex-basis: 252px;
+    background: var(--sidebar);
+  }
+  .hu-knowledge-root .inbox-knowledge-inbox-list {
+    width: 292px;
+    flex-basis: 292px;
+  }
+  .hu-knowledge-resource-footer {
+    padding: 8px 12px;
+    min-height: 43px;
+  }
+  .hu-knowledge-resource-footer > span {
+    font-size: 12px;
+  }
+  .hu-knowledge-root .inbox-knowledge-inbox-list .hu-resource-head {
+    gap: 10px;
+  }
+  @media (max-width: 1280px) {
+    .hu-knowledge-root .inbox-knowledge-inbox-list {
+      width: 266px;
+      flex-basis: 266px;
+    }
+  }
+  .hu-knowledge-root {
+    font-size: var(--fs-list);
+  }
+  .hu-knowledge-root .hu-resource-pane {
+    background: var(--sidebar);
+  }
+  .hu-knowledge-resource-footer {
+    min-height: 44px;
+    padding: 8px 12px;
+    background: var(--sidebar);
+  }
+  /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
+  @media (max-width: 1280px) {
+    .inbox-knowledge-inbox-detail {
+      padding: 23px;
+    }
+    .inbox-knowledge-inbox-detail > h2 {
+      font-size: 21px;
+    }
+    .inbox-knowledge-convert-options {
+      gap: 9px;
+    }
+    .inbox-knowledge-convert-options > button {
+      padding: 15px 12px;
+      min-height: 138px;
+    }
+    .inbox-knowledge-convert-options > button > p {
+      font-size: 12px;
+    }
+  }
+  @media (max-width: 1050px) {
+    .inbox-knowledge-convert-options {
+      grid-template-columns: 1fr;
+    }
+    .inbox-knowledge-convert-options > button {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) 16px;
+      column-gap: 12px;
+      min-height: 78px;
+      padding: 14px 16px;
+    }
+    .inbox-knowledge-convert-options > button > span {
+      grid-row: 1/3;
+      margin: 0;
+    }
+    .inbox-knowledge-convert-options > button > strong {
+      grid-column: 2;
+    }
+    .inbox-knowledge-convert-options > button > p {
+      grid-column: 2;
+      margin-top: 1px;
+      font-size: 12px;
+    }
+    .inbox-knowledge-convert-options > button > svg:last-child {
+      position: static;
+      grid-column: 3;
+      grid-row: 1/3;
+    }
+    .hu-knowledge-inbox-bottom {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .inbox-knowledge-inbox-item {
+      padding-left: 9px;
+      padding-right: 11px;
+    }
+    .inbox-knowledge-inbox-item > input {
+      margin-right: 7px;
+    }
+    .inbox-knowledge-inbox-item strong {
+      font-size: 12px;
+    }
+  }
+  @media (max-width: 900px) {
+    .inbox-knowledge-convert-options {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .inbox-knowledge-convert-options > button {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      min-height: 138px;
+      padding: 16px 13px;
+    }
+    .inbox-knowledge-convert-options > button > span {
+      margin-bottom: 11px;
+    }
+    .inbox-knowledge-convert-options > button > p {
+      font-size: 12px;
+      margin-top: 5px;
+    }
+    .inbox-knowledge-convert-options > button > svg:last-child {
+      position: absolute;
+      right: 12px;
+      top: 14px;
+    }
+    .hu-knowledge-inbox-bottom {
+      flex-direction: row;
+      align-items: center;
+    }
+    .inbox-knowledge-inbox-detail > h2 {
+      font-size: 23px;
+    }
+  }
+  @media (max-width: 620px) {
+    .inbox-knowledge-inbox-detail {
+      padding: 21px 17px;
+    }
+    .inbox-knowledge-inbox-detail > h2 {
+      font-size: 20px;
+      margin-bottom: 18px;
+    }
+    .inbox-knowledge-processing-heading {
+      margin-top: 28px;
+    }
+    .inbox-knowledge-processing-heading h3 {
+      font-size: 12px;
+    }
+    .inbox-knowledge-processing-heading p {
+      font-size: 12px;
+    }
+    .inbox-knowledge-convert-options {
+      grid-template-columns: 1fr;
+      margin-top: 16px;
+      gap: 9px;
+    }
+    .inbox-knowledge-convert-options > button {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr) 16px;
+      column-gap: 11px;
+      min-height: 77px;
+      padding: 14px;
+    }
+    .inbox-knowledge-convert-options > button > span {
+      grid-row: 1/3;
+      margin: 0;
+      width: 32px;
+      height: 32px;
+    }
+    .inbox-knowledge-convert-options > button > strong {
+      grid-column: 2;
+      font-size: 12px;
+    }
+    .inbox-knowledge-convert-options > button > p {
+      grid-column: 2;
+      margin-top: 2px;
+      font-size: 12px;
+    }
+    .inbox-knowledge-convert-options > button > svg:last-child {
+      position: static;
+      grid-column: 3;
+      grid-row: 1/3;
+    }
+    .hu-knowledge-inbox-bottom {
+      flex-direction: column;
+      align-items: flex-start;
+      padding-top: 20px;
+      margin-top: 23px;
+    }
+    .hu-knowledge-converted-result {
+      padding: 18px 14px;
+      gap: 11px;
+    }
+    .inbox-knowledge-result-check {
+      width: 30px;
+      height: 30px;
+    }
+    .hu-knowledge-converted-result h3 {
+      font-size: 12px;
+    }
+    .hu-knowledge-converted-result p {
+      font-size: 12px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .inbox-knowledge-convert-options > button:hover:not(:disabled) {
+      transform: none;
+    }
+  }
+  .inbox-knowledge-inbox-item {
+    padding-top: 15px;
+    padding-bottom: 15px;
+  }
+  .inbox-knowledge-inbox-item strong {
+    font-size: 13px;
+  }
+  .inbox-knowledge-inbox-item-meta {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .inbox-knowledge-inbox-item-meta time {
+    white-space: nowrap;
+  }
+  .inbox-knowledge-inbox-item p {
+    font-size: 12px;
+    line-height: 1.65;
+  }
+  .hu-knowledge-inbox-detail-meta {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .inbox-knowledge-inbox-detail > h2 {
+    font-size: 22px;
+  }
+  @media (max-width: 620px) {
+    .inbox-knowledge-inbox-detail > h2 {
+      font-size: 20px;
+    }
+    .inbox-knowledge-convert-options > button > p {
+      font-size: 12px;
+    }
+  }
+}
+@layer components {
+  .hu-knowledge-quick-capture input {
+    font-size: 13px;
+  }
+}

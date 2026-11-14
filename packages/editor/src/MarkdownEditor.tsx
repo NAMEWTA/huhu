@@ -1,3 +1,5 @@
+import "./editor.css";
+import "./editor-cm.css";
 import { defaultKeymap, history, historyField, historyKeymap, indentWithTab, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { HighlightStyle, Language, LanguageSupport, defineLanguageFacet, ensureSyntaxTree, languageDataProp, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { closeSearchPanel, openSearchPanel, search, searchKeymap } from "@codemirror/search";
@@ -138,13 +140,13 @@ const commentField = StateField.define<DecorationSet>({
 });
 
 const editorTheme = EditorView.theme({
-  "&": { height: "100%", fontFamily: "var(--font)", fontSize: "var(--editor-size)", color: "var(--text)", backgroundColor: "var(--bg)" },
+  "&": { height: "100%", fontFamily: "var(--font-ui)", fontSize: "var(--fs-editor)", color: "var(--text)", backgroundColor: "var(--bg)" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": { fontFamily: "inherit", lineHeight: "var(--editor-line)", overflow: "auto" },
-  ".cm-content": { padding: "12px 0 80px", minWidth: "0", maxWidth: "var(--editor-width, none)", marginInline: "auto", width: "100%", caretColor: "var(--text)" },
+  ".cm-content": { padding: "12px 0 80px", minWidth: "0", maxWidth: "var(--editor-measure, none)", marginInline: "auto", width: "100%", caretColor: "var(--text)" },
   ".cm-line": { padding: "0", overflowWrap: "anywhere" },
   ".cm-cursor,.cm-dropCursor": { borderLeftColor: "var(--text)", borderLeftWidth: "2px" },
-  ".cm-gutters": { backgroundColor: "var(--bg)", border: "0", color: "var(--faint)", fontFamily: "var(--mono)", fontSize: "12px", minWidth: "40px" },
+  ".cm-gutters": { backgroundColor: "var(--bg)", border: "0", color: "var(--faint)", fontFamily: "var(--font-mono)", fontSize: "12px", minWidth: "40px" },
   ".cm-gutterElement": { padding: "0 9px 0 4px" },
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,.cm-selectionBackground": { backgroundColor: "var(--accent-soft)" },
   ".cm-tooltip": { backgroundColor: "var(--panel)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: "7px" },
@@ -238,6 +240,8 @@ export interface MarkdownEditorProps {
   ariaLabel?: string;
   /** 批注范围装饰；点击装饰触发 onCommentClick。 */
   comments?: readonly CommentMark[];
+  /** 额外的 CodeMirror 扩展（例如 `@` 引用补全）；只在文档首次创建时装载。 */
+  extensions?: readonly Extension[];
   onCommentClick?(id: string): void;
 }
 
@@ -342,6 +346,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         ro.of(readOnlyExtension(!!cfg.readOnly || m === "preview")),
         attributes.of(EditorView.contentAttributes.of({ "aria-label": cfg.ariaLabel ?? "Markdown 编辑器", "aria-multiline": "true", spellcheck: String(!!cfg.spellcheck) })),
         search({ top: true }),
+        ...(cfg.extensions ?? []),
         keymap.of([
           { key: "Mod-s", run: () => (latest.current.onSave?.(), true) },
           { key: "Mod-b", run: (view) => !view.state.readOnly && applyEditorFormat(view, "**", "**") },
@@ -550,10 +555,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   }, [marks, documentId]);
 
   const style: Record<string, string> = {};
-  if (fontSize) style["--editor-size"] = `${fontSize}px`;
+  if (fontSize) style["--fs-editor"] = `${fontSize}px`;
   if (lineHeight) style["--editor-line"] = String(lineHeight);
-  if (maxWidth) style["--editor-width"] = `${maxWidth}px`;
-  return <div className={`huhu-markdown-editor mode-${normalizeEditorMode(mode)}`} data-editor-engine="codemirror6" data-testid="markdown-editor" ref={host} style={style} />;
+  if (maxWidth) style["--editor-measure"] = `${maxWidth}px`;
+  return <div className={`editor-markdown-editor mode-${normalizeEditorMode(mode)}`} data-editor-engine="codemirror6" data-testid="markdown-editor" ref={host} style={style} />;
 });
 
 export { EditorView };

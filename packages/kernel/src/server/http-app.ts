@@ -132,7 +132,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       d.registry
         .list()
         .filter((def) => d.visibleTo(caller, def.name))
-        .map((def) => ({ name: def.name, plugin: def.plugin, scope: def.scope, input: toJsonSchema(def.input), output: toJsonSchema(def.output) })),
+        .map((def) => ({ name: def.name, plugin: def.plugin, scope: def.scope, input: toJsonSchema(def.input), output: toJsonSchema(def.output, "output") })),
     );
   });
 

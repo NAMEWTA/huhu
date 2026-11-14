@@ -1,0 +1,15 @@
+/* 样式入口：层序在这里一次声明；每个分层文件第一行也重复这条声明（幂等），所以层序不依赖导入顺序。
+   共享组件样式在 components/*.css；外壳在 packages/workbench；编辑器在 packages/editor；各模块在 plugins/<id>/src/ui/<id>.css。
+   vendor-overrides.css（覆盖 sonner）与 packages/editor 的 editor-cm.css（覆盖 CodeMirror）是仅有的不分层文件：它们覆盖运行时注入的无层样式，放进层里会失效（见 .agents/dev/notes/context/design-system.md）。 */
+@layer theme, tokens, base, vendor, components, shell, modules;
+
+@import "./fonts.generated.css" layer(base);
+@import "./themes.generated.css";
+@import "./tokens.css" layer(tokens);
+@import "./base.css" layer(base);
+@import "@xterm/xterm/css/xterm.css" layer(vendor);
+@import "./components/core.css" layer(components);
+@import "./components/overlays.css" layer(components);
+@import "./components/data.css" layer(components);
+@import "./components/feedback.css" layer(components);
+@import "./vendor-overrides.css";

@@ -1,6 +1,7 @@
 import { Badge, Button, IconButton } from "@huhu/ui";
 import { AlertCircle, BookOpen, ChevronRight, FileText, Folder, FolderOpen, HardDrive, Plus, Upload } from "lucide-react";
 import { useState } from "react";
+import { BrandLogo, BrandMark } from "../shell/BrandMark.js";
 import { host, type VaultHostState, type VaultOpenResult } from "../settings/host.js";
 
 /**
@@ -47,20 +48,20 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
   const openReadOnly = (target: string) => guarded(() => run("只读打开", target, (t) => vault.open(t, { kind: "open", readOnly: true })))();
 
   return (
-    <div className="vault-launch" data-testid="vault-launch">
-      <header className="vault-launch-bar">
+    <div className="shell-vault-launch" data-testid="vault-launch">
+      <header className="shell-vault-launch-bar">
         <div className="brand">
-          <span className="brand-mark">h</span>
+          <BrandMark className="shell-brand-mark" />
           <span>
-            huhu<span className="brand-suffix">workbench</span>
+            huhu<span className="shell-brand-suffix">workbench</span>
           </span>
         </div>
         <Badge>Electron</Badge>
       </header>
-      <main className="vault-launch-main">
-        <aside className="vault-launch-intro">
-          <div className="vault-illustration">
-            <FolderOpen size={36} strokeWidth={1.2} aria-hidden />
+      <main className="shell-vault-launch-main">
+        <aside className="shell-vault-launch-intro">
+          <div className="shell-vault-illustration">
+            <BrandLogo />
             <div>
               <span>你的文件</span>
               <span>始终属于你</span>
@@ -71,8 +72,8 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
             <br />
             进入你的工作台。
           </h1>
-          <p>一个 Vault，一套属于你的数据。Markdown 保存内容，JSON 组织任务与档案。即使离开 huhu，也可以继续使用它们。</p>
-          <div className="vault-intro-points">
+          <p>一个 Vault，一套属于你的数据。Markdown 保存笔记、任务与档案，JSON 保存配置。即使离开 huhu，也可以继续使用它们。</p>
+          <div className="shell-vault-intro-points">
             <div>
               <FileText size={15} aria-hidden />
               <span>笔记保留在普通文件目录中</span>
@@ -86,8 +87,8 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
               <span>索引随时可从文件重建</span>
             </div>
           </div>
-          <div className="vault-local-note">
-            <span className="status-dot" />
+          <div className="shell-vault-local-note">
+            <span className="shell-status-dot" />
             <span>
               当前为桌面文件模式
               <br />
@@ -95,19 +96,19 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
             </span>
           </div>
         </aside>
-        <section className="vault-launch-card">
-          <div className="vault-card-heading">
+        <section className="shell-vault-launch-card">
+          <div className="shell-vault-card-heading">
             <div>
               <h2>打开你的知识库</h2>
               <p>{state.recent.length ? "本次运行中打开过的 Vault" : "从已有目录开始，或先体验完整的示例。"}</p>
             </div>
             <FolderOpen size={20} aria-hidden />
           </div>
-          <div className="vault-recents">
+          <div className="shell-vault-recents">
             {state.recent.map((r) => (
-              <div className="vault-recent" key={r.path}>
-                <button type="button" className="vault-recent-open" data-testid="vault-recent" disabled={busy} onClick={() => void openRecent(r.path)}>
-                  <span className="vault-file-icon">
+              <div className="hu-vault-recent" key={r.path}>
+                <button type="button" className="shell-vault-recent-open" data-testid="vault-recent" disabled={busy} onClick={() => void openRecent(r.path)}>
+                  <span className="shell-vault-file-icon">
                     <Folder size={19} aria-hidden />
                   </span>
                   <span className="grow">
@@ -119,14 +120,14 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
               </div>
             ))}
           </div>
-          <div className="vault-launch-actions">
+          <div className="hu-vault-launch-actions">
             <Button variant="primary" icon={FolderOpen} disabled={busy} data-testid="vault-open" onClick={() => void openFolder()}>
               {busy ? "正在读取…" : "打开 Vault 文件夹"}
             </Button>
             <Button icon={BookOpen} disabled={busy} data-testid="vault-demo" onClick={() => void openDemo()}>
               打开示例 Vault
             </Button>
-            <div className="vault-secondary-actions">
+            <div className="hu-vault-secondary-actions">
               <Button icon={Plus} disabled={busy} data-testid="vault-new" onClick={() => void newBlank()}>
                 新建空白 Vault
               </Button>
@@ -135,13 +136,13 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
               </Button>
             </div>
           </div>
-          <p className="vault-privacy">
+          <p className="shell-vault-privacy">
             最近记录仅留在本次运行。关闭应用后不保存目录列表。
             <br />
             新建、导入和示例需要选择一个空目录。
           </p>
           {error ? (
-            <div className="callout danger vault-launch-error" role="alert" data-testid="vault-error">
+            <div className="hu-callout danger shell-vault-launch-error" role="alert" data-testid="vault-error">
               <AlertCircle size={16} aria-hidden />
               <div>
                 {error.message}
@@ -161,7 +162,7 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
           ) : null}
         </section>
       </main>
-      <footer className="vault-launch-footer">
+      <footer className="shell-vault-launch-footer">
         <span>huhu · 插件优先的个人工作台</span>
         <span>Markdown + JSON 为原始数据 · 数据随 Vault 迁移</span>
       </footer>

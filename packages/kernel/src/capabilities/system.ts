@@ -224,7 +224,7 @@ export function registerSystemCapabilities(
         handler: (_c, i) => {
           const active = registry
             .list()
-            .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable, exposed: c.exposable && exposure.isExposed(c.name), input: toJsonSchema(c.input), output: toJsonSchema(c.output) }));
+            .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable, exposed: c.exposable && exposure.isExposed(c.name), input: toJsonSchema(c.input), output: toJsonSchema(c.output, "output") }));
           if (!i.includeInactive) return active;
           const have = new Set(active.map((c) => c.name));
           const inactive = registry

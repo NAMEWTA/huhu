@@ -54,10 +54,10 @@ describe("NotificationStore", () => {
 describe("设置", () => {
   test("缺省补全；非法值回退默认；深度合并只改补丁里的键", () => {
     const d = SettingsSchema.parse({});
-    expect(d.appearance).toMatchObject({ theme: "pearl", mode: "system", fontSize: 14 });
-    expect(SettingsSchema.parse({ appearance: { fontSize: 99, theme: "nope" } }).appearance).toMatchObject({ fontSize: 14, theme: "pearl" });
-    const next = mergeSettings(d, { appearance: { theme: "soft" }, editor: { autosave: false } });
-    expect(next.appearance).toMatchObject({ theme: "soft", fontSize: 14 });
+    expect(d.appearance).toMatchObject({ theme: "claude", mode: "system", fontSize: 14, density: "comfortable" });
+    expect(SettingsSchema.parse({ appearance: { fontSize: 99, theme: "nope" } }).appearance).toMatchObject({ fontSize: 14, theme: "claude" });
+    const next = mergeSettings(d, { appearance: { theme: "apple" }, editor: { autosave: false } });
+    expect(next.appearance).toMatchObject({ theme: "apple", fontSize: 14 });
     expect(next.editor.autosave).toBe(false);
     expect(next.dateTime.weekStartsOn).toBe(1);
     expect(mergeSettings(d, { dateTime: { zone: "Mars/Base" } }).dateTime.zone).toBe(d.dateTime.zone);
@@ -67,10 +67,10 @@ describe("设置", () => {
     const file = path.join(dir, "settings.json");
     const registry = new CapabilityRegistry();
     registerNotificationAndSettings(registry, new NotificationStore(path.join(dir, "n.ndjson")), file);
-    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [] });
-    const r = await d.call("desktop", { capability: "settings.update", input: { patch: { appearance: { theme: "suliworld", mode: "dark" } } }, requestId: "r", idempotencyKey: "key-settings-1" });
+    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
+    const r = await d.call("desktop", { capability: "settings.update", input: { patch: { appearance: { theme: "vercel", mode: "dark" } } }, requestId: "r", idempotencyKey: "key-settings-1" });
     expect(r.ok).toBe(true);
-    expect(JSON.parse(readFileSync(file, "utf8")).appearance).toMatchObject({ theme: "suliworld", mode: "dark" });
+    expect(JSON.parse(readFileSync(file, "utf8")).appearance).toMatchObject({ theme: "vercel", mode: "dark" });
     expect(existsSync(file)).toBe(true);
     const got = await d.call("desktop", { capability: "settings.get", input: {}, requestId: "r" });
     expect(got.ok && (got.data as { appearance: { mode: string } }).appearance.mode).toBe("dark");
@@ -103,7 +103,7 @@ describe("设置范围（规格 modules/system.md §3）", () => {
     writeFileSync(file, "{损坏的内容");
     const registry = new CapabilityRegistry();
     registerNotificationAndSettings(registry, new NotificationStore(path.join(dir, "n.ndjson")), file);
-    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [] });
+    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
     const r = await d.call("desktop", { capability: "settings.update", input: { patch: { editor: { autosave: false } } }, requestId: "r", idempotencyKey: "key-corrupt-1" });
     expect(r.ok).toBe(true);
     const copies = (await import("node:fs")).readdirSync(dir).filter((f) => f.startsWith("settings.json.corrupt-"));

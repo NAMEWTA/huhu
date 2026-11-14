@@ -1,3 +1,4 @@
+import "./inbox.css";
 import type { ModuleContribution } from "@huhu/workbench";
 import { Inbox } from "lucide-react";
 import { InboxModule } from "./InboxModule.js";

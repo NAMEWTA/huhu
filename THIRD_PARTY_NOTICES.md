@@ -7,6 +7,106 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 - Electron / Chromium：见应用目录中的 `LICENSE.electron.txt` 与 `LICENSES.chromium.html`。
 - Herdr Core（`herdr-core`）：Apache-2.0，官方发布包 https://releases.herdr.dev/core/（版本与 SHA-256 见 `scripts/herdr.lock.json`），源码 https://github.com/herdrdev/herdr-core；其内含 ghostty（MIT）；Windows 包另含 Microsoft ConPTY（MIT）。完整声明随包放在 `resources/herdr/<平台>/THIRD-PARTY-NOTICES`。
 
+## 随包字体
+
+应用随包带有以下字体（均为 SIL Open Font License 1.1，经 Fontsource 的 npm 包分发，只取 latin 与 latin-ext 子集；中文使用系统字体，不随包）。HUHU 横版 logo 的字标是 Geist 字形的轮廓化图形。
+
+| 字族 | 版权 | npm 包 |
+| --- | --- | --- |
+| Inter | Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter) | @fontsource-variable/inter@5.3.0 |
+| Newsreader | Copyright 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader) | @fontsource-variable/newsreader@5.3.0 |
+| Geist | Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) | @fontsource-variable/geist@5.3.0 |
+| Geist Mono | Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git) | @fontsource-variable/geist-mono@5.3.0 |
+| JetBrains Mono | Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) | @fontsource-variable/jetbrains-mono@5.3.0 |
+
+```text
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+```
+
 ## 复制或改造的源码（`docs/upstream/ledger.md`）
 
 # 复制来源台账
@@ -17,6 +117,9 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | R-08 | OK 44a2e0a | packages/server/src/file-watcher.ts | packages/vault/src/watch/ | 仅参照批处理/回退/重命名配对思路，按 HUHU 需求精简重写（模式，未复制代码） |
 | R-09 | atomic-editor b6ed65f (kenforthewin, 0.6.2) | src/* | packages/editor/src/vendor/atomic/ | 复制并改造（inline-preview、wiki-links、主题、IME 组合保护），保留 MIT 许可文件与来源说明 `UPSTREAM.md` |
 | R-24 | open-knowledge 批注锚点 | packages/server/src/comments/anchor.ts、packages/core/src/comments/{passage-match}.ts、markdown/whitespace-char-ref.ts | plugins/notes/src/engine/comments/ | 复制（GPL-3.0-or-later，与本项目许可一致）；类型改为本地 Anchor，删除未使用导出，补 noUncheckedIndexedAccess 守卫 |
+| R-40 | orca 7041ea0（Lovecast Inc.，MIT） | src/shared/agent-launch/catalog/tui-agent-config.ts、permissions/tui-agent-permissions.ts、agent-session/options/agent-session-option-catalog-claude-codex.ts、node-cli-command-resolution.ts、agent-launch/choices/agent-choice-cli-apply.ts | plugins/agent-cli/src/shared/catalog.ts、plugins/agent-cli/src/engine/{detect,launch}.ts | 智能体目录的检测命令、完全访问参数、模型 / effort / fast 的 CLI 映射、冲突标志表、安装目录表、启动参数合成顺序；按 HUHU 的三个智能体与数据驱动目录改写，并与本机 claude 2.1.323、codex 0.167.2 的 `--help` 核对 |
+| R-41 | orca 7041ea0（Lovecast Inc.，MIT） | src/renderer/src/components/status-bar/icons.tsx（ClaudeIcon、OpenAIIcon）、components/agent/icons/agent-icon-glyphs.tsx（PiIcon） | plugins/agent-cli/src/ui/AgentIcon.tsx | 三个智能体的标识图形（仅用于标识对应工具）；改为数据表加首字母兜底 |
+| R-42 | orca 7041ea0（Lovecast Inc.，MIT） | src/renderer/src/components/settings/agents/launch/{AgentDetectionCatalog,AgentCatalogRow,AgentLaunchDefaultsEditor}.tsx、tab-bar/{TabBarCreateEntry,QuickLaunchButton}.tsx、agent/AgentLaunchSetupPanel.tsx | plugins/agent-cli/src/ui/{AgentSettingsPage,LaunchMenu}.tsx | 仅复刻交互与结构（“已安装 N 个已检测”、逐条展开编辑、命令行预览；新建菜单的搜索、新终端、智能体行与子菜单、设置入口），按 HUHU 的组件与中文文案重写，未复制源码 |
 
 ## npm 运行时依赖
 
@@ -70,6 +173,11 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @floating-ui/dom | 1.8.0 | MIT | https://floating-ui.com |
 | @floating-ui/react-dom | 2.1.9 | MIT | https://floating-ui.com/docs/react-dom |
 | @floating-ui/utils | 0.2.12 | MIT | https://floating-ui.com |
+| @fontsource-variable/geist | 5.3.0 | OFL-1.1 | https://fontsource.org/fonts/geist |
+| @fontsource-variable/geist-mono | 5.3.0 | OFL-1.1 | https://fontsource.org/fonts/geist-mono |
+| @fontsource-variable/inter | 5.3.0 | OFL-1.1 | https://fontsource.org/fonts/inter |
+| @fontsource-variable/jetbrains-mono | 5.3.0 | OFL-1.1 | https://fontsource.org/fonts/jetbrains-mono |
+| @fontsource-variable/newsreader | 5.3.0 | OFL-1.1 | https://fontsource.org/fonts/newsreader |
 | @hono/node-server | 2.1.6 | MIT | https://github.com/honojs/node-server |
 | @iconify/types | 2.0.0 | MIT | https://github.com/iconify/iconify |
 | @iconify/utils | 3.1.7 | MIT | https://iconify.design/docs/libraries/utils/ |
@@ -138,6 +246,10 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | @szmarczak/http-timer | 4.0.6 | MIT | https://github.com/szmarczak/http-timer#readme |
 | @tanstack/query-core | 5.107.1 | MIT | https://tanstack.com/query |
 | @tanstack/react-query | 5.107.1 | MIT | https://tanstack.com/query |
+| @tanstack/react-table | 8.21.3 | MIT | https://tanstack.com/table |
+| @tanstack/react-virtual | 3.13.12 | MIT | https://tanstack.com/virtual |
+| @tanstack/table-core | 8.21.3 | MIT | https://tanstack.com/table |
+| @tanstack/virtual-core | 3.13.12 | MIT | https://tanstack.com/virtual |
 | @testing-library/dom | 10.4.2 | MIT | https://github.com/testing-library/dom-testing-library#readme |
 | @testing-library/react | 16.3.3 | MIT | https://github.com/testing-library/react-testing-library#readme |
 | @types/aria-query | 5.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/aria-query |
@@ -301,6 +413,7 @@ HUHU Workbench 以 GPL-3.0-or-later 发布（见 LICENSE）。以下是随应用
 | croner | 11.0.0 | MIT | https://croner.56k.guru |
 | cross-spawn | 7.0.6 | MIT | https://github.com/moxystudio/node-cross-spawn |
 | csstype | 3.2.3 | MIT |  |
+| culori | 4.0.2 | MIT |  |
 | cytoscape | 3.35.0 | MIT | http://js.cytoscape.org |
 | cytoscape-cose-bilkent | 4.1.0 | MIT | https://github.com/cytoscape/cytoscape.js-cose-bilkent |
 | cytoscape-fcose | 2.2.0 | MIT | https://github.com/iVis-at-Bilkent/cytoscape.js-fcose |

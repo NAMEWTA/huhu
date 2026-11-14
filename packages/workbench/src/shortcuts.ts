@@ -11,6 +11,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { keys: "F6", action: "在功能栏、侧栏、内容、详情之间切换焦点（Shift+F6 反向）", scope: "全局" },
   { keys: "Esc", action: "关闭命令面板", scope: "命令面板" },
   { keys: "Mod+S", action: "立即保存当前笔记", scope: "笔记编辑器" },
+  { keys: "Mod+T", action: "新建终端（焦点在终端内时交给终端程序）", scope: "Agent CLI" },
 ];
 
 /** Mod 在 macOS 上是 ⌘，其他平台是 Ctrl。 */

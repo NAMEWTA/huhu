@@ -3,7 +3,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export function activate(api) {
   api.registerCommand("generate", "每日回顾：生成今天的回顾笔记", async () => {
-    const tasks = await api.call("tasks.list", { completed: false });
+    const tasks = await api.call("tasks.list", { status: ["not_started", "in_progress"] });
     const notes = await api.call("notes.list", { filter: "all" });
     const name = `每日回顾 ${today()}`;
     const created = await api.call("notes.create", { name, folder: "回顾" });

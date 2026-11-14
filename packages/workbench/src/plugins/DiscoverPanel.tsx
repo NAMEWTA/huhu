@@ -57,14 +57,14 @@ export function DiscoverPanel({ onInstalled }: { onInstalled(id: string): void }
   return (
     <div data-testid="plugin-discover">
       {error && !pending ? (
-        <div role="alert" className="callout danger">
+        <div role="alert" className="hu-callout danger">
           <p>{error}</p>
         </div>
       ) : null}
       <div className="row">
         <div className="grow">
           <h2>外部扩展</h2>
-          <p className="hint-text">扩展在独立进程里运行，只能通过你授权的权限调用 HUHU 的能力；卸载默认保留它的数据。</p>
+          <p className="hu-hint-text">扩展在独立进程里运行，只能通过你授权的权限调用 HUHU 的能力；卸载默认保留它的数据。</p>
         </div>
         {h ? (
           <>
@@ -79,19 +79,19 @@ export function DiscoverPanel({ onInstalled }: { onInstalled(id: string): void }
       </div>
       <div className="plugin-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginTop: 12 }}>
         {(examples.data ?? []).map((e) => (
-          <article key={e.id} className="card" data-testid="plugin-example" data-plugin={e.id}>
+          <article key={e.id} className="hu-card-alt" data-testid="plugin-example" data-plugin={e.id}>
             <div className="row">
               <strong className="grow">{e.manifest.title}</strong>
               <Badge>v{e.manifest.version}</Badge>
             </div>
             <p className="small muted">{e.publisher}</p>
             <p>{e.manifest.description}</p>
-            <div className="permission-tags">
+            <div className="shell-permission-tags">
               {e.tags.map((t) => (
                 <Badge key={t}>{t}</Badge>
               ))}
             </div>
-            <div className="permission-tags">{e.manifest.permissions.length ? e.manifest.permissions.map((p) => <code key={p}>{p}</code>) : <span className="muted">无权限</span>}</div>
+            <div className="shell-permission-tags">{e.manifest.permissions.length ? e.manifest.permissions.map((p) => <code key={p}>{p}</code>) : <span className="muted">无权限</span>}</div>
             <div className="row">
               <span className="grow" />
               {e.installed ? (
@@ -136,7 +136,7 @@ export function DiscoverPanel({ onInstalled }: { onInstalled(id: string): void }
               ))}
             </ul>
           )}
-          <div className="callout">
+          <div className="hu-callout">
             <ShieldCheck size={16} aria-hidden />
             <p>扩展以你的系统权限运行，只安装你信任的扩展。</p>
           </div>

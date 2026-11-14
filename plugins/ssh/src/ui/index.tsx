@@ -1,3 +1,4 @@
+import "./ssh.css";
 import type { HomeWidgetContribution, ModuleContribution } from "@huhu/workbench";
 import { Server } from "lucide-react";
 import { SshHomeWidget } from "./HomeWidget.js";

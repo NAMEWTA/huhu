@@ -1,0 +1,888 @@
+/* 不分层白名单：覆盖 CodeMirror（style-mod 运行时注入）
+   这些规则必须压过运行时注入的无层样式，放进 @layer 会全部失效（见 .agents/dev/changes/2026-11-14-design-system-completion/spec.md §3.2）。
+   只允许第三方选择器（scripts/check-css-layers.mjs 强制）。 */
+.atomic-cm-editor {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.atomic-cm-editor .cm-content {
+  max-width: var(--atomic-editor-measure, 70ch);
+  margin-inline: auto;
+  padding-inline: 0.5rem;
+  font-family: var(--atomic-editor-font, system-ui, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-size: var(--atomic-editor-body-size, 1.0625rem);
+  line-height: var(--atomic-editor-body-leading, 1.7);
+  color: var(--atomic-editor-fg, var(--line));
+  text-wrap: pretty;
+}
+
+.cm-line.cm-atomic-h1 {
+  font-size: 1.35em;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  padding-top: 0.15em;
+  padding-bottom: 0.1em;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-line.cm-atomic-h2 {
+  font-size: 1.2em;
+  font-weight: 700;
+  line-height: 1.35;
+  padding-top: 0.15em;
+  padding-bottom: 0.1em;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-line.cm-atomic-h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  line-height: 1.4;
+  padding-top: 0.12em;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-line.cm-atomic-h4 {
+  font-size: 1em;
+  font-weight: 600;
+  padding-top: 0.1em;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-line.cm-atomic-h5 {
+  font-size: 0.95em;
+  font-weight: 600;
+  padding-top: 0.08em;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-line.cm-atomic-h6 {
+  font-size: 0.9em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding-top: 0.08em;
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+}
+
+.cm-line.cm-atomic-blockquote {
+  padding-left: 1rem;
+  border-left: 3px solid var(--atomic-editor-accent-soft, color-mix(in srgb, var(--tag-4) 72%, var(--on-solid) 28%));
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+}
+
+.cm-line.cm-atomic-fenced-code {
+  font-family: var(--atomic-editor-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.92em;
+  background: var(--atomic-editor-code-bg, color-mix(in srgb, var(--text) 88%, var(--shadow-ink) 12%));
+  box-shadow: inset 2px 0 0 var(--atomic-editor-code-rail, color-mix(in srgb, var(--atomic-editor-accent, var(--tag-4)) 45%, var(--atomic-editor-border, var(--muted)) 55%));
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.cm-atomic-fenced-selection {
+  background-color: var(--atomic-editor-selection-bg, color-mix(in srgb, var(--tag-4) 28%, var(--text) 72%));
+}
+
+.cm-atomic-strong {
+  font-weight: 700;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-atomic-em {
+  font-style: italic;
+}
+
+.cm-atomic-inline-code {
+  font-family: var(--atomic-editor-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.88em;
+  color: var(--atomic-editor-fg, var(--line));
+  background: var(--atomic-editor-code-bg, color-mix(in srgb, var(--text) 88%, var(--shadow-ink) 12%));
+  border-radius: 0.35rem;
+  padding: 0.08em 0.35em;
+  word-break: break-word;
+}
+
+.cm-atomic-strike {
+  text-decoration: line-through;
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+}
+
+.cm-atomic-highlight {
+  background: color-mix(in srgb, var(--atomic-editor-accent-bright, var(--tag-4)) 20%, transparent 80%);
+  border-radius: 0.2em;
+  color: var(--atomic-editor-fg, var(--line));
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.cm-atomic-strong-mark {
+  color: var(--atomic-editor-fg-faint, var(--faint));
+  font-weight: 700;
+}
+
+.cm-atomic-em-mark {
+  color: var(--atomic-editor-fg-faint, var(--faint));
+  font-style: italic;
+}
+
+.cm-atomic-strike-mark {
+  color: var(--atomic-editor-fg-faint, var(--faint));
+  text-decoration: line-through;
+}
+
+.cm-atomic-highlight-mark {
+  color: var(--atomic-editor-fg-faint, var(--faint));
+  background: transparent;
+}
+
+.cm-atomic-link {
+  color: var(--atomic-editor-link, var(--tag-5));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  /* No pointer cursor on the link text — the text is editable like
+   * any other content. The pointer cursor is scoped to the trailing
+   * icon below, which is the actual open-in-new-tab affordance. */
+}
+
+.cm-atomic-link:hover {
+  color: var(--atomic-editor-link-hover, var(--line-strong));
+}
+
+.cm-atomic-link::after,
+.cm-atomic-link-icon {
+  display: inline-block;
+  width: 0.78em;
+  height: 0.78em;
+  margin-left: 0.32em;
+  vertical-align: -0.02em;
+  cursor: pointer;
+  background-color: color-mix(in srgb, var(--atomic-editor-link, var(--tag-5)) 82%, var(--on-solid) 18%);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cg%3E%3Cpath d='M10.0002 5H8.2002C7.08009 5 6.51962 5 6.0918 5.21799C5.71547 5.40973 5.40973 5.71547 5.21799 6.0918C5 6.51962 5 7.08009 5 8.2002V15.8002C5 16.9203 5 17.4801 5.21799 17.9079C5.40973 18.2842 5.71547 18.5905 6.0918 18.7822C6.5192 19 7.07899 19 8.19691 19H15.8031C16.921 19 17.48 19 17.9074 18.7822C18.2837 18.5905 18.5905 18.2839 18.7822 17.9076C19 17.4802 19 16.921 19 15.8031V14M20 9V4M20 4H15M20 4L13 11' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cg%3E%3Cpath d='M10.0002 5H8.2002C7.08009 5 6.51962 5 6.0918 5.21799C5.71547 5.40973 5.40973 5.71547 5.21799 6.0918C5 6.51962 5 7.08009 5 8.2002V15.8002C5 16.9203 5 17.4801 5.21799 17.9079C5.40973 18.2842 5.71547 18.5905 6.0918 18.7822C6.5192 19 7.07899 19 8.19691 19H15.8031C16.921 19 17.48 19 17.9074 18.7822C18.2837 18.5905 18.5905 18.2839 18.7822 17.9076C19 17.4802 19 16.921 19 15.8031V14M20 9V4M20 4H15M20 4L13 11' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  opacity: 0.9;
+}
+
+.cm-atomic-link::after {
+  content: "";
+}
+
+.cm-atomic-link-icon {
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cm-atomic-table-cell-source .cm-atomic-link::after {
+  content: none;
+}
+
+.cm-atomic-link:hover::after,
+.cm-atomic-link-icon:hover {
+  background-color: color-mix(in srgb, var(--atomic-editor-link-hover, var(--line-strong)) 84%, var(--on-solid) 16%);
+  opacity: 1;
+}
+
+.cm-atomic-wiki-link {
+  color: var(--atomic-editor-link, var(--tag-5));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.cm-atomic-wiki-link:hover {
+  color: var(--atomic-editor-link-hover, var(--line-strong));
+}
+
+.cm-atomic-wiki-link-missing,
+.cm-atomic-wiki-link-unresolved {
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+  text-decoration-style: dotted;
+}
+
+.cm-atomic-wiki-link-loading {
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+}
+
+.cm-atomic-wiki-link-hidden-syntax {
+  color: transparent;
+  font-size: 0;
+  letter-spacing: 0;
+  user-select: none;
+}
+
+.cm-line.cm-atomic-hr {
+  position: relative;
+}
+
+.cm-line.cm-atomic-hr::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid var(--atomic-editor-border, var(--muted));
+  pointer-events: none;
+}
+
+.cm-atomic-image {
+  padding: 0.35em 0;
+}
+
+.cm-atomic-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.4em;
+}
+
+.cm-atomic-list-marker {
+  display: inline-block;
+  width: 0.9em;
+  margin-right: 0.3em;
+  text-align: right;
+}
+
+.cm-atomic-bullet {
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+  font-weight: 700;
+}
+
+.cm-atomic-task-checkbox {
+  width: 1.05em;
+  height: 1.05em;
+  margin: 0 0.31em 0 -0.16em;
+  font-size: inherit;
+  vertical-align: 0.1em;
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  border: 1.5px solid var(--atomic-editor-fg-muted, var(--tag-8));
+  border-radius: 0.22em;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  display: inline-grid;
+  place-content: center;
+  transform: translateY(-0.04em);
+}
+
+.cm-atomic-task-checkbox::after {
+  content: "";
+  width: 0.26em;
+  height: 0.5em;
+  border-right: 0.12em solid var(--on-solid);
+  border-bottom: 0.12em solid var(--on-solid);
+  transform: rotate(45deg) translate(-0.03em, -0.04em);
+  opacity: 0;
+}
+
+.cm-atomic-task-checkbox:checked {
+  background: var(--atomic-editor-accent, var(--tag-4));
+  border-color: var(--atomic-editor-accent, var(--tag-4));
+}
+
+.cm-atomic-task-checkbox:checked::after {
+  opacity: 1;
+}
+
+.cm-atomic-task-checkbox:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--atomic-editor-accent, var(--tag-4)) 28%, transparent 72%);
+}
+
+@media (forced-colors: active) {
+  .cm-atomic-task-checkbox:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+}
+
+.cm-line.cm-atomic-task-done {
+  color: var(--atomic-editor-fg-faint, var(--faint));
+  text-decoration: line-through;
+}
+
+.cm-atomic-table {
+  /* Use padding, not margin, for vertical rhythm around the table.
+   * CM6's heightmap measures block-widget heights via
+   * `getBoundingClientRect`, which EXCLUDES margin but INCLUDES
+   * padding. A `margin: 0.5em 0` here meant the heightmap allocated
+   * less height than the DOM layout flow actually consumed — 1em
+   * (~17px) less on typical font sizes. That drift shifted every
+   * line below the table in CM6's heightmap vs the DOM, so clicks
+   * at a visual Y were routed to the doc line BELOW the one
+   * visually targeted. User-visible symptom: clicking an empty
+   * line above a heading placed the caret on the heading; clicking
+   * text in a task item with the caret on the empty line below
+   * left the caret in place (because the "wrong" line was the same
+   * as the current caret). Padding keeps the bbox honest so CM6's
+   * heightmap matches the DOM. */
+  padding: 0.5em 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cm-atomic-table table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-family: var(--atomic-editor-font, system-ui, sans-serif);
+}
+
+.cm-atomic-table th,
+.cm-atomic-table td {
+  border: 1px solid var(--atomic-editor-border, var(--muted));
+  padding: 0.35em 0.6em;
+  text-align: left;
+  vertical-align: top;
+  min-width: 2em;
+  min-height: 1.5em;
+}
+
+.cm-atomic-table th {
+  font-weight: 700;
+  background: var(--atomic-editor-code-bg, color-mix(in srgb, var(--text) 88%, var(--shadow-ink) 12%));
+}
+
+.cm-atomic-table th:focus-within,
+.cm-atomic-table td:focus-within {
+  outline: 2px solid var(--atomic-editor-accent, var(--tag-4));
+  outline-offset: -2px;
+}
+
+.cm-atomic-table-cell-source {
+  outline: none;
+  min-height: 1.2em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-atomic-table-cell-source .cm-atomic-mark {
+  display: none;
+}
+
+.cm-atomic-table-cell-source .cm-atomic-strong-wrap.active > .cm-atomic-mark,
+.cm-atomic-table-cell-source .cm-atomic-em-wrap.active > .cm-atomic-mark,
+.cm-atomic-table-cell-source .cm-atomic-strike-wrap.active > .cm-atomic-mark,
+.cm-atomic-table-cell-source .cm-atomic-highlight-wrap.active > .cm-atomic-mark,
+.cm-atomic-table-cell-source .cm-atomic-link-wrap.active > .cm-atomic-mark {
+  display: inline;
+  color: var(--atomic-editor-fg-faint, var(--faint));
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: none;
+}
+
+.cm-atomic-table-cell-source .cm-atomic-link-wrap.active > .cm-atomic-link-url {
+  font-family: var(--atomic-editor-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.88em;
+}
+
+.cm-atomic-table-cell-source .cm-atomic-highlight {
+  background: color-mix(in srgb, var(--atomic-editor-accent-bright, var(--tag-4)) 20%, transparent 80%);
+  border-radius: 0.18em;
+  color: var(--atomic-editor-fg, var(--line));
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.cm-atomic-table-cell-preview {
+  margin-top: 0.35em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+  user-select: none;
+}
+
+.cm-atomic-table th[data-has-image]:not(:focus-within) .cm-atomic-table-cell-source,
+.cm-atomic-table td[data-has-image]:not(:focus-within) .cm-atomic-table-cell-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.cm-atomic-table-cell-image {
+  display: block;
+  max-width: 14em;
+  max-height: 5em;
+  border-radius: 0.2em;
+  cursor: pointer;
+}
+
+.cm-atomic-table-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 170px;
+  padding: 0.25rem 0;
+  background: var(--atomic-editor-bg-panel, var(--text));
+  border: 1px solid var(--atomic-editor-border, var(--muted));
+  border-radius: var(--atomic-editor-radius, 6px);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-ink) 30%, transparent);
+  font-family: var(--atomic-editor-font, system-ui, sans-serif);
+  font-size: 0.82rem;
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-atomic-table-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.75rem;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cm-atomic-table-menu-item:hover {
+  background: var(--atomic-editor-bg-surface, var(--text));
+}
+
+.cm-atomic-table-menu-sep {
+  height: 1px;
+  margin: 0.25rem 0;
+  background: var(--atomic-editor-border, var(--muted));
+}
+
+.atomic-editor-search-panel {
+  padding: 0.5rem 0.6rem;
+  background: var(--atomic-editor-bg-panel, var(--text));
+  border-bottom: 1px solid var(--atomic-editor-border, var(--muted));
+  font-family: var(--atomic-editor-font, system-ui, sans-serif);
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.atomic-editor-search-panel form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cm-atomic-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.4rem 0.65rem;
+  background: var(--atomic-editor-bg-surface, var(--text));
+  border: 1px solid var(--atomic-editor-border, var(--muted));
+  border-radius: var(--atomic-editor-radius, 6px);
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  outline: none;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.cm-atomic-search-input:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--atomic-editor-accent, var(--tag-4));
+}
+
+.cm-atomic-search-input::placeholder {
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+}
+
+.cm-atomic-search-count {
+  flex: 0 0 auto;
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+  font-size: 0.75rem;
+  white-space: nowrap;
+  min-width: 0;
+  user-select: none;
+}
+
+.cm-atomic-search-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--atomic-editor-radius, 6px);
+  color: var(--atomic-editor-fg-muted, var(--tag-8));
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.cm-atomic-search-btn:hover {
+  background: var(--atomic-editor-bg-surface, var(--text));
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-atomic-search-btn:focus-visible {
+  outline: none;
+  border-color: var(--atomic-editor-accent, var(--tag-4));
+  color: var(--atomic-editor-fg, var(--line));
+}
+
+.cm-atomic-search-btn svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.cm-searchMatch-selected {
+  background: var(--atomic-editor-search-bg-active, color-mix(in srgb, var(--tag-4) 60%, transparent));
+}
+
+.cm-initialRevealMatch {
+  background: var(--atomic-editor-initial-reveal-bg, color-mix(in srgb, var(--atomic-editor-accent-soft, var(--tag-4)) 28%, transparent 72%));
+  border-radius: 0.2rem;
+  animation: atomic-initial-reveal-fade 3.2s ease-out forwards;
+}
+
+.cm-atomic-readonly .cm-atomic-link,
+.cm-atomic-readonly .cm-atomic-wiki-link,
+.cm-atomic-readonly .cm-atomic-link-wrap {
+  cursor: pointer;
+}
+
+.editor-markdown-editor > .cm-editor {
+  height: 100%;
+  min-height: 0;
+}
+
+.editor-markdown-editor .cm-scroller {
+  scrollbar-gutter: stable;
+}
+
+.editor-markdown-editor .cm-content {
+  max-width: 790px;
+  margin: 0 auto;
+  width: calc(100% - 60px);
+}
+
+.editor-markdown-editor.mode-live .cm-content {
+  padding-top: 18px;
+  padding-bottom: 100px;
+}
+
+.editor-markdown-editor .cm-editor .cm-line {
+  line-height: var(--editor-line);
+}
+
+.editor-markdown-editor .cm-line.cm-atomic-h1 {
+  font-size: 27px;
+  line-height: 1.45;
+  margin: 8px 0 16px;
+  font-weight: 660;
+  letter-spacing: -0.4px;
+}
+
+.editor-markdown-editor .cm-line.cm-atomic-h2 {
+  font-size: 20px;
+  line-height: 1.5;
+  margin: 14px 0 8px;
+  font-weight: 620;
+  letter-spacing: -0.2px;
+}
+
+.editor-markdown-editor .cm-line.cm-atomic-h3 {
+  font-size: 17px;
+  line-height: 1.6;
+  margin: 10px 0 5px;
+  font-weight: 600;
+}
+
+/* stylelint-disable declaration-no-important -- 覆盖 CodeMirror 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+.editor-markdown-editor .cm-line.cm-atomic-blockquote {
+  border-left: 3px solid var(--line);
+  background: var(--muted-bg);
+  padding: 0 15px !important;
+  color: var(--muted);
+}
+
+/* stylelint-enable declaration-no-important */
+
+/* stylelint-disable declaration-no-important -- 覆盖 CodeMirror 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+.editor-markdown-editor .cm-line.cm-atomic-fenced-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.8;
+  background: var(--muted-bg);
+  padding: 0 14px !important;
+}
+
+/* stylelint-enable declaration-no-important */
+
+.editor-markdown-editor .cm-atomic-task-checkbox {
+  accent-color: var(--text);
+}
+
+.editor-markdown-editor .cm-atomic-strong {
+  font-weight: 650;
+}
+
+.editor-markdown-editor .cm-atomic-wiki-link {
+  color: var(--info-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+  text-underline-offset: 3px;
+}
+
+.editor-markdown-editor.mode-source .cm-scroller,
+.editor-markdown-editor.mode-split .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.editor-markdown-editor.mode-source .cm-content,
+.editor-markdown-editor.mode-split .cm-content {
+  max-width: none;
+  width: auto;
+  margin: 0;
+  padding: 10px 24px 70px;
+  flex: 1;
+}
+
+.editor-markdown-editor.mode-source .cm-line,
+.editor-markdown-editor.mode-split .cm-line {
+  line-height: 1.9;
+}
+
+.editor-markdown-editor .cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 13px;
+  font: 12px/1.5 var(--font-ui);
+}
+
+.editor-markdown-editor .cm-search input:not([type="checkbox"]) {
+  width: 150px;
+  min-height: 29px;
+  height: 29px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: 12px var(--font-ui);
+  border-radius: 5px;
+}
+
+.editor-markdown-editor .cm-search button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 5px;
+  font: 12px var(--font-ui);
+}
+
+.editor-markdown-editor .cm-search button:hover {
+  color: var(--text);
+  background: var(--muted-bg);
+}
+
+.editor-markdown-editor .cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.editor-markdown-editor .cm-search input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--text);
+  margin: 0;
+}
+
+.editor-markdown-editor .cm-search [name="close"] {
+  margin-left: auto;
+  min-width: 27px;
+}
+
+.huhu-live-table {
+  position: relative;
+  margin: 12px 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* stylelint-disable declaration-no-important -- 覆盖 CodeMirror 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+.huhu-live-table-scroll {
+  overflow: auto;
+  padding: 0 !important;
+  margin: 0 !important;
+  font: 13px/1.75 var(--font-ui) !important;
+  max-width: 100% !important;
+}
+
+/* stylelint-enable declaration-no-important */
+
+/* stylelint-disable declaration-no-important -- 覆盖 CodeMirror 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+.huhu-live-table-scroll table {
+  border-collapse: collapse;
+  min-width: 100%;
+  width: max-content;
+  margin: 0 !important;
+  font-size: 13px !important;
+}
+
+/* stylelint-enable declaration-no-important */
+
+/* stylelint-disable declaration-no-important -- 覆盖 CodeMirror 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+.huhu-live-table-scroll th,
+.huhu-live-table-scroll td {
+  padding: 9px 12px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--line) !important;
+  min-width: 94px;
+  text-align: left;
+}
+
+/* stylelint-enable declaration-no-important */
+
+.huhu-live-table-scroll [align="right"] {
+  text-align: right;
+}
+
+.huhu-live-table-scroll [align="center"] {
+  text-align: center;
+}
+
+/* stylelint-disable declaration-no-important -- 覆盖 CodeMirror 运行时注入的样式（文档顺序上晚于本文件，等特异性时它们赢） */
+
+.huhu-live-table-scroll tr:last-child td {
+  border-bottom: 0 !important;
+}
+
+/* stylelint-enable declaration-no-important */
+
+.huhu-live-table-scroll th {
+  font-weight: 600;
+  background: var(--muted-bg);
+}
+
+.huhu-live-block-edit {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  font: 11px/1.5 var(--font-ui);
+  color: var(--faint);
+  background: var(--panel);
+}
+
+.huhu-live-block-edit:hover,
+.huhu-live-block-edit:focus-visible {
+  color: var(--text);
+  background: var(--muted-bg);
+}
+
+@media (max-width: 1100px) {
+  .editor-markdown-editor .cm-content {
+    width: calc(100% - 42px);
+  }
+}
+
+@media (max-width: 700px) {
+  .editor-markdown-editor .cm-content {
+    width: calc(100% - 32px);
+  }
+}
+
+.editor-markdown-editor > .cm-editor > .cm-scroller {
+  --huhu-document-measure: 936px;
+  --huhu-document-side: 24px;
+  padding-inline: max(var(--huhu-document-side), calc((100% - var(--huhu-document-measure)) / 2));
+  box-sizing: border-box;
+}
+
+.editor-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
+  max-width: none;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0%;
+  margin: 0;
+  padding: 20px 0 96px 12px;
+  box-sizing: border-box;
+}
+
+.editor-markdown-editor > .cm-editor > .cm-scroller > .cm-gutters {
+  min-width: 36px;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--faint);
+}
+
+.editor-markdown-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 30px;
+  padding-inline: 0 8px;
+  font: 12px/var(--editor-line) var(--font-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .editor-markdown-editor > .cm-editor > .cm-scroller {
+    --huhu-document-side: 12px;
+  }
+}
+
+@media (max-width: 700px) {
+  .editor-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
+    padding-left: 8px;
+  }
+}
+
+.editor-markdown-editor .huhu-md-semibold,
+.editor-markdown-editor .cm-line.cm-atomic-h1,
+.editor-markdown-editor .cm-line.cm-atomic-h2,
+.editor-markdown-editor .cm-atomic-strong,
+.editor-markdown-editor .cm-atomic-strong-mark,
+.editor-markdown-editor .cm-atomic-table th,
+.huhu-live-table-scroll :is(strong, b, th) {
+  font-weight: 600;
+}
+
+.editor-markdown-editor > .cm-editor > .cm-scroller > .cm-content {
+  max-width: var(--editor-measure, none);
+  margin-inline: auto;
+}
+
+.cm-searchMatch {
+  background: var(--atomic-editor-search-bg, color-mix(in srgb, var(--tag-4) 28%, transparent));
+  border-radius: 2px;
+}
+
+.cm-atomic-readonly .cm-atomic-table-cell-source {
+  cursor: default;
+}

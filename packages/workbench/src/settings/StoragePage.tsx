@@ -27,9 +27,9 @@ interface ManagedFile {
 type StorageTab = "files" | "index" | "export" | "rules";
 const DOMAIN_NAMES: Record<string, string> = { notes: "笔记", tasks: "任务", archives: "档案", inbox: "收件箱", automations: "自动化", runs: "运行记录", comments: "批注", config: "配置", guide: "指南" };
 const RULES: [string, string, string, string][] = [
-  ["用户内容", "笔记、附件", "Vault 任意目录", "否 · 文件本身是真相来源"],
-  ["语义内容", "任务、档案、档案类型、捕获、自动化规则、运行结果、批注", "Vault 内固定目录的 .md", "否 · 文件本身是真相来源"],
-  ["配置", "设置、插件启停、网关、Space、SSH 主机、脚本配置", ".huhu/*.json · .huhu/<插件>/", "否 · 文件本身是真相来源"],
+  ["用户内容", "笔记、档案（Archives/ 下的文件夹笔记）、附件", "Vault 任意目录", "否 · 文件本身是真相来源"],
+  ["语义内容", "任务、捕获、自动化规则、运行结果、批注", "Vault 内固定目录的 .md", "否 · 文件本身是真相来源"],
+  ["配置", "设置、插件启停、网关、Space、SSH 主机", ".huhu/*.json · .huhu/<插件>/", "否 · 文件本身是真相来源"],
   ["秘密", "保险箱条目值", ".huhu/safe/sealed/（密文）", "否 · 密文 + 用户主密码"],
   ["可靠性材料", "操作日志与备份、草稿、回收站、运行处理记录、提醒投递记录", ".huhu/operations/ · drafts/ · trash/ · automations/", "否 · 禁止当缓存清理"],
   ["历史", "文件历史 shadow 仓库", ".huhu/history/git/", "否 · 可在设置中显式清理"],
@@ -140,8 +140,8 @@ export function StoragePage() {
   const indexing = info.data.indexing || busy === "reindex";
   return (
     <div data-testid="settings-storage" className="storage-view-v6">
-      <section className="storage-ownership card">
-        <div className="storage-symbol">
+      <section className="shell-storage-ownership hu-card-alt">
+        <div className="shell-storage-symbol">
           <Folder size={29} strokeWidth={1.5} aria-hidden />
         </div>
         <div className="grow">
@@ -150,10 +150,10 @@ export function StoragePage() {
             <Badge tone="success">Markdown + JSON</Badge>
           </div>
           <p>
-            笔记正文在普通目录，任务、档案与设置在 <code>.huhu/</code>。索引不是原始数据。
+            笔记正文在普通目录，任务与设置在 <code>.huhu/</code> 与固定目录。索引不是原始数据。
           </p>
         </div>
-        <div className="storage-metrics">
+        <div className="shell-storage-metrics">
           <div>
             <strong data-testid="storage-metric-files">{files.data?.files.length ?? "—"}</strong>
             <span>受管文本文件</span>
@@ -164,7 +164,7 @@ export function StoragePage() {
           </div>
         </div>
       </section>
-      <div className="storage-local-tabs">
+      <div className="hu-storage-local-tabs">
         <Segmented<StorageTab>
           label="数据与存储分区"
           value={tab}
@@ -180,21 +180,21 @@ export function StoragePage() {
       </div>
 
       {msg ? (
-        <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "callout danger" : "callout"} data-testid={msg.testid}>
+        <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "hu-callout danger" : "hu-callout"} data-testid={msg.testid}>
           <p>{msg.text}</p>
         </div>
       ) : null}
 
       {tab === "files" ? <FileBrowser files={files.data?.files ?? []} loading={!files.data} error={files.isError ? (files.error instanceof Error ? files.error.message : String(files.error)) : null} /> : null}
       {tab === "index" ? (
-        <div className="storage-two-cards">
-          <section className="settings-section card">
+        <div className="shell-storage-two-cards">
+          <section className="hu-settings-section hu-card-alt">
             <h2>{c.indexTitle}</h2>
             <p data-testid="storage-counts">
               {c.counts(info.data.counts["files"] ?? 0, info.data.counts["notes"] ?? 0)}
               {indexing ? `（${c.indexing}）` : ""}
             </p>
-            <p className="hint-text">{c.indexNote}</p>
+            <p className="hu-hint-text">{c.indexNote}</p>
             <div className="row">
               <Button icon={RefreshCw} onClick={() => void reindex()} disabled={busy !== null || info.data.indexing} loading={busy === "reindex"} data-testid="storage-reindex">
                 {c.reindex}
@@ -210,25 +210,25 @@ export function StoragePage() {
             </div>
           </section>
 
-          <section className="settings-section card" data-testid="storage-pending-ops">
+          <section className="hu-settings-section hu-card-alt" data-testid="storage-pending-ops">
             <h2>未完成的操作</h2>
             {(pending.data ?? []).length === 0 ? (
-              <p className="hint-text">没有未完成的操作。</p>
+              <p className="hu-hint-text">没有未完成的操作。</p>
             ) : (
               <ul>
                 {(pending.data ?? []).map((o) => (
                   <li key={o.opId} data-testid="storage-pending-op">
                     <code>{o.kind}</code> · {o.state === "needs_attention" ? "需要人工处理" : "写入中断"} · {new Date(o.createdAt).toLocaleString("zh-CN")}
-                    {o.attention.length > 0 ? <small className="hint-text">（{o.attention.join("、")}）</small> : null}
+                    {o.attention.length > 0 ? <small className="hu-hint-text">（{o.attention.join("、")}）</small> : null}
                   </li>
                 ))}
               </ul>
             )}
-            <p className="hint-text">多文件操作（如重命名带链接的笔记）写到一半被中断时会记在这里；启动时会尝试回滚，无法回滚的需要你确认文件内容。</p>
+            <p className="hu-hint-text">多文件操作（如重命名带链接的笔记）写到一半被中断时会记在这里；启动时会尝试回滚，无法回滚的需要你确认文件内容。</p>
           </section>
-          <section className="settings-section card">
+          <section className="hu-settings-section hu-card-alt">
             <h2>保存与恢复的边界</h2>
-            <ol className="storage-steps">
+            <ol className="shell-storage-steps">
               <li>
                 <strong>先检测外部修改</strong>
                 <p>保存时携带当前版本，磁盘内容已被改动则拒绝覆盖。</p>
@@ -249,10 +249,10 @@ export function StoragePage() {
       ) : null}
       {tab === "export" ? (
         <>
-          <section className="settings-section card">
+          <section className="hu-settings-section hu-card-alt">
             <h2>{c.exportTitle}</h2>
             <p>{c.exportNote}</p>
-            <div className="storage-export-grid">
+            <div className="shell-storage-export-grid">
               <div>
                 <CheckCircle2 size={19} aria-hidden />
                 <strong>包含</strong>
@@ -269,16 +269,16 @@ export function StoragePage() {
                 <p>只导出密文，解锁仍需原主密码；HUHU 不保存明文凭据。</p>
               </div>
             </div>
-            <div className="setting-row">
+            <div className="hu-setting-row">
               <div>
                 <strong>{c.attachments}</strong>
               </div>
               <ChoiceSwitch checked={attachments} onChange={setAttachments} label={c.attachments} />
             </div>
-            <div className="setting-row">
+            <div className="hu-setting-row">
               <div>
                 <strong>关闭前提示导出数据包</strong>
-                <p className="hint-text">关闭或切换 Vault 时先弹出导出步骤，确认备份可用后再继续。默认关闭。</p>
+                <p className="hu-hint-text">关闭或切换 Vault 时先弹出导出步骤，确认备份可用后再继续。默认关闭。</p>
               </div>
               <ChoiceSwitch checked={settings.data?.storage.promptBackupBeforeClose ?? false} onChange={(v) => void setPrompt(v)} label="关闭前提示导出数据包" />
             </div>
@@ -302,7 +302,7 @@ export function StoragePage() {
               </div>
             </Field>
             {exported ? (
-              <div className="date-format-samples" data-testid="storage-export-result">
+              <div className="shell-date-format-samples" data-testid="storage-export-result">
                 <div>
                   <span>{c.resultPath}</span>
                   <code data-testid="export-path">{exported.path}</code>
@@ -321,7 +321,7 @@ export function StoragePage() {
             ) : null}
           </section>
 
-          <section className="settings-section card">
+          <section className="hu-settings-section hu-card-alt">
             <h2>{c.importTitle}</h2>
             <p>{c.importNote}</p>
             <Field label={c.zipPath}>
@@ -360,22 +360,22 @@ export function StoragePage() {
               </div>
             </Field>
             {imported ? (
-              <p role="status" data-testid="storage-import-result" className="hint-text">
+              <p role="status" data-testid="storage-import-result" className="hu-hint-text">
                 {c.imported(imported.targetDir, imported.files)}
               </p>
             ) : null}
           </section>
 
-          <section className="settings-section card">
+          <section className="hu-settings-section hu-card-alt">
             <h2>{c.backupTitle}</h2>
             <p>{c.backupNote}</p>
           </section>
         </>
       ) : null}
       {tab === "rules" ? (
-        <section className="settings-section card">
+        <section className="hu-settings-section hu-card-alt">
           <h2>整个工作台共同遵守</h2>
-          <table className="table storage-rules" data-testid="storage-rules">
+          <table className="hu-table shell-storage-rules" data-testid="storage-rules">
             <thead>
               <tr>
                 <th>类别</th>
@@ -418,7 +418,7 @@ function FileBrowser({ files, loading, error }: { files: ManagedFile[]; loading:
   const visible = useMemo(() => files.filter((f) => (domain === "all" || f.domain === domain) && (query.trim() === "" || f.path.toLowerCase().includes(query.trim().toLowerCase()))), [files, domain, query]);
   const current = files.find((f) => f.path === selected) ?? null;
   return (
-    <section className="storage-browser card" data-testid="storage-browser">
+    <section className="hu-storage-browser hu-card-alt" data-testid="storage-browser">
       <header>
         <SearchBox value={query} onChange={setQuery} placeholder="搜索路径或文件名…" />
         <select aria-label="按领域筛选文件" value={domain} onChange={(e) => setDomain(e.target.value)} data-testid="storage-domain">
@@ -432,13 +432,13 @@ function FileBrowser({ files, loading, error }: { files: ManagedFile[]; loading:
         <Badge>{visible.length} 项</Badge>
       </header>
       {error ? (
-        <div role="alert" className="callout danger">
+        <div role="alert" className="hu-callout danger">
           <p>{error}</p>
         </div>
       ) : null}
-      <div className="storage-file-panes">
-        <div className="storage-file-list" aria-label="Vault 受管文件">
-          {loading ? <p className="hint-text">{t.loading}</p> : null}
+      <div className="shell-storage-file-panes">
+        <div className="shell-storage-file-list" aria-label="Vault 受管文件">
+          {loading ? <p className="hu-hint-text">{t.loading}</p> : null}
           {!loading && visible.length === 0 ? (
             <EmptyState
               icon={Search}
@@ -466,11 +466,11 @@ function FileBrowser({ files, loading, error }: { files: ManagedFile[]; loading:
               <ChevronRight size={13} aria-hidden />
             </button>
           ))}
-          {visible.length > 500 ? <p className="hint-text">只显示前 500 项，请缩小筛选范围。</p> : null}
+          {visible.length > 500 ? <p className="hu-hint-text">只显示前 500 项，请缩小筛选范围。</p> : null}
         </div>
-        <div className="storage-file-preview">{current ? <FilePreview file={current} /> : <EmptyState icon={FileText} title="选择文件查看内容" />}</div>
+        <div className="shell-storage-file-preview">{current ? <FilePreview file={current} /> : <EmptyState icon={FileText} title="选择文件查看内容" />}</div>
       </div>
-      <footer className="storage-browser-foot">这里展示 HUHU 管理的 Markdown 与 JSON 文件（只读）。附件、未知文件、运行状态、历史仓库和保险箱密文不在此列出。</footer>
+      <footer className="shell-storage-browser-foot">这里展示 HUHU 管理的 Markdown 与 JSON 文件（只读）。附件、未知文件、运行状态、历史仓库和保险箱密文不在此列出。</footer>
     </section>
   );
 }
@@ -481,7 +481,7 @@ function FilePreview({ file }: { file: ManagedFile }) {
   const text = content.data?.text ?? "";
   return (
     <>
-      <div className="storage-preview-head">
+      <div className="shell-storage-preview-head">
         <code title={file.path}>{file.path}</code>
         <div className="row">
           <IconButton icon={Copy} label="复制文件内容" disabled={!content.data} onClick={() => void (h ? h.copyText(text) : navigator.clipboard.writeText(text))} />
@@ -489,7 +489,7 @@ function FilePreview({ file }: { file: ManagedFile }) {
         </div>
       </div>
       {content.isError ? (
-        <div role="alert" className="callout danger">
+        <div role="alert" className="hu-callout danger">
           <p>{content.error instanceof Error ? content.error.message : String(content.error)}</p>
         </div>
       ) : (

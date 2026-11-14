@@ -103,9 +103,10 @@ export function describeEvent(e: Pick<HuhuEvent, "type" | "payload">, titleOf: (
       const title = titleOf(s("kind"), s("id"));
       return { module: label.replace("自动化规则", "自动化"), message: `${label}${title ? `「${title}」` : ""}${OP_LABEL[s("op")] ?? s("op")}`, tone: "neutral" };
     }
-    case "task.completedChanged": {
+    case "task.statusChanged": {
       const title = titleOf("task", s("taskId"));
-      return { module: "任务", message: `任务${title ? `「${title}」` : ""}${p["completed"] ? "已完成" : "已重新打开"}`, tone: p["completed"] ? "success" : "neutral" };
+      const label = s("status") === "completed" ? "已完成" : s("previous") === "completed" ? "已重新打开" : s("status") === "in_progress" ? "进行中" : "未开始";
+      return { module: "任务", message: `任务${title ? `「${title}」` : ""}${label}`, tone: s("status") === "completed" ? "success" : "neutral" };
     }
     case "automation.activated":
       return { module: "自动化", message: `自动化规则已激活（${s("trigger") === "manual" ? "手动" : "定时"}）`, tone: "neutral" };

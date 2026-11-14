@@ -84,7 +84,7 @@ export function VaultSwitchDialog({ open, onClose, target }: { open: boolean; on
           ))}
         </ul>
       ) : (
-        <p className="hint-text">没有未保存的修改。</p>
+        <p className="hu-hint-text">没有未保存的修改。</p>
       )}
       {engine ? <BackupGate open={open} onGate={setBackupOk} onError={setError} setBusy={setBusy} busy={busy} /> : null}
     </Dialog>
@@ -126,10 +126,10 @@ function BackupGate({ open, onGate, onError, busy, setBusy }: { open: boolean; o
   };
   if (!needBackup) return null;
   return (
-    <section data-testid="svault-backup" className="callout">
+    <section data-testid="svault-backup" className="hu-callout">
       <div style={{ display: "grid", gap: 10, minWidth: 0, width: "100%" }}>
         <strong>先保存可读的数据包</strong>
-        <p className="hint-text">{hasPending ? "有未完成的操作（见 设置 → 数据与存储 → 索引与恢复），关闭前请先导出数据包。" : "你开启了“关闭前提示导出数据包”。"}导出后确认文件可用，再继续。</p>
+        <p className="hu-hint-text">{hasPending ? "有未完成的操作（见 设置 → 数据与存储 → 索引与恢复），关闭前请先导出数据包。" : "你开启了“关闭前提示导出数据包”。"}导出后确认文件可用，再继续。</p>
         <Field label="保存到">
           <div className="row">
             <input aria-label="数据包保存到" data-testid="svault-backup-path" value={dest} placeholder="/…/HUHU-备份.zip" onChange={(e) => setDest(e.target.value)} />
@@ -150,7 +150,7 @@ function BackupGate({ open, onGate, onError, busy, setBusy }: { open: boolean; o
           </div>
         </Field>
         {exported ? (
-          <p role="status" className="hint-text" data-testid="svault-backup-done">
+          <p role="status" className="hu-hint-text" data-testid="svault-backup-done">
             已导出：{exported.path}（SHA-256 {exported.sha256.slice(0, 12)}…）
           </p>
         ) : null}

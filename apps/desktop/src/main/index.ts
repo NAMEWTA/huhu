@@ -1,7 +1,8 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
@@ -69,7 +70,9 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     title: "HUHU",
-    backgroundColor: "#ffffff",
+    // 窗口底色：渲染进程加载主题之前只能用默认主题（Claude）的画布色（随系统明暗）；颜色字面量在主进程里是唯一允许的例外
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#181715" : "#faf9f5",
+    icon: iconPath,
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -112,6 +115,8 @@ if (!gotLock) {
   });
 
   void app.whenReady().then(() => {
+    // macOS 开发模式没有 .app 包，Dock 图标需要手动设置；打包后由 icns 提供
+    if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(iconPath);
     const root = path.join(import.meta.dirname, "../renderer");
     protocol.handle("huhu-app", (request) => {
       const url = new URL(request.url);

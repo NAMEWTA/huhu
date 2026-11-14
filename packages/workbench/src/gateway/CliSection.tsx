@@ -42,9 +42,9 @@ export function CliSection() {
   }
   return (
     <section data-testid="cli-section" aria-label={c.title}>
-      <div className="card gateway-overview">
+      <div className="hu-card-alt hu-gateway-overview">
         <div className="row">
-          <span className="plugin-large-icon">
+          <span className="shell-plugin-large-icon">
             <SquareTerminal size={24} aria-hidden />
           </span>
           <div className="grow">
@@ -64,7 +64,7 @@ export function CliSection() {
           ) : null}
         </div>
         {!h?.cliStatus ? (
-          <p className="hint-text">{c.hostOnly}</p>
+          <p className="hu-hint-text">{c.hostOnly}</p>
         ) : !st ? (
           <p>…</p>
         ) : (
@@ -74,19 +74,19 @@ export function CliSection() {
               {st.location ? ` · ${st.location}` : ""}
             </p>
             {!st.supported ? (
-              <p className="hint-text" data-testid="cli-unsupported">
+              <p className="hu-hint-text" data-testid="cli-unsupported">
                 {st.reason ?? c.devOnly}
               </p>
             ) : (
               <>
                 {st.installed && st.method === "symlink" && !st.onPath ? (
-                  <p role="status" className="hint-text">
+                  <p role="status" className="hu-hint-text">
                     {c.notOnPath(st.location.replace(/[\\/][^\\/]*$/, ""))}
                   </p>
                 ) : null}
-                {st.installed && st.method === "path" ? <p className="hint-text">{c.restartTerminal}</p> : null}
+                {st.installed && st.method === "path" ? <p className="hu-hint-text">{c.restartTerminal}</p> : null}
                 {confirm ? (
-                  <div role="alertdialog" aria-label={c.confirmInstall} data-testid="cli-confirm" className="callout">
+                  <div role="alertdialog" aria-label={c.confirmInstall} data-testid="cli-confirm" className="hu-callout">
                     <div>
                       <p>{st.method === "symlink" ? c.symlink(st.location) : c.pathMethod(st.location)}</p>
                       <div className="row">
@@ -103,15 +103,15 @@ export function CliSection() {
           </>
         )}
         {msg ? (
-          <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "field-error" : "hint-text"} data-testid="cli-msg">
+          <div role={msg.kind === "error" ? "alert" : "status"} className={msg.kind === "error" ? "hu-field-error" : "hu-hint-text"} data-testid="cli-msg">
             {msg.text}
           </div>
         ) : null}
       </div>
-      <div className="card-head">
+      <div className="shell-card-head">
         <h2>{c.quick}</h2>
       </div>
-      <div className="cli-suggestions">
+      <div className="shell-cli-suggestions">
         {c.cheat.map((l) => (
           <button key={l} type="button" onClick={() => void navigator.clipboard.writeText(l)} title="点击复制">
             <code>{l}</code>

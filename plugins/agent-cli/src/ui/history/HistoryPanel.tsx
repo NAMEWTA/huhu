@@ -26,12 +26,12 @@ function TranscriptDialog({ spaceId, entry, onClose }: { spaceId: string; entry:
   return (
     <Dialog open title={entry.title} description="只读的对话记录（用户与助手的文字；不含工具调用）。" testId="history-transcript" onClose={onClose}>
       {transcript.isError ? (
-        <div role="alert" className="callout danger">
+        <div role="alert" className="hu-callout danger">
           <p>{transcript.error instanceof Error ? transcript.error.message : String(transcript.error)}</p>
         </div>
       ) : null}
-      {!transcript.data && !transcript.isError ? <p className="v9-small-empty">…</p> : null}
-      {transcript.data?.truncated ? <p className="v9-small-empty">记录较长，只显示最近的部分。</p> : null}
+      {!transcript.data && !transcript.isError ? <p className="agent-small-empty">…</p> : null}
+      {transcript.data?.truncated ? <p className="agent-small-empty">记录较长，只显示最近的部分。</p> : null}
       <div style={{ display: "grid", gap: 10, maxHeight: "55vh", overflow: "auto" }}>
         {(transcript.data?.messages ?? []).map((m, i) => (
           <div key={i} data-testid="transcript-message" data-role={m.role} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -39,7 +39,7 @@ function TranscriptDialog({ spaceId, entry, onClose }: { spaceId: string; entry:
             <div>{m.text}</div>
           </div>
         ))}
-        {transcript.data && transcript.data.messages.length === 0 ? <p className="v9-small-empty">这次会话没有可显示的文字内容。</p> : null}
+        {transcript.data && transcript.data.messages.length === 0 ? <p className="agent-small-empty">这次会话没有可显示的文字内容。</p> : null}
       </div>
     </Dialog>
   );
@@ -88,51 +88,51 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
   ];
   return (
     <section data-testid="agent-history" aria-label={t.history.title} style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
-      <div className="v9-sidebar-head">
+      <div className="agent-sidebar-head">
         <span>
           <History size={15} aria-hidden />
           {t.history.title}
         </span>
-        <span className="v9-count">{history.data?.entries.length ?? 0}</span>
+        <span className="agent-count">{history.data?.entries.length ?? 0}</span>
       </div>
-      <div className="v9-history-space">
+      <div className="agent-history-space">
         {space.name ?? ""}
         <small title={space.root}>{space.root}</small>
       </div>
-      <div className="v9-history-search">
+      <div className="agent-history-search">
         <Search size={14} aria-hidden />
         <input aria-label={t.history.search} placeholder={t.history.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      <div className="v9-history-filters" role="group" aria-label={t.history.filters}>
+      <div className="agent-history-filters" role="group" aria-label={t.history.filters}>
         {FILTERS.map(([id, label]) => (
           <button type="button" key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>
             {label}
           </button>
         ))}
       </div>
-      <div className="v9-history-list">
+      <div className="agent-history-list">
         {history.isError ? (
-          <div role="alert" className="callout danger">
+          <div role="alert" className="hu-callout danger">
             <p>{history.error instanceof Error ? history.error.message : String(history.error)}</p>
           </div>
         ) : null}
         {error ? (
-          <div role="alert" className="callout danger">
+          <div role="alert" className="hu-callout danger">
             <p>{error}</p>
           </div>
         ) : null}
         {skipped > 0 ? (
-          <p className="v9-small-empty" data-testid="history-skipped">
+          <p className="agent-small-empty" data-testid="history-skipped">
             {t.history.skipped(skipped)}
           </p>
         ) : null}
-        {!history.data && !history.isError ? <p className="v9-small-empty">…</p> : null}
-        {history.data && entries.length === 0 ? <p className="v9-small-empty">{query || filter !== "all" ? t.history.noMatch : t.history.empty}</p> : null}
+        {!history.data && !history.isError ? <p className="agent-small-empty">…</p> : null}
+        {history.data && entries.length === 0 ? <p className="agent-small-empty">{query || filter !== "all" ? t.history.noMatch : t.history.empty}</p> : null}
         {entries.map((e) => {
           const ok = installed.has(e.provider);
           return (
-            <div key={`${e.provider}:${e.nativeSessionId}`} className="v9-history-item" data-testid="history-item">
-              <span className={`v9-provider-mark provider-${e.provider}`}>{e.provider.slice(0, 1).toUpperCase()}</span>
+            <div key={`${e.provider}:${e.nativeSessionId}`} className="agent-history-item" data-testid="history-item">
+              <span className={`agent-provider-mark provider-${e.provider}`}>{e.provider.slice(0, 1).toUpperCase()}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <strong data-testid="history-title">{e.title}</strong>
                 <small>
@@ -143,7 +143,7 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
               </span>
               <button
                 type="button"
-                className={`v9-pin${e.pinned ? " pinned" : ""}`}
+                className={`agent-pin${e.pinned ? " agent-pinned" : ""}`}
                 aria-pressed={e.pinned}
                 aria-label={e.pinned ? t.history.unpin(e.title) : t.history.pin(e.title)}
                 data-testid="history-pin"
@@ -151,7 +151,7 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
               >
                 <Pin size={12} aria-hidden />
               </button>
-              <button type="button" className="v9-pin" aria-label={`查看记录 ${e.title}`} title="只读查看这次会话的对话记录" data-testid="history-view" onClick={() => setViewing(e)}>
+              <button type="button" className="agent-pin" aria-label={`查看记录 ${e.title}`} title="只读查看这次会话的对话记录" data-testid="history-view" onClick={() => setViewing(e)}>
                 <Eye size={12} aria-hidden />
               </button>
               <Button disabled={!ok || e.active || busy !== null} loading={busy === e.nativeSessionId} title={ok ? undefined : t.history.notInstalled} data-testid="history-resume" onClick={() => void resume(e)}>
@@ -161,7 +161,7 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
           );
         })}
       </div>
-      <div className="v9-history-footnote">{t.history.note}</div>
+      <div className="agent-history-footnote">{t.history.note}</div>
       {viewing ? <TranscriptDialog spaceId={space.id} entry={viewing} onClose={() => setViewing(null)} /> : null}
     </section>
   );

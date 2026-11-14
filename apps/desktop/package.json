@@ -1,6 +1,6 @@
 {
   "name": "@huhu/desktop",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "private": true,
   "description": "HUHU Workbench",
   "homepage": "https://huhu.local",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@huhu/plugin-agent-cli": "workspace:*",
-    "@huhu/plugin-archives": "workspace:*",
+    "@huhu/plugin-agent-guide": "workspace:*",
     "@huhu/plugin-automations": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",

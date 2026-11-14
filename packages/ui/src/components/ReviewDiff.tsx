@@ -88,7 +88,7 @@ function Inline({ oldText, newText, side }: { oldText: string | undefined; newTe
       {pieces
         .filter((p) => (side === "old" ? !p.added : !p.removed))
         .map((p, i) => (
-          <span key={i} className={p.added ? "review-word-added" : p.removed ? "review-word-removed" : undefined}>
+          <span key={i} className={p.added ? "hu-review-word-added" : p.removed ? "hu-review-word-removed" : undefined}>
             {p.value}
           </span>
         ))}
@@ -171,13 +171,13 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
   };
   const fileName = path.split("/").at(-1) ?? path;
   return (
-    <section className="review-diff" aria-label={`差异审查 ${path}`} ref={host}>
-      <header className="review-header">
-        <div className="review-file">
+    <section className="hu-review-diff" aria-label={`差异审查 ${path}`} ref={host}>
+      <header className="hu-review-header">
+        <div className="hu-review-file">
           <GitCompareArrows size={16} aria-hidden />
           <strong title={path}>{path}</strong>
-          <span className="review-count-add">+{ok?.added ?? 0}</span>
-          <span className="review-count-remove">−{ok?.removed ?? 0}</span>
+          <span className="hu-review-count-add">+{ok?.added ?? 0}</span>
+          <span className="hu-review-count-remove">−{ok?.removed ?? 0}</span>
           {!error && !changed.length ? <Badge>无差异</Badge> : null}
         </div>
         <Segmented<"split" | "unified">
@@ -193,12 +193,12 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
           ]}
         />
       </header>
-      <div className="review-toolbar">
-        <label className="review-check">
+      <div className="hu-review-toolbar">
+        <label className="hu-review-check">
           <input type="checkbox" checked={ignoreWhitespace} onChange={(e) => setIgnore(e.target.checked)} />
           忽略行首尾空白
         </label>
-        <label className="review-check">
+        <label className="hu-review-check">
           <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
           显示全部上下文
         </label>
@@ -211,14 +211,14 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
         </Button>
       </div>
       {error ? (
-        <div className="review-large" role="alert">
+        <div className="hu-review-large" role="alert">
           <p>{error}</p>
           <Button onClick={() => save(`before-${fileName}`, before)}>下载旧版本</Button>
           <Button onClick={() => save(`after-${fileName}`, after)}>下载新版本</Button>
         </div>
       ) : (
-        <div className={`review-body review-${layout}`}>
-          <div className="review-column-labels">
+        <div className={`hu-review-body hu-review-${layout}`}>
+          <div className="hu-review-column-labels">
             {layout === "split" ? (
               <>
                 <span>修改前</span>
@@ -231,7 +231,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
           {visible.map((v) => {
             if ("fold" in v)
               return (
-                <button key={`f${v.start}`} type="button" className="review-fold" onClick={() => setExpanded({ ...expanded, [v.start]: true })}>
+                <button key={`f${v.start}`} type="button" className="hu-review-fold" onClick={() => setExpanded({ ...expanded, [v.start]: true })}>
                   展开 {v.count} 行未更改内容
                 </button>
               );
@@ -239,8 +239,8 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
             if (layout === "split") {
               const r = row as SplitRow;
               return (
-                <div className={`review-split-row ${r.kind} ${changed[cursor] === index ? "review-current" : ""}`} key={index} data-review-row={index}>
-                  <div className={`review-side ${r.old === undefined ? "review-void" : ""} ${r.kind === "remove" || r.kind === "change" ? "removed" : ""}`}>
+                <div className={`hu-review-split-row ${r.kind} ${changed[cursor] === index ? "hu-review-current" : ""}`} key={index} data-review-row={index}>
+                  <div className={`hu-review-side ${r.old === undefined ? "hu-review-void" : ""} ${r.kind === "remove" || r.kind === "change" ? "removed" : ""}`}>
                     <button type="button" className={selected?.side === "old" && selected.line === r.left ? "selected" : ""} onClick={() => choose("old", r.left)} disabled={!r.left} aria-label={`旧版本第 ${r.left || 0} 行`}>
                       {r.left || ""}
                     </button>
@@ -248,7 +248,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
                       <Inline oldText={r.old} newText={r.new} side="old" />
                     </code>
                   </div>
-                  <div className={`review-side ${r.new === undefined ? "review-void" : ""} ${r.kind === "add" || r.kind === "change" ? "added" : ""}`}>
+                  <div className={`hu-review-side ${r.new === undefined ? "hu-review-void" : ""} ${r.kind === "add" || r.kind === "change" ? "added" : ""}`}>
                     <button type="button" className={selected?.side === "new" && selected.line === r.right ? "selected" : ""} onClick={() => choose("new", r.right)} disabled={!r.right} aria-label={`新版本第 ${r.right || 0} 行`}>
                       {r.right || ""}
                     </button>
@@ -261,7 +261,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
             }
             const r = row as UnifiedRow;
             return (
-              <div className={`review-unified-row ${r.kind} ${changed[cursor] === index ? "review-current" : ""}`} data-review-row={index} key={index}>
+              <div className={`hu-review-unified-row ${r.kind} ${changed[cursor] === index ? "hu-review-current" : ""}`} data-review-row={index} key={index}>
                 <button type="button" onClick={() => choose(r.kind === "remove" ? "old" : "new", r.kind === "remove" ? r.left : r.right)} aria-label={`差异第 ${r.right || r.left} 行`}>
                   <span>{r.left || ""}</span>
                   <span>{r.right || ""}</span>
@@ -273,7 +273,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
           })}
         </div>
       )}
-      <footer className="review-footer">
+      <footer className="hu-review-footer">
         <span>
           {selected ? `${selected.side === "old" ? "旧" : "新"}版本 · 第 ${selected.line} 行` : "选择行号定位审查位置"}
           {cursor >= 0 && changed.length ? ` · 更改 ${cursor + 1}/${changed.length}` : ""}
@@ -300,7 +300,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
       </footer>
       {copyDialog ? (
         <Dialog open title="复制差异补丁" onClose={() => setCopyDialog(false)} actions={<Button onClick={() => setCopyDialog(false)}>关闭</Button>}>
-          <textarea className="review-copy" aria-label="差异补丁文本" readOnly value={patch()} onFocus={(e) => e.target.select()} />
+          <textarea className="hu-review-copy" aria-label="差异补丁文本" readOnly value={patch()} onFocus={(e) => e.target.select()} />
           <p>选择文本后按 Ctrl / ⌘ + C。</p>
         </Dialog>
       ) : null}
@@ -328,8 +328,8 @@ export function ChangeFileTree({ files = [], onSelect, selected }: { files?: Cha
     return [...m];
   }, [files]);
   return (
-    <div className="change-file-tree" aria-label="变更文件导航">
-      <div className="change-tree-title">
+    <div className="hu-change-file-tree" aria-label="变更文件导航">
+      <div className="hu-change-tree-title">
         <Folder size={15} aria-hidden />
         <strong>变更文件</strong>
         <Badge>{files.length}</Badge>
@@ -338,7 +338,7 @@ export function ChangeFileTree({ files = [], onSelect, selected }: { files?: Cha
       {groups.map(([folder, list]) => (
         <section key={folder || "/"}>
           {folder ? (
-            <button type="button" className="change-tree-folder" aria-expanded={!closed[folder]} onClick={() => setClosed({ ...closed, [folder]: !closed[folder] })}>
+            <button type="button" className="hu-change-tree-folder" aria-expanded={!closed[folder]} onClick={() => setClosed({ ...closed, [folder]: !closed[folder] })}>
               {closed[folder] ? <ChevronRight size={13} aria-hidden /> : <ChevronDown size={13} aria-hidden />}
               <Folder size={14} aria-hidden />
               <span title={folder}>{folder}</span>
@@ -348,7 +348,7 @@ export function ChangeFileTree({ files = [], onSelect, selected }: { files?: Cha
           {!folder || !closed[folder] ? (
             <Fragment>
               {list.map((f) => (
-                <button type="button" className={`change-tree-file ${selected === f.id ? "active" : ""}`} key={f.id} onClick={() => onSelect?.(f.id)} aria-current={selected === f.id ? "true" : undefined} title={f.path}>
+                <button type="button" className={`hu-change-tree-file ${selected === f.id ? "active" : ""}`} key={f.id} onClick={() => onSelect?.(f.id)} aria-current={selected === f.id ? "true" : undefined} title={f.path}>
                   <FileText size={14} aria-hidden />
                   <span>{f.path.split("/").at(-1)}</span>
                   {f.decision === "accepted" ? <Check size={13} className="accepted" aria-hidden /> : <small className={f.status === "added" ? "accepted" : "modified"}>{f.status === "added" ? "A" : "M"}</small>}

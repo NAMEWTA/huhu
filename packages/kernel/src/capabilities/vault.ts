@@ -9,7 +9,7 @@ const TreeEntry = z.object({ path: z.string(), type: z.enum(["file", "dir"]), si
 const MAX_READ_BYTES = 10 * 1024 * 1024;
 
 const DOMAIN_BY_DIR: Record<string, string> = Object.fromEntries(
-  Object.values(KINDS).map((k) => [k.dir, k.plugin === "tasks" ? "tasks" : k.plugin === "archives" ? "archives" : k.plugin === "inbox" ? "inbox" : k.plugin === "notes" ? "comments" : k.dir === "Automations" ? "automations" : "runs"]),
+  Object.values(KINDS).map((k) => [k.dir, k.plugin === "tasks" ? "tasks" : k.plugin === "inbox" ? "inbox" : k.plugin === "notes" ? "comments" : k.dir === "Automations" ? "automations" : "runs"]),
 );
 /** .huhu 下不作为“受管数据”列出的目录：运行态、历史仓库、缓存、草稿/回收站/操作日志（可靠性材料）、保险箱密文、界面状态。 */
 const HIDDEN_STATE_DIRS = new Set(["runtime", "history", "cache", "drafts", "trash", "operations", "safe", "ui", "diagnostics", "tmp"]);
@@ -19,6 +19,7 @@ const MAX_MANAGED = 20_000;
 function domainOf(rel: string): string {
   const top = rel.split("/")[0] ?? "";
   if (top === ".huhu") return rel.startsWith(".huhu/guide/") ? "guide" : "config";
+  if (top === "Archives") return "archives"; // 档案是 Archives/ 下的文件夹笔记：按路径前缀归入“档案”域
   return DOMAIN_BY_DIR[top] ?? "notes";
 }
 
@@ -145,10 +146,13 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
         plugin: "kernel",
         scope: "read",
         input: z.object({ query: z.string().min(1), kind: z.string().optional(), limit: z.number().int().min(1).max(200).default(50) }),
-        output: z.object({ indexing: z.boolean(), hits: z.array(z.object({ path: z.string(), kind: z.string(), title: z.string(), score: z.number() })) }),
+        output: z.object({ indexing: z.boolean(), hits: z.array(z.object({ path: z.string(), kind: z.string(), title: z.string(), score: z.number(), archive: z.boolean() })) }),
         exposable: true,
         defaultExposed: true,
-        handler: (_c, i) => index.query(i.query, { limit: i.limit, ...(i.kind ? { kind: i.kind } : {}) }),
+        handler: (_c, i) => {
+          const r = index.query(i.query, { limit: i.limit, ...(i.kind ? { kind: i.kind } : {}) });
+          return { ...r, hits: r.hits.map((h) => ({ ...h, archive: h.path.startsWith("Archives/") })) }; // 档案是普通笔记，另加标记供命令面板分组
+        },
       }),
     ),
     registry.register(

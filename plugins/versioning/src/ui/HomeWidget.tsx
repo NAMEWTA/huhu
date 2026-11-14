@@ -7,10 +7,10 @@ export function VersioningHomeWidget({ onNavigate }: { onNavigate(moduleId: stri
   const d = git.data;
   return (
     <>
-      <div className="mini-empty" data-testid="home-git-status">
+      <div className="hu-mini-empty" data-testid="home-git-status">
         {!d ? "…" : !d.installed ? "本机没有安装 Git" : !d.isRepo ? "这个 Vault 还没有启用 Git 同步" : `分支 ${d.branch ?? "（分离）"} · ${d.files.length === 0 ? "没有未提交的改动" : `${d.files.length} 个文件有改动`}`}
       </div>
-      <button type="button" className="card-footer-link" onClick={() => onNavigate("versioning")}>
+      <button type="button" className="hu-card-footer-link" onClick={() => onNavigate("versioning")}>
         版本与同步 <ArrowRight size={14} aria-hidden />
       </button>
     </>

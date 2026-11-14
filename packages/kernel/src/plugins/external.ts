@@ -6,7 +6,7 @@ import path from "node:path";
 import { errors, PluginManifestSchema, type PluginManifest } from "@huhu/contracts";
 import { unzipSync } from "fflate";
 import type { PluginManager } from "../plugin-manager.js";
-import { PERMISSION_TABLE } from "../permissions.js";
+import { BUILTIN_ONLY_PERMISSIONS, PERMISSION_TABLE } from "../permissions.js";
 import type { TokenTable } from "../server/tokens.js";
 import { PLUGIN_HOST_SCRIPT } from "./host-script.js";
 
@@ -191,7 +191,7 @@ export class ExternalPlugins {
       const manifest = parsed.data;
       if (manifest.origin !== "external") reject("origin 必须是 external");
       if (this.builtinIds.has(manifest.id) || (this.d.plugins.has(manifest.id) && !this.has(manifest.id))) reject(`id 与内置插件冲突：${manifest.id}`);
-      const bad = manifest.permissions.filter((p) => !(p in PERMISSION_TABLE));
+      const bad = manifest.permissions.filter((p) => !(p in PERMISSION_TABLE) || BUILTIN_ONLY_PERMISSIONS.has(p));
       if (bad.length > 0) reject(`未知权限：${bad.join("、")}`);
       const main = typeof raw["main"] === "string" ? (raw["main"] as string) : "main.mjs";
       const abs = path.resolve(dir, main);

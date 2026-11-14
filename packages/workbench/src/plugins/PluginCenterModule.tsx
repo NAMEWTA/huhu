@@ -1,7 +1,7 @@
 import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Blocks, Command, ExternalLink, Info, Lock, Monitor, PackageOpen, Plug, RefreshCw, Settings as SettingsIcon, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useModuleIcons, type ModuleProps } from "../contributions.js";
+import { useModuleIcons, useSettingsPages, type ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { t } from "../i18n/zh-CN.js";
 import { DiscoverPanel } from "./DiscoverPanel.js";
@@ -27,6 +27,8 @@ const tone = (s: PluginInfo["state"]) => (s === "failed" ? "danger" : s === "act
 /** 插件中心（原型 PluginCenterV3）：左侧资源列表（内置 / 外部）+ 详情；运行时与权限清单。启用 / 停用走统一生命周期，停用前列出会被一并停用的插件。 */
 export function PluginCenterModule({ section, onSection, onNavigate }: ModuleProps) {
   const icons = useModuleIcons();
+  const settingsPages = useSettingsPages();
+  const settingsPageOf = (plugin: string) => settingsPages.find((p) => p.plugin === plugin);
   const engine = useEngine();
   const qc = useQueryClient();
   const list = useCapability<PluginInfo[]>("plugins.list", {});
@@ -83,13 +85,13 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
   };
 
   return (
-    <div className="module-layout system-layout plugin-v3" data-testid="plugin-center">
-      <aside className="resource-pane">
-        <div className="resource-head">
+    <div className="hu-module-layout shell-system-layout shell-plugin-v3" data-testid="plugin-center">
+      <aside className="hu-resource-pane">
+        <div className="hu-resource-head">
           <span>插件与扩展</span>
           <Badge>{plugins.length}</Badge>
         </div>
-        <div className="plugin-origin-tabs">
+        <div className="shell-plugin-origin-tabs">
           <button type="button" className={origin === "builtin" ? "active" : ""} onClick={() => (setOrigin("builtin"), setQuery(""), setFilter("all"))}>
             <ShieldCheck size={14} aria-hidden /> 内置 <small>{counts.builtin}</small>
           </button>
@@ -97,28 +99,28 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             <PackageOpen size={14} aria-hidden /> 外部 <small>{counts.external}</small>
           </button>
         </div>
-        <div className="system-pane-search">
+        <div className="hu-system-pane-search">
           <SearchBox value={query} onChange={setQuery} placeholder={origin === "builtin" ? "搜索内置功能…" : "搜索外部扩展…"} />
         </div>
-        <div className="resource-list system-resource-list">
+        <div className="hu-resource-list shell-system-resource-list">
           {visible.map((p) => (
-            <button key={p.id} type="button" className={`plugin-list-row ${p.id === current?.id ? "active" : ""}`} data-testid="plugin-row" data-plugin={p.id} onClick={() => setSelectedId(p.id)}>
-              <span className="plugin-mini-icon">{icons[p.id] ?? <Blocks size={17} aria-hidden />}</span>
+            <button key={p.id} type="button" className={`shell-plugin-list-row ${p.id === current?.id ? "active" : ""}`} data-testid="plugin-row" data-plugin={p.id} onClick={() => setSelectedId(p.id)}>
+              <span className="shell-plugin-mini-icon">{icons[p.id] ?? <Blocks size={17} aria-hidden />}</span>
               <span className="grow">
                 <strong>{p.title}</strong>
                 <small>{p.id}</small>
               </span>
-              <span className={`tiny-status ${p.state === "active" ? "on" : p.state === "failed" ? "failed" : ""}`} aria-label={t.plugins.states[p.state]} />
+              <span className={`shell-tiny-status ${p.state === "active" ? "on" : p.state === "failed" ? "failed" : ""}`} aria-label={t.plugins.states[p.state]} />
             </button>
           ))}
           {visible.length === 0 ? <EmptyState icon={origin === "builtin" ? ShieldCheck : PackageOpen} title={query ? "没有匹配的插件" : origin === "external" ? "尚未安装外部扩展" : "此筛选下没有插件"} /> : null}
         </div>
-        <div className="resource-footer">
+        <div className="shell-resource-footer">
           <ShieldCheck size={13} aria-hidden />
           <span>{origin === "builtin" ? "随应用交付 · 可停用，不可卸载" : "独立安装 · 可停用与卸载"}</span>
         </div>
       </aside>
-      <div className="view-content">
+      <div className="hu-view-content">
         <PageHead
           title={TITLE[section] ?? "插件中心"}
           description="内置功能随应用交付，外部扩展独立管理。两类插件均使用统一的权限与生命周期。"
@@ -135,9 +137,9 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             </>
           }
         />
-        <div className="system-scroll scroll">
+        <div className="shell-system-scroll hu-scroll">
           {error ? (
-            <div role="alert" className="callout danger">
+            <div role="alert" className="hu-callout danger">
               <p>{error}</p>
             </div>
           ) : null}
@@ -151,7 +153,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             />
           ) : section === "runtime" ? (
             <>
-              <div className="metric-grid">
+              <div className="shell-metric-grid">
                 <div>
                   <strong>{counts.builtin}</strong>
                   <span>内置功能</span>
@@ -169,8 +171,8 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                   <span>隔离故障</span>
                 </div>
               </div>
-              <section className="card system-section">
-                <div className="card-head">
+              <section className="hu-card-alt shell-system-section">
+                <div className="shell-card-head">
                   <h2>生命周期与服务租约</h2>
                   <Badge>内部运行时不作为独立终端模块</Badge>
                 </div>
@@ -201,12 +203,12 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             </>
           ) : section === "permissions" ? (
             <>
-              <div className="callout">
+              <div className="hu-callout">
                 <ShieldCheck size={18} aria-hidden />
                 <p>内置与外部插件使用同一授权检查。停用插件会撤销它的视图、命令和对外能力。</p>
               </div>
-              <section className="card system-section">
-                <div className="card-head">
+              <section className="hu-card-alt shell-system-section">
+                <div className="shell-card-head">
                   <h2>权限与依赖清单</h2>
                 </div>
                 <DataTable
@@ -226,7 +228,12 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                         </>
                       ),
                     },
-                    { id: "permissions", header: "请求权限", width: 360, cell: (p) => <div className="permission-tags">{p.permissions.length ? p.permissions.map((x) => <code key={x}>{x}</code>) : <span className="muted">无</span>}</div> },
+                    {
+                      id: "permissions",
+                      header: "请求权限",
+                      width: 360,
+                      cell: (p) => <div className="shell-permission-tags">{p.permissions.length ? p.permissions.map((x) => <code key={x}>{x}</code>) : <span className="muted">无</span>}</div>,
+                    },
                     { id: "deps", header: "依赖", width: 160, cell: (p) => p.dependsOn.join(", ") || "无" },
                     { id: "state", header: "状态", width: 120, cell: (p) => <Badge tone={tone(p.state)}>{t.plugins.states[p.state]}</Badge> },
                   ]}
@@ -235,7 +242,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             </>
           ) : (
             <>
-              <div className="plugin-filter-row">
+              <div className="shell-plugin-filter-row">
                 <Segmented<Filter>
                   label="状态筛选"
                   value={filter}
@@ -251,9 +258,9 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                 </span>
               </div>
               {current ? (
-                <article className="plugin-detail card" data-testid="plugin-detail">
-                  <div className="plugin-detail-top">
-                    <span className="plugin-hero-icon">{icons[current.id] ?? <Blocks size={28} aria-hidden />}</span>
+                <article className="shell-plugin-detail hu-card-alt" data-testid="plugin-detail">
+                  <div className="hu-plugin-detail-top">
+                    <span className="shell-plugin-hero-icon">{icons[current.id] ?? <Blocks size={28} aria-hidden />}</span>
                     <div className="grow">
                       <div className="row">
                         <h1>{current.title}</h1>
@@ -261,29 +268,29 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                         <Badge tone={tone(current.state)}>{t.plugins.states[current.state]}</Badge>
                       </div>
                       <p>{current.description}</p>
-                      <div className="plugin-meta">
+                      <div className="shell-plugin-meta">
                         <code>@huhu/plugin-{current.id}</code>
                         <span>v{current.version}</span>
                         <span>{current.origin === "builtin" ? "随应用交付与更新" : "用户扩展目录"}</span>
                       </div>
-                      {current.error ? <p className="field-error">{current.error}</p> : null}
+                      {current.error ? <p className="hu-field-error">{current.error}</p> : null}
                     </div>
                     <ChoiceSwitch checked={current.state === "active"} disabled={busy} label={`${current.state === "active" ? t.plugins.disable : t.plugins.enable} ${current.title}`} onChange={(on) => toggle(current, on)} />
                   </div>
-                  <div className="plugin-detail-actions">
+                  <div className="hu-plugin-detail-actions">
                     {current.state === "active" && (current.contributes?.modules.length ?? 0) > 0 && onNavigate ? (
                       <Button icon={ExternalLink} data-testid="plugin-open" onClick={() => onNavigate(current.contributes!.modules[0]!)}>
                         打开 {current.title}
                       </Button>
                     ) : null}
-                    {current.state === "active" && (current.contributes?.settingsPages.length ?? 0) > 0 && onNavigate ? (
-                      <Button icon={SettingsIcon} data-testid="plugin-settings" onClick={() => onNavigate("settings")}>
+                    {current.state === "active" && settingsPageOf(current.id) && onNavigate ? (
+                      <Button icon={SettingsIcon} data-testid="plugin-settings" onClick={() => onNavigate("settings", settingsPageOf(current.id)!.id)}>
                         插件设置
                       </Button>
                     ) : null}
                     <div className="grow" />
                     {current.origin === "builtin" ? (
-                      <span className="plugin-bundled-note">
+                      <span className="shell-plugin-bundled-note">
                         <Lock size={13} aria-hidden /> 内置功能不可卸载
                       </span>
                     ) : (
@@ -292,8 +299,8 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                       </Button>
                     )}
                   </div>
-                  <div className="plugin-detail-body">
-                    <div className="plugin-origin-explainer">
+                  <div className="shell-plugin-detail-body">
+                    <div className="shell-plugin-origin-explainer">
                       <Info size={17} aria-hidden />
                       <div>
                         <strong>{current.origin === "builtin" ? "内置功能" : "外部扩展"}</strong>
@@ -302,7 +309,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                     </div>
                     <div>
                       <h3>贡献到工作台</h3>
-                      <div className="contribution-grid">
+                      <div className="shell-contribution-grid">
                         <div>
                           <Monitor size={17} aria-hidden />
                           <strong>界面</strong>
@@ -350,16 +357,16 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                     ) : null}
                     <div data-testid="plugin-capabilities">
                       <h3>已注册能力 · {current.contributes?.capabilities.length ?? 0}</h3>
-                      <div className="permission-tags">{(current.contributes?.capabilities ?? []).length ? current.contributes!.capabilities.map((c) => <code key={c}>{c}</code>) : <span className="muted">无</span>}</div>
+                      <div className="shell-permission-tags">{(current.contributes?.capabilities ?? []).length ? current.contributes!.capabilities.map((c) => <code key={c}>{c}</code>) : <span className="muted">无</span>}</div>
                     </div>
-                    <div className="field-grid">
+                    <div className="hu-field-grid">
                       <div>
                         <h3>依赖与生命周期</h3>
                         <p>{current.dependsOn.length ? `依赖：${current.dependsOn.join("、")}。` : "无其他业务插件依赖。"} 停用后释放所属租约与贡献。</p>
                       </div>
                       <div>
                         <h3>请求权限</h3>
-                        <div className="permission-tags">{current.permissions.length ? current.permissions.map((x) => <code key={x}>{x}</code>) : <span className="muted">无</span>}</div>
+                        <div className="shell-permission-tags">{current.permissions.length ? current.permissions.map((x) => <code key={x}>{x}</code>) : <span className="muted">无</span>}</div>
                       </div>
                     </div>
                   </div>
@@ -371,7 +378,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                   hint={origin === "external" ? "外部扩展的安装与托管尚未开放。" : "修改搜索或状态筛选。"}
                 />
               )}
-              <div className="callout system-note">
+              <div className="hu-callout shell-system-note">
                 <Info size={17} aria-hidden />
                 <p>内置与外部是交付来源；启用、停用和故障是运行状态。列表发现和实际调用都会检查模块状态。</p>
               </div>
@@ -412,7 +419,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             </>
           }
         >
-          <label className="knowledge-inline-check">
+          <label className="shell-knowledge-inline-check">
             <input type="checkbox" checked={uninstall.erase} onChange={(e) => setUninstall({ ...uninstall, erase: e.target.checked })} />
             同时擦除扩展数据（不可恢复）
           </label>
@@ -434,7 +441,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
             </>
           }
         >
-          <p className="confirm-description">{t.plugins.confirmBody(confirm.alsoDisabled)}</p>
+          <p className="hu-confirm-description">{t.plugins.confirmBody(confirm.alsoDisabled)}</p>
         </Dialog>
       ) : null}
     </div>

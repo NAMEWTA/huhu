@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "color-no-hex": true,
+    "function-disallowed-list": ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch"],
+    "color-named": "never",
+    "block-no-empty": true,
+    "declaration-block-no-duplicate-properties": [
+      true,
+      {
+        "ignore": ["consecutive-duplicates-with-different-values"]
+      }
+    ],
+    "declaration-no-important": true
+  },
+  "overrides": [
+    {
+      "files": ["packages/ui/src/styles/themes.generated.css", "packages/ui/src/styles/tokens.css", "packages/ui/src/styles/fonts.generated.css"],
+      "rules": {
+        "color-no-hex": null,
+        "function-disallowed-list": null,
+        "color-named": null
+      }
+    }
+  ],
+  "reportDescriptionlessDisables": true
+}

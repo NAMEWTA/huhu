@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { openApp } from "./helpers/launch.js";
 
 /** 主要模块（rail 按钮名称）。每个都跑 axe，serious / critical 不允许出现。 */
-const MODULES = ["工作台", "任务", "知识库", "收件箱", "档案", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
+const MODULES = ["工作台", "任务", "知识库", "收件箱", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
 
 /** Electron 窗口不支持 @axe-core/playwright（它要新建页面）：直接把 axe-core 注入当前页面运行。 */
 async function violations(page: Page): Promise<string[]> {
@@ -83,8 +83,8 @@ test("键盘：不碰鼠标新建笔记、新建任务并用空格勾选", async
     await page.getByLabel("任务名称").fill("键盘任务");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("task-row").filter({ hasText: "键盘任务" })).toBeVisible();
-    await page.getByTestId("task-row").filter({ hasText: "键盘任务" }).getByRole("checkbox").focus();
-    await page.keyboard.press("Space");
+    await page.getByTestId("task-row").filter({ hasText: "键盘任务" }).getByTestId("task-status").focus(); // 状态下拉框可键盘操作
+    await page.keyboard.press("ArrowDown");
     await expect.poll(async () => (await import("node:fs")).readdirSync(`${vault}/Tasks`).length).toBe(1);
   } finally {
     await close();

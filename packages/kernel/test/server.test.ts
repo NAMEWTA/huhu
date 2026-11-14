@@ -15,7 +15,7 @@ async function boot() {
   registry.register(defineCapability({ name: "vault.info", plugin: "kernel", scope: "read", input: z.object({}), output: z.object({ name: z.string() }), exposable: true, defaultExposed: true, handler: () => ({ name: "占位" }) }));
   const tokens = new TokenTable();
   const events = new EventBus(() => "vault-t");
-  const dispatcher = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [] });
+  const dispatcher = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
   running = await startEngineServer({ dispatcher, registry, tokens, events, visibleTo: () => true });
   const base = `http://127.0.0.1:${running.port}`;
   return { base, tokens, events, port: running.port };

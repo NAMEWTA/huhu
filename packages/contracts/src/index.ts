@@ -6,4 +6,6 @@ export * from "./plugin-manifest.js";
 export * from "./kinds/index.js";
 export * from "./dto/task.js";
 export * from "./settings.js";
+export * from "./tags.js";
 export * from "./home.js";
+export * from "./archives.js";

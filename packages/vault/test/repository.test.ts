@@ -17,7 +17,7 @@ function setup() {
   return { root, repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))), files };
 }
 const now = "2026-11-10T07:15:31Z";
-const taskData = (title: string) => ({ title, completed: false, createdAt: now, updatedAt: now });
+const taskData = (title: string) => ({ title, type: "human", status: "not_started", origin: { kind: "desktop" }, createdAt: now, updatedAt: now });
 
 describe("文件名", () => {
   test("清理与 id 提取", () => {
@@ -35,26 +35,26 @@ describe("SemanticRepository", () => {
     expect(t.id).toMatch(/^task-/);
     expect(t.path).toBe(`Tasks/整理研究摘要--${t.id}.md`);
     const r = repo.read("task", t.id);
-    expect(r.data).toMatchObject({ title: "整理研究摘要", completed: false, execution: { kind: "manual" }, inputRevision: 1 });
+    expect(r.data).toMatchObject({ title: "整理研究摘要", type: "human", status: "not_started", execution: null, tags: [], inputRevision: 1 });
     expect(r.body).toContain("正文");
     expect(repo.list("task")).toHaveLength(1);
   });
   test("非法数据 → INVALID_INPUT，不写文件", async () => {
     const { repo, root } = setup();
-    await expect(repo.create("task", { title: "", completed: false, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(repo.create("task", { title: "", type: "human", status: "not_started", origin: { kind: "desktop" }, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(() => readdirSync(path.join(root, "Tasks"))).toThrow();
   });
   test("patch 只改变化的键，保留未知键与注释；版本冲突被拒", async () => {
     const { repo, root } = setup();
     const t = await repo.create("task", taskData("A"));
     const file = path.join(root, t.path);
-    writeFileSync(file, readFileSync(file, "utf8").replace("completed: false", "completed: false # 用户注释\ncustomKey: 保留我"));
+    writeFileSync(file, readFileSync(file, "utf8").replace("status: not_started", "status: not_started # 用户注释\ncustomKey: 保留我"));
     const cur = repo.read("task", t.id);
-    const p = await repo.patch("task", t.id, { completed: true }, cur.version);
+    const p = await repo.patch("task", t.id, { status: "completed" }, cur.version);
     const text = readFileSync(path.join(root, p.path), "utf8");
-    expect(text).toContain("completed: true # 用户注释");
+    expect(text).toContain("status: completed # 用户注释");
     expect(text).toContain("customKey: 保留我");
-    await expect(repo.patch("task", t.id, { completed: false }, cur.version)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    await expect(repo.patch("task", t.id, { status: "not_started" }, cur.version)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   });
   test("标题变更 → 文件改名，id 不变", async () => {
     const { repo, root } = setup();
@@ -101,10 +101,32 @@ describe("SemanticRepository", () => {
     expect(repo.list("task")).toEqual([]);
     expect(() => repo.read("task", t.id)).toThrow();
   });
+  test("A09：schema 1 的任务文件给出明确的文件级错误，不出现在列表中，文件字节不变", async () => {
+    const { repo, root } = setup();
+    mkdirSync(path.join(root, "Tasks"));
+    const v1 = "---\nhuhu: {kind: task, id: task-old001, schema: 1}\ntitle: 旧任务\ncompleted: false\ncreatedAt: 2026-11-10T07:15:31Z\nupdatedAt: 2026-11-10T07:15:31Z\n---\n";
+    writeFileSync(path.join(root, "Tasks/旧任务--task-old001.md"), v1);
+    expect(repo.list("task")).toEqual([]);
+    expect(repo.problemList()).toEqual([expect.objectContaining({ code: "INVALID_SCHEMA", message: expect.stringContaining("schema 1") })]);
+    expect(readFileSync(path.join(root, "Tasks/旧任务--task-old001.md"), "utf8")).toBe(v1);
+  });
+  test("A09：缺少 type 或 status 的任务文件是文件错误（没有默认值）", async () => {
+    const { repo, root } = setup();
+    mkdirSync(path.join(root, "Tasks"));
+    writeFileSync(
+      path.join(root, "Tasks/x--task-no-type.md"),
+      "---\nhuhu: {kind: task, id: task-no-type, schema: 2}\ntitle: x\nstatus: not_started\norigin: {kind: desktop}\ncreatedAt: 2026-11-10T07:15:31Z\nupdatedAt: 2026-11-10T07:15:31Z\n---\n",
+    );
+    expect(repo.list("task")).toEqual([]);
+    expect(repo.problemList()[0]).toMatchObject({ code: "INVALID_SCHEMA" });
+  });
   test("YAML 日期自动解析为 Date 时仍通过模式", async () => {
     const { repo, root } = setup();
     mkdirSync(path.join(root, "Tasks"));
-    writeFileSync(path.join(root, "Tasks/d--task-dat001.md"), "---\nhuhu: {kind: task, id: task-dat001, schema: 1}\ntitle: d\ncompleted: false\ndue: 2026-11-12\ncreatedAt: 2026-11-10T07:15:31Z\nupdatedAt: 2026-11-10T07:15:31Z\n---\n");
+    writeFileSync(
+      path.join(root, "Tasks/d--task-dat001.md"),
+      "---\nhuhu: {kind: task, id: task-dat001, schema: 2}\ntitle: d\ntype: human\nstatus: not_started\norigin: {kind: desktop}\ndue: 2026-11-12\ncreatedAt: 2026-11-10T07:15:31Z\nupdatedAt: 2026-11-10T07:15:31Z\n---\n",
+    );
     expect(repo.read("task", "task-dat001").data).toMatchObject({ due: "2026-11-12" });
   });
 
@@ -114,7 +136,7 @@ describe("SemanticRepository", () => {
       dirs.push(d);
       const files = new VaultFiles(path.join(d), undefined, true);
       const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
-      await expect(repo.create("task", { title: "x", completed: false, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+      await expect(repo.create("task", { title: "x", type: "human", status: "not_started", origin: { kind: "desktop" }, createdAt: now, updatedAt: now })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
       await expect(new OperationLog(files, path.join(d, "ops")).run("o", "t", [])).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
     });
   });

@@ -29,7 +29,7 @@ test("ACC-WB-05 首页“我的任务”勾选：待推进任务数减少，任�
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
-    const t = await call("tasks.create", { title: "首页勾选", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
+    const t = await call("tasks.create", { title: "首页勾选", body: "", due: null, project: null, type: "human", tags: [], reminders: [] });
     expect(t.ok).toBe(true);
     await page.reload(); // 首页数据在挂载时取：重新载入后一定包含刚创建的任务（CI 上事件刷新的时机不稳）
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -54,7 +54,7 @@ test("ACC-KN-09 阅读模式：<script> 与 javascript: 链接不会执行，也
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "危险" }).click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    const pane = page.locator(".knowledge-reading-pane");
+    const pane = page.locator(".notes-reading-pane");
     await expect(pane).toContainText("危险");
     expect(await pane.locator("script").count()).toBe(0);
     expect(await pane.locator('a[href^="javascript:" i]').count()).toBe(0);
@@ -69,17 +69,20 @@ test("ACC-KN-09 阅读模式：<script> 与 javascript: 链接不会执行，也
   }
 });
 
-test("ACC-AG-11 本机没有任何受支持 CLI：“+”只提供“新终端”，并提示未检测到", async () => {
-  const { page, close } = await openApp({ PATH: "/nonexistent-huhu-bin" });
+test("ACC-AG-11 本机没有任何受支持 CLI：新建菜单提供“新终端”，智能体显示“未检测到”且不可启动", async () => {
+  const home = mkdtempSync(path.join(tmpdir(), "huhu-nohome-")); // 检测会回退到各 CLI 的默认安装目录（~/.local/bin 等）：用空的 HOME 才算“本机没有”
+  const { page, close } = await openApp({ PATH: "/nonexistent-huhu-bin", HOME: home, USERPROFILE: home });
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
     await page.getByRole("button", { name: "新终端" }).first().click();
-    const menu = page.getByRole("menu", { name: "新终端" });
+    const menu = page.getByRole("menu", { name: "新建" });
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole("menuitem")).toHaveCount(1);
-    await expect(menu).toContainText("新终端");
-    await expect(page.getByText("此主机未检测到支持的 CLI")).toBeVisible();
+    await expect(menu.getByTestId("launch-shell")).toBeEnabled();
+    const claude = menu.locator('[data-agent="claude"]');
+    await expect(claude).toBeDisabled();
+    await expect(claude).toContainText("未检测到");
+    await expect(menu.getByTestId("launch-open-settings")).toBeVisible();
   } finally {
     await close();
   }
@@ -113,29 +116,29 @@ test("ACC-SY-03 取消诊断：显示“已取消”，在途结果迟到也不�
   }
 });
 
-test("ACC-TK-11 看板：把卡片拖到“已完成”列等同于勾选完成（并可拖回重开）", async () => {
+test("ACC-TK-11 看板：把卡片拖到“已完成”列等同于改状态为已完成（并可拖回“未开始”重开）", async () => {
   const { page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
-    await call("tasks.create", { title: "拖拽任务", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
+    await call("tasks.create", { title: "拖拽任务", type: "human", body: "", due: null, project: null, tags: [], reminders: [] });
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-views").getByRole("tab", { name: "看板" }).click();
-    await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(1);
-    await page.getByTestId("board-open").getByTestId("board-card").dragTo(page.getByTestId("board-done"));
-    await expect(page.getByTestId("board-done").getByTestId("board-card")).toHaveCount(1, { timeout: 10_000 });
+    await expect(page.getByTestId("board-not_started").getByTestId("board-card")).toHaveCount(1);
+    await page.getByTestId("board-not_started").getByTestId("board-card").dragTo(page.getByTestId("board-completed"));
+    await expect(page.getByTestId("board-completed").getByTestId("board-card")).toHaveCount(1, { timeout: 10_000 });
     await expect.poll(async () => ((await call("tasks.list", { category: "ended" })).data as { title: string }[]).map((x) => x.title)).toContain("拖拽任务");
     // 回执前同一任务不会重复提交，所以等上一次提交结束后再拖回（失败则重试拖拽）
     await expect(async () => {
-      await page.getByTestId("board-done").getByTestId("board-card").dragTo(page.getByTestId("board-open"));
-      await expect(page.getByTestId("board-open").getByTestId("board-card")).toHaveCount(1, { timeout: 2_000 });
+      await page.getByTestId("board-completed").getByTestId("board-card").dragTo(page.getByTestId("board-not_started"));
+      await expect(page.getByTestId("board-not_started").getByTestId("board-card")).toHaveCount(1, { timeout: 2_000 });
     }).toPass({ timeout: 15_000 });
   } finally {
     await close();
   }
 });
 
-test("ACC-TK-06 关联资料选择器：Enter 选中高亮的文件夹；输入的自由文字不会变成资源", async () => {
+test("ACC-TK-06 任务内容里输入 @ 引用 Vault 文件夹：补全列出匹配项，选中后插入 [[相对路径/]]", async () => {
   const { page, vault, close } = await openApp();
   try {
     const fs = await import("node:fs");
@@ -144,17 +147,16 @@ test("ACC-TK-06 关联资料选择器：Enter 选中高亮的文件夹；输入�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
-    const picker = page.getByTestId("resource-picker");
-    await picker.getByRole("button", { name: "关联 Vault 文件或文件夹" }).click();
-    const search = page.getByRole("combobox", { name: "搜索 Vault 资源" });
-    await search.fill("不存在的路径xyz");
-    await search.press("Enter");
-    await expect(picker.locator(".vrp-chip")).toHaveCount(0);
-    await search.fill("Research");
-    await expect(page.getByRole("option").first()).toBeVisible();
-    await search.press("Enter");
-    await expect(picker.locator(".vrp-chip")).toHaveCount(1);
-    await expect(picker.locator(".vrp-chip").first()).toContainText("Research");
+    await page.getByLabel("任务名称").fill("引用资料");
+    const body = page.getByTestId("task-body").locator(".cm-content");
+    await body.click();
+    await page.keyboard.type("参考 @Resea");
+    await expect(page.locator(".cm-tooltip-autocomplete")).toContainText("Research");
+    await page.waitForTimeout(300); // CodeMirror 在补全面板刚出现的一瞬间忽略确认键
+    await page.keyboard.press("Enter");
+    await expect(body).toContainText("[[Research/]]");
+    await page.getByTestId("task-save").click();
+    await expect(page.getByTestId("detail-references")).toContainText("Research");
   } finally {
     await close();
   }
@@ -435,7 +437,7 @@ test("首页自定义：卡片可在同一列内上移 / 下移，顺序持久�
   const { page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    const order = () => page.locator(".home-main-column > section").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    const order = () => page.locator(".shell-home-main-column > section").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     await expect.poll(order).toEqual(["card-tasks", "card-recent", "card-activity"]);
     await page.getByTestId("home-customize").click();
     const panel = page.getByTestId("home-customize-panel");
@@ -464,14 +466,14 @@ test("版本历史：对比基准“与当前内容 / 与前一版”切换，�
     await expect(page.getByTestId("history-entry")).toHaveCount(2, { timeout: 10_000 });
     await page.getByTestId("history-entry").filter({ hasText: "版本二" }).click();
     // 与当前内容：所选就是当前，没有差异
-    await expect(page.locator(".version-v9-diff-labels")).toContainText("当前有效内容");
+    await expect(page.locator(".version-diff-labels")).toContainText("当前有效内容");
     // 与前一版：版本二相对版本一新增两行
     await page.getByRole("tab", { name: "与前一版" }).click();
-    await expect(page.locator(".version-v9-diff-labels")).toContainText("前一版本");
+    await expect(page.locator(".version-diff-labels")).toContainText("前一版本");
     await expect(page.getByTestId("history-stats")).toContainText("+2");
     // 最早的一版没有前一版：与空文件比
     await page.getByTestId("history-entry").filter({ hasText: "版本一" }).click();
-    await expect(page.locator(".version-v9-diff-labels")).toContainText("没有更早的版本");
+    await expect(page.locator(".version-diff-labels")).toContainText("没有更早的版本");
   } finally {
     await close();
   }
@@ -496,7 +498,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await page.getByTestId("folder-line").filter({ hasText: "归档" }).getByRole("button").first().click();
     const moved = page.getByTestId("note-item").filter({ hasText: "待移动" });
     await expect(moved).toBeVisible();
-    await moved.dragTo(page.locator(".knowledge-explorer-tree"), { targetPosition: { x: 20, y: 120 } });
+    await moved.dragTo(page.locator(".notes-explorer-tree"), { targetPosition: { x: 20, y: 120 } });
     await expect.poll(() => fs.existsSync(`${vault}/待移动.md`)).toBe(true);
   } finally {
     await close();
@@ -522,7 +524,7 @@ test("能力网关 MCP：配置传输（对话框）、复制客户端配置、�
   }
 });
 
-test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果，任务仍未完成，可勾选完成", async () => {
+test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果；任务进入进行中、不会自动完成，用户可自己关闭", async () => {
   test.skip(process.platform === "win32", "假 Codex 是 POSIX shell 脚本；Windows 需要 .cmd 假程序");
   const fs = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-wa-bin-"));
@@ -537,15 +539,19 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
     const task = await (async () => {
       // 2. 转为任务：执行方式 Agent（Space 与 Codex）
       const spaces = (await call("agent.spaces.list", {})).data as { id: string }[];
-      await expect.poll(async () => ((await call("agent.providers.detect", { refresh: true })).data as { provider: string; status: string }[]).find((x) => x.provider === "codex")?.status).toBe("found");
-      const created = await call("tasks.create", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要", execution: { kind: "agent", spaceId: spaces[0]!.id, provider: "codex" } });
+      await expect.poll(async () => ((await call("agent.catalog.detect", { refresh: true })).data as { id: string; installed: boolean }[]).find((x) => x.id === "codex")?.installed).toBe(true);
+      const created = await call("tasks.create", { title: "整理研究资料", type: "agent", body: "把本周的研究笔记整理成摘要", execution: { spaceId: spaces[0]!.id, provider: "codex" } });
       expect(created.ok, JSON.stringify(created.error ?? created)).toBe(true);
       const listed = ((await call("tasks.list", { category: "all" })).data as { title: string }[]).map((x) => x.title);
       expect(listed, "创建后任务列表里应有这条任务").toContain("整理研究资料");
       return created.data as { id: string };
     })();
-    // 3. 自动化：内置规则立即运行
+    // 3. 自动化：新建“让 Agent 处理任务”规则并立即运行（新 Vault 没有内置规则）
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByTestId("rule-new").click();
+    await page.getByLabel("规则名称").fill("处理 Agent 任务");
+    await page.getByTestId("rule-kind").selectOption("agent_tasks");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
     await page.getByTestId("rule-row").first().click();
     await page.getByRole("button", { name: "立即运行" }).click();
     await page
@@ -575,9 +581,9 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
     }
     await page.getByTestId("task-runs").getByRole("button", { name: "展开结果" }).click();
     await expect(page.getByTestId("run-result")).toContainText("假 Codex 已整理完成");
-    expect(((await call("tasks.read", { id: task.id })).data as { completed: boolean }).completed).toBe(false);
-    await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).getByRole("checkbox").click();
-    await expect.poll(async () => ((await call("tasks.read", { id: task.id })).data as { completed: boolean }).completed).toBe(true);
+    expect(((await call("tasks.read", { id: task.id })).data as { status: string }).status).toBe("in_progress"); // 派发置进行中，不会自动完成
+    await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).getByTestId("task-status").selectOption("completed");
+    await expect.poll(async () => ((await call("tasks.read", { id: task.id })).data as { status: string }).status).toBe("completed");
     expect(fs.readdirSync(`${vault}/Task Runs`).length).toBe(1);
   } finally {
     await close();
@@ -699,8 +705,15 @@ test("工作流 W-C 远程运维脚本：保险箱 → SSH 用密码引用连接
     // 3. API Token 存进保险箱，允许 automations 引用；脚本把它当环境变量用
     const call = await caller(page);
     const item = (await call("safe.items.save", { name: "运维 API Token", type: "token", allowedModules: ["ssh", "automations"], value: "TOP-SECRET-WC-TOKEN" })).data as { id: string };
-    const script = (await call("automations.scripts.save", { title: "运维日报", program: prog, args: [], cwd: vault, envRefs: { API_TOKEN: `safe://${item.id}` }, timeoutSec: 10 })).data as { id: string };
-    expect((await call("automations.create", { title: "每日运维脚本", trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" }, action: { kind: "script", scriptId: script.id, args: [] } })).ok).toBe(true);
+    expect(
+      (
+        await call("automations.create", {
+          title: "每日运维脚本",
+          trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" },
+          action: { kind: "terminal", command: `"${prog}"`, shell: "sh", spaceId: null, envRefs: { API_TOKEN: `safe://${item.id}` } },
+        })
+      ).ok,
+    ).toBe(true);
     // 4. 自动化：立即运行，运行页看到结果（界面）
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByTestId("rule-row").filter({ hasText: "每日运维脚本" }).click();
@@ -723,7 +736,7 @@ test("工作流 W-C 远程运维脚本：保险箱 → SSH 用密码引用连接
   }
 });
 
-test("Agent CLI 启动设置面板：选 CLI 后出现模型 / 推理深度 / 附加提示词，启动参数带上所选项（假 Claude 记录 argv）", async () => {
+test("Agent CLI 新建菜单：悬停智能体打开子菜单，选模型 / 附加提示词后启动，参数带上所选项与完全访问参数（假 Claude 记录 argv）", async () => {
   test.skip(process.platform === "win32", "假 Claude 是 POSIX shell 脚本");
   const fs = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-launch-bin-"));
@@ -735,21 +748,24 @@ test("Agent CLI 启动设置面板：选 CLI 后出现模型 / 推理深度 / �
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
     await page.getByRole("button", { name: "新终端" }).first().click();
-    await page.getByRole("menuitem", { name: /Claude Code/ }).click();
-    const panel = page.getByTestId("launch-panel");
-    await expect(panel).toBeVisible();
-    await panel.getByRole("option", { name: /Opus/i }).click();
-    await panel.getByLabel("附加提示词").fill("整理周报");
-    await panel.getByTestId("launch-start").click();
+    const menu = page.getByTestId("launch-menu");
+    await menu.locator('[data-agent="claude"]').hover();
+    const sub = page.getByTestId("launch-submenu");
+    await expect(sub).toBeVisible();
+    await sub.getByLabel("模型").selectOption("opus");
+    await sub.getByLabel("附加提示词").fill("整理周报");
+    await sub.getByTestId("launch-submenu-start").click();
     await expect.poll(() => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : ""), { timeout: 20_000 }).toContain("整理周报");
-    expect(fs.readFileSync(log, "utf8")).toMatch(/--model\s+opus/i);
+    const argv = fs.readFileSync(log, "utf8");
+    expect(argv).toMatch(/--model\s+opus/i);
+    expect(argv).toContain("--dangerously-skip-permissions");
   } finally {
     await close();
     rmSync(bin, { recursive: true, force: true });
   }
 });
 
-test("Agent CLI 智能体设置：列出本机 CLI 的检测状态，设置默认模型并持久化，启动面板默认选中它；重新检测；重启 Core 需确认", async () => {
+test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并持久化到 agents.json，命令行预览实时刷新；刷新检测；重启 Core 需确认；菜单里的“智能体设置…”可达", async () => {
   test.skip(process.platform === "win32", "假 Claude 是 POSIX shell 脚本");
   const fs = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-aset-bin-"));
@@ -759,23 +775,23 @@ test("Agent CLI 智能体设置：列出本机 CLI 的检测状态，设置默�
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
-    await page.getByTestId("agent-settings-open").click();
-    const dialog = page.getByTestId("agent-settings");
-    const row = dialog.locator('[data-provider="claude"]');
-    await expect(row).toContainText("已找到", { timeout: 15_000 });
-    await expect(row).toContainText("2.1.0");
-    await row.getByLabel("Claude Code 默认模型").selectOption("opus");
-    await expect.poll(() => (fs.existsSync(`${vault}/.huhu/agent-cli/providers.json`) ? fs.readFileSync(`${vault}/.huhu/agent-cli/providers.json`, "utf8") : "")).toContain("opus");
-    await dialog.getByTestId("agent-redetect").click();
-    await expect(row).toContainText("已找到");
-    await dialog.getByTestId("agent-core-restart").click();
-    await expect(dialog.getByTestId("agent-core-restart-yes")).toBeVisible(); // 先确认，不会直接重启
-    await dialog.getByRole("button", { name: "取消" }).click();
-    await dialog.getByRole("button", { name: "完成" }).click();
-    // 启动面板默认选中设置里的默认模型
+    // 经新建菜单底部的“智能体设置…”进入插件设置页
     await page.getByRole("button", { name: "新终端" }).first().click();
-    await page.getByRole("menuitem", { name: /Claude Code/ }).click();
-    await expect(page.getByTestId("launch-panel").getByRole("option", { name: /Opus/i })).toHaveAttribute("aria-selected", "true");
+    await page.getByTestId("launch-open-settings").click();
+    const settingsPage = page.getByTestId("agent-settings");
+    await expect(settingsPage).toBeVisible();
+    const row = settingsPage.locator('[data-provider="claude"]');
+    await expect(row).toContainText("2.1.0", { timeout: 15_000 });
+    await expect(row.getByTestId("agent-command-preview")).toContainText("claude --dangerously-skip-permissions");
+    await row.getByRole("button", { expanded: false }).first().click();
+    await row.getByLabel("Claude Code 模型").selectOption("opus");
+    await expect.poll(() => (fs.existsSync(`${vault}/.huhu/agent-cli/agents.json`) ? fs.readFileSync(`${vault}/.huhu/agent-cli/agents.json`, "utf8") : "")).toContain("opus");
+    await expect(row.getByTestId("agent-command-preview")).toContainText("--model opus");
+    await settingsPage.getByTestId("agent-redetect").click();
+    await expect(row).toContainText("2.1.0");
+    await settingsPage.getByTestId("agent-core-restart").click();
+    await expect(settingsPage.getByTestId("agent-core-restart-yes")).toBeVisible(); // 先确认，不会直接重启
+    await settingsPage.getByRole("button", { name: "取消" }).click();
   } finally {
     await close();
     rmSync(bin, { recursive: true, force: true });
@@ -793,8 +809,7 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
       body: "",
       due: null,
       project: null,
-      execution: { kind: "manual" },
-      resources: [],
+      type: "human",
       reminders: [{ id: "rem-e2e", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }],
     });
     expect(t.ok).toBe(true);
@@ -824,7 +839,7 @@ test("命令面板：搜索结果按来源分组（笔记 / 任务 / 档案 / �
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
     await call("notes.create", { name: "分组测试笔记" });
-    await call("tasks.create", { title: "分组测试任务", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [], reminders: [] });
+    await call("tasks.create", { title: "分组测试任务", body: "", due: null, project: null, type: "human", tags: [], reminders: [] });
     await expect.poll(async () => ((await call("vault.search", { query: "分组测试" })).data as { hits: unknown[] }).hits.length).toBeGreaterThanOrEqual(2);
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByRole("combobox", { name: "搜索模块、命令和内容" }).fill("分组测试");
@@ -917,7 +932,7 @@ test("阅读模式：数学公式（KaTeX）与 Mermaid 图表渲染；错误的
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "公式与图" }).click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    const pane = page.locator(".knowledge-reading-pane");
+    const pane = page.locator(".notes-reading-pane");
     await expect(pane.locator(".katex").first()).toBeVisible({ timeout: 15_000 });
     expect(await pane.locator(".katex").count()).toBeGreaterThanOrEqual(2); // 行内 + 块
     await expect(pane.getByTestId("mermaid-diagram").locator("svg")).toBeVisible({ timeout: 30_000 });
@@ -967,22 +982,18 @@ test("远程连接：认证方式可选 密码 / SSH 私钥 / 系统 ssh-agent�
   }
 });
 
-test("知识库：详情“关联”显示关联任务与关联档案；笔记菜单“保存版本”写入版本历史", async () => {
+test("知识库：详情“关联”显示关联任务；笔记菜单“保存版本”写入版本历史", async () => {
   const { page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
     const note = (await call("notes.create", { name: "关联笔记" })).data as { path: string; id: string };
-    await call("tasks.create", { title: "引用这篇笔记的任务", body: "", due: null, project: null, execution: { kind: "manual" }, resources: [{ kind: "file", path: note.path, id: note.id }], reminders: [] });
-    const type = (await call("archives.types.save", { name: "资料", fields: [] })).data as { id: string };
-    const arch = (await call("archives.create", { name: "引用这篇笔记的档案", type: type.id })).data as { id: string };
-    await call("archives.linkNote", { id: arch.id, noteId: note.id });
+    await call("tasks.create", { title: "引用这篇笔记的任务", body: `参考 [[${note.path}]]`, due: null, project: null, type: "human", tags: [], reminders: [] });
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "关联笔记" }).click();
     await page.getByRole("button", { name: "文档详情" }).first().click();
     await page.getByRole("tab", { name: "关联" }).click();
     await expect(page.getByTestId("related-task")).toContainText("引用这篇笔记的任务");
-    await expect(page.getByTestId("related-archive")).toContainText("引用这篇笔记的档案");
     // 保存版本
     await page.getByTestId("note-item").filter({ hasText: "关联笔记" }).hover();
     await page.getByRole("button", { name: /文件操作 关联笔记/ }).click();
@@ -1006,15 +1017,15 @@ test("Agent CLI：Space 可以编辑（改名）与删除（只删配置，不�
     await page.getByLabel("Space 名称").fill("旧名字");
     await page.getByLabel("工作目录").fill(dir);
     await page.getByTestId("space-save").click();
-    await expect(page.locator(".v9-space-item", { hasText: "旧名字" })).toBeVisible();
+    await expect(page.locator(".agent-space-item", { hasText: "旧名字" })).toBeVisible();
     await page.getByTestId("space-edit").click();
     await page.getByLabel("Space 名称").fill("新名字");
     await page.getByTestId("space-save").click();
-    await expect(page.locator(".v9-space-item", { hasText: "新名字" })).toBeVisible();
-    await expect(page.locator(".v9-space-item", { hasText: "旧名字" })).toHaveCount(0);
+    await expect(page.locator(".agent-space-item", { hasText: "新名字" })).toBeVisible();
+    await expect(page.locator(".agent-space-item", { hasText: "旧名字" })).toHaveCount(0);
     await page.getByTestId("space-delete").click();
     await page.getByTestId("space-delete-confirm").click();
-    await expect(page.locator(".v9-space-item", { hasText: "新名字" })).toHaveCount(0);
+    await expect(page.locator(".agent-space-item", { hasText: "新名字" })).toHaveCount(0);
     expect(existsSync(path.join(dir, "keep.txt"))).toBe(true);
   } finally {
     await close();
@@ -1096,7 +1107,7 @@ test("Combobox：任务“项目”可从已有项目中搜索选择，也可直
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
-    for (const project of ["工作", "家庭"]) await call("tasks.create", { title: `任务-${project}`, body: "", due: null, project, execution: { kind: "manual" }, resources: [], reminders: [] });
+    for (const project of ["工作", "家庭"]) await call("tasks.create", { title: `任务-${project}`, body: "", due: null, project, type: "human", tags: [], reminders: [] });
     await call("notes.create", { name: "甲笔记" });
     await call("notes.create", { name: "乙笔记" });
     await page.getByRole("button", { name: "版本历史", exact: true }).first().click();
@@ -1179,7 +1190,7 @@ test("首页卡片可由插件贡献：SSH 主机与版本与同步卡片出现�
     const call = await caller(page);
     await expect(page.getByTestId("card-versioning-git")).toBeVisible();
     await expect(page.getByTestId("card-ssh-hosts")).toBeVisible();
-    const contributed = () => page.locator(".home-side-column > section.home-widget").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    const contributed = () => page.locator(".shell-home-side-column > section.home-widget").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     await expect.poll(contributed).toEqual(["card-versioning-git", "card-ssh-hosts"]);
     await page.getByTestId("home-customize").click();
     const panel = page.getByTestId("home-customize-panel");
@@ -1266,5 +1277,64 @@ test("专注计时：运行中关闭应用，退出前暂停并保存剩余时�
     expect(saved.remainingSec).toBeLessThanOrEqual(25 * 60);
   } finally {
     rmTree(vault);
+  }
+});
+
+test("AR-06 / AR-10 / AR-09 档案：笔记里的 [[Archives/…/]] 在阅读模式可点击并打开档案视图，被链接出现该笔记；命令面板把档案单独分组；档案里可以添加附件", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    await call("archives.types.save", { name: "通讯录", fields: [{ name: "电话", type: "text" }] });
+    await call("archives.create", { type: "通讯录", name: "张三", fields: { 电话: "123" } });
+    fs.writeFileSync(`${vault}/年度计划.md`, "# 年度计划\n\n联系 [[Archives/通讯录/张三/]]\n");
+    await expect.poll(async () => ((await call("vault.search", { query: "年度计划" })).data as { hits: unknown[] }).hits.length).toBeGreaterThan(0);
+    // AR-06：阅读模式点击双链 → 档案视图；被链接里有这篇笔记
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("note-item").filter({ hasText: "年度计划" }).first().click();
+    await page.getByRole("tab", { name: "阅读" }).click();
+    await page.locator('.hu-wikilink[data-target="Archives/通讯录/张三/"]').click();
+    await expect(page.getByTestId("archive-view")).toContainText("张三");
+    await expect(page.getByTestId("archive-backlink").filter({ hasText: "年度计划" })).toBeVisible();
+    // AR-09：添加附件（pdf）→ 出现在档案文件列表，磁盘上也有
+    await page.getByTestId("archive-file-input").setInputFiles({ name: "合同.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 test") });
+    await expect(page.getByTestId("archive-file").filter({ hasText: "合同.pdf" })).toBeVisible();
+    expect(fs.existsSync(`${vault}/Archives/通讯录/张三/合同.pdf`)).toBe(true);
+    // AR-10：命令面板里档案单独分组，标题是文件夹名而不是 index
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByRole("combobox", { name: "搜索模块、命令和内容" }).fill("张三");
+    const groups = page.getByTestId("palette-group");
+    await expect(groups.filter({ hasText: "档案" })).toBeVisible({ timeout: 10_000 });
+    const hit = page.getByTestId("palette-item").filter({ hasText: "张三" });
+    await expect(hit.first()).toBeVisible();
+    await expect(page.getByTestId("palette-item").filter({ hasText: /^index/ })).toHaveCount(0); // 标题是文件夹名，不是 index
+  } finally {
+    await close();
+  }
+});
+
+test("AR-16 随包 demo vault：能看到“通讯录”示例，双链与被链接可用", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const fs = await import("node:fs");
+    const demo = path.resolve(import.meta.dirname, "../../../apps/desktop/resources/demo-vault");
+    fs.cpSync(demo, vault, { recursive: true });
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    await expect.poll(async () => ((await call("vault.search", { query: "双链示例" })).data as { hits: unknown[] }).hits.length, { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("notes-open-archives").click();
+    await expect(page.getByTestId("archive-category-card").filter({ hasText: "通讯录" })).toBeVisible();
+    await page.getByTestId("archive-category-card").filter({ hasText: "通讯录" }).click();
+    await expect(page.getByTestId("archive-row")).toHaveCount(2);
+    await page.getByTestId("archive-row").filter({ hasText: "张三" }).click();
+    await expect(page.getByTestId("archive-fields").getByLabel("电话")).toHaveValue("13800000000");
+    await expect(page.getByTestId("archive-backlink").filter({ hasText: "双链示例" })).toBeVisible();
+    await expect(page.getByTestId("archive-file").filter({ hasText: "会议记录" })).toBeVisible();
+  } finally {
+    await close();
   }
 });

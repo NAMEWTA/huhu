@@ -30,6 +30,8 @@ export interface HerdrClientOptions {
   /** 每次调用的超时（毫秒），默认 10 秒。 */
   timeoutMs?: number;
   onEvent?(e: { seq: number; type: string; terminal?: string; data?: unknown }): void;
+  /** 其他通知（heartbeat、missed）。missed 表示中间丢了事件，需要重新读取快照。 */
+  onNotify?(method: string, params: unknown): void;
   onClose?(): void;
 }
 
@@ -126,6 +128,7 @@ export class HerdrClient {
       if (msg.error) p.reject(new HerdrError(msg.error));
       else p.resolve(msg.result);
     } else if (msg.method === "event" && msg.params) this.o.onEvent?.(msg.params);
+    else if (msg.method) this.o.onNotify?.(msg.method, msg.params);
   }
 
   call<T = unknown>(method: string, params: unknown = {}): Promise<T> {
@@ -249,4 +252,43 @@ export async function attachTerminal(endpoint: string, o: { terminal: string; co
       }
     },
   };
+}
+
+export interface EventSubscription {
+  /** 订阅时的快照（匹配的终端记录）。 */
+  snapshot: { seq: number; terminals: Record<string, unknown>[] };
+  close(): void;
+}
+
+/**
+ * 在独立连接上订阅 Core 事件（`events.subscribe`，plain 模式下连接之后只收通知）。
+ * `missed` 通知或断线都会触发 `onLost`，调用方据此重新订阅并用快照对账；断线后不在这里重连（退避策略由调用方决定）。
+ */
+export async function subscribeEvents(
+  endpoint: string,
+  o: { labels?: Record<string, string>; onEvent(e: { seq: number; type: string; terminal?: string; data?: unknown }): void; onLost(reason: "closed" | "missed"): void },
+): Promise<EventSubscription> {
+  let closed = false;
+  const lost = (r: "closed" | "missed") => {
+    if (closed) return;
+    closed = true;
+    c.close();
+    o.onLost(r);
+  };
+  const c = new HerdrClient({ endpoint, timeoutMs: 10_000, onEvent: (e) => o.onEvent(e), onNotify: (m) => m === "missed" && lost("missed"), onClose: () => lost("closed") });
+  try {
+    await c.connect();
+    const snapshot = await c.call<EventSubscription["snapshot"]>("events.subscribe", o.labels ? { labels: o.labels } : {});
+    return {
+      snapshot,
+      close: () => {
+        closed = true;
+        c.close();
+      },
+    };
+  } catch (e) {
+    closed = true;
+    c.close();
+    throw e;
+  }
 }

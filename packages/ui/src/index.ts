@@ -1,13 +1,14 @@
 export * from "./components/ui.js";
 export * from "./theme.js";
+export { THEMES, themeList, THEME_IDS, DEFAULT_THEME, type ThemeId, type ThemeDefinition, themeToCss } from "./themes/index.js";
 export * from "./components/TerminalView.js";
 export * from "./components/Dialog.js";
 export * from "./components/Segmented.js";
 export * from "./components/DateTimePicker.js";
 export * from "./components/datetime.js";
-export * from "./proto/controls.js";
-export * from "./proto/feedback.js";
-export * from "./proto/motion.js";
+export * from "./components/controls.js";
+export * from "./components/feedback.js";
+export * from "./components/motion.js";
 export * as Popover from "@radix-ui/react-popover";
 export * from "./components/ReviewDiff.js";
 export * from "./components/Combobox.js";

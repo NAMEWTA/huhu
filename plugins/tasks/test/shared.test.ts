@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { categoryCount, inCategory, inputChanged, inputHash, isOverdue, processingKey, todayIn, weekRange } from "../src/shared/index.js";
 
 const T = "2026-11-10";
-const t = (due: string | null, completed = false) => ({ due, completed });
+const t = (due: string | null, completed = false) => ({ due, status: completed ? ("completed" as const) : ("not_started" as const) });
 
 describe("分类", () => {
   test("ACC-TK-05：today / tomorrow / week / ended / all", () => {
@@ -44,17 +44,16 @@ describe("分类", () => {
 });
 
 describe("输入版本", () => {
-  const base = { title: "A", body: "正文", resources: [{ kind: "folder", path: "x", id: null }], execution: { kind: "agent", provider: "codex" } };
-  test("键顺序无关；改 due/project/reminders 不影响（它们不在输入里）", () => {
-    expect(inputHash(base)).toBe(inputHash({ ...base, resources: [{ id: null, path: "x", kind: "folder" }] }));
+  const base = { body: "正文 [[设计/]]", execution: { spaceId: "s1", provider: "codex", model: null, effort: null, fast: false } };
+  test("键顺序无关；长度 16", () => {
+    expect(inputHash(base)).toBe(inputHash({ body: base.body, execution: { fast: false, effort: null, model: null, provider: "codex", spaceId: "s1" } }));
     expect(inputHash(base)).toHaveLength(16);
   });
-  test("标题/正文/资源/执行任一变化 → 变化", () => {
+  test("正文/执行任一变化 → 变化；标题不在输入里", () => {
     for (const next of [
-      { ...base, title: "B" },
       { ...base, body: "x" },
-      { ...base, resources: [] },
-      { ...base, execution: { kind: "manual" } },
+      { ...base, execution: null },
+      { ...base, execution: { ...base.execution, provider: "claude" } },
     ])
       expect(inputChanged(base, next)).toBe(true);
     expect(inputChanged(base, { ...base })).toBe(false);
@@ -64,14 +63,12 @@ describe("输入版本", () => {
   });
 
   describe("审计回归", () => {
-    test("标题与正文之间移动字符，inputHash 必须变化", () => {
-      const a = { title: "ab", body: "c", resources: [], execution: { kind: "manual" } };
-      const b = { title: "a", body: "bc", resources: [], execution: { kind: "manual" } };
-      expect(inputChanged(a, b)).toBe(true);
+    test("正文与执行配置之间移动内容，inputHash 必须变化", () => {
+      expect(inputChanged({ body: "ab", execution: null }, { body: "a", execution: "b" })).toBe(true);
     });
     test("日期运算与进程时区无关", async () => {
       const { execFileSync } = await import("node:child_process");
-      const code = `import('${new URL("../src/shared/categories.ts", import.meta.url).href}').then(m=>console.log(JSON.stringify([m.inCategory({due:'2026-11-11',completed:false},'tomorrow','2026-11-10'),m.weekRange('2026-11-10').to])))`;
+      const code = `import('${new URL("../src/shared/categories.ts", import.meta.url).href}').then(m=>console.log(JSON.stringify([m.inCategory({due:'2026-11-11',status:'not_started'},'tomorrow','2026-11-10'),m.weekRange('2026-11-10').to])))`;
       for (const tz of ["Pacific/Auckland", "America/Los_Angeles", "UTC"]) {
         const out = execFileSync(process.execPath, [createRequire(import.meta.url).resolve("tsx/cli"), "-e", code], { env: { ...process.env, TZ: tz }, encoding: "utf8" });
         expect(JSON.parse(out.trim().split("\n").pop() as string)).toEqual([true, "2026-11-16"]);
