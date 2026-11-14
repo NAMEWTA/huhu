@@ -38,4 +38,4 @@
 - `pnpm css:purge`（PurgeCSS）与 `tests/visual/coverage.spec.ts`（Chromium 规则覆盖率，`stopRuleUsageTracking` 只返回“用过”的规则）只产出**线索**：模板片段拼出的类名会被误判，固定 Vault 没走到的界面（启动页、SSH、自动化、评审树等）覆盖率必然为 0。
 
 ## 已知债务
-见 `.agents/dev/archive/changes/implemented/feature_2026-11-14-design-system-completion/progress.md`“偏差与未做”：最大的一块顺序耦合规则仍在 `core.css`；小文件多为 `*-etc.css` 混合命名；`card` / `row` / `segmented` / `spin` 与已有 `hu-` 类并存；163 条历史重复选择器已登记；无用规则只有 5 个候选（`.board-card*` 与 `.hu-callout` 的 warning / success / info 变体），未删除；启动页没有进入视觉验证屏幕清单；`pnpm css:purge` 是报告工具，判定“无用”必须再过渲染比对。
+见 `.agents/dev/archive/changes/implemented/feature_2026-11-14-design-system-completion/progress.md`“偏差与未做”：最大的一块顺序耦合规则仍在 `core.css`；小文件多为 `*-etc.css` 混合命名；`card` / `row` / `segmented` / `spin` 与已有 `hu-` 类并存；182 条历史重复选择器已登记；无用规则只有 5 个候选（`.board-card*` 与 `.hu-callout` 的 warning / success / info 变体），未删除；启动页没有进入视觉验证屏幕清单；`pnpm css:purge` 是报告工具，判定“无用”必须再过渲染比对。

@@ -1,4 +1,4 @@
-/* 样式入口：层序在这里一次声明；每个分层文件第一行也重复这条声明（幂等），所以层序不依赖导入顺序。
+/* 样式入口：层序在这里一次声明（样式文件通过 @import … layer(<名字>) 或自己的 @layer 块进入对应的层）。components/*.css 的导入顺序就是层内规则顺序，已按“顺序约束”拓扑排好，不要随意调整。
    共享组件样式在 components/*.css；外壳在 packages/workbench；编辑器在 packages/editor；各模块在 plugins/<id>/src/ui/<id>.css。
    vendor-overrides.css（覆盖 sonner）与 packages/editor 的 editor-cm.css（覆盖 CodeMirror）是仅有的不分层文件：它们覆盖运行时注入的无层样式，放进层里会失效（见 .agents/dev/notes/context/design-system.md）。 */
 @layer theme, tokens, base, vendor, components, shell, modules;

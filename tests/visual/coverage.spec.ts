@@ -9,7 +9,7 @@ import { SCREENS } from "./screens.js";
 /**
  * Chromium CSS 规则覆盖率（DSC-12）：在固定 Vault 的全部屏幕上收集 CSS.startRuleUsageTracking，
  * 把“从未匹配任何元素”的规则列出来，写入 .visual/<VISUAL_NAME>/css-coverage.json。
- * 覆盖率为 0 不等于可删除（状态没走到），只是核查线索；与 PurgeCSS 的结论交叉见 evidence/dsc12-coverage.md。
+ * 覆盖率为 0 不等于可删除（状态没走到），只是核查线索；与 PurgeCSS 的结论交叉见 .agents/dev 里 design-system-completion 的 progress.md（DSC-12）与 evidence/dsc12-zero-coverage-rules.json。
  */
 const NAME = process.env["VISUAL_NAME"] ?? "scratch";
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 重复选择器检查（DSC-09）：同一个文件、同一个 at-rule 上下文里，相同的选择器不应出现多次。
+// 重复选择器检查（DSC-09）：同一个文件（packages/ui/src/styles/components/*.css 视为同一个文件，它们在同一层、按顺序拼接）、同一个 at-rule 上下文里，相同的选择器不应出现多次。
 // 历史遗留（合并会改变同特异性规则的覆盖顺序）登记在 scripts/css-duplicates-baseline.json；新增的重复、或已登记的重复变多，检查失败。
 // 用法：node scripts/check-css-duplicates.mjs [--write]   --write 重新生成登记表（只在确认合并无法进行时使用）
 import fs from "node:fs";
@@ -15,6 +15,8 @@ const files = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--"
   .split("\n")
   .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.includes("generated"));
 const found = {};
+const groupOf = (f) => (f.startsWith("packages/ui/src/styles/components/") ? "packages/ui/src/styles/components/*" : f);
+const counts = new Map();
 for (const f of files) {
   const root = postcss.parse(fs.readFileSync(f, "utf8"));
   const containers = [root];
@@ -23,16 +25,15 @@ for (const f of files) {
   });
   for (const c of containers) {
     const ctx = c.type === "root" ? "" : `@${c.name} ${c.params}`;
-    const counts = new Map();
     c.each((n) => {
       if (n.type === "rule") {
-        const k = norm(n.selector);
+        const k = `${groupOf(f)}|${ctx}|${norm(n.selector)}`;
         counts.set(k, (counts.get(k) ?? 0) + 1);
       }
     });
-    for (const [k, n] of counts) if (n > 1) found[`${f}|${ctx}|${k}`] = n;
   }
 }
+for (const [k, n] of counts) if (n > 1) found[k] = n;
 const basePath = "scripts/css-duplicates-baseline.json";
 if (process.argv.includes("--write")) {
   fs.writeFileSync(
