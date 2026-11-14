@@ -1,0 +1,36 @@
+# 进度：知识库完整重构
+
+## 状态（2026-11-14，文档阶段结束）
+
+**规格、设计、决定、复用核对、计划、任务与验证方案已完成；尚未实施，没有产品代码改动。**
+
+| 切片 | 状态 | 证据入口 / 下一步 |
+| --- | --- | --- |
+| 文档与设计（本 change） | 完成，顾问复核意见已吸收，待用户确认 Q1–Q10 | 本目录；[evidence/e0-source-survey.md](evidence/e0-source-survey.md) |
+| S0 来源冻结与闸门 | 未开始 | [tasks/00-freeze-and-spikes.md](tasks/00-freeze-and-spikes.md)；**下一步** |
+| S1 资源目录、会话与标签契约 | 未开始 | 依赖 S0 闸门 |
+| S2a（2a-1/2/3）/ S2b / S2c | 未开始 | S2a 依赖 S0；S2b 依赖 S1 + S2a；S2c 依赖 S2b |
+| S3 编辑行为对等 | 未开始 | |
+| S4 评论 | 未开始 | |
+| S5 文件树与隐藏 | 未开始 | |
+| S6 档案标签 | 未开始 | |
+| S7 查看器与图标 | 未开始 | |
+| S8 清理与全回归 | 未开始 | |
+
+## 本次文档阶段做了什么（可复核）
+
+- 用 `gh issue view 2` 拉取 issue（正文 33,818 字符 + 1 条评论），原文存档；未改动。
+- 调查（只读，由 `search` / `grep` 子代理在本地工作副本上取数，主会话汇总）：OK 编辑器 / core 闭包与文档模型；OK 评论 / 文件树 / 菜单 / 图标 / 属性；OK `/api` 调用面与 i18n / Tailwind 配置；OK server 持久化与 provider 语义；ORCA 查看器；Huhu 现状 F01–F10；既有决定与规范；obsidian-huhu 档案导航。结果见 `evidence/e0-source-survey.md`，其中“未核实”项由 S0 补。
+- 复用核对按 `CLAUDE.md` 顺序做，见 `reuse.md`。
+
+## 对 issue 的主要订正（详见 spec §3）
+
+来源已在本地；**保留 Yjs（本地运行，无 Hocuspocus）**；ORCA HTML 预览不可复制，自研隔离方案；OK 的“隐藏”是 `.okignore`，不能照搬；OK 有 issue 没列的属性面板；OK 没有独立阅读模式；OK 评论不依赖 Yjs；`isNoteFile` 只查第一段目录；Tailwind / Lingui 是实质性的技术栈变化，需要同变更更新设计系统规范。
+
+## 未做 / 未验证（如实）
+
+- 没有写任何代码；没有运行任何构建 / 测试；没有在真实 Electron 里复现用户报告的选区 / 上下行问题。
+- **未证实的假设**：闭包能在 Huhu 构建里编译（SP-1）；Y 本地化后的往返字节保真（SP-4）；**`LocalDocProvider` 挂 `TiptapEditor` 在真实 Electron 里能完成来回切 / 切源码 / 撤销 / 无编辑不写盘（SP-6）**；Tailwind v4 能限定在 `.ok-root` 且 `layer(vendor.ok-*)` 子层在构建里可行、Lingui 宏在 Vite 8 下可接入（SP-2 / SP-3）；两套 YAML 编解码的差异（SP-5）；HTML 预览两种隔离方案哪个能通过 F05（SP-7，S7 开头）；上游测试在适配后的通过率；若干 Huhu 内部入口的具体位置（每 Vault UI 偏好设施、导航贡献设施、主进程协议注册入口、pnpm 补丁机制、`CommentDto` 定义），均标“未核实”，S0 / S1 核实。
+- 用户待确认：[spec.md](spec.md) §9 的 Q1–Q10。
+- **闸门阈值已写死**（decisions OP-D02，用户可调但 S0 前定、S0 不得事后放宽）：补丁 ≤ 150 个文件、`DocumentContext` / `provider-pool` 的 Huhu 侧替换 ≤ 1200 行、上游测试适配后通过率 ≥ 70%。这些数字是我的拟定值，没有用户确认。
+- 真实输入法、Windows / macOS 实机验证：本环境无法进行，实施阶段按“未验证”登记。
