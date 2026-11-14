@@ -1,0 +1,3032 @@
+{
+ "about-hero": {
+  "to": "shell-about-hero",
+  "owner": "workbench"
+ },
+ "about-mark": {
+  "to": "shell-about-mark",
+  "owner": "workbench"
+ },
+ "activity-feed": {
+  "to": "shell-activity-feed",
+  "owner": "workbench"
+ },
+ "activity-marker": {
+  "to": "shell-activity-marker",
+  "owner": "workbench"
+ },
+ "activity-row": {
+  "to": "shell-activity-row",
+  "owner": "workbench"
+ },
+ "agent-invitation": {
+  "to": "shell-agent-invitation",
+  "owner": "workbench"
+ },
+ "agent-invitation-top": {
+  "to": "shell-agent-invitation-top",
+  "owner": "workbench"
+ },
+ "agent-session-item": {
+  "to": "hu-agent-session-item",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "agent-task-state": {
+  "to": "hu-agent-task-state",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "app": {
+  "to": "hu-app",
+  "owner": "ui"
+ },
+ "archive-actions": {
+  "to": "notes-archive-actions",
+  "owner": "notes"
+ },
+ "archive-body": {
+  "to": "notes-archive-body",
+  "owner": "notes"
+ },
+ "archive-card": {
+  "to": "notes-archive-card",
+  "owner": "notes"
+ },
+ "archive-cards": {
+  "to": "notes-archive-cards",
+  "owner": "notes"
+ },
+ "archive-crumb": {
+  "to": "notes-archive-crumb",
+  "owner": "notes"
+ },
+ "archive-crumb-bar": {
+  "to": "notes-archive-crumb-bar",
+  "owner": "notes"
+ },
+ "archive-field-row": {
+  "to": "notes-archive-field-row",
+  "owner": "notes"
+ },
+ "archive-field-rows": {
+  "to": "notes-archive-field-rows",
+  "owner": "notes"
+ },
+ "archive-fields": {
+  "to": "notes-archive-fields",
+  "owner": "notes"
+ },
+ "archive-head": {
+  "to": "notes-archive-head",
+  "owner": "notes"
+ },
+ "archive-invalid": {
+  "to": "notes-archive-invalid",
+  "owner": "notes"
+ },
+ "archive-menu": {
+  "to": "notes-archive-menu",
+  "owner": "notes"
+ },
+ "archive-more": {
+  "to": "notes-archive-more",
+  "owner": "notes"
+ },
+ "archive-view": {
+  "to": "notes-archive-view",
+  "owner": "notes"
+ },
+ "backup-action-step": {
+  "to": "hu-backup-action-step",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "badge": {
+  "to": "hu-badge",
+  "owner": "ui",
+  "note": "经 S5b 同义类合并，最终名字"
+ },
+ "badge-blue": {
+  "to": "hu-badge-blue",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "badge-danger": {
+  "to": "hu-badge-danger",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "badge-success": {
+  "to": "hu-badge-success",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "badge-violet": {
+  "to": "hu-badge-violet",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "badge-warning": {
+  "to": "hu-badge-warning",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "brand-logo": {
+  "to": "shell-brand-logo",
+  "owner": "workbench"
+ },
+ "brand-logo-dark": {
+  "to": "shell-brand-logo-dark",
+  "owner": "workbench"
+ },
+ "brand-logo-light": {
+  "to": "shell-brand-logo-light",
+  "owner": "workbench"
+ },
+ "brand-mark": {
+  "to": "shell-brand-mark",
+  "owner": "workbench"
+ },
+ "brand-suffix": {
+  "to": "shell-brand-suffix",
+  "owner": "workbench"
+ },
+ "breadcrumb": {
+  "to": "hu-breadcrumb",
+  "owner": "ui"
+ },
+ "breadcrumb-bar": {
+  "to": "hu-breadcrumb-bar",
+  "owner": "ui"
+ },
+ "btn": {
+  "to": "hu-btn",
+  "owner": "ui",
+  "note": "经 S5b 同义类合并，最终名字"
+ },
+ "btn-danger": {
+  "to": "hu-btn-danger",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "btn-ghost": {
+  "to": "hu-btn-ghost",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "btn-primary": {
+  "to": "hu-btn-primary",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "callout": {
+  "to": "hu-callout",
+  "owner": "ui"
+ },
+ "canvas-inspector": {
+  "to": "hu-canvas-inspector",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "canvas-link-row": {
+  "to": "hu-canvas-link-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "canvas-toolbar": {
+  "to": "hu-canvas-toolbar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "canvas-view": {
+  "to": "hu-canvas-view",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "capabilities-toolbar": {
+  "to": "hu-capabilities-toolbar",
+  "owner": "ui"
+ },
+ "capability-table": {
+  "to": "shell-capability-table",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "capability-tester": {
+  "to": "shell-capability-tester",
+  "owner": "workbench"
+ },
+ "card": {
+  "to": "hu-card-alt",
+  "owner": "ui"
+ },
+ "card-footer-link": {
+  "to": "hu-card-footer-link",
+  "owner": "ui"
+ },
+ "card-head": {
+  "to": "shell-card-head",
+  "owner": "workbench"
+ },
+ "change-file-tree": {
+  "to": "hu-change-file-tree",
+  "owner": "ui"
+ },
+ "change-tree-file": {
+  "to": "hu-change-tree-file",
+  "owner": "ui"
+ },
+ "change-tree-folder": {
+  "to": "hu-change-tree-folder",
+  "owner": "ui"
+ },
+ "change-tree-title": {
+  "to": "hu-change-tree-title",
+  "owner": "ui"
+ },
+ "checkpoint-row": {
+  "to": "hu-checkpoint-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "checkpoint-summary": {
+  "to": "hu-checkpoint-summary",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "chip": {
+  "to": "notes-chip",
+  "owner": "notes"
+ },
+ "claude-code": {
+  "to": "agent-claude-code",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "cli-input": {
+  "to": "hu-cli-input",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "cli-suggestions": {
+  "to": "shell-cli-suggestions",
+  "owner": "workbench"
+ },
+ "codex": {
+  "to": "agent-codex",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "column-resizer": {
+  "to": "shell-column-resizer",
+  "owner": "workbench"
+ },
+ "command-group": {
+  "to": "shell-command-group",
+  "owner": "workbench"
+ },
+ "command-icon": {
+  "to": "shell-command-icon",
+  "owner": "workbench"
+ },
+ "command-results": {
+  "to": "shell-command-results",
+  "owner": "workbench"
+ },
+ "confirm-description": {
+  "to": "hu-confirm-description",
+  "owner": "ui"
+ },
+ "conflict-card": {
+  "to": "hu-conflict-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "conflict-options": {
+  "to": "hu-conflict-options",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "console-bar": {
+  "to": "hu-console-bar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "context-drawer": {
+  "to": "agent-context-drawer",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "contribution-grid": {
+  "to": "shell-contribution-grid",
+  "owner": "workbench"
+ },
+ "date-demo-grid": {
+  "to": "hu-date-demo-grid",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "date-format-samples": {
+  "to": "shell-date-format-samples",
+  "owner": "workbench"
+ },
+ "date-help-grid": {
+  "to": "shell-date-help-grid",
+  "owner": "workbench"
+ },
+ "desktop-action-grid": {
+  "to": "shell-desktop-action-grid",
+  "owner": "workbench"
+ },
+ "desktop-layer": {
+  "to": "shell-desktop-layer",
+  "owner": "workbench"
+ },
+ "desktop-layer-grid": {
+  "to": "shell-desktop-layer-grid",
+  "owner": "workbench"
+ },
+ "diff-title": {
+  "to": "hu-diff-title",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "discover-card": {
+  "to": "hu-discover-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "drawer-head": {
+  "to": "shell-drawer-head",
+  "owner": "workbench"
+ },
+ "editor-preview": {
+  "to": "hu-editor-preview",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "empty-icon": {
+  "to": "hu-empty-icon",
+  "owner": "ui"
+ },
+ "empty-state": {
+  "to": "hu-empty-state",
+  "owner": "ui"
+ },
+ "execution-agent-toolbar": {
+  "to": "hu-execution-agent-toolbar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-approval": {
+  "to": "hu-execution-approval",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-automation-list": {
+  "to": "hu-execution-automation-list",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-background-terminal": {
+  "to": "hu-execution-background-terminal",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-cli": {
+  "to": "hu-execution-cli",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-cli-error": {
+  "to": "hu-execution-cli-error",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-cli-foot": {
+  "to": "hu-execution-cli-foot",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-cli-input": {
+  "to": "hu-execution-cli-input",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-cli-provider-view": {
+  "to": "ssh-cli-provider-view",
+  "owner": "ssh",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-code-block": {
+  "to": "ssh-code-block",
+  "owner": "ssh",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-command-card": {
+  "to": "ssh-command-card",
+  "owner": "ssh"
+ },
+ "execution-command-presets": {
+  "to": "ssh-command-presets",
+  "owner": "ssh"
+ },
+ "execution-composer-tools": {
+  "to": "hu-execution-composer-tools",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-connection-config": {
+  "to": "ssh-connection-config",
+  "owner": "ssh"
+ },
+ "execution-connection-hero": {
+  "to": "ssh-connection-hero",
+  "owner": "ssh"
+ },
+ "execution-connection-route": {
+  "to": "hu-execution-connection-route",
+  "owner": "ui"
+ },
+ "execution-count": {
+  "to": "ssh-count",
+  "owner": "ssh"
+ },
+ "execution-definition": {
+  "to": "ssh-definition",
+  "owner": "ssh"
+ },
+ "execution-demo-notice": {
+  "to": "ssh-demo-notice",
+  "owner": "ssh",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-error-card": {
+  "to": "hu-execution-error-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-exec-result": {
+  "to": "ssh-exec-result",
+  "owner": "ssh"
+ },
+ "execution-file-row": {
+  "to": "hu-execution-file-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-flow-node": {
+  "to": "hu-execution-flow-node",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-flow-top": {
+  "to": "hu-execution-flow-top",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-list-label": {
+  "to": "ssh-list-label",
+  "owner": "ssh"
+ },
+ "execution-live-dot": {
+  "to": "ssh-live-dot",
+  "owner": "ssh",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-log-icon": {
+  "to": "hu-execution-log-icon",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-log-row": {
+  "to": "hu-execution-log-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-message": {
+  "to": "hu-execution-message",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-meta-grid": {
+  "to": "ssh-meta-grid",
+  "owner": "ssh"
+ },
+ "execution-module": {
+  "to": "hu-execution-module",
+  "owner": "ui"
+ },
+ "execution-node-editor": {
+  "to": "hu-execution-node-editor",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-node-icon": {
+  "to": "automations-node-icon",
+  "owner": "automations",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-node-order": {
+  "to": "hu-execution-node-order",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-pad": {
+  "to": "ssh-pad",
+  "owner": "ssh"
+ },
+ "execution-pane-bar": {
+  "to": "hu-execution-pane-bar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-pane-foot": {
+  "to": "ssh-pane-foot",
+  "owner": "ssh"
+ },
+ "execution-provider-card": {
+  "to": "hu-execution-provider-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-resource-head": {
+  "to": "ssh-resource-head",
+  "owner": "ssh"
+ },
+ "execution-resource-title": {
+  "to": "ssh-resource-title",
+  "owner": "ssh"
+ },
+ "execution-route": {
+  "to": "ssh-route",
+  "owner": "ssh"
+ },
+ "execution-route-target": {
+  "to": "ssh-route-target",
+  "owner": "ssh"
+ },
+ "execution-rule-detail": {
+  "to": "hu-execution-rule-detail",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-rule-detail-head": {
+  "to": "hu-execution-rule-detail-head",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-rule-step": {
+  "to": "hu-execution-rule-step",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-rule-table-row": {
+  "to": "hu-execution-rule-table-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-rule-trigger": {
+  "to": "hu-execution-rule-trigger",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-runtime-card": {
+  "to": "hu-execution-runtime-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-section-heading": {
+  "to": "ssh-section-heading",
+  "owner": "ssh"
+ },
+ "execution-server-icon": {
+  "to": "ssh-server-icon",
+  "owner": "ssh"
+ },
+ "execution-session-row": {
+  "to": "ssh-session-row",
+  "owner": "ssh"
+ },
+ "execution-stat": {
+  "to": "ssh-stat",
+  "owner": "ssh"
+ },
+ "execution-status-dot": {
+  "to": "hu-execution-status-dot",
+  "owner": "ui"
+ },
+ "execution-step-dot": {
+  "to": "hu-execution-step-dot",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-terminal-grid": {
+  "to": "agent-terminal-grid",
+  "owner": "agent-cli"
+ },
+ "execution-terminal-pane": {
+  "to": "agent-terminal-pane",
+  "owner": "agent-cli"
+ },
+ "execution-terminal-status": {
+  "to": "hu-execution-terminal-status",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-terminal-tab": {
+  "to": "hu-execution-terminal-tab",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-terminal-view": {
+  "to": "hu-execution-terminal-view",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "execution-trust-heading": {
+  "to": "ssh-trust-heading",
+  "owner": "ssh"
+ },
+ "execution-warning-text": {
+  "to": "ssh-warning-text",
+  "owner": "ssh"
+ },
+ "experience-controls": {
+  "to": "hu-experience-controls",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "experience-task-check": {
+  "to": "hu-experience-task-check",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "eyebrow": {
+  "to": "hu-eyebrow",
+  "owner": "ui"
+ },
+ "field": {
+  "to": "hu-field",
+  "owner": "ui"
+ },
+ "field-description": {
+  "to": "hu-field-description",
+  "owner": "ui"
+ },
+ "field-error": {
+  "to": "hu-field-error",
+  "owner": "ui"
+ },
+ "field-grid": {
+  "to": "hu-field-grid",
+  "owner": "ui"
+ },
+ "field-label": {
+  "to": "hu-field-label",
+  "owner": "ui"
+ },
+ "focus-card": {
+  "to": "hu-focus-card",
+  "owner": "ui"
+ },
+ "focus-mode": {
+  "to": "hu-focus-mode",
+  "owner": "ui"
+ },
+ "folded": {
+  "to": "tasks-folded",
+  "owner": "tasks"
+ },
+ "form-body": {
+  "to": "hu-form-body",
+  "owner": "ui"
+ },
+ "gateway-meta": {
+  "to": "shell-gateway-meta",
+  "owner": "workbench"
+ },
+ "gateway-overview": {
+  "to": "hu-gateway-overview",
+  "owner": "ui"
+ },
+ "git-commit-compose": {
+  "to": "hu-git-commit-compose",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-commit-row": {
+  "to": "hu-git-commit-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-file-row": {
+  "to": "hu-git-file-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-group-title": {
+  "to": "hu-git-group-title",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-history-filebar": {
+  "to": "hu-git-history-filebar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-init": {
+  "to": "hu-git-init",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-main": {
+  "to": "hu-git-main",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-resource": {
+  "to": "hu-git-resource",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-section-tabs": {
+  "to": "hu-git-section-tabs",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "git-selected-header": {
+  "to": "hu-git-selected-header",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-command": {
+  "to": "hu-guide-command",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-entry-grid": {
+  "to": "hu-guide-entry-grid",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-file-tabs": {
+  "to": "hu-guide-file-tabs",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-markdown": {
+  "to": "hu-guide-markdown",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-overview": {
+  "to": "hu-guide-overview",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-path": {
+  "to": "hu-guide-path",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-reader-tools": {
+  "to": "hu-guide-reader-tools",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-scroll": {
+  "to": "hu-guide-scroll",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-simulation": {
+  "to": "hu-guide-simulation",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "guide-v5": {
+  "to": "hu-guide-v5",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "habit-divider": {
+  "to": "shell-habit-divider",
+  "owner": "workbench"
+ },
+ "habit-row": {
+  "to": "shell-habit-row",
+  "owner": "workbench"
+ },
+ "habit-title": {
+  "to": "shell-habit-title",
+  "owner": "workbench"
+ },
+ "has-folder-note": {
+  "to": "notes-has-folder-note",
+  "owner": "notes"
+ },
+ "health-check": {
+  "to": "hu-health-check",
+  "owner": "ui"
+ },
+ "health-check-icon": {
+  "to": "shell-health-check-icon",
+  "owner": "workbench"
+ },
+ "health-hero": {
+  "to": "hu-health-hero",
+  "owner": "ui"
+ },
+ "health-notification": {
+  "to": "hu-health-notification",
+  "owner": "ui"
+ },
+ "health-orb": {
+  "to": "shell-health-orb",
+  "owner": "workbench"
+ },
+ "hint-text": {
+  "to": "hu-hint-text",
+  "owner": "ui"
+ },
+ "history-open": {
+  "to": "agent-history-open",
+  "owner": "agent-cli"
+ },
+ "home-content": {
+  "to": "hu-home-content",
+  "owner": "ui"
+ },
+ "home-footnote": {
+  "to": "shell-home-footnote",
+  "owner": "workbench"
+ },
+ "home-grid": {
+  "to": "shell-home-grid",
+  "owner": "workbench"
+ },
+ "home-inbox": {
+  "to": "shell-home-inbox",
+  "owner": "workbench"
+ },
+ "home-main-column": {
+  "to": "shell-home-main-column",
+  "owner": "workbench"
+ },
+ "home-resource": {
+  "to": "hu-home-resource",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "home-scroll": {
+  "to": "shell-home-scroll",
+  "owner": "workbench"
+ },
+ "home-side-column": {
+  "to": "shell-home-side-column",
+  "owner": "workbench"
+ },
+ "home-task-card": {
+  "to": "hu-home-task-card",
+  "owner": "ui"
+ },
+ "home-task-row": {
+  "to": "hu-home-task-row",
+  "owner": "ui"
+ },
+ "hu-cards": {
+  "to": "shell-hu-cards",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-circle": {
+  "to": "undefined-hu-circle",
+  "owner": "ui-base",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-content": {
+  "to": "shell-hu-content",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-editor": {
+  "to": "shell-hu-editor",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-empty": {
+  "to": "undefined-hu-empty",
+  "owner": "ui-base",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-module": {
+  "to": "shell-hu-module",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-note-head": {
+  "to": "shell-hu-note-head",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-note-list": {
+  "to": "shell-hu-note-list",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-note-pane": {
+  "to": "shell-hu-note-pane",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "hu-row-title": {
+  "to": "shell-hu-row-title",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "huhu-cm-pane": {
+  "to": "notes-huhu-cm-pane",
+  "owner": "notes"
+ },
+ "huhu-dialog-content": {
+  "to": "hu-dialog-content",
+  "owner": "ui"
+ },
+ "huhu-dialog-drawer": {
+  "to": "hu-dialog-drawer",
+  "owner": "ui"
+ },
+ "huhu-dialog-overlay": {
+  "to": "hu-dialog-overlay",
+  "owner": "ui"
+ },
+ "huhu-editor-position": {
+  "to": "notes-huhu-editor-position",
+  "owner": "notes"
+ },
+ "huhu-editor-secondary": {
+  "to": "hu-editor-secondary",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "huhu-markdown-editor": {
+  "to": "editor-markdown-editor",
+  "owner": "editor"
+ },
+ "huhu-motion-menu": {
+  "to": "hu-motion-menu",
+  "owner": "ui"
+ },
+ "huhu-motion-panel": {
+  "to": "hu-motion-panel",
+  "owner": "ui"
+ },
+ "huhu-motion-surface": {
+  "to": "hu-motion-surface",
+  "owner": "ui"
+ },
+ "huhu-page-surface": {
+  "to": "shell-page-surface",
+  "owner": "workbench"
+ },
+ "huhu-segmented": {
+  "to": "hu-segmented",
+  "owner": "ui"
+ },
+ "huhu-segmented-indicator": {
+  "to": "hu-segmented-indicator",
+  "owner": "ui"
+ },
+ "huhu-switch": {
+  "to": "hu-switch",
+  "owner": "ui"
+ },
+ "huhu-tooltip": {
+  "to": "hu-tooltip",
+  "owner": "ui"
+ },
+ "icon-btn": {
+  "to": "hu-icon-btn",
+  "owner": "ui"
+ },
+ "inactive": {
+  "to": "hu-inactive",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "inbox-bullet": {
+  "to": "shell-inbox-bullet",
+  "owner": "workbench"
+ },
+ "inbox-preview": {
+  "to": "shell-inbox-preview",
+  "owner": "workbench"
+ },
+ "knowledge-avatar": {
+  "to": "notes-avatar",
+  "owner": "notes"
+ },
+ "knowledge-breadcrumb": {
+  "to": "notes-breadcrumb",
+  "owner": "notes"
+ },
+ "knowledge-bulk-bar": {
+  "to": "hu-knowledge-bulk-bar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-calendar-day": {
+  "to": "shell-knowledge-calendar-day",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-calendar-head": {
+  "to": "hu-knowledge-calendar-head",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-comment": {
+  "to": "notes-comment",
+  "owner": "notes"
+ },
+ "knowledge-comment-compose": {
+  "to": "hu-knowledge-comment-compose",
+  "owner": "ui"
+ },
+ "knowledge-comment-filter": {
+  "to": "notes-comment-filter",
+  "owner": "notes"
+ },
+ "knowledge-comment-input": {
+  "to": "notes-comment-input",
+  "owner": "notes"
+ },
+ "knowledge-convert-options": {
+  "to": "inbox-knowledge-convert-options",
+  "owner": "inbox"
+ },
+ "knowledge-converted-result": {
+  "to": "hu-knowledge-converted-result",
+  "owner": "ui"
+ },
+ "knowledge-count": {
+  "to": "inbox-knowledge-count",
+  "owner": "inbox"
+ },
+ "knowledge-daily-picker": {
+  "to": "hu-knowledge-daily-picker",
+  "owner": "ui"
+ },
+ "knowledge-detail-section": {
+  "to": "hu-knowledge-detail-section",
+  "owner": "ui"
+ },
+ "knowledge-dismissed-result": {
+  "to": "hu-knowledge-dismissed-result",
+  "owner": "ui"
+ },
+ "knowledge-document-area": {
+  "to": "notes-document-area",
+  "owner": "notes"
+ },
+ "knowledge-document-status": {
+  "to": "notes-document-status",
+  "owner": "notes"
+ },
+ "knowledge-document-tab": {
+  "to": "notes-document-tab",
+  "owner": "notes"
+ },
+ "knowledge-document-tabs": {
+  "to": "hu-knowledge-document-tabs",
+  "owner": "ui"
+ },
+ "knowledge-document-toolbar": {
+  "to": "hu-knowledge-document-toolbar",
+  "owner": "ui"
+ },
+ "knowledge-editor-actions": {
+  "to": "hu-knowledge-editor-actions",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-editor-body": {
+  "to": "notes-editor-body",
+  "owner": "notes"
+ },
+ "knowledge-editor-mode-hint": {
+  "to": "notes-editor-mode-hint",
+  "owner": "notes"
+ },
+ "knowledge-explorer-filters": {
+  "to": "notes-explorer-filters",
+  "owner": "notes"
+ },
+ "knowledge-explorer-head": {
+  "to": "hu-knowledge-explorer-head",
+  "owner": "ui"
+ },
+ "knowledge-explorer-tree": {
+  "to": "notes-explorer-tree",
+  "owner": "notes"
+ },
+ "knowledge-file-menu": {
+  "to": "shell-knowledge-file-menu",
+  "owner": "workbench"
+ },
+ "knowledge-filename": {
+  "to": "notes-filename",
+  "owner": "notes"
+ },
+ "knowledge-folder-line": {
+  "to": "notes-folder-line",
+  "owner": "notes"
+ },
+ "knowledge-folder-note-mark": {
+  "to": "notes-folder-note-mark",
+  "owner": "notes"
+ },
+ "knowledge-graph-svg": {
+  "to": "hu-knowledge-graph-svg",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-inbox-bottom": {
+  "to": "hu-knowledge-inbox-bottom",
+  "owner": "ui"
+ },
+ "knowledge-inbox-bulk": {
+  "to": "inbox-knowledge-inbox-bulk",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-converted": {
+  "to": "inbox-knowledge-inbox-converted",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-detail": {
+  "to": "inbox-knowledge-inbox-detail",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-detail-meta": {
+  "to": "hu-knowledge-inbox-detail-meta",
+  "owner": "ui"
+ },
+ "knowledge-inbox-item": {
+  "to": "inbox-knowledge-inbox-item",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-item-meta": {
+  "to": "inbox-knowledge-inbox-item-meta",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-list": {
+  "to": "inbox-knowledge-inbox-list",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-main": {
+  "to": "inbox-knowledge-inbox-main",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-note": {
+  "to": "inbox-knowledge-inbox-note",
+  "owner": "inbox"
+ },
+ "knowledge-inbox-status-tabs": {
+  "to": "hu-knowledge-inbox-status-tabs",
+  "owner": "ui"
+ },
+ "knowledge-inline-check": {
+  "to": "shell-knowledge-inline-check",
+  "owner": "workbench"
+ },
+ "knowledge-inline-compose": {
+  "to": "hu-knowledge-inline-compose",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-inspector": {
+  "to": "notes-inspector",
+  "owner": "notes"
+ },
+ "knowledge-inspector-nav": {
+  "to": "hu-knowledge-inspector-nav",
+  "owner": "ui"
+ },
+ "knowledge-inspector-scroll": {
+  "to": "notes-inspector-scroll",
+  "owner": "notes"
+ },
+ "knowledge-inspector-section": {
+  "to": "hu-knowledge-inspector-section",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-kanban-column": {
+  "to": "hu-knowledge-kanban-column",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-link-row": {
+  "to": "notes-link-row",
+  "owner": "notes"
+ },
+ "knowledge-link-with-action": {
+  "to": "hu-knowledge-link-with-action",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-list-caption": {
+  "to": "notes-list-caption",
+  "owner": "notes"
+ },
+ "knowledge-main": {
+  "to": "notes-main",
+  "owner": "notes"
+ },
+ "knowledge-nav-hidden": {
+  "to": "inbox-knowledge-nav-hidden",
+  "owner": "inbox",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-note-list": {
+  "to": "notes-note-list",
+  "owner": "notes"
+ },
+ "knowledge-note-row": {
+  "to": "hu-knowledge-note-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-notes": {
+  "to": "notes-notes",
+  "owner": "notes"
+ },
+ "knowledge-outline": {
+  "to": "notes-outline",
+  "owner": "notes"
+ },
+ "knowledge-processing-heading": {
+  "to": "inbox-knowledge-processing-heading",
+  "owner": "inbox"
+ },
+ "knowledge-project-row": {
+  "to": "hu-knowledge-project-row",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-property-grid": {
+  "to": "notes-property-grid",
+  "owner": "notes"
+ },
+ "knowledge-quick-capture": {
+  "to": "hu-knowledge-quick-capture",
+  "owner": "ui"
+ },
+ "knowledge-reading-pane": {
+  "to": "notes-reading-pane",
+  "owner": "notes"
+ },
+ "knowledge-reading-tags": {
+  "to": "notes-reading-tags",
+  "owner": "notes",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-resource-footer": {
+  "to": "hu-knowledge-resource-footer",
+  "owner": "ui"
+ },
+ "knowledge-resource-open": {
+  "to": "inbox-knowledge-resource-open",
+  "owner": "inbox",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-result-check": {
+  "to": "inbox-knowledge-result-check",
+  "owner": "inbox"
+ },
+ "knowledge-root": {
+  "to": "hu-knowledge-root",
+  "owner": "ui"
+ },
+ "knowledge-save-dot": {
+  "to": "notes-save-dot",
+  "owner": "notes"
+ },
+ "knowledge-source-editor": {
+  "to": "notes-source-editor",
+  "owner": "notes",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-source-editor-wrap": {
+  "to": "notes-source-editor-wrap",
+  "owner": "notes",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-source-line-numbers": {
+  "to": "notes-source-line-numbers",
+  "owner": "notes",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-source-pane": {
+  "to": "notes-source-pane",
+  "owner": "notes"
+ },
+ "knowledge-star": {
+  "to": "notes-star",
+  "owner": "notes"
+ },
+ "knowledge-subtask": {
+  "to": "hu-knowledge-subtask",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-tag-cloud": {
+  "to": "notes-tag-cloud",
+  "owner": "notes"
+ },
+ "knowledge-task-calendar": {
+  "to": "hu-knowledge-task-calendar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-task-check": {
+  "to": "hu-knowledge-task-check",
+  "owner": "ui"
+ },
+ "knowledge-task-main": {
+  "to": "hu-knowledge-task-main",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-task-name": {
+  "to": "hu-knowledge-task-name",
+  "owner": "ui"
+ },
+ "knowledge-task-projects": {
+  "to": "hu-knowledge-task-projects",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-task-state-actions": {
+  "to": "hu-knowledge-task-state-actions",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-task-table": {
+  "to": "tasks-knowledge-task-table",
+  "owner": "tasks"
+ },
+ "knowledge-task-table-head": {
+  "to": "tasks-knowledge-task-table-head",
+  "owner": "tasks"
+ },
+ "knowledge-task-table-row": {
+  "to": "hu-knowledge-task-table-row",
+  "owner": "ui"
+ },
+ "knowledge-task-tip": {
+  "to": "hu-knowledge-task-tip",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-task-toolbar": {
+  "to": "hu-knowledge-task-toolbar",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-text-button": {
+  "to": "notes-text-button",
+  "owner": "notes"
+ },
+ "knowledge-toolbar-divider": {
+  "to": "notes-toolbar-divider",
+  "owner": "notes"
+ },
+ "knowledge-trash-banner": {
+  "to": "hu-knowledge-trash-banner",
+  "owner": "ui"
+ },
+ "knowledge-tree-chevron": {
+  "to": "notes-tree-chevron",
+  "owner": "notes"
+ },
+ "knowledge-tree-empty": {
+  "to": "notes-tree-empty",
+  "owner": "notes"
+ },
+ "knowledge-tree-extension": {
+  "to": "notes-tree-extension",
+  "owner": "notes"
+ },
+ "knowledge-tree-item": {
+  "to": "notes-tree-item",
+  "owner": "notes"
+ },
+ "knowledge-tree-label": {
+  "to": "notes-tree-label",
+  "owner": "notes"
+ },
+ "knowledge-tree-line": {
+  "to": "hu-knowledge-tree-line",
+  "owner": "ui"
+ },
+ "knowledge-tree-more": {
+  "to": "hu-knowledge-tree-more",
+  "owner": "ui"
+ },
+ "knowledge-tree-spacer": {
+  "to": "notes-tree-spacer",
+  "owner": "notes"
+ },
+ "knowledge-type-card": {
+  "to": "hu-knowledge-type-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-undo-banner": {
+  "to": "hu-knowledge-undo-banner",
+  "owner": "ui"
+ },
+ "knowledge-vault-head": {
+  "to": "notes-vault-head",
+  "owner": "notes"
+ },
+ "knowledge-vault-symbol": {
+  "to": "notes-vault-symbol",
+  "owner": "notes"
+ },
+ "knowledge-version": {
+  "to": "hu-knowledge-version",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "knowledge-version-preview": {
+  "to": "hu-knowledge-version-preview",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "launch-menu": {
+  "to": "agent-launch-menu",
+  "owner": "agent-cli"
+ },
+ "launch-menu-hint": {
+  "to": "agent-launch-menu-hint",
+  "owner": "agent-cli"
+ },
+ "launch-menu-list": {
+  "to": "agent-launch-menu-list",
+  "owner": "agent-cli"
+ },
+ "launch-menu-row": {
+  "to": "agent-launch-menu-row",
+  "owner": "agent-cli"
+ },
+ "launch-menu-search": {
+  "to": "agent-launch-menu-search",
+  "owner": "agent-cli"
+ },
+ "launch-menu-sep": {
+  "to": "agent-launch-menu-sep",
+  "owner": "agent-cli"
+ },
+ "launch-menu-sub": {
+  "to": "agent-launch-menu-sub",
+  "owner": "agent-cli"
+ },
+ "launch-menu-tag": {
+  "to": "agent-launch-menu-tag",
+  "owner": "agent-cli"
+ },
+ "layout-columns": {
+  "to": "agent-layout-columns",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "layout-rows": {
+  "to": "agent-layout-rows",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "link-button": {
+  "to": "shell-link-button",
+  "owner": "workbench"
+ },
+ "main-body": {
+  "to": "shell-main-body",
+  "owner": "workbench"
+ },
+ "main-shell": {
+  "to": "hu-main-shell",
+  "owner": "ui"
+ },
+ "metric-grid": {
+  "to": "shell-metric-grid",
+  "owner": "workbench"
+ },
+ "metric-icon": {
+  "to": "shell-metric-icon",
+  "owner": "workbench"
+ },
+ "mini-empty": {
+  "to": "hu-mini-empty",
+  "owner": "ui"
+ },
+ "modal": {
+  "to": "hu-modal",
+  "owner": "ui"
+ },
+ "modal-actions": {
+  "to": "automations-modal-actions",
+  "owner": "automations"
+ },
+ "modal-backdrop": {
+  "to": "hu-modal-backdrop",
+  "owner": "ui"
+ },
+ "modal-body": {
+  "to": "hu-modal-body",
+  "owner": "ui"
+ },
+ "modal-footer": {
+  "to": "hu-modal-footer",
+  "owner": "ui"
+ },
+ "modal-head": {
+  "to": "hu-modal-head",
+  "owner": "ui"
+ },
+ "modal-wide": {
+  "to": "shell-modal-wide",
+  "owner": "workbench"
+ },
+ "module-layout": {
+  "to": "hu-module-layout",
+  "owner": "ui"
+ },
+ "module-local-tabs": {
+  "to": "hu-module-local-tabs",
+  "owner": "ui"
+ },
+ "module-nav-hidden": {
+  "to": "hu-module-nav-hidden",
+  "owner": "ui"
+ },
+ "module-plugins": {
+  "to": "hu-module-plugins",
+  "owner": "ui"
+ },
+ "module-section-installed": {
+  "to": "hu-module-section-installed",
+  "owner": "ui"
+ },
+ "module-section-sync": {
+  "to": "hu-module-section-sync",
+  "owner": "ui"
+ },
+ "module-versioning": {
+  "to": "hu-module-versioning",
+  "owner": "ui"
+ },
+ "nav-bottom": {
+  "to": "shell-nav-bottom",
+  "owner": "workbench"
+ },
+ "nav-collapsed": {
+  "to": "hu-nav-collapsed",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "nav-context-card": {
+  "to": "hu-nav-context-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "nav-count": {
+  "to": "hu-nav-count",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "nav-favorites": {
+  "to": "hu-nav-favorites",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "nav-heading": {
+  "to": "hu-nav-heading",
+  "owner": "ui"
+ },
+ "nav-module-description": {
+  "to": "shell-nav-module-description",
+  "owner": "workbench"
+ },
+ "nav-separator": {
+  "to": "hu-nav-separator",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "nav-subheading": {
+  "to": "hu-nav-subheading",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "note-symbol": {
+  "to": "shell-note-symbol",
+  "owner": "workbench"
+ },
+ "note-symbol-0": {
+  "to": "hu-note-symbol-0",
+  "owner": "ui"
+ },
+ "note-symbol-1": {
+  "to": "hu-note-symbol-1",
+  "owner": "ui"
+ },
+ "note-symbol-2": {
+  "to": "hu-note-symbol-2",
+  "owner": "ui"
+ },
+ "notice-dot": {
+  "to": "shell-notice-dot",
+  "owner": "workbench"
+ },
+ "notice-item": {
+  "to": "shell-notice-item",
+  "owner": "workbench"
+ },
+ "notification-button": {
+  "to": "shell-notification-button",
+  "owner": "workbench"
+ },
+ "notification-popover": {
+  "to": "shell-notification-popover",
+  "owner": "workbench"
+ },
+ "outside": {
+  "to": "hu-outside",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "overview-metrics": {
+  "to": "shell-overview-metrics",
+  "owner": "workbench"
+ },
+ "page-actions": {
+  "to": "hu-page-actions",
+  "owner": "ui"
+ },
+ "page-head": {
+  "to": "hu-page-head",
+  "owner": "ui"
+ },
+ "palette-foot": {
+  "to": "shell-palette-foot",
+  "owner": "workbench"
+ },
+ "palette-search": {
+  "to": "hu-palette-search",
+  "owner": "ui"
+ },
+ "panes-1": {
+  "to": "agent-panes-1",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "panes-2": {
+  "to": "agent-panes-2",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "panes-3": {
+  "to": "agent-panes-3",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "panes-4": {
+  "to": "agent-panes-4",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "permission-tags": {
+  "to": "shell-permission-tags",
+  "owner": "workbench"
+ },
+ "pinned": {
+  "to": "agent-pinned",
+  "owner": "agent-cli"
+ },
+ "plugin-bundled-note": {
+  "to": "shell-plugin-bundled-note",
+  "owner": "workbench"
+ },
+ "plugin-detail": {
+  "to": "shell-plugin-detail",
+  "owner": "workbench"
+ },
+ "plugin-detail-actions": {
+  "to": "hu-plugin-detail-actions",
+  "owner": "ui"
+ },
+ "plugin-detail-body": {
+  "to": "shell-plugin-detail-body",
+  "owner": "workbench"
+ },
+ "plugin-detail-top": {
+  "to": "hu-plugin-detail-top",
+  "owner": "ui"
+ },
+ "plugin-filter-row": {
+  "to": "shell-plugin-filter-row",
+  "owner": "workbench"
+ },
+ "plugin-hero-icon": {
+  "to": "shell-plugin-hero-icon",
+  "owner": "workbench"
+ },
+ "plugin-large-icon": {
+  "to": "shell-plugin-large-icon",
+  "owner": "workbench"
+ },
+ "plugin-list-row": {
+  "to": "shell-plugin-list-row",
+  "owner": "workbench"
+ },
+ "plugin-meta": {
+  "to": "shell-plugin-meta",
+  "owner": "workbench"
+ },
+ "plugin-mini-icon": {
+  "to": "shell-plugin-mini-icon",
+  "owner": "workbench"
+ },
+ "plugin-origin-explainer": {
+  "to": "shell-plugin-origin-explainer",
+  "owner": "workbench"
+ },
+ "plugin-origin-tabs": {
+  "to": "shell-plugin-origin-tabs",
+  "owner": "workbench"
+ },
+ "plugin-v3": {
+  "to": "shell-plugin-v3",
+  "owner": "workbench"
+ },
+ "popover-footer": {
+  "to": "shell-popover-footer",
+  "owner": "workbench"
+ },
+ "primary-nav": {
+  "to": "hu-primary-nav",
+  "owner": "ui"
+ },
+ "project-focus": {
+  "to": "hu-project-focus",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "provider-mode": {
+  "to": "hu-provider-mode",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "quiet-button": {
+  "to": "shell-quiet-button",
+  "owner": "workbench"
+ },
+ "rail-bottom": {
+  "to": "hu-rail-bottom",
+  "owner": "ui"
+ },
+ "rail-dot": {
+  "to": "shell-rail-dot",
+  "owner": "workbench"
+ },
+ "rail-item": {
+  "to": "shell-rail-item",
+  "owner": "workbench"
+ },
+ "rail-scroll": {
+  "to": "hu-rail-scroll",
+  "owner": "ui"
+ },
+ "read-value": {
+  "to": "safe-read-value",
+  "owner": "safe"
+ },
+ "recent-note": {
+  "to": "shell-recent-note",
+  "owner": "workbench"
+ },
+ "recent-note-grid": {
+  "to": "shell-recent-note-grid",
+  "owner": "workbench"
+ },
+ "resource-footer": {
+  "to": "shell-resource-footer",
+  "owner": "workbench"
+ },
+ "resource-head": {
+  "to": "hu-resource-head",
+  "owner": "ui"
+ },
+ "resource-list": {
+  "to": "hu-resource-list",
+  "owner": "ui"
+ },
+ "resource-pane": {
+  "to": "hu-resource-pane",
+  "owner": "ui"
+ },
+ "resource-row": {
+  "to": "ssh-resource-row",
+  "owner": "ssh"
+ },
+ "review-body": {
+  "to": "hu-review-body",
+  "owner": "ui"
+ },
+ "review-check": {
+  "to": "hu-review-check",
+  "owner": "ui"
+ },
+ "review-column-labels": {
+  "to": "hu-review-column-labels",
+  "owner": "ui"
+ },
+ "review-copy": {
+  "to": "hu-review-copy",
+  "owner": "ui"
+ },
+ "review-count-add": {
+  "to": "hu-review-count-add",
+  "owner": "ui"
+ },
+ "review-count-remove": {
+  "to": "hu-review-count-remove",
+  "owner": "ui"
+ },
+ "review-current": {
+  "to": "hu-review-current",
+  "owner": "ui"
+ },
+ "review-diff": {
+  "to": "hu-review-diff",
+  "owner": "ui"
+ },
+ "review-file": {
+  "to": "hu-review-file",
+  "owner": "ui"
+ },
+ "review-fold": {
+  "to": "hu-review-fold",
+  "owner": "ui"
+ },
+ "review-footer": {
+  "to": "hu-review-footer",
+  "owner": "ui"
+ },
+ "review-header": {
+  "to": "hu-review-header",
+  "owner": "ui"
+ },
+ "review-large": {
+  "to": "hu-review-large",
+  "owner": "ui"
+ },
+ "review-side": {
+  "to": "hu-review-side",
+  "owner": "ui"
+ },
+ "review-split-row": {
+  "to": "hu-review-split-row",
+  "owner": "ui"
+ },
+ "review-toolbar": {
+  "to": "hu-review-toolbar",
+  "owner": "ui"
+ },
+ "review-unified-row": {
+  "to": "hu-review-unified-row",
+  "owner": "ui"
+ },
+ "review-void": {
+  "to": "hu-review-void",
+  "owner": "ui"
+ },
+ "review-word-added": {
+  "to": "hu-review-word-added",
+  "owner": "ui"
+ },
+ "review-word-removed": {
+  "to": "hu-review-word-removed",
+  "owner": "ui"
+ },
+ "running": {
+  "to": "hu-running",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "safe-detail": {
+  "to": "hu-safe-detail",
+  "owner": "ui"
+ },
+ "safe-detail-body": {
+  "to": "hu-safe-detail-body",
+  "owner": "ui"
+ },
+ "safe-locked": {
+  "to": "hu-safe-locked",
+  "owner": "ui"
+ },
+ "scroll": {
+  "to": "hu-scroll",
+  "owner": "ui"
+ },
+ "search-box": {
+  "to": "hu-search-box",
+  "owner": "ui"
+ },
+ "secret-row": {
+  "to": "safe-secret-row",
+  "owner": "safe"
+ },
+ "secret-value": {
+  "to": "hu-secret-value",
+  "owner": "ui"
+ },
+ "section-nav": {
+  "to": "shell-section-nav",
+  "owner": "workbench"
+ },
+ "section-nav-group": {
+  "to": "shell-section-nav-group",
+  "owner": "workbench"
+ },
+ "segmented": {
+  "to": "hu-segmented-alt",
+  "owner": "ui"
+ },
+ "setting-row": {
+  "to": "hu-setting-row",
+  "owner": "ui"
+ },
+ "settings-content": {
+  "to": "shell-settings-content",
+  "owner": "workbench"
+ },
+ "settings-section": {
+  "to": "hu-settings-section",
+  "owner": "ui"
+ },
+ "source-full-url": {
+  "to": "shell-source-full-url",
+  "owner": "workbench"
+ },
+ "source-link-list": {
+  "to": "shell-source-link-list",
+  "owner": "workbench"
+ },
+ "spin": {
+  "to": "hu-spin-alt",
+  "owner": "ui"
+ },
+ "ssh-console": {
+  "to": "hu-ssh-console",
+  "owner": "ui"
+ },
+ "ssh-console-bar": {
+  "to": "hu-ssh-console-bar",
+  "owner": "ui"
+ },
+ "ssh-console-panel-head": {
+  "to": "hu-ssh-console-panel-head",
+  "owner": "ui"
+ },
+ "stack": {
+  "to": "hu-stack",
+  "owner": "ui"
+ },
+ "status-bar": {
+  "to": "shell-status-bar",
+  "owner": "workbench"
+ },
+ "status-divider": {
+  "to": "shell-status-divider",
+  "owner": "workbench"
+ },
+ "status-doing": {
+  "to": "hu-status-doing",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "status-done": {
+  "to": "hu-status-done",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "status-dot": {
+  "to": "shell-status-dot",
+  "owner": "workbench"
+ },
+ "status-local": {
+  "to": "shell-status-local",
+  "owner": "workbench"
+ },
+ "storage-browser": {
+  "to": "hu-storage-browser",
+  "owner": "ui"
+ },
+ "storage-browser-foot": {
+  "to": "shell-storage-browser-foot",
+  "owner": "workbench"
+ },
+ "storage-export-grid": {
+  "to": "shell-storage-export-grid",
+  "owner": "workbench"
+ },
+ "storage-file-list": {
+  "to": "shell-storage-file-list",
+  "owner": "workbench"
+ },
+ "storage-file-panes": {
+  "to": "shell-storage-file-panes",
+  "owner": "workbench"
+ },
+ "storage-file-preview": {
+  "to": "shell-storage-file-preview",
+  "owner": "workbench"
+ },
+ "storage-local-tabs": {
+  "to": "hu-storage-local-tabs",
+  "owner": "ui"
+ },
+ "storage-metrics": {
+  "to": "shell-storage-metrics",
+  "owner": "workbench"
+ },
+ "storage-ownership": {
+  "to": "shell-storage-ownership",
+  "owner": "workbench"
+ },
+ "storage-preview-head": {
+  "to": "shell-storage-preview-head",
+  "owner": "workbench"
+ },
+ "storage-recovery": {
+  "to": "hu-storage-recovery",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "storage-rules": {
+  "to": "shell-storage-rules",
+  "owner": "workbench"
+ },
+ "storage-save-strip": {
+  "to": "hu-storage-save-strip",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "storage-steps": {
+  "to": "shell-storage-steps",
+  "owner": "workbench"
+ },
+ "storage-symbol": {
+  "to": "shell-storage-symbol",
+  "owner": "workbench"
+ },
+ "storage-two-cards": {
+  "to": "shell-storage-two-cards",
+  "owner": "workbench"
+ },
+ "succeeded": {
+  "to": "automations-succeeded",
+  "owner": "automations",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "success-text": {
+  "to": "shell-success-text",
+  "owner": "workbench"
+ },
+ "system-layout": {
+  "to": "shell-system-layout",
+  "owner": "workbench"
+ },
+ "system-note": {
+  "to": "shell-system-note",
+  "owner": "workbench"
+ },
+ "system-pane-search": {
+  "to": "hu-system-pane-search",
+  "owner": "ui"
+ },
+ "system-resource-list": {
+  "to": "shell-system-resource-list",
+  "owner": "workbench"
+ },
+ "system-scroll": {
+  "to": "shell-system-scroll",
+  "owner": "workbench"
+ },
+ "system-section": {
+  "to": "shell-system-section",
+  "owner": "workbench"
+ },
+ "tab-close": {
+  "to": "shell-tab-close",
+  "owner": "workbench"
+ },
+ "tab-list": {
+  "to": "hu-tab-list",
+  "owner": "ui"
+ },
+ "tab-strip": {
+  "to": "shell-tab-strip",
+  "owner": "workbench"
+ },
+ "tab-tools": {
+  "to": "hu-tab-tools",
+  "owner": "ui"
+ },
+ "table": {
+  "to": "hu-table",
+  "owner": "ui"
+ },
+ "task-blocked": {
+  "to": "automations-task-blocked",
+  "owner": "automations",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "task-check": {
+  "to": "shell-task-check",
+  "owner": "workbench"
+ },
+ "task-done": {
+  "to": "version-task-done",
+  "owner": "versioning",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "task-error": {
+  "to": "version-task-error",
+  "owner": "versioning",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "task-open": {
+  "to": "shell-task-open",
+  "owner": "workbench"
+ },
+ "task-working": {
+  "to": "hu-task-working",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "temporal-panel": {
+  "to": "hu-temporal-panel",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "temporal-trigger": {
+  "to": "hu-temporal-trigger",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "temporal-week": {
+  "to": "hu-temporal-week",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "terminal-engine-tag": {
+  "to": "ssh-terminal-engine-tag",
+  "owner": "ssh",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "terminal-surface": {
+  "to": "hu-terminal-surface",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "terminal-surface-host": {
+  "to": "hu-terminal-surface-host",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "terminal-surface-tools": {
+  "to": "hu-terminal-surface-tools",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "terminal-toolbar": {
+  "to": "agent-terminal-toolbar",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "tester-empty": {
+  "to": "shell-tester-empty",
+  "owner": "workbench"
+ },
+ "tester-grid": {
+  "to": "shell-tester-grid",
+  "owner": "workbench"
+ },
+ "tester-output": {
+  "to": "shell-tester-output",
+  "owner": "workbench"
+ },
+ "theme-mini": {
+  "to": "shell-theme-mini",
+  "owner": "workbench"
+ },
+ "theme-mini-main": {
+  "to": "shell-theme-mini-main",
+  "owner": "workbench"
+ },
+ "theme-mini-row": {
+  "to": "shell-theme-mini-row",
+  "owner": "workbench"
+ },
+ "theme-mini-side": {
+  "to": "shell-theme-mini-side",
+  "owner": "workbench"
+ },
+ "theme-option": {
+  "to": "shell-theme-option",
+  "owner": "workbench"
+ },
+ "theme-options": {
+  "to": "shell-theme-options",
+  "owner": "workbench"
+ },
+ "three": {
+  "to": "shell-three",
+  "owner": "workbench",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "timer-buttons": {
+  "to": "hu-timer-buttons",
+  "owner": "ui"
+ },
+ "timer-display": {
+  "to": "shell-timer-display",
+  "owner": "workbench"
+ },
+ "tiny-status": {
+  "to": "shell-tiny-status",
+  "owner": "workbench"
+ },
+ "toolbar": {
+  "to": "hu-toolbar",
+  "owner": "ui"
+ },
+ "trigger": {
+  "to": "automations-trigger",
+  "owner": "automations",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "tw-action-fields": {
+  "to": "automations-action-fields",
+  "owner": "automations"
+ },
+ "tw-ask": {
+  "to": "tasks-ask",
+  "owner": "tasks"
+ },
+ "tw-attention": {
+  "to": "tasks-attention",
+  "owner": "tasks"
+ },
+ "tw-automation-columns": {
+  "to": "automations-automation-columns",
+  "owner": "automations"
+ },
+ "tw-automation-main": {
+  "to": "automations-automation-main",
+  "owner": "automations"
+ },
+ "tw-board": {
+  "to": "tasks-board",
+  "owner": "tasks"
+ },
+ "tw-board-3": {
+  "to": "tasks-board-3",
+  "owner": "tasks"
+ },
+ "tw-board-card": {
+  "to": "tasks-board-card",
+  "owner": "tasks",
+  "note": "经 S5b 同义类合并，最终名字"
+ },
+ "tw-body-editor": {
+  "to": "tasks-body-editor",
+  "owner": "tasks"
+ },
+ "tw-calendar": {
+  "to": "tasks-calendar",
+  "owner": "tasks"
+ },
+ "tw-calendar-cell": {
+  "to": "tasks-calendar-cell",
+  "owner": "tasks"
+ },
+ "tw-calendar-date": {
+  "to": "tasks-calendar-date",
+  "owner": "tasks"
+ },
+ "tw-calendar-grid": {
+  "to": "tasks-calendar-grid",
+  "owner": "tasks"
+ },
+ "tw-calendar-head": {
+  "to": "tasks-calendar-head",
+  "owner": "tasks"
+ },
+ "tw-calendar-row": {
+  "to": "tasks-calendar-row",
+  "owner": "tasks"
+ },
+ "tw-calendar-task": {
+  "to": "tasks-calendar-task",
+  "owner": "tasks"
+ },
+ "tw-comment": {
+  "to": "tasks-comment",
+  "owner": "tasks"
+ },
+ "tw-comment-system": {
+  "to": "tasks-comment-system",
+  "owner": "tasks"
+ },
+ "tw-completion": {
+  "to": "hu-tw-completion",
+  "owner": "ui"
+ },
+ "tw-composer-editor": {
+  "to": "tasks-composer-editor",
+  "owner": "tasks"
+ },
+ "tw-content-tabs": {
+  "to": "hu-tw-content-tabs",
+  "owner": "ui"
+ },
+ "tw-description-input": {
+  "to": "automations-description-input",
+  "owner": "automations"
+ },
+ "tw-detail-facts": {
+  "to": "tasks-detail-facts",
+  "owner": "tasks"
+ },
+ "tw-detail-scroll": {
+  "to": "tasks-detail-scroll",
+  "owner": "tasks"
+ },
+ "tw-detail-section": {
+  "to": "hu-tw-detail-section",
+  "owner": "ui"
+ },
+ "tw-detail-title": {
+  "to": "hu-tw-detail-title",
+  "owner": "ui"
+ },
+ "tw-detail-toolbar": {
+  "to": "hu-tw-detail-toolbar",
+  "owner": "ui"
+ },
+ "tw-due": {
+  "to": "tasks-due",
+  "owner": "tasks"
+ },
+ "tw-editor-aside": {
+  "to": "automations-editor-aside",
+  "owner": "automations"
+ },
+ "tw-editor-body": {
+  "to": "automations-editor-body",
+  "owner": "automations"
+ },
+ "tw-editor-grid": {
+  "to": "hu-tw-editor-grid",
+  "owner": "ui"
+ },
+ "tw-empty-group": {
+  "to": "shell-tw-empty-group",
+  "owner": "workbench"
+ },
+ "tw-execution-fields": {
+  "to": "tasks-execution-fields",
+  "owner": "tasks"
+ },
+ "tw-executor": {
+  "to": "tasks-executor",
+  "owner": "tasks"
+ },
+ "tw-fold-group": {
+  "to": "tasks-fold-group",
+  "owner": "tasks"
+ },
+ "tw-form-error": {
+  "to": "tasks-form-error",
+  "owner": "tasks"
+ },
+ "tw-heading": {
+  "to": "hu-tw-heading",
+  "owner": "ui"
+ },
+ "tw-hint": {
+  "to": "tasks-hint",
+  "owner": "tasks"
+ },
+ "tw-list-group-title": {
+  "to": "tasks-list-group-title",
+  "owner": "tasks"
+ },
+ "tw-list-toolbar": {
+  "to": "tasks-list-toolbar",
+  "owner": "tasks"
+ },
+ "tw-main-footer": {
+  "to": "tasks-main-footer",
+  "owner": "tasks"
+ },
+ "tw-markdown": {
+  "to": "automations-markdown",
+  "owner": "automations"
+ },
+ "tw-nav-bottom": {
+  "to": "hu-tw-nav-bottom",
+  "owner": "ui"
+ },
+ "tw-nav-caption": {
+  "to": "tasks-nav-caption",
+  "owner": "tasks"
+ },
+ "tw-nav-title": {
+  "to": "hu-tw-nav-title",
+  "owner": "ui"
+ },
+ "tw-navigation": {
+  "to": "hu-tw-navigation",
+  "owner": "ui"
+ },
+ "tw-occurrence": {
+  "to": "automations-occurrence",
+  "owner": "automations"
+ },
+ "tw-occurrence-list": {
+  "to": "automations-occurrence-list",
+  "owner": "automations"
+ },
+ "tw-project-resources": {
+  "to": "tasks-project-resources",
+  "owner": "tasks"
+ },
+ "tw-reference": {
+  "to": "tasks-reference",
+  "owner": "tasks"
+ },
+ "tw-reminder-config": {
+  "to": "hu-tw-reminder-config",
+  "owner": "ui"
+ },
+ "tw-reminder-read": {
+  "to": "tasks-reminder-read",
+  "owner": "tasks"
+ },
+ "tw-reminders-editor": {
+  "to": "hu-tw-reminders-editor",
+  "owner": "ui"
+ },
+ "tw-resource-field": {
+  "to": "tasks-resource-field",
+  "owner": "tasks",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "tw-rule-detail": {
+  "to": "automations-rule-detail",
+  "owner": "automations"
+ },
+ "tw-rule-detail-header": {
+  "to": "hu-tw-rule-detail-header",
+  "owner": "ui"
+ },
+ "tw-rule-flow": {
+  "to": "automations-rule-flow",
+  "owner": "automations"
+ },
+ "tw-rule-item": {
+  "to": "hu-tw-rule-item",
+  "owner": "ui"
+ },
+ "tw-rule-linked": {
+  "to": "automations-rule-linked",
+  "owner": "automations"
+ },
+ "tw-rule-list": {
+  "to": "automations-rule-list",
+  "owner": "automations"
+ },
+ "tw-rule-preview-action": {
+  "to": "automations-rule-preview-action",
+  "owner": "automations"
+ },
+ "tw-run-summary": {
+  "to": "automations-run-summary",
+  "owner": "automations"
+ },
+ "tw-scan-contract": {
+  "to": "automations-scan-contract",
+  "owner": "automations"
+ },
+ "tw-scan-list": {
+  "to": "automations-scan-list",
+  "owner": "automations"
+ },
+ "tw-schedule-error": {
+  "to": "automations-schedule-error",
+  "owner": "automations"
+ },
+ "tw-schedule-preview": {
+  "to": "automations-schedule-preview",
+  "owner": "automations"
+ },
+ "tw-search": {
+  "to": "hu-tw-search",
+  "owner": "ui"
+ },
+ "tw-section-label": {
+  "to": "hu-tw-section-label",
+  "owner": "ui"
+ },
+ "tw-source-preview": {
+  "to": "hu-tw-source-preview",
+  "owner": "ui"
+ },
+ "tw-status": {
+  "to": "tasks-status",
+  "owner": "tasks"
+ },
+ "tw-status-completed": {
+  "to": "tasks-status-completed",
+  "owner": "tasks"
+ },
+ "tw-status-filter": {
+  "to": "tasks-status-filter",
+  "owner": "tasks"
+ },
+ "tw-status-in_progress": {
+  "to": "tasks-status-in_progress",
+  "owner": "tasks"
+ },
+ "tw-tag": {
+  "to": "tasks-tag",
+  "owner": "tasks"
+ },
+ "tw-tag-filter": {
+  "to": "tasks-tag-filter",
+  "owner": "tasks"
+ },
+ "tw-tag-input": {
+  "to": "hu-tw-tag-input",
+  "owner": "ui"
+ },
+ "tw-tags": {
+  "to": "tasks-tags",
+  "owner": "tasks"
+ },
+ "tw-task-content": {
+  "to": "automations-task-content",
+  "owner": "automations"
+ },
+ "tw-task-detail": {
+  "to": "tasks-task-detail",
+  "owner": "tasks"
+ },
+ "tw-task-main": {
+  "to": "tasks-task-main",
+  "owner": "tasks"
+ },
+ "tw-task-name": {
+  "to": "tasks-task-name",
+  "owner": "tasks"
+ },
+ "tw-task-row": {
+  "to": "tasks-task-row",
+  "owner": "tasks"
+ },
+ "tw-task-run": {
+  "to": "tasks-task-run",
+  "owner": "tasks"
+ },
+ "tw-task-table": {
+  "to": "tasks-task-table",
+  "owner": "tasks"
+ },
+ "tw-two-fields": {
+  "to": "tasks-two-fields",
+  "owner": "tasks"
+ },
+ "tw-vault-name": {
+  "to": "tasks-vault-name",
+  "owner": "tasks"
+ },
+ "tw-weekday": {
+  "to": "tasks-weekday",
+  "owner": "tasks"
+ },
+ "tw-workbench": {
+  "to": "hu-tw-workbench",
+  "owner": "ui"
+ },
+ "unread": {
+  "to": "shell-unread",
+  "owner": "workbench"
+ },
+ "unsaved": {
+  "to": "notes-unsaved",
+  "owner": "notes"
+ },
+ "v9-add-cli": {
+  "to": "agent-add-cli",
+  "owner": "agent-cli"
+ },
+ "v9-agent-layout": {
+  "to": "agent-layout",
+  "owner": "agent-cli"
+ },
+ "v9-core-note": {
+  "to": "hu-v9-core-note",
+  "owner": "ui"
+ },
+ "v9-count": {
+  "to": "agent-count",
+  "owner": "agent-cli"
+ },
+ "v9-create-space": {
+  "to": "agent-create-space",
+  "owner": "agent-cli"
+ },
+ "v9-cwd": {
+  "to": "agent-cwd",
+  "owner": "agent-cli"
+ },
+ "v9-history": {
+  "to": "agent-history",
+  "owner": "agent-cli"
+ },
+ "v9-history-filters": {
+  "to": "agent-history-filters",
+  "owner": "agent-cli"
+ },
+ "v9-history-footnote": {
+  "to": "agent-history-footnote",
+  "owner": "agent-cli"
+ },
+ "v9-history-item": {
+  "to": "agent-history-item",
+  "owner": "agent-cli"
+ },
+ "v9-history-list": {
+  "to": "agent-history-list",
+  "owner": "agent-cli"
+ },
+ "v9-history-search": {
+  "to": "agent-history-search",
+  "owner": "agent-cli"
+ },
+ "v9-history-space": {
+  "to": "agent-history-space",
+  "owner": "agent-cli"
+ },
+ "v9-history-toggle": {
+  "to": "agent-history-toggle",
+  "owner": "agent-cli"
+ },
+ "v9-launcher": {
+  "to": "agent-launcher",
+  "owner": "agent-cli"
+ },
+ "v9-main-footer": {
+  "to": "agent-main-footer",
+  "owner": "agent-cli"
+ },
+ "v9-model-list": {
+  "to": "hu-v9-model-list",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "v9-open-tabs": {
+  "to": "agent-open-tabs",
+  "owner": "agent-cli"
+ },
+ "v9-pin": {
+  "to": "agent-pin",
+  "owner": "agent-cli"
+ },
+ "v9-provider-mark": {
+  "to": "agent-provider-mark",
+  "owner": "agent-cli"
+ },
+ "v9-provider-menu": {
+  "to": "hu-v9-provider-menu",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "v9-session-main": {
+  "to": "hu-v9-session-main",
+  "owner": "ui"
+ },
+ "v9-session-tab": {
+  "to": "agent-session-tab",
+  "owner": "agent-cli"
+ },
+ "v9-sidebar-head": {
+  "to": "agent-sidebar-head",
+  "owner": "agent-cli"
+ },
+ "v9-small-empty": {
+  "to": "agent-small-empty",
+  "owner": "agent-cli"
+ },
+ "v9-space-header": {
+  "to": "agent-space-header",
+  "owner": "agent-cli"
+ },
+ "v9-space-item": {
+  "to": "agent-space-item",
+  "owner": "agent-cli"
+ },
+ "v9-space-list": {
+  "to": "agent-space-list",
+  "owner": "agent-cli"
+ },
+ "v9-spaces": {
+  "to": "agent-spaces",
+  "owner": "agent-cli"
+ },
+ "v9-subtle-button": {
+  "to": "agent-subtle-button",
+  "owner": "agent-cli"
+ },
+ "v9-tab-actions": {
+  "to": "agent-tab-actions",
+  "owner": "agent-cli"
+ },
+ "v9-tabs": {
+  "to": "agent-tabs",
+  "owner": "agent-cli"
+ },
+ "v9-terminal-grid": {
+  "to": "agent-terminal-grid",
+  "owner": "agent-cli",
+  "note": "经 S5b 同义类合并，最终名字"
+ },
+ "v9-terminal-heading": {
+  "to": "hu-v9-terminal-heading",
+  "owner": "ui"
+ },
+ "v9-terminal-pane": {
+  "to": "agent-terminal-pane",
+  "owner": "agent-cli",
+  "note": "经 S5b 同义类合并，最终名字"
+ },
+ "v9-vault-caption": {
+  "to": "agent-vault-caption",
+  "owner": "agent-cli"
+ },
+ "vault-card-heading": {
+  "to": "shell-vault-card-heading",
+  "owner": "workbench"
+ },
+ "vault-file-icon": {
+  "to": "shell-vault-file-icon",
+  "owner": "workbench"
+ },
+ "vault-illustration": {
+  "to": "shell-vault-illustration",
+  "owner": "workbench"
+ },
+ "vault-intro-points": {
+  "to": "shell-vault-intro-points",
+  "owner": "workbench"
+ },
+ "vault-launch": {
+  "to": "shell-vault-launch",
+  "owner": "workbench"
+ },
+ "vault-launch-actions": {
+  "to": "hu-vault-launch-actions",
+  "owner": "ui"
+ },
+ "vault-launch-bar": {
+  "to": "shell-vault-launch-bar",
+  "owner": "workbench"
+ },
+ "vault-launch-card": {
+  "to": "shell-vault-launch-card",
+  "owner": "workbench"
+ },
+ "vault-launch-error": {
+  "to": "shell-vault-launch-error",
+  "owner": "workbench"
+ },
+ "vault-launch-footer": {
+  "to": "shell-vault-launch-footer",
+  "owner": "workbench"
+ },
+ "vault-launch-intro": {
+  "to": "shell-vault-launch-intro",
+  "owner": "workbench"
+ },
+ "vault-launch-main": {
+  "to": "shell-vault-launch-main",
+  "owner": "workbench"
+ },
+ "vault-local-note": {
+  "to": "shell-vault-local-note",
+  "owner": "workbench"
+ },
+ "vault-privacy": {
+  "to": "shell-vault-privacy",
+  "owner": "workbench"
+ },
+ "vault-recent": {
+  "to": "hu-vault-recent",
+  "owner": "ui"
+ },
+ "vault-recent-open": {
+  "to": "shell-vault-recent-open",
+  "owner": "workbench"
+ },
+ "vault-recents": {
+  "to": "shell-vault-recents",
+  "owner": "workbench"
+ },
+ "vault-secondary-actions": {
+  "to": "hu-vault-secondary-actions",
+  "owner": "ui"
+ },
+ "vault-title-button": {
+  "to": "shell-vault-title-button",
+  "owner": "workbench"
+ },
+ "version-v9-body": {
+  "to": "version-body",
+  "owner": "versioning"
+ },
+ "version-v9-card": {
+  "to": "hu-version-v9-card",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "version-v9-conflict": {
+  "to": "hu-version-v9-conflict",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "version-v9-diff": {
+  "to": "hu-version-v9-diff",
+  "owner": "ui"
+ },
+ "version-v9-diff-heading": {
+  "to": "hu-version-v9-diff-heading",
+  "owner": "ui"
+ },
+ "version-v9-diff-labels": {
+  "to": "version-diff-labels",
+  "owner": "versioning"
+ },
+ "version-v9-empty": {
+  "to": "version-empty",
+  "owner": "versioning"
+ },
+ "version-v9-entry-list": {
+  "to": "version-entry-list",
+  "owner": "versioning"
+ },
+ "version-v9-error": {
+  "to": "version-error",
+  "owner": "versioning"
+ },
+ "version-v9-file-picker": {
+  "to": "version-file-picker",
+  "owner": "versioning"
+ },
+ "version-v9-git-filters": {
+  "to": "version-git-filters",
+  "owner": "versioning"
+ },
+ "version-v9-main": {
+  "to": "hu-version-v9-main",
+  "owner": "ui"
+ },
+ "version-v9-manual": {
+  "to": "hu-version-v9-manual",
+  "owner": "ui"
+ },
+ "version-v9-note": {
+  "to": "version-note",
+  "owner": "versioning"
+ },
+ "version-v9-remote": {
+  "to": "hu-version-v9-remote",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "version-v9-search": {
+  "to": "version-search",
+  "owner": "versioning"
+ },
+ "version-v9-sidebar": {
+  "to": "version-sidebar",
+  "owner": "versioning"
+ },
+ "version-v9-sidebar-actions": {
+  "to": "hu-version-v9-sidebar-actions",
+  "owner": "ui"
+ },
+ "version-v9-sidebar-title": {
+  "to": "hu-version-v9-sidebar-title",
+  "owner": "ui"
+ },
+ "version-v9-stats": {
+  "to": "hu-version-v9-stats",
+  "owner": "ui"
+ },
+ "version-v9-sync-actions": {
+  "to": "hu-version-v9-sync-actions",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "version-v9-sync-main": {
+  "to": "version-sync-main",
+  "owner": "versioning"
+ },
+ "version-v9-sync-preview": {
+  "to": "hu-version-v9-sync-preview",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "version-v9-title": {
+  "to": "version-title",
+  "owner": "versioning"
+ },
+ "version-v9-top": {
+  "to": "version-top",
+  "owner": "versioning"
+ },
+ "view-content": {
+  "to": "hu-view-content",
+  "owner": "ui"
+ },
+ "vrp-chip": {
+  "to": "tasks-vrp-chip",
+  "owner": "tasks",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "waiting": {
+  "to": "agent-waiting",
+  "owner": "agent-cli",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "week-strip": {
+  "to": "hu-week-strip",
+  "owner": "ui",
+  "note": "改名后规则已被 S5c 删除（无用样式）"
+ },
+ "window-bar": {
+  "to": "hu-window-bar",
+  "owner": "ui"
+ },
+ "window-center": {
+  "to": "hu-window-center",
+  "owner": "ui"
+ },
+ "workspace-tab": {
+  "to": "hu-workspace-tab",
+  "owner": "ui"
+ },
+ "hu-badge-alt": {
+  "to": "hu-badge",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "hu-btn-alt": {
+  "to": "hu-btn",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "tasks-board-card-alt": {
+  "to": "tasks-board-card",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "agent-terminal-grid-alt": {
+  "to": "agent-terminal-grid",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ },
+ "agent-terminal-pane-alt": {
+  "to": "agent-terminal-pane",
+  "owner": "ui",
+  "note": "S5b 同义类合并"
+ }
+}

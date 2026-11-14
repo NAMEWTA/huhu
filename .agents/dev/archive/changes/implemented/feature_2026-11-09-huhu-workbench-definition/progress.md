@@ -153,3 +153,11 @@
 
 - 编辑输入延迟 p95（实时预览，5,000 行）：3 次单独运行分别为 16.4 / 13.0 / 15.6 ms（目标 ≤ 16 ms），最大 22–42 ms；全量运行在高负载下曾测到 43.9 ms。结论：在目标线附近，受机器负载影响明显；发布前仍需在空闲机器上正式测量一次（quality §3）。
 - 其余指标沿用此前记录：冷启动到首页可交互 1.6 s、1 MiB 文档到可编辑 200 ms、插件停用/启用 17/37 ms、Engine 内存 162 MiB（2,000 篇）/ 385–399 MiB（10,000 篇）。
+
+## 收尾与归档（2026-11-13）
+
+- 结果：implemented，主类型 feature。依据：用户在 2026-11-13 清除 /goal 并明确要求归档，认定本变更约定的交付完成；规格内的功能缺口已按记录补齐（见上文各节），主干 CI 在 12fc900 三平台通过，`release.yml` 对 `v0.0.1-rc.2` 成功并生成草稿 Release（未发布）。
+- 实际检查：HEAD 8283c5c；单元测试 610 通过、lint / knip / typecheck 干净；最近一次全量 e2e（88ef3cb）102 通过、1 失败（编辑输入延迟 p95，机器负载所致）、3 跳过。8283c5c 与 1c585dc（清除搜索索引）未推送，未经 CI，不在 rc.2 中。
+- 不由本归档证明、仍未验证（用户接受以此范围归档）：8 小时 soak；KN-03 / SF-07 / AG-06 手动检查；VS-05 / VS-08 真实远端；Windows / macOS 实机验证 rc.2 安装包；空闲机器上的 p95 正式测量；草稿 Release 的发布。这些项在 `notes/context/workbench.md` 的“仍然未知”中继续跟踪。
+- 长期知识：`notes/context/workbench.md`、`notes/errors/electron-e2e-and-ui-pitfalls.md`；索引 `notes/index.md`。
+- 路径：`.agents/dev/changes/2026-11-09-huhu-workbench-definition/` → `.agents/dev/archive/changes/implemented/feature_2026-11-09-huhu-workbench-definition/`。

@@ -1,0 +1,82 @@
+[
+  {
+    "source": "<style>",
+    "rules": 97,
+    "layered": 0,
+    "selectors": [
+      "[data-sonner-toaster][dir=\"ltr\"], html[dir=\"ltr\"]",
+      "[data-sonner-toaster][dir=\"rtl\"], html[dir=\"rtl\"]",
+      "[data-sonner-toaster]",
+      "[data-sonner-toaster][data-x-position=\"right\"]",
+      "[data-sonner-toaster][data-x-position=\"left\"]",
+      "[data-sonner-toaster][data-x-position=\"center\"]"
+    ],
+    "screens": [
+      "m-工作台",
+      "m-任务",
+      "m-知识库",
+      "m-收件箱",
+      "m-保险箱",
+      "m-自动化",
+      "m-版本历史",
+      "m-远程连接",
+      "m-Agent CLI",
+      "m-健康中心",
+      "m-能力网关",
+      "m-插件中心",
+      "m-设置",
+      "tasks-list",
+      "tasks-board",
+      "tasks-calendar",
+      "task-detail",
+      "task-new-dialog",
+      "note-editor",
+      "note-reading",
+      "archives-categories",
+      "archives-type",
+      "archives-detail",
+      "palette",
+      "settings-appearance",
+      "settings-agent-access",
+      "settings-data",
+      "settings-date-time",
+      "settings-editor",
+      "settings-shortcuts",
+      "settings-vault",
+      "settings-versioning",
+      "settings-about"
+    ]
+  },
+  {
+    "source": "<style>",
+    "rules": 175,
+    "layered": 0,
+    "selectors": [
+      ".ͼ1.cm-focused",
+      ".ͼ1",
+      ".ͼ1 .cm-scroller",
+      ".ͼ1 .cm-content[contenteditable=\"true\"]",
+      ".ͼ1 .cm-content",
+      ".ͼ1 .cm-lineWrapping"
+    ],
+    "screens": [
+      "task-detail",
+      "task-new-dialog",
+      "note-editor",
+      "note-reading",
+      "archives-categories",
+      "archives-type",
+      "archives-detail",
+      "palette",
+      "settings-appearance",
+      "settings-agent-access",
+      "settings-data",
+      "settings-date-time",
+      "settings-editor",
+      "settings-shortcuts",
+      "settings-vault",
+      "settings-versioning",
+      "settings-about"
+    ]
+  }
+]

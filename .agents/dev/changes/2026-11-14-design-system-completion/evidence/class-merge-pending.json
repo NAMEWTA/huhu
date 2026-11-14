@@ -1,0 +1,19 @@
+{
+ "badge": "hu-badge",
+ "badge-blue": "hu-badge-blue",
+ "badge-danger": "hu-badge-danger",
+ "badge-success": "hu-badge-success",
+ "badge-violet": "hu-badge-violet",
+ "badge-warning": "hu-badge-warning",
+ "btn": "hu-btn",
+ "btn-danger": "hu-btn-danger",
+ "btn-ghost": "hu-btn-ghost",
+ "btn-primary": "hu-btn-primary",
+ "card": "hu-card",
+ "row": "hu-row",
+ "segmented": "hu-segmented",
+ "spin": "hu-spin",
+ "tw-board-card": "tasks-board-card",
+ "v9-terminal-grid": "agent-terminal-grid",
+ "v9-terminal-pane": "agent-terminal-pane"
+}

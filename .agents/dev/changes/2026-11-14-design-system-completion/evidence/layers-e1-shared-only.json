@@ -1,0 +1,99 @@
+{
+ "layers": [
+  "theme",
+  "tokens",
+  "base",
+  "vendor",
+  "components",
+  "shell",
+  "modules"
+ ],
+ "thirdParty": [
+  "\\.cm-",
+  "data-sonner",
+  "\\.xterm",
+  "\\.katex"
+ ],
+ "order": [
+  {
+   "file": "/home/wta/projects/huhu/packages/ui/src/styles/tokens.css",
+   "oldLayer": "tokens",
+   "layer": "tokens"
+  },
+  {
+   "file": "/home/wta/projects/huhu/packages/ui/src/styles/base.css",
+   "oldLayer": "base",
+   "layer": "base"
+  },
+  {
+   "file": "/home/wta/projects/huhu/node_modules/.pnpm/sonner@2.0.7_react-dom@19.3.1_react@19.3.1__react@19.3.1/node_modules/sonner/dist/styles.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/packages/ui/src/styles/shared.css",
+   "oldLayer": null,
+   "layer": "components"
+  },
+  {
+   "file": "/home/wta/projects/huhu/packages/workbench/src/shell/shell.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/node_modules/.pnpm/@xterm+xterm@6.0.0/node_modules/@xterm/xterm/css/xterm.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/automations/src/ui/automations.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/agent-cli/src/ui/agent-cli.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/inbox/src/ui/inbox.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/node_modules/.pnpm/katex@0.16.22/node_modules/katex/dist/katex.min.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/packages/editor/src/editor.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/notes/src/ui/notes.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/safe/src/ui/safe.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/ssh/src/ui/ssh.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/versioning/src/ui/versioning.css",
+   "oldLayer": null,
+   "layer": null
+  },
+  {
+   "file": "/home/wta/projects/huhu/plugins/tasks/src/ui/tasks.css",
+   "oldLayer": null,
+   "layer": null
+  }
+ ]
+}

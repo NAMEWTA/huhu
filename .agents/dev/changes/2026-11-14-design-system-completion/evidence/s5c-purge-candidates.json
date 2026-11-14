@@ -1,0 +1,1892 @@
+[
+ {
+  "f": "packages/editor/src/editor-cm.css",
+  "line": 881,
+  "sel": ".hu-editor .cm-content"
+ },
+ {
+  "f": "packages/editor/src/editor-cm.css",
+  "line": 886,
+  "sel": ".hu-editor .cm-editor"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 44,
+  "sel": ".hu-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 57,
+  "sel": ".hu-btn:hover:not(:disabled)"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 61,
+  "sel": ".hu-btn:disabled"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 65,
+  "sel": ".hu-btn-primary"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 71,
+  "sel": ".hu-btn-primary:hover:not(:disabled)"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 75,
+  "sel": ".hu-btn-primary:active:not(:disabled)"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 78,
+  "sel": ".hu-btn-ghost"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 82,
+  "sel": ".hu-btn-danger"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 95,
+  "sel": ".hu-circle"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 108,
+  "sel": ".hu-circle[aria-checked=\"true\"]"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 112,
+  "sel": ".hu-circle[data-pending]"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 115,
+  "sel": ".hu-badge"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 128,
+  "sel": ".hu-badge-success"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 132,
+  "sel": ".hu-badge-warning"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 136,
+  "sel": ".hu-badge-danger"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 140,
+  "sel": ".hu-badge-blue"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 144,
+  "sel": ".hu-badge-violet"
+ },
+ {
+  "f": "packages/ui/src/styles/base.css",
+  "line": 169,
+  "sel": ".hu-empty"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2,
+  "sel": ".git-resource > .hu-resource-head > span"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 8,
+  "sel": ".git-section-tabs > button.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 12,
+  "sel": ".git-group-title .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 16,
+  "sel": ".git-file-row.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 19,
+  "sel": ".git-file-row > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 25,
+  "sel": ".git-file-row:hover > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 28,
+  "sel": ".git-commit-compose .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 32,
+  "sel": ".git-main > .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 35,
+  "sel": ".git-main .hu-review-diff"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 38,
+  "sel": ".git-selected-header .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 42,
+  "sel": ".git-commit-row.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 45,
+  "sel": ".git-commit-row > .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 50,
+  "sel": ".git-history-filebar > .hu-field"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 53,
+  "sel": ".git-history-filebar > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 56,
+  "sel": ".git-init > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 60,
+  "sel": ".git-selected-header .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 63,
+  "sel": ".git-commit-row > .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 68,
+  "sel": ".git-history-filebar > .hu-field"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 71,
+  "sel": ".git-main .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 74,
+  "sel": ".git-section-tabs .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 394,
+  "sel": ".temporal-week button.outside"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 398,
+  "sel": ".temporal-week button.selected,\n.temporal-week button.selected:hover"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 426,
+  "sel": ".v9-model-list button.selected,\n.v9-provider-menu button.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 435,
+  "sel": ".guide-v5 .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 438,
+  "sel": ".guide-scroll > .hu-card-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 443,
+  "sel": ".guide-path .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 447,
+  "sel": ".guide-overview > .hu-callout"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 452,
+  "sel": ".guide-overview > .hu-callout > svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 455,
+  "sel": ".guide-overview .hu-callout p"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 458,
+  "sel": ".guide-overview .hu-field-error"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 461,
+  "sel": ".guide-entry-grid > .hu-card-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 468,
+  "sel": ".guide-entry-grid > .hu-card-alt > svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 471,
+  "sel": ".guide-command .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 475,
+  "sel": ".guide-file-tabs button.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 479,
+  "sel": ".guide-reader-tools > .hu-segmented-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 482,
+  "sel": ".guide-markdown .markdown"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 486,
+  "sel": ".guide-markdown .markdown h1"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 489,
+  "sel": ".guide-markdown .markdown h2"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 492,
+  "sel": ".guide-markdown .markdown h3"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 495,
+  "sel": ".guide-markdown .markdown a"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 498,
+  "sel": ".guide-markdown .markdown table"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 501,
+  "sel": ".guide-simulation > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 505,
+  "sel": ".guide-simulation .hu-field"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 510,
+  "sel": ".guide-simulation > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 514,
+  "sel": ".guide-markdown .markdown"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 631,
+  "sel": ".terminal-surface-tools > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 636,
+  "sel": ".terminal-surface-host .xterm"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 639,
+  "sel": ".terminal-surface-host .xterm-viewport"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 664,
+  "sel": ".version-v9-remote > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 667,
+  "sel": ".version-v9-sync-actions > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 670,
+  "sel": ".version-v9-sync-preview > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 674,
+  "sel": ".version-v9-conflict .hu-review-diff"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 680,
+  "sel": ".version-v9-card .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 818,
+  "sel": ".storage-save-strip > .row > svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 822,
+  "sel": ".storage-save-strip.warning > .row > svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 828,
+  "sel": ".storage-recovery .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 867,
+  "sel": ".knowledge-editor-actions .hu-icon-btn:disabled"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 878,
+  "sel": ".knowledge-editor-actions .hu-editor-secondary > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1092,
+  "sel": ".nav-count"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1098,
+  "sel": ".nav-separator"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1104,
+  "sel": ".nav-subheading"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1110,
+  "sel": ".nav-favorites button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1113,
+  "sel": ".nav-context-card"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1120,
+  "sel": ".nav-context-card strong"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1124,
+  "sel": ".nav-context-card p"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1130,
+  "sel": ".nav-context-card button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1715,
+  "sel": ".home-resource > .hu-resource-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1719,
+  "sel": ".home-resource > .hu-resource-head .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1725,
+  "sel": ".week-strip button.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1729,
+  "sel": ".week-strip button:hover:not(.selected)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1732,
+  "sel": ".project-focus .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1938,
+  "sel": ".nav-context-card"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 1974,
+  "sel": ".hu-app:not(.nav-collapsed) .hu-primary-nav ~ .hu-main-shell"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2064,
+  "sel": ".knowledge-note-row > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2067,
+  "sel": ".knowledge-note-row > .row > svg:first-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2089,
+  "sel": ".knowledge-editor-actions > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2092,
+  "sel": ".knowledge-editor-actions .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2097,
+  "sel": ".knowledge-editor-actions .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2101,
+  "sel": ".knowledge-editor-actions .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2106,
+  "sel": ".knowledge-editor-actions .hu-btn-alt svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2123,
+  "sel": ".knowledge-inspector-section > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2131,
+  "sel": ".knowledge-version.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2134,
+  "sel": ".knowledge-version-preview .markdown"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2137,
+  "sel": ".knowledge-version-preview .markdown h1"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2141,
+  "sel": ".knowledge-version-preview .markdown h2"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2144,
+  "sel": ".knowledge-version > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2148,
+  "sel": ".knowledge-task-projects .hu-resource-list"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2151,
+  "sel": ".knowledge-project-row.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2156,
+  "sel": ".knowledge-task-tip > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2159,
+  "sel": ".knowledge-task-tip > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2165,
+  "sel": ".knowledge-task-tip > .hu-btn-alt svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2168,
+  "sel": ".knowledge-task-main > .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2171,
+  "sel": ".knowledge-task-toolbar > .hu-search-box"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2177,
+  "sel": ".knowledge-task-toolbar > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2180,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2183,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2188,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt button svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2191,
+  "sel": ".knowledge-bulk-bar .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2214,
+  "sel": ".hu-knowledge-task-check.status-doing"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2217,
+  "sel": ".hu-knowledge-task-check.status-done"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2230,
+  "sel": ".knowledge-kanban-column > header > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2236,
+  "sel": ".knowledge-calendar-head .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2241,
+  "sel": ".knowledge-calendar-head .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2246,
+  "sel": ".knowledge-task-state-actions > button.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2256,
+  "sel": ".knowledge-subtask > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2263,
+  "sel": ".knowledge-subtask > .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2266,
+  "sel": ".knowledge-inline-compose > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2271,
+  "sel": ".knowledge-task-detail > footer > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2275,
+  "sel": ".knowledge-link-with-action > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2282,
+  "sel": ".knowledge-link-with-action > .hu-icon-btn > svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2285,
+  "sel": ".knowledge-type-card > .row strong"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2288,
+  "sel": ".knowledge-type-card > .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2293,
+  "sel": ".knowledge-type-card .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2298,
+  "sel": ".knowledge-type-card .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2373,
+  "sel": ".knowledge-task-toolbar > .hu-search-box"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2378,
+  "sel": ".knowledge-task-toolbar > .hu-segmented-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2385,
+  "sel": ".knowledge-editor-actions > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2388,
+  "sel": ".knowledge-editor-actions .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2396,
+  "sel": ".knowledge-task-toolbar > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2400,
+  "sel": ".knowledge-task-toolbar > .row > select"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2404,
+  "sel": ".knowledge-editor-actions > .row:first-child .hu-icon-btn:nth-last-child(-n + 2)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2418,
+  "sel": ".knowledge-editor-actions > .row:first-child .hu-icon-btn:nth-last-child(-n + 2)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2444,
+  "sel": ".knowledge-task-toolbar > .hu-search-box"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2448,
+  "sel": ".knowledge-task-toolbar > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2453,
+  "sel": ".knowledge-task-toolbar > .row > select"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2457,
+  "sel": ".knowledge-task-toolbar > .hu-segmented-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2460,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2465,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt button > svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2471,
+  "sel": ".knowledge-editor-actions > .row:first-child .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2476,
+  "sel": ".knowledge-editor-actions > .row:first-child .hu-icon-btn:nth-last-child(-n + 2)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2479,
+  "sel": ".knowledge-editor-actions .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2484,
+  "sel": ".knowledge-editor-actions > .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2487,
+  "sel": ".knowledge-editor-actions > .row:last-child .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2553,
+  "sel": ".knowledge-task-projects .hu-resource-list"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2556,
+  "sel": ".knowledge-task-projects .hu-resource-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2561,
+  "sel": ".knowledge-task-projects .hu-resource-head > p"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2565,
+  "sel": ".knowledge-task-calendar .knowledge-calendar-head > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2568,
+  "sel": ".knowledge-task-calendar .knowledge-calendar-head > .row > .temporal-trigger"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2571,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2618,
+  "sel": ".knowledge-task-toolbar .hu-segmented-alt button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2624,
+  "sel": ".knowledge-calendar-head > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2638,
+  "sel": ".execution-log-row > .grow"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2641,
+  "sel": ".execution-log-row .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2650,
+  "sel": ".execution-log-icon.completed"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2654,
+  "sel": ".execution-log-icon.failed"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2658,
+  "sel": ".execution-step-dot.completed"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2661,
+  "sel": ".execution-step-dot.failed"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2664,
+  "sel": ".execution-step-dot.running"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2672,
+  "sel": ".execution-terminal-view .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2675,
+  "sel": ".execution-terminal-tab.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2680,
+  "sel": ".execution-pane-bar .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2687,
+  "sel": ".execution-pane-bar .hu-icon-btn:hover"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2691,
+  "sel": ".execution-pane-bar .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2695,
+  "sel": ".execution-terminal-status .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2701,
+  "sel": ".execution-terminal-status .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2707,
+  "sel": ".execution-file-row > button.grow"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2720,
+  "sel": ".execution-file-row > button.grow > span"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2725,
+  "sel": ".execution-file-row > button.grow:hover"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2728,
+  "sel": ".execution-file-row > .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2732,
+  "sel": ".execution-flow-node.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2736,
+  "sel": ".execution-flow-node > .grow"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2742,
+  "sel": ".execution-node-order .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2751,
+  "sel": ".execution-node-order .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2755,
+  "sel": ".execution-node-editor .hu-field-grid > .hu-field:last-child:nth-child(3)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2783,
+  "sel": ".execution-composer-tools > .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2786,
+  "sel": ".execution-node-editor .hu-field-grid > .hu-field:last-child:nth-child(3)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2807,
+  "sel": ".execution-message .markdown"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2810,
+  "sel": ".execution-approval > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2813,
+  "sel": ".execution-approval > .row > .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2816,
+  "sel": ".execution-log-row .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2819,
+  "sel": ".execution-node-editor > .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2822,
+  "sel": ".execution-node-editor > .row > .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2825,
+  "sel": ".execution-flow-top > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2828,
+  "sel": ".execution-flow-top .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2833,
+  "sel": ".execution-agent-toolbar > .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2836,
+  "sel": ".execution-agent-toolbar > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2839,
+  "sel": ".execution-error-card > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2842,
+  "sel": ".execution-file-row > .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2845,
+  "sel": ".execution-file-row .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2849,
+  "sel": ".execution-file-row .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2853,
+  "sel": ".execution-cli .hu-resource-pane"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2858,
+  "sel": ".execution-cli .hu-resource-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2861,
+  "sel": ".execution-cli .hu-resource-head .hu-segmented-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2864,
+  "sel": ".execution-cli .hu-resource-head .hu-segmented-alt > button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2869,
+  "sel": ".execution-cli .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2872,
+  "sel": ".execution-cli .hu-page-head h1"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2876,
+  "sel": ".execution-cli .hu-page-head p"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2881,
+  "sel": ".execution-cli .hu-toolbar > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2884,
+  "sel": ".execution-cli-error > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2887,
+  "sel": ".execution-cli-input .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2891,
+  "sel": ".execution-cli-foot .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2895,
+  "sel": ".execution-cli-foot > .mono"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2901,
+  "sel": ".execution-provider-card > .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2905,
+  "sel": ".execution-provider-card > .row:last-child > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2908,
+  "sel": ".execution-runtime-card > .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2911,
+  "sel": ".execution-runtime-card .hu-field"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2915,
+  "sel": ".execution-cli.provider-mode"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2918,
+  "sel": ".execution-automation-list > .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2921,
+  "sel": ".execution-automation-list .hu-search-box"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2926,
+  "sel": ".execution-rule-table-row.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2929,
+  "sel": ".execution-rule-detail-head > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2933,
+  "sel": ".execution-rule-detail-head > .row > .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2938,
+  "sel": ".execution-rule-detail-head .hu-segmented-alt > button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2941,
+  "sel": ".execution-rule-detail > .hu-toolbar .hu-segmented-alt > button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2945,
+  "sel": ".execution-rule-trigger .grow"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2950,
+  "sel": ".execution-rule-trigger.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2953,
+  "sel": ".execution-rule-step > button:first-child.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2956,
+  "sel": ".execution-rule-step .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2961,
+  "sel": ".execution-rule-step .hu-icon-btn svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2964,
+  "sel": ".execution-rule-detail .execution-log-row .small"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2968,
+  "sel": ".execution-automation-list > .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2971,
+  "sel": ".execution-cli .hu-resource-pane"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2975,
+  "sel": ".execution-cli .hu-toolbar .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2979,
+  "sel": ".execution-cli-foot > .mono"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2984,
+  "sel": ".execution-cli .hu-resource-pane"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2988,
+  "sel": ".execution-cli .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2991,
+  "sel": ".execution-cli-error > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2994,
+  "sel": ".execution-cli .execution-provider-card > .row:last-child > .grow"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 2999,
+  "sel": ".execution-cli .hu-resource-pane"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3004,
+  "sel": ".execution-cli .hu-resource-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3007,
+  "sel": ".execution-cli .hu-resource-head .hu-segmented-alt > button"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3011,
+  "sel": ".execution-cli .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3014,
+  "sel": ".execution-cli .hu-page-head h1"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3017,
+  "sel": ".execution-cli .hu-page-head p"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3020,
+  "sel": ".execution-cli-foot > .mono"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3024,
+  "sel": ".execution-background-terminal .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3033,
+  "sel": ".discover-card > .row:first-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3036,
+  "sel": ".discover-card > .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3043,
+  "sel": ".console-bar .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3049,
+  "sel": ".cli-input .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3068,
+  "sel": ".checkpoint-row.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3072,
+  "sel": ".checkpoint-summary .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3076,
+  "sel": ".diff-title .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3079,
+  "sel": ".conflict-card > .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3082,
+  "sel": ".conflict-options label.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3141,
+  "sel": ".editor-preview .markdown h2"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3154,
+  "sel": ".canvas-view .hu-page-head"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3157,
+  "sel": ".canvas-toolbar .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3160,
+  "sel": ".canvas-toolbar .hu-search-box"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3163,
+  "sel": ".canvas-toolbar .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3167,
+  "sel": ".canvas-inspector .hu-empty-state"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3171,
+  "sel": ".canvas-inspector .hu-empty-state h3"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3174,
+  "sel": ".canvas-inspector .hu-empty-state p"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3177,
+  "sel": ".canvas-link-row .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3182,
+  "sel": ".knowledge-graph-svg g.selected circle"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3236,
+  "sel": ".canvas-toolbar .row"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3242,
+  "sel": ".checkpoint-summary .row > .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3260,
+  "sel": ".canvas-toolbar .hu-badge-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3263,
+  "sel": ".canvas-toolbar .row:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3321,
+  "sel": ".date-demo-grid > .hu-field:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3349,
+  "sel": ".date-demo-grid > .hu-field:last-child"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3615,
+  "sel": ":root[data-motion=\"reduced\"] :is(.hu-dialog-overlay, .hu-dialog-content, .hu-motion-surface, .tempor"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3621,
+  "sel": ":root[data-motion=\"reduced\"] :is(.hu-dialog-overlay, .hu-dialog-content, .hu-motion-surface, .tempor"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3636,
+  "sel": ":is(.hu-dialog-overlay, .hu-dialog-content, .hu-motion-surface, .temporal-panel, [data-huhu-popover]"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3642,
+  "sel": ":is(.hu-dialog-overlay, .hu-dialog-content, .hu-motion-surface, .temporal-panel, [data-huhu-popover]"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3764,
+  "sel": ".experience-controls .hu-segmented"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3767,
+  "sel": ".experience-task-check.checked"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3772,
+  "sel": ".experience-task-check:not(.checked) svg"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 3777,
+  "sel": ".experience-controls .hu-segmented"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4114,
+  "sel": ".knowledge-editor-actions .hu-icon-btn,\n.knowledge-editor-actions .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4120,
+  "sel": ".knowledge-editor-actions .hu-icon-btn"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4123,
+  "sel": ".knowledge-editor-actions .hu-btn-alt"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4183,
+  "sel": ".temporal-week button.outside:not(:disabled)"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4187,
+  "sel": ".temporal-week button.selected,\n.temporal-week button.selected:hover"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4193,
+  "sel": ".agent-session-item.active"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4196,
+  "sel": ".agent-task-state.task-working > span"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4351,
+  "sel": ".temporal-week button.selected"
+ },
+ {
+  "f": "packages/ui/src/styles/shared.css",
+  "line": 4578,
+  "sel": ".backup-action-step.inactive"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 61,
+  "sel": ".shell-plugin-v3 .discover-card h2"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 64,
+  "sel": ".shell-plugin-v3 .discover-card .row:last-child"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 327,
+  "sel": ".temporal-week button.today:not(.selected)"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 331,
+  "sel": ".temporal-week button.today:after"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1073,
+  "sel": ".shell-metric-grid.three"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1919,
+  "sel": ".knowledge-calendar-day.today"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1922,
+  "sel": ".knowledge-calendar-day.today > div:first-child > span"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1970,
+  "sel": ".execution-node-editor .hu-field-grid"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1976,
+  "sel": ".execution-node-editor .hu-field-grid"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1981,
+  "sel": ".execution-node-editor .hu-field-grid"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 1985,
+  "sel": ".execution-rule-detail .execution-node-editor .hu-field-grid"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 2515,
+  "sel": ".shell-system-scroll > .hu-card-alt > .capability-table"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 2703,
+  "sel": ".shell-system-scroll > .hu-card-alt > .capability-table"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 3632,
+  "sel": ".temporal-week button.today:not(.selected)"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 3941,
+  "sel": ".hu-module"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 3978,
+  "sel": ".hu-content"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 3982,
+  "sel": ".hu-content h1"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 3995,
+  "sel": ".hu-row-title[data-done=\"true\"]"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4007,
+  "sel": ".hu-note-list"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4013,
+  "sel": ".hu-note-pane"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4018,
+  "sel": ".hu-note-head"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4024,
+  "sel": ".hu-note-head h1"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4028,
+  "sel": ".hu-editor"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4054,
+  "sel": ".hu-cards"
+ },
+ {
+  "f": "packages/workbench/src/shell/shell.css",
+  "line": 4072,
+  "sel": ".shell-page-surface > .hu-module"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 114,
+  "sel": ".agent-terminal-pane-alt .terminal-surface"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 239,
+  "sel": ".execution-step-dot.waiting"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 247,
+  "sel": ".agent-provider-avatar.claude-code"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 252,
+  "sel": ".agent-provider-avatar.codex"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 431,
+  "sel": ".agent-terminal-grid-alt.panes-2,\n.agent-terminal-grid-alt.panes-3,\n.agent-terminal-grid-alt.panes-4"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 436,
+  "sel": ".agent-terminal-pane-alt .terminal-toolbar"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 574,
+  "sel": ".agent-terminal-grid-alt.panes-2,\n  .agent-terminal-grid-alt.panes-3,\n  .agent-terminal-grid-alt.pan"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 756,
+  "sel": ".execution-terminal-grid.agent-layout-columns.agent-panes-1"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 759,
+  "sel": ".execution-terminal-grid.agent-layout-columns.panes-2"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 762,
+  "sel": ".execution-terminal-grid.agent-layout-columns.panes-3,\n.execution-terminal-grid.agent-layout-columns"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 767,
+  "sel": ".execution-terminal-grid.agent-layout-columns.panes-3 > .execution-terminal-pane:first-child"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 770,
+  "sel": ".execution-terminal-grid.agent-layout-rows"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 775,
+  "sel": ".execution-terminal-grid.agent-layout-columns.panes-2"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 779,
+  "sel": ".execution-terminal-grid.agent-layout-columns.panes-3,\n  .execution-terminal-grid.agent-layout-colum"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 786,
+  "sel": ".execution-terminal-grid.agent-layout-columns.panes-3 > .execution-terminal-pane:first-child"
+ },
+ {
+  "f": "plugins/agent-cli/src/ui/agent-cli.css",
+  "line": 800,
+  "sel": ".huhu-drawer-presence > .context-drawer"
+ },
+ {
+  "f": "plugins/automations/src/ui/automations.css",
+  "line": 349,
+  "sel": ".execution-log-icon.succeeded"
+ },
+ {
+  "f": "plugins/automations/src/ui/automations.css",
+  "line": 353,
+  "sel": ".execution-step-dot.succeeded"
+ },
+ {
+  "f": "plugins/automations/src/ui/automations.css",
+  "line": 356,
+  "sel": ".execution-flow-node.trigger .execution-node-icon"
+ },
+ {
+  "f": "plugins/automations/src/ui/automations.css",
+  "line": 364,
+  "sel": ".agent-task-state.task-blocked > span"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 69,
+  "sel": ".hu-knowledge-root .is-today"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 445,
+  "sel": ".knowledge-container > .hu-knowledge-root"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 453,
+  "sel": ".knowledge-container .hu-knowledge-root > .hu-resource-pane"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 466,
+  "sel": ".knowledge-container.knowledge-resource-open .hu-knowledge-root > .hu-resource-pane"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 529,
+  "sel": ".knowledge-container.knowledge-nav-hidden > .hu-knowledge-root"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 534,
+  "sel": ".knowledge-container.knowledge-nav-hidden > .hu-knowledge-root > .hu-resource-pane"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 538,
+  "sel": ".hu-knowledge-root .knowledge-task-projects"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 550,
+  "sel": ".knowledge-container .hu-knowledge-root > .hu-resource-pane"
+ },
+ {
+  "f": "plugins/inbox/src/ui/inbox.css",
+  "line": 556,
+  "sel": ".knowledge-container .hu-knowledge-root > .inbox-knowledge-inbox-list"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 46,
+  "sel": ".knowledge-editor-actions .hu-editor-secondary"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 331,
+  "sel": ".knowledge-reading-tags .notes-chip"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 360,
+  "sel": ".notes-editor-body.is-split .knowledge-source-editor"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 600,
+  "sel": ".knowledge-bulk-bar > .notes-text-button"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 619,
+  "sel": ".knowledge-link-with-action > .notes-link-row"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 800,
+  "sel": ".notes-editor-body.is-split .knowledge-source-editor-wrap > .knowledge-source-editor"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 803,
+  "sel": ".notes-editor-body.is-split .knowledge-source-line-numbers"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 909,
+  "sel": ".hu-knowledge-tree-line.is-folder-selected:not(.is-selected)"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 1254,
+  "sel": ".knowledge-reading-tags .notes-chip"
+ },
+ {
+  "f": "plugins/notes/src/ui/notes.css",
+  "line": 1439,
+  "sel": ":root[data-mode=\"dark\"] :is(.notes-inspector, .knowledge-task-detail)"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 88,
+  "sel": ".ssh-console-panel > .terminal-surface"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 94,
+  "sel": ".ssh-console-stage.is-split .terminal-engine-tag"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 328,
+  "sel": ".ssh-pad > .execution-demo-notice"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 332,
+  "sel": ".ssh-session-row > .execution-live-dot"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 645,
+  "sel": ".execution-cli .ssh-session-row"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 648,
+  "sel": ".execution-cli .ssh-session-row strong"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 651,
+  "sel": ".execution-cli .ssh-session-row .small"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 654,
+  "sel": ".execution-cli .hu-toolbar"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 658,
+  "sel": ".execution-automation-list > .hu-toolbar"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 662,
+  "sel": ".execution-rule-detail > .hu-toolbar"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 669,
+  "sel": ".execution-cli .hu-toolbar"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 675,
+  "sel": ".execution-cli .ssh-session-row"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 680,
+  "sel": ".execution-cli .ssh-session-row strong"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 685,
+  "sel": ".execution-cli .ssh-session-row .small"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 699,
+  "sel": ".hu-execution-module .execution-demo-notice"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 712,
+  "sel": ".hu-execution-module .execution-fault-control strong"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 721,
+  "sel": ".hu-execution-module .execution-file-row > button.grow"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 724,
+  "sel": ".hu-execution-module .execution-log-row strong"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 727,
+  "sel": ".hu-execution-module .execution-log-row .small"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 835,
+  "sel": ".execution-cli-provider-view .ssh-pad"
+ },
+ {
+  "f": "plugins/ssh/src/ui/ssh.css",
+  "line": 841,
+  "sel": ".hu-execution-module .execution-code-block"
+ },
+ {
+  "f": "plugins/tasks/src/ui/tasks.css",
+  "line": 129,
+  "sel": ".tw-resource-field > .tasks-hint"
+ },
+ {
+  "f": "plugins/tasks/src/ui/tasks.css",
+  "line": 268,
+  "sel": ".hu-knowledge-task-table-row.is-current"
+ },
+ {
+  "f": "plugins/tasks/src/ui/tasks.css",
+  "line": 307,
+  "sel": ".vrp-chip.is-missing > small"
+ },
+ {
+  "f": "plugins/versioning/src/ui/versioning.css",
+  "line": 351,
+  "sel": ".agent-task-state.task-error > span"
+ },
+ {
+  "f": "plugins/versioning/src/ui/versioning.css",
+  "line": 354,
+  "sel": ".agent-task-state.task-done > span"
+ }
+]

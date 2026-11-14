@@ -124,7 +124,7 @@
 
 相近名称可能被宿主匹配到其他技能，执行前应读取实际内容并核对目标。`dev-workflow`（`dev-workflow`） 的 Playbooks 部分列出全部流程及适用条件。[指南第 6 页](guide-verification.md) 说明开启、跟进和落地 PR。
 
-本项目有按任务选择的规格、计划与实施方法；宿主真实提供计划模式时可配合使用。跨阶段或堆叠 PR 的工作，要求 `$dev-workflow` 制订计划会运行`dev-plan`（多阶段计划流程），只写计划而不实施。设计问题先通过 Prototype 流程或 `$dev-architecture` 用代码厘清。
+本项目有按任务选择的规格、计划与实施方法；宿主真实提供计划模式时可配合使用。跨阶段或堆叠 PR 的工作，要求 `$dev-workflow` 制订计划会使用 `dev-plan`（多阶段计划流程）。只要求计划时不实施；已授权持续实施时，计划核对后按原授权交给 `dev-build`。设计问题按实际缺口通过研究、Prototype 流程或 `$dev-architecture` 厘清，不重做已有决定。
 
 原则全文由 `dev-guardrails` 维护，按任务需要调用；在它改变决定时说明实际作用，不要求每轮机械引用全部原则。用户通常用名称引导，例如“apply prove it works. show me the real output.”，执行者再读取该原则的完整方法。[指南第 8 页](guide-principles.md) 列出了这些原则。
 
