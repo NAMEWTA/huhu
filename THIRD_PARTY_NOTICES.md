@@ -146,18 +146,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @babel/traverse | 7.29.13 | MIT | https://babel.dev/docs/en/next/babel-traverse |
 | @babel/types | 7.29.11 | MIT | https://babel.dev/docs/en/next/babel-types |
 | @braintree/sanitize-url | 7.1.2 | MIT | https://github.com/braintree/sanitize-url#readme |
+| @cacheable/memory | 2.2.0 | MIT |  |
+| @cacheable/utils | 2.5.0 | MIT |  |
 | @chevrotain/cst-dts-gen | 11.0.3 | Apache-2.0 |  |
 | @chevrotain/gast | 11.0.3 | Apache-2.0 |  |
 | @chevrotain/regexp-to-ast | 11.0.3 | Apache-2.0 |  |
 | @chevrotain/types | 11.0.3 | Apache-2.0 | https://chevrotain.io/documentation/ |
 | @chevrotain/utils | 11.0.3 | Apache-2.0 |  |
+| @codemirror/autocomplete | 6.20.4 | MIT |  |
 | @codemirror/commands | 6.11.1 | MIT |  |
 | @codemirror/language | 6.13.1 | MIT |  |
 | @codemirror/search | 6.7.2 | MIT |  |
 | @codemirror/state | 6.7.6 | MIT |  |
 | @codemirror/streamparser | 6.0.0 | MIT |  |
 | @codemirror/view | 6.43.15 | MIT |  |
+| @csstools/css-parser-algorithms | 3.0.5 | MIT | https://github.com/csstools/postcss-plugins/tree/main/packages/css-parser-algorithms#readme |
+| @csstools/css-syntax-patches-for-csstree | 1.1.16 | MIT-0 | https://github.com/csstools/postcss-plugins/tree/main/packages/css-syntax-patches-for-csstree#readme |
+| @csstools/css-tokenizer | 3.0.4 | MIT | https://github.com/csstools/postcss-plugins/tree/main/packages/css-tokenizer#readme |
+| @csstools/media-query-list-parser | 4.0.3 | MIT | https://github.com/csstools/postcss-plugins/tree/main/packages/media-query-list-parser#readme |
+| @csstools/selector-specificity | 5.0.0 | MIT-0 | https://github.com/csstools/postcss-plugins/tree/main/packages/selector-specificity#readme |
 | @date-fns/tz | 1.5.0 | MIT | https://github.com/date-fns/date-fns#readme |
+| @dual-bundle/import-meta-resolve | 4.2.1 | MIT |  |
 | @electron-internal/extract-zip | 1.0.8 | MIT |  |
 | @electron/asar | 3.4.1 | MIT | https://github.com/electron/asar |
 | @electron/fuses | 1.8.0 | MIT | https://github.com/electron/fuses#readme |
@@ -187,6 +196,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @jridgewell/resolve-uri | 3.1.2 | MIT |  |
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec |
 | @jridgewell/trace-mapping | 0.3.31 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping |
+| @keyv/bigmap | 1.3.1 | MIT | https://github.com/jaredwray/keyv |
+| @keyv/serialize | 1.1.1 | MIT | https://github.com/jaredwray/keyv |
 | @lezer/common | 1.5.5 | MIT |  |
 | @lezer/highlight | 1.2.5 | MIT |  |
 | @lezer/lr | 1.4.12 | MIT |  |
@@ -197,6 +208,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @mermaid-js/parser | 0.6.3 | MIT | https://github.com/mermaid-js/mermaid/tree/develop/packages/mermaid/parser/#readme |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | https://modelcontextprotocol.io |
 | @noble/hashes | 1.8.0 | MIT | https://paulmillr.com/noble/ |
+| @nodelib/fs.scandir | 2.1.5 | MIT |  |
+| @nodelib/fs.stat | 2.0.5 | MIT |  |
+| @nodelib/fs.walk | 1.2.8 | MIT |  |
 | @oxc-parser/binding-linux-x64-gnu | 0.156.0 | MIT | https://oxc.rs/docs/guide/usage/parser |
 | @oxc-project/types | 0.156.0 | MIT | https://oxc.rs |
 | @oxc-resolver/binding-linux-x64-gnu | 11.24.2 | MIT | https://oxc.rs |
@@ -255,6 +269,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @types/aria-query | 5.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/aria-query |
 | @types/cacheable-request | 6.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/cacheable-request |
 | @types/chai | 5.2.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/chai |
+| @types/culori | 4.0.1 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/culori |
 | @types/d3 | 7.4.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3 |
 | @types/d3-array | 3.2.2 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-array |
 | @types/d3-axis | 3.0.6 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-axis |
@@ -335,9 +350,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | argparse | 2.0.1 | Python-2.0 |  |
 | aria-hidden | 1.2.6 | MIT | https://github.com/theKashey/aria-hidden#readme |
 | aria-query | 5.3.0 | Apache-2.0 | https://github.com/A11yance/aria-query#readme |
+| array-union | 2.1.0 | MIT |  |
 | asn1 | 0.2.6 | MIT |  |
 | asn1js | 3.1.0 | BSD-3-Clause |  |
 | assertion-error | 2.0.1 | MIT |  |
+| astral-regex | 2.0.0 | MIT |  |
 | async | 3.2.6 | MIT | https://caolan.github.io/async/ |
 | async-exit-hook | 2.0.1 | MIT |  |
 | asynckit | 0.4.0 | MIT | https://github.com/alexindigo/asynckit#readme |
@@ -346,6 +363,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | axe-core | 4.14.0 | MPL-2.0 | https://www.deque.com/axe/ |
 | bail | 2.0.2 | MIT |  |
 | balanced-match | 1.0.2 | MIT | https://github.com/juliangruber/balanced-match |
+| balanced-match | 2.0.0 | MIT | https://github.com/juliangruber/balanced-match |
 | balanced-match | 4.0.4 | MIT |  |
 | base64-js | 1.5.1 | MIT | https://github.com/beatgammit/base64-js |
 | baseline-browser-mapping | 2.11.35 | Apache-2.0 |  |
@@ -358,6 +376,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | brace-expansion | 1.1.21 | MIT | https://github.com/juliangruber/brace-expansion |
 | brace-expansion | 2.1.7 | MIT | https://github.com/juliangruber/brace-expansion |
 | brace-expansion | 5.0.12 | MIT |  |
+| braces | 3.0.3 | MIT | https://github.com/micromatch/braces |
 | browserslist | 4.29.5 | MIT |  |
 | buffer-from | 1.1.2 | MIT |  |
 | buildcheck | 0.0.7 | MIT |  |
@@ -367,10 +386,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | bytestreamjs | 2.0.1 | BSD-3-Clause |  |
 | cac | 6.7.14 | MIT |  |
 | cac | 7.1.0 | MIT | https://github.com/cacjs/cac#readme |
+| cacheable | 2.5.0 | MIT |  |
 | cacheable-lookup | 5.0.4 | MIT | https://github.com/szmarczak/cacheable-lookup#readme |
 | cacheable-request | 7.0.4 | MIT |  |
 | call-bind-apply-helpers | 1.0.2 | MIT | https://github.com/ljharb/call-bind-apply-helpers#readme |
 | call-bound | 1.0.4 | MIT | https://github.com/ljharb/call-bound#readme |
+| callsites | 3.1.0 | MIT |  |
 | caniuse-lite | 1.0.30001823 | CC-BY-4.0 |  |
 | ccount | 2.0.1 | MIT |  |
 | chai | 5.3.3 | MIT | http://chaijs.com |
@@ -390,6 +411,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | clone-response | 1.0.3 | MIT |  |
 | color-convert | 2.0.1 | MIT |  |
 | color-name | 1.1.4 | MIT | https://github.com/colorjs/color-name |
+| colord | 2.12.0 | MIT |  |
 | combined-stream | 1.0.8 | MIT | https://github.com/felixge/node-combined-stream |
 | comma-separated-tokens | 2.0.3 | MIT |  |
 | commander | 15.1.0 | MIT |  |
@@ -408,10 +430,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | cors | 2.8.6 | MIT |  |
 | cose-base | 1.0.3 | MIT | https://github.com/iVis-at-Bilkent/cose-base#readme |
 | cose-base | 2.2.0 | MIT | https://github.com/iVis-at-Bilkent/cose-base#readme |
+| cosmiconfig | 9.0.2 | MIT | https://github.com/cosmiconfig/cosmiconfig#readme |
 | cpu-features | 0.0.10 | MIT |  |
 | crelt | 1.0.7 | MIT | https://code.haverbeke.berlin/marijn/crelt |
 | croner | 11.0.0 | MIT | https://croner.56k.guru |
 | cross-spawn | 7.0.6 | MIT | https://github.com/moxystudio/node-cross-spawn |
+| css-functions-list | 3.3.3 | MIT | https://github.com/niksy/css-functions-list#readme |
+| css-tree | 3.2.1 | MIT |  |
 | csstype | 3.2.3 | MIT |  |
 | culori | 4.0.2 | MIT |  |
 | cytoscape | 3.35.0 | MIT | http://js.cytoscape.org |
@@ -474,6 +499,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | devlop | 1.1.0 | MIT |  |
 | diff | 9.0.0 | BSD-3-Clause |  |
 | dir-compare | 4.2.0 | MIT |  |
+| dir-glob | 3.0.1 | MIT |  |
 | dmg-builder | 26.18.0 | MIT | https://github.com/electron-userland/electron-builder |
 | dom-accessibility-api | 0.5.16 | MIT |  |
 | dompurify | 3.3.3 | (MPL-2.0 OR Apache-2.0) | https://github.com/cure53/DOMPurify |
@@ -497,6 +523,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | env-paths | 2.2.1 | MIT |  |
 | env-paths | 3.0.0 | MIT |  |
 | err-code | 2.0.3 | MIT |  |
+| error-ex | 1.3.4 | MIT |  |
 | es-define-property | 1.0.1 | MIT | https://github.com/ljharb/es-define-property#readme |
 | es-errors | 1.3.0 | MIT | https://github.com/ljharb/es-errors#readme |
 | es-module-lexer | 1.7.0 | MIT | https://github.com/guybedford/es-module-lexer#readme |
@@ -519,12 +546,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | express-rate-limit | 8.7.3 | MIT | https://github.com/express-rate-limit/express-rate-limit |
 | extend | 3.0.2 | MIT |  |
 | fast-deep-equal | 3.1.3 | MIT | https://github.com/epoberezkin/fast-deep-equal#readme |
+| fast-glob | 3.3.3 | MIT |  |
 | fast-uri | 3.1.9 | BSD-3-Clause | https://github.com/fastify/fast-uri |
+| fastest-levenshtein | 1.0.16 | MIT | https://github.com/ka-weihe/fastest-levenshtein#README |
+| fastq | 1.20.3 | ISC | https://github.com/mcollina/fastq#readme |
 | fd-package-json | 2.0.0 | MIT | https://github.com/es-tooling/fd-package-json#readme |
 | fdir | 6.5.0 | MIT | https://github.com/thecodrr/fdir#readme |
 | fflate | 0.8.3 | MIT | https://101arrowz.github.io/fflate |
+| file-entry-cache | 11.1.5 | MIT |  |
 | filelist | 1.0.6 | Apache-2.0 | https://github.com/mde/filelist |
+| fill-range | 7.1.1 | MIT | https://github.com/jonschlinkert/fill-range |
 | finalhandler | 2.1.1 | MIT |  |
+| flat-cache | 6.1.23 | MIT |  |
+| flatted | 3.4.4 | ISC | https://github.com/WebReflection/flatted#readme |
 | form-data | 4.0.6 | MIT |  |
 | formatly | 0.11.4 | MIT |  |
 | forwarded | 0.2.0 | MIT |  |
@@ -545,8 +579,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | get-stream | 5.2.0 | MIT |  |
 | get-tsconfig | 4.14.3 | MIT |  |
 | glob | 7.2.3 | ISC |  |
+| glob-parent | 5.1.2 | ISC |  |
 | global-agent | 3.0.0 | BSD-3-Clause |  |
+| global-modules | 2.0.0 | MIT | https://github.com/jonschlinkert/global-modules |
+| global-prefix | 3.0.0 | MIT | https://github.com/jonschlinkert/global-prefix |
 | globalthis | 1.0.4 | MIT |  |
+| globby | 11.1.0 | MIT |  |
+| globjoin | 0.1.4 | MIT | https://github.com/amobiz/globjoin |
 | gopd | 1.2.0 | MIT | https://github.com/ljharb/gopd#readme |
 | got | 11.8.6 | MIT |  |
 | graceful-fs | 4.2.11 | ISC |  |
@@ -555,6 +594,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | has-property-descriptors | 1.0.2 | MIT | https://github.com/inspect-js/has-property-descriptors#readme |
 | has-symbols | 1.1.0 | MIT | https://github.com/ljharb/has-symbols#readme |
 | has-tostringtag | 1.0.2 | MIT | https://github.com/inspect-js/has-tostringtag#readme |
+| hashery | 1.5.1 | MIT |  |
 | hasown | 2.0.4 | MIT | https://github.com/inspect-js/hasOwn#readme |
 | hast-util-from-dom | 5.0.1 | ISC |  |
 | hast-util-from-html | 2.1.0 | MIT |  |
@@ -567,8 +607,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | hast-util-whitespace | 3.0.0 | MIT |  |
 | hastscript | 9.0.3 | MIT |  |
 | hono | 4.13.17 | MIT | https://hono.dev |
+| hookified | 1.15.1 | MIT | https://github.com/jaredwray/hookified#readme |
+| hookified | 2.2.0 | MIT | https://github.com/jaredwray/hookified#readme |
 | hosted-git-info | 4.1.0 | ISC | https://github.com/npm/hosted-git-info |
 | html-encoding-sniffer | 7.0.0 | MIT |  |
+| html-tags | 3.3.1 | MIT |  |
 | html-url-attributes | 3.0.1 | MIT |  |
 | http-cache-semantics | 4.3.0 | BSD-2-Clause |  |
 | http-errors | 2.0.1 | MIT |  |
@@ -577,9 +620,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | https-proxy-agent | 7.0.6 | MIT |  |
 | iconv-lite | 0.6.3 | MIT | https://github.com/ashtuchkin/iconv-lite |
 | iconv-lite | 0.7.3 | MIT | https://github.com/pillarjs/iconv-lite |
+| ignore | 5.3.2 | MIT |  |
+| ignore | 7.0.14 | MIT |  |
+| import-fresh | 3.3.1 | MIT |  |
 | import-meta-resolve | 4.2.0 | MIT |  |
+| imurmurhash | 0.1.4 | MIT | https://github.com/jensyt/imurmurhash-js |
 | inflight | 1.0.6 | ISC | https://github.com/isaacs/inflight |
 | inherits | 2.0.4 | ISC |  |
+| ini | 1.3.8 | ISC |  |
 | inline-style-parser | 0.2.9 | MIT |  |
 | internmap | 1.0.1 | ISC | https://github.com/mbostock/internmap/ |
 | internmap | 2.0.3 | ISC | https://github.com/mbostock/internmap/ |
@@ -587,12 +635,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | ipaddr.js | 1.9.1 | MIT |  |
 | is-alphabetical | 2.0.1 | MIT |  |
 | is-alphanumerical | 2.0.1 | MIT |  |
+| is-arrayish | 0.2.1 | MIT |  |
 | is-decimal | 2.0.1 | MIT |  |
 | is-extglob | 2.1.1 | MIT | https://github.com/jonschlinkert/is-extglob |
 | is-fullwidth-code-point | 3.0.0 | MIT |  |
 | is-glob | 4.0.3 | MIT | https://github.com/micromatch/is-glob |
 | is-hexadecimal | 2.0.1 | MIT |  |
+| is-number | 7.0.0 | MIT | https://github.com/jonschlinkert/is-number |
 | is-plain-obj | 4.1.0 | MIT |  |
+| is-plain-object | 5.1.0 | MIT | https://github.com/jonschlinkert/is-plain-object |
 | is-potential-custom-element-name | 1.0.1 | MIT | https://github.com/mathiasbynens/is-potential-custom-element-name |
 | is-promise | 4.0.0 | MIT |  |
 | isarray | 1.0.0 | MIT | https://github.com/juliangruber/isarray |
@@ -610,6 +661,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | jsdom | 31.0.0 | MIT |  |
 | jsesc | 3.1.0 | MIT | https://mths.be/jsesc |
 | json-buffer | 3.0.1 | MIT | https://github.com/dominictarr/json-buffer |
+| json-parse-even-better-errors | 2.3.1 | MIT |  |
 | json-schema-traverse | 1.0.0 | MIT | https://github.com/epoberezkin/json-schema-traverse#readme |
 | json-schema-typed | 8.0.2 | BSD-2-Clause | https://github.com/RemyRylan/json-schema-typed/tree/main/dist/node |
 | json-stringify-safe | 5.0.1 | ISC | https://github.com/isaacs/json-stringify-safe |
@@ -618,14 +670,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | jsonfile | 6.2.1 | MIT |  |
 | katex | 0.16.22 | MIT | https://katex.org |
 | keyv | 4.5.4 | MIT | https://github.com/jaredwray/keyv |
+| keyv | 5.6.0 | MIT | https://github.com/jaredwray/keyv |
 | khroma | 2.1.0 | MIT |  |
+| kind-of | 6.0.3 | MIT | https://github.com/jonschlinkert/kind-of |
 | knip | 6.44.2 | ISC | https://knip.dev |
+| known-css-properties | 0.37.0 | MIT | https://github.com/known-css/known-css-properties#readme |
 | langium | 3.3.1 | MIT | https://langium.org |
 | layout-base | 1.0.2 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
 | layout-base | 2.0.1 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
 | lightningcss | 1.33.0 | MPL-2.0 |  |
 | lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |  |
+| lines-and-columns | 1.2.4 | MIT | https://github.com/eventualbuddha/lines-and-columns#readme |
 | lodash | 4.18.1 | MIT | https://lodash.com/ |
 | lodash-es | 4.17.21 | MIT | https://lodash.com/custom-builds |
 | lodash-es | 4.18.1 | MIT | https://lodash.com/custom-builds |
@@ -644,6 +700,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | marked | 17.0.5 | MIT | https://marked.js.org |
 | matcher | 3.0.0 | MIT |  |
 | math-intrinsics | 1.1.0 | MIT | https://github.com/es-shims/math-intrinsics#readme |
+| mathml-tag-names | 2.1.3 | MIT |  |
 | mdast-util-find-and-replace | 3.0.4 | MIT |  |
 | mdast-util-from-markdown | 2.1.0 | MIT |  |
 | mdast-util-gfm | 3.1.0 | MIT |  |
@@ -660,8 +717,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | mdast-util-to-hast | 13.2.1 | MIT |  |
 | mdast-util-to-markdown | 2.2.3 | MIT |  |
 | mdast-util-to-string | 4.0.0 | MIT |  |
+| mdn-data | 2.27.1 | CC0-1.0 | https://developer.mozilla.org |
 | media-typer | 1.1.1 | MIT |  |
+| meow | 13.2.0 | MIT |  |
 | merge-descriptors | 2.0.0 | MIT |  |
+| merge2 | 1.4.1 | MIT | https://github.com/teambition/merge2 |
 | mermaid | 11.12.2 | MIT |  |
 | micromark | 4.0.3 | MIT |  |
 | micromark-core-commonmark | 2.0.4 | MIT |  |
@@ -693,6 +753,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | micromark-util-subtokenize | 2.1.0 | MIT |  |
 | micromark-util-symbol | 2.0.1 | MIT |  |
 | micromark-util-types | 2.0.3 | MIT |  |
+| micromatch | 4.0.8 | MIT | https://github.com/micromatch/micromatch |
 | mime | 2.6.0 | MIT |  |
 | mime-db | 1.52.0 | MIT |  |
 | mime-db | 1.54.0 | MIT |  |
@@ -720,6 +781,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | node-int64 | 0.4.0 | MIT |  |
 | node-releases | 2.0.63 | MIT |  |
 | nopt | 9.0.0 | ISC |  |
+| normalize-path | 3.0.0 | MIT | https://github.com/jonschlinkert/normalize-path |
 | normalize-url | 6.1.0 | MIT |  |
 | object-assign | 4.1.1 | MIT |  |
 | object-inspect | 1.13.4 | MIT | https://github.com/inspect-js/object-inspect |
@@ -733,7 +795,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | p-cancelable | 2.1.1 | MIT |  |
 | p-limit | 3.1.0 | MIT |  |
 | package-manager-detector | 1.9.0 | MIT | https://github.com/antfu-collective/package-manager-detector#readme |
+| parent-module | 1.0.1 | MIT |  |
 | parse-entities | 4.0.2 | MIT |  |
+| parse-json | 5.2.0 | MIT |  |
 | parse5 | 8.1.1 | MIT | https://parse5.js.org |
 | parse5-parser-stream | 8.1.1 | MIT | https://parse5.js.org |
 | parseurl | 1.3.3 | MIT |  |
@@ -741,10 +805,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | path-is-absolute | 1.0.1 | MIT |  |
 | path-key | 3.1.1 | MIT |  |
 | path-to-regexp | 8.4.2 | MIT |  |
+| path-type | 4.0.0 | MIT |  |
 | pathe | 2.0.3 | MIT |  |
 | pathval | 2.0.1 | MIT | https://github.com/chaijs/pathval |
 | pe-library | 0.4.1 | MIT | https://github.com/jet2jet/pe-library-js |
 | picocolors | 1.1.1 | ISC |  |
+| picomatch | 2.3.2 | MIT | https://github.com/micromatch/picomatch |
 | picomatch | 4.0.7 | MIT | https://github.com/micromatch/picomatch |
 | pkce-challenge | 5.0.1 | MIT | https://github.com/crouchcd/pkce-challenge#readme |
 | pkijs | 3.4.3 | BSD-3-Clause |  |
@@ -754,6 +820,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | points-on-curve | 0.2.0 | MIT | https://github.com/pshihn/bezier-points#readme |
 | points-on-path | 0.2.1 | MIT | https://github.com/pshihn/points-on-path#readme |
 | postcss | 8.5.32 | MIT | https://postcss.org/ |
+| postcss-resolve-nested-selector | 0.1.7 | MIT | https://github.com/csstools/postcss-resolve-nested-selector |
+| postcss-safe-parser | 7.1.0 | MIT |  |
+| postcss-selector-parser | 7.2.1 | MIT | https://github.com/postcss/postcss-selector-parser |
+| postcss-value-parser | 4.2.0 | MIT | https://github.com/TrySound/postcss-value-parser |
 | pretty-format | 27.5.1 | MIT |  |
 | proc-log | 6.1.0 | ISC |  |
 | process-nextick-args | 2.0.1 | MIT | https://github.com/calvinmetcalf/process-nextick-args |
@@ -766,7 +836,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | punycode | 2.3.1 | MIT | https://mths.be/punycode |
 | pvtsutils | 1.3.6 | MIT | https://github.com/PeculiarVentures/pvtsutils#readme |
 | pvutils | 1.2.0 | MIT |  |
+| qified | 0.10.1 | MIT | https://github.com/jaredwray/qified#readme |
 | qs | 6.17.1 | BSD-3-Clause | https://github.com/ljharb/qs |
+| queue-microtask | 1.2.3 | MIT | https://github.com/feross/queue-microtask |
 | quick-lru | 5.1.1 | MIT |  |
 | range-parser | 1.3.0 | MIT |  |
 | raw-body | 3.0.2 | MIT |  |
@@ -790,9 +862,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | require-from-string | 2.0.2 | MIT |  |
 | resedit | 1.7.2 | MIT | https://github.com/jet2jet/resedit-js |
 | resolve-alpn | 1.2.1 | MIT | https://github.com/szmarczak/resolve-alpn#readme |
+| resolve-from | 4.0.0 | MIT |  |
+| resolve-from | 5.0.0 | MIT |  |
 | resolve-pkg-maps | 1.0.0 | MIT |  |
 | responselike | 2.0.1 | MIT |  |
 | retry | 0.12.0 | MIT | https://github.com/tim-kos/node-retry |
+| reusify | 1.1.0 | MIT | https://github.com/mcollina/reusify#readme |
 | rimraf | 2.6.3 | ISC |  |
 | roarr | 2.15.4 | BSD-3-Clause |  |
 | robust-predicates | 3.0.3 | Unlicense |  |
@@ -800,6 +875,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | rollup | 4.68.1 | MIT | https://rollupjs.org/ |
 | roughjs | 4.6.6 | MIT | https://roughjs.com |
 | router | 2.2.0 | MIT |  |
+| run-parallel | 1.2.0 | MIT | https://github.com/feross/run-parallel |
 | rw | 1.3.3 | BSD-3-Clause | https://github.com/mbostock/rw |
 | safe-buffer | 5.1.2 | MIT | https://github.com/feross/safe-buffer |
 | safer-buffer | 2.1.2 | MIT |  |
@@ -826,6 +902,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | signal-exit | 3.0.7 | ISC | https://github.com/tapjs/signal-exit |
 | signal-exit | 4.1.0 | ISC |  |
 | simple-update-notifier | 2.0.0 | MIT | https://github.com/alexbrazier/simple-update-notifier.git |
+| slash | 3.0.0 | MIT |  |
+| slice-ansi | 4.0.0 | MIT |  |
 | smol-toml | 1.9.1 | BSD-3-Clause |  |
 | sonner | 2.0.7 | MIT | https://sonner.emilkowal.ski/ |
 | source-map | 0.6.1 | BSD-3-Clause | https://github.com/mozilla/source-map |
@@ -846,9 +924,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | strip-literal | 3.1.0 | MIT | https://github.com/antfu/strip-literal#readme |
 | style-mod | 4.1.4 | MIT | https://code.haverbeke.berlin/marijn/style-mod |
 | style-to-object | 2.0.2 | MIT |  |
+| stylelint | 16.26.1 | MIT | https://stylelint.io |
 | stylis | 4.4.0 | MIT | https://github.com/thysultan/stylis.js |
 | sumchecker | 3.0.1 | Apache-2.0 | https://github.com/malept/sumchecker#readme |
 | supports-color | 7.2.0 | MIT |  |
+| supports-hyperlinks | 3.2.0 | MIT |  |
+| svg-tags | 1.0.0 | MIT |  |
+| table | 6.10.1 | BSD-3-Clause |  |
 | tar | 7.5.22 | BlueOak-1.0.0 |  |
 | temp | 0.9.4 | MIT |  |
 | temp-file | 3.4.0 | MIT | https://github.com/develar/temp-file |
@@ -865,6 +947,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | tldts-core | 7.4.20 | MIT | https://github.com/remusao/tldts#readme |
 | tmp | 0.2.7 | MIT | http://github.com/raszi/node-tmp |
 | tmp-promise | 3.0.3 | MIT |  |
+| to-regex-range | 5.0.1 | MIT | https://github.com/micromatch/to-regex-range |
 | toidentifier | 1.0.1 | MIT |  |
 | tough-cookie | 6.1.0 | BSD-3-Clause | https://github.com/salesforce/tough-cookie |
 | tr46 | 7.0.0 | MIT |  |
@@ -923,12 +1006,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | webidl-conversions | 8.0.1 | BSD-2-Clause |  |
 | whatwg-mimetype | 5.0.0 | MIT |  |
 | whatwg-url | 17.3.0 | MIT |  |
+| which | 1.3.1 | ISC |  |
 | which | 2.0.2 | ISC |  |
 | which | 5.0.0 | ISC |  |
 | which | 6.0.1 | ISC |  |
 | why-is-node-running | 2.3.0 | MIT | https://github.com/mafintosh/why-is-node-running |
 | wrap-ansi | 7.0.0 | MIT |  |
 | wrappy | 1.0.2 | ISC | https://github.com/npm/wrappy |
+| write-file-atomic | 5.0.1 | ISC | https://github.com/npm/write-file-atomic |
 | write-file-atomic | 8.0.0 | ISC | https://github.com/npm/write-file-atomic |
 | ws | 8.22.2 | MIT | https://github.com/websockets/ws |
 | xml-name-validator | 5.0.0 | Apache-2.0 |  |
