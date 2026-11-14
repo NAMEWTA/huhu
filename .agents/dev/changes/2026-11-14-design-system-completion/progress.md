@@ -41,7 +41,7 @@
 
 - **最终审计**（快照 `a49dac2092bd366ae959df03dd7f434318d07314`，隔离 worktree）：`pnpm install --frozen-lockfile` 通过；`pnpm typecheck` 通过；`pnpm lint`（oxlint、`check-lint-rules`、stylelint、`check-ui-colors`、`check-css-layers`、`check-css-classes`、`check-css-ownership`）通过；`pnpm test` 695 passed / 7 skipped / 0 failed；`pnpm build` 通过；全量 e2e 105 passed / 3 skipped（截图用例，设计上条件跳过）/ 0 failed。
 - **视觉等价性**：S5a 完成后对四套主题 × 明暗运行 `pnpm visual:compare origin`：计算样式失败 0、宽度矩阵失败 0、像素比对通过（容差见 `tests/visual/masks.ts`）。之后只改了文档与脚本注释。
-- 拆分 `core.css` 与规则去重之后（提交 `75ca137`、`3256388`）：`pnpm lint`（含 `check-css-duplicates`）、`pnpm format:check` 通过；对 rc.3 基线（claude 主题，含状态矩阵）计算样式 0 差异、宽度矩阵 0 差异，像素只有 `settings-about` 的构建哈希文字不同（内容，不是样式，两张）。其余主题的拆分后复核见下方“最终审计”。
+- 拆分 `core.css` 与规则去重之后（提交 `75ca137`、`3256388`）：`pnpm lint`（含 `check-css-duplicates`）、`pnpm format:check` 通过；对 rc.3 基线（claude 主题，含状态矩阵）计算样式 0 差异、宽度矩阵 0 差异，像素只有 `settings-about` 的构建哈希文字不同（内容，不是样式，两张）。四套主题 × 明暗对冻结的 `origin` 基线再比一次（拆分与去重之后，约 9 + 3 分钟）：计算样式 / 宽度矩阵的差异只出现在 `m-插件中心`、`settings-about` 两个屏幕（`m-插件中心` 里一个 `span` 的文字宽度 59.20px → 58.98px，`settings-about` 是版本 / 构建哈希文字——rc.3 的内容改动，不是样式），其余屏幕 0 差异；像素差异除这两个屏幕外还有 `task-new-dialog` 8 张（116～189 像素，超过该屏幕 100 的容差，集中在任务名称输入框聚焦环）——`origin` 与 `rc3` 两份基线之间这张图本来就差 248 / 194 像素（claude 浅 / 深），而当前代码对 `rc3` 比对通过，说明差异来自 rc.3 的功能改动（新建任务对话框的提醒区），不是本次重构。
 - 没有跑：打包后 e2e（`e2e:packaged`）、Windows / macOS 任何验证（用户决定归档不需要实机验证）。
 
 ### 未完成的验收项（编号对应 spec）
