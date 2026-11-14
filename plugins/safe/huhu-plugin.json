@@ -2,7 +2,7 @@
   "id": "safe",
   "title": "保险箱",
   "description": "主密码加密的凭据与秘密",
-  "version": "0.0.1-rc.3",
+  "version": "0.0.1-rc.4",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": [],

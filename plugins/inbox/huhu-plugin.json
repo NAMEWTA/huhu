@@ -2,7 +2,7 @@
   "id": "inbox",
   "title": "收件箱",
   "description": "快速捕获并转为任务、笔记或档案",
-  "version": "0.0.1-rc.3",
+  "version": "0.0.1-rc.4",
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["tasks", "notes"],
