@@ -1,0 +1,112 @@
+.hu-storage-browser > header .hu-search-box {
+  flex: 1;
+}
+.vault-write-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--accent-soft);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.vault-write-warning > span {
+  flex: 1;
+}
+.vault-write-warning > button {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+@media (max-width: 740px) {
+  .hu-storage-browser > header .hu-search-box {
+    flex-basis: 100%;
+  }
+}
+@media (max-width: 740px) {
+  .hu-storage-local-tabs .hu-segmented-alt {
+    flex-shrink: 0;
+  }
+}
+.huhu-reading-task {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-right: 4px;
+  color: var(--muted);
+  font-size: 17px;
+  vertical-align: -1px;
+}
+.huhu-markdown-reading [align="right"] {
+  text-align: right;
+}
+.huhu-markdown-reading [align="center"] {
+  text-align: center;
+}
+.hu-window-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.hu-window-bar .hu-badge {
+  font-size: 12px;
+  padding: 1px 7px;
+  background: transparent;
+}
+.workbench {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+}
+.hu-nav-heading .hu-icon-btn {
+  width: 23px;
+  height: 23px;
+  min-height: 23px;
+}
+.hu-workspace-tab {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  position: relative;
+  flex-shrink: 0;
+  max-width: 180px;
+}
+.hu-workspace-tab.active {
+  color: var(--text);
+  background: var(--panel);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .hu-window-center {
+    display: none;
+  }
+}
+@media (max-width: 780px) {
+  .hu-window-center {
+    display: none;
+  }
+}

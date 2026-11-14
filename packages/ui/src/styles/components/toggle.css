@@ -1,0 +1,115 @@
+.toggle {
+  width: 32px;
+  height: 19px;
+  border-radius: 20px;
+  padding: 2px;
+  background: var(--line-strong);
+  position: relative;
+  flex-shrink: 0;
+  min-height: 19px;
+}
+.toggle span {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--on-solid);
+  display: block;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-ink) 13%, transparent);
+  transition: transform 0.12s;
+}
+.toggle.is-on {
+  background: var(--accent-strong);
+}
+.toggle.is-on span {
+  transform: translateX(13px);
+  background: var(--accent-fg);
+}
+.toggle:disabled {
+  opacity: 0.4;
+}
+.hu-switch > span {
+  transform-origin: center;
+  transition:
+    transform var(--motion-move, 220ms) var(--ease-in-out, ease-in-out),
+    width var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.hu-switch:active:not(:disabled) > span {
+  width: 18px;
+  transition-duration: 0ms;
+}
+:root[data-motion="reduced"] .hu-switch > span {
+  transition: none;
+}
+:root[data-motion="reduced"] .hu-switch:active:not(:disabled) > span {
+  width: 16px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hu-switch > span {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hu-switch:active:not(:disabled) > span {
+    width: 16px;
+  }
+}
+.toggle {
+  width: 36px;
+  min-width: 36px;
+  height: 22px;
+  min-height: 22px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  border: 0;
+  flex-shrink: 0;
+}
+.toggle > span {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-ink) 10%, transparent);
+  transform: translateX(0);
+  transition:
+    transform var(--motion-move, 220ms) var(--ease-in-out, ease-in-out),
+    width var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.toggle.is-on > span {
+  background: var(--accent-fg);
+  transform: translateX(14px);
+}
+.toggle.is-on.hu-switch:active:not(:disabled) > span {
+  transform: translateX(12px);
+}
+:root[data-motion="reduced"] .toggle > span {
+  transition: none;
+}
+:root[data-motion="reduced"] .toggle.is-on.hu-switch:active:not(:disabled) > span {
+  transform: translateX(14px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle > span {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle.is-on.hu-switch:active:not(:disabled) > span {
+    transform: translateX(14px);
+  }
+}
+@media (forced-colors: active) {
+  .toggle {
+    border: 1px solid ButtonText;
+  }
+}
+@media (forced-colors: active) {
+  .toggle.is-on {
+    background: Highlight;
+  }
+}
+@media (forced-colors: active) {
+  .toggle > span {
+    background: ButtonText;
+  }
+}

@@ -1,0 +1,89 @@
+.hu-btn {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 11px;
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.hu-btn:hover {
+  background: var(--muted-bg);
+}
+.hu-btn-primary {
+  background: var(--accent-strong);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.hu-btn-primary:hover {
+  background: var(--accent-strong);
+  filter: brightness(0.92);
+}
+.hu-btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-fg);
+}
+.hu-btn-danger:hover {
+  background: var(--danger);
+  filter: brightness(0.92);
+}
+.hu-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.hu-btn:disabled:hover {
+  filter: none;
+}
+.hu-btn {
+  font-size: calc(var(--font-size) - 2px);
+}
+:where(.hu-btn, .hu-icon-btn, [data-press]):not(:disabled):not([aria-disabled="true"]):active {
+  scale: 0.97;
+  transition-duration: 0ms;
+}
+:root[data-motion="reduced"] :where(.hu-btn, .hu-icon-btn, [data-press]):active {
+  scale: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.hu-btn, .hu-icon-btn, [data-press]):active {
+    /* stylelint-disable-next-line declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+    scale: 1 !important;
+  }
+}
+.hu-btn {
+  min-height: var(--control-h);
+  padding: 7px 12px;
+  border-radius: var(--radius-control);
+  font-size: var(--fs-list);
+  font-weight: 500;
+  line-height: 20px;
+  gap: 7px;
+  box-shadow: none;
+  transition:
+    background-color var(--motion-fast, 120ms) var(--ease-out, ease-out),
+    border-color var(--motion-fast, 120ms) var(--ease-out, ease-out),
+    color var(--motion-fast, 120ms) var(--ease-out, ease-out),
+    box-shadow var(--motion-fast, 120ms) var(--ease-out, ease-out),
+    scale var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.hu-btn:not(.hu-btn-primary):not(.hu-btn-danger):not(.hu-btn-ghost):hover:not(:disabled) {
+  background: var(--muted-bg);
+  border-color: var(--line-strong);
+}
+.hu-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 88%, var(--bg));
+  filter: none;
+}
+.hu-btn:disabled,
+.hu-icon-btn:disabled {
+  opacity: 0.48;
+  box-shadow: none;
+}

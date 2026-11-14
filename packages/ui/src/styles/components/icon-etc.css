@@ -1,0 +1,79 @@
+.hu-icon-btn {
+  height: 32px;
+  width: 32px;
+  min-height: 32px;
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0;
+}
+.hu-icon-btn:hover {
+  background: var(--muted-bg);
+  color: var(--text);
+}
+.badge-neutral {
+  background: var(--muted-bg);
+  color: var(--muted);
+}
+.badge-accent,
+.badge-purple,
+.hu-badge-violet {
+  color: var(--tag-4-text);
+  background: var(--tag-4-bg);
+}
+.badge-info,
+.hu-badge-blue {
+  color: var(--info-text);
+  background: var(--info-bg);
+}
+.hu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.hu-field-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.hu-field-description {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.hu-field-error {
+  color: var(--danger-text);
+  font-size: 12px;
+}
+.hu-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.hu-icon-btn:hover:not(:disabled) {
+  background: var(--muted-bg);
+  color: var(--text);
+}
+.hu-icon-btn {
+  width: var(--icon-control-size);
+  height: var(--icon-control-size);
+  min-height: var(--icon-control-size);
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition:
+    background-color var(--motion-fast, 120ms) var(--ease-out, ease-out),
+    color var(--motion-fast, 120ms) var(--ease-out, ease-out),
+    scale var(--motion-fast, 120ms) var(--ease-out, ease-out);
+}
+.hu-field-label {
+  font-size: var(--fs-list);
+  font-weight: 500;
+  margin-bottom: 7px;
+}
+.hu-field-description,
+.hu-field-error {
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+}

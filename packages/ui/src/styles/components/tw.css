@@ -1,0 +1,283 @@
+.hu-vault-recent .hu-icon-btn {
+  width: 22px;
+  height: 24px;
+  color: var(--faint);
+}
+.hu-vault-launch-actions > .hu-btn {
+  height: 38px;
+  justify-content: center;
+}
+.hu-ssh-console-bar > .hu-btn {
+  font-size: var(--fs-meta, 11px);
+  min-height: var(--control-h, 34px);
+  padding: 5px 8px;
+}
+.hu-ssh-console-bar > .hu-icon-btn {
+  width: 28px;
+  height: 28px;
+}
+.hu-ssh-console-panel-head .hu-icon-btn {
+  width: 21px;
+  height: 21px;
+}
+.hu-ssh-console-panel-head .hu-icon-btn svg {
+  height: 12px;
+  width: 12px;
+}
+.ssh-console-input {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  background: var(--text);
+  border-top: 1px solid var(--text);
+  flex: 0 0 46px;
+}
+.ssh-console-input > span {
+  color: var(--tag-5);
+}
+.ssh-console-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--line);
+  font-size: var(--fs-list, 13px);
+  font-family: var(--font-mono, monospace);
+}
+.ssh-console-input input::placeholder {
+  color: var(--tag-5);
+}
+.ssh-console-input .hu-icon-btn {
+  color: var(--line-strong);
+  width: 26px;
+  height: 26px;
+}
+.ssh-console-offline {
+  font-size: var(--fs-meta, 11px);
+  color: var(--muted);
+  padding: 12px;
+  background: var(--sidebar);
+  border-top: 1px solid var(--line);
+}
+.ssh-console-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  flex-wrap: wrap;
+}
+.ssh-console-footer > .mono {
+  font-size: var(--fs-meta, 11px);
+  color: var(--muted);
+}
+.ssh-console-footer .hu-btn {
+  font-size: var(--fs-meta, 11px);
+  padding: 5px 8px;
+  min-height: var(--control-h, 34px);
+}
+.ssh-console-explainer {
+  font-size: var(--fs-meta, 11px);
+  color: var(--muted);
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--sidebar);
+  line-height: 1.6;
+}
+.ssh-console-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ssh-console-history > div:not(.empty) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control, 8px);
+  padding: 12px;
+}
+.ssh-console-history strong {
+  font-size: var(--fs-list, 13px);
+  font-weight: 550;
+}
+.ssh-console-history p {
+  font-size: var(--fs-meta, 11px);
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.ssh-console-history .hu-btn {
+  font-size: var(--fs-meta, 11px);
+  padding: 5px 8px;
+}
+@media (max-width: 900px) {
+  .ssh-console-footer > .mono {
+    display: none;
+  }
+}
+.hu-ssh-console .hu-btn,
+.hu-ssh-console .hu-segmented-alt button {
+  font-size: var(--fs-list, 12px);
+}
+.hu-version-v9-sidebar-title .hu-badge {
+  margin-left: auto;
+}
+.hu-version-v9-sidebar-actions .hu-btn {
+  width: 100%;
+  font-size: 12px;
+}
+.hu-version-v9-diff-heading > .hu-btn {
+  font-size: 11px;
+  min-height: 29px;
+}
+.hu-version-v9-diff > .hu-review-diff {
+  flex: 1;
+}
+.hu-version-v9-main > .hu-empty-state {
+  flex: 1;
+}
+.hu-version-v9-manual .hu-btn {
+  font-size: 11px;
+  min-height: 31px;
+}
+.hu-tw-workbench button {
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.hu-tw-nav-title .hu-icon-btn {
+  margin-left: auto;
+}
+.hu-tw-navigation nav small {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.hu-tw-nav-bottom .hu-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  padding: 6px 7px;
+}
+.hu-tw-heading > .hu-btn {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.hu-tw-search input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: 12px;
+}
+.hu-tw-workbench .hu-tw-completion {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.hu-tw-workbench .hu-tw-completion.is-completed {
+  color: var(--success-text);
+}
+.hu-tw-detail-toolbar .hu-icon-btn {
+  width: 26px;
+  height: 26px;
+}
+.hu-tw-detail-title .hu-tw-completion {
+  margin-top: 2px;
+}
+.hu-tw-detail-title .hu-badge {
+  white-space: nowrap;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.hu-tw-content-tabs .hu-icon-btn {
+  margin-left: auto;
+  width: 25px;
+  height: 25px;
+}
+.hu-tw-source-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.85;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  padding: 12px;
+}
+.hu-tw-detail-section > .hu-btn {
+  font-size: 11px;
+  margin-top: 12px;
+}
+.hu-tw-editor-grid .hu-field {
+  margin: 0;
+  min-width: 0;
+}
+.hu-tw-editor-grid input,
+.hu-tw-editor-grid select,
+.hu-tw-editor-grid textarea {
+  font-size: 12px;
+  width: 100%;
+}
+.hu-tw-section-label > .hu-btn {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 4px 7px;
+  min-height: 25px;
+}
+.hu-tw-section-label > .hu-btn svg {
+  width: 12px;
+  height: 12px;
+}
+.hu-tw-reminders-editor > .hu-btn {
+  align-self: flex-start;
+  font-size: 11px;
+}
+.hu-tw-reminder-config .hu-icon-btn {
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+}
+.hu-tw-rule-item .hu-badge {
+  white-space: nowrap;
+  font-size: 10px;
+}
+.hu-tw-rule-detail-header .hu-btn {
+  font-size: 11px;
+  white-space: nowrap;
+}
+@media (max-width: 780px) {
+  .hu-tw-rule-item .hu-badge {
+    margin-left: auto;
+  }
+}
+.hu-tw-tag-input input {
+  flex: 1;
+  min-width: 120px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+.hu-vault-secondary-actions > .hu-btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 12px;
+}
+.hu-tw-workbench .hu-btn-primary {
+  color: var(--accent-fg);
+}
+.hu-version-v9-stats .added {
+  color: var(--success-text);
+}

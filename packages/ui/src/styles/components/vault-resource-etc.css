@@ -1,0 +1,17 @@
+.vault-resource-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.hu-v9-terminal-heading .hu-badge {
+  font-size: 10px;
+}
+.hu-v9-session-main > .hu-empty-state {
+  flex: 1;
+}
+@media (max-width: 1199px) {
+  .hu-v9-terminal-heading .hu-badge {
+    display: none;
+  }
+}
