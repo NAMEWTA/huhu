@@ -46,7 +46,7 @@
 ### 未完成的验收项（编号对应 spec）
 
 - DSC-05：保留了 34 处 `!important`，其中“覆盖第三方运行时样式”一类超出规格的两类例外（见上表）。
-- DSC-09：`no-duplicate-selectors` 没有启用，`.stylelintrc.json` 里 `declaration-block-no-duplicate-properties` 仍保留 `consecutive-duplicates-with-different-values` 例外；规则级去重未做。
+- DSC-09（评估后未做）：`no-duplicate-selectors` 共 218 处重复选择器；写了一个保守的合并脚本（后块声明并入首块，要求中间没有“选择器可能重叠且设置同一属性”的规则），只有 7 处能证明与顺序无关，其余 210 处都因顺序耦合不能自动合并，已回退（7 处也未验证，没有保留）。手工合并每一处都要重跑渲染比对。`no-duplicate-selectors` 没有启用，`.stylelintrc.json` 里 `declaration-block-no-duplicate-properties` 仍保留 `consecutive-duplicates-with-different-values` 例外；规则级去重未做。
 - ~~DSC-10~~ **已完成（发布后补做）**：16 处项目类名定位器改成 `data-testid`（`notes-reading-pane`、`home-main-column`、`home-side-column`、`version-diff-labels`、`notes-explorer-tree`、`agent-space-item`、`col-resizer`），`.hu-wikilink` 改按 `a[data-target]`；仍保留 2 处按类名：`.home-widget`（区分插件贡献的首页卡片）与第三方 `.cm-*` / `.xterm-*`。受影响的 e2e 用例本地通过。
 - ~~DSC-11~~ **已完成（结论是“没有可安全删除的规则”）**：安装 PurgeCSS 8.0.0，`pnpm css:purge`；rejected 130 条逐条核查与结论见 `evidence/s5c-purgecss-review.md`。第一次按“类名在源码里不出现”删除 101 条被渲染比对否决（模板片段拼出的状态类），第二次只删确认无用的 12 条仍有 16 项差异，最终一条都不删。
 - DSC-12：覆盖率交叉没有做。
