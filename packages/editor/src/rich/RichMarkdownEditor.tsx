@@ -13,6 +13,7 @@ import { SourceEditor } from '@/editor/SourceEditor'
 import { TiptapEditor } from '@/editor/TiptapEditor'
 import { replaceRawBody } from '../vendor/open-knowledge/server-bridge/bridge-intake'
 import { acquireProvider, releaseProvider } from '../host/provider-pool'
+import { registerAtReference, type ReferenceCandidate } from './at-reference'
 import { FILE_LOAD_ORIGIN } from '../host/doc-source'
 import type { LocalDocProvider } from '../host/hocuspocus-provider'
 
@@ -44,6 +45,8 @@ export interface RichMarkdownEditorProps {
   /** 字号（px）与正文可读宽度（px，null = 不限制）：来自笔记设置 */
   fontSize?: number
   contentWidth?: number | null
+  /** `@` 引用候选（提供则启用 `@` 补全，插入 wikiLink 节点） */
+  referenceSearch?: (query: string) => readonly ReferenceCandidate[]
   onPort?(port: RichEditorPort | null): void
   onError?(error: Error): void
   className?: string
@@ -70,7 +73,7 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 }
 
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
-  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, onPort, className, fontSize, contentWidth } = props
+  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, onPort, className, fontSize, contentWidth, referenceSearch } = props
   const [provider, setProvider] = useState<LocalDocProvider | null>(null)
   // 滚动容器 / 内容挂载点：命令式创建（不归 React 管），由 TiptapEditor 的 chrome 搬进自己的 slot
   const [portal] = useState(() => {
@@ -148,6 +151,30 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     }, FILE_LOAD_ORIGIN)
     lastEmitted.current = value
   }, [value, provider])
+
+  // `@` 引用补全：编辑器出现（含 park 后重新出现）时注册，消失时注销
+  const searchRef = useRef(referenceSearch)
+  searchRef.current = referenceSearch
+  const wantsReference = referenceSearch !== undefined
+  useEffect(() => {
+    if (!wantsReference) return
+    let off: (() => void) | null = null
+    let bound: Editor | null = null
+    const sync = () => {
+      const ed = getEditorForDoc(docName)
+      if (ed === bound) return
+      off?.()
+      off = null
+      bound = ed && !ed.isDestroyed ? ed : null
+      if (bound) off = registerAtReference(bound, (q) => searchRef.current?.(q) ?? [])
+    }
+    sync()
+    const unsub = subscribeEditorRegistry(sync)
+    return () => {
+      unsub()
+      off?.()
+    }
+  }, [docName, wantsReference, provider])
 
   // 只读 / 阅读模式
   useEffect(() => {

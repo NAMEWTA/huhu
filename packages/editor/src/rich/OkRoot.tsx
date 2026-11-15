@@ -9,6 +9,7 @@ import '../editor.css'
 import { PageListProvider } from '@/components/PageListContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { dynamicActivate } from '@/lib/activate-locale'
+import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from '@/lib/doc-hash'
 import { i18n } from '@/lib/i18n'
 import { HostConfigProvider, type HostEditorConfig } from '../host/config-provider'
 import { installDesktopBridge } from '../host/desktop-bridge'
@@ -32,6 +33,8 @@ export interface OkRootProps {
   className?: string
   style?: React.CSSProperties
 }
+
+let lastPoolKey: string | undefined
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } })
 
@@ -59,7 +62,27 @@ export function OkRoot({ children, locale = 'en', host, routes, config, poolKey,
     return off
   }, [features, openExternal])
   useEffect(() => (routes ? registerHostRoutes(routes) : undefined), [routes])
-  useEffect(() => () => resetProviderPool(), [poolKey])
+  // OK 的内部链接用 URL hash 表示导航（window.location.assign(#…)）；Huhu 没有 OK 的路由，这里把 hash 翻译成宿主回调后清掉它
+  useEffect(() => {
+    if (!documentHost) return
+    const onHash = () => {
+      const hash = window.location.hash
+      if (!hash || hash === '#') return
+      const doc = docNameFromHash(hash)
+      const asset = doc === null ? assetPathFromHash(hash) : null
+      if (doc === null && asset === null) return
+      clearHashWithoutNavigation()
+      if (doc !== null) documentHost.openDocument?.(doc)
+      else if (asset !== null) documentHost.openTarget?.({ kind: 'asset', target: asset, assetPath: asset, mediaKind: null })
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [documentHost])
+  // 池跨 OkRoot 实例存活（每篇笔记一个 OkRoot）：只有 poolKey（Vault）变了才销毁
+  useEffect(() => {
+    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) resetProviderPool()
+    lastPoolKey = poolKey
+  }, [poolKey])
   useEffect(() => {
     let live = true
     const target = locale.toLowerCase().startsWith('zh') ? 'zh-Hans' : 'en'
@@ -72,8 +95,8 @@ export function OkRoot({ children, locale = 'en', host, routes, config, poolKey,
   return (
     <div className={`ok-root${dark ? ' dark' : ''}${className ? ` ${className}` : ''}`} style={style} data-ok-root>
       <I18nProvider i18n={i18n}>
-        {/* next-themes 只用来给 vendor 的 useTheme() 提供值：不写 html.class / color-scheme，不占用 Huhu 的 localStorage 键 */}
-        <ThemeProvider attribute="data-ok-theme" forcedTheme={dark ? 'dark' : 'light'} enableSystem={false} enableColorScheme={false} storageKey="huhu-ok-theme">
+        {/* 'next-themes' 在 vendor 里是别名到 host/next-themes-shim 的替身：只给 useTheme() 提供值，不往 DOM 注入 <script> */}
+        <ThemeProvider forcedTheme={dark ? 'dark' : 'light'}>
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <HostConfigProvider config={config ?? {}}>

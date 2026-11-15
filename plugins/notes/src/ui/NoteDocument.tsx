@@ -265,7 +265,10 @@ export function NoteDocument(props: NoteDocumentProps) {
       </div>
       <div className="notes-editor-body" data-testid="markdown-editor" data-editor-mode={mode}>
         <Suspense fallback={<p>{t.loading}</p>}>
+          {/* 阅读视图 = 同一个编辑器 editable:false；保留既有的阅读区测试标识 */}
+          <div className="notes-editor-surface" {...(reading ? { "data-testid": "notes-reading-pane" } : {})} data-editor-mode={mode}>
           <NoteEditorSurface path={path} value={text} onChange={onChange} mode={VIEW[mode]} notes={all.data ?? []} onOpen={props.onOpen} onPort={onPort} {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})} />
+          </div>
         </Suspense>
       </div>
       <div className="notes-document-status">

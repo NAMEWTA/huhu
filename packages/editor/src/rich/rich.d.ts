@@ -26,6 +26,7 @@ export interface RichMarkdownEditorProps {
   placeholder?: string;
   fontSize?: number;
   contentWidth?: number | null;
+  referenceSearch?: (query: string) => readonly { path: string; kind: "file" | "folder" }[];
   onPort?(port: RichEditorPort | null): void;
   onError?(error: Error): void;
   className?: string;

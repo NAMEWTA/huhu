@@ -455,6 +455,9 @@
       ],
       "@hocuspocus/server": [
         "src/host/hocuspocus-server.ts"
+      ],
+      "next-themes": [
+        "src/host/next-themes-shim.tsx"
       ]
     },
     "allowImportingTsExtensions": true,

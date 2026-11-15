@@ -267,6 +267,12 @@
     overflow: hidden;
     position: relative;
   }
+  .notes-editor-surface {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+  }
   .notes-reading-pane {
     flex: 1;
     min-width: 0;

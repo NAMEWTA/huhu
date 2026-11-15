@@ -940,8 +940,8 @@ test("阅读模式：数学公式（KaTeX）与 Mermaid 图表渲染；错误的
     const pane = page.getByTestId("notes-reading-pane");
     await expect(pane.locator(".katex").first()).toBeVisible({ timeout: 15_000 });
     expect(await pane.locator(".katex").count()).toBeGreaterThanOrEqual(2); // 行内 + 块
-    await expect(pane.getByTestId("mermaid-diagram").locator("svg")).toBeVisible({ timeout: 30_000 });
-    await expect(pane.getByTestId("mermaid-error")).toContainText("这不是合法的图"); // 源码仍可见
+    await expect(pane.locator(".mermaid svg").first()).toBeVisible({ timeout: 30_000 }); // OK 的 MermaidFence 节点视图
+    await expect(pane).toContainText("这不是合法的图"); // 错误的图表保留源码可见
     await page.getByTestId("file-item").filter({ hasText: "流程" }).click();
     await expect(page.getByTestId("file-mermaid").locator("svg")).toBeVisible({ timeout: 30_000 });
   } finally {
@@ -1233,7 +1233,9 @@ test("ACC-KN-02 输入法正在组合中文时点击“源码”：组合结束�
     await cdp.send("Input.imeSetComposition", { text: "你好", selectionStart: 2, selectionEnd: 2 });
     await expect.poll(() => page.evaluate(() => document.querySelector(".ProseMirror")?.textContent ?? "")).toContain("你好");
     await page.getByRole("tab", { name: "源码" }).click(); // 点击会使编辑区失焦、结束组合
-    await expect(editor).toHaveClass(/mode-source/, { timeout: 5000 });
+    await expect(editor).toHaveAttribute("data-editor-mode", "source", { timeout: 5000 });
+    await expect(editor.locator(".cm-content").first()).toContainText("你好"); // 源码视图读同一份 Y.Text
+    await page.getByRole("tab", { name: "实时预览" }).click();
     await expect(content).toContainText("你好");
     // 撤销可撤回该段输入
     await content.click();
@@ -1303,7 +1305,7 @@ test("AR-06 / AR-10 / AR-09 档案：笔记里的 [[Archives/…/]] 在阅读模
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "年度计划" }).first().click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    await page.locator('a[data-target="Archives/通讯录/张三/"]').click();
+    await page.locator('[data-wiki-link][data-target="Archives/通讯录/张三/"]').click();
     await expect(page.getByTestId("archive-view")).toContainText("张三");
     await expect(page.getByTestId("archive-backlink").filter({ hasText: "年度计划" })).toBeVisible();
     // AR-09：添加附件（pdf）→ 出现在档案文件列表，磁盘上也有

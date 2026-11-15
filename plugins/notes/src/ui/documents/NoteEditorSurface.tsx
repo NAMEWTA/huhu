@@ -46,7 +46,13 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
   const documentHost = useMemo(
     () => ({
-      openDocument: (docName: string) => onOpen.current(MD.test(docName) ? docName : `${docName}.md`),
+      openDocument: (docName: string) => {
+        // OK 的文档名不带扩展名；Huhu 里同名可能是 `名.md`，也可能是文件夹笔记 `名/index.md`（档案 / 文件夹笔记）
+        const have = new Set(notes.current.map((x) => x.path));
+        const direct = MD.test(docName) ? docName : `${docName}.md`;
+        const folder = `${docName.replace(/\/$/, "")}/index.md`;
+        onOpen.current(have.has(direct) ? direct : have.has(folder) ? folder : direct);
+      },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
         if ((t.kind === "doc" || t.kind === "folder-index") && t.docName) onOpen.current(`${t.docName}.md`);
         else if (t.kind === "folder" && t.folderPath) requestOpenPath(`${t.folderPath}/`);
