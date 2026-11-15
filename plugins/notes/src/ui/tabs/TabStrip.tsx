@@ -1,5 +1,5 @@
-import { IconButton } from "@huhu/ui";
-import { FileText, Plus, X } from "lucide-react";
+import { FileIcon, IconButton } from "@huhu/ui";
+import { Plus, X } from "lucide-react";
 import { folderName, archiveNoteRoute } from "../archives/route.js";
 
 export interface TabStripProps {
@@ -19,7 +19,7 @@ export function TabStrip({ tabs, selected, onOpen, onClose, onNew }: TabStripPro
         return (
           <div key={p} className={`notes-document-tab${p === selected ? " active" : ""}`}>
             <button type="button" aria-current={p === selected ? "true" : undefined} title={p} data-testid="document-tab" onClick={() => onOpen(p)}>
-              <FileText size={14} aria-hidden />
+              <FileIcon name={p} size={14} />
               <span>{name}</span>
             </button>
             <button type="button" title={`关闭 ${name}`} aria-label={`关闭 ${name}`} onClick={() => onClose(p)}>

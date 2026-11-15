@@ -13,3 +13,4 @@ export * as Popover from "@radix-ui/react-popover";
 export * from "./components/ReviewDiff.js";
 export * from "./components/Combobox.js";
 export * from "./components/DataTable.js";
+export * from "./components/FileIcon.js";
