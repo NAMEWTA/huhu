@@ -11,4 +11,4 @@
 - 直接 serialize 往返 **不是**字节保真（约三分之一的真实文档会被规范化改写），所以“无编辑不写盘”不能靠 PM→Markdown 往返成立，必须靠 OK 的做法：`Y.Text('source')` 保存原始字节、无编辑不序列化（`markdownSemanticallyUnchanged`）。该性质**尚未在 `LocalDocProvider` 原型上验证**。
 - 首次编辑后，文件会被整体规范化一次（OK 用户同样如此）；这是需要用户知情的行为变化，登记到 spec 待决问题。
 - 未做：22 个 OK 黄金样本全量（仅取了 GFM 的 20 条与 md 夹具）；`replaceRawBody` 不进撤销栈的验证；Huhu `Tasks/`、档案、评论样本的专项分类。
-**状态：未完成，不可记为“通过”。**
+**状态：往返数据部分保留；LocalDocProvider 上“无编辑 Y.Text 逐字节相等”已由 SP-6 验证（见 sp-6.md）；replaceRawBody 不进撤销栈与 22 个黄金样本全量仍未做，SP-4 不记为完全通过。**

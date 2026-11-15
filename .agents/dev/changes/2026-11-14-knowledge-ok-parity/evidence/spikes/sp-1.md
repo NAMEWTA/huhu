@@ -1,18 +1,17 @@
-# SP-1 闭包编译（部分结论，2026-11-15）
+# SP-1 闭包编译（S2a 更新，2026-11-15）——**通过**
 
-分支 `scratch/ok-spike`（worktree `../huhu-spike`）：把 closure-manifest 的 931 个文件原样复制到 `packages/editor/src/vendor/open-knowledge/{app,core}/`，`packages/editor/package.json` 补入 OK 版本的依赖（`pnpm install` 成功，+1286 包），独立 `tsconfig.vendor.json`（OK 自己的 strict 选项，**不用** Huhu 的 `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes`，用 Huhu 基线会产生约 1700 行错误）。
+分支 `feat/knowledge-ok-parity`（S2a 提交）。932 个文件的 closure 进入 `packages/editor/src/vendor/open-knowledge/`。
 
-| 阶段 | 错误数 |
+| 检查 | 结果 |
 | --- | --- |
-| Huhu 严格基线 | ≈ 700+（TS18048 / 2322 / 2345 / 2375 / 2379…，来自更严格的编译选项） |
-| OK 选项，缺类型 | 89 |
-| 补 `vite/client` 类型与 `env.d.ts`、`@types/hast`、`@types/unist` | **36** |
+| `tsc -p tsconfig.vendor.json`（OK 自己的 strict 选项，不含 Huhu 的 `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes`） | **0 错误** |
+| Vite 8 构建（`pnpm --filter @huhu/editor run build:harness`，含 Lingui 宏、`.po` 目录、Tailwind v4、`.ok-root` 作用域插件） | **通过**，约 4.7 s |
+| `apps/desktop` 的 `electron-vite build`（渲染进程已接入同一组插件） | **通过** |
+| 补丁量：`node scripts/ok-patches.mjs --check` | 改动 5 / 删除 4 个文件（阈值 150）；新增 26 个（server-bridge 11 个复制 + 9 个替身，其余 CSS / 声明 / 目录） |
+| Huhu 侧替换行数（`host/` 约 530 行，含 100 行生成的 barrel；server-bridge 替身 96 行；合计约 630） | 阈值 1200 ✔ |
 
-剩余 36 条（`evidence/spikes/sp-1-tsc-remaining.txt`）的类别：
-- 15 条 `@/locales/*/messages.json`：Lingui 编译产物，SP-3 解决，非补丁。
-- 2 条 `@inkeep/open-knowledge-server`（`provider-pool.ts`、`lib/auth-token.ts`）：服务端类型，属于要被 `LocalDocProvider` 替换的部分。
-- 3 条缺 `@types/diff-match-patch`、`@types/picomatch`：补类型包。
-- 约 14 条 `MdxJsx*Data` 的 `sourceRaw / htmlBoundary / sourceBody`：模块增强声明（`.d.ts`）没被 import 闭包带上，补拷这些 `.d.ts` 即可。
-- 其余 `lucide-react/dist/esm/icons/*`、`pdfjs-dist ?url`：环境声明。
+关键发现（S0 的 E0 调查没有写到的）：
 
-**结论（仅限类型检查）**：931 文件闭包在 OK 编译选项下 typecheck 只剩 36 条已分类、无结构性问题的错误，需要的“补丁”是补类型 / 声明文件 / 替换 server 依赖，远低于 150 文件阈值。**未做**：Vite 8 的实际 `build`（需要 Tailwind 与 Lingui 先就位，属 SP-2/SP-3）与运行；所以 SP-1 记为“typecheck 通过的前置结论，构建部分待 SP-2/3”，**不是完整通过**。
+1. **OK 把“编辑树 ↔ 源文本”的跨 CRDT 桥放在服务端**（`server-observers.ts` 1665 行 + `map-driven-splice` 等）。客户端的 `observers.ts` 是空壳。所以“摘取 bridge-intake”不够；本地宿主把整座桥（11 个 server 文件）原样搬进渲染进程，用空实现替掉 OTel / 日志 / 影子仓库（P-S2a-srv）。
+2. 编辑器行为以 OK **锁文件**为基线：OK 的 package.json 对 tiptap 写 `^3.22.3`，锁文件是 3.22.3；Huhu 浮动安装得到 3.34.0，`@tiptap/react` 的 `reactMobileEnter` 插件与上游的 park / 重挂载不兼容（SP-6 实测报 `Adding different instances of a keyed plugin`）。修复：`scripts/ok-align-deps.mjs` 把新增依赖钉到 OK 锁文件版本，`pnpm-workspace.yaml` overrides 固定 27 个 `@tiptap/*` 传递依赖与 `mdast-util-to-markdown`、`mdast-util-mdx-jsx`。
+3. 根 `.gitignore` 的 `lib` 会吞掉 vendor 的 `lib/` 目录（125 个文件没有被提交）；已加例外。

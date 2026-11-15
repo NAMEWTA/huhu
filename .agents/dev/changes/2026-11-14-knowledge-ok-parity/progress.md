@@ -42,3 +42,18 @@
 - `evidence/s0-facts.md`、`evidence/spikes/sp-1.md`（typecheck 剩 36 条已分类错误，Vite build 待 SP-2/3）、`sp-4.md`（444 个 Huhu md：字节相等 66%、规范化后相等 85%；**无编辑不写盘需靠原始源文本，未在原型上验证**）。
 - spike 代码：分支 `scratch/ok-spike`（`a910cfb`，worktree `../huhu-spike`），不合入 main。
 - 未做：SP-2 / SP-3 / SP-5 / SP-6、rc.4 问题复现、`rc4` 视觉基线、复刻矩阵、上游差异（远端 OK 已有更新提交，仅记录未升级）。
+
+## S2a 进展（2026-11-15，分支 `feat/knowledge-ok-parity`）
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| SP-1 编译闸门 | **通过**（tsc 0 错误；Vite 8 构建通过；补丁 5 改 / 4 删，阈值 150） | `evidence/spikes/sp-1.md`、`node scripts/ok-patches.mjs --check` |
+| SP-6 运行时闸门 | **通过**（真实 Electron：无编辑字节相等 / 输入 / 来回切 / 源码模式 / 撤销 / 驱逐；Huhu 侧替换约 630 行，阈值 1200） | `evidence/spikes/sp-6.md`、`packages/editor/test/e2e/sp6.spec.ts` |
+| SP-2 Tailwind 限定 | 部分通过：`.ok-root` 作用域 + `vendor.ok-*` 子层可行，碰撞检查 C=0；`visual:compare rc4` 未做 | `evidence/spikes/sp-2.md` |
+| SP-3 Lingui | 通过（en / zh-Hans） | `evidence/spikes/sp-3.md` |
+| SP-5 YAML | 通过（11/12 字节相同，差异为对拍包装器） | `evidence/spikes/sp-5.md` |
+| SP-4 往返保真 | 部分：往返数据 + LocalDocProvider 无编辑字节相等；22 个黄金样本全量、`replaceRawBody` 撤销栈未做 | `evidence/spikes/sp-4.md` |
+| `test:vendor`（core） | 适用文件 143/146 = 97.9%（≥70%）；app dom 测试未迁入 | `evidence/vendor-test-results.md` |
+| 依赖 / 许可证 / 补丁 | pnpm `patchedDependencies` 9 条；`gen-notices` 登记 `@pierre/trees`、`pako`；tiptap 全系固定 3.22.3 | `pnpm-workspace.yaml`、`PATCHES.md` |
+
+**S0 闸门判定**：SP-1 / SP-6 通过且量在阈值内；SP-4 未完全验证。**S2a 完成度**：2a-1（编译 + LocalDocProvider + host 骨架 + 本地 bridge）、2a-2（Tailwind / Lingui / 补丁 / 碰撞守护 / ok-patches）已做；2a-3 只迁入 core 测试。**S2a 未做**：app 的 dom 测试迁入；`OkHost.features` 与 `host/desktop-bridge.ts`（`window.okDesktop` 的 Huhu 等价物，需要端点矩阵的 14 个成员逐个对应，S2b / S5 用到时再做）；`routes/comments.ts`、`routes/files.ts`（S4 / S5）；`@hocuspocus/provider` 之外还留有 `y-indexeddb`（`client-persistence`）依赖，S2b 决定是否经别名关闭；React Compiler preset；`rc4` 视觉基线与复现（S0 项）。

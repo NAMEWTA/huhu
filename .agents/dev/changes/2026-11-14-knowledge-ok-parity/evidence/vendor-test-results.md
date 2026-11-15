@@ -77,12 +77,6 @@
 - `src/vendor/open-knowledge/core/src/skills-catalog/skill-registry.test.ts`：Cannot find module './skill-registry.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90
 - `src/vendor/open-knowledge/core/src/skills-catalog/source-fields.test.ts`：Cannot find module './acquire/fetch.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
 - `src/vendor/open-knowledge/core/src/theme/default-theme-contrast.uncached.test.ts`：Cannot find package 'culori' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packages/e
-- `src/vendor/open-knowledge/core/src/util/atomic-temp-path.test.ts`：Cannot find module '../../../../test-support/configure-git-fixture.test-helper.ts' imported from '/home/wta/projects/huh
-- `src/vendor/open-knowledge/core/src/util/atomic-yaml-write.test.ts`：Cannot find module './atomic-yaml-write.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5b
-- `src/vendor/open-knowledge/core/src/util/file-lock-deadline.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/util/file-lock.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/util/project-logs-dir.test.ts`：Cannot find module '../constants/ok-user-home.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959571
-- `src/vendor/open-knowledge/core/src/util/spawn-error-log-open.test.ts`：Cannot find module '../constants/lifecycle.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ff
 - `src/vendor/open-knowledge/core/src/utils/apply-by-prefix-suffix.test.ts`：Cannot find module './apply-by-prefix-suffix.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710
 - `src/vendor/open-knowledge/core/src/utils/github-stars.test.ts`：Cannot find module './github-stars.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/
 - `src/vendor/open-knowledge/core/src/utils/path-resolve.test.ts`：Cannot find module './path-resolve' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
@@ -91,3 +85,9 @@
 - `src/vendor/open-knowledge/core/src/utils/sleep.test.ts`：Cannot find module './sleep.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/package
 - `src/vendor/open-knowledge/core/src/utils/tag-rollup.test.ts`：Cannot find module './tag-rollup.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pa
 - `src/vendor/open-knowledge/core/src/utils/uninstall-feedback-submit.test.ts`：Cannot find module '../index.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packag
+- `src/vendor/open-knowledge/core/src/util/atomic-temp-path.test.ts`：Cannot find module '../../../../test-support/configure-git-fixture.test-helper.ts' imported from '/home/wta/projects/huh
+- `src/vendor/open-knowledge/core/src/util/atomic-yaml-write.test.ts`：Cannot find module './atomic-yaml-write.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5b
+- `src/vendor/open-knowledge/core/src/util/file-lock-deadline.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
+- `src/vendor/open-knowledge/core/src/util/file-lock.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
+- `src/vendor/open-knowledge/core/src/util/project-logs-dir.test.ts`：Cannot find module '../constants/ok-user-home.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959571
+- `src/vendor/open-knowledge/core/src/util/spawn-error-log-open.test.ts`：Cannot find module '../constants/lifecycle.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ff
