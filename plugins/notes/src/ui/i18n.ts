@@ -33,7 +33,7 @@ export const n = {
   newFolder: "新建文件夹",
   treeOptions: "文件树选项",
   searchPlaceholder: "搜索文件、内容或标签…",
-  sections: { all: "文件", favorites: "星标", daily: "日记", tags: "标签", trash: "回收站" },
+  sections: { all: "文件", favorites: "星标", daily: "日记", tags: "标签", trash: "回收站", archives: "档案" },
   caption: { all: "VAULT 文件", favorites: "已标星文件", daily: "每日笔记", tags: "标签筛选", trash: "已删除文件", search: (c: number) => `搜索结果 · ${c}` },
   allTags: "全部标签",
   sortTime: "按修改时间排序",

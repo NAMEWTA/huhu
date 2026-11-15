@@ -69,8 +69,11 @@ export interface ExplorerProps {
   onToggleFolder(path: string): void;
   /** 点击文件夹名称（没有 index.md 的文件夹）：宿主可据此打开文件夹视图（例如档案首页）。 */
   onFolderClick?(path: string): void;
-  /** 打开档案首页。 */
+  /** 点击顶部“档案”分区：打开 / 聚焦档案首页标签（S6）。 */
   onOpenArchives?(): void;
+  /** 活动标签属于档案时侧栏切到档案上下文（S6，E02）：分区条高亮“档案”，树区域换成 `archivesPanel`。 */
+  archivesActive?: boolean;
+  archivesPanel?: React.ReactNode;
   onNewNote(folder?: string): void;
   /** 拖放移动：把笔记拖到文件夹（dir = 文件夹路径）或空白处（dir = ""，Vault 根）。 */
   onMoveNote(path: string, dir: string): void;
@@ -229,21 +232,30 @@ export function NoteExplorer(p: ExplorerProps) {
             <>
               <IconButton icon={FilePlus2} label={n.newNote} onClick={() => p.onNewNote()} />
               <IconButton icon={FolderPlus} label={n.newFolder} onClick={() => p.onNewFolder()} />
-              {p.onOpenArchives ? <IconButton icon={Archive} label="档案" data-testid="notes-open-archives" onClick={p.onOpenArchives} /> : null}
             </>
           ) : null}
         </div>
         <SearchBox value={p.query} onChange={p.onQuery} placeholder={n.searchPlaceholder} />
         <div className="notes-explorer-filters" role="tablist" aria-label="文件分类">
-          {SECTIONS.map((s) => (
-            <button key={s} type="button" role="tab" aria-selected={p.section === s} className={p.section === s ? "active" : ""} data-testid={`notes-section-${s}`} onClick={() => p.onSection(s)}>
-              <SectionIcon section={s} />
-              <span>{n.sections[s]}</span>
+          {SECTIONS.map((s) => {
+            const on = !p.archivesActive && p.section === s;
+            return (
+              <button key={s} type="button" role="tab" aria-selected={on} className={on ? "active" : ""} data-testid={`notes-section-${s}`} onClick={() => p.onSection(s)}>
+                <SectionIcon section={s} />
+                <span>{n.sections[s]}</span>
+              </button>
+            );
+          })}
+          {p.onOpenArchives ? (
+            <button type="button" role="tab" aria-selected={p.archivesActive === true} className={p.archivesActive ? "active" : ""} data-testid="notes-open-archives" onClick={p.onOpenArchives}>
+              <Archive size={13} aria-hidden />
+              <span>{n.sections.archives}</span>
             </button>
-          ))}
+          ) : null}
         </div>
       </div>
-      {p.section === "daily" ? (
+      {p.archivesActive ? <div className="hu-resource-list notes-explorer-tree notes-archives-tree" data-testid="notes-archives-tree">{p.archivesPanel}</div> : null}
+      {!p.archivesActive && p.section === "daily" ? (
         <div className="hu-knowledge-daily-picker">
           <input type="date" aria-label={n.dailyDate} value={p.dailyDate} onChange={(e) => p.onDailyDate(e.target.value)} />
           <Button icon={FilePlus2} onClick={() => p.onOpenDaily(p.dailyDate)}>
@@ -251,7 +263,7 @@ export function NoteExplorer(p: ExplorerProps) {
           </Button>
         </div>
       ) : null}
-      {p.section === "tags" ? (
+      {!p.archivesActive && p.section === "tags" ? (
         <div className="notes-tag-cloud">
           <button type="button" className={`notes-chip${p.tag === null ? " active" : ""}`} onClick={() => p.onTag(null)}>
             {n.allTags}
@@ -263,7 +275,7 @@ export function NoteExplorer(p: ExplorerProps) {
           ))}
         </div>
       ) : null}
-      <div className="hu-resource-list notes-explorer-tree" data-testid="notes-explorer-tree" {...dropProps("")} role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
+      {p.archivesActive ? null : <div className="hu-resource-list notes-explorer-tree" data-testid="notes-explorer-tree" {...dropProps("")} role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
         <div className="notes-list-caption">
           <button type="button" className="active">
             {caption}
@@ -280,7 +292,7 @@ export function NoteExplorer(p: ExplorerProps) {
         )}
         {p.notes.length === 0 && (p.query || p.section !== "all" || p.folders.length > 0) ? <EmptyState icon={FileText} title={trash ? n.emptyTrash : n.noMatch} /> : null}
         {p.notes.length === 0 && p.section === "all" && !p.query && p.folders.length === 0 ? <EmptyState icon={FileText} title={n.emptyVault} hint={n.emptyVaultHint} /> : null}
-      </div>
+      </div>}
       <div className="hu-knowledge-resource-footer">
         <input ref={fileInput} type="file" hidden accept=".md,.markdown,.txt" multiple onChange={(e) => e.target.files && p.onImport(e.target.files)} />
         <Button variant="ghost" icon={Upload} onClick={() => fileInput.current?.click()}>
