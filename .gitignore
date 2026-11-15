@@ -8,6 +8,8 @@ coverage
 test-results
 playwright-report
 lib
+!packages/editor/src/vendor/open-knowledge/**/lib
+!packages/editor/src/vendor/open-knowledge/**/lib/**
 apps/desktop/resources/herdr/
 .cache/
 .claude/worktrees

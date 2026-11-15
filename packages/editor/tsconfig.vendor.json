@@ -1,6 +1,7 @@
 {
   "include": [
-    "src/vendor/open-knowledge/**/*"
+    "src/vendor/open-knowledge/**/*",
+    "src/host/**/*"
   ],
   "exclude": [],
   "compilerOptions": {
@@ -17,7 +18,7 @@
         "src/vendor/open-knowledge/app/src/*"
       ],
       "@inkeep/open-knowledge-core": [
-        "src/vendor/open-knowledge/core/src/index.ts"
+        "src/host/core-barrel.ts"
       ],
       "@inkeep/open-knowledge-core/shadow-repo-layout": [
         "src/vendor/open-knowledge/core/src/shadow-repo-layout.ts"
@@ -438,6 +439,12 @@
       ],
       "@inkeep/open-knowledge-core/utils/youtube-embed": [
         "src/vendor/open-knowledge/core/src/utils/youtube-embed.ts"
+      ],
+      "@hocuspocus/provider": [
+        "src/host/hocuspocus-provider.ts"
+      ],
+      "@hocuspocus/server": [
+        "src/host/hocuspocus-server.ts"
       ]
     },
     "allowImportingTsExtensions": true,

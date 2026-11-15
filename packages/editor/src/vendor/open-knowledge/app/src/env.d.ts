@@ -65,7 +65,7 @@ declare namespace globalThis {
    * `import.meta.env.DEV` guard in `AgentThreadClientBinder.tsx`.
    */
   var __acpThreadHarness: import('@/lib/acp/dev-thread-harness').AcpThreadHarness | undefined;
-  var __providerPool: import('@/editor/provider-pool').ProviderPool | undefined;
+  var __providerPool: unknown;
   var __activeProvider: import('@hocuspocus/provider').HocuspocusProvider | null;
   /**
    * DEV-only: TipTap `Editor` instance of the currently-active pooled doc.
