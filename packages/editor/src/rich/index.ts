@@ -7,3 +7,5 @@ export { coreRoutes, type CoreRouteDeps, type HostPageSummary, type HostDocument
 export type { HostRoutes } from '../host/host-fetch'
 export { DEFAULT_FEATURES, type OkHost, type OkHostFeatures } from '../host/ok-host'
 export { dropProvider } from '../host/provider-pool'
+export { CompactMarkdownView, CompactMarkdownInput, type CompactPage } from './compact'
+export type { ReferenceCandidate } from './at-reference'

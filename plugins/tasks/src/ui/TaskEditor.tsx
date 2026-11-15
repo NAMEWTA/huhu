@@ -1,12 +1,12 @@
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { normalizeTag, type TaskDto } from "@huhu/contracts";
-import { MarkdownEditor, referenceCompletion } from "@huhu/editor";
 import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
 import { host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Bell, FileText, FolderOpen, Plus, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { draftFromTask, draftToWritable, emptyDraft, validateDraft, type TaskDraft } from "../shared/draft.js";
 import { t } from "./i18n.js";
+import { TaskMarkdownInput } from "./compact.js";
 import { useReferenceIndex } from "./references.js";
 
 interface Space {
@@ -29,7 +29,6 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const qc = useQueryClient();
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const refs = useReferenceIndex();
-  const extensions = useMemo(() => [referenceCompletion(refs.search)], [refs.search]);
   const [tagInput, setTagInput] = useState("");
   const providers = useCapability<Detected[]>("agent.catalog.detect", {});
   const start = useRef(task).current; // 打开时的快照：保存用它的 version 做冲突检测，不受后台刷新影响
@@ -101,7 +100,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
             </Field>
             <Field label={t.editor.body}>
               <div className="automations-description-input tasks-body-editor" data-testid="task-body">
-                <MarkdownEditor documentId={`task-body-${start?.id ?? "new"}`} value={draft.body} mode="source" lineNumbers={false} ariaLabel={t.editor.bodyLabel} extensions={extensions} onChange={(v) => set("body", v)} />
+                <TaskMarkdownInput id={`task-body-${start?.id ?? "new"}`} value={draft.body} onChange={(v) => set("body", v)} refs={refs} placeholder={t.editor.bodyLabel} />
               </div>
               <p className="tasks-hint">{t.editor.bodyHint}</p>
             </Field>

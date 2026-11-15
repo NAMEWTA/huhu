@@ -1809,7 +1809,7 @@ test("任务界面：分类计数、搜索、新建对话框（截止日 / 项�
     await editor.getByLabel("任务名称").fill("写周报");
     await editor.getByTestId("task-due").fill(todayStr);
     await editor.getByLabel("任务项目").fill("工作");
-    await editor.getByTestId("task-body").locator(".cm-content").fill("整理本周完成的事项");
+    await editor.getByTestId("task-body").locator(".ProseMirror").fill("整理本周完成的事项");
     await page.getByTestId("task-save").click();
     await expect(page.getByTestId("task-detail")).toContainText("写周报"); // 保存后自动打开详情
     await expect(page.getByTestId("detail-body")).toContainText("整理本周完成的事项");

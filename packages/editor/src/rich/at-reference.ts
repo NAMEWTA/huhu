@@ -105,7 +105,8 @@ export function registerAtReference(editor: Editor, search: (query: string) => r
       onExit: close,
     }),
   })
-  editor.registerPlugin(plugin)
+  // 放在最前：Enter / 方向键要先给候选菜单，再轮到 StarterKit 的键位
+  editor.registerPlugin(plugin, (added, existing) => [added, ...existing])
   return () => {
     close()
     if (!editor.isDestroyed) editor.unregisterPlugin(key)

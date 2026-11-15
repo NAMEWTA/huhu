@@ -149,13 +149,12 @@ test("ACC-TK-06 任务内容里输入 @ 引用 Vault 文件夹：补全列出匹
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
     await page.getByLabel("任务名称").fill("引用资料");
-    const body = page.getByTestId("task-body").locator(".cm-content");
+    const body = page.getByTestId("task-body").locator(".ProseMirror");
     await body.click();
     await page.keyboard.type("参考 @Resea");
-    await expect(page.locator(".cm-tooltip-autocomplete")).toContainText("Research");
-    await page.waitForTimeout(300); // CodeMirror 在补全面板刚出现的一瞬间忽略确认键
+    await expect(page.getByTestId("editor-ref-menu")).toContainText("Research");
     await page.keyboard.press("Enter");
-    await expect(body).toContainText("[[Research/]]");
+    await expect(body).toContainText("Research/"); // 选中后插入 wikiLink 节点（芯片显示目标），保存后序列化为 [[Research/]]
     await page.getByTestId("task-save").click();
     await expect(page.getByTestId("detail-references")).toContainText("Research");
   } finally {

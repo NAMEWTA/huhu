@@ -85,3 +85,22 @@ export interface OkRootProps {
 }
 export function OkRoot(props: OkRootProps): ReactElement | null;
 export function dropProvider(docName: string): void;
+
+export interface ReferenceCandidate {
+  path: string;
+  kind: "file" | "folder";
+}
+export interface CompactPage {
+  path: string;
+  title?: string;
+}
+interface CompactBase {
+  id: string;
+  pages?: readonly CompactPage[];
+  onOpenPath?(path: string): void;
+  className?: string;
+}
+export function CompactMarkdownView(props: CompactBase & { value: string }): ReactElement;
+export function CompactMarkdownInput(
+  props: CompactBase & { value: string; onChange(text: string): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+): ReactElement;

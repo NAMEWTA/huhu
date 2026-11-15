@@ -1,5 +1,5 @@
 import { useCapability, scoreText } from "@huhu/workbench";
-import type { ReferenceCandidate } from "@huhu/editor";
+import type { ReferenceCandidate } from "@huhu/editor/rich";
 import { useCallback, useMemo, useRef } from "react";
 import { buildCandidates } from "../shared/references.js";
 
@@ -8,6 +8,8 @@ export interface ReferenceIndex {
   search(query: string): ReferenceCandidate[];
   /** 双链目标是否存在于 Vault（文件按路径，文件夹按以 / 结尾的路径）。 */
   exists(target: string): boolean;
+  /** 全部候选（文件 / 以 / 结尾的文件夹）：紧凑编辑器的 `[[` 候选与链接解析用 */
+  pages: readonly { path: string }[];
 }
 
 /** 引用索引：数据源是 vault.tree，被过滤的内部目录（`.huhu/`）不出现。 */
@@ -31,5 +33,5 @@ export function useReferenceIndex(): ReferenceIndex {
     return ranked.slice(0, 30).map((c) => ({ path: c.path, kind: c.kind }));
   }, []);
   const exists = useCallback((target: string) => known.has(target.replace(/#.*$/, "")) || known.has(`${target.replace(/#.*$/, "")}/`), [known]);
-  return { search, exists };
+  return { search, exists, pages: candidates };
 }
