@@ -19,7 +19,7 @@ const LAYERS = "theme, tokens, base, vendor, components, shell, modules";
 
 const files = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--", "*.css"], { encoding: "utf8" })
   .split("\n")
-  .filter((f) => f && !f.startsWith(".agents/") && !f.startsWith("temp/") && !f.includes("node_modules") && fs.existsSync(f));
+  .filter((f) => f && !f.startsWith(".agents/") && !f.startsWith("temp/") && !f.includes("node_modules") && fs.existsSync(f) && !f.startsWith("packages/editor/src/vendor/open-knowledge/") && f !== "packages/editor/src/ok/ok-globals.css");
 
 const posix = (p) => p.split(path.sep).join("/");
 const errors = [];

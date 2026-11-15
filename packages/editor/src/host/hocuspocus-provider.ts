@@ -87,7 +87,7 @@ export class LocalDocProvider {
   }
 
   private emit(event: string, ...args: unknown[]): void {
-    for (const fn of [...(this.listeners.get(event) ?? [])]) fn(...args)
+    for (const fn of Array.from(this.listeners.get(event) ?? [])) fn(...args)
   }
 
   forceSync(): void {}

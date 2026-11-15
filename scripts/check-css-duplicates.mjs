@@ -13,7 +13,7 @@ const norm = (x) =>
     .trim();
 const files = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--", "*.css"], { encoding: "utf8" })
   .split("\n")
-  .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.includes("generated"));
+  .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.includes("generated") && !f.startsWith("packages/editor/src/vendor/open-knowledge/") && f !== "packages/editor/src/ok/ok-globals.css");
 const found = {};
 const groupOf = (f) => (f.startsWith("packages/ui/src/styles/components/") ? "packages/ui/src/styles/components/*" : f);
 const counts = new Map();

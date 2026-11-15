@@ -10,7 +10,6 @@ import { execFileSync } from 'node:child_process'
 const ROOT = resolve(import.meta.dirname, '..')
 const OK = process.env.OK_SRC ?? join(ROOT, 'temp/sources/open-knowledge')
 const APP_SRC = join(OK, 'packages/app/src')
-const CORE_SRC = join(OK, 'packages/core/src')
 const CORE_PKG = '@inkeep/open-knowledge-core'
 const EXTS = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.json', '.css']
 

@@ -11,7 +11,6 @@ const r = JSON.parse(readFileSync(join(ED, 'test-results/vendor.json'), 'utf8'))
 const rows = { pass: [], fail: [], na: [] }
 for (const f of r.testResults) {
   const file = f.name.replace(/^.*packages\/editor\//, '')
-  const base = file.replace(/\.(uncached\.|parity\.|typelock\.)?test\.ts$/, '').replace(/\.[a-z-]+$/, (m) => (existsSync(join(ED, file.replace(/\.test\.ts$/, '').replace(/\.uncached$/, '') + '.ts')) ? m : m))
   const stem = file.replace(/\.test\.ts$/, '').replace(/\.(uncached|parity|typelock)$/, '')
   const subjectExists = ['.ts', '.tsx', '/index.ts'].some((e) => existsSync(join(ED, stem + e)))
   const n = f.assertionResults.length

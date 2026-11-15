@@ -20,7 +20,7 @@ if (!builtPath) {
 function classesIn(root) {
   const out = new Set()
   root.walkRules((r) => {
-    if (r.parent?.type === 'atrule' && /keyframes$/.test(r.parent.name)) return
+    if (r.parent?.type === 'atrule' && r.parent.name.endsWith("keyframes")) return
     selectorParser((sels) => sels.walkClasses((c) => out.add(c.value))).processSync(r.selector)
   })
   return out
@@ -43,7 +43,7 @@ const okClasses = classesIn(okRoot)
 // C：.ok-root 之外
 const violations = []
 okRoot.walkRules((r) => {
-  if (r.parent?.type === 'atrule' && /keyframes$/.test(r.parent.name)) return
+  if (r.parent?.type === 'atrule' && r.parent.name.endsWith("keyframes")) return
   for (const sel of r.selectors) {
     const scoped = /\.ok-root\b/.test(sel)
     if (sel.trim() === '::backdrop') continue

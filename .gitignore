@@ -15,3 +15,7 @@ apps/desktop/resources/herdr/
 .claude/worktrees
 temp/
 .visual/
+
+# 编辑器 harness 构建产物与 vendor 测试结果
+packages/editor/harness-dist
+packages/editor/test-results

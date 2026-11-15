@@ -12,8 +12,8 @@ function scopeSelector(sel) {
   if (s === '::backdrop') return s // 伪元素无法按祖先限定；只声明 --tw-* 初值，对非 OK 的 top-layer 无可见影响
   if (s === '*' || /^\*?::?(before|after)$/.test(s)) return `.ok-root ${s.startsWith('*') ? s : '*' + (s.startsWith('::') ? s : ':' + s)}`
   if (/^html\s/.test(s)) return s.replace(/^html/, '.ok-root')
-  if (/^html[.:\[]/.test(s)) return s.replace(/^html/, '.ok-root')
-  if (/^body[.:\[\s]/.test(s)) return s.replace(/^body/, '.ok-root')
+  if (/^html[.:[]/.test(s)) return s.replace(/^html/, '.ok-root')
+  if (/^body[.:[\s]/.test(s)) return s.replace(/^body/, '.ok-root')
   return s
 }
 
@@ -24,7 +24,7 @@ export default function okScopePlugin() {
       const file = root.source?.input?.file ?? ''
       if (!TARGET.test(file)) return
       root.walkRules((rule) => {
-        if (rule.parent?.type === 'atrule' && /keyframes$/.test(rule.parent.name)) return
+        if (rule.parent?.type === 'atrule' && rule.parent.name.endsWith("keyframes")) return
         rule.selectors = rule.selectors.map(scopeSelector)
       })
       const wrap = new AtRule({ name: 'layer', params: 'vendor.ok-rules' })

@@ -26,7 +26,12 @@ const ALLOWED = [
 ];
 
 // package.json 里没有 license 字段、但随包带有许可证文本的依赖：人工核对 LICENSE 文件后在这里登记（不是放宽允许列表）。
-const MANUAL = { "khroma@2.1.0": "MIT" }; // mermaid 的依赖；包内 license 文件为 MIT（Copyright Fabio Spampinato, Andrew Maney）
+const MANUAL = {
+  "khroma@2.1.0": "MIT",
+  // OK 编辑器 vendor 新增依赖（S2a）：package.json 的 license 字段写法不被正则识别，已核对包内 LICENSE 文本
+  "@pierre/trees@1.0.0-beta.4": "Apache-2.0", // license 字段是小写 "apache-2.0"；包内 LICENSE.md 为 Apache License 2.0
+  "pako@2.0.3": "MIT AND Zlib", // 两者都是宽松许可证（Zlib 与 GPL-3.0 兼容）
+}; // mermaid 的依赖；包内 license 文件为 MIT（Copyright Fabio Spampinato, Andrew Maney）
 
 // 工作区包（renderer/engine/CLI）都被打包进应用，其依赖大多声明为 devDependencies，所以直接读取 pnpm 虚拟仓库里
 // 安装的每个包（偏保守的超集：也包含构建工具；构建工具不随包分发，但列出不会有害）。
