@@ -17,6 +17,9 @@ export interface NoteEditorSurfaceProps {
   /** 编辑器内点击 wiki-link / 内部链接：交给笔记模块打开 */
   onOpen(path: string): void;
   onPort(port: RichEditorPort | null): void;
+  fontSize?: number;
+  /** 正文可读宽度 px；null = 不限制 */
+  contentWidth?: number | null;
 }
 
 const MD = /\.(md|mdx)$/i;
@@ -55,7 +58,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
 
   return (
     <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
-      <RichMarkdownEditor docName={docNameOf(props.path)} value={props.value} onChange={props.onChange} mode={props.mode} onPort={props.onPort} />
+      <RichMarkdownEditor docName={docNameOf(props.path)} value={props.value} onChange={props.onChange} mode={props.mode} onPort={props.onPort} {...(props.fontSize ? { fontSize: props.fontSize } : {})} {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})} />
     </OkRoot>
   );
 }

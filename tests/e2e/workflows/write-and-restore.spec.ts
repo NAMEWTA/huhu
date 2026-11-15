@@ -3,7 +3,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { root } from "../helpers/launch.js";
+import { root, USER_DATA_ARG } from "../helpers/launch.js";
 
 /** 工作流 W-B：写笔记 → 批注 → 外部入口（CLI 令牌）捕获 → 命名版本 → 改动后恢复上一版 → 重开应用结果一致。 */
 type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -26,7 +26,7 @@ async function caller(page: Page): Promise<Call> {
 
 test("写作与恢复：批注、版本、恢复，重开后一致", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-wf-"));
-  const launch = () => electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault } });
+  const launch = () => electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault } });
   let app: ElectronApplication = await launch();
   try {
     let page = await app.firstWindow();

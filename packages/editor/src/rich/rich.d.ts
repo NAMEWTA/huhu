@@ -24,6 +24,8 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
+  fontSize?: number;
+  contentWidth?: number | null;
   onPort?(port: RichEditorPort | null): void;
   onError?(error: Error): void;
   className?: string;

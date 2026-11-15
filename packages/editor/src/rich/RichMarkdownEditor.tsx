@@ -41,6 +41,9 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant
   readOnly?: boolean
   placeholder?: string
+  /** 字号（px）与正文可读宽度（px，null = 不限制）：来自笔记设置 */
+  fontSize?: number
+  contentWidth?: number | null
   onPort?(port: RichEditorPort | null): void
   onError?(error: Error): void
   className?: string
@@ -67,9 +70,14 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 }
 
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
-  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, onPort, className } = props
+  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, onPort, className, fontSize, contentWidth } = props
   const [provider, setProvider] = useState<LocalDocProvider | null>(null)
-  const [portal, setPortal] = useState<HTMLDivElement | null>(null)
+  // 滚动容器 / 内容挂载点：命令式创建（不归 React 管），由 TiptapEditor 的 chrome 搬进自己的 slot
+  const [portal] = useState(() => {
+    const el = document.createElement('div')
+    el.style.display = 'contents' // OK 的栅格布局要求 portal 容器与 slot 两层都是 display:contents（globals.css .tiptap-editor-portal-content 注释）
+    return el
+  })
   const valueRef = useRef(value)
   valueRef.current = value
   const onChangeRef = useRef(onChange)
@@ -288,14 +296,20 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   const showSource = mode === 'source'
   return (
-    <div className={`ok-rich-editor ok-variant-${variant}${className ? ` ${className}` : ''}`} data-testid="ok-editor" data-mode={mode} style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <div ref={setPortal} id={`ok-portal-${variant}`} style={{ flex: 1, minHeight: 0, overflow: 'auto' }} hidden={showSource} />
+    <div className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ''}`} data-ok-editor data-mode={mode} style={{ height: '100%', minHeight: 0, position: 'relative', ...(fontSize ? { ['--editor-ok-font-size' as string]: `${fontSize}px` } : {}), ...(contentWidth === undefined ? {} : { ['--editor-ok-measure' as string]: contentWidth === null ? '100%' : `${contentWidth}px` }) }}>
       <Boundary {...(props.onError ? { onError: props.onError } : {})}>
         <Suspense fallback={null}>
-          {provider && portal ? (
+          {provider ? (
             <>
-              <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
-              <SourceEditor key={`s-${docName}`} docName={docName} ytext={provider.document.getText('source')} provider={provider as never} isSourceModeActive={showSource} />
+              {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}
+              <div hidden={showSource} data-testid="editor-scroll-container" style={{ height: '100%', overflow: 'auto' }}>
+                <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+              </div>
+              {showSource ? (
+                <div style={{ height: '100%', overflow: 'auto' }}>
+                  <SourceEditor key={`s-${docName}`} docName={docName} ytext={provider.document.getText('source')} provider={provider as never} isSourceModeActive />
+                </div>
+              ) : null}
             </>
           ) : null}
         </Suspense>

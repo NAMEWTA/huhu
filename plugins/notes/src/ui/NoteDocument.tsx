@@ -265,7 +265,7 @@ export function NoteDocument(props: NoteDocumentProps) {
       </div>
       <div className="notes-editor-body" data-testid="markdown-editor" data-editor-mode={mode}>
         <Suspense fallback={<p>{t.loading}</p>}>
-          <NoteEditorSurface path={path} value={text} onChange={onChange} mode={VIEW[mode]} notes={all.data ?? []} onOpen={props.onOpen} onPort={onPort} />
+          <NoteEditorSurface path={path} value={text} onChange={onChange} mode={VIEW[mode]} notes={all.data ?? []} onOpen={props.onOpen} onPort={onPort} {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})} />
         </Suspense>
       </div>
       <div className="notes-document-status">

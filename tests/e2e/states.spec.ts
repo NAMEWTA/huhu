@@ -2,7 +2,7 @@ import { _electron as electron, expect, test } from "@playwright/test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openApp, root } from "./helpers/launch.js";
+import { openApp, root, USER_DATA_ARG } from "./helpers/launch.js";
 
 const MODULES = ["工作台", "任务", "知识库", "收件箱", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
 
@@ -91,7 +91,7 @@ test("ACC-WB-09 状态巡检：只读 Vault 下所有模块可以打开，没有
   chmodSync(dir, 0o555);
   const env = { ...process.env } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  const app = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
   try {
     const page = await app.firstWindow();
     const errors: string[] = [];

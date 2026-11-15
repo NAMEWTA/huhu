@@ -3,7 +3,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openApp, rmTree, root } from "../helpers/launch.js";
+import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
 type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -171,7 +171,7 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
   mkdirSync(B);
   const env = { ...process.env } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  const app: ElectronApplication = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const app: ElectronApplication = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
   const pick = (...paths: string[]) =>
     app.evaluate(({ dialog }, queue) => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [queue.shift() ?? ""] })) as typeof dialog.showOpenDialog;
@@ -190,7 +190,7 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
     await page.getByRole("button", { name: "新建笔记" }).first().click();
     await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("草稿甲");
     await page.getByTestId("new-note-submit").click();
-    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.getByTestId("markdown-editor").locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("\nA库未保存的内容");
     await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
@@ -278,7 +278,7 @@ test("ACC-AG-05 切换 Space：右侧历史只显示当前 Space 目录的会话
 async function launchBare(): Promise<{ app: ElectronApplication; pick(...paths: string[]): Promise<void> }> {
   const env = { ...process.env } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  const app = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
   return {
     app,
     pick: (...paths: string[]) =>
@@ -651,7 +651,7 @@ test("切换笔记再切回：撤销历史保留（编辑器按笔记路径重�
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("新增的一行");
     await expect(editor).toContainText("新增的一行");
@@ -660,7 +660,7 @@ test("切换笔记再切回：撤销历史保留（编辑器按笔记路径重�
     await expect(editor).toContainText("别的");
     await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
     await expect(editor).toContainText("新增的一行");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(editor).not.toContainText("新增的一行"); // 撤销历史还在
   } finally {
@@ -872,7 +872,7 @@ test("笔记被外部修改且有未保存编辑：Banner 有“查看差异 / �
     await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("外改笔记");
     await page.getByTestId("new-note-submit").click();
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("我的一行");
     const file = `${vault}/外改笔记.md`;
@@ -1227,11 +1227,11 @@ test("ACC-KN-02 输入法正在组合中文时点击“源码”：组合结束�
     await page.getByTestId("note-item").filter({ hasText: "输入法" }).click();
     await page.getByRole("tab", { name: "实时预览" }).click();
     const editor = page.getByTestId("markdown-editor");
-    const content = editor.locator(".cm-content");
+    const content = editor.locator(".ProseMirror");
     await content.click();
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Input.imeSetComposition", { text: "你好", selectionStart: 2, selectionEnd: 2 });
-    await expect.poll(() => page.evaluate(() => document.querySelector(".cm-content")?.textContent ?? "")).toContain("你好");
+    await expect.poll(() => page.evaluate(() => document.querySelector(".ProseMirror")?.textContent ?? "")).toContain("你好");
     await page.getByRole("tab", { name: "源码" }).click(); // 点击会使编辑区失焦、结束组合
     await expect(editor).toHaveClass(/mode-source/, { timeout: 5000 });
     await expect(content).toContainText("你好");
