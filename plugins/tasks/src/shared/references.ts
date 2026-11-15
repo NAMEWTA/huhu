@@ -23,7 +23,7 @@ export function scorePath(path: string, query: string): number | null {
   return null;
 }
 
-/** 来自 vault.tree：文件 + 文件夹。只有 Vault 内的路径可选；`.huhu/` 等内部目录不出现。 */
+/** 来自 vault.indexEntries：文件 + 文件夹。只有 Vault 内的路径可选；`.huhu/` 等内部目录不出现。 */
 export function buildCandidates(tree: readonly { path: string; type: "file" | "dir"; mtimeMs?: number }[]): ResourceCandidate[] {
   const out: ResourceCandidate[] = [];
   for (const e of tree) {

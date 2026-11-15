@@ -117,7 +117,7 @@ describe("Engine 启动与关闭", () => {
     expect((await call("vault.readRange", { path: "data.bin", offset: 0, length: 5 * 1024 * 1024 })).error?.code).toBe("INVALID_INPUT");
     expect((await call("vault.readRange", { path: "data.bin", offset: 0, length: 1 }, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
-  test("vault.tree / vault.search / vault.readFile 与外部修改后的增量索引", async () => {
+  test("vault.indexEntries / vault.search / vault.readFile 与外部修改后的增量索引", async () => {
     const dir = tmp();
     const { writeFileSync } = await import("node:fs");
     writeFileSync(path.join(dir, "笔记.md"), "# 笔记\n关于知识库的想法\n");
@@ -125,7 +125,7 @@ describe("Engine 启动与关闭", () => {
     engines.push(e);
     const call = (capability: string, input: unknown, token = e.rendererToken) => post(e, token, { capability, input, requestId: "r" });
     await e.index.build();
-    expect((await call("vault.tree", {})).data.map((x) => x.path)).toContain("笔记.md");
+    expect((await call("vault.indexEntries", {})).data.map((x) => x.path)).toContain("笔记.md");
     expect((await call("vault.search", { query: "知识库" })).data.hits[0]?.path).toBe("笔记.md");
     expect((await call("vault.readFile", { path: "笔记.md" })).data.text).toContain("想法");
     expect((await call("vault.readFile", { path: "../etc/passwd" })).error?.code).toBe("PATH_OUTSIDE_VAULT");

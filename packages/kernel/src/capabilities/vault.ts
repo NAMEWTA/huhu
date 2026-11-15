@@ -93,7 +93,7 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
     ),
     registry.register(
       defineCapability({
-        name: "vault.tree",
+        name: "vault.indexEntries",
         plugin: "kernel",
         scope: "read",
         input: z.object({ prefix: z.string().default("") }),

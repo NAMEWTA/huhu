@@ -10,9 +10,9 @@ export interface ReferenceIndex {
   exists(target: string): boolean;
 }
 
-/** 引用索引：数据源是 vault.tree，被过滤的内部目录（`.huhu/`）不出现。 */
+/** 引用索引：数据源是 vault.indexEntries，被过滤的内部目录（`.huhu/`）不出现。 */
 export function useReferenceIndex(): ReferenceIndex {
-  const tree = useCapability<{ path: string; type: "file" | "dir"; mtimeMs?: number }[]>("vault.tree", {});
+  const tree = useCapability<{ path: string; type: "file" | "dir"; mtimeMs?: number }[]>("vault.indexEntries", {});
   const candidates = useMemo(() => buildCandidates(tree.data ?? []).map((c) => (c.kind === "folder" ? { ...c, path: `${c.path}/` } : c)), [tree.data]);
   const known = useMemo(() => new Set(candidates.map((c) => c.path)), [candidates]);
   // 编辑器的补全扩展只在文档创建时装载一次：search 必须是稳定的函数，读取最新的候选（否则目录树加载完成前打开的编辑器永远补全不出东西）
