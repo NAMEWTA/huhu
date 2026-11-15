@@ -13,7 +13,7 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { dynamicActivate } from '@/lib/activate-locale'
 import { emitDocumentsChanged } from '@/lib/documents-events'
-import { setHostHiddenPaths } from '@/lib/host-hidden'
+import { setHostHiddenPaths, setHostMenuExtras } from '@/lib/host-hidden'
 import { i18n } from '@/lib/i18n'
 import { HostConfigProvider } from './config-provider'
 import { DocumentProvider } from './document-context'
@@ -33,6 +33,10 @@ export interface OkExplorerProps {
   refreshToken?: number
   /** 外观：跟随 Huhu 主题。 */
   mode?: 'light' | 'dark'
+  /** 宿主追加的右键菜单项（Huhu 既有能力：移动到… / 星标 / 保存版本…）。 */
+  menuItems?: (path: string, kind: 'file' | 'folder') => readonly { id: string; label: string; onSelect: () => void }[]
+  /** 当前打开的文件（Vault 相对路径），树据此高亮。 */
+  activePath?: string | null
   children?: ReactNode
 }
 
@@ -44,7 +48,7 @@ export function notifyExplorerChanged(): void {
   emitDocumentsChanged(['files'])
 }
 
-export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken = 0, mode = 'light' }: OkExplorerProps) {
+export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken = 0, mode = 'light', activePath = null, menuItems }: OkExplorerProps) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     let live = true
@@ -58,16 +62,25 @@ export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken =
     void restoreFetch
     const unregister = registerHostRoutes(filesRoutes(deps))
     setHostHiddenPaths({ hide: (p, k) => onHide(p, k) })
+    setHostMenuExtras(menuItems ? { items: menuItems } : null)
     return () => {
       unregister()
       setHostHiddenPaths(null)
+      setHostMenuExtras(null)
     }
-  }, [deps, onHide])
+  }, [deps, onHide, menuItems])
   useEffect(() => {
     if (refreshToken > 0) notifyExplorerChanged()
   }, [refreshToken])
   const host = useMemo(
     () => ({
+      // 选中高亮：树按 activeTarget / activeDocName 标出当前打开的文件
+      activeDocName: activePath && /\.(md|mdx)$/i.test(activePath) ? activePath.replace(/\.(md|mdx)$/i, '') : null,
+      activeTarget: !activePath
+        ? null
+        : /\.(md|mdx)$/i.test(activePath)
+          ? { kind: 'doc', target: activePath.replace(/\.(md|mdx)$/i, ''), docName: activePath.replace(/\.(md|mdx)$/i, '') }
+          : { kind: 'asset', target: activePath, assetPath: activePath, mediaKind: null },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
         if (t.kind === 'doc' || t.kind === 'folder-index') onOpen({ kind: 'file', path: `${t.docName}.md` })
         else if (t.kind === 'folder') onOpen({ kind: 'folder', path: t.folderPath ?? '' })
@@ -75,7 +88,7 @@ export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken =
       },
       openDocument: (docName: string) => onOpen({ kind: 'file', path: `${docName}.md` }),
     }),
-    [onOpen],
+    [onOpen, activePath],
   )
   if (!ready) return null
   return (

@@ -14,3 +14,24 @@ export function setHostHiddenPaths(next: HostHiddenPaths | null): void {
 export function getHostHiddenPaths(): HostHiddenPaths | null {
   return impl
 }
+
+/** P-S5-04：宿主追加的菜单项（Huhu 的“移动到…”“星标”“保存版本…”等既有能力，design §8）。 */
+export interface HostMenuItem {
+  id: string
+  label: string
+  onSelect(): void
+}
+
+export interface HostMenuExtras {
+  items(path: string, kind: 'file' | 'folder'): readonly HostMenuItem[]
+}
+
+let extras: HostMenuExtras | null = null
+
+export function setHostMenuExtras(next: HostMenuExtras | null): void {
+  extras = next
+}
+
+export function getHostMenuExtras(): HostMenuExtras | null {
+  return extras
+}

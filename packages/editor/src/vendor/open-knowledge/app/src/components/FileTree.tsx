@@ -227,7 +227,7 @@ import {
 import { cn } from '@/lib/utils';
 import { getValidationSnapshot, subscribeToValidationStore } from '@/lib/validation-store';
 import { joinWorkspacePath } from '@/lib/workspace-paths';
-import { getHostHiddenPaths } from '@/lib/host-hidden';
+import { getHostHiddenPaths, getHostMenuExtras } from '@/lib/host-hidden';
 import {
   buildFolderHandoffInput,
   buildHandoffInput,
@@ -740,6 +740,11 @@ function FileTreeMenu({
                   closeForInlineSurface();
                   model.startRenaming(item.path);
                 }
+              : undefined
+          }
+          hostItems={
+            !isOkRow
+              ? getHostMenuExtras()?.items(item.path.replace(/\/+$/, ''), isFolder ? 'folder' : 'file')
               : undefined
           }
           hide={

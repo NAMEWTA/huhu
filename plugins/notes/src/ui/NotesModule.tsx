@@ -37,7 +37,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [selected, setSelected] = useState<string | null>(null);
   /** 档案首页 / 类型视图对应的文件夹（Archives、Archives/<类型>）；打开笔记后清除。 */
   const [folderView, setFolderView] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -115,26 +114,18 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     },
   };
   const q = query.trim().toLowerCase();
-  const otherFiles = useCapability<{ path: string; size: number; mtimeMs: number }[]>("notes.files", {});
-  const fileRefs: NoteRef[] = (otherFiles.data ?? []).map((f) => ({ path: f.path, id: null, title: f.path.split("/").at(-1) ?? f.path, file: { size: f.size, mtimeMs: f.mtimeMs } }));
+  // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileCard 与标签存活判断；树本身直接列举文件系统
+  const indexEntries = useCapability<{ path: string; type: "file" | "dir"; size?: number; mtimeMs?: number }[]>("vault.indexEntries", {});
+  const fileRefs: NoteRef[] = useMemo(
+    () =>
+      (indexEntries.data ?? [])
+        .filter((e) => e.type === "file" && !/\.md$/i.test(e.path) && !e.path.split("/").some((seg) => seg.startsWith(".")))
+        .map((f) => ({ path: f.path, id: null, title: f.path.split("/").at(-1) ?? f.path, file: { size: f.size ?? 0, mtimeMs: f.mtimeMs ?? 0 } })),
+    [indexEntries.data],
+  );
   const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
   const selectedFile = fileRefs.find((f) => f.path === selected) ?? null;
-  /** 拖放移动：与“移动到…”对话框同一条路径（未保存的修改先落盘；已在目标文件夹则不动）。 */
-  async function moveByDrop(path: string, dir: string) {
-    const cur = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    if (cur === dir || dir === path || dir.startsWith(`${path}/`)) return; // 已在目标处，或把文件夹拖进自己 / 后代：什么都不做
-    const note = (every.data ?? []).find((x) => x.path === path);
-    if (note) {
-      if (!(await beforeMove(note))) return;
-    } else if ((folders.data ?? []).includes(path)) {
-      // 拖的是文件夹：先让正在编辑的、位于其中的笔记落盘
-      const open = selected ? (every.data ?? []).find((x) => x.path === selected && x.path.startsWith(`${path}/`)) : undefined;
-      if (open && !(await beforeMove(open))) return;
-    } else return;
-    const r = await run("notes.move", { path, targetDir: dir });
-    if (r) remapSelected(path, `${dir ? `${dir}/` : ""}${path.split("/").at(-1)}`);
-  }
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   /** 改名 / 移动之后，打开着的笔记路径跟着变（文件夹则按前缀）。 */
   // 打开的文档标签（原型：编辑区上方的文档标签条）；文件已不存在（回收 / 永久删除 / 改名后）的标签自动消失
@@ -153,19 +144,12 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     const re = (s: string) => (s === from ? to : s.startsWith(`${from}/`) ? `${to}${s.slice(from.length)}` : s);
     setTabs((t) => t.map(re));
     setSelected((s) => (s === null ? s : re(s)));
-    setExpanded((set) => new Set([...set].map(re)));
-  };
-  const toggleFolder = (p: string) => setExpanded((s) => (s.has(p) ? new Set([...s].filter((x) => x !== p)) : new Set(s).add(p)));
-  const expandTo = (dir: string) => {
-    const parts = dir.split("/").filter(Boolean);
-    setExpanded((set) => new Set([...set, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
   };
   /** 打开档案首页或类型视图。 */
   const openArchiveFolder = (dir: string) => {
     const norm = dir.replace(/\/+$/, "");
     setFolderView(norm);
     setSection((s) => (s === "trash" ? "all" : s));
-    expandTo(norm);
   };
   /** 档案以文件夹路径标识；它的 index.md 就是档案视图。 */
   const openArchive = (dir: string) => openNote(`${dir.replace(/\/+$/, "")}/index.md`);
@@ -175,7 +159,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       const dir = target.replace(/\/+$/, "");
       const idx = (every.data ?? []).find((x) => x.path.toLowerCase() === `${dir.toLowerCase()}/index.md`);
       if (idx) return openNote(idx.path);
-      return archiveFolderRoute(dir) ? openArchiveFolder(dir) : (setSection("all"), expandTo(dir));
+      return archiveFolderRoute(dir) ? openArchiveFolder(dir) : setSection("all");
     }
     const hit = (every.data ?? []).find((x) => x.path === target || x.path === `${target}.md`);
     if (hit) openNote(hit.path);
@@ -185,9 +169,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     setFolderView(null);
     setSelected(path);
     setSection((s) => (s === "trash" ? "all" : s));
-    // 展开它所在的文件夹，树里能定位到
-    const parts = path.split("/").slice(0, -1);
-    setExpanded((s) => new Set([...s, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
   };
 
   const everyRef = useRef(every.data);
@@ -203,8 +184,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       if (archiveFolderRoute(r.path)?.kind === "archive") return openNote(`${r.path}/index.md`); // 还没有 index.md 的档案
       if (archiveFolderRoute(r.path)) return openArchiveFolder(r.path);
       setSection("all");
-      const parts = r.path.split("/").filter(Boolean);
-      setExpanded((set) => new Set([...set, ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))]));
     };
     take();
     return onOpenRequest(take);
@@ -224,8 +203,23 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         }}
         notes={notes}
         allCount={(every.data ?? []).length}
-        folders={folders.data ?? []}
-        onMoveNote={(path, dir) => void moveByDrop(path, dir)}
+        beforeMutate={async (paths) => (selected && paths.some((x) => selected === x || selected.startsWith(`${x}/`)) && flushRef.current ? flushRef.current() : true)}
+        onMoved={(moved) => {
+          // 内部改名 / 移动：选中项与标签按映射重定位（文件夹按前缀）
+          const entries = Object.entries(moved);
+          if (entries.length === 0) return;
+          const re = (s0: string) => entries.find(([a]) => a === s0)?.[1] ?? s0;
+          setTabs((t) => t.map(re));
+          setSelected((s0) => (s0 === null ? s0 : re(s0)));
+          void refresh();
+        }}
+        isFavorite={(path) => (every.data ?? []).find((x) => x.path === path)?.favorite === true}
+        onMenuAction={(action, path, kind) => {
+          const note: NoteRef = (every.data ?? []).find((x) => x.path === path) ?? { path, id: null, title: path.split("/").at(-1) ?? path, ...(kind === "folder" ? { folder: true } : {}) };
+          if (action === "favorite") void run("notes.setFavorite", { path, favorite: !(note.favorite === true) });
+          else setDialog({ kind: action, note });
+        }}
+        onTrashed={(path, trashId) => setUndo({ label: path.split("/").at(-1) ?? path, trashId })}
         tags={tags.data ?? []}
         tag={tag}
         onTag={setTag}
@@ -233,8 +227,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onQuery={setQuery}
         selected={selected}
         onOpen={openNote}
-        expanded={expanded}
-        onToggleFolder={toggleFolder}
         onOpenArchives={() => openArchiveFolder("Archives")}
         onFolderClick={(dir) => {
           if (archiveFolderRoute(dir)?.kind === "home" || archiveFolderRoute(dir)?.kind === "type") openArchiveFolder(dir);
@@ -429,7 +421,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             const path = dialog.parent ? `${dialog.parent}/${name}` : name;
             if (await run("folders.create", { path })) {
               setDialog(null);
-              setExpanded((s) => new Set([...s, ...path.split("/").map((_, i, a) => a.slice(0, i + 1).join("/"))]));
             }
           }}
         />

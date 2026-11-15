@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { rmTree } from "./helpers/launch.js";
+import { treeFolder, treeItem, treeMenu, treeRename } from "./helpers/tree.js";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
@@ -63,7 +64,7 @@ test("启动页：新建空白 Vault、非空目录被拒绝、示例 Vault、�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     expect(existsSync(path.join(demo, "欢迎使用 HUHU.md"))).toBe(true);
     await page.getByRole("button", { name: "知识库" }).first().click();
-    await expect(page.getByTestId("note-item").filter({ hasText: "欢迎使用 HUHU" })).toBeVisible();
+    await expect(treeItem(page, "欢迎使用 HUHU")).toBeVisible();
   } finally {
     await app.close();
     rmTree(base);
@@ -162,7 +163,7 @@ test("知识库：新建笔记、编辑自动保存到文件、预览双链、�
 
     for (const n of ["目标", "来源"]) {
       await newNote(page, n);
-      await expect(page.getByTestId("note-item").filter({ hasText: `${n}.md` })).toBeVisible();
+      await expect(treeItem(page, `${n}.md`)).toBeVisible();
     }
     // 正在编辑「来源」（最后创建的）：写入指向「目标」的双链
     await page.getByTestId("markdown-editor").locator(".cm-content").click();
@@ -176,7 +177,7 @@ test("知识库：新建笔记、编辑自动保存到文件、预览双链、�
     await expect(page.getByText("目标", { exact: true }).first()).toBeVisible();
 
     // 改名「目标」→「新目标」，来源里的双链被改写
-    await page.getByTestId("note-item").filter({ hasText: "目标.md" }).click();
+    await treeItem(page, "目标.md").click();
     await renameCurrentNote(page, "新目标");
     await expect.poll(() => readFileSync(path.join(vault, "来源.md"), "utf8")).toContain("[[新目标]]");
   } finally {
@@ -200,22 +201,17 @@ test("知识库：文件夹重命名、移动、删除（整体进回收站）",
     await page.getByTestId("name-dialog-submit").click();
     await expect.poll(() => existsSync(path.join(vault, "资料"))).toBe(true);
 
-    await page.getByRole("button", { name: "文件夹操作 资料" }).click();
-    await page.getByRole("menuitem", { name: "重命名" }).click();
-    await page.getByRole("textbox", { name: "重命名" }).fill("资料库");
-    await page.getByTestId("name-dialog-submit").click();
+    await treeRename(page, treeFolder(page, "资料"), "资料库");
     await expect.poll(() => existsSync(path.join(vault, "资料库"))).toBe(true);
     expect(existsSync(path.join(vault, "资料"))).toBe(false);
 
-    await page.getByRole("button", { name: "文件夹操作 资料库" }).click();
-    await page.getByRole("menuitem", { name: "移动到文件夹" }).click();
+    await treeMenu(page, treeFolder(page, "资料库"), "移动到…");
     await page.getByLabel("文件夹", { exact: true }).selectOption("归档");
     await page.getByRole("button", { name: "移动", exact: true }).click();
     await expect.poll(() => existsSync(path.join(vault, "归档/资料库"))).toBe(true);
 
-    await page.getByRole("button", { name: "文件夹操作 归档" }).click();
-    await page.getByRole("menuitem", { name: "移到回收站" }).click();
-    await page.getByRole("button", { name: "移到回收站", exact: true }).click();
+    await treeMenu(page, treeFolder(page, "归档"), "Delete");
+    await page.getByRole("alertdialog").getByRole("button", { name: /Move to|Delete|移到|删除/i }).first().click();
     await expect.poll(() => existsSync(path.join(vault, "归档"))).toBe(false);
   } finally {
     await app.close();
@@ -295,7 +291,7 @@ test("手动保存：外部改动出现合并 Banner、合并后两边改动都�
     const onDisk = readFileSync(file, "utf8");
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByRole("button", { name: "知识库" }).first().click();
-    await page.getByTestId("note-item").filter({ hasText: "合并笔记" }).click();
+    await treeItem(page, "合并笔记").click();
     await expect(page.getByTestId("note-draft-restore")).toBeVisible({ timeout: 10_000 });
     expect(readFileSync(file, "utf8")).toBe(onDisk);
     await page.getByTestId("note-draft-restore").click();
@@ -314,7 +310,7 @@ test("大文件（ACC-KN-10）：50 MiB 日志在文件树中只显示元信息�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
-    await page.getByTestId("file-item").filter({ hasText: "服务器.log" }).click();
+    await treeItem(page, "服务器.log").click();
     await expect(page.getByTestId("file-card")).toBeVisible();
     await expect(page.getByTestId("file-size")).toHaveText("50.0 MiB");
     await expect(page.getByTestId("markdown-editor")).toHaveCount(0);
@@ -386,7 +382,7 @@ test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
-    await page.getByTestId("note-item").filter({ hasText: "原样" }).click();
+    await treeItem(page, "原样").click();
     await expect(page.getByTestId("markdown-editor")).toBeVisible();
     for (const mode of ["源码", "阅读", "双栏", "实时预览"]) {
       await page.getByRole("tab", { name: mode }).click();
@@ -489,8 +485,8 @@ test("文档标签条：打开多篇笔记各有一个标签，点标签切换�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
-    await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
-    await page.getByTestId("note-item").filter({ hasText: "乙" }).click();
+    await treeItem(page, "甲").click();
+    await treeItem(page, "乙").click();
     const tabs = page.getByTestId("document-tab");
     await expect(tabs).toHaveCount(2);
     await expect(tabs.filter({ hasText: "乙" })).toHaveAttribute("aria-current", "true");
@@ -1086,7 +1082,7 @@ test("设置：数据与存储——重建索引、导出数据包（结果带 S
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
     await newNote(page, "备份内容");
-    await expect(page.getByTestId("note-item").filter({ hasText: "备份内容.md" })).toBeVisible();
+    await expect(treeItem(page, "备份内容.md")).toBeVisible();
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByTestId("settings-nav-data").click();
     // 文件结构（默认分区）：受管文件列表与只读预览，可按领域筛选与搜索
@@ -1179,7 +1175,7 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
 
     await page.getByRole("button", { name: "知识库" }).first().click();
     await newNote(page, "手动保存");
-    await expect(page.getByTestId("note-item").filter({ hasText: "手动保存.md" })).toBeVisible();
+    await expect(treeItem(page, "手动保存.md")).toBeVisible();
     const editor = page.getByTestId("markdown-editor");
     await expect(editor.locator(".cm-lineNumbers")).toBeVisible(); // 行号
     await expect(editor.locator(".cm-content")).toHaveCSS("max-width", "680px");
@@ -1197,8 +1193,8 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     await page.waitForTimeout(1500);
     expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("离开前的补充");
     await newNote(page, "另一篇");
-    await expect(page.getByTestId("note-item").filter({ hasText: "另一篇.md" })).toBeVisible();
-    await page.getByTestId("note-item").filter({ hasText: "手动保存.md" }).click();
+    await expect(treeItem(page, "另一篇.md")).toBeVisible();
+    await treeItem(page, "手动保存.md").click();
     await expect(page.getByTestId("note-draft-restore")).toBeVisible({ timeout: 10_000 });
     expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("离开前的补充");
     await page.getByTestId("note-draft-restore").click();
@@ -1240,10 +1236,7 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
     await page.getByRole("button", { name: "知识库" }).first().click();
     const edit = async (title: string) => {
       await newNote(page, title);
-      await page
-        .getByTestId("note-item")
-        .filter({ hasText: `${title}.md` })
-        .click();
+      await treeItem(page, `${title}.md`).click();
       await page.getByTestId("markdown-editor").locator(".cm-content").click();
       await page.keyboard.press("ControlOrMeta+End");
       await page.keyboard.type(EDIT);
@@ -1277,11 +1270,11 @@ test("知识库：输入后立刻切换到另一篇，磁盘内容包含最后�
     await page.getByRole("button", { name: "知识库" }).first().click();
     await newNote(page, "甲");
     await newNote(page, "乙");
-    await page.getByTestId("note-item").filter({ hasText: "甲.md" }).click();
+    await treeItem(page, "甲.md").click();
     await page.getByTestId("markdown-editor").locator(".cm-content").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type(LAST);
-    await page.getByTestId("note-item").filter({ hasText: "乙.md" }).click(); // 立刻离开：远小于自动保存间隔
+    await treeItem(page, "乙.md").click(); // 立刻离开：远小于自动保存间隔
     await expect.poll(() => readFileSync(path.join(vault, "甲.md"), "utf8")).toContain(LAST);
   } finally {
     await app.close();

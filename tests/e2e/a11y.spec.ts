@@ -1,6 +1,7 @@
 import axe from "axe-core";
 import { expect, test, type Page } from "@playwright/test";
 import { openApp } from "./helpers/launch.js";
+import { treeItem } from "./helpers/tree.js";
 
 /** 主要模块（rail 按钮名称）。每个都跑 axe，serious / critical 不允许出现。 */
 const MODULES = ["工作台", "任务", "知识库", "收件箱", "保险箱", "自动化", "版本历史", "远程连接", "Agent CLI", "健康中心", "能力网关", "插件中心", "设置"];
@@ -71,7 +72,7 @@ test("键盘：不碰鼠标新建笔记、新建任务并用空格勾选", async
     await page.keyboard.press("Enter");
     await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("键盘笔记");
     await page.keyboard.press("Enter");
-    await expect(page.getByTestId("note-item").filter({ hasText: "键盘笔记" })).toBeVisible();
+    await expect(treeItem(page, "键盘笔记")).toBeVisible();
     // 任务
     await page.getByRole("button", { name: "任务", exact: true }).first().focus();
     await page.keyboard.press("Enter");
@@ -99,8 +100,8 @@ test("axe：知识库打开两篇笔记后（文档标签条 + 编辑器 + 详�
     fs.writeFileSync(`${vault}/乙.md`, "# 乙\n正文\n");
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
-    await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
-    await page.getByTestId("note-item").filter({ hasText: "乙" }).click();
+    await treeItem(page, "甲").click();
+    await treeItem(page, "乙").click();
     await expect(page.getByTestId("document-tab")).toHaveCount(2);
     await page.getByRole("button", { name: "文档详情" }).first().click();
     expect(await violations(page)).toEqual([]);

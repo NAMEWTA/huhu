@@ -5,7 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./ok-explorer": "./src/host/explorer.tsx"
+    "./ok-explorer": {
+      "types": "./src/host/ok-explorer.d.ts",
+      "default": "./src/host/explorer.tsx"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.vendor.json",
