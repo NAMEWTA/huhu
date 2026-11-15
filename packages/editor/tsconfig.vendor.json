@@ -1,0 +1,461 @@
+{
+  "include": [
+    "src/vendor/open-knowledge/**/*"
+  ],
+  "exclude": [],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/vendor/open-knowledge/app/src/*"
+      ],
+      "@inkeep/open-knowledge-core": [
+        "src/vendor/open-knowledge/core/src/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/shadow-repo-layout": [
+        "src/vendor/open-knowledge/core/src/shadow-repo-layout.ts"
+      ],
+      "@inkeep/open-knowledge-core/skill-folder-state": [
+        "src/vendor/open-knowledge/core/src/skill-folder-state.ts"
+      ],
+      "@inkeep/open-knowledge-core/git-repository": [
+        "src/vendor/open-knowledge/core/src/git-repository.ts"
+      ],
+      "@inkeep/open-knowledge-core/server": [
+        "src/vendor/open-knowledge/core/src/server.ts"
+      ],
+      "@inkeep/open-knowledge-core/keepalive": [
+        "src/vendor/open-knowledge/core/src/keepalive/keepalive.ts"
+      ],
+      "@inkeep/open-knowledge-core/helper-bundle": [
+        "src/vendor/open-knowledge/core/src/helper-bundle.ts"
+      ],
+      "@inkeep/open-knowledge-core/skills-catalog": [
+        "src/vendor/open-knowledge/core/src/skills-catalog/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/acp/thread-protocol": [
+        "src/vendor/open-knowledge/core/src/acp/thread-protocol.ts"
+      ],
+      "@inkeep/open-knowledge-core/acp/agent-posture": [
+        "src/vendor/open-knowledge/core/src/acp/agent-posture.ts"
+      ],
+      "@inkeep/open-knowledge-core/acp/permissive-mode": [
+        "src/vendor/open-knowledge/core/src/acp/permissive-mode.ts"
+      ],
+      "@inkeep/open-knowledge-core/acp/codex-legacy-notice": [
+        "src/vendor/open-knowledge/core/src/acp/codex-legacy-notice.ts"
+      ],
+      "@inkeep/open-knowledge-core/acp/tool-call-input": [
+        "src/vendor/open-knowledge/core/src/acp/tool-call-input.ts"
+      ],
+      "@inkeep/open-knowledge-core/desktop-bridge": [
+        "src/vendor/open-knowledge/core/src/desktop-bridge.ts"
+      ],
+      "@inkeep/open-knowledge-core/agent-registry": [
+        "src/vendor/open-knowledge/core/src/agent-registry/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/bridge": [
+        "src/vendor/open-knowledge/core/src/bridge/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/bug-report-sidecar/note-content": [
+        "src/vendor/open-knowledge/core/src/bug-report-sidecar/note-content.ts"
+      ],
+      "@inkeep/open-knowledge-core/checkpoint-kinds": [
+        "src/vendor/open-knowledge/core/src/checkpoint-kinds.ts"
+      ],
+      "@inkeep/open-knowledge-core/client-version": [
+        "src/vendor/open-knowledge/core/src/client-version.ts"
+      ],
+      "@inkeep/open-knowledge-core/commands/command-identity": [
+        "src/vendor/open-knowledge/core/src/commands/command-identity.ts"
+      ],
+      "@inkeep/open-knowledge-core/comments/leaf-text": [
+        "src/vendor/open-knowledge/core/src/comments/leaf-text.ts"
+      ],
+      "@inkeep/open-knowledge-core/comments/passage-match": [
+        "src/vendor/open-knowledge/core/src/comments/passage-match.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/auto-sync-mode": [
+        "src/vendor/open-knowledge/core/src/config/auto-sync-mode.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/bind-config-doc": [
+        "src/vendor/open-knowledge/core/src/config/bind-config-doc.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/bind-okignore-doc": [
+        "src/vendor/open-knowledge/core/src/config/bind-okignore-doc.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/errors": [
+        "src/vendor/open-knowledge/core/src/config/errors.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/field-registry": [
+        "src/vendor/open-knowledge/core/src/config/field-registry.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/merge-layered": [
+        "src/vendor/open-knowledge/core/src/config/merge-layered.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/schema": [
+        "src/vendor/open-knowledge/core/src/config/schema.ts"
+      ],
+      "@inkeep/open-knowledge-core/config/schema-leaf": [
+        "src/vendor/open-knowledge/core/src/config/schema-leaf.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/activity": [
+        "src/vendor/open-knowledge/core/src/constants/activity.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/cc1": [
+        "src/vendor/open-knowledge/core/src/constants/cc1.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/chrome": [
+        "src/vendor/open-knowledge/core/src/constants/chrome.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/code-languages": [
+        "src/vendor/open-knowledge/core/src/constants/code-languages.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/create-new-banner": [
+        "src/vendor/open-knowledge/core/src/constants/create-new-banner.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/create-new-project-reason": [
+        "src/vendor/open-knowledge/core/src/constants/create-new-project-reason.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/doc-lifecycle": [
+        "src/vendor/open-knowledge/core/src/constants/doc-lifecycle.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/document-open": [
+        "src/vendor/open-knowledge/core/src/constants/document-open.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/editors": [
+        "src/vendor/open-knowledge/core/src/constants/editors.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/embedded-host": [
+        "src/vendor/open-knowledge/core/src/constants/embedded-host.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/feature-flags": [
+        "src/vendor/open-knowledge/core/src/constants/feature-flags.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/github": [
+        "src/vendor/open-knowledge/core/src/constants/github.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/graph": [
+        "src/vendor/open-knowledge/core/src/constants/graph.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/manual-update-check": [
+        "src/vendor/open-knowledge/core/src/constants/manual-update-check.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/mcp": [
+        "src/vendor/open-knowledge/core/src/constants/mcp.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/menu-labels": [
+        "src/vendor/open-knowledge/core/src/constants/menu-labels.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/native-menu-labels": [
+        "src/vendor/open-knowledge/core/src/constants/native-menu-labels.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/ok-dir": [
+        "src/vendor/open-knowledge/core/src/constants/ok-dir.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/ok-user-home": [
+        "src/vendor/open-knowledge/core/src/constants/ok-user-home.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/preview-embed-starters": [
+        "src/vendor/open-knowledge/core/src/constants/preview-embed-starters.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/preview-theme-tokens": [
+        "src/vendor/open-knowledge/core/src/constants/preview-theme-tokens.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/product": [
+        "src/vendor/open-knowledge/core/src/constants/product.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/skills": [
+        "src/vendor/open-knowledge/core/src/constants/skills.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/uninstall-feedback": [
+        "src/vendor/open-knowledge/core/src/constants/uninstall-feedback.ts"
+      ],
+      "@inkeep/open-knowledge-core/constants/upload": [
+        "src/vendor/open-knowledge/core/src/constants/upload.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/code-block-fidelity": [
+        "src/vendor/open-knowledge/core/src/extensions/code-block-fidelity.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/footnote-reference": [
+        "src/vendor/open-knowledge/core/src/extensions/footnote-reference.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/frontmatter": [
+        "src/vendor/open-knowledge/core/src/extensions/frontmatter.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/image-reference-fidelity": [
+        "src/vendor/open-knowledge/core/src/extensions/image-reference-fidelity.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/image-src-fidelity": [
+        "src/vendor/open-knowledge/core/src/extensions/image-src-fidelity.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/jsx-component": [
+        "src/vendor/open-knowledge/core/src/extensions/jsx-component.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/jsx-inline": [
+        "src/vendor/open-knowledge/core/src/extensions/jsx-inline.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/link-fidelity": [
+        "src/vendor/open-knowledge/core/src/extensions/link-fidelity.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/math-inline": [
+        "src/vendor/open-knowledge/core/src/extensions/math-inline.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/raw-mdx-fallback": [
+        "src/vendor/open-knowledge/core/src/extensions/raw-mdx-fallback.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/shared": [
+        "src/vendor/open-knowledge/core/src/extensions/shared.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/tag": [
+        "src/vendor/open-knowledge/core/src/extensions/tag.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/wiki-link": [
+        "src/vendor/open-knowledge/core/src/extensions/wiki-link.ts"
+      ],
+      "@inkeep/open-knowledge-core/extensions/wiki-link-embed": [
+        "src/vendor/open-knowledge/core/src/extensions/wiki-link-embed.ts"
+      ],
+      "@inkeep/open-knowledge-core/frontmatter-diff": [
+        "src/vendor/open-knowledge/core/src/frontmatter-diff.ts"
+      ],
+      "@inkeep/open-knowledge-core/frontmatter/errors": [
+        "src/vendor/open-knowledge/core/src/frontmatter/errors.ts"
+      ],
+      "@inkeep/open-knowledge-core/frontmatter/schema": [
+        "src/vendor/open-knowledge/core/src/frontmatter/schema.ts"
+      ],
+      "@inkeep/open-knowledge-core/frontmatter/tags": [
+        "src/vendor/open-knowledge/core/src/frontmatter/tags.ts"
+      ],
+      "@inkeep/open-knowledge-core/git/worktree-inventory-model": [
+        "src/vendor/open-knowledge/core/src/git/worktree-inventory-model.ts"
+      ],
+      "@inkeep/open-knowledge-core/git/worktree-selector-model": [
+        "src/vendor/open-knowledge/core/src/git/worktree-selector-model.ts"
+      ],
+      "@inkeep/open-knowledge-core/handoff": [
+        "src/vendor/open-knowledge/core/src/handoff/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/i18n/browser-locale-provider": [
+        "src/vendor/open-knowledge/core/src/i18n/browser-locale-provider.ts"
+      ],
+      "@inkeep/open-knowledge-core/i18n/direction": [
+        "src/vendor/open-knowledge/core/src/i18n/direction.ts"
+      ],
+      "@inkeep/open-knowledge-core/i18n/locales": [
+        "src/vendor/open-knowledge/core/src/i18n/locales.ts"
+      ],
+      "@inkeep/open-knowledge-core/i18n/resolve-locale": [
+        "src/vendor/open-knowledge/core/src/i18n/resolve-locale.ts"
+      ],
+      "@inkeep/open-knowledge-core/logger-types": [
+        "src/vendor/open-knowledge/core/src/logger-types.ts"
+      ],
+      "@inkeep/open-knowledge-core/logging/renderer-log": [
+        "src/vendor/open-knowledge/core/src/logging/renderer-log.ts"
+      ],
+      "@inkeep/open-knowledge-core/logging/secret-scrub": [
+        "src/vendor/open-knowledge/core/src/logging/secret-scrub.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown": [
+        "src/vendor/open-knowledge/core/src/markdown/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/code-fence": [
+        "src/vendor/open-knowledge/core/src/markdown/code-fence.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/html-to-mdast": [
+        "src/vendor/open-knowledge/core/src/markdown/html-to-mdast.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/lint": [
+        "src/vendor/open-knowledge/core/src/markdown/lint/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/mdast-to-html": [
+        "src/vendor/open-knowledge/core/src/markdown/mdast-to-html.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/plain-text": [
+        "src/vendor/open-knowledge/core/src/markdown/plain-text.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/reference-label": [
+        "src/vendor/open-knowledge/core/src/markdown/reference-label.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/resolve-image-url": [
+        "src/vendor/open-knowledge/core/src/markdown/resolve-image-url.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/safe-url": [
+        "src/vendor/open-knowledge/core/src/markdown/safe-url.ts"
+      ],
+      "@inkeep/open-knowledge-core/markdown/tag-promotion": [
+        "src/vendor/open-knowledge/core/src/markdown/tag-promotion.ts"
+      ],
+      "@inkeep/open-knowledge-core/metrics/parse-health": [
+        "src/vendor/open-knowledge/core/src/metrics/parse-health.ts"
+      ],
+      "@inkeep/open-knowledge-core/registry": [
+        "src/vendor/open-knowledge/core/src/registry/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/registry/types": [
+        "src/vendor/open-knowledge/core/src/registry/types.ts"
+      ],
+      "@inkeep/open-knowledge-core/schemas/api": [
+        "src/vendor/open-knowledge/core/src/schemas/api/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/schemas/cc1": [
+        "src/vendor/open-knowledge/core/src/schemas/cc1.ts"
+      ],
+      "@inkeep/open-knowledge-core/search/workspace-search": [
+        "src/vendor/open-knowledge/core/src/search/workspace-search.ts"
+      ],
+      "@inkeep/open-knowledge-core/seed-plan-work": [
+        "src/vendor/open-knowledge/core/src/seed-plan-work.ts"
+      ],
+      "@inkeep/open-knowledge-core/sharing": [
+        "src/vendor/open-knowledge/core/src/sharing/index.ts"
+      ],
+      "@inkeep/open-knowledge-core/skill-targets/schema": [
+        "src/vendor/open-knowledge/core/src/skill-targets/schema.ts"
+      ],
+      "@inkeep/open-knowledge-core/skills-catalog/schema": [
+        "src/vendor/open-knowledge/core/src/skills-catalog/schema.ts"
+      ],
+      "@inkeep/open-knowledge-core/skills-catalog/scope": [
+        "src/vendor/open-knowledge/core/src/skills-catalog/scope.ts"
+      ],
+      "@inkeep/open-knowledge-core/skills-catalog/skill-cost": [
+        "src/vendor/open-knowledge/core/src/skills-catalog/skill-cost.ts"
+      ],
+      "@inkeep/open-knowledge-core/skills-catalog/source-fields": [
+        "src/vendor/open-knowledge/core/src/skills-catalog/source-fields.ts"
+      ],
+      "@inkeep/open-knowledge-core/sync-paused-reason": [
+        "src/vendor/open-knowledge/core/src/sync-paused-reason.ts"
+      ],
+      "@inkeep/open-knowledge-core/terminal-layout": [
+        "src/vendor/open-knowledge/core/src/terminal-layout.ts"
+      ],
+      "@inkeep/open-knowledge-core/theme/base16": [
+        "src/vendor/open-knowledge/core/src/theme/base16.ts"
+      ],
+      "@inkeep/open-knowledge-core/theme/theme-plugins": [
+        "src/vendor/open-knowledge/core/src/theme/theme-plugins.ts"
+      ],
+      "@inkeep/open-knowledge-core/types/awareness": [
+        "src/vendor/open-knowledge/core/src/types/awareness.ts"
+      ],
+      "@inkeep/open-knowledge-core/types/identity": [
+        "src/vendor/open-knowledge/core/src/types/identity.ts"
+      ],
+      "@inkeep/open-knowledge-core/types/principal": [
+        "src/vendor/open-knowledge/core/src/types/principal.ts"
+      ],
+      "@inkeep/open-knowledge-core/types/timeline": [
+        "src/vendor/open-knowledge/core/src/types/timeline.ts"
+      ],
+      "@inkeep/open-knowledge-core/uninstall-bridge": [
+        "src/vendor/open-knowledge/core/src/uninstall-bridge.ts"
+      ],
+      "@inkeep/open-knowledge-core/util/atomic-yaml-write": [
+        "src/vendor/open-knowledge/core/src/util/atomic-yaml-write.ts"
+      ],
+      "@inkeep/open-knowledge-core/util/doc-name": [
+        "src/vendor/open-knowledge/core/src/util/doc-name.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/asset-href": [
+        "src/vendor/open-knowledge/core/src/utils/asset-href.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/chunked-insert": [
+        "src/vendor/open-knowledge/core/src/utils/chunked-insert.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/code-fence-tracker": [
+        "src/vendor/open-knowledge/core/src/utils/code-fence-tracker.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/embed-url-rewrite": [
+        "src/vendor/open-knowledge/core/src/utils/embed-url-rewrite.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/extension": [
+        "src/vendor/open-knowledge/core/src/utils/extension.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/file-size": [
+        "src/vendor/open-knowledge/core/src/utils/file-size.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/github-stars": [
+        "src/vendor/open-knowledge/core/src/utils/github-stars.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/grapheme-clip": [
+        "src/vendor/open-knowledge/core/src/utils/grapheme-clip.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/heading-scan": [
+        "src/vendor/open-knowledge/core/src/utils/heading-scan.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/identity": [
+        "src/vendor/open-knowledge/core/src/utils/identity.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/link-targets": [
+        "src/vendor/open-knowledge/core/src/utils/link-targets.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/local-iso-date": [
+        "src/vendor/open-knowledge/core/src/utils/local-iso-date.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/loom-embed": [
+        "src/vendor/open-knowledge/core/src/utils/loom-embed.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/pdf-anchor": [
+        "src/vendor/open-knowledge/core/src/utils/pdf-anchor.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/random-uuid": [
+        "src/vendor/open-knowledge/core/src/utils/random-uuid.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/relative-time": [
+        "src/vendor/open-knowledge/core/src/utils/relative-time.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/resolve-internal-href": [
+        "src/vendor/open-knowledge/core/src/utils/resolve-internal-href.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/sanitize-folder-name": [
+        "src/vendor/open-knowledge/core/src/utils/sanitize-folder-name.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/slug": [
+        "src/vendor/open-knowledge/core/src/utils/slug.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/target-identity": [
+        "src/vendor/open-knowledge/core/src/utils/target-identity.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/target-namespace": [
+        "src/vendor/open-knowledge/core/src/utils/target-namespace.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/vimeo-embed": [
+        "src/vendor/open-knowledge/core/src/utils/vimeo-embed.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/wiki-link-resolve": [
+        "src/vendor/open-knowledge/core/src/utils/wiki-link-resolve.ts"
+      ],
+      "@inkeep/open-knowledge-core/utils/youtube-embed": [
+        "src/vendor/open-knowledge/core/src/utils/youtube-embed.ts"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "customConditions": [
+      "@inkeep/source"
+    ]
+  }
+}
