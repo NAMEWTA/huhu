@@ -12,7 +12,9 @@ import { dynamicActivate } from '@/lib/activate-locale'
 import { i18n } from '@/lib/i18n'
 import { HostConfigProvider } from '../src/host/config-provider'
 import { DocumentProvider } from '../src/host/document-context'
-import { installHostFetch } from '../src/host/host-fetch'
+import { installHostFetch, registerHostRoutes } from '../src/host/host-fetch'
+import { coreRoutes } from '../src/host/routes/core'
+import { PageListProvider } from '@/components/PageListContext'
 import { LocalDocProvider } from '../src/host/hocuspocus-provider'
 import { setDocSource } from '../src/host/doc-source'
 
@@ -21,6 +23,12 @@ const docs = new Map<string, string>()
 const writes: Array<{ name: string; text: string }> = []
 setDocSource({ read: async (name) => docs.get(name) ?? '' })
 const providers = new Map<string, LocalDocProvider>()
+registerHostRoutes(
+  coreRoutes({
+    listPages: () => [...docs.keys()].map((n) => ({ docName: n.replace(/\.md$/, ''), title: n, size: docs.get(n)!.length, modified: new Date().toISOString(), docExt: 'md' })),
+    listDocuments: () => [],
+  }),
+)
 
 declare global {
   interface Window {
@@ -63,14 +71,13 @@ function App() {
   void ready
   return (
     <div className="ok-root" style={{ height: '100vh' }}>
-      <div ref={portalRef} id="portal" style={{ height: '100%', overflow: 'auto' }}>
-        {provider?.synced && portalRef.current ? (
-          <>
-            <TiptapEditor key={`t-${active}`} provider={provider as never} isSourceMode={source} portalTarget={portalRef.current} />
-            <SourceEditor key={`s-${active}`} docName={active!} ytext={provider.document.getText('source')} provider={provider as never} isSourceModeActive={source} />
-          </>
-        ) : null}
-      </div>
+      <div ref={portalRef} id="portal" style={{ height: '100%', overflow: 'auto' }} />
+      {provider?.synced && portalRef.current ? (
+        <>
+          <TiptapEditor key={`t-${active}`} provider={provider as never} isSourceMode={source} portalTarget={portalRef.current} />
+          <SourceEditor key={`s-${active}`} docName={active!} ytext={provider.document.getText('source')} provider={provider as never} isSourceModeActive={source} />
+        </>
+      ) : null}
     </div>
   )
 }
@@ -84,7 +91,9 @@ void dynamicActivate('en').then(() => {
             <TooltipProvider>
               <HostConfigProvider>
                 <DocumentProvider>
-                  <App />
+                  <PageListProvider>
+                    <App />
+                  </PageListProvider>
                 </DocumentProvider>
               </HostConfigProvider>
             </TooltipProvider>
