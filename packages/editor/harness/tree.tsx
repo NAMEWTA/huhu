@@ -8,9 +8,12 @@ import { createRoot } from 'react-dom/client'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { FileTree } from '@/components/FileTree'
+import { ExternalHandoffGateProvider } from '@/components/handoff/ExternalHandoffGate'
 import { PageListProvider } from '@/components/PageListContext'
 import { dynamicActivate } from '@/lib/activate-locale'
 import { i18n } from '@/lib/i18n'
+import { setHostHiddenPaths } from '@/lib/host-hidden'
+import { emitDocumentsChanged } from '@/lib/documents-events'
 import { HostConfigProvider } from '../src/host/config-provider'
 import { DocumentProvider } from '../src/host/document-context'
 import { installHostFetch, registerHostRoutes } from '../src/host/host-fetch'
@@ -67,6 +70,12 @@ const deps: FilesRouteDeps = {
   workspace: () => ({ root: '/vault', separator: '/' }),
 }
 registerHostRoutes(filesRoutes(deps))
+setHostHiddenPaths({
+  hide: (p) => {
+    hiddenPaths.push(p)
+    emitDocumentsChanged(['files'])
+  },
+})
 
 declare global {
   interface Window {
@@ -85,11 +94,11 @@ void dynamicActivate('en').then(() => {
               <HostConfigProvider>
                 <DocumentProvider host={{ openTarget: (t) => void opened.push(JSON.stringify(t)), openDocument: (d) => void opened.push(d) }}>
                   <PageListProvider>
-                    <SidebarProvider>
-                      <div className="ok-root" style={{ height: '100vh', width: 320 }} data-testid="tree-root">
+                    <ExternalHandoffGateProvider><SidebarProvider>
+                      <div className="ok-root" style={{ height: '100vh', width: 320, display: 'flex', flexDirection: 'column' }} data-testid="tree-root">
                         <FileTree />
                       </div>
-                    </SidebarProvider>
+                    </SidebarProvider></ExternalHandoffGateProvider>
                   </PageListProvider>
                 </DocumentProvider>
               </HostConfigProvider>
