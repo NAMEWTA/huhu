@@ -100,7 +100,9 @@ function createWindow(): BrowserWindow {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
-  win.webContents.on("did-fail-load", (_e, code, desc) => {
+  // 只有主框架加载失败才显示错误页：HTML 预览 iframe 里被拦截的导航（ERR_BLOCKED_BY_CSP / ERR_BLOCKED_BY_CLIENT 等）不能把整个工作台换成错误页
+  win.webContents.on("did-fail-load", (_e, code, desc, _url, isMainFrame) => {
+    if (!isMainFrame) return;
     void win.loadURL(errorPage(`${desc} (${code})`));
   });
   const dev = process.env["ELECTRON_RENDERER_URL"];

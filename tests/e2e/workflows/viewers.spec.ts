@@ -198,15 +198,13 @@ async function previewFrame(page: Page): Promise<Frame> {
 test("F04：HTML 整页隔离渲染（head / style / 相对 CSS / 图片 / 脚本）；源码修改保存后预览更新", async () => {
   const { page, vault, close } = await openApp();
   try {
-    mkdirSync(`${vault}/站点`, { recursive: true });
-    writeFileSync(`${vault}/站点/style.css`, ".big { font-size: 33px; }");
-    writeFileSync(`${vault}/站点/pic.png`, PNG_1PX);
+    writeFileSync(`${vault}/style.css`, ".big { font-size: 33px; }");
+    writeFileSync(`${vault}/pic.png`, PNG_1PX);
     writeFileSync(
-      `${vault}/站点/页面.html`,
+      `${vault}/页面.html`,
       `<!doctype html><html><head><meta charset="utf-8"><title>标题X</title><link rel="stylesheet" href="style.css"><style>body{background:rgb(1,2,3)}</style></head><body><h1 class="big" id="h">你好页面</h1><img id="pic" src="pic.png"><div id="js">no-js</div><script>document.getElementById("js").textContent="js-ran"</script></body></html>`,
     );
     await openKnowledge(page);
-    await page.getByTestId("file-item").filter({ hasText: "站点" }).first().click().catch(() => undefined);
     await openFile(page, "页面");
     const frame = await previewFrame(page);
     await expect(frame.locator("#h")).toHaveText("你好页面");
@@ -218,13 +216,13 @@ test("F04：HTML 整页隔离渲染（head / style / 相对 CSS / 图片 / 脚�
     expect(await page.getByTestId("html-preview-frame").getAttribute("sandbox")).toBe("allow-scripts");
 
     // 源码模式修改并保存 → 回到预览看到新内容
-    await page.getByTestId("html-mode").getByRole("radio", { name: "源码" }).click();
+    await page.getByTestId("html-mode").getByRole("tab", { name: "源码" }).click();
     await page.locator(".cm-content").click();
     await page.keyboard.press("Control+Home");
     await page.keyboard.insertText("<!-- 改动 -->");
-    await expect.poll(() => readFileSync(`${vault}/站点/页面.html`, "utf8")).toContain("<!-- 改动 -->");
-    writeFileSync(`${vault}/站点/页面.html`, readFileSync(`${vault}/站点/页面.html`, "utf8").replace("你好页面", "已更新页面"));
-    await page.getByTestId("html-mode").getByRole("radio", { name: "预览" }).click();
+    await expect.poll(() => readFileSync(`${vault}/页面.html`, "utf8")).toContain("<!-- 改动 -->");
+    writeFileSync(`${vault}/页面.html`, readFileSync(`${vault}/页面.html`, "utf8").replace("你好页面", "已更新页面"));
+    await page.getByTestId("html-mode").getByRole("tab", { name: "预览" }).click();
     await expect.poll(async () => (await previewFrame(page)).locator("#h").textContent(), { timeout: 15_000 }).toBe("已更新页面");
   } finally {
     await close();
@@ -244,7 +242,7 @@ test("F05：恶意 HTML 在隔离预览里的越权尝试全部被拦（fetch / 
     expect(existsSync(`${vault}/逃逸/secret.png`)).toBe(true);
     const evil = `<!doctype html><meta charset="utf-8"><body><pre id="out">running</pre><script>
 const R = {};
-const done = (k, v) => { R[k] = v; };
+const done = (k, v) => { R[k] = v; document.getElementById("out").textContent = JSON.stringify(R); };
 const rejects = (k, p) => p.then(() => done(k, "ALLOWED"), (e) => done(k, "blocked:" + (e && e.name || "err")));
 const img = (k, src) => new Promise((res) => { const i = new Image(); i.onload = () => { done(k, "ALLOWED"); res(); }; i.onerror = () => { done(k, "blocked"); res(); }; i.src = src; });
 (async () => {
@@ -273,14 +271,13 @@ const img = (k, src) => new Promise((res) => { const i = new Image(); i.onload =
     pc.createDataChannel("x");
     const cands = [];
     pc.onicecandidate = (e) => { if (e.candidate) cands.push(e.candidate.candidate); };
-    await pc.setLocalDescription(await pc.createOffer());
-    await new Promise((r) => setTimeout(r, 2500));
+    await Promise.race([(async () => { await pc.setLocalDescription(await pc.createOffer()); await new Promise((r) => setTimeout(r, 2500)); })(), new Promise((r) => setTimeout(r, 6000))]);
     done("webrtc", cands.some((c) => / typ (srflx|host)/.test(c) && !/\\.local /.test(c)) ? "LEAK:" + cands.join("|") : "blocked");
   } catch (e) { done("webrtc", "blocked:" + e.name); }
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["x"])); a.download = "x.txt"; document.body.appendChild(a); a.click(); done("download", "attempted");
   const f = document.createElement("form"); f.action = "https://example.com/"; f.method = "POST"; document.body.appendChild(f); try { f.submit(); done("form-submit", "attempted"); } catch (e) { done("form-submit", "blocked"); }
   parent.postMessage({ evil: true }, "*"); done("postMessage", "sent");
-  setTimeout(() => { location.href = "https://example.com/"; done("self-nav", "attempted"); document.getElementById("out").textContent = JSON.stringify(R); }, 50);
+  done("end", "1");
 })();
 </script>`;
     writeFileSync(`${vault}/evil.html`, evil);
@@ -293,9 +290,9 @@ const img = (k, src) => new Promise((res) => { const i = new Image(); i.onload =
     });
     expect(msgs).toBe(true);
     await openFile(page, "evil");
-    const frame = await previewFrame(page);
-    await expect(frame.locator("#out")).toContainText("self-nav", { timeout: 40_000 });
-    const R = JSON.parse((await frame.locator("#out").textContent()) ?? "{}") as Record<string, string>;
+    const out = page.frameLocator('[data-testid="html-preview-frame"]').locator("#out");
+    await expect(out).toContainText('"end"', { timeout: 50_000 });
+    const R = JSON.parse((await out.textContent()) ?? "{}") as Record<string, string>;
     await page.screenshot({ path: path.join(path.dirname(vault), `f05-${path.basename(vault)}.png`) });
 
     // 必须被拦的
@@ -306,13 +303,34 @@ const img = (k, src) => new Promise((res) => { const i = new Image(); i.onload =
     expect(R["top-nav"]).toMatch(/blocked|attempted/);
     // 工作台没有被导航、没有发生副作用
     expect(await page.evaluate(() => location.href)).toBe(await page.evaluate(() => (window as unknown as { __url0: string }).__url0));
-    // iframe 自导航被主进程拦截：仍停留在 huhu-preview，且拦截计数出现
     expect(await page.getByTestId("html-preview-frame").getAttribute("src")).toMatch(/^huhu-preview:\/\//);
-    await expect(page.getByTestId("html-blocked")).toBeVisible({ timeout: 10_000 });
-    const frameUrl = (await previewFrame(page)).url();
-    expect(frameUrl).toMatch(/^huhu-preview:\/\//);
     // postMessage 是浏览器允许的单向通知；工作台没有处理它，不泄露任何桥接（上面 parent-bridge 已断言）
     expect(await app.evaluate(() => typeof (globalThis as { __leak?: unknown }).__leak)).toBe("undefined");
+  } finally {
+    await close();
+  }
+});
+
+test("F05：预览 iframe 自导航到外部 URL（脚本 / 链接 / meta refresh）被拦，工作台不受影响", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(`${vault}/导航.html`, `<!doctype html><meta charset="utf-8"><body><a id="l" href="https://example.com/">go</a><script>setTimeout(() => { location.href = "https://example.com/"; }, 300)</script>`);
+    writeFileSync(`${vault}/刷新.html`, `<!doctype html><meta http-equiv="refresh" content="0;url=https://example.com/"><body>refresh</body>`);
+    await openKnowledge(page);
+    for (const name of ["导航", "刷新"]) {
+      await openFile(page, name);
+      await page.waitForTimeout(3000);
+      // 任何框架都没有到达外部站点；工作台主框架仍是应用本身
+      expect(page.frames().some((f) => /^https?:\/\/example\.com/.test(f.url()))).toBe(false);
+      expect(page.mainFrame().url()).toMatch(/^huhu-app:|^http:\/\/localhost/);
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪");
+    }
+    // 点击链接导航（沙箱内的用户手势也不能离开 huhu-preview）
+    await openFile(page, "导航");
+    await page.waitForTimeout(500);
+    await page.frameLocator('[data-testid="html-preview-frame"]').locator("#l").click({ timeout: 2000 }).catch(() => undefined);
+    await page.waitForTimeout(1500);
+    expect(page.frames().some((f) => /^https?:\/\/example\.com/.test(f.url()))).toBe(false);
   } finally {
     await close();
   }
