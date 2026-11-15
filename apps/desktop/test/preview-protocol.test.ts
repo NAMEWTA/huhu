@@ -96,6 +96,12 @@ describe("PreviewGrants 与 handlePreviewRequest", () => {
     expect(csp).toContain("form-action 'none'");
     expect(csp).toContain(`frame-ancestors ${ANCESTORS}`);
   });
+  test("dev 来源（http://localhost:*）只改变 frame-ancestors，其余指令不变", () => {
+    const prod = previewCsp("huhu-app://workbench");
+    const dev = previewCsp("http://localhost:5173");
+    expect(dev).toContain("frame-ancestors http://localhost:5173");
+    expect(dev.replace("http://localhost:5173", "huhu-app://workbench")).toBe(prod);
+  });
   test("同一 nonce 下的相对资源解析在 Vault 内；越界与受保护目录被拒", async () => {
     const g = new PreviewGrants();
     const r = g.grant(vault, "页面/index.html");

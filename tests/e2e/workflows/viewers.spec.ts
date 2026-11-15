@@ -1,5 +1,6 @@
 import { expect, test, type Frame, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 
@@ -37,6 +38,17 @@ function buildPdf(pages: string[], pad = 0): Buffer {
   return Buffer.concat(chunks);
 }
 
+
+/**
+ * F05 要求 dev 与 prod 各跑一遍。本基线上 dev（electron-vite 渲染进程开发服务器，http://localhost:*）无法端到端运行：
+ * ① `packages/contracts/src/ids.ts` 的 `node:crypto` 被 Vite 外部化，工作台白屏；② Engine 的 CORS 只放行 `huhu-app://workbench`（packages/kernel/src/server/ingress.ts 的 RENDERER_ORIGIN）。
+ * 两者与 S7 无关（见 evidence/s7/report.md）。这里只跑 prod；dev 来源只影响预览响应头里的 `frame-ancestors`，由 apps/desktop/test/preview-protocol.test.ts 单测覆盖。
+ */
+const MODES = ["prod"] as const;
+
+/** 每个用例用独立的用户数据目录：Electron 的单实例锁按 userData 区分，别的会话 / 并行任务正在运行的应用不会让这里的启动立刻退出。 */
+const launch = (extra: Record<string, string> = {}) => openApp({ XDG_CONFIG_HOME: mkdtempSync(path.join(tmpdir(), "huhu-xdg-")), ...extra });
+
 const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 async function openKnowledge(page: Page): Promise<void> {
@@ -51,7 +63,7 @@ const typeAtEnd = async (page: Page, text: string) => {
 };
 
 test("F01 / F02：TXT / JSON 编辑写回原文件；无效 JSON 不被清空；格式化是显式动作；BOM / CRLF 保真；非 UTF-8 只读", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, vault, close } = await launch();
   try {
     writeFileSync(`${vault}/说明.txt`, "第一行\n");
     writeFileSync(`${vault}/数据.json`, '{"a":1}\n');
@@ -108,7 +120,7 @@ test("F01 / F02：TXT / JSON 编辑写回原文件；无效 JSON 不被清空；
 });
 
 test("F02：外部修改与冲突——有未保存编辑时外部改了文件，走冲突流程，不静默覆盖", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, vault, close } = await launch();
   try {
     writeFileSync(`${vault}/冲突.txt`, "原始\n");
     await openKnowledge(page);
@@ -127,7 +139,7 @@ test("F02：外部修改与冲突——有未保存编辑时外部改了文件�
 });
 
 test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange 分段读取；损坏有明确反馈", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, vault, close } = await launch();
   try {
     writeFileSync(`${vault}/手册.pdf`, buildPdf(["Alpha Page", "Bravo Page", "Charlie Page"]));
     writeFileSync(`${vault}/大.pdf`, buildPdf(["Huge Sample"], 11 * 1024 * 1024));
@@ -195,8 +207,9 @@ async function previewFrame(page: Page): Promise<Frame> {
   return frame;
 }
 
-test("F04：HTML 整页隔离渲染（head / style / 相对 CSS / 图片 / 脚本）；源码修改保存后预览更新", async () => {
-  const { page, vault, close } = await openApp();
+for (const mode of MODES)
+  test(`F04：HTML 整页隔离渲染（head / style / 相对 CSS / 图片 / 脚本）；源码修改保存后预览更新 [${mode}]`, async () => {
+  const { page, vault, close } = await launch();
   try {
     writeFileSync(`${vault}/style.css`, ".big { font-size: 33px; }");
     writeFileSync(`${vault}/pic.png`, PNG_1PX);
@@ -229,8 +242,9 @@ test("F04：HTML 整页隔离渲染（head / style / 相对 CSS / 图片 / 脚�
   }
 });
 
-test("F05：恶意 HTML 在隔离预览里的越权尝试全部被拦（fetch / XHR / import() / postMessage / top 导航 / 自导航 / window.open / WebRTC / 权限 / file:// / 路径穿越 / 符号链接 / 受保护目录）", async () => {
-  const { app, page, vault, close } = await openApp();
+for (const mode of MODES)
+  test(`F05：恶意 HTML 在隔离预览里的越权尝试全部被拦（fetch / XHR / import() / postMessage / top 导航 / 自导航 / window.open / WebRTC / 权限 / file:// / 路径穿越 / 符号链接 / 受保护目录） [${mode}]`, async () => {
+  const { app, page, vault, close } = await launch();
   try {
     const outside = path.join(path.dirname(vault), `outside-${path.basename(vault)}`);
     mkdirSync(outside, { recursive: true });
@@ -311,8 +325,9 @@ const img = (k, src) => new Promise((res) => { const i = new Image(); i.onload =
   }
 });
 
-test("F05：预览 iframe 自导航到外部 URL（脚本 / 链接 / meta refresh）被拦，工作台不受影响", async () => {
-  const { page, vault, close } = await openApp();
+for (const mode of MODES)
+  test(`F05：预览 iframe 自导航到外部 URL（脚本 / 链接 / meta refresh）被拦，工作台不受影响 [${mode}]`, async () => {
+  const { page, vault, close } = await launch();
   try {
     writeFileSync(`${vault}/导航.html`, `<!doctype html><meta charset="utf-8"><body><a id="l" href="https://example.com/">go</a><script>setTimeout(() => { location.href = "https://example.com/"; }, 300)</script>`);
     writeFileSync(`${vault}/刷新.html`, `<!doctype html><meta http-equiv="refresh" content="0;url=https://example.com/"><body>refresh</body>`);
@@ -337,12 +352,26 @@ test("F05：预览 iframe 自导航到外部 URL（脚本 / 链接 / meta refres
 });
 
 test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的 pdfViewer / iframe 不持续增长", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, vault, close } = await launch();
   try {
     writeFileSync(`${vault}/甲.pdf`, buildPdf(["One"]));
     writeFileSync(`${vault}/乙.html`, "<!doctype html><body>b</body>");
     writeFileSync(`${vault}/丙.txt`, "c");
+    writeFileSync(`${vault}/图.png`, PNG_1PX);
+    writeFileSync(`${vault}/无扩展名`, "x");
+    // F06：整个过程没有向外部站点发请求（图标全部是本地静态映射，没有在线图标服务）
+    const external: string[] = [];
+    page.on("request", (r) => {
+      if (!/^(huhu-app|huhu-preview|data|blob|devtools|chrome-extension):/.test(r.url()) && !/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(r.url())) external.push(r.url());
+    });
     await openKnowledge(page);
+    // F06：不同类型的文件在文件树里各自有固定的图标类别（扩展名大小写无关、无扩展名回退）
+    const kindOf = (name: string) => page.getByTestId("file-item").filter({ hasText: name }).locator("[data-file-icon]").first().getAttribute("data-file-icon");
+    await expect.poll(() => kindOf("甲")).toBe("pdf");
+    expect(await kindOf("乙")).toBe("html");
+    expect(await kindOf("丙")).toBe("text");
+    expect(await kindOf("图")).toBe("image");
+    expect(await kindOf("无扩展名")).toBe("file");
     for (let i = 0; i < 20; i++) {
       await openFile(page, "甲");
       await expect(page.locator(".pdfViewer")).toHaveCount(1);
@@ -353,6 +382,7 @@ test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的
       await expect(page.getByTestId("html-preview-frame")).toHaveCount(0);
     }
     expect(await page.locator("iframe").count()).toBe(0);
+    expect(external, `外部请求：${external.join(", ")}`).toEqual([]);
   } finally {
     await close();
   }
