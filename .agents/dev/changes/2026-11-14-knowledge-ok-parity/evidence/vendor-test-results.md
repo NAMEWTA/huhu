@@ -91,3 +91,12 @@
 - `src/vendor/open-knowledge/core/src/util/file-lock.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
 - `src/vendor/open-knowledge/core/src/util/project-logs-dir.test.ts`：Cannot find module '../constants/ok-user-home.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959571
 - `src/vendor/open-knowledge/core/src/util/spawn-error-log-open.test.ts`：Cannot find module '../constants/lifecycle.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ff
+
+## 审计订正（2026-11-15，audit @36b60e8 实测）
+
+`pnpm --filter @huhu/editor run test:vendor` 实际结果：**73 个文件失败 / 143 通过（共 216）；用例 18 失败 / 3958 通过 / 2 跳过**。上文 97.9% 只是人工把部分文件归为“不适用”后的口径，不得作为验收依据。失败归因：
+- `y-prosemirror-patch.test.ts`（16 用例）：`REPO_ROOT` 指向 vendor 目录，找不到 `pnpm-workspace.yaml` / `patches/`，`import.meta.resolve` 不可用——**测试依赖上游仓库布局，未适配**，不是“不适用”，S8 前要么适配要么在结果表里写明原因。
+- `schema-invariant.test.ts`（1 用例）：`schema-snapshot.json` 未随闭包复制——补复制。
+- `renderer-capture-scrub-coverage.uncached.test.ts`（1 用例）：扫描 `app/src`、`desktop/src`，闭包外——不适用，写明。
+- 约 70 个文件 `Cannot find module './read-config-safely.ts'` 等：被测模块不在闭包内。
+这些在 S8 复核（G04）；阈值 70% 的判定口径需统一为“全部迁入测试的 通过/适配/不适用 三分类，不适用必须写原因”。
