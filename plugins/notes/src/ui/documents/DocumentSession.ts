@@ -122,7 +122,7 @@ export class DocumentSession {
   private emit(): void {
     this.snap = this.build();
     this.syncPoll();
-    for (const l of [...this.listeners]) l();
+    for (const l of this.listeners) l();
   }
   private build(): SessionSnapshot {
     return {
@@ -190,7 +190,7 @@ export class DocumentSession {
     return () => this.drainers.delete(fn);
   }
   private drain(): void {
-    for (const d of [...this.drainers]) d();
+    for (const d of this.drainers) d();
   }
 
   // ---- 保存（串行）----

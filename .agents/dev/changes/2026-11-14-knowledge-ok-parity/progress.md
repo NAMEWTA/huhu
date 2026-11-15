@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 文档与设计（本 change） | 完成，顾问复核意见已吸收，待用户确认 Q1–Q10 | 本目录；[evidence/e0-source-survey.md](evidence/e0-source-survey.md) |
 | S0 来源冻结与闸门 | **进行中（2026-11-15）**：闭包清单、端点矩阵（机械）、s0-facts、SP-1（仅 typecheck）、SP-4（部分）已出；复刻矩阵、rc4 复现与视觉基线、SP-2/3/5/6 未做；**闸门未通过，不得进入 S1** | [tasks/00-freeze-and-spikes.md](tasks/00-freeze-and-spikes.md)；**下一步** |
-| S1 资源目录、会话与标签契约 | 未开始 | 依赖 S0 闸门 |
+| S1 资源目录、会话与标签契约 | **完成（2026-11-15，分支 `worktree-agent-adad71041bd4ce01a`）**；`vault.tree` / `notes.files` 的迁移与删除按计划留到 S5，其余偏差见契约冻结文档 §7 | [evidence/contracts-freeze.md](evidence/contracts-freeze.md)、[evidence/s1/verification.md](evidence/s1/verification.md) |
 | S2a（2a-1/2/3）/ S2b / S2c | 未开始 | S2a 依赖 S0；S2b 依赖 S1 + S2a；S2c 依赖 S2b |
 | S3 编辑行为对等 | 未开始 | |
 | S4 评论 | 未开始 | |

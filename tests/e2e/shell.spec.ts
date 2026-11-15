@@ -1267,6 +1267,28 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
   }
 });
 
+test("知识库：输入后立刻切换到另一篇，磁盘内容包含最后一个字符（会话销毁时落盘，不等 800 ms 自动保存）", async () => {
+  const LAST = "最后一个字Ω";
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await newNote(page, "甲");
+    await newNote(page, "乙");
+    await page.getByTestId("note-item").filter({ hasText: "甲.md" }).click();
+    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type(LAST);
+    await page.getByTestId("note-item").filter({ hasText: "乙.md" }).click(); // 立刻离开：远小于自动保存间隔
+    await expect.poll(() => readFileSync(path.join(vault, "甲.md"), "utf8")).toContain(LAST);
+  } finally {
+    await app.close();
+    rmTree(vault);
+  }
+});
+
 test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自定义隐藏卡片；停用任务插件后任务卡片隐藏", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   let app = await launch(vault);
