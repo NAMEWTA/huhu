@@ -46,7 +46,6 @@ export interface RichMarkdownEditorProps {
   className?: string
 }
 
-const DEBOUNCE_MS = 300
 
 class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode }, { error: Error | null }> {
   override state: { error: Error | null } = { error: null }
@@ -77,6 +76,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   onChangeRef.current = onChange
   const lastEmitted = useRef<string>(value)
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const queued = useRef(false)
   const ytextRef = useRef<Y.Text | null>(null)
 
   const emitNow = useCallback(() => {
@@ -103,8 +103,13 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       lastEmitted.current = yt.toString()
       const observer = (_e: Y.YTextEvent, tr: Y.Transaction) => {
         if (tr.origin === FILE_LOAD_ORIGIN) return
-        if (pending.current) clearTimeout(pending.current)
-        pending.current = setTimeout(emitNow, DEBOUNCE_MS)
+        // 同一事务批内合并为一次交付（微任务）：会话的文本始终与编辑器保持同步，退出前 flush 不依赖定时器
+        if (queued.current) return
+        queued.current = true
+        queueMicrotask(() => {
+          queued.current = false
+          emitNow()
+        })
       }
       yt.observe(observer)
       disposeObserve = () => yt.unobserve(observer)

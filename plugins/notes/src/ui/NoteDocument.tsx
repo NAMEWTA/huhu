@@ -140,12 +140,14 @@ export function NoteDocument(props: NoteDocumentProps) {
     if (conflicts && conflicts > 0) session?.setError(n.mergeConflicts(conflicts));
   };
 
-  // 编辑器已经按 300 ms 防抖交出全文：直接交给会话与父组件（大纲 / 属性面板）
+  // 编辑器按事务批交出全文：立即进会话（保存 / 退出 flush 看到的永远是最新文本）；
+  // 大纲 / 属性面板用的全文：按键路径上不同步给父组件（会让整个笔记模块重渲染），停手 300 ms 后再给
   const onChange = (next: string) => {
     if (!session || next === session.currentText()) return;
     editedText.current = next;
     session.setText(next, "editor");
-    pushText(next);
+    if (textTimer.current) clearTimeout(textTimer.current);
+    textTimer.current = setTimeout(() => onText(next), 300);
   };
 
   // 撤销 / 重做按钮的可用状态：编辑器没有逐键事件出口，跟随会话快照（每次文本变化）与模式刷新
