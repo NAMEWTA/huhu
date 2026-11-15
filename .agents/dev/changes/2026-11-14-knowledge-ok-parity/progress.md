@@ -7,7 +7,7 @@
 | 切片 | 状态 | 证据入口 / 下一步 |
 | --- | --- | --- |
 | 文档与设计（本 change） | 完成，顾问复核意见已吸收，待用户确认 Q1–Q10 | 本目录；[evidence/e0-source-survey.md](evidence/e0-source-survey.md) |
-| S0 来源冻结与闸门 | 未开始 | [tasks/00-freeze-and-spikes.md](tasks/00-freeze-and-spikes.md)；**下一步** |
+| S0 来源冻结与闸门 | **进行中（2026-11-15）**：闭包清单、端点矩阵（机械）、s0-facts、SP-1（仅 typecheck）、SP-4（部分）已出；复刻矩阵、rc4 复现与视觉基线、SP-2/3/5/6 未做；**闸门未通过，不得进入 S1** | [tasks/00-freeze-and-spikes.md](tasks/00-freeze-and-spikes.md)；**下一步** |
 | S1 资源目录、会话与标签契约 | 未开始 | 依赖 S0 闸门 |
 | S2a（2a-1/2/3）/ S2b / S2c | 未开始 | S2a 依赖 S0；S2b 依赖 S1 + S2a；S2c 依赖 S2b |
 | S3 编辑行为对等 | 未开始 | |
@@ -34,3 +34,11 @@
 - 用户待确认：[spec.md](spec.md) §9 的 Q1–Q10。
 - **闸门阈值已写死**（decisions OP-D02，用户可调但 S0 前定、S0 不得事后放宽）：补丁 ≤ 150 个文件、`DocumentContext` / `provider-pool` 的 Huhu 侧替换 ≤ 1200 行、上游测试适配后通过率 ≥ 70%。这些数字是我的拟定值，没有用户确认。
 - 真实输入法、Windows / macOS 实机验证：本环境无法进行，实施阶段按“未验证”登记。
+
+## S0 实际进展（2026-11-15）
+
+- `scripts/ok-closure.mjs` → `evidence/closure-manifest.json`：**931 文件（app 619 / core 312）/ 141,688 行 / 133 个 npm 包**（115 新增、16 版本不同）；比 E0 的 861 / 12.3 万 / 126 大，因入口补入了 DocumentContext、FileTree、PropertyPanel、评论组件。
+- `scripts/ok-endpoints.mjs` → `evidence/endpoint-matrix.md`：140 个调用点 / 85 条 `/api` 路径 / 14 个 `okDesktop` 成员（机械提取，形状与映射列未填）。
+- `evidence/s0-facts.md`、`evidence/spikes/sp-1.md`（typecheck 剩 36 条已分类错误，Vite build 待 SP-2/3）、`sp-4.md`（444 个 Huhu md：字节相等 66%、规范化后相等 85%；**无编辑不写盘需靠原始源文本，未在原型上验证**）。
+- spike 代码：分支 `scratch/ok-spike`（`a910cfb`，worktree `../huhu-spike`），不合入 main。
+- 未做：SP-2 / SP-3 / SP-5 / SP-6、rc.4 问题复现、`rc4` 视觉基线、复刻矩阵、上游差异（远端 OK 已有更新提交，仅记录未升级）。
