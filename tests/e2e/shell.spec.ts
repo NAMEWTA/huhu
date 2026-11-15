@@ -135,6 +135,7 @@ async function newNote(page: import("@playwright/test").Page, name: string): Pro
   await page.getByRole("button", { name: "新建笔记" }).first().click();
   await page.getByTestId("new-note-dialog").getByLabel("文件名").fill(name);
   await page.getByTestId("new-note-submit").click();
+  await expect(treeItem(page, name)).toBeVisible(); // 树经事件合并后重新列举，等行出现再继续
 }
 
 /** 知识库：用笔记操作菜单重命名当前笔记。 */
@@ -210,7 +211,7 @@ test("知识库：文件夹重命名、移动、删除（整体进回收站）",
     await page.getByRole("button", { name: "移动", exact: true }).click();
     await expect.poll(() => existsSync(path.join(vault, "归档/资料库"))).toBe(true);
 
-    await treeMenu(page, treeFolder(page, "归档"), "Delete");
+    await treeMenu(page, treeFolder(page, "归档"), /^删除/);
     await page.getByRole("alertdialog").getByRole("button", { name: /Move to|Delete|移到|删除/i }).first().click();
     await expect.poll(() => existsSync(path.join(vault, "归档"))).toBe(false);
   } finally {

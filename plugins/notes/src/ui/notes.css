@@ -1427,6 +1427,10 @@
   }
 
   /* S5：资源管理器（OK 文件树）的宿主栏：计数 / 隐藏入口 */
+  .notes-explorer-tree:has(> .notes-resource-tree) {
+    display: flex;
+    flex-direction: column;
+  }
   .notes-resource-tree {
     display: flex;
     flex-direction: column;

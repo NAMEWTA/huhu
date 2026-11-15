@@ -4,6 +4,7 @@ import { Tooltip as TooltipPrimitive } from 'radix-ui';
 import type * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import { getOkPortalContainer } from '@/lib/ok-portal';
 
 function TooltipProvider({
   delayDuration = 0,
@@ -45,7 +46,7 @@ function TooltipContent({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Content> & { arrow?: boolean }) {
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={getOkPortalContainer()}>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}

@@ -27,3 +27,12 @@
 ## 依赖补丁（pnpm patchedDependencies，原样复制自上游 `patches/`）
 
 `@handlewithcare/remark-prosemirror@0.1.5`、`@lingui/core@6.5.0`、`@pierre/trees@1.0.0-beta.4`、`@radix-ui/react-tooltip@1.2.8`、`@tiptap/extension-drag-handle@3.22.3`、`@tiptap/y-tiptap@3.0.3`、`cmdk@1.1.1`、`react-medium-image-zoom@5.4.3`、`y-indexeddb@9.0.12`。未登记：`@hocuspocus/provider`（不引入）、`y-prosemirror`（Huhu 不安装）、`react-resizable-panels`、`@pierre/diffs`（未进入闭包）。另有 `pnpm-workspace.yaml` 的 `overrides: mdast-util-mdx-jsx: 3.2.0`（模块增强要求单一实例）。
+
+## S5（文件树 / 右键菜单 / 隐藏）补丁
+
+- P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。
+- P-S5-02 `app/src/components/FileTree.tsx`：移除“Open with AI”子菜单（`OpenInAgentContextSubmenu` 的 import 与 `openWithAi` 属性）——Q2 登记不适用。
+- P-S5-03 `app/src/components/FileTree.tsx`：移除“Import as template”（`/api/template/import` 无 Huhu 对应能力）；“New from template”仍显示，但 `/api/templates` 返回 NOT_AVAILABLE 时没有模板项（待 S3 后评估是否映射 Huhu 模板）。
+- P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。
+- 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
+- P-S5-05 `app/src/components/ui/{alert-dialog,dialog,dropdown-menu,popover,select,tooltip}.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
