@@ -1,19 +1,22 @@
-import { Button, Dialog, EmptyState, Field, IconButton } from "@huhu/ui";
+import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { MarkdownEditorHandle } from "@huhu/editor";
 import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { FileText, Folder, Plus, X } from "lucide-react";
+import { FileText, Folder, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { FileCard } from "./FileCard.js";
+import { NoteContextMenu } from "./NoteContextMenu.js";
+import { CommentComposer, MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
+import { TabStrip } from "./tabs/TabStrip.js";
 import { NoteDocument } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 import { ArchiveTypeView, ArchiveView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
 
-type DialogState =
+export type DialogState =
   | { kind: "new"; folder: string }
   | { kind: "folder"; parent: string }
   | { kind: "rename"; note: NoteRef }
@@ -260,23 +263,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       />
       <div className="notes-main">
         {section !== "trash" && visibleTabs.length > 0 ? (
-          <nav className="hu-knowledge-document-tabs" aria-label="打开的文档" data-testid="document-tabs">
-            {visibleTabs.map((p) => {
-              const name = archiveNoteRoute(p) ? folderName(p.replace(/\/index\.md$/i, "")) : (p.split("/").at(-1) ?? p).replace(/\.md$/i, "");
-              return (
-                <div key={p} className={`notes-document-tab${p === selected ? " active" : ""}`}>
-                  <button type="button" aria-current={p === selected ? "true" : undefined} title={p} data-testid="document-tab" onClick={() => openNote(p)}>
-                    <FileText size={14} aria-hidden />
-                    <span>{name}</span>
-                  </button>
-                  <button type="button" title={`关闭 ${name}`} aria-label={`关闭 ${name}`} onClick={() => closeTab(p)}>
-                    <X size={12} aria-hidden />
-                  </button>
-                </div>
-              );
-            })}
-            <IconButton icon={Plus} label="在新标签新建笔记" onClick={() => setDialog({ kind: "new", folder: "" })} />
-          </nav>
+          <TabStrip tabs={visibleTabs} selected={selected} onOpen={openNote} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} />
         ) : null}
         {error ? (
           <div role="alert" className="hu-field-error">
@@ -390,63 +377,16 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         />
       ) : null}
       {menu ? (
-        <div className="shell-knowledge-file-menu" role="menu" aria-label="文件操作菜单" style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y }} onClick={(e) => e.stopPropagation()}>
-          <div className="knowledge-menu-caption">{menu.note.path.split("/").at(-1)}</div>
-          {menu.note.folder ? (
-            <>
-              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "new", folder: menu.note.path }), setMenu(null))}>
-                {n.newNote}
-              </button>
-              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "folder", parent: menu.note.path }), setMenu(null))}>
-                {n.newFolder}
-              </button>
-              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "rename", note: menu.note }), setMenu(null))}>
-                {n.menu.rename}
-              </button>
-              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "move", note: menu.note }), setMenu(null))}>
-                {n.menu.move}
-              </button>
-              <hr />
-              <button type="button" role="menuitem" className="danger" onClick={() => (setDialog({ kind: "trash", note: menu.note }), setMenu(null))}>
-                {n.menu.trash}
-              </button>
-            </>
-          ) : section === "trash" ? (
-            <>
-              <button type="button" role="menuitem" onClick={() => (menu.note.trashId && void run("notes.restore", { trashId: menu.note.trashId }), setMenu(null))}>
-                {n.menu.restore}
-              </button>
-              <button type="button" role="menuitem" className="danger" onClick={() => (setDialog({ kind: "purge", note: menu.note }), setMenu(null))}>
-                {n.menu.purge}
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" role="menuitem" onClick={() => (openNote(menu.note.path), setMenu(null))}>
-                {n.menu.open}
-              </button>
-              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "rename", note: menu.note }), setMenu(null))}>
-                {n.menu.rename}
-              </button>
-              <button type="button" role="menuitem" onClick={() => (setDialog({ kind: "move", note: menu.note }), setMenu(null))}>
-                {n.menu.move}
-              </button>
-              <button type="button" role="menuitem" onClick={() => void run<{ path: string }>("notes.duplicate", { path: menu.note.path }).then((r) => (r && openNote(r.path), setMenu(null)))}>
-                {n.menu.duplicate}
-              </button>
-              <button type="button" role="menuitem" data-testid="menu-save-version" onClick={() => (setDialog({ kind: "version", note: menu.note }), setMenu(null))}>
-                {n.menu.saveVersion}
-              </button>
-              <button type="button" role="menuitem" onClick={() => (void run("notes.setFavorite", { path: menu.note.path, favorite: menu.note.favorite !== true }), setMenu(null))}>
-                {menu.note.favorite ? n.menu.unstar : n.menu.star}
-              </button>
-              <hr />
-              <button type="button" role="menuitem" className="danger" onClick={() => (setDialog({ kind: "trash", note: menu.note }), setMenu(null))}>
-                {n.menu.trash}
-              </button>
-            </>
-          )}
-        </div>
+        <NoteContextMenu
+          menu={menu}
+          trash={section === "trash"}
+          onOpen={openNote}
+          onDialog={setDialog}
+          onClose={() => setMenu(null)}
+          onRestore={(trashId) => void run("notes.restore", { trashId })}
+          onDuplicate={(path) => void run<{ path: string }>("notes.duplicate", { path }).then((r) => r && openNote(r.path))}
+          onFavorite={(note) => void run("notes.setFavorite", { path: note.path, favorite: note.favorite !== true })}
+        />
       ) : null}
 
       {composer ? (
@@ -601,187 +541,5 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         </Dialog>
       ) : null}
     </div>
-  );
-}
-
-function TrashList({ notes, onRestore, onPurge }: { notes: NoteRef[]; onRestore(n: NoteRef): void; onPurge(n: NoteRef): void }) {
-  if (notes.length === 0) return null;
-  return (
-    <div className="hu-knowledge-trash-banner" role="list" aria-label="已删除的笔记" data-testid="trash-list">
-      {notes.map((x) => (
-        <div key={x.trashId ?? x.path} role="listitem" className="row">
-          <span className="grow">
-            {x.path} · {n.trashBanner(x.deletedAt ? new Date(x.deletedAt).toLocaleString("zh-CN") : "")}
-          </span>
-          <Button onClick={() => onRestore(x)}>{n.menu.restore}</Button>
-          <Button variant="danger" onClick={() => onPurge(x)}>
-            {n.menu.purge}
-          </Button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function NameDialog({
-  title,
-  description,
-  label,
-  initial = "",
-  submit,
-  error,
-  onClose,
-  onSubmit,
-}: {
-  title: string;
-  description?: string;
-  label: string;
-  initial?: string;
-  submit: string;
-  error: string | null;
-  onClose(): void;
-  onSubmit(name: string): Promise<void>;
-}) {
-  const [name, setName] = useState(initial);
-  return (
-    <Dialog
-      open
-      title={title}
-      {...(description ? { description } : {})}
-      error={error}
-      onClose={onClose}
-      actions={
-        <>
-          <Button onClick={onClose}>{n.cancel}</Button>
-          <Button variant="primary" disabled={!name.trim()} onClick={() => void onSubmit(name.trim())} data-testid="name-dialog-submit">
-            {submit}
-          </Button>
-        </>
-      }
-    >
-      <form
-        className="hu-form-body"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim()) void onSubmit(name.trim());
-        }}
-      >
-        <Field label={label}>
-          <input autoFocus aria-label={label} value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-      </form>
-    </Dialog>
-  );
-}
-
-function NewNoteDialog({ folder, folders, error, onClose, onCreate }: { folder: string; folders: string[]; error: string | null; onClose(): void; onCreate(v: { name: string; folder: string; template: string }): Promise<void> }) {
-  const [name, setName] = useState("");
-  const [dir, setDir] = useState(folder);
-  const [template, setTemplate] = useState("blank");
-  return (
-    <Dialog
-      open
-      title={n.newTitle}
-      description={n.newDesc}
-      error={error}
-      onClose={onClose}
-      testId="new-note-dialog"
-      actions={
-        <>
-          <Button onClick={onClose}>{n.cancel}</Button>
-          <Button variant="primary" icon={FileText} disabled={!name.trim()} onClick={() => void onCreate({ name: name.trim(), folder: dir, template })} data-testid="new-note-submit">
-            {n.create}
-          </Button>
-        </>
-      }
-    >
-      <form
-        className="hu-form-body"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim()) void onCreate({ name: name.trim(), folder: dir, template });
-        }}
-      >
-        <Field label={n.fileName} description={n.fileNameHint}>
-          <input autoFocus aria-label={n.fileName} placeholder={n.fileNameHint} value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <Field label={n.folderLabel}>
-          <select aria-label={n.folderLabel} value={dir} onChange={(e) => setDir(e.target.value)}>
-            {folders.map((f) => (
-              <option key={f} value={f}>
-                {f || n.folderHint}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={n.template}>
-          <select aria-label={n.template} value={template} onChange={(e) => setTemplate(e.target.value)}>
-            {(Object.keys(n.templates) as (keyof typeof n.templates)[]).map((k) => (
-              <option key={k} value={k}>
-                {n.templates[k]}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </form>
-    </Dialog>
-  );
-}
-
-function MoveDialog({ note, folders, error, onClose, onMove }: { note: NoteRef; folders: string[]; error: string | null; onClose(): void; onMove(dir: string): Promise<void> }) {
-  const [dir, setDir] = useState("");
-  return (
-    <Dialog
-      open
-      title={n.moveTitle}
-      description={`把「${note.title}」移到另一个文件夹；指向它的双链会同步更新。`}
-      error={error}
-      onClose={onClose}
-      actions={
-        <>
-          <Button onClick={onClose}>{n.cancel}</Button>
-          <Button variant="primary" onClick={() => void onMove(dir)}>
-            {n.moveDo}
-          </Button>
-        </>
-      }
-    >
-      <Field label={n.folderLabel}>
-        <select aria-label={n.folderLabel} value={dir} onChange={(e) => setDir(e.target.value)}>
-          {folders.map((f) => (
-            <option key={f} value={f}>
-              {f || "Vault 根目录"}
-            </option>
-          ))}
-        </select>
-      </Field>
-    </Dialog>
-  );
-}
-
-function CommentComposer({ quote, error, onClose, onSubmit }: { quote: string; error: string | null; onClose(): void; onSubmit(text: string): Promise<void> }) {
-  const [text, setText] = useState("");
-  return (
-    <Dialog
-      open
-      title="添加批注"
-      description="批注保存为 Comments/ 下的 Markdown 文件，不会改动正文。"
-      error={error}
-      testId="comment-composer"
-      onClose={onClose}
-      actions={
-        <>
-          <Button onClick={onClose}>{n.cancel}</Button>
-          <Button variant="primary" disabled={!text.trim()} data-testid="comment-save" onClick={() => void onSubmit(text.trim())}>
-            保存批注
-          </Button>
-        </>
-      }
-    >
-      <blockquote className="knowledge-comment-quote">{quote}</blockquote>
-      <Field label="批注内容">
-        <textarea aria-label="批注内容" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
-      </Field>
-    </Dialog>
   );
 }
