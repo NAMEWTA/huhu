@@ -2,7 +2,8 @@
   "include": [
     "src/vendor/open-knowledge/**/*",
     "src/host/**/*",
-    "harness/**/*"
+    "harness/**/*",
+    "test/host-files.test.ts"
   ],
   "exclude": [
     "**/*.test.ts",

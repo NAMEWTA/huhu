@@ -19,6 +19,7 @@
     "harness-dist",
     "build",
     "test/e2e",
-    "test/sp5-yaml.test.ts"
+    "test/sp5-yaml.test.ts",
+    "test/host-files.test.ts"
   ]
 }

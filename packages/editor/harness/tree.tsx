@@ -43,7 +43,7 @@ const deps: FilesRouteDeps = {
   rename: async (i) => {
     log.push(['rename', i])
     const moved: Record<string, string> = {}
-    for (const [p, v] of [...files]) {
+    for (const [p, v] of Array.from(files.entries())) {
       if (p === i.fromPath || p.startsWith(`${i.fromPath}/`)) {
         files.delete(p)
         const to = i.toPath + p.slice(i.fromPath.length)
