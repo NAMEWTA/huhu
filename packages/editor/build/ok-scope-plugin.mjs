@@ -9,8 +9,9 @@ const TARGET = /ok-globals\.css$/
 function scopeSelector(sel) {
   const s = sel.trim()
   if (s === ':root' || s === ':host' || s === 'html' || s === 'body' || s === ':root, :host') return '.ok-root'
-  if (s === '*' || s === '::before' || s === '::after' || s === '*::before' || s === '*::after' || s === '::backdrop')
-    return s === '::backdrop' ? s : `.ok-root ${s.startsWith('::') ? '*' + s : s}`
+  if (s === '::backdrop') return s // 伪元素无法按祖先限定；只声明 --tw-* 初值，对非 OK 的 top-layer 无可见影响
+  if (s === '*' || /^\*?::?(before|after)$/.test(s)) return `.ok-root ${s.startsWith('*') ? s : '*' + (s.startsWith('::') ? s : ':' + s)}`
+  if (/^html\s/.test(s)) return s.replace(/^html/, '.ok-root')
   if (/^html[.:\[]/.test(s)) return s.replace(/^html/, '.ok-root')
   if (/^body[.:\[\s]/.test(s)) return s.replace(/^body/, '.ok-root')
   return s

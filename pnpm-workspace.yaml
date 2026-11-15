@@ -16,3 +16,15 @@ allowBuilds:
 # OK vendor（packages/editor/src/vendor/open-knowledge）：模块增强（mdast-augmentation.ts）要求只存在一份 mdast-util-mdx-jsx，与上游 overrides 一致
 overrides:
   mdast-util-mdx-jsx: 3.2.0
+
+# OK vendor 依赖补丁（与上游 pnpm-workspace.yaml 的同名条目一致，原样复制自 temp/sources/open-knowledge/patches；登记见 packages/editor/src/vendor/open-knowledge/PATCHES.md）
+patchedDependencies:
+  '@handlewithcare/remark-prosemirror@0.1.5': patches/@handlewithcare%2Fremark-prosemirror@0.1.5.patch
+  '@lingui/core@6.5.0': patches/@lingui%2Fcore@6.5.0.patch
+  '@pierre/trees@1.0.0-beta.4': patches/@pierre%2Ftrees@1.0.0-beta.4.patch
+  '@radix-ui/react-tooltip@1.2.8': patches/@radix-ui__react-tooltip@1.2.8.patch
+  '@tiptap/extension-drag-handle@3.22.3': patches/@tiptap%2Fextension-drag-handle@3.22.3.patch
+  '@tiptap/y-tiptap@3.0.3': patches/@tiptap%2Fy-tiptap@3.0.3.patch
+  'cmdk@1.1.1': patches/cmdk@1.1.1.patch
+  'react-medium-image-zoom@5.4.3': patches/react-medium-image-zoom@5.4.3.patch
+  'y-indexeddb@9.0.12': patches/y-indexeddb@9.0.12.patch
