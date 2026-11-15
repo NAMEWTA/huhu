@@ -163,10 +163,10 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
   const onKeyDown = (e: React.KeyboardEvent) => {
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
-    if (e.key === "f" || e.key === "F") (e.preventDefault(), setFindOpen(true));
-    else if (e.key === "+" || e.key === "=") (e.preventDefault(), stepZoom("in"));
-    else if (e.key === "-" || e.key === "_") (e.preventDefault(), stepZoom("out"));
-    else if (e.key === "0") (e.preventDefault(), zoomReset());
+    const act = e.key === "f" || e.key === "F" ? () => setFindOpen(true) : e.key === "+" || e.key === "=" ? () => stepZoom("in") : e.key === "-" || e.key === "_" ? () => stepZoom("out") : e.key === "0" ? zoomReset : null;
+    if (!act) return;
+    e.preventDefault();
+    act();
   };
 
   return (
