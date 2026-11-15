@@ -129,3 +129,7 @@
 - 事实：消费者 = notes（`NoteDocument`、`FileCard`、`ArchivesViews`）、tasks（`TaskDetail`、`TaskEditor`、`references` 类型）、inbox（`InboxModule`）。`MarkdownPreview` 的 `stripFrontmatter` 与 marked + DOMPurify 路径只服务于“小型预览”。
 - 决定：`@huhu/editor` 导出 `RichMarkdownEditor`（`variant: 'document' | 'compact'`）、`SourceEditor`（Markdown 源码）、`PlainTextEditor`、`ReadonlyMarkdown`（= 同一套 schema 的不可编辑渲染）和 `EditorPort`（focus / selection / execute / reveal / getDraft / flush / 命令可用性 / 只读）。tasks 的描述编辑与 inbox 想法编辑用 `compact`（无评论、无属性面板、无 slash 的文档级项，保留 `@` 引用）；`@` 在 compact 里仍走 `tasks/references.ts` 的候选（经 S5 抽出的共享资源适配层）。`MarkdownEditor` / `MarkdownPreview` / `wikilink` / `mention` / `vendor/atomic` / 对应样式在无消费者后删除（S8 清单）。
 - 回头检查：compact 变体的每实例成本（Y.Doc、Tiptap）在 S2 用 bench 量；若任务详情打开明显变慢，tasks 改用 `PlainTextEditor`+`ReadonlyMarkdown`，并登记原因。
+
+## OP-D19 Q1–Q10 按建议默认值采纳（2026-11-15）
+
+用户 2026-11-15 明确指示：待决问题不再询问，从项目与来源里找答案并完整推进。据此 spec §9 的 Q1–Q10 **全部按“建议”列采纳**（Q1 无闭源 / 双许可；Q2 lint / audit / Share / OpenWithAi / presence / history 不接，模板导入与 Mermaid 块保留，Excalidraw 文档编辑器按 S0 评估；Q3 外链预览默认关闭；Q4 先量后定；Q5 不排块级合并；Q6 冻结在固定 SHA；Q7 不以实机验证为归档条件、逐项登记；Q8 无外部调用方则直接删除、有则保留一个版本并标弃用；Q9 以 S0 实测增量为记录，不设上限；Q10 分屏 / pane 评估后若与 Huhu 标签模型冲突则登记不适用）。闸门阈值（≤150 文件 / ≤1200 行 / ≥70%）同样采纳为最终值。**回头检查**：Q2、Q8 在 S8 复核实际对外影响。
