@@ -9,3 +9,4 @@ export * from "./settings.js";
 export * from "./tags.js";
 export * from "./home.js";
 export * from "./archives.js";
+export * from "./resources.js";

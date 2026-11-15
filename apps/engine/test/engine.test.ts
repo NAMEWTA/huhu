@@ -90,6 +90,33 @@ describe("Engine 启动与关闭", () => {
     engines.push(e);
     await expect(boot({ vaultPath: dir })).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
   });
+  test("vault.list / vault.readRange：真实目录、受保护标记、范围读取与对外限制", async () => {
+    const dir = tmp();
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    writeFileSync(path.join(dir, "a.md"), "# a\n");
+    writeFileSync(path.join(dir, "data.bin"), Buffer.from("0123456789"));
+    mkdirSync(path.join(dir, "empty"));
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    const call = (capability: string, input: unknown, token = e.rendererToken) => post(e, token, { capability, input, requestId: "r" });
+    const list = (await call("vault.list", {})).data as unknown as { entries: { name: string; kind: string }[]; total: number; counts: { files: number; dirs: number } };
+    expect(list.entries.map((x) => x.name)).toEqual(["empty", "a.md", "data.bin"]); // .huhu 默认不列
+    expect(list.counts).toEqual({ files: 2, dirs: 1 });
+    const withProt = (await call("vault.list", { includeProtected: true })).data as unknown as { entries: { name: string; protected?: string }[] };
+    expect(withProt.entries.find((x) => x.name === ".huhu")?.protected).toBe("internal");
+    expect((await call("vault.list", { dir: "../.." })).error?.code).toBe("PATH_OUTSIDE_VAULT");
+    // 外部入口：默认不开放；开放后也不能列受保护目录
+    expect((await call("vault.list", {}, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    const r = (await call("vault.readRange", { path: "data.bin", offset: 2, length: 4 })).data as unknown as { base64: string; size: number; eof: boolean; length: number };
+    expect(Buffer.from(r.base64, "base64").toString()).toBe("2345");
+    expect(r).toMatchObject({ size: 10, eof: false, length: 4 });
+    const tail = (await call("vault.readRange", { path: "data.bin", offset: 8, length: 100 })).data as unknown as { base64: string; eof: boolean };
+    expect(Buffer.from(tail.base64, "base64").toString()).toBe("89");
+    expect(tail.eof).toBe(true);
+    expect((await call("vault.readRange", { path: "../x", offset: 0, length: 1 })).error?.code).toBe("PATH_OUTSIDE_VAULT");
+    expect((await call("vault.readRange", { path: "data.bin", offset: 0, length: 5 * 1024 * 1024 })).error?.code).toBe("INVALID_INPUT");
+    expect((await call("vault.readRange", { path: "data.bin", offset: 0, length: 1 }, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+  });
   test("vault.tree / vault.search / vault.readFile 与外部修改后的增量索引", async () => {
     const dir = tmp();
     const { writeFileSync } = await import("node:fs");
