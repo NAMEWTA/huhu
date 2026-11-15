@@ -1,17 +1,6 @@
-import type { Messages } from '@lingui/core';
-import { i18n } from './i18n';
-
-const PSEUDO_LOCALE = 'pseudo';
-
+// P-S2a-04：pseudo 伪本地化不随 Huhu 发布；保留同名导出，永远返回 false。
 export function isPseudoLocaleRequested(): boolean {
-  if (import.meta.env.PROD === true) return false;
-  return new URLSearchParams(window.location.search).get('lang') === PSEUDO_LOCALE;
+  return false;
 }
 
-export async function activatePseudoLocale(): Promise<void> {
-  if (import.meta.env.PROD === true) return;
-
-  const { default: catalog } = await import('@/locales/pseudo/messages.json');
-  i18n.load(PSEUDO_LOCALE, catalog.messages as unknown as Messages);
-  i18n.activate(PSEUDO_LOCALE);
-}
+export async function activatePseudoLocale(): Promise<void> {}

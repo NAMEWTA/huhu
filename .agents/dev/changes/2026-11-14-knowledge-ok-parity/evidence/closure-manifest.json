@@ -18,13 +18,13 @@
     ]
   },
   "totals": {
-    "files": 931,
-    "app": 619,
+    "files": 932,
+    "app": 620,
     "core": 312,
-    "lines": 141688,
+    "lines": 141711,
     "npmPackages": 133,
-    "newDeps": 115,
-    "versionDiff": 16
+    "newDeps": 4,
+    "versionDiff": 17
   },
   "unresolvedCount": 15,
   "unresolved": [
@@ -93,9 +93,9 @@
     {
       "name": "@agentclientprotocol/sdk",
       "okVersion": "^1.1.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.1.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/autocomplete",
@@ -114,58 +114,58 @@
     {
       "name": "@codemirror/lang-css",
       "okVersion": "^6.3.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.3.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-html",
       "okVersion": "^6.4.9",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.4.9",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-javascript",
       "okVersion": "^6.2.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.2.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-json",
       "okVersion": "^6.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-markdown",
       "okVersion": "^6.5.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.5.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-python",
       "okVersion": "^6.1.7",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.1.7",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-rust",
       "okVersion": "^6.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lang-yaml",
       "okVersion": "^6.1.2",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.1.2",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/language",
@@ -177,16 +177,16 @@
     {
       "name": "@codemirror/legacy-modes",
       "okVersion": "^6.5.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.5.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/lint",
       "okVersion": "^6.9.7",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.9.7",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@codemirror/search",
@@ -212,58 +212,58 @@
     {
       "name": "@dnd-kit/core",
       "okVersion": "^6.3.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.3.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@dnd-kit/sortable",
       "okVersion": "^10.0.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^10.0.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@dnd-kit/utilities",
       "okVersion": "^3.2.2",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.2.2",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@excalidraw/excalidraw",
       "okVersion": "0.18.0-abeeaeb",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "0.18.0-abeeaeb",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@floating-ui/dom",
       "okVersion": "^1.7.6",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^1.7.6",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "@handlewithcare/remark-prosemirror",
       "okVersion": "0.1.5",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "0.1.5",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@hocuspocus/provider",
       "okVersion": "4.0.0-rc.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "4.0.0-rc.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@hocuspocus/server",
       "okVersion": "4.0.0-rc.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "4.0.0-rc.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@lezer/highlight",
@@ -282,247 +282,247 @@
     {
       "name": "@lingui/core",
       "okVersion": "^6.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@lingui/react",
       "okVersion": "^6.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@opentelemetry/api",
       "okVersion": "^1.9.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.9.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@orama/orama",
       "okVersion": "^3.1.18",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.1.18",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@panzoom/panzoom",
       "okVersion": "^4.6.2",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^4.6.2",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@pierre/trees",
       "okVersion": "1.0.0-beta.4",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "1.0.0-beta.4",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@standard-schema/spec",
       "okVersion": "^1.1.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^1.1.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "@tanstack/react-query",
       "okVersion": "^5.99.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^5.99.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "@tiptap/core",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-blockquote",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-bold",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-code",
       "okVersion": "3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-code-block",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-collaboration",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-drag-handle",
       "okVersion": "3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-file-handler",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-hard-break",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-heading",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-highlight",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-horizontal-rule",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-image",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-italic",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-link",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-placeholder",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-strike",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-table",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/extension-underline",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/pm",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/react",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/starter-kit",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/suggestion",
       "okVersion": "^3.22.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.22.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@tiptap/y-tiptap",
       "okVersion": "3.0.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "3.0.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@u-wave/react-vimeo",
       "okVersion": "^0.9.12",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.9.12",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@visimer/core",
       "okVersion": "^1.1.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.1.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "@visimer/dom",
       "okVersion": "^1.1.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.1.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "\\${__ok_env[__ok_i]}=\\${!__ok_slot}",
@@ -534,72 +534,72 @@
     {
       "name": "ajv",
       "okVersion": "^8.18.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^8.18.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "ajv-formats",
       "okVersion": "^3.0.1",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^3.0.1",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "class-variance-authority",
       "okVersion": "^0.7.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.7.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "clsx",
       "okVersion": "^2.1.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^2.1.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "cmdk",
       "okVersion": "^1.1.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.1.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "codemirror-lang-mermaid",
       "okVersion": "^0.5.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.5.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "date-fns",
       "okVersion": "^4.1.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^4.1.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "decode-named-character-reference",
       "okVersion": "^1.3.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^1.3.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "diff-match-patch",
       "okVersion": "^1.0.5",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.0.5",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "frimousse",
       "okVersion": "^0.3.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.3.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "hast",
@@ -611,15 +611,15 @@
     {
       "name": "highlight.js",
       "okVersion": "^11.11.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^11.11.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "ipaddr.js",
       "okVersion": "^2.3.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.3.0",
+      "status": "same",
       "inLockfile": true
     },
     {
@@ -632,9 +632,9 @@
     {
       "name": "lowlight",
       "okVersion": "^3.3.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.3.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "lucide-react",
@@ -646,9 +646,9 @@
     {
       "name": "markdownlint",
       "okVersion": "^0.41.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.41.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "mdast",
@@ -660,57 +660,57 @@
     {
       "name": "mdast-util-from-markdown",
       "okVersion": "^2.0.3",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.0.3",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "mdast-util-math",
       "okVersion": "^3.0.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^3.0.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "mdast-util-mdx",
       "okVersion": "3.0.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "3.0.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "mdast-util-mdx-expression",
       "okVersion": "^2.0.1",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.0.1",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "mdast-util-mdx-jsx",
       "okVersion": "3.2.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "3.2.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "mdast-util-to-hast",
       "okVersion": "^13.2.1",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^13.2.1",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "mdast-util-to-markdown",
       "okVersion": "^2.1.2",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.1.2",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "mdast-util-to-string",
       "okVersion": "^4.0.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^4.0.0",
+      "status": "same",
       "inLockfile": true
     },
     {
@@ -723,44 +723,44 @@
     {
       "name": "micromark-extension-mdx",
       "okVersion": "2.1.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "2.1.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "micromark-util-classify-character",
       "okVersion": "^2.0.1",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.0.1",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "micromark-util-decode-numeric-character-reference",
       "okVersion": "^2.0.2",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.0.2",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "micromark-util-sanitize-uri",
       "okVersion": "^2.0.1",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.0.1",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "micromark-util-types",
       "okVersion": "^2.0.2",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.0.2",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "next-themes",
       "okVersion": "^0.4.6",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.4.6",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "node-diff3",
@@ -772,23 +772,23 @@
     {
       "name": "pdfjs-dist",
       "okVersion": "^6.2.108",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.2.108",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "picomatch",
       "okVersion": "^4.0.5",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^4.0.5",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "radix-ui",
       "okVersion": "^1.4.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.4.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "react",
@@ -800,9 +800,9 @@
     {
       "name": "react-day-picker",
       "okVersion": "^9.14.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^9.14.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "react-dom",
@@ -814,58 +814,58 @@
     {
       "name": "react-error-boundary",
       "okVersion": "^6.0.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^6.0.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "react-force-graph-2d",
       "okVersion": "^1.29.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.29.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "react-lite-youtube-embed",
       "okVersion": "^3.5.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.5.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "react-medium-image-zoom",
       "okVersion": "5.4.3",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "5.4.3",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "rehype-parse",
       "okVersion": "^9.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^9.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "rehype-remark",
       "okVersion": "^10.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^10.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "rehype-stringify",
       "okVersion": "^10.0.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^10.0.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "remark-frontmatter",
       "okVersion": "^5.0.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^5.0.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "remark-gfm",
@@ -877,9 +877,9 @@
     {
       "name": "remark-github-alerts",
       "okVersion": "^0.1.1",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.1.1",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "remark-math",
@@ -891,30 +891,30 @@
     {
       "name": "remark-parse",
       "okVersion": "^11.0.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^11.0.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "remark-rehype",
       "okVersion": "^11.1.2",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^11.1.2",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "remark-stringify",
       "okVersion": "^11.0.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^11.0.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "scheduler-polyfill",
       "okVersion": "^1.3.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.3.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "sonner",
@@ -926,23 +926,23 @@
     {
       "name": "tailwind-merge",
       "okVersion": "^3.5.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.5.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "unified",
       "okVersion": "^11.0.5",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^11.0.5",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "unified-lint-rule",
       "okVersion": "^3.0.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^3.0.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "unist",
@@ -954,65 +954,65 @@
     {
       "name": "unist-util-visit",
       "okVersion": "^5.1.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^5.1.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "vfile",
       "okVersion": "^6.0.0",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^6.0.0",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "vfile-message",
       "okVersion": "^4.0.3",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^4.0.3",
+      "status": "same",
       "inLockfile": true
     },
     {
       "name": "web-vitals",
       "okVersion": "^5.0.0",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^5.0.0",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "y-codemirror.next",
       "okVersion": "^0.3.5",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^0.3.5",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "y-indexeddb",
       "okVersion": "9.0.12",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "9.0.12",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "y-protocols",
       "okVersion": "^1.0.7",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^1.0.7",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "yaml",
       "okVersion": "^2.7.1",
-      "huhuVersion": null,
-      "status": "new",
+      "huhuVersion": "^2.8.3",
+      "status": "version-diff",
       "inLockfile": true
     },
     {
       "name": "yjs",
       "okVersion": "^13.6.30",
-      "huhuVersion": null,
-      "status": "new",
-      "inLockfile": false
+      "huhuVersion": "^13.6.30",
+      "status": "same",
+      "inLockfile": true
     },
     {
       "name": "zod",
@@ -2246,6 +2246,12 @@
       "area": "app",
       "lines": 60,
       "sha256": "d4292e3b951d20460854d6b7ba38e682bbd42319355d13437dd47c6f97245e2b"
+    },
+    {
+      "upstream": "packages/app/src/editor/awareness-heartbeat.worker.ts",
+      "area": "app",
+      "lines": 23,
+      "sha256": "349016a82d47d28f905440eae47b838a632f0753ffa0cf1ad1cd177691b2c4c4"
     },
     {
       "upstream": "packages/app/src/editor/awareness-user.ts",

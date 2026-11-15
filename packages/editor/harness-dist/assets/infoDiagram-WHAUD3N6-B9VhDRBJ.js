@@ -1,0 +1,2 @@
+import{Ft as e,Gn as t,Hn as n,Jt as r,Vn as i}from"./isEmpty-CZeEdmOJ.js";import{t as a}from"./mermaid-parser.core-CMayLvoq.js";var o={parse:i(async e=>{let t=await a(`info`,e);n.debug(t)},`parse`)},s={version:t.version+``},c={parser:o,db:{getVersion:i(()=>s.version,`getVersion`)},renderer:{draw:i((t,i,a)=>{n.debug(`rendering info diagram
+`+t);let o=e(i);r(o,100,400,!0),o.append(`g`).append(`text`).attr(`x`,100).attr(`y`,40).attr(`class`,`version`).attr(`font-size`,32).style(`text-anchor`,`middle`).text(`v${a}`)},`draw`)}};export{c as diagram};
