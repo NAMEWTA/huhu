@@ -21,7 +21,7 @@ export interface ArchivesSidebarProps {
 function TypeRecords({ type, selected, onOpenArchive }: { type: ArchiveTypeDto; selected: string | null; onOpenArchive(path: string): void }) {
   const rows = useCapability<ArchiveDto[]>("archives.list", { type: type.path });
   const list = rows.data ?? [];
-  if (list.length === 0) return <p className="notes-archives-tree-empty small muted">{rows.isLoading ? a.loading : a.noArchives}</p>;
+  if (list.length === 0) return <p className="notes-tree-empty" style={{ paddingLeft: 48 }}>{rows.isLoading ? a.loading : a.noArchives}</p>;
   return (
     <div role="group">
       {list.map((r) => {
@@ -48,7 +48,7 @@ export function ArchivesSidebar(p: ArchivesSidebarProps) {
   const list = types.data ?? [];
   const selectedRoot = p.selected === "Archives";
   return (
-    <div className="notes-archives-sidebar" data-testid="archives-sidebar">
+    <div data-testid="archives-sidebar">
       <div className={`hu-knowledge-tree-line${selectedRoot ? " is-selected" : ""}`} style={{ ["--tree-depth" as string]: 0 }}>
         <button type="button" className="notes-tree-item" aria-current={selectedRoot ? "true" : undefined} data-testid="archives-tree-home" onClick={p.onOpenHome}>
           <Archive size={15} aria-hidden />

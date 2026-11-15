@@ -254,7 +254,7 @@ export function NoteExplorer(p: ExplorerProps) {
           ) : null}
         </div>
       </div>
-      {p.archivesActive ? <div className="hu-resource-list notes-explorer-tree notes-archives-tree" data-testid="notes-archives-tree">{p.archivesPanel}</div> : null}
+      {p.archivesActive ? <div className="hu-resource-list notes-explorer-tree" data-testid="notes-archives-tree">{p.archivesPanel}</div> : null}
       {!p.archivesActive && p.section === "daily" ? (
         <div className="hu-knowledge-daily-picker">
           <input type="date" aria-label={n.dailyDate} value={p.dailyDate} onChange={(e) => p.onDailyDate(e.target.value)} />

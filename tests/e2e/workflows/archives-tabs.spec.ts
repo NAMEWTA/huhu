@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 
@@ -23,23 +23,22 @@ async function caller(page: Page): Promise<Call> {
     );
 }
 
-async function seed(page: Page, vault: string): Promise<Call> {
+async function seed(page: Page): Promise<Call> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
   const call = await caller(page);
   await call("archives.types.save", { name: "通讯录", fields: [{ name: "电话", type: "text" }] });
   await call("archives.create", { type: "通讯录", name: "张三", fields: { 电话: "123" } });
   await call("archives.create", { type: "通讯录", name: "李四", fields: { 电话: "456" } });
-  mkdirSync(path.join(vault, "资料"), { recursive: true });
-  writeFileSync(path.join(vault, "资料", "说明.md"), "# 说明\n\n普通目录里的笔记\n");
-  await call("notes.list", { filter: "all" });
+  await call("folders.create", { path: "资料" });
+  await call("notes.create", { name: "说明", folder: "资料" });
   await page.getByRole("button", { name: "知识库", exact: true }).first().click();
   return call;
 }
 
 test("E01 分区顺序为 文件/星标/日记/标签/回收站/档案；点“档案”打开唯一的档案首页标签，再点只聚焦；类型页 / 记录页同样是标签", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, close } = await openApp();
   try {
-    await seed(page, vault);
+    await seed(page);
     const sections = page.locator(".notes-explorer-filters > button");
     await expect(sections).toHaveText(["文件", "星标", "日记", "标签", "回收站", "档案"]);
 
@@ -68,9 +67,9 @@ test("E01 分区顺序为 文件/星标/日记/标签/回收站/档案；点“�
 });
 
 test("E02 活动档案标签 → 档案树；文件标签 → 文件树；展开状态各自记忆；手动切换 50 次无抖动", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, close } = await openApp();
   try {
-    await seed(page, vault);
+    await seed(page);
     // 文件标签：展开“资料”
     await page.getByTestId("folder-line").filter({ hasText: "资料" }).getByRole("button").first().click();
     await page.getByTestId("note-item").filter({ hasText: "说明" }).click();
@@ -114,9 +113,9 @@ test("E02 活动档案标签 → 档案树；文件标签 → 文件树；展开
 test("E03 普通目录点击只浏览；Archives/ 在文件视图里是真实目录（含 index.md 与附件）", async () => {
   const { page, vault, close } = await openApp();
   try {
-    const call = await seed(page, vault);
-    writeFileSync(path.join(vault, "Archives", "通讯录", "张三", "备注.md"), "# 备注\n");
-    await call("notes.list", { filter: "all" });
+    const call = await seed(page);
+    await call("notes.create", { name: "备注", folder: "Archives/通讯录/张三" });
+    writeFileSync(path.join(vault, "Archives", "通讯录", "张三", "附件.txt"), "附件");
     await page.reload();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
@@ -136,7 +135,7 @@ test("E03 普通目录点击只浏览；Archives/ 在文件视图里是真实目
 test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，不会被档案视图改字段覆盖；“以档案视图打开 / 以 Markdown 打开”互通", async () => {
   const { page, vault, close } = await openApp();
   try {
-    await seed(page, vault);
+    await seed(page);
     const file = path.join(vault, "Archives", "通讯录", "张三", "index.md");
     // 文件树点击档案文件夹笔记 → Markdown（不是档案视图）
     await page.getByTestId("folder-line").filter({ hasText: /^.*Archives/ }).first().getByRole("button").first().click();
@@ -169,9 +168,9 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
 });
 
 test("E01/E04 档案标签随 Vault 记录：重载后恢复；档案删除后记录标签消失", async () => {
-  const { page, vault, close } = await openApp();
+  const { page, close } = await openApp();
   try {
-    const call = await seed(page, vault);
+    const call = await seed(page);
     await page.getByTestId("notes-open-archives").click();
     await page.getByTestId("archive-category-card").filter({ hasText: "通讯录" }).click();
     await page.getByTestId("archive-row").filter({ hasText: "李四" }).click();
