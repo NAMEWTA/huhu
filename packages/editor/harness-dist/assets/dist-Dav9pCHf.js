@@ -1,1 +1,0 @@
-export{n as parseMermaidToExcalidraw}from"./prod-Vs0H0tNj.js";

@@ -1,9 +1,16 @@
 {
   "include": [
     "src/vendor/open-knowledge/**/*",
-    "src/host/**/*"
+    "src/host/**/*",
+    "harness/**/*"
   ],
-  "exclude": [],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test-helper.ts",
+    "**/*.type-tests.ts",
+    "**/fixtures/**"
+  ],
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": [

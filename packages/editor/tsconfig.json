@@ -1,8 +1,23 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src", "test"],
+  "include": [
+    "src",
+    "test"
+  ],
   "compilerOptions": {
     "jsx": "react-jsx",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"]
-  }
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ]
+  },
+  "exclude": [
+    "src/vendor/open-knowledge/**",
+    "src/host/**",
+    "harness",
+    "harness-dist",
+    "build",
+    "test/e2e"
+  ]
 }
