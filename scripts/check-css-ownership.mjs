@@ -9,7 +9,7 @@ import ts from "typescript";
 
 const files = execSync("git ls-files -co --exclude-standard", { encoding: "utf8" })
   .split("\n")
-  .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.startsWith("temp/") && !f.includes("node_modules"));
+  .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.startsWith("temp/") && !f.includes("node_modules") && !f.startsWith("packages/editor/src/vendor/open-knowledge/") && f !== "packages/editor/src/ok/ok-globals.css");
 const errors = [];
 if (files.includes("packages/ui/src/styles/shared.css")) errors.push("packages/ui/src/styles/shared.css 不应存在：共享样式按组件拆在 components/ 下");
 const ownerOfCss = (f) => (f.startsWith("plugins/") ? f.split("/")[1] : f.startsWith("packages/workbench/") ? "workbench" : f.startsWith("packages/editor/") ? "editor" : f.startsWith("packages/ui/") ? "ui" : null);

@@ -1,0 +1,365 @@
+[
+  {
+    "id": "false",
+    "same": true,
+    "huhu": "---\nflag: true\n---\nbody\n",
+    "ok": "---\nflag: true\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "flag: false\n",
+        "body": "body\n"
+      },
+      "data": {
+        "flag": false
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "flag": false
+      },
+      "map": {
+        "flag": false
+      }
+    }
+  },
+  {
+    "id": "zero",
+    "same": true,
+    "huhu": "---\ncount: 1\n---\nbody\n",
+    "ok": "---\ncount: 1\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "count: 0\n",
+        "body": "body\n"
+      },
+      "data": {
+        "count": 0
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "count": 0
+      },
+      "map": {
+        "count": 0
+      }
+    }
+  },
+  {
+    "id": "empty-string",
+    "same": true,
+    "huhu": "---\ntitle: \"x\"\n---\nbody\n",
+    "ok": "---\ntitle: \"x\"\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "title: \"\"\n",
+        "body": "body\n"
+      },
+      "data": {
+        "title": ""
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "title": ""
+      },
+      "map": {
+        "title": ""
+      }
+    }
+  },
+  {
+    "id": "null",
+    "same": true,
+    "huhu": "---\nowner: me\n---\nbody\n",
+    "ok": "---\nowner: me\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "owner: null\n",
+        "body": "body\n"
+      },
+      "data": {
+        "owner": null
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "owner": null
+      },
+      "map": {
+        "owner": ""
+      }
+    }
+  },
+  {
+    "id": "leading-zero",
+    "same": true,
+    "huhu": "---\ncode: \"008\"\n---\nbody\n",
+    "ok": "---\ncode: \"008\"\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "code: 007\n",
+        "body": "body\n"
+      },
+      "data": {
+        "code": 7
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "code": 7
+      },
+      "map": {
+        "code": 7
+      }
+    }
+  },
+  {
+    "id": "partial-date",
+    "same": true,
+    "huhu": "---\nwhen: 2026-12\n---\nbody\n",
+    "ok": "---\nwhen: 2026-12\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "when: 2026-11\n",
+        "body": "body\n"
+      },
+      "data": {
+        "when": "2026-11"
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "when": "2026-11"
+      },
+      "map": {
+        "when": "2026-11"
+      }
+    }
+  },
+  {
+    "id": "array",
+    "same": true,
+    "huhu": "---\ntags:\n  - a\n  - b\n  - c\n---\nbody\n",
+    "ok": "---\ntags:\n  - a\n  - b\n  - c\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "tags:\n  - a\n  - b\n",
+        "body": "body\n"
+      },
+      "data": {
+        "tags": [
+          "a",
+          "b"
+        ]
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "tags": [
+          "a",
+          "b"
+        ]
+      },
+      "map": {
+        "tags": [
+          "a",
+          "b"
+        ]
+      }
+    }
+  },
+  {
+    "id": "nested",
+    "same": true,
+    "huhu": "---\nmeta:\n  a: 2\n  b:\n    c: 3\n---\nbody\n",
+    "ok": "---\nmeta:\n  a: 2\n  b:\n    c: 3\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "meta:\n  a: 1\n  b:\n    c: 2\n",
+        "body": "body\n"
+      },
+      "data": {
+        "meta": {
+          "a": 1,
+          "b": {
+            "c": 2
+          }
+        }
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "meta": {
+          "a": 1,
+          "b": {
+            "c": 2
+          }
+        }
+      },
+      "map": {
+        "meta": {
+          "a": 1,
+          "b": {
+            "c": 2
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "comment",
+    "same": true,
+    "huhu": "---\n# keep me\ntitle: U # trailing\n---\nbody\n",
+    "ok": "---\n# keep me\ntitle: U # trailing\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "# keep me\ntitle: T # trailing\n",
+        "body": "body\n"
+      },
+      "data": {
+        "title": "T"
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "title": "T"
+      },
+      "map": {
+        "title": "T"
+      }
+    }
+  },
+  {
+    "id": "unknown-key",
+    "same": true,
+    "huhu": "---\nzzz: 1\ntitle: U\n---\nbody\n",
+    "ok": "---\nzzz: 1\ntitle: U\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\n",
+        "yaml": "zzz: 1\ntitle: T\n",
+        "body": "body\n"
+      },
+      "data": {
+        "zzz": 1,
+        "title": "T"
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "zzz": 1,
+        "title": "T"
+      },
+      "map": {
+        "zzz": 1,
+        "title": "T"
+      }
+    }
+  },
+  {
+    "id": "crlf",
+    "same": false,
+    "huhu": "---\r\ntitle: U\r\n---\r\nbody\r\n",
+    "ok": "---\ntitle: U\n---\nbody\r\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "",
+        "eol": "\r\n",
+        "yaml": "title: T\r\n",
+        "body": "body\r\n"
+      },
+      "data": {
+        "title": "T"
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "title": "T"
+      },
+      "map": {
+        "title": "T"
+      }
+    }
+  },
+  {
+    "id": "bom",
+    "same": true,
+    "huhu": "﻿---\ntitle: U\n---\nbody\n",
+    "ok": "﻿---\ntitle: U\n---\nbody\n",
+    "huhuErr": "",
+    "okErr": "",
+    "parseHuhu": {
+      "doc": {
+        "bom": "﻿",
+        "eol": "\n",
+        "yaml": "title: T\n",
+        "body": "body\n"
+      },
+      "data": {
+        "title": "T"
+      },
+      "errors": []
+    },
+    "parseOk": {
+      "doc": {
+        "title": "T"
+      },
+      "map": {
+        "title": "T"
+      }
+    }
+  }
+]

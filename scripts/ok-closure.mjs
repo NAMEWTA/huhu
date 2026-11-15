@@ -8,7 +8,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
 const ROOT = resolve(import.meta.dirname, '..')
-const OK = join(ROOT, 'temp/sources/open-knowledge')
+const OK = process.env.OK_SRC ?? join(ROOT, 'temp/sources/open-knowledge')
 const APP_SRC = join(OK, 'packages/app/src')
 const CORE_PKG = '@inkeep/open-knowledge-core'
 const EXTS = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.json', '.css']
@@ -60,7 +60,7 @@ function coreSubpath(spec) {
 }
 
 const IMPORT_RE =
-  /(?:import|export)\s+(?:type\s+)?(?:[^'"`;]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|import\.meta\.glob\(\s*['"]([^'"]+)['"]/g
+  /(?:import|export)\s+(?:type\s+)?(?:[^'"`;]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|new\s+URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url|import\.meta\.glob\(\s*['"]([^'"]+)['"]/g
 
 const seen = new Map() // file -> {kind}
 const npm = new Map() // pkg -> Set(files)
@@ -80,7 +80,7 @@ while (queue.length) {
   if (!/\.(tsx?|mts|jsx?)$/.test(file)) continue
   const src = readFileSync(file, 'utf8')
   for (const m of src.matchAll(IMPORT_RE)) {
-    const spec = m[1] ?? m[2] ?? m[3]
+    const spec = m[1] ?? m[2] ?? m[3] ?? m[4]
     if (!spec) continue
     let target = null
     if (spec.startsWith('.')) target = resolveFile(resolve(dirname(file), spec))
