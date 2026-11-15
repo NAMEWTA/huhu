@@ -230,3 +230,41 @@ describe("任务文件与文件夹链接的改写（任务 spec §3.4）", () =>
     expect(rd(root, "笔记.md")).toBe("见 [[设计/]] 和 [[归档/a.md]]\n");
   });
 });
+
+describe("hiddenPaths（OP-D11：仅文件树隐藏的偏好）", () => {
+  test("读写：规范化、去重、排序；越界路径被拒", async () => {
+    const { svc } = await setup();
+    expect(svc.hiddenPaths()).toEqual([]);
+    expect(await svc.setHiddenPaths(["./b/", "a", "a", "b"])).toEqual(["a", "b"]);
+    expect(svc.hiddenPaths()).toEqual(["a", "b"]);
+    await expect(svc.setHiddenPaths(["../x"])).rejects.toThrow(/路径越界/);
+    expect(svc.hiddenPaths()).toEqual(["a", "b"]);
+  });
+
+  test("内部改名 / 移动：规则与子树规则一起重定位；无关规则不动", async () => {
+    const { svc, rebuild } = await setup({ "d/a.md": "x", "d/sub/b.md": "y", "keep/c.md": "z", "solo.md": "s" });
+    await svc.setHiddenPaths(["d", "d/sub/b.md", "keep", "solo.md"]);
+    await svc.moveEntry("d", "e");
+    expect(svc.hiddenPaths()).toEqual(["e", "e/sub/b.md", "keep", "solo.md"]);
+    await rebuild();
+    await svc.rename("solo.md", "alone");
+    expect(svc.hiddenPaths()).toEqual(["alone.md", "e", "e/sub/b.md", "keep"]);
+    await rebuild();
+    await svc.move("alone.md", "keep");
+    expect(svc.hiddenPaths()).toEqual(["e", "e/sub/b.md", "keep", "keep/alone.md"]);
+  });
+
+  test("空文件夹改名也重定位", async () => {
+    const { svc } = await setup();
+    await svc.createFolder("empty");
+    await svc.setHiddenPaths(["empty"]);
+    await svc.moveEntry("empty", "renamed");
+    expect(svc.hiddenPaths()).toEqual(["renamed"]);
+  });
+
+  test("隐藏规则不影响笔记列表 / 搜索语义（只是偏好数据）", async () => {
+    const { svc } = await setup({ "a.md": "# A" });
+    await svc.setHiddenPaths(["a.md"]);
+    expect(svc.list("all").map((n) => n.path)).toContain("a.md");
+  });
+});

@@ -392,6 +392,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       index.applyChanges(changes);
       for (const c of changes) events.publish("vault.fileChanged", { path: c.path, change: c.change, ...(c.from ? { from: c.from } : {}) });
     },
+    onDirChanges: (paths) => {
+      for (const p of paths) events.publish("vault.dirChanged", { path: p });
+    },
     onDegraded: () => undefined,
   });
   await watcher.start();

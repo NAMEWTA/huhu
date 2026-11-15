@@ -41,6 +41,8 @@
       "notes.duplicate",
       "notes.files",
       "notes.folders",
+      "notes.hidden.get",
+      "notes.hidden.set",
       "notes.list",
       "notes.move",
       "notes.openDaily",

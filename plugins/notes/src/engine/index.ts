@@ -217,6 +217,21 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     }),
   );
   api.defineCapability(
+    def({ name: "notes.hidden.get", plugin: "notes", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ hiddenPaths: z.array(z.string()) }), handler: () => ({ hiddenPaths: svc.hiddenPaths() }) }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.hidden.set",
+      plugin: "notes",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({ hiddenPaths: z.array(z.string()) }),
+      output: z.object({ hiddenPaths: z.array(z.string()) }),
+      handler: async (_c, i) => ({ hiddenPaths: await svc.setHiddenPaths(i.hiddenPaths) }),
+    }),
+  );
+  api.defineCapability(
     def({
       name: "notes.setFavorite",
       plugin: "notes",
@@ -282,7 +297,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       defaultExposed: false,
       input: Path,
       output: z.object({ ok: z.literal(true) }),
-      handler: async (_c, i) => (await svc.createFolder(i.path), { ok: true as const }),
+      handler: async (_c, i) => (await svc.createFolder(i.path), changed(null, "created"), { ok: true as const }),
     }),
   );
   const Cid = z.object({ id: z.string() });
