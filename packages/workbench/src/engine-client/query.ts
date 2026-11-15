@@ -18,6 +18,7 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   const prefixes: string[] = [];
   const p = e.payload as Record<string, unknown>;
   if (e.type === "entity.changed") prefixes.push(...(ENTITY_CAPS[String(p["kind"])] ?? []));
+  else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes."); // 目录实体：资源目录（vault.list）与文件夹列表
   else if (e.type === "task.statusChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives."); // 外部直接改 Tasks/、Automations/ 或档案的 index.md 也要刷新界面
   else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");

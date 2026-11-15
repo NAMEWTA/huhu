@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import watcher from "@parcel/watcher";
 import type { ReceiptLog } from "../receipts.js";
@@ -15,6 +15,11 @@ export interface WatcherOptions {
   root: string;
   receipts: ReceiptLog;
   onChanges(changes: FileChange[]): void;
+  /**
+   * 目录（含空目录）的创建 / 删除 / 改名：只给路径，供资源目录（vault.list）失效。
+   * 原生监听可用时才有；轮询回退只比较文件快照，检测不到空目录变化（文件树仍会在下次文件事件或手动刷新时更新）。
+   */
+  onDirChanges?(paths: string[]): void;
   /** 原生监听不可用（如 Linux inotify 上限）而回退轮询时通知，用于登记健康问题。 */
   onDegraded?(reason: string): void;
   batchMs?: number;
@@ -108,10 +113,20 @@ export class VaultWatcher {
     const created: { path: string; info: FileInfo }[] = [];
     const deleted: { path: string; info: FileInfo }[] = [];
     const changes: FileChange[] = [];
+    const dirs: string[] = [];
 
     for (const p of paths) {
       const before = this.snapshot.get(p);
       const after = infoOf(path.join(this.o.root, p), true);
+      if (!after && !before) {
+        // 不是已跟踪的文件：目录被创建 / 删除 / 改名，或已不存在的未跟踪项（保守地都通知，只会多刷新一次列表）
+        try {
+          if (statSync(path.join(this.o.root, p)).isDirectory()) dirs.push(p);
+        } catch {
+          dirs.push(p);
+        }
+        continue;
+      }
       if (!after) {
         if (before) {
           deleted.push({ path: p, info: before });
@@ -153,6 +168,7 @@ export class VaultWatcher {
     }
 
     if (changes.length) this.o.onChanges(changes);
+    if (dirs.length) this.o.onDirChanges?.(dirs);
   }
 
   private isEcho(rel: string): boolean {
