@@ -502,6 +502,9 @@ importers:
       '@hocuspocus/server':
         specifier: 4.0.0-rc.1
         version: 4.0.0-rc.1(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
+      '@huhu/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@lezer/common':
         specifier: ^1.5.5
         version: 1.5.5

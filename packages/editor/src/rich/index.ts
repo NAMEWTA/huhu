@@ -1,0 +1,9 @@
+// 新编辑器公共出口（经动态 import 加载：`import("@huhu/editor/rich")`；不暴露 CM view / PM view）。
+export { OkRoot, type OkRootProps } from './OkRoot'
+export { RichMarkdownEditor, type EditorVariant, type EditorViewMode, type RichEditorPort, type RichMarkdownEditorProps } from './RichMarkdownEditor'
+export { ReadonlyMarkdown } from './ReadonlyMarkdown'
+export { SourceMarkdownEditor } from '../source/SourceMarkdownEditor'
+export { coreRoutes, type CoreRouteDeps, type HostPageSummary, type HostDocumentEntry } from '../host/routes/core'
+export type { HostRoutes } from '../host/host-fetch'
+export { DEFAULT_FEATURES, type OkHost, type OkHostFeatures } from '../host/ok-host'
+export { dropProvider } from '../host/provider-pool'

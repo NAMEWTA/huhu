@@ -1,15 +1,17 @@
-import { MarkdownEditor, MarkdownPreview, type CommentMark, type EditorMode, type EditorStatus, type MarkdownEditorHandle } from "@huhu/editor";
+import type { EditorViewMode, RichEditorPort } from "@huhu/editor/rich";
 import { Banner, Button, Dialog, IconButton, ReviewDiff, Segmented } from "@huhu/ui";
-import { requestOpenPath, useCapability } from "@huhu/workbench";
-import { folderNoteDir, resolveFolderLink } from "@huhu/vault/markdown";
-import { ChevronRight, Code2, MessageSquarePlus, Download, Heading2, Link2, ListChecks, MoreHorizontal, PanelRight, Quote, Redo2, Save, Search, Star, Table2, Undo2, Bold, Italic, Minus } from "lucide-react";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCapability } from "@huhu/workbench";
+import { ChevronRight, MessageSquarePlus, Download, MoreHorizontal, PanelRight, Redo2, Save, Star, Undo2 } from "lucide-react";
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { DocumentSession } from "./documents/DocumentSession.js";
 import { useDocumentSession } from "./documents/useDocumentSession.js";
 import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
 
-/** 超过这个字符数的文档默认用源码模式打开：实时预览要为整份文档建装饰，1 MiB 级别会让“打开到可编辑”超过 500 ms。 */
+/** 新编辑器闭包（OK 编辑器 + Tailwind 作用域样式）按需加载，不进首屏（design §12 懒加载）。 */
+const NoteEditorSurface = lazy(() => import("./documents/NoteEditorSurface.js"));
+
+/** 超过这个字符数的文档默认用源码模式打开：富文本要为整份文档建节点视图，1 MiB 级别会让“打开到可编辑”超过 500 ms。 */
 const LARGE_DOC_CHARS = 256 * 1024;
 
 export type SaveState = "saved" | "dirty" | "saving" | "conflict";
@@ -24,14 +26,14 @@ export interface NoteDocumentProps {
   onText(text: string): void;
   /** 父级用它在改名 / 移动 / 移入回收站之前先把未保存的编辑落盘。 */
   registerFlush(fn: (() => Promise<boolean>) | null): void;
-  registerEditor(h: MarkdownEditorHandle | null): void;
-  /** 正文里的批注装饰与交互。 */
-  comments: readonly CommentMark[];
-  onCommentClick(id: string): void;
+  registerEditor(h: RichEditorPort | null): void;
   onAddComment(): void;
 }
 
-const MODES: EditorMode[] = ["live", "source", "preview", "split"];
+/** 视图模式：富文本（实时预览）/ 源码 / 阅读；三者共用同一份 Y.Text 与同一个会话。 */
+type Mode = "live" | "source" | "preview";
+const MODES: Mode[] = ["live", "source", "preview"];
+const VIEW: Record<Mode, EditorViewMode> = { live: "rich", source: "source", preview: "read" };
 
 /** 文档区（原型 knowledge-document-area）：面包屑 + 模式切换 + 编辑工具条 → 编辑 / 阅读（含双栏）→ 状态栏。 */
 export function NoteDocument(props: NoteDocumentProps) {
@@ -59,9 +61,9 @@ export function NoteDocument(props: NoteDocumentProps) {
     return { chars, lines };
   }, [deferredText]);
 
-  const [mode, setMode] = useState<EditorMode>("live");
-  const [status, setStatus] = useState<EditorStatus | null>(null);
-  const [sync, setSync] = useState(true);
+  const [mode, setMode] = useState<Mode>("live");
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [diffOf, setDiffOf] = useState<string | null>(null); // 外部修改后的磁盘内容（查看差异对话框）
   const textTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -79,11 +81,8 @@ export function NoteDocument(props: NoteDocumentProps) {
     },
     [],
   );
-  const editor = useRef<MarkdownEditorHandle>(null);
-  const reading = useRef<HTMLDivElement>(null);
-  const lock = useRef(false);
+  const editor = useRef<RichEditorPort | null>(null);
   const all = useCapability<NoteRef[]>("notes.list", { filter: "all" });
-  const dirs = useCapability<string[]>("notes.folders", {});
 
   // 超大文档默认源码模式（每次载入）；非编辑器来源的文本变化（载入 / 合并 / 恢复草稿）立即交给父组件
   const loadedOnce = useRef<DocumentSession | null>(null);
@@ -97,16 +96,27 @@ export function NoteDocument(props: NoteDocumentProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pushText 只用 ref 与稳定的 onText
   }, [session, snap.loaded, snap.text]);
 
-  const flush = useCallback(async (): Promise<boolean> => (session ? session.flush() : true), [session]);
+  // 先排空编辑器里还在防抖的编辑（输入后立刻关闭 / 切换也不丢最后一个字符），再让会话落盘
+  const flush = useCallback(async (): Promise<boolean> => {
+    await editor.current?.flush();
+    return session ? session.flush() : true;
+  }, [session]);
   useEffect(() => {
     registerFlush(flush);
     return () => registerFlush(null);
   }, [flush, registerFlush]);
-  useEffect(() => {
-    registerEditor(editor.current);
-    return () => registerEditor(null);
-  });
-  const save = useCallback((): Promise<boolean> => (session ? session.save() : Promise.resolve(false)), [session]);
+  const onPort = useCallback(
+    (port: RichEditorPort | null) => {
+      editor.current = port;
+      registerEditor(port);
+    },
+    [registerEditor],
+  );
+  useEffect(() => () => registerEditor(null), [registerEditor]);
+  const save = useCallback(async (): Promise<boolean> => {
+    await editor.current?.flush();
+    return session ? session.save() : false;
+  }, [session]);
   const load = useCallback(async () => {
     await session?.load();
   }, [session]);
@@ -130,51 +140,25 @@ export function NoteDocument(props: NoteDocumentProps) {
     if (conflicts && conflicts > 0) session?.setError(n.mergeConflicts(conflicts));
   };
 
+  // 编辑器已经按 300 ms 防抖交出全文：直接交给会话与父组件（大纲 / 属性面板）
   const onChange = (next: string) => {
-    if (!session || text === null || next === session.currentText()) return;
+    if (!session || next === session.currentText()) return;
     editedText.current = next;
     session.setText(next, "editor");
-    // 大纲 / 属性面板用的全文：按键路径上不同步给父组件（会让整个笔记模块重渲染），停手 300 ms 后再给
-    if (textTimer.current) clearTimeout(textTimer.current);
-    textTimer.current = setTimeout(() => onText(next), 300);
+    pushText(next);
   };
 
-  // 文件夹笔记：`[[目录/]]` 解析为 `目录/index.md`；index.md 不参与裸名匹配（标题是文件夹名，不能让 `[[index]]` 命中所有文件夹笔记）
-  const paths = new Set((all.data ?? []).map((x) => x.path));
-  const known = new Set((dirs.data ?? []).map((d) => `${d}/`));
-  for (const x of all.data ?? []) {
-    const dir = folderNoteDir(x.path);
-    if (dir !== null) [x.path, `${dir}/`, dir].forEach((k) => known.add(k));
-    else [x.path, x.path.replace(/\.md$/, ""), x.title].forEach((k) => known.add(k));
-  }
-  const openWiki = (target: string) => {
-    const folderNote = resolveFolderLink(target, (rel) => paths.has(rel));
-    if (folderNote) return props.onOpen(folderNote);
-    if (target.endsWith("/")) return requestOpenPath(target); // 没有 index.md 的文件夹：在文件树里展开并定位
-    const hit = (all.data ?? []).find((x) => x.path === target || x.path === `${target}.md` || (folderNoteDir(x.path) === null && x.title === target));
-    if (hit) props.onOpen(hit.path);
-  };
+  // 撤销 / 重做按钮的可用状态：编辑器没有逐键事件出口，跟随会话快照（每次文本变化）与模式刷新
+  useEffect(() => {
+    const e = editor.current;
+    setCanUndo(e?.canUndo() ?? false);
+    setCanRedo(e?.canRedo() ?? false);
+  }, [snap.text, mode]);
+
   if (text === null) return <p>{t.loading}</p>;
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   const filename = path.split("/").at(-1) ?? path;
-  const edit = (before: string, after = "", ph?: string) => editor.current?.insert(before, after, ph);
-  const split = mode === "split";
-  const showSource = mode !== "preview";
-  const showReading = mode === "preview" || split;
-  const onEditorScroll = (ratio: number) => {
-    if (!split || !sync || lock.current || !reading.current) return;
-    lock.current = true;
-    reading.current.scrollTop = ratio * (reading.current.scrollHeight - reading.current.clientHeight);
-    requestAnimationFrame(() => (lock.current = false));
-  };
-  const onReadingScroll = () => {
-    if (!split || !sync || lock.current || !reading.current) return;
-    lock.current = true;
-    const r = reading.current;
-    const extent = r.scrollHeight - r.clientHeight;
-    editor.current?.setScrollRatio(extent > 0 ? r.scrollTop / extent : 0);
-    requestAnimationFrame(() => (lock.current = false));
-  };
+  const reading = mode === "preview";
 
   return (
     <section className="notes-document-area" data-testid="note-document">
@@ -184,28 +168,18 @@ export function NoteDocument(props: NoteDocumentProps) {
           <ChevronRight size={12} aria-hidden />
           <span className="notes-filename">{filename}</span>
         </div>
-        <Segmented<EditorMode> label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
+        <Segmented<Mode> label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
         <IconButton icon={PanelRight} label={n.inspector} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
       </div>
       <div className="knowledge-editor-toolbar">
         <div className="row">
-          <IconButton icon={Undo2} label={n.undoEdit} disabled={!status?.canUndo || mode === "preview"} onClick={() => editor.current?.undo()} />
-          <IconButton icon={Redo2} label={n.redoEdit} disabled={!status?.canRedo || mode === "preview"} onClick={() => editor.current?.redo()} />
-          <span className="notes-toolbar-divider" />
-          <IconButton icon={Heading2} label={n.heading} disabled={mode === "preview"} onClick={() => edit("\n## ", "", "标题")} />
-          <IconButton icon={Bold} label={n.bold} disabled={mode === "preview"} onClick={() => edit("**", "**")} />
-          <IconButton icon={Italic} label={n.italic} disabled={mode === "preview"} onClick={() => edit("*", "*")} />
-          <IconButton icon={Minus} label={n.rule} disabled={mode === "preview"} onClick={() => edit("\n\n---\n\n", "", "")} />
-          <IconButton icon={Link2} label={n.link} disabled={mode === "preview"} onClick={() => edit("[[", "]]", "笔记名称")} />
-          <IconButton icon={ListChecks} label={n.todo} disabled={mode === "preview"} onClick={() => edit("\n- [ ] ", "", "待办事项")} />
-          <IconButton icon={Quote} label={n.quote} disabled={mode === "preview"} onClick={() => edit("\n> ", "", "引用")} />
-          <IconButton icon={Code2} label={n.code} disabled={mode === "preview"} onClick={() => edit("\n```ts\n", "\n```\n", "代码")} />
-          <IconButton icon={Table2} label={n.table} disabled={mode === "preview"} onClick={() => edit("\n| 列 1 | 列 2 |\n| --- | --- |\n| ", " |  |\n", "内容")} />
+          {/* 格式化由 OK 编辑器自带的气泡菜单与 `/` 命令提供（design §3.4）；这里只保留撤销 / 重做 */}
+          <IconButton icon={Undo2} label={n.undoEdit} disabled={!canUndo || reading || mode === "source"} onClick={() => editor.current?.undo()} />
+          <IconButton icon={Redo2} label={n.redoEdit} disabled={!canRedo || reading || mode === "source"} onClick={() => editor.current?.redo()} />
         </div>
         <div className="row">
-          <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={mode === "preview"} onClick={props.onAddComment} />
-          <IconButton icon={Search} label={n.find} disabled={mode === "preview"} onClick={() => editor.current?.openSearch()} />
+          <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading} onClick={props.onAddComment} />
           <IconButton
             icon={Download}
             label={n.exportMd}
@@ -285,39 +259,12 @@ export function NoteDocument(props: NoteDocumentProps) {
         <strong>{n.modes[mode]}</strong>
         <span>{n.modeHint[mode]}</span>
         <span className="grow" />
-        {split ? (
-          <button type="button" aria-pressed={sync} onClick={() => setSync(!sync)}>
-            <Link2 size={12} aria-hidden /> {n.syncScroll(sync)}
-          </button>
-        ) : (
-          <span>{ed?.autosave === false ? n.manualSave : n.autosave}</span>
-        )}
+        <span>{ed?.autosave === false ? n.manualSave : n.autosave}</span>
       </div>
-      <div className={`notes-editor-body${split ? " is-split" : ""}`}>
-        <div className="notes-source-pane notes-huhu-cm-pane" hidden={!showSource}>
-          <MarkdownEditor
-            ref={editor}
-            documentId={path}
-            mode={mode}
-            value={text}
-            onChange={onChange}
-            onSave={() => void save()}
-            onStatus={setStatus}
-            onWikiOpen={openWiki}
-            comments={props.comments}
-            onCommentClick={props.onCommentClick}
-            onScroll={onEditorScroll}
-            ariaLabel={t.editorLabel}
-            lineNumbers={ed?.lineNumbers ?? true}
-            spellcheck={ed?.spellcheck ?? false}
-            {...(ed ? { fontSize: ed.fontSize, lineHeight: ed.lineHeight, maxWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
-          />
-        </div>
-        {showReading ? (
-          <div className="notes-reading-pane" data-testid="notes-reading-pane" data-editor-mode={mode} ref={reading} onScroll={onReadingScroll}>
-            <MarkdownPreview source={text} resolveWikiLink={(target) => known.has(target)} onOpenWikiLink={openWiki} />
-          </div>
-        ) : null}
+      <div className="notes-editor-body" data-testid="markdown-editor" data-editor-mode={mode}>
+        <Suspense fallback={<p>{t.loading}</p>}>
+          <NoteEditorSurface path={path} value={text} onChange={onChange} mode={VIEW[mode]} notes={all.data ?? []} onOpen={props.onOpen} onPort={onPort} />
+        </Suspense>
       </div>
       <div className="notes-document-status">
         <span className={`notes-save-dot${state === "saved" ? "" : " notes-unsaved"}`} />
@@ -325,7 +272,6 @@ export function NoteDocument(props: NoteDocumentProps) {
         <span>{n.words(stats.chars)}</span>
         <span>{n.lines(stats.lines)}</span>
         <span className="grow" />
-        <span className="notes-huhu-editor-position">{status ? n.position(status.line, status.column, status.selected) : ""}</span>
         <span>UTF-8</span>
         {ed?.autosave === false ? (
           <Button variant="primary" icon={Save} disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>

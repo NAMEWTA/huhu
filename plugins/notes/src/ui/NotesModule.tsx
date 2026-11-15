@@ -1,5 +1,5 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
-import type { MarkdownEditorHandle } from "@huhu/editor";
+import type { RichEditorPort } from "@huhu/editor/rich";
 import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -49,12 +49,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [dailyDate, setDailyDate] = useState(today());
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
-  const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const editorRef = useRef<RichEditorPort | null>(null);
   const commentsQ = useCapability<CommentView[]>("comments.list", { path: selected ?? "" });
-  const commentMarks = useMemo(
-    () => (commentsQ.data ?? []).filter((c) => c.target === "body" && c.anchor && c.state === "anchored").map((c) => ({ id: c.id, start: c.anchor!.start, end: c.anchor!.end, resolved: c.resolved })),
-    [commentsQ.data],
-  );
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -85,8 +81,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   /** 批注锚点基于磁盘上的文本：先把编辑落盘，选区偏移才与引擎看到的文本一致。 */
   const savedSelection = async (): Promise<{ from: number; to: number; quote: string } | null> => {
     if (flushRef.current && !(await flushRef.current())) return null;
-    const r = editorRef.current?.getSelectionRange();
-    const quote = editorRef.current?.getSelectionText() ?? "";
+    const r = editorRef.current?.getSourceSelection();
+    const quote = r?.text ?? "";
     if (!r || r.from === r.to || !quote.trim()) {
       setError(n.selectFirst);
       return null;
@@ -109,7 +105,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     jump: (c) => {
       setActiveComment(c.id);
       if (c.anchor) {
-        editorRef.current?.setSelectionRange(c.anchor.start, c.anchor.end);
+        editorRef.current?.setSourceSelection(c.anchor.start, c.anchor.end);
         editorRef.current?.focus();
       }
     },
@@ -312,8 +308,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               onText={setDocText}
               registerFlush={(fn) => (flushRef.current = fn)}
               registerEditor={(h) => (editorRef.current = h)}
-              comments={commentMarks}
-              onCommentClick={(id) => openComments(id)}
               onAddComment={addComment}
             />
           </>
@@ -364,14 +358,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           readOnly={false}
           onClose={() => setInspector(false)}
           onOpen={openNote}
-          onJump={(line) => {
-            const v = editorRef.current?.view;
-            if (v) {
-              const pos = v.state.doc.line(Math.min(line, v.state.doc.lines)).from;
-              editorRef.current?.setSelectionRange(pos);
-              editorRef.current?.focus();
-            }
-          }}
+          onJump={(line) => editorRef.current?.gotoLine(line)}
           onOpenHistory={() => onNavigate?.("versioning")}
           {...(onNavigate ? { onNavigate } : {})}
         />

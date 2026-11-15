@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./rich": {
+      "types": "./src/rich/rich.d.ts",
+      "default": "./src/rich/index.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.vendor.json",
@@ -39,6 +43,7 @@
     "@handlewithcare/remark-prosemirror": "0.1.5",
     "@hocuspocus/provider": "4.0.0-rc.1",
     "@hocuspocus/server": "4.0.0-rc.1",
+    "@huhu/contracts": "workspace:*",
     "@lezer/common": "^1.5.5",
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.8.1",
