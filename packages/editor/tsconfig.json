@@ -18,6 +18,7 @@
     "harness",
     "harness-dist",
     "build",
-    "test/e2e"
+    "test/e2e",
+    "test/sp5-yaml.test.ts"
   ]
 }
