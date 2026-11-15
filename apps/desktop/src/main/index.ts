@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
+import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 
 let supervisor: EngineSupervisor | null = null;
@@ -28,7 +29,11 @@ function readBuildInfo(): { commit?: string; builtAt?: string } {
 
 const APP_ORIGIN = "huhu-app://workbench";
 
-protocol.registerSchemesAsPrivileged([{ scheme: "huhu-app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+// registerSchemesAsPrivileged 只能调用一次：工作台协议与 HTML 预览协议在这里合并注册
+protocol.registerSchemesAsPrivileged([{ scheme: "huhu-app", privileges: { standard: true, secure: true, supportFetchAPI: true } }, previewSchemePrivileges]);
+
+/** HTML 预览的主进程控制器（whenReady 之后创建）；窗口创建时用它做硬化与拦截计数。 */
+let preview: PreviewController | null = null;
 
 /** 渲染器加载失败时显示的内置错误页，包含日志路径。 */
 function errorPage(detail: string): string {
@@ -94,6 +99,7 @@ function createWindow(): BrowserWindow {
     if (!isTrustedUrl(url)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
   win.webContents.on("did-fail-load", (_e, code, desc) => {
     void win.loadURL(errorPage(`${desc} (${code})`));
   });
@@ -129,6 +135,7 @@ if (!gotLock) {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
     };
     let current: { path: string; readOnly: boolean } | null = null;
+    preview = registerPreviewHandlers({ vaultRoot: () => current?.path ?? null, frameAncestors: () => process.env["ELECTRON_RENDERER_URL"]?.replace(/\/$/, "") ?? APP_ORIGIN, assertTrusted });
     let startupError: string | null = null;
     let recent: RecentVault[] = [];
     /** 打开（或切换到）一个 Vault：先有序关闭旧 Engine；失败时回到未打开状态，错误原样交给启动页显示。 */
@@ -140,6 +147,7 @@ if (!gotLock) {
       return run;
     };
     const openVaultNow = async (target: string, flags: { create: boolean; readOnly: boolean }): Promise<OpenResult> => {
+      preview?.revokeAll(); // 旧 Vault 的预览授权立即失效
       if (supervisor) await supervisor.stop();
       supervisor = null;
       current = null;
@@ -194,6 +202,7 @@ if (!gotLock) {
     ipcMain.handle("huhu:vault:close", async (event) => {
       assertTrusted(event.senderFrame?.url);
       await (chain = chain.then(async () => {
+        preview?.revokeAll();
         if (supervisor) await supervisor.stop();
         supervisor = null;
         current = null;
