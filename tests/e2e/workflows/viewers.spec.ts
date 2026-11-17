@@ -2,7 +2,8 @@ import { expect, test, type Frame, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openApp } from "../helpers/launch.js";
+import { createRequire } from "node:module";
+import { openApp, root } from "../helpers/launch.js";
 
 /**
  * S7 查看器验收（F01–F06、F10）：每条都用真实桌面应用（Electron）。
@@ -187,8 +188,30 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await openFile(page, "坏");
     await expect(page.getByTestId("pdf-error")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".pdfViewer .page")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
 
-    // 外部修改：出现提示，点“重新载入”后显示新内容
+/** 原生文件监听是否可用：容器 / 共享主机上 inotify 配额耗尽（ENOSPC）时 Engine 收不到外部修改事件，依赖外部修改事件的用例无法在该环境运行。 */
+async function nativeWatchAvailable(): Promise<boolean> {
+  try {
+    const req = createRequire(path.join(root, "package.json"));
+    const watcher = req("@parcel/watcher") as { subscribe: (dir: string, cb: () => void) => Promise<{ unsubscribe: () => Promise<void> }> };
+    const sub = await watcher.subscribe(mkdtempSync(path.join(tmpdir(), "huhu-watch-probe-")), () => undefined);
+    await sub.unsubscribe();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("F03：PDF 被外部修改——出现“已被外部修改”提示或直接显示新内容，不继续展示旧页面", async () => {
+  test.skip(!(await nativeWatchAvailable()), "原生文件监听不可用（inotify ENOSPC）：Engine 收不到外部修改事件，见 evidence/s7/report.md");
+  const { page, vault, close } = await launch();
+  try {
+    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Alpha Page", "Bravo Page", "Charlie Page"]));
+    await openKnowledge(page);
     await openFile(page, "手册");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(3, { timeout: 30_000 });
     writeFileSync(`${vault}/手册.pdf`, buildPdf(["Delta Page"]));
@@ -202,6 +225,7 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await close();
   }
 });
+
 
 async function previewFrame(page: Page): Promise<Frame> {
   const handle = await page.getByTestId("html-preview-frame").elementHandle();
