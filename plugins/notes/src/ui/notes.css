@@ -46,17 +46,6 @@
   .notes-reading-pane[data-editor-mode="split"] {
     min-width: 0;
   }
-  @media (max-width: 1100px) {
-    .hu-knowledge-document-toolbar {
-      flex-wrap: wrap;
-    }
-  }
-  @media (max-width: 1100px) {
-    .hu-knowledge-document-toolbar > .row.grow {
-      flex-basis: 100%;
-      min-height: 16px;
-    }
-  }
   @media (max-width: 700px) {
     .notes-editor-mode-hint {
       padding: 7px 12px;
@@ -1430,5 +1419,18 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* F07：工具栏始终单行，按文档区的真实宽度（不是窗口宽度）收纳：先收起撤销 / 重做 / 导出，面包屑与文件名省略 */
+  .notes-doc-container {
+    container: notes-doc / inline-size;
+  }
+  .hu-knowledge-document-toolbar > .row.grow {
+    min-width: 0;
+    flex: 1 1 0%;
+  }
+  @container notes-doc (max-width: 640px) {
+    .notes-toolbar-optional {
+      display: none;
+    }
   }
 }

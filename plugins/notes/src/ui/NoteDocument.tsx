@@ -169,25 +169,18 @@ export function NoteDocument(props: NoteDocumentProps) {
   const reading = mode === "preview";
 
   return (
-    <section className="notes-document-area" data-testid="note-document">
-      <div className="hu-knowledge-document-toolbar">
+    <section className="notes-document-area notes-doc-container" data-testid="note-document">
+      {/* 单行工具栏（F07）：面包屑可收缩并省略；撤销 / 重做 / 批注在容器变窄时先收起（CSS 容器查询），导出在“更多”菜单里 */}
+      <div className="hu-knowledge-document-toolbar" data-testid="note-toolbar">
         <div className="row grow">
           <span className="notes-breadcrumb">{folder}</span>
           <ChevronRight size={12} aria-hidden />
-          <span className="notes-filename">{filename}</span>
+          <span className="notes-filename" title={filename}>{filename}</span>
         </div>
-        <Segmented<Mode> label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
-        <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
-        <IconButton icon={PanelRight} label={n.inspector} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
-      </div>
-      <div className="knowledge-editor-toolbar">
-        <div className="row">
+        <div className="row notes-toolbar-optional">
           {/* 格式化由 OK 编辑器自带的气泡菜单与 `/` 命令提供（design §3.4）；这里只保留撤销 / 重做 */}
           <IconButton icon={Undo2} label={n.undoEdit} disabled={!canUndo || reading || mode === "source"} onClick={() => editor.current?.undo()} />
           <IconButton icon={Redo2} label={n.redoEdit} disabled={!canRedo || reading || mode === "source"} onClick={() => editor.current?.redo()} />
-        </div>
-        <div className="row">
-          <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading} onClick={props.onAddComment} />
           <IconButton
             icon={Download}
             label={n.exportMd}
@@ -199,8 +192,12 @@ export function NoteDocument(props: NoteDocumentProps) {
               URL.revokeObjectURL(a.href);
             }}
           />
-          <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget))} />
         </div>
+        <Segmented<Mode> label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
+        <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading} onClick={props.onAddComment} />
+        <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
+        <IconButton icon={PanelRight} label={n.inspector} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
+        <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget))} />
       </div>
       {state === "conflict" ? (
         <Banner
