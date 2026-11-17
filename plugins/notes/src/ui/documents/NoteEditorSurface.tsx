@@ -1,6 +1,7 @@
 import { OkRoot, RichMarkdownEditor, coreRoutes, type EditorViewMode, type HostRoutes, type RichEditorPort } from "@huhu/editor/rich";
 import { useEngine, requestOpenPath } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
+import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -20,6 +21,8 @@ export interface NoteEditorSurfaceProps {
   fontSize?: number;
   /** 正文可读宽度 px；null = 不限制 */
   contentWidth?: number | null;
+  /** 批注创建前把编辑落盘（引擎在已保存文本上解析引用文字） */
+  flush(): Promise<boolean>;
 }
 
 const MD = /\.(md|mdx)$/i;
@@ -36,13 +39,16 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const onOpen = useRef(props.onOpen);
   onOpen.current = props.onOpen;
 
+  const { commentRoutes } = useCommentsBridge({ paths: props.notes.map((x) => x.path), flush: props.flush });
   const routes = useMemo<HostRoutes>(
-    () =>
-      coreRoutes({
+    () => ({
+      ...commentRoutes,
+      ...coreRoutes({
         listPages: () => notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
         listDocuments: () => notes.current.map((x) => ({ kind: "document" as const, path: x.path, docName: docNameOf(x.path) })),
       }),
-    [],
+    }),
+    [commentRoutes],
   );
   const documentHost = useMemo(
     () => ({

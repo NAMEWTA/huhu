@@ -26,4 +26,7 @@ export interface CommentThread {
   createdAt: number;
   updatedAt: number;
   queued: boolean;
+  // HUHU(P-S4-02)
+  scope?: 'body' | 'file' | 'property';
+  messages?: readonly { at: string; author: string; text: string }[];
 }

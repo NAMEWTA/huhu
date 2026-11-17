@@ -10,6 +10,16 @@
 
 - P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。
 
+## S4 评论（P-S4-xx）
+
+- P-S4-01 `core/src/schemas/api/comments.ts`：`CommentThreadMetaSchema` 加可选 `scope`（body / file / property）与 `messages`（Huhu 线程是消息列表，OK 只有 `latestComment`；整篇笔记批注是 Huhu 的 `target:"file"`）。
+- P-S4-02 `app/src/comments/types.ts`：`CommentThread` 加可选 `scope` / `messages`。
+- P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。
+- P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 `CommentSendFooter`（AI 派发发送栏，Q2 不接）。
+- P-S4-05 `app/src/comments/ThreadCard.tsx`：去掉“发送”勾选与点击卡片切换发送；铅笔编辑入口换成“标记为已解决”（Huhu 的消息是追加式记录，没有编辑）；回复列表与回复输入；删除两步确认；整篇笔记批注的标签。
+- P-S4-06 `app/src/comments/store.ts`：`setCommentsReadOnly` / `useCommentsReadOnly`（宿主只读时隐藏写操作入口，批注仍可查看 / 定位）。
+- P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。
+
 ## 删除
 
 - P-S2a-01 `app/src/editor/provider-pool.ts`（2121 行，Hocuspocus 连接池）、`app/src/editor/branch-invalidation.ts`、`app/src/lib/auth-token.ts`、`app/src/lib/server-info-refresh.ts`：协作 / 服务器专属；由 `host/hocuspocus-provider.ts`（LocalDocProvider）取代。

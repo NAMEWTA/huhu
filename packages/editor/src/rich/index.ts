@@ -9,3 +9,5 @@ export { DEFAULT_FEATURES, type OkHost, type OkHostFeatures } from '../host/ok-h
 export { dropProvider } from '../host/provider-pool'
 export { CompactMarkdownView, CompactMarkdownInput, type CompactPage } from './compact'
 export type { ReferenceCandidate } from './at-reference'
+// S4 评论宿主
+export { CommentsPanelHost, commentRoutes, notifyCommentsChanged, startComment, toThreadMeta, type CommentRouteDeps, type CommentsPanelHostProps, type CommentsPort, type HuhuComment, type PassageInput } from './comments'

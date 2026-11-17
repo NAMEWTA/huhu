@@ -38,7 +38,9 @@ export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): P
     try {
       return jsonResponse(200, await handler({ url, method, body }))
     } catch (err) {
-      return jsonResponse(500, { code: 'HOST_ERROR', message: err instanceof Error ? err.message : String(err) })
+      const message = err instanceof Error ? err.message : String(err)
+      // title / detail：vendor 的 ProblemDetailsSchema（RFC 9457）读这两个字段给用户看
+      return jsonResponse(500, { code: 'HOST_ERROR', message, type: 'urn:ok:error:invalid-request', title: message, status: 500, detail: message })
     }
   }
   return jsonResponse(404, { code: 'NOT_AVAILABLE', message: `Huhu 宿主未实现 ${key}` })

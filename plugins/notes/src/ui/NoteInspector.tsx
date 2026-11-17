@@ -2,7 +2,7 @@ import { Button, EmptyState, IconButton } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
 import { ArrowUpRight, FileText, ListChecks, X } from "lucide-react";
 import { ChoiceSegmented } from "@huhu/ui";
-import { CommentsPanel, type CommentActions, type CommentView } from "./CommentsPanel.js";
+import { CommentsHost } from "./comments/CommentsHost.js";
 import { n } from "./i18n.js";
 
 export type InspectorTab = "properties" | "outline" | "links" | "comments" | "history";
@@ -15,9 +15,8 @@ export function NoteInspector({
   tags,
   tab,
   onTab,
-  comments,
-  activeComment,
-  commentActions,
+  notePaths,
+  flush,
   readOnly,
   onClose,
   onOpen,
@@ -30,9 +29,10 @@ export function NoteInspector({
   tags: string[];
   tab: InspectorTab;
   onTab(t: InspectorTab): void;
-  comments: CommentView[];
-  activeComment: string | null;
-  commentActions: CommentActions;
+  /** Vault 里已知的笔记路径（批注的 docName ↔ 路径解析） */
+  notePaths: readonly string[];
+  /** 批注创建 / 重新选择位置之前把编辑落盘 */
+  flush(): Promise<boolean>;
   readOnly: boolean;
   onClose(): void;
   onOpen(path: string): void;
@@ -104,7 +104,7 @@ export function NoteInspector({
             <RelatedSections path={path} onNavigate={onNavigate} />
           </section>
         ) : tab === "comments" ? (
-          <CommentsPanel comments={comments} active={activeComment} readOnly={readOnly} actions={commentActions} />
+          <CommentsHost path={path} paths={notePaths} flush={flush} readOnly={readOnly} />
         ) : (
           <EmptyState
             icon={FileText}

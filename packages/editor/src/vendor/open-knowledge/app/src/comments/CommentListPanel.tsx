@@ -306,7 +306,8 @@ export function CommentListPanel({
           visible.map(card)
         )}
       </PanelBody>
-      {active.length > 0 && (
+      {/* HUHU(P-S4-04)：AI 派发（发送给智能体）不接，发送栏不渲染 */}
+      {false && active.length > 0 && (
         <CommentSendFooter
           threadIds={scopedSending}
           totalCount={selectableIds.length}

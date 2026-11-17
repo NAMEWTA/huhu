@@ -160,30 +160,3 @@ export function MoveDialog({ note, folders, error, onClose, onMove }: { note: No
     </Dialog>
   );
 }
-
-export function CommentComposer({ quote, error, onClose, onSubmit }: { quote: string; error: string | null; onClose(): void; onSubmit(text: string): Promise<void> }) {
-  const [text, setText] = useState("");
-  return (
-    <Dialog
-      open
-      title="添加批注"
-      description="批注保存为 Comments/ 下的 Markdown 文件，不会改动正文。"
-      error={error}
-      testId="comment-composer"
-      onClose={onClose}
-      actions={
-        <>
-          <Button onClick={onClose}>{n.cancel}</Button>
-          <Button variant="primary" disabled={!text.trim()} data-testid="comment-save" onClick={() => void onSubmit(text.trim())}>
-            保存批注
-          </Button>
-        </>
-      }
-    >
-      <blockquote className="knowledge-comment-quote">{quote}</blockquote>
-      <Field label="批注内容">
-        <textarea aria-label="批注内容" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
-      </Field>
-    </Dialog>
-  );
-}

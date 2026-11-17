@@ -1,12 +1,11 @@
 import { Trans, useLingui } from '@lingui/react/macro';
-import { CheckCheck, MapPin, Pencil, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, CheckCheck, MapPin, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { PanelScope } from '@/components/PanelScopeHeader';
 import { getPropertiesCollapsed } from '@/components/properties-collapsed-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getVisibleEditorForDoc } from '@/editor/active-editor';
 import {
@@ -26,8 +25,11 @@ import {
   emitOpenThread,
   reopenThread,
   replaceOrphan,
+  replyToThread,
+  resolveThread,
   setActiveThread,
   toggleSending,
+  useCommentsReadOnly,
 } from './store';
 import type { CommentThread } from './types';
 
@@ -75,6 +77,10 @@ export function ThreadCard({
   const [renderedAt] = useState(() => Date.now());
   const [editing, setEditing] = useState(false);
   const [draftEmpty, setDraftEmpty] = useState(false);
+  // HUHU(P-S4-05)：删除确认、回复草稿
+  const hostReadOnly = useCommentsReadOnly();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [replyDraft, setReplyDraft] = useState('');
   const editFieldRef = useRef<ComposerMentionInputHandle>(null);
   const isOrphaned = thread.status === 'orphaned';
   const isResolved = thread.status === 'resolved';
@@ -179,7 +185,7 @@ export function ThreadCard({
     }
   }
 
-  const cardSelects = !editing && !isResolved;
+  const cardSelects = false; // HUHU(P-S4-05)：点击卡片空白处不再切换“发送”勾选
 
   return (
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- pointer-only affordance — clicking the card's whitespace solos its tick; keyboard/AT users compose the same state from the real controls (the card's checkbox + the footer's master tick). See focus-composer-on-card-pointer.ts for the sibling pattern.
@@ -223,13 +229,7 @@ export function ThreadCard({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          {!isResolved && (
-            <Checkbox
-              checked={sending}
-              onCheckedChange={() => toggleSending(thread.id)}
-              aria-label={sending ? t`Don't send this comment` : t`Send this comment`}
-            />
-          )}
+          {/* HUHU(P-S4-05)：AI 派发的“发送”勾选不接 */}
           {isResolved && (
             <CheckCheck aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
           )}
@@ -249,6 +249,7 @@ export function ThreadCard({
               <Trans>Resolved</Trans>
             </Badge>
           )}
+          {!hostReadOnly && (
           <div className="col-start-1 row-start-1 flex items-center gap-1.5">
             {isResolved ? (
               <Tooltip>
@@ -273,16 +274,16 @@ export function ThreadCard({
                   <Button
                     size="sm"
                     variant="ghost"
-                    aria-label={t`Edit this comment`}
-                    aria-expanded={editing}
+                    aria-label={t`Resolve this comment`}
+                    data-testid="thread-resolve"
                     className={cn(actionRevealClass, 'hover:text-foreground')}
-                    onClick={() => setEditing((open) => !open)}
+                    onClick={() => resolveThread(thread.id)}
                   >
-                    <Pencil className="size-3.5" />
+                    <Check className="size-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <Trans>Edit this comment</Trans>
+                  <Trans>Resolve this comment</Trans>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -293,7 +294,8 @@ export function ThreadCard({
                   variant="ghost"
                   className={cn(actionRevealClass, 'hover:text-destructive')}
                   aria-label={t`Delete this comment`}
-                  onClick={deleteComment}
+                  data-testid="thread-delete"
+                  onClick={() => setConfirmDelete(true)}
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
@@ -303,10 +305,15 @@ export function ThreadCard({
               </TooltipContent>
             </Tooltip>
           </div>
+          )}
         </div>
       </div>
 
-      {isOrphaned ? (
+      {thread.scope === 'file' ? (
+        <p className="border-l-2 border-l-muted-foreground/40 px-2 py-0.5 text-sm text-muted-foreground">
+          <Trans>Whole note</Trans>
+        </p>
+      ) : isOrphaned ? (
         <div className="flex flex-col gap-2">
           {thread.anchor !== null && (
             <p
@@ -390,6 +397,52 @@ export function ThreadCard({
         >
           {thread.body}
         </p>
+      )}
+
+      {/* HUHU(P-S4-05)：回复（Huhu 的线程是消息列表）、删除确认 */}
+      {(thread.messages ?? []).slice(1).map((m) => (
+        <p
+          key={`${m.at}-${m.author}`}
+          data-testid="thread-reply"
+          className="border-l-2 pl-2 text-sm text-foreground/90"
+        >
+          <strong className="font-medium">{m.author}</strong> · {editedAt(Date.parse(m.at), renderedAt)}
+          <br />
+          {m.text}
+        </p>
+      ))}
+      {!isResolved && !hostReadOnly && (
+        <input
+          aria-label={t`Reply`}
+          placeholder={t`Reply…`}
+          data-testid="thread-reply-input"
+          value={replyDraft}
+          onChange={(event) => setReplyDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+            const text = replyDraft.trim();
+            if (text.length === 0) return;
+            replyToThread(thread.id, text);
+            setReplyDraft('');
+          }}
+          className="rounded-md border bg-background px-2 py-1 text-sm"
+        />
+      )}
+      {confirmDelete && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Trans>Delete this thread? The document text is unchanged.</Trans>
+          <Button
+            size="sm"
+            variant="ghost-mono"
+            data-testid="comment-delete-confirm"
+            onClick={() => (setConfirmDelete(false), deleteComment())}
+          >
+            <Trans>Delete</Trans>
+          </Button>
+          <Button size="sm" variant="ghost-mono" onClick={() => setConfirmDelete(false)}>
+            <Trans>Cancel</Trans>
+          </Button>
+        </div>
       )}
 
       {isOrphaned && (

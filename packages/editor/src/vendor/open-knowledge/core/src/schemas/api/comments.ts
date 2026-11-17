@@ -36,6 +36,9 @@ export const CommentThreadMetaSchema = z.object({
   createdBy: z.string().min(1),
   createdAt: z.number(),
   updatedAt: z.number().optional(),
+  // HUHU(P-S4-01)：整篇笔记批注与消息列表（OK 线程只有一条 latestComment）
+  scope: z.enum(['body', 'file', 'property']).optional(),
+  messages: z.array(z.object({ at: z.string(), author: z.string(), text: z.string() })).optional(),
 });
 export type CommentThreadMeta = z.infer<typeof CommentThreadMetaSchema>;
 
