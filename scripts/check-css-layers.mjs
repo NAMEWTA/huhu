@@ -12,7 +12,7 @@ const UNLAYERED = {
   "packages/ui/src/styles/vendor-overrides.css": "覆盖 sonner 运行时注入（__insertCSS）的样式",
 };
 /** 白名单文件里允许出现的类 / 属性：第三方（CodeMirror、sonner）与编辑器 DOM 内的装饰类。 */
-const THIRD_PARTY_CLASS = /^(cm-|ͼ|atomic-editor-|atomic-cm-|huhu-md-semibold$|huhu-live-table$|huhu-live-table-scroll$|huhu-live-block-edit$)/;
+const THIRD_PARTY_CLASS = /^(cm-|ͼ)/;
 const THIRD_PARTY_ATTR = /^data-(sonner|rich-colors)/;
 const LAYERS = "theme, tokens, base, vendor, components, shell, modules";
 

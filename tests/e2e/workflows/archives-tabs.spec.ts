@@ -141,6 +141,7 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
     // 文件树点击档案文件夹笔记 → Markdown（不是档案视图）
     await treeFolder(page, "Archives").first().click();
     await treeFolder(page, "通讯录").first().click();
+    await treeFolder(page, "张三").first().click();
     await page.locator('[data-testid="notes-resource-tree"] [data-item-path$="张三/index.md"]').click();
     await expect(page.getByTestId("markdown-editor")).toBeVisible();
     await expect(page.getByTestId("archive-view")).toHaveCount(0);
