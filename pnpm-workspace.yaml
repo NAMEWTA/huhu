@@ -56,4 +56,5 @@ patchedDependencies:
   '@tiptap/y-tiptap@3.0.3': patches/@tiptap%2Fy-tiptap@3.0.3.patch
   'cmdk@1.1.1': patches/cmdk@1.1.1.patch
   'react-medium-image-zoom@5.4.3': patches/react-medium-image-zoom@5.4.3.patch
+  'pdfjs-dist@6.3.289': patches/pdfjs-dist@6.3.289.patch
   'y-indexeddb@9.0.12': patches/y-indexeddb@9.0.12.patch

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
 
 // S3 / B03–B05：OK 的 `/` 命令菜单、气泡菜单、块插入与撤销在 Huhu 里可用（真实 Electron）。
 // 逐项对照见 evidence/parity-matrix.md；这里只覆盖用户路径上最常用的一组。
@@ -20,7 +21,7 @@ test("S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤�
     const file = path.join(vault, "菜单.md");
     writeFileSync(file, "# 菜单\n\n起始段落\n");
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "菜单.md" }).click();
+    await treeItem(page, "菜单.md").click();
     await expect(prose(page)).toContainText("起始段落", { timeout: 30_000 });
 
     // `/`：菜单出现，列出分类与选项；过滤；Esc 关闭

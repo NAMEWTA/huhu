@@ -74,6 +74,8 @@ export interface FileTargetMenuItemsProps {
   folderCreate?: FolderCreateActions;
   folderTree?: FolderTreeActions;
   hide?: HideAction;
+  /** P-S5-04：宿主追加项（Huhu 既有能力）。 */
+  hostItems?: readonly { id: string; label: string; onSelect: () => void }[];
   openWithAi?: ReactNode;
   primitives: FileTargetMenuPrimitives;
   reveal?: RevealAction;
@@ -93,6 +95,7 @@ export function FileTargetMenuItems({
   folderCreate,
   folderTree,
   hide,
+  hostItems,
   openWithAi,
   primitives,
   reveal,
@@ -229,6 +232,11 @@ export function FileTargetMenuItems({
                 <Trans>Duplicate</Trans>
               </Item>
             ) : null}
+            {hostItems?.map((h) => (
+              <Item key={h.id} data-testid={`file-tree-menu-${h.id}`} disabled={busy} onSelect={h.onSelect}>
+                {h.label}
+              </Item>
+            ))}
             {onRename ? (
               <Item disabled={busy} onSelect={onRename}>
                 <Pencil aria-hidden="true" />

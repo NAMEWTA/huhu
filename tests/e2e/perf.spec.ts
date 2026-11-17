@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScaleVault } from "../perf/scale-vault.js";
 import { root, USER_DATA_ARG } from "./helpers/launch.js";
+import { treeItem, treeRows } from "./helpers/tree.js";
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
@@ -93,7 +94,7 @@ test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
-    const item = page.getByTestId("note-item").filter({ hasText: "大文档" });
+    const item = treeItem(page, "大文档");
     await expect(item).toBeVisible({ timeout: 20_000 });
     const t0 = Date.now();
     await item.click();
@@ -140,7 +141,7 @@ test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", asy
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
-    await page.getByTestId("note-item").filter({ hasText: "长文" }).click();
+    await treeItem(page, "长文").click();
     const content = page.getByTestId("markdown-editor").locator(".ProseMirror");
     await expect(content).toContainText("长文", { timeout: 15_000 });
     await content.click();
@@ -295,7 +296,7 @@ test("scale-vault（10,000 篇笔记 / 1,000 任务 / 1,000 档案）：打开�
       .getByRole("button", { name: /^文件夹0\b/ })
       .first()
       .click({ timeout: 60_000 });
-    await expect(page.getByTestId("note-item").first()).toBeVisible({ timeout: 60_000 });
+    await expect(treeRows(page).first()).toBeVisible({ timeout: 60_000 });
     const tree = Date.now() - t0;
     note("打开 scale-vault 到文件树可用", `${tree} ms（目标 ≤ 6000）`);
     atMost(tree, 6000);

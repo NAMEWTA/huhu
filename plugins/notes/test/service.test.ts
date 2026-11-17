@@ -141,6 +141,26 @@ describe("复制、回收站", () => {
     expect(d.id).not.toBe(a);
     expect(rd(root, d.path)).toBe("内容");
   });
+  test("A07 复制文件夹：整棵子树（含非 Markdown 与空目录）按字节复制，原文件不变", async () => {
+    const { svc, root } = await setup({ "Proj/a.md": "# A", "Proj/sub/b.md": "# B", "Proj/data.json": '{"k":1}' });
+    mkdirSync(path.join(root, "Proj/emptyDir"), { recursive: true });
+    const d = await svc.duplicate("Proj");
+    expect(d.path).toBe("Proj · 副本");
+    expect(rd(root, "Proj · 副本/a.md")).toBe("# A");
+    expect(rd(root, "Proj · 副本/sub/b.md")).toBe("# B");
+    expect(rd(root, "Proj · 副本/data.json")).toBe('{"k":1}');
+    expect(existsSync(path.join(root, "Proj · 副本/emptyDir"))).toBe(true);
+    expect(rd(root, "Proj/a.md")).toBe("# A");
+    expect(svc.folders()).toContain("Proj · 副本/emptyDir");
+    const again = await svc.duplicate("Proj");
+    expect(again.path).toBe("Proj · 副本 (1)");
+  });
+  test("A07 复制非 Markdown 文件保持扩展名", async () => {
+    const { svc, root } = await setup({ "data.json": "{}" });
+    const d = await svc.duplicate("data.json");
+    expect(d.path).toBe("data · 副本.json");
+    expect(rd(root, d.path)).toBe("{}");
+  });
   test("ACC-KN-07 恢复：原路径有同名 → 要求新名称，原有文件不变；永久删除", async () => {
     const { svc, root } = await setup({ "n.md": "旧" });
     const { trashId } = await svc.trash("n.md");

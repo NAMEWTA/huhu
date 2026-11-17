@@ -39,6 +39,30 @@
     --atomic-editor-hl-punctuation: var(--muted);
     --atomic-editor-hl-invalid: var(--danger);
   }
+  /* 纯文本 / JSON 编辑器：沿用同一组编辑器 token，只是等宽字体、占满容器。 */
+  .editor-plain-editor {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    --atomic-editor-font-mono: var(--font-mono);
+    --atomic-editor-body-size: var(--fs-editor);
+    --atomic-editor-body-leading: var(--editor-line);
+    --atomic-editor-fg: var(--text);
+    --atomic-editor-fg-faint: var(--faint);
+    --atomic-editor-bg: var(--bg);
+    --atomic-editor-bg-panel: var(--panel);
+    --atomic-editor-border: var(--line);
+    --atomic-editor-selection-bg: var(--accent-soft);
+    --atomic-editor-search-bg: var(--warning-bg);
+    --atomic-editor-search-bg-active: var(--accent-soft);
+    --atomic-editor-hl-keyword: var(--accent);
+    --atomic-editor-hl-string: var(--success);
+    --atomic-editor-hl-number: var(--warning);
+    --atomic-editor-hl-property: var(--text);
+    --atomic-editor-hl-punctuation: var(--muted);
+    --atomic-editor-hl-invalid: var(--danger);
+  }
   /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
   .hu-mermaid {
     display: flex;

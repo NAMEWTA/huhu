@@ -1433,4 +1433,81 @@
       display: none;
     }
   }
+
+  /* S5：资源管理器（OK 文件树）的宿主栏：计数 / 隐藏入口 */
+  .notes-explorer-tree:has(> .notes-resource-tree) {
+    display: flex;
+    flex-direction: column;
+  }
+  .notes-resource-tree {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .notes-resource-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 10px;
+    color: var(--faint);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .notes-resource-bar em {
+    font-style: normal;
+    color: var(--muted);
+  }
+  .notes-resource-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .notes-resource-actions button {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .notes-resource-actions button:hover {
+    color: var(--text);
+  }
+  .notes-hidden-list {
+    margin: 0;
+    padding: 4px 10px 6px;
+    list-style: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .notes-hidden-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0;
+  }
+  .notes-hidden-list span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .notes-hidden-list button {
+    color: var(--accent);
+    font-size: 11px;
+  }
+  .notes-resource-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .notes-resource-loading {
+    padding: 12px;
+    color: var(--faint);
+    font-size: 12px;
+  }
 }

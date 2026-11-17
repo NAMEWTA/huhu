@@ -2,6 +2,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { treeFolder, treeItem } from "../helpers/tree.js";
 import { openApp } from "../helpers/launch.js";
 
 /** S6（知识库 OK 对等）：档案首页 / 类型 / 记录是真实标签，侧栏上下文切换，普通目录只浏览，同一 index.md 同一会话（E01–E05）。 */
@@ -71,8 +72,8 @@ test("E02 活动档案标签 → 档案树；文件标签 → 文件树；展开
   try {
     await seed(page);
     // 文件标签：展开“资料”
-    await page.getByTestId("folder-line").filter({ hasText: "资料" }).getByRole("button").first().click();
-    await page.getByTestId("note-item").filter({ hasText: "说明" }).click();
+    await treeFolder(page, "资料").first().click();
+    await treeItem(page, "说明").click();
     await expect(page.getByTestId("notes-explorer-tree")).toBeVisible();
     await expect(page.getByTestId("archives-sidebar")).toHaveCount(0);
 
@@ -86,7 +87,7 @@ test("E02 活动档案标签 → 档案树；文件标签 → 文件树；展开
     // 回到文件标签：文件树恢复且“资料”仍展开
     await page.getByTestId("document-tab").filter({ hasText: "说明" }).click();
     await expect(page.getByTestId("notes-explorer-tree")).toBeVisible();
-    await expect(page.getByTestId("note-item").filter({ hasText: "说明" })).toBeVisible();
+    await expect(treeItem(page, "说明")).toBeVisible();
     // 再回档案标签：通讯录仍展开
     await page.getByTestId("document-tab").filter({ hasText: "档案" }).first().click();
     await expect(page.getByTestId("archives-tree-record")).toHaveCount(2);
@@ -119,14 +120,14 @@ test("E03 普通目录点击只浏览；Archives/ 在文件视图里是真实目
     await page.reload();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
-    await page.getByTestId("folder-line").filter({ hasText: "资料" }).getByRole("button").first().click();
-    await expect(page.getByTestId("note-item").filter({ hasText: "说明" })).toBeVisible();
+    await treeFolder(page, "资料").first().click();
+    await expect(treeItem(page, "说明")).toBeVisible();
     await expect(page.getByTestId("archives-home")).toHaveCount(0);
     await expect(page.locator('[data-tab-kind="archives-home"]')).toHaveCount(0);
     // Archives/ 目录：点击只展开真实子资源，不打开档案页面
-    await page.getByTestId("folder-line").filter({ hasText: /^.*Archives/ }).first().getByRole("button").first().click();
+    await treeFolder(page, "Archives").first().click();
     await expect(page.getByTestId("archives-home")).toHaveCount(0);
-    await expect(page.getByTestId("folder-line").filter({ hasText: "通讯录" })).toBeVisible();
+    await expect(treeFolder(page, "通讯录")).toBeVisible();
   } finally {
     await close();
   }
@@ -138,13 +139,13 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
     await seed(page);
     const file = path.join(vault, "Archives", "通讯录", "张三", "index.md");
     // 文件树点击档案文件夹笔记 → Markdown（不是档案视图）
-    await page.getByTestId("folder-line").filter({ hasText: /^.*Archives/ }).first().getByRole("button").first().click();
-    await page.getByTestId("folder-line").filter({ hasText: "通讯录" }).first().getByRole("button").first().click();
-    await page.getByTestId("folder-note-item").filter({ hasText: "张三" }).click();
+    await treeFolder(page, "Archives").first().click();
+    await treeFolder(page, "通讯录").first().click();
+    await page.locator('[data-testid="notes-resource-tree"] [data-item-path$="张三/index.md"]').click();
     await expect(page.getByTestId("markdown-editor")).toBeVisible();
     await expect(page.getByTestId("archive-view")).toHaveCount(0);
     // 在 Markdown 里追加一行，不等自动保存就切到档案视图改字段
-    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.getByTestId("markdown-editor").locator(".ProseMirror").click();
     await page.keyboard.press("Control+End");
     await page.keyboard.type("\n来自 Markdown 的修改");
     await page.getByTestId("archive-open-record-view").click();

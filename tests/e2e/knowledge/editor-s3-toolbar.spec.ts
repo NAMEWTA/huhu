@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeFileRows } from "../helpers/tree.js";
 
 // S3 / F07：笔记顶部工具栏在不同窗口宽度、长中文标题下保持单行、不溢出；窄时先收起撤销 / 重做 / 导出，核心按钮仍可达。
 
@@ -19,7 +20,7 @@ for (const width of [1440, 1100, 900]) {
       writeFileSync(path.join(vault, `${name}.md`), "---\ntitle: T\n---\n\n正文\n");
       await app.evaluate(({ BrowserWindow }, w) => BrowserWindow.getAllWindows()[0]?.setSize(w, 800), width);
       await gotoNotes(page);
-      await page.getByTestId("note-item").first().click();
+      await treeFileRows(page).first().click();
       await expect(page.getByTestId("note-document")).toBeVisible({ timeout: 30_000 });
       const bar = page.getByTestId("note-toolbar");
       await expect(bar).toBeVisible();

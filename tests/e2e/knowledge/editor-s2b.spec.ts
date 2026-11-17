@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
 
 // S2b 整合点：知识库的 Markdown 文档由 OK 编辑器（LocalDocProvider + DocumentSession）承载。
 // 覆盖：打开 → 无编辑不写盘 → 输入 → 自动保存 → 立即切换不丢最后字符 → 三种视图切换 → 关闭 → 重开一致。
@@ -25,7 +26,7 @@ test("S2b：打开—无编辑不写盘—输入—保存—重开一致；立�
     const mtime0 = statSync(file).mtimeMs;
 
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "S2b.md" }).click();
+    await treeItem(page, "S2b.md").click();
     await expect(prose(page)).toContainText("第一段，保持原样。", { timeout: 30_000 });
 
     // 无编辑：停留超过自动保存间隔，磁盘字节与 mtime 都不变（B10）
@@ -43,12 +44,12 @@ test("S2b：打开—无编辑不写盘—输入—保存—重开一致；立�
 
     // 输入后立刻切换到另一篇：磁盘必须含最后一个字符（flush 排空防抖）
     await page.keyboard.type("尾字");
-    await page.getByTestId("note-item").filter({ hasText: "另一篇.md" }).click();
+    await treeItem(page, "另一篇.md").click();
     await expect(prose(page)).toContainText("正文", { timeout: 30_000 });
     expect(readFileSync(file, "utf8")).toContain("末尾追加一尾字");
 
     // 回到 S2b：内容保留；源码 / 阅读 / 实时预览来回切，正文一致
-    await page.getByTestId("note-item").filter({ hasText: "S2b.md" }).click();
+    await treeItem(page, "S2b.md").click();
     await expect(prose(page)).toContainText("末尾追加一尾字", { timeout: 30_000 });
     await page.getByRole("tab", { name: "源码" }).click();
     await expect(page.getByTestId("markdown-editor").locator(".cm-content").first()).toContainText("末尾追加一尾字", { timeout: 20_000 });
@@ -88,7 +89,7 @@ test("S2b：重开应用后内容一致（保存—关闭—重开）", async ()
   writeFileSync(file, "# 重开\n\n初始\n");
   try {
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "重开.md" }).click();
+    await treeItem(page, "重开.md").click();
     await expect(prose(page)).toContainText("初始", { timeout: 30_000 });
     await prose(page).click();
     await page.keyboard.press("ControlOrMeta+End");

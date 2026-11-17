@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
 
 // S3 / F09：大文档的两条性能路径不得牺牲正确性。
 //  (a) 超过 LARGE_DOC_CHARS 的文档以源码模式打开，富文本表示延后到切换时才构建（P-S3-01）。
@@ -25,7 +26,7 @@ test("S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本
     writeFileSync(file, original);
 
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "巨型.md" }).click();
+    await treeItem(page, "巨型.md").click();
     await expect(cm(page)).toContainText("巨型", { timeout: 20_000 });
     // 源码优先：此时没有构建富文本（没有 ProseMirror 内容）
     await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toHaveCount(0);
@@ -55,7 +56,7 @@ test("S3：5000 段文档在实时预览里输入后立刻切源码 / 切文件�
     writeFileSync(path.join(vault, "短文.md"), "# 短文\n\n正文\n");
 
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "长文.md" }).click();
+    await treeItem(page, "长文.md").click();
     await expect(prose(page)).toContainText("第 0 行", { timeout: 30_000 });
 
     await prose(page).click();
@@ -75,7 +76,7 @@ test("S3：5000 段文档在实时预览里输入后立刻切源码 / 切文件�
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("End");
     await page.keyboard.type("尾丁");
-    await page.getByTestId("note-item").filter({ hasText: "短文.md" }).click();
+    await treeItem(page, "短文.md").click();
     await expect(prose(page)).toContainText("正文", { timeout: 30_000 });
     await expect.poll(() => readFileSync(file, "utf8"), { timeout: 10_000 }).toContain("尾丁");
     expect(readFileSync(file, "utf8")).toContain("前缀甲乙丙");

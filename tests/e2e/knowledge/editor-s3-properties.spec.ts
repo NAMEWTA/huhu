@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
 
 // S3 / C01–C05：OK 属性面板接入笔记顶部；属性与正文共用同一缓冲、同一文件；未触碰的 YAML 原样保留。
 
@@ -19,7 +20,7 @@ test("S3：属性显示、只改属性不丢正文与其它键、改正文保留
     const file = path.join(vault, "属性.md");
     writeFileSync(file, "---\ntitle: 标题甲\ncount: 0\nflag: false\nzip: 007\ntags:\n  - a\n  - b\n---\n\n# 正文\n\n段落一\n");
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "属性.md" }).click();
+    await treeItem(page, "属性.md").click();
     await expect(prose(page)).toContainText("段落一", { timeout: 30_000 });
 
     // C01：顶部显示属性
@@ -80,7 +81,7 @@ test("S3：坏 YAML 不被清空——面板给出诊断，源码里的原文保
     const bad = "---\ntitle: [未闭合\nfoo: : bar\n---\n\n# 正文\n\n段落\n";
     writeFileSync(file, bad);
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "坏.md" }).click();
+    await treeItem(page, "坏.md").click();
     await expect(prose(page)).toContainText("段落", { timeout: 30_000 });
     await page.waitForTimeout(2500);
     expect(readFileSync(file, "utf8")).toBe(bad); // 打开不改写
