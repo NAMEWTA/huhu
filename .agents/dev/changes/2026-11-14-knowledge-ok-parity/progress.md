@@ -11,7 +11,7 @@
 | S1 资源目录、会话与标签契约 | **完成（2026-11-15，分支 `worktree-agent-adad71041bd4ce01a`）**；`vault.tree` / `notes.files` 的迁移与删除按计划留到 S5，其余偏差见契约冻结文档 §7 | [evidence/contracts-freeze.md](evidence/contracts-freeze.md)、[evidence/s1/verification.md](evidence/s1/verification.md) |
 | S2a（2a-1/2/3）/ S2b / S2c | 未开始 | S2a 依赖 S0；S2b 依赖 S1 + S2a；S2c 依赖 S2b |
 | S3 编辑行为对等 | 未开始 | |
-| S4 评论 | 未开始 | |
+| S4 评论 | **完成（部分验收项登记为未验证）**：OK 评论 UI 接 `comments.*`（引用文字锚点、回复 / 解决 / 删除确认、整篇批注）；e2e D01–D06 9 passed；上游非 dom 评论测试 190 通过 | [evidence/s4/verification.md](evidence/s4/verification.md)、[comment-field-map.md](evidence/comment-field-map.md)、[parity/comments.md](evidence/parity/comments.md) |
 | S5 文件树与隐藏 | 未开始 | |
 | S6 档案标签 | 完成（E01–E04 通过；E05“附件走统一查看器”待 S7） | [evidence/s6/verification.md](evidence/s6/verification.md) |
 | S7 查看器与图标 | 未开始 | |

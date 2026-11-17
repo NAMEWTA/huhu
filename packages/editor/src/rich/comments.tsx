@@ -2,7 +2,7 @@
 // 能力经 CommentsPort 注入（packages/editor 不依赖业务模块）；路由见 host/routes/comments.ts。
 import { type ReactNode, useEffect, useState } from 'react'
 import { CommentsPanel } from '@/comments/CommentsPanel'
-import { createFileThread, emitStartComment, setCommentsReadOnly } from '@/comments/store'
+import { createFileThread, emitStartComment, setCommentsReadOnly, subscribeCommentPosted } from '@/comments/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { emitDocumentsChanged } from '@/lib/documents-events'
@@ -14,6 +14,11 @@ export { commentRoutes, toThreadMeta, type CommentRouteDeps, type CommentsPort, 
 /** 工具栏“添加批注”：触发 OK 的选区入口（选区合法性、取消、上下文冻结都在 CommentSelectionAffordance 里）。 */
 export function startComment(): void {
   emitStartComment()
+}
+
+/** 在编辑器里发表批注之后（宿主据此打开详情栏的批注页）。返回取消订阅。 */
+export function onCommentPosted(handler: () => void): () => void {
+  return subscribeCommentPosted(handler)
 }
 
 /** 批注数据在宿主侧变化（engine 事件 / 保存后重定位）：让 OK 的 store 重新拉取。 */

@@ -191,6 +191,8 @@ export function ThreadCard({
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- pointer-only affordance — clicking the card's whitespace solos its tick; keyboard/AT users compose the same state from the real controls (the card's checkbox + the footer's master tick). See focus-composer-on-card-pointer.ts for the sibling pattern.
     <article
       ref={cardRef}
+      data-testid="comment-thread"
+      data-state={isResolved ? 'resolved' : isOrphaned ? 'orphaned' : 'anchored'}
       onPointerEnter={() => setActiveThread(thread.id)}
       onPointerLeave={() => clearActiveThread(thread.id)}
       onFocusCapture={() => setActiveThread(thread.id)}
@@ -447,7 +449,7 @@ export function ThreadCard({
 
       {isOrphaned && (
         <div className="flex flex-col items-start gap-0.5">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground" data-testid="comment-orphaned">
             <Trans>The original text was deleted.</Trans>
           </p>
           <Button

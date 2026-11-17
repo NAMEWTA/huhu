@@ -141,6 +141,7 @@ export interface CommentRouteDeps {
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes;
 export function notifyCommentsChanged(): void;
 export function startComment(): void;
+export function onCommentPosted(handler: () => void): () => void;
 export interface CommentsPanelHostProps {
   docName: string;
   routes: HostRoutes;

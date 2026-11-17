@@ -85,6 +85,18 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     setInspectorTab("comments");
     void import("@huhu/editor/rich").then((m) => m.startComment());
   };
+  // 在编辑器里发表批注（OK 的选区入口）之后，打开详情栏的批注页
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let live = true;
+    void import("@huhu/editor/rich").then((m) => {
+      if (live) off = m.onCommentPosted(() => (setInspector(true), setInspectorTab("comments")));
+    });
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
   const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
   const otherFiles = useCapability<{ path: string; size: number; mtimeMs: number }[]>("notes.files", {});
