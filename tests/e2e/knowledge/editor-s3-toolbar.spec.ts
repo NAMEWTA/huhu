@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeFileRows } from "../helpers/tree.js";
+import { treeFileRows, treeSettled } from "../helpers/tree.js";
 
 // S3 / F07：笔记顶部工具栏在不同窗口宽度、长中文标题下保持单行、不溢出；窄时先收起撤销 / 重做 / 导出，核心按钮仍可达。
 
@@ -10,6 +10,7 @@ async function gotoNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
   await page.getByRole("button", { name: "知识库" }).first().click();
   await expect(page.getByTestId("notes-module")).toBeVisible();
+  await treeSettled(page); // 树在文件事件合并后会重新列举；稳定后再点
 }
 
 for (const width of [1440, 1100, 900]) {

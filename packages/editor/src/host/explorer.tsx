@@ -97,7 +97,8 @@ export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken =
           ? { kind: 'doc', target: activePath.replace(/\.(md|mdx)$/i, ''), docName: activePath.replace(/\.(md|mdx)$/i, '') }
           : { kind: 'asset', target: activePath, assetPath: activePath, mediaKind: null },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
-        if (t.kind === 'doc' || t.kind === 'folder-index') onOpen({ kind: 'file', path: resolveDocPath(t.docName ?? '', known.current) })
+        // 'large-file'：OK 对超过 512 KiB 的文档不进编辑器；Huhu 由查看器分派（viewers/dispatch.ts）决定上限，源码优先打开大笔记（P-S3-01）
+        if (t.kind === 'doc' || t.kind === 'folder-index' || t.kind === 'large-file') onOpen({ kind: 'file', path: resolveDocPath(t.docName ?? '', known.current) })
         else if (t.kind === 'folder') onOpen({ kind: 'folder', path: t.folderPath ?? '' })
         else if (t.kind === 'asset') onOpen({ kind: 'asset', path: t.assetPath ?? '' })
       },

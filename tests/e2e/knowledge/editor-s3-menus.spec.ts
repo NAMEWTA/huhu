@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem } from "../helpers/tree.js";
+import { treeItem, treeSettled } from "../helpers/tree.js";
 
 // S3 / B03–B05：OK 的 `/` 命令菜单、气泡菜单、块插入与撤销在 Huhu 里可用（真实 Electron）。
 // 逐项对照见 evidence/parity-matrix.md；这里只覆盖用户路径上最常用的一组。
@@ -11,6 +11,7 @@ async function gotoNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
   await page.getByRole("button", { name: "知识库" }).first().click();
   await expect(page.getByTestId("notes-module")).toBeVisible();
+  await treeSettled(page); // 树在文件事件合并后会重新列举；稳定后再点
 }
 
 const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror").first();

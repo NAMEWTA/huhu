@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem } from "../helpers/tree.js";
+import { treeItem, treeSettled } from "../helpers/tree.js";
 
 // S3 / F09：大文档的两条性能路径不得牺牲正确性。
 //  (a) 超过 LARGE_DOC_CHARS 的文档以源码模式打开，富文本表示延后到切换时才构建（P-S3-01）。
@@ -12,6 +12,7 @@ async function gotoNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
   await page.getByRole("button", { name: "知识库" }).first().click();
   await expect(page.getByTestId("notes-module")).toBeVisible();
+  await treeSettled(page); // 树在文件事件合并后会重新列举；稳定后再点
 }
 
 const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror").first();
