@@ -1,0 +1,58 @@
+{
+  "label": "rc4",
+  "editorSel": ".cm-content",
+  "results": {
+    "S1_drag_within_line": {
+      "trials": 6,
+      "mismatches": 0,
+      "samples": []
+    },
+    "S2_arrow_down": {
+      "steps": 14,
+      "anomalies": 0,
+      "samples": []
+    },
+    "S3_arrow_up": {
+      "steps": 14,
+      "anomalies": 1,
+      "samples": [
+        {
+          "i": 0,
+          "reason": "一次跨越过多行",
+          "prev": {
+            "offset": 886,
+            "y": 946,
+            "lh": 29
+          },
+          "t": {
+            "offset": 827,
+            "y": 756,
+            "lh": 29
+          }
+        }
+      ]
+    },
+    "S4_shift_arrow_extend": {
+      "steps": 8,
+      "anomalies": 0,
+      "samples": []
+    },
+    "S5_drag_across_paragraphs": {
+      "match": false,
+      "gotLen": 224,
+      "wantLen": 220,
+      "head": "移动与鼠标选区的中文正文，包含 English words、",
+      "tail": "第 5 段：这是一段用来测试光标移动与鼠标选区的中文正文，包"
+    }
+  },
+  "notes": [
+    {
+      "S5_coords": {
+        "x1": 660.4,
+        "y1": 402.453125,
+        "x2": 884.8,
+        "y2": 575.234375
+      }
+    }
+  ]
+}
