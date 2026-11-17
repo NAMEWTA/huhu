@@ -6,6 +6,7 @@ import { defineConfig } from "electron-vite";
 import { resolve } from "node:path";
 import { okAliases } from "../../packages/editor/build/aliases.mjs";
 import okScopePlugin from "../../packages/editor/build/ok-scope-plugin.mjs";
+import { createPdfjsViewerAssetsPlugin } from "./scripts/pdfjs-viewer-assets";
 
 const EDITOR_ROOT = resolve(import.meta.dirname, "../../packages/editor");
 // Lingui 的 CLI / vite 插件 / babel 宏都从环境变量或 cwd 找配置；渲染进程构建的 cwd 是 apps/desktop，所以显式指向编辑器包的配置
@@ -50,7 +51,7 @@ export default defineConfig({
     // OK 编辑器 vendor（decisions OP-D05 / D06）：Lingui 宏（babel）、.po 目录、Tailwind v4。
     // Tailwind 只处理含 tailwind 指令的 CSS（packages/editor/src/ok/ok-globals.css），其余 Huhu CSS 不受影响；
     // okScopePlugin 把该文件的产出限定到 .ok-root 并放进 vendor.ok-* 子层。
-    plugins: [react(), babel({ plugins: ["@lingui/babel-plugin-lingui-macro"], presets: [] } as never), lingui({ configPath: resolve(EDITOR_ROOT, "lingui.config.ts") }), tailwindcss()],
+    plugins: [react(), createPdfjsViewerAssetsPlugin(), babel({ plugins: ["@lingui/babel-plugin-lingui-macro"], presets: [] } as never), lingui({ configPath: resolve(EDITOR_ROOT, "lingui.config.ts") }), tailwindcss()],
     css: { postcss: { plugins: [okScopePlugin()] } },
     resolve: { alias: okAliases(EDITOR_ROOT) },
     build: { outDir: "out/renderer", rollupOptions: { input: "src/renderer/index.html" } },

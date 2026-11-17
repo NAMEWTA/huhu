@@ -201,6 +201,7 @@ patchedDependencies:
   '@tiptap/extension-drag-handle@3.22.3': 1b9619bc7312665109e19145213057775714cfb21879fb32ab1237fbfbffcdc5
   '@tiptap/y-tiptap@3.0.3': cf143fe8d2092247ec0d3e596841b684f9f84e37d0eff4a1b45eb89f1e791c43
   cmdk@1.1.1: b06bc76a3813cc8142d7f75f85020a8ebff65a0ee84fac816da25986da6aa2a1
+  pdfjs-dist@6.3.289: 424fde648e16c965ce45c55bdda49ecb3a4aa992c856900714c841c3f13f8415
   react-medium-image-zoom@5.4.3: d59ed459a6ae570e843d0829f844dde24c0697b883351b198034f47606766517
   y-indexeddb@9.0.12: bc95fab9af70f704280673eafabcb5a40cc180fd5122d62e6c44cac2f7076245
 
@@ -1275,6 +1276,9 @@ importers:
       node-diff3:
         specifier: ^3.2.1
         version: 3.2.1
+      pdfjs-dist:
+        specifier: 6.3.289
+        version: 6.3.289(patch_hash=424fde648e16c965ce45c55bdda49ecb3a4aa992c856900714c841c3f13f8415)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -7554,6 +7558,10 @@ packages:
 
   pdfjs-dist@6.2.108:
     resolution: {integrity: sha512-YxFb+SQcodN2rnX9Tn3dHYlqfb7NjlzzfONPpJd+AKoKtUjEdevTfbC07d5TcczzOK6261auRkP/M8OBHs9vFQ==}
+    engines: {node: '>=22.13.0 || >=24'}
+
+  pdfjs-dist@6.3.289:
+    resolution: {integrity: sha512-ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw==}
     engines: {node: '>=22.13.0 || >=24'}
 
   pe-library@0.4.1:
@@ -15486,6 +15494,10 @@ snapshots:
   pathval@2.0.1: {}
 
   pdfjs-dist@6.2.108:
+    optionalDependencies:
+      '@napi-rs/canvas': 1.1.1
+
+  pdfjs-dist@6.3.289(patch_hash=424fde648e16c965ce45c55bdda49ecb3a4aa992c856900714c841c3f13f8415):
     optionalDependencies:
       '@napi-rs/canvas': 1.1.1
 

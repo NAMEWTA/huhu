@@ -227,7 +227,7 @@ import {
 import { cn } from '@/lib/utils';
 import { getValidationSnapshot, subscribeToValidationStore } from '@/lib/validation-store';
 import { joinWorkspacePath } from '@/lib/workspace-paths';
-import { OpenInAgentContextSubmenu } from './handoff/OpenInAgentContextSubmenu';
+import { getHostHiddenPaths, getHostMenuExtras } from '@/lib/host-hidden';
 import {
   buildFolderHandoffInput,
   buildHandoffInput,
@@ -524,8 +524,7 @@ function FileTreeMenu({
   const target = treeItemToTarget(item, documents);
   const isFolder = item.kind === 'directory';
   const isOkRow = hasOkPathSegment(item.path);
-  const okignoreTarget = target.kind === 'asset' ? null : target;
-  const canHide = okignoreTarget !== null && okignoreBinding !== null;
+  const canHide = getHostHiddenPaths() !== null;
   const hideLabel = isFolder ? t`Hide folder` : t`Hide this file`;
   const folderPath = isFolder ? treeDirectoryPathToFolderPath(item.path) : null;
   const folderConfig = useFolderConfig(folderPath);
@@ -602,17 +601,15 @@ function FileTreeMenu({
   const revealAriaLabel = revealLabel && revealHint ? `${revealLabel}, ${revealHint}` : revealLabel;
 
   function hideTarget() {
-    if (!okignoreBinding || !okignoreTarget) return;
+    const hidden = getHostHiddenPaths();
+    if (!hidden) return;
     close();
-    const pattern = buildOkignorePatternFromTarget(okignoreTarget);
-    const current = okignoreBinding.current();
-    const doc = parseOkignoreDoc(current);
-    const updated = appendPattern(doc, pattern);
-    if (updated === doc) return;
-    okignoreBinding.patch(serializeOkignoreDoc(updated));
-    const basename = okignoreTarget.path.split('/').pop() || okignoreTarget.path;
+    // P-S5-01：树路径就是 Vault 相对路径（目录带尾斜杠）；写 hiddenPaths 偏好，不写 .okignore。
+    const hidePath = item.path.replace(/\/+$/, '');
+    void hidden.hide(hidePath, isFolder ? 'folder' : 'file');
+    const basename = hidePath.split('/').pop() || hidePath;
     toast.success(isFolder ? t`Hidden folder “${basename}”` : t`Hidden “${basename}”`, {
-      description: t`Manage hidden files in Settings → Ignore patterns.`,
+      description: t`Use “Show hidden items” in the explorer to restore.`,
       duration: 5000,
     });
   }
@@ -687,18 +684,6 @@ function FileTreeMenu({
                 }
               : undefined
           }
-          openWithAi={
-            isAsset ? undefined : (
-              <OpenInAgentContextSubmenu
-                input={handoffInput}
-                installStates={handoff.installStates}
-                isElectronHost={handoff.isElectronHost}
-                dispatch={handoff.dispatch}
-                onBeforeLaunch={close}
-                restoreFocus={context.restoreFocus}
-              />
-            )
-          }
           share={
             canShare
               ? {
@@ -741,14 +726,6 @@ function FileTreeMenu({
                 }
               : undefined
           }
-          onImportTemplate={
-            !isFolder && !isAsset && !isOkRow
-              ? (deleteSource) => {
-                  close();
-                  onImportTemplate(target, deleteSource);
-                }
-              : undefined
-          }
           onDuplicate={
             !isAsset && !isOkRow
               ? () => {
@@ -765,8 +742,13 @@ function FileTreeMenu({
                 }
               : undefined
           }
+          hostItems={
+            !isOkRow
+              ? getHostMenuExtras()?.items(item.path.replace(/\/+$/, ''), isFolder ? 'folder' : 'file')
+              : undefined
+          }
           hide={
-            !isOkRow && okignoreTarget
+            !isOkRow
               ? { label: hideLabel, disabled: !canHide, onSelect: hideTarget }
               : undefined
           }

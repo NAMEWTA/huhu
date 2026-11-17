@@ -24,11 +24,14 @@ export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): P
   const url = new URL(raw, 'http://huhu.local')
   const method = (init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET')).toUpperCase()
   const key = `${method} ${url.pathname}`
-  for (const table of routeTables) {
+  // 后注册的路由表优先（files / comments 切片可以覆盖 core 的兜底实现）。
+  for (const table of [...routeTables].reverse()) {
     const handler = table[key] ?? table[url.pathname]
     if (!handler) continue
     let body: unknown
-    if (typeof init?.body === 'string') {
+    if (typeof FormData !== 'undefined' && init?.body instanceof FormData) {
+      body = init.body
+    } else if (typeof init?.body === 'string') {
       try {
         body = JSON.parse(init.body)
       } catch {

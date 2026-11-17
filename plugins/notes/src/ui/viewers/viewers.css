@@ -1,0 +1,10 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer modules {
+  /* HTML 隔离预览的 iframe：占满剩余空间；内容自带背景，所以不设底色 */
+  .notes-html-frame {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+  }
+}

@@ -49,18 +49,6 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     now: opts.now ?? (() => new Date()),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
   });
-  api.defineCapability(
-    def({
-      name: "notes.files",
-      plugin: "notes",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: z.object({}),
-      output: z.array(z.object({ path: z.string(), size: z.number(), mtimeMs: z.number() })),
-      handler: () => svc.otherFiles(),
-    }),
-  );
   const comments = new CommentsService({
     repo: api.vault.repo,
     files: api.vault.files,
@@ -157,11 +145,11 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       exposable: true,
       defaultExposed: false,
       input: Path,
-      output: z.object({ path: z.string(), id: z.string() }),
+      output: z.object({ path: z.string(), id: z.string(), paths: z.array(z.string()).optional() }),
       handler: async (c, i) => {
         assertNotAutomationsDir(c.caller, i.path);
         const r = await svc.duplicate(i.path);
-        changed(r.id, "created");
+        changed(r.id || null, "created");
         return r;
       },
     }),

@@ -18,6 +18,14 @@ contextBridge.exposeInMainWorld("huhuHost", {
   engineState: (): Promise<EngineState> => ipcRenderer.invoke("huhu:engineState"),
   revealVault: (): Promise<void> => ipcRenderer.invoke("huhu:revealVault"),
   openVaultFile: (rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed"> => ipcRenderer.invoke("huhu:openVaultFile", rel, reveal === true),
+  /** HTML 预览：为 Vault 内的文件签发一次一页的预览 URL（主进程校验路径）；标签关闭 / 换文件时撤销。 */
+  previewGrant: (rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }> => ipcRenderer.invoke("huhu:previewGrant", rel),
+  previewRevoke: (nonce: string): Promise<void> => ipcRenderer.invoke("huhu:previewRevoke", nonce),
+  onPreviewBlocked: (cb: (e: { nonce: string; count: number }) => void): (() => void) => {
+    const handler = (_e: unknown, p: { nonce: string; count: number }) => cb(p);
+    ipcRenderer.on("huhu:previewBlocked", handler);
+    return () => ipcRenderer.removeListener("huhu:previewBlocked", handler);
+  },
   pickSavePath: (defaultName: string): Promise<string | null> => ipcRenderer.invoke("huhu:pickSavePath", defaultName),
   pickOpenPath: (kind: "zip" | "directory" | "file"): Promise<string | null> => ipcRenderer.invoke("huhu:pickOpenPath", kind),
   vault: {

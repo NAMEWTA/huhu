@@ -5,7 +5,7 @@ import { FileText, Folder, Plus } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
-import { FileCard } from "./FileCard.js";
+import { FileViewer } from "./viewers/FileViewer.js";
 import { NoteContextMenu } from "./NoteContextMenu.js";
 import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
@@ -46,7 +46,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   /** 当前标签对应的真实文件：文件标签 = 其路径；档案记录标签 = 该档案的 index.md（同一文件同一会话，E04）。 */
   const selected = tab ? tabFilePath(tab) : null;
   const archiveTab = tab && tab.kind !== "file" ? tab : null;
-  const filesExpanded = useMemo(() => new Set(shell.sidebar.views.files.expanded), [shell.sidebar.views.files.expanded]);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,30 +98,22 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   }, []);
   const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
-  const otherFiles = useCapability<{ path: string; size: number; mtimeMs: number }[]>("notes.files", {});
-  const fileRefs: NoteRef[] = (otherFiles.data ?? []).map((f) => ({ path: f.path, id: null, title: f.path.split("/").at(-1) ?? f.path, file: { size: f.size, mtimeMs: f.mtimeMs } }));
+  // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileCard 与标签存活判断；树本身直接列举文件系统
+  const indexEntries = useCapability<{ path: string; type: "file" | "dir"; size?: number; mtimeMs?: number }[]>("vault.indexEntries", {});
+  const fileRefs: NoteRef[] = useMemo(
+    () =>
+      (indexEntries.data ?? [])
+        .filter((e) => e.type === "file" && !/\.md$/i.test(e.path) && !e.path.split("/").some((seg) => seg.startsWith(".")))
+        .map((f) => ({ path: f.path, id: null, title: f.path.split("/").at(-1) ?? f.path, file: { size: f.size ?? 0, mtimeMs: f.mtimeMs ?? 0 } })),
+    [indexEntries.data],
+  );
   const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
   const selectedFile = tab?.kind === "file" ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
-  /** 拖放移动：与“移动到…”对话框同一条路径（未保存的修改先落盘；已在目标文件夹则不动）。 */
-  async function moveByDrop(path: string, dir: string) {
-    const cur = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    if (cur === dir || dir === path || dir.startsWith(`${path}/`)) return; // 已在目标处，或把文件夹拖进自己 / 后代：什么都不做
-    const note = (every.data ?? []).find((x) => x.path === path);
-    if (note) {
-      if (!(await beforeMove(note))) return;
-    } else if ((folders.data ?? []).includes(path)) {
-      // 拖的是文件夹：先让正在编辑的、位于其中的笔记落盘
-      const open = selected ? (every.data ?? []).find((x) => x.path === selected && x.path.startsWith(`${path}/`)) : undefined;
-      if (open && !(await beforeMove(open))) return;
-    } else return;
-    const r = await run("notes.move", { path, targetDir: dir });
-    if (r) remapSelected(path, `${dir ? `${dir}/` : ""}${path.split("/").at(-1)}`);
-  }
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   // 打开的文档标签（DocTab 联合标签）；文件已不存在（回收 / 永久删除 / 改名后）的文件标签自动消失。
   // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
-  const listsReady = every.data !== undefined && otherFiles.data !== undefined;
+  const listsReady = every.data !== undefined && indexEntries.data !== undefined;
   const aliveKey = listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null;
   useEffect(() => {
     if (aliveKey === null) return;
@@ -141,7 +132,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   }, [shell.tabs, vaultId]);
   const closeTab = (key: string) => dispatch({ type: "close", key });
   const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
-  const toggleFolder = (p: string) => dispatch({ type: "sidebar", action: { type: "expand", path: p, open: !filesExpanded.has(p), context: "files" } });
   const expandTo = (dir: string) => {
     const parts = dir.split("/").filter(Boolean);
     parts.forEach((_, i) => dispatch({ type: "sidebar", action: { type: "expand", path: parts.slice(0, i + 1).join("/"), open: true, context: "files" } }));
@@ -235,8 +225,19 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         }}
         notes={notes}
         allCount={(every.data ?? []).length}
-        folders={folders.data ?? []}
-        onMoveNote={(path, dir) => void moveByDrop(path, dir)}
+        beforeMutate={async (paths) => (selected && paths.some((x) => selected === x || selected.startsWith(`${x}/`)) && flushRef.current ? flushRef.current() : true)}
+        onMoved={(moved) => {
+          // 内部改名 / 移动：标签与选中项按映射重定位（文件夹按前缀）
+          for (const [from, to] of Object.entries(moved)) remapSelected(from, to);
+          void refresh();
+        }}
+        isFavorite={(path) => (every.data ?? []).find((x) => x.path === path)?.favorite === true}
+        onMenuAction={(action, path, kind) => {
+          const note: NoteRef = (every.data ?? []).find((x) => x.path === path) ?? { path, id: null, title: path.split("/").at(-1) ?? path, ...(kind === "folder" ? { folder: true } : {}) };
+          if (action === "favorite") void run("notes.setFavorite", { path, favorite: !(note.favorite === true) });
+          else setDialog({ kind: action, note });
+        }}
+        onTrashed={(path, trashId) => setUndo({ label: path.split("/").at(-1) ?? path, trashId })}
         tags={tags.data ?? []}
         tag={tag}
         onTag={setTag}
@@ -244,8 +245,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onQuery={setQuery}
         selected={tab?.kind === "file" ? tab.path : null}
         onOpen={openNote}
-        expanded={filesExpanded}
-        onToggleFolder={toggleFolder}
         onOpenArchives={openArchivesHome}
         archivesActive={archivesActive}
         archivesPanel={
@@ -324,7 +323,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             </>
           )
         ) : selectedFile?.file && section !== "trash" ? (
-          <FileCard path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+          <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
         ) : tab?.kind === "file" && section !== "trash" ? (
           <>
             {archiveIndexOfTab ? (

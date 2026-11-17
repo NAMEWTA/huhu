@@ -23,3 +23,5 @@ export * from "./plugins/run-command.js";
 export * from "./state/flushers.js";
 export * from "./settings/system-pages.js";
 export * from "./state/open-request.js";
+export * from "./resources/index.js";
+export * from "./resources/useReferenceIndex.js";

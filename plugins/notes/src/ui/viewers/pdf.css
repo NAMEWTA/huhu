@@ -1,0 +1,110 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@import "pdfjs-dist/web/pdf_viewer.css" layer(vendor);
+@layer modules {
+  .notes-pdf {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    outline: none;
+  }
+  .notes-pdf-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  /* PDFViewer 要求容器绝对定位 */
+  .notes-pdf-container {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    background: var(--muted-bg);
+  }
+  .notes-pdf-error {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 32px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: var(--fs-body);
+    text-align: center;
+  }
+  .notes-pdf-error-name {
+    max-width: 28rem;
+    word-break: break-all;
+    font-size: var(--fs-meta);
+    color: var(--faint);
+  }
+  .notes-pdf-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: var(--fs-meta);
+    flex-shrink: 0;
+  }
+  .notes-pdf-zoom {
+    min-width: 3.5em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .notes-pdf-name {
+    margin-left: 8px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .notes-pdf-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 14px;
+    background: var(--warning-bg);
+    color: var(--text);
+    font-size: var(--fs-meta);
+    flex-shrink: 0;
+  }
+  .notes-pdf-find {
+    position: absolute;
+    top: 8px;
+    right: 18px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: 340px;
+    max-width: calc(100% - 36px);
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-popover);
+    background: var(--panel);
+    box-shadow: var(--shadow-popover);
+  }
+  .notes-pdf-find-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+  }
+  .notes-pdf-find-count {
+    flex-shrink: 0;
+    color: var(--faint);
+    font-size: var(--fs-meta);
+    padding: 0 6px;
+  }
+}

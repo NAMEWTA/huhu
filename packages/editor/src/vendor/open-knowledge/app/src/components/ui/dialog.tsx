@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ElectronDragStrip, electronDragBandClearance } from '@/components/ui/electron-drag-strip';
 import { ignoreToastInteractOutside } from '@/components/ui/toast-outside-guard';
 import { cn } from '@/lib/utils';
+import { getOkPortalContainer } from '@/lib/ok-portal';
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -16,7 +17,7 @@ function DialogTrigger({ ...props }: React.ComponentProps<typeof DialogPrimitive
 }
 
 function DialogPortal({ ...props }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+  return <DialogPrimitive.Portal data-slot="dialog-portal" container={getOkPortalContainer()} {...props} />;
 }
 
 function DialogClose({ ...props }: React.ComponentProps<typeof DialogPrimitive.Close>) {

@@ -3,6 +3,7 @@ import { Select as SelectPrimitive } from 'radix-ui';
 import type * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import { getOkPortalContainer } from '@/lib/ok-portal';
 
 function Select({ ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />;
@@ -49,7 +50,7 @@ function SelectContent({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={getOkPortalContainer()}>
       <SelectPrimitive.Content
         data-slot="select-content"
         data-ok-layer-spawned=""

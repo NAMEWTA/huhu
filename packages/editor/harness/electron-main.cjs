@@ -20,7 +20,7 @@ app.whenReady().then(() => {
   })
   server.listen(0, '127.0.0.1', () => {
     const win = new BrowserWindow({ width: 1100, height: 800, show: true, webPreferences: { contextIsolation: true } })
-    win.loadURL(`http://127.0.0.1:${server.address().port}/`)
+    win.loadURL(`http://127.0.0.1:${server.address().port}/${process.env.HARNESS_PAGE || ""}`)
   })
 })
 app.on('window-all-closed', () => app.quit())
