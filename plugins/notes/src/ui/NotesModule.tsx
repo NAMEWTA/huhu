@@ -12,7 +12,7 @@ import { CommentComposer, MoveDialog, NameDialog, NewNoteDialog, TrashList } fro
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
 import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
 import { TabStrip } from "./tabs/TabStrip.js";
-import { NoteDocument } from "./NoteDocument.js";
+import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
@@ -142,6 +142,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     if (r) remapSelected(path, `${dir ? `${dir}/` : ""}${path.split("/").at(-1)}`);
   }
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
+  // 知识库界面出现就预载编辑器块（F09：打开第一篇笔记不再等块下载与求值）
+  useEffect(() => preloadEditorSurface(), []);
+
   // 打开的文档标签（DocTab 联合标签）；文件已不存在（回收 / 永久删除 / 改名后）的文件标签自动消失。
   // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
   const listsReady = every.data !== undefined && otherFiles.data !== undefined;

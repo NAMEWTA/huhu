@@ -89,6 +89,10 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queued = useRef(false)
   const ytextRef = useRef<Y.Text | null>(null)
+  // 源码优先打开的大文档：富文本表示（解析 + Y.XmlFragment）延后到第一次需要时才构建（P-S3：F09）
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  const [richReady, setRichReady] = useState(false)
 
   const emitNow = useCallback(() => {
     if (pending.current) clearTimeout(pending.current)
@@ -103,7 +107,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   // 创建 / 销毁 provider（每个 docName 一个；park 的编辑器 DOM 由 vendor 的 editor-cache 管）
   useEffect(() => {
-    const pooled = acquireProvider(docName, () => valueRef.current)
+    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === 'source' })
     const p = pooled.provider
     let disposeObserve: (() => void) | null = null
     const onSynced = () => {
@@ -134,9 +138,25 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       disposeObserve?.()
       ytextRef.current = null
       setProvider(null)
+      setRichReady(false)
       releaseProvider(docName) // provider 留在池里，直到 editor-cache 一起驱逐
     }
   }, [docName, emitNow])
+
+  // 需要富文本（非源码模式，或已构建过）时确保富文本表示就绪后再挂 Tiptap
+  useEffect(() => {
+    if (!provider) return
+    if (provider.richReady) {
+      setRichReady(true)
+      return
+    }
+    if (mode === 'source') return
+    let live = true
+    void provider.ensureRich().then(() => live && setRichReady(true))
+    return () => {
+      live = false
+    }
+  }, [provider, mode])
 
   // layout 阶段先于宿主 passive 清理执行：保证 flush 先于会话释放
   useLayoutEffect(() => () => emitNow(), [emitNow])
@@ -330,7 +350,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
             <>
               {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}
               <div hidden={showSource} data-testid="editor-scroll-container" style={{ height: '100%', overflow: 'auto' }}>
-                <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+                {richReady ? <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} /> : mode !== 'source' ? <div role="status" className="ok-editor-loading">…</div> : null}
               </div>
               {showSource ? (
                 <div style={{ height: '100%', overflow: 'auto' }}>

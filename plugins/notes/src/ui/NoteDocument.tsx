@@ -9,7 +9,13 @@ import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
 
 /** 新编辑器闭包（OK 编辑器 + Tailwind 作用域样式）按需加载，不进首屏（design §12 懒加载）。 */
-const NoteEditorSurface = lazy(() => import("./documents/NoteEditorSurface.js"));
+const loadEditorSurface = () => import("./documents/NoteEditorSurface.js");
+const NoteEditorSurface = lazy(loadEditorSurface);
+
+/** 知识库界面一出现就在后台载入编辑器块（含 OK 内核），打开第一篇笔记时不再等待块的下载与求值（F09）。 */
+export function preloadEditorSurface(): void {
+  void loadEditorSurface();
+}
 
 /** 超过这个字符数的文档默认用源码模式打开：富文本要为整份文档建节点视图，1 MiB 级别会让“打开到可编辑”超过 500 ms。 */
 const LARGE_DOC_CHARS = 256 * 1024;

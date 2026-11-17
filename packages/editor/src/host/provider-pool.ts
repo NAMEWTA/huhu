@@ -37,7 +37,7 @@ export interface PooledDoc {
 }
 
 /** 取得（或创建）docName 的 provider；`read` 给出当前会话缓冲，只在首次创建时用于装载。 */
-export function acquireProvider(docName: string, read: () => string): PooledDoc {
+export function acquireProvider(docName: string, read: () => string, opts: { lazyRich?: boolean } = {}): PooledDoc {
   let e = entries.get(docName)
   if (e) {
     e.read = read
@@ -46,7 +46,7 @@ export function acquireProvider(docName: string, read: () => string): PooledDoc 
   } else {
     const entry: Entry = { name: docName, provider: undefined as never, refs: 0, read, unregister: () => {} }
     entry.unregister = registerDocBinding(docName, { read: () => entry.read() })
-    entry.provider = new LocalDocProvider({ name: docName })
+    entry.provider = new LocalDocProvider({ name: docName, ...(opts.lazyRich ? { lazyRich: true } : {}) })
     entries.set(docName, entry)
     e = entry
   }
