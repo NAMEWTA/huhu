@@ -124,7 +124,7 @@ describe("CommentsService", () => {
     expect(orphan.state).toBe("orphaned");
     expect(svc.list("笔记.md").find((x) => x.id === resolved.id)?.anchor?.start).toBe(0); // 已解决的不动
 
-    const re = await svc.relocate(c.id, ...(Object.values(at(removed, "前言一行")) as [number, number]));
+    const re = await svc.relocate(c.id, at(removed, "前言一行"));
     expect(re.state).toBe("anchored");
     expect(re.anchor?.exact).toBe("前言一行");
   });
@@ -164,5 +164,45 @@ describe("CommentsService", () => {
       { at: "2026-11-11T08:00:00Z", author: "我", text: "第一行\n第二行" },
       { at: "2026-11-11T09:00:00Z", author: "cli", text: "回复" },
     ]);
+  });
+});
+
+
+describe("引用文字锚点（S4：富文本不使用 PM 坐标，D04 / D05）", () => {
+  const DOC = "# 标题\n\n这里有一套能力，值得批注。\n\n另一段：一套能力。\n";
+  test("引用文字 → 源码偏移：越过加粗 / 链接语法；frontmatter 里的同名文字不命中", async () => {
+    const doc = "---\ntitle: 一套能力\n---\n\n这是**一套**能力的 [说明](https://x.y)。\n";
+    const { svc } = await setup(doc);
+    const a = await svc.create({ path: "笔记.md", target: "body", quote: "一套能力", text: "x", author: "我" });
+    expect(a.anchor?.start).toBeGreaterThan(doc.indexOf("---\n\n"));
+    expect(a.anchor?.exact).toBe("一套**能力");
+  });
+  test("重复段落：prefix / suffix 判优；仍并列则报错而不是吸附", async () => {
+    const doc = "甲：同一句话。\n\n乙：同一句话。\n";
+    const { svc } = await setup(doc);
+    const second = await svc.create({ path: "笔记.md", target: "body", quote: "同一句话", prefix: "乙：", suffix: "。", text: "x", author: "我" });
+    expect(second.anchor?.start).toBe(doc.indexOf("同一句话", doc.indexOf("乙")));
+    await expect(svc.create({ path: "笔记.md", target: "body", quote: "同一句话", text: "y", author: "我" })).rejects.toThrow(/多次/);
+  });
+  test("找不到引用文字：报错，不创建批注", async () => {
+    const { svc } = await setup(DOC);
+    await expect(svc.create({ path: "笔记.md", target: "body", quote: "文档里没有的话", text: "x", author: "我" })).rejects.toThrow(/不在文档里/);
+    expect(svc.list("笔记.md")).toEqual([]);
+  });
+  test("表格单元格里的引用文字可定位", async () => {
+    const doc = "| 名称 | 说明 |\n| --- | --- |\n| 甲 | 一套能力 |\n";
+    const { svc } = await setup(doc);
+    const c = await svc.create({ path: "笔记.md", target: "body", quote: "一套能力", text: "x", author: "我" });
+    expect(c.anchor?.exact).toBe("一套能力");
+  });
+  test("重新选择位置也接受引用文字", async () => {
+    const { svc, write, version } = await setup(DOC);
+    const c = await svc.create({ path: "笔记.md", target: "body", ...at(DOC, "另一段：一套能力。"), text: "x", author: "我" });
+    const removed = DOC.replace("另一段：一套能力。", "");
+    write(removed);
+    await svc.refind("笔记.md", removed, version());
+    expect(svc.list("笔记.md").find((x) => x.id === c.id)?.state).toBe("orphaned");
+    const re = await svc.relocate(c.id, { quote: "标题" });
+    expect(re.state).toBe("anchored");
   });
 });
