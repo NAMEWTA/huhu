@@ -6,7 +6,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
-import { FileCard } from "./FileCard.js";
+import { FileViewer } from "./viewers/FileViewer.js";
 import { NoteContextMenu } from "./NoteContextMenu.js";
 import { CommentComposer, MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
@@ -346,7 +346,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             </>
           )
         ) : selectedFile?.file && section !== "trash" ? (
-          <FileCard path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+          <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
         ) : tab?.kind === "file" && section !== "trash" ? (
           <>
             {archiveIndexOfTab ? (
