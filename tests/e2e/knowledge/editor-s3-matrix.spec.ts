@@ -85,12 +85,10 @@ test("矩阵·`/` 菜单逐项：每个选项都能打开、应用后文档或�
     await treeItem(page, "斜杠.md").click();
     await expect(prose(page)).toContainText("起始", { timeout: 30_000 });
 
-    let baselineText = "";
     const openMenu = async () => {
       await prose(page).click({ position: { x: 8, y: 8 } });
       await page.keyboard.press("ControlOrMeta+End");
       await page.keyboard.press("Enter");
-      baselineText = (await prose(page).innerText()).trim(); // 新空段落已存在、尚未输入 "/"
       await page.keyboard.type("/");
       await expect(page.locator('[role="listbox"]').first()).toBeVisible({ timeout: 10_000 });
     };
