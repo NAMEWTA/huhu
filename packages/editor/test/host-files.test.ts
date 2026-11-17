@@ -12,13 +12,14 @@ const tree: Record<string, HostFsEntry[]> = {
 };
 let hidden: string[] = [];
 let showHidden = false;
+const received: unknown[] = [];
 const deps: FilesRouteDeps = {
   list: async (dir) => ({ entries: tree[dir] ?? [] }),
   hiddenPaths: () => hidden,
   showHidden: () => showHidden,
-  rename: async (i) => ({ moved: { [i.fromPath]: i.toPath } }),
-  duplicate: async (i) => ({ path: `${i.path} 副本`, paths: [`${i.path} 副本.md`] }),
-  trash: async (i) => ({ paths: [i.path] }),
+  rename: async (i) => (received.push(["rename", i]), { moved: { [i.fromPath]: i.toPath } }),
+  duplicate: async (i) => (received.push(["duplicate", i]), { path: `${i.path} 副本`, paths: [`${i.path} 副本.md`] }),
+  trash: async (i) => (received.push(["trash", i]), { paths: [i.path] }),
   createPage: async (i) => ({ path: i.path }),
   createFolder: async (i) => ({ path: i.path }),
   workspace: () => ({ root: "/vault", separator: "/" }),
@@ -78,11 +79,23 @@ describe("A07：写操作走同一业务能力", () => {
     expect(f.renamedAssets).toEqual([{ fromPath: "x.png", toPath: "y.png" }]);
   });
   test("复制 / 删除（回收站）/ 创建页面与文件夹 / workspace", async () => {
-    expect(DuplicatePathSuccessSchema.parse(await post("/api/duplicate-path", { kind: "file", path: "a" })).duplicatedDocNames).toEqual(["a 副本"]);
+    expect(DuplicatePathSuccessSchema.parse(await post("/api/duplicate-path", { kind: "file", path: "a" })).duplicatedDocNames).toEqual(["a.md 副本"]);
     expect(DeletePathSuccessSchema.parse(await post("/api/delete-path", { kind: "file", path: "a.md" })).deletedDocNames).toEqual(["a"]);
     expect(CreatePageSuccessSchema.parse(await post("/api/create-page", { path: "n/new.md" })).docName).toBe("n/new");
     expect(CreateFolderSuccessSchema.parse(await post("/api/create-folder", { path: "n/dir" })).path).toBe("n/dir");
     expect(WorkspaceSuccessSchema.parse(await get("/api/workspace")).pathSeparator).toBe("/");
+  });
+  test("上游文件请求里的 docName（无扩展名）按列举过的真实扩展名还原，rename 目标沿用源扩展名", async () => {
+    received.length = 0;
+    await get("/api/documents?showAll=true&dir=Notes"); // 记住 Notes/a → .md
+    await post("/api/rename-path", { kind: "file", fromPath: "Notes/a", toPath: "Other/a" });
+    await post("/api/delete-path", { kind: "file", path: "Notes/a" });
+    await post("/api/rename-path", { kind: "file", fromPath: "x.txt", toPath: "y.txt" }); // 已带扩展名（上游把 .txt 当文档）
+    expect(received).toEqual([
+      ["rename", { kind: "file", fromPath: "Notes/a.md", toPath: "Other/a.md" }],
+      ["trash", { kind: "file", path: "Notes/a.md" }],
+      ["rename", { kind: "file", fromPath: "x.txt", toPath: "y.txt" }],
+    ]);
   });
   test("缺少必填字段 → 500 HOST_ERROR，不静默成功", async () => {
     const res = await hostFetch("/api/rename-path", { method: "POST", body: JSON.stringify({ kind: "file" }) });

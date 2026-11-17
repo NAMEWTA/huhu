@@ -97,15 +97,29 @@ function pathFromBody(body: unknown, key: string): string {
 }
 
 export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
+  // 上游文件请求里 kind:'file' 的路径是 docName（不含扩展名）；按列举过的真实扩展名还原，没见过则按 .md
+  const docExt = new Map<string, string>()
+  const remember = (entries: readonly HostFsEntry[]): void => {
+    for (const e of entries) if (e.kind !== 'dir' && MD_EXT.test(e.name)) docExt.set(docNameOf(e.path), extOf(e.name))
+  }
+  const realFile = (kind: string, p: string): string => {
+    if (kind !== 'file') return p
+    const known = docExt.get(p)
+    if (known !== undefined) return `${p}${known}`
+    return /\.[^/.]+$/.test(p.split('/').at(-1) ?? '') ? p : `${p}.md`
+  }
+  const sameExt = (from: string, to: string): string => (MD_EXT.test(to) || /\.[^/.]+$/.test(to.split('/').at(-1) ?? '') ? to : `${to}${extOf(from)}`)
   return {
     'GET /api/documents': async ({ url }) => {
       const showAll = url.searchParams.get('showAll') === 'true'
       if (!showAll) {
         const all = (await deps.listDocumentPaths?.()) ?? []
+        remember(all)
         return { documents: all.filter((e) => MD_EXT.test(e.name)).map(toDocumentEntry) }
       }
       const dir = url.searchParams.get('dir') ?? ''
       const { entries, truncated } = await deps.list(dir)
+      remember(entries)
       const rules = deps.showHidden() ? [] : deps.hiddenPaths()
       return { documents: entries.filter((e) => !isHidden(e.path, rules)).map(toDocumentEntry), truncated: truncated === true }
     },
@@ -115,8 +129,8 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
     },
     'POST /api/rename-path': async ({ body }) => {
       const kind = ((body as { kind?: 'file' | 'folder' | 'asset' }).kind ?? 'file') as 'file' | 'folder' | 'asset'
-      const fromPath = pathFromBody(body, 'fromPath')
-      const toPath = pathFromBody(body, 'toPath')
+      const fromPath = realFile(kind, pathFromBody(body, 'fromPath'))
+      const toPath = kind === 'file' ? sameExt(fromPath, pathFromBody(body, 'toPath')) : pathFromBody(body, 'toPath')
       const { moved } = await deps.rename({ kind, fromPath, toPath })
       const renamed: { fromDocName: string; toDocName: string }[] = []
       const renamedAssets: { fromPath: string; toPath: string }[] = []
@@ -128,12 +142,12 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
     },
     'POST /api/duplicate-path': async ({ body }) => {
       const kind = ((body as { kind?: 'file' | 'folder' }).kind ?? 'file') as 'file' | 'folder'
-      const r = await deps.duplicate({ kind, path: pathFromBody(body, 'path') })
+      const r = await deps.duplicate({ kind, path: realFile(kind, pathFromBody(body, 'path')) })
       return { kind, path: r.path, duplicatedDocNames: r.paths.filter((p) => MD_EXT.test(p)).map(docNameOf) }
     },
     'POST /api/delete-path': async ({ body }) => {
       const kind = ((body as { kind?: 'file' | 'folder' | 'asset' }).kind ?? 'file') as 'file' | 'folder' | 'asset'
-      const r = await deps.trash({ kind, path: pathFromBody(body, 'path') })
+      const r = await deps.trash({ kind, path: realFile(kind, pathFromBody(body, 'path')) })
       return { deletedDocNames: r.paths.filter((p) => MD_EXT.test(p)).map(docNameOf) }
     },
     // 回收站清理：Huhu 的“永久删除”在回收站列表里完成（需要 trashId），树里没有该入口。

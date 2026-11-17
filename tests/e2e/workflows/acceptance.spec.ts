@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root } from "../helpers/launch.js";
-import { treeFileRows, treeFolder, treeItem, treeMenu } from "../helpers/tree.js";
+import { treeFileRows, treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
 type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -497,6 +497,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     const item = treeItem(page, "待移动");
     await expect(item).toBeVisible();
+    await treeSettled(page);
     await item.dragTo(treeFolder(page, "归档"));
     await expect.poll(() => fs.existsSync(`${vault}/归档/待移动.md`)).toBe(true);
     expect(fs.existsSync(`${vault}/待移动.md`)).toBe(false);
