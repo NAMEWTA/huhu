@@ -24,17 +24,69 @@
       "violet",
       "workbench"
     ],
-    "agent-cli+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["removed"],
-    "agent-cli+notes+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["huhu-markdown-reading"],
-    "inbox+notes+ssh+ui+versioning+workbench｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["row"],
-    "automations+inbox+notes+tasks+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["markdown"],
-    "第三方覆盖｜原因：覆盖 sonner 运行时注入的样式": ["huhu-toast"],
-    "workbench｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["amber", "brand", "done", "knowledge-container", "rail", "task-item", "task-row", "task-title"],
-    "编辑器装饰类｜原因：CodeMirror 内容里的装饰类，由编辑器代码生成": ["huhu-live-block-edit", "huhu-live-table", "huhu-live-table-scroll", "huhu-md-semibold", "mode-live", "mode-source", "mode-split"],
-    "automations｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["skipped"],
-    "agent-cli｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["huhu-drawer-presence", "provider-claude", "provider-claude-agent-teams", "provider-codex", "provider-pi"],
-    "notes｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["knowledge-task-detail"],
-    "ssh｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["execution-fault-control"],
-    "tasks｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["board-blue", "board-card", "board-card-drag", "board-dot", "board-green", "board-links", "board-note-link", "board-purple"]
+    "agent-cli+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "removed"
+    ],
+    "agent-cli+notes+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "huhu-markdown-reading"
+    ],
+    "inbox+notes+ssh+ui+versioning+workbench｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "row"
+    ],
+    "automations+inbox+notes+tasks+ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "markdown"
+    ],
+    "第三方覆盖｜原因：覆盖 sonner 运行时注入的样式": [
+      "huhu-toast"
+    ],
+    "workbench｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "amber",
+      "brand",
+      "done",
+      "knowledge-container",
+      "rail",
+      "task-item",
+      "task-row",
+      "task-title"
+    ],
+    "编辑器装饰类｜原因：CodeMirror 内容里的装饰类，由编辑器代码生成": [
+      "huhu-live-block-edit",
+      "huhu-live-table",
+      "huhu-live-table-scroll",
+      "huhu-md-semibold",
+      "mode-live",
+      "mode-source",
+      "mode-split"
+    ],
+    "automations｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "skipped"
+    ],
+    "agent-cli｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "huhu-drawer-presence",
+      "provider-claude",
+      "provider-claude-agent-teams",
+      "provider-codex",
+      "provider-pi"
+    ],
+    "notes｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "knowledge-task-detail"
+    ],
+    "ssh｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "execution-fault-control"
+    ],
+    "tasks｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
+      "board-blue",
+      "board-card",
+      "board-card-drag",
+      "board-dot",
+      "board-green",
+      "board-links",
+      "board-note-link",
+      "board-purple"
+    ],
+    "editor｜原因：第三方（OK / ProseMirror）编辑器自带的类名，宿主 CSS 只在 .editor-ok-surface 作用域内按它们覆盖变量与字号，无法改名": [
+      "tiptap-editor",
+      "ProseMirror"
+    ]
   }
 }

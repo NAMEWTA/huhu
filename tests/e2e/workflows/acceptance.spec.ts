@@ -3,7 +3,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openApp, rmTree, root } from "../helpers/launch.js";
+import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
 type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -149,13 +149,12 @@ test("ACC-TK-06 任务内容里输入 @ 引用 Vault 文件夹：补全列出匹
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
     await page.getByLabel("任务名称").fill("引用资料");
-    const body = page.getByTestId("task-body").locator(".cm-content");
+    const body = page.getByTestId("task-body").locator(".ProseMirror");
     await body.click();
     await page.keyboard.type("参考 @Resea");
-    await expect(page.locator(".cm-tooltip-autocomplete")).toContainText("Research");
-    await page.waitForTimeout(300); // CodeMirror 在补全面板刚出现的一瞬间忽略确认键
+    await expect(page.getByTestId("editor-ref-menu")).toContainText("Research");
     await page.keyboard.press("Enter");
-    await expect(body).toContainText("[[Research/]]");
+    await expect(body).toContainText("Research/"); // 选中后插入 wikiLink 节点（芯片显示目标），保存后序列化为 [[Research/]]
     await page.getByTestId("task-save").click();
     await expect(page.getByTestId("detail-references")).toContainText("Research");
   } finally {
@@ -171,7 +170,7 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
   mkdirSync(B);
   const env = { ...process.env } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  const app: ElectronApplication = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const app: ElectronApplication = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
   const pick = (...paths: string[]) =>
     app.evaluate(({ dialog }, queue) => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [queue.shift() ?? ""] })) as typeof dialog.showOpenDialog;
@@ -190,7 +189,7 @@ test("ACC-WB-03 切换 Vault 时有未保存修改：选“保留草稿并切换
     await page.getByRole("button", { name: "新建笔记" }).first().click();
     await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("草稿甲");
     await page.getByTestId("new-note-submit").click();
-    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.getByTestId("markdown-editor").locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("\nA库未保存的内容");
     await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
@@ -278,7 +277,7 @@ test("ACC-AG-05 切换 Space：右侧历史只显示当前 Space 目录的会话
 async function launchBare(): Promise<{ app: ElectronApplication; pick(...paths: string[]): Promise<void> }> {
   const env = { ...process.env } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  const app = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
   return {
     app,
     pick: (...paths: string[]) =>
@@ -651,7 +650,7 @@ test("切换笔记再切回：撤销历史保留（编辑器按笔记路径重�
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("新增的一行");
     await expect(editor).toContainText("新增的一行");
@@ -660,7 +659,7 @@ test("切换笔记再切回：撤销历史保留（编辑器按笔记路径重�
     await expect(editor).toContainText("别的");
     await page.getByTestId("note-item").filter({ hasText: "甲" }).click();
     await expect(editor).toContainText("新增的一行");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(editor).not.toContainText("新增的一行"); // 撤销历史还在
   } finally {
@@ -872,7 +871,7 @@ test("笔记被外部修改且有未保存编辑：Banner 有“查看差异 / �
     await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("外改笔记");
     await page.getByTestId("new-note-submit").click();
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("我的一行");
     const file = `${vault}/外改笔记.md`;
@@ -940,8 +939,8 @@ test("阅读模式：数学公式（KaTeX）与 Mermaid 图表渲染；错误的
     const pane = page.getByTestId("notes-reading-pane");
     await expect(pane.locator(".katex").first()).toBeVisible({ timeout: 15_000 });
     expect(await pane.locator(".katex").count()).toBeGreaterThanOrEqual(2); // 行内 + 块
-    await expect(pane.getByTestId("mermaid-diagram").locator("svg")).toBeVisible({ timeout: 30_000 });
-    await expect(pane.getByTestId("mermaid-error")).toContainText("这不是合法的图"); // 源码仍可见
+    await expect(pane.locator(".mermaid svg").first()).toBeVisible({ timeout: 30_000 }); // OK 的 MermaidFence 节点视图
+    await expect(pane).toContainText("这不是合法的图"); // 错误的图表保留源码可见
     await page.getByTestId("file-item").filter({ hasText: "流程" }).click();
     await expect(page.getByTestId("file-mermaid").locator("svg")).toBeVisible({ timeout: 30_000 });
   } finally {
@@ -1227,13 +1226,15 @@ test("ACC-KN-02 输入法正在组合中文时点击“源码”：组合结束�
     await page.getByTestId("note-item").filter({ hasText: "输入法" }).click();
     await page.getByRole("tab", { name: "实时预览" }).click();
     const editor = page.getByTestId("markdown-editor");
-    const content = editor.locator(".cm-content");
+    const content = editor.locator(".ProseMirror");
     await content.click();
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Input.imeSetComposition", { text: "你好", selectionStart: 2, selectionEnd: 2 });
-    await expect.poll(() => page.evaluate(() => document.querySelector(".cm-content")?.textContent ?? "")).toContain("你好");
+    await expect.poll(() => page.evaluate(() => document.querySelector(".ProseMirror")?.textContent ?? "")).toContain("你好");
     await page.getByRole("tab", { name: "源码" }).click(); // 点击会使编辑区失焦、结束组合
-    await expect(editor).toHaveClass(/mode-source/, { timeout: 5000 });
+    await expect(editor).toHaveAttribute("data-editor-mode", "source", { timeout: 5000 });
+    await expect(editor.locator(".cm-content").first()).toContainText("你好"); // 源码视图读同一份 Y.Text
+    await page.getByRole("tab", { name: "实时预览" }).click();
     await expect(content).toContainText("你好");
     // 撤销可撤回该段输入
     await content.click();
@@ -1303,7 +1304,7 @@ test("AR-06 / AR-10 / AR-09 档案：笔记里的 [[Archives/…/]] 在阅读模
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "年度计划" }).first().click();
     await page.getByRole("tab", { name: "阅读" }).click();
-    await page.locator('a[data-target="Archives/通讯录/张三/"]').click();
+    await page.locator('[data-wiki-link][data-target="Archives/通讯录/张三/"]').click();
     await expect(page.getByTestId("archive-view")).toContainText("张三");
     await expect(page.getByTestId("archive-backlink").filter({ hasText: "年度计划" })).toBeVisible();
     // AR-09：添加附件（pdf）→ 出现在档案文件列表，磁盘上也有

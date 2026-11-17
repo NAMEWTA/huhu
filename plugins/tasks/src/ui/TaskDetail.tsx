@@ -1,10 +1,10 @@
 import type { TaskDto, TaskStatus } from "@huhu/contracts";
 import { Badge, Button, IconButton } from "@huhu/ui";
-import { MarkdownEditor, MarkdownPreview, referenceCompletion } from "@huhu/editor";
 import { requestOpenPath, useCapability, useEngine } from "@huhu/workbench";
 import { AlertTriangle, Bell, Copy, FileText, History, Pencil, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { t } from "./i18n.js";
+import { TaskMarkdownInput, TaskMarkdownView } from "./compact.js";
 import { useReferenceIndex } from "./references.js";
 import { StatusSelect } from "./TaskViews.js";
 
@@ -142,7 +142,7 @@ export function TaskDetail({
           </pre>
         ) : (
           <div className="automations-markdown" data-testid="detail-body">
-            <MarkdownPreview source={task.body.trim() || t.detail.noBody} resolveWikiLink={refs.exists} onOpenWikiLink={openWiki} />
+            <TaskMarkdownView id={`task-body-${task.id}`} value={task.body.trim() || t.detail.noBody} refs={refs} onOpen={openWiki} />
           </div>
         )}
         {task.references.length > 0 ? (
@@ -221,7 +221,7 @@ function Timeline({ task, zone, refs, onOpen }: { task: TaskDto; zone: string | 
           </header>
           {c.ask ? <p className="tasks-ask">{t.detail.needsYou}</p> : null}
           <div className="automations-markdown">
-            <MarkdownPreview source={c.body} resolveWikiLink={refs.exists} onOpenWikiLink={onOpen} />
+            <TaskMarkdownView id={`comment-${c.id}`} value={c.body} refs={refs} onOpen={onOpen} />
           </div>
         </article>
       ))}
@@ -234,7 +234,6 @@ function CommentComposer({ task, refs, onStatus, onChanged, onMessage }: { task:
   const engine = useEngine();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const extensions = useMemo(() => [referenceCompletion(refs.search)], [refs.search]);
   async function submit(close: boolean) {
     const body = text.trim();
     if (!body) return;
@@ -254,7 +253,7 @@ function CommentComposer({ task, refs, onStatus, onChanged, onMessage }: { task:
     <section className="hu-tw-detail-section tw-composer" data-testid="comment-composer">
       <h3>{t.detail.addComment}</h3>
       <div className="tasks-composer-editor" data-testid="comment-input">
-        <MarkdownEditor documentId={`comment-${task.id}`} value={text} mode="source" lineNumbers={false} ariaLabel={t.detail.addComment} extensions={extensions} onChange={(v) => setText(v)} />
+        <TaskMarkdownInput id={`comment-input-${task.id}`} value={text} onChange={(v) => setText(v)} refs={refs} placeholder={t.detail.addComment} />
       </div>
       <div className="row">
         <Button variant="primary" loading={busy} disabled={!text.trim()} data-testid="comment-submit" onClick={() => void submit(false)}>
@@ -353,10 +352,11 @@ function RunRecords({ taskId, zone, onMessage }: { taskId: string; zone: string 
 }
 
 function RunBody({ runId }: { runId: string }) {
+  const refs = useReferenceIndex();
   const d = useCapability<{ body: string }>("automations.runs.read", { runId });
   return (
     <div className="markdown" data-testid="run-result">
-      <MarkdownPreview source={d.data?.body.trim() || t.detail.none} />
+      <TaskMarkdownView id={`run-${runId}`} value={d.data?.body.trim() || t.detail.none} refs={refs} />
     </div>
   );
 }

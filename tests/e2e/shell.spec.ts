@@ -3,14 +3,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { rmTree } from "./helpers/launch.js";
+import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
 async function launch(vault: string, extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
-  return electron.launch({ args: [root, "--no-sandbox"], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
+  return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
 }
 
 /** 不指定 HUHU_VAULT 启动：显示启动页。目录选择框用主进程里的桩替换（原生对话框无法被 Playwright 驱动）。 */
@@ -20,7 +20,7 @@ const APP_VERSION = (JSON.parse(readFileSync(path.join(root, "package.json"), "u
 async function launchBare(): Promise<ElectronApplication> {
   const env = { ...process.env, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}) } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  return electron.launch({ args: [root, "--no-sandbox"], env });
+  return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
 }
 async function stubPick(app: ElectronApplication, ...paths: string[]): Promise<void> {
   await app.evaluate(({ dialog }, queue) => {
@@ -165,7 +165,7 @@ test("知识库：新建笔记、编辑自动保存到文件、预览双链、�
       await expect(page.getByTestId("note-item").filter({ hasText: `${n}.md` })).toBeVisible();
     }
     // 正在编辑「来源」（最后创建的）：写入指向「目标」的双链
-    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.getByTestId("markdown-editor").locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("链接到 [[目标]]");
     await expect(page.getByText("已保存")).toBeVisible({ timeout: 5000 });
@@ -274,7 +274,7 @@ test("手动保存：外部改动出现合并 Banner、合并后两边改动都�
     await newNote(page, "合并笔记");
     const file = path.join(vault, "合并笔记.md");
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("\n我的新行");
     await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
@@ -289,7 +289,7 @@ test("手动保存：外部改动出现合并 Banner、合并后两边改动都�
     expect(readFileSync(file, "utf8")).toContain("外部的新行");
 
     // 再改一处，不保存就离开：文件不变，回来时提示草稿
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("草稿里的字");
     const onDisk = readFileSync(file, "utf8");
@@ -356,7 +356,7 @@ test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字",
     await page.getByRole("button", { name: "知识库" }).first().click();
     await newNote(page, "退出落盘");
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("立刻关闭窗口前输入的内容");
     // 不等 800ms 自动保存：直接关窗口（与用户点 X 一致）
@@ -375,7 +375,7 @@ test("点窗口 X 立即退出：防抖窗口里的编辑先落盘，不丢字",
   }
 });
 
-test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打开并切换四种模式、不编辑、关闭后，文件字节与 mtime 不变", async () => {
+test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打开并切换三种视图、不编辑、关闭后，文件字节与 mtime 不变", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const file = path.join(vault, "原样.md");
   const raw = Buffer.from('\uFEFF# 原样\r\n\r\n| a | b |\r\n| - | - |\r\n| 1 | 2 |\r\n\r\n<custom-block data-x="1">未知块</custom-block>\r\n\r\n正文\r\n', "utf8");
@@ -388,7 +388,7 @@ test("ACC-KN-01：含 BOM、CRLF、GFM 表格与未知 HTML 块的笔记，打�
     await page.getByRole("button", { name: "知识库" }).first().click();
     await page.getByTestId("note-item").filter({ hasText: "原样" }).click();
     await expect(page.getByTestId("markdown-editor")).toBeVisible();
-    for (const mode of ["源码", "阅读", "双栏", "实时预览"]) {
+    for (const mode of ["源码", "阅读", "实时预览"]) {
       await page.getByRole("tab", { name: mode }).click();
       await page.waitForTimeout(300);
     }
@@ -515,7 +515,7 @@ test("批注：选中正文添加、回复、解决、删除；删除锚定句�
     await page.getByRole("button", { name: "知识库" }).first().click();
     await newNote(page, "批注笔记");
     const editor = page.getByTestId("markdown-editor");
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("需要批注的一句话。");
     // 选中刚输入的这一行再添加批注
@@ -532,7 +532,7 @@ test("批注：选中正文添加、回复、解决、删除；删除锚定句�
     const dir = path.join(vault, "Comments");
     await expect.poll(() => readdirSync(dir).length).toBe(1);
     expect(readFileSync(path.join(dir, readdirSync(dir)[0] as string), "utf8")).toMatch(/exact: 需要批注的一句话。/);
-    await expect(editor.locator(".cm-comment")).toBeVisible();
+    // 正文里的批注装饰由 OK 的锚点层提供（S4 接入后在此恢复断言）
 
     await page.getByLabel("回复批注").fill("收到");
     await page.keyboard.press("Enter");
@@ -543,7 +543,7 @@ test("批注：选中正文添加、回复、解决、删除；删除锚定句�
     await page.getByRole("button", { name: "重新打开" }).click();
 
     // 删除锚定处的文字并保存 → orphaned
-    await editor.locator(".cm-content").click();
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.type("全换成别的内容");
     await expect.poll(() => readFileSync(path.join(dir, readdirSync(dir)[0] as string), "utf8"), { timeout: 10_000 }).toMatch(/state: orphaned/);
@@ -1181,10 +1181,10 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     await newNote(page, "手动保存");
     await expect(page.getByTestId("note-item").filter({ hasText: "手动保存.md" })).toBeVisible();
     const editor = page.getByTestId("markdown-editor");
-    await expect(editor.locator(".cm-lineNumbers")).toBeVisible(); // 行号
-    await expect(editor.locator(".cm-content")).toHaveCSS("max-width", "680px");
-    await expect(editor.locator(".cm-content")).toHaveCSS("font-size", "20px");
-    await editor.locator(".cm-content").click();
+    // 编辑设置：字号与可读宽度落到 OK 编辑器的容器上（行号只属于源码视图，见 S3 的设置对等清单）
+    await expect(editor.locator(".tiptap-editor")).toHaveCSS("--content-max-width", "680px");
+    await expect(editor.locator(".ProseMirror")).toHaveCSS("font-size", "20px");
+    await editor.locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("手动保存的正文");
     await page.waitForTimeout(2500); // 远超 800ms 的自动保存间隔
@@ -1244,7 +1244,7 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
         .getByTestId("note-item")
         .filter({ hasText: `${title}.md` })
         .click();
-      await page.getByTestId("markdown-editor").locator(".cm-content").click();
+      await page.getByTestId("markdown-editor").locator(".ProseMirror").click();
       await page.keyboard.press("ControlOrMeta+End");
       await page.keyboard.type(EDIT);
       await expect(page.getByTestId("note-save")).toBeEnabled();
@@ -1278,7 +1278,7 @@ test("知识库：输入后立刻切换到另一篇，磁盘内容包含最后�
     await newNote(page, "甲");
     await newNote(page, "乙");
     await page.getByTestId("note-item").filter({ hasText: "甲.md" }).click();
-    await page.getByTestId("markdown-editor").locator(".cm-content").click();
+    await page.getByTestId("markdown-editor").locator(".ProseMirror").click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type(LAST);
     await page.getByTestId("note-item").filter({ hasText: "乙.md" }).click(); // 立刻离开：远小于自动保存间隔
@@ -1809,7 +1809,7 @@ test("任务界面：分类计数、搜索、新建对话框（截止日 / 项�
     await editor.getByLabel("任务名称").fill("写周报");
     await editor.getByTestId("task-due").fill(todayStr);
     await editor.getByLabel("任务项目").fill("工作");
-    await editor.getByTestId("task-body").locator(".cm-content").fill("整理本周完成的事项");
+    await editor.getByTestId("task-body").locator(".ProseMirror").fill("整理本周完成的事项");
     await page.getByTestId("task-save").click();
     await expect(page.getByTestId("task-detail")).toContainText("写周报"); // 保存后自动打开详情
     await expect(page.getByTestId("detail-body")).toContainText("整理本周完成的事项");

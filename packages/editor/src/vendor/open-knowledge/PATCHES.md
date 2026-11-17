@@ -1,12 +1,14 @@
 # vendor 补丁登记
 
-规则：每个与上游不同的文件都登记一行（路径用反引号，`node scripts/ok-patches.mjs --check` 逐一比对，不一致即失败）。S2a 基线：**改动 5 / 删除 4 / 新增 26（server-bridge 11 个上游文件的复制 + 9 个替身；app 的 CSS / 声明 / 目录 7 个）**，远低于阈值 150（decisions OP-D02）。
+规则：每个与上游不同的文件都登记一行（路径用反引号，`node scripts/ok-patches.mjs --check` 逐一比对，不一致即失败）。S2a 基线（S2c 起改动 +1）：**改动 5 / 删除 4 / 新增 26（server-bridge 11 个上游文件的复制 + 9 个替身；app 的 CSS / 声明 / 目录 7 个）**，远低于阈值 150（decisions OP-D02）。
 
 ## 改动（上游文件被改写或替换）
 
 - P-S2a-02 `app/src/editor/DocumentContext.tsx`：上游 1868 行（标签 / 分屏 / 协作连接 / 会话恢复）→ 再导出 Huhu 宿主版 `packages/editor/src/host/document-context.tsx`（只保留 vendor 组件实际读取的 17 个成员）。
 - P-S2a-03 `app/src/lib/config-provider.tsx`：上游 346 行（经协作配置文档同步）→ 只保留 `useConfigContext` 再导出；提供者见 `host/config-provider.tsx`。
 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。
+
+- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。
 
 ## 删除
 

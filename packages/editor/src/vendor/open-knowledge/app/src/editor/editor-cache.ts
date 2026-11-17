@@ -293,7 +293,9 @@ function tryCreateParkingNode(): HTMLElement | null {
 export function mountTiptapEditor(params: MountTiptapParams): TiptapCacheEntry {
   const { docName, container, factory, sizeStats } = params;
 
-  const gateRefuses = sizeStats ? !shouldCacheEditor(sizeStats) : false;
+  // HUHU P-S2c-01：紧凑变体（docName 以 `compact-` 开头）同时挂载几十个实例，不进 LRU（否则超过 MAX_CACHE 的在屏实例会被驱逐销毁）
+  const compact = docName.startsWith('compact-');
+  const gateRefuses = compact || (sizeStats ? !shouldCacheEditor(sizeStats) : false);
   if (!CACHE_ENABLED || gateRefuses) {
     const fresh = factory(container);
     mark('ok/cache/miss', {
@@ -487,7 +489,9 @@ export function evictTiptapEditor(docName: string): boolean {
 export function mountCmEditor(params: MountCmParams): CmCacheEntry {
   const { docName, container, factory, sizeStats } = params;
 
-  const gateRefuses = sizeStats ? !shouldCacheEditor(sizeStats) : false;
+  // HUHU P-S2c-01：紧凑变体（docName 以 `compact-` 开头）同时挂载几十个实例，不进 LRU（否则超过 MAX_CACHE 的在屏实例会被驱逐销毁）
+  const compact = docName.startsWith('compact-');
+  const gateRefuses = compact || (sizeStats ? !shouldCacheEditor(sizeStats) : false);
   if (!CACHE_ENABLED || gateRefuses) {
     const fresh = factory(container);
     mark('ok/cache/miss', {
