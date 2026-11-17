@@ -10,7 +10,6 @@ import selectorParser from "postcss-selector-parser";
 /** 不分层白名单：覆盖“运行时注入的无层第三方样式”的规则，放进层里会输给它们。 */
 const UNLAYERED = {
   "packages/ui/src/styles/vendor-overrides.css": "覆盖 sonner 运行时注入（__insertCSS）的样式",
-  "packages/editor/src/editor-cm.css": "覆盖 CodeMirror（style-mod）运行时注入的样式",
 };
 /** 白名单文件里允许出现的类 / 属性：第三方（CodeMirror、sonner）与编辑器 DOM 内的装饰类。 */
 const THIRD_PARTY_CLASS = /^(cm-|ͼ|atomic-editor-|atomic-cm-|huhu-md-semibold$|huhu-live-table$|huhu-live-table-scroll$|huhu-live-block-edit$)/;

@@ -32,27 +32,27 @@ export interface PlainTextEditorHandle {
 const externalUpdate = Annotation.define<boolean>();
 
 const highlight = HighlightStyle.define([
-  { tag: [tags.propertyName, tags.attributeName], color: "var(--atomic-editor-hl-property)" },
-  { tag: [tags.string, tags.special(tags.string)], color: "var(--atomic-editor-hl-string)" },
-  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--atomic-editor-hl-number)" },
-  { tag: [tags.keyword, tags.operatorKeyword], color: "var(--atomic-editor-hl-keyword)" },
-  { tag: [tags.punctuation, tags.separator, tags.brace, tags.squareBracket], color: "var(--atomic-editor-hl-punctuation)" },
-  { tag: tags.invalid, color: "var(--atomic-editor-hl-invalid)" },
+  { tag: [tags.propertyName, tags.attributeName], color: "var(--editor-plain-hl-property)" },
+  { tag: [tags.string, tags.special(tags.string)], color: "var(--editor-plain-hl-string)" },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--editor-plain-hl-number)" },
+  { tag: [tags.keyword, tags.operatorKeyword], color: "var(--editor-plain-hl-keyword)" },
+  { tag: [tags.punctuation, tags.separator, tags.brace, tags.squareBracket], color: "var(--editor-plain-hl-punctuation)" },
+  { tag: tags.invalid, color: "var(--editor-plain-hl-invalid)" },
 ]);
 
 const baseTheme = EditorView.theme({
-  "&": { height: "100%", color: "var(--atomic-editor-fg)", backgroundColor: "var(--atomic-editor-bg)" },
-  ".cm-scroller": { fontFamily: "var(--atomic-editor-font-mono)", fontSize: "var(--atomic-editor-body-size)", lineHeight: "var(--atomic-editor-body-leading)", overflow: "auto" },
-  ".cm-content": { caretColor: "var(--atomic-editor-fg)", padding: "8px 0" },
-  ".cm-gutters": { backgroundColor: "var(--atomic-editor-bg-panel)", color: "var(--atomic-editor-fg-faint)", border: "none" },
+  "&": { height: "100%", color: "var(--editor-plain-fg)", backgroundColor: "var(--editor-plain-bg)" },
+  ".cm-scroller": { fontFamily: "var(--editor-plain-font-mono)", fontSize: "var(--editor-plain-body-size)", lineHeight: "var(--editor-plain-body-leading)", overflow: "auto" },
+  ".cm-content": { caretColor: "var(--editor-plain-fg)", padding: "8px 0" },
+  ".cm-gutters": { backgroundColor: "var(--editor-plain-bg-panel)", color: "var(--editor-plain-fg-faint)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
   "&.cm-focused": { outline: "none" },
-  ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": { backgroundColor: "var(--atomic-editor-selection-bg)" },
-  ".cm-searchMatch": { backgroundColor: "var(--atomic-editor-search-bg)" },
-  ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--atomic-editor-search-bg-active)" },
-  ".cm-panels": { backgroundColor: "var(--atomic-editor-bg-panel)", color: "var(--atomic-editor-fg)", borderColor: "var(--atomic-editor-border)" },
-  ".cm-specialChar": { color: "var(--atomic-editor-hl-invalid)" },
-  ".cm-lintRange-error": { backgroundImage: "none", textDecoration: "underline wavy var(--atomic-editor-hl-invalid)" },
+  ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": { backgroundColor: "var(--editor-plain-selection-bg)" },
+  ".cm-searchMatch": { backgroundColor: "var(--editor-plain-search-bg)" },
+  ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--editor-plain-search-bg-active)" },
+  ".cm-panels": { backgroundColor: "var(--editor-plain-bg-panel)", color: "var(--editor-plain-fg)", borderColor: "var(--editor-plain-border)" },
+  ".cm-specialChar": { color: "var(--editor-plain-hl-invalid)" },
+  ".cm-lintRange-error": { backgroundImage: "none", textDecoration: "underline wavy var(--editor-plain-hl-invalid)" },
 });
 
 function buildExtensions(opts: { language: PlainTextLanguage; readOnly: boolean; separator: string | null; ariaLabel: string; onDoc: (text: string) => void }): Extension[] {
