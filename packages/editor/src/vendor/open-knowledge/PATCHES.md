@@ -19,7 +19,7 @@
 - P-S4-05 `app/src/comments/ThreadCard.tsx`（含 e2e 用的 data-testid：comment-thread / comment-orphaned / thread-*）：去掉“发送”勾选与点击卡片切换发送；铅笔编辑入口换成“标记为已解决”（Huhu 的消息是追加式记录，没有编辑）；回复列表与回复输入；删除两步确认；整篇笔记批注的标签。
 - P-S4-06 `app/src/comments/store.ts`：`setCommentsReadOnly` / `useCommentsReadOnly`（宿主只读时隐藏写操作入口，批注仍可查看 / 定位）。
 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。
-- P-S4-08 上游 app 非 dom 测试迁入（22 个，原样复制自上游 app 的 comments 目录，与被测源码同目录；`test:vendor` 经 `vitest.vendor.config.ts` 的 Lingui 宏管线与 `test/vendor-setup.ts`（激活 en）运行）：`app/src/comments/active-thread.test.ts`、`app/src/comments/anchor-layers.test.ts`、`app/src/comments/anchor-nearby-edit.test.ts`、`app/src/comments/anchor-repro.test.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/anchor-transaction-effect.test.ts`、`app/src/comments/comment-hue-contrast.test.ts`、`app/src/comments/comments-client.test.ts`、`app/src/comments/dispatch-batch.test.ts`、`app/src/comments/margin-rail-layout.test.ts`、`app/src/comments/open-chat-send.test.ts`、`app/src/comments/open-thread-bus.test.ts`、`app/src/comments/open-thread-lifecycle.test.ts`、`app/src/comments/property-anchor-click.test.ts`、`app/src/comments/queue-grouping.test.ts`、`app/src/comments/reopen-requeue.test.ts`、`app/src/comments/reveal-queue.test.ts`、`app/src/comments/scroll-to-anchor.test.ts`、`app/src/comments/selected-span.test.ts`、`app/src/comments/store.refresh-fanout.test.ts`、`app/src/comments/store.settle-reporting.test.ts`、`app/src/comments/store.snapshot-stability.test.ts`。
+- P-S4-08 上游 app 非 dom 测试迁入（22 个，原样复制自上游 app 的 comments 目录，与被测源码同目录；`test:vendor` 经 `vitest.vendor.config.ts` 的 Lingui 宏管线与 `test/vendor-setup.ts`（激活 en）运行）：（逐文件清单见 evidence/tests-manifest.json，与上游 SHA-256 逐一相同）、、、、、、、、、、、、、、、、、、、、、。
 
 ## 删除
 
@@ -27,7 +27,7 @@
 
 ## 新增（非 closure 的上游文件或 Huhu 替身）
 
-- P-S2a-05 上游资源拷贝：`app/src/globals.css`、`app/src/cmd-f.css`、`app/src/color-themes.generated.css`（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、`app/src/fontsource.d.ts`、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。
+- P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。
 - P-S2a-srv 上游 server 文件原样复制：`server-bridge/server-observers.ts`、`server-bridge/map-driven-splice.ts`、`server-bridge/bridge-watchdog.ts`、`server-bridge/bridge-quiescence.ts`、`server-bridge/pre-drain-discriminator.ts`、`server-bridge/bridge-intake.ts`、`server-bridge/bridge-loss-detector.ts`、`server-bridge/doc-extensions.ts`、`server-bridge/md-manager.ts`。
 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。
 
@@ -48,7 +48,7 @@
 - P-S5-03 `app/src/components/FileTree.tsx`：移除“Import as template”（`/api/template/import` 无 Huhu 对应能力）；“New from template”仍显示，但 `/api/templates` 返回 NOT_AVAILABLE 时没有模板项（待 S3 后评估是否映射 Huhu 模板）。
 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。
 - 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
-- P-S5-05 `app/src/components/ui/{alert-dialog,dialog,dropdown-menu,popover,select,tooltip}.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
+- P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
 
 ## S3（编辑行为对等与性能 F09）补丁
 
@@ -57,3 +57,6 @@
 - P-S3-03 `app/src/editor/extensions/chunk-wrapper-decoration.ts`、`app/src/globals.css`：不再给每个顶层块建 `Decoration.node`（5000 段 = 5000 个装饰，约 90 ms/键）；`content-visibility:auto` 改由 CSS 子选择器 `.ProseMirror > :where(:not(...))` 匹配，装饰只留给 `jsxComponent`（跳过）与选区所在块（`data-ok-selection-block`）。5000 段输入延迟 p95 ≈ 80 ms → ≈ 13 ms。
 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `"007"` 保持引号。spec C02。
 - P-S3-05（宿主）`host/explorer.tsx`：OK 对超过 512 KiB 的文档给出 `large-file` 导航目标（不进编辑器）；Huhu 把它当普通文件打开，由 `plugins/notes/src/ui/viewers/dispatch.ts` 决定上限（Markdown 笔记 16 MiB，其它文本 1 MiB）。
+
+- P-T-01 `core/src/y-prosemirror-patch.test.ts`（测试适配）：Huhu 不安装独立 `y-prosemirror`（`@tiptap/y-tiptap` 自带同源实现，补丁登记在 pnpm-workspace.yaml）：`REPO_ROOT` 改为向上找 `pnpm-workspace.yaml`；`import.meta.resolve` 换成 `createRequire(...).resolve`（vite-node 没有它）；去掉 `y-prosemirror` 的 4 个断言与补丁文件存在性检查，只校验 `@tiptap/y-tiptap` 的两份 bundle 与补丁文件、依赖树不变量（`reachedPackages` 只要求 `y-tiptap`）。
+- P-D-01 依赖对齐（无源文件改动）：编辑器行为以上游 pnpm-lock.yaml 解析的版本为基线。`pnpm-workspace.yaml` 的 `overrides` 把 tiptap 全系、`@tiptap/pm`、ProseMirror 全系、`mdast-util-gfm-*`、`mdast-util-find-and-replace`、`hast-util-*`、`hastscript`、`lib0`、`linkifyjs`、`unist-util-visit-parents`、`vfile-location` 钉到上游版本（`micromark-factory-space` 钉 2.0.1 会让 `micromark-core-commonmark` 缺 `factorySpaceMinMax`，故不钉）；`katex` 从 0.16.22 升到上游的 0.16.47（旧预览已删除，无其它消费者）。发现方式：上游 `list.test.ts` 在 `mdast-util-gfm-task-list-item@2.0.1` 下把任务项序列化成 `- [ ] [ ] x`。
