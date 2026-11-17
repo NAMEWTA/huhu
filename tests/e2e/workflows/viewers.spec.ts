@@ -192,8 +192,11 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await openFile(page, "手册");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(3, { timeout: 30_000 });
     writeFileSync(`${vault}/手册.pdf`, buildPdf(["Delta Page"]));
-    await expect(page.getByTestId("pdf-external-change")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("pdf-reload").click();
+    // 外壳可能因文件元信息变化直接重新挂载查看器（立即显示新内容），也可能显示“已被外部修改”横幅；两种都不能继续展示旧页面而不提示
+    const banner = page.getByTestId("pdf-external-change");
+    const fresh = page.locator(".pdfViewer .textLayer").first().filter({ hasText: "Delta Page" });
+    await expect(banner.or(fresh)).toBeVisible({ timeout: 20_000 });
+    if (await banner.isVisible()) await page.getByTestId("pdf-reload").click();
     await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Delta Page", { timeout: 30_000 });
   } finally {
     await close();
@@ -365,13 +368,16 @@ test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的
       if (!/^(huhu-app|huhu-preview|data|blob|devtools|chrome-extension):/.test(r.url()) && !/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(r.url())) external.push(r.url());
     });
     await openKnowledge(page);
-    // F06：不同类型的文件在文件树里各自有固定的图标类别（扩展名大小写无关、无扩展名回退）
-    const kindOf = (name: string) => page.getByTestId("file-item").filter({ hasText: name }).locator("[data-file-icon]").first().getAttribute("data-file-icon");
-    await expect.poll(() => kindOf("甲")).toBe("pdf");
-    expect(await kindOf("乙")).toBe("html");
-    expect(await kindOf("丙")).toBe("text");
-    expect(await kindOf("图")).toBe("image");
-    expect(await kindOf("无扩展名")).toBe("file");
+    // F06：标签条里按扩展名固定的图标类别（文件树的图标由 S5 的新树消费同一个 FileIcon，这里只验标签）
+    const tabKind = async (name: string) => {
+      await openFile(page, name);
+      return page.locator('[data-testid="document-tab"][aria-current="true"] [data-file-icon]').first().getAttribute("data-file-icon");
+    };
+    expect(await tabKind("甲")).toBe("pdf");
+    expect(await tabKind("乙")).toBe("html");
+    expect(await tabKind("丙")).toBe("text");
+    expect(await tabKind("图")).toBe("image");
+    expect(await tabKind("无扩展名")).toBe("file");
     for (let i = 0; i < 20; i++) {
       await openFile(page, "甲");
       await expect(page.locator(".pdfViewer")).toHaveCount(1);
