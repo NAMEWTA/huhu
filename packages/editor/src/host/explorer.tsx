@@ -5,7 +5,7 @@ import '../ok/ok-globals.css'
 import { I18nProvider } from '@lingui/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from 'next-themes'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ExternalHandoffGateProvider } from '@/components/handoff/ExternalHandoffGate'
 import { FileTree } from '@/components/FileTree'
 import { PageListProvider } from '@/components/PageListContext'
@@ -40,6 +40,12 @@ export interface OkExplorerProps {
   children?: ReactNode
 }
 
+/** 上游把 .txt 等文本文件也当作“文档”（docName 保留扩展名）；按已列举过的真实路径还原成 Vault 路径。 */
+function resolveDocPath(docName: string, known: ReadonlySet<string>): string {
+  for (const c of [`${docName}.md`, `${docName}.mdx`, docName]) if (known.has(c)) return c
+  return `${docName}.md`
+}
+
 let sharedClient: QueryClient | null = null
 const queryClient = () => (sharedClient ??= new QueryClient())
 
@@ -50,6 +56,7 @@ export function notifyExplorerChanged(): void {
 
 export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken = 0, mode = 'light', activePath = null, menuItems }: OkExplorerProps) {
   const [ready, setReady] = useState(false)
+  const known = useRef(new Set<string>())
   useEffect(() => {
     let live = true
     void dynamicActivate(locale).then(() => live && setReady(true))
@@ -60,7 +67,15 @@ export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken =
   useEffect(() => {
     const restoreFetch = installHostFetch()
     void restoreFetch
-    const unregister = registerHostRoutes(filesRoutes(deps))
+    const tracked: FilesRouteDeps = {
+      ...deps,
+      list: async (dir) => {
+        const r = await deps.list(dir)
+        for (const e of r.entries) known.current.add(e.path)
+        return r
+      },
+    }
+    const unregister = registerHostRoutes(filesRoutes(tracked))
     setHostHiddenPaths({ hide: (p, k) => onHide(p, k) })
     setHostMenuExtras(menuItems ? { items: menuItems } : null)
     return () => {
@@ -82,11 +97,11 @@ export function OkExplorer({ deps, onOpen, onHide, locale = 'en', refreshToken =
           ? { kind: 'doc', target: activePath.replace(/\.(md|mdx)$/i, ''), docName: activePath.replace(/\.(md|mdx)$/i, '') }
           : { kind: 'asset', target: activePath, assetPath: activePath, mediaKind: null },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
-        if (t.kind === 'doc' || t.kind === 'folder-index') onOpen({ kind: 'file', path: `${t.docName}.md` })
+        if (t.kind === 'doc' || t.kind === 'folder-index') onOpen({ kind: 'file', path: resolveDocPath(t.docName ?? '', known.current) })
         else if (t.kind === 'folder') onOpen({ kind: 'folder', path: t.folderPath ?? '' })
         else if (t.kind === 'asset') onOpen({ kind: 'asset', path: t.assetPath ?? '' })
       },
-      openDocument: (docName: string) => onOpen({ kind: 'file', path: `${docName}.md` }),
+      openDocument: (docName: string) => onOpen({ kind: 'file', path: resolveDocPath(docName, known.current) }),
     }),
     [onOpen, activePath],
   )
