@@ -1033,6 +1033,8 @@
   }
   .notes-archive-body {
     min-height: 160px;
+    max-height: 360px;
+    overflow: auto;
     border: 1px solid var(--line);
     border-radius: 6px;
   }
