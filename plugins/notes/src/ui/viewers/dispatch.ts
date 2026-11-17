@@ -24,9 +24,12 @@ const TEXT_EXT = new Set([
   "js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java", "kt", "c", "h", "cpp", "hpp", "cs",
   "sh", "bash", "zsh", "ps1", "sql", "env", "gitignore", "lock", "jsonc", "json5",
 ]);
+const MARKDOWN_EXT = new Set(["md", "mdx", "markdown"]);
 const DOTFILE_TEXT = new Set([".gitignore", ".gitattributes", ".editorconfig", ".env", ".npmrc", ".prettierrc"]);
 
 export const TEXT_LIMIT = 1024 * 1024; // 文本在应用内编辑的上限 1 MiB（ACC-KN-10：不把大文件当文本加载）
+/** Markdown 笔记的上限：笔记是产品的主格式，大文档以源码优先方式打开（S3 P-S3-01），不适用 ACC-KN-10 的 1 MiB（那条约束的是非 Markdown 文件）。 */
+export const NOTE_LIMIT = 16 * 1024 * 1024;
 export const IMAGE_LIMIT = 10 * 1024 * 1024;
 export const HTML_LIMIT = 8 * 1024 * 1024;
 export const NO_EXT_TEXT_PROBE_LIMIT = 64 * 1024;
@@ -41,7 +44,7 @@ export function chooseViewer(path: string, size: number): ViewerChoice {
   if (ext === "html" || ext === "htm") return size > HTML_LIMIT ? { kind: "unknown", reason: "too-large", ext } : { kind: "html", ext };
   if (icon === "image" && ext in IMAGE_MIME) return size > IMAGE_LIMIT ? { kind: "unknown", reason: "too-large", ext } : { kind: "image", ext };
   const kind: ViewerKind | null = ext === "json" ? "json" : TEXT_EXT.has(ext) || DOTFILE_TEXT.has(name.toLowerCase()) ? "text" : null;
-  if (kind) return size > TEXT_LIMIT ? { kind: "unknown", reason: "too-large", ext } : { kind, ext };
+  if (kind) return size > (MARKDOWN_EXT.has(ext) ? NOTE_LIMIT : TEXT_LIMIT) ? { kind: "unknown", reason: "too-large", ext } : { kind, ext };
   // 无扩展名：小文件探测内容（含 NUL / 非 UTF-8 则按未知处理）
   if (ext === "" && size <= NO_EXT_TEXT_PROBE_LIMIT) return { kind: "text", probe: true, ext };
   return { kind: "unknown", reason: "unsupported", ext };
@@ -51,5 +54,5 @@ export const humanSize = (b: number): string => (b >= 1024 ** 3 ? `${(b / 1024 *
 
 /** 超限提示里的上限文字（与上面的常量一一对应）。 */
 export function limitLabel(ext: string): string {
-  return ext === "html" || ext === "htm" ? "8 MiB" : ext in IMAGE_MIME ? "10 MiB" : "1 MiB";
+  return ext === "html" || ext === "htm" ? "8 MiB" : ext in IMAGE_MIME ? "10 MiB" : MARKDOWN_EXT.has(ext) ? "16 MiB" : "1 MiB";
 }

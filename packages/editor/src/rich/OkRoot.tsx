@@ -7,6 +7,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import '../ok/ok-globals.css'
 import '../editor.css'
 import { PageListProvider } from '@/components/PageListContext'
+import { PropertyProvider } from '@/components/PropertyContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { dynamicActivate } from '@/lib/activate-locale'
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from '@/lib/doc-hash'
@@ -103,7 +104,9 @@ export function OkRoot({ children, locale = 'en', host, routes, config, poolKey,
             <TooltipProvider>
               <HostConfigProvider config={config ?? {}}>
                 <DocumentProvider {...(documentHost ? { host: documentHost } : {})}>
-                  <PageListProvider>{children}</PageListProvider>
+                  <PageListProvider>
+                    <PropertyProvider>{children}</PropertyProvider>
+                  </PageListProvider>
                 </DocumentProvider>
               </HostConfigProvider>
             </TooltipProvider>

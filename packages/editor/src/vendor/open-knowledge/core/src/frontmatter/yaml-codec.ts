@@ -4,11 +4,42 @@ import {
   isSeq,
   type Pair,
   parseDocument,
+  type Scalar,
+  type ScalarTag,
+  type SchemaOptions,
   type ToStringOptions,
   type YAMLMap,
   type YAMLSeq,
 } from 'yaml';
+import { type StringifyContext, stringifyString } from 'yaml/util';
 import { type FrontmatterMap, FrontmatterMapSchema, FrontmatterPatchSchema } from './schema.ts';
+
+/**
+ * HUHU P-S3-04（spec C02）：带前导零的数字样文本（`007`、`0123`）按**文本**读写并原样保留。
+ * 上游的 `yaml` core schema 把 `007` 读成整数 7，用户只改了别的键，保存时它被悄悄改写成 `7`。
+ */
+const LEADING_ZERO_TEXT = /^[-+]?0[0-9]+$/;
+const leadingZeroText = {
+  tag: 'tag:yaml.org,2002:int',
+  default: true,
+  identify: (value: unknown) => typeof value === 'string' && LEADING_ZERO_TEXT.test(value),
+  test: LEADING_ZERO_TEXT,
+  resolve: (str: string) => str,
+  // 作者显式加了引号（"007" / '007'）的标量保持原引号写法：去掉引号会让别的 YAML 读取器把它读成整数 7
+  stringify: (
+    item: Scalar,
+    ctx: StringifyContext,
+    onComment?: () => void,
+    onChompKeep?: () => void,
+  ) =>
+    item.type === 'QUOTE_DOUBLE' || item.type === 'QUOTE_SINGLE'
+      ? stringifyString(item, ctx, onComment, onChompKeep)
+      : String(item.value),
+};
+export const CODEC_SCHEMA_OPTIONS: SchemaOptions = {
+  // 放在核心 schema 之前：核心的 int 标签会先匹配 `007`
+  customTags: (tags) => [leadingZeroText as unknown as ScalarTag, ...tags],
+};
 
 export const STRINGIFY_OPTIONS: ToStringOptions = {
   defaultKeyType: 'PLAIN',
@@ -26,7 +57,7 @@ export function parseFrontmatterYaml(yaml: string): ParsedFrontmatter {
   }
   let doc: Document;
   try {
-    doc = parseDocument(yaml);
+    doc = parseDocument(yaml, CODEC_SCHEMA_OPTIONS);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { doc: new Document({}), map: null, parseError: `parse threw: ${msg}` };
@@ -62,7 +93,7 @@ export function parseFrontmatterYaml(yaml: string): ParsedFrontmatter {
 
 export function serializeFrontmatterMap(map: FrontmatterMap): string {
   if (Object.keys(map).length === 0) return '';
-  const doc = new Document(map);
+  const doc = new Document(map, CODEC_SCHEMA_OPTIONS);
   return doc.toString(STRINGIFY_OPTIONS);
 }
 

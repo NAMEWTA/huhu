@@ -98,7 +98,8 @@ test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
     await expect(item).toBeVisible({ timeout: 20_000 });
     const t0 = Date.now();
     await item.click();
-    await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toContainText("大文档", { timeout: 10_000 });
+    // 超过 LARGE_DOC_CHARS 的文档默认以源码模式（CodeMirror，视口渲染）打开；富文本表示延后到切换时才构建（P-S3-01）
+    await expect(page.getByTestId("markdown-editor").locator(".cm-content")).toContainText("大文档", { timeout: 10_000 });
     await expect(page.getByText(/\d{4,} 行/)).toBeVisible({ timeout: 10_000 }); // 状态行显示整份文档的行数：全文都已载入
     const ms = Date.now() - t0;
     note("打开 1 MiB 文档到可编辑", `${ms} ms（目标 ≤ 500）`);

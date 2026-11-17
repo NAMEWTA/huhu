@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { HTML_LIMIT, IMAGE_LIMIT, NO_EXT_TEXT_PROBE_LIMIT, TEXT_LIMIT, chooseViewer, humanSize, limitLabel } from "../src/ui/viewers/dispatch";
+import { HTML_LIMIT, IMAGE_LIMIT, NO_EXT_TEXT_PROBE_LIMIT, NOTE_LIMIT, TEXT_LIMIT, chooseViewer, humanSize, limitLabel } from "../src/ui/viewers/dispatch";
 
 describe("chooseViewer（design §11.1）", () => {
   test("文本 / JSON / HTML / PDF / 图片按扩展名分派，大小写不敏感", () => {
@@ -22,6 +22,11 @@ describe("chooseViewer（design §11.1）", () => {
     expect(chooseViewer("big.png", IMAGE_LIMIT + 1)).toMatchObject({ kind: "unknown", reason: "too-large" });
     expect(chooseViewer("big.html", HTML_LIMIT + 1)).toMatchObject({ kind: "unknown", reason: "too-large" });
     expect(chooseViewer("ok.txt", TEXT_LIMIT).kind).toBe("text");
+    // Markdown 笔记不受 1 MiB 约束（S3：源码优先打开大文档），但有自己的上限
+    expect(chooseViewer("big.md", TEXT_LIMIT + 1).kind).toBe("text");
+    expect(chooseViewer("big.md", NOTE_LIMIT).kind).toBe("text");
+    expect(chooseViewer("big.md", NOTE_LIMIT + 1)).toMatchObject({ kind: "unknown", reason: "too-large" });
+    expect(limitLabel("md")).toBe("16 MiB");
   });
   test("无扩展名：小文件探测内容，大文件与未知扩展名是 unknown", () => {
     expect(chooseViewer("LICENSE", 100)).toMatchObject({ kind: "text", probe: true });

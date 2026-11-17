@@ -9,6 +9,7 @@ import type { Editor } from '@tiptap/core'
 import type * as Y from 'yjs'
 import { getEditorForDoc, subscribeEditorRegistry } from '@/editor/active-editor'
 import { getMarkdownSourceViewForDoc } from '@/editor/full-page-cm-views'
+import { PropertyPanel } from '@/components/PropertyPanel'
 import { SourceEditor } from '@/editor/SourceEditor'
 import { TiptapEditor } from '@/editor/TiptapEditor'
 import { replaceRawBody } from '../vendor/open-knowledge/server-bridge/bridge-intake'
@@ -39,6 +40,8 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant
   readOnly?: boolean
   placeholder?: string
+  /** 顶部 YAML 属性面板（OK PropertyPanel；默认：document 变体开启）。属性与正文共用同一 Y.Text，只改 frontmatter 段。 */
+  properties?: boolean
   /** 字号（px）与正文可读宽度（px，null = 不限制）：来自笔记设置 */
   fontSize?: number
   contentWidth?: number | null
@@ -70,7 +73,7 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 }
 
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
-  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, onPort, className, fontSize, contentWidth, referenceSearch } = props
+  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch } = props
   const [provider, setProvider] = useState<LocalDocProvider | null>(null)
   // 滚动容器 / 内容挂载点：命令式创建（不归 React 管），由 TiptapEditor 的 chrome 搬进自己的 slot
   const [portal] = useState(() => {
@@ -86,12 +89,18 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queued = useRef(false)
   const ytextRef = useRef<Y.Text | null>(null)
+  const providerRef = useRef<LocalDocProvider | null>(null)
+  // 源码优先打开的大文档：富文本表示（解析 + Y.XmlFragment）延后到第一次需要时才构建（P-S3：F09）
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  const [richReady, setRichReady] = useState(false)
 
   const emitNow = useCallback(() => {
     if (pending.current) clearTimeout(pending.current)
     pending.current = null
     const yt = ytextRef.current
     if (!yt) return
+    providerRef.current?.settleNow() // 大文档的桥结算可能被推迟：先结算再读 Y.Text
     const text = yt.toString()
     if (text === lastEmitted.current) return
     lastEmitted.current = text
@@ -100,8 +109,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   // 创建 / 销毁 provider（每个 docName 一个；park 的编辑器 DOM 由 vendor 的 editor-cache 管）
   useEffect(() => {
-    const pooled = acquireProvider(docName, () => valueRef.current)
+    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === 'source' })
     const p = pooled.provider
+    providerRef.current = p
     let disposeObserve: (() => void) | null = null
     const onSynced = () => {
       if (disposeObserve) return
@@ -128,12 +138,34 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       // 卸载前把还在防抖里的编辑交给会话（防止“输入后立刻关闭丢最后字符”）
       emitNow()
       cancelSync()
+      providerRef.current = null
       disposeObserve?.()
       ytextRef.current = null
       setProvider(null)
+      setRichReady(false)
       releaseProvider(docName) // provider 留在池里，直到 editor-cache 一起驱逐
     }
   }, [docName, emitNow])
+
+  // 需要富文本（非源码模式，或已构建过）时确保富文本表示就绪后再挂 Tiptap
+  useEffect(() => {
+    if (!provider) return
+    if (provider.richReady) {
+      setRichReady(true)
+      return
+    }
+    if (mode === 'source') return
+    let live = true
+    void provider.ensureRich().then(() => live && setRichReady(true))
+    return () => {
+      live = false
+    }
+  }, [provider, mode])
+
+  // 切到源码前先结算被推迟的桥，使 CodeMirror 看到最新的 Y.Text
+  useEffect(() => {
+    if (mode === 'source') providerRef.current?.settleNow()
+  }, [mode])
 
   // layout 阶段先于宿主 passive 清理执行：保证 flush 先于会话释放
   useLayoutEffect(() => () => emitNow(), [emitNow])
@@ -284,21 +316,26 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   const showSource = mode === 'source'
   return (
-    <div className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ''}`} data-ok-editor data-mode={mode} style={{ height: '100%', minHeight: 0, position: 'relative', ...(fontSize ? { ['--editor-ok-font-size' as string]: `${fontSize}px` } : {}), ...(contentWidth === undefined ? {} : { ['--editor-ok-measure' as string]: contentWidth === null ? '100%' : `${contentWidth}px` }) }}>
+    <div className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ''}`} data-ok-editor data-mode={mode} style={{ height: '100%', minHeight: 0, position: 'relative', ...(variant === 'document' ? { display: 'flex', flexDirection: 'column' } : {}), ...(fontSize ? { ['--editor-ok-font-size' as string]: `${fontSize}px` } : {}), ...(contentWidth === undefined ? {} : { ['--editor-ok-measure' as string]: contentWidth === null ? '100%' : `${contentWidth}px` }) }}>
       <Boundary {...(props.onError ? { onError: props.onError } : {})}>
         <Suspense fallback={null}>
+          {provider && (properties ?? variant === 'document') && !readOnly && mode !== 'read' ? (
+            <div className="editor-ok-properties" data-testid="editor-properties" style={{ flex: '0 0 auto' }}>
+              <PropertyPanel provider={provider as never} />
+            </div>
+          ) : null}
           {provider ? (
-            <>
+            <div style={variant === 'document' ? { flex: '1 1 0', minHeight: 0, position: 'relative' } : { display: 'contents' }}>
               {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}
               <div hidden={showSource} data-testid="editor-scroll-container" style={{ height: '100%', overflow: 'auto' }}>
-                <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+                {richReady ? <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} /> : mode !== 'source' ? <div role="status" className="ok-editor-loading">…</div> : null}
               </div>
               {showSource ? (
                 <div style={{ height: '100%', overflow: 'auto' }}>
                   <SourceEditor key={`s-${docName}`} docName={docName} ytext={provider.document.getText('source')} provider={provider as never} isSourceModeActive />
                 </div>
               ) : null}
-            </>
+            </div>
           ) : null}
         </Suspense>
       </Boundary>

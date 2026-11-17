@@ -6455,13 +6455,15 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
    top-level block replaces this deferral, which is why the reduced-motion
    agent flash fades with an animation. Pinned by
    `tests/stress/new-block-caret.e2e.ts`. */
-.ProseMirror .ok-chunk-wrapper {
+/* HUHU P-S3-03：用子选择器代替逐块 Decoration（见 chunk-wrapper-decoration.ts）；:where 让该规则特异性只有 `.ProseMirror`，
+   下面的 selection / codeBlock 例外规则无需提高特异性即可覆盖。 */
+.ProseMirror > :where(:not(.ok-chunk-skip, .ProseMirror-widget, .ProseMirror-gapcursor, .ProseMirror-trailingBreak)) {
   content-visibility: auto;
   contain-intrinsic-size: 0 var(--ok-cv-h, 80px);
   transition: content-visibility 0s 32ms allow-discrete;
 }
 
-.ProseMirror .ok-chunk-wrapper[data-ok-selection-block] {
+.ProseMirror > [data-ok-selection-block] {
   content-visibility: visible;
   transition: none;
 }
@@ -6470,7 +6472,7 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
    floats above the block edge (see `.ok-codeblock-chrome`). content-visibility
    auto's paint containment would otherwise clip the chrome to the wrapper's box,
    hiding it entirely. */
-.ProseMirror .ok-chunk-wrapper.node-codeBlock {
+.ProseMirror > .node-codeBlock {
   content-visibility: visible;
 }
 
