@@ -17,7 +17,12 @@ import {
   FrontmatterValueSchema,
   RESERVED_FRONTMATTER_KEY,
 } from '../frontmatter/schema.ts';
-import { buildValueNode, STRINGIFY_OPTIONS, withFences } from '../frontmatter/yaml-codec.ts';
+import {
+  buildValueNode,
+  CODEC_SCHEMA_OPTIONS,
+  STRINGIFY_OPTIONS,
+  withFences,
+} from '../frontmatter/yaml-codec.ts';
 
 export const MAX_FM_REGION_BYTES = 65536;
 
@@ -42,7 +47,7 @@ export function parseFmRegion(yamlBody: string): ParsedFmRegion {
   }
   let doc: Document;
   try {
-    doc = parseDocument(yamlBody, { uniqueKeys: false });
+    doc = parseDocument(yamlBody, { uniqueKeys: false, ...CODEC_SCHEMA_OPTIONS });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { doc: new Document({}), map: null, parseError: `parse threw: ${msg}` };

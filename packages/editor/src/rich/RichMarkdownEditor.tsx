@@ -9,6 +9,7 @@ import type { Editor } from '@tiptap/core'
 import type * as Y from 'yjs'
 import { getEditorForDoc, subscribeEditorRegistry } from '@/editor/active-editor'
 import { getMarkdownSourceViewForDoc } from '@/editor/full-page-cm-views'
+import { PropertyPanel } from '@/components/PropertyPanel'
 import { SourceEditor } from '@/editor/SourceEditor'
 import { TiptapEditor } from '@/editor/TiptapEditor'
 import { replaceRawBody } from '../vendor/open-knowledge/server-bridge/bridge-intake'
@@ -42,6 +43,8 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant
   readOnly?: boolean
   placeholder?: string
+  /** 顶部 YAML 属性面板（OK PropertyPanel；默认：document 变体开启）。属性与正文共用同一 Y.Text，只改 frontmatter 段。 */
+  properties?: boolean
   /** 字号（px）与正文可读宽度（px，null = 不限制）：来自笔记设置 */
   fontSize?: number
   contentWidth?: number | null
@@ -73,7 +76,7 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 }
 
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
-  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, onPort, className, fontSize, contentWidth, referenceSearch } = props
+  const { docName, value, onChange, mode = 'rich', variant = 'document', readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch } = props
   const [provider, setProvider] = useState<LocalDocProvider | null>(null)
   // 滚动容器 / 内容挂载点：命令式创建（不归 React 管），由 TiptapEditor 的 chrome 搬进自己的 slot
   const [portal] = useState(() => {
@@ -352,11 +355,16 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   const showSource = mode === 'source'
   return (
-    <div className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ''}`} data-ok-editor data-mode={mode} style={{ height: '100%', minHeight: 0, position: 'relative', ...(fontSize ? { ['--editor-ok-font-size' as string]: `${fontSize}px` } : {}), ...(contentWidth === undefined ? {} : { ['--editor-ok-measure' as string]: contentWidth === null ? '100%' : `${contentWidth}px` }) }}>
+    <div className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ''}`} data-ok-editor data-mode={mode} style={{ height: '100%', minHeight: 0, position: 'relative', ...(variant === 'document' ? { display: 'flex', flexDirection: 'column' } : {}), ...(fontSize ? { ['--editor-ok-font-size' as string]: `${fontSize}px` } : {}), ...(contentWidth === undefined ? {} : { ['--editor-ok-measure' as string]: contentWidth === null ? '100%' : `${contentWidth}px` }) }}>
       <Boundary {...(props.onError ? { onError: props.onError } : {})}>
         <Suspense fallback={null}>
+          {provider && (properties ?? variant === 'document') && !readOnly && mode !== 'read' ? (
+            <div className="editor-ok-properties" data-testid="editor-properties" style={{ flex: '0 0 auto' }}>
+              <PropertyPanel provider={provider as never} />
+            </div>
+          ) : null}
           {provider ? (
-            <>
+            <div style={variant === 'document' ? { flex: '1 1 0', minHeight: 0, position: 'relative' } : { display: 'contents' }}>
               {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}
               <div hidden={showSource} data-testid="editor-scroll-container" style={{ height: '100%', overflow: 'auto' }}>
                 {richReady ? <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} /> : mode !== 'source' ? <div role="status" className="ok-editor-loading">…</div> : null}
@@ -366,7 +374,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
                   <SourceEditor key={`s-${docName}`} docName={docName} ytext={provider.document.getText('source')} provider={provider as never} isSourceModeActive />
                 </div>
               ) : null}
-            </>
+            </div>
           ) : null}
         </Suspense>
       </Boundary>
