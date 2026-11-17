@@ -22,8 +22,11 @@ export interface SidebarState {
 export type SidebarAction =
   | { type: "activate"; tab: DocTab | null }
   | { type: "choose"; context: SidebarContext }
-  | { type: "expand"; path: string; open: boolean }
-  | { type: "select"; path: string | null };
+  /** `context` 缺省 = 当前上下文；跨上下文写入（例如在档案上下文里展开文件树的父目录）必须显式指定。 */
+  | { type: "expand"; path: string; open: boolean; context?: SidebarContext }
+  | { type: "select"; path: string | null; context?: SidebarContext }
+  /** 改名 / 移动：文件树的展开 / 选中路径跟着变（按前缀）。 */
+  | { type: "remap"; from: string; to: string };
 
 export function contextOfTab(tab: DocTab | null): SidebarContext {
   return tab && tab.kind !== "file" ? "archives" : "files";
@@ -35,7 +38,8 @@ export const initialSidebarState: SidebarState = {
   views: { files: { expanded: [], selected: null }, archives: { expanded: [], selected: null } },
 };
 
-const patchView = (s: SidebarState, f: (v: ContextView) => ContextView): SidebarState => ({ ...s, views: { ...s.views, [s.context]: f(s.views[s.context]) } });
+const patchView = (s: SidebarState, context: SidebarContext, f: (v: ContextView) => ContextView): SidebarState => ({ ...s, views: { ...s.views, [context]: f(s.views[context]) } });
+const remapPath = (p: string, from: string, to: string): string => (p === from ? to : p.startsWith(`${from}/`) ? `${to}${p.slice(from.length)}` : p);
 
 export function sidebarReducer(state: SidebarState, action: SidebarAction): SidebarState {
   switch (action.type) {
@@ -47,8 +51,10 @@ export function sidebarReducer(state: SidebarState, action: SidebarAction): Side
     case "choose":
       return state.context === action.context ? state : { ...state, context: action.context };
     case "expand":
-      return patchView(state, (v) => ({ ...v, expanded: action.open ? (v.expanded.includes(action.path) ? v.expanded : [...v.expanded, action.path]) : v.expanded.filter((p) => p !== action.path) }));
+      return patchView(state, action.context ?? state.context, (v) => ({ ...v, expanded: action.open ? (v.expanded.includes(action.path) ? v.expanded : [...v.expanded, action.path]) : v.expanded.filter((p) => p !== action.path) }));
     case "select":
-      return patchView(state, (v) => ({ ...v, selected: action.path }));
+      return patchView(state, action.context ?? state.context, (v) => ({ ...v, selected: action.path }));
+    case "remap":
+      return patchView(state, "files", (v) => ({ expanded: v.expanded.map((p) => remapPath(p, action.from, action.to)), selected: v.selected === null ? null : remapPath(v.selected, action.from, action.to) }));
   }
 }

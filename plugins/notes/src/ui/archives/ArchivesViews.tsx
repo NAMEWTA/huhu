@@ -273,8 +273,27 @@ function FieldCell({ row, field }: { row: ArchiveDto; field: ArchiveFieldDef }) 
 }
 
 // ---------------------------------------------------------------- 档案视图
-export function ArchiveView({ path, onOpenType, onOpenFile, onOpenFolder, onGone }: { path: string; onOpenType(path: string): void; onOpenFile(path: string): void; onOpenFolder(path: string): void; onGone(): void }) {
-  const call = useArchiveCall();
+export function ArchiveView({
+  path,
+  onOpenType,
+  onOpenFile,
+  onOpenFolder,
+  onGone,
+  beforeWrite,
+}: {
+  path: string;
+  onOpenType(path: string): void;
+  onOpenFile(path: string): void;
+  onOpenFolder(path: string): void;
+  onGone(): void;
+  /** 写 index.md 之前先让同一文件的会话（Markdown 视图里的未保存编辑）落盘；返回 false 则不写（E04）。 */
+  beforeWrite?: () => Promise<boolean>;
+}) {
+  const rawCall = useArchiveCall();
+  const call = async <T,>(capability: string, input: unknown): Promise<T> => {
+    if (beforeWrite && !(await beforeWrite())) throw new Error(a.flushFailed);
+    return rawCall<T>(capability, input);
+  };
   const detail = useCapability<ArchiveDetailDto>("archives.read", { path });
   const types = useCapability<ArchiveTypeDto[]>("archives.types.list", {});
   useRefetchOnFocus(detail.refetch);

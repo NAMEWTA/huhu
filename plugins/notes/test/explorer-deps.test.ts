@@ -2,14 +2,14 @@ import { describe, expect, test } from "vitest";
 import { composeMoves, createFilesDeps, LIST_MAX_PAGES, type EngineLike, type FilesDepsOptions } from "../src/ui/explorer/filesDeps.js";
 import { addHiddenRule, isHiddenPath, removeHiddenRule } from "../src/ui/explorer/hiddenPaths.js";
 
-function fakeEngine(handlers: Record<string, (input: { path: string; targetDir: string; newName: string; folder?: string; name: string }) => unknown>) {
+function fakeEngine(handlers: Record<string, (input: { path: string; targetDir: string; newName: string; folder: string; name: string }) => unknown>) {
   const calls: { cap: string; input: unknown }[] = [];
   const engine: EngineLike = {
     async call<T>(cap: string, input?: unknown) {
       calls.push({ cap, input });
       const h = handlers[cap];
       if (!h) throw new Error(`未模拟 ${cap}`);
-      return h(input) as T;
+      return h(input as never) as T;
     },
   };
   return { engine, calls };

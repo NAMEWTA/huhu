@@ -2,18 +2,22 @@ import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { MarkdownEditorHandle } from "@huhu/editor";
 import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { FileCard } from "./FileCard.js";
 import { NoteContextMenu } from "./NoteContextMenu.js";
 import { CommentComposer, MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
+import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
+import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
 import { TabStrip } from "./tabs/TabStrip.js";
 import { NoteDocument } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
-import { ArchiveTypeView, ArchiveView, ArchivesHome } from "./archives/ArchivesViews.js";
+import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
+import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
+import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
 
 export type DialogState =
@@ -34,9 +38,15 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [section, setSection] = useState<Section>("all");
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  /** 档案首页 / 类型视图对应的文件夹（Archives、Archives/<类型>）；打开笔记后清除。 */
-  const [folderView, setFolderView] = useState<string | null>(null);
+  const vaultId = engine.vaultId;
+  /** 标签 + 侧栏上下文的组合状态（同一个纯 reducer，没有互相触发的 effect，E02）。 */
+  const [shell, dispatch] = useReducer(shellReducer, vaultId, (v) => restoreShellState(v, loadTabs(v)));
+  const vaultRef = useRef(vaultId);
+  vaultRef.current = vaultId;
+  const tab = activeTab(shell.tabs);
+  /** 当前标签对应的真实文件：文件标签 = 其路径；档案记录标签 = 该档案的 index.md（同一文件同一会话，E04）。 */
+  const selected = tab ? tabFilePath(tab) : null;
+  const archiveTab = tab && tab.kind !== "file" ? tab : null;
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,51 +135,85 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   );
   const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
-  const selectedFile = fileRefs.find((f) => f.path === selected) ?? null;
+  const selectedFile = tab?.kind === "file" ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
-  /** 改名 / 移动之后，打开着的笔记路径跟着变（文件夹则按前缀）。 */
-  // 打开的文档标签（原型：编辑区上方的文档标签条）；文件已不存在（回收 / 永久删除 / 改名后）的标签自动消失
-  const [tabs, setTabs] = useState<string[]>([]);
+  // 打开的文档标签（DocTab 联合标签）；文件已不存在（回收 / 永久删除 / 改名后）的文件标签自动消失。
+  // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
+  const listsReady = every.data !== undefined && indexEntries.data !== undefined;
+  const aliveKey = listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null;
   useEffect(() => {
-    if (selected && section !== "trash") setTabs((t) => (t.includes(selected) ? t : [...t, selected]));
-  }, [selected, section]);
-  const alive = new Set([...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)]);
-  const visibleTabs = tabs.filter((p) => alive.has(p));
-  const closeTab = (p: string) => {
-    const i = visibleTabs.indexOf(p);
-    setTabs((t) => t.filter((x) => x !== p));
-    if (selected === p) setSelected(visibleTabs[i + 1] ?? visibleTabs[i - 1] ?? null);
+    if (aliveKey === null) return;
+    dispatch({ type: "prune", alive: new Set(aliveKey ? aliveKey.split("\n") : []) });
+  }, [aliveKey]);
+  // 标签随 Vault 记录；切 Vault 时重新读取该库的标签
+  const restoredVault = useRef(vaultId);
+  useEffect(() => {
+    if (restoredVault.current === vaultId) return;
+    restoredVault.current = vaultId;
+    const saved = loadTabs(vaultId);
+    dispatch({ type: "restore", vaultId, tabs: saved?.tabs ?? [], activeKey: saved?.activeKey ?? null });
+  }, [vaultId]);
+  useEffect(() => {
+    if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
+  }, [shell.tabs, vaultId]);
+  const closeTab = (key: string) => dispatch({ type: "close", key });
+  const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
+  const expandTo = (dir: string) => {
+    const parts = dir.split("/").filter(Boolean);
+    parts.forEach((_, i) => dispatch({ type: "sidebar", action: { type: "expand", path: parts.slice(0, i + 1).join("/"), open: true, context: "files" } }));
   };
-  const remapSelected = (from: string, to: string) => {
-    const re = (s: string) => (s === from ? to : s.startsWith(`${from}/`) ? `${to}${s.slice(from.length)}` : s);
-    setTabs((t) => t.map(re));
-    setSelected((s) => (s === null ? s : re(s)));
+  const revealInArchives = (key: string | null) => {
+    if (!key) return;
+    const parts = key.split("/");
+    if (parts.length >= 2) dispatch({ type: "sidebar", action: { type: "expand", path: parts.slice(0, 2).join("/"), open: true, context: "archives" } });
   };
-  /** 打开档案首页或类型视图。 */
-  const openArchiveFolder = (dir: string) => {
-    const norm = dir.replace(/\/+$/, "");
-    setFolderView(norm);
+  /** 打开档案首页（唯一的标签，重复点击只聚焦）。 */
+  const openArchivesHome = () => {
     setSection((s) => (s === "trash" ? "all" : s));
+    dispatch({ type: "open", tab: archivesHomeTab(vaultRef.current) });
   };
-  /** 档案以文件夹路径标识；它的 index.md 就是档案视图。 */
-  const openArchive = (dir: string) => openNote(`${dir.replace(/\/+$/, "")}/index.md`);
-  /** 双链 / 出链 / 反链的目标：文件夹按文件夹打开，其余在笔记里找。 */
-  const openTarget = (target: string) => {
+  /** 打开档案类型页（真实标签）。 */
+  const openArchiveType = (typePath: string) => {
+    const t = archiveTypeTab(vaultRef.current, typePath);
+    if (!t) return openArchivesHome();
+    setSection((s) => (s === "trash" ? "all" : s));
+    dispatch({ type: "open", tab: t });
+    revealInArchives(archiveSelectionOf(t));
+  };
+  /** 档案以文件夹路径标识；打开的是真实的档案记录标签（同一 index.md 与 Markdown 视图共用会话）。 */
+  const openArchive = (dir: string): void => {
+    const t = archiveRecordTab(vaultRef.current, dir);
+    if (!t) return openTarget(dir);
+    setSection((s) => (s === "trash" ? "all" : s));
+    dispatch({ type: "open", tab: t });
+    revealInArchives(archiveSelectionOf(t));
+  };
+  /** 打开档案首页或类型视图（旧入口名：按路径深度分派）。 */
+  const openArchiveFolder = (dir: string) => (archiveFolderRoute(dir)?.kind === "type" ? openArchiveType(dir) : openArchivesHome());
+  /** 双链 / 出链 / 反链的目标：文件夹按文件夹打开，其余在笔记里找；档案的 index.md 打开为档案记录标签。 */
+  const openTarget = (target: string): void => {
     if (target.endsWith("/")) {
       const dir = target.replace(/\/+$/, "");
       const idx = (every.data ?? []).find((x) => x.path.toLowerCase() === `${dir.toLowerCase()}/index.md`);
-      if (idx) return openNote(idx.path);
-      return archiveFolderRoute(dir) ? openArchiveFolder(dir) : setSection("all");
+      if (idx) return openLinked(idx.path);
+      return archiveFolderRoute(dir) ? openArchiveFolder(dir) : (setSection("all"), expandTo(dir));
     }
     const hit = (every.data ?? []).find((x) => x.path === target || x.path === `${target}.md`);
-    if (hit) openNote(hit.path);
-    else if (/\.[A-Za-z0-9]+$/.test(target) && target.includes("/")) openNote(target); // 刚创建、列表还没刷新的文件
+    if (hit) openLinked(hit.path);
+    else if (/\.[A-Za-z0-9]+$/.test(target) && target.includes("/")) openLinked(target); // 刚创建、列表还没刷新的文件
   };
+  /** 文件树 / 标签条的打开：永远是文件标签（Markdown 视图）；档案的 index.md 在这里也是 Markdown（E04）。 */
   const openNote = (path: string) => {
-    setFolderView(null);
-    setSelected(path);
     setSection((s) => (s === "trash" ? "all" : s));
+    dispatch({ type: "open", tab: fileTab(vaultRef.current, path) });
+    expandTo(path.split("/").slice(0, -1).join("/")); // 展开它所在的文件夹，树里能定位到
   };
+  /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
+  const openLinked = (path: string): void => (archiveNoteRoute(path) ? openArchive(path) : openNote(path));
+  /** 同一 index.md 的“以档案视图打开”。 */
+  const openAsArchive = (path: string) => openArchive(path);
+  /** 档案记录标签 → 同一文件的 Markdown 标签。 */
+  const openAsMarkdown = (path: string) => openNote(path);
 
   const everyRef = useRef(every.data);
   everyRef.current = every.data;
@@ -178,20 +222,22 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     const take = () => {
       const r = takeOpenRequest();
       if (!r) return;
-      if (!r.folder) return openNote(r.path);
+      if (!r.folder) return openLinked(r.path);
       const folderNote = (everyRef.current ?? []).find((x) => x.path.toLowerCase() === `${r.path.toLowerCase()}/index.md`);
-      if (folderNote) return openNote(folderNote.path); // 文件夹笔记：直接打开 index.md
-      if (archiveFolderRoute(r.path)?.kind === "archive") return openNote(`${r.path}/index.md`); // 还没有 index.md 的档案
+      if (folderNote) return openLinked(folderNote.path); // 文件夹笔记：直接打开 index.md（档案则是档案记录标签）
+      if (archiveFolderRoute(r.path)?.kind === "archive") return openArchive(r.path); // 还没有 index.md 的档案
       if (archiveFolderRoute(r.path)) return openArchiveFolder(r.path);
       setSection("all");
+      expandTo(r.path);
     };
     take();
     return onOpenRequest(take);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const archiveRoute = folderView ? archiveFolderRoute(folderView) : selected ? archiveNoteRoute(selected) : null;
-  const owningArchive = selected ? archiveOfFile(selected) : null;
+  const owningArchive = tab?.kind === "file" ? archiveOfFile(tab.path) : null;
+  const archiveIndexOfTab = tab?.kind === "file" && archiveNoteRoute(tab.path) ? tab.path : null;
+  const archivesActive = shell.sidebar.context === "archives";
   return (
     <div className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
       <NoteExplorer
@@ -200,17 +246,15 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onSection={(s) => {
           setSection(s);
           setTag(null);
+          // 点“文件”分类只切显示上下文，不关闭任何标签（E02）
+          dispatch({ type: "sidebar", action: { type: "choose", context: "files" } });
         }}
         notes={notes}
         allCount={(every.data ?? []).length}
         beforeMutate={async (paths) => (selected && paths.some((x) => selected === x || selected.startsWith(`${x}/`)) && flushRef.current ? flushRef.current() : true)}
         onMoved={(moved) => {
-          // 内部改名 / 移动：选中项与标签按映射重定位（文件夹按前缀）
-          const entries = Object.entries(moved);
-          if (entries.length === 0) return;
-          const re = (s0: string) => entries.find(([a]) => a === s0)?.[1] ?? s0;
-          setTabs((t) => t.map(re));
-          setSelected((s0) => (s0 === null ? s0 : re(s0)));
+          // 内部改名 / 移动：标签与选中项按映射重定位（文件夹按前缀）
+          for (const [from, to] of Object.entries(moved)) remapSelected(from, to);
           void refresh();
         }}
         isFavorite={(path) => (every.data ?? []).find((x) => x.path === path)?.favorite === true}
@@ -225,12 +269,20 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onTag={setTag}
         query={query}
         onQuery={setQuery}
-        selected={selected}
+        selected={tab?.kind === "file" ? tab.path : null}
         onOpen={openNote}
-        onOpenArchives={() => openArchiveFolder("Archives")}
-        onFolderClick={(dir) => {
-          if (archiveFolderRoute(dir)?.kind === "home" || archiveFolderRoute(dir)?.kind === "type") openArchiveFolder(dir);
-        }}
+        onOpenArchives={openArchivesHome}
+        archivesActive={archivesActive}
+        archivesPanel={
+          <ArchivesSidebar
+            expanded={shell.sidebar.views.archives.expanded}
+            selected={archiveSelectionOf(archiveTab)}
+            onToggle={(key) => dispatch({ type: "sidebar", action: { type: "expand", path: key, open: !shell.sidebar.views.archives.expanded.includes(key), context: "archives" } })}
+            onOpenHome={openArchivesHome}
+            onOpenType={openArchiveType}
+            onOpenArchive={openArchive}
+          />
+        }
         onNewNote={(folder) => setDialog({ kind: "new", folder: folder ?? "" })}
         onNewFolder={(parent) => setDialog({ kind: "folder", parent: parent ?? "" })}
         onMenu={(note, el) => {
@@ -254,33 +306,60 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onDailyDate={setDailyDate}
       />
       <div className="notes-main">
-        {section !== "trash" && visibleTabs.length > 0 ? (
-          <TabStrip tabs={visibleTabs} selected={selected} onOpen={openNote} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} />
+        {section !== "trash" && shell.tabs.tabs.length > 0 ? (
+          <TabStrip tabs={shell.tabs.tabs} activeKey={shell.tabs.activeKey} onFocus={(key) => dispatch({ type: "focus", key })} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} />
         ) : null}
         {error ? (
           <div role="alert" className="hu-field-error">
             {error}
           </div>
         ) : null}
-        {section !== "trash" && archiveRoute ? (
-          archiveRoute.kind === "home" ? (
-            <ArchivesHome onOpenType={openArchiveFolder} />
-          ) : archiveRoute.kind === "type" ? (
-            <ArchiveTypeView path={archiveRoute.path} onOpenArchive={openArchive} onOpenHome={() => openArchiveFolder("Archives")} />
+        {section !== "trash" && archiveTab ? (
+          archiveTab.kind === "archives-home" ? (
+            <ArchivesHome onOpenType={openArchiveType} />
+          ) : archiveTab.kind === "archive-type" ? (
+            <ArchiveTypeView key={tabKey(archiveTab)} path={`Archives/${archiveTab.type}/`} onOpenArchive={openArchive} onOpenHome={openArchivesHome} />
           ) : (
-            <ArchiveView
-              key={archiveRoute.path}
-              path={archiveRoute.path}
-              onOpenType={openArchiveFolder}
-              onOpenFile={openTarget}
-              onOpenFolder={openArchive}
-              onGone={() => (setSelected(null), openArchiveFolder(archiveRoute.path.split("/").slice(0, 2).join("/")))}
-            />
+            <>
+              <div className="notes-archive-crumb-bar">
+                <Folder size={13} aria-hidden />
+                <button type="button" data-testid="archive-open-markdown" onClick={() => openAsMarkdown(tabFilePath(archiveTab) ?? "")}>
+                  {a.openAsMarkdown}
+                </button>
+              </div>
+              <ArchiveRecordView
+                key={tabKey(archiveTab)}
+                indexPath={tabFilePath(archiveTab) ?? ""}
+                path={`Archives/${archiveTab.type}/${archiveTab.name}/`}
+                onOpenType={openArchiveType}
+                onOpenFile={openTarget}
+                onOpenFolder={(p) => {
+                  // 改名 / 移动：记录标签随之替换（旧名字的标签不留）；档案里的子文件夹仍按文件夹打开
+                  const next = archiveRecordTab(vaultRef.current, p);
+                  if (next && tabKey(next) !== tabKey(archiveTab)) {
+                    dispatch({ type: "close", key: tabKey(archiveTab) });
+                    openArchive(p);
+                  } else openTarget(p);
+                }}
+                onGone={() => {
+                  dispatch({ type: "close", key: tabKey(archiveTab) });
+                  openArchiveType(`Archives/${archiveTab.type}/`);
+                }}
+              />
+            </>
           )
         ) : selectedFile?.file && section !== "trash" ? (
           <FileCard path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
-        ) : selected && section !== "trash" ? (
+        ) : tab?.kind === "file" && section !== "trash" ? (
           <>
+            {archiveIndexOfTab ? (
+              <div className="notes-archive-crumb-bar">
+                <Folder size={13} aria-hidden />
+                <button type="button" data-testid="archive-open-record-view" onClick={() => openAsArchive(archiveIndexOfTab)}>
+                  {a.openAsArchive}
+                </button>
+              </div>
+            ) : null}
             {owningArchive ? (
               <div className="notes-archive-crumb-bar">
                 <Folder size={13} aria-hidden />
@@ -290,13 +369,13 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               </div>
             ) : null}
             <NoteDocument
-              key={selected}
-              path={selected}
+              key={tab.path}
+              path={tab.path}
               favorite={current?.favorite === true}
               inspectorOpen={inspector}
               onToggleInspector={() => setInspector((v) => !v)}
-              onToggleFavorite={() => void run("notes.setFavorite", { path: selected, favorite: !(current?.favorite === true) })}
-              onOpen={openNote}
+              onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
+              onOpen={openLinked}
               onMenu={(el) => {
                 const r = el.getBoundingClientRect();
                 if (current) setMenu({ note: current, x: r.right, y: r.bottom });
@@ -343,7 +422,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           </div>
         ) : null}
       </div>
-      {inspector && selected && section !== "trash" ? (
+      {inspector && selected && tab?.kind === "file" && section !== "trash" ? (
         <NoteInspector
           path={selected}
           text={docText}
@@ -355,7 +434,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           commentActions={commentActions}
           readOnly={false}
           onClose={() => setInspector(false)}
-          onOpen={openNote}
+          onOpen={openLinked}
           onJump={(line) => {
             const v = editorRef.current?.view;
             if (v) {
@@ -421,6 +500,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             const path = dialog.parent ? `${dialog.parent}/${name}` : name;
             if (await run("folders.create", { path })) {
               setDialog(null);
+              expandTo(path);
             }
           }}
         />
@@ -497,7 +577,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
                     if (!(await beforeMove(dialog.note))) return;
                     const r = await run<{ trashId: string }>("notes.trash", { path: dialog.note.path });
                     if (r) {
-                      if (selected === dialog.note.path || selected?.startsWith(`${dialog.note.path}/`)) setSelected(null);
                       setUndo({ label: dialog.note.folder ? dialog.note.title : `${dialog.note.title}.md`, trashId: r.trashId });
                       setDialog(null);
                     }
