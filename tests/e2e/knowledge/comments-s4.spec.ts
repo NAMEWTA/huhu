@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
 
 // S4：OK 评论 UI 接 Huhu 的 comments.*（真实 Electron）。
 // D01 选区 / 整篇评论进同一存储，取消不留伪线程；D02 线程 / 回复 / 解决 / 重开 / 删除确认；D03 点线程定位正文；
@@ -56,7 +57,7 @@ test("D01/D02：选区批注进真实存储，取消不留伪线程；回复 / �
   try {
     writeFileSync(path.join(vault, "批注一.md"), "# 标题\n\n这里有一套能力，值得批注。\n\n另一段内容。\n");
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "批注一.md" }).click();
+    await treeItem(page, "批注一.md").click();
     await expect(prose(page)).toContainText("值得批注", { timeout: 30_000 });
 
     // 取消：开了输入框再 Esc，没有任何线程、没有错误高亮
@@ -109,7 +110,7 @@ test("D03/D04/D05：点线程定位正文；前插内容锚点跟随；重复句
   try {
     writeFileSync(path.join(vault, "锚点.md"), "# 锚点\n\n甲：同一句话。\n\n乙：同一句话。\n\n尾段。\n");
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "锚点.md" }).click();
+    await treeItem(page, "锚点.md").click();
     await expect(prose(page)).toContainText("乙：同一句话", { timeout: 30_000 });
 
     // 在第二处重复句子上发表：锚点上下文让它唯一
@@ -164,7 +165,7 @@ test("D06：改名后评论仍绑定同一笔记；未解决的批注在重开�
   try {
     writeFileSync(path.join(vault, "原名.md"), "# 原名\n\n需要保留的批注句子。\n");
     await gotoNotes(page);
-    await page.getByTestId("note-item").filter({ hasText: "原名.md" }).click();
+    await treeItem(page, "原名.md").click();
     await expect(prose(page)).toContainText("需要保留的批注句子", { timeout: 30_000 });
     await selectText(page, "需要保留的批注句子");
     await addComment(page, "改名后也要在");
@@ -175,10 +176,10 @@ test("D06：改名后评论仍绑定同一笔记；未解决的批注在重开�
     await page.getByRole("menuitem", { name: "重命名" }).click();
     await page.getByRole("textbox", { name: "重命名" }).fill("新名");
     await page.getByTestId("name-dialog-submit").click();
-    await expect(page.getByTestId("note-item").filter({ hasText: "新名.md" })).toBeVisible();
+    await expect(treeItem(page, "新名.md")).toBeVisible();
     await expect.poll(() => readAll(vault)).toMatch(/documentPath: 新名\.md/);
     // 改名会换掉当前标签，详情栏可能收起：重新打开批注页，评论仍绑定同一笔记
-    await page.getByTestId("note-item").filter({ hasText: "新名.md" }).click();
+    await treeItem(page, "新名.md").click();
     await expect(prose(page)).toContainText("需要保留的批注句子", { timeout: 30_000 });
     if ((await page.getByTestId("note-inspector").count()) === 0) await page.getByRole("button", { name: "文档详情" }).click();
     await page.getByTestId("note-inspector").getByRole("tab", { name: "批注" }).click();

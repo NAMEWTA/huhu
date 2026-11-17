@@ -43,3 +43,7 @@
 4. `ok-patches.mjs --check` 仍因 S2a 迁入的 core 测试文件未登记而失败（255 个未登记；本次新增的 22 个测试已登记），属 S2a 遗留，S8 前处理。
 5. 重命名后详情栏会收起 / 文档需重新点击打开（e2e D06 重新点击 `新名.md`）：这是重命名后的既有表现，非 S4 引入，未处理。
 6. 没做：真实输入法、Windows / macOS、`e2e:packaged`、全量 e2e。
+
+## 合并 S5/S6/S7 后复核（2026-11-18，合并提交 3f7c16d 之上）
+
+`pnpm lint` 通过；`pnpm typecheck` 0 错误；`pnpm exec vitest run`：79 个文件通过 / 2 跳过，831 通过 / 8 跳过；`pnpm knip` 通过；`pnpm build` 通过；真实 Electron e2e（`tests/e2e/knowledge` + `write-and-restore` + `shell.spec.ts -g "批注|S2b|S4|D0|写作与恢复|紧凑"`）9 passed（44.0 s）；`comments-s4.spec.ts` 单独 3 passed（选择器改用 `tests/e2e/helpers/tree.ts` 的 `treeItem`）。knip.json 与 S5 的合并冲突已解决（保留 `paths` 映射，去掉 S5 加的 `ignoreUnresolved` 与多余的依赖忽略，knip 仍通过）。
