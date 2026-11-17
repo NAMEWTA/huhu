@@ -77,7 +77,7 @@ export function releaseProvider(docName: string): void {
 
 /** 切换 Vault 等：销毁全部（含仍被引用的）provider，同时驱逐 editor-cache 里对应的编辑器。 */
 export function resetProviderPool(): void {
-  for (const name of [...entries.keys()]) destroy(name)
+  for (const name of entries.keys()) destroy(name) // Map 迭代中删除当前项是安全的
 }
 
 /** 文档被改名 / 删除：丢弃它的编辑表示，下次打开重新装载。 */

@@ -94,10 +94,10 @@
     max-height: 260px;
     overflow: auto;
     padding: var(--space-1, 4px);
-    background: var(--panel, #fff);
-    border: 1px solid var(--line, #ddd);
+    background: var(--panel);
+    border: 1px solid var(--line);
     border-radius: var(--radius-md, 8px);
-    box-shadow: var(--shadow-md, 0 4px 16px rgb(0 0 0 / 0.12));
+    box-shadow: var(--shadow-md);
   }
   .editor-ref-item {
     display: flex;
