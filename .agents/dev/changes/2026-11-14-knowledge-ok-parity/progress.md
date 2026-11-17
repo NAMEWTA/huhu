@@ -57,3 +57,9 @@
 | 依赖 / 许可证 / 补丁 | pnpm `patchedDependencies` 9 条；`gen-notices` 登记 `@pierre/trees`、`pako`；tiptap 全系固定 3.22.3 | `pnpm-workspace.yaml`、`PATCHES.md` |
 
 **S0 闸门判定**：SP-1 / SP-6 通过且量在阈值内；SP-4 未完全验证。**S2a 完成度**：2a-1（编译 + LocalDocProvider + host 骨架 + 本地 bridge）、2a-2（Tailwind / Lingui / 补丁 / 碰撞守护 / ok-patches）已做；2a-3 只迁入 core 测试。**S2a 未做**：app 的 dom 测试迁入；`OkHost.features` 与 `host/desktop-bridge.ts`（`window.okDesktop` 的 Huhu 等价物，需要端点矩阵的 14 个成员逐个对应，S2b / S5 用到时再做）；`routes/comments.ts`、`routes/files.ts`（S4 / S5）；`@hocuspocus/provider` 之外还留有 `y-indexeddb`（`client-persistence`）依赖，S2b 决定是否经别名关闭；React Compiler preset；`rc4` 视觉基线与复现（S0 项）。
+
+## S2b / S2c（2026-11-17）
+
+- S2b：`NoteDocument` 已切到 OK 编辑器（`packages/editor/src/rich`：`RichMarkdownEditor` / `ReadonlyMarkdown` / `SourceMarkdownEditor` / `OkRoot` / provider 池；`plugins/notes` 经动态 import 加载 `NoteEditorSurface`）。整合点通过：真实 Electron 打开—输入—保存—重开、无编辑不写盘、立即切换 / 关闭不丢最后字符、三视图切换、撤销。详见 [evidence/s2/s2b-verification.md](evidence/s2/s2b-verification.md)。
+- S2c：tasks / inbox 用紧凑变体；`@` 引用补全；P-S2c-01 补丁；Q4 成本数据入证据。
+- **未关闭**：F09（1 MiB 打开 6.6 s、5,000 行输入延迟用例超时）；格式化工具栏 / 属性面板 / 评论锚点装饰分别属于 S3 / S4（NoteDocument 已去掉旧格式按钮与 `comments` 装饰）；批注的源码偏移在富文本模式下按“选中文本在源码里唯一匹配”近似，S4 重做。
