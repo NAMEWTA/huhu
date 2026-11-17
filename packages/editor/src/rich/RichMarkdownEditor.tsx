@@ -89,6 +89,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queued = useRef(false)
   const ytextRef = useRef<Y.Text | null>(null)
+  const providerRef = useRef<LocalDocProvider | null>(null)
   // 源码优先打开的大文档：富文本表示（解析 + Y.XmlFragment）延后到第一次需要时才构建（P-S3：F09）
   const modeRef = useRef(mode)
   modeRef.current = mode
@@ -99,6 +100,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     pending.current = null
     const yt = ytextRef.current
     if (!yt) return
+    providerRef.current?.settleNow() // 大文档的桥结算可能被推迟：先结算再读 Y.Text
     const text = yt.toString()
     if (text === lastEmitted.current) return
     lastEmitted.current = text
@@ -109,6 +111,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   useEffect(() => {
     const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === 'source' })
     const p = pooled.provider
+    providerRef.current = p
     let disposeObserve: (() => void) | null = null
     const onSynced = () => {
       if (disposeObserve) return
@@ -135,6 +138,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       // 卸载前把还在防抖里的编辑交给会话（防止“输入后立刻关闭丢最后字符”）
       emitNow()
       cancelSync()
+      providerRef.current = null
       disposeObserve?.()
       ytextRef.current = null
       setProvider(null)
@@ -157,6 +161,11 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       live = false
     }
   }, [provider, mode])
+
+  // 切到源码前先结算被推迟的桥，使 CodeMirror 看到最新的 Y.Text
+  useEffect(() => {
+    if (mode === 'source') providerRef.current?.settleNow()
+  }, [mode])
 
   // layout 阶段先于宿主 passive 清理执行：保证 flush 先于会话释放
   useLayoutEffect(() => () => emitNow(), [emitNow])

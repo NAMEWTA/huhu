@@ -432,7 +432,7 @@ export function findRaceDuplicatedSpans(
 }
 
 /** Dispatch (precedent #13(b)): Observer callbacks only flag dirty state. */
-export function setupServerObservers(opts: SetupServerObserversOpts): () => void {
+export function setupServerObservers(opts: SetupServerObserversOpts): (() => void) & { settleNow(): void } {
   const { doc, xmlFragment, ytext, mdManager, schema } = opts;
 
   const handleBridgeMergeLoss = (
@@ -1584,9 +1584,51 @@ export function setupServerObservers(opts: SetupServerObserversOpts): () => void
     );
   };
 
+  // HUHU P-S3-02：上游把这套桥放在服务端进程里跑；本地模式它跑在渲染进程主线程，大文档每次按键都会同步做整篇 PM→Markdown 序列化（5000 段约 1 s）。
+  // 自适应推迟：上一次结算耗时超过阈值时，把后续结算合并到停顿之后（耗时的 2 倍，限制 150–1500 ms）；小文档仍同步结算，行为与上游一致。
+  // 推迟期间 Y.Text 落后于 Y.XmlFragment，所以所有读取 Y.Text 的出口（flush / 切模式 / 卸载）必须先调用 settleNow()。
+  const SLOW_SETTLE_MS = 12;
+  // 大文档（顶层块多）从一开始就按“慢结算”处理，第一次按键不必先吃一次整篇序列化
+  let lastSettleMs = xmlFragment.length > 400 ? SLOW_SETTLE_MS + 1 : 0;
+  let deferredTimer: ReturnType<typeof setTimeout> | null = null;
+  let deferredTransactions: Y.Transaction[] = [];
+  let deferredSince = 0;
+  const MAX_DEFER_MS = 3000;
+  const runAfterAll = (d: Y.Doc, transactions: Y.Transaction[]): void => {
+    const hadWork = xmlDirty || textDirty;
+    const t0 = performance.now();
+    afterAll(d, transactions);
+    if (hadWork) lastSettleMs = performance.now() - t0; // 空转（选区 / 桥自己的回写）不得把“慢”估计冲掉
+  };
+  const settleNow = (): void => {
+    if (deferredTimer === null) return;
+    clearTimeout(deferredTimer);
+    deferredTimer = null;
+    const pending = deferredTransactions;
+    deferredTransactions = [];
+    runAfterAll(doc, pending);
+  };
+  const afterAllScheduled = (d: Y.Doc, transactions: Y.Transaction[]): void => {
+    if (deferredTimer === null && lastSettleMs <= SLOW_SETTLE_MS) {
+      runAfterAll(d, transactions);
+      return;
+    }
+    // 只有桥自己的回写事务：无需推迟，也不能打断已排队的结算
+    if (deferredTimer === null && transactions.every((t) => t.origin === OBSERVER_SYNC_ORIGIN)) {
+      afterAll(d, transactions);
+      return;
+    }
+    if (deferredTimer === null) deferredSince = performance.now();
+    deferredTransactions.push(...transactions);
+    if (deferredTimer !== null) clearTimeout(deferredTimer);
+    // 连续输入也要定期结算（最长推迟 MAX_DEFER_MS），否则会话长时间拿不到文本
+    const wait = Math.min(1500, Math.max(150, lastSettleMs * 2));
+    deferredTimer = setTimeout(settleNow, Math.max(0, Math.min(wait, MAX_DEFER_MS - (performance.now() - deferredSince))));
+  };
+
   xmlFragment.observeDeep(observerA);
   ytext.observe(observerB);
-  doc.on('afterAllTransactions', afterAll);
+  doc.on('afterAllTransactions', afterAllScheduled);
   const unregisterDirtyProbe = registerBridgeDirtyProbe(() => xmlDirty || textDirty);
   const detachQuiescence = attachQuiescenceTracker(doc);
 
@@ -1651,14 +1693,18 @@ export function setupServerObservers(opts: SetupServerObserversOpts): () => void
     lastExternalEditorChangeMs > 0 ? lastExternalEditorChangeMs : undefined,
   );
 
-  return () => {
+  const dispose = (): void => {
+    if (deferredTimer !== null) clearTimeout(deferredTimer);
+    deferredTimer = null;
+    deferredTransactions = [];
     unregisterDirtyProbe();
     detachQuiescence();
     preDrainControllers.delete(doc);
     convergedFragmentWitnesses.delete(doc);
     externalEditorRecencies.delete(doc);
-    doc.off('afterAllTransactions', afterAll);
+    doc.off('afterAllTransactions', afterAllScheduled);
     xmlFragment.unobserveDeep(observerA);
     ytext.unobserve(observerB);
   };
+  return Object.assign(dispose, { settleNow });
 }

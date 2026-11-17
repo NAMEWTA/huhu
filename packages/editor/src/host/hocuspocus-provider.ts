@@ -38,7 +38,7 @@ export class LocalDocProvider {
   status: 'connected' | 'disconnected' = 'connected'
   private readonly listeners = new Map<string, Set<Listener>>()
   private destroyed = false
-  private disposeObservers: (() => void) | null = null
+  private disposeObservers: ((() => void) & { settleNow(): void }) | null = null
   private rich: boolean
   private richPromise: Promise<void> | null = null
 
@@ -48,6 +48,11 @@ export class LocalDocProvider {
     this.awareness = new Awareness(this.document)
     this.rich = !config.lazyRich
     void this.hydrate()
+  }
+
+  /** 立即结算被推迟的桥（P-S3-02）：所有读取 Y.Text 的出口（flush / 切模式 / 卸载）先调用 */
+  settleNow(): void {
+    this.disposeObservers?.settleNow()
   }
 
   /** 富文本表示是否已就绪（源码优先打开的文档在 ensureRich() 之前为 false） */
