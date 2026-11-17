@@ -28,7 +28,7 @@ function buildPdf(text: string): Buffer {
 }
 
 const INSTRUMENT = () => {
-  const w = window as unknown as Record<string, any>;
+  const w = window as unknown as Record<string, unknown>;
   const c = { urlCreated: 0, urlRevoked: 0, workerCreated: 0, workerTerminated: 0, intervals: new Set<number>(), timeouts: new Set<number>() };
   w["__leak"] = c;
   const create = URL.createObjectURL.bind(URL);
