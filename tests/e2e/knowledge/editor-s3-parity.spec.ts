@@ -7,8 +7,7 @@ import { treeItem, treeSettled } from "../helpers/tree.js";
 // S3 / B06、B07、C05：真实 Electron 里的鼠标选区、上下行光标、IME 组合输入（CDP imeSetComposition，不是真实输入法）、坏 YAML 诊断与修复入口。
 // 预言机是浏览器自己的 caretRangeFromPoint；对照 rc.4 的取证见 evidence/repro/README.md。
 
-const para = (n: number) =>
-  `第 ${n} 段：这是一段用来测试光标移动与鼠标选区的中文正文，包含 English words 和更多文字，需要足够长才能在窗口里折行成两到三行显示，继续补充一些文字让它更长一些，直到确实折行。`;
+const para = (n: number) => `第 ${n} 段：这是一段用来测试光标移动与鼠标选区的中文正文，包含 English words 和更多文字，需要足够长才能在窗口里折行成两到三行显示，继续补充一些文字让它更长一些，直到确实折行。`;
 const DOC = ["# 选区", "", ...Array.from({ length: 6 }, (_, i) => `${para(i + 1)}\n`)].join("\n");
 
 async function gotoNotes(page: Page): Promise<void> {
@@ -69,7 +68,11 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
     await treeItem(page, "选区.md").click();
     await expect(prose(page)).toContainText("第 3 段", { timeout: 30_000 });
     await installProbe(page);
-    const loc = (n: number) => prose(page).locator("p").filter({ hasText: `第 ${n} 段` }).first();
+    const loc = (n: number) =>
+      prose(page)
+        .locator("p")
+        .filter({ hasText: `第 ${n} 段` })
+        .first();
 
     // 段内拖选 ×6：与预言机的差异不超过 2 个字符（汉字中点命中取整）
     await loc(3).evaluate((el) => el.scrollIntoView({ block: "center" }));

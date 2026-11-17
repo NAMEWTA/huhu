@@ -380,12 +380,7 @@
    has no effect on non-text (SVG/icon) elements. Registered as a real Tailwind
    utility (not a plain class) so state variants can also drive it. */
 @utility shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--muted-foreground) 25%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 75%
-  );
+  background: linear-gradient(90deg, var(--muted-foreground) 25%, var(--foreground) 50%, var(--muted-foreground) 75%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -423,12 +418,7 @@
    `--foreground`. Mixing toward `--background` instead would drop the trough
    under WCAG AA on the default light theme. */
 @utility shimmer-subtle {
-  background: linear-gradient(
-    90deg,
-    var(--muted-foreground) 25%,
-    color-mix(in oklab, var(--foreground) 35%, var(--muted-foreground)) 50%,
-    var(--muted-foreground) 75%
-  );
+  background: linear-gradient(90deg, var(--muted-foreground) 25%, color-mix(in oklab, var(--foreground) 35%, var(--muted-foreground)) 50%, var(--muted-foreground) 75%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -585,43 +575,29 @@ body[style*="pointer-events: none"] .corner-card-column .floating-card-surface {
   }
 }
 
-[data-agent-flash-state="editing"][data-agent-flash-position="append"]
-  .ProseMirror
-  > *:nth-last-child(-n + 3 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
+[data-agent-flash-state="editing"][data-agent-flash-position="append"] .ProseMirror > *:nth-last-child(-n + 3 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
   animation: agent-flash 2s var(--ease-out-strong) forwards;
   position: relative;
 }
-[data-agent-flash-state="editing"][data-agent-flash-position="prepend"]
-  .ProseMirror
-  > *:nth-child(-n + 3) {
+[data-agent-flash-state="editing"][data-agent-flash-position="prepend"] .ProseMirror > *:nth-child(-n + 3) {
   animation: agent-flash 2s var(--ease-out-strong) forwards;
   position: relative;
 }
 
 /* Stagger — second affected block fires 30ms after first, third at 60ms */
-[data-agent-flash-state="editing"][data-agent-flash-position="append"]
-  .ProseMirror
-  > *:nth-last-child(2 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
+[data-agent-flash-state="editing"][data-agent-flash-position="append"] .ProseMirror > *:nth-last-child(2 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
   animation-delay: 30ms;
 }
-[data-agent-flash-state="editing"][data-agent-flash-position="append"]
-  .ProseMirror
-  > *:nth-last-child(1 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
+[data-agent-flash-state="editing"][data-agent-flash-position="append"] .ProseMirror > *:nth-last-child(1 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
   animation-delay: 0ms;
 }
-[data-agent-flash-state="editing"][data-agent-flash-position="prepend"]
-  .ProseMirror
-  > *:nth-child(1) {
+[data-agent-flash-state="editing"][data-agent-flash-position="prepend"] .ProseMirror > *:nth-child(1) {
   animation-delay: 0ms;
 }
-[data-agent-flash-state="editing"][data-agent-flash-position="prepend"]
-  .ProseMirror
-  > *:nth-child(2) {
+[data-agent-flash-state="editing"][data-agent-flash-position="prepend"] .ProseMirror > *:nth-child(2) {
   animation-delay: 30ms;
 }
-[data-agent-flash-state="editing"][data-agent-flash-position="prepend"]
-  .ProseMirror
-  > *:nth-child(3) {
+[data-agent-flash-state="editing"][data-agent-flash-position="prepend"] .ProseMirror > *:nth-child(3) {
   animation-delay: 60ms;
 }
 
@@ -639,15 +615,11 @@ body[style*="pointer-events: none"] .corner-card-column .floating-card-surface {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-agent-flash-state="editing"][data-agent-flash-position="append"]
-    .ProseMirror
-    > *:nth-last-child(-n + 3 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
+  [data-agent-flash-state="editing"][data-agent-flash-position="append"] .ProseMirror > *:nth-last-child(-n + 3 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
     animation: ok-agent-flash-bar 2s ease forwards;
     box-shadow: inset 3px 0 0 var(--color-agent);
   }
-  [data-agent-flash-state="editing"][data-agent-flash-position="prepend"]
-    .ProseMirror
-    > *:nth-child(-n + 3) {
+  [data-agent-flash-state="editing"][data-agent-flash-position="prepend"] .ProseMirror > *:nth-child(-n + 3) {
     animation: ok-agent-flash-bar 2s ease forwards;
     box-shadow: inset 3px 0 0 var(--color-agent);
   }
@@ -821,8 +793,7 @@ body[style*="pointer-events: none"] .corner-card-column .floating-card-surface {
 .ok-blob-firework {
   transform-box: fill-box;
   transform-origin: center;
-  animation: ok-blob-firework-pop var(--fx-duration, 700ms) var(--ease-out-strong)
-    var(--fx-delay, 0ms) forwards;
+  animation: ok-blob-firework-pop var(--fx-duration, 700ms) var(--ease-out-strong) var(--fx-delay, 0ms) forwards;
 }
 
 @keyframes ok-blob-firework-pop {
@@ -2317,9 +2288,7 @@ section[data-editor-pane-id] {
    widgets split a single link into sibling fragments inside its `[data-link]`
    wrapper; only the final fragment gets the cue. Wiki-link chips are
    paragraph-level siblings of each other, so they stay out of this rule. */
-.ProseMirror
-  [data-link]
-  [data-resolution-state="external"]:has(~ [data-resolution-state="external"])::after {
+.ProseMirror [data-link] [data-resolution-state="external"]:has(~ [data-resolution-state="external"])::after {
   content: none;
 }
 
@@ -2482,12 +2451,7 @@ section[data-editor-pane-id] {
 
 /* A frozen-row cell's resize handle overhangs its right border; raise the cell
    holding it so the next cell in that row does not cover the overhang. */
-.ProseMirror
-  .tableWrapper
-  > table
-  > tbody
-  > tr:first-child:has(> th)
-  > :is(th, td):not(:first-child):has(> .column-resize-handle) {
+.ProseMirror .tableWrapper > table > tbody > tr:first-child:has(> th) > :is(th, td):not(:first-child):has(> .column-resize-handle) {
   z-index: 3;
 }
 
@@ -2571,9 +2535,7 @@ section[data-editor-pane-id] {
  * placeholder visible. `:has()` is supported on Chrome 105+, Safari 15.4+,
  * Firefox 121+; older Firefox sees the pre-fix behavior (placeholder still
  * visible behind the panel) as graceful degradation. */
-.tiptap-editor:has(.jsx-component-chrome button[data-slot="popover-trigger"][data-state="open"])
-  .ProseMirror
-  p.is-empty::before {
+.tiptap-editor:has(.jsx-component-chrome button[data-slot="popover-trigger"][data-state="open"]) .ProseMirror p.is-empty::before {
   content: none;
 }
 
@@ -3126,20 +3088,8 @@ button:active:not(:disabled) {
 }
 
 .scroll-fade-mask {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    black 1rem,
-    black calc(100% - 1rem),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    black 1rem,
-    black calc(100% - 1rem),
-    transparent 100%
-  );
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
 }
 
 .scroll-fade-mask-bottom {
@@ -3148,20 +3098,8 @@ button:active:not(:disabled) {
 }
 
 .scroll-fade-mask-x {
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    black 1rem,
-    black calc(100% - 1rem),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    black 1rem,
-    black calc(100% - 1rem),
-    transparent 100%
-  );
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
 }
 
 /* shadcn Attachment component utilities (src/components/ui/attachment.tsx).
@@ -3174,38 +3112,14 @@ button:active:not(:disabled) {
    content to scroll past it — without it the first card's left edge is always
    masked and appears clipped. */
 .scroll-fade-x {
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    black 1rem,
-    black calc(100% - 1rem),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    black 1rem,
-    black calc(100% - 1rem),
-    transparent 100%
-  );
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
 }
 
 @supports (animation-timeline: scroll(self)) {
   .scroll-fade-x {
-    -webkit-mask-image: linear-gradient(
-      to right,
-      rgba(0, 0, 0, var(--scroll-fade-left)) 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      rgba(0, 0, 0, var(--scroll-fade-right)) 100%
-    );
-    mask-image: linear-gradient(
-      to right,
-      rgba(0, 0, 0, var(--scroll-fade-left)) 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      rgba(0, 0, 0, var(--scroll-fade-right)) 100%
-    );
+    -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--scroll-fade-left)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-right)) 100%);
+    mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--scroll-fade-left)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-right)) 100%);
     animation-name: scroll-fade-left-in, scroll-fade-right-out;
     animation-duration: auto;
     animation-timing-function: linear;
@@ -3229,12 +3143,7 @@ button:active:not(:disabled) {
    variant to resolve. Only the uploading/processing attachment states trigger
    it — the feedback picker's attachments are always `done`. */
 @utility shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--muted-foreground) 25%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 75%
-  );
+  background: linear-gradient(90deg, var(--muted-foreground) 25%, var(--foreground) 50%, var(--muted-foreground) 75%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -3254,20 +3163,8 @@ button:active:not(:disabled) {
 
 @supports (animation-timeline: scroll(self)) {
   .scroll-fade-mask {
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, var(--scroll-fade-top)) 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, var(--scroll-fade-top)) 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%
-    );
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--scroll-fade-top)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%);
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--scroll-fade-top)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%);
     animation-name: scroll-fade-top-in, scroll-fade-bottom-out;
     animation-duration: auto;
     animation-timing-function: linear;
@@ -3279,16 +3176,8 @@ button:active:not(:disabled) {
   }
 
   .scroll-fade-mask-bottom {
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      black calc(100% - 1.5rem),
-      rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      black calc(100% - 1.5rem),
-      rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%
-    );
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%);
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), rgba(0, 0, 0, var(--scroll-fade-bottom)) 100%);
     animation-name: scroll-fade-bottom-out;
     animation-duration: auto;
     animation-timing-function: linear;
@@ -3298,20 +3187,8 @@ button:active:not(:disabled) {
   }
 
   .scroll-fade-mask-x {
-    -webkit-mask-image: linear-gradient(
-      to right,
-      rgba(0, 0, 0, var(--scroll-fade-left)) 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      rgba(0, 0, 0, var(--scroll-fade-right)) 100%
-    );
-    mask-image: linear-gradient(
-      to right,
-      rgba(0, 0, 0, var(--scroll-fade-left)) 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      rgba(0, 0, 0, var(--scroll-fade-right)) 100%
-    );
+    -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--scroll-fade-left)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-right)) 100%);
+    mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--scroll-fade-left)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-right)) 100%);
     animation-name: scroll-fade-left-in, scroll-fade-right-out;
     animation-duration: auto;
     animation-timing-function: linear;
@@ -3330,40 +3207,16 @@ button:active:not(:disabled) {
    left/right inline mask would fade the first/last 1rem of the labels. */
 @media (width < 40rem) {
   .scroll-fade-mask-x-max-sm {
-    -webkit-mask-image: linear-gradient(
-      to right,
-      transparent 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to right,
-      transparent 0,
-      black 1rem,
-      black calc(100% - 1rem),
-      transparent 100%
-    );
+    -webkit-mask-image: linear-gradient(to right, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, black 1rem, black calc(100% - 1rem), transparent 100%);
   }
 }
 
 @supports (animation-timeline: scroll(self)) {
   @media (width < 40rem) {
     .scroll-fade-mask-x-max-sm {
-      -webkit-mask-image: linear-gradient(
-        to right,
-        rgba(0, 0, 0, var(--scroll-fade-left)) 0,
-        black 1rem,
-        black calc(100% - 1rem),
-        rgba(0, 0, 0, var(--scroll-fade-right)) 100%
-      );
-      mask-image: linear-gradient(
-        to right,
-        rgba(0, 0, 0, var(--scroll-fade-left)) 0,
-        black 1rem,
-        black calc(100% - 1rem),
-        rgba(0, 0, 0, var(--scroll-fade-right)) 100%
-      );
+      -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--scroll-fade-left)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-right)) 100%);
+      mask-image: linear-gradient(to right, rgba(0, 0, 0, var(--scroll-fade-left)) 0, black 1rem, black calc(100% - 1rem), rgba(0, 0, 0, var(--scroll-fade-right)) 100%);
       animation-name: scroll-fade-left-in, scroll-fade-right-out;
       animation-duration: auto;
       animation-timing-function: linear;
@@ -3523,10 +3376,7 @@ button:active:not(:disabled) {
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(
-    0.3773 0.1488 264.94 /
-    4%
-  ); /* based off of azure-900 with lower opacity */
+  --sidebar-accent: oklch(0.3773 0.1488 264.94 / 4%); /* based off of azure-900 with lower opacity */
   --sidebar-accent-foreground: var(--color-azure-600);
   --sidebar-hover: oklch(0.97 0 0);
   --sidebar-hover-foreground: oklch(0.145 0 0);
@@ -3732,17 +3582,12 @@ html.dark [data-app-header] button[data-variant="ghost"]:is(:hover, [data-state=
 }
 
 @media (hover: hover) {
-  [data-app-header]
-    [data-pane-switcher]
-    button[data-variant="ghost"]:not([aria-pressed="true"]):hover {
+  [data-app-header] [data-pane-switcher] button[data-variant="ghost"]:not([aria-pressed="true"]):hover {
     background-color: oklch(from var(--foreground) l c h / 0.1);
   }
 }
 
-html.dark
-  [data-app-header]
-  [data-pane-switcher]
-  button[data-variant="ghost"][aria-pressed="true"]:is(:hover, [data-state="open"]) {
+html.dark [data-app-header] [data-pane-switcher] button[data-variant="ghost"][aria-pressed="true"]:is(:hover, [data-state="open"]) {
   background-color: oklch(from var(--foreground) l c h / 0.15);
 }
 
@@ -3823,25 +3668,16 @@ html.electron-mode {
 html.electron-mode.electron-platform-win32,
 html.electron-mode.electron-platform-linux {
   --ok-titlebar-reserve-left: 1rem;
-  --ok-titlebar-reserve-right: calc(
-    100vw -
-    env(titlebar-area-x, 0px) -
-    env(titlebar-area-width, 100vw)
-  );
+  --ok-titlebar-reserve-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
 }
 
 @media (hover: hover) {
-  [data-app-header]
-    :is([data-variant^="ghost"], [data-slot="menubar-trigger"]):not([aria-pressed="true"]):hover {
+  [data-app-header] :is([data-variant^="ghost"], [data-slot="menubar-trigger"]):not([aria-pressed="true"]):hover {
     background-color: var(--desk-hover);
   }
 }
 
-[data-app-header]
-  :is([data-variant^="ghost"], [data-slot="menubar-trigger"]):not([aria-pressed="true"]):is(
-    [data-state="open"],
-    [aria-expanded="true"]
-  ) {
+[data-app-header] :is([data-variant^="ghost"], [data-slot="menubar-trigger"]):not([aria-pressed="true"]):is([data-state="open"], [aria-expanded="true"]) {
   background-color: var(--desk-hover);
 }
 
@@ -4081,8 +3917,7 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
  * keeps the soft in-range tint from compositing with the full-halo
  * selection paint if a future code path were to set both attributes. */
 @media (forced-colors: active) {
-  .ProseMirror
-    .jsx-component-wrapper[data-range-selected="true"]:not([data-selected="true"])::after {
+  .ProseMirror .jsx-component-wrapper[data-range-selected="true"]:not([data-selected="true"])::after {
     background: Highlight;
     opacity: 0.5;
   }
@@ -5185,17 +5020,12 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
 /* Suppress wrapper-level selection halo for File rows — see the comment
  * block above. The inner-row outline below is the selection feedback. */
 .ProseMirror .jsx-component-wrapper[data-component-type="file"][data-selected="true"]::after,
-.ProseMirror
-  .jsx-component-wrapper[data-component-type="wikiembedfile"][data-selected="true"]::after {
+.ProseMirror .jsx-component-wrapper[data-component-type="wikiembedfile"][data-selected="true"]::after {
   --selection-halo-opacity: 0;
 }
 
-.ProseMirror
-  .jsx-component-wrapper[data-component-type="file"][data-selected="true"]
-  a.ok-file-attachment,
-.ProseMirror
-  .jsx-component-wrapper[data-component-type="wikiembedfile"][data-selected="true"]
-  a.ok-file-attachment {
+.ProseMirror .jsx-component-wrapper[data-component-type="file"][data-selected="true"] a.ok-file-attachment,
+.ProseMirror .jsx-component-wrapper[data-component-type="wikiembedfile"][data-selected="true"] a.ok-file-attachment {
   /* Selection feedback is the muted background only — no outline ring.
    * The full-width row + bg tint reads clearly as "this row is the
    * thing you've selected" without painting a hard rectangle. The
@@ -5597,124 +5427,64 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
   display: none;
 }
 
-.tabs-content[data-active-index="0"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(1) {
+.tabs-content[data-active-index="0"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(1) {
   display: block;
 }
-.tabs-content[data-active-index="1"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(2) {
+.tabs-content[data-active-index="1"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(2) {
   display: block;
 }
-.tabs-content[data-active-index="2"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(3) {
+.tabs-content[data-active-index="2"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(3) {
   display: block;
 }
-.tabs-content[data-active-index="3"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(4) {
+.tabs-content[data-active-index="3"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(4) {
   display: block;
 }
-.tabs-content[data-active-index="4"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(5) {
+.tabs-content[data-active-index="4"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(5) {
   display: block;
 }
-.tabs-content[data-active-index="5"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(6) {
+.tabs-content[data-active-index="5"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(6) {
   display: block;
 }
-.tabs-content[data-active-index="6"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(7) {
+.tabs-content[data-active-index="6"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(7) {
   display: block;
 }
-.tabs-content[data-active-index="7"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(8) {
+.tabs-content[data-active-index="7"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(8) {
   display: block;
 }
-.tabs-content[data-active-index="8"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(9) {
+.tabs-content[data-active-index="8"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(9) {
   display: block;
 }
-.tabs-content[data-active-index="9"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(10) {
+.tabs-content[data-active-index="9"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(10) {
   display: block;
 }
-.tabs-content[data-active-index="10"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(11) {
+.tabs-content[data-active-index="10"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(11) {
   display: block;
 }
-.tabs-content[data-active-index="11"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(12) {
+.tabs-content[data-active-index="11"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(12) {
   display: block;
 }
-.tabs-content[data-active-index="12"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(13) {
+.tabs-content[data-active-index="12"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(13) {
   display: block;
 }
-.tabs-content[data-active-index="13"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(14) {
+.tabs-content[data-active-index="13"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(14) {
   display: block;
 }
-.tabs-content[data-active-index="14"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(15) {
+.tabs-content[data-active-index="14"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(15) {
   display: block;
 }
-.tabs-content[data-active-index="15"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(16) {
+.tabs-content[data-active-index="15"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(16) {
   display: block;
 }
-.tabs-content[data-active-index="16"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(17) {
+.tabs-content[data-active-index="16"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(17) {
   display: block;
 }
-.tabs-content[data-active-index="17"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(18) {
+.tabs-content[data-active-index="17"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(18) {
   display: block;
 }
-.tabs-content[data-active-index="18"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(19) {
+.tabs-content[data-active-index="18"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(19) {
   display: block;
 }
-.tabs-content[data-active-index="19"]
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer:nth-of-type(20) {
+.tabs-content[data-active-index="19"] > .component-children > [data-node-view-content-react] > .react-renderer:nth-of-type(20) {
   display: block;
 }
 
@@ -5754,8 +5524,7 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
    parent and child chrome bars from overlapping at the top-right.
    When hovering a Card inside Cards, only the Card's icons show.
    When hovering the Cards container gap, only Cards' icons show. */
-.jsx-component-wrapper:hover:not(:has(.component-children .jsx-component-wrapper:hover))
-> .jsx-component-chrome {
+.jsx-component-wrapper:hover:not(:has(.component-children .jsx-component-wrapper:hover)) > .jsx-component-chrome {
   opacity: 1;
   pointer-events: auto;
 }
@@ -5768,8 +5537,7 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
    SelectionStatePlugin (precedent #34) — a plain attribute-presence
    negation, so a parent whose descendant is the selected block doesn't
    paint chrome on both the parent AND the child. */
-.jsx-component-wrapper[data-selected="true"]:not([data-has-child-selected="true"])
-> .jsx-component-chrome {
+.jsx-component-wrapper[data-selected="true"]:not([data-has-child-selected="true"]) > .jsx-component-chrome {
   opacity: 1;
   pointer-events: auto;
 }
@@ -5781,19 +5549,13 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
    border, padding, opacity) — the hint is conveyed by *presence*, not by
    styling the gear differently. Hover upgrades the pill to show every
    button via the hover rule above. */
-.jsx-component-wrapper[data-needs-config="true"]:not(
-  :has(.component-children .jsx-component-wrapper:hover)
-) > .jsx-component-chrome {
+.jsx-component-wrapper[data-needs-config="true"]:not(:has(.component-children .jsx-component-wrapper:hover)) > .jsx-component-chrome {
   opacity: 1;
   pointer-events: auto;
 }
 /* In hint mode (not hovering the wrapper itself), hide every chrome button
    except the properties trigger so the gear is the only affordance shown. */
-.jsx-component-wrapper[data-needs-config="true"]:not(:hover):not(
-    :has(.component-children .jsx-component-wrapper:hover)
-  )
-  > .jsx-component-chrome
-  > button:not([aria-label*="properties"]) {
+.jsx-component-wrapper[data-needs-config="true"]:not(:hover):not(:has(.component-children .jsx-component-wrapper:hover)) > .jsx-component-chrome > button:not([aria-label*="properties"]) {
   display: none;
 }
 
@@ -5967,16 +5729,10 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
 /* Full motion only: under reduced motion the agent flash is the accent-bar
    fade in both themes. */
 @media (prefers-reduced-motion: no-preference) {
-  .dark
-    [data-agent-flash-state="editing"][data-agent-flash-position="append"]
-    .ProseMirror
-    > *:nth-last-child(-n + 3 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
+  .dark [data-agent-flash-state="editing"][data-agent-flash-position="append"] .ProseMirror > *:nth-last-child(-n + 3 of :not(.ok-trailing-affordance, .ProseMirror-gapcursor)) {
     animation-name: agent-flash-dark;
   }
-  .dark
-    [data-agent-flash-state="editing"][data-agent-flash-position="prepend"]
-    .ProseMirror
-    > *:nth-child(-n + 3) {
+  .dark [data-agent-flash-state="editing"][data-agent-flash-position="prepend"] .ProseMirror > *:nth-child(-n + 3) {
     animation-name: agent-flash-dark;
   }
 }
@@ -6710,11 +6466,7 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
   display: none;
 }
 
-.ok-rendered-diff
-  .tabs-content
-  > .component-children
-  > [data-node-view-content-react]
-  > .react-renderer {
+.ok-rendered-diff .tabs-content > .component-children > [data-node-view-content-react] > .react-renderer {
   display: block;
 }
 
@@ -6854,16 +6606,8 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
      substitute the colour before its mix. The mix ratios themselves are set on
      elements inside the shadow root and cannot be reached from out here. */
   --ok-conflict-tint: 60%;
-  --ok-conflict-current: color-mix(
-    in oklab,
-    var(--diff-added) var(--ok-conflict-tint),
-    var(--background)
-  );
-  --ok-conflict-incoming: color-mix(
-    in oklab,
-    var(--diff-modified) var(--ok-conflict-tint),
-    var(--background)
-  );
+  --ok-conflict-current: color-mix(in oklab, var(--diff-added) var(--ok-conflict-tint), var(--background));
+  --ok-conflict-incoming: color-mix(in oklab, var(--diff-modified) var(--ok-conflict-tint), var(--background));
   --conflict-bg-current-override: var(--ok-conflict-current);
   --conflict-bg-current-header-override: var(--ok-conflict-current);
   --conflict-bg-current-number-override: var(--ok-conflict-current);
@@ -6884,16 +6628,8 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
      as mix base avoids premultiplied-alpha collapse on Pierre's second mix pass. */
   --diffs-fg-number-addition-override: var(--diffs-fg);
   --diffs-fg-number-deletion-override: var(--diffs-fg);
-  --diffs-bg-addition-number-override: color-mix(
-    in oklab,
-    var(--diff-added) 10%,
-    var(--background)
-  );
-  --diffs-bg-deletion-number-override: color-mix(
-    in oklab,
-    var(--diff-removed) 10%,
-    var(--background)
-  );
+  --diffs-bg-addition-number-override: color-mix(in oklab, var(--diff-added) 10%, var(--background));
+  --diffs-bg-deletion-number-override: color-mix(in oklab, var(--diff-removed) 10%, var(--background));
 }
 
 /* Activity-panel typography: Pierre defaults to 13px sans-serif; the panel uses
@@ -6954,10 +6690,7 @@ html[data-bug-report-capturing] [data-slot="dialog-overlay"]:has(~ [data-bug-rep
   transition: none;
 }
 
-html:not([data-color-theme]):not(.dark)
-  .raw-mdx-fallback-wrapper[data-severity="error"]
-  > div
-  > span {
+html:not([data-color-theme]):not(.dark) .raw-mdx-fallback-wrapper[data-severity="error"] > div > span {
   color: #a31524;
 }
 
@@ -7010,11 +6743,7 @@ html:not([data-color-theme]).dark .cm-selectionLayer {
 }
 
 html:not([data-color-theme]) .cm-editor .cm-selectionBackground,
-html:not([data-color-theme])
-  .cm-editor.cm-focused
-  > .cm-scroller
-  > .cm-selectionLayer
-  .cm-selectionBackground {
+html:not([data-color-theme]) .cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
   background-color: var(--selection-soft);
 }
 
@@ -7037,11 +6766,7 @@ html:not([data-color-theme]):not(.dark) [data-slot="kbd"] {
   --muted-foreground: #686868;
 }
 
-[data-agents-panel-mount][data-chat-alone]
-  [data-agent-thread-root]
-  > :not(.absolute):not([data-testid="agent-thread-transcript"]):not(
-    :has([data-testid="agent-thread-transcript"])
-  ) {
+[data-agents-panel-mount][data-chat-alone] [data-agent-thread-root] > :not(.absolute):not([data-testid="agent-thread-transcript"]):not(:has([data-testid="agent-thread-transcript"])) {
   width: 100%;
   max-width: var(--chat-reading-width);
   margin-inline: auto;

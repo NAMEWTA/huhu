@@ -42,7 +42,11 @@ export function TextFileView({ path, language, toolbarLead, sidecar }: { path: s
       <div className="hu-empty-state" style={{ margin: "auto" }} data-testid="file-unreadable">
         {probe.state === "checking" ? <p className="hu-hint-text">{v.reading}</p> : null}
         {probe.state === "binary" ? <p className="hu-hint-text">{v.binary}</p> : null}
-        {probe.state === "encoding" ? <p className="hu-field-error" data-testid="file-encoding-unsupported">{v.encodingUnsupported}</p> : null}
+        {probe.state === "encoding" ? (
+          <p className="hu-field-error" data-testid="file-encoding-unsupported">
+            {v.encodingUnsupported}
+          </p>
+        ) : null}
         {probe.state === "error" ? <p className="hu-field-error">{probe.message}</p> : null}
       </div>
     </>
@@ -144,7 +148,11 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
         </Banner>
       ) : null}
       {snap.flushError ? <Banner tone="danger">{v.saveFailed(snap.flushError)}</Banner> : null}
-      {readOnly ? <p className="hu-hint-text" role="status" data-testid="file-readonly-note" style={{ margin: "6px 12px" }}>{v.mixedEol}</p> : null}
+      {readOnly ? (
+        <p className="hu-hint-text" role="status" data-testid="file-readonly-note" style={{ margin: "6px 12px" }}>
+          {v.mixedEol}
+        </p>
+      ) : null}
       {diag ? (
         <p className={diag.ok ? "hu-hint-text" : "hu-field-error"} role="status" data-testid="file-diagnostic" style={{ margin: "6px 12px" }}>
           {diag.ok ? v.jsonOk : v.jsonError(diag.message)}
@@ -178,4 +186,3 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
     </div>
   );
 }
-

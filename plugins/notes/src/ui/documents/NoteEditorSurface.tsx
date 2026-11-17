@@ -72,7 +72,16 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
 
   return (
     <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
-      <RichMarkdownEditor referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]} docName={docNameOf(props.path)} value={props.value} onChange={props.onChange} mode={props.mode} onPort={props.onPort} {...(props.fontSize ? { fontSize: props.fontSize } : {})} {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})} />
+      <RichMarkdownEditor
+        referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
+        docName={docNameOf(props.path)}
+        value={props.value}
+        onChange={props.onChange}
+        mode={props.mode}
+        onPort={props.onPort}
+        {...(props.fontSize ? { fontSize: props.fontSize } : {})}
+        {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})}
+      />
     </OkRoot>
   );
 }

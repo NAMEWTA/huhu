@@ -96,17 +96,19 @@ export function ResourceTree(p: ResourceTreeProps) {
   const onHide = useCallback((path: string) => writeHidden(addHiddenRule(hiddenRef.current, path)), [writeHidden]);
   const onOpen = useCallback((t: { kind: "file" | "folder" | "asset"; path: string }) => (t.kind === "folder" ? cb.current.onOpenFolder(t.path) : cb.current.onOpenFile(t.path)), []);
 
-  const menuItems = useCallback(
-    (path: string, kind: "file" | "folder") => {
-      const isNote = kind === "file" && /\.md$/i.test(path);
-      const act = (a: "move" | "favorite" | "version") => () => cb.current.onMenuAction(a, path, kind);
-      return [
-        { id: "move", label: r.move, onSelect: act("move") },
-        ...(isNote ? [{ id: "favorite", label: cb.current.isFavorite(path) ? r.unfavorite : r.favorite, onSelect: act("favorite") }, { id: "version", label: r.saveVersion, onSelect: act("version") }] : []),
-      ];
-    },
-    [],
-  );
+  const menuItems = useCallback((path: string, kind: "file" | "folder") => {
+    const isNote = kind === "file" && /\.md$/i.test(path);
+    const act = (a: "move" | "favorite" | "version") => () => cb.current.onMenuAction(a, path, kind);
+    return [
+      { id: "move", label: r.move, onSelect: act("move") },
+      ...(isNote
+        ? [
+            { id: "favorite", label: cb.current.isFavorite(path) ? r.unfavorite : r.favorite, onSelect: act("favorite") },
+            { id: "version", label: r.saveVersion, onSelect: act("version") },
+          ]
+        : []),
+    ];
+  }, []);
 
   const summary = summarizeCounts(loaded.current, hidden);
   const counts = formatCounts(summary);

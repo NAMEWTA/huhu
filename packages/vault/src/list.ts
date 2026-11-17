@@ -33,7 +33,10 @@ const sortKey = (e: VaultListEntry) => `${rank(e)}:${e.name}`;
 export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {}): VaultListOutput {
   const limit = opts.limit ?? VAULT_LIST_DEFAULT_LIMIT;
   const includeProtected = opts.includeProtected ?? false;
-  const rel = dir.split("/").filter((p) => p !== "" && p !== ".").join("/");
+  const rel = dir
+    .split("/")
+    .filter((p) => p !== "" && p !== ".")
+    .join("/");
   const root = realpathSync(vaultRoot);
   const abs = rel === "" ? root : resolveInVault(vaultRoot, rel);
   let st;

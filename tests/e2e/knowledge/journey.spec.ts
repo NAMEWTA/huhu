@@ -92,7 +92,10 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     writeFileSync(path.join(vault, "说明.txt"), "第一行\n");
     writeFileSync(path.join(vault, "数据.json"), '{"a":1}\n');
     writeFileSync(path.join(vault, "手册.pdf"), buildPdf(["Alpha Page", "Bravo Page"]));
-    writeFileSync(path.join(vault, "页面.html"), `<!doctype html><html><head><meta charset="utf-8"></head><body><h1 id="h">你好页面</h1><div id="js">no-js</div><script>document.getElementById("js").textContent="js-ran"</script></body></html>`);
+    writeFileSync(
+      path.join(vault, "页面.html"),
+      `<!doctype html><html><head><meta charset="utf-8"></head><body><h1 id="h">你好页面</h1><div id="js">no-js</div><script>document.getElementById("js").textContent="js-ran"</script></body></html>`,
+    );
 
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     const call = await caller(page);
@@ -147,9 +150,7 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     await title.fill("旅程乙");
     await title.blur();
     await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 15_000 });
-    await expect
-      .poll(() => readFileSync(path.join(vault, "日志.md"), "utf8"))
-      .toEqual(expect.stringContaining("title: 旅程乙"));
+    await expect.poll(() => readFileSync(path.join(vault, "日志.md"), "utf8")).toEqual(expect.stringContaining("title: 旅程乙"));
     const afterProp = readFileSync(path.join(vault, "日志.md"), "utf8");
     expect(afterProp).toContain("zip: 007");
     expect(afterProp).toContain("[[资料/机密笔记.md]]");

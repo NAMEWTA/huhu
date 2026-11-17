@@ -168,7 +168,10 @@ test(`F10 泄漏专项：笔记编辑器 / PDF / HTML 预览 / TXT 反复切换 
     }
     // 关闭全部标签后的终态
     for (let n = await page.getByTestId("document-tab").count(); n > 0; n = await page.getByTestId("document-tab").count()) {
-      await page.getByRole("button", { name: /^关闭 / }).first().click();
+      await page
+        .getByRole("button", { name: /^关闭 / })
+        .first()
+        .click();
     }
     const final = await sample(page, cdp, ROUNDS + 1, yProto);
 

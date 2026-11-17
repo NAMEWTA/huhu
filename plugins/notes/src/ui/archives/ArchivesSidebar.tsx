@@ -21,7 +21,12 @@ export interface ArchivesSidebarProps {
 function TypeRecords({ type, selected, onOpenArchive }: { type: ArchiveTypeDto; selected: string | null; onOpenArchive(path: string): void }) {
   const rows = useCapability<ArchiveDto[]>("archives.list", { type: type.path });
   const list = rows.data ?? [];
-  if (list.length === 0) return <p className="notes-tree-empty" style={{ paddingLeft: 48 }}>{rows.isLoading ? a.loading : a.noArchives}</p>;
+  if (list.length === 0)
+    return (
+      <p className="notes-tree-empty" style={{ paddingLeft: 48 }}>
+        {rows.isLoading ? a.loading : a.noArchives}
+      </p>
+    );
   return (
     <div role="group">
       {list.map((r) => {

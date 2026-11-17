@@ -25,7 +25,15 @@ describe("A04 `@` 候选来自索引查询，不依赖树的展开状态", () =>
 describe("A09 计数", () => {
   test("文件与目录分开；有隐藏时“可见 / 总数”", () => {
     const loaded = new Map([
-      ["", L([["A", "dir"], ["B", "dir"], ["x.md", "file"], ["y.json", "file"]])],
+      [
+        "",
+        L([
+          ["A", "dir"],
+          ["B", "dir"],
+          ["x.md", "file"],
+          ["y.json", "file"],
+        ]),
+      ],
       ["A", L([["A/1.md", "file"]])],
       ["B", L([])],
     ]);
@@ -34,14 +42,35 @@ describe("A09 计数", () => {
     expect(formatCounts(s)).toEqual({ files: "2 / 3", dirs: "1 / 2", note: null });
   });
   test("无隐藏时只显示数量；分页未完成或有目录未展开 → 标“已加载”，不冒充总数", () => {
-    const partial = summarizeCounts(new Map([["", L([["A", "dir"], ["x.md", "file"]], true)]]), []);
+    const partial = summarizeCounts(
+      new Map([
+        [
+          "",
+          L(
+            [
+              ["A", "dir"],
+              ["x.md", "file"],
+            ],
+            true,
+          ),
+        ],
+      ]),
+      [],
+    );
     expect(partial.complete).toBe(false);
     expect(formatCounts(partial)).toEqual({ files: "1", dirs: "1", note: "已加载，未完整统计" });
     const unexpanded = summarizeCounts(new Map([["", L([["A", "dir"]])]]), []);
     expect(unexpanded.complete).toBe(false);
   });
   test("档案是真实目录，只计一次（投影不重复计数）", () => {
-    const s = summarizeCounts(new Map([["", L([["Archives", "dir"]])], ["Archives", L([["Archives/X", "dir"]])], ["Archives/X", L([["Archives/X/index.md", "file"]])]]), []);
+    const s = summarizeCounts(
+      new Map([
+        ["", L([["Archives", "dir"]])],
+        ["Archives", L([["Archives/X", "dir"]])],
+        ["Archives/X", L([["Archives/X/index.md", "file"]])],
+      ]),
+      [],
+    );
     expect(s).toMatchObject({ totalDirs: 2, totalFiles: 1, complete: true });
   });
 });

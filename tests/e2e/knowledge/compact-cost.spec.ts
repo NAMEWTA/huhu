@@ -42,7 +42,12 @@ test("S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可�
     const before = await heap();
     const t0 = Date.now();
     await expect(page.getByTestId("task-comment")).toHaveCount(N, { timeout: 30_000 });
-    await expect(page.getByTestId("task-comment").nth(N - 1).locator(".ProseMirror")).toContainText(`第 ${N} 条评论`, { timeout: 60_000 });
+    await expect(
+      page
+        .getByTestId("task-comment")
+        .nth(N - 1)
+        .locator(".ProseMirror"),
+    ).toContainText(`第 ${N} 条评论`, { timeout: 60_000 });
     const renderMs = Date.now() - t0;
     const after = await heap();
     const instances = await page.locator('[data-testid="task-comment"] .ProseMirror').count();

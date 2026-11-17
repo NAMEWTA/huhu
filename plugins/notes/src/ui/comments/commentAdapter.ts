@@ -17,8 +17,7 @@ export function createCommentsPort(call: EngineCall): CommentsPort {
   const w = { write: true };
   return {
     list: (path) => call<HuhuComment[]>("comments.list", path ? { path } : {}),
-    create: (i) =>
-      call<HuhuComment>("comments.create", { path: i.path, target: i.target, ...(i.property !== undefined ? { property: i.property } : {}), ...passage(i), text: i.text }, w),
+    create: (i) => call<HuhuComment>("comments.create", { path: i.path, target: i.target, ...(i.property !== undefined ? { property: i.property } : {}), ...passage(i), text: i.text }, w),
     reply: (id, text) => call<HuhuComment>("comments.reply", { id, text }, w),
     resolve: (id) => call<HuhuComment>("comments.resolve", { id }, w),
     reopen: (id) => call<HuhuComment>("comments.reopen", { id }, w),
