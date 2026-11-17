@@ -415,7 +415,7 @@
 
 | 状态 | 行数 | 证据来源 |
 | --- | --- | --- |
-| 已验证 | 170 | 迁入并通过的上游 core / 评论单测（`test:vendor`：166 个文件、4156 个用例通过）；`editor-s3-matrix.spec.ts`（13 类 Markdown 构造无编辑打开字节不变且可渲染；`/` 菜单 36/36 项应用）；`editor-s3-rules.spec.ts`（输入规则 15/15、快捷键 4 + 块移动 + 撤销重做、粘贴 Markdown / HTML / 裸 URL）；`editor-s3-properties` / `editor-s3-parity`（属性、坏 YAML）；S4 / S5 / S2b 的 e2e |
+| 已验证 | 170 | 迁入并通过的上游 core / 评论单测（`test:vendor`：168 个文件、4210 个用例通过（70 个文件按 test/vendor-not-applicable.json 登记不适用，原因同 evidence/vendor-tests-na.json））；`editor-s3-matrix.spec.ts`（13 类 Markdown 构造无编辑打开字节不变且可渲染；`/` 菜单 36/36 项应用）；`editor-s3-rules.spec.ts`（输入规则 15/15、快捷键 4 + 块移动 + 撤销重做、粘贴 Markdown / HTML / 裸 URL）；`editor-s3-properties` / `editor-s3-parity`（属性、坏 YAML）；S4 / S5 / S2b 的 e2e |
 | 不适用 | 31 | 原“不适用”22 行 + 原“待定”12 行里 9 行按 OP-D19 评估后归入不适用（其余 3 行保留随 vendor），每行有原因 |
 | 未逐项验证 | 82 | 上游 app 的 dom 测试（85 个，缺 jsdom 预加载设施）未迁入，且没有专项 e2e：主要是 §1 的少见节点（下划线、转义、HTML 块、高亮、行内 JSX…）、§2 的辅助扩展、§3 的块组件渲染细节与交互（只验证了 `/` 插入）、§4 的单个工具栏按钮行为、§6 的 15 类粘贴来源识别与拖放、§7 的部分快捷键、§8 上下文菜单项 |
 

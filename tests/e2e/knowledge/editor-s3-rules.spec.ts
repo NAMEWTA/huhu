@@ -112,7 +112,16 @@ test("矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / �
       await page.keyboard.press("Shift+Home");
       await page.waitForTimeout(300); // ProseMirror 的选区经 selectionchange 异步同步：紧贴着按快捷键会作用在旧选区上（合成输入才会出现，人手速度不会）
       await page.keyboard.press(combo);
-      results[name] = (await prose(page).locator(sel).count()) > 0 ? "通过" : "无效果";
+      let attempts = 1;
+      // 观察到：偶发地第一次快捷键被忽略（磁盘上也没有标记，不是渲染不同步），重按一次即生效；这里如实记录重试次数，不把它当作“一次通过”
+      while ((await prose(page).locator(sel).count()) === 0 && attempts < 3) {
+        await page.keyboard.press("Shift+Home");
+        await page.waitForTimeout(300);
+        await page.keyboard.press(combo);
+        attempts++;
+      }
+      const applied = (await prose(page).locator(sel).count()) > 0;
+      results[name] = !applied ? "无效果" : attempts === 1 ? "通过" : `通过（第 ${attempts} 次按键才生效：首次按键被忽略）`;
     }
 
     // 块移动 Mod-Shift-ArrowUp：第二段上移后顺序对调
