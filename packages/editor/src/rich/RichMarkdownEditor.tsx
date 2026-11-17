@@ -88,6 +88,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const lastEmitted = useRef<string>(value)
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queued = useRef(false)
+  // 输入法组合进行中不把未提交的拼音交给会话（否则 800 ms 自动保存会把拼音写进磁盘）；组合结束后补一次交付。flush / 卸载仍然无条件交付。
+  const composing = useRef(false)
+  const deferredWhileComposing = useRef(false)
   const ytextRef = useRef<Y.Text | null>(null)
   const providerRef = useRef<LocalDocProvider | null>(null)
   // 源码优先打开的大文档：富文本表示（解析 + Y.XmlFragment）延后到第一次需要时才构建（P-S3：F09）
@@ -107,6 +110,29 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     onChangeRef.current(text)
   }, [])
 
+  useEffect(() => {
+    const inEditor = (e: Event) => e.target instanceof Element && e.target.closest('.ProseMirror') !== null
+    const start = (e: Event) => {
+      if (inEditor(e)) composing.current = true
+    }
+    const end = (e: Event) => {
+      if (!inEditor(e)) return
+      composing.current = false
+      // compositionend 之后 ProseMirror 才把最终文本写进文档：下一个宏任务再交付
+      setTimeout(() => {
+        if (composing.current || !deferredWhileComposing.current) return
+        deferredWhileComposing.current = false
+        emitNow()
+      }, 0)
+    }
+    document.addEventListener('compositionstart', start, true)
+    document.addEventListener('compositionend', end, true)
+    return () => {
+      document.removeEventListener('compositionstart', start, true)
+      document.removeEventListener('compositionend', end, true)
+    }
+  }, [emitNow])
+
   // 创建 / 销毁 provider（每个 docName 一个；park 的编辑器 DOM 由 vendor 的 editor-cache 管）
   useEffect(() => {
     const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === 'source' })
@@ -122,6 +148,10 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       const observer = (_e: Y.YTextEvent, tr: Y.Transaction) => {
         if (tr.origin === FILE_LOAD_ORIGIN) return
         // 同一事务批内合并为一次交付（微任务）：会话的文本始终与编辑器保持同步，退出前 flush 不依赖定时器
+        if (composing.current) {
+          deferredWhileComposing.current = true
+          return
+        }
         if (queued.current) return
         queued.current = true
         queueMicrotask(() => {
