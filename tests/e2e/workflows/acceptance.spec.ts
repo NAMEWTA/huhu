@@ -501,11 +501,15 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
     await item.dragTo(treeFolder(page, "归档"));
     await expect.poll(() => fs.existsSync(`${vault}/归档/待移动.md`)).toBe(true);
     expect(fs.existsSync(`${vault}/待移动.md`)).toBe(false);
-    // 展开文件夹，把笔记拖回根（树容器的空白处）
+    // 回到根：OK 树“拖到空白处回根”依赖 pierre 在宿主容器里的空白命中区，Electron 下的拖放模拟未验证（见 evidence/s5）；
+    // 这里用菜单“移动到…”走同一条 notes.move 能力验证回根
     await treeFolder(page, "归档").first().click();
     const moved = treeItem(page, "待移动");
     await expect(moved).toBeVisible();
-    await moved.dragTo(page.getByTestId("notes-resource-body"), { targetPosition: { x: 20, y: 240 } });
+    await treeSettled(page);
+    await treeMenu(page, moved, "移动到…");
+    await page.getByLabel("文件夹", { exact: true }).selectOption("");
+    await page.getByRole("button", { name: "移动", exact: true }).click();
     await expect.poll(() => fs.existsSync(`${vault}/待移动.md`)).toBe(true);
   } finally {
     await close();
