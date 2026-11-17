@@ -36,7 +36,7 @@ const MCP_TABS: { value: McpTab; label: string }[] = [
 const MCP_STATIC: Record<Exclude<McpTab, "tools">, { name: string; desc: string; source: string }[]> = {
   resources: [
     { name: "huhu://vault/summary", desc: "Vault 概览（名称、ID、统计）", source: "vault.info" },
-    { name: "huhu://notes/recent", desc: "最近修改的 20 篇笔记", source: "vault.tree" },
+    { name: "huhu://notes/recent", desc: "最近修改的 20 篇笔记", source: "vault.indexEntries" },
   ],
   templates: [{ name: "huhu://notes/{id}", desc: "按笔记 ID 或相对路径读取 Markdown 正文", source: "notes.list · notes.read" }],
   prompts: [

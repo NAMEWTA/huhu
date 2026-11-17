@@ -132,13 +132,6 @@ export class NotesService {
       if (err) throw errors.invalidInput(err);
     }
   }
-  /** 其他文件（图片、PDF、日志、代码……）：只给元信息，不当作文本加载（ACC-KN-10）。隐藏目录与语义目录不列出。 */
-  otherFiles(): { path: string; size: number; mtimeMs: number }[] {
-    return this.d.index
-      .entries()
-      .filter((e) => e.type === "file" && !/\.md$/i.test(e.path) && !SEMANTIC_DIRS.has(e.path.split("/")[0] ?? "") && !e.path.split("/").some((seg) => seg.startsWith(".")))
-      .map((e) => ({ path: e.path, size: e.size, mtimeMs: e.mtimeMs }));
-  }
   /** 磁盘上某个目录下的全部文件（相对路径）；不是目录则为空。 */
   private filesUnder(rel: string): string[] {
     const abs = this.d.files.abs(rel);
@@ -186,7 +179,39 @@ export class NotesService {
     return { path: rel, id: await this.ensureId(rel) };
   }
 
-  async duplicate(rel: string): Promise<{ path: string; id: string }> {
+  /** 复制文件夹：整棵子树按字节复制到“<名> · 副本”（不复制批注与历史；复制出的笔记得到新 id）。 */
+  private async duplicateFolder(rel: string): Promise<{ path: string; id: string; paths: string[] }> {
+    const dir = path.dirname(rel) === "." ? "" : `${path.dirname(rel)}/`;
+    let n = 0;
+    let dest: string;
+    do dest = `${dir}${path.basename(rel)} · 副本${n ? ` (${n})` : ""}`;
+    while (this.findCaseInsensitive(dest) && ++n < 100);
+    mkdirSync(this.d.files.abs(dest), { recursive: true });
+    const copied: string[] = [];
+    const emptyDirs: string[] = [dest];
+    for (const child of this.filesUnder(rel)) {
+      const to = `${dest}${child.slice(rel.length)}`;
+      if (statSync(this.d.files.abs(child)).isDirectory()) {
+        mkdirSync(this.d.files.abs(to), { recursive: true });
+        emptyDirs.push(to);
+        continue;
+      }
+      const src = this.d.files.read(child);
+      if (!src) continue;
+      await this.d.files.write(to, src.bytes, { expectedVersion: null });
+      copied.push(to);
+    }
+    const nonEmpty = (d: string) => copied.some((f) => f.startsWith(`${d}/`));
+    const list = new Set(this.folders());
+    for (const d of emptyDirs) if (!nonEmpty(d)) list.add(d);
+    await this.d.files.write(FOLDERS, Buffer.from(JSON.stringify([...list].sort(), null, 2)), { expectedVersion: this.d.files.currentVersion(FOLDERS) });
+    this.d.index.refreshPaths(copied);
+    return { path: dest, id: "", paths: copied };
+  }
+
+  async duplicate(rel: string): Promise<{ path: string; id: string; paths?: string[] }> {
+    rel = normalizeRelPath(rel);
+    if (existsSync(this.d.files.abs(rel)) && statSync(this.d.files.abs(rel)).isDirectory()) return this.duplicateFolder(rel);
     const src = this.d.files.read(rel);
     if (!src) throw errors.notFound(`文件不存在：${rel}`);
     const ext = path.extname(rel);

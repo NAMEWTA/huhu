@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { treeItem } from "../e2e/helpers/tree.js";
 
 /** 一个“屏幕”：进入方式写成数据。新增界面时在这里加一行，等价性检查自动覆盖。`leave` 用来关闭对话框、面板等临时层。 */
 export interface Screen {
@@ -70,7 +71,7 @@ export const SCREENS: Screen[] = [
     id: "note-editor",
     enter: async (p) => {
       await rail("知识库")(p);
-      await p.getByTestId("note-item").filter({ hasText: "示例笔记" }).first().click();
+      await treeItem(p, "示例笔记").first().click();
       await expect(p.getByTestId("markdown-editor")).toBeVisible();
     },
   },
@@ -78,7 +79,7 @@ export const SCREENS: Screen[] = [
     id: "note-reading",
     enter: async (p) => {
       await rail("知识库")(p);
-      await p.getByTestId("note-item").filter({ hasText: "示例笔记" }).first().click();
+      await treeItem(p, "示例笔记").first().click();
       await p.getByRole("tab", { name: "阅读" }).click();
       await p.waitForTimeout(400);
     },

@@ -17,6 +17,11 @@ export default defineConfig({
     alias: okAliases(__dirname),
     dedupe: ['react', 'react-dom', 'yjs', 'prosemirror-model', 'prosemirror-state', 'prosemirror-view', '@codemirror/state', '@codemirror/view'],
   },
-  build: { outDir: resolve(__dirname, 'harness-dist'), emptyOutDir: true, chunkSizeWarningLimit: 4000 },
+  build: {
+    outDir: resolve(__dirname, 'harness-dist'),
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 4000,
+    rollupOptions: { input: { index: resolve(__dirname, 'harness/index.html'), tree: resolve(__dirname, 'harness/tree.html') } },
+  },
   server: { port: 5199, strictPort: true },
 })

@@ -10,7 +10,7 @@ export interface ReferenceCandidate {
 
 /**
  * `@` 引用补全：输入 `@` 后弹出 Vault 文件和文件夹的模糊匹配，选中后插入 `[[相对路径]]`
- * （文件写完整相对路径含扩展名，文件夹以 `/` 结尾）。候选与打分由宿主提供（数据源 vault.tree，打分复用命令面板的 scoreText）。
+ * （文件写完整相对路径含扩展名，文件夹以 `/` 结尾）。候选与打分由宿主提供（数据源 vault.indexEntries，打分复用命令面板的 scoreText）。
  */
 export function referenceCompletion(search: (query: string) => readonly ReferenceCandidate[]): Extension {
   const source = (context: CompletionContext): CompletionResult | null => {

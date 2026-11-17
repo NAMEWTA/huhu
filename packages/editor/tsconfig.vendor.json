@@ -5,7 +5,8 @@
     "harness/**/*",
     "src/rich/**/*",
     "src/source/**/*",
-    "src/ok/**/*.ts"
+    "src/ok/**/*.ts",
+    "test/host-files.test.ts"
   ],
   "exclude": [
     "**/*.test.ts",

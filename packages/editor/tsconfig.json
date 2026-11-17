@@ -21,6 +21,7 @@
     "test/e2e",
     "test/sp5-yaml.test.ts",
     "src/rich",
-    "src/source"
+    "src/source",
+    "test/host-files.test.ts"
   ]
 }

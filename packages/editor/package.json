@@ -8,6 +8,10 @@
     "./rich": {
       "types": "./src/rich/rich.d.ts",
       "default": "./src/rich/index.ts"
+    },
+    "./ok-explorer": {
+      "types": "./src/host/ok-explorer.d.ts",
+      "default": "./src/host/explorer.tsx"
     }
   },
   "scripts": {

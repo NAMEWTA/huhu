@@ -81,7 +81,7 @@ export function createMcpServer(
     const json = (data: unknown) => ({ contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data) }] });
     if (uri === SUMMARY) return json(await need(backend.call("vault.info", {})));
     if (uri === RECENT) {
-      const tree = (await need(backend.call("vault.tree", { prefix: "" }))) as { path: string; type: string; mtimeMs: number }[];
+      const tree = (await need(backend.call("vault.indexEntries", { prefix: "" }))) as { path: string; type: string; mtimeMs: number }[];
       return json(
         tree
           .filter((e) => e.type === "file" && e.path.endsWith(".md") && !e.path.split("/").some((p) => p.startsWith(".")))
