@@ -1,5 +1,5 @@
-import { OkRoot, RichMarkdownEditor, coreRoutes, type EditorViewMode, type HostRoutes, type RichEditorPort } from "@huhu/editor/rich";
-import { useEngine, requestOpenPath } from "@huhu/workbench";
+import { OkRoot, RichMarkdownEditor, coreRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
+import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 
@@ -34,6 +34,8 @@ const docNameOf = (path: string): string => path.replace(MD, "");
  */
 export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const engine = useEngine();
+  // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
+  const refs = useReferenceIndex();
   const notes = useRef(props.notes);
   notes.current = props.notes;
   const onOpen = useRef(props.onOpen);
@@ -70,7 +72,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
 
   return (
     <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
-      <RichMarkdownEditor docName={docNameOf(props.path)} value={props.value} onChange={props.onChange} mode={props.mode} onPort={props.onPort} {...(props.fontSize ? { fontSize: props.fontSize } : {})} {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})} />
+      <RichMarkdownEditor referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]} docName={docNameOf(props.path)} value={props.value} onChange={props.onChange} mode={props.mode} onPort={props.onPort} {...(props.fontSize ? { fontSize: props.fontSize } : {})} {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})} />
     </OkRoot>
   );
 }
