@@ -17,7 +17,7 @@ export interface ViewerChoice {
   ext: string;
 }
 
-/** 可作为纯文本编辑的扩展名（FileCard 旧表的超集；json / html 单独分派）。 */
+/** 可作为纯文本编辑的扩展名（旧 FileCard 文本扩展名表的超集（FileCard 已删除）；json / html 单独分派）。 */
 const TEXT_EXT = new Set([
   "txt", "log", "csv", "tsv", "mmd", "mermaid", "md", "mdx", "markdown",
   "yaml", "yml", "toml", "ini", "cfg", "conf", "xml", "css", "scss", "less",

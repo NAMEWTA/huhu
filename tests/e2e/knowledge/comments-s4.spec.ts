@@ -43,8 +43,12 @@ async function selectText(page: Page, text: string, nth = 0): Promise<void> {
   );
 }
 
+/** 工具栏“添加批注”。窗口 < 1440px 时详情面板是覆盖在文档右侧的浮层（rc4 起的既有布局），面板已开时它会盖住这个按钮，
+ * 所以直接派发 click（真实点击由第一次打开面板前的用例覆盖）。 */
+const clickAddComment = (page: Page) => page.getByRole("button", { name: "添加批注" }).first().dispatchEvent("click");
+
 async function addComment(page: Page, body: string): Promise<void> {
-  await page.getByRole("button", { name: "添加批注" }).first().click();
+  await clickAddComment(page);
   const composer = page.getByTestId("comment-composer");
   await expect(composer).toBeVisible();
   await composer.getByRole("textbox").click();
@@ -172,6 +176,8 @@ test("D06：改名后评论仍绑定同一笔记；未解决的批注在重开�
     await expect(page.getByTestId("comment-thread")).toHaveCount(1);
     await expect.poll(() => commentFiles(vault).length).toBe(1);
 
+    // 窗口 < 1440px 时详情面板覆盖在文档右侧，会盖住工具栏的“笔记操作”：先关闭面板
+    await page.getByRole("button", { name: "关闭文档详情" }).click();
     await page.getByRole("button", { name: "笔记操作" }).click();
     await page.getByRole("menuitem", { name: "重命名" }).click();
     await page.getByRole("textbox", { name: "重命名" }).fill("新名");

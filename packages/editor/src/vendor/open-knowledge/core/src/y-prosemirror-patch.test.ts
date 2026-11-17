@@ -1,10 +1,20 @@
 import type { Dirent } from 'node:fs';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
+// Huhu 适配（P-T-01）：上游 REPO_ROOT 是 packages/core/src 上三级；vendor 后向上找含 pnpm-workspace.yaml 的目录
 function findRepoRoot(): string {
+  let dir = __dirname;
+  while (dir !== dirname(dir)) {
+    try {
+      statSync(join(dir, 'pnpm-workspace.yaml'));
+      return dir;
+    } catch {}
+    dir = dirname(dir);
+  }
   return join(__dirname, '..', '..', '..');
 }
 
@@ -34,7 +44,8 @@ function installedPackageRoots(): string[] {
 }
 
 function resolveFileFromSpecifier(specifier: string): string {
-  const resolved = import.meta.resolve(specifier);
+  // Huhu 适配（P-T-01）：vitest 的 vite-node 没有 import.meta.resolve
+  const resolved = createRequire(fileURLToPath(import.meta.url)).resolve(specifier);
   return resolved.startsWith('file:') ? fileURLToPath(resolved) : resolved;
 }
 
@@ -96,16 +107,6 @@ function walkInstalledPackageDirs(
 
 const PATCHED_BUNDLES = [
   {
-    label: 'y-prosemirror CJS',
-    packageName: 'y-prosemirror',
-    relativePath: ['dist', 'y-prosemirror.cjs'],
-  },
-  {
-    label: 'y-prosemirror ESM src',
-    packageName: 'y-prosemirror',
-    relativePath: ['src', 'plugins', 'sync-plugin.js'],
-  },
-  {
     label: '@tiptap/y-tiptap CJS',
     packageName: '@tiptap/y-tiptap',
     relativePath: ['dist', 'y-tiptap.cjs'],
@@ -142,10 +143,7 @@ describe('R13 patch verification (y-prosemirror + @tiptap/y-tiptap)', () => {
       if (entry) patched[entry[2]] = entry[3];
     }
 
-    expect(patched['y-prosemirror@1.3.7']).toBeDefined();
-    expect(patched['y-prosemirror@1.3.7']).toContain('patches/');
-    expect(patched['y-prosemirror@1.3.7']).toContain('y-prosemirror');
-
+    // Huhu 适配（P-T-01）：Huhu 不安装独立的 y-prosemirror，只登记 @tiptap/y-tiptap 的补丁
     expect(patched['@tiptap/y-tiptap@3.0.3']).toBeDefined();
     expect(patched['@tiptap/y-tiptap@3.0.3']).toContain('patches/');
     expect(patched['@tiptap/y-tiptap@3.0.3']).toContain('y-tiptap');
@@ -208,17 +206,6 @@ describe('R13 patch verification (y-prosemirror + @tiptap/y-tiptap)', () => {
     }
   }
 
-  test('y-prosemirror patch file exists on disk and references both artifacts', () => {
-    const patchPath = join(REPO_ROOT, 'patches', 'y-prosemirror@1.3.7.patch');
-    const patchContent = readFileSync(patchPath, 'utf8');
-    expect(patchContent).toContain('y-prosemirror.cjs');
-    expect(patchContent).toContain('src/plugins/sync-plugin.js');
-    expect(patchContent).toContain('R13 patch:');
-    expect(patchContent).toContain('rawMdxFallback');
-    expect(patchContent).toContain('__okYpsCounters');
-    expectYmarkEncoding(patchContent);
-  });
-
   test('@tiptap/y-tiptap patch file exists on disk and references both bundles', () => {
     const patchPath = join(REPO_ROOT, 'patches', '@tiptap%2Fy-tiptap@3.0.3.patch');
     const patchContent = readFileSync(patchPath, 'utf8');
@@ -275,7 +262,7 @@ describe('R13 patch verification (y-prosemirror + @tiptap/y-tiptap)', () => {
       walkInstalledPackageDirs(root, scanPackageDir, visited);
     }
 
-    for (const guarded of ['y-prosemirror', 'y-tiptap']) {
+    for (const guarded of ['y-tiptap']) {
       expect(
         reachedPackages.has(guarded),
         `dep-tree walk never reached "${guarded}" (visited ${reachedPackages.size} packages), ` +

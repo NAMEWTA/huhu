@@ -1188,6 +1188,12 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("手动保存的正文");
     await page.getByTestId("note-save").click();
     await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8")).toContain("手动保存的正文");
+    // Mod+S 立即保存（快捷键登记表里的“立即保存当前笔记”）：手动保存模式下按键后落盘
+    await page.keyboard.type("，快捷键保存");
+    await page.waitForTimeout(1500);
+    expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("快捷键保存");
+    await page.keyboard.press("ControlOrMeta+s");
+    await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8")).toContain("快捷键保存");
 
     // 没点保存就离开：手动保存模式不改动文件，编辑留作草稿，回来时可恢复
     await page.keyboard.type("，离开前的补充");

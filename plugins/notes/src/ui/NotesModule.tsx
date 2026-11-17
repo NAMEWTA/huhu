@@ -98,7 +98,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   }, []);
   const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
-  // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileCard 与标签存活判断；树本身直接列举文件系统
+  // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileViewer 与标签存活判断；树本身直接列举文件系统
   const indexEntries = useCapability<{ path: string; type: "file" | "dir"; size?: number; mtimeMs?: number }[]>("vault.indexEntries", {});
   const fileRefs: NoteRef[] = useMemo(
     () =>

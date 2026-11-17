@@ -344,7 +344,9 @@ const img = (k, src) => new Promise((res) => { const i = new Image(); i.onload =
     expect(R["img-control-ok"], "对照：Vault 内合法图片应能加载").toBe("ALLOWED");
     expect(R["top-nav"]).toMatch(/blocked|attempted/);
     // 工作台没有被导航、没有发生副作用
-    expect(await page.evaluate(() => location.href)).toBe(await page.evaluate(() => (window as unknown as { __url0: string }).__url0));
+    // 比较去掉 hash 的地址：S5 的文件树打开资源时 OK 会把目标写进 URL hash（`#/evil.html`），这不是预览页导航工作台
+    const noHash = (u: string) => u.split("#")[0];
+    expect(noHash(await page.evaluate(() => location.href))).toBe(noHash(await page.evaluate(() => (window as unknown as { __url0: string }).__url0)));
     expect(await page.getByTestId("html-preview-frame").getAttribute("src")).toMatch(/^huhu-preview:\/\//);
     // postMessage 是浏览器允许的单向通知；工作台没有处理它，不泄露任何桥接（上面 parent-bridge 已断言）
     expect(await app.evaluate(() => typeof (globalThis as { __leak?: unknown }).__leak)).toBe("undefined");

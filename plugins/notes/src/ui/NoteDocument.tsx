@@ -266,7 +266,18 @@ export function NoteDocument(props: NoteDocumentProps) {
         <span className="grow" />
         <span>{ed?.autosave === false ? n.manualSave : n.autosave}</span>
       </div>
-      <div className="notes-editor-body" data-testid="markdown-editor" data-editor-mode={mode}>
+      <div
+        className="notes-editor-body"
+        data-testid="markdown-editor"
+        data-editor-mode={mode}
+        onKeyDownCapture={(e) => {
+          // Mod+S 立即保存（捕获阶段：富文本 / 源码编辑器内部不会吞掉它）
+          if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
+            e.preventDefault();
+            void save();
+          }
+        }}
+      >
         <Suspense fallback={<p>{t.loading}</p>}>
           {/* 阅读视图 = 同一个编辑器 editable:false；保留既有的阅读区测试标识 */}
           <div className="notes-editor-surface" {...(reading ? { "data-testid": "notes-reading-pane" } : {})} data-editor-mode={mode}>
