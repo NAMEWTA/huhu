@@ -26,9 +26,12 @@ function importerVersions(importer) {
   return out
 }
 const resolved = { ...importerVersions('packages/core'), ...importerVersions('packages/app') }
+// 有意偏离上游锁文件的依赖（理由见 vendor/open-knowledge/PATCHES.md P-D-01 / ledger R-52）：
+//   pdfjs-dist 统一到 notes 查看器的 6.3.289（带 ORCA 局部渲染补丁），katex 取上游 0.16.47
+const KEEP = new Set(['pdfjs-dist'])
 const changed = []
 for (const name of Object.keys(pj.dependencies)) {
-  if (base.dependencies?.[name]) continue
+  if (base.dependencies?.[name] || KEEP.has(name)) continue
   const v = resolved[name]
   if (v && v !== pj.dependencies[name]) {
     changed.push(`${name}: ${pj.dependencies[name]} -> ${v}`)

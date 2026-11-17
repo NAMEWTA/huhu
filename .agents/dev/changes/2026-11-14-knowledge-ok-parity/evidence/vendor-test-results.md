@@ -1,102 +1,107 @@
-# 上游测试首版结果（core，node 环境）
+# 上游测试结果（G04，三分类）
 
-生成：`node scripts/ok-test-report.mjs`（数据 `packages/editor/test-results/vendor.json`，由 `pnpm --filter @huhu/editor test:vendor` 产出）。固定上游 `44a2e0a`。
+生成：`node scripts/ok-test-report.mjs`（数据 `packages/editor/test-results/vendor.json` ← `pnpm --filter @huhu/editor test:vendor`；不适用清单 `vendor-tests-na.json` ← `scripts/ok-tests-prune.mjs`；原样基线 `tests-manifest.json` ← `ok-patches.mjs --write-tests-manifest`）。固定上游 `44a2e0a`。
 
 | 项 | 数 |
 | --- | --- |
-| 测试文件总数 | 216 |
-| 通过 | 143 |
-| 失败（被测模块在 vendor 内） | 3 |
-| 不适用（被测模块不在 closure / 依赖上游 test-support 或构建脚本） | 70 |
-| **适用文件通过率** | **97.9%**（143 / 146） |
-| 单测用例：通过 / 失败 / 总数 | 3958 / 18 / 3978 |
+| 上游测试文件（已评估） | 238 |
+| 通过（上游原样） | 167 |
+| 适配后通过 | 1 |
+| 失败 | 0 |
+| 不适用（没迁入，逐条有原因） | 70 |
+| **适用文件通过率** | **100.0%**（168 / 168） |
+| 单测用例：通过 / 失败 / 跳过 | 4210 / 0 / 2 |
 
-阈值：适配后适用文件通过率 ≥ 70%（decisions OP-D02）。**范围说明**：只迁入了 core 的测试；app（含 85 个 jsdom dom 测试）依赖上游 `tests/dom/jsdom-preload.ts` 与 `test-support/`，**尚未迁入，不计入上述通过率**。
+阈值：≥ 70%（decisions OP-D02）。**范围**：core 的 node 测试 + app/comments 的非 dom 测试；app 的 jsdom dom 测试（上游 85 个 `*.dom.test.*`）依赖上游 `tests/dom/jsdom-preload.ts` 与 `test-support/`，**未迁入、不在分母里**——这是范围缺口，不是通过（见 progress.md 的“未验证”）。
 
-## 失败（需适配或登记）
+## 失败
 
-- `src/vendor/open-knowledge/core/src/acp/thread-protocol.typelock.test.ts`（0/0 失败）：Cannot find module './thread-protocol.typelock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a95957
-- `src/vendor/open-knowledge/core/src/agent-registry/derived-tables.test.ts`（0/0 失败）：Cannot find module '../acp/agent-posture.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/extensions/list.test.ts`（0/0 失败）：Cannot find package '@tiptap/extension-paragraph' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959571
+无
 
-## 不适用（70）
+## 适配后通过（1）
 
-- `src/vendor/open-knowledge/core/src/app-shell-csp.test.ts`：Cannot find module './app-shell-csp.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/burst-grouping.test.ts`：Cannot find module './burst-grouping.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90
-- `src/vendor/open-knowledge/core/src/filesystem-identity.test.ts`：Cannot find module './filesystem-identity.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb
-- `src/vendor/open-knowledge/core/src/git-pathspec.test.ts`：Cannot find module '../../../test-support/configure-git-fixture.test-helper.ts' imported from '/home/wta/projects/huhu/.
-- `src/vendor/open-knowledge/core/src/helper-bundle.test.ts`：Cannot find module './helper-bundle.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/schema-invariant.test.ts`
-- `src/vendor/open-knowledge/core/src/shadow-repo-layout.test.ts`：Cannot find module '../../../test-support/capabilities.test-helper.ts' imported from '/home/wta/projects/huhu/.claude/wo
-- `src/vendor/open-knowledge/core/src/skill-folder-state.test.ts`：Cannot find module './skill-folder-state.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/sync-paused-reason.test.ts`：Cannot find module './sync-paused-reason.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/y-prosemirror-patch.test.ts`
-- `src/vendor/open-knowledge/core/src/acp/agent-posture.test.ts`：Cannot find module './agent-posture.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/acp/codex-legacy-notice.test.ts`：Cannot find module '../../../../test-support/fixtures/codex-legacy-warning-envelopes.json' imported from '/home/wta/proj
-- `src/vendor/open-knowledge/core/src/acp/permissive-mode.test.ts`：Cannot find module './permissive-mode.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be9
-- `src/vendor/open-knowledge/core/src/config/auto-sync-mode-confinement.uncached.test.ts`：Cannot find module '../../../../test-support/test-only-source-file.mjs' imported from '/home/wta/projects/huhu/.claude/w
-- `src/vendor/open-knowledge/core/src/config/collect-config-diagnostics.test.ts`：Cannot find module './collect-config-diagnostics.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959
-- `src/vendor/open-knowledge/core/src/config/committed-scope-diagnostics.test.ts`：Cannot find module './committed-scope-diagnostics.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a95
-- `src/vendor/open-knowledge/core/src/config/env-layer.test.ts`：Cannot find module './env-layer.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/config/inspect-config-paths.test.ts`：Cannot find module '../../../../test-support/temp-dir.test-helper.ts' imported from '/home/wta/projects/huhu/.claude/wor
-- `src/vendor/open-knowledge/core/src/config/loopback-parity.test.ts`：Cannot find module '../../../../test-support/no-net-connect.ts' imported from '/home/wta/projects/huhu/.claude/worktrees
-- `src/vendor/open-knowledge/core/src/config/read-config-safely.test.ts`：Cannot find module './read-config-safely.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/config/removed-keys.test.ts`：Cannot find module './removed-keys.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/
-- `src/vendor/open-knowledge/core/src/config/resolve-server-config.test.ts`：Cannot find module './resolve-server-config.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710f
-- `src/vendor/open-knowledge/core/src/config/skill-source-policy.test.ts`：Cannot find module './read-config-safely.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/config/source-locator.test.ts`：Cannot find module './source-locator.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90
-- `src/vendor/open-knowledge/core/src/config/write-config-patch.test.ts`：Cannot find module './write-config-patch.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/constants/chrome.uncached.test.ts`：Cannot find module '../../scripts/chrome-resolver.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a95
-- `src/vendor/open-knowledge/core/src/constants/lifecycle.test.ts`：Cannot find module './lifecycle.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/constants/mcp-launcher.test.ts`：Cannot find module './mcp-launcher.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/
-- `src/vendor/open-knowledge/core/src/constants/ok-user-home.test.ts`：Cannot find module '../config/write-config-patch.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959
-- `src/vendor/open-knowledge/core/src/constants/path-shim-layout.test.ts`：Cannot find module './path-shim-layout.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be
-- `src/vendor/open-knowledge/core/src/constants/pi-docs.uncached.test.ts`：ENOENT: no such file or directory, open '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packages/edit
-- `src/vendor/open-knowledge/core/src/constants/preview-theme-tokens.uncached.test.ts`：Cannot find module '../../scripts/preview-theme-token-resolver.ts' imported from '/home/wta/projects/huhu/.claude/worktr
-- `src/vendor/open-knowledge/core/src/constants/shared-ok-entries.test.ts`：Cannot find module '../installed-skills/schema.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a95957
-- `src/vendor/open-knowledge/core/src/constants/uninstall-feedback.test.ts`：Cannot find module '../index.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packag
-- `src/vendor/open-knowledge/core/src/frontmatter/record.test.ts`：Cannot find module './record.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packag
-- `src/vendor/open-knowledge/core/src/git/git-spawn-path.test.ts`：Cannot find module './git-spawn-path.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90
-- `src/vendor/open-knowledge/core/src/git/missing-git-helper.test.ts`：Cannot find module './missing-git-helper.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5
-- `src/vendor/open-knowledge/core/src/git/worktree-path.test.ts`：Cannot find module './worktree-path.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/i18n/node-locale-provider.test.ts`：Cannot find module './node-locale-provider.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ff
-- `src/vendor/open-knowledge/core/src/logging/renderer-capture-scrub-coverage.uncached.test.ts`
-- `src/vendor/open-knowledge/core/src/registry/jsx-src-ref-tags.test.ts`：Cannot find module './jsx-src-ref-tags.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be
-- `src/vendor/open-knowledge/core/src/registry/projection.test.ts`：Cannot find module './projection.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pa
-- `src/vendor/open-knowledge/core/src/search/workspace-search.parity.test.ts`：ENOENT: no such file or directory, open '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packages/edit
-- `src/vendor/open-knowledge/core/src/sharing/share-url-v2.test.ts`：Cannot find module '../../../../test-support/fixtures/share-url-v1-v2.json' imported from '/home/wta/projects/huhu/.clau
-- `src/vendor/open-knowledge/core/src/skills-catalog/dedup.test.ts`：Cannot find module './dedup.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/package
-- `src/vendor/open-knowledge/core/src/skills-catalog/enumerate.test.ts`：Cannot find module './enumerate.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/skills-catalog/harness-homes.test.ts`：Cannot find module './harness-homes.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/skills-catalog/leaderboard.test.ts`：Cannot find module './leaderboard.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/p
-- `src/vendor/open-knowledge/core/src/skills-catalog/plugin-upstream.test.ts`：Cannot find module './plugin-upstream.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be9
-- `src/vendor/open-knowledge/core/src/skills-catalog/publisher.test.ts`：Cannot find module './publisher.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/skills-catalog/repo-marketplace.test.ts`：Cannot find module './repo-marketplace.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be
-- `src/vendor/open-knowledge/core/src/skills-catalog/scope.test.ts`：Cannot find module './scope.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/package
-- `src/vendor/open-knowledge/core/src/skills-catalog/search.test.ts`：Cannot find module './search.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packag
-- `src/vendor/open-knowledge/core/src/skills-catalog/skill-registry.test.ts`：Cannot find module './skill-registry.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90
-- `src/vendor/open-knowledge/core/src/skills-catalog/source-fields.test.ts`：Cannot find module './acquire/fetch.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/theme/default-theme-contrast.uncached.test.ts`：Cannot find package 'culori' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packages/e
-- `src/vendor/open-knowledge/core/src/utils/apply-by-prefix-suffix.test.ts`：Cannot find module './apply-by-prefix-suffix.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710
-- `src/vendor/open-knowledge/core/src/utils/github-stars.test.ts`：Cannot find module './github-stars.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/
-- `src/vendor/open-knowledge/core/src/utils/path-resolve.test.ts`：Cannot find module './path-resolve' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/utils/relative-time.test.ts`：Cannot find module './relative-time.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d
-- `src/vendor/open-knowledge/core/src/utils/sanitize-folder-name.test.ts`：Cannot find module './sanitize-folder-name.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ff
-- `src/vendor/open-knowledge/core/src/utils/sleep.test.ts`：Cannot find module './sleep.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/package
-- `src/vendor/open-knowledge/core/src/utils/tag-rollup.test.ts`：Cannot find module './tag-rollup.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pa
-- `src/vendor/open-knowledge/core/src/utils/uninstall-feedback-submit.test.ts`：Cannot find module '../index.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/packag
-- `src/vendor/open-knowledge/core/src/util/atomic-temp-path.test.ts`：Cannot find module '../../../../test-support/configure-git-fixture.test-helper.ts' imported from '/home/wta/projects/huh
-- `src/vendor/open-knowledge/core/src/util/atomic-yaml-write.test.ts`：Cannot find module './atomic-yaml-write.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5b
-- `src/vendor/open-knowledge/core/src/util/file-lock-deadline.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/util/file-lock.test.ts`：Cannot find module './file-lock.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ffb5be90d/pac
-- `src/vendor/open-knowledge/core/src/util/project-logs-dir.test.ts`：Cannot find module '../constants/ok-user-home.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a959571
-- `src/vendor/open-knowledge/core/src/util/spawn-error-log-open.test.ts`：Cannot find module '../constants/lifecycle.ts' imported from '/home/wta/projects/huhu/.claude/worktrees/agent-a9595710ff
+- `core/src/y-prosemirror-patch.test.ts`
 
-## 审计订正（2026-11-15，audit @36b60e8 实测）
+适配内容见 `packages/editor/src/vendor/open-knowledge/PATCHES.md`（P-T-xx）与 `pnpm-workspace.yaml` 的依赖对齐 overrides（例：`mdast-util-gfm-task-list-item` 浮到 2.0.1 时 `extensions/list.test.ts` 的任务项序列化用例失败 → 钉回上游锁文件版本 2.0.0 后通过，这是测试抓到的真实行为差异）。
 
-`pnpm --filter @huhu/editor run test:vendor` 实际结果：**73 个文件失败 / 143 通过（共 216）；用例 18 失败 / 3958 通过 / 2 跳过**。上文 97.9% 只是人工把部分文件归为“不适用”后的口径，不得作为验收依据。失败归因：
-- `y-prosemirror-patch.test.ts`（16 用例）：`REPO_ROOT` 指向 vendor 目录，找不到 `pnpm-workspace.yaml` / `patches/`，`import.meta.resolve` 不可用——**测试依赖上游仓库布局，未适配**，不是“不适用”，S8 前要么适配要么在结果表里写明原因。
-- `schema-invariant.test.ts`（1 用例）：`schema-snapshot.json` 未随闭包复制——补复制。
-- `renderer-capture-scrub-coverage.uncached.test.ts`（1 用例）：扫描 `app/src`、`desktop/src`，闭包外——不适用，写明。
-- 约 70 个文件 `Cannot find module './read-config-safely.ts'` 等：被测模块不在闭包内。
-这些在 S8 复核（G04）；阈值 70% 的判定口径需统一为“全部迁入测试的 通过/适配/不适用 三分类，不适用必须写原因”。
+## 不适用（70，按原因汇总）
+
+- 56 × 被测模块 <…> 不在编辑器闭包里（所测功能 Huhu 不使用）
+- 8 × 依赖上游仓库的 test-support，Huhu 不携带
+- 2 × 依赖上游仓库的 scripts，Huhu 不携带
+- 2 × 读取上游仓库的 docs / 其他包路径（不随闭包迁入）
+- 1 × 扫描上游 app/ 与 desktop/ 的渲染进程日志源码；这些源码不在 Huhu 闭包里
+- 1 × 依赖未安装的包 culori（所测功能不在闭包里）
+
+### 逐条
+
+- `core/src/acp/agent-posture.test.ts`：被测模块 ./agent-posture.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/acp/codex-legacy-notice.test.ts`：依赖上游仓库的 test-support（../../../../test-support/fixtures/codex-legacy-warning-envelopes.json），Huhu 不携带
+- `core/src/acp/permissive-mode.test.ts`：被测模块 ./permissive-mode.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/acp/thread-protocol.typelock.test.ts`：被测模块 ./thread-protocol.typelock.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/agent-registry/derived-tables.test.ts`：被测模块 ../acp/agent-posture.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/app-shell-csp.test.ts`：被测模块 ./app-shell-csp.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/burst-grouping.test.ts`：被测模块 ./burst-grouping.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/auto-sync-mode-confinement.uncached.test.ts`：依赖上游仓库的 test-support（../../../../test-support/test-only-source-file.mjs），Huhu 不携带
+- `core/src/config/collect-config-diagnostics.test.ts`：被测模块 ./collect-config-diagnostics.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/committed-scope-diagnostics.test.ts`：被测模块 ./committed-scope-diagnostics.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/env-layer.test.ts`：被测模块 ./env-layer.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/inspect-config-paths.test.ts`：依赖上游仓库的 test-support（../../../../test-support/temp-dir.test-helper.ts），Huhu 不携带
+- `core/src/config/loopback-parity.test.ts`：依赖上游仓库的 test-support（../../../../test-support/no-net-connect.ts），Huhu 不携带
+- `core/src/config/read-config-safely.test.ts`：被测模块 ./read-config-safely.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/removed-keys.test.ts`：被测模块 ./removed-keys.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/resolve-server-config.test.ts`：被测模块 ./resolve-server-config.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/skill-source-policy.test.ts`：被测模块 ./read-config-safely.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/source-locator.test.ts`：被测模块 ./source-locator.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/config/write-config-patch.test.ts`：被测模块 ./write-config-patch.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/constants/chrome.uncached.test.ts`：依赖上游仓库的 scripts（../../scripts/chrome-resolver.ts），Huhu 不携带
+- `core/src/constants/lifecycle.test.ts`：被测模块 ./lifecycle.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/constants/mcp-launcher.test.ts`：被测模块 ./mcp-launcher.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/constants/ok-user-home.test.ts`：被测模块 ../config/write-config-patch.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/constants/path-shim-layout.test.ts`：被测模块 ./path-shim-layout.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/constants/pi-docs.uncached.test.ts`：读取上游仓库的 docs / 其他包路径（不随闭包迁入）
+- `core/src/constants/preview-theme-tokens.uncached.test.ts`：依赖上游仓库的 scripts（../../scripts/preview-theme-token-resolver.ts），Huhu 不携带
+- `core/src/constants/shared-ok-entries.test.ts`：被测模块 ../installed-skills/schema.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/constants/uninstall-feedback.test.ts`：被测模块 ../index.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/filesystem-identity.test.ts`：被测模块 ./filesystem-identity.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/frontmatter/record.test.ts`：被测模块 ./record.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/git-pathspec.test.ts`：依赖上游仓库的 test-support（../../../test-support/configure-git-fixture.test-helper.ts），Huhu 不携带
+- `core/src/git/git-spawn-path.test.ts`：被测模块 ./git-spawn-path.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/git/missing-git-helper.test.ts`：被测模块 ./missing-git-helper.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/git/worktree-path.test.ts`：被测模块 ./worktree-path.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/helper-bundle.test.ts`：被测模块 ./helper-bundle.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/i18n/node-locale-provider.test.ts`：被测模块 ./node-locale-provider.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/logging/renderer-capture-scrub-coverage.uncached.test.ts`：扫描上游 app/ 与 desktop/ 的渲染进程日志源码；这些源码不在 Huhu 闭包里
+- `core/src/registry/jsx-src-ref-tags.test.ts`：被测模块 ./jsx-src-ref-tags.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/registry/projection.test.ts`：被测模块 ./projection.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/search/workspace-search.parity.test.ts`：读取上游仓库的 docs / 其他包路径（不随闭包迁入）
+- `core/src/shadow-repo-layout.test.ts`：依赖上游仓库的 test-support（../../../test-support/capabilities.test-helper.ts），Huhu 不携带
+- `core/src/sharing/share-url-v2.test.ts`：依赖上游仓库的 test-support（../../../../test-support/fixtures/share-url-v1-v2.json），Huhu 不携带
+- `core/src/skill-folder-state.test.ts`：被测模块 ./skill-folder-state.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/dedup.test.ts`：被测模块 ./dedup.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/enumerate.test.ts`：被测模块 ./enumerate.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/harness-homes.test.ts`：被测模块 ./harness-homes.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/leaderboard.test.ts`：被测模块 ./leaderboard.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/plugin-upstream.test.ts`：被测模块 ./plugin-upstream.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/publisher.test.ts`：被测模块 ./publisher.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/repo-marketplace.test.ts`：被测模块 ./repo-marketplace.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/scope.test.ts`：被测模块 ./scope.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/search.test.ts`：被测模块 ./search.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/skill-registry.test.ts`：被测模块 ./skill-registry.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/skills-catalog/source-fields.test.ts`：被测模块 ./acquire/fetch.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/sync-paused-reason.test.ts`：被测模块 ./sync-paused-reason.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/theme/default-theme-contrast.uncached.test.ts`：依赖未安装的包 culori（所测功能不在闭包里）
+- `core/src/util/atomic-temp-path.test.ts`：依赖上游仓库的 test-support（../../../../test-support/configure-git-fixture.test-helper.ts），Huhu 不携带
+- `core/src/util/atomic-yaml-write.test.ts`：被测模块 ./atomic-yaml-write.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/util/file-lock-deadline.test.ts`：被测模块 ./file-lock.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/util/file-lock.test.ts`：被测模块 ./file-lock.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/util/project-logs-dir.test.ts`：被测模块 ../constants/ok-user-home.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/util/spawn-error-log-open.test.ts`：被测模块 ../constants/lifecycle.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/apply-by-prefix-suffix.test.ts`：被测模块 ./apply-by-prefix-suffix.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/github-stars.test.ts`：被测模块 ./github-stars.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/path-resolve.test.ts`：被测模块 ./path-resolve 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/relative-time.test.ts`：被测模块 ./relative-time.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/sanitize-folder-name.test.ts`：被测模块 ./sanitize-folder-name.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/sleep.test.ts`：被测模块 ./sleep.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/tag-rollup.test.ts`：被测模块 ./tag-rollup.ts 不在编辑器闭包里（所测功能 Huhu 不使用）
+- `core/src/utils/uninstall-feedback-submit.test.ts`：被测模块 ../index.ts 不在编辑器闭包里（所测功能 Huhu 不使用）

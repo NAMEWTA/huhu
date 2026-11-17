@@ -8,17 +8,6 @@
     transform: translateY(0);
   }
 }
-@keyframes atomic-initial-reveal-fade {
-  0% {
-    background: var(--atomic-editor-initial-reveal-bg-strong, color-mix(in srgb, var(--atomic-editor-accent-soft, var(--tag-4)) 42%, transparent 58%));
-  }
-  65% {
-    background: var(--atomic-editor-initial-reveal-bg, color-mix(in srgb, var(--atomic-editor-accent-soft, var(--tag-4)) 28%, transparent 72%));
-  }
-  100% {
-    background: transparent;
-  }
-}
 @keyframes slide-in {
   from {
     opacity: 0;

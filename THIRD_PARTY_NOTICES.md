@@ -115,18 +115,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | --- | --- | --- | --- | --- |
 | R-05 | DSH fcc0ad4 | vendor/{cordis,cosmokit,timer}/src/* | vendor/{cordis,cosmokit,timer}/src/* | 包名改为 @huhu/*，保留 MIT 许可文件与来源行 |
 | R-08 | OK 44a2e0a | packages/server/src/file-watcher.ts | packages/vault/src/watch/ | 仅参照批处理/回退/重命名配对思路，按 HUHU 需求精简重写（模式，未复制代码） |
-| R-09 | atomic-editor b6ed65f (kenforthewin, 0.6.2) | src/* | packages/editor/src/vendor/atomic/ | 复制并改造（inline-preview、wiki-links、主题、IME 组合保护），保留 MIT 许可文件与来源说明 `UPSTREAM.md` |
+| R-09 | atomic-editor b6ed65f (kenforthewin, 0.6.2) | src/* | ~~packages/editor/src/vendor/atomic/~~（已删除） | **已退役**（知识库编辑器重构，R-46）：被 OK 编辑器取代，目录、样式 `editor-cm.css`、`atomic-initial-reveal-fade` 动画与“关于”页致谢一并删除；历史记录保留于此 |
 | R-24 | open-knowledge 批注锚点 | packages/server/src/comments/anchor.ts、packages/core/src/comments/{passage-match}.ts、markdown/whitespace-char-ref.ts | plugins/notes/src/engine/comments/ | 复制（GPL-3.0-or-later，与本项目许可一致）；类型改为本地 Anchor，删除未使用导出，补 noUncheckedIndexedAccess 守卫 |
 | R-40 | orca 7041ea0（Lovecast Inc.，MIT） | src/shared/agent-launch/catalog/tui-agent-config.ts、permissions/tui-agent-permissions.ts、agent-session/options/agent-session-option-catalog-claude-codex.ts、node-cli-command-resolution.ts、agent-launch/choices/agent-choice-cli-apply.ts | plugins/agent-cli/src/shared/catalog.ts、plugins/agent-cli/src/engine/{detect,launch}.ts | 智能体目录的检测命令、完全访问参数、模型 / effort / fast 的 CLI 映射、冲突标志表、安装目录表、启动参数合成顺序；按 HUHU 的三个智能体与数据驱动目录改写，并与本机 claude 2.1.323、codex 0.167.2 的 `--help` 核对 |
 | R-41 | orca 7041ea0（Lovecast Inc.，MIT） | src/renderer/src/components/status-bar/icons.tsx（ClaudeIcon、OpenAIIcon）、components/agent/icons/agent-icon-glyphs.tsx（PiIcon） | plugins/agent-cli/src/ui/AgentIcon.tsx | 三个智能体的标识图形（仅用于标识对应工具）；改为数据表加首字母兜底 |
 | R-42 | orca 7041ea0（Lovecast Inc.，MIT） | src/renderer/src/components/settings/agents/launch/{AgentDetectionCatalog,AgentCatalogRow,AgentLaunchDefaultsEditor}.tsx、tab-bar/{TabBarCreateEntry,QuickLaunchButton}.tsx、agent/AgentLaunchSetupPanel.tsx | plugins/agent-cli/src/ui/{AgentSettingsPage,LaunchMenu}.tsx | 仅复刻交互与结构（“已安装 N 个已检测”、逐条展开编辑、命令行预览；新建菜单的搜索、新终端、智能体行与子菜单、设置入口），按 HUHU 的组件与中文文案重写，未复制源码 |
+| R-43 | orca 7041ea0（Lovecast Inc.，MIT） | src/renderer/src/components/editor/{pdf-viewer-session,pdf-document-loader,pdf-view-position,pdf-scale-preference,pdf-scale-preference-storage,pdf-js-document-options,pdf-orca-media-range-transport,image-viewer-zoom}.ts、lib/scroll-cache.ts（部分） | plugins/notes/src/vendor/orca/pdf/ | 复制并改造（范围传输改为注入的读取器 → `vault.readRange`；i18n 与存储键适配）；保留 MIT 许可文件与 `UPSTREAM.md` / `PATCHES.md`；PdfViewer / PdfFind 外壳按 Huhu 组件重写（未复制） |
+| R-44 | orca 7041ea0（Lovecast Inc.，MIT） | config/patches/pdfjs-dist@6.3.289.patch、config/build-plugins/pdfjs-viewer-assets.ts | patches/pdfjs-dist@6.3.289.patch、apps/desktop/scripts/pdfjs-viewer-assets.ts | 复制：PDF.js 局部渲染补丁；cmaps / standard_fonts / wasm 的构建期本地打包与开发服务器中间件（pdfjs-dist 根改为从 plugins/notes 解析） |
+| R-45 | orca 7041ea0（Lovecast Inc.，MIT） | src/main/browser/document-preview/doc-preview-protocol.ts（CSP 与协议处理思路） | apps/desktop/src/main/preview-{protocol,session}.ts | 仅借鉴“独立协议 + 严格 CSP + 路径守卫”的思路，按 Vault 路径模型与 sandbox iframe 方案自行实现（模式，未复制代码） |
+| R-46 | open-knowledge 44a2e0a（Inkeep，GPL-3.0-or-later） | packages/core/src/{extensions,markdown,bridge,registry,frontmatter,comments,schemas,…}、packages/app/src/{editor,lib,components(ui、属性面板),hooks,locales,globals.css,…}（import 闭包 931 文件，清单 `.agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json`） | packages/editor/src/vendor/open-knowledge/{core,app}/ | 复制（与本项目同为 GPL-3.0-or-later）：Tiptap / Yjs 编辑器内核、Markdown 管线、属性面板、编辑器渲染优化（editor-cache、display-lock、块级 content-visibility 等）。**补丁逐文件登记**在 `packages/editor/src/vendor/open-knowledge/PATCHES.md`，`scripts/ok-patches.mjs --check` 校验；来源与冻结说明 `UPSTREAM.md`；许可证 `LICENSE`（取自上游 `HEAD:LICENSE`） |
+| R-47 | open-knowledge 44a2e0a | packages/app/src/comments/*（评论面板、线程卡、边距轨、选区入口、锚点装饰与分层、store） | packages/editor/src/vendor/open-knowledge/app/src/comments/；适配层 plugins/notes/src/ui/comments/ | 复制 + 适配：`comments-client` 换成适配 Huhu `comments.*`；AI 派发 / 队列 / 发送栏不接（decisions OP-D19 / Q2）；补丁 P-S4-xx |
+| R-48 | open-knowledge 44a2e0a | packages/app/src/components/{FileTree,file-tree-*,use-file-tree-listing,OkFileTree,FileTargetMenuItems,…}.tsx，依赖 `@pierre/trees@1.0.0-beta.4`（精确锁定） | packages/editor/src/vendor/open-knowledge/app/src/components/；适配层 packages/editor/src/host/{explorer.tsx,routes/files.ts} | 复制 + 适配：数据源 `vault.list`，隐藏改写 `hiddenPaths`（不写 `.okignore`），去掉 Open with AI / 模板导入；补丁 P-S5-01～05 |
+| R-49 | open-knowledge 44a2e0a | packages/server/src/{server-observers,map-driven-splice,bridge-watchdog,bridge-quiescence,pre-drain-discriminator,bridge-intake,bridge-loss-detector,cc1-broadcast,doc-extensions,agent-activity,md-manager}.ts | packages/editor/src/vendor/open-knowledge/server-bridge/ | 复制：OK 把“编辑树 ↔ 源文本”的跨 CRDT 桥放在服务端；本地宿主把它搬到渲染进程原样运行（`LocalDocProvider`，无 Hocuspocus） |
+| R-50 | open-knowledge 44a2e0a | packages/{core,app}/src 中与闭包同目录的 `*.test.*`、助手与 fixtures（167 原样 + 1 适配，另 70 个因被测模块不在闭包而不迁入） | packages/editor/src/vendor/open-knowledge/ 同路径；`pnpm test:vendor` | 复制：结果与三分类见 `evidence/vendor-test-results.md`，原样基线 `evidence/tests-manifest.json` |
+| R-51 | open-knowledge 44a2e0a | patches/*.patch（9 条：@handlewithcare/remark-prosemirror、@lingui/core、@pierre/trees、@radix-ui/react-tooltip、@tiptap/extension-drag-handle、@tiptap/y-tiptap、cmdk、react-medium-image-zoom、y-indexeddb） | patches/ 与 pnpm-workspace.yaml 的 patchedDependencies | 原样复制；另 `pdfjs-dist@6.3.289` 补丁见 R-44 |
+| R-52 | open-knowledge 44a2e0a | pnpm-lock.yaml 的解析版本 | pnpm-workspace.yaml 的 overrides（tiptap / ProseMirror / mdast / hast 等） | 版本对齐（行为基线）：浮动到更新的传递依赖会改变编辑器行为（例：mdast-util-gfm-task-list-item 2.0.1 把任务项序列化成 `- [ ] [ ] x`）；登记见 PATCHES.md P-D-01 |
 
 ## npm 运行时依赖
 
 | 包 | 版本 | 许可证 | 主页 |
 | --- | --- | --- | --- |
 | @agentclientprotocol/sdk | 1.2.1 | Apache-2.0 | https://github.com/agentclientprotocol/typescript-sdk#readme |
-| @agentclientprotocol/sdk | 1.9.0 | Apache-2.0 | https://github.com/agentclientprotocol/typescript-sdk#readme |
 | @antfu/install-pkg | 2.1.0 | MIT | https://github.com/antfu-collective/install-pkg#readme |
 | @babel/code-frame | 7.29.7 | MIT | https://babel.dev/docs/en/next/babel-code-frame |
 | @babel/compat-data | 7.29.7 | MIT |  |
@@ -181,13 +190,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @codemirror/lang-javascript | 6.2.5 | MIT |  |
 | @codemirror/lang-json | 6.0.2 | MIT |  |
 | @codemirror/lang-markdown | 6.5.0 | MIT |  |
-| @codemirror/lang-markdown | 6.5.2 | MIT |  |
 | @codemirror/lang-python | 6.2.1 | MIT |  |
 | @codemirror/lang-rust | 6.0.2 | MIT |  |
 | @codemirror/lang-yaml | 6.1.3 | MIT |  |
 | @codemirror/language | 6.13.1 | MIT |  |
 | @codemirror/legacy-modes | 6.5.3 | MIT |  |
-| @codemirror/legacy-modes | 6.5.5 | MIT |  |
 | @codemirror/lint | 6.9.7 | MIT |  |
 | @codemirror/lint | 6.9.8 | MIT |  |
 | @codemirror/search | 6.7.2 | MIT |  |
@@ -281,7 +288,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @lingui/message-utils | 6.5.0 | MIT | https://lingui.dev |
 | @lingui/native-tools | 0.2.0 | MIT |  |
 | @lingui/native-tools-linux-x64-gnu | 0.2.0 | MIT |  |
-| @lingui/react | 6.12.0 | MIT | https://lingui.dev |
 | @lingui/react | 6.5.0 | MIT | https://lingui.dev |
 | @lingui/vite-plugin | 6.12.0 | MIT | https://lingui.dev |
 | @malept/cross-spawn-promise | 2.0.0 | Apache-2.0 |  |
@@ -290,9 +296,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @mermaid-js/parser | 0.6.3 | MIT | https://github.com/mermaid-js/mermaid/tree/develop/packages/mermaid/parser/#readme |
 | @messageformat/date-skeleton | 1.1.0 | MIT | http://messageformat.github.io/messageformat/api/date-skeleton/ |
 | @messageformat/parser | 5.2.0 | MIT | http://messageformat.github.io/messageformat/api/parser/ |
-| @modelcontextprotocol/core | 2.4.0 | Apache-2.0 | https://modelcontextprotocol.io |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | https://modelcontextprotocol.io |
-| @modelcontextprotocol/server | 2.4.0 | Apache-2.0 | https://modelcontextprotocol.io |
 | @napi-rs/canvas | 1.1.1 | MIT |  |
 | @napi-rs/canvas-linux-x64-gnu | 1.1.1 | MIT |  |
 | @noble/hashes | 1.8.0 | MIT | https://paulmillr.com/noble/ |
@@ -300,7 +304,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @nodelib/fs.scandir | 2.1.5 | MIT |  |
 | @nodelib/fs.stat | 2.0.5 | MIT |  |
 | @nodelib/fs.walk | 1.2.8 | MIT |  |
-| @opentelemetry/api | 1.10.0 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-js/tree/main/api |
 | @opentelemetry/api | 1.9.1 | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-js/tree/main/api |
 | @orama/orama | 3.1.18 | Apache-2.0 |  |
 | @oxc-parser/binding-linux-x64-gnu | 0.156.0 | MIT | https://oxc.rs/docs/guide/usage/parser |
@@ -318,144 +321,91 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @pierre/trees | 1.0.0-beta.4 | Apache-2.0 |  |
 | @playwright/test | 1.65.0 | Apache-2.0 | https://playwright.dev |
 | @radix-ui/number | 1.1.1 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/number | 1.1.3 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/primitive | 1.1.3 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/primitive | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/primitive | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-accessible-icon | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-accessible-icon | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-accordion | 1.2.12 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-accordion | 1.3.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-alert-dialog | 1.1.15 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-alert-dialog | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-arrow | 1.1.15 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-arrow | 1.1.17 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-arrow | 1.1.7 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-aspect-ratio | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-aspect-ratio | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-avatar | 1.1.10 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-avatar | 1.3.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-checkbox | 1.3.3 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-checkbox | 1.4.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-collapsible | 1.1.12 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-collapsible | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-collection | 1.1.15 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-collection | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-collection | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-compose-refs | 1.1.2 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-compose-refs | 1.1.5 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-context | 1.1.2 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-context | 1.2.2 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-context | 1.3.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-context-menu | 2.2.16 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-context-menu | 2.4.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-dialog | 1.1.15 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-dialog | 1.1.23 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-dialog | 1.3.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-direction | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-direction | 1.1.4 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-direction | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-dismissable-layer | 1.1.11 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-dismissable-layer | 1.1.19 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-dismissable-layer | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-dropdown-menu | 2.1.16 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-dropdown-menu | 2.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-focus-guards | 1.1.3 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-focus-guards | 1.1.6 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-focus-guards | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-focus-scope | 1.1.16 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-focus-scope | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-focus-scope | 1.3.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-form | 0.1.8 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-form | 0.3.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-hover-card | 1.1.15 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-hover-card | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-id | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-id | 1.1.4 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-label | 2.1.17 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-label | 2.1.7 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-menu | 2.1.16 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-menu | 2.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-menubar | 1.1.16 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-menubar | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-navigation-menu | 1.2.14 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-navigation-menu | 1.4.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-one-time-password-field | 0.1.8 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-one-time-password-field | 0.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-password-toggle-field | 0.1.3 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-password-toggle-field | 0.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-popover | 1.1.15 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-popover | 1.1.23 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-popover | 1.3.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-popper | 1.2.8 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-popper | 1.3.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-popper | 1.4.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-portal | 1.1.17 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-portal | 1.1.9 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-portal | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-presence | 1.1.10 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-presence | 1.1.11 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-presence | 1.1.5 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-primitive | 2.1.10 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-primitive | 2.1.3 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-primitive | 2.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-progress | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-progress | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-radio-group | 1.3.8 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-radio-group | 1.5.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-roving-focus | 1.1.11 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-roving-focus | 1.1.19 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-roving-focus | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-scroll-area | 1.2.10 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-scroll-area | 1.4.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-select | 2.2.6 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-select | 2.4.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-separator | 1.1.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-separator | 1.2.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-slider | 1.3.6 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-slider | 1.6.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-slot | 1.2.3 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-slot | 1.3.3 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-slot | 1.5.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-switch | 1.2.6 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-switch | 1.3.7 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-switch | 1.4.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-tabs | 1.1.13 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-tabs | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-toast | 1.2.15 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-toast | 1.3.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-toggle | 1.1.10 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-toggle | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-toggle-group | 1.1.11 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-toggle-group | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-toolbar | 1.1.11 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-toolbar | 1.2.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-tooltip | 1.2.16 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-tooltip | 1.2.8 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-tooltip | 1.4.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-callback-ref | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-callback-ref | 1.1.4 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-use-callback-ref | 1.1.5 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-controllable-state | 1.2.2 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-controllable-state | 1.2.6 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-use-controllable-state | 1.3.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-effect-event | 0.0.2 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-effect-event | 0.0.5 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-escape-keydown | 1.1.1 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-use-escape-keydown | 1.1.6 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-is-hydrated | 0.1.0 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-is-hydrated | 0.1.3 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-layout-effect | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-layout-effect | 1.1.4 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-previous | 1.1.1 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-use-previous | 1.1.4 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-rect | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-rect | 1.1.4 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-size | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-use-size | 1.1.4 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-use-size | 1.1.5 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-visually-hidden | 1.2.11 | MIT | https://radix-ui.com/primitives |
-| @radix-ui/react-visually-hidden | 1.2.13 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/react-visually-hidden | 1.2.3 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/rect | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/rect | 1.1.3 | MIT | https://radix-ui.com/primitives |
@@ -464,7 +414,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @rolldown/pluginutils | 1.1.0 | MIT | https://github.com/rolldown/plugins/tree/main/packages/pluginutils#readme |
 | @rollup/rollup-linux-x64-gnu | 4.68.1 | MIT | https://rollupjs.org/ |
 | @sec-ant/readable-stream | 0.4.1 | MIT | https://github.com/Sec-ant/readable-stream |
-| @shadcn/registry | 0.2.1 | MIT | https://ui.shadcn.com/docs/registry |
 | @sinclair/typebox | 0.27.12 | MIT |  |
 | @sindresorhus/is | 4.6.0 | MIT |  |
 | @sindresorhus/merge-streams | 4.0.0 | MIT |  |
@@ -489,80 +438,43 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @testing-library/dom | 10.4.2 | MIT | https://github.com/testing-library/dom-testing-library#readme |
 | @testing-library/react | 16.3.3 | MIT | https://github.com/testing-library/react-testing-library#readme |
 | @tiptap/core | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/core | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-blockquote | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-blockquote | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-bold | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-bold | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-bubble-menu | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-bubble-menu | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-bullet-list | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-bullet-list | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-code | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-code | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-code-block | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-code-block | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-collaboration | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-collaboration | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-document | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-document | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-drag-handle | 3.22.3 | MIT | https://tiptap.dev/docs/editor/extensions/functionality/drag-handle |
 | @tiptap/extension-dropcursor | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-dropcursor | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-file-handler | 3.22.3 | MIT | https://tiptap.dev/docs/editor/extensions/functionality/filehandler |
-| @tiptap/extension-file-handler | 3.34.0 | MIT | https://tiptap.dev/docs/editor/extensions/functionality/filehandler |
 | @tiptap/extension-floating-menu | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-floating-menu | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-gapcursor | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-gapcursor | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-hard-break | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-hard-break | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-heading | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-heading | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-highlight | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-highlight | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-horizontal-rule | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-horizontal-rule | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-image | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-image | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-italic | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-italic | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-link | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-link | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-list | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-list | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-list-item | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-list-item | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-list-keymap | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-list-keymap | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-node-range | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-node-range | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-ordered-list | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-ordered-list | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-paragraph | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-paragraph | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-placeholder | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-placeholder | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-strike | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-strike | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-table | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-table | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-text | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-text | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-text-style | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-text-style | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extension-underline | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extension-underline | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/extensions | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/extensions | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/pm | 3.22.4 | MIT | https://tiptap.dev |
-| @tiptap/pm | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/react | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/react | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/starter-kit | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/starter-kit | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/suggestion | 3.22.3 | MIT | https://tiptap.dev |
-| @tiptap/suggestion | 3.34.0 | MIT | https://tiptap.dev |
 | @tiptap/y-tiptap | 3.0.3 | MIT |  |
 | @ts-morph/common | 0.27.0 | MIT |  |
 | @tweenjs/tween.js | 25.0.0 | MIT | https://github.com/tweenjs/tween.js |
@@ -752,7 +664,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | clsx | 1.1.1 | MIT |  |
 | clsx | 2.1.1 | MIT |  |
 | cmdk | 1.1.1 | MIT | https://github.com/pacocoursey/cmdk#readme |
-| cn | 0.2.6 | MIT |  |
 | code-block-writer | 13.0.3 | MIT | https://github.com/dsherret/code-block-writer#readme |
 | codemirror-lang-mermaid | 0.5.0 | MIT |  |
 | collapse-white-space | 2.1.0 | MIT |  |
@@ -892,6 +803,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | end-of-stream | 1.4.5 | MIT | https://github.com/mafintosh/end-of-stream |
 | enhanced-resolve | 5.27.0 | MIT | https://github.com/webpack/enhanced-resolve#readme |
 | enquirer | 2.4.1 | MIT | https://github.com/enquirer/enquirer |
+| entities | 6.0.1 | BSD-2-Clause |  |
 | entities | 9.0.0 | BSD-2-Clause |  |
 | env-paths | 2.2.1 | MIT |  |
 | env-paths | 3.0.0 | MIT |  |
@@ -992,9 +904,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | hashery | 1.5.1 | MIT |  |
 | hasown | 2.0.4 | MIT | https://github.com/inspect-js/hasOwn#readme |
 | hast-util-embedded | 3.0.0 | MIT |  |
-| hast-util-from-dom | 5.0.1 | ISC |  |
+| hast-util-from-html | 2.0.3 | MIT |  |
 | hast-util-from-html | 2.1.0 | MIT |  |
-| hast-util-from-html-isomorphic | 2.0.0 | MIT |  |
+| hast-util-from-parse5 | 8.0.3 | MIT |  |
 | hast-util-from-parse5 | 8.0.4 | MIT |  |
 | hast-util-has-property | 3.0.0 | MIT |  |
 | hast-util-is-body-ok-link | 3.0.1 | MIT |  |
@@ -1002,23 +914,23 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | hast-util-minify-whitespace | 1.0.1 | MIT |  |
 | hast-util-parse-selector | 4.0.0 | MIT |  |
 | hast-util-phrasing | 3.0.1 | MIT |  |
-| hast-util-sanitize | 5.0.2 | MIT |  |
+| hast-util-to-html | 9.0.5 | MIT |  |
 | hast-util-to-html | 9.0.6 | MIT |  |
-| hast-util-to-jsx-runtime | 2.3.7 | MIT |  |
+| hast-util-to-mdast | 10.1.2 | MIT |  |
 | hast-util-to-mdast | 10.1.3 | MIT |  |
+| hast-util-to-text | 4.0.2 | MIT |  |
 | hast-util-to-text | 4.0.3 | MIT |  |
 | hast-util-whitespace | 3.0.0 | MIT |  |
+| hastscript | 9.0.1 | MIT |  |
 | hastscript | 9.0.3 | MIT |  |
 | highlight.js | 11.11.1 | BSD-3-Clause | https://highlightjs.org/ |
 | highlight.js | 11.11.2 | BSD-3-Clause | https://highlightjs.org/ |
-| highlight.js | 11.12.0 | BSD-3-Clause | https://highlightjs.org/ |
 | hono | 4.13.17 | MIT | https://hono.dev |
 | hookified | 1.15.1 | MIT | https://github.com/jaredwray/hookified#readme |
 | hookified | 2.2.0 | MIT | https://github.com/jaredwray/hookified#readme |
 | hosted-git-info | 4.1.0 | ISC | https://github.com/npm/hosted-git-info |
 | html-encoding-sniffer | 7.0.0 | MIT |  |
 | html-tags | 3.3.1 | MIT |  |
-| html-url-attributes | 3.0.1 | MIT |  |
 | html-void-elements | 3.0.0 | MIT |  |
 | http-cache-semantics | 4.3.0 | BSD-2-Clause |  |
 | http-errors | 2.0.1 | MIT |  |
@@ -1040,13 +952,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | inflight | 1.0.6 | ISC | https://github.com/isaacs/inflight |
 | inherits | 2.0.4 | ISC |  |
 | ini | 1.3.8 | ISC |  |
-| inline-style-parser | 0.2.9 | MIT |  |
 | internmap | 1.0.1 | ISC | https://github.com/mbostock/internmap/ |
 | internmap | 2.0.3 | ISC | https://github.com/mbostock/internmap/ |
 | ip-address | 10.7.6 | MIT |  |
 | ipaddr.js | 1.9.1 | MIT |  |
 | ipaddr.js | 2.4.0 | MIT |  |
-| ipaddr.js | 2.5.0 | MIT |  |
 | is-alphabetical | 2.0.1 | MIT |  |
 | is-alphanumerical | 2.0.1 | MIT |  |
 | is-arrayish | 0.2.1 | MIT |  |
@@ -1107,6 +1017,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | jsonfile | 6.2.1 | MIT |  |
 | kapsule | 1.16.3 | MIT | https://github.com/vasturiano/kapsule |
 | katex | 0.16.22 | MIT | https://katex.org |
+| katex | 0.16.47 | MIT | https://katex.org |
 | keyv | 4.5.4 | MIT | https://github.com/jaredwray/keyv |
 | keyv | 5.6.0 | MIT | https://github.com/jaredwray/keyv |
 | khroma | 2.1.0 | MIT |  |
@@ -1120,11 +1031,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | layout-base | 2.0.1 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
 | leven | 3.1.0 | MIT |  |
+| lib0 | 0.2.117 | MIT | https://github.com/dmonad/lib0#readme |
 | lib0 | 0.2.120 | MIT | https://github.com/dmonad/lib0#readme |
 | lightningcss | 1.33.0 | MPL-2.0 |  |
 | lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |  |
 | lilconfig | 3.1.5 | MIT |  |
 | lines-and-columns | 1.2.4 | MIT | https://github.com/eventualbuddha/lines-and-columns#readme |
+| linkifyjs | 4.3.3 | MIT | https://linkify.js.org |
 | linkifyjs | 4.4.0 | MIT | https://linkify.js.org |
 | locate-path | 3.0.0 | MIT |  |
 | lodash | 4.18.1 | MIT | https://lodash.com/ |
@@ -1150,30 +1063,32 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | markdown-table | 3.1.0 | MIT |  |
 | markdownlint | 0.41.1 | MIT | https://github.com/DavidAnson/markdownlint |
 | marked | 16.4.2 | MIT | https://marked.js.org |
-| marked | 17.0.5 | MIT | https://marked.js.org |
 | matcher | 3.0.0 | MIT |  |
 | math-intrinsics | 1.1.0 | MIT | https://github.com/es-shims/math-intrinsics#readme |
 | mathml-tag-names | 2.1.3 | MIT |  |
+| mdast-util-find-and-replace | 3.0.2 | MIT |  |
 | mdast-util-find-and-replace | 3.0.4 | MIT |  |
 | mdast-util-from-markdown | 2.0.3 | MIT |  |
 | mdast-util-from-markdown | 2.1.0 | MIT |  |
 | mdast-util-frontmatter | 2.0.1 | MIT |  |
 | mdast-util-gfm | 3.1.0 | MIT |  |
+| mdast-util-gfm-autolink-literal | 2.0.1 | MIT |  |
 | mdast-util-gfm-autolink-literal | 2.1.0 | MIT |  |
 | mdast-util-gfm-footnote | 2.1.0 | MIT |  |
+| mdast-util-gfm-strikethrough | 2.0.0 | MIT |  |
 | mdast-util-gfm-strikethrough | 2.0.1 | MIT |  |
+| mdast-util-gfm-table | 2.0.0 | MIT |  |
 | mdast-util-gfm-table | 2.0.1 | MIT |  |
+| mdast-util-gfm-task-list-item | 2.0.0 | MIT |  |
 | mdast-util-gfm-task-list-item | 2.0.1 | MIT |  |
 | mdast-util-math | 3.0.0 | MIT |  |
 | mdast-util-mdx | 3.0.0 | MIT |  |
 | mdast-util-mdx-expression | 2.0.1 | MIT |  |
 | mdast-util-mdx-jsx | 3.2.0 | MIT |  |
-| mdast-util-mdx-jsx | 3.2.1 | MIT |  |
 | mdast-util-mdxjs-esm | 2.0.1 | MIT |  |
 | mdast-util-phrasing | 4.1.0 | MIT |  |
 | mdast-util-to-hast | 13.2.1 | MIT |  |
 | mdast-util-to-markdown | 2.1.2 | MIT |  |
-| mdast-util-to-markdown | 2.2.3 | MIT |  |
 | mdast-util-to-string | 4.0.0 | MIT |  |
 | mdn-data | 2.27.1 | CC0-1.0 | https://developer.mozilla.org |
 | media-typer | 1.1.1 | MIT |  |
@@ -1204,6 +1119,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | micromark-factory-destination | 2.0.1 | MIT |  |
 | micromark-factory-label | 2.0.1 | MIT |  |
 | micromark-factory-mdx-expression | 2.0.3 | MIT |  |
+| micromark-factory-space | 2.0.1 | MIT |  |
 | micromark-factory-space | 2.1.0 | MIT |  |
 | micromark-factory-title | 2.0.1 | MIT |  |
 | micromark-factory-whitespace | 2.0.1 | MIT |  |
@@ -1293,6 +1209,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | parse-entities | 4.0.2 | MIT |  |
 | parse-json | 5.2.0 | MIT |  |
 | parse-ms | 4.0.0 | MIT |  |
+| parse5 | 7.3.0 | MIT | https://parse5.js.org |
 | parse5 | 8.1.1 | MIT | https://parse5.js.org |
 | parse5-parser-stream | 8.1.1 | MIT | https://parse5.js.org |
 | parseurl | 1.3.3 | MIT |  |
@@ -1306,8 +1223,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | path-type | 4.0.0 | MIT |  |
 | pathe | 2.0.3 | MIT |  |
 | pathval | 2.0.1 | MIT | https://github.com/chaijs/pathval |
-| pdfjs-dist | 6.2.108 | Apache-2.0 | https://mozilla.github.io/pdf.js/ |
-| pdfjs-dist | 6.5.438 | Apache-2.0 | https://mozilla.github.io/pdf.js/ |
+| pdfjs-dist | 6.3.289 | Apache-2.0 | https://mozilla.github.io/pdf.js/ |
 | pe-library | 0.4.1 | MIT | https://github.com/jet2jet/pe-library-js |
 | perfect-freehand | 1.2.0 | MIT |  |
 | pica | 7.1.1 | MIT | https://github.com/nodeca/pica |
@@ -1348,18 +1264,25 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | prop-types | 15.8.1 | MIT | https://facebook.github.io/react/ |
 | proper-lockfile | 4.1.2 | MIT | https://github.com/moxystudio/node-proper-lockfile |
 | property-information | 7.2.0 | MIT |  |
+| prosemirror-changeset | 2.4.1 | MIT |  |
 | prosemirror-changeset | 2.4.6 | MIT |  |
+| prosemirror-commands | 1.7.1 | MIT |  |
 | prosemirror-commands | 1.7.2 | MIT |  |
+| prosemirror-dropcursor | 1.8.3 | MIT |  |
 | prosemirror-dropcursor | 1.8.4 | MIT |  |
 | prosemirror-gapcursor | 1.4.1 | MIT |  |
+| prosemirror-history | 1.5.0 | MIT |  |
 | prosemirror-history | 1.5.1 | MIT |  |
-| prosemirror-inputrules | 1.6.0 | MIT |  |
 | prosemirror-keymap | 1.2.3 | MIT |  |
 | prosemirror-model | 1.25.13 | MIT |  |
+| prosemirror-model | 1.25.4 | MIT |  |
+| prosemirror-schema-list | 1.5.1 | MIT |  |
 | prosemirror-schema-list | 1.6.0 | MIT |  |
 | prosemirror-state | 1.4.4 | MIT |  |
 | prosemirror-tables | 1.8.5 | MIT |  |
+| prosemirror-transform | 1.12.0 | MIT |  |
 | prosemirror-transform | 1.12.5 | MIT |  |
+| prosemirror-view | 1.41.8 | MIT |  |
 | prosemirror-view | 1.42.9 | MIT |  |
 | proxy-addr | 2.0.8 | MIT |  |
 | pseudolocale | 3.1.0 | MIT |  |
@@ -1375,23 +1298,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | queue-microtask | 1.2.3 | MIT | https://github.com/feross/queue-microtask |
 | quick-lru | 5.1.1 | MIT |  |
 | radix-ui | 1.4.3 | MIT | https://radix-ui.com/primitives |
-| radix-ui | 1.8.1 | MIT | https://radix-ui.com/primitives |
 | range-parser | 1.3.0 | MIT |  |
 | raw-body | 3.0.2 | MIT |  |
 | react | 19.3.1 | MIT | https://react.dev/ |
 | react-day-picker | 9.14.0 | MIT | https://daypicker.dev |
 | react-dom | 19.3.1 | MIT | https://react.dev/ |
 | react-error-boundary | 6.1.2 | MIT | https://react-error-boundary-lib.vercel.app/ |
-| react-error-boundary | 6.1.6 | MIT | https://react-error-boundary-lib.vercel.app/ |
 | react-force-graph-2d | 1.29.1 | MIT | https://github.com/vasturiano/react-force-graph |
-| react-force-graph-2d | 1.29.2 | MIT | https://github.com/vasturiano/react-force-graph |
 | react-is | 16.13.1 | MIT | https://reactjs.org/ |
 | react-is | 17.0.2 | MIT | https://reactjs.org/ |
 | react-is | 18.3.1 | MIT | https://reactjs.org/ |
 | react-kapsule | 2.6.0 | MIT | https://github.com/vasturiano/react-kapsule |
 | react-lite-youtube-embed | 3.5.1 | MIT | https://github.com/ibrahimcesar/react-lite-youtube-embed |
-| react-lite-youtube-embed | 3.7.0 | MIT | https://github.com/ibrahimcesar/react-lite-youtube-embed |
-| react-markdown | 10.1.0 | MIT |  |
 | react-medium-image-zoom | 5.4.3 | BSD-3-Clause | https://github.com/rpearce/react-medium-image-zoom |
 | react-remove-scroll | 2.7.2 | MIT |  |
 | react-remove-scroll-bar | 2.3.8 | MIT |  |
@@ -1401,11 +1319,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | readdirp | 3.6.0 | MIT | https://github.com/paulmillr/readdirp |
 | readdirp | 5.1.1 | MIT | https://github.com/paulmillr/readdirp |
 | recast | 0.23.21 | MIT | http://github.com/benjamn/recast |
-| rehype-katex | 7.0.1 | MIT |  |
 | rehype-minify-whitespace | 6.0.2 | MIT |  |
 | rehype-parse | 9.0.1 | MIT | https://github.com/rehypejs/rehype |
 | rehype-remark | 10.0.1 | MIT |  |
-| rehype-sanitize | 6.0.0 | MIT |  |
 | rehype-stringify | 10.0.1 | MIT | https://github.com/rehypejs/rehype |
 | remark-frontmatter | 5.0.0 | MIT |  |
 | remark-gfm | 4.0.1 | MIT |  |
@@ -1455,7 +1371,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | serve-static | 2.2.1 | MIT |  |
 | setprototypeof | 1.2.0 | ISC | https://github.com/wesleytodd/setprototypeof |
 | shadcn | 4.13.0 | MIT |  |
-| shadcn | 4.23.0 | MIT | https://ui.shadcn.com |
 | shebang-command | 2.0.0 | MIT |  |
 | shebang-regex | 3.0.0 | MIT |  |
 | side-channel | 1.1.1 | MIT | https://github.com/ljharb/side-channel#readme |
@@ -1470,9 +1385,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | slash | 3.0.0 | MIT |  |
 | slice-ansi | 4.0.0 | MIT |  |
 | sliced | 1.0.1 | MIT |  |
-| smart-buffer | 4.2.0 | MIT | https://github.com/JoshGlazebrook/smart-buffer/ |
 | smol-toml | 1.9.1 | BSD-3-Clause |  |
-| socks | 2.8.10 | MIT | https://github.com/JoshGlazebrook/socks/ |
 | sonner | 2.0.7 | MIT | https://sonner.emilkowal.ski/ |
 | source-map | 0.6.1 | BSD-3-Clause | https://github.com/mozilla/source-map |
 | source-map | 0.7.6 | BSD-3-Clause | https://github.com/mozilla/source-map |
@@ -1501,7 +1414,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | strip-json-comments | 5.0.3 | MIT |  |
 | strip-literal | 3.1.0 | MIT | https://github.com/antfu/strip-literal#readme |
 | style-mod | 4.1.4 | MIT | https://code.haverbeke.berlin/marijn/style-mod |
-| style-to-object | 2.0.2 | MIT |  |
 | stylelint | 16.26.1 | MIT | https://stylelint.io |
 | stylis | 4.4.0 | MIT | https://github.com/thysultan/stylis.js |
 | sumchecker | 3.0.1 | Apache-2.0 | https://github.com/malept/sumchecker#readme |
@@ -1552,7 +1464,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | tw-animate-css | 1.4.0 | MIT | https://github.com/Wombosvideo/tw-animate-css#readme |
 | tweetnacl | 0.14.5 | Unlicense | https://tweetnacl.js.org |
 | type-fest | 0.13.1 | (MIT OR CC0-1.0) |  |
-| type-fest | 4.41.0 | (MIT OR CC0-1.0) |  |
 | type-is | 2.1.0 | MIT |  |
 | typescript | 5.9.3 | Apache-2.0 | https://www.typescriptlang.org/ |
 | unbash | 6.0.4 | ISC |  |
@@ -1564,6 +1475,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | unicorn-magic | 0.3.0 | MIT |  |
 | unified | 11.0.5 | MIT | https://unifiedjs.com |
 | unified-lint-rule | 3.0.1 | MIT |  |
+| unist-util-find-after | 5.0.0 | MIT |  |
 | unist-util-is | 6.0.1 | MIT |  |
 | unist-util-position | 5.0.0 | MIT |  |
 | unist-util-position-from-estree | 2.0.0 | MIT |  |
@@ -1571,6 +1483,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | unist-util-stringify-position | 4.0.0 | MIT |  |
 | unist-util-visit | 5.1.0 | MIT |  |
 | unist-util-visit | 5.2.0 | MIT |  |
+| unist-util-visit-parents | 6.0.2 | MIT |  |
 | unist-util-visit-parents | 6.1.0 | MIT |  |
 | universalify | 0.1.2 | MIT | https://github.com/RyanZim/universalify#readme |
 | universalify | 2.0.1 | MIT | https://github.com/RyanZim/universalify#readme |
@@ -1586,6 +1499,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | validate-npm-package-name | 7.0.2 | ISC | https://github.com/npm/validate-npm-package-name |
 | vary | 1.1.2 | MIT |  |
 | vfile | 6.0.3 | MIT |  |
+| vfile-location | 5.0.3 | MIT |  |
 | vfile-location | 5.0.4 | MIT |  |
 | vfile-message | 4.0.3 | MIT |  |
 | vfile-message | 4.0.4 | MIT |  |
@@ -1627,7 +1541,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | xmlbuilder | 15.1.1 | MIT | http://github.com/oozcitak/xmlbuilder-js |
 | xmlchars | 2.2.0 | MIT |  |
 | y-codemirror.next | 0.3.5 | MIT | https://github.com/yjs/y-codemirror.next#readme |
-| y-codemirror.next | 0.3.6 | MIT | https://github.com/yjs/y-codemirror.next#readme |
 | y-indexeddb | 9.0.12 | MIT | https://yjs.dev |
 | y-protocols | 1.0.7 | MIT | https://github.com/yjs/y-protocols#readme |
 | y18n | 5.0.8 | ISC | https://github.com/yargs/y18n |
@@ -1638,7 +1551,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | yargs | 17.7.3 | MIT | https://yargs.js.org/ |
 | yargs-parser | 21.1.1 | ISC |  |
 | yjs | 13.6.31 | MIT | https://docs.yjs.dev |
-| yjs | 13.6.33 | MIT | https://docs.yjs.dev |
 | yocto-queue | 0.1.0 | MIT |  |
 | yocto-spinner | 1.2.2 | MIT |  |
 | yoctocolors | 2.2.0 | MIT |  |

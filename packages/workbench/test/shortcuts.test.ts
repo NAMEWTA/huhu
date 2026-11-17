@@ -9,12 +9,13 @@ describe("快捷键登记表", () => {
     expect(displayKeys("Esc", "linux")).toBe("Esc");
     expect(new Set(SHORTCUTS.map((s) => `${s.keys}|${s.scope}`)).size).toBe(SHORTCUTS.length);
   });
-  test("登记表里的快捷键确实在代码里实现了（命令面板的 Mod+K、编辑器的 Mod-s）", () => {
+  test("登记表里的快捷键确实在代码里实现了（命令面板的 Mod+K、笔记文档的 Mod+S）", () => {
     const palette = readFileSync(new URL("../src/command-palette/CommandPalette.tsx", import.meta.url), "utf8");
     expect(palette).toMatch(/metaKey \|\| .*ctrlKey/);
     expect(palette).toMatch(/"k"/);
-    const editor = readFileSync(new URL("../../editor/src/MarkdownEditor.tsx", import.meta.url), "utf8");
-    expect(editor).toContain('"Mod-s"');
+    const doc = readFileSync(new URL("../../../plugins/notes/src/ui/NoteDocument.tsx", import.meta.url), "utf8");
+    expect(doc).toMatch(/e\.metaKey \|\| e\.ctrlKey/);
+    expect(doc).toMatch(/key\.toLowerCase\(\) === "s"/);
     expect(SHORTCUTS.map((s) => s.keys)).toEqual(expect.arrayContaining(["Mod+K", "Mod+S"]));
   });
 });
