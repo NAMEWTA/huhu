@@ -108,4 +108,3 @@ export function restoreShellState(vaultId: string, saved: PersistedTabs | null):
   return shellReducer(base, { type: "restore", vaultId, tabs: saved.tabs, activeKey: saved.activeKey });
 }
 
-export { tabKey };

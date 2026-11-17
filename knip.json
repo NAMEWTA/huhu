@@ -45,7 +45,6 @@
         "@tiptap/extension-file-handler",
         "@tiptap/extension-placeholder",
         "@tiptap/react",
-        "@tiptap/suggestion",
         "@types/diff-match-patch",
         "@u-wave/react-vimeo",
         "@visimer/core",
@@ -82,7 +81,8 @@
         "web-vitals",
         "y-codemirror.next",
         "y-indexeddb"
-      ]
+      ],
+      "ignoreUnresolved": ["^@/"]
     },
     "packages/ui": {
       "ignoreDependencies": ["@fontsource-variable/geist", "@fontsource-variable/geist-mono", "@fontsource-variable/inter", "@fontsource-variable/jetbrains-mono", "@fontsource-variable/newsreader"]

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { openApp, root } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
 
 /**
  * S7 查看器验收（F01–F06、F10）：每条都用真实桌面应用（Electron）。
@@ -56,7 +57,7 @@ async function openKnowledge(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
   await page.getByRole("button", { name: "知识库", exact: true }).first().click();
 }
-const openFile = (page: Page, name: string) => page.getByTestId("file-item").filter({ hasText: name }).click();
+const openFile = (page: Page, name: string) => treeItem(page, name).click();
 const typeAtEnd = async (page: Page, text: string) => {
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+End");
