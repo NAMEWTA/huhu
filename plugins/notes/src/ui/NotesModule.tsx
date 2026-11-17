@@ -3,12 +3,11 @@ import type { RichEditorPort } from "@huhu/editor/rich";
 import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { CommentActions, CommentView } from "./CommentsPanel.js";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { FileViewer } from "./viewers/FileViewer.js";
 import { NoteContextMenu } from "./NoteContextMenu.js";
-import { CommentComposer, MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
+import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
 import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
 import { TabStrip } from "./tabs/TabStrip.js";
@@ -52,14 +51,11 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [error, setError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
-  const [activeComment, setActiveComment] = useState<string | null>(null);
-  const [composer, setComposer] = useState<{ from: number; to: number; quote: string } | null>(null);
   const [docText, setDocText] = useState("");
   const [dailyDate, setDailyDate] = useState(today());
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const editorRef = useRef<RichEditorPort | null>(null);
-  const commentsQ = useCapability<CommentView[]>("comments.list", { path: selected ?? "" });
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -82,43 +78,25 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
   const beforeMove = async (note: NoteRef): Promise<boolean> => ((note.path === selected || (note.folder === true && selected?.startsWith(`${note.path}/`))) && flushRef.current ? flushRef.current() : true);
 
-  const openComments = (id: string | null) => {
-    setActiveComment(id);
+  /** 工具栏“添加批注”：触发 OK 的选区入口（选区 / 取消 / 上下文冻结都在编辑器里；引用文字在已保存文本上由引擎解析）。 */
+  const addComment = () => {
     setInspector(true);
     setInspectorTab("comments");
+    void import("@huhu/editor/rich").then((m) => m.startComment());
   };
-  /** 批注锚点基于磁盘上的文本：先把编辑落盘，选区偏移才与引擎看到的文本一致。 */
-  const savedSelection = async (): Promise<{ from: number; to: number; quote: string } | null> => {
-    if (flushRef.current && !(await flushRef.current())) return null;
-    const r = editorRef.current?.getSourceSelection();
-    const quote = r?.text ?? "";
-    if (!r || r.from === r.to || !quote.trim()) {
-      setError(n.selectFirst);
-      return null;
-    }
-    setError(null);
-    return { from: r.from, to: r.to, quote };
-  };
-  const addComment = () => {
-    void savedSelection().then((sel) => sel && setComposer(sel));
-  };
-  const commentActions: CommentActions = {
-    add: async (text) => void (await run("comments.create", { path: selected, target: "file", text })),
-    reply: async (id, text) => void (await run("comments.reply", { id, text })),
-    setResolved: async (id, resolved) => void (await run(resolved ? "comments.resolve" : "comments.reopen", { id })),
-    remove: async (id) => void (await run("comments.delete", { id })),
-    relocate: async (id) => {
-      const sel = await savedSelection();
-      if (sel) await run("comments.relocate", { id, start: sel.from, end: sel.to });
-    },
-    jump: (c) => {
-      setActiveComment(c.id);
-      if (c.anchor) {
-        editorRef.current?.setSourceSelection(c.anchor.start, c.anchor.end);
-        editorRef.current?.focus();
-      }
-    },
-  };
+  // 在编辑器里发表批注（OK 的选区入口）之后，打开详情栏的批注页
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let live = true;
+    void import("@huhu/editor/rich").then((m) => {
+      if (live) off = m.onCommentPosted(() => (setInspector(true), setInspectorTab("comments")));
+    });
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
+  const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
   // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileCard 与标签存活判断；树本身直接列举文件系统
   const indexEntries = useCapability<{ path: string; type: "file" | "dir"; size?: number; mtimeMs?: number }[]>("vault.indexEntries", {});
@@ -423,9 +401,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           tags={current?.tags ?? []}
           tab={inspectorTab}
           onTab={setInspectorTab}
-          comments={commentsQ.data ?? []}
-          activeComment={activeComment}
-          commentActions={commentActions}
+          notePaths={(every.data ?? []).map((x) => x.path)}
+          flush={flushForComments}
           readOnly={false}
           onClose={() => setInspector(false)}
           onOpen={openLinked}
@@ -447,20 +424,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         />
       ) : null}
 
-      {composer ? (
-        <CommentComposer
-          quote={composer.quote}
-          error={error}
-          onClose={() => setComposer(null)}
-          onSubmit={async (text) => {
-            const r = await run<{ id: string }>("comments.create", { path: selected, target: "body", start: composer.from, end: composer.to, text });
-            if (r) {
-              setComposer(null);
-              openComments(r.id);
-            }
-          }}
-        />
-      ) : null}
       {dialog?.kind === "new" ? (
         <NewNoteDialog
           folder={dialog.folder}

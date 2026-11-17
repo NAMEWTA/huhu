@@ -20,11 +20,8 @@ import type { LocalDocProvider } from '../host/hocuspocus-provider'
 export type EditorViewMode = 'rich' | 'source' | 'read'
 export type EditorVariant = 'document' | 'compact'
 
-/** EditorPort + 迁移期（S4 评论重做前）需要的源码偏移访问。偏移是源码字符位置，不得持久化。 */
+/** EditorPort + 大纲跳转 / 撤销重做。批注锚点不经由这里：富文本选区不会被换算成源码偏移（S4，D05）。 */
 export interface RichEditorPort extends EditorPort {
-  /** 当前选区的源码偏移（源码模式精确；富文本模式按选中文本在源码里唯一匹配，找不到为 null） */
-  getSourceSelection(): { from: number; to: number; text: string } | null
-  setSourceSelection(from: number, to?: number): void
   /** 把源码偏移所在行设为光标（大纲跳转） */
   gotoLine(line: number): void
   undo(): void
@@ -222,42 +219,6 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         if (!ed) return null
         const { from, to } = ed.state.selection
         return { text: ed.state.doc.textBetween(from, to, '\n'), from, to }
-      },
-      getSourceSelection() {
-        if (mode === 'source') {
-          const v = cm()
-          if (!v) return null
-          const r = v.state.selection.main
-          return { from: r.from, to: r.to, text: v.state.sliceDoc(r.from, r.to) }
-        }
-        const ed = tip()
-        if (!ed) return null
-        const { from, to } = ed.state.selection
-        if (from === to) return null
-        const quote = ed.state.doc.textBetween(from, to, '\n')
-        const src = text()
-        const i = quote ? src.indexOf(quote) : -1
-        if (i < 0 || src.indexOf(quote, i + 1) >= 0) return null // 找不到或不唯一：不猜（S4 用 quote/prefix/suffix 重做）
-        return { from: i, to: i + quote.length, text: quote }
-      },
-      setSourceSelection(from, to = from) {
-        if (mode === 'source') {
-          cm()?.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true })
-          return
-        }
-        const ed = tip()
-        if (!ed) return
-        // 富文本里没有源码偏移：用选中文本反查（只用于迁移期的批注跳转）
-        const q = text().slice(from, to)
-        if (!q) return
-        let hit: { from: number; to: number } | null = null
-        ed.state.doc.descendants((node, pos) => {
-          if (hit || !node.isText || !node.text) return
-          const i = node.text.indexOf(q)
-          if (i >= 0) hit = { from: pos + i, to: pos + i + q.length }
-        })
-        const h = hit as { from: number; to: number } | null
-        if (h) ed.chain().focus().setTextSelection(h).scrollIntoView().run()
       },
       gotoLine(line) {
         const v = cm()

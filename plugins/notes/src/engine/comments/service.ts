@@ -1,6 +1,7 @@
 import { errors, type CommentFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
 import type { Entity, SemanticRepository, VaultFiles } from "@huhu/vault";
-import { createAnchor, refind, type Anchor } from "./anchor.js";
+import { bestByContext, createAnchor, refind, type Anchor, type Span } from "./anchor.js";
+import { findAllPassages } from "./passage-match.js";
 
 export interface CommentMessage {
   at: string;
@@ -50,6 +51,41 @@ export function parseMessages(body: string): CommentMessage[] {
   if (cur) out.push({ at: cur.at, author: cur.author, text: cur.lines.join("\n").trim() });
   return out;
 }
+/** 前置 frontmatter 之后的正文起点（批注的引用文字只在正文里找，不匹配 YAML）。 */
+export function bodyStart(text: string): number {
+  if (!text.startsWith("---\n")) return 0;
+  const m = /\n---[ \t]*(?:\n|$)/.exec(text.slice(3));
+  return m ? 3 + m.index + m[0].length : 0;
+}
+
+/** 选区描述：源码偏移（源码模式 / 重新选择位置的旧入口），或编辑器里选中的“引用文字 + 上下文”（富文本模式，不使用 PM 坐标）。 */
+export interface RangeInput {
+  start?: number | undefined;
+  end?: number | undefined;
+  quote?: string | undefined;
+  prefix?: string | undefined;
+  suffix?: string | undefined;
+}
+
+/**
+ * 把选区解析成已保存文本里的 [start,end)：偏移直接用；引用文字先按字面查，再按“渲染文本”查（越过强调 / 链接等语法）；
+ * 多处命中用 prefix/suffix 判优，仍并列则报错——不猜位置（D04 / D05）。
+ */
+export function resolveRange(text: string, input: RangeInput): { start: number; end: number } {
+  if (input.start !== undefined && input.end !== undefined) return { start: input.start, end: input.end };
+  const quote = input.quote?.trim();
+  if (!quote) throw errors.invalidInput("需要选区偏移或引用文字");
+  const from = bodyStart(text);
+  const literal: Span[] = [];
+  for (let i = text.indexOf(quote, from); i !== -1; i = text.indexOf(quote, i + 1)) literal.push({ start: i, end: i + quote.length });
+  const hits: Span[] = literal.length > 0 ? literal : findAllPassages(text, quote).filter((h) => h.start >= from);
+  if (hits.length === 0) throw errors.invalidInput("引用的文字不在文档里（可能已修改，请重新选择）");
+  if (hits.length === 1) return hits[0] as Span;
+  const best = bestByContext(text, hits, { ...(input.prefix !== undefined ? { prefix: input.prefix } : {}), ...(input.suffix !== undefined ? { suffix: input.suffix } : {}) });
+  if (best.length !== 1) throw errors.invalidInput("选中的文字在文档里出现多次，无法确定位置，请多选一些上下文");
+  return best[0] as Span;
+}
+
 const formatMessage = (m: CommentMessage): string => `### ${m.at} · ${m.author}\n\n${m.text}\n`;
 
 function toDto(e: Entity): CommentDto {
@@ -94,16 +130,17 @@ export class CommentsService {
     );
   }
 
-  async create(input: { path: string; target: "body" | "file" | "property"; property?: string; start?: number; end?: number; text: string; author: string }): Promise<CommentDto> {
+  async create(input: RangeInput & { path: string; target: "body" | "file" | "property"; property?: string; text: string; author: string }): Promise<CommentDto> {
     const text = input.text.trim();
     if (!text) throw errors.invalidInput("批注内容不能为空");
     if (input.target === "property" && !input.property?.trim()) throw errors.invalidInput("属性批注需要指定属性名");
     const doc = this.docText(input.path);
     let anchor: CommentFrontmatter["anchor"] = null;
     if (input.target === "body") {
-      if (input.start === undefined || input.end === undefined) throw errors.invalidInput("正文批注需要选区");
+      if ((input.start === undefined || input.end === undefined) && !input.quote?.trim()) throw errors.invalidInput("正文批注需要选区");
       try {
-        anchor = { ...createAnchor(doc.text, input.start, input.end), sourceVersion: doc.version };
+        const r = resolveRange(doc.text, input);
+        anchor = { ...createAnchor(doc.text, r.start, r.end), sourceVersion: doc.version };
       } catch (e) {
         throw errors.invalidInput(e instanceof Error ? e.message : "选区无效");
       }
@@ -138,14 +175,15 @@ export class CommentsService {
   }
 
   /** 重新选择位置：用当前文档里的新选区重建锚点，状态回到 anchored。 */
-  async relocate(id: string, start: number, end: number): Promise<CommentDto> {
+  async relocate(id: string, range: RangeInput): Promise<CommentDto> {
     const cur = this.d.repo.read("comment", id);
     const data = cur.data as unknown as CommentFrontmatter;
     if (data.target !== "body") throw errors.invalidInput("只有正文批注可以重新选择位置");
     const doc = this.docText(data.documentPath);
     let anchor: CommentFrontmatter["anchor"];
     try {
-      anchor = { ...createAnchor(doc.text, start, end), sourceVersion: doc.version };
+      const r = resolveRange(doc.text, range);
+      anchor = { ...createAnchor(doc.text, r.start, r.end), sourceVersion: doc.version };
     } catch (e) {
       throw errors.invalidInput(e instanceof Error ? e.message : "选区无效");
     }

@@ -7,8 +7,6 @@ export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
 
 export interface RichEditorPort extends EditorPort {
-  getSourceSelection(): { from: number; to: number; text: string } | null;
-  setSourceSelection(from: number, to?: number): void;
   gotoLine(line: number): void;
   undo(): void;
   redo(): void;
@@ -104,3 +102,52 @@ export function CompactMarkdownView(props: CompactBase & { value: string }): Rea
 export function CompactMarkdownInput(
   props: CompactBase & { value: string; onChange(text: string): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
 ): ReactElement;
+
+// S4 评论宿主
+export interface HuhuComment {
+  id: string;
+  documentPath: string;
+  target: "body" | "file" | "property";
+  property: string | null;
+  anchor: { exact: string; prefix: string; suffix: string; start: number; end: number } | null;
+  state: "anchored" | "orphaned";
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages: { at: string; author: string; text: string }[];
+}
+export interface PassageInput {
+  quote?: string;
+  prefix?: string;
+  suffix?: string;
+  start?: number;
+  end?: number;
+}
+export interface CommentsPort {
+  list(path?: string): Promise<HuhuComment[]>;
+  create(input: PassageInput & { path: string; target: "body" | "file" | "property"; property?: string; text: string }): Promise<HuhuComment>;
+  reply(id: string, text: string): Promise<HuhuComment>;
+  resolve(id: string): Promise<HuhuComment>;
+  reopen(id: string): Promise<HuhuComment>;
+  relocate(id: string, range: PassageInput): Promise<HuhuComment>;
+  delete(id: string): Promise<void>;
+}
+export interface CommentRouteDeps {
+  port: CommentsPort;
+  pathOf(docName: string): string;
+  docNameOf(path: string): string;
+  flush(docName: string): Promise<void>;
+}
+export function commentRoutes(deps: CommentRouteDeps): HostRoutes;
+export function notifyCommentsChanged(): void;
+export function startComment(): void;
+export function onCommentPosted(handler: () => void): () => void;
+export interface CommentsPanelHostProps {
+  docName: string;
+  routes: HostRoutes;
+  locale?: string;
+  readOnly?: boolean;
+  readOnlyReason?: string;
+  labels: { wholeNote: string; wholeNotePlaceholder: string; add: string };
+}
+export function CommentsPanelHost(props: CommentsPanelHostProps): ReactElement;

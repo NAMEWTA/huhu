@@ -81,6 +81,7 @@ export function createThread(input: {
   end?: number;
   propertyKey?: string;
   propertyPath?: (string | number)[];
+  wholeFile?: boolean; // HUHU(P-S4-03)
   body: string;
   queue?: boolean;
 }): Promise<CommentThreadMeta> {
@@ -88,6 +89,15 @@ export function createThread(input: {
     method: 'POST',
     body: JSON.stringify(input),
   }).then(parseThread);
+}
+
+// HUHU(P-S4-03)
+export function replyThread(threadId: string, body: string): Promise<CommentThreadMeta> {
+  return mutate<unknown>({ action: 'reply', id: threadId, body }).then(parseThread);
+}
+
+export function resolveThread(threadId: string): Promise<CommentThreadMeta> {
+  return mutate<unknown>({ action: 'resolve', id: threadId }).then(parseThread);
 }
 
 export function editComment(threadId: string, body: string): Promise<CommentThreadMeta> {

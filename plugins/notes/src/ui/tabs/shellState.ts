@@ -1,5 +1,5 @@
 import type { DocTab } from "@huhu/contracts";
-import { activeTab, createDocTabsState, docTabsReducer, tabKey, type DocTabsAction, type DocTabsState } from "./docTabs.js";
+import { activeTab, createDocTabsState, docTabsReducer, type DocTabsAction, type DocTabsState } from "./docTabs.js";
 import { initialSidebarState, sidebarReducer, type SidebarAction, type SidebarState } from "./sidebarContext.js";
 
 /**

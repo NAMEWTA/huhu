@@ -80,6 +80,8 @@ export function OkRoot({ children, locale = 'en', host, routes, config, poolKey,
   }, [documentHost])
   // 池跨 OkRoot 实例存活（每篇笔记一个 OkRoot）：只有 poolKey（Vault）变了才销毁
   useEffect(() => {
+    // 没有 poolKey 的 OkRoot（如详情栏的批注页）不参与池的所有权：否则它挂载就会把另一处正在编辑的编辑器销毁
+    if (poolKey === undefined) return
     if (lastPoolKey !== undefined && lastPoolKey !== poolKey) resetProviderPool()
     lastPoolKey = poolKey
   }, [poolKey])

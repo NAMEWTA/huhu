@@ -12293,3 +12293,30 @@ msgstr "Zoom out"
 
 msgid "Zoom Out"
 msgstr "Zoom Out"
+
+msgid "Resolve this comment"
+msgstr ""
+
+msgid "Reply"
+msgstr ""
+
+msgid "Reply…"
+msgstr ""
+
+msgid "Delete this thread? The document text is unchanged."
+msgstr ""
+
+msgid "Whole note"
+msgstr ""
+
+msgid "Couldn't send that reply."
+msgstr ""
+
+msgid "Couldn't resolve that comment."
+msgstr ""
+
+msgid "Comment on the whole note"
+msgstr ""
+
+msgid "Add comment"
+msgstr ""

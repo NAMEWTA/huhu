@@ -57,6 +57,9 @@ function toThread(meta: api.CommentThreadMeta): CommentThread {
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt ?? meta.createdAt,
     queued: meta.queued,
+    // HUHU(P-S4-03)
+    ...(meta.scope !== undefined ? { scope: meta.scope } : {}),
+    ...(meta.messages !== undefined ? { messages: meta.messages } : {}),
   };
 }
 
@@ -184,6 +187,49 @@ export function createThread(args: {
           : t`Couldn't add that comment.`,
       );
     });
+}
+
+// HUHU(P-S4-06)：宿主只读（文档只读 / 冲突中）时，批注可查看、可定位，写操作入口隐藏
+let hostReadOnly = false;
+export function setCommentsReadOnly(next: boolean): void {
+  if (hostReadOnly === next) return;
+  hostReadOnly = next;
+  notify();
+}
+export function useCommentsReadOnly(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => hostReadOnly,
+    () => false,
+  );
+}
+
+// HUHU(P-S4-03)：整篇笔记批注、回复、解决
+export function createFileThread(args: { docName: string; body: string; onCreated?: (threadId: string) => void }): void {
+  void api
+    .createThread({ docName: args.docName, wholeFile: true, body: args.body })
+    .then((meta) => {
+      void refresh(args.docName).catch(() => undefined);
+      args.onCreated?.(meta.threadId);
+      emitCommentPosted();
+    })
+    .catch((err: unknown) => {
+      toast.error(
+        err instanceof Error && err.message
+          ? t`Couldn't add that comment: ${err.message}`
+          : t`Couldn't add that comment.`,
+      );
+    });
+}
+
+export function replyToThread(threadId: string, body: string): void {
+  const docName = getThreadById(threadId)?.docName;
+  settle(api.replyThread(threadId, body), docName, t`Couldn't send that reply.`);
+}
+
+export function resolveThread(threadId: string): void {
+  const docName = getThreadById(threadId)?.docName;
+  settle(api.resolveThread(threadId), docName, t`Couldn't resolve that comment.`);
 }
 
 export function createPropertyThread(args: {
