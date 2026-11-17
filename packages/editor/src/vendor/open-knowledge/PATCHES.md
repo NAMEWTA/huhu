@@ -38,3 +38,11 @@
 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。
 - 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
 - P-S5-05 `app/src/components/ui/{alert-dialog,dialog,dropdown-menu,popover,select,tooltip}.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
+
+## S3（编辑行为对等与性能 F09）补丁
+
+- P-S3-01（宿主，非 vendor 文件）大文档源码优先打开：`host/hocuspocus-provider.ts`（`lazyRich` / `ensureRich()` / `settleNow()`）、`host/provider-pool.ts`、`rich/RichMarkdownEditor.tsx`。源码模式只装载 `Y.Text('source')`；解析 + `Y.XmlFragment` + 桥观察者延后到切换富文本时。1 MiB 文档打开：5.4 s → 约 0.45 s。
+- P-S3-02 `server-bridge/server-observers.ts`：桥结算自适应推迟——上一次结算超过 12 ms 时把后续结算合并到停顿之后（150–1500 ms，最长连续推迟 3 s）；小文档仍同步，与上游一致。返回的 dispose 函数新增 `settleNow()`；所有读取 `Y.Text` 的出口（flush / 切源码 / 卸载）先结算。原因：上游这套桥跑在服务端进程，本地模式在渲染进程主线程，5000 段文档每次按键同步整篇序列化约 1 s。
+- P-S3-03 `app/src/editor/extensions/chunk-wrapper-decoration.ts`、`app/src/globals.css`：不再给每个顶层块建 `Decoration.node`（5000 段 = 5000 个装饰，约 90 ms/键）；`content-visibility:auto` 改由 CSS 子选择器 `.ProseMirror > :where(:not(...))` 匹配，装饰只留给 `jsxComponent`（跳过）与选区所在块（`data-ok-selection-block`）。5000 段输入延迟 p95 ≈ 80 ms → ≈ 13 ms。
+- P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `"007"` 保持引号。spec C02。
+- P-S3-05（宿主）`host/explorer.tsx`：OK 对超过 512 KiB 的文档给出 `large-file` 导航目标（不进编辑器）；Huhu 把它当普通文件打开，由 `plugins/notes/src/ui/viewers/dispatch.ts` 决定上限（Markdown 笔记 16 MiB，其它文本 1 MiB）。

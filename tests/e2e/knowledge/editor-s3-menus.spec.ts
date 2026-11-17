@@ -26,8 +26,8 @@ test("S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤�
     await expect(prose(page)).toContainText("起始段落", { timeout: 30_000 });
 
     // `/`：菜单出现，列出分类与选项；过滤；Esc 关闭
-    await prose(page).click();
-    await page.keyboard.press("ControlOrMeta+End");
+    await prose(page).getByText("起始段落").click();
+    await page.keyboard.press("End");
     await page.keyboard.press("Enter");
     await page.keyboard.type("/");
     const listbox = page.locator('[role="listbox"]').first();
@@ -35,18 +35,20 @@ test("S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤�
     expect(await page.locator('[role="option"]').count()).toBeGreaterThan(5);
     await page.keyboard.press("Escape");
     await expect(listbox).toBeHidden();
+    await page.keyboard.press("Backspace"); // 去掉留在文档里的 "/"，再重新触发
 
     // 过滤 + Enter 插入：选“无序列表”（或匹配项），随后正文里出现列表
-    await page.keyboard.type("/bullet");
+    await page.keyboard.type("/无序");
     await expect(listbox).toBeVisible();
     await page.keyboard.press("Enter");
+    await expect(prose(page).locator("ul")).toHaveCount(1); // 菜单项已应用，再输入
     await page.keyboard.type("条目甲");
     await expect(prose(page).locator("ul li").first()).toContainText("条目甲");
     await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 10_000 });
     expect(readFileSync(file, "utf8")).toMatch(/[-*] 条目甲/);
 
     // 气泡菜单：选中文字后出现，点加粗
-    await prose(page).getByText("起始段落").dblclick();
+    await prose(page).getByText("起始段落").click();
     await page.keyboard.press("Home");
     await page.keyboard.press("Shift+End");
     const bubble = page.getByTestId("bubble-menu-bar");
