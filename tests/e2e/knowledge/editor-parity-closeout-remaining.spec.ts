@@ -109,14 +109,22 @@ test("本地图片气泡的左、中、右按钮更新选择并逐次保存重�
       const afterImage = editor(page).getByText("后文", { exact: true });
       await afterImage.click({ position: { x: 2, y: 3 } });
       await page.keyboard.press("Home");
+      await expect(editor(page)).toBeFocused();
       await expect
         .poll(() =>
-          afterImage.evaluate((element) => {
-            const selection = window.getSelection();
-            return selection?.isCollapsed && selection.anchorOffset === 0 && element.contains(selection.anchorNode);
+          editor(page).evaluate((element) => {
+            const root = element as HTMLElement & {
+              editor?: { state: { selection: { empty: boolean; $head: { parentOffset: number; parent: { textContent: string } } } } };
+            };
+            const selection = root.editor?.state.selection;
+            return {
+              collapsed: selection?.empty,
+              offset: selection?.$head.parentOffset,
+              text: selection?.$head.parent.textContent,
+            };
           }),
         )
-        .toBe(true);
+        .toEqual({ collapsed: true, offset: 0, text: "后文" });
       await page.keyboard.press("ArrowUp");
       await expect(image).toHaveAttribute("data-selected", "true");
       const button = page.getByRole("button", { name: label });
@@ -190,7 +198,7 @@ test("格式气泡显示下划线和高亮快捷键，真实按键持久化两�
       await page.mouse.move(0, 0);
       const trigger = page.getByRole("button", { name: button, exact: true });
       await trigger.hover();
-      const hint = page.getByRole("tooltip").locator("kbd");
+      const hint = page.getByRole("tooltip", { name: new RegExp(`^${button} `) }).locator("kbd");
       await expect(hint).toHaveAttribute("aria-label", accessible);
       await page.keyboard.press(key);
       await expect(rich.locator(selector)).toHaveText(text);
