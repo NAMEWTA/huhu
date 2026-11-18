@@ -72,6 +72,10 @@
 ## Issue #2 本地编辑验收补证
 
 - `app/src/components/ui/input-group.tsx`：查找替换栏依赖的输入组，原样复制。
+- `app/src/editor/components/use-app-color-mode.ts`：读取并订阅 Huhu 已解析外观，保留 OK 根类名与系统模式回退。
+- `app/src/editor/components/use-app-color-mode.dom.test.tsx`：Huhu 模式覆盖与挂载后切换回归。
+- `core/src/markdown/html-to-mdast.ts`：对可能超限的多字节 HTML 用 UTF-8 字节数执行上限。
+- `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。
 - `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。
 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。
 

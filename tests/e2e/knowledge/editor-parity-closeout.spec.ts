@@ -127,6 +127,16 @@ test("# 与 [[ 候选来自当前 Vault，插入后保存并重开", async () =>
     await tag.click();
     await expect(editor.locator("[data-tag]")).toContainText("closeout");
     await page.keyboard.press("End");
+    // 保留真实宿主响应，延迟返回以覆盖快速输入时多个查询共享同一个在途请求。
+    await page.evaluate(() => {
+      const fetchFromHost = window.fetch;
+      window.fetch = async (input, init) => {
+        if (typeof input === "string" && input.startsWith("/api/page-headings?")) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+        return fetchFromHost(input, init);
+      };
+    });
     await page.keyboard.type(" [[target-note#Vault");
     const target = page.getByRole("option").filter({ hasText: "Vault 目标" });
     await expect(target).toBeVisible({ timeout: 10_000 });
@@ -256,6 +266,216 @@ test("复制与剪切分离公开文本和评论原文，粘回后保存重开",
     await expect(editor.locator("[data-comment-mark]")).toHaveText("仅内部评论");
     await reopenSavedNote(page, file, original);
     await expect(editor.locator("[data-comment-mark]")).toHaveText("仅内部评论");
+  } finally {
+    await close();
+  }
+});
+
+test("折叠块、对齐、音频、文件、数学和嵌入块保存重开后仍可渲染", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = [
+    "起始",
+    "",
+    '<Accordion title="折叠甲">',
+    "",
+    "折叠甲正文",
+    "",
+    "</Accordion>",
+    "",
+    '<Toggle title="折叠乙">',
+    "",
+    "折叠乙正文",
+    "",
+    "</Toggle>",
+    "",
+    '<div align="center">',
+    "",
+    "居中正文",
+    "",
+    "</div>",
+    "",
+    '<audio src="./sample.wav" title="音频样本" preload="none" />',
+    "",
+    '<File src="./sample.txt" name="附件样本" size="16 B" />',
+    "",
+    "$$",
+    "a^2 + b^2 = c^2",
+    "$$",
+    "",
+    '<Embed src="https://example.invalid/embed-test" title="嵌入样本" />',
+    "",
+  ].join("\n");
+  try {
+    writeFileSync(file, original);
+    writeFileSync(path.join(vault, "sample.txt"), "attachment bytes");
+    await openNote(page);
+    const editor = prose(page);
+    await editor.getByText("起始", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("修改");
+    await reopenSavedNote(page, file, original.replace("起始", "起始修改"));
+    await expect(editor.getByText("起始修改", { exact: true })).toBeVisible();
+
+    for (const title of ["折叠甲", "折叠乙"]) {
+      const paragraph = editor.getByText(`${title}正文`, { exact: true });
+      const summary = editor.locator("summary").filter({ hasText: title });
+      await expect(paragraph).toBeHidden();
+      await summary.click();
+      await expect(paragraph).toBeVisible();
+      await summary.click();
+      await expect(paragraph).toBeHidden();
+    }
+    const aligned = editor.locator('[data-component-type="align-block"]');
+    await expect(aligned).toContainText("居中正文");
+    await expect(aligned).toHaveCSS("text-align", "center");
+    const audio = editor.locator('audio[title="音频样本"]');
+    await expect(audio).toHaveAttribute("controls", "");
+    await expect(audio).toHaveAttribute("src", /sample\.wav$/);
+    const attachment = editor.getByRole("link", { name: /附件样本/ });
+    await expect(attachment).toContainText("16 B");
+    await expect(attachment).toHaveAttribute("href", /sample\.txt$/);
+    await expect(editor.locator(".katex-display math")).toContainText("a");
+    const frame = editor.locator('iframe[title="嵌入样本"]');
+    await expect(frame).toHaveAttribute("src", "https://example.invalid/embed-test");
+    await expect(frame).toHaveAttribute("sandbox", /allow-scripts/);
+  } finally {
+    await close();
+  }
+});
+
+test("原子 JSX 块可用上下键选中，Escape 退出后可继续编辑并重开", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = '前文\n\n<File src="./sample.txt" name="键盘附件" />\n\n后文\n';
+  try {
+    writeFileSync(file, original);
+    writeFileSync(path.join(vault, "sample.txt"), "键盘附件");
+    await openNote(page);
+    const editor = prose(page);
+    const selected = editor.locator(".ProseMirror-selectednode").filter({ hasText: "键盘附件" });
+    await editor.getByText("前文", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowDown");
+    await expect(selected).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editor).not.toBeFocused();
+
+    await editor.getByText("后文", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowUp");
+    await expect(selected).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editor).not.toBeFocused();
+
+    await editor.getByText("后文", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("续写");
+    await reopenSavedNote(page, file, original.replace("后文", "后文续写"));
+    await expect(editor.getByText("后文续写", { exact: true })).toBeVisible();
+    await expect(editor.getByRole("link", { name: "键盘附件" })).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("气泡工具栏把选区转换为脚注，引用和定义保存重开后配对", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  try {
+    writeFileSync(file, "# 脚注\n\n这是脚注用例的前置正文。\n\n需要注释\n");
+    await openNote(page);
+    const editor = prose(page);
+    await editor.getByText("需要注释", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("需要注释");
+    await page.getByTestId("footnote-bubble-button").click({ timeout: 10_000 });
+
+    const ref = editor.locator("sup[data-footnote-ref]");
+    await expect(ref).toBeVisible();
+    const id = await ref.getAttribute("data-footnote-id");
+    expect(id).toBeTruthy();
+    const definition = editor.locator("[data-footnote-def]");
+    await expect(definition).toContainText("需要注释");
+    await expect(definition).toHaveAttribute("data-footnote-id", id!);
+    await expect.poll(() => readFileSync(file, "utf8"), { timeout: 10_000 }).toContain(`[^${id}]: 需要注释`);
+    const markdown = readFileSync(file, "utf8");
+    expect(markdown).toMatch(/^\[\^[^\]]+\]$/m);
+    await reopenSavedNote(page, file, markdown);
+    await expect(ref).toHaveAttribute("data-footnote-id", id!);
+    await expect(definition).toHaveAttribute("data-footnote-id", id!);
+    await expect(definition).toContainText("需要注释");
+  } finally {
+    await close();
+  }
+});
+
+test("Backspace 整体删除行尾标签和维基链接，保存重开后邻接文本仍在", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  try {
+    writeFileSync(path.join(vault, "target-note.md"), "# 目标\n");
+    writeFileSync(file, "标签正文 #erase\n\n链接正文 [[target-note]]\n");
+    await openNote(page);
+    const editor = prose(page);
+    for (const fixture of [
+      { prefix: "标签正文", selector: "[data-tag]" },
+      { prefix: "链接正文", selector: "[data-wiki-link]" },
+    ]) {
+      await expect(editor.locator(fixture.selector)).toBeVisible();
+      await editor.getByText(fixture.prefix, { exact: false }).last().click();
+      await expect(editor).toBeFocused();
+      await page.keyboard.press("End");
+      await page.keyboard.press("Backspace");
+      await expect(editor.locator(fixture.selector)).toHaveCount(0);
+    }
+    await expect.poll(() => readFileSync(file, "utf8"), { timeout: 10_000 }).toMatch(/^标签正文 *\n\n链接正文 *\n$/);
+    await reopenSavedNote(page, file, readFileSync(file, "utf8"));
+    await expect(editor.getByText("标签正文", { exact: true })).toBeVisible();
+    await expect(editor.getByText("链接正文", { exact: true })).toBeVisible();
+    await expect(editor.locator("[data-tag], [data-wiki-link]")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
+test("上下方向键进入未知 MDX，嵌套 CodeMirror 撤销重做后保存重开", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = '前文\n\n<UnknownWidget name="old" />\n\n后文\n';
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    const editor = prose(page);
+    const embedded = editor.locator(".cm-content");
+    await editor.getByText("前文", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowDown");
+    await expect(embedded).toBeFocused();
+
+    await page.keyboard.press("End");
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowLeft");
+    await page.keyboard.insertText("X");
+    await expect(embedded).toContainText('name="oldX"');
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(embedded).toContainText('name="old"');
+    await page.keyboard.press("ControlOrMeta+y");
+    await expect(embedded).toContainText('name="oldX"');
+
+    await reopenSavedNote(page, file, original.replace('name="old"', 'name="oldX"'));
+    await expect(embedded).toContainText('name="oldX"');
+    await editor.getByText("后文", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowUp");
+    await expect(embedded).toBeFocused();
   } finally {
     await close();
   }

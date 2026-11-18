@@ -40,4 +40,9 @@ describe("Markdown 保真", () => {
     expect(mdastToMarkdown(htmlToMdast(html))).toBe("**粗体** <ins>下划线</ins>\n");
     expect(() => htmlToMdast("a".repeat(HTML_MAX_BYTES + 1))).toThrow(HtmlPayloadTooLargeError);
   });
+
+  test("HTML 粘贴限制按 UTF-8 字节接受边界值并拒绝多字节超限", () => {
+    expect(mdastToMarkdown(htmlToMdast("界界", { maxBytes: 6 }))).toBe("界界\n");
+    expect(() => htmlToMdast("界界界", { maxBytes: 8 })).toThrow(HtmlPayloadTooLargeError);
+  });
 });

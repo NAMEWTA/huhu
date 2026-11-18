@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { PREVIEW_THEME_TOKENS } from '@inkeep/open-knowledge-core/constants/preview-theme-tokens';
 import { describe, expect, test } from 'vitest';
 import {
