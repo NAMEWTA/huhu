@@ -1,7 +1,7 @@
-import { readdirSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import path from "node:path";
-import { errors, KINDS } from "@huhu/contracts";
-import { OperationLog, VaultIndex, type Vault } from "@huhu/vault";
+import { errors, KINDS, VaultListInput, VaultListOutput, VaultReadRangeInput, VaultReadRangeOutput } from "@huhu/contracts";
+import { listDir, OperationLog, VaultIndex, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
 
@@ -93,7 +93,7 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
     ),
     registry.register(
       defineCapability({
-        name: "vault.tree",
+        name: "vault.indexEntries",
         plugin: "kernel",
         scope: "read",
         input: z.object({ prefix: z.string().default("") }),
@@ -101,6 +101,53 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
         exposable: true,
         defaultExposed: true,
         handler: (_c, i) => index.entries(i.prefix),
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "vault.list",
+        plugin: "kernel",
+        scope: "read",
+        input: VaultListInput,
+        output: VaultListOutput,
+        // 外部入口只拿目录元信息（名称 / 类型 / 大小 / 时间 / 受保护标记）；受保护目录不对外列出内容（见 handler）
+        exposable: true,
+        defaultExposed: false,
+        handler: (c, i) => {
+          if (c.caller !== "desktop" && i.includeProtected) throw errors.invalidInput("外部入口不能列出受保护目录");
+          return listDir(vault.root, i.dir, { cursor: i.cursor, limit: i.limit, includeProtected: i.includeProtected });
+        },
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "vault.readRange",
+        plugin: "kernel",
+        scope: "read",
+        input: VaultReadRangeInput,
+        output: VaultReadRangeOutput,
+        exposable: false,
+        defaultExposed: false,
+        handler: (_c, i) => {
+          const abs = vault.files.abs(i.path); // 路径守卫（含符号链接 realpath）
+          let st;
+          try {
+            st = statSync(abs);
+          } catch {
+            throw errors.notFound(`文件不存在：${i.path}`);
+          }
+          if (!st.isFile()) throw errors.notFound(`文件不存在：${i.path}`);
+          if (i.offset >= st.size && st.size > 0) return { path: i.path, offset: i.offset, length: 0, size: st.size, base64: "", eof: true };
+          const len = Math.min(i.length, Math.max(0, st.size - i.offset));
+          const buf = Buffer.alloc(len);
+          const fd = openSync(abs, "r");
+          try {
+            readSync(fd, buf, 0, len, i.offset);
+          } finally {
+            closeSync(fd);
+          }
+          return { path: i.path, offset: i.offset, length: len, size: st.size, base64: buf.toString("base64"), eof: i.offset + len >= st.size };
+        },
       }),
     ),
     registry.register(

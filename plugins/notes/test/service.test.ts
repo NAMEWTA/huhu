@@ -141,6 +141,26 @@ describe("复制、回收站", () => {
     expect(d.id).not.toBe(a);
     expect(rd(root, d.path)).toBe("内容");
   });
+  test("A07 复制文件夹：整棵子树（含非 Markdown 与空目录）按字节复制，原文件不变", async () => {
+    const { svc, root } = await setup({ "Proj/a.md": "# A", "Proj/sub/b.md": "# B", "Proj/data.json": '{"k":1}' });
+    mkdirSync(path.join(root, "Proj/emptyDir"), { recursive: true });
+    const d = await svc.duplicate("Proj");
+    expect(d.path).toBe("Proj · 副本");
+    expect(rd(root, "Proj · 副本/a.md")).toBe("# A");
+    expect(rd(root, "Proj · 副本/sub/b.md")).toBe("# B");
+    expect(rd(root, "Proj · 副本/data.json")).toBe('{"k":1}');
+    expect(existsSync(path.join(root, "Proj · 副本/emptyDir"))).toBe(true);
+    expect(rd(root, "Proj/a.md")).toBe("# A");
+    expect(svc.folders()).toContain("Proj · 副本/emptyDir");
+    const again = await svc.duplicate("Proj");
+    expect(again.path).toBe("Proj · 副本 (1)");
+  });
+  test("A07 复制非 Markdown 文件保持扩展名", async () => {
+    const { svc, root } = await setup({ "data.json": "{}" });
+    const d = await svc.duplicate("data.json");
+    expect(d.path).toBe("data · 副本.json");
+    expect(rd(root, d.path)).toBe("{}");
+  });
   test("ACC-KN-07 恢复：原路径有同名 → 要求新名称，原有文件不变；永久删除", async () => {
     const { svc, root } = await setup({ "n.md": "旧" });
     const { trashId } = await svc.trash("n.md");
@@ -228,5 +248,43 @@ describe("任务文件与文件夹链接的改写（任务 spec §3.4）", () =>
     await rebuild();
     await svc.move("设计/a.md", "归档");
     expect(rd(root, "笔记.md")).toBe("见 [[设计/]] 和 [[归档/a.md]]\n");
+  });
+});
+
+describe("hiddenPaths（OP-D11：仅文件树隐藏的偏好）", () => {
+  test("读写：规范化、去重、排序；越界路径被拒", async () => {
+    const { svc } = await setup();
+    expect(svc.hiddenPaths()).toEqual([]);
+    expect(await svc.setHiddenPaths(["./b/", "a", "a", "b"])).toEqual(["a", "b"]);
+    expect(svc.hiddenPaths()).toEqual(["a", "b"]);
+    await expect(svc.setHiddenPaths(["../x"])).rejects.toThrow(/路径越界/);
+    expect(svc.hiddenPaths()).toEqual(["a", "b"]);
+  });
+
+  test("内部改名 / 移动：规则与子树规则一起重定位；无关规则不动", async () => {
+    const { svc, rebuild } = await setup({ "d/a.md": "x", "d/sub/b.md": "y", "keep/c.md": "z", "solo.md": "s" });
+    await svc.setHiddenPaths(["d", "d/sub/b.md", "keep", "solo.md"]);
+    await svc.moveEntry("d", "e");
+    expect(svc.hiddenPaths()).toEqual(["e", "e/sub/b.md", "keep", "solo.md"]);
+    await rebuild();
+    await svc.rename("solo.md", "alone");
+    expect(svc.hiddenPaths()).toEqual(["alone.md", "e", "e/sub/b.md", "keep"]);
+    await rebuild();
+    await svc.move("alone.md", "keep");
+    expect(svc.hiddenPaths()).toEqual(["e", "e/sub/b.md", "keep", "keep/alone.md"]);
+  });
+
+  test("空文件夹改名也重定位", async () => {
+    const { svc } = await setup();
+    await svc.createFolder("empty");
+    await svc.setHiddenPaths(["empty"]);
+    await svc.moveEntry("empty", "renamed");
+    expect(svc.hiddenPaths()).toEqual(["renamed"]);
+  });
+
+  test("隐藏规则不影响笔记列表 / 搜索语义（只是偏好数据）", async () => {
+    const { svc } = await setup({ "a.md": "# A" });
+    await svc.setHiddenPaths(["a.md"]);
+    expect(svc.list("all").map((n) => n.path)).toContain("a.md");
   });
 });

@@ -12,3 +12,74 @@ allowBuilds:
   # ssh2 的原生加速模块（cpu-features / 可选的 sshcrypto.node）不编译：缺失时 ssh2 自动回退纯 JS，打包也不需要为 Electron 重编译
   cpu-features: false
   ssh2: false
+
+# OK vendor（packages/editor/src/vendor/open-knowledge）：模块增强（mdast-augmentation.ts）要求只存在一份 mdast-util-mdx-jsx，与上游 overrides 一致
+overrides:
+  mdast-util-mdx-jsx: 3.2.0
+  # 编辑器行为以 OK 锁文件为基线：tiptap 全系固定在上游解析的 3.22.3（@tiptap/pm 3.22.4），避免传递依赖浮到 3.34（reactMobileEnter 与 park 重挂载不兼容，SP-6 实测）
+  "@tiptap/core": 3.22.3
+  "@tiptap/extension-blockquote": 3.22.3
+  "@tiptap/extension-bold": 3.22.3
+  "@tiptap/extension-bubble-menu": 3.22.3
+  "@tiptap/extension-bullet-list": 3.22.3
+  "@tiptap/extension-code-block": 3.22.3
+  "@tiptap/extension-document": 3.22.3
+  "@tiptap/extension-dropcursor": 3.22.3
+  "@tiptap/extension-floating-menu": 3.22.3
+  "@tiptap/extension-gapcursor": 3.22.3
+  "@tiptap/extension-hard-break": 3.22.3
+  "@tiptap/extension-heading": 3.22.3
+  "@tiptap/extension-horizontal-rule": 3.22.3
+  "@tiptap/extension-italic": 3.22.3
+  "@tiptap/extension-link": 3.22.3
+  "@tiptap/extension-list-item": 3.22.3
+  "@tiptap/extension-list-keymap": 3.22.3
+  "@tiptap/extension-list": 3.22.3
+  "@tiptap/extension-node-range": 3.22.3
+  "@tiptap/extension-ordered-list": 3.22.3
+  "@tiptap/extension-paragraph": 3.22.3
+  "@tiptap/extension-strike": 3.22.3
+  "@tiptap/extension-text-style": 3.22.3
+  "@tiptap/extension-text": 3.22.3
+  "@tiptap/extension-underline": 3.22.3
+  "@tiptap/extensions": 3.22.3
+  "@tiptap/pm": 3.22.4
+  mdast-util-to-markdown: 2.1.2
+  # 同上：Markdown 管线（mdast / hast / micromark）与 ProseMirror 全系固定在上游锁文件解析的版本；浮动版本已实测改变行为
+  # （mdast-util-gfm-task-list-item 2.0.1 会让任务项序列化成 "- [ ] [ ] x"，上游 list.test 抓到）
+  hast-util-from-html: 2.0.3
+  hast-util-from-parse5: 8.0.3
+  hast-util-to-html: 9.0.5
+  hast-util-to-mdast: 10.1.2
+  hast-util-to-text: 4.0.2
+  hastscript: 9.0.1
+  lib0: 0.2.117
+  linkifyjs: 4.3.3
+  mdast-util-find-and-replace: 3.0.2
+  mdast-util-gfm-autolink-literal: 2.0.1
+  mdast-util-gfm-strikethrough: 2.0.0
+  mdast-util-gfm-table: 2.0.0
+  mdast-util-gfm-task-list-item: 2.0.0
+  prosemirror-changeset: 2.4.1
+  prosemirror-commands: 1.7.1
+  prosemirror-dropcursor: 1.8.3
+  prosemirror-history: 1.5.0
+  prosemirror-model: 1.25.4
+  prosemirror-schema-list: 1.5.1
+  prosemirror-transform: 1.12.0
+  prosemirror-view: 1.41.8
+  unist-util-visit-parents: 6.0.2
+  vfile-location: 5.0.3
+
+# OK vendor 依赖补丁（与上游 pnpm-workspace.yaml 的同名条目一致，原样复制自 temp/sources/open-knowledge/patches；登记见 packages/editor/src/vendor/open-knowledge/PATCHES.md）
+patchedDependencies:
+  "@handlewithcare/remark-prosemirror@0.1.5": patches/@handlewithcare%2Fremark-prosemirror@0.1.5.patch
+  "@lingui/core@6.5.0": patches/@lingui%2Fcore@6.5.0.patch
+  "@pierre/trees@1.0.0-beta.4": patches/@pierre%2Ftrees@1.0.0-beta.4.patch
+  "@radix-ui/react-tooltip@1.2.8": patches/@radix-ui__react-tooltip@1.2.8.patch
+  "@tiptap/extension-drag-handle@3.22.3": patches/@tiptap%2Fextension-drag-handle@3.22.3.patch
+  "@tiptap/y-tiptap@3.0.3": patches/@tiptap%2Fy-tiptap@3.0.3.patch
+  "cmdk@1.1.1": patches/cmdk@1.1.1.patch
+  "react-medium-image-zoom@5.4.3": patches/react-medium-image-zoom@5.4.3.patch
+  "pdfjs-dist@6.3.289": patches/pdfjs-dist@6.3.289.patch
+  "y-indexeddb@9.0.12": patches/y-indexeddb@9.0.12.patch

@@ -1,9 +1,8 @@
 import type { ArchiveDetailDto, ArchiveDto, ArchiveFieldDef, ArchiveTypeDto } from "@huhu/contracts";
-import { MarkdownEditor } from "@huhu/editor";
 import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, SearchBox, type DataTableColumn } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { useCapability, useEngine, useQueryClient, useReferenceIndex } from "@huhu/workbench";
 import { ArrowUpRight, FilePlus2, FileText, Folder, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { archiveIcon } from "./icons.js";
 import { a } from "./i18n.js";
 import { folderName } from "./route.js";
@@ -29,6 +28,9 @@ function useRefetchOnFocus(refetch: () => unknown): void {
     return () => window.removeEventListener("focus", on);
   }, [refetch]);
 }
+
+// 档案正文用紧凑 OK 编辑器，按需加载：档案首屏不带编辑器闭包
+const CompactInput = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownInput })));
 
 // ---------------------------------------------------------------- 首页
 export function ArchivesHome({ onOpenType }: { onOpenType(path: string): void }) {
@@ -273,8 +275,27 @@ function FieldCell({ row, field }: { row: ArchiveDto; field: ArchiveFieldDef }) 
 }
 
 // ---------------------------------------------------------------- 档案视图
-export function ArchiveView({ path, onOpenType, onOpenFile, onOpenFolder, onGone }: { path: string; onOpenType(path: string): void; onOpenFile(path: string): void; onOpenFolder(path: string): void; onGone(): void }) {
-  const call = useArchiveCall();
+export function ArchiveView({
+  path,
+  onOpenType,
+  onOpenFile,
+  onOpenFolder,
+  onGone,
+  beforeWrite,
+}: {
+  path: string;
+  onOpenType(path: string): void;
+  onOpenFile(path: string): void;
+  onOpenFolder(path: string): void;
+  onGone(): void;
+  /** 写 index.md 之前先让同一文件的会话（Markdown 视图里的未保存编辑）落盘；返回 false 则不写（E04）。 */
+  beforeWrite?: () => Promise<boolean>;
+}) {
+  const rawCall = useArchiveCall();
+  const call = async <T,>(capability: string, input: unknown): Promise<T> => {
+    if (beforeWrite && !(await beforeWrite())) throw new Error(a.flushFailed);
+    return rawCall<T>(capability, input);
+  };
   const detail = useCapability<ArchiveDetailDto>("archives.read", { path });
   const types = useCapability<ArchiveTypeDto[]>("archives.types.list", {});
   useRefetchOnFocus(detail.refetch);
@@ -551,6 +572,7 @@ function FieldInput({ def, value, problem, onCommit }: { def: ArchiveFieldDef; v
 
 /** 正文编辑：普通笔记编辑器编辑 index.md 的正文；停手 800 ms 或失焦后条件写。 */
 function BodyEditor({ path, body, onSave }: { path: string; body: string; onSave(body: string): Promise<unknown> }) {
+  const refs = useReferenceIndex();
   const [text, setText] = useState(body);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(body);
@@ -574,19 +596,21 @@ function BodyEditor({ path, body, onSave }: { path: string; body: string; onSave
   }, []);
   return (
     <div className="notes-archive-body" data-testid="archive-body" onBlur={flush}>
-      <MarkdownEditor
-        documentId={`archive:${path}`}
-        value={text}
-        onChange={(v) => {
-          latest.current = v;
-          setText(v);
-          if (timer.current) clearTimeout(timer.current);
-          timer.current = setTimeout(flush, 800);
-        }}
-        onSave={flush}
-        ariaLabel={a.body}
-        lineNumbers={false}
-      />
+      <Suspense fallback={null}>
+        <CompactInput
+          id={`archive:${path}`}
+          value={text}
+          pages={refs.pages}
+          referenceSearch={refs.search}
+          placeholder={a.body}
+          onChange={(v) => {
+            latest.current = v;
+            setText(v);
+            if (timer.current) clearTimeout(timer.current);
+            timer.current = setTimeout(flush, 800);
+          }}
+        />
+      </Suspense>
     </div>
   );
 }

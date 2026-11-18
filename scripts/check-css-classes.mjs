@@ -18,7 +18,7 @@ const allowed = new Set(Object.values(exceptions.classes).flat());
 
 const files = execSync("git ls-files -co --exclude-standard", { encoding: "utf8" })
   .split("\n")
-  .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.startsWith("temp/") && !f.includes("node_modules"));
+  .filter((f) => f && fs.existsSync(f) && !f.startsWith(".agents/") && !f.startsWith("temp/") && !f.includes("node_modules") && !f.startsWith("packages/editor/src/vendor/open-knowledge/") && f !== "packages/editor/src/ok/ok-globals.css");
 const cssFiles = files.filter((f) => f.endsWith(".css") && !f.includes("generated"));
 const tsFiles = files.filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".d.ts") && !f.startsWith("tests/") && !/\/test\//.test(f) && !f.includes("/vendor/"));
 

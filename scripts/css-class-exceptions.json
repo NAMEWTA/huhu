@@ -35,6 +35,7 @@
     "agent-cli｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["huhu-drawer-presence", "provider-claude", "provider-claude-agent-teams", "provider-codex", "provider-pi"],
     "notes｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["knowledge-task-detail"],
     "ssh｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["execution-fault-control"],
-    "tasks｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["board-blue", "board-card", "board-card-drag", "board-dot", "board-green", "board-links", "board-note-link", "board-purple"]
+    "tasks｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["board-blue", "board-card", "board-card-drag", "board-dot", "board-green", "board-links", "board-note-link", "board-purple"],
+    "editor｜原因：第三方（OK / ProseMirror）编辑器自带的类名，宿主 CSS 只在 .editor-ok-surface 作用域内按它们覆盖变量与字号，无法改名": ["tiptap-editor", "ProseMirror"]
   }
 }

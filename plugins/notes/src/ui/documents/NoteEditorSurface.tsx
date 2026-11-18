@@ -1,0 +1,87 @@
+import { OkRoot, RichMarkdownEditor, coreRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
+import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
+import { useMemo, useRef } from "react";
+import { useCommentsBridge } from "../comments/useCommentsBridge.js";
+
+/** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
+export interface SurfaceNoteRef {
+  path: string;
+  title: string;
+}
+
+export interface NoteEditorSurfaceProps {
+  path: string;
+  value: string;
+  onChange(text: string): void;
+  mode: EditorViewMode;
+  notes: readonly SurfaceNoteRef[];
+  /** 编辑器内点击 wiki-link / 内部链接：交给笔记模块打开 */
+  onOpen(path: string): void;
+  onPort(port: RichEditorPort | null): void;
+  fontSize?: number;
+  /** 正文可读宽度 px；null = 不限制 */
+  contentWidth?: number | null;
+  /** 批注创建前把编辑落盘（引擎在已保存文本上解析引用文字） */
+  flush(): Promise<boolean>;
+}
+
+const MD = /\.(md|mdx)$/i;
+const docNameOf = (path: string): string => path.replace(MD, "");
+
+/**
+ * 笔记的编辑面（整个新编辑器闭包经 `NoteDocument` 的动态 import 加载到这里，不进首屏）：
+ * `.ok-root` 作用域 + 宿主路由（页面清单）+ RichMarkdownEditor。
+ */
+export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
+  const engine = useEngine();
+  // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
+  const refs = useReferenceIndex();
+  const notes = useRef(props.notes);
+  notes.current = props.notes;
+  const onOpen = useRef(props.onOpen);
+  onOpen.current = props.onOpen;
+
+  const { commentRoutes } = useCommentsBridge({ paths: props.notes.map((x) => x.path), flush: props.flush });
+  const routes = useMemo<HostRoutes>(
+    () => ({
+      ...commentRoutes,
+      ...coreRoutes({
+        listPages: () => notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
+        listDocuments: () => notes.current.map((x) => ({ kind: "document" as const, path: x.path, docName: docNameOf(x.path) })),
+      }),
+    }),
+    [commentRoutes],
+  );
+  const documentHost = useMemo(
+    () => ({
+      openDocument: (docName: string) => {
+        // OK 的文档名不带扩展名；Huhu 里同名可能是 `名.md`，也可能是文件夹笔记 `名/index.md`（档案 / 文件夹笔记）
+        const have = new Set(notes.current.map((x) => x.path));
+        const direct = MD.test(docName) ? docName : `${docName}.md`;
+        const folder = `${docName.replace(/\/$/, "")}/index.md`;
+        onOpen.current(have.has(direct) ? direct : have.has(folder) ? folder : direct);
+      },
+      openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
+        if ((t.kind === "doc" || t.kind === "folder-index") && t.docName) onOpen.current(`${t.docName}.md`);
+        else if (t.kind === "folder" && t.folderPath) requestOpenPath(`${t.folderPath}/`);
+        else if (t.kind === "asset" && t.assetPath) onOpen.current(t.assetPath);
+      },
+    }),
+    [],
+  );
+
+  return (
+    <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
+      <RichMarkdownEditor
+        referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
+        docName={docNameOf(props.path)}
+        value={props.value}
+        onChange={props.onChange}
+        mode={props.mode}
+        onPort={props.onPort}
+        {...(props.fontSize ? { fontSize: props.fontSize } : {})}
+        {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})}
+      />
+    </OkRoot>
+  );
+}

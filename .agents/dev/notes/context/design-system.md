@@ -16,15 +16,17 @@
   - `vendor`：**静态**第三方 CSS（xterm、katex，由使用它的包以 `@import … layer(vendor)` 引入）。
   - `components`：共享组件样式 `packages/ui/src/styles/components/*.css`（16 个文件，在 `index.css` 里按拓扑顺序导入，**导入顺序不能随意调整**），以及 33 条“优先级依赖原特异性、无法放进更高层”的规则（登记在 `.agents/dev/archive/changes/implemented/feature_2026-11-14-design-system-completion/evidence/s3-stay-in-components.json`，它们分散在 `shell.css` 与各插件 CSS 末尾的 `@layer components` 块里）。
   - `shell`：工作台（`packages/workbench/src/shell/shell.css`）；`modules`：插件 `plugins/<id>/src/ui/<id>.css` 与编辑器 `packages/editor/src/editor.css`。
-- **不分层白名单**（唯二）：`packages/ui/src/styles/vendor-overrides.css`（覆盖 sonner）与 `packages/editor/src/editor-cm.css`（覆盖 CodeMirror 与编辑器 DOM 内的装饰类）。原因：CodeMirror、sonner 在**运行时**注入无层样式，不分层的普通声明永远压过分层声明，覆盖规则放进层里会失效。只能写第三方选择器。
+  - **`vendor.ok-*` 子层（知识库编辑器重构，2026-11-18）**：OK 编辑器随源码带来的 Tailwind v4 样式只存在于 `packages/editor/src/ok/ok-globals.css`（由 `scripts/ok-css-build.mjs` 从上游 `globals.css` 生成，**不要手改**），放在 `vendor` 的子层 `vendor.ok-theme / ok-base / ok-utilities / ok-rules`，因此排在 Huhu 的 `components` / `shell` / `modules` 之前、不会压过它们。Tailwind 的 `@theme` 变量、shadcn 变量与 OK 的元素选择器 base 规则**全部限定在 `.ok-root` 内**（不输出到 `:root`，不引入全局 preflight）；OK 渲染的根与所有 Radix portal 都挂在 `.ok-root`（`#ok-portal-root`）。`ok/token-map` 把 OK 变量映射到 Huhu token（按语义，不按名字：`--muted` 在 Huhu 是文字色、在 shadcn 是背景色）。
+- **不分层白名单**（现仅一个）：`packages/ui/src/styles/vendor-overrides.css`（覆盖 sonner）。原因：sonner 在**运行时**注入无层样式，不分层的普通声明永远压过分层声明，覆盖规则放进层里会失效，只能写第三方选择器。（原第二个白名单 `packages/editor/src/editor-cm.css` 随旧 CodeMirror 编辑器在知识库编辑器重构中删除；`PlainTextEditor` 的 CodeMirror 样式用 `EditorView.theme` 写在组件里。）
 - `!important` 只允许两种：减少动效、覆盖元素的内联样式 / 第三方样式；必须用 `/* stylelint-disable declaration-no-important -- 原因 */` 说明（`reportDescriptionlessDisables` 开启）。
 
 ### 类名
-- 共享组件 `hu-`；工作台 `shell-`；插件用插件前缀（`notes-`、`tasks-`、`automations-`、`inbox-`、`safe-`、`ssh-`、`version-`、`agent-`）；编辑器自有 `editor-`；状态类白名单（`active`、`selected`、`is-*` …）；第三方类（`cm-*`、`xterm*`、`katex*`、`mermaid*`、`[data-sonner-*]`）原样放行。
+- 共享组件 `hu-`；工作台 `shell-`；插件用插件前缀（`notes-`、`tasks-`、`automations-`、`inbox-`、`safe-`、`ssh-`、`version-`、`agent-`）；编辑器自有 `editor-`；OK vendor 与 Tailwind 工具类不受前缀规则约束但**只能出现在 `.ok-root` 内**；状态类白名单（`active`、`selected`、`is-*` …）；第三方类（`cm-*`、`xterm*`、`katex*`、`mermaid*`、`[data-sonner-*]`）原样放行。
 - 历史类名中不能安全改名的登记在 `scripts/css-class-exceptions.json`（带原因）；跨包共用却定义在某个包里的类登记在 `scripts/css-ownership-exceptions.json`。新增的违规会让 `pnpm lint` 失败。
 - 现有 `hu-` 类名多沿用历史名字（如 `hu-knowledge-resource-footer`），语义命名是后续工作。
 
 ### 守护（`pnpm lint`）
+`scripts/check-ok-class-collisions.mjs <built-ok.css>`（OK 产出 CSS 与 Huhu 的三类碰撞：类名交集、Huhu TSX 里“无 CSS 规则”的类 token、`.ok-root` 之外的变量 / `html` / `body` / `:root` 规则；C 类违规退出 1）；`check-css-layers`、`check-css-classes`、`check-ui-colors` **不扫** `packages/editor/src/vendor/open-knowledge/` 与生成的 `ok-globals.css`，也**不为 vendor 放宽对 Huhu 自有代码的规则**。其余：
 `check-ui-colors`（无颜色字面量）、`check-css-layers`（除两个白名单文件外规则都在层里）、`check-css-classes`（前缀、悬空类名）、`check-css-ownership`（样式归属与 `shared.css` 不存在）、`check-css-duplicates`（重复选择器只减不增，基线 `scripts/css-duplicates-baseline.json`）、stylelint（含 `declaration-no-important`）。
 
 ### 迁移样式的唯一可靠办法：渲染等价性验证

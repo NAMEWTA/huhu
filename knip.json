@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": ["vendor/**", "packages/editor/src/vendor/**", ".agents/**", "scripts/lint-samples/**", "examples/**"],
+  "ignore": ["vendor/**", "packages/editor/src/vendor/**", ".agents/**", "scripts/lint-samples/**", "examples/**", "packages/editor/build/**", "packages/editor/harness/**", "packages/editor/src/host/**", "playwright.vendor.config.ts"],
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
@@ -21,7 +21,24 @@
       "ignoreDependencies": ["tsx"]
     },
     "packages/editor": {
-      "ignoreDependencies": ["katex"]
+      "ignoreDependencies": [
+        "@fontsource-variable/inter",
+        "@fontsource-variable/jetbrains-mono",
+        "@types/diff-match-patch",
+        "diff-match-patch",
+        "mdast-util-to-hast",
+        "micromark-util-sanitize-uri",
+        "node-diff3",
+        "rehype-parse",
+        "rehype-remark",
+        "rehype-stringify",
+        "remark-rehype",
+        "vite-tsconfig-paths",
+        "y-indexeddb"
+      ],
+      "paths": {
+        "@/*": ["src/vendor/open-knowledge/app/src/*"]
+      }
     },
     "packages/ui": {
       "ignoreDependencies": ["@fontsource-variable/geist", "@fontsource-variable/geist-mono", "@fontsource-variable/inter", "@fontsource-variable/jetbrains-mono", "@fontsource-variable/newsreader"]

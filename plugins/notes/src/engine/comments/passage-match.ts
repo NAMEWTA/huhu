@@ -222,3 +222,69 @@ export function rewriteCeiling(quoteLength: number): number {
   const GROWTH_FLOOR = 64;
   return Math.max(quoteLength * MAX_GROWTH, quoteLength + GROWTH_FLOOR);
 }
+
+export interface PassageMatch {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * 在含 Markdown 语法的源码里找所有“渲染后文本”等于 needle 的片段（needle 是编辑器里选中的纯文本，haystack 是源码）。
+ * 移植自 OK `core/src/comments/passage-match.ts:findAllPassages`（仅保留 haystack 含语法的分支所需）；空白宽松匹配，
+ * 跳过强调 / 链接 / 块标记等语法字符。命中按位置升序。
+ */
+export function findAllPassages(haystack: string, needle: string): PassageMatch[] {
+  const out: PassageMatch[] = [];
+  if (needle.length === 0) return out;
+  for (let start = 0; start < haystack.length; start += 1) {
+    const first = haystack[start];
+    if (first === undefined || isSpace(first)) continue;
+    if (first !== needle[0] && (syntaxRunAt(haystack, start) > 0 || renderedCharRefRunAt(haystack, start) !== null)) continue;
+    let hi = start;
+    let ni = 0;
+    while (hi < haystack.length && ni < needle.length) {
+      const hc = haystack[hi] as string;
+      const nc = needle[ni] as string;
+      if (hc === nc) {
+        hi += 1;
+        ni += 1;
+        continue;
+      }
+      if (isSpace(nc)) {
+        ni += 1;
+        continue;
+      }
+      if (isSpace(hc)) {
+        hi += 1;
+        continue;
+      }
+      const run = syntaxRunAt(haystack, hi);
+      if (run > 0) {
+        hi += run;
+        continue;
+      }
+      const decoded = renderedCharRefRunAt(haystack, hi);
+      if (decoded !== null) {
+        let oi = ni;
+        let supplied = true;
+        for (const ch of decoded.rendered) {
+          if (isSpace(ch)) continue;
+          while (oi < needle.length && isSpace(needle[oi] as string)) oi += 1;
+          if (needle[oi] !== ch) {
+            supplied = false;
+            break;
+          }
+          oi += 1;
+        }
+        if (!supplied) break;
+        hi += decoded.length;
+        ni = oi;
+        continue;
+      }
+      break;
+    }
+    while (ni < needle.length && isSpace(needle[ni] as string)) ni += 1;
+    if (ni === needle.length) out.push({ start, end: hi });
+  }
+  return out;
+}

@@ -26,6 +26,25 @@ async function until(cond: () => boolean, ms = process.platform === "win32" ? 10
   while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
 }
 
+describe("目录变化（A05）", () => {
+  test("外部创建 / 删除空目录触发 onDirChanges，且不产生文件事件", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
+    dirs.push(root);
+    const dirChanges: string[] = [];
+    const files: FileChange[] = [];
+    const w = new VaultWatcher({ root, receipts: new ReceiptLog(), batchMs: 50, pollMs: 100000, onChanges: (c) => files.push(...c), onDirChanges: (p) => dirChanges.push(...p) });
+    watchers.push(w);
+    await w.start();
+    mkdirSync(path.join(root, "新目录"));
+    await until(() => dirChanges.includes("新目录"));
+    expect(dirChanges).toContain("新目录");
+    rmSync(path.join(root, "新目录"), { recursive: true });
+    await until(() => dirChanges.filter((p) => p === "新目录").length >= 2);
+    expect(dirChanges.filter((p) => p === "新目录").length).toBeGreaterThanOrEqual(2);
+    expect(files).toEqual([]);
+  });
+});
+
 describe("原生监听", () => {
   test("外部创建/修改/删除在 1 秒内反映", async () => {
     const { root, seen } = await setup();

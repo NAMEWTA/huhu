@@ -7,6 +7,8 @@
 | 设计系统（主题、样式分层、类名与守护） | 改样式 / 主题 / 类名、新增界面、迁移样式 | [context/design-system.md](context/design-system.md) |
 | 样式分层与大规模样式重构的陷阱 | 要动层、`!important`、类名或拆样式文件之前 | [errors/css-layering-and-refactor-pitfalls.md](errors/css-layering-and-refactor-pitfalls.md) |
 | 任务（schema 2）与自动化 | 改任务 / 自动化 / 终端动作 / 等人工 | [context/tasks-and-automations.md](context/tasks-and-automations.md) |
+| 知识库编辑器（OK 移植：会话、vendor、依赖对齐、样式作用域、查看器） | 改笔记编辑 / 评论 / 文件树 / 查看器、升级或补丁 OK vendor | [context/knowledge-editor.md](context/knowledge-editor.md) |
+| 知识库编辑器改用 OK 的决定（取代 D-08/D-09/D-31 的编辑器结论、代价与未验证项） | 想换 / 升级编辑器、质疑为何有 Tiptap + Yjs + Tailwind 时 | [decisions/2026-11-15-knowledge-editor-ok.md](decisions/2026-11-15-knowledge-editor-ok.md) |
 | 档案 = 文件夹笔记 | 改档案、笔记双链、demo vault | [context/archives.md](context/archives.md) |
 | 智能体启动与设置 | 改 agent-cli 启动、设置页、Herdr 环境 | [context/agent-launch.md](context/agent-launch.md) |
 

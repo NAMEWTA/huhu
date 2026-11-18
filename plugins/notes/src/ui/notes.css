@@ -46,17 +46,6 @@
   .notes-reading-pane[data-editor-mode="split"] {
     min-width: 0;
   }
-  @media (max-width: 1100px) {
-    .hu-knowledge-document-toolbar {
-      flex-wrap: wrap;
-    }
-  }
-  @media (max-width: 1100px) {
-    .hu-knowledge-document-toolbar > .row.grow {
-      flex-basis: 100%;
-      min-height: 16px;
-    }
-  }
   @media (max-width: 700px) {
     .notes-editor-mode-hint {
       padding: 7px 12px;
@@ -266,6 +255,12 @@
     flex: 1;
     overflow: hidden;
     position: relative;
+  }
+  .notes-editor-surface {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
   }
   .notes-reading-pane {
     flex: 1;
@@ -1038,6 +1033,8 @@
   }
   .notes-archive-body {
     min-height: 160px;
+    max-height: 360px;
+    overflow: auto;
     border: 1px solid var(--line);
     border-radius: 6px;
   }
@@ -1424,5 +1421,95 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  /* F07：工具栏始终单行，按文档区的真实宽度（不是窗口宽度）收纳：先收起撤销 / 重做 / 导出，面包屑与文件名省略 */
+  .notes-doc-container {
+    container: notes-doc / inline-size;
+  }
+  .hu-knowledge-document-toolbar > .row.grow {
+    min-width: 0;
+    flex: 1 1 0%;
+  }
+  @container notes-doc (max-width: 640px) {
+    .notes-toolbar-optional {
+      display: none;
+    }
+  }
+
+  /* S5：资源管理器（OK 文件树）的宿主栏：计数 / 隐藏入口 */
+  .notes-explorer-tree:has(> .notes-resource-tree) {
+    display: flex;
+    flex-direction: column;
+  }
+  .notes-resource-tree {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .notes-resource-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 10px;
+    color: var(--faint);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .notes-resource-bar em {
+    font-style: normal;
+    color: var(--muted);
+  }
+  .notes-resource-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .notes-resource-actions button {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .notes-resource-actions button:hover {
+    color: var(--text);
+  }
+  .notes-hidden-list {
+    margin: 0;
+    padding: 4px 10px 6px;
+    list-style: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .notes-hidden-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 0;
+  }
+  .notes-hidden-list span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .notes-hidden-list button {
+    color: var(--accent);
+    font-size: 11px;
+  }
+  .notes-resource-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .notes-resource-loading {
+    padding: 12px;
+    color: var(--faint);
+    font-size: 12px;
   }
 }

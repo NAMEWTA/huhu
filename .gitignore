@@ -8,8 +8,14 @@ coverage
 test-results
 playwright-report
 lib
+!packages/editor/src/vendor/open-knowledge/**/lib
+!packages/editor/src/vendor/open-knowledge/**/lib/**
 apps/desktop/resources/herdr/
 .cache/
 .claude/worktrees
 temp/
 .visual/
+
+# 编辑器 harness 构建产物与 vendor 测试结果
+packages/editor/harness-dist
+packages/editor/test-results

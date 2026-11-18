@@ -112,7 +112,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
   registerPackageCapabilities(registry, vault);
-  void index.build(); // 后台构建；构建期间 vault.tree 已可用，vault.search 返回 indexing=true
+  void index.build(); // 后台构建；构建期间 vault.indexEntries 已可用，vault.search 返回 indexing=true
 
   const events = new EventBus(() => vault.id);
   const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.stateDir, "operations")));
@@ -391,6 +391,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     onChanges: (changes) => {
       index.applyChanges(changes);
       for (const c of changes) events.publish("vault.fileChanged", { path: c.path, change: c.change, ...(c.from ? { from: c.from } : {}) });
+    },
+    onDirChanges: (paths) => {
+      for (const p of paths) events.publish("vault.dirChanged", { path: p });
     },
     onDegraded: () => undefined,
   });

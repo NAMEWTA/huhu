@@ -1,9 +1,11 @@
-import { MarkdownPreview } from "@huhu/editor";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { t } from "./i18n.js";
+
+// 紧凑 OK 编辑器（S2c）按需加载：收件箱的首屏不带编辑器闭包
+const CompactView = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownView })));
 
 interface Capture {
   id: string;
@@ -219,7 +221,9 @@ export function InboxModule() {
             </div>
             <h2>{cur.title}</h2>
             <div className="inbox-knowledge-inbox-note">
-              <MarkdownPreview source={cur.body.trim() || "这条记录还没有补充内容。"} />
+              <Suspense fallback={null}>
+                <CompactView id={`inbox-${cur.id}`} value={cur.body.trim() || "这条记录还没有补充内容。"} />
+              </Suspense>
             </div>
             {cur.status === "pending" ? (
               <>

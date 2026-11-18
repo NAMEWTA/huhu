@@ -14,7 +14,9 @@ const ALLOW = [
   [/\.(test|spec)\.tsx?$/, "测试夹具"],
   [/^(tests|scripts|temp|\.agents|\.claude)\//, "非界面代码"],
 ];
-const files = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--", "*.css", "*.ts", "*.tsx"], { encoding: "utf8" }).split("\n").filter(Boolean);
+const files = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--", "*.css", "*.ts", "*.tsx"], { encoding: "utf8" })
+  .split("\n")
+  .filter((f) => f && !f.startsWith("packages/editor/src/vendor/open-knowledge/") && f !== "packages/editor/src/ok/ok-globals.css");
 const HEX = /(?<![\w&#/-])#[0-9a-fA-F]{3,8}\b/g;
 const FN = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/g;
 const bad = [];

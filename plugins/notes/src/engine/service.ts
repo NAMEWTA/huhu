@@ -19,6 +19,8 @@ const FOLDERS = ".huhu/notes/folders.json";
 /** 进回收站的笔记带走的稳定 id：trashId → { 相对于被删条目的路径 → id }。 */
 const TRASHED_IDS = ".huhu/notes/trashed-identities.json";
 const FAVORITES = ".huhu/notes/favorites.json";
+/** 仅文件树视图隐藏的路径规则（目录规则作用于整棵子树）；搜索、`@`、双链、已打开标签不使用（OP-D11）。 */
+const HIDDEN_PATHS = ".huhu/notes/hidden-paths.json";
 /** 名称里含点（如 `v1.2 方案`）不等于已带扩展名：只有与原扩展名一致时才不再追加。 */
 function withExtension(name: string, ext: string): string {
   return ext && name.toLowerCase().endsWith(ext.toLowerCase()) ? name : `${name}${ext}`;
@@ -89,6 +91,24 @@ export class NotesService {
     await this.d.files.write(FAVORITES, Buffer.from(JSON.stringify([...set], null, 2)), { expectedVersion: cur });
     return [...set];
   }
+  /** 每 Vault 的“仅文件树隐藏”规则（规范相对路径，已去重排序）。 */
+  hiddenPaths(): string[] {
+    const raw = this.readJson<unknown>(HIDDEN_PATHS, []);
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+  }
+  async setHiddenPaths(paths: readonly string[]): Promise<string[]> {
+    const norm = [...new Set(paths.map((p) => normalizeRelPath(p)))].sort();
+    const cur = this.d.files.currentVersion(HIDDEN_PATHS);
+    await this.d.files.write(HIDDEN_PATHS, Buffer.from(JSON.stringify(norm, null, 2)), { expectedVersion: cur });
+    return norm;
+  }
+  /** 内部改名 / 移动：把命中的隐藏规则（含子树规则）重定位到新路径；没有变化返回 null。外部改名按路径规则处理，不猜测。 */
+  private hiddenStepFor(from: string, to: string): OpStep | null {
+    const rules = this.hiddenPaths();
+    const next = rules.map((r) => (r === from || r.startsWith(`${from}/`) ? to + r.slice(from.length) : r));
+    if (next.every((r, i) => r === rules[i])) return null;
+    return this.jsonStep(HIDDEN_PATHS, [...new Set(next)].sort());
+  }
   tags(): { tag: string; count: number }[] {
     return this.d.index.allTags();
   }
@@ -111,13 +131,6 @@ export class NotesService {
       const err = validateName(seg);
       if (err) throw errors.invalidInput(err);
     }
-  }
-  /** 其他文件（图片、PDF、日志、代码……）：只给元信息，不当作文本加载（ACC-KN-10）。隐藏目录与语义目录不列出。 */
-  otherFiles(): { path: string; size: number; mtimeMs: number }[] {
-    return this.d.index
-      .entries()
-      .filter((e) => e.type === "file" && !/\.md$/i.test(e.path) && !SEMANTIC_DIRS.has(e.path.split("/")[0] ?? "") && !e.path.split("/").some((seg) => seg.startsWith(".")))
-      .map((e) => ({ path: e.path, size: e.size, mtimeMs: e.mtimeMs }));
   }
   /** 磁盘上某个目录下的全部文件（相对路径）；不是目录则为空。 */
   private filesUnder(rel: string): string[] {
@@ -166,7 +179,39 @@ export class NotesService {
     return { path: rel, id: await this.ensureId(rel) };
   }
 
-  async duplicate(rel: string): Promise<{ path: string; id: string }> {
+  /** 复制文件夹：整棵子树按字节复制到“<名> · 副本”（不复制批注与历史；复制出的笔记得到新 id）。 */
+  private async duplicateFolder(rel: string): Promise<{ path: string; id: string; paths: string[] }> {
+    const dir = path.dirname(rel) === "." ? "" : `${path.dirname(rel)}/`;
+    let n = 0;
+    let dest: string;
+    do dest = `${dir}${path.basename(rel)} · 副本${n ? ` (${n})` : ""}`;
+    while (this.findCaseInsensitive(dest) && ++n < 100);
+    mkdirSync(this.d.files.abs(dest), { recursive: true });
+    const copied: string[] = [];
+    const emptyDirs: string[] = [dest];
+    for (const child of this.filesUnder(rel)) {
+      const to = `${dest}${child.slice(rel.length)}`;
+      if (statSync(this.d.files.abs(child)).isDirectory()) {
+        mkdirSync(this.d.files.abs(to), { recursive: true });
+        emptyDirs.push(to);
+        continue;
+      }
+      const src = this.d.files.read(child);
+      if (!src) continue;
+      await this.d.files.write(to, src.bytes, { expectedVersion: null });
+      copied.push(to);
+    }
+    const nonEmpty = (d: string) => copied.some((f) => f.startsWith(`${d}/`));
+    const list = new Set(this.folders());
+    for (const d of emptyDirs) if (!nonEmpty(d)) list.add(d);
+    await this.d.files.write(FOLDERS, Buffer.from(JSON.stringify([...list].sort(), null, 2)), { expectedVersion: this.d.files.currentVersion(FOLDERS) });
+    this.d.index.refreshPaths(copied);
+    return { path: dest, id: "", paths: copied };
+  }
+
+  async duplicate(rel: string): Promise<{ path: string; id: string; paths?: string[] }> {
+    rel = normalizeRelPath(rel);
+    if (existsSync(this.d.files.abs(rel)) && statSync(this.d.files.abs(rel)).isDirectory()) return this.duplicateFolder(rel);
     const src = this.d.files.read(rel);
     if (!src) throw errors.notFound(`文件不存在：${rel}`);
     const ext = path.extname(rel);
@@ -219,7 +264,8 @@ export class NotesService {
     if (isDir && moves.size === 0) {
       // 空文件夹：只改登记
       const list = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
-      await this.d.ops.run(`mv-${Date.now().toString(36)}`, "move-folder", [{ action: "rename", from, path: to }, this.jsonStep(FOLDERS, list)]);
+      const hid = this.hiddenStepFor(from, to);
+      await this.d.ops.run(`mv-${Date.now().toString(36)}`, "move-folder", [{ action: "rename", from, path: to }, this.jsonStep(FOLDERS, list), ...(hid ? [hid] : [])]);
       return { moved: { [from]: to }, rewrittenFiles: [], ambiguous: [] };
     }
 
@@ -254,6 +300,8 @@ export class NotesService {
       }
     const folderList = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
     steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folderList));
+    const hiddenStep = this.hiddenStepFor(from, to);
+    if (hiddenStep) steps.push(hiddenStep);
     await this.d.ops.run(`mv-${Date.now().toString(36)}`, isDir ? "move-folder" : "move-file", dedupeWrites(steps));
     if (isDir) removeEmptyDirs(this.d.files.abs(from));
     this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
@@ -301,6 +349,8 @@ export class NotesService {
         this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f)),
       ),
     );
+    const hiddenStep = this.hiddenStepFor(from, to);
+    if (hiddenStep) steps.push(hiddenStep);
     await this.d.ops.run(`case-${Date.now().toString(36)}`, "rename-case", dedupeWrites(steps));
     this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
     return { moved: Object.fromEntries(moves), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };

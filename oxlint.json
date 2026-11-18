@@ -65,5 +65,5 @@
       }
     }
   ],
-  "ignorePatterns": ["temp/**", "**/dist/**", "**/node_modules/**", "scripts/lint-samples/**", ".agents/**", ".claude/**", "vendor/**", "packages/editor/src/vendor/**"]
+  "ignorePatterns": ["temp/**", "**/dist/**", "**/node_modules/**", "scripts/lint-samples/**", ".agents/**", ".claude/**", "vendor/**", "packages/editor/src/vendor/**", "packages/editor/harness-dist/**", "packages/editor/test-results/**"]
 }

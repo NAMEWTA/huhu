@@ -81,6 +81,16 @@ describe("查询失效", () => {
     expect(qc.getQueryState(queryKey("vault-a", "notes.list"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(queryKey("vault-b", "tasks.list"))?.isInvalidated).toBe(false);
   });
+  test("vault.dirChanged（空目录创建 / 删除）让同 Vault 的 vault.list 失效，其它库与任务查询不动", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(queryKey("vault-a", "vault.list", { dir: "" }), {});
+    qc.setQueryData(queryKey("vault-a", "tasks.list"), []);
+    qc.setQueryData(queryKey("vault-b", "vault.list", { dir: "" }), {});
+    await invalidateForEvent(qc, "vault-a", { type: "vault.dirChanged", payload: { path: "新目录" } });
+    expect(qc.getQueryState(queryKey("vault-a", "vault.list", { dir: "" }))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("vault-a", "tasks.list"))?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(queryKey("vault-b", "vault.list", { dir: "" }))?.isInvalidated).toBe(false);
+  });
   test("首页与健康汇总查询随实体变化失效", async () => {
     const qc = new QueryClient();
     qc.setQueryData(queryKey("vault-a", "home.summary"), {});

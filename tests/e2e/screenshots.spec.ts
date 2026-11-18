@@ -1,7 +1,7 @@
 import { _electron as electron, expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { openApp, root } from "./helpers/launch.js";
+import { openApp, root, USER_DATA_ARG } from "./helpers/launch.js";
 
 /**
  * 视觉自查截图（quality.md §4：1440×900 与 1024×768）：HUHU_SHOTS_DIR=<目录> 时才运行，截图写入该目录供与原型对照。
@@ -52,7 +52,7 @@ test("截图 1440×900：启动页", async () => {
   mkdirSync(DIR!, { recursive: true });
   const env = { ...process.env } as Record<string, string>;
   delete env["HUHU_VAULT"];
-  const app = await electron.launch({ args: [root, "--no-sandbox"], env });
+  const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env });
   try {
     const page = await app.firstWindow();
     await (await page.context().newCDPSession(page)).send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });

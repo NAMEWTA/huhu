@@ -1,43 +1,29 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @import "katex/dist/katex.min.css" layer(vendor);
 @layer modules {
-  .editor-markdown-editor {
+  /* 纯文本 / JSON 编辑器：沿用同一组编辑器 token，只是等宽字体、占满容器。 */
+  .editor-plain-editor {
     flex: 1;
     min-height: 0;
     min-width: 0;
     overflow: hidden;
-    --atomic-editor-font: var(--font-ui);
-    --atomic-editor-font-mono: var(--font-mono);
-    --atomic-editor-body-size: var(--fs-editor);
-    --atomic-editor-body-leading: var(--editor-line);
-    --atomic-editor-measure: 790px;
-    --atomic-editor-fg: var(--text);
-    --atomic-editor-fg-muted: var(--muted);
-    --atomic-editor-fg-faint: var(--faint);
-    --atomic-editor-bg: var(--bg);
-    --atomic-editor-bg-panel: var(--panel);
-    --atomic-editor-bg-surface: var(--muted-bg);
-    --atomic-editor-border: var(--line);
-    --atomic-editor-accent: var(--text);
-    --atomic-editor-accent-bright: var(--text);
-    --atomic-editor-accent-soft: var(--accent-soft);
-    --atomic-editor-link: var(--info);
-    --atomic-editor-link-hover: var(--text);
-    --atomic-editor-code-bg: var(--muted-bg);
-    --atomic-editor-selection-bg: var(--accent-soft);
-    --atomic-editor-search-bg: var(--warning-bg);
-    --atomic-editor-search-bg-active: var(--accent-soft);
-    --atomic-editor-hl-keyword: var(--accent);
-    --atomic-editor-hl-string: var(--success);
-    --atomic-editor-hl-comment: var(--faint);
-    --atomic-editor-hl-type: var(--warning);
-    --atomic-editor-hl-number: var(--warning);
-    --atomic-editor-hl-function: var(--accent);
-    --atomic-editor-hl-property: var(--text);
-    --atomic-editor-hl-variable: var(--text);
-    --atomic-editor-hl-operator: var(--muted);
-    --atomic-editor-hl-punctuation: var(--muted);
-    --atomic-editor-hl-invalid: var(--danger);
+    --editor-plain-font-mono: var(--font-mono);
+    --editor-plain-body-size: var(--fs-editor);
+    --editor-plain-body-leading: var(--editor-line);
+    --editor-plain-fg: var(--text);
+    --editor-plain-fg-faint: var(--faint);
+    --editor-plain-bg: var(--bg);
+    --editor-plain-bg-panel: var(--panel);
+    --editor-plain-border: var(--line);
+    --editor-plain-selection-bg: var(--accent-soft);
+    --editor-plain-search-bg: var(--warning-bg);
+    --editor-plain-search-bg-active: var(--accent-soft);
+    --editor-plain-hl-keyword: var(--accent);
+    --editor-plain-hl-string: var(--success);
+    --editor-plain-hl-number: var(--warning);
+    --editor-plain-hl-property: var(--text);
+    --editor-plain-hl-punctuation: var(--muted);
+    --editor-plain-hl-invalid: var(--danger);
   }
   /* 由原型样式按“类名实际被哪个包使用”拆分而来；只使用 token（颜色见 themes.generated.css）。 */
   .hu-mermaid {
@@ -60,5 +46,68 @@
   .hu-mermaid-loading {
     color: var(--muted);
     font-size: 12px;
+  }
+}
+
+@layer modules {
+  /* OK 编辑器的文档容器：滚动容器是 RichMarkdownEditor 里包着 Tiptap chrome 的那层（data-testid=editor-scroll-container）；正文栅格由 OK 的 .tiptap-editor 提供。
+     OK 自己的 App 壳负责这层布局；这里只给 Huhu 的宿主壳补上同等职责（design §3.3 / ui-design）。 */
+  .editor-ok-surface {
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+  }
+  /* 笔记设置里的字号 / 可读宽度（宿主经 style 设置这两个变量；缺省沿用 OK 的默认值） */
+  .editor-ok-surface .tiptap-editor {
+    --content-max-width: var(--editor-ok-measure, 1024px);
+  }
+  .editor-ok-surface .ProseMirror {
+    font-size: var(--editor-ok-font-size, inherit);
+  }
+  .editor-ok-compact .tiptap-editor {
+    --margin-width: var(--space-2, 8px);
+    --content-max-width: 100%;
+  }
+}
+
+@layer modules {
+  /* `@` 引用候选菜单（rich/at-reference.ts）：挂在 .ok-root 里，固定定位到光标下方 */
+  .editor-ref-menu {
+    position: fixed;
+    z-index: 60;
+    min-width: 220px;
+    max-width: 420px;
+    max-height: 260px;
+    overflow: auto;
+    padding: var(--space-1, 4px);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: var(--shadow-md);
+  }
+  .editor-ref-item {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3, 12px);
+    padding: var(--space-1, 4px) var(--space-2, 8px);
+    border-radius: var(--radius-sm, 6px);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .editor-ref-item.is-active {
+    background: var(--muted-bg);
+  }
+  .editor-ref-kind {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  /* 顶部属性面板（OK PropertyPanel）：与正文之间留出分隔，宽度跟随正文可读宽度 */
+  .editor-ok-properties {
+    max-width: var(--editor-ok-measure, 1024px);
+    margin-inline: auto;
+    width: 100%;
+    padding: 4px 0 8px;
+    border-bottom: 1px solid var(--line);
   }
 }

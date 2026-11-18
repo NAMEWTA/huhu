@@ -1,0 +1,95 @@
+// 评论宿主入口（S4）：把 vendor 的 OK 评论 UI（面板、线程卡；选区入口 / 高亮 / 边距轨已在 TiptapEditor 内）接到 Huhu 的 `comments.*`。
+// 能力经 CommentsPort 注入（packages/editor 不依赖业务模块）；路由见 host/routes/comments.ts。
+import { type ReactNode, useEffect, useState } from "react";
+import { CommentsPanel } from "@/comments/CommentsPanel";
+import { createFileThread, emitStartComment, setCommentsReadOnly, subscribeCommentPosted } from "@/comments/store";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { emitDocumentsChanged } from "@/lib/documents-events";
+import { OkRoot } from "./OkRoot";
+import type { HostRoutes } from "../host/host-fetch";
+
+export { commentRoutes, toThreadMeta, type CommentRouteDeps, type CommentsPort, type HuhuComment, type PassageInput } from "../host/routes/comments";
+
+/** 工具栏“添加批注”：触发 OK 的选区入口（选区合法性、取消、上下文冻结都在 CommentSelectionAffordance 里）。 */
+export function startComment(): void {
+  emitStartComment();
+}
+
+/** 在编辑器里发表批注之后（宿主据此打开详情栏的批注页）。返回取消订阅。 */
+export function onCommentPosted(handler: () => void): () => void {
+  return subscribeCommentPosted(handler);
+}
+
+/** 批注数据在宿主侧变化（engine 事件 / 保存后重定位）：让 OK 的 store 重新拉取。 */
+export function notifyCommentsChanged(): void {
+  emitDocumentsChanged(["comments"]);
+}
+
+/** 文档只读 / 冲突中：批注可看可定位，写操作入口隐藏。 */
+export function useCommentsReadOnlySync(readOnly: boolean): void {
+  useEffect(() => {
+    setCommentsReadOnly(readOnly);
+    return () => setCommentsReadOnly(false);
+  }, [readOnly]);
+}
+
+function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: string; label: string; placeholder: string; submit: string }): ReactNode {
+  const [text, setText] = useState("");
+  const send = () => {
+    const body = text.trim();
+    if (!body) return;
+    createFileThread({ docName, body });
+    setText("");
+  };
+  return (
+    <form
+      className="flex flex-col gap-1.5 border-t p-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        send();
+      }}
+    >
+      <Textarea aria-label={label} placeholder={placeholder} data-testid="comment-whole-note-input" value={text} onChange={(e) => setText(e.target.value)} rows={2} />
+      <Button type="submit" size="sm" disabled={text.trim().length === 0} data-testid="comment-whole-note-add" className="self-end">
+        {submit}
+      </Button>
+    </form>
+  );
+}
+
+export interface CommentsPanelHostProps {
+  docName: string;
+  routes: HostRoutes;
+  locale?: string;
+  readOnly?: boolean;
+  /** 只读时显示在面板底部的原因 */
+  readOnlyReason?: string;
+  labels: { wholeNote: string; wholeNotePlaceholder: string; add: string };
+}
+
+/** 详情栏“批注”页：OK 的评论列表 + 整篇笔记批注输入（Huhu 的 `target:"file"`）。 */
+export function CommentsPanelHost({ docName, routes, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
+  return (
+    <OkRoot routes={routes} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
+      <CommentsReadOnly readOnly={readOnly} />
+      <div className="flex h-full min-h-0 flex-col" data-testid="comments-panel">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <CommentsPanel docName={docName} />
+        </div>
+        {readOnly ? (
+          <p className="border-t p-2 text-xs text-muted-foreground" data-testid="comments-readonly-reason">
+            {readOnlyReason}
+          </p>
+        ) : (
+          <WholeNoteComposer docName={docName} label={labels.wholeNote} placeholder={labels.wholeNotePlaceholder} submit={labels.add} />
+        )}
+      </div>
+    </OkRoot>
+  );
+}
+
+function CommentsReadOnly({ readOnly }: { readOnly: boolean }): null {
+  useCommentsReadOnlySync(readOnly);
+  return null;
+}

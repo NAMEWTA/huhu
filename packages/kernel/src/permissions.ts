@@ -25,7 +25,7 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
   "archives.read": ["archives.list", "archives.read"],
   "archives.write": ["archives.create", "archives.update", "archives.move", "archives.delete"],
   "inbox.write": ["inbox.capture"],
-  "vault.read": ["vault.info", "vault.tree", "vault.search", "vault.readFile"],
+  "vault.read": ["vault.info", "vault.indexEntries", "vault.list", "vault.search", "vault.readFile"],
   "automations.read": ["automations.list", "automations.read", "automations.activations", "automations.runs.read"],
   "history.read": ["history.timeline", "history.read"],
 };

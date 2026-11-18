@@ -22,5 +22,6 @@
       }
     }
   ],
-  "reportDescriptionlessDisables": true
+  "reportDescriptionlessDisables": true,
+  "ignoreFiles": ["packages/editor/src/vendor/open-knowledge/**", "packages/editor/src/ok/ok-globals.css", "packages/editor/harness-dist/**"]
 }
