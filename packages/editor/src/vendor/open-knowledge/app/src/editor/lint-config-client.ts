@@ -10,6 +10,7 @@ import {
   type SchemaParentPathSegment,
 } from '@inkeep/open-knowledge-core/markdown/lint';
 import { useEffect, useState } from 'react';
+import { isHostLintAvailable } from '@/lib/host-features';
 
 const LINT_CONFIG_CHANGED_EVENT = 'open-knowledge:lint-config-changed';
 
@@ -24,6 +25,7 @@ export function subscribeToLintConfigChanged(onChange: () => void): () => void {
 }
 
 async function fetchLintConfig(docName?: string): Promise<LintConfigResponse | null> {
+  if (!isHostLintAvailable()) return null;
   try {
     const query = docName !== undefined ? `?doc=${encodeURIComponent(docName)}` : '';
     const res = await fetch(`/api/lint/config${query}`);

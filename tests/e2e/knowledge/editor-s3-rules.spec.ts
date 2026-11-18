@@ -109,19 +109,23 @@ test("矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / �
       await expect(prose(page)).toContainText("起始", { timeout: 30_000 });
       await freshDoc(page);
       await page.keyboard.type("甲乙丙");
-      await page.keyboard.press("Shift+Home");
-      await page.waitForTimeout(300); // ProseMirror 的选区经 selectionchange 异步同步：紧贴着按快捷键会作用在旧选区上（合成输入才会出现，人手速度不会）
+      // 前置条件：选中“甲乙丙”。直接在 DOM 里建立选区且**不等 selectionchange 被 ProseMirror 处理**，随即按快捷键：
+      // 这正是“选区刚变、快捷键紧随其后”的竞态，由 RichMarkdownEditor 的 keydown 捕获先同步选区（P-S3-08），快捷键必须一次生效。
+      // （旧写法用 Shift+Home 建选区：观察到约 1/10 次 Shift+Home 自身没有扩展选区——选区没建立，与快捷键无关，根因未定位，见 evidence/s3/parity-closeout.md。）
+      await prose(page).evaluate((root) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const node = walker.nextNode() as Text;
+        const range = document.createRange();
+        range.setStart(node, 0);
+        range.setEnd(node, node.length);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      });
+      expect(await page.evaluate(() => window.getSelection()?.toString() ?? ""), "选区应已建立").toBe("甲乙丙");
       await page.keyboard.press(combo);
-      let attempts = 1;
-      // 观察到：偶发地第一次快捷键被忽略（磁盘上也没有标记，不是渲染不同步），重按一次即生效；这里如实记录重试次数，不把它当作“一次通过”
-      while ((await prose(page).locator(sel).count()) === 0 && attempts < 3) {
-        await page.keyboard.press("Shift+Home");
-        await page.waitForTimeout(300);
-        await page.keyboard.press(combo);
-        attempts++;
-      }
-      const applied = (await prose(page).locator(sel).count()) > 0;
-      results[name] = !applied ? "无效果" : attempts === 1 ? "通过" : `通过（第 ${attempts} 次按键才生效：首次按键被忽略）`;
+      await expect(prose(page).locator(sel), `${name} 首次按键就应生效`).not.toHaveCount(0, { timeout: 5_000 });
+      results[name] = "通过";
     }
 
     // 块移动 Mod-Shift-ArrowUp：第二段上移后顺序对调
