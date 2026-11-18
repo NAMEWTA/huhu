@@ -5,7 +5,7 @@ import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
 
 async function auditColors(page: Page) {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d", { willReadFrequently: true })!;
@@ -44,6 +44,12 @@ async function auditColors(page: Page) {
       for (const child of node.shadowRoot?.children ?? []) collect(child);
     }
     for (const root of document.querySelectorAll(".ok-root, .notes-inspector")) collect(root);
+
+    // The file tree's shadow stylesheet has a short color transition for Options.
+    // Wait for the stable color before comparing it with the palette.
+    const transitions = [...descendants].flatMap((node) => node.getAnimations().filter((animation) => animation instanceof CSSTransition));
+    await Promise.allSettled(transitions.map((animation) => animation.finished));
+
     for (const node of descendants) {
       if (!node.getClientRects().length) continue;
       elements++;
