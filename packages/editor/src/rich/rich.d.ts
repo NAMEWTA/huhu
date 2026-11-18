@@ -87,7 +87,9 @@ export interface OkRootProps {
   routes?: HostRoutes;
   config?: { wordWrap?: boolean; showHiddenFiles?: boolean; showOnlyMarkdownFiles?: boolean; linkPreviewsEnabled?: boolean };
   poolKey?: string;
+  acceptSidebarDrop?: boolean;
   documentHost?: {
+    readAsset?(path: string): Promise<Blob>;
     openDocument?(docName: string): void;
     openTarget?(target: { kind: string; docName?: string; folderPath?: string; assetPath?: string }): void;
   };

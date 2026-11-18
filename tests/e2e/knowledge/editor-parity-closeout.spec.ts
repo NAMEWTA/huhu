@@ -337,9 +337,10 @@ test("折叠块、对齐、音频、文件、数学和嵌入块保存重开后�
     await expect(attachment).toContainText("16 B");
     await expect(attachment).toHaveAttribute("href", /sample\.txt$/);
     await expect(editor.locator(".katex-display math")).toContainText("a");
-    const frame = editor.locator('iframe[title="嵌入样本"]');
-    await expect(frame).toHaveAttribute("src", "https://example.invalid/embed-test");
-    await expect(frame).toHaveAttribute("sandbox", /allow-scripts/);
+    const embed = editor.locator('[data-component-name="Embed"]');
+    await expect(embed.getByRole("status")).toContainText(/Off — external links|关闭——外部链接只显示 URL/);
+    await expect(embed.getByRole("status")).toContainText("https://example.invalid/embed-test");
+    await expect(embed.locator("iframe")).toHaveCount(0);
   } finally {
     await close();
   }

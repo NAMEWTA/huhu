@@ -79,6 +79,14 @@
 - `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。
 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。
 
+- `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。
+
+- `app/src/editor/bubble-menu/FileBubbleButtons.tsx`：本地下载经宿主读取笔记相对路径的附件字节，通知失败，并支持按键激活。
+
+- `app/src/editor/components/CodePreviewEditModal.tsx`：保持 CodeMirror 的挂载 ref 稳定，输入触发渲染时不销毁正在编辑的视图。
+
+- `app/src/editor/components/PropPanel.tsx`：布尔开关在 Markdown 省略属性时反映描述符默认值。
+
 以下文件来自上游 `44a2e0a` 的 app 测试与夹具。为保持归档测试哈希清单原样，在此登记。接入时改用宿主闭包的测试依赖路径，并对 Huhu 本地桥结算、块装饰和应用壳差异保留对应断言。
 
 - `app/src/components/ui/alert-dialog.dom.test.tsx`
