@@ -2,6 +2,7 @@
 // 数据与写操作由宿主（plugins/notes）通过 FilesRouteDeps 注入；本包不依赖业务模块。
 // 隐藏（hiddenPaths）只在 `showAll=true` 的树列举里叠加：`@` / 双链 / 搜索 / 已打开标签走别的数据源，不经过这里（design §5.2）。
 import type { HostRoutes } from "../host-fetch";
+import { handleUploadForm, type UploadProvider } from "./upload";
 
 /** 宿主返回的目录条目（与 contracts 的 VaultListEntry 同形，但不引入该依赖）。 */
 export interface HostFsEntry {
@@ -37,7 +38,7 @@ export interface FilesRouteDeps {
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
   createFolder(input: { path: string }): Promise<{ path: string }>;
   /** 上传：写入 parentDir 下。 */
-  upload?(input: { file: File; dir: string; name: string }): Promise<{ path: string; deduped?: boolean }>;
+  upload?: UploadProvider;
   workspace(): { root: string; separator: "/" | "\\" };
 }
 
@@ -167,13 +168,8 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
 }
 
 /** 树里的“上传”走 FormData，hostFetch 的 JSON 路由收不到文件：单独导出，由宿主在需要时包装 fetch。 */
-export async function handleUpload(deps: FilesRouteDeps, form: FormData): Promise<{ src: string; path: string; deduped?: boolean }> {
-  if (!deps.upload) throw new Error("宿主未提供上传能力");
-  const file = form.get("file");
-  if (!(file instanceof File)) throw new Error("缺少 file");
-  const dir = String(form.get("dir") ?? form.get("parentDir") ?? "");
-  const r = await deps.upload({ file, dir, name: file.name });
-  return { src: r.path, path: r.path, ...(r.deduped ? { deduped: true } : {}) };
+export function handleUpload(deps: FilesRouteDeps, form: FormData): Promise<{ src: string; path: string; deduped?: boolean }> {
+  return handleUploadForm(deps.upload, form);
 }
 
 export const __test = { dirOf };

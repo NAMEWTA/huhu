@@ -52,6 +52,14 @@ export interface CoreRouteDeps {
 }
 export type HostRoutes = Record<string, (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown>;
 export function coreRoutes(deps: CoreRouteDeps): HostRoutes;
+export interface UploadRequest {
+  file: File;
+  dir: string;
+  name: string;
+  notePath?: string;
+}
+export type UploadProvider = (input: UploadRequest) => Promise<{ path: string; deduped?: boolean }>;
+export function uploadRoutes(upload: UploadProvider): HostRoutes;
 
 export interface OkHostFeatures {
   lint: false;

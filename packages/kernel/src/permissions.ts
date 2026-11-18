@@ -6,7 +6,7 @@ import type { CapabilityScope } from "@huhu/contracts";
  */
 export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
   "notes.read": ["notes.list", "notes.read", "notes.backlinks"],
-  "notes.write": ["notes.create", "notes.save", "notes.rename", "notes.move", "notes.duplicate"],
+  "notes.write": ["notes.create", "notes.save", "notes.rename", "notes.move", "notes.duplicate", "notes.attach"],
   "tasks.read": ["tasks.list", "tasks.read", "tasks.runs"],
   "tasks.write": ["tasks.create", "tasks.update", "tasks.duplicate", "tasks.delete", "tasks.setStatus"],
   /** 外部调用方给 human 任务写评论（agent 任务的评论由 handler 拒绝）。 */

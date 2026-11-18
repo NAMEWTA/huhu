@@ -22,7 +22,7 @@ export interface FilesRouteDeps {
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
   createFolder(input: { path: string }): Promise<{ path: string }>;
-  upload?(input: { file: File; dir: string; name: string }): Promise<{ path: string; deduped?: boolean }>;
+  upload?(input: { file: File; dir: string; name: string; notePath?: string }): Promise<{ path: string; deduped?: boolean }>;
   workspace(): { root: string; separator: "/" | "\\" };
 }
 

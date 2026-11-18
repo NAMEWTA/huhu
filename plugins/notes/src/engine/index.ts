@@ -10,6 +10,7 @@ import { z } from "zod";
 import { CommentsService } from "./comments/service.js";
 import { ArchivesService } from "./archives/service.js";
 import { registerArchiveCapabilities } from "./archives/capabilities.js";
+import { MAX_ATTACH_BYTES } from "../shared/attachments.js";
 import { NotesService } from "./service.js";
 
 /** 自动化规则（含 agent_prompt）是"会被调度器执行"的 Markdown：外部入口不得通过通用笔记写入口在 Automations/ 下创建、改写、复制或移出它们。 */
@@ -150,6 +151,30 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         assertNotAutomationsDir(c.caller, i.path);
         const r = await svc.duplicate(i.path);
         changed(r.id || null, "created");
+        return r;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.attach",
+      plugin: "notes",
+      scope: "write",
+      // 二进制载荷（base64）只给桌面界面：不暴露给 MCP / CLI
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({
+        notePath: z.string().optional(),
+        dir: z.string().optional(),
+        name: z.string().min(1),
+        dataBase64: z.string().max(Math.ceil((MAX_ATTACH_BYTES * 4) / 3) + 16),
+      }),
+      output: z.object({ path: z.string(), size: z.number(), deduped: z.boolean() }),
+      handler: async (c, i) => {
+        assertNotAutomationsDir(c.caller, i.dir, i.notePath);
+        const r = await svc.attach({ ...(i.notePath ? { notePath: i.notePath } : {}), ...(i.dir !== undefined ? { dir: i.dir } : {}), name: i.name, bytes: Buffer.from(i.dataBase64, "base64") });
+        const dir = r.path.includes("/") ? r.path.slice(0, r.path.lastIndexOf("/")) : "";
+        api.events.publish("vault.dirChanged", { path: dir });
         return r;
       },
     }),

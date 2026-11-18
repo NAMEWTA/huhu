@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
+import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 
@@ -126,11 +127,16 @@ if (!gotLock) {
     // macOS 开发模式没有 .app 包，Dock 图标需要手动设置；打包后由 icns 提供
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(iconPath);
     const root = path.join(import.meta.dirname, "../renderer");
-    protocol.handle("huhu-app", (request) => {
+    protocol.handle("huhu-app", async (request) => {
       const url = new URL(request.url);
       const rel = path.normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, "");
       const file = path.join(root, rel || "index.html");
       if (!file.startsWith(root)) return new Response("forbidden", { status: 403 });
+      // 渲染器资源里没有的子资源请求（笔记里的 <img src="docs/attachments/a.png">）→ 当作 Vault 相对路径读取（路径守卫同 HTML 预览）
+      if (!existsSync(file)) {
+        const media = await handleVaultMediaRequest({ url: request.url, method: request.method, destination: request.headers.get("sec-fetch-dest") || request.destination || null }, current?.path ?? null);
+        if (media) return media;
+      }
       return net.fetch(pathToFileURL(file).toString());
     });
     const broadcast = (state: string) => {

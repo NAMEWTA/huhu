@@ -1,5 +1,5 @@
 {
-  "include": ["src/vendor/open-knowledge/**/*", "src/host/**/*", "harness/**/*", "src/rich/**/*", "src/source/**/*", "src/ok/**/*.ts", "test/host-files.test.ts"],
+  "include": ["src/vendor/open-knowledge/**/*", "src/host/**/*", "harness/**/*", "src/rich/**/*", "src/source/**/*", "src/ok/**/*.ts", "test/host-files.test.ts", "test/upload-routes.test.ts"],
   "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.test-helper.ts", "**/*.type-tests.ts", "**/fixtures/**"],
   "compilerOptions": {
     "jsx": "react-jsx",

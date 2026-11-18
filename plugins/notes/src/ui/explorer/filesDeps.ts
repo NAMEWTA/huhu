@@ -1,4 +1,5 @@
 import type { VaultListEntry, VaultListOutput } from "@huhu/contracts";
+import { attachFile } from "../attach.js";
 
 /** 资源管理器的宿主依赖（OK 文件树 → Huhu 能力）。纯逻辑，可单测；React 与 vendor 都不在这里。 */
 export interface EngineLike {
@@ -124,6 +125,10 @@ export function createFilesDeps(o: FilesDepsOptions) {
     async createFolder(i: { path: string }) {
       await o.engine.call("folders.create", { path: i.path }, { write: true });
       return { path: i.path };
+    },
+    async upload(i: { file: File; dir: string; name: string; notePath?: string }) {
+      const r = await attachFile(o.engine, { file: i.file, name: i.name, ...(i.notePath ? { notePath: i.notePath } : { dir: i.dir }) });
+      return { path: r.path, ...(r.deduped ? { deduped: true } : {}) };
     },
     workspace: () => ({ root: o.getRoot(), separator: "/" as const }),
   };

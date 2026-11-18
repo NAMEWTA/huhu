@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { PreviewGrants, handlePreviewRequest, nonceOf, previewCsp, resolvePreviewPath } from "../src/main/preview-protocol";
+import { PreviewGrants, handlePreviewRequest, handleVaultMediaRequest, isMediaDest, nonceOf, previewCsp, resolvePreviewPath } from "../src/main/preview-protocol";
 
 /**
  * F05 路径与协议层安全用例（主进程纯逻辑）：恶意页面能构造的任何 URL 都不能读到 Vault 之外、受保护目录或符号链接目标。
@@ -136,5 +136,36 @@ describe("PreviewGrants 与 handlePreviewRequest", () => {
     const g = new PreviewGrants();
     for (let i = 0; i < 260; i++) g.grant(vault, "页面/index.html");
     expect(g.size).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("笔记里的图片 / 附件引用（handleVaultMediaRequest）", () => {
+  const req = (pathname: string, destination: string | null, method = "GET") => ({ url: `huhu-app://workbench${pathname}`, method, destination });
+  test("只有图片 / 音视频 / PDF 等子资源请求才读取 Vault；直接导航与脚本请求不读", async () => {
+    expect(isMediaDest("image")).toBe(true);
+    expect(isMediaDest("document")).toBe(false);
+    expect(isMediaDest("script")).toBe(false);
+    expect(await handleVaultMediaRequest(req("/top.js", "script"), vault)).toBeNull();
+    expect(await handleVaultMediaRequest(req("/top.js", "document"), vault)).toBeNull();
+    expect(await handleVaultMediaRequest(req("/top.js", null), vault)).toBeNull();
+    expect(await handleVaultMediaRequest(req("/top.js", "image", "POST"), vault)).toBeNull();
+    expect(await handleVaultMediaRequest(req("/top.js", "image"), null)).toBeNull();
+  });
+  test("图片请求读到 Vault 内文件，带 nosniff 与沙箱 CSP", async () => {
+    mkdirSync(path.join(vault, "docs", "attachments"), { recursive: true });
+    writeFileSync(path.join(vault, "docs", "attachments", "图 1.png"), Buffer.from([1, 2, 3]));
+    const r = await handleVaultMediaRequest(req(`/docs/attachments/${encodeURIComponent("图 1.png")}`, "image"), vault);
+    expect(r?.status).toBe(200);
+    expect(r?.headers.get("content-type")).toBe("image/png");
+    expect(r?.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(r?.headers.get("content-security-policy")).toContain("sandbox");
+    expect([...new Uint8Array(await r!.arrayBuffer())]).toEqual([1, 2, 3]);
+  });
+  test("越界、受保护目录、符号链接逃逸一律拒绝，不泄露内容", async () => {
+    for (const p of ["/../outside/x.png", "/.huhu/secret.json", "/.git/config", "/node_modules/x/y.png"]) {
+      const r = await handleVaultMediaRequest(req(p, "image"), vault);
+      expect(r === null || r.status >= 400).toBe(true);
+      if (r) expect(await r.text()).not.toContain("token");
+    }
   });
 });

@@ -4,6 +4,7 @@ export { RichMarkdownEditor, type EditorVariant, type EditorViewMode, type RichE
 export { ReadonlyMarkdown } from "./ReadonlyMarkdown";
 export { SourceMarkdownEditor } from "../source/SourceMarkdownEditor";
 export { coreRoutes, type CoreRouteDeps, type HostPageSummary, type HostDocumentEntry } from "../host/routes/core";
+export { uploadRoutes, type UploadProvider, type UploadRequest } from "../host/routes/upload";
 export type { HostRoutes } from "../host/host-fetch";
 export { DEFAULT_FEATURES, type OkHost, type OkHostFeatures } from "../host/ok-host";
 export { dropProvider } from "../host/provider-pool";

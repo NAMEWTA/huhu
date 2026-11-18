@@ -196,3 +196,32 @@ export async function handlePreviewRequest(request: { url: string; method: strin
     },
   });
 }
+
+/** 笔记里的图片 / 音视频 / PDF 引用（`<img src="docs/attachments/a.png">`）：只允许由这些“子资源”请求触发读取 Vault，直接导航一律不读。 */
+const MEDIA_DESTS: ReadonlySet<string> = new Set(["image", "audio", "video", "track", "embed", "object"]);
+export const isMediaDest = (dest: string | null | undefined): boolean => MEDIA_DESTS.has((dest ?? "").toLowerCase());
+
+/**
+ * 工作台协议在渲染器资源里找不到文件时的兜底：把 URL 路径当作 Vault 相对路径读取（编辑器里的图片 / 附件）。
+ * 返回 null = 不处理（交回原有行为）。路径守卫复用预览的 `resolvePreviewPath`（越界 / 符号链接逃逸 / 受保护目录 / 超大文件都拒绝）。
+ */
+export async function handleVaultMediaRequest(request: { url: string; method: string; destination: string | null }, vaultRoot: string | null): Promise<Response | null> {
+  if (!vaultRoot || (request.method !== "GET" && request.method !== "HEAD")) return null;
+  if (!isMediaDest(request.destination)) return null;
+  const base = { "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'", "Cache-Control": "no-store" };
+  let pathname: string;
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    return null;
+  }
+  const r = resolvePreviewPath(vaultRoot, pathname);
+  if (!r.ok) return new Response(r.reason, { status: r.status, headers: { ...base, "Content-Type": "text/plain; charset=utf-8" } });
+  let body: Buffer;
+  try {
+    body = await readFile(r.abs);
+  } catch {
+    return new Response("not found", { status: 404, headers: { ...base, "Content-Type": "text/plain; charset=utf-8" } });
+  }
+  return new Response(request.method === "HEAD" ? null : new Uint8Array(body), { status: 200, headers: { ...base, "Content-Type": mimeFor(r.abs), "Content-Length": String(body.length) } });
+}

@@ -1,6 +1,7 @@
-import { OkRoot, RichMarkdownEditor, coreRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
+import { OkRoot, RichMarkdownEditor, coreRoutes, uploadRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
 import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
+import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
@@ -42,15 +43,19 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   onOpen.current = props.onOpen;
 
   const { commentRoutes } = useCommentsBridge({ paths: props.notes.map((x) => x.path), flush: props.flush });
+  const notePath = useRef(props.path);
+  notePath.current = props.path;
   const routes = useMemo<HostRoutes>(
     () => ({
       ...commentRoutes,
+      // 粘贴 / 拖入图片与文件：落在当前笔记旁的 attachments/（notes.attach：原子写 + OperationLog，同内容去重）
+      ...uploadRoutes(async ({ file, name, notePath: parent }) => attachFile(engine, { file, name, notePath: parent ?? notePath.current })),
       ...coreRoutes({
         listPages: () => notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
         listDocuments: () => notes.current.map((x) => ({ kind: "document" as const, path: x.path, docName: docNameOf(x.path) })),
       }),
     }),
-    [commentRoutes],
+    [commentRoutes, engine],
   );
   const documentHost = useMemo(
     () => ({

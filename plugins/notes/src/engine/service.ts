@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path/posix";
 import { errors, KINDS, newId } from "@huhu/contracts";
-import { folderNoteDir, normalizeRelPath, splitDocument, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { folderNoteDir, normalizeRelPath, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
 
@@ -177,6 +178,34 @@ export class NotesService {
     await this.d.files.write(rel, Buffer.from(renderTemplate(input.template ?? "blank", base)), { expectedVersion: null });
     this.d.index.refreshPaths([rel]);
     return { path: rel, id: await this.ensureId(rel) };
+  }
+
+  /**
+   * 写入附件：`notePath` 给定时落在该笔记旁的 `attachments/`（编辑器粘贴 / 拖入），`dir` 给定时直接落在该目录（文件树拖入）。
+   * 同名同内容 → 复用并标记 deduped；同名不同内容 → `名-1.ext`。写入走 OperationLog（不覆盖第三方改动、可恢复）。
+   */
+  async attach(input: { notePath?: string; dir?: string; name: string; bytes: Uint8Array }): Promise<{ path: string; size: number; deduped: boolean }> {
+    if (input.bytes.byteLength === 0) throw errors.invalidInput("附件是空文件");
+    if (input.bytes.byteLength > MAX_ATTACH_BYTES) throw errors.invalidInput(`附件超过 ${MAX_ATTACH_BYTES / 1024 / 1024} MiB 上限`);
+    const name = sanitizeAttachmentName(input.name);
+    if (!isAllowedAttachment(name)) throw errors.invalidInput(`不支持的附件类型：${name}`);
+    let dir: string;
+    if (input.dir !== undefined && input.dir !== "") dir = normalizeRelPath(input.dir);
+    else if (input.notePath) {
+      const noteDir = path.dirname(normalizeRelPath(input.notePath));
+      dir = `${noteDir === "." ? "" : `${noteDir}/`}${ATTACH_DIR}`;
+    } else dir = ATTACH_DIR;
+    if (dir) this.assertValidSegments(dir);
+    if (hasProtectedSegment(dir)) throw errors.invalidInput("不能把附件写进受保护目录");
+    const at = (n: string) => (dir ? `${dir}/${n}` : n);
+    const wanted = at(name);
+    const existing = this.findCaseInsensitive(wanted);
+    if (existing && this.d.files.currentVersion(existing) === versionOf(input.bytes)) return { path: existing, size: input.bytes.byteLength, deduped: true };
+    const final = uniqueName(name, (n) => this.findCaseInsensitive(at(n)) !== null);
+    const rel = at(final);
+    await this.d.ops.run(`attach-${Date.now().toString(36)}`, "attach", [{ action: "write", path: rel, bytes: input.bytes }]);
+    this.d.index.refreshPaths([rel]);
+    return { path: rel, size: input.bytes.byteLength, deduped: false };
   }
 
   /** 复制文件夹：整棵子树按字节复制到“<名> · 副本”（不复制批注与历史；复制出的笔记得到新 id）。 */
