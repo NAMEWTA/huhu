@@ -67,3 +67,34 @@
 - **`size-aware-styling`**：我用文档容器尺寸控制编辑模式收纳。打开详情栏或改变浏览器缩放时，收纳依据工具栏实际可用空间（“Apply styles based on container size”）。
 - **`toolbar`**：我复用了尾部“笔记操作”，把窄栏隐藏的撤销、重做和导出放到菜单中（“Add a trailing ‘More actions’ menu”）。
 - **`css`**：我将 OK 映射放进已有层序，并利用重要声明反转的层优先级覆盖文件树的 vendor 选中颜色（“Use cascade layers … to define explicit priority zones”）。
+
+## task02 验证
+
+交付业务构建为 `94e79ea`。全量桌面 E2E 和启动对照均使用该构建。启动对照统一绑定 CPU 0–3。全量 E2E 绑定 CPU 4–7 以减少彼此影响，Xvfb 设 2200 × 1300 以容纳宽屏布局矩阵。通过 Node 预加载拦截矩阵测试对历史归档 `matrix-run.json` 的唯一写入，转存至临时目录，保留了正式归档。
+
+| 命令 | 构建与结果 |
+| --- | --- |
+| `pnpm typecheck` | 交付业务构建和收件箱探针退出 0。此前外层退出 143 的执行已完整重跑。 |
+| `pnpm lint` | 交付业务构建和收件箱探针退出 0。 |
+| `pnpm knip` | 交付业务构建和收件箱探针退出 0。 |
+| `pnpm test` | 交付构建退出 0。81 个测试文件、852 个测试通过。1 文件、1 测试跳过。 |
+| `pnpm test:vendor` | 交付构建的独立复跑退出 0。167 个文件、4173 个测试通过，2 个跳过。与单元并跑时全部断言通过，但 Vitest worker 的 `onTaskUpdate` RPC 超时使第一次运行失败。 |
+| `node scripts/ok-patches.mjs --check` | `94e79ea` 退出 0。29 个修改、5 个补测、4 个删除、22 个新增匹配 60 条登记。 |
+| `pnpm build` | `94e79ea` 退出 0。 |
+| `pnpm format:check` | 交付业务构建和收件箱探针均通过，退出 0。 |
+| `xvfb-run -a node scripts/measure-notes-startup.mjs /home/wta/projects/huhu-wt-rc4 1 --trace-modules` | `94e79ea` 退出 0。候选工作台和收件箱无编辑器命名 JS 块，首篇笔记载入 `rich-*`。 |
+
+交付前的整体路由试验出现附件及重开文档失败。缩小拆分范围后两个用例各复跑三次，均通过。[试验 E2E](task02-e2e-routing-pilot.txt) · [定向复跑](task02-attachment-document-retry.txt)
+
+[交付构建工具链输出](task02-tooling.txt)
+
+### 全量 E2E 与失败用例复跑
+
+- `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/a11y.spec.ts tests/e2e/perf.spec.ts` 的 Playwright 退出 1，外层随后退出 143。48 通过、4 失败、1 跳过。跳过项为默认关闭的 10 万文件压力用例。工作台冷启动 1638 ms、插件停用 / 启用 59 / 99 ms、Engine 171 MiB，均过阈值。H03、F08、附件、用户全路径和 200 轮泄漏用例都通过。[全量日志](task02-e2e-final.txt)
+- D01/D02 全量时按 Esc 后批注输入仍可见，单独选出后复跑 3/3 通过。S2c 同一组初次复跑 1/3 通过，一次只数到 29 个 ProseMirror，另一次提交后未显示预期文本。降低宿主负载后 S2c 再跑 3/3 通过。task01 同一用例通过 3/3。[第一组复跑](task02-e2e-retries.txt) · [较低负载复跑](task02-e2e-idle.txt) · [task01 紧凑评论](task02-compact-baseline.txt)
+- 1 MiB 打开阈值 500 ms。全量为 511 ms，初次复跑 262、337、566 ms（2/3）；较低负载复跑 165、160、415 ms（3/3）。[第一组复跑](task02-perf-retries.txt) · [较低负载复跑](task02-e2e-idle.txt)
+- 5,000 行实时预览输入 p95 阈值 16 ms。全量为 22.7 ms，单独选出后的三次为 18.7、17.0、22.3 ms（0/3）。task01 构建以同一用例复跑为 58.0、50.0、22.3 ms（0/3），其 1 MiB 打开复跑则为 366、355、472 ms（3/3）。两组复跑时段的负载不同，说明已有绝对阈值超限，无法据此估计精确版本差。[较低负载复跑](task02-e2e-idle.txt) · [task01 性能用例](task02-perf-baseline.txt)
+
+### Modern Web Guidance
+
+检索了 `split lazy javascript modules` 和 `localize accessible button labels`。读取 `conditional-async-dependencies`、`performance` 和 `accessibility`。将“DO use dynamic imports”用于非 Markdown 查看器边界。应用“Do include a control’s visible text in its accessible name”，气泡菜单用同一消息生成鼠标提示和读屏名称。

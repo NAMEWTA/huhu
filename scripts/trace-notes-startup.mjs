@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const args = process.argv.slice(2);
-const [desktop, output = desktop && path.join(desktop, "out")] = args.filter((arg) => arg !== "--profile-reload");
+const [desktop, output = desktop && path.join(desktop, "out")] = args.filter((arg) => !arg.startsWith("--"));
 if (!desktop || !output) throw new Error("Usage: node scripts/trace-notes-startup.mjs <desktop path> [out path]");
 const root = mkdtempSync(path.join(tmpdir(), "huhu-cold-trace-"));
 const vault = path.join(root, "vault");
@@ -77,10 +77,55 @@ try {
     cdp.on("Debugger.scriptParsed", ({ url }) => {
       if (url.includes("/assets/")) parsed.add(path.basename(new URL(url).pathname));
     });
-    await cdp.send("Debugger.enable");
-    await cdp.send("Debugger.disable");
+    const readParsed = async () => {
+      parsed.clear();
+      await cdp.send("Debugger.enable");
+      await cdp.send("Debugger.disable");
+      return [...parsed];
+    };
+    const homeAssets = await readParsed();
     const styles = await page.evaluate(() => [...document.styleSheets].flatMap(({ href }) => (href?.includes("/assets/") ? [new URL(href).pathname.split("/").at(-1)] : [])));
-    const assetBytes = Object.fromEntries([...new Set([...parsed, ...styles])].map((name) => [name, statSync(path.join(output, "renderer/assets", name)).size]));
+    const assetBytes = Object.fromEntries([...new Set([...homeAssets, ...styles])].map((name) => [name, statSync(path.join(output, "renderer/assets", name)).size]));
+    const stopCpuProfile = async () => {
+      const { profile } = await cdp.send("Profiler.stop");
+      const urls = new Map(profile.nodes.map(({ id, callFrame }) => [id, callFrame.url]));
+      const cpuByAssetMs = {};
+      for (const [index, id] of profile.samples.entries()) {
+        const url = urls.get(id);
+        if (!url?.includes("/assets/")) continue;
+        const name = path.basename(new URL(url).pathname);
+        cpuByAssetMs[name] = (cpuByAssetMs[name] ?? 0) + profile.timeDeltas[index] / 1000;
+      }
+      return cpuByAssetMs;
+    };
+    let inbox;
+    if (args.includes("--profile-inbox")) {
+      await page.evaluate(() => {
+        document.addEventListener("click", () => performance.mark("trace-inbox-click"), { capture: true, once: true });
+        const markInbox = new MutationObserver(() => {
+          if (!document.querySelector('[data-testid="inbox-module"]')) return;
+          performance.mark("trace-inbox-dom");
+          markInbox.disconnect();
+        });
+        markInbox.observe(document.documentElement, { childList: true, subtree: true });
+      });
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.start");
+      const clickStart = performance.now();
+      await page.getByRole("button", { name: "收件箱", exact: true }).first().click();
+      await page.getByTestId("inbox-module").waitFor();
+      const automationMs = performance.now() - clickStart;
+      const cpuByAssetMs = await stopCpuProfile();
+      const { clickMs, domMs } = await page.evaluate(() => ({
+        clickMs: performance.timeOrigin + performance.getEntriesByName("trace-inbox-click")[0].startTime,
+        domMs: performance.timeOrigin + performance.getEntriesByName("trace-inbox-dom")[0].startTime,
+      }));
+      const newAssets = (await readParsed()).filter((name) => !homeAssets.includes(name));
+      const untilClickMs = clickMs - (performance.timeOrigin + clickStart);
+      const clickToDomMs = domMs - clickMs;
+      const afterDomMs = automationMs - untilClickMs - clickToDomMs;
+      inbox = { automationMs, untilClickMs, clickToDomMs, afterDomMs, cpuByAssetMs, newAssets };
+    }
     let reloadCpuByAssetMs;
     if (args.includes("--profile-reload")) {
       // Separate estimation of renderer script CPU. Navigation cache is disabled,
@@ -91,17 +136,9 @@ try {
       await cdp.send("Profiler.start");
       await page.reload();
       await waitForHome();
-      const { profile } = await cdp.send("Profiler.stop");
-      const urls = new Map(profile.nodes.map(({ id, callFrame }) => [id, callFrame.url]));
-      reloadCpuByAssetMs = {};
-      for (const [index, id] of profile.samples.entries()) {
-        const url = urls.get(id);
-        if (!url?.includes("/assets/")) continue;
-        const name = path.basename(new URL(url).pathname);
-        reloadCpuByAssetMs[name] = (reloadCpuByAssetMs[name] ?? 0) + profile.timeDeltas[index] / 1000;
-      }
+      reloadCpuByAssetMs = await stopCpuProfile();
     }
-    console.log(JSON.stringify({ desktop, output, ...startup, renderer, assetBytes, reloadCpuByAssetMs }));
+    console.log(JSON.stringify({ desktop, output, ...startup, renderer, assetBytes, inbox, reloadCpuByAssetMs }));
   } finally {
     await app.close();
   }

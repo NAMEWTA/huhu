@@ -1,0 +1,49 @@
+{"build":"rc4","outputBytes":13535700,"rendererBytes":11468892,"editorNamedChunks":{}}
+{"build":"candidate","outputBytes":36932287,"rendererBytes":34832184,"editorNamedChunks":{"NoteEditorSurface-B4Ab-4J0.js":3413,"explorer-DIcDX6wY.js":709811,"host-fetch-2oPhNQYh.js":3088787,"host-fetch-DA7YxFyb.css":317173,"katex-8dFgg2jS.js":496843,"rich-DOEYNOYq.css":36124,"rich-TpO9mRZb.js":4273742}}
+{"machine":"linux 7.0.0-43-generic x64","cpu":"12th Gen Intel(R) Core(TM) i7-12700","logicalCPUs":8,"launches":20,"fixtureNotes":2001}
+{"build":"rc4","sample":1,"homeMs":1440.023918,"inboxMs":61.84685400000012,"noteMs":57.700000000186265}
+{"build":"candidate","sample":1,"homeMs":1424.0183729999999,"inboxMs":64.51523399999996,"noteMs":683.7000000001863}
+{"build":"candidate","sample":2,"error":"TimeoutError: locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"notes-resource-tree\"] [data-item-path=\"冷启动探针.md\"]') to be visible\u001b[22m\n"}
+{"build":"rc4","sample":2,"homeMs":1452.1742799999993,"inboxMs":72.90840500000195,"noteMs":75.3999999994412}
+{"build":"rc4","sample":3,"homeMs":1362.4212069999994,"inboxMs":54.6682409999994,"noteMs":63.59999999962747}
+{"build":"candidate","sample":3,"homeMs":1271.0555749999985,"inboxMs":49.53144800000155,"noteMs":693.5999999996275}
+{"build":"candidate","sample":4,"homeMs":1373.7142479999966,"inboxMs":49.44986599999538,"noteMs":683.5}
+{"build":"rc4","sample":4,"homeMs":931.5158809999994,"inboxMs":105.40114000000176,"noteMs":117.59999999962747}
+{"build":"rc4","sample":5,"homeMs":1562.9393520000012,"inboxMs":82.82412400000612,"noteMs":63.60000000055879}
+{"build":"candidate","sample":5,"homeMs":1346.619571000003,"inboxMs":75.02500699999655,"noteMs":707.4000000003725}
+{"build":"candidate","sample":6,"error":"TimeoutError: locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"notes-resource-tree\"] [data-item-path=\"冷启动探针.md\"]') to be visible\u001b[22m\n"}
+{"build":"rc4","sample":6,"homeMs":1415.593055999998,"inboxMs":53.428166999990935,"noteMs":58}
+{"build":"rc4","sample":7,"homeMs":1383.2697329999937,"inboxMs":65.30230700000538,"noteMs":73}
+{"build":"candidate","sample":7,"homeMs":1438.3322500000068,"inboxMs":55.92159099999117,"noteMs":705.8000000007451}
+{"build":"candidate","sample":8,"homeMs":1407.11179000001,"inboxMs":68.15779899999325,"noteMs":689.5}
+{"build":"rc4","sample":8,"homeMs":1376.6494160000002,"inboxMs":60.22591400000965,"noteMs":51.799999999813735}
+{"build":"rc4","sample":9,"homeMs":1460.2148650000017,"inboxMs":46.170131999999285,"noteMs":54.5}
+{"build":"candidate","sample":9,"homeMs":1362.7245709999988,"inboxMs":79.25414400000591,"noteMs":708.7999999998137}
+{"build":"candidate","sample":10,"homeMs":1499.8598219999985,"inboxMs":142.49716500000795,"noteMs":722.7999999998137}
+{"build":"rc4","sample":10,"homeMs":1491.3096389999992,"inboxMs":100.4883039999986,"noteMs":96.19999999925494}
+{"build":"rc4","sample":11,"homeMs":1686.4436229999992,"inboxMs":63.24233999999706,"noteMs":61.60000000055879}
+{"build":"candidate","sample":11,"error":"TimeoutError: locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"notes-resource-tree\"] [data-item-path=\"冷启动探针.md\"]') to be visible\u001b[22m\n"}
+{"build":"candidate","sample":12,"homeMs":8601.437376999995,"inboxMs":292.3696029999992,"noteMs":1397}
+{"build":"rc4","sample":12,"homeMs":5424.997857000009,"inboxMs":238.5215019999887,"noteMs":288.80000000074506}
+{"build":"rc4","sample":13,"homeMs":4585.56859499999,"inboxMs":366.44982899999013,"noteMs":216.20000000018626}
+{"build":"candidate","sample":13,"homeMs":3497.6591959999932,"inboxMs":747.7053960000048,"noteMs":973.4000000003725}
+{"build":"candidate","sample":14,"homeMs":5570.360866000003,"inboxMs":362.45001699999557,"noteMs":786.5}
+{"build":"rc4","sample":14,"homeMs":1553.6455889999925,"inboxMs":76.8338840000215,"noteMs":117.40000000037253}
+{"build":"rc4","sample":15,"homeMs":1685.8261760000023,"inboxMs":69.28177400000277,"noteMs":67.90000000037253}
+{"build":"candidate","sample":15,"error":"TimeoutError: locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"notes-resource-tree\"] [data-item-path=\"冷启动探针.md\"]') to be visible\u001b[22m\n"}
+{"build":"candidate","sample":16,"homeMs":3877.6108249999816,"inboxMs":238.61958699999377,"noteMs":850.5}
+{"build":"rc4","sample":16,"homeMs":2934.5400599999994,"inboxMs":140.51561900001252,"noteMs":83.40000000037253}
+{"build":"rc4","sample":17,"homeMs":2379.7838440000196,"inboxMs":479.0247200000158,"noteMs":156.70000000018626}
+{"build":"candidate","sample":17,"homeMs":2480.19920599999,"inboxMs":272.18846599999233,"noteMs":841}
+{"build":"candidate","sample":18,"homeMs":2149.730362000002,"inboxMs":162.63440300000366,"noteMs":778.2000000001863}
+{"build":"rc4","sample":18,"homeMs":1479.1170940000156,"inboxMs":83.78072999999858,"noteMs":76.40000000037253}
+{"build":"rc4","sample":19,"homeMs":1412.0321750000003,"inboxMs":48.512728000001516,"noteMs":60.60000000055879}
+{"build":"candidate","sample":19,"homeMs":1393.9779520000156,"inboxMs":72.4895269999979,"noteMs":693.5}
+{"build":"candidate","sample":20,"homeMs":1326.098272000003,"inboxMs":43.30849999998463,"noteMs":687.4000000003725}
+{"build":"rc4","sample":20,"homeMs":1407.2799479999812,"inboxMs":57.18688100000145,"noteMs":55.90000000037253}
+{"build":"rc4","metric":"homeMs","n":20,"min":931.5158809999994,"p50":1460.2148650000017,"p95":4585.56859499999,"max":5424.997857000009}
+{"build":"rc4","metric":"inboxMs","n":20,"min":46.170131999999285,"p50":69.28177400000277,"p95":366.44982899999013,"max":479.0247200000158}
+{"build":"rc4","metric":"noteMs","n":20,"min":51.799999999813735,"p50":67.90000000037253,"p95":216.20000000018626,"max":288.80000000074506}
+{"build":"candidate","metric":"homeMs","n":16,"min":1271.0555749999985,"p50":1424.0183729999999,"p95":8601.437376999995,"max":8601.437376999995}
+{"build":"candidate","metric":"inboxMs","n":16,"min":43.30849999998463,"p50":75.02500699999655,"p95":747.7053960000048,"max":747.7053960000048}
+{"build":"candidate","metric":"noteMs","n":16,"min":683.5,"p50":707.4000000003725,"p95":1397,"max":1397}
