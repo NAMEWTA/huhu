@@ -5,5 +5,18 @@
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
-  "exclude": ["src/vendor/open-knowledge/**", "src/host/**", "harness", "harness-dist", "build", "test/e2e", "test/sp5-yaml.test.ts", "src/rich", "src/source", "test/host-files.test.ts", "test/upload-routes.test.ts", "test/frontmatter-codec.test.ts"]
+  "exclude": [
+    "src/vendor/open-knowledge/**",
+    "src/host/**",
+    "harness",
+    "harness-dist",
+    "build",
+    "test/e2e",
+    "test/sp5-yaml.test.ts",
+    "src/rich",
+    "src/source",
+    "test/host-files.test.ts",
+    "test/upload-routes.test.ts",
+    "test/frontmatter-codec.test.ts"
+  ]
 }
