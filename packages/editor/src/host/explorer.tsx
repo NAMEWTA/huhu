@@ -1,6 +1,7 @@
 // OkExplorer：上游 FileTree（OK 文件树 + 右键菜单）的 Huhu 宿主封装（S5，design §8）。
 // 数据与写操作由宿主经 FilesRouteDeps 注入；本组件只负责提供者栈与 hostFetch / 隐藏钩子的生命周期。
 // 经 `@huhu/editor/ok-explorer` 懒加载，notes 模块入口不静态引用 vendor（design §12）。
+import "../rich/token-map.css";
 import "../ok/ok-globals.css";
 import { I18nProvider } from "@lingui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

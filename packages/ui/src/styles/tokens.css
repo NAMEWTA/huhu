@@ -2,11 +2,6 @@
 :root {
   --font-size: 14px;
 
-  /* Resolve shared names here before the OK scope redefines muted and accent. */
-  --huhu-ok-muted-text: var(--muted);
-  --huhu-ok-accent: var(--accent);
-  --huhu-ok-syntax-type: var(--syntax-type);
-
   /* 字号阶梯：全部基于 --font-size */
   --fs-page: calc(var(--font-size) * 24 / 14);
   --fs-section: calc(var(--font-size) * 16 / 14);
@@ -67,10 +62,3 @@
   --shadow-ink: #000;
   --on-solid: #fff;
 }
-
-/* Important declarations invert layer order. Override OK's default light file-tree color in the earlier token layer. */
-/* stylelint-disable declaration-no-important -- vendor overrides both the inline token and its default light rule */
-[class~="ok-root"] file-tree-container {
-  --trees-selected-fg: var(--text) !important;
-}
-/* stylelint-enable declaration-no-important */

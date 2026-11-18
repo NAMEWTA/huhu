@@ -24,5 +24,4 @@
 @import "./components/overlays.css" layer(components);
 @import "./components/data.css" layer(components);
 @import "./components/feedback.css" layer(components);
-@import "./ok-token-map.css" layer(modules);
 @import "./vendor-overrides.css";

@@ -67,7 +67,9 @@ test("H03：简体中文知识库扫描编辑器、命令菜单、文件树和�
     await expect(prose).toContainText("需要选中的正文");
     result.toolbar = await latinLabels(bar);
     result.editor = await latinLabels(editor);
-    result.tree = await latinLabels(page.locator(".notes-resource-tree"));
+    const resourceTree = page.locator(".notes-resource-tree");
+    await expect(resourceTree.getByRole("button", { name: "文件操作选项", includeHidden: true })).toHaveAttribute("aria-label", "文件操作选项");
+    result.tree = await latinLabels(resourceTree);
 
     const details = page.getByTestId("note-inspector");
     await bar.getByRole("button", { name: "文档详情" }).click();
@@ -83,11 +85,16 @@ test("H03：简体中文知识库扫描编辑器、命令菜单、文件树和�
     await prose.click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.press("Shift+Home");
-    result.bubbleMenu = await latinLabels(page.getByTestId("bubble-menu-bar"));
+    const bubble = page.getByTestId("bubble-menu-bar");
+    await expect(bubble.getByRole("button", { name: "粗体" })).toBeVisible();
+    result.bubbleMenu = await latinLabels(bubble);
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
     await page.keyboard.type("/");
-    result.slashMenu = await latinLabels(page.getByRole("listbox").last());
+    const slash = page.getByRole("listbox", { name: "斜杠命令" });
+    result.slashMenu = await latinLabels(slash);
+    await page.keyboard.type("accordion");
+    await expect(slash.getByRole("option", { name: "折叠面板" })).toBeVisible();
     await page.keyboard.press("Escape");
   } finally {
     await testInfo.attach("zh-Hans", { body: JSON.stringify(result, null, 2), contentType: "application/json" });
