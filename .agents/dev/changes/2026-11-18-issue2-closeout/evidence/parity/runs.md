@@ -78,3 +78,77 @@
 最终全量斜杠菜单失败的 trace 显示，插入代码块后用例通过 focus、Ctrl+A、输入起始文字重置，失败快照在代码块正文显示 `/起始`，界面没有 listbox。现有用例保留原样。
 
 H07 测试两次都比较完整磁盘缓冲区。原始样本含 frontmatter、表格、列表、注释、引用定义和 100 段正文。测试要求首改与后改都只有目标字节变化，且关闭标签后重开仍显示编辑和结构。
+
+## 任务 02 收口
+
+业务实现提交 `0c9705cb7758fe2adfd538f0da56b3bd950b03f0`。最终代码与测试提交 `6a19a4c83e3a49e2d6df67e376d318a4a6b54f22`。Electron 44.9.1 / Chromium 152.0.7977.167。任务 02 的原日志在本机 `/tmp/huhu-parity02-fLyyRi/`。各次真实 Electron 运行继续使用本机 Herdr Core。
+
+既有 `editor-s3-matrix.spec.ts` 写入归档的矩阵 JSON，由 Node 预加载器把该文件的读取和写入重定向到本机日志目录，避免覆盖归档。完整用例的启动命令、文件清单和断言保持一致。
+
+| 门禁命令 | shell 退出码 | 实际结果 | 日志 |
+| --- | ---: | --- | --- |
+| `pnpm typecheck` | 0 | 无逐用例计数 | `final-typecheck.log` |
+| `pnpm lint` | 0 | 无逐用例计数 | `final-lint.log` |
+| `pnpm test` | 126 | Test Files  1 failed / 82 passed / 1 skipped (84)。Tests  1 failed / 858 passed / 1 skipped (860) | `final-test.log` |
+| `pnpm test` | 0 | Test Files  83 passed / 1 skipped (84)。Tests  859 passed / 1 skipped (860) | `final-test-retry.log` |
+| `pnpm test:vendor` | 0 | Test Files  290 passed (290)。Tests  6009 passed / 4 skipped (6013) | `final-test-vendor.log` |
+| `node scripts/ok-patches.mjs --check` | 0 | 无逐用例计数 | `final-patches.log` |
+| `pnpm build` | 0 | 无逐用例计数 | `final-build.log` |
+| `pnpm format:check` | 0 | 无逐用例计数 | `final-format-check.log` |
+| `pnpm knip` | 0 | 无逐用例计数 | `final-knip.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge` | 126 | 1 failed。1 skipped。56 passed (11.4m) | `final-e2e.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge` | 126 | 2 failed。1 skipped。55 passed (9.7m) | `final-e2e-serial.log` |
+| `HUHU_E2E_HUGE_VAULT=1 xvfb-run -a pnpm e2e tests/e2e/knowledge/huge-vault.spec.ts` | 0 | 1 passed (14.2s) | `task02-huge.log` |
+| `pnpm --filter @huhu/editor build:harness` | 0 | 无逐用例计数 | `browser-harness-build.log` |
+| `pnpm typecheck` | 0 | 无逐用例计数 | `delivery-typecheck.log` |
+| `pnpm lint` | 0 | 无逐用例计数 | `delivery-lint.log` |
+| `pnpm test` | 126 | Test Files  7 failed / 76 passed / 1 skipped (84)。Tests  13 failed / 846 passed / 1 skipped (860) | `delivery-test.log` |
+| `VITEST_MAX_FORKS=2 pnpm test` | 0 | Test Files  83 passed / 1 skipped (84)。Tests  859 passed / 1 skipped (860) | `delivery-test-retry.log` |
+| `pnpm test:vendor` | 126 | Test Files  290 passed (290)。Tests  6009 passed / 4 skipped (6013) | `delivery-test-vendor.log` |
+| `VITEST_MAX_FORKS=2 VITEST_MAX_THREADS=2 pnpm test:vendor` | 0 | Test Files  290 passed (290)。Tests  6009 passed / 4 skipped (6013) | `delivery-test-vendor-retry.log` |
+| `node scripts/ok-patches.mjs --check` | 0 | 无逐用例计数 | `delivery-patches.log` |
+| `pnpm build` | 0 | 无逐用例计数 | `delivery-build.log` |
+| `pnpm format:check` | 0 | 无逐用例计数 | `delivery-format-check.log` |
+| `pnpm knip` | 0 | 无逐用例计数 | `delivery-knip.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge` | 0 | 1 skipped。57 passed (7.3m) | `delivery-e2e.log` |
+
+### 斜杠菜单压力复现
+
+- 原用例用四路独立 Xvfb 与 Electron 用户目录并行，每路执行 `xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-s3-matrix.spec.ts -g '菜单逐项' --repeat-each=5`。20 次中 13 次通过、7 次失败。原始快照有 5 次保留引用结构，2 次代码正文为 `/起始`。退出码 126，Playwright 报告失败。日志 `original-1.log` 至 `original-4.log`。
+- 复制原测试并只观测键盘、输入和选区，四路各执行 2 次。6 次通过，2 次复现引用分支，日志 `diag-1.log` 至 `diag-4.log`。源探针保存在本机日志目录的 `slash-diagnostic.spec.ts`。原用例 Ctrl+A 后全选区实际为 `0..14`，输入第一个字后得到深度 2 的引用段落。接下来 Enter 和斜杠仍在深度 2 的段落，界面缺 listbox。代码分支的快照中同一复位过程把 `/起始` 留在原代码正文。原来用键盘覆盖可编辑文本的复位方式没有重建顶层段落。代码上下文也会被 `suggestionAllow` 主动排除。
+- 交付的定向用例先点选可辨识的顶层段落再触发斜杠。用四路各运行 `xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts -g '逐项测试' --repeat-each=5`。20 次全部通过，每次分别从代码块和引用切出后再次打开命令，并验证保存重开。退出码 0。日志 `anchored-1.log` 至 `anchored-4.log`。
+- 原用例在本任务指定的测试写入范围外。它仍采用原复位步骤。建议由 Lead 将逐项用例的下一轮触发定位到已验证的顶层段落，或让每次命令运行于独立的初始文档。
+
+### 定向重跑与开发记录
+
+最终提交的第一次根单测并发运行中，服务启动、CLI、Vault 操作和 SSH 等共报 13 项失败。上游单测的 6,009 项断言通过，但 Vitest worker 的 onTaskUpdate 报 RPC 超时，命令退出 126。重跑时限制 Vitest 进程数，避免与完整 Electron 及构建同时竞争。
+
+| 检查 | 退出码 | 实际结果 | 日志 |
+| --- | ---: | --- | --- |
+| 首次五个专项夹具。暴露角色定位、代码选择和目录折叠条件。 | 126 | 5 failed | `first-target.log` |
+| 校正聚焦和角色后验证，暴露 Embed 中文文案未入词表、图片选中断言和格式提示状态。 | 126 | 5 failed | `second-target.log` |
+| 四项通过，图片气泡遮住首段、路径因视口隐藏、斜杠夹具定位真实代码节点失败。 | 126 | 3 failed。4 passed (1.6m) | `third-target.log` |
+| 图片和斜杠通过。发现 CodeMirror 编辑后草稿重置，资源重命名初测未找到预期磁盘路径。 | 126 | 2 failed。2 passed (29.9s) | `fourth-target.log` |
+| 七项通过并确认 11 MiB 附件字节。通常代码 iframe 未呈现预览，弹窗编辑和保存已验证。 | 126 | 2 failed。7 passed (1.3m) | `candidate-target.log` |
+| 工作台等价入口和模态编辑用例通过。Callout 发现界面布尔开关未采用描述符默认值。 | 126 | 1 failed。2 passed (35.2s) | `last-target.log` |
+| 最终提交上 Callout 下拉、高级折叠、开关、保存关闭重开通过。 | 0 | 1 passed (18.6s) | `final-callout.log` |
+| 属性披露首次选择器同时命中三个扩展按钮，定位失败。 | 126 | 无逐用例计数 | `shell-probe.log` |
+| 在真实 Electron 以键盘折叠和展开属性区，保留磁盘原文。单层资产目录的右键重命名也实际落盘。 | 0 | 无逐用例计数 | `shell-probe-retry.log` |
+| 独立浏览器 Chromium 158.0.8127.18。Embed 提示与 URL 可见，请求数为零，未依赖桌面 preload。 | 0 | 无逐用例计数 | `browser-harness-e2e.log` |
+| 规则文件恢复在根单测首次并行运行时超时。单独重跑 1。 | 0 | Test Files  1 passed (1)。Tests  1 passed / 11 skipped (12) | `task02-versioning-1.log` |
+| 规则文件恢复单独重跑 2。 | 0 | Test Files  1 passed (1)。Tests  1 passed / 11 skipped (12) | `task02-versioning-2.log` |
+| 规则文件恢复单独重跑 3。 | 0 | Test Files  1 passed (1)。Tests  1 passed / 11 skipped (12) | `task02-versioning-3.log` |
+| 最终提交上根单测首次并发运行失败的 13 个测试过滤重跑，第 1 次。 | 0 | Test Files  7 passed (7)。Tests  13 passed / 123 skipped (136) | `delivery-root-failed-1.log` |
+| 该组单独重跑第 2 次。 | 0 | Test Files  7 passed (7)。Tests  13 passed / 123 skipped (136) | `delivery-root-failed-2.log` |
+| 该组单独重跑第 3 次。 | 0 | Test Files  7 passed (7)。Tests  13 passed / 123 skipped (136) | `delivery-root-failed-3.log` |
+| 图片选区等待实际 ProseMirror 状态，格式 tooltip 指定名称后，各单项重跑三次，全数通过。 | 0 | 6 passed (38.7s) | `task02-fixture-repeats.log` |
+| 紧凑评论单独重跑三次，2 通过、1 失败。该次看到 30 条评论外框和 28 个 ProseMirror。首轮全量的失败点是新增评论正文未出现。 | 126 | 1 failed。2 passed (12.3s) | `task02-e2e-repeats.log` |
+
+定向 Electron 命令使用 `xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts`。筛选表达式、运行用例和结果在各原日志首行。图片和格式的二次全量失利用例修正后以 `-g '本地图片&#124;格式气泡' --repeat-each=3` 复跑。紧凑评论重跑使用 `xvfb-run -a pnpm e2e tests/e2e/knowledge/compact-cost.spec.ts --repeat-each=3`。额外的属性按钮和资产探针以 `xvfb-run -a node /tmp/huhu-parity02-fLyyRi/shell-probe.mjs` 运行。最终提交的根单测过滤重跑使用日志中记录的 `pnpm exec vitest run --maxWorkers=2 <7 个测试文件> -t <13 个失败用例>`。初次根 Vitest 超时的单用例重跑命令为 `pnpm exec vitest run --project @huhu/plugin-versioning plugins/versioning/test/history.test.ts -t '规则文件恢复后一律暂停'`。
+
+### Modern Web Guidance
+
+- `security` 指南要求先识别已有 CSP 和跨源 iframe。沿用工作台对外部 iframe 的限制，在渲染层按 Q3 显示来源 URL 与提示，不创建外部请求。
+- `accessibility` 指南中的 `role=status` 适合非紧急反馈。外部嵌入和附件下载失败使用已可见的状态文字，下载按钮也支持键盘激活。
+- `js` 指南区分 UTF-8 文本与原始字节。经过 Vault 分段读取的 Base64 直接解码到原始字节后构造 Blob。
+- 检索的拖拽排序指南适用于同容器顺序。本任务沿用现有资源树原生拖放负载和已验证的文件点击入口，对外部文件拖入继续走附件上传。

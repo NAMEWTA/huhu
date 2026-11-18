@@ -1,8 +1,8 @@
 # B01 复刻矩阵补证与 H07
 
-行号对应归档 `evidence/parity-matrix.md`。测试路径均相对工作树。部分覆盖的行保留为未通过验收。
+行号对应归档 `evidence/parity-matrix.md`。测试路径均相对工作树。任务 02 的验收以真实 Electron 的可见操作和磁盘结果为准。
 
-82 行中已验证 72 行，不适用 0 行，仍待验收 10 行。
+82 行中已验证 77 行，由 Huhu 等价物取代且已验证 5 行，有效不适用 0 行。下表列出本行实际可见入口和范围。
 
 | 行 | 归档项 | 状态 | 实际证据或缺口 | 缺陷及处理 |
 | ---: | --- | --- | --- | --- |
@@ -36,21 +36,21 @@
 | 96 | 源码与富文本切换的撤销模式翻转 | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/source-undo-mode-flip.test.ts:a real non-editor write surface arms the reset the same way a synthetic origin does`；`packages/editor/src/vendor/open-knowledge/app/src/editor/source-undo-mode-flip.test.ts:clearing on return drops redo along with undo` | — |
 | 122 | 代码预览编辑弹窗 CodePreviewEditModal（Mod-Enter） | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/CodePreviewEditModal.dom.test.tsx:Cmd/Ctrl+Enter commits the draft via onSave and closes the modal` | — |
 | 123 | 属性面板（JSX 节点）PropPanel | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/PropPanel.dom.test.tsx:the property picker uses preview mode from the shared provider before uploading` | — |
-| 126 | 描述符占位 DescriptorPlaceholder | 待验收 | 空 File Markdown 样本未产生可点击占位符。尚待用插入命令验证真实装配。 | — |
+| 126 | 描述符占位 DescriptorPlaceholder | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Embed 占位符可打开属性，外链不发请求，编辑后关闭重开仍显示阻止状态`。从斜杠菜单插入后用占位按钮重新打开属性，填写 URL 后真实保存重开。 | — |
 | 127 | 预览阻断提示 PreviewBlockedNotice | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/PreviewBlockedNotice.dom.test.tsx:names the blocked request (uri + directive)` | — |
 | 130 | 图标白名单 lucide-icon-allowlist | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/lucide-icon-allowlist.test.ts:returns the component for known allowlist names` | — |
-| 131 | 基础 UI 原语 components/ui（OK 用到的约 25 个） | 待验收 | 本次已迁入对话框、弹层、下拉菜单等原语的 DOM 套件。矩阵所列全部原语尚未逐项覆盖。 | — |
+| 131 | 基础 UI 原语 components/ui（OK 用到的约 25 个） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Callout 属性的下拉选择、高级折叠与开关在保存重开后保留效果`、`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:代码块设置弹层和预览编辑对话框响应键盘，预览修改保存重开`、`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:格式气泡显示下划线和高亮快捷键，真实按键持久化两种标记`。真实 Electron 覆盖下拉选择、可折叠区域、开关、弹层、对话框、输入、Tooltip 和快捷键标签。任务 01 记录了原语 DOM 套件。 | 稳定 CodeMirror 的挂载 ref，保留实时输入。布尔开关读取描述符默认值。 |
 | 132 | 主题模式 use-app-color-mode | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/use-app-color-mode.dom.test.tsx:updates mounted previews when Huhu changes appearance` | 预览组件此前只看根类名与系统模式，现在优先读并订阅 Huhu 根元素 data-mode。 |
 | 139 | 块类型选择 BlockTypeSelector（正文 / 标题 1–3 / 无序 / 有序 / 任务 / 引用 / 代码块） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:气泡块类型菜单显示完整类别，选取二级标题后保存重开` | — |
 | 141 | 链接编辑 LinkEditPopover（粘贴链接、应用、新标签打开、移除） | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/bubble-menu/LinkEditPopover.dom.test.tsx:prefills the current URL when editing an active collapsed link` | — |
-| 142 | 图片对齐 ImageAlignButtons（左 / 中 / 右） | 待验收 | ImageAlignButtons 选择判定已通过，缺左中右实际设置值与落盘。 | — |
-| 143 | 文件块按钮 FileBubbleButtons（下载文件） | 待验收 | 缺 FileBubbleButtons 实际下载内容及文件名证据。 | — |
+| 142 | 图片对齐 ImageAlignButtons（左 / 中 / 右） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:本地图片气泡的左、中、右按钮更新选择并逐次保存重开`。每次点选均确认气泡按钮的按压状态、磁盘上的对齐值和重开后的图片及对齐。 | — |
+| 143 | 文件块按钮 FileBubbleButtons（下载文件） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:文件块气泡下载按笔记相对路径读取真实文件并保留下载名`。从位置在子目录的笔记下载 11 MiB 本地附件，比较文件名和完整字节。 | 原链接未用当前笔记的相对目录，也没有可读的附件下载响应。改用 Vault 分段读取，复用附件 25 MiB 上限。 |
 | 144 | 脚注转换按钮 FootnoteBubbleButton | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:气泡工具栏把选区转换为脚注，引用和定义保存重开后配对` | — |
 | 145 | “在源码中查看”按钮 ViewInSourceBubbleButton | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/bubble-menu/ViewInSourceBubbleButton.dom.test.tsx:clicking jumps to the selection block and asks the pane to flip` | — |
 | 146 | 选区评论按钮 CommentBubbleButton | 已验证 | `tests/e2e/knowledge/comments-s4.spec.ts:D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注` | — |
-| 147 | 编辑器工具栏 EditorToolbar（属性按钮、模式切换、面包屑、Lint 诊断入口） | 待验收 | 既有 Electron 工具栏用例覆盖尺寸和可达性。属性/模式有独立用例，面包屑行为尚缺。服务端 Lint 属 OP-D19 Q2 范围外，不能免除整行。 | — |
+| 147 | 编辑器工具栏 EditorToolbar（属性按钮、模式切换、面包屑、Lint 诊断入口） | 由 Huhu 等价物取代且已验证 | 由 NoteDocument 工具栏和正文前的属性面板取代，依据 design §10、ui-design §1。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证属性可达及源码和实时预览切换。真实 Electron 键盘探针补验属性区折叠和展开，磁盘字节不变。OP-D19 Q2 已排除服务端 Lint。 | — |
 | 148 | 模式切换 EditorModeToggle（“Markdown 源码 / Visual 编辑器”） | 已验证 | `tests/e2e/knowledge/editor-s2b.spec.ts:S2b：打开—无编辑不写盘—输入—保存—重开一致；立即切换不丢最后字符；视图切换保留正文` | — |
-| 149 | 面包屑 EditorBreadcrumb | 待验收 | 缺当前标签对应真实路径段与可用交互证据。上游 EditorBreadcrumb 不在闭包，需对照 Huhu 宿主实现。 | — |
+| 149 | 面包屑 EditorBreadcrumb | 由 Huhu 等价物取代且已验证 | 由 NoteDocument 目录和文件名展示取代，依据 design §7、ui-design §1。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证完整路径段和标签切换。目录展示为静态文本，导航由资源树提供。 | — |
 | 150 | 表格行列句柄 TableCellHandles | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:表格光标显示行列句柄，拖拽移动数据行并保存重开` | — |
 | 151 | 表格拖拽重排 useTableDragReorder | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:表格光标显示行列句柄，拖拽移动数据行并保存重开`；`packages/editor/src/vendor/open-knowledge/app/src/editor/table-controls/useTableDragReorder.test.ts:move to end: from=0 to=3 → col 0 ends up last` | — |
 | 179 | 列表输入规则（`- `、`1. `、`[ ] `） | 已验证 | `tests/e2e/knowledge/editor-s3-rules.spec.ts:矩阵·输入规则：逐条输入 Markdown 简写，生成对应块 / 标记` | — |
@@ -80,11 +80,11 @@
 | 221 | 维基链接 / 标签 Backspace | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:Backspace 整体删除行尾标签和维基链接，保存重开后邻接文本仍在` | — |
 | 222 | 代码预览编辑 Mod-Enter | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/CodePreviewEditModal.dom.test.tsx:Cmd/Ctrl+Enter commits the draft via onSave and closes the modal` | — |
 | 224 | 查找快捷键（`matchesKeyboardShortcut`） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:查找替换快捷键打开查找栏、定位下一个匹配并一次替换保存` | — |
-| 225 | 格式按钮快捷键 ID（format-bold / italic / underline / strike / inline-code / highlight） | 待验收 | 现有快捷键专项通过粗体、斜体、删除线及行内代码，缺下划线与高亮的按钮快捷键映射。 | — |
-| 233 | 编辑器内资源右键 asset-context-menu（asset / wiki-link / image 目标；`contextmenu` → `okDesktop.shell.showAssetMenu`） | 待验收 | asset-context-menu.test.ts 验证目标识别。host/desktop-bridge.ts 没有提供 shell.showAssetMenu。原生菜单宿主实现涉及本任务写范围外的桌面入口。 | — |
-| 235 | 标签页右键 EditorTabTargetMenuItems | 待验收 | Huhu TabStrip 的标签按钮只有点按聚焦与关闭处理，未找到右键入口。云 Share 项属范围外，本地标签操作仍需验证。 | — |
+| 225 | 格式按钮快捷键 ID（format-bold / italic / underline / strike / inline-code / highlight） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:格式气泡显示下划线和高亮快捷键，真实按键持久化两种标记`。实际按键写入下划线和高亮，重开验证标记。余下四项沿用 `tests/e2e/knowledge/editor-s3-rules.spec.ts:矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / 裸 URL 粘贴` 与已有套件中的气泡加粗。 | — |
+| 233 | 编辑器内资源右键 asset-context-menu（asset / wiki-link / image 目标；`contextmenu` → `okDesktop.shell.showAssetMenu`） | 由 Huhu 等价物取代且已验证 | 由 Huhu ResourceTree 的 DOM 资源菜单取代，依据 design §8。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证右键复制相对路径到系统剪贴板并打开资源页。 | 编辑区内的原生资源右键入口仍缺，用户可以从资源树执行操作。 |
+| 235 | 标签页右键 EditorTabTargetMenuItems | 由 Huhu 等价物取代且已验证 | 由 DocTab 标签操作和资源树文件命令取代，依据 design §7 与 §8。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证标签切换、关闭和文件右键命令。 | 标签条没有独立右键入口。Share 属 OP-D19 Q2。 |
 | 236 | 重命名对话框 FileTargetRenameDialog | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:文件树重命名拒绝带路径分隔符的名称，并保留 Markdown 扩展名` | — |
-| 238 | 侧栏拖放打开 sidebar-drop（拖文件到编辑区） | 待验收 | 上游 sidebar-drop.test.ts 试跑无法导入 sidebar-drop。尚无 Huhu 编辑区能接收内部拖入并打开 DocTab 的证据。 | — |
+| 238 | 侧栏拖放打开 sidebar-drop（拖文件到编辑区） | 由 Huhu 等价物取代且已验证 | 由 ResourceTree 拖拽负载和 Huhu DocTab 导航取代，依据 design §7 与 §8。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:从文件树拖到正文打开 DocTab，外部图片拖入仍保存为附件` 验证真实文件树拖入打开另一标签、源笔记字节不改、系统文件仍按附件保存并重开。 | 编辑区接入上游拖放负载及目标解析，复用 Huhu 的 openTarget。 |
 | 244 | MarkdownManager 公开方法 parse / parseToMdast / parseToEditorMdast / parseWithFallback / serialize | 已验证 | `packages/editor/test/markdown-parity.test.ts:parseToMdast 返回正文块，parseToEditorMdast 补出可编辑空行`；`tests/e2e/knowledge/editor-parity-closeout.spec.ts:下划线、高亮、转义、HTML 块、行内 JSX 与未知 MDX 在富文本编辑重开后保真` | — |
 | 248 | 序列化管线 createSerializeProcessor / serializeMd | 已验证 | `packages/editor/test/markdown-parity.test.ts:文档边界保留 BOM、前置空行和尾随空行`；`tests/e2e/knowledge/fidelity-local-edit.spec.ts:H07：首次与后续富文本单字替换只改变目标字节，关闭后重开仍一致` | H07 保真机制已存在，首次与后续单字替换均用完整磁盘字节比较。 |
 | 251 | MDX / 自定义 toMarkdown 键：mdxJsxFlowElement、mdxJsxTextElement、mark、underline、comment、commentBlock、rawMdxFallback | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:下划线、高亮、转义、HTML 块、行内 JSX 与未知 MDX 在富文本编辑重开后保真`；`packages/editor/test/markdown-parity.test.ts:行内百分号评论和独立 HTML 评论各自使用专用节点再还原`；`packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/source-dirty-flip.dom.test.tsx:an in-place interior edit flips sourceDirty and the serializer re-derives fresh bytes` | — |
@@ -108,7 +108,7 @@
 | 117 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/Mermaid.dom.test.tsx:the toolbar still pans and zooms the diagram after the tab is shown again` |
 | 128 | `tests/e2e/knowledge/editor-s3-large.spec.ts:S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本；源码里的改动在富文本里可见` |
 | 129 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:TXT 与 JSON 纯文本编辑各自保存后关闭重开，保留原格式` |
-| 115 | Electron 能创建 Embed iframe。真实导航因 `apps/desktop/src/renderer/index.html` 中 `frame-src huhu-preview:` 被阻止，桌面 CSP 在本任务写范围外。 |
+| 115 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Embed 占位符可打开属性，外链不发请求，编辑后关闭重开仍显示阻止状态`。Q3 与 OP-D19 的默认不联网已落实为可见提示和源 URL。无 iframe 或外部请求。插入、更新 URL、保存关闭重开与源 Markdown 保真均通过。 |
 
 ## 上游 app 测试迁入
 
@@ -121,7 +121,7 @@
 
 - `shared.dom.test.tsx:no menu accelerator is claimed by the editor keymap` 测试 OK 桌面应用壳命令注册表。Huhu 自己注册桌面命令。
 - `trailing-affordance.dom.test.ts:the composer's reserved band is not part of the zone` 测试 OK Ask AI 输入栏占用空间。Huhu 笔记编辑器无此输入栏。
-- 未迁入 `EmojiInsertPopover.dom.test.tsx` 与 `sidebar-drop.test.ts`，原因是对应产品模块不在 Huhu 闭包。侧栏拖放对应矩阵第 238 行，仍待验收。
+- 未迁入 `EmojiInsertPopover.dom.test.tsx` 与 `sidebar-drop.test.ts`，原因是对应产品模块不在 Huhu 闭包。第 238 行改由 Huhu DocTab 的真实拖放用例验收。
 
 | 迁入 DOM 文件（vendor 相对路径） | 分类 | 通过用例 |
 | --- | --- | ---: |
