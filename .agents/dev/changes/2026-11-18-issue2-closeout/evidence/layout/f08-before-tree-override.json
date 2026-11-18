@@ -1,0 +1,650 @@
+{
+  "claude-light": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.488967 -0.000244543 0.00973144 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.488967 -0.000244543 0.00973144 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.488967 -0.000244543 0.00973144 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.488967 -0.000244543 0.00973144 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.488967 -0.000244543 0.00973144 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.488967 -0.000244543 0.00973144 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.488967 -0.000244543 0.00973144 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.0784314 0.0784314 0.0745098 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.488967 -0.000244543 0.00973144 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(33, 32, 31)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(33, 32, 31)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(33, 32, 31)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(33, 32, 31)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "claude-dark": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.696449 0.000497133 0.0106466 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.696449 0.000497132 0.0106466 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.696449 0.000497132 0.0106466 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.696449 0.000497132 0.0106466 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.696449 0.000497133 0.0106466 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.696449 0.000497132 0.0106466 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.696449 0.000497132 0.0106466 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.980392 0.976471 0.960784 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.696449 0.000497132 0.0106466 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(193, 191, 187)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(193, 191, 187)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(193, 191, 187)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(193, 191, 187)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "apple-light": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.497855 0.00220227 -0.00753635 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.497855 0.00220227 -0.00753635 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.497855 0.00220227 -0.00753635 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.497855 0.00220227 -0.00753635 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.497855 0.00220227 -0.00753635 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.497855 0.00220227 -0.00753635 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.497855 0.00220227 -0.00753635 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.113725 0.113725 0.121569 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.497855 0.00220227 -0.00753635 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(52, 52, 53)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(52, 52, 53)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(52, 52, 53)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(52, 52, 53)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "apple-dark": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.845217 0.0000385046 0.0000169277 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.845217 0.0000385046 0.0000169277 / 0.6) ← --muted / 60%",
+        "color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.845217 0.0000385046 0.0000169277 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.845217 0.0000385046 0.0000169277 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.845217 0.0000385046 0.0000169277 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.845217 0.0000385046 0.0000169277 / 0.6) ← --muted / 60%",
+        "color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.845217 0.0000385046 0.0000169277 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.845217 0.0000385046 0.0000169277 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(226, 226, 226)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(226, 226, 226)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(226, 226, 226)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(226, 226, 226)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "notion-light": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.470802 -0.000710145 0.0113114 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.470802 -0.000710145 0.0113114 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.470802 -0.000710145 0.0113114 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.470802 -0.000710145 0.0113114 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.470802 -0.000710145 0.0113114 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.470802 -0.000710145 0.0113114 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.470802 -0.000710145 0.0113114 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.101961 0.101961 0.101961 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.470802 -0.000710145 0.0113114 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(70, 69, 67)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(70, 69, 67)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(70, 69, 67)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(70, 69, 67)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "notion-dark": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.737884 -0.000324339 0.0131829 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.737884 -0.000324339 0.0131829 / 0.6) ← --muted / 60%",
+        "color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.737884 -0.000324339 0.0131829 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.737884 -0.000324339 0.0131829 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.737884 -0.000324339 0.0131829 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.737884 -0.000324339 0.0131829 / 0.6) ← --muted / 60%",
+        "color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.737884 -0.000324339 0.0131829 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 1 1 1 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.737884 -0.000324339 0.0131829 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(204, 204, 202)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(204, 204, 202)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(204, 204, 202)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(204, 204, 202)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "vercel-light": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.420235 0.0000191331 0.00000843406 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.420235 0.0000191331 0.00000843406 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.420235 0.0000191331 0.00000843406 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.420235 0.0000191331 0.00000843406 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.420235 0.0000191331 0.00000843406 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.420235 0.0000191331 0.00000843406 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.420235 0.0000191331 0.00000843406 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.0901961 0.0901961 0.0901961 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.420235 0.0000191331 0.00000843406 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(97, 97, 97)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(97, 97, 97)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(97, 97, 97)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(97, 97, 97)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  },
+  "vercel-dark": {
+    "properties": {
+      "elements": 127,
+      "explained": [
+        "caret-color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)"
+      ],
+      "colors": []
+    },
+    "comments": {
+      "elements": 129,
+      "explained": [
+        "background-color oklab(0.708995 0.0000324249 0.0000141263 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.708995 0.0000324249 0.0000141263 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.708995 0.0000324249 0.0000141263 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.708995 0.0000324249 0.0000141263 / 0.6) ← --muted / 60%"
+      ],
+      "colors": []
+    },
+    "treeMenu": {
+      "elements": 172,
+      "explained": [
+        "background-color oklab(0.708995 0.0000324249 0.0000141263 / 0.05) ← --muted / 5%",
+        "caret-color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "caret-color oklab(0.708995 0.0000324249 0.0000141263 / 0.6) ← --muted / 60%",
+        "color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "color oklab(0.708995 0.0000324249 0.0000141263 / 0.6) ← --muted / 60%",
+        "text-decoration-color color(srgb 0.929412 0.929412 0.929412 / 0.8) ← --text / 80% (tree icon)",
+        "text-decoration-color oklab(0.708995 0.0000324249 0.0000141263 / 0.6) ← --muted / 60%"
+      ],
+      "colors": [
+        [
+          "caret-color rgb(183, 183, 183)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "color rgb(183, 183, 183)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "fill rgb(183, 183, 183)",
+          {
+            "count": 2,
+            "examples": [
+              "svg",
+              "use"
+            ]
+          }
+        ],
+        [
+          "text-decoration-color rgb(183, 183, 183)",
+          {
+            "count": 3,
+            "examples": [
+              "button Options",
+              "svg",
+              "use"
+            ]
+          }
+        ]
+      ]
+    }
+  }
+}

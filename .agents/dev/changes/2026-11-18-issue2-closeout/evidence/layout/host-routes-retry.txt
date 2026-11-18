@@ -1,0 +1,15 @@
+$ playwright test --output=/tmp/huhu-layout-host-final tests/e2e/knowledge/host-routes.spec.ts --repeat-each=3
+
+Running 3 tests using 1 worker
+
+(node:376790) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/e2e/knowledge/host-routes.spec.ts:10:1 › 宿主路由：打开笔记、切源码、打开批注页，没有 /api 404 与“加载页面失败” (6.7s)
+(node:378000) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 tests/e2e/knowledge/host-routes.spec.ts:10:1 › 宿主路由：打开笔记、切源码、打开批注页，没有 /api 404 与“加载页面失败” (5.6s)
+(node:378468) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  3 tests/e2e/knowledge/host-routes.spec.ts:10:1 › 宿主路由：打开笔记、切源码、打开批注页，没有 /api 404 与“加载页面失败” (5.3s)
+
+  3 passed (18.7s)
