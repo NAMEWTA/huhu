@@ -19,3 +19,5 @@
 ## (3) /api/pages、/api/audit 404 —— 修复（P-S3-07）
 
 - 回归用例 `tests/e2e/knowledge/host-routes.spec.ts`：旧行为下失败（`[PageListContext] Failed to load pages: … 404`、`[audit] request failed 404`），修复后通过。
+
+- 第 2 轮 profile 证据（卡死时主线程被 Playwright 注入的 ARIA 快照代码占满；与 trace 录制无关；未改产品代码）：见 [large-switch-profile-2026-11-18.md](large-switch-profile-2026-11-18.md)。
