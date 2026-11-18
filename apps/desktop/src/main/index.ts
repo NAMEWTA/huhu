@@ -134,7 +134,7 @@ if (!gotLock) {
       if (!file.startsWith(root)) return new Response("forbidden", { status: 403 });
       // 渲染器资源里没有的子资源请求（笔记里的 <img src="docs/attachments/a.png">）→ 当作 Vault 相对路径读取（路径守卫同 HTML 预览）
       if (!existsSync(file)) {
-        const media = await handleVaultMediaRequest({ url: request.url, method: request.method, destination: request.headers.get("sec-fetch-dest") || request.destination || null }, current?.path ?? null);
+        const media = await handleVaultMediaRequest({ url: request.url, method: request.method, accept: request.headers.get("accept"), range: request.headers.get("range") }, current?.path ?? null);
         if (media) return media;
       }
       return net.fetch(pathToFileURL(file).toString());

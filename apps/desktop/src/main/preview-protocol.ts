@@ -198,16 +198,17 @@ export async function handlePreviewRequest(request: { url: string; method: strin
 }
 
 /** 笔记里的图片 / 音视频 / PDF 引用（`<img src="docs/attachments/a.png">`）：只允许由这些“子资源”请求触发读取 Vault，直接导航一律不读。 */
-const MEDIA_DESTS: ReadonlySet<string> = new Set(["image", "audio", "video", "track", "embed", "object"]);
-export const isMediaDest = (dest: string | null | undefined): boolean => MEDIA_DESTS.has((dest ?? "").toLowerCase());
+// Electron 的 protocol.handle 里没有 Sec-Fetch-Dest / Request.destination，只能看 Chromium 发出的头：
+// <img> 的 Accept 以 image/ 开头；<video> / <audio> 带 Range；导航（text/html）、脚本与 fetch / XHR（Accept: */*，无 Range）都不匹配。
+export const isMediaRequest = (accept: string | null | undefined, range: string | null | undefined): boolean => /(^|,)\s*image\//i.test(accept ?? "") || (range ?? "").trim() !== "";
 
 /**
  * 工作台协议在渲染器资源里找不到文件时的兜底：把 URL 路径当作 Vault 相对路径读取（编辑器里的图片 / 附件）。
  * 返回 null = 不处理（交回原有行为）。路径守卫复用预览的 `resolvePreviewPath`（越界 / 符号链接逃逸 / 受保护目录 / 超大文件都拒绝）。
  */
-export async function handleVaultMediaRequest(request: { url: string; method: string; destination: string | null }, vaultRoot: string | null): Promise<Response | null> {
+export async function handleVaultMediaRequest(request: { url: string; method: string; accept: string | null; range: string | null }, vaultRoot: string | null): Promise<Response | null> {
   if (!vaultRoot || (request.method !== "GET" && request.method !== "HEAD")) return null;
-  if (!isMediaDest(request.destination)) return null;
+  if (!isMediaRequest(request.accept, request.range)) return null;
   const base = { "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'", "Cache-Control": "no-store" };
   let pathname: string;
   try {

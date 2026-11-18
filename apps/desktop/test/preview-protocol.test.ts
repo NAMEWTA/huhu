@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { PreviewGrants, handlePreviewRequest, handleVaultMediaRequest, isMediaDest, nonceOf, previewCsp, resolvePreviewPath } from "../src/main/preview-protocol";
+import { PreviewGrants, handlePreviewRequest, handleVaultMediaRequest, isMediaRequest, nonceOf, previewCsp, resolvePreviewPath } from "../src/main/preview-protocol";
 
 /**
  * F05 路径与协议层安全用例（主进程纯逻辑）：恶意页面能构造的任何 URL 都不能读到 Vault 之外、受保护目录或符号链接目标。
@@ -140,14 +140,21 @@ describe("PreviewGrants 与 handlePreviewRequest", () => {
 });
 
 describe("笔记里的图片 / 附件引用（handleVaultMediaRequest）", () => {
-  const req = (pathname: string, destination: string | null, method = "GET") => ({ url: `huhu-app://workbench${pathname}`, method, destination });
+  const IMG = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
+  const req = (pathname: string, kind: "image" | "video" | "script" | "document" | "fetch", method = "GET") => ({
+    url: `huhu-app://workbench${pathname}`,
+    method,
+    accept: kind === "image" ? IMG : kind === "document" ? "text/html,application/xhtml+xml,*/*;q=0.8" : "*/*",
+    range: kind === "video" ? "bytes=0-" : null,
+  });
   test("只有图片 / 音视频 / PDF 等子资源请求才读取 Vault；直接导航与脚本请求不读", async () => {
-    expect(isMediaDest("image")).toBe(true);
-    expect(isMediaDest("document")).toBe(false);
-    expect(isMediaDest("script")).toBe(false);
+    expect(isMediaRequest(IMG, null)).toBe(true);
+    expect(isMediaRequest("*/*", "bytes=0-")).toBe(true);
+    expect(isMediaRequest("text/html,*/*", null)).toBe(false);
+    expect(isMediaRequest("*/*", null)).toBe(false);
     expect(await handleVaultMediaRequest(req("/top.js", "script"), vault)).toBeNull();
     expect(await handleVaultMediaRequest(req("/top.js", "document"), vault)).toBeNull();
-    expect(await handleVaultMediaRequest(req("/top.js", null), vault)).toBeNull();
+    expect(await handleVaultMediaRequest(req("/top.js", "fetch"), vault)).toBeNull();
     expect(await handleVaultMediaRequest(req("/top.js", "image", "POST"), vault)).toBeNull();
     expect(await handleVaultMediaRequest(req("/top.js", "image"), null)).toBeNull();
   });
