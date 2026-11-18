@@ -38,9 +38,10 @@
 | 跟进 PR | `dev-deploy` 的 PR 跟进 | 状态检查或可合并结果 |
 | 验证后落地 | `dev-deploy` 的验证后落地 | 已授权连续通过部分的合并结果 |
 | 自主执行 | [自主执行](autonomous-execution.md) | 达到判据或真实阻塞 |
-| 跨日项目协调 | [项目编排](program-coordination.md) | 多任务集成与进度证据 |
-| 独立 PR 自动队列 | [自动队列](autonomous-queue.md) | 按授权验证并合并 |
-| 堆叠 PR 队列 | [自动堆叠](autopilot-stack.md) | 待用户落地的已验证堆叠 |
+| 编排多个已有 Change | `dev-program` | 批次计划、当前可做项与整体完成条件 |
+| 已选择集中协调多个执行者 | `dev-parallel` 的多执行者项目协调 | 多任务集成与进度证据 |
+| 独立 PR 自动队列 | `dev-deploy` 的独立 PR 队列 | 按授权验证并合并 |
+| 堆叠 PR 队列 | `dev-deploy` 的堆叠 PR 队列 | 待用户落地的已验证堆叠 |
 | 接手任务 | `dev-handoff` 的会话接续 | 已复核恢复点，返回当前执行阶段 |
 | 安全暂停 | `dev-handoff` 的安全暂停 | 明确暂停后的可恢复现场 |
 | 多阶段计划 | `dev-plan` 的多阶段计划 | 依赖、责任人与验收 |

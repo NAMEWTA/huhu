@@ -4,6 +4,8 @@
 
 ## 执行方法
 
+- [独立 PR 队列](autonomous-queue.md)
+- [待审的堆叠 PR 队列](autopilot-stack.md)
 - [跟进 PR](babysit.md)
 - [按实际环境发布](environments.md)
 - [本地 PR 观察与工作树审计](local-tools.md)

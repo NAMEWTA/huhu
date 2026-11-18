@@ -1,6 +1,6 @@
 ---
 name: system-herdr
-description: "控制 Herdr 的窗格、标签页、工作区、命令及 agent，并支持按 pane 使用 task/report 文件派发任务与收取结果。仅当用户明确提到 Herdr 或要求使用 Herdr 时启用，不因任务可并行而自动触发。执行控制命令要求 HERDR_ENV=1。"
+description: "控制 Herdr TUI（herdr）的窗格、标签页、工作区、命令及 agent，并支持按 pane 使用 task/report 文件派发任务与收取结果。用户明确选用 Herdr 或 Herdr TUI 时启用。明确选用 herdr-core 或 hc 时由 system-herdr-core 负责。执行控制命令要求 HERDR_ENV=1。"
 ---
 
 # Herdr

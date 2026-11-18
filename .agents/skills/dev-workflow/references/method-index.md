@@ -5,8 +5,6 @@
 ## 执行方法
 
 - [自主执行](autonomous-execution.md)
-- [完全自动执行](autonomous-queue.md)
-- [自动堆叠](autopilot-stack.md)
 - [为复杂请求设计可审计的执行流程](custom-workflow.md)
 - [保留可审查的决策证据](decision-trail.md)
 - [委派执行者任务书](delegate-role.md)
@@ -14,7 +12,6 @@
 - [推进与恢复](execution.md)
 - [已选任务的工程执行方法](operating-method.md)
 - [阶段边界](phase-boundaries.md)
-- [项目编排](program-coordination.md)
 - [需求到实施的阶段衔接](workflow-routing.md)
 
 ## 产物模板
