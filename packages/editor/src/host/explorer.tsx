@@ -76,15 +76,18 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
         return r;
       },
     };
-    const unregister = registerHostRoutes(filesRoutes(tracked));
+    // Keep listing routes installed when menu callbacks change independently.
+    // A tree refresh can request /api/documents while passive effects are being replaced.
+    return registerHostRoutes(filesRoutes(tracked));
+  }, [deps]);
+  useEffect(() => {
     setHostHiddenPaths({ hide: (p, k) => onHide(p, k) });
     setHostMenuExtras(menuItems ? { items: menuItems } : null);
     return () => {
-      unregister();
       setHostHiddenPaths(null);
       setHostMenuExtras(null);
     };
-  }, [deps, onHide, menuItems]);
+  }, [onHide, menuItems]);
   useEffect(() => {
     if (refreshToken > 0) notifyExplorerChanged();
   }, [refreshToken]);

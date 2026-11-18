@@ -79,7 +79,17 @@ async function timeBuild(build, sample) {
 
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     const file = build.legacy ? page.getByRole("button", { name: /冷启动探针/ }).first() : page.locator('[data-testid="notes-resource-tree"] [data-item-path="冷启动探针.md"]');
-    await file.waitFor();
+    try {
+      await file.waitFor();
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        notes: !!document.querySelector('[data-testid="notes-module"]'),
+        tree: document.querySelector('[data-testid="notes-resource-body"]')?.textContent,
+        error: document.querySelector('[role="alert"]')?.textContent,
+        activeModule: document.querySelector('[aria-current="page"]')?.getAttribute("aria-label"),
+      }));
+      throw new Error(`首篇笔记文件行未就绪：${JSON.stringify(state)}`, { cause: error });
+    }
     await page.evaluate(() => {
       document.addEventListener("keydown", () => performance.mark("first-note-click"), { capture: true, once: true });
     });
