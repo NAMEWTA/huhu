@@ -82,6 +82,8 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
       await page.waitForTimeout(600); // 避开双击 / 三击判定
       const b4r = (await loc(4).boundingBox())!;
       await page.mouse.click(b4r.x + 6, b4r.y + b4r.height - 6); // 先把选区挪到别处：在已有选区内按下会启动文字拖放而不是新选区
+      // ProseMirror 的 focus 处理会在获得焦点后 20 ms 把自己的选区写回 DOM；真人点击与下一步操作之间至少隔一百多毫秒，合成输入没有间隔，主线程繁忙时该定时器会落进拖选 / 按键中间。
+      await page.waitForTimeout(150);
       const x1 = b3.x + b3.width * (0.1 + 0.05 * i);
       const x2 = b3.x + b3.width * (0.55 + 0.06 * i);
       const y = b3.y + 10;
@@ -97,6 +99,7 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
 
     // 逐行 ArrowDown ×12 / ArrowUp ×12：偏移单调、单步纵向位移不超过 3 行
     await page.mouse.click(b3.x + b3.width * 0.4, b3.y + 10);
+    await page.waitForTimeout(150);
     let prev = await page.evaluate(() => (window as unknown as { __p: { focus(): { offset: number; y: number } } }).__p.focus());
     for (let i = 0; i < 12; i++) {
       await page.keyboard.press("ArrowDown");
@@ -115,6 +118,7 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
 
     // Shift+ArrowDown 扩选：只增不减，锚点不动
     await page.mouse.click(b3.x + b3.width * 0.3, b3.y + 10);
+    await page.waitForTimeout(150);
     const a0 = await page.evaluate(() => (window as unknown as { __p: { anchor(): number } }).__p.anchor());
     let len = 0;
     for (let i = 0; i < 6; i++) {

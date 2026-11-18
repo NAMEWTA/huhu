@@ -55,6 +55,7 @@
 - P-S3-01（宿主，非 vendor 文件）大文档源码优先打开：`host/hocuspocus-provider.ts`（`lazyRich` / `ensureRich()` / `settleNow()`）、`host/provider-pool.ts`、`rich/RichMarkdownEditor.tsx`。源码模式只装载 `Y.Text('source')`；解析 + `Y.XmlFragment` + 桥观察者延后到切换富文本时。1 MiB 文档打开：5.4 s → 约 0.45 s。
 - P-S3-02 `server-bridge/server-observers.ts`：桥结算自适应推迟——上一次结算超过 12 ms 时把后续结算合并到停顿之后（150–1500 ms，最长连续推迟 3 s）；小文档仍同步，与上游一致。返回的 dispose 函数新增 `settleNow()`；所有读取 `Y.Text` 的出口（flush / 切源码 / 卸载）先结算。原因：上游这套桥跑在服务端进程，本地模式在渲染进程主线程，5000 段文档每次按键同步整篇序列化约 1 s。
 - P-S3-03 `app/src/editor/extensions/chunk-wrapper-decoration.ts`、`app/src/globals.css`：不再给每个顶层块建 `Decoration.node`（5000 段 = 5000 个装饰，约 90 ms/键）；`content-visibility:auto` 改由 CSS 子选择器 `.ProseMirror > :where(:not(...))` 匹配，装饰只留给 `jsxComponent`（跳过）与选区所在块（`data-ok-selection-block`）。5000 段输入延迟 p95 ≈ 80 ms → ≈ 13 ms。
+- P-S3-06 `app/src/editor/extensions/chunk-wrapper-decoration.ts`、`app/src/globals.css`：`content-visibility:auto` 只在顶层块数 ≥ 300（`OK_CV_MIN_BLOCKS`）时启用（`.ProseMirror[data-ok-cv]`，由插件 `view()` 同步属性）。原因：CV 的 80 px 估高与真实高度不同，渲染更新里发生布局偏移，主线程繁忙时鼠标拖选 / 上下行光标落到别的段落（8 块短文档，CPU 满载下拖选异常 2/8，关闭 CV 后 0/8）。短文档本来不需要 CV；大文档性能路径（P-S3-03）不变。
 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `"007"` 保持引号。spec C02。
 - P-S3-05（宿主）`host/explorer.tsx`：OK 对超过 512 KiB 的文档给出 `large-file` 导航目标（不进编辑器）；Huhu 把它当普通文件打开，由 `plugins/notes/src/ui/viewers/dispatch.ts` 决定上限（Markdown 笔记 16 MiB，其它文本 1 MiB）。
 

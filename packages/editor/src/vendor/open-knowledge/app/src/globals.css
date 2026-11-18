@@ -6457,13 +6457,13 @@ html [data-editor-file-list-slot] [data-slot="sidebar-inner"] {
    `tests/stress/new-block-caret.e2e.ts`. */
 /* HUHU P-S3-03：用子选择器代替逐块 Decoration（见 chunk-wrapper-decoration.ts）；:where 让该规则特异性只有 `.ProseMirror`，
    下面的 selection / codeBlock 例外规则无需提高特异性即可覆盖。 */
-.ProseMirror > :where(:not(.ok-chunk-skip, .ProseMirror-widget, .ProseMirror-gapcursor, .ProseMirror-trailingBreak)) {
+.ProseMirror[data-ok-cv] > :where(:not(.ok-chunk-skip, .ProseMirror-widget, .ProseMirror-gapcursor, .ProseMirror-trailingBreak)) {
   content-visibility: auto;
   contain-intrinsic-size: 0 var(--ok-cv-h, 80px);
   transition: content-visibility 0s 32ms allow-discrete;
 }
 
-.ProseMirror > [data-ok-selection-block] {
+.ProseMirror[data-ok-cv] > [data-ok-selection-block] {
   content-visibility: visible;
   transition: none;
 }
