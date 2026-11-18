@@ -88,6 +88,7 @@ export function NoteDocument(props: NoteDocumentProps) {
     [],
   );
   const editor = useRef<RichEditorPort | null>(null);
+  const detachDrainer = useRef<(() => void) | undefined>(undefined);
   const all = useCapability<NoteRef[]>("notes.list", { filter: "all" });
 
   // 超大文档默认源码模式（每次载入）；非编辑器来源的文本变化（载入 / 合并 / 恢复草稿）立即交给父组件
@@ -102,27 +103,22 @@ export function NoteDocument(props: NoteDocumentProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pushText 只用 ref 与稳定的 onText
   }, [session, snap.loaded, snap.text]);
 
-  // 先排空编辑器里还在防抖的编辑（输入后立刻关闭 / 切换也不丢最后一个字符），再让会话落盘
-  const flush = useCallback(async (): Promise<boolean> => {
-    await editor.current?.flush();
-    return session ? session.flush() : true;
-  }, [session]);
+  const flush = useCallback((): Promise<boolean> => session?.flush() ?? Promise.resolve(true), [session]);
   useEffect(() => {
     registerFlush(flush);
     return () => registerFlush(null);
   }, [flush, registerFlush]);
   const onPort = useCallback(
     (port: RichEditorPort | null) => {
+      detachDrainer.current?.();
+      detachDrainer.current = port && !port.readOnly ? session?.attachDrainer(() => port.flush()) : undefined;
       editor.current = port;
       registerEditor(port);
     },
-    [registerEditor],
+    [registerEditor, session],
   );
   useEffect(() => () => registerEditor(null), [registerEditor]);
-  const save = useCallback(async (): Promise<boolean> => {
-    await editor.current?.flush();
-    return session ? session.save() : false;
-  }, [session]);
+  const save = flush;
   const load = useCallback(async () => {
     await session?.load();
   }, [session]);

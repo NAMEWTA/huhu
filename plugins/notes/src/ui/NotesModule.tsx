@@ -2,7 +2,7 @@ import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { onOpenRequest, queryKey, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { FileViewer, UnindexedFileViewer } from "./viewers/FileViewer.js";
@@ -58,6 +58,12 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const editorRef = useRef<RichEditorPort | null>(null);
+  const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
+    flushRef.current = flush;
+  }, []);
+  const registerEditor = useCallback((port: RichEditorPort | null) => {
+    editorRef.current = port;
+  }, []);
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -382,8 +388,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
                 if (current) setMenu({ note: current, x: r.right, y: r.bottom });
               }}
               onText={setDocText}
-              registerFlush={(fn) => (flushRef.current = fn)}
-              registerEditor={(h) => (editorRef.current = h)}
+              registerFlush={registerFlush}
+              registerEditor={registerEditor}
               onAddComment={addComment}
             />
           </>

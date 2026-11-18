@@ -1,10 +1,10 @@
 import type { Settings } from "@huhu/contracts";
 import { Button, Dialog, Field } from "@huhu/ui";
 import { Download } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useCapability, useEngine, useOptionalEngine } from "../engine-client/react.js";
 import { host } from "../settings/host.js";
-import { listDirtyDocs, settleDirtyDocs } from "../state/flushers.js";
+import { collectDirtyDocs, settleDirtyDocs } from "../state/flushers.js";
 
 /**
  * 切换 Vault（原型标题栏的“切换 Vault”）：有未保存文档时逐个列出，
@@ -14,9 +14,27 @@ export function VaultSwitchDialog({ open, onClose, target }: { open: boolean; on
   const engine = useOptionalEngine();
   const [backupOk, setBackupOk] = useState(true);
   const [busy, setBusy] = useState(false);
-  // 每次打开重新取一次未保存文档
-  const labels = useMemo(() => (open ? listDirtyDocs().map((d) => d.label) : []), [open]);
+  const [labels, setLabels] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setLabels(null);
+    setError(null);
+    if (open) {
+      // 让同一次提交中的编辑器端口注册先完成，再读取未保存文档。
+      void Promise.resolve()
+        .then(collectDirtyDocs)
+        .then((docs) => {
+          if (active) setLabels(docs.map((doc) => doc.label));
+        })
+        .catch((e: unknown) => {
+          if (active) setError(e instanceof Error ? e.message : String(e));
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [open, target?.path]);
   const go = async (mode: "save" | "draft") => {
     setBusy(true);
     setError(null);
@@ -46,7 +64,7 @@ export function VaultSwitchDialog({ open, onClose, target }: { open: boolean; on
       setBusy(false);
     }
   };
-  const dirty = labels.length > 0;
+  const dirty = labels !== null && labels.length > 0;
   return (
     <Dialog
       open={open}
@@ -62,22 +80,26 @@ export function VaultSwitchDialog({ open, onClose, target }: { open: boolean; on
           </Button>
           {dirty ? (
             <>
-              <Button disabled={busy || !backupOk} data-testid="svault-switch-draft" onClick={() => void go("draft")}>
+              <Button disabled={busy || labels === null || !backupOk} data-testid="svault-switch-draft" onClick={() => void go("draft")}>
                 保留草稿并切换
               </Button>
-              <Button variant="primary" disabled={busy || !backupOk} data-testid="svault-switch-save" onClick={() => void go("save")}>
+              <Button variant="primary" disabled={busy || labels === null || !backupOk} data-testid="svault-switch-save" onClick={() => void go("save")}>
                 全部保存并切换
               </Button>
             </>
           ) : (
-            <Button variant="primary" disabled={busy || !backupOk} data-testid="svault-switch-confirm" onClick={() => void go("save")}>
+            <Button variant="primary" disabled={busy || labels === null || !backupOk} data-testid="svault-switch-confirm" onClick={() => void go("save")}>
               {target ? "切换" : "关闭并切换"}
             </Button>
           )}
         </>
       }
     >
-      {dirty ? (
+      {labels === null ? (
+        <p role="status" className="hu-hint-text">
+          正在检查未保存的修改…
+        </p>
+      ) : dirty ? (
         <ul data-testid="svault-dirty-list">
           {labels.map((l) => (
             <li key={l}>{l}</li>

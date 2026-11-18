@@ -107,7 +107,9 @@ interface CompactBase {
   className?: string;
 }
 export function CompactMarkdownView(props: CompactBase & { value: string }): ReactElement;
-export function CompactMarkdownInput(props: CompactBase & { value: string; onChange(text: string): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] }): ReactElement;
+export function CompactMarkdownInput(
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+): ReactElement;
 
 // S4 评论宿主
 export interface HuhuComment {

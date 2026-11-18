@@ -54,3 +54,23 @@
 - `xvfb-run -a pnpm e2e tests/e2e/workflows/archives-tabs.spec.ts -g 'E04 在途' --repeat-each=3`。第一次显式返回文件区重开，已展开的类型行偶尔缺少子行，2/3，退出 126。第二次改从档案页重开，两处落盘和 Markdown 重新渲染 3/3，退出 0。日志 `candidate-e04-regression.log`、`candidate-e04-reopen.log`。
 - 最后修整测试重开路径后，重新检查 `pnpm lint`、`pnpm format:check`、`pnpm knip` 均退出 0。日志 `final-reopen-*.log`。
 - 以相同候选版定向组合命令重跑最终测试，16 执行、16 通过、0 跳过，退出 0。日志 `candidate-reopen-all.log`。
+
+## task02 的 C06 与 H05 修复
+
+日志、失败 trace 和 Playwright 状态文件位于 `/tmp/huhu-issue2-session-02/`。基线用 `290e8f7` 的应用构建，最终验证用同一份修复后应用构建。基线和修复版的可观察行为见 [c06-h05-fix.md](c06-h05-fix.md)。
+
+| 命令或批次 | 实际结果 | 日志 |
+| --- | --- | --- |
+| 基线执行 `xvfb-run -a pnpm e2e tests/e2e/knowledge/{session-flush,compact-submit}.spec.ts` | 1 通过、6 失败。自动保存退出、Vault dirty 枚举、两个发表入口及撤销到空有明确的行为差异。手动草稿用例在重启后定位旧文件树行失败，修复版改走实际文件搜索入口。 | `red-proper.log` |
+| `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm test:vendor`、`pnpm build`、`pnpm format:check`、`pnpm knip` | 各项退出 0。项目测试 82 文件通过、1 跳过，980 条通过、1 跳过。vendor 167 文件通过，4173 条通过、2 跳过。 | `final-typecheck.log`、`final-lint.log`、`final-test.log`、`vendor.log`、`build-stable.log`、`final-format:check.log`、`final-knip.log` |
+| 修复后定向运行新回归、`editor-s3-large.spec.ts`、B07 与 `ACC-TK-06` | 11 条通过，1 条失败发生在 Vault 用例等待原先假定的启动页。验证目标 Vault 的路径后改从实际最近列表切回，单独 3/3；再由全量和压力批次通过。 | `final-targeted.log`、`vault.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/{session-flush,compact-submit}.spec.ts --repeat-each=10 --workers=2` | 每条回归 10/10，共 80 通过，Playwright 最终状态 `passed`。机器 8 核，此批开始时 1 分钟负载 46.75，同时运行本 worktree 的全量与另两个 worktree 的 Electron 套件。外层包装器结束后 Playwright 子进程仍运行到终点，使用其总结与 `.last-run.json` 核验。 | `stress.log`、`stress-load.log`、`stress-results/.last-run.json` |
+| 驱动最后调整后重跑 `pnpm lint`、`pnpm format:check` | 均退出 0。 | `post-driver-lint.log`、`post-driver-format:check.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows` | 第一轮 105 通过、2 失败、1 默认跳过，Playwright 退出 1，pnpm 外层 126。新回归、S2b 退出落盘、两条大文档、B07 和 `ACC-KN-02`、`ACC-WB-03`、`ACC-TK-06` 均通过。两个失败用例在「已保存」文本匹配后直接读盘，分别缺「追加正文」及「切回后继续写」。 | `full.log`、`full-results/` |
+| 对 `editor-s3-properties.spec.ts` 和 `journey.spec.ts` 的失败用例单独 `--repeat-each=3 --workers=1` | 属性用例 3/3，完整旅程 1/3。旅程一次重复缺少最后正文，另一次在切换文件后等待「不会被编辑」超时。未将失败归为同一根因。 | `full-retries.log`、`full-retries-results/` |
+| 临时读盘观测，各 3 次 | 用原行为驱动加 50 ms 轮询，5 次稳定读到了预期正文，且这 5 次第一次读取就已匹配。另一次旅程较早等待 `.cm-content` 超时。未捕捉到从读旧到读新的窗口，无法据此证明原失败全是断言时序；临时探针已移除。 | `disk-diagnostic.log`、`disk-diagnostic-results/` |
+| `HUHU_PERF_STRICT=1 xvfb-run -a pnpm e2e tests/e2e/perf.spec.ts -g '打开 1 MiB\|编辑输入延迟'` | 第一轮两条都在采样前超时。1 MiB 等待引擎就绪超时，输入用例等待富文本挂载超时。1 分钟负载从 10.19 升到 65.04，未测得指标。 | `perf.log`、`perf-load.log` |
+| 同一严格性能子集，负载回落后 `--repeat-each=3 --workers=1` | 5 通过、1 超阈值。1 MiB 是 409 / 420 / 425 ms，5000 行输入 p95 是 14.9 / 18.6 / 15.0 ms，每组 80 样本。仍有一个 worktree 在跑 Electron。 | `perf-lower.log`、`perf-lower-load.log` |
+| 再次执行指定的严格性能子集 | 2/2，退出 0。1 MiB 为 413 ms，5000 行输入 p95 为 13.8 ms、最大 26.9 ms，80 样本。1 分钟负载开始 3.05、结束 5.24；一个 worktree 的 Electron 套件仍运行。 | `perf-final.log`、`perf-final-load.log` |
+| 第二轮全量 `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows --retries=3` | 107 一次通过、1 默认跳过、0 重试、0 失败，退出 0。属性和完整旅程均在首轮尝试通过。独立成本样本 30 条、30 实例、1,480 ms、堆增量 37 MB。 | `full-rerun.log`、`full-rerun-results/.last-run.json`、`full-rerun-load.log` |
+| 无其他 Playwright runner 时，重新执行指定的严格性能命令 | 2/2，退出 0。1 MiB 到可编辑 413 ms，5000 行输入 p95 14.1 ms、最大 23.2 ms，80 样本。8 核主机 1 分钟负载开始 1.07、结束 1.20，开始前 CPU 压力 `avg10=0.00`。 | `perf-idle.log`、`perf-idle-load.log` |
