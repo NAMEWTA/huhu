@@ -76,7 +76,16 @@ describe("shellState（标签 + 侧栏组合 reducer）", () => {
 
   it("持久化：只恢复本库、合法的标签；未知项丢弃", () => {
     const saved = parseTabs(
-      { tabs: [{ kind: "file", vaultId: V, path: "a.md", view: "source" }, { kind: "file", vaultId: "other", path: "b.md" }, { kind: "archive-record", vaultId: V, type: "项目", name: "甲" }, { kind: "bogus", vaultId: V }, { kind: "archives-home", vaultId: V }], activeKey: "archives-home:v1" },
+      {
+        tabs: [
+          { kind: "file", vaultId: V, path: "a.md", view: "source" },
+          { kind: "file", vaultId: "other", path: "b.md" },
+          { kind: "archive-record", vaultId: V, type: "项目", name: "甲" },
+          { kind: "bogus", vaultId: V },
+          { kind: "archives-home", vaultId: V },
+        ],
+        activeKey: "archives-home:v1",
+      },
       V,
     )!;
     expect(saved.tabs).toHaveLength(3);

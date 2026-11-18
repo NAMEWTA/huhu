@@ -16,7 +16,10 @@ async function gotoNotes(page: Page): Promise<void> {
 const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror").first();
 const commentsDir = (vault: string) => path.join(vault, "Comments");
 const commentFiles = (vault: string) => (existsSync(commentsDir(vault)) ? readdirSync(commentsDir(vault)) : []);
-const readAll = (vault: string) => commentFiles(vault).map((f) => readFileSync(path.join(commentsDir(vault), f), "utf8")).join("\n---FILE---\n");
+const readAll = (vault: string) =>
+  commentFiles(vault)
+    .map((f) => readFileSync(path.join(commentsDir(vault), f), "utf8"))
+    .join("\n---FILE---\n");
 
 /** 选中编辑器里某段文字（双击 / 三击不稳定：用 DOM Range 精确选中）。 */
 async function selectText(page: Page, text: string, nth = 0): Promise<void> {
@@ -138,7 +141,11 @@ test("D03/D04/D05：点线程定位正文；前插内容锚点跟随；重复句
     await expect(page.getByTestId("comment-thread")).toHaveAttribute("data-state", "anchored");
 
     // D03：点线程里的引用 → 正文滚到并高亮锚点
-    await page.getByTestId("comment-thread").getByRole("button", { name: /同一句话/ }).first().click();
+    await page
+      .getByTestId("comment-thread")
+      .getByRole("button", { name: /同一句话/ })
+      .first()
+      .click();
     await expect(prose(page).locator("[data-comment-thread]").first()).toBeVisible();
 
     // D04：删除锚定的那句 → 孤立，不吸附到第一处同样的句子

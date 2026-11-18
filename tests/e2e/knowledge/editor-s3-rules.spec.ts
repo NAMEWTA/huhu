@@ -5,9 +5,9 @@ import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
 
 // S3 / B03–B05 复刻矩阵 §6（输入规则、粘贴）与 §7（快捷键）的数据驱动验证（真实 Electron）。
-// 结果写入 evidence/s3/rules-run.json。
+// 结果写入 test-results/s3/rules-run.json（不写入受版本管理的 evidence；需要留证时人工复制并写明环境）。
 
-const OUT = path.resolve(import.meta.dirname, "../../../.agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/s3/rules-run.json");
+const OUT = path.resolve(import.meta.dirname, "../../../test-results/s3/rules-run.json");
 
 async function gotoNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });

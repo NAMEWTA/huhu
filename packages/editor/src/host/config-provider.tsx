@@ -1,14 +1,14 @@
 // ConfigContext 的 Huhu 侧提供者：上游经协作配置文档同步用户 / 项目 / .okignore 配置，Huhu 没有这些文档
 //（隐藏走 hiddenPaths 偏好，主题走 Huhu 设置）。编辑器只读取 merged 里少量外观项，缺省值与上游一致。
-import type { Config } from '@inkeep/open-knowledge-core/config/schema'
-import type { ReactNode } from 'react'
-import { ConfigContext, type ConfigContextValue } from '@/lib/config-context'
+import type { Config } from "@inkeep/open-knowledge-core/config/schema";
+import type { ReactNode } from "react";
+import { ConfigContext, type ConfigContextValue } from "@/lib/config-context";
 
 export interface HostEditorConfig {
-  wordWrap?: boolean
-  showHiddenFiles?: boolean
-  showOnlyMarkdownFiles?: boolean
-  linkPreviewsEnabled?: boolean
+  wordWrap?: boolean;
+  showHiddenFiles?: boolean;
+  showOnlyMarkdownFiles?: boolean;
+  linkPreviewsEnabled?: boolean;
 }
 
 export function HostConfigProvider({ children, config = {} }: { children: ReactNode; config?: HostEditorConfig }) {
@@ -21,7 +21,7 @@ export function HostConfigProvider({ children, config = {} }: { children: ReactN
         showOkFolders: true,
       },
     },
-  } as unknown as Config
+  } as unknown as Config;
   const value: ConfigContextValue = {
     userBinding: null,
     userSynced: true,
@@ -35,6 +35,6 @@ export function HostConfigProvider({ children, config = {} }: { children: ReactN
     projectLocalConfig: { linkPreviews: { enabled: config.linkPreviewsEnabled ?? false } } as unknown as Config,
     projectLocalSynced: true,
     merged,
-  }
-  return <ConfigContext value={value}>{children}</ConfigContext>
+  };
+  return <ConfigContext value={value}>{children}</ConfigContext>;
 }

@@ -72,13 +72,7 @@ export function NoteExplorer(p: ExplorerProps) {
   const trash = p.section === "trash";
   const fileRow = (note: NoteRef, depth: number) => (
     <div key={note.path} className={`hu-knowledge-tree-line${note.path === p.selected ? " is-selected" : ""}`} style={{ ["--tree-depth" as string]: depth }}>
-      <button
-        type="button"
-        aria-current={note.path === p.selected ? "true" : undefined}
-        className="notes-tree-item"
-        data-testid={note.file ? "file-item" : "note-item"}
-        onClick={() => p.onOpen(note.path)}
-      >
+      <button type="button" aria-current={note.path === p.selected ? "true" : undefined} className="notes-tree-item" data-testid={note.file ? "file-item" : "note-item"} onClick={() => p.onOpen(note.path)}>
         <span className="notes-tree-spacer" />
         <FileText size={15} aria-hidden />
         <span className="notes-tree-label">{note.title}</span>
@@ -132,7 +126,11 @@ export function NoteExplorer(p: ExplorerProps) {
           ) : null}
         </div>
       </div>
-      {p.archivesActive ? <div className="hu-resource-list notes-explorer-tree" data-testid="notes-archives-tree">{p.archivesPanel}</div> : null}
+      {p.archivesActive ? (
+        <div className="hu-resource-list notes-explorer-tree" data-testid="notes-archives-tree">
+          {p.archivesPanel}
+        </div>
+      ) : null}
       {!p.archivesActive && p.section === "daily" ? (
         <div className="hu-knowledge-daily-picker">
           <input type="date" aria-label={n.dailyDate} value={p.dailyDate} onChange={(e) => p.onDailyDate(e.target.value)} />
@@ -153,20 +151,31 @@ export function NoteExplorer(p: ExplorerProps) {
           ))}
         </div>
       ) : null}
-      {p.archivesActive ? null : <div className="hu-resource-list notes-explorer-tree" data-testid="notes-explorer-tree" role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
-        <div className="notes-list-caption">
-          <button type="button" className="active">
-            {caption}
-          </button>
-          <span>{p.notes.length}</span>
+      {p.archivesActive ? null : (
+        <div className="hu-resource-list notes-explorer-tree" data-testid="notes-explorer-tree" role={p.notes.length > 0 ? "group" : undefined} aria-label={p.notes.length > 0 ? caption : undefined}>
+          <div className="notes-list-caption">
+            <button type="button" className="active">
+              {caption}
+            </button>
+            <span>{p.notes.length}</span>
+          </div>
+          {p.section === "all" && !p.query ? (
+            <ResourceTree
+              selected={p.selected}
+              onOpenFile={p.onOpen}
+              onOpenFolder={(path) => p.onFolderClick?.(path)}
+              beforeMutate={p.beforeMutate}
+              onMoved={p.onMoved}
+              onTrashed={p.onTrashed}
+              onMenuAction={p.onMenuAction}
+              isFavorite={p.isFavorite}
+            />
+          ) : (
+            p.notes.map((note) => fileRow(note, 0))
+          )}
+          {p.notes.length === 0 && (p.query || p.section !== "all") ? <EmptyState icon={FileText} title={trash ? n.emptyTrash : n.noMatch} /> : null}
         </div>
-        {p.section === "all" && !p.query ? (
-          <ResourceTree selected={p.selected} onOpenFile={p.onOpen} onOpenFolder={(path) => p.onFolderClick?.(path)} beforeMutate={p.beforeMutate} onMoved={p.onMoved} onTrashed={p.onTrashed} onMenuAction={p.onMenuAction} isFavorite={p.isFavorite} />
-        ) : (
-          p.notes.map((note) => fileRow(note, 0))
-        )}
-        {p.notes.length === 0 && (p.query || p.section !== "all") ? <EmptyState icon={FileText} title={trash ? n.emptyTrash : n.noMatch} /> : null}
-      </div>}
+      )}
       <div className="hu-knowledge-resource-footer">
         <input ref={fileInput} type="file" hidden accept=".md,.markdown,.txt" multiple onChange={(e) => e.target.files && p.onImport(e.target.files)} />
         <Button variant="ghost" icon={Upload} onClick={() => fileInput.current?.click()}>

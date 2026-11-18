@@ -205,7 +205,16 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     }),
   );
   api.defineCapability(
-    def({ name: "notes.hidden.get", plugin: "notes", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.object({ hiddenPaths: z.array(z.string()) }), handler: () => ({ hiddenPaths: svc.hiddenPaths() }) }),
+    def({
+      name: "notes.hidden.get",
+      plugin: "notes",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({}),
+      output: z.object({ hiddenPaths: z.array(z.string()) }),
+      handler: () => ({ hiddenPaths: svc.hiddenPaths() }),
+    }),
   );
   api.defineCapability(
     def({
@@ -313,7 +322,17 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     def({
       name: "comments.create",
       ...cw,
-      input: z.object({ path: z.string().min(1), target: z.enum(["body", "file", "property"]).default("body"), property: z.string().optional(), start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional(), text: z.string() }),
+      input: z.object({
+        path: z.string().min(1),
+        target: z.enum(["body", "file", "property"]).default("body"),
+        property: z.string().optional(),
+        start: z.number().int().optional(),
+        end: z.number().int().optional(),
+        quote: z.string().optional(),
+        prefix: z.string().optional(),
+        suffix: z.string().optional(),
+        text: z.string(),
+      }),
       output: CommentDto,
       handler: (c, i) =>
         comments.create({
@@ -333,7 +352,15 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(def({ name: "comments.reply", ...cw, input: Cid.extend({ text: z.string() }), output: CommentDto, handler: (c, i) => comments.reply(i.id, i.text, author(c.caller)) }));
   api.defineCapability(def({ name: "comments.resolve", ...cw, input: Cid, output: CommentDto, handler: (_c, i) => comments.setResolved(i.id, true) }));
   api.defineCapability(def({ name: "comments.reopen", ...cw, input: Cid, output: CommentDto, handler: (_c, i) => comments.setResolved(i.id, false) }));
-  api.defineCapability(def({ name: "comments.relocate", ...cw, input: Cid.extend({ start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional() }), output: CommentDto, handler: (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix }) }));
+  api.defineCapability(
+    def({
+      name: "comments.relocate",
+      ...cw,
+      input: Cid.extend({ start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional() }),
+      output: CommentDto,
+      handler: (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix }),
+    }),
+  );
   api.defineCapability(def({ name: "comments.delete", ...cw, input: Cid, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await comments.delete(i.id), { ok: true as const }) }));
   // 手动保存模式下离开时保留的草稿：写在 .huhu/drafts/，不改动笔记文件（ACC-KN-04）
   const draftFile = (rel: string) => path.join(api.vault.stateDir, "drafts", `note-${createHash("sha1").update(rel).digest("hex").slice(0, 16)}.json`);

@@ -255,15 +255,7 @@ function PdfFind({ eventBusRef, onClose }: { eventBusRef: React.RefObject<Instan
         else if (e.key === "Enter") dispatchFind("again", e.shiftKey);
       }}
     >
-      <input
-        className="notes-pdf-find-input"
-        data-testid="pdf-find-input"
-        autoFocus
-        value={query}
-        placeholder={v.findPlaceholder}
-        aria-label={v.find}
-        onChange={(e) => setQuery(e.target.value)}
-      />
+      <input className="notes-pdf-find-input" data-testid="pdf-find-input" autoFocus value={query} placeholder={v.findPlaceholder} aria-label={v.find} onChange={(e) => setQuery(e.target.value)} />
       {query ? (
         <span className="notes-pdf-find-count" data-testid="pdf-find-count">
           {total > 0 ? `${active} / ${total}` : v.noMatches}

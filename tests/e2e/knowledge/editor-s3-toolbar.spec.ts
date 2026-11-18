@@ -51,7 +51,9 @@ for (const zoom of [1.25, 1.5, 2]) {
       }, zoom);
       await gotoNotes(page);
       // 150% / 200% 下 Playwright 的指针点击会被计数条“拦截”（原因未查明：可能是缩放下的命中坐标，也可能是真实的重叠；见 evidence/s3/parity-closeout.md），所以这里用 DOM click 打开文件，只断言工具栏本身
-      await treeFileRows(page).first().evaluate((el) => (el as HTMLElement).click());
+      await treeFileRows(page)
+        .first()
+        .evaluate((el) => (el as HTMLElement).click());
       await expect(page.getByTestId("note-document")).toBeVisible({ timeout: 30_000 });
       const bar = page.getByTestId("note-toolbar");
       await expect(bar).toBeVisible();

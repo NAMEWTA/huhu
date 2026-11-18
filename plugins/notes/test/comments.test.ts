@@ -167,7 +167,6 @@ describe("CommentsService", () => {
   });
 });
 
-
 describe("引用文字锚点（S4：富文本不使用 PM 坐标，D04 / D05）", () => {
   const DOC = "# 标题\n\n这里有一套能力，值得批注。\n\n另一段：一套能力。\n";
   test("引用文字 → 源码偏移：越过加粗 / 链接语法；frontmatter 里的同名文字不命中", async () => {

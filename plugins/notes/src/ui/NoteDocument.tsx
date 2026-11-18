@@ -175,7 +175,9 @@ export function NoteDocument(props: NoteDocumentProps) {
         <div className="row grow">
           <span className="notes-breadcrumb">{folder}</span>
           <ChevronRight size={12} aria-hidden />
-          <span className="notes-filename" title={filename}>{filename}</span>
+          <span className="notes-filename" title={filename}>
+            {filename}
+          </span>
         </div>
         <div className="row notes-toolbar-optional">
           {/* 格式化由 OK 编辑器自带的气泡菜单与 `/` 命令提供（design §3.4）；这里只保留撤销 / 重做 */}
@@ -243,16 +245,10 @@ export function NoteDocument(props: NoteDocumentProps) {
           tone="blue"
           action={
             <>
-              <Button
-                variant="primary"
-                data-testid="note-draft-restore"
-                onClick={() => session?.restoreDraft()}
-              >
+              <Button variant="primary" data-testid="note-draft-restore" onClick={() => session?.restoreDraft()}>
                 {n.restoreDraft}
               </Button>
-              <Button onClick={() => session?.discardDraft()}>
-                {n.discardDraft}
-              </Button>
+              <Button onClick={() => session?.discardDraft()}>{n.discardDraft}</Button>
             </>
           }
         >
@@ -281,7 +277,17 @@ export function NoteDocument(props: NoteDocumentProps) {
         <Suspense fallback={<p>{t.loading}</p>}>
           {/* 阅读视图 = 同一个编辑器 editable:false；保留既有的阅读区测试标识 */}
           <div className="notes-editor-surface" {...(reading ? { "data-testid": "notes-reading-pane" } : {})} data-editor-mode={mode}>
-          <NoteEditorSurface path={path} value={text} onChange={onChange} mode={VIEW[mode]} notes={all.data ?? []} flush={flush} onOpen={props.onOpen} onPort={onPort} {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})} />
+            <NoteEditorSurface
+              path={path}
+              value={text}
+              onChange={onChange}
+              mode={VIEW[mode]}
+              notes={all.data ?? []}
+              flush={flush}
+              onOpen={props.onOpen}
+              onPort={onPort}
+              {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
+            />
           </div>
         </Suspense>
       </div>

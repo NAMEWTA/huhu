@@ -26,6 +26,13 @@ describe("FileIcon 静态扩展名表（OP-D13 / F06）", () => {
     expect(md.props["data-file-icon"]).toBe("markdown");
     expect(md.props["viewBox"]).toBe("0 0 32 32");
     expect(md.props["aria-hidden"]).toBe(true);
-    for (const [n, k] of [["a.json", "json"], ["a.pdf", "pdf"], ["a.html", "html"], ["a.png", "image"], ["a.xyz", "file"]] as const) expect(el({ name: n }).props["data-file-icon"]).toBe(k);
+    for (const [n, k] of [
+      ["a.json", "json"],
+      ["a.pdf", "pdf"],
+      ["a.html", "html"],
+      ["a.png", "image"],
+      ["a.xyz", "file"],
+    ] as const)
+      expect(el({ name: n }).props["data-file-icon"]).toBe(k);
   });
 });

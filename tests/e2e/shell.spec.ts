@@ -212,7 +212,11 @@ test("知识库：文件夹重命名、移动、删除（整体进回收站）",
     await expect.poll(() => existsSync(path.join(vault, "归档/资料库"))).toBe(true);
 
     await treeMenu(page, treeFolder(page, "归档"), /^删除/);
-    await page.getByRole("alertdialog").getByRole("button", { name: /Move to|Delete|移到|删除/i }).first().click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: /Move to|Delete|移到|删除/i })
+      .first()
+      .click();
     await expect.poll(() => existsSync(path.join(vault, "归档"))).toBe(false);
   } finally {
     await app.close();

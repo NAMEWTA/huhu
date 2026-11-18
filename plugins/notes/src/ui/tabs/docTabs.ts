@@ -85,7 +85,7 @@ export function docTabsReducer(state: DocTabsState, action: DocTabsAction): DocT
     case "restore": {
       const tabs = action.tabs.filter((t) => t.vaultId === action.vaultId);
       const keys = new Set(tabs.map(tabKey));
-      const activeKey = action.activeKey && keys.has(action.activeKey) ? action.activeKey : (tabs[0] ? tabKey(tabs[0]) : null);
+      const activeKey = action.activeKey && keys.has(action.activeKey) ? action.activeKey : tabs[0] ? tabKey(tabs[0]) : null;
       return { vaultId: action.vaultId, tabs, activeKey, epoch: state.epoch + 1 };
     }
     case "switchVault":
@@ -98,12 +98,12 @@ export function docTabsReducer(state: DocTabsState, action: DocTabsAction): DocT
       const seen = new Set<string>();
       const deduped = tabs.filter((t) => (seen.has(tabKey(t)) ? false : (seen.add(tabKey(t)), true)));
       const nextActive = activeTab ? (activeTab.kind === "file" ? tabKey({ ...activeTab, path: remapPath(activeTab.path, action.from, action.to) }) : state.activeKey) : null;
-      return { ...state, tabs: deduped, activeKey: nextActive && deduped.some((t) => tabKey(t) === nextActive) ? nextActive : (deduped[0] ? tabKey(deduped[0]) : null) };
+      return { ...state, tabs: deduped, activeKey: nextActive && deduped.some((t) => tabKey(t) === nextActive) ? nextActive : deduped[0] ? tabKey(deduped[0]) : null };
     }
     case "prune": {
       const tabs = state.tabs.filter((t) => (t.kind === "file" ? action.alive.has(t.path) : true));
       if (tabs.length === state.tabs.length) return state;
-      const activeKey = state.activeKey && tabs.some((t) => tabKey(t) === state.activeKey) ? state.activeKey : (tabs[0] ? tabKey(tabs[0]) : null);
+      const activeKey = state.activeKey && tabs.some((t) => tabKey(t) === state.activeKey) ? state.activeKey : tabs[0] ? tabKey(tabs[0]) : null;
       return { ...state, tabs, activeKey };
     }
   }

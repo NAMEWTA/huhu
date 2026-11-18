@@ -1,36 +1,20 @@
 {
   "rules": {
     "color-no-hex": true,
-    "function-disallowed-list": [
-      "rgb",
-      "rgba",
-      "hsl",
-      "hsla",
-      "hwb",
-      "lab",
-      "lch",
-      "oklab",
-      "oklch"
-    ],
+    "function-disallowed-list": ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch"],
     "color-named": "never",
     "block-no-empty": true,
     "declaration-block-no-duplicate-properties": [
       true,
       {
-        "ignore": [
-          "consecutive-duplicates-with-different-values"
-        ]
+        "ignore": ["consecutive-duplicates-with-different-values"]
       }
     ],
     "declaration-no-important": true
   },
   "overrides": [
     {
-      "files": [
-        "packages/ui/src/styles/themes.generated.css",
-        "packages/ui/src/styles/tokens.css",
-        "packages/ui/src/styles/fonts.generated.css"
-      ],
+      "files": ["packages/ui/src/styles/themes.generated.css", "packages/ui/src/styles/tokens.css", "packages/ui/src/styles/fonts.generated.css"],
       "rules": {
         "color-no-hex": null,
         "function-disallowed-list": null,
@@ -39,9 +23,5 @@
     }
   ],
   "reportDescriptionlessDisables": true,
-  "ignoreFiles": [
-    "packages/editor/src/vendor/open-knowledge/**",
-    "packages/editor/src/ok/ok-globals.css",
-    "packages/editor/harness-dist/**"
-  ]
+  "ignoreFiles": ["packages/editor/src/vendor/open-knowledge/**", "packages/editor/src/ok/ok-globals.css", "packages/editor/harness-dist/**"]
 }

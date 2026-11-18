@@ -37,7 +37,13 @@ export function FileViewer({ path, size, mtimeMs }: { path: string; size: number
       ) : choice.kind === "html" ? (
         <HtmlView key={path} path={path} />
       ) : choice.kind === "pdf" ? (
-        <Suspense fallback={<p className="hu-hint-text" style={{ margin: 16 }}>{v.reading}</p>}>
+        <Suspense
+          fallback={
+            <p className="hu-hint-text" style={{ margin: 16 }}>
+              {v.reading}
+            </p>
+          }
+        >
           <PdfViewWithChrome path={path} />
         </Suspense>
       ) : choice.kind === "image" ? (

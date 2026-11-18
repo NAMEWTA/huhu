@@ -185,7 +185,10 @@ test("E01/E04 档案标签随 Vault 记录：重载后恢复；档案删除后�
     // 在档案视图里删除该档案：记录标签关闭，回到类型页
     await page.getByRole("button", { name: "更多" }).click();
     await page.getByRole("menuitem", { name: /删除/ }).click();
-    await page.getByRole("button", { name: /删除|移到回收站/ }).last().click();
+    await page
+      .getByRole("button", { name: /删除|移到回收站/ })
+      .last()
+      .click();
     await expect(page.getByTestId("archive-category-view")).toBeVisible();
     await expect(page.locator('[data-tab-kind="archive-record"]')).toHaveCount(0);
     expect((await call("archives.list", { type: "Archives/通讯录/" })).data.length).toBe(1);

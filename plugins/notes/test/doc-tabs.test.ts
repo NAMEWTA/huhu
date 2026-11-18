@@ -35,7 +35,13 @@ describe("docTabs reducer", () => {
 
   test("三类档案标签与文件标签共存；档案记录对应真实 index.md（同一会话键）", () => {
     const rec: DocTab = { kind: "archive-record", vaultId: "v1", type: "人物", name: "张三" };
-    const s = run(createDocTabsState("v1"), { type: "open", tab: { kind: "archives-home", vaultId: "v1" } }, { type: "open", tab: { kind: "archive-type", vaultId: "v1", type: "人物" } }, { type: "open", tab: rec }, { type: "open", tab: f("Archives/人物/张三/index.md") });
+    const s = run(
+      createDocTabsState("v1"),
+      { type: "open", tab: { kind: "archives-home", vaultId: "v1" } },
+      { type: "open", tab: { kind: "archive-type", vaultId: "v1", type: "人物" } },
+      { type: "open", tab: rec },
+      { type: "open", tab: f("Archives/人物/张三/index.md") },
+    );
     expect(s.tabs).toHaveLength(4); // 记录标签与文件标签是两个视图标签，但共享同一文件
     expect(archiveRecordPath(rec as Extract<DocTab, { kind: "archive-record" }>)).toBe("Archives/人物/张三/index.md");
     expect(tabFilePath(rec)).toBe(tabFilePath(f("Archives/人物/张三/index.md")));

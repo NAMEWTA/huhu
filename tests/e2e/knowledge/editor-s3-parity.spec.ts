@@ -7,8 +7,7 @@ import { treeItem, treeSettled } from "../helpers/tree.js";
 // S3 / B06、B07、C05：真实 Electron 里的鼠标选区、上下行光标、IME 组合输入（CDP imeSetComposition，不是真实输入法）、坏 YAML 诊断与修复入口。
 // 预言机是浏览器自己的 caretRangeFromPoint；对照 rc.4 的取证见 evidence/repro/README.md。
 
-const para = (n: number) =>
-  `第 ${n} 段：这是一段用来测试光标移动与鼠标选区的中文正文，包含 English words 和更多文字，需要足够长才能在窗口里折行成两到三行显示，继续补充一些文字让它更长一些，直到确实折行。`;
+const para = (n: number) => `第 ${n} 段：这是一段用来测试光标移动与鼠标选区的中文正文，包含 English words 和更多文字，需要足够长才能在窗口里折行成两到三行显示，继续补充一些文字让它更长一些，直到确实折行。`;
 const DOC = ["# 选区", "", ...Array.from({ length: 6 }, (_, i) => `${para(i + 1)}\n`)].join("\n");
 
 async function gotoNotes(page: Page): Promise<void> {
@@ -69,7 +68,11 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
     await treeItem(page, "选区.md").click();
     await expect(prose(page)).toContainText("第 3 段", { timeout: 30_000 });
     await installProbe(page);
-    const loc = (n: number) => prose(page).locator("p").filter({ hasText: `第 ${n} 段` }).first();
+    const loc = (n: number) =>
+      prose(page)
+        .locator("p")
+        .filter({ hasText: `第 ${n} 段` })
+        .first();
 
     // 段内拖选 ×6：与预言机的差异不超过 2 个字符（汉字中点命中取整）
     await loc(3).evaluate((el) => el.scrollIntoView({ block: "center" }));
@@ -79,6 +82,8 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
       await page.waitForTimeout(600); // 避开双击 / 三击判定
       const b4r = (await loc(4).boundingBox())!;
       await page.mouse.click(b4r.x + 6, b4r.y + b4r.height - 6); // 先把选区挪到别处：在已有选区内按下会启动文字拖放而不是新选区
+      // ProseMirror 的 focus 处理会在获得焦点后 20 ms 把自己的选区写回 DOM；真人点击与下一步操作之间至少隔一百多毫秒，合成输入没有间隔，主线程繁忙时该定时器会落进拖选 / 按键中间。
+      await page.waitForTimeout(150);
       const x1 = b3.x + b3.width * (0.1 + 0.05 * i);
       const x2 = b3.x + b3.width * (0.55 + 0.06 * i);
       const y = b3.y + 10;
@@ -94,6 +99,7 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
 
     // 逐行 ArrowDown ×12 / ArrowUp ×12：偏移单调、单步纵向位移不超过 3 行
     await page.mouse.click(b3.x + b3.width * 0.4, b3.y + 10);
+    await page.waitForTimeout(150);
     let prev = await page.evaluate(() => (window as unknown as { __p: { focus(): { offset: number; y: number } } }).__p.focus());
     for (let i = 0; i < 12; i++) {
       await page.keyboard.press("ArrowDown");
@@ -112,6 +118,7 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
 
     // Shift+ArrowDown 扩选：只增不减，锚点不动
     await page.mouse.click(b3.x + b3.width * 0.3, b3.y + 10);
+    await page.waitForTimeout(150);
     const a0 = await page.evaluate(() => (window as unknown as { __p: { anchor(): number } }).__p.anchor());
     let len = 0;
     for (let i = 0; i < 6; i++) {
