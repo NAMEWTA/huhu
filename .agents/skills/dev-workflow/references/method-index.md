@@ -12,15 +12,13 @@
 - [委派执行者任务书](delegate-role.md)
 - [本地执行支持](execution-support.md)
 - [推进与恢复](execution.md)
-- [交接方法](handoff-method.md)
 - [已选任务的工程执行方法](operating-method.md)
 - [阶段边界](phase-boundaries.md)
 - [项目编排](program-coordination.md)
-- [安全暂停](safe-pause.md)
-- [会话接续](session-resume.md)
 - [需求到实施的阶段衔接](workflow-routing.md)
 
 ## 产物模板
 
 - [<工作主题>的决策记录](../assets/decision-trail.md)
-- [当前任务交接](../assets/handoff.md)
+
+保存交接、会话接续、安全暂停及交接模板由 `dev-handoff` 维护；按当前意图调用其入口，不在本包复制方法。

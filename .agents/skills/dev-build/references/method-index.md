@@ -10,10 +10,8 @@
 - [功能开发](feature-delivery.md)
 - [按请求实现](implement-request.md)
 - [按任务图实现](implement-task-graph.md)
-- [逻辑原型](logic-prototype.md)
-- [原型](prototype-method.md)
-- [原型](prototype.md)
-- [UI 原型](ui-prototype.md)
+
+原型方法统一由 `dev-prototype` 维护：完整 change 的可视化确认使用默认分支，回答尚未决定的问题使用探索分支。携带同一任务与证据，完成后返回本次实施。
 
 ## 产物模板
 

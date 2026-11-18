@@ -51,3 +51,5 @@ node "$SKILL_DIR/scripts/check-model.mjs" "$SKILL_DIR/assets/example/model.mjs" 
 可选 `--deadlocks` 把无后继的状态视为死锁。正确终态是否允许无后继由模型语义决定；可以显式定义状态保持动作。工具不检查公平性、时序逻辑、概率、连续状态或任意规模的定理。
 
 最短反例仅指这个枚举器生成的图中以动作步数计的最短路径。复用到真实项目时，仍要按[创建检查](create-check.md)建立代码映射和故障校准，并按[维护检查](maintain-check.md)识别漂移。
+
+检查器输出 Markdown 报告；可用 `--out NEW_REPORT.md` 保存到尚不存在的文件。需要图示时按实际报告展示规则结果与反例步骤，不能从通过报告补造未导出的完整状态图。这个 `.mjs` 模型不能直接交给 `dev-statechart`，后者只接受 TLA+ 模型并运行 TLC。

@@ -16,7 +16,7 @@
 
 ## 当前学习所需的补充方法
 
-历史调查、目标复述和背景恢复用于补足本次讲解的证据。独立历史理由调查以 `dev-why` 为主，需求意图对齐以 `dev-intake` 为主，继续开发以 `dev-workflow` 为主；单包使用时保留同样的完整方法。
+历史调查、目标复述和背景恢复用于补足本次讲解的证据。独立历史理由调查以 `dev-why` 为主，需求意图对齐以 `dev-intake` 为主，具体旧任务接续以 `dev-handoff` 为主；接续后返回原执行阶段，阶段不明时由 `dev-workflow` 协调。
 
 - `dev-writing`（清理机械写作）。
 - [回忆工作上下文](context-recall.md)。
@@ -30,7 +30,7 @@
 - [调查](investigation.md)。
 - `dev-why`（调查者提示词模板）。
 - [用普通语言重述](plain-restatement.md)。
-- `dev-workflow`（会话接续）。
+- `dev-handoff`（会话接续）。
 - `dev-why`（Databricks 分析与系统表）。
 - `dev-why`（代码考古（git 与仓库内部））。
 - `dev-why`（Slack 对话）。

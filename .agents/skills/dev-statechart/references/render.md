@@ -4,7 +4,7 @@
 
 ## 颜色
 
-Pele 忽略 Mermaid 的 `theme` 和 `themeVariables`。在 `.pele` 上设置它的 `--pele-*` CSS 变量。下方完整列出本技能使用的主题变量与规则；[主题文件](../assets/theme.css)包含相同配色。命令为每个状态指定其分组的颜色类，例如 `class sN teal`。每个错误状态标为 `class sN breaks` 或 `class sN mayBreak`，通往缺陷的最短路径上的每个状态标为 `class sN bugPath`，PROPERTY 反例中无限重复的每个状态标为 `class sN repeats`。Pele 把这些类加到状态节点上。使用 CSS 为这些类着色。
+Pele 忽略 Mermaid 的 `theme` 和 `themeVariables`。在 `.pele` 上设置它的 `--pele-*` CSS 变量。下方完整列出本技能使用的主题变量与规则；[主题文件](../assets/theme.css)包含相同配色。命令为每个状态指定其分组的颜色类，例如 `class sN teal`。每个错误状态标为 `class sN breaks` 或 `class sN mayBreak`，通往缺陷的路径前缀上的状态标为 `class sN bugPath`，PROPERTY 反例中无限重复的每个状态标为 `class sN repeats`。状态不变量的路径按报告判断最短，时序反例不作全局最短承诺。Pele 把这些类加到状态节点上。使用 CSS 为这些类着色。
 
 `.mmd` 文件中有 `breaks` 和 `mayBreak` 的 `classDef` 行，因此任何 Mermaid 查看器都能显示缺陷标记。文件不包含分组颜色、`bugPath` 或 `repeats` 的 `classDef`。Pele 把每个 `classDef` 颜色写成节点上的 `style` 属性，而 `style` 属性优先于普通 CSS 规则。因此，下面的标记规则使用 `!important`。如果没有它，深色主题会保留浅色标记颜色。缺陷标记设置填充色与文字色，`bugPath` 和 `repeats` 设置边框。把标记规则放在分组颜色之后，使标记覆盖分组颜色。
 
