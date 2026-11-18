@@ -1,14 +1,14 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
 
 // S3 / B01–B05 复刻矩阵的数据驱动验证（真实 Electron）：
-//   1. 逐项枚举 `/` 菜单里的每个选项，插入 → 观察文档变化 → 一次 Ctrl+Z 撤回；
+//   1. 逐项在独立文档中应用 `/` 菜单选项，验证实际命令效果；
 //   2. 逐项验证 Markdown 构造的“无编辑打开 / 关闭不写盘”（字节不变）；
 //   3. 逐项验证常用快捷键对应的标记 / 块。
-// 结果写入 evidence/s3/matrix-run.json（供 parity-matrix.md 的“验证状态”列引用）。
+// Markdown 构造检查写入旧矩阵文件。斜杠菜单结果保存到各次测试独立的输出目录。
 
 const OUT = path.resolve(import.meta.dirname, "../../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/s3/matrix-run.json");
 
@@ -74,79 +74,122 @@ function existsJson(p: string): Record<string, unknown> {
   }
 }
 
-test("矩阵·`/` 菜单逐项：每个选项都能打开、应用后文档或界面有可观察变化、一次撤销回退", async () => {
+const STARTING_TEXT = "斜杠起始段落";
+const SLASH_ITEM_COUNT = 36;
+
+function slashFixtureName(index: number): string {
+  return `斜杠-${String(index).padStart(2, "0")}`;
+}
+
+async function documentSnapshot(editor: Locator): Promise<string> {
+  return editor.evaluate((element) => {
+    const root = element as HTMLElement & { editor?: { state: { doc: { toJSON(): unknown } } } };
+    if (!root.editor) throw new Error("编辑器尚未挂载");
+    return JSON.stringify(root.editor.state.doc.toJSON());
+  });
+}
+
+async function openSlashFixture(page: Page, index: number) {
+  const name = slashFixtureName(index);
+  const editor = prose(page);
+  const row = treeItem(page, `${name}.md`);
+  const heading = editor.getByRole("heading", { name, exact: true });
+  // 用文档标题确认本轮夹具已打开，避免文件树刷新期间提前向编辑器发送按键。
+  await expect(async () => {
+    if (!(await heading.isVisible())) {
+      await row.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await row.click({ position: { x: 32, y: 10 } });
+    }
+    await expect(heading).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+  const paragraphs = editor.locator(":scope > p");
+  await expect(paragraphs).toHaveText([STARTING_TEXT]);
+  await paragraphs.first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await expect(paragraphs).toHaveText([STARTING_TEXT, ""]);
+  await expect
+    .poll(() =>
+      paragraphs.last().evaluate((paragraph) => {
+        const selection = window.getSelection();
+        return selection?.isCollapsed && paragraph.contains(selection.anchorNode);
+      }),
+    )
+    .toBe(true);
+  const initial = await documentSnapshot(editor);
+  await page.keyboard.type("/");
+  const listbox = page.getByRole("listbox", { name: /斜杠命令|Slash commands/ });
+  await expect(listbox).toBeVisible();
+  return { editor, listbox, initial };
+}
+
+test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证命令效果", async () => {
   test.setTimeout(600_000);
   const { page, vault, close } = await openApp();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   try {
-    writeFileSync(path.join(vault, "斜杠.md"), "# 斜杠\n\n起始\n");
-    await gotoNotes(page);
-    await treeItem(page, "斜杠.md").click();
-    await expect(prose(page)).toContainText("起始", { timeout: 30_000 });
-
-    const openMenu = async () => {
-      await prose(page).click({ position: { x: 8, y: 8 } });
-      await page.keyboard.press("ControlOrMeta+End");
-      await page.keyboard.press("Enter");
-      await page.keyboard.type("/");
-      await expect(page.locator('[role="listbox"]').first()).toBeVisible({ timeout: 10_000 });
-    };
-    await openMenu();
-    // 枚举：滚动列表收集全部选项文本
-    const listbox = page.locator('[role="listbox"]').first();
-    const labels = new Set<string>();
-    for (let i = 0; i < 30; i++) {
-      for (const t of await listbox.locator('[role="option"]').allInnerTexts()) labels.add(t.split("\n")[0]!.trim());
-      const before = labels.size;
-      await listbox.evaluate((el) => (el.scrollTop += el.clientHeight * 0.8));
-      await page.waitForTimeout(80);
-      for (const t of await listbox.locator('[role="option"]').allInnerTexts()) labels.add(t.split("\n")[0]!.trim());
-      if (labels.size === before && i > 3) break;
+    for (let index = 0; index <= SLASH_ITEM_COUNT; index++) {
+      const name = slashFixtureName(index);
+      writeFileSync(path.join(vault, `${name}.md`), `# ${name}\n\n${STARTING_TEXT}\n`);
     }
+    await gotoNotes(page);
+    const catalog = await openSlashFixture(page, 0);
+    const labels = (await catalog.listbox.getByRole("option").allTextContents()).map((label) => label.trim());
+    expect(labels).toHaveLength(SLASH_ITEM_COUNT);
+    expect(new Set(labels).size).toBe(SLASH_ITEM_COUNT);
     await page.keyboard.press("Escape");
-    const items = [...labels].filter(Boolean);
-    expect(items.length).toBeGreaterThan(10);
+    await expect(catalog.listbox).toBeHidden();
 
     const results: Record<string, string> = {};
-    for (const label of items) {
-      await openMenu();
-      let typed = label.slice(0, 12);
-      await page.keyboard.type(typed);
-      const opt = page.locator('[role="option"]').first();
-      let shown = await opt.isVisible().catch(() => false);
-      if (!shown) {
-        // 过滤词可能与显示标签不同（别名 / 关键词）：退回只用第一个词再试一次
-        for (let k = 0; k < typed.length; k++) await page.keyboard.press("Backspace");
-        typed = label.split(/\s+/)[0]!.slice(0, 6);
-        await page.keyboard.type(typed);
-        shown = await opt.isVisible().catch(() => false);
-      }
-      if (!shown) {
-        results[label] = "过滤后无选项";
+    for (const [index, label] of labels.entries()) {
+      await test.step(label, async () => {
+        const { editor, listbox, initial } = await openSlashFixture(page, index + 1);
+        const option = listbox.getByRole("option", { name: label, exact: true });
+        const withQuery = await documentSnapshot(editor);
+
+        if (label === "文件") {
+          const [chooser] = await Promise.all([page.waitForEvent("filechooser"), option.click()]);
+          const contents = Buffer.from("斜杠命令上传的文件\n");
+          await chooser.setFiles({ name: "slash-matrix.txt", mimeType: "text/plain", buffer: contents });
+          await expect(editor.getByRole("link", { name: /^slash-matrix\.txt/ })).toHaveAttribute("href", /\/attachments\/slash-matrix\.txt$/);
+          expect(readFileSync(path.join(vault, "attachments", "slash-matrix.txt"))).toEqual(contents);
+          results[label] = "打开文件选择器并插入附件";
+        } else if (label === "表情符号") {
+          // Huhu 没有挂载 OK 应用壳的表情选择器。验证命令通知的是当前文档的编辑器。
+          await editor.evaluate((element) => {
+            document.addEventListener(
+              "ok:emoji-picker-open",
+              (event) => {
+                const request = event as CustomEvent<{ editor: { view: { dom: HTMLElement } } }>;
+                if (request.detail.editor.view.dom === element) element.setAttribute("data-emoji-requested", "true");
+              },
+              { once: true },
+            );
+          });
+          await option.click();
+          await expect(editor).toHaveAttribute("data-emoji-requested", "true");
+          results[label] = "当前编辑器发出表情选择请求";
+        } else {
+          await option.click();
+          await expect
+            .poll(
+              async () => {
+                const after = await documentSnapshot(editor);
+                return after !== initial && after !== withQuery;
+              },
+              { message: `${label} 应修改文档内容或结构` },
+            )
+            .toBe(true);
+          results[label] = "文档已变化";
+        }
+        await expect(listbox).toBeHidden();
         await page.keyboard.press("Escape");
-        for (let k = 0; k < typed.length + 2; k++) await page.keyboard.press("Backspace");
-        continue;
-      }
-      const before = await prose(page).innerHTML();
-      await page.keyboard.press("Enter");
-      await page.waitForTimeout(400);
-      const after = await prose(page).innerHTML();
-      const dialog = (await page.locator('[role="dialog"], [data-radix-popper-content-wrapper]').count()) > 0;
-      results[label] = after !== before ? "文档已变化" : dialog ? "打开了二级界面" : "无可观察变化";
-      await page.keyboard.press("Escape");
-      // 回到应用前的状态：关菜单后直接把文档恢复成初始内容（撤销语义由 editor-s3-menus.spec.ts 的“一次撤销撤回一个命令”专项断言，这里不重复）
-      await prose(page).focus();
-      await page.keyboard.press("ControlOrMeta+a");
-      await page.keyboard.type("起始");
-      await page.waitForTimeout(150);
+      });
     }
-    const prev = existsJson(OUT);
-    mkdirSync(path.dirname(OUT), { recursive: true });
-    writeFileSync(OUT, JSON.stringify({ ...prev, slashItems: results, slashErrors: errors }, null, 2));
-    const bad = Object.entries(results).filter(([, v]) => v.startsWith("无可观察变化"));
+    expect(Object.keys(results)).toEqual(labels);
     expect(errors).toEqual([]);
-    expect(bad, `这些 / 菜单项应用后没有可观察变化：${JSON.stringify(bad)}`).toEqual([]);
+    writeFileSync(test.info().outputPath("slash-matrix.json"), JSON.stringify({ slashItems: results, slashErrors: errors }, null, 2));
   } finally {
     await close();
   }

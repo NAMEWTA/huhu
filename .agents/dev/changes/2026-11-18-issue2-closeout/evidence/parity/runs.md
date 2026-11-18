@@ -152,3 +152,32 @@ H07 测试两次都比较完整磁盘缓冲区。原始样本含 frontmatter、�
 - `accessibility` 指南中的 `role=status` 适合非紧急反馈。外部嵌入和附件下载失败使用已可见的状态文字，下载按钮也支持键盘激活。
 - `js` 指南区分 UTF-8 文本与原始字节。经过 Vault 分段读取的 Base64 直接解码到原始字节后构造 Blob。
 - 检索的拖拽排序指南适用于同容器顺序。本任务沿用现有资源树原生拖放负载和已验证的文件点击入口，对外部文件拖入继续走附件上传。
+
+## 任务 03 既有斜杠菜单逐项测试
+
+基线提交为 `e212033`。接续任务 02 的复现结果，原测试四路压力下为 13/20 通过。逐项用例实际位于 `tests/e2e/knowledge/editor-s3-matrix.spec.ts`。本次修改前，测试用 Ctrl+A 后输入覆盖上一项内容。代码块和引用结构会留在文档里，下一条命令可能在块内触发。
+
+每项现在使用独立的 Markdown 夹具，先按唯一标题确认打开的文档，再创建并定位到一个顶层空段落。菜单必须有 36 个唯一选项，逐项按完整名称触发。34 项以真实 ProseMirror 文档快照确认内容或结构改变，排除仅清空斜杠查询的情况。文件项验证原生选择器、附件链接和磁盘字节。表情项验证命令确实为当前编辑器派发表情选择请求。Huhu 应用壳目前缺表情选择器，因而该项的证据限于命令派发。
+
+首次独立夹具试跑暴露了文件树点击位置和上传后的附件节点定位问题。中间方案每轮关闭活动 DocTab，在四路下 6/20 通过，14 次卡在等待活动编辑面清空。最终方案确认下一篇独立笔记已经打开，同时保留前面的标签页，移除了这条与斜杠菜单无关的夹具依赖。
+
+### 最终验证
+
+四路各自使用独立 Xvfb 与 Electron 用户目录。在 `/home/wta/projects/huhu-wt-parity` 设置 `HUHU_HERDR_BIN=/home/wta/projects/huhu/apps/desktop/resources/herdr/linux-x64/herdr-core` 后，并行启动四次以下命令。各路使用各自的输出目录。
+
+```sh
+xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-s3-matrix.spec.ts -g '菜单逐项' --repeat-each=5 --output "/tmp/huhu-parity03-waVMyW/final-load-$lane"
+```
+
+| 检查 | 退出码 | 结果 | 日志 |
+| --- | ---: | --- | --- |
+| 负载第 1 路 | 0 | 5 通过，5.0 分钟 | `final-load-1.log` |
+| 负载第 2 路 | 0 | 5 通过，4.7 分钟 | `final-load-2.log` |
+| 负载第 3 路 | 0 | 5 通过，4.6 分钟 | `final-load-3.log` |
+| 负载第 4 路 | 0 | 5 通过，5.1 分钟 | `final-load-4.log` |
+| `pnpm lint` | 0 | 通过 | `delivery-lint.log` |
+| `pnpm format:check` | 0 | 通过 | `delivery-format-check.log` |
+
+本机日志目录为 `/tmp/huhu-parity03-waVMyW/`。校验了 20 份 `slash-matrix.json`，每份选项集合都与归档的 36 项一致，共 720 次命令验证。每份均包含 34 项文档变化、1 项附件入库和 1 项表情命令派发，页面异常列表为空。新的斜杠证据写入 Playwright 独立输出目录，便于并行核对。
+
+Modern Web Guidance 检索了编辑区焦点、菜单键盘及可达名称。测试采用 `html` 与 `accessibility` 的焦点边界原则，在真实顶层段落内确认折叠光标。菜单选项用现有 listbox 内的完整可达名称定位。
