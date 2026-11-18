@@ -10,7 +10,7 @@ import { treeItem, treeSettled } from "../helpers/tree.js";
 //   3. 逐项验证常用快捷键对应的标记 / 块。
 // 结果写入 evidence/s3/matrix-run.json（供 parity-matrix.md 的“验证状态”列引用）。
 
-const OUT = path.resolve(import.meta.dirname, "../../../.agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/s3/matrix-run.json");
+const OUT = path.resolve(import.meta.dirname, "../../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/s3/matrix-run.json");
 
 async function gotoNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });

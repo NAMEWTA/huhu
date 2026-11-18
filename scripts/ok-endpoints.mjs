@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 const ROOT = resolve(import.meta.dirname, "..");
 const OK = join(ROOT, "temp/sources/open-knowledge");
-const CH = join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence");
+const CH = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
 const man = JSON.parse(readFileSync(join(CH, "closure-manifest.json"), "utf8"));
 const rows = [];
 for (const f of man.files) {

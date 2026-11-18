@@ -67,3 +67,10 @@
 - S2b：`NoteDocument` 已切到 OK 编辑器（`packages/editor/src/rich`：`RichMarkdownEditor` / `ReadonlyMarkdown` / `SourceMarkdownEditor` / `OkRoot` / provider 池；`plugins/notes` 经动态 import 加载 `NoteEditorSurface`）。整合点通过：真实 Electron 打开—输入—保存—重开、无编辑不写盘、立即切换 / 关闭不丢最后字符、三视图切换、撤销。详见 [evidence/s2/s2b-verification.md](evidence/s2/s2b-verification.md)。
 - S2c：tasks / inbox 用紧凑变体；`@` 引用补全；P-S2c-01 补丁；Q4 成本数据入证据。
 - **未关闭**：F09（1 MiB 打开 6.6 s、5,000 行输入延迟用例超时）；格式化工具栏 / 属性面板 / 评论锚点装饰分别属于 S3 / S4（NoteDocument 已去掉旧格式按钮与 `comments` 装饰）；批注的源码偏移在富文本模式下按“选中文本在源码里唯一匹配”近似，S4 重做。
+
+## 最终状态（2026-11-18，归档时）
+
+- 切片：S0–S8 全部合入 `feat/knowledge-ok-parity`；整合后的审计快照 `2c89f8d`：lint / typecheck / `pnpm test`（827 通过）/ build / knip / `test:vendor`（168 文件、4210 用例通过）/ `ok-patches --check` / `format:check` / `pnpm notices` 均通过；知识库 e2e 首跑 128 通过 / 3 偶发失败（editor-s3-large:52、host-routes:10、shell ACC-AG-01）重跑全过；1 MiB 切实时预览 10/10；perf 对照基线无回归（1 MiB 打开 134–401 ms，5000 行输入 p95 12.5–13.6 ms，scale-vault 3.5 s）。贯穿路径 `journey.spec.ts` 与 F10 200 轮泄漏数据见 `evidence/s8/journey-leak-bench.md`。
+- **未完成 / 未验证（如实）**：①B06 在 rc.4 上未能复现，只修了相近缺陷（P-S3-06），未用真实鼠标证实；②复刻矩阵 82/283 行未逐行验证（§18）；③真实输入法、硬件鼠标、Windows / macOS 实机、`e2e:packaged`、CI 三平台未运行；④10 万文件树场景只有 2 万候选单测；上传（拖入外部文件）未接；⑤`test:vendor` 不适用 70 个文件（29%），上游约 85 个 jsdom 测试未迁入；⑥1 MiB 切换偶发卡死的应用侧触发未证伪；⑦窗口 <1440 px 时详情面板盖住工具栏最右按钮（rc.4 起的既有布局）；⑧本机 inotify 配额曾被 VS Code server 占满，目录事件 / 外部修改相关用例需在配额正常的环境复核。
+- 对外接口：`vault.tree` 更名 `vault.indexEntries`，`notes.files` 删除（仓库内无其它调用方，按 Q8 直接改，发布说明草稿 `evidence/s8/release-notes-draft.md`）。
+- 授权边界：未合入 `main`、未推送、未发版。

@@ -30,7 +30,7 @@ const ENTRIES = [
 ].map((p) => join(APP_SRC, p));
 
 const outArgIdx = process.argv.indexOf("--out");
-const OUT = outArgIdx > 0 ? resolve(process.argv[outArgIdx + 1]) : join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json");
+const OUT = outArgIdx > 0 ? resolve(process.argv[outArgIdx + 1]) : join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json");
 
 const isTest = (f) => /\.(test|dom\.test|e2e|test-helper|type-tests|reads)\.[tj]sx?$/.test(f) || /\/(tests?|fixtures|__tests__|test-utils)\//.test(f) || f.endsWith(".d.ts");
 

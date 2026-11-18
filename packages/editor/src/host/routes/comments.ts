@@ -1,6 +1,6 @@
 // hostFetch 的 comments 路由（S4）：把 OK 的 `/api/comments`、`/api/comment` 动作集适配到 Huhu 的 `comments.*` 能力。
 // 本包不依赖业务模块：能力经 CommentsPort 由宿主（plugins/notes 的 commentAdapter）注入。
-// 字段对照与差异登记见 .agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/comment-field-map.md。
+// 字段对照与差异登记见 .agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/comment-field-map.md。
 import type { HostRoutes } from "../host-fetch";
 
 /** Huhu `CommentDto` 的结构化副本（只含适配用到的字段；不 import 业务类型）。 */

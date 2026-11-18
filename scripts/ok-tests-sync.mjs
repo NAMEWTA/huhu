@@ -7,11 +7,11 @@ import { dirname, join, relative, resolve } from "node:path";
 const ROOT = resolve(import.meta.dirname, "..");
 const OK = process.env.OK_SRC ?? join(ROOT, "temp/sources/open-knowledge");
 const V = join(ROOT, "packages/editor/src/vendor/open-knowledge");
-const man = JSON.parse(readFileSync(join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json"), "utf8"));
+const man = JSON.parse(readFileSync(join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json"), "utf8"));
 const dirs = new Set(man.files.filter((f) => f.area === "core").map((f) => dirname(f.upstream)));
 const isTestLike = (n) => /\.(test|test-helper|type-tests)\.[tj]sx?$/.test(n) || n === "fixtures";
 // vendor-tests-na.json（ok-tests-prune.mjs 维护）里的测试是“不适用”，不再迁入
-const NA = new Set(JSON.parse(readFileSync(join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/vendor-tests-na.json"), "utf8")).map((x) => x.file));
+const NA = new Set(JSON.parse(readFileSync(join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/vendor-tests-na.json"), "utf8")).map((x) => x.file));
 let n = 0;
 function copyTree(src, dst) {
   mkdirSync(dst, { recursive: true });

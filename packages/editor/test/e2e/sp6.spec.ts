@@ -83,6 +83,6 @@ test("SP-6：打开 / 无编辑不改源文本 / 输入 / 来回切 / 源码模�
   await expect(page.locator(".ProseMirror").first()).toContainText("SRC-TWO", { timeout: 20_000 });
 
   console.log("PAGE_ERRORS", JSON.stringify(errors));
-  await page.screenshot({ path: path.resolve(HERE, "../../../../.agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/spikes/sp6-harness.png") });
+  await page.screenshot({ path: path.resolve(HERE, "../../../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/spikes/sp6-harness.png") });
   await app.close();
 });

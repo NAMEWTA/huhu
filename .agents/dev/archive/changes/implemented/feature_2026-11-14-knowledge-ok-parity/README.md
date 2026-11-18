@@ -1,7 +1,7 @@
 # 知识库完整重构：移植 Open Knowledge 编辑器
 
 - **来源**：2026-11-14 用户要求拉取 [issue #2](https://github.com/NAMEWTA/huhu/issues/2)（含用户补充评论）并据此建立 change、完成完整文件文档与设计；`temp/sources/orca` 与 `temp/sources/open-knowledge` 复制复刻，编辑器以 OK 为主，技术栈可完整重构。
-- **状态**：**文档与设计完成（2026-11-14），尚未实施，没有写任何产品代码。** 下一步 = S0（来源冻结与三个闸门 spike：SP-1 编译、SP-4 往返、SP-6 真实 Electron 运行时），见 [plan.md](plan.md)。
+- **状态（2026-11-18 归档）**：已实施并归档为 implemented（主类型 feature）。S0–S8 全部合入分支 `feat/knowledge-ok-parity`（尚未合入 `main`，是否合入 / 推送 / 发版由用户另行授权）；最终审计快照 `2c89f8d` 的 lint / typecheck / test / build / knip / test:vendor / ok-patches / format:check / notices 全部通过，知识库 e2e 128/131 首跑通过、3 个偶发项重跑通过。**未验证与已知限制**见 [progress.md](progress.md) 末节与 `notes/decisions/2026-11-15-knowledge-editor-ok.md`。原路径 `changes/2026-11-14-knowledge-ok-parity` → 现路径 `archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity`。
 - **性质**：大型跨包重构（编辑器内核替换）。无法新旧并存；采用垂直切片 + 诚实的整合边界。**任何阶段完成都不是“整体复刻完成”。**
 - **对 issue 的订正**：13 条，见 [spec.md](spec.md) §3（来源已在本地、保留 Yjs、HTML 预览不可复制、OK 的隐藏是 `.okignore`、属性面板、阅读模式、范围分类等）。
 - **要取代的既有决定**：`D-08`（CM6 单实现 / 否决 Tiptap + Yjs）、`D-09`、`D-31`（编辑器范围）、`product.md` 非目标——后继记录见 [decisions.md](decisions.md) OP-D01，归档时写入 `notes/decisions/`。

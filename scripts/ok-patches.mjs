@@ -8,10 +8,10 @@ import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const V = join(ROOT, "packages/editor/src/vendor/open-knowledge");
-const man = JSON.parse(readFileSync(join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json"), "utf8"));
+const man = JSON.parse(readFileSync(join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json"), "utf8"));
 // 上游测试 / 助手 / fixtures（迁入 vendor、与被测源码同目录）：路径 → 上游 SHA-256；不在闭包清单里，单独一份清单。
 // 重新生成：OK_SRC=<上游工作副本> node scripts/ok-patches.mjs --write-tests-manifest（只收录与上游同路径的文件）
-const TESTS_MANIFEST = join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/tests-manifest.json");
+const TESTS_MANIFEST = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/tests-manifest.json");
 const testsMan = existsSync(TESTS_MANIFEST) ? JSON.parse(readFileSync(TESTS_MANIFEST, "utf8")) : {};
 const sha = (f) => createHash("sha256").update(readFileSync(f)).digest("hex");
 const rel = (p) => p.replace(/^packages\/(app|core)\//, "$1/");

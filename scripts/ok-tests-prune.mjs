@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const ED = join(ROOT, "packages/editor");
-const NA_FILE = join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence/vendor-tests-na.json");
+const NA_FILE = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/vendor-tests-na.json");
 // 加载成功但断言的是“上游仓库其他包的源码”的测试：不适用
 const NA_ASSERT = {
   "core/src/logging/renderer-capture-scrub-coverage.uncached.test.ts": "扫描上游 app/ 与 desktop/ 的渲染进程日志源码；这些源码不在 Huhu 闭包里",

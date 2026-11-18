@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const ED = join(ROOT, "packages/editor");
-const EV = join(ROOT, ".agents/dev/changes/2026-11-14-knowledge-ok-parity/evidence");
+const EV = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
 const r = JSON.parse(readFileSync(join(ED, "test-results/vendor.json"), "utf8"));
 const na = JSON.parse(readFileSync(join(EV, "vendor-tests-na.json"), "utf8"));
 const testsMan = JSON.parse(readFileSync(join(EV, "tests-manifest.json"), "utf8"));
