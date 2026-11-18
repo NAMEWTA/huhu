@@ -366,6 +366,18 @@ test("原子 JSX 块可用上下键选中，Escape 退出后可继续编辑并�
     await editor.getByText("后文", { exact: true }).click();
     await expect(editor).toBeFocused();
     await page.keyboard.press("Home");
+    // 等待 ProseMirror 接收原生 selectionchange，然后再发送下一次方向键。
+    await expect
+      .poll(() =>
+        editor.evaluate((element) => {
+          const root = element as HTMLElement & {
+            editor?: { state: { selection: { $head: { parentOffset: number; parent: { textContent: string } } } } };
+          };
+          const head = root.editor?.state.selection.$head;
+          return { offset: head?.parentOffset, text: head?.parent.textContent };
+        }),
+      )
+      .toEqual({ offset: 0, text: "后文" });
     await page.keyboard.press("ArrowUp");
     await expect(selected).toBeVisible();
     await page.keyboard.press("Escape");
