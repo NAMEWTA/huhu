@@ -45,18 +45,34 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const { commentRoutes } = useCommentsBridge({ paths: props.notes.map((x) => x.path), flush: props.flush });
   const notePath = useRef(props.path);
   notePath.current = props.path;
-  const routes = useMemo<HostRoutes>(
-    () => ({
+  const currentText = useRef(props.value);
+  currentText.current = props.value;
+  const routes = useMemo<HostRoutes>(() => {
+    const pathForDocName = (docName: string) => notes.current.find((entry) => docNameOf(entry.path) === docName)?.path;
+    return {
       ...commentRoutes,
       // 粘贴 / 拖入图片与文件：落在当前笔记旁的 attachments/（notes.attach：原子写 + OperationLog，同内容去重）
       ...uploadRoutes(async ({ file, name, notePath: parent }) => attachFile(engine, { file, name, notePath: parent ?? notePath.current })),
       ...coreRoutes({
         listPages: () => notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
         listDocuments: () => notes.current.map((x) => ({ kind: "document" as const, path: x.path, docName: docNameOf(x.path) })),
+        suggestions: {
+          listTags: () => engine.call<{ tag: string; count: number }[]>("notes.tags", {}),
+          readDocument: async (docName) => {
+            if (docName === docNameOf(notePath.current)) return currentText.current;
+            const path = pathForDocName(docName);
+            return path ? (await engine.call<{ text: string }>("notes.read", { path })).text : null;
+          },
+          listBacklinks: async (docName) => {
+            const path = pathForDocName(docName);
+            if (!path) return [];
+            const backlinks = await engine.call<{ path: string; title: string }[]>("notes.backlinks", { path });
+            return backlinks.map((entry) => ({ source: docNameOf(entry.path), title: entry.title }));
+          },
+        },
       }),
-    }),
-    [commentRoutes, engine],
-  );
+    };
+  }, [commentRoutes, engine]);
   const documentHost = useMemo(
     () => ({
       openDocument: (docName: string) => {

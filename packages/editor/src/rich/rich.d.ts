@@ -49,6 +49,11 @@ export interface HostDocumentEntry {
 export interface CoreRouteDeps {
   listPages(): Promise<HostPageSummary[]> | HostPageSummary[];
   listDocuments(): Promise<HostDocumentEntry[]> | HostDocumentEntry[];
+  suggestions?: {
+    listTags(): Promise<{ tag: string; count: number }[]>;
+    readDocument(docName: string): Promise<string | null>;
+    listBacklinks(docName: string): Promise<{ source: string; title: string }[]>;
+  };
 }
 export type HostRoutes = Record<string, (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown>;
 export function coreRoutes(deps: CoreRouteDeps): HostRoutes;
