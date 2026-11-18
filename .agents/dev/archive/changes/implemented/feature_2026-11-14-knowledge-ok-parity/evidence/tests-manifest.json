@@ -110,7 +110,6 @@
   "core/src/i18n/direction.test.ts": "2a9b00cb056a2a949cbca994e9c18b7bc1d33e55cd7f8f902f73f37fb6627c10",
   "core/src/i18n/locales.test.ts": "e99b53620e55838d0d74ce20dae0eabeeafe33b3b2dc21f1efbeae51b5435015",
   "core/src/i18n/resolve-locale.test.ts": "bd55a66bdc653d1163d350aa0af2a891e6e9cda6be56b41aa9697dc5305fd1d3",
-  "core/src/logging/qa-secret-pattern-canary.test.ts": "21b596c70cd45f25b398f5329d6363c76515e0447820c5db98b33904442ac429",
   "core/src/logging/renderer-log.test.ts": "35e1611241123aade03e536e4ddb8fe4de06ebe2ed69e5b3dc6eb6bd648b3661",
   "core/src/logging/secret-scrub.test.ts": "9ef2e7094f328668c6c5771d6de97e0909c7f19df8eeabbbed2a025c1017083f",
   "core/src/markdown/fixtures/commonmark/.gitkeep": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",

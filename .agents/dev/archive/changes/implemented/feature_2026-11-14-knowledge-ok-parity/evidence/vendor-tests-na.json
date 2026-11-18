@@ -278,5 +278,9 @@
   {
     "file": "core/src/utils/uninstall-feedback-submit.test.ts",
     "reason": "被测模块 ../index.ts 不在编辑器闭包里（所测功能 Huhu 不使用）"
+  },
+  {
+    "file": "core/src/logging/qa-secret-pattern-canary.test.ts",
+    "reason": "上游日志脱敏金丝雀测试，夹具含 Slack 令牌形状的字符串，会触发 GitHub push protection（2026-11-18 推送被拒）；Huhu 不含对应日志模块，未迁入"
   }
 ]
