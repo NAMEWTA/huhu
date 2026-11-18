@@ -1,8 +1,9 @@
+import type { RichEditorPort } from "@huhu/editor/rich";
 import type { ArchiveDetailDto, ArchiveDto, ArchiveFieldDef, ArchiveTypeDto } from "@huhu/contracts";
 import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, SearchBox, type DataTableColumn } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient, useReferenceIndex } from "@huhu/workbench";
 import { ArrowUpRight, FilePlus2, FileText, Folder, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { archiveIcon } from "./icons.js";
 import { a } from "./i18n.js";
 import { folderName } from "./route.js";
@@ -328,9 +329,11 @@ export function ArchiveView({
     try {
       setError(null);
       await call("archives.update", { path: d.path, ...(d.version ? { expectedVersion: d.version } : {}), ...patch });
+      return true;
     } catch (e) {
       setError(message(e));
       await detail.refetch();
+      return false;
     }
   };
   const defs = type?.fields ?? [];
@@ -570,32 +573,49 @@ function FieldInput({ def, value, problem, onCommit }: { def: ArchiveFieldDef; v
   );
 }
 
-/** 正文编辑：普通笔记编辑器编辑 index.md 的正文；停手 800 ms 或失焦后条件写。 */
-function BodyEditor({ path, body, onSave }: { path: string; body: string; onSave(body: string): Promise<unknown> }) {
+/** 档案正文在停手、失焦或离开页面时保存。 */
+function BodyEditor({ path, body, onSave }: { path: string; body: string; onSave(body: string): Promise<boolean> }) {
   const refs = useReferenceIndex();
   const [text, setText] = useState(body);
+  const port = useRef<RichEditorPort | null>(null);
+  const registerPort = useCallback((editor: RichEditorPort | null) => {
+    port.current = editor;
+  }, []);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(body);
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-  const flush = () => {
+  const save = useRef(onSave);
+  save.current = onSave;
+  const lastRequested = useRef(body);
+  const queue = useRef(Promise.resolve());
+  const flush = useCallback(async () => {
+    const editor = port.current;
+    await editor?.flush();
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    if (latest.current !== body) void onSave(latest.current);
-  };
-  useEffect(() => {
-    // 卸载（切换到别的档案或模块）时把未保存的正文落盘
-    return () => {
-      if (latest.current !== body) void onSave(latest.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const next = editor?.getDraft() ?? latest.current;
+    if (next === lastRequested.current) return;
+    const previous = lastRequested.current;
+    lastRequested.current = next;
+    queue.current = queue.current.then(async () => {
+      if (!(await save.current(next)) && lastRequested.current === next) lastRequested.current = previous;
+    });
+    await queue.current;
   }, []);
+  // 编辑器的 layout cleanup 先把桥里的事务同步交付给 onChange。
+  useEffect(
+    () => () => {
+      void flush();
+    },
+    [flush],
+  );
   return (
-    <div className="notes-archive-body" data-testid="archive-body" onBlur={flush}>
+    <div
+      className="notes-archive-body"
+      data-testid="archive-body"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) void flush();
+      }}
+    >
       <Suspense fallback={null}>
         <CompactInput
           id={`archive:${path}`}
@@ -603,11 +623,12 @@ function BodyEditor({ path, body, onSave }: { path: string; body: string; onSave
           pages={refs.pages}
           referenceSearch={refs.search}
           placeholder={a.body}
+          onPort={registerPort}
           onChange={(v) => {
             latest.current = v;
             setText(v);
             if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(flush, 800);
+            timer.current = setTimeout(() => void flush(), 800);
           }}
         />
       </Suspense>

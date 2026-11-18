@@ -2,7 +2,7 @@
 // 每个实例 = 一个 LocalDocProvider + 一个 TiptapEditor（成本见 evidence/s2/compact-cost.md）；阅读实例不写盘、不触发任何保存。
 import { useMemo, useRef } from "react";
 import { OkRoot } from "./OkRoot";
-import { RichMarkdownEditor } from "./RichMarkdownEditor";
+import { RichMarkdownEditor, type RichEditorPort } from "./RichMarkdownEditor";
 import type { ReferenceCandidate } from "./at-reference";
 import { coreRoutes } from "../host/routes/core";
 import type { HostRoutes } from "../host/host-fetch";
@@ -70,7 +70,9 @@ export function CompactMarkdownView(props: CompactBase & { value: string }) {
   );
 }
 
-export function CompactMarkdownInput(props: CompactBase & { value: string; onChange(text: string): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] }) {
+export function CompactMarkdownInput(
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+) {
   const { routes, documentHost } = useCompactHost(props.pages, props.onOpenPath);
   return (
     <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} {...(props.className ? { className: props.className } : {})}>
@@ -78,6 +80,7 @@ export function CompactMarkdownInput(props: CompactBase & { value: string; onCha
         docName={`compact-input/${props.id}`}
         value={props.value}
         onChange={props.onChange}
+        {...(props.onPort ? { onPort: props.onPort } : {})}
         variant="compact"
         {...(props.placeholder ? { placeholder: props.placeholder } : {})}
         {...(props.referenceSearch ? { referenceSearch: props.referenceSearch } : {})}

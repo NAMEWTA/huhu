@@ -1,0 +1,146 @@
+import { expect, test, type Page } from "@playwright/test";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { openApp, rmTree } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
+import { call, engineReady, holdBridgeTimers } from "./session-slow-bridge.js";
+
+const name = "退出交付.md";
+const original = "# 重新打开\n\n初始正文\n";
+const first = "首";
+const last = "关闭前的最后输入";
+const written = original.replace("初始正文", `初始正文${first}${last}`);
+const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror");
+async function openNote(page: Page): Promise<void> {
+  if (!(await page.getByTestId("notes-module").isVisible())) await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+  await page.getByTestId("notes-section-all").click();
+  await treeItem(page, name).click();
+  await expect(prose(page)).toContainText("初始正文");
+}
+async function reopenFromSearch(page: Page): Promise<void> {
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("combobox", { name: "搜索模块、命令和内容" }).fill("退出交付");
+  await page.getByTestId("palette-item").filter({ hasText: "退出交付" }).first().click();
+  await expect(prose(page)).toContainText("初始正文");
+}
+async function inputWithPendingBridge(page: Page): Promise<void> {
+  await prose(page).click();
+  await page.keyboard.press("ControlOrMeta+End");
+  const source = await holdBridgeTimers(prose(page));
+  await page.keyboard.insertText(first);
+  await expect.poll(source).toContain(`初始正文${first}`);
+  await page.keyboard.insertText(last);
+  await expect(prose(page)).toContainText(`初始正文${first}${last}`);
+  expect(await source()).not.toContain(last);
+}
+
+async function manualSave(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "设置", exact: true }).first().click();
+  await page.getByTestId("settings-nav-editor").click();
+  const autosave = page.getByRole("switch", { name: "自动保存" });
+  await autosave.click();
+  await expect(autosave).not.toBeChecked();
+}
+
+for (const autosave of [true, false]) {
+  test(`C06 结算待定时退出并重启（${autosave ? "自动保存" : "恢复草稿"}）`, async () => {
+    const { app, page, vault, close } = await openApp();
+    const file = path.join(vault, name);
+    try {
+      writeFileSync(file, original);
+      await engineReady(page);
+      if (!autosave) await manualSave(page);
+      await openNote(page);
+      await inputWithPendingBridge(page);
+      await app.close();
+      const disk = readFileSync(file, "utf8");
+      expect(disk).toBe(autosave ? written : original);
+      const reopened = await openApp({ HUHU_VAULT: vault });
+      try {
+        await engineReady(reopened.page);
+        expect(await reopened.page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
+        if (!autosave) expect((await call<{ text: string }>(reopened.page, "notes.draft.get", { path: name })).text).toBe(written);
+        await reopenFromSearch(reopened.page);
+        if (!autosave) await reopened.page.getByTestId("note-draft-restore").click();
+        await expect(prose(reopened.page)).toContainText(`初始正文${first}${last}`, { timeout: 5000 });
+        expect(readFileSync(file, "utf8")).toBe(disk);
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      await close();
+    }
+  });
+}
+
+test("C06 切笔记排空待结算文本，无编辑重开保留字节和 mtime", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const file = path.join(vault, name);
+    writeFileSync(file, original);
+    writeFileSync(path.join(vault, "别篇.md"), "别篇内容\n");
+    await engineReady(page);
+    await openNote(page);
+    await inputWithPendingBridge(page);
+    await treeItem(page, "别篇.md").click();
+    await expect.poll(() => readFileSync(file, "utf8")).toBe(written);
+    const mtime = statSync(file).mtimeMs;
+    await treeItem(page, name).click();
+    await expect(prose(page)).toContainText(last);
+    await page.getByRole("button", { name: "关闭 退出交付", exact: true }).click();
+    await treeItem(page, name).click();
+    await expect(prose(page)).toContainText(last);
+    expect(readFileSync(file, "utf8")).toBe(written);
+    expect(statSync(file).mtimeMs).toBe(mtime);
+  } finally {
+    await close();
+  }
+});
+
+test("C06 切 Vault 前从尚未报告 dirty 的编辑器收集修改", async () => {
+  const { app, page, vault, close } = await openApp();
+  const otherVault = mkdtempSync(path.join(tmpdir(), "huhu-c06-other-"));
+  try {
+    const file = path.join(vault, name);
+    // 401 个以上顶层块走桥原有的慢结算路径，第一次编辑即可保持源缓冲干净。
+    const clean = original + "\n独立段落\n".repeat(405);
+    writeFileSync(file, clean);
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await prose(page).click();
+    await page.keyboard.press("ControlOrMeta+End");
+    const source = await holdBridgeTimers(prose(page));
+    await page.keyboard.insertText(last);
+    await expect(prose(page)).toContainText(last);
+    expect(await source()).not.toContain(last);
+    await app.evaluate(({ dialog }, target) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
+    }, otherVault);
+    await page.getByRole("button", { name: "切换 Vault", exact: true }).click();
+    await page.getByTestId("vault-open-other").click();
+    await expect(page.getByTestId("svault-dirty-list")).toContainText(name);
+    expect(await source()).toContain(last);
+    await Promise.all([page.waitForEvent("load"), page.getByTestId("svault-switch-draft").click()]);
+    await engineReady(page);
+    expect(await page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(otherVault);
+    expect(readFileSync(file, "utf8")).toBe(clean);
+    await page.getByRole("button", { name: "切换 Vault", exact: true }).click();
+    await page
+      .getByTestId("vault-recent-item")
+      .filter({ hasText: path.basename(vault) })
+      .click();
+    await Promise.all([page.waitForEvent("load"), page.getByTestId("svault-switch-confirm").click()]);
+    await engineReady(page);
+    expect(await page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
+    const draft = await call<{ text: string }>(page, "notes.draft.get", { path: name });
+    expect(draft.text).toContain(last);
+    await reopenFromSearch(page);
+    await page.getByTestId("note-draft-restore").click();
+    await expect(prose(page)).toContainText(last);
+  } finally {
+    await close();
+    rmTree(otherVault);
+  }
+});

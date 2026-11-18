@@ -1,8 +1,9 @@
+import type { RichEditorPort } from "@huhu/editor/rich";
 import type { TaskDto, TaskStatus } from "@huhu/contracts";
 import { Badge, Button, IconButton } from "@huhu/ui";
 import { requestOpenPath, useCapability, useEngine } from "@huhu/workbench";
 import { AlertTriangle, Bell, Copy, FileText, History, Pencil, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { TaskMarkdownInput, TaskMarkdownView } from "./compact.js";
 import { useReferenceIndex } from "./references.js";
@@ -175,7 +176,7 @@ export function TaskDetail({
         ) : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
         {agent ? <RunRecords taskId={task.id} zone={zone} onMessage={onMessage} /> : null}
-        <CommentComposer task={task} refs={refs} onStatus={onStatus} onChanged={onChanged} onMessage={onMessage} />
+        <CommentComposer key={task.id} task={task} refs={refs} onChanged={onChanged} onMessage={onMessage} />
       </div>
       {confirmDelete ? (
         <div className="hu-modal-backdrop" role="presentation">
@@ -230,22 +231,35 @@ function Timeline({ task, zone, refs, onOpen }: { task: TaskDto; zone: string | 
 }
 
 /** 发表评论：追加一条 source=human 的评论；不会启动 Agent、不改变 inputRevision，会进入下一次派发的快照。 */
-function CommentComposer({ task, refs, onStatus, onChanged, onMessage }: { task: TaskDto; refs: ReturnType<typeof useReferenceIndex>; onStatus(task: TaskDto, next: TaskStatus): void; onChanged(): void; onMessage(m: string): void }) {
+function CommentComposer({ task, refs, onChanged, onMessage }: { task: TaskDto; refs: ReturnType<typeof useReferenceIndex>; onChanged(): void; onMessage(m: string): void }) {
   const engine = useEngine();
   const [text, setText] = useState("");
+  const [port, setPort] = useState<RichEditorPort | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   async function submit(close: boolean) {
-    const body = text.trim();
-    if (!body) return;
+    if (!port || submitting.current) return;
+    submitting.current = true;
     setBusy(true);
     try {
+      await port.flush();
+      const body = port.getDraft().trim();
+      if (!body) return;
       await engine.call("tasks.comments.add", { taskId: task.id, body }, { write: true });
       setText("");
       onChanged();
-      if (close && task.status !== "completed") onStatus(task, "completed");
+      if (close) {
+        // 评论会推进同一个任务文件版本。关闭使用追加评论后的版本做 CAS。
+        const updated = await engine.call<TaskDto>("tasks.read", { id: task.id });
+        if (updated.status !== "completed") {
+          await engine.call("tasks.setStatus", { id: updated.id, status: "completed", expectedVersion: updated.version }, { write: true });
+          onChanged();
+        }
+      }
     } catch (e) {
       onMessage(e instanceof Error ? e.message : String(e));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -253,14 +267,14 @@ function CommentComposer({ task, refs, onStatus, onChanged, onMessage }: { task:
     <section className="hu-tw-detail-section tw-composer" data-testid="comment-composer">
       <h3>{t.detail.addComment}</h3>
       <div className="tasks-composer-editor" data-testid="comment-input">
-        <TaskMarkdownInput id={`comment-input-${task.id}`} value={text} onChange={(v) => setText(v)} refs={refs} placeholder={t.detail.addComment} />
+        <TaskMarkdownInput id={`comment-input-${task.id}`} value={text} onChange={setText} onPort={setPort} refs={refs} placeholder={t.detail.addComment} />
       </div>
       <div className="row">
-        <Button variant="primary" loading={busy} disabled={!text.trim()} data-testid="comment-submit" onClick={() => void submit(false)}>
+        <Button variant="primary" loading={busy} disabled={!port || busy} data-testid="comment-submit" onClick={() => void submit(false)}>
           {t.detail.postComment}
         </Button>
         {task.status !== "completed" ? (
-          <Button loading={busy} disabled={!text.trim()} data-testid="comment-submit-close" onClick={() => void submit(true)}>
+          <Button loading={busy} disabled={!port || busy} data-testid="comment-submit-close" onClick={() => void submit(true)}>
             {t.detail.postAndClose}
           </Button>
         ) : null}
