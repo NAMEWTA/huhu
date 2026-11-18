@@ -1,0 +1,49 @@
+import { expect, test } from "@playwright/test";
+import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { openApp } from "../helpers/launch.js";
+import { treeItem, treeSettled } from "../helpers/tree.js";
+
+test("dbg large switch", async () => {
+  test.setTimeout(120_000);
+  const { page, vault, close } = await openApp();
+  const logs: string[] = [];
+  page.on("console", (m) => logs.push(`${m.type()}: ${m.text().slice(0, 200)}`));
+  page.on("pageerror", (e) => logs.push(`PAGEERROR: ${e.message.slice(0, 300)}`));
+  try {
+    const line = "这是一行用于测试大文档的正文，包含 **加粗** 与 [[链接]]。\n\n";
+    writeFileSync(path.join(vault, "巨型.md"), `# 巨型\n\n${line.repeat(Math.ceil((1024 * 1024) / Buffer.byteLength(line)))}`);
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await treeSettled(page);
+    await treeItem(page, "巨型.md").click();
+    const cm = page.getByTestId("markdown-editor").locator(".cm-content").first();
+    await expect(cm).toContainText("巨型", { timeout: 20_000 });
+    await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toHaveCount(0);
+    await page.waitForTimeout(2000);
+    await cm.click();
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("End");
+    await page.keyboard.type("改");
+    await page.getByRole("tab", { name: "实时预览" }).click();
+    const t0 = Date.now();
+    try {
+      await expect(page.getByTestId("markdown-editor").locator(".ProseMirror").first()).toContainText("巨型改", { timeout: 25_000 });
+      console.log(`FAILSTATE ok ${Date.now() - t0}ms`);
+    } catch {
+      const st = await page.evaluate(() => {
+        const me = document.querySelector('[data-testid="markdown-editor"]');
+        return {
+          html: me ? me.innerHTML.slice(0, 600) : "no markdown-editor",
+          pm: document.querySelectorAll(".ProseMirror").length,
+          loading: document.querySelectorAll(".ok-editor-loading").length,
+          tabSel: Array.from(document.querySelectorAll('[role="tab"]')).map((t) => `${t.textContent}:${t.getAttribute("aria-selected")}`),
+          cmCount: document.querySelectorAll(".cm-content").length,
+        };
+      });
+      console.log("FAILSTATE", JSON.stringify(st), "LOGS", JSON.stringify(logs.slice(-12)));
+    }
+  } finally {
+    await close();
+  }
+});

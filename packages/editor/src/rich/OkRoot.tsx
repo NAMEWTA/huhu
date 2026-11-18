@@ -11,6 +11,7 @@ import { PropertyProvider } from "@/components/PropertyContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { dynamicActivate } from "@/lib/activate-locale";
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "@/lib/doc-hash";
+import { setHostLintAvailable } from "@/lib/host-features";
 import { i18n } from "@/lib/i18n";
 import { HostConfigProvider, type HostEditorConfig } from "../host/config-provider";
 import { installDesktopBridge } from "../host/desktop-bridge";
@@ -59,6 +60,7 @@ export function OkRoot({ children, locale = "en", host, routes, config, poolKey,
   useEffect(() => {
     const restoreFetch = installHostFetch();
     void restoreFetch;
+    setHostLintAvailable(features.lint);
     const off = openExternal ? installDesktopBridge({ features, openExternal }) : () => {};
     return off;
   }, [features, openExternal]);

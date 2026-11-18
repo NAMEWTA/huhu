@@ -9,6 +9,7 @@ import type { BrokenLinkSuppression } from '@inkeep/open-knowledge-core/schemas/
 import { useEffect, useState } from 'react';
 import type { z } from 'zod';
 import { invalidatesLocalTargetAudit, subscribeToDocumentsChanged } from '@/lib/documents-events';
+import { isHostLintAvailable } from '@/lib/host-features';
 import { subscribeToLintConfigChanged } from './lint-config-client';
 
 type WireDiagnostic = ValidationDocResult['diagnostics'][number];
@@ -40,6 +41,7 @@ async function fetchAudit<T>(
   counts: boolean,
   signal?: AbortSignal,
 ): Promise<T | null | typeof AUDIT_SUPERSEDED> {
+  if (!isHostLintAvailable()) return null;
   try {
     const params = new URLSearchParams();
     if (scope.kind === 'path') params.set('path', scope.path);

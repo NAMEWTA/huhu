@@ -5,7 +5,13 @@
 export type HostRouteHandler = (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown;
 export type HostRoutes = Record<string, HostRouteHandler>;
 
-const routeTables: HostRoutes[] = [];
+// 兜底路由表（最低优先级，永远在表里）：页面 / 文档清单没有宿主注入时返回空清单而不是 404，
+// 例如详情栏的批注页（OkRoot 只带评论路由）挂载时比编辑面更早发出 /api/pages。有数据的宿主路由仍然优先。
+const baselineRoutes: HostRoutes = {
+  "GET /api/pages": () => ({ pages: [] }),
+  "GET /api/documents": () => ({ documents: [] }),
+};
+const routeTables: HostRoutes[] = [baselineRoutes];
 
 export function registerHostRoutes(routes: HostRoutes): () => void {
   routeTables.push(routes);
