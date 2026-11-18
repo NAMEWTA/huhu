@@ -62,7 +62,12 @@ for (const zoom of [1.25, 1.5, 2]) {
       expect((await bar.boundingBox())?.height ?? 999).toBeLessThan(64 * zoom);
       await expect(page.getByRole("button", { name: "添加批注" }).first()).toBeVisible();
     } finally {
-      await close();
+      try {
+        // 文件协议的缩放值保存在同一个 Electron 用户数据目录。
+        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(1));
+      } finally {
+        await close();
+      }
     }
   });
 }
@@ -184,7 +189,12 @@ for (const width of [800, 1024, 1280, 1439, 1440, 1920]) {
         }
       }
     } finally {
-      await close();
+      try {
+        // 文件协议的缩放值保存在同一个 Electron 用户数据目录。
+        await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(1));
+      } finally {
+        await close();
+      }
     }
   });
 }
