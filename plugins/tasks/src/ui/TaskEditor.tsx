@@ -1,3 +1,4 @@
+import type { RichEditorPort } from "@huhu/editor/rich";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { normalizeTag, type TaskDto } from "@huhu/contracts";
 import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
@@ -36,6 +37,8 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const original = useRef(JSON.stringify(draft)).current;
   const [problems, setProblems] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [bodyPort, setBodyPort] = useState<RichEditorPort | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [discard, setDiscard] = useState(false);
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
@@ -43,8 +46,20 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const models = agentById(draft.provider ?? "")?.options.models ?? [];
   const model = models.find((m) => m.id === draft.model);
   const canFast = model?.fast === true;
-  const dirty = JSON.stringify(draft) !== original;
-  const requestClose = () => (dirty ? setDiscard(true) : onClose());
+  const readDraft = async (): Promise<TaskDraft> => {
+    if (!bodyPort) return draft;
+    await bodyPort.flush();
+    return { ...draft, body: bodyPort.getDraft() };
+  };
+  const requestClose = async () => {
+    if (savingRef.current) return;
+    try {
+      if (JSON.stringify(await readDraft()) !== original) setDiscard(true);
+      else onClose();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const addTag = (raw: string) => {
     const tag = normalizeTag(raw);
@@ -66,13 +81,16 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   }
 
   async function save() {
-    const bad = validateDraft(draft);
-    setProblems(bad);
-    if (bad.length > 0) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setFailure(null);
     try {
-      const w = draftToWritable(draft);
+      const current = await readDraft();
+      const bad = validateDraft(current);
+      setProblems(bad);
+      if (bad.length > 0) return;
+      const w = draftToWritable(current);
       const saved = start
         ? await engine.call<TaskDto>("tasks.update", { id: start.id, expectedVersion: start.version, baseInputHash: start.inputHash, patch: w }, { write: true })
         : await engine.call<TaskDto>("tasks.create", w, { write: true });
@@ -80,6 +98,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
     } catch (e) {
       setFailure(e instanceof Error ? e.message : String(e));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -100,7 +119,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
             </Field>
             <Field label={t.editor.body}>
               <div className="automations-description-input tasks-body-editor" data-testid="task-body">
-                <TaskMarkdownInput id={`task-body-${start?.id ?? "new"}`} value={draft.body} onChange={(v) => set("body", v)} refs={refs} placeholder={t.editor.bodyLabel} />
+                <TaskMarkdownInput id={`task-body-${start?.id ?? "new"}`} value={draft.body} onChange={(v) => set("body", v)} onPort={setBodyPort} refs={refs} placeholder={t.editor.bodyLabel} />
               </div>
               <p className="tasks-hint">{t.editor.bodyHint}</p>
             </Field>

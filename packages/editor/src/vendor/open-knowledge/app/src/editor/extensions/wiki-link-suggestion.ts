@@ -441,7 +441,7 @@ export function configureWikiLinkSuggestion(editor: Editor) {
   let cachedContext: WikiLinkContext = EMPTY_WIKI_LINK_CONTEXT;
   let contextPromise: Promise<WikiLinkContext> | null = null;
   let cachedHeadings = new Map<string, HeadingEntry[]>();
-  let anchorFetchingFor: string | null = null;
+  let headingRequests = new Map<string, Promise<HeadingEntry[]>>();
   let fetchError: string | null = null;
   let anchorFetchError: string | null = null;
 
@@ -457,21 +457,31 @@ export function configureWikiLinkSuggestion(editor: Editor) {
       const { mode, pageTarget, anchorQuery } = parseQuery(query);
 
       if (mode === 'anchor') {
-        if (!cachedHeadings.has(pageTarget) && anchorFetchingFor !== pageTarget) {
-          anchorFetchingFor = pageTarget;
-          try {
-            const headings = await fetchHeadings(pageTarget);
-            cachedHeadings.set(pageTarget, headings);
-            anchorFetchError = null;
-          } catch (err) {
-            console.error('[wiki-link-suggestion] Failed to fetch headings:', err);
-            cachedHeadings.set(pageTarget, []);
-            anchorFetchError = `Failed to load headings for ${pageTarget}. Press Escape and type [[ again to retry.`;
-          } finally {
-            anchorFetchingFor = null;
+        const cache = cachedHeadings;
+        let headings = cache.get(pageTarget);
+        if (!headings) {
+          let request = headingRequests.get(pageTarget);
+          if (!request) {
+            // The query can change while the same page's headings are loading.
+            request = fetchHeadings(pageTarget).then(
+              (loaded) => {
+                if (cachedHeadings === cache) anchorFetchError = null;
+                cache.set(pageTarget, loaded);
+                return loaded;
+              },
+              (err: unknown) => {
+                console.error('[wiki-link-suggestion] Failed to fetch headings:', err);
+                if (cachedHeadings === cache) {
+                  anchorFetchError = `Failed to load headings for ${pageTarget}. Press Escape and type [[ again to retry.`;
+                }
+                cache.set(pageTarget, []);
+                return [];
+              },
+            );
+            headingRequests.set(pageTarget, request);
           }
+          headings = await request;
         }
-        const headings = cachedHeadings.get(pageTarget) ?? [];
         return buildAnchorItems(pageTarget, headings, anchorQuery);
       }
 
@@ -681,7 +691,7 @@ export function configureWikiLinkSuggestion(editor: Editor) {
           pagesLoaded = false;
           pagesPromise = null;
           contextPromise = null;
-          anchorFetchingFor = null;
+          headingRequests = new Map();
         },
       };
     },

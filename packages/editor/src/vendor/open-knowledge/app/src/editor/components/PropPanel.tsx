@@ -449,7 +449,7 @@ function PropControl({
           </label>
           <Switch
             id={boolId}
-            checked={Boolean(value)}
+            checked={Boolean(value ?? propDef.defaultValue)}
             onCheckedChange={(checked) => onChange(checked)}
           />
         </div>

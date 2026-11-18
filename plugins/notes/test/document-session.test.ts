@@ -91,6 +91,27 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(eng.disk("a.md")).toBe("abcd");
   });
 
+  test.each(["flush", "flushForExit", "keepDraft", "dispose"] as const)("%s 等待异步编辑器交付才读稿", async (action) => {
+    const eng = new FakeEngine({ "a.md": "初始" });
+    const s = mk(eng);
+    await s.load();
+    const delivery = Promise.withResolvers<void>();
+    const detach = s.attachDrainer(async () => {
+      await delivery.promise;
+      s.setText("初始和末字", "editor");
+    });
+    const complete = s[action]();
+    expect(eng.calls).not.toContain("notes.save");
+    expect(eng.calls).not.toContain("notes.draft.save");
+    delivery.resolve();
+    await complete;
+    detach();
+    if (action === "keepDraft") {
+      expect(eng.drafts.get("a.md")?.text).toBe("初始和末字");
+      expect(eng.disk("a.md")).toBe("初始");
+    } else expect(eng.disk("a.md")).toBe("初始和末字");
+  });
+
   test("C06：保存在途时又有新输入，旧回执不清除新的 dirtyRevision", async () => {
     const eng = new FakeEngine({ "a.md": "1" });
     const s = mk(eng);

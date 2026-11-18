@@ -49,6 +49,11 @@ export interface HostDocumentEntry {
 export interface CoreRouteDeps {
   listPages(): Promise<HostPageSummary[]> | HostPageSummary[];
   listDocuments(): Promise<HostDocumentEntry[]> | HostDocumentEntry[];
+  suggestions?: {
+    listTags(): Promise<{ tag: string; count: number }[]>;
+    readDocument(docName: string): Promise<string | null>;
+    listBacklinks(docName: string): Promise<{ source: string; title: string }[]>;
+  };
 }
 export type HostRoutes = Record<string, (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown>;
 export function coreRoutes(deps: CoreRouteDeps): HostRoutes;
@@ -82,7 +87,9 @@ export interface OkRootProps {
   routes?: HostRoutes;
   config?: { wordWrap?: boolean; showHiddenFiles?: boolean; showOnlyMarkdownFiles?: boolean; linkPreviewsEnabled?: boolean };
   poolKey?: string;
+  acceptSidebarDrop?: boolean;
   documentHost?: {
+    readAsset?(path: string): Promise<Blob>;
     openDocument?(docName: string): void;
     openTarget?(target: { kind: string; docName?: string; folderPath?: string; assetPath?: string }): void;
   };
@@ -107,7 +114,9 @@ interface CompactBase {
   className?: string;
 }
 export function CompactMarkdownView(props: CompactBase & { value: string }): ReactElement;
-export function CompactMarkdownInput(props: CompactBase & { value: string; onChange(text: string): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] }): ReactElement;
+export function CompactMarkdownInput(
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+): ReactElement;
 
 // S4 评论宿主
 export interface HuhuComment {

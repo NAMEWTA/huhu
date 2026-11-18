@@ -215,6 +215,17 @@ describe("移动、改名与删除（AR-07 / AR-08 / AR-12 / AR-18）", () => {
     expect(r.files).toEqual([{ path: "Archives/通讯录/张三/资料.md", name: "资料.md", kind: "note" }]);
     expect(r.outgoing).toEqual([]);
   });
+  test("E05 附件反链仅匹配档案内真实资源路径", async () => {
+    const { svc, put, rebuild } = await setup({ "Archives/通讯录/index.md": "" });
+    const archive = await svc.create({ type: "通讯录", name: "张三" });
+    put("Archives/通讯录/张三/附件.html", "<h1>档案附件</h1>");
+    put("附件.html", "<h1>同名文件</h1>");
+    put("正确.md", "[[Archives/通讯录/张三/附件.html]]\n");
+    put("别处.md", "[[附件.html]]\n");
+    put("Archives/通讯录/张三/正文.md", "[[Archives/通讯录/张三/附件.html]]\n");
+    await rebuild();
+    expect(svc.read(archive.path).backlinks.map((link) => link.path)).toEqual(["正确.md"]);
+  });
   test("AR-12 删除：整个文件夹进回收站并返回文件数；恢复后 noteId 与内容回来", async () => {
     const { svc, notes, root, put, rebuild } = await setup({ "Archives/通讯录/index.md": "" });
     const a = await svc.create({ type: "通讯录", name: "张三", body: "正文\n" });

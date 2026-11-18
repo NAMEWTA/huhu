@@ -99,7 +99,7 @@ export class DocumentSession {
   private inflight: Promise<boolean> | null = null;
   private loadSeq = 0;
   private readonly listeners = new Set<Listener>();
-  private readonly drainers = new Set<() => void>();
+  private readonly drainers = new Set<() => void | Promise<void>>();
   private snap: SessionSnapshot;
 
   constructor(opts: SessionOptions) {
@@ -184,13 +184,13 @@ export class DocumentSession {
     if (this.autosave()) this.timer = setTimeout(() => void this.save(), this.autosaveMs); // 关闭自动保存：只在 Mod+S 或点“保存”时写入
   }
 
-  /** 注册“编辑 → 会话”的待排空来源（编辑器的 300 ms 防抖）。flush() 先调用它们。 */
-  attachDrainer(fn: () => void): () => void {
+  /** 注册在保存或检查未保存状态前向会话交付文本的编辑器。 */
+  attachDrainer(fn: () => void | Promise<void>): () => void {
     this.drainers.add(fn);
     return () => this.drainers.delete(fn);
   }
-  private drain(): void {
-    for (const d of this.drainers) d();
+  async drainEditors(): Promise<void> {
+    await Promise.all([...this.drainers].map(async (drain) => drain()));
   }
 
   // ---- 保存（串行）----
@@ -240,7 +240,7 @@ export class DocumentSession {
 
   /** 排空编辑防抖后保存（切视图 / 切标签 / 关闭 / 改名前调用）。 */
   async flush(): Promise<boolean> {
-    this.drain();
+    await this.drainEditors();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.savedText !== null && this.text !== this.savedText) return this.save();
@@ -249,7 +249,7 @@ export class DocumentSession {
 
   /** 应用退出前：自动保存模式落盘，手动模式留草稿（与离开笔记时一致）。 */
   async flushForExit(): Promise<void> {
-    this.drain();
+    await this.drainEditors();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.savedText === null || this.text === this.savedText) return;
@@ -259,7 +259,7 @@ export class DocumentSession {
 
   /** 切换 Vault 前“保留草稿”。 */
   async keepDraft(): Promise<void> {
-    this.drain();
+    await this.drainEditors();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
@@ -384,7 +384,7 @@ export class DocumentSession {
   /** 引用归零：离开时把未保存的编辑写入——自动保存模式落盘（失败改存草稿），手动模式留草稿（ACC-KN-04）。 */
   async dispose(): Promise<void> {
     if (this.disposed) return;
-    this.drain();
+    await this.drainEditors();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const unsaved = this.savedText !== null && this.text !== this.savedText;

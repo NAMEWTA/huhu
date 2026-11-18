@@ -1,6 +1,8 @@
+import type { VaultReadRangeOutput } from "@huhu/contracts";
 import { OkRoot, RichMarkdownEditor, coreRoutes, uploadRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
 import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
+import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 
@@ -45,20 +47,53 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const { commentRoutes } = useCommentsBridge({ paths: props.notes.map((x) => x.path), flush: props.flush });
   const notePath = useRef(props.path);
   notePath.current = props.path;
-  const routes = useMemo<HostRoutes>(
-    () => ({
+  const currentText = useRef(props.value);
+  currentText.current = props.value;
+  const routes = useMemo<HostRoutes>(() => {
+    const pathForDocName = (docName: string) => notes.current.find((entry) => docNameOf(entry.path) === docName)?.path;
+    return {
       ...commentRoutes,
       // 粘贴 / 拖入图片与文件：落在当前笔记旁的 attachments/（notes.attach：原子写 + OperationLog，同内容去重）
       ...uploadRoutes(async ({ file, name, notePath: parent }) => attachFile(engine, { file, name, notePath: parent ?? notePath.current })),
       ...coreRoutes({
         listPages: () => notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
         listDocuments: () => notes.current.map((x) => ({ kind: "document" as const, path: x.path, docName: docNameOf(x.path) })),
+        suggestions: {
+          listTags: () => engine.call<{ tag: string; count: number }[]>("notes.tags", {}),
+          readDocument: async (docName) => {
+            if (docName === docNameOf(notePath.current)) return currentText.current;
+            const path = pathForDocName(docName);
+            return path ? (await engine.call<{ text: string }>("notes.read", { path })).text : null;
+          },
+          listBacklinks: async (docName) => {
+            const path = pathForDocName(docName);
+            if (!path) return [];
+            const backlinks = await engine.call<{ path: string; title: string }[]>("notes.backlinks", { path });
+            return backlinks.map((entry) => ({ source: docNameOf(entry.path), title: entry.title }));
+          },
+        },
       }),
-    }),
-    [commentRoutes, engine],
-  );
+    };
+  }, [commentRoutes, engine]);
   const documentHost = useMemo(
     () => ({
+      readAsset: async (path: string) => {
+        if (hasProtectedSegment(path)) throw new Error("附件位于受保护的目录");
+        const length = 4 * 1024 * 1024;
+        const parts: BlobPart[] = [];
+        let offset = 0;
+        let expectedSize: number | undefined;
+        while (true) {
+          const chunk = await engine.call<VaultReadRangeOutput>("vault.readRange", { path, offset, length });
+          expectedSize ??= chunk.size;
+          if (chunk.size !== expectedSize || expectedSize > MAX_ATTACH_BYTES || (chunk.length === 0 && !chunk.eof)) {
+            throw new Error("附件超过下载上限或在读取期间发生变化");
+          }
+          parts.push(Uint8Array.from(atob(chunk.base64), (char) => char.charCodeAt(0)));
+          offset += chunk.length;
+          if (chunk.eof) return new Blob(parts, { type: "application/octet-stream" });
+        }
+      },
       openDocument: (docName: string) => {
         // OK 的文档名不带扩展名；Huhu 里同名可能是 `名.md`，也可能是文件夹笔记 `名/index.md`（档案 / 文件夹笔记）
         const have = new Set(notes.current.map((x) => x.path));
@@ -67,16 +102,18 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         onOpen.current(have.has(direct) ? direct : have.has(folder) ? folder : direct);
       },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
-        if ((t.kind === "doc" || t.kind === "folder-index") && t.docName) onOpen.current(`${t.docName}.md`);
-        else if (t.kind === "folder" && t.folderPath) requestOpenPath(`${t.folderPath}/`);
+        if ((t.kind === "doc" || t.kind === "folder-index" || t.kind === "large-file") && t.docName) {
+          const path = notes.current.find((entry) => docNameOf(entry.path) === t.docName)?.path;
+          onOpen.current(path ?? `${t.docName}.md`);
+        } else if (t.kind === "folder" && t.folderPath) requestOpenPath(`${t.folderPath}/`);
         else if (t.kind === "asset" && t.assetPath) onOpen.current(t.assetPath);
       },
     }),
-    [],
+    [engine],
   );
 
   return (
-    <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}
