@@ -234,6 +234,39 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     };
   }, [docName, wantsReference, provider]);
 
+  // 快捷键作用在最新选区上：浏览器的 selectionchange 是异步事件，ProseMirror 靠它把 DOM 选区同步进 state。
+  // 紧贴着 Shift+Home / 鼠标拖选之后的 Mod-i 等快捷键会先于它到达，命令作用在旧的（折叠）选区上，只留下一个存储标记，看起来就像“首次按键被忽略”。
+  // 快捷键 keydown 的捕获阶段先让 ProseMirror 把待处理的 DOM 选区读进 state（DOMObserver.flush 就是它自己处理 selectionchange 的入口）。人手速度下该事件早已到达，这里是 no-op。
+  useEffect(() => {
+    let bound: Editor | null = null;
+    let handler: ((e: KeyboardEvent) => void) | null = null;
+    const unbind = () => {
+      if (bound && handler && !bound.isDestroyed) bound.view.dom.removeEventListener("keydown", handler, true);
+      bound = null;
+      handler = null;
+    };
+    const sync = () => {
+      const ed = getEditorForDoc(docName);
+      const next = ed && !ed.isDestroyed ? ed : null;
+      if (next === bound) return;
+      unbind();
+      if (!next) return;
+      bound = next;
+      handler = (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.isComposing) return;
+        const observer = (next.view as unknown as { domObserver?: { flush?: () => void } }).domObserver;
+        observer?.flush?.();
+      };
+      next.view.dom.addEventListener("keydown", handler, true);
+    };
+    sync();
+    const unsub = subscribeEditorRegistry(sync);
+    return () => {
+      unsub();
+      unbind();
+    };
+  }, [docName, provider]);
+
   // 只读 / 阅读模式
   useEffect(() => {
     const apply = () => {
