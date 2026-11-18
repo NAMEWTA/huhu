@@ -125,6 +125,11 @@
   --syntax-type: inherit;
 }
 
+[class~="ok-root"] file-tree-container {
+  --trees-fg-override: var(--text);
+  --trees-fg-muted-override: var(--faint);
+}
+
 [class~="ok-root"] :where(input, textarea)::placeholder {
   color: var(--muted-foreground);
 }
