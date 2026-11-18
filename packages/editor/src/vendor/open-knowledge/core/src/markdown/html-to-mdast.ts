@@ -127,6 +127,12 @@ export function htmlToMdast(html: string, options?: HtmlToMdastOptions): MdastRo
   if (html.length > maxBytes) {
     throw new HtmlPayloadTooLargeError(html.length, maxBytes);
   }
+  // A UTF-16 code unit contributes at most three UTF-8 bytes. Only measure
+  // inputs that can exceed the limit, after rejecting already oversized strings.
+  if (html.length * 3 > maxBytes) {
+    const byteLength = new TextEncoder().encode(html).byteLength;
+    if (byteLength > maxBytes) throw new HtmlPayloadTooLargeError(byteLength, maxBytes);
+  }
 
   const processor = unified().use(rehypeParse, { fragment: true });
 

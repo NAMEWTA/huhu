@@ -75,3 +75,154 @@
 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。
 - `app/src/components/FileTree.tsx`：沿用文件树 Shadow DOM 的观察器，应用 Lingui 的文件操作按钮读屏名称。
 - `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：增加对应的菜单分组、组件与文件操作选项文案。
+
+## Issue #2 本地编辑验收补证
+
+- `app/src/components/ui/input-group.tsx`：查找替换栏依赖的输入组，原样复制。
+- `app/src/editor/components/use-app-color-mode.ts`：读取并订阅 Huhu 已解析外观，保留 OK 根类名与系统模式回退。
+- `app/src/editor/components/use-app-color-mode.dom.test.tsx`：Huhu 模式覆盖与挂载后切换回归。
+- `core/src/markdown/html-to-mdast.ts`：对可能超限的多字节 HTML 用 UTF-8 字节数执行上限。
+- `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。
+- `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。
+- `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。
+
+- `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。
+
+- `app/src/editor/bubble-menu/FileBubbleButtons.tsx`：本地下载经宿主读取笔记相对路径的附件字节，通知失败，并支持按键激活。
+
+- `app/src/editor/components/CodePreviewEditModal.tsx`：保持 CodeMirror 的挂载 ref 稳定，输入触发渲染时不销毁正在编辑的视图。
+
+- `app/src/editor/components/PropPanel.tsx`：布尔开关在 Markdown 省略属性时反映描述符默认值。
+
+以下文件来自上游 `44a2e0a` 的 app 测试与夹具。为保持归档测试哈希清单原样，在此登记。接入时改用宿主闭包的测试依赖路径，并对 Huhu 本地桥结算、块装饰和应用壳差异保留对应断言。
+
+- `app/src/components/ui/alert-dialog.dom.test.tsx`
+- `app/src/components/ui/calendar.dom.test.tsx`
+- `app/src/components/ui/command.dom.test.tsx`
+- `app/src/components/ui/dialog.dom.test.tsx`
+- `app/src/components/ui/dropdown-menu.dom.test.tsx`
+- `app/src/components/ui/empty.dom.test.tsx`
+- `app/src/components/ui/loading-image.dom.test.tsx`
+- `app/src/components/ui/pane-card.dom.test.tsx`
+- `app/src/components/ui/panel.dom.test.tsx`
+- `app/src/components/ui/popover.dom.test.tsx`
+- `app/src/components/ui/select.dom.test.tsx`
+- `app/src/components/ui/sidebar.dom.test.tsx`
+- `app/src/components/ui/spinner.dom.test.tsx`
+- `app/src/components/ui/toast-outside-guard.test.ts`
+- `app/src/components/ui/tooltip.dom.test.tsx`
+- `app/src/editor/bubble-menu/FootnoteBubbleButton.dom.test.tsx`
+- `app/src/editor/bubble-menu/ImageAlignButtons.test.ts`
+- `app/src/editor/bubble-menu/LinkEditPopover.dom.test.tsx`
+- `app/src/editor/bubble-menu/ViewInSourceBubbleButton.dom.test.tsx`
+- `app/src/editor/bubble-menu/link-edit-popover-events.test.ts`
+- `app/src/editor/clipboard/clipboard-line-structure.test.ts`
+- `app/src/editor/clipboard/clipboard-sanitize.test.ts`
+- `app/src/editor/clipboard/clipboard-walker-fallback-palette.dom-shape.test.ts`
+- `app/src/editor/clipboard/clipboard-walker-fallback-palette.test.ts`
+- `app/src/editor/clipboard/clipboard-walker.test.ts`
+- `app/src/editor/clipboard/codeblock-preview-clipboard.test.ts`
+- `app/src/editor/clipboard/comment-clipboard-contract.test.ts`
+- `app/src/editor/clipboard/copy-image.dom.test.ts`
+- `app/src/editor/clipboard/detect-source.test.ts`
+- `app/src/editor/clipboard/handle-drop.test.ts`
+- `app/src/editor/clipboard/handle-paste.list-placement.test.ts`
+- `app/src/editor/clipboard/handle-paste.mixed-payload-placement.test.ts`
+- `app/src/editor/clipboard/handle-paste.test.ts`
+- `app/src/editor/clipboard/instrument.test.ts`
+- `app/src/editor/clipboard/is-markdown.test.ts`
+- `app/src/editor/clipboard/lone-url.test.ts`
+- `app/src/editor/clipboard/non-portable-descriptors.test-helper.ts`
+- `app/src/editor/clipboard/non-portable-render-source-fallback.test.ts`
+- `app/src/editor/clipboard/opendepth-guard.test.ts`
+- `app/src/editor/clipboard/paste-failure-toast.test.ts`
+- `app/src/editor/clipboard/serialize.container-descriptor-boundary.test.ts`
+- `app/src/editor/clipboard/serialize.inline-image-range.test.ts`
+- `app/src/editor/clipboard/serialize.test.ts`
+- `app/src/editor/clipboard/shift-tracker.test.ts`
+- `app/src/editor/clipboard/source-clipboard-recovery.test.ts`
+- `app/src/editor/clipboard/source-clipboard.test.ts`
+- `app/src/editor/clipboard/wysiwyg-stop-rule.test.ts`
+- `app/src/editor/components/Accordion.test.tsx`
+- `app/src/editor/components/Callout.test.tsx`
+- `app/src/editor/components/CodePreviewEditModal.dom.test.tsx`
+- `app/src/editor/components/ColorPickerInput.test.ts`
+- `app/src/editor/components/File.test.tsx`
+- `app/src/editor/components/Image.dom.test.tsx`
+- `app/src/editor/components/Math.test.tsx`
+- `app/src/editor/components/Mermaid.dom.test.tsx`
+- `app/src/editor/components/Mermaid.test.tsx`
+- `app/src/editor/components/MirrorSource.dom.test.tsx`
+- `app/src/editor/components/PreviewBlockedNotice.dom.test.tsx`
+- `app/src/editor/components/PropPanel.dom.test.tsx`
+- `app/src/editor/components/PropPanel.mirror.dom.test.tsx`
+- `app/src/editor/components/PropPanel.test.tsx`
+- `app/src/editor/components/SrcAutocomplete.dom.test.tsx`
+- `app/src/editor/components/Tab.test.tsx`
+- `app/src/editor/components/Tabs.dom.test.tsx`
+- `app/src/editor/components/Video.dom.test.tsx`
+- `app/src/editor/components/image-target-existence.test.ts`
+- `app/src/editor/components/live-doc-pool.dom.test.tsx`
+- `app/src/editor/components/mirror-source-names.test.ts`
+- `app/src/editor/components/pdf-layout.test.ts`
+- `app/src/editor/components/snapshot-url-pool.dom.test.ts`
+- `app/src/editor/components/use-mirror-source.dom.test.tsx`
+- `app/src/editor/components/use-mirror-source.test.ts`
+- `app/src/editor/editor-rig.test-helper.ts`
+- `app/src/editor/extensions/JsxInlineView.dom.test.tsx`
+- `app/src/editor/extensions/RawMdxFallbackCMView.dom.test.tsx`
+- `app/src/editor/extensions/RawMdxFallbackCMView.test.ts`
+- `app/src/editor/extensions/autonomous-fragment-edit.test.ts`
+- `app/src/editor/extensions/bare-html-image-decoration.test.tsx`
+- `app/src/editor/extensions/bridge-id-plugin.test.ts`
+- `app/src/editor/extensions/cell-insertion-gate.test.ts`
+- `app/src/editor/extensions/chunk-wrapper-decoration.test.ts`
+- `app/src/editor/extensions/code-block-preview-csp.test.ts`
+- `app/src/editor/extensions/drag-handle.dom.test.ts`
+- `app/src/editor/extensions/mark-identity-decoration.test.ts`
+- `app/src/editor/extensions/mark-identity.test.ts`
+- `app/src/editor/extensions/mark-interaction-bridge.test.tsx`
+- `app/src/editor/extensions/nested-cm-extensions.test.ts`
+- `app/src/editor/extensions/raw-mdx-fallback.test.ts`
+- `app/src/editor/extensions/raw-mdx-nested-copy-version-pin.test.ts`
+- `app/src/editor/extensions/selection-state-plugin.test.ts`
+- `app/src/editor/extensions/shared.dom.test.tsx`
+- `app/src/editor/extensions/slash-command-atomicity.dom.test.tsx`
+- `app/src/editor/extensions/source-dirty-flip.dom.test.tsx`
+- `app/src/editor/extensions/source-dirty-fold-atomicity.dom.test.tsx`
+- `app/src/editor/extensions/source-dirty-observer.autonomous-swap.test.ts`
+- `app/src/editor/extensions/source-dirty-observer.origin-guard.test.ts`
+- `app/src/editor/extensions/source-dirty-observer.test-helper.ts`
+- `app/src/editor/extensions/source-dirty-serialize.test.ts`
+- `app/src/editor/extensions/suggestion-atomicity.dom.test.tsx`
+- `app/src/editor/extensions/suggestion-floating-ui.dom.test.ts`
+- `app/src/editor/extensions/suggestion-ime-triggers.dom.test.tsx`
+- `app/src/editor/extensions/tab-focus-trap.test.ts`
+- `app/src/editor/extensions/table-row-enter.test.ts`
+- `app/src/editor/extensions/tag-suggestion.test.ts`
+- `app/src/editor/extensions/trailing-affordance.dom.test.ts`
+- `app/src/editor/extensions/wiki-link-suggestion.test.ts`
+- `app/src/editor/extensions/wiki-link.doc-activation.test.ts`
+- `app/src/editor/extensions/wiki-link.external-open.test.ts`
+- `app/src/editor/find-replace/literal-matcher.test.ts`
+- `app/src/editor/find-replace/tiptap-find-replace-extension.test.ts`
+- `app/src/editor/image-upload/pickInsertShape.test.ts`
+- `app/src/editor/image-upload/shortestImageRef.test.ts`
+- `app/src/editor/link-path-suggestions.dom.test.tsx`
+- `app/src/editor/link-path-suggestions.test.ts`
+- `app/src/editor/plugins/asset-context-menu.test.ts`
+- `app/src/editor/slash-command/SlashCommandMenu.dom.test.tsx`
+- `app/src/editor/source-undo-mode-flip.dom.test.ts`
+- `app/src/editor/source-undo-mode-flip.test.ts`
+- `app/src/editor/table-controls/table-axis-selection.test.ts`
+- `app/src/editor/table-controls/useTableDragReorder.test.ts`
+- `app/src/editor/undo-isolation.test.ts`
+- `app/src/editor/walk-currency.test-helper.ts`
+- `app/src/test-utils/lingui-mock.ts`
+- `app/src/test-utils/served-binding.test-helper.ts`
+- `app/src/test-utils/visual-contract.ts`
+- `app/tests/lingui-macro-shim.tsx`
+- `app/src/editor/components/lucide-icon-allowlist.test.ts`
+- `app/src/editor/extensions/preview-iframe-csp-violation.test.ts`
+- `app/src/editor/extensions/preview-iframe-theme.test.ts`
+- `app/src/editor/extensions/preview-live-tokens.test.ts`
