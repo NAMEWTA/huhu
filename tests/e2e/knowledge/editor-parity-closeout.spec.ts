@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem, treeSettled } from "../helpers/tree.js";
+import { treeItem, treeRename, treeSettled } from "../helpers/tree.js";
 
 const note = "复刻验收";
 const filename = `${note}.md`;
@@ -476,6 +476,57 @@ test("上下方向键进入未知 MDX，嵌套 CodeMirror 撤销重做后保存�
     await page.keyboard.press("Home");
     await page.keyboard.press("ArrowUp");
     await expect(embedded).toBeFocused();
+  } finally {
+    await close();
+  }
+});
+
+test("气泡块类型菜单显示完整类别，选取二级标题后保存重开", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = "# 块类型\n\n这是块类型用例的前置正文。\n\n转换目标\n";
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    const editor = prose(page);
+    await editor.getByText("转换目标", { exact: true }).click();
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("转换目标");
+    await page.getByRole("button", { name: "文本", exact: true }).click({ timeout: 10_000 });
+    const menu = page.getByRole("menu");
+    await expect(menu.getByRole("menuitem")).toHaveText(["文本", "一级标题", "二级标题", "三级标题", "无序列表", "有序列表", "任务清单", "引用", "代码块"]);
+    await menu.getByRole("menuitem", { name: "二级标题" }).click();
+    await expect(editor.getByRole("heading", { level: 2, name: "转换目标" })).toBeVisible();
+    await reopenSavedNote(page, file, original.replace("转换目标", "## 转换目标"));
+    await expect(editor.getByRole("heading", { level: 2, name: "转换目标" })).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("文件树重命名拒绝带路径分隔符的名称，并保留 Markdown 扩展名", async () => {
+  const { page, vault, close } = await openApp();
+  const original = "# 重命名保真\n";
+  const file = path.join(vault, filename);
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    await treeRename(page, treeItem(page, filename), "拒绝/迁移");
+    await expect(treeItem(page, filename)).toBeVisible();
+    expect(readFileSync(file, "utf8")).toBe(original);
+    expect(existsSync(path.join(vault, "拒绝", "迁移.md"))).toBe(false);
+    await page.keyboard.press("Escape");
+
+    const renamed = "确认改名.md";
+    await treeRename(page, treeItem(page, filename), "确认改名");
+    await expect.poll(() => existsSync(path.join(vault, renamed)), { timeout: 15_000 }).toBe(true);
+    expect(existsSync(file)).toBe(false);
+    expect(readFileSync(path.join(vault, renamed), "utf8")).toBe(original);
+    await page.getByRole("button", { name: "关闭 确认改名", exact: true }).click();
+    await treeItem(page, renamed).click();
+    await expect(prose(page).getByRole("heading", { name: "重命名保真" })).toBeVisible();
   } finally {
     await close();
   }

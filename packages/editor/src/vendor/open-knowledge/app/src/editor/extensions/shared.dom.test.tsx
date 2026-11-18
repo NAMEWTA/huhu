@@ -3,9 +3,21 @@ import { Editor } from '@tiptap/core';
 import { NodeSelection } from '@tiptap/pm/state';
 import { afterEach, describe, expect, test } from 'vitest';
 import { pressEditorKey } from '../editor-rig.test-helper';
-import { sharedExtensions } from './shared';
+import { scopeExtensionsToDocument, sharedExtensions } from './shared';
 
 describe('sharedExtensions module graph', () => {
+  test('binds document-scoped extensions without leaking options between documents', () => {
+    const scopedNames = ['link', 'wikiLink', 'jsxComponent', 'jsxInline', 'imageReference'];
+    const first = scopeExtensionsToDocument(sharedExtensions, 'first');
+    const second = scopeExtensionsToDocument(sharedExtensions, 'second');
+    expect(first.map((extension) => extension.name)).toEqual(sharedExtensions.map((extension) => extension.name));
+    for (const name of scopedNames) {
+      expect(first.find((extension) => extension.name === name)?.options.docName).toBe('first');
+      expect(second.find((extension) => extension.name === name)?.options.docName).toBe('second');
+    }
+    expect(first.find((extension) => extension.name === 'paragraph')).toBe(sharedExtensions.find((extension) => extension.name === 'paragraph'));
+  });
+
   afterEach(() => {
     cleanup();
   });
