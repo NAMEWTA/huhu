@@ -6,7 +6,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { FileViewer } from "./viewers/FileViewer.js";
-import { NoteContextMenu } from "./NoteContextMenu.js";
+import { NoteContextMenu, type NoteContextMenuProps } from "./NoteContextMenu.js";
 import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
 import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
@@ -47,7 +47,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const selected = tab ? tabFilePath(tab) : null;
   const archiveTab = tab && tab.kind !== "file" ? tab : null;
   const [dialog, setDialog] = useState<DialogState>(null);
-  const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<NoteContextMenuProps["menu"] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
@@ -215,6 +215,24 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const owningArchive = tab?.kind === "file" ? archiveOfFile(tab.path) : null;
   const archiveIndexOfTab = tab?.kind === "file" && archiveNoteRoute(tab.path) ? tab.path : null;
   const archivesActive = shell.sidebar.context === "archives";
+  const detail =
+    inspector && selected && tab?.kind === "file" && section !== "trash" ? (
+      <NoteInspector
+        path={selected}
+        text={docText}
+        tags={current?.tags ?? []}
+        tab={inspectorTab}
+        onTab={setInspectorTab}
+        notePaths={(every.data ?? []).map((x) => x.path)}
+        flush={flushForComments}
+        readOnly={false}
+        onClose={() => setInspector(false)}
+        onOpen={openLinked}
+        onJump={(line) => editorRef.current?.gotoLine(line)}
+        onOpenHistory={() => onNavigate?.("versioning")}
+        {...(onNavigate ? { onNavigate } : {})}
+      />
+    ) : null;
   return (
     <div className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
       <NoteExplorer
@@ -326,7 +344,10 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             </>
           )
         ) : selectedFile?.file && section !== "trash" ? (
-          <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+          <>
+            <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+            {detail}
+          </>
         ) : tab?.kind === "file" && section !== "trash" ? (
           <>
             {archiveIndexOfTab ? (
@@ -350,12 +371,13 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               path={tab.path}
               favorite={current?.favorite === true}
               inspectorOpen={inspector}
+              detail={detail}
               onToggleInspector={() => setInspector((v) => !v)}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
-              onMenu={(el) => {
+              onMenu={(el, actions) => {
                 const r = el.getBoundingClientRect();
-                if (current) setMenu({ note: current, x: r.right, y: r.bottom });
+                if (current) setMenu({ note: current, x: r.right, y: r.bottom, actions });
               }}
               onText={setDocText}
               registerFlush={(fn) => (flushRef.current = fn)}
@@ -397,23 +419,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           </div>
         ) : null}
       </div>
-      {inspector && selected && tab?.kind === "file" && section !== "trash" ? (
-        <NoteInspector
-          path={selected}
-          text={docText}
-          tags={current?.tags ?? []}
-          tab={inspectorTab}
-          onTab={setInspectorTab}
-          notePaths={(every.data ?? []).map((x) => x.path)}
-          flush={flushForComments}
-          readOnly={false}
-          onClose={() => setInspector(false)}
-          onOpen={openLinked}
-          onJump={(line) => editorRef.current?.gotoLine(line)}
-          onOpenHistory={() => onNavigate?.("versioning")}
-          {...(onNavigate ? { onNavigate } : {})}
-        />
-      ) : null}
       {menu ? (
         <NoteContextMenu
           menu={menu}
