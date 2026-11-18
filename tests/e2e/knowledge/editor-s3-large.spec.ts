@@ -42,7 +42,8 @@ test("S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本
     await page.keyboard.press("End");
     await page.keyboard.type("改");
     await page.getByRole("tab", { name: "实时预览" }).click();
-    await expect(prose(page)).toContainText("巨型改", { timeout: 60_000 });
+    // 12790 个块的 DOM 上 Playwright 的 toContainText / 失败快照会走 ARIA 遍历，把主线程占满（见 evidence/s3/large-switch-profile-2026-11-18.md）：改用页内轮询
+    await page.waitForFunction(() => (document.querySelector('[data-testid="markdown-editor"] .ProseMirror')?.firstElementChild?.textContent ?? "").includes("巨型改"), undefined, { timeout: 60_000, polling: 250 });
   } finally {
     await close();
   }
