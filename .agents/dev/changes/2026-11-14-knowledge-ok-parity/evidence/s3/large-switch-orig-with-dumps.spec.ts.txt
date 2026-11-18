@@ -1,0 +1,107 @@
+import { expect, test, type Page } from "@playwright/test";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { openApp } from "../helpers/launch.js";
+import { treeItem, treeSettled } from "../helpers/tree.js";
+
+async function gotoNotes(page: Page): Promise<void> {
+  await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+  await page.getByRole("button", { name: "知识库" }).first().click();
+  await expect(page.getByTestId("notes-module")).toBeVisible();
+  await treeSettled(page);
+}
+
+const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror").first();
+const cm = (page: Page) => page.getByTestId("markdown-editor").locator(".cm-content").first();
+
+test("orig large switch with state dumps", async () => {
+  test.setTimeout(120_000);
+  const { page, vault, close } = await openApp();
+  const logs: string[] = [];
+  page.on("console", (m) => {
+    const t = m.text();
+    if (t.includes("[rich-dbg]") && !t.includes("render richReady")) logs.push(t.slice(0, 160));
+    if (t.includes("render richReady")) logs.push(t.slice(0, 80));
+  });
+  page.on("pageerror", (e) => logs.push(`PAGEERROR ${e.message.slice(0, 200)}`));
+  try {
+    const line = "这是一行用于测试大文档的正文，包含 **加粗** 与 [[链接]]。\n\n";
+    const file = path.join(vault, "巨型.md");
+    const original = `# 巨型\n\n${line.repeat(Math.ceil((1024 * 1024) / Buffer.byteLength(line)))}`;
+    writeFileSync(file, original);
+
+    await gotoNotes(page);
+    await page.evaluate(() => {
+      (window as unknown as { __lt: number[] }).__lt = [];
+      new PerformanceObserver((l) => {
+        for (const e of l.getEntries()) (window as unknown as { __lt: number[] }).__lt.push(Math.round(e.duration));
+      }).observe({ entryTypes: ["longtask"] });
+    });
+    await treeItem(page, "巨型.md").click();
+    await expect(cm(page)).toContainText("巨型", { timeout: 20_000 });
+    await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toHaveCount(0);
+    await page.waitForTimeout(2000);
+    expect(readFileSync(file, "utf8")).toBe(original);
+
+    await cm(page).click();
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("End");
+    await page.keyboard.type("改");
+    await page.getByRole("tab", { name: "实时预览" }).click();
+    const t0 = Date.now();
+    let done = false;
+    let paused = false;
+    const dumper = (async () => {
+      let n = 0;
+      while (!done && n < 8) {
+        await new Promise((r) => setTimeout(r, 5000));
+        if (done) break;
+        n++;
+        const st = await Promise.race([
+          page.evaluate(() => ({
+            pm: document.querySelectorAll(".ProseMirror").length,
+            loading: document.querySelectorAll(".ok-editor-loading").length,
+            tiptap: document.querySelectorAll(".tiptap").length,
+            scrollHidden: (document.querySelector('[data-testid="editor-scroll-container"]') as HTMLElement | null)?.hidden,
+            selTab: Array.from(document.querySelectorAll('[role="tab"][aria-selected="true"]')).map((t) => t.textContent),
+            lt: (window as unknown as { __lt: number[] }).__lt.slice(-8),
+            heap: Math.round(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1e6),
+          })).then((v) => JSON.stringify(v)),
+          new Promise<string>((r) => setTimeout(() => r("EVAL-BLOCKED(main thread busy >8s)"), 8000)),
+        ]);
+        console.log(`DUMP t=${Date.now() - t0}ms ${st}`);
+        if (st.startsWith("EVAL-BLOCKED") && !paused) {
+          paused = true;
+          try {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Debugger.enable");
+            const frames = await new Promise<string>((resolve) => {
+              cdp.on("Debugger.paused", (ev: { callFrames: Array<{ functionName: string; url: string; location: { lineNumber: number; columnNumber: number } }> }) => {
+                resolve(ev.callFrames.slice(0, 24).map((f) => `${f.functionName || "(anon)"} ${f.url.split("/").pop()}:${f.location.lineNumber}:${f.location.columnNumber}`).join("\n"));
+              });
+              void cdp.send("Debugger.pause");
+              setTimeout(() => resolve("PAUSE-TIMEOUT"), 10_000);
+            });
+            console.log(`STACK\n${frames}`);
+            await cdp.send("Debugger.resume").catch(() => undefined);
+          } catch (err) {
+            console.log(`STACK-ERR ${String(err).slice(0, 200)}`);
+          }
+        }
+      }
+    })();
+    try {
+      await expect(prose(page)).toContainText("巨型改", { timeout: 60_000 });
+      console.log(`RESULT ok ${Date.now() - t0}ms`);
+    } catch (e) {
+      console.log(`RESULT FAIL ${Date.now() - t0}ms LOGS ${JSON.stringify(logs.slice(-14))}`);
+      throw e;
+    } finally {
+      done = true;
+      await dumper;
+      if (Date.now() - t0 > 1500) console.log(`LOGS ${JSON.stringify(logs.slice(-14))}`);
+    }
+  } finally {
+    await close();
+  }
+});
