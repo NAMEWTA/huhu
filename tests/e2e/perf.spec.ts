@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScaleVault } from "../perf/scale-vault.js";
 import { root, USER_DATA_ARG } from "./helpers/launch.js";
-import { treeItem, treeRows } from "./helpers/tree.js";
+import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
@@ -96,12 +96,25 @@ test("打开 1 MiB Markdown 到可编辑 ≤ 500 ms", async () => {
     await page.getByRole("button", { name: "知识库" }).first().click();
     const item = treeItem(page, "大文档");
     await expect(item).toBeVisible({ timeout: 20_000 });
-    const t0 = Date.now();
+    await treeSettled(page); // 启动后的首轮索引会让树重新列举一次；Playwright 的 click 会等行停稳，那段时间不属于“打开文档”
+    // 页内计时：t0 = 点击的 pointerdown 时刻，终点 = 编辑区含正文且状态行显示整份文档行数（全文都已载入）。
+    // 不用两次 expect().toContain*：它们按 100/250/500/1000 ms 退避轮询，会给结果加上最多 1 s 的量化误差（同一实现测得 215 / 470 / 900 ms 三档）。
+    await page.evaluate(() => {
+      (window as unknown as { __t0: number }).__t0 = 0;
+      document.addEventListener("pointerdown", () => ((window as unknown as { __t0: number }).__t0 = performance.now()), { capture: true, once: true });
+    });
     await item.click();
     // 超过 LARGE_DOC_CHARS 的文档默认以源码模式（CodeMirror，视口渲染）打开；富文本表示延后到切换时才构建（P-S3-01）
-    await expect(page.getByTestId("markdown-editor").locator(".cm-content")).toContainText("大文档", { timeout: 10_000 });
-    await expect(page.getByText(/\d{4,} 行/)).toBeVisible({ timeout: 10_000 }); // 状态行显示整份文档的行数：全文都已载入
-    const ms = Date.now() - t0;
+    const handle = await page.waitForFunction(
+      () => {
+        const cm = document.querySelector('[data-testid="markdown-editor"] .cm-content');
+        const ready = !!cm && (cm.textContent ?? "").includes("大文档") && /\d{4,} 行/.test(document.body.innerText);
+        return ready ? performance.now() - (window as unknown as { __t0: number }).__t0 : false;
+      },
+      null,
+      { polling: "raf", timeout: 10_000 },
+    );
+    const ms = Math.round((await handle.jsonValue()) as number);
     note("打开 1 MiB 文档到可编辑", `${ms} ms（目标 ≤ 500）`);
     atMost(ms, 500);
   } finally {
@@ -292,11 +305,8 @@ test("scale-vault（10,000 篇笔记 / 1,000 任务 / 1,000 档案）：打开�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 60_000 });
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     // 笔记都在文件夹里：展开第一个文件夹并看到其中的笔记，才算文件树可用
-    await page
-      .getByRole("button", { name: /^文件夹0\b/ })
-      .first()
-      .click({ timeout: 60_000 });
-    await expect(treeRows(page).first()).toBeVisible({ timeout: 60_000 });
+    await treeFolder(page, "文件夹0").first().click({ timeout: 60_000 });
+    await expect(treeFileRows(page).first()).toBeVisible({ timeout: 60_000 }); // 展开后出现真实的文件行
     const tree = Date.now() - t0;
     note("打开 scale-vault 到文件树可用", `${tree} ms（目标 ≤ 6000）`);
     atMost(tree, 6000);
