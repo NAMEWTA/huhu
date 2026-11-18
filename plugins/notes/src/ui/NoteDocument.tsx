@@ -2,9 +2,10 @@ import type { EditorViewMode, RichEditorPort } from "@huhu/editor/rich";
 import { Banner, Button, Dialog, IconButton, ReviewDiff, Segmented } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
 import { ChevronRight, MessageSquarePlus, Download, MoreHorizontal, PanelRight, Redo2, Save, Star, Undo2 } from "lucide-react";
-import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DocumentSession } from "./documents/DocumentSession.js";
 import { useDocumentSession } from "./documents/useDocumentSession.js";
+import type { NoteMenuAction } from "./NoteContextMenu.js";
 import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
 
@@ -25,10 +26,11 @@ export interface NoteDocumentProps {
   path: string;
   favorite: boolean;
   inspectorOpen: boolean;
+  detail: ReactNode;
   onToggleInspector(): void;
   onToggleFavorite(): void;
   onOpen(path: string): void;
-  onMenu(anchor: HTMLElement): void;
+  onMenu(anchor: HTMLElement, actions: readonly NoteMenuAction[]): void;
   onText(text: string): void;
   /** 父级用它在改名 / 移动 / 移入回收站之前先把未保存的编辑落盘。 */
   registerFlush(fn: (() => Promise<boolean>) | null): void;
@@ -167,10 +169,26 @@ export function NoteDocument(props: NoteDocumentProps) {
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   const filename = path.split("/").at(-1) ?? path;
   const reading = mode === "preview";
+  const undo = () => editor.current?.undo();
+  const redo = () => editor.current?.redo();
+  const exportMarkdown = () => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([session?.currentText() ?? ""], { type: "text/markdown" }));
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  const undoDisabled = !canUndo || reading || mode === "source";
+  const redoDisabled = !canRedo || reading || mode === "source";
+  const secondaryActions = [
+    { label: n.undoEdit, disabled: undoDisabled, run: undo },
+    { label: n.redoEdit, disabled: redoDisabled, run: redo },
+    { label: n.exportMd, run: exportMarkdown },
+  ];
 
   return (
     <section className="notes-document-area notes-doc-container" data-testid="note-document">
-      {/* 单行工具栏（F07）：面包屑可收缩并省略；撤销 / 重做 / 批注在容器变窄时先收起（CSS 容器查询），导出在“更多”菜单里 */}
+      {/* 单行工具栏按文档容器宽度收纳，详情面板仅覆盖编辑区。 */}
       <div className="hu-knowledge-document-toolbar" data-testid="note-toolbar">
         <div className="row grow">
           <span className="notes-breadcrumb">{folder}</span>
@@ -181,25 +199,22 @@ export function NoteDocument(props: NoteDocumentProps) {
         </div>
         <div className="row notes-toolbar-optional">
           {/* 格式化由 OK 编辑器自带的气泡菜单与 `/` 命令提供（design §3.4）；这里只保留撤销 / 重做 */}
-          <IconButton icon={Undo2} label={n.undoEdit} disabled={!canUndo || reading || mode === "source"} onClick={() => editor.current?.undo()} />
-          <IconButton icon={Redo2} label={n.redoEdit} disabled={!canRedo || reading || mode === "source"} onClick={() => editor.current?.redo()} />
-          <IconButton
-            icon={Download}
-            label={n.exportMd}
-            onClick={() => {
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(new Blob([session?.currentText() ?? ""], { type: "text/markdown" }));
-              a.download = filename;
-              a.click();
-              URL.revokeObjectURL(a.href);
-            }}
-          />
+          <IconButton icon={Undo2} label={n.undoEdit} disabled={undoDisabled} onClick={undo} />
+          <IconButton icon={Redo2} label={n.redoEdit} disabled={redoDisabled} onClick={redo} />
+          <IconButton icon={Download} label={n.exportMd} onClick={exportMarkdown} />
         </div>
-        <Segmented<Mode> label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
+        <Segmented<Mode> className="notes-toolbar-modes" label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
+        <select className="notes-toolbar-mode-select" aria-label="编辑模式" title={n.modes[mode]} value={mode} onChange={(event) => setMode(event.currentTarget.value as Mode)}>
+          {MODES.map((option) => (
+            <option key={option} value={option}>
+              {option === "live" ? n.compactLiveMode : n.modes[option]}
+            </option>
+          ))}
+        </select>
         <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading} onClick={props.onAddComment} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
         <IconButton icon={PanelRight} label={n.inspector} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
-        <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget))} />
+        <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget, secondaryActions))} />
       </div>
       {state === "conflict" ? (
         <Banner
@@ -262,34 +277,37 @@ export function NoteDocument(props: NoteDocumentProps) {
         <span className="grow" />
         <span>{ed?.autosave === false ? n.manualSave : n.autosave}</span>
       </div>
-      <div
-        className="notes-editor-body"
-        data-testid="markdown-editor"
-        data-editor-mode={mode}
-        onKeyDownCapture={(e) => {
-          // Mod+S 立即保存（捕获阶段：富文本 / 源码编辑器内部不会吞掉它）
-          if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
-            e.preventDefault();
-            void save();
-          }
-        }}
-      >
-        <Suspense fallback={<p>{t.loading}</p>}>
-          {/* 阅读视图 = 同一个编辑器 editable:false；保留既有的阅读区测试标识 */}
-          <div className="notes-editor-surface" {...(reading ? { "data-testid": "notes-reading-pane" } : {})} data-editor-mode={mode}>
-            <NoteEditorSurface
-              path={path}
-              value={text}
-              onChange={onChange}
-              mode={VIEW[mode]}
-              notes={all.data ?? []}
-              flush={flush}
-              onOpen={props.onOpen}
-              onPort={onPort}
-              {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
-            />
-          </div>
-        </Suspense>
+      <div className="notes-editor-layout">
+        <div
+          className="notes-editor-body"
+          data-testid="markdown-editor"
+          data-editor-mode={mode}
+          onKeyDownCapture={(e) => {
+            // Mod+S 立即保存（捕获阶段：富文本 / 源码编辑器内部不会吞掉它）
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") {
+              e.preventDefault();
+              void save();
+            }
+          }}
+        >
+          <Suspense fallback={<p>{t.loading}</p>}>
+            {/* 阅读视图 = 同一个编辑器 editable:false；保留既有的阅读区测试标识 */}
+            <div className="notes-editor-surface" {...(reading ? { "data-testid": "notes-reading-pane" } : {})} data-editor-mode={mode}>
+              <NoteEditorSurface
+                path={path}
+                value={text}
+                onChange={onChange}
+                mode={VIEW[mode]}
+                notes={all.data ?? []}
+                flush={flush}
+                onOpen={props.onOpen}
+                onPort={onPort}
+                {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
+              />
+            </div>
+          </Suspense>
+        </div>
+        {props.detail}
       </div>
       <div className="notes-document-status">
         <span className={`notes-save-dot${state === "saved" ? "" : " notes-unsaved"}`} />

@@ -1,0 +1,49 @@
+$ playwright test tests/e2e/perf.spec.ts -g '打开 1 MiB' --repeat-each=3 --output=/tmp/huhu-task02-perf-retry-results
+
+Running 3 tests using 1 worker
+
+(node:672317) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[perf] 打开 1 MiB 文档到可编辑: 262 ms（目标 ≤ 500）
+  ✓  1 tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms (3.7s)
+(node:673074) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[perf] 打开 1 MiB 文档到可编辑: 337 ms（目标 ≤ 500）
+  ✓  2 tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms (4.1s)
+(node:674097) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[perf] 打开 1 MiB 文档到可编辑: 566 ms（目标 ≤ 500）
+  ✘  3 tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms (4.5s)
+
+
+  1) tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms ─────────────────────────────────
+
+    Error: expect(received).toBeLessThanOrEqual(expected)
+
+    Expected: <= 500
+    Received:    566
+
+      19 | const STRICT = !process.env["CI"] || process.env["HUHU_PERF_STRICT"] === "1";
+      20 | function atMost(value: number, max: number): void {
+    > 21 |   if (STRICT) expect(value).toBeLessThanOrEqual(max);
+         |                             ^
+      22 | }
+      23 |
+      24 | /** quality.md §3 中可以在 E2E 里自动测量的指标：测量值写进用例注解，超过目标即失败。 */
+        at atMost (/home/wta/projects/huhu-wt-layout/tests/e2e/perf.spec.ts:21:29)
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/perf.spec.ts:119:5
+
+    Error Context: ../../../../tmp/huhu-task02-perf-retry-results/perf-打开-1-MiB-Markdown-到可编辑-≤-500-ms-repeat2/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-perf-retry-results/perf-打开-1-MiB-Markdown-到可编辑-≤-500-ms-repeat2/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-perf-retry-results/perf-打开-1-MiB-Markdown-到可编辑-≤-500-ms-repeat2/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms ──────────────────────────────────
+  2 passed (19.8s)
+[ELIFECYCLE] Command failed with exit code 1.

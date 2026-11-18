@@ -1,0 +1,18 @@
+$ playwright test --output=/tmp/huhu-task02-final-regressions tests/e2e/knowledge/attachments.spec.ts tests/e2e/knowledge/editor-s2b.spec.ts -g '笔记改名后附件|重开应用后内容一致' --repeat-each=3
+
+Running 6 tests using 1 worker
+
+(node:558087) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 (15.1s)
+  ✓  2 tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） (4.9s)
+(node:562676) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  3 tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 (9.3s)
+  ✓  4 tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） (4.6s)
+(node:564387) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  5 tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 (9.1s)
+  ✓  6 tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） (4.0s)
+
+  6 passed (49.7s)
