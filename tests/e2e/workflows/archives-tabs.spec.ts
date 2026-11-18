@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { treeFolder, treeItem } from "../helpers/tree.js";
 import { openApp } from "../helpers/launch.js";
@@ -169,6 +169,69 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
   }
 });
 
+test("E04 在途 Markdown 保存完成后，档案字段与正文都落盘并可重开", async () => {
+  const { page, vault, close } = await openApp();
+  const releaseSave = Promise.withResolvers<void>();
+  const saveStarted = Promise.withResolvers<void>();
+  try {
+    await seed(page);
+    const indexPath = "Archives/通讯录/张三/index.md";
+    const file = path.join(vault, indexPath);
+    await treeFolder(page, "Archives").first().click();
+    await treeFolder(page, "通讯录").first().click();
+    await treeFolder(page, "张三").first().click();
+    const index = page.locator(`[data-testid="notes-resource-tree"] [data-item-path="${indexPath}"]`);
+    await index.click();
+    await page.getByTestId("archive-open-record-view").click();
+    await expect(page.getByTestId("archive-fields").getByLabel("电话")).toHaveValue("123");
+    await page.getByTestId("archive-open-markdown").click();
+    const archiveTab = page.locator('[data-tab-kind="archive-record"]').getByTestId("document-tab");
+    const prose = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await prose.click();
+    await page.route("**/api/v1/call", async (route) => {
+      const body = route.request().postDataJSON() as { capability?: string };
+      if (body?.capability === "notes.save") {
+        saveStarted.resolve();
+        await releaseSave.promise;
+      }
+      await route.continue();
+    });
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("两种编辑都保留");
+    await saveStarted.promise;
+
+    await archiveTab.click();
+    await expect(page.getByTestId("markdown-editor")).toBeVisible();
+    await expect(page.getByTestId("archive-fields")).toHaveCount(0);
+    expect(readFileSync(file, "utf8")).not.toContain("两种编辑都保留");
+    releaseSave.resolve();
+
+    const phone = page.getByTestId("archive-fields").getByLabel("电话");
+    await expect(phone).toHaveValue("123");
+    await phone.fill("999");
+    await phone.blur();
+    const disk = () => readFileSync(file, "utf8");
+    await expect.poll(disk).toContain("999");
+    await expect.poll(disk).toContain("两种编辑都保留");
+
+    await page.getByRole("button", { name: "关闭 张三", exact: true }).click();
+    await page.getByRole("button", { name: "关闭 index", exact: true }).click();
+    await expect(page.getByTestId("document-tab")).toHaveCount(0);
+    await page.getByTestId("notes-open-archives").click();
+    await page.getByTestId("archive-category-card").filter({ hasText: "通讯录" }).click();
+    await page.getByTestId("archive-row").filter({ hasText: "张三" }).click();
+    await page.getByTestId("archive-open-markdown").click();
+    await expect(page.locator('[data-tab-kind="file"]').getByTestId("document-tab")).toHaveAttribute("title", indexPath);
+    await expect(prose).toContainText("两种编辑都保留");
+    await expect(page.getByTestId("editor-properties")).toContainText("999");
+    expect(disk()).toContain("999");
+    expect(disk()).toContain("两种编辑都保留");
+  } finally {
+    releaseSave.resolve();
+    await close();
+  }
+});
+
 test("E01/E04 档案标签随 Vault 记录：重载后恢复；档案删除后记录标签消失", async () => {
   const { page, close } = await openApp();
   try {
@@ -192,6 +255,98 @@ test("E01/E04 档案标签随 Vault 记录：重载后恢复；档案删除后�
     await expect(page.getByTestId("archive-category-view")).toBeVisible();
     await expect(page.locator('[data-tab-kind="archive-record"]')).toHaveCount(0);
     expect((await call("archives.list", { type: "Archives/通讯录/" })).data.length).toBe(1);
+  } finally {
+    await close();
+  }
+});
+
+test("E05 档案附件使用统一查看器，笔记 @ 引用与档案反链使用真实相对路径", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const call = await seed(page);
+    expect((await call("notes.create", { name: "引用来源" })).ok).toBe(true);
+    const dir = "Archives/通讯录/张三";
+    const attachment = `${dir}/可引用.html`;
+    writeFileSync(path.join(vault, dir, "展示.html"), "<!doctype html><h1>档案 HTML 附件</h1>");
+    writeFileSync(path.join(vault, dir, "密码.pdf"), readFileSync(new URL("../../fixtures/password-protected.pdf", import.meta.url)));
+    writeFileSync(path.join(vault, dir, "图像.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("notes-open-archives").click();
+    await page.getByTestId("archive-category-card").filter({ hasText: "通讯录" }).click();
+    await page.getByTestId("archive-row").filter({ hasText: "张三" }).click();
+    const record = page.locator('[data-tab-kind="archive-record"]').getByTestId("document-tab");
+    const viewer = page.getByTestId("file-card");
+    for (const [name, kind] of [
+      ["展示.html", "html"],
+      ["密码.pdf", "pdf"],
+      ["图像.png", "image"],
+    ]) {
+      await page.getByTestId("archive-file").filter({ hasText: name }).click();
+      await expect(viewer).toHaveAttribute("data-viewer", kind!);
+      await expect(page.getByTestId("document-tab").filter({ hasText: name })).toHaveAttribute("title", `${dir}/${name}`);
+      if (kind === "html") await expect(page.frameLocator('[data-testid="html-preview-frame"]').getByRole("heading")).toHaveText("档案 HTML 附件");
+      if (kind === "pdf") await expect(page.getByTestId("pdf-error")).toContainText("受密码保护");
+      if (kind === "image") await expect(viewer.locator("img")).toBeVisible();
+      await record.click();
+    }
+
+    await page.getByTestId("archive-file-input").setInputFiles({ name: "可引用.html", mimeType: "text/html", buffer: Buffer.from("<h1>双链目标</h1>") });
+    await expect(page.getByTestId("archive-file").filter({ hasText: "可引用.html" })).toBeVisible();
+    await page.getByTestId("notes-section-all").click();
+    const source = treeItem(page, "引用来源.md");
+    await source.click();
+    const prose = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await prose.click();
+    await page.keyboard.type("@可引用");
+    await expect(page.getByTestId("editor-ref-menu")).toContainText(attachment);
+    await page.keyboard.press("Enter");
+    const readSource = () => readFileSync(path.join(vault, "引用来源.md"), "utf8");
+    await expect.poll(readSource).toContain(`[[${attachment}]]`);
+    await page.getByRole("button", { name: "关闭 引用来源", exact: true }).click();
+    await record.click();
+    const backlink = page.getByTestId("archive-backlink").filter({ hasText: "引用来源" });
+    await backlink.click();
+    const wikiLink = prose.locator(`[data-wiki-link][data-target="${attachment}"]`);
+    await expect(wikiLink).toBeVisible();
+    expect(readSource()).toContain(`[[${attachment}]]`);
+    await wikiLink.press("Enter");
+    await expect(viewer).toHaveAttribute("data-viewer", "html");
+    await expect(page.frameLocator('[data-testid="html-preview-frame"]').getByRole("heading")).toHaveText("双链目标");
+  } finally {
+    await close();
+  }
+});
+
+test("D06 从档案视图重开同一笔记仍读取原评论线程", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    await seed(page);
+    await page.getByTestId("notes-open-archives").click();
+    await page.getByTestId("archive-category-card").filter({ hasText: "通讯录" }).click();
+    await page.getByTestId("archive-row").filter({ hasText: "张三" }).click();
+    await page.getByTestId("archive-open-markdown").click();
+    await page.getByRole("button", { name: "文档详情", exact: true }).click();
+    await page.getByTestId("note-inspector").getByRole("tab", { name: "批注" }).click();
+    await page.getByTestId("comment-whole-note-input").fill("档案同一线程");
+    await page.getByTestId("comment-whole-note-add").click();
+    await expect(page.getByTestId("comment-thread")).toContainText("档案同一线程");
+    const comments = path.join(vault, "Comments");
+    const stored = () => readdirSync(comments);
+    const initial = stored();
+    expect(initial).toHaveLength(1);
+    const thread = path.join(comments, initial[0]!);
+    expect(readFileSync(thread, "utf8")).toContain("documentPath: Archives/通讯录/张三/index.md");
+
+    await page.getByRole("button", { name: "关闭 index", exact: true }).click();
+    await page.locator('[data-tab-kind="archive-record"]').getByTestId("document-tab").click();
+    await page.getByTestId("archive-open-markdown").click();
+    const inspector = page.getByTestId("note-inspector");
+    if (!(await inspector.isVisible())) await page.getByRole("button", { name: "文档详情", exact: true }).click();
+    await inspector.getByRole("tab", { name: "批注" }).click();
+    await expect(page.getByTestId("comment-thread")).toContainText("档案同一线程");
+    expect(stored()).toEqual(initial);
   } finally {
     await close();
   }

@@ -1,11 +1,11 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { onOpenRequest, queryKey, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
-import { FileViewer } from "./viewers/FileViewer.js";
+import { FileViewer, UnindexedFileViewer } from "./viewers/FileViewer.js";
 import { NoteContextMenu } from "./NoteContextMenu.js";
 import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
@@ -45,6 +45,8 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const tab = activeTab(shell.tabs);
   /** 当前标签对应的真实文件：文件标签 = 其路径；档案记录标签 = 该档案的 index.md（同一文件同一会话，E04）。 */
   const selected = tab ? tabFilePath(tab) : null;
+  const activeTabRef = useRef(tab);
+  activeTabRef.current = tab;
   const archiveTab = tab && tab.kind !== "file" ? tab : null;
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
@@ -161,9 +163,25 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const openArchive = (dir: string): void => {
     const t = archiveRecordTab(vaultRef.current, dir);
     if (!t) return openTarget(dir);
-    setSection((s) => (s === "trash" ? "all" : s));
-    dispatch({ type: "open", tab: t });
-    revealInArchives(archiveSelectionOf(t));
+    const show = () => {
+      setSection((s) => (s === "trash" ? "all" : s));
+      dispatch({ type: "open", tab: t });
+      revealInArchives(archiveSelectionOf(t));
+    };
+    const current = activeTabRef.current;
+    if (current?.kind !== "file" || current.path !== tabFilePath(t)) {
+      show();
+      return;
+    }
+    const route = archiveNoteRoute(current.path);
+    const flush = flushRef.current;
+    void (async () => {
+      if (route?.kind !== "archive" || (flush && !(await flush()))) return;
+      if (activeTabRef.current !== current || vaultRef.current !== t.vaultId) return;
+      // Markdown 落盘后才读取档案字段，避免表单拿着同一文件的旧版本提交。
+      qc.removeQueries({ queryKey: queryKey(t.vaultId, "archives.read", { path: route.path }), exact: true });
+      show();
+    })();
   };
   /** 打开档案首页或类型视图（旧入口名：按路径深度分派）。 */
   const openArchiveFolder = (dir: string) => (archiveFolderRoute(dir)?.kind === "type" ? openArchiveType(dir) : openArchivesHome());
@@ -187,8 +205,14 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
   const openLinked = (path: string): void => (archiveNoteRoute(path) ? openArchive(path) : openNote(path));
-  /** 同一 index.md 的“以档案视图打开”。 */
-  const openAsArchive = (path: string) => openArchive(path);
+  const focusTab = (key: string) => {
+    const next = shell.tabs.tabs.find((x) => tabKey(x) === key);
+    if (next?.kind === "archive-record" && tab?.kind === "file" && tab.path === tabFilePath(next)) {
+      openArchive(tab.path);
+      return;
+    }
+    dispatch({ type: "focus", key });
+  };
   /** 档案记录标签 → 同一文件的 Markdown 标签。 */
   const openAsMarkdown = (path: string) => openNote(path);
 
@@ -283,9 +307,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onDailyDate={setDailyDate}
       />
       <div className="notes-main">
-        {section !== "trash" && shell.tabs.tabs.length > 0 ? (
-          <TabStrip tabs={shell.tabs.tabs} activeKey={shell.tabs.activeKey} onFocus={(key) => dispatch({ type: "focus", key })} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} />
-        ) : null}
+        {section !== "trash" && shell.tabs.tabs.length > 0 ? <TabStrip tabs={shell.tabs.tabs} activeKey={shell.tabs.activeKey} onFocus={focusTab} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} /> : null}
         {error ? (
           <div role="alert" className="hu-field-error">
             {error}
@@ -327,12 +349,14 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           )
         ) : selectedFile?.file && section !== "trash" ? (
           <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+        ) : tab?.kind === "file" && section !== "trash" && !/\.md$/i.test(tab.path) ? (
+          <UnindexedFileViewer key={tab.path} path={tab.path} />
         ) : tab?.kind === "file" && section !== "trash" ? (
           <>
             {archiveIndexOfTab ? (
               <div className="notes-archive-crumb-bar">
                 <Folder size={13} aria-hidden />
-                <button type="button" data-testid="archive-open-record-view" onClick={() => openAsArchive(archiveIndexOfTab)}>
+                <button type="button" data-testid="archive-open-record-view" onClick={() => openArchive(archiveIndexOfTab)}>
                   {a.openAsArchive}
                 </button>
               </div>

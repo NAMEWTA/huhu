@@ -146,12 +146,14 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     writeFileSync(`${vault}/大.pdf`, buildPdf(["Huge Sample"], 11 * 1024 * 1024));
     writeFileSync(`${vault}/坏.pdf`, "this is not a pdf");
     const calls: string[] = [];
+    const lengths: number[] = [];
     page.on("request", (r) => {
       const body = r.postData();
       if (r.method() === "POST" && body && r.url().includes("/api/v1/call")) {
         try {
-          const j = JSON.parse(body) as { capability: string; input?: { path?: string } };
+          const j = JSON.parse(body) as { capability: string; input?: { path?: string; length?: number } };
           if (j.input?.path?.endsWith(".pdf")) calls.push(`${j.capability}:${j.input.path}`);
+          if (j.capability === "vault.readRange" && j.input?.path === "大.pdf") lengths.push(j.input.length ?? 0);
         } catch {
           /* 非 JSON 请求忽略 */
         }
@@ -187,11 +189,28 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await openFile(page, "大");
     await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Huge Sample", { timeout: 60_000 });
     expect(calls.filter((c) => c.startsWith("vault.readRange:")).length).toBeGreaterThan(1);
+    expect(lengths.length).toBeGreaterThan(1);
+    expect(lengths.every((length) => length > 0 && length <= 4 * 1024 * 1024)).toBe(true);
     expect(calls.some((c) => c.startsWith("vault.readBinary:") || c.startsWith("notes.read:"))).toBe(false);
 
     // 损坏：明确反馈，没有空白“假成功”
     await openFile(page, "坏");
     await expect(page.getByTestId("pdf-error")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
+test("F03：密码保护的 PDF 显示原因，不渲染空白页", async () => {
+  const { page, vault, close } = await launch();
+  try {
+    const sample = readFileSync(new URL("../../fixtures/password-protected.pdf", import.meta.url));
+    writeFileSync(path.join(vault, "密码.pdf"), sample);
+    await openKnowledge(page);
+    await openFile(page, "密码.pdf");
+    await expect(page.getByTestId("pdf-error")).toContainText("受密码保护");
+    await expect(page.getByTestId("pdf-view")).toHaveAttribute("data-pdf-state", "error");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(0);
   } finally {
     await close();
