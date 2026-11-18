@@ -1,4 +1,5 @@
 // 新编辑器公共出口（经动态 import 加载：`import("@huhu/editor/rich")`；不暴露 CM view / PM view）。
+import "./token-map.css";
 export { OkRoot, type OkRootProps } from "./OkRoot";
 export { RichMarkdownEditor, type EditorVariant, type EditorViewMode, type RichEditorPort, type RichMarkdownEditorProps } from "./RichMarkdownEditor";
 export { ReadonlyMarkdown } from "./ReadonlyMarkdown";

@@ -2,7 +2,8 @@ import {
   PREVIEW_EMBED_STARTERS,
   type PreviewEmbedStarter,
 } from '@inkeep/open-knowledge-core/constants/preview-embed-starters';
-import { t } from '@lingui/core/macro';
+import type { MessageDescriptor } from '@lingui/core';
+import { msg, t } from '@lingui/core/macro';
 import { Trans } from '@lingui/react/macro';
 import { BarChart3, Code, LayoutGrid, Shapes, SlidersHorizontal } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -24,6 +25,7 @@ const BLANK_HTML_BODY = `<div style="padding:20px;font-family:system-ui,sans-ser
 </div>`;
 
 interface StarterUi {
+  label: MessageDescriptor;
   icon: SlashCommandItem['icon'];
   aliases: string[];
   render: () => ReactNode;
@@ -31,6 +33,7 @@ interface StarterUi {
 
 const STARTER_UI: Record<PreviewEmbedStarter['id'], StarterUi> = {
   chart: {
+    label: msg`Chart`,
     icon: BarChart3,
     aliases: ['chart', 'bar', 'graph', 'plot', 'viz', 'data', 'embed', 'preview'],
     render: () => (
@@ -44,6 +47,7 @@ const STARTER_UI: Record<PreviewEmbedStarter['id'], StarterUi> = {
     ),
   },
   'stat-cards': {
+    label: msg`Stat cards`,
     icon: LayoutGrid,
     aliases: ['stat', 'stats', 'metric', 'metrics', 'cards', 'kpi', 'embed', 'preview'],
     render: () => (
@@ -62,6 +66,7 @@ const STARTER_UI: Record<PreviewEmbedStarter['id'], StarterUi> = {
     ),
   },
   'custom-svg': {
+    label: msg`Custom SVG`,
     icon: Shapes,
     aliases: ['svg', 'vector', 'graphic', 'illustration', 'ring', 'embed', 'preview'],
     render: () => (
@@ -93,6 +98,7 @@ const STARTER_UI: Record<PreviewEmbedStarter['id'], StarterUi> = {
     ),
   },
   'interactive-control': {
+    label: msg`Interactive control`,
     icon: SlidersHorizontal,
     aliases: ['interactive', 'slider', 'control', 'widget', 'input', 'embed', 'preview'],
     render: () => (
@@ -148,11 +154,11 @@ export function getEmbedStarterItems(): SlashCommandItem[] {
     const ui = STARTER_UI[starter.id];
     return {
       name: `embed-starter-${starter.id}`,
-      label: starter.title,
+      label: t(ui.label),
       icon: ui.icon,
       category: 'embed',
       command: ({ chain }) => insertHtmlPreview(chain, starter.html),
-      aliases: ui.aliases,
+      aliases: [starter.title, ...ui.aliases],
       description: starter.description,
       preview: {
         description: starter.description,

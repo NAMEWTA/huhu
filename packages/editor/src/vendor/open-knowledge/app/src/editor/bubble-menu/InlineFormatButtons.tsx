@@ -1,3 +1,6 @@
+import type { MessageDescriptor } from '@lingui/core';
+import { msg } from '@lingui/core/macro';
+import { useLingui } from '@lingui/react/macro';
 import type { Editor } from '@tiptap/react';
 import { useEditorState } from '@tiptap/react';
 import { Bold, Code, Highlighter, Italic, Strikethrough, Underline } from 'lucide-react';
@@ -13,6 +16,7 @@ import {
 const formatActions = [
   {
     name: 'bold',
+    label: msg`Bold`,
     icon: Bold,
     command: (editor: Editor) => editor.chain().focus().toggleBold().run(),
     isActive: (editor: Editor) => editor.isActive('strong'),
@@ -20,6 +24,7 @@ const formatActions = [
   },
   {
     name: 'italic',
+    label: msg`Italic`,
     icon: Italic,
     command: (editor: Editor) => editor.chain().focus().toggleItalic().run(),
     isActive: (editor: Editor) => editor.isActive('emphasis'),
@@ -27,6 +32,7 @@ const formatActions = [
   },
   {
     name: 'underline',
+    label: msg`Underline`,
     icon: Underline,
     command: (editor: Editor) => editor.chain().focus().toggleUnderline().run(),
     isActive: (editor: Editor) => editor.isActive('underline'),
@@ -34,6 +40,7 @@ const formatActions = [
   },
   {
     name: 'strikethrough',
+    label: msg`Strikethrough`,
     icon: Strikethrough,
     command: (editor: Editor) => editor.chain().focus().toggleStrike().run(),
     isActive: (editor: Editor) => editor.isActive('strike'),
@@ -41,6 +48,7 @@ const formatActions = [
   },
   {
     name: 'code',
+    label: msg`Inline code`,
     icon: Code,
     command: (editor: Editor) => editor.chain().focus().toggleCode().run(),
     isActive: (editor: Editor) => editor.isActive('code'),
@@ -48,6 +56,7 @@ const formatActions = [
   },
   {
     name: 'highlight',
+    label: msg`Highlight`,
     icon: Highlighter,
     command: (editor: Editor) => editor.chain().focus().toggleHighlight().run(),
     isActive: (editor: Editor) => editor.isActive('highlight'),
@@ -55,6 +64,7 @@ const formatActions = [
   },
 ] as const satisfies readonly {
   name: string;
+  label: MessageDescriptor;
   icon: typeof Bold;
   command: (editor: Editor) => boolean;
   isActive: (editor: Editor) => boolean;
@@ -62,6 +72,7 @@ const formatActions = [
 }[];
 
 export function InlineFormatButtons({ editor }: { editor: Editor }) {
+  const { t } = useLingui();
   const activeStates = useEditorState({
     editor,
     selector: (ctx) =>
@@ -73,13 +84,14 @@ export function InlineFormatButtons({ editor }: { editor: Editor }) {
       {formatActions.map((action) => {
         const Icon = action.icon;
         const active = activeStates[action.name];
+        const label = t(action.label);
         return (
           <Tooltip key={action.name}>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label={action.name}
+                aria-label={label}
                 className={active ? 'bg-accent text-primary' : 'text-accent-foreground'}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -90,7 +102,7 @@ export function InlineFormatButtons({ editor }: { editor: Editor }) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={8}>
-              <span className="capitalize">{action.name}</span>
+              <span>{label}</span>
               <Kbd aria-label={formatShortcutLabel(action.shortcutId)}>
                 {formatShortcut(action.shortcutId)}
               </Kbd>

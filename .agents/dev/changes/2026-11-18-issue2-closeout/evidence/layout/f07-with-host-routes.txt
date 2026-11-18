@@ -1,0 +1,16 @@
+$ playwright test --output=/tmp/huhu-layout-toolbar-585b997 tests/e2e/knowledge/editor-s3-toolbar.spec.ts tests/e2e/knowledge/host-routes.spec.ts -g 'F07：|宿主路由'
+
+Running 8 tests using 1 worker
+
+(node:310236) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:75:1 › F07：1280px 下详情面板不能覆盖笔记工具栏 (4.1s)
+  ✓  2 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：800px × 4 个缩放 × 4 个详情/批注状态 (14.2s)
+  ✓  3 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1024px × 4 个缩放 × 4 个详情/批注状态 (13.0s)
+  ✓  4 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1280px × 4 个缩放 × 4 个详情/批注状态 (13.3s)
+  ✓  5 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1439px × 4 个缩放 × 4 个详情/批注状态 (12.3s)
+  ✓  6 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1440px × 4 个缩放 × 4 个详情/批注状态 (12.5s)
+  ✓  7 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1920px × 4 个缩放 × 4 个详情/批注状态 (13.1s)
+  ✓  8 tests/e2e/knowledge/host-routes.spec.ts:10:1 › 宿主路由：打开笔记、切源码、打开批注页，没有 /api 404 与“加载页面失败” (5.9s)
+
+  8 passed (1.5m)

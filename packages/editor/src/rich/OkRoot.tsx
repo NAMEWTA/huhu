@@ -13,6 +13,7 @@ import { dynamicActivate } from "@/lib/activate-locale";
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "@/lib/doc-hash";
 import { setHostLintAvailable } from "@/lib/host-features";
 import { i18n } from "@/lib/i18n";
+import { hasSidebarDragType, navigationForSidebarDragPayload, parseSidebarDragPayload } from "@/lib/sidebar-drag";
 import { HostConfigProvider, type HostEditorConfig } from "../host/config-provider";
 import { installDesktopBridge } from "../host/desktop-bridge";
 import { DocumentProvider, type DocumentHostCallbacks } from "../host/document-context";
@@ -32,6 +33,7 @@ export interface OkRootProps {
   poolKey?: string;
   /** 打开文档 / 目标的宿主回调（wiki-link、内部链接点击） */
   documentHost?: DocumentHostCallbacks;
+  acceptSidebarDrop?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -52,7 +54,7 @@ function useHuhuDarkClass(): boolean {
   return dark;
 }
 
-export function OkRoot({ children, locale = "en", host, routes, config, poolKey, documentHost, className, style }: OkRootProps) {
+export function OkRoot({ children, locale = "en", host, routes, config, poolKey, documentHost, acceptSidebarDrop, className, style }: OkRootProps) {
   const dark = useHuhuDarkClass();
   const [ready, setReady] = useState(false);
   const features = useMemo(() => ({ ...DEFAULT_FEATURES, ...host?.features }), [host?.features]);
@@ -98,7 +100,23 @@ export function OkRoot({ children, locale = "en", host, routes, config, poolKey,
   }, [locale]);
   if (!ready) return null;
   return (
-    <div className={`ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`} style={style} data-ok-root>
+    <div
+      className={`ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`}
+      style={style}
+      data-ok-root
+      onDragOverCapture={(event) => {
+        if (!acceptSidebarDrop || !hasSidebarDragType(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDropCapture={(event) => {
+        if (!acceptSidebarDrop || !hasSidebarDragType(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const payload = parseSidebarDragPayload(event.dataTransfer);
+        if (payload) documentHost?.openTarget?.(navigationForSidebarDragPayload(payload).target);
+      }}
+    >
       <I18nProvider i18n={i18n}>
         {/* 'next-themes' 在 vendor 里是别名到 host/next-themes-shim 的替身：只给 useTheme() 提供值，不往 DOM 注入 <script> */}
         <ThemeProvider forcedTheme={dark ? "dark" : "light"}>

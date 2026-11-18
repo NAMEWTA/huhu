@@ -8,6 +8,7 @@ import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEf
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { getEditorForDoc, subscribeEditorRegistry } from "@/editor/active-editor";
+import { FindReplaceController } from "@/editor/find-replace/FindReplaceController";
 import { getMarkdownSourceViewForDoc } from "@/editor/full-page-cm-views";
 import { PropertyPanel } from "@/components/PropertyPanel";
 import { SourceEditor } from "@/editor/SourceEditor";
@@ -420,6 +421,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
                   </div>
                 ) : null}
               </div>
+              {richReady && variant === "document" ? <FindReplaceController activeDocName={docName} isSourceMode={mode !== "rich" || readOnly} /> : null}
               {showSource ? (
                 <div style={{ height: "100%", overflow: "auto" }}>
                   <SourceEditor key={`s-${docName}`} docName={docName} ytext={provider.document.getText("source")} provider={provider as never} isSourceModeActive />

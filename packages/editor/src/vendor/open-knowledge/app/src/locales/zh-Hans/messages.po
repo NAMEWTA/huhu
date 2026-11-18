@@ -12320,3 +12320,69 @@ msgstr "给整篇笔记添加批注"
 
 msgid "Add comment"
 msgstr "添加批注"
+
+msgid "Accordion"
+msgstr "折叠面板"
+
+msgid "Align block"
+msgstr "对齐块"
+
+msgid "Audio"
+msgstr "音频"
+
+msgid "Basic blocks"
+msgstr "基础块"
+
+msgid "Callout"
+msgstr "提示框"
+
+msgid "Chart"
+msgstr "图表"
+
+msgid "Components"
+msgstr "组件"
+
+msgid "Custom SVG"
+msgstr "自定义 SVG"
+
+msgid "Embed"
+msgstr "嵌入"
+
+msgid "Embeds"
+msgstr "嵌入预览"
+
+msgid "File options"
+msgstr "文件操作选项"
+
+msgid "Image"
+msgstr "图片"
+
+msgid "Insert"
+msgstr "插入"
+
+msgid "Interactive control"
+msgstr "交互控件"
+
+msgid "Math"
+msgstr "数学公式"
+
+msgid "Media"
+msgstr "媒体"
+
+msgid "Mirror"
+msgstr "镜像块"
+
+msgid "Mirror Source"
+msgstr "镜像来源"
+
+msgid "Stat cards"
+msgstr "统计卡片"
+
+msgid "Tabs"
+msgstr "标签页"
+
+msgid "Toggle"
+msgstr "折叠块"
+
+msgid "Video"
+msgstr "视频"

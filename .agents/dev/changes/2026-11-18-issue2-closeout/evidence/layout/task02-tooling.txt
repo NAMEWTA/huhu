@@ -1,0 +1,49 @@
+pnpm typecheck
+plugins/tasks typecheck: Done
+apps/cli typecheck: Done
+apps/engine typecheck: Done
+plugins/notes typecheck: Done
+packages/editor typecheck: Done
+
+pnpm lint
+$ oxlint -c oxlint.json . && node scripts/check-lint-rules.mjs && stylelint "packages/*/src/**/*.css" "plugins/*/src/**/*.css" "apps/*/src/**/*.css" && node scripts/check-ui-colors.mjs && node scripts/check-css-layers.mjs && node scripts/check-css-classes.mjs && node scripts/check-css-ownership.mjs && node scripts/check-css-duplicates.mjs
+lint 规则拦截样例：OK
+界面颜色检查：OK（没有硬编码颜色）
+check-css-layers：35 个 CSS 文件通过（不分层白名单 1 个）
+check-css-classes：通过（项目 CSS 类 709 个；登记的历史例外 59 个）
+check-css-ownership：通过（登记例外 38 个）
+check-css-duplicates：通过（登记的历史重复 172 条，当前 172 条）
+
+pnpm knip
+$ knip --no-progress
+
+pnpm test
+ Test Files  81 passed | 1 skipped (82)
+      Tests  852 passed | 1 skipped (853)
+   Start at  19:13:51
+   Duration  52.13s (transform 18.42s, setup 0ms, collect 68.31s, tests 120.37s, environment 20.39s, prepare 11.72s)
+
+
+pnpm test:vendor
+
+ Test Files  167 passed (167)
+      Tests  4173 passed | 2 skipped (4175)
+   Start at  19:16:36
+   Duration  22.49s (transform 17.63s, setup 4.23s, collect 65.96s, tests 16.10s, environment 46ms, prepare 18.15s)
+
+JSON report written to /home/wta/projects/huhu-wt-layout/packages/editor/test-results/vendor.json
+
+node scripts/ok-patches.mjs --check
+改动 29｜测试改动 5｜删除 4｜新增 22｜PATCHES.md 登记 60｜未登记 0｜多余登记 0
+
+pnpm build
+apps/desktop build:
+apps/desktop build: build-info.json：0.0.1-rc.4 94e79ea
+apps/desktop build: Done
+
+pnpm format:check
+$ oxfmt --check .
+Checking formatting...
+
+All matched files use the correct format.
+Finished in 63ms on 662 files using 8 threads.
