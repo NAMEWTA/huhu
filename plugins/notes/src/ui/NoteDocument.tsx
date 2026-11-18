@@ -204,10 +204,10 @@ export function NoteDocument(props: NoteDocumentProps) {
           <IconButton icon={Download} label={n.exportMd} onClick={exportMarkdown} />
         </div>
         <Segmented<Mode> className="notes-toolbar-modes" label="编辑模式" value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m, label: n.modes[m] }))} />
-        <select className="notes-toolbar-mode-select" aria-label="编辑模式" value={mode} onChange={(event) => setMode(event.currentTarget.value as Mode)}>
+        <select className="notes-toolbar-mode-select" aria-label="编辑模式" title={n.modes[mode]} value={mode} onChange={(event) => setMode(event.currentTarget.value as Mode)}>
           {MODES.map((option) => (
             <option key={option} value={option}>
-              {n.modes[option]}
+              {option === "live" ? n.compactLiveMode : n.modes[option]}
             </option>
           ))}
         </select>

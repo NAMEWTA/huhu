@@ -1447,8 +1447,8 @@
   }
   @container notes-doc (max-width: 330px) {
     .hu-knowledge-document-toolbar {
-      gap: 4px;
-      padding-inline: 6px;
+      gap: 3px;
+      padding-inline: 4px;
     }
     .hu-knowledge-document-toolbar > .row.grow,
     .notes-toolbar-modes {
@@ -1456,6 +1456,7 @@
     }
     .notes-toolbar-mode-select {
       display: block;
+      width: 44px;
       min-width: 0;
       min-height: 28px;
       border: 1px solid var(--line);
@@ -1463,6 +1464,9 @@
       background: var(--panel);
       color: var(--text);
       font-size: var(--fs-meta);
+    }
+    .hu-knowledge-inspector-nav {
+      overflow-x: auto;
     }
   }
   @container notes-doc (max-width: 640px) {
