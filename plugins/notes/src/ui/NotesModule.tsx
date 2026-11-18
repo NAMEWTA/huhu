@@ -1,12 +1,10 @@
-import "./notes.css";
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
-import { FileViewer } from "./viewers/FileViewer.js";
 import { NoteContextMenu, type NoteContextMenuProps } from "./NoteContextMenu.js";
 import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
@@ -19,6 +17,8 @@ import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
 import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
+
+const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
 
 export type DialogState =
   | { kind: "new"; folder: string }
@@ -346,7 +346,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           )
         ) : selectedFile?.file && section !== "trash" ? (
           <>
-            <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+            <Suspense fallback={<p role="status">{t.loading}</p>}>
+              <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+            </Suspense>
             {detail}
           </>
         ) : tab?.kind === "file" && section !== "trash" ? (
