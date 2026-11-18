@@ -4,10 +4,15 @@ import type { Locator, Page } from "@playwright/test";
 export const treeRows = (page: Page): Locator => page.locator('[data-testid="notes-resource-tree"] [data-item-path]');
 export const treeFileRows = (page: Page): Locator => page.locator('[data-testid="notes-resource-tree"] [data-item-type="file"]');
 
-/** 按显示名找行：OK 树省略 .md 扩展名，所以对 `x.md` 去掉后缀再匹配；非 Markdown 保留原名。 */
+/**
+ * 按名字找行。带扩展名的名字（`x.md`、`服务器.log`）按真实路径匹配（`data-item-path` 等于它或以 `/它` 结尾）：
+ * OK 树对文档与已知类型把扩展名画成角标 / 省略，行文本里没有它；不带扩展名的名字按行文本匹配。
+ */
 export function treeItem(page: Page, name: string | RegExp): Locator {
-  const text = typeof name === "string" ? name.replace(/\.md$/i, "") : name;
-  return treeRows(page).filter({ hasText: text });
+  if (typeof name !== "string") return treeRows(page).filter({ hasText: name });
+  if (!/\.[^./]+$/.test(name)) return treeRows(page).filter({ hasText: name });
+  const q = name.replace(/["\\]/g, "\\$&");
+  return page.locator(`[data-testid="notes-resource-tree"] :is([data-item-path="${q}"], [data-item-path$="/${q}"])`);
 }
 
 /** 文件夹行（data-item-type="folder"）。 */
