@@ -2,6 +2,11 @@
 :root {
   --font-size: 14px;
 
+  /* 在主题根解析 Huhu 的颜色，供会重新定义同名 token 的 OK 子树继承。 */
+  --huhu-ok-muted-text: var(--muted);
+  --huhu-ok-accent: var(--accent);
+  --huhu-ok-syntax-type: var(--syntax-type);
+
   /* 字号阶梯：全部基于 --font-size */
   --fs-page: calc(var(--font-size) * 24 / 14);
   --fs-section: calc(var(--font-size) * 16 / 14);

@@ -1,13 +1,6 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 
 @layer tokens {
-  :root {
-    /* Resolve shared names here before the OK scope redefines muted and accent. */
-    --huhu-ok-muted-text: var(--muted);
-    --huhu-ok-accent: var(--accent);
-    --huhu-ok-syntax-type: var(--syntax-type);
-  }
-
   /* Important declarations invert layer order. Override OK's default light file-tree color in the earlier token layer. */
   /* stylelint-disable declaration-no-important -- vendor overrides both the inline token and its default light rule */
   [class~="ok-root"] file-tree-container {
