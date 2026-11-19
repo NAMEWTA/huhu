@@ -118,7 +118,7 @@ export function BubbleMenuBar({
         size: sizeOptions,
         hide: clipOptions,
       }}
-      className="ok-root editor-ok-portal z-50 flex flex-wrap items-center gap-0.5 rounded-lg border bg-background p-1 shadow-md"
+      className="ok-root editor-ok-portal editor-ok-bubble z-50 flex flex-wrap items-center gap-0.5 rounded-lg border bg-background p-1 shadow-md"
     >
       {isImageMode ? (
         <ImageAlignButtons key={`${tooltipKey}-img-align`} editor={editor} />

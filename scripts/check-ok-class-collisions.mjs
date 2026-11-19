@@ -145,7 +145,7 @@ const inputs = desktop
 // The PostCSS plugin marks OK output with explicit layer names. Every asset is
 // scanned because the bundler can extract these layers into any chunk.
 function isOkLayer(name) {
-  return /^(?:vendor\.ok-[\w-]+|[\w.-]+\.huhu-ok)$/.test(name);
+  return /^(?:vendor\.ok-[\w-]+|(?:base|components|properties)\.huhu-ok)$/.test(name);
 }
 
 function okLayerName(rule) {
@@ -153,10 +153,6 @@ function okLayerName(rule) {
     if (ancestor.type === "atrule" && ancestor.name === "layer" && isOkLayer(ancestor.params)) return ancestor.params;
   }
 }
-
-// Authored by Huhu to map its tokens onto OK internals. It keeps the same
-// scope guard as OK output, but it is neither a host UI layer nor Tailwind output.
-const hostTokenMapping = "modules.huhu-ok";
 
 function isScopeAttribute(node) {
   return node.attribute === "class" && node.operator === "~=" && node.value === "ok-root" && !node.insensitive && node.namespace === undefined;
@@ -202,7 +198,7 @@ const uiImports = new Set();
 for (const [file, css] of hostCss) {
   css.walkAtRules("import", (rule) => {
     const match = /^(?:"([^"]+)"|'([^']+)')\s+layer\(([^)]+)\)/.exec(rule.params);
-    if (match && uiLayers.test(match[3]) && !isOkLayer(match[3])) {
+    if (match && uiLayers.test(match[3])) {
       uiImports.add(resolve(dirname(file), match[1] ?? match[2]));
     }
   });
@@ -224,7 +220,7 @@ for (const [file, css] of hostCss) {
     if (isKeyframe(rule)) return;
     const selector = selectorParser().astSync(rule.selector);
     addClasses(selector, hostClasses);
-    if (!okLayerName(rule) && isUiRule(rule, uiImports.has(file))) addClasses(selector, hostUiClasses);
+    if (isUiRule(rule, uiImports.has(file))) addClasses(selector, hostUiClasses);
   });
 }
 
@@ -295,10 +291,8 @@ for (const file of inputs) {
     const layer = okLayerName(rule);
     if (isKeyframe(rule) || !layer) return;
     const selectors = selectorParser().astSync(rule.selector);
-    if (layer !== hostTokenMapping) {
-      foundOkRules = true;
-      addClasses(selectors, okClasses);
-    }
+    foundOkRules = true;
+    addClasses(selectors, okClasses);
     for (const selector of selectors.nodes) {
       if (scopeOf(selector) === OUTSIDE && !isRegisteredBackdrop(selector, rule)) {
         violations.push(`${rule.source.start.line}: ${selector.toString().trim()}`);

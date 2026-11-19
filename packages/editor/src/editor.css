@@ -50,16 +50,6 @@
 }
 
 @layer modules {
-  /* OK 编辑器的文档容器：滚动容器是 RichMarkdownEditor 里包着 Tiptap chrome 的那层（data-testid=editor-scroll-container）；正文栅格由 OK 的 .tiptap-editor 提供。
-     OK 自己的 App 壳负责这层布局；这里只给 Huhu 的宿主壳补上同等职责（design §3.3 / ui-design）。 */
-  .editor-ok-surface {
-    height: 100%;
-    min-height: 0;
-    min-width: 0;
-  }
-}
-
-@layer modules {
   /* `@` 引用候选菜单（rich/at-reference.ts）：挂在 .ok-root 里，固定定位到光标下方 */
   .editor-ref-menu {
     position: fixed;

@@ -72,29 +72,35 @@ test("rejects scoped A/B intersections", () => {
   assert.match(output, /待决 B.*ok-editor-error/);
 });
 
-test("Huhu token mapping does not supply Tailwind classes but is scoped", () => {
-  const { status, output } = check("@layer modules.huhu-ok { .ok-root .hu-page-head { color: inherit } }");
-  assert.equal(status, 0, output);
-  const outside = check("@layer modules.huhu-ok { .hu-page-head { --background: red } }");
+test("OK host mappings are also checked for scope violations", () => {
+  const inside = check("@layer vendor.ok-host { .ok-root .mapping-target { --background: red } }");
+  assert.equal(inside.status, 0, inside.output);
+  const outside = check("@layer vendor.ok-host { .hu-page-head { --background: red } }");
   assert.equal(outside.status, 1, outside.output);
   assert.match(outside.output, /C 1/);
 });
 
 test("checks UI layers, all host CSS rules and class tokens in TSX and HTML", () => {
-  const { status, output } = check("@layer vendor.ok-utilities { .ok-root :is(.host-component, .host-shell, .host-module, .token-only, .vendor-only, .gap-1\\.5, .html-only, .jsx-only, .attribute-text) { color: inherit } }", "ok.css", {
-    "packages/entry.css": '@import "./component.css" layer(components);',
-    "packages/component.css": '[class~="host-component"] { color: inherit }',
-    "packages/layers.css": `
+  const { status, output } = check(
+    "@layer vendor.ok-utilities { .ok-root :is(.host-component, .host-shell, .host-module, .host-huhu-ok, .host-nested, .token-only, .vendor-only, .gap-1\\.5, .html-only, .jsx-only, .attribute-text) { color: inherit } }",
+    "ok.css",
+    {
+      "packages/entry.css": '@import "./component.css" layer(components);',
+      "packages/component.css": '[class~="host-component"] { color: inherit }',
+      "packages/layers.css": `
         @layer shell { .host-shell { color: inherit } }
         @layer modules { @media (hover: hover) { .host-module { color: inherit } } }
+        @layer modules.huhu-ok { .host-huhu-ok { color: inherit } }
+        @layer modules { @layer nested { .host-nested { color: inherit } } }
         @layer tokens { .token-only { color: inherit } }
         @layer vendor { @layer components { .vendor-only { color: inherit } } }
       `,
-    "packages/view.tsx": 'const view = <div className={clsx("token-only vendor-only", enabled && "gap-1.5")}><custom-element class="jsx-only" /></div>;',
-    "packages/view.html": '<div title="ignored class=attribute-text" class=html-only></div>',
-  });
+      "packages/view.tsx": 'const view = <div className={clsx("token-only vendor-only", enabled && "gap-1.5")}><custom-element class="jsx-only" /></div>;',
+      "packages/view.html": '<div title="ignored class=attribute-text" class=html-only></div>',
+    },
+  );
   assert.equal(status, 1, output);
-  assert.match(output, /A 3：host-component host-module host-shell/);
+  assert.match(output, /A 5：host-component host-huhu-ok host-module host-nested host-shell/);
   assert.match(output, /B 3：gap-1\.5 html-only jsx-only/);
 });
 
