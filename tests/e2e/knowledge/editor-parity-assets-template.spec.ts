@@ -66,7 +66,10 @@ test("从导入的本地模板新建笔记，保存重开后模板字节不变",
     await treeMenu(page, treeItem(page, "样板.md"), "作为模板导入");
     await expect.poll(() => readIfPresent(destination), { timeout: 20_000 }).toBe(initial);
     expect(readFileSync(source, "utf8")).toBe(initial);
-    await page.getByRole("button", { name: "新建笔记", exact: true }).and(page.getByTitle("新建笔记", { exact: true })).click();
+    await page
+      .getByRole("button", { name: "新建笔记", exact: true })
+      .and(page.getByTitle("新建笔记", { exact: true }))
+      .click();
     const dialog = page.getByTestId("new-note-dialog");
     await dialog.getByLabel("文件名", { exact: true }).fill("从模板创建");
     const picker = dialog.getByLabel("内容模板", { exact: true });
