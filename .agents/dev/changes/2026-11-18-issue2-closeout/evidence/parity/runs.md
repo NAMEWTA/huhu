@@ -214,3 +214,57 @@ Modern Web Guidance 检索了编辑区焦点、菜单键盘及可达名称。测
 | `VITEST_MAX_FORKS=2 VITEST_MAX_THREADS=2 nice -n 7 ionice -c 2 -n 7 pnpm test:vendor` | 0 | 291 文件通过，6015 用例通过，4 跳过 | `test-vendor-serial.log` |
 | `xvfb-run -a pnpm e2e tests/e2e/knowledge`，最后一次默认配置全跑 | 126 | 59 通过，3 失败，1 按配置跳过。失败是 D03 批注偏移仍为 17、S2b 关应用时笔记只剩部分输入、文件项用 Enter 未触发系统选择器。随后恢复文件项的点击并独立验证 36 项。 | `e2e-knowledge-verified.log` |
 | `xvfb-run -a pnpm e2e tests/e2e/knowledge --retries=2`，最终完整复验 | 0 | 61 首次通过，1 格式选区用例第一次重试通过（Playwright 标为 flaky），1 大 Vault 用例按默认配置跳过。五个壳层专项、36 项矩阵、D03、S2b 和 F10 200 轮均通过。 | `e2e-knowledge-retry.log` 和相应输出目录 |
+
+## 任务 05 集成分支审查修复
+
+按任务合入 `03dc93b` 得到 `ba82498`，随后在 `8116633` 补回源码定位回调。实现与测试提交为 `0f69158512323f0b816433919d1ee20ad03fea53`。本机原始日志及独立 Playwright 输出目录为 `/tmp/huhu-parity05-dE9NZJ/`。改法及行为证据见 [review-fixes.md](review-fixes.md)。
+
+- 合入后先跑 task04 的相关用例。拖放及目标标签关闭、重开仍然通过，Embed 和格式气泡的原英文定位各失败一次。中间版本改用中文界面后，三条目标用例通过。见 `integrated-baseline.log`、`domain-pilot2.log`。
+- B06 使用四路独立 Xvfb 和 Electron 数据目录，每路真实执行三次。集成版本 6 次通过、6 次在正文断言中发现后一段已丢失（`b06-red-1.log` 至 `b06-red-4.log`）。在输入前调用原生 DOMObserver 的初版修复中，12 次通过（`b06-green-1.log` 至 `b06-green-4.log`）。最终仅在 DOM 选区快照变化时调用 flush。同样四路首轮 9 次通过，另外 3 次达到 Playwright 默认 60 秒整用例超时（`b06-delivery-1.log` 至 `b06-delivery-4.log`）。对应的单项复跑使用 `--timeout=120000`，操作序列内的等待条件未改。三次分别在 1 分钟负载 55.00、48.80、60.27 下通过，见 `b06-retry-1.log` 至 `b06-retry-3.log`。最终版本共 12 次通过。
+- 正文菜单和模板复制的第一次完整专项通过 2 项（`domain-pilot3.log`）。菜单检查附件剪贴板、图片在嵌套目录中定位、双链键盘打开，模板检查落盘、编辑、关闭和重开。
+- 从固定提交的 Git blob 还原清单路径，应用仓库中的二进制差异补丁，再逐文件比对。共 1,343 个文件，集合和字节零差异。重放补丁解压为 453,726 字节。差异登记检查 249 条，无缺项和多余登记。见 `replay-delivery.log`、`patches-delivery.log`。
+- Wiki、正文右键菜单和模板功能均使用现有宿主能力。模板导入以已落盘源内容为准，目标是 Markdown 副本。普通 Markdown 创建和带版本保存是现有两个宿主命令，异常中断可能留下已创建的空白模板，版本冲突会保留其间的外部编辑。
+
+正文菜单、模板及三个既有用例的三轮组合运行共 14 通过、1 失败（`domain-delivery.log`）。该次磁盘和目标标签均正确，富文本未在可见断言默认的 5 秒内完成挂载。在 `3ef9e63` 给打开目标后的正文可见断言指定 15 秒等待。修复后模板单独三次通过（`template-retry-1.log` 至 `template-retry-3.log`）。
+
+| 门禁 | 实际结果 | 日志 |
+| --- | --- | --- |
+| `pnpm typecheck` | 通过（0），含 vendor 类型检查 | `typecheck-delivery.log` |
+| `pnpm lint` | 通过（0），CSS 仍为登记的 172 项 | `lint-delivery.log` |
+| `pnpm build` | 通过（0），Electron 使用包含最终选区守卫的构建 | `build-delivery.log` |
+| `pnpm format:check` | 通过（0），687 个文件 | `format-check-final.log` |
+| `pnpm knip` | 通过（0），保留既有配置提示 | `knip-delivery.log` |
+| `pnpm notices` | 通过（0），生成 1,402 个运行时依赖声明。生成物写到本机日志目录 | `notices-delivery.log` |
+| `node scripts/ok-patches.mjs --check` | 通过（0），249 条登记，无缺项或多余 | `patches-delivery.log` |
+| `OK_SRC=/home/wta/projects/huhu/temp/sources/open-knowledge node scripts/ok-patches.mjs --replay` | 通过（0），1,343 文件集合和字节零差异 | `replay-delivery.log` |
+| `VITEST_MAX_FORKS=2 pnpm test` 首轮 | 失败（126），983 通过、4 失败、1 跳过。CLI 自动启动、Engine 子进程 ready、保险箱、Vault 崩溃恢复均超时 | `test-delivery.log` |
+| 首轮单测失败项单独复跑三次 | 三轮均通过（0），每轮 4 通过 | `root-retry-1.log` 至 `root-retry-3.log` |
+| 独立 Chromium 浏览器实际运行共享编辑器 | 通过（0），Chromium 158.0.8127.18。无桌面 preload，复核快速换选区、双链键盘和指针菜单、焦点归还与宿主回调 | `browser-build-final.log`、`browser-check-final.log` |
+| `VITEST_MAX_FORKS=2 VITEST_MAX_THREADS=2 pnpm test:vendor` | 通过（0），330 文件，6,391 通过，4 跳过。包含本轮迁入的 39 个 DOM 文件 | `test-vendor-delivery.log` |
+| `VITEST_MAX_FORKS=2 pnpm test` 完整复跑 | 通过（0），84 文件通过、1 跳过，987 用例通过、1 跳过 | `test-final.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge`，默认单 worker、零重试 | 失败（126），84 通过、3 失败、1 按默认配置跳过。B06、资源菜单、模板、Embed、格式气泡、拖放、IME、36 项斜杠菜单、F10 200 轮均通过 | `e2e-knowledge-delivery.log` 及独立输出目录中的 trace |
+
+完整套件未通过项：A06 的行内菜单仍找英文 `Options`，实际简体中文可达名称为「文件操作选项」。H03 报告编辑器通知区域的 `Notifications alt+T`。完整旅程在档案标签切回后断言磁盘文本，未找到「切回后继续写」。三项的用例或产品代码分别属于文件树任务、本地化任务及会话任务。
+
+- A06 按原测试独立复跑 3 次，均在 `Options` 的定位超时，见 `knowledge-retry-1-1.log` 至 `knowledge-retry-1-3.log`。将测试复制到本机临时目录，仅在副本修改为「文件操作选项」，整条 A06 通过。见 `a06-chinese-final.log`。
+- H03 独立复跑 3 次，均在同一个通知区域字符串失败，见 `knowledge-retry-2-1.log` 至 `knowledge-retry-2-3.log`。
+- 完整旅程独立复跑 3 次，第 1 次在关闭 JSON 标签后未读到目标只读笔记，第 2 和 3 次通过，见 `knowledge-retry-3-1.log` 至 `knowledge-retry-3-3.log`。
+
+### F09 严格性能门禁
+
+命令为 `HUHU_PERF_STRICT=1 xvfb-run -a pnpm e2e tests/e2e/perf.spec.ts -g '打开 1 MiB|编辑输入延迟'`。门槛分别为 500 ms 与 p95 16 ms，输入每轮 80 样本。机器有 8 个逻辑核心。最后三轮在同机其他 Electron 套件退出后开始，连续两次 `vmstat` 样本均至少 80% idle。测试过程每秒 CPU 样本保存在 `perf-quiet-*-cputimeline.log`。
+
+| 运行 | 起跑前负载 | 打开 1 MiB | 编辑输入 p95 | 退出码 |
+| --- | --- | ---: | ---: | ---: |
+| `perf-strict.log`，无条件 flush 初版 | 1 分钟负载 4.86，接近空闲的一次快照为 94% idle | 260 ms | 32.5 ms | 126 |
+| `perf-delivery.log`，最终代码首次 | 1 分钟负载 32.98，4% idle | 524 ms | 91.4 ms | 126 |
+| `perf-idle-1.log`，其他工作树仍在跑 E2E | 负载见 `perf-idle-1-load.log` | 632 ms | 65.7 ms | 126 |
+| `perf-idle-2.log`，其他工作树仍在跑 E2E | 负载见 `perf-idle-2-load.log` | 225 ms | 46.7 ms | 126 |
+| `perf-idle-3.log`，其他工作树仍在跑 E2E | 负载见 `perf-idle-3-load.log` | 229 ms | 43.0 ms | 126 |
+| `perf-quiet-1.log`，空闲复跑 | 1 分钟负载 3.40，95% / 95% idle | 186 ms | 34.3 ms | 126 |
+| `perf-quiet-2.log`，空闲复跑 | 1 分钟负载 2.96，86% / 95% idle | 194 ms | 25.2 ms | 126 |
+| `perf-quiet-3.log`，空闲复跑 | 1 分钟负载 3.43，95% / 97% idle | 442 ms | 28.3 ms | 126 |
+
+独立审查在 `03dc93b` 的早期运行得到 414 ms 和 17.9 ms，启动前 1 分钟负载 2.52，详见共享区 `w4:pE/report01.md`。这次空闲复跑中 1 MiB 三次合格，输入尾延迟三次均超限。
+
+同一 Electron 构建的诊断对照见 `perf-guard-paired.log` 和本机 `perf-guard-probe.ts`。使用相同的 5,000 行样本、每次新 Vault、80 次 ASCII 输入和 DOM 变更探针。按交替顺序跑 10 次，仅在其中 5 次通过 CDP 从当前编辑器 DOM 移除本任务新增的两条捕获监听，并由 CDP 复核。每次检查 80 个输入样本及可见正文的 80 字符。带守卫 p95 各轮中位数为 26.7 ms，范围 25.2–31.4 ms。移除守卫为 26.8 ms，范围 23.5–32.1 ms。1 分钟负载范围 1.67–2.21。两组范围重叠，全部超过 16 ms，此对照未检出守卫带来可测的尾延迟差异。正式门禁以原用例的空闲三轮为准。
