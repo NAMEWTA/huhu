@@ -1,5 +1,5 @@
 import { expect, test, type Frame, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -197,6 +197,42 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await openFile(page, "坏");
     await expect(page.getByTestId("pdf-error")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".pdfViewer .page")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
+test("附件分段下载拒绝两段之间的同尺寸替换", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const size = 4 * 1024 * 1024 + 8;
+    const file = path.join(vault, "载荷.txt");
+    const replacement = path.join(vault, "replacement");
+    writeFileSync(file, Buffer.alloc(size, "o"));
+    writeFileSync(replacement, Buffer.alloc(size, "n"));
+    writeFileSync(path.join(vault, "附件.md"), '起始\n\n<File src="./载荷.txt" />\n');
+    const offsets: number[] = [];
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability?: string; input?: { path?: string; offset?: number } };
+      if (request.capability !== "vault.readRange" || request.input?.path !== "载荷.txt") return route.continue();
+      const offset = request.input.offset ?? -1;
+      offsets.push(offset);
+      if (offset !== 0) return route.continue();
+      const response = await route.fetch();
+      // 第一段由实际 Engine 读取，替换发生在同一次下载的第二个请求之前。
+      renameSync(replacement, file);
+      await route.fulfill({ response });
+    });
+    await openKnowledge(page);
+    await openFile(page, "附件");
+    const prose = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await prose.getByText("起始", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowDown");
+    await expect(prose.locator('[data-component-name="File"]')).toHaveAttribute("data-selected", "true");
+    await page.getByRole("button", { name: /Download file|下载文件/ }).click();
+    await expect(page.getByText("附件在读取期间发生变化，请重新下载")).toBeVisible();
+    expect(offsets).toEqual([0, 4 * 1024 * 1024]);
   } finally {
     await close();
   }

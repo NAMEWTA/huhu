@@ -112,6 +112,50 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     } else expect(eng.disk("a.md")).toBe("初始和末字");
   });
 
+  test.each(["flushForExit", "dispose"] as const)("%s 等待其它 drainer、报告拒绝并保留可恢复的快照", async (action) => {
+    const eng = new FakeEngine({ "a.md": "初始" });
+    const s = mk(eng, "a.md", { pollMs: 500 });
+    await s.load();
+    const delivery = Promise.withResolvers<void>();
+    s.attachDrainer(async () => {
+      await delivery.promise;
+      s.setText("已交付正文");
+    });
+    s.attachDrainer(() => {
+      throw new Error("端口断开");
+    });
+    const result = expect(s[action]()).rejects.toThrow("端口断开");
+    delivery.resolve();
+    await result;
+    expect(eng.drafts.get("a.md")?.text).toBe("已交付正文");
+    expect(eng.disk("a.md")).toBe("初始");
+    expect(s.getSnapshot().flushError).toContain("端口断开");
+    if (action === "dispose") expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("档案条件写与新正文使用同一版本队列", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const eng = new FakeEngine({ [path]: "---\n编号: 旧\n---\n\n正文\n" });
+    const s = mk(eng, path, { autosave: () => false });
+    await s.load();
+    s.setText("---\n编号: 旧\n---\n\n正文首字\n");
+    const started = Promise.withResolvers<string>();
+    const release = Promise.withResolvers<void>();
+    const fields = s.writeFields(async (version) => {
+      started.resolve(version);
+      await release.promise;
+      eng.externalWrite(path, eng.disk(path).replace("编号: 旧", "编号: 新"));
+    });
+    expect(await started.promise).toBe("2");
+    s.setText("---\n编号: 旧\n---\n\n正文首字末字\n");
+    const exit = s.flush();
+    release.resolve();
+    expect(await fields).toBe(true);
+    expect(await exit).toBe(true);
+    expect(s.getSnapshot().baseVersion).toBe("4");
+    expect(eng.disk(path)).toBe("---\n编号: 新\n---\n\n正文首字末字\n");
+  });
+
   test("C06：保存在途时又有新输入，旧回执不清除新的 dirtyRevision", async () => {
     const eng = new FakeEngine({ "a.md": "1" });
     const s = mk(eng);

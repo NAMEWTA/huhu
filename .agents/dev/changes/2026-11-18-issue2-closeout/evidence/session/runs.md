@@ -74,3 +74,20 @@
 | 再次执行指定的严格性能子集 | 2/2，退出 0。1 MiB 为 413 ms，5000 行输入 p95 为 13.8 ms、最大 26.9 ms，80 样本。1 分钟负载开始 3.05、结束 5.24；一个 worktree 的 Electron 套件仍运行。 | `perf-final.log`、`perf-final-load.log` |
 | 第二轮全量 `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows --retries=3` | 107 一次通过、1 默认跳过、0 重试、0 失败，退出 0。属性和完整旅程均在首轮尝试通过。独立成本样本 30 条、30 实例、1,480 ms、堆增量 37 MB。 | `full-rerun.log`、`full-rerun-results/.last-run.json`、`full-rerun-load.log` |
 | 无其他 Playwright runner 时，重新执行指定的严格性能命令 | 2/2，退出 0。1 MiB 到可编辑 413 ms，5000 行输入 p95 14.1 ms、最大 23.2 ms，80 样本。8 核主机 1 分钟负载开始 1.07、结束 1.20，开始前 CPU 压力 `avg10=0.00`。 | `perf-idle.log`、`perf-idle-load.log` |
+
+## task03 独立审查修复
+
+集成点为 `03dc93b`，本工作分支先合入后的基线为 `4300e30`。原始日志与 trace 位于 `/tmp/huhu-session-03/`。重启后 test-results/ 中的 .last-run.json 属于旧运行，task03 使用单独输出目录。重启前在途的绿色单测、构建、类型与补丁登记命令均重新执行。
+
+| 批次 | 结果 | 日志 |
+| --- | --- | --- |
+| 基线 Electron 与 Vitest | A06 英文定位、档案直接退出最后一笔、手动切视图原文件不变均判红。带焦点拦截的切 Vault 基线漏报待保存档案。两个 drainer 场景均未保住快照，两个资产边界场景也未达成约定。 | `red.log`、`red-vault.log`、`red-drainer.log`、`red-assets.log` |
+| 首轮集成构建后的定向 Electron | 10 通过、3 失败。切 Vault 在确认后进入重载，原驱动取到已销毁的 context。另两项触发 E04 旧的等待前提与字段写入后旧会话版本。A06、三项 F03、同尺寸替换、档案无失焦退出和手动保存用例通过。 | `targeted.log` |
+| 队列修复后的定向 Electron | 6 通过、1 失败。档案退出、切 Vault、手动视图、取消迟到导航、两项 E04 均通过。原有档案删除用例等待返回类型页超时。 | `verify-focus.log` |
+| 会话与资产单测 | 3 文件、37 条通过。包括 drainer 先拒绝但等其它端口、销毁清理、在途档案条件写与新正文合并、受保护真实目标、拒绝同尺寸替换和尾段长度。 | `verify-session.log` |
+| 类型、lint、补丁登记、构建、格式、knip | `pnpm typecheck`、`pnpm lint`、`node scripts/ok-patches.mjs --check`、`pnpm build`、`pnpm format:check`、`pnpm knip` 最终均退出 0。登记 203 项，遗漏和多余各 0。 | `verify-typecheck.log`、`delivery-lint.log`、`verify-patch.log`、`delivery-build.log`、`delivery-format.log`、`delivery-knip.log` |
+| 首轮 `pnpm test` | 994 通过、2 失败、1 跳过。四条大样本富文本均通过。Engine 子进程 ready 超时单独 3/3，Vault 监听收到原子写临时文件两次，单独 2/3。 | `verify-test.log`、`retry-engine-{1,2,3}.log`、`retry-watcher-{1,2,3}.log` |
+| `pnpm test:vendor` | 首轮 6008 通过、1 失败、4 跳过，依赖树扫描超时且 worker RPC 超时；依赖树单独 3/3。完整复跑 290 文件、6009 通过、4 跳过，退出 0。两轮均将 Vitest forks / threads 限定为 2。 | `final-vendor.log`、`retry-vendor-{1,2,3}.log`、`delivery-vendor.log` |
+| 既有档案删除用例单独三次 | 2 通过、1 失败，失败时仍显示删除档案对话框。其他档案回归另有独立证据。 | `retry-delete.log` |
+| 完整复跑 pnpm test | 85 文件通过、1 跳过；996 条通过、1 跳过，退出 0。四个大样本实际完成构建富文本、序列化和第二会话读取。 | `delivery-test.log` |
+| 全量中的单独复跑 | D03/D04/D05 3/3，S2b 3/3。Embed 与格式气泡各 0/3，在本地化定位处超时。斜杠菜单矩阵 2/3，仍有一次找不到 listbox。属性用例 2/3，失败时读盘缺「追加正文」。 | `full-first-retries.log`、`retry-s2b.log`、`retry-matrix.log`、`retry-properties.log` |

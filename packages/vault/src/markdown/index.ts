@@ -2,3 +2,4 @@
 export * from "./codeRanges.js";
 export * from "./regions.js";
 export * from "./folder-note.js";
+export { replaceBody, splitDocument } from "../semantic/frontmatter.js";
