@@ -2,14 +2,17 @@
   "create-and-highlight": {
     "status": "observed",
     "value": {
-      "highlight": "<span data-comment-thread=\"cmt-mwnfazf1o2bn\" style=\"border-radius: 2px; padding-bottom: 1px; cursor: pointer; background-color: color-mix(in srgb,var(--ok-comment-hue, rgb(37 99 235)) 22%,transparent); box-shadow: inset 0 -2px 0 color-mix(in srgb,var(--ok-comment-hue, rgb(37 99 235)) 70%,transparent);\">Anchor sentence to discuss.</span>",
-      "markerCount": 0
+      "highlight": "<span data-comment-thread=\"cmt-mwnfz1pd0kzv\" style=\"border-radius: 2px; padding-bottom: 1px; cursor: pointer; background-color: color-mix(in srgb,var(--ok-comment-hue, rgb(37 99 235)) 22%,transparent); box-shadow: inset 0 -2px 0 color-mix(in srgb,var(--ok-comment-hue, rgb(37 99 235)) 70%,transparent);\">Anchor sentence to discuss.</span>",
+      "markerCount": 1
     }
   },
   "edge-marker": {
     "status": "observed",
     "value": {
-      "available": false
+      "available": true,
+      "name": "打开评论",
+      "activeName": "关闭评论",
+      "thread": "Compare **bold** detail."
     }
   },
   "open-thread-and-render-markdown": {
@@ -23,7 +26,7 @@
     "status": "observed",
     "value": {
       "available": true,
-      "text": "我 · 6:44 PMFollow-up **reply**.",
+      "text": "我 · 7:03 PMFollow-up **reply**.",
       "strong": [
         "我"
       ]
@@ -41,14 +44,14 @@
     "value": {
       "available": true,
       "state": "resolved",
-      "text": "6:44 PM已解决“Anchor sentence to discuss.”Compare **bold** detail.我 · 6:44 PMFollow-up **reply**."
+      "text": "7:03 PM已解决“Anchor sentence to discuss.”Compare **bold** detail.我 · 7:03 PMFollow-up **reply**."
     }
   },
   "reopen": {
     "status": "observed",
     "value": {
       "available": true,
-      "text": "6:44 PM“Anchor sentence to discuss.”Compare **bold** detail.我 · 6:44 PMFollow-up **reply**."
+      "text": "7:03 PM“Anchor sentence to discuss.”Compare **bold** detail.我 · 7:03 PMFollow-up **reply**."
     }
   },
   "delete-confirmation": {

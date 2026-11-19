@@ -5,9 +5,16 @@ import { openApp } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 
 async function addComment(page: Page, editor: Locator, quote: string, body: string): Promise<void> {
-  await editor.getByText(quote, { exact: true }).click();
-  await page.keyboard.press("Home");
-  await page.keyboard.press("Shift+End");
+  const passage = editor.getByText(quote, { exact: true });
+  await passage.click();
+  await passage.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(quote);
   await page.getByTestId("comment-bubble-button").click();
   const input = page.getByTestId("comment-composer").getByRole("textbox");

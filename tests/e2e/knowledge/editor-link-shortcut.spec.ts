@@ -19,9 +19,16 @@ test("Mod+K：富文本选区与链接内光标编辑 URL，编辑器外和源�
     const input = page.getByRole("combobox", { name: "链接 URL" });
     const palette = page.getByRole("dialog", { name: "命令面板" });
     await text.click();
-    await page.keyboard.press("Home");
-    await page.keyboard.press("Shift+End");
+    await text.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
     await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("Select this phrase");
+    await expect(page.getByTestId("bubble-menu-bar").getByRole("button", { name: "插入链接" })).toBeVisible();
     await page.keyboard.press(shortcut);
     await expect(input).toBeFocused();
     await expect(palette).toBeHidden();

@@ -3,9 +3,9 @@
     "status": "observed",
     "value": {
       "properties": false,
-      "bubble": false,
-      "initialUrl": null,
-      "searchPalette": true
+      "bubble": true,
+      "initialUrl": "",
+      "searchPalette": false
     }
   },
   "edit-existing-destination": {
