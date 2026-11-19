@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "dc5daee328d585f6ceb40df251578d04ad68e5f2134158eadc80a4e6d5e9a4b0",
+      "sha256": "1b1b470a017ea55a0754dce5f07a25b358d70e1f6e095f7b8186c742a8b4e2b9",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -1945,7 +1945,7 @@
       "target": "app/src/editor/bubble-menu/BubbleMenuBar.tsx",
       "upstream": "packages/app/src/editor/bubble-menu/BubbleMenuBar.tsx",
       "blob": "9f6b3d8e2baf23063543be4e48c7d03650ce1027",
-      "sha256": "97d74a0ada071a0ce0800ce7acf7bfb82f459609115bb36ad25417325a669779",
+      "sha256": "e3ce91be76ff3a6756b10368ddfd1046afb667c4f02ad996c7774a3ddf69f3e0",
       "method": "patch",
       "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
@@ -5465,7 +5465,7 @@
       "target": "app/src/lib/ok-portal.ts",
       "upstream": null,
       "blob": null,
-      "sha256": "fe3c2f096d2d68aa909c52a4149cde7822f1298b8769d7d45b0ac4dcf946cfde",
+      "sha256": "72d1b790b56e6e51adb615badb92db4c34cffc57c9f5bd8fb57a9b0c9696a2ec",
       "method": "local",
       "description": "PATCHES.md:60 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。"
     },

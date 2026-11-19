@@ -6,7 +6,7 @@ export function getOkPortalContainer(): HTMLElement | undefined {
   if (!el) {
     el = document.createElement('div')
     el.id = 'ok-portal-root'
-    el.className = 'ok-root'
+    el.className = 'ok-root editor-ok-portal'
     el.style.display = 'contents'
     document.body.appendChild(el)
   }
