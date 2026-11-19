@@ -1,5 +1,5 @@
 import { MermaidBlock } from "@huhu/editor";
-import type { VaultListOutput } from "@huhu/contracts";
+import type { ProtectedKind, VaultListOutput } from "@huhu/contracts";
 import { host, useEngine } from "@huhu/workbench";
 import { FolderSearch } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
@@ -68,7 +68,7 @@ export function FileViewer({ path, size, mtimeMs }: { path: string; size: number
 /** 资源索引可能落后于磁盘。打开已知的非 Markdown 路径时，从真实父目录读取元信息。 */
 export function UnindexedFileViewer({ path }: { path: string }) {
   const engine = useEngine();
-  const [metadata, setMetadata] = useState<{ size: number; mtimeMs: number } | null | undefined>(undefined);
+  const [metadata, setMetadata] = useState<{ size: number; mtimeMs: number; protection: ProtectedKind | undefined } | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
     const dir = path.slice(0, Math.max(path.lastIndexOf("/"), 0));
@@ -78,7 +78,7 @@ export function UnindexedFileViewer({ path }: { path: string }) {
         const listing = await engine.call<VaultListOutput>("vault.list", { dir, cursor, includeProtected: true });
         const entry = listing.entries.find((file) => file.path === path && file.kind === "file");
         if (entry) {
-          if (live) setMetadata({ size: entry.size ?? 0, mtimeMs: entry.mtimeMs ?? 0 });
+          if (live) setMetadata({ size: entry.size ?? 0, mtimeMs: entry.mtimeMs ?? 0, protection: entry.protected });
           return;
         }
         cursor = listing.nextCursor;
@@ -94,7 +94,19 @@ export function UnindexedFileViewer({ path }: { path: string }) {
   }, [engine, path]);
 
   if (!metadata) return <p role={metadata === null ? "alert" : "status"}>{metadata === null ? v.missing : v.reading}</p>;
-  return <FileViewer path={path} {...metadata} />;
+  if (metadata.protection) {
+    return (
+      <section className="notes-document-area" data-testid="file-card" data-viewer="protected">
+        <h3>{path.split("/").at(-1)}</h3>
+        <p>{path}</p>
+        <p>
+          {humanSize(metadata.size)} · {new Date(metadata.mtimeMs).toLocaleString("zh-CN", { hour12: false })}
+        </p>
+        <p>受保护的文件仅显示元信息。</p>
+      </section>
+    );
+  }
+  return <FileViewer path={path} size={metadata.size} mtimeMs={metadata.mtimeMs} />;
 }
 
 function PdfViewWithChrome({ path }: { path: string }) {

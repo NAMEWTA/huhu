@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
+import { holdBridgeTimers } from "./session-slow-bridge.js";
 
 // S3 / C01–C05：OK 属性面板接入笔记顶部；属性与正文共用同一缓冲、同一文件；未触碰的 YAML 原样保留。
 
@@ -35,41 +36,65 @@ test("S3：属性显示、只改属性不丢正文与其它键、改正文保留
     await page.waitForTimeout(2500);
     expect(readFileSync(file, "utf8")).toBe(original);
 
-    // C03：只改属性 → 其它键、注释前后的原文与正文都保留
+    const read = () => readFileSync(file, "utf8");
+    const saveState = page.getByTestId("save-state");
     const title = panel.locator("textarea, input[type=text], input:not([type])").first();
-    await title.click();
+
+    // 等待本次修改的实际文件内容，保存状态可能还在显示上一份已保存快照。
+    const afterProperty = original.replace("title: 标题甲", "title: 标题乙");
     await title.fill("标题乙");
     await title.blur();
-    await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 10_000 });
-    const afterProp = readFileSync(file, "utf8");
-    expect(afterProp).toContain("title: 标题乙");
-    expect(afterProp).toContain("count: 0");
-    expect(afterProp).toContain("flag: false");
-    expect(afterProp).toContain("zip: 007");
-    expect(afterProp).toContain("- a");
-    expect(afterProp).toContain("# 正文");
-    expect(afterProp).toContain("段落一");
+    await expect.poll(read, { timeout: 10_000 }).toBe(afterProperty);
+    await expect(saveState).toHaveText("已保存");
 
-    // C03：只改正文 → frontmatter 原样保留
+    // C03：只改正文，frontmatter 的全部字节仍一致。
+    const afterBody = afterProperty.replace("段落一", "段落一追加正文");
     await prose(page).click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("追加正文");
-    await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 10_000 });
-    const afterBody = readFileSync(file, "utf8");
-    expect(afterBody).toContain("title: 标题乙");
-    expect(afterBody).toContain("zip: 007");
-    expect(afterBody).toContain("追加正文");
+    await expect.poll(read, { timeout: 10_000 }).toBe(afterBody);
+    await expect(saveState).toHaveText("已保存");
 
-    // C04：正文有未保存修改时改属性（及相反顺序）都落同一文件
+    // C04：正文有未保存修改时立即改属性，最终的同一文件包含两项修改。
+    const final = afterBody.replace("title: 标题乙", "title: 标题丙").replace("追加正文", "追加正文再加一段");
     await page.keyboard.type("再加一段");
-    await title.click();
     await title.fill("标题丙");
     await title.blur();
-    await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 10_000 });
-    const final = readFileSync(file, "utf8");
-    expect(final).toContain("title: 标题丙");
-    expect(final).toContain("再加一段");
-    expect(final).toContain("zip: 007");
+    await expect.poll(read, { timeout: 10_000 }).toBe(final);
+    await expect(saveState).toHaveText("已保存");
+  } finally {
+    await close();
+  }
+});
+
+test("C04：正文仍待慢桥交付时改属性，末字和属性一同写入", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const file = path.join(vault, "属性.md");
+    const original = "---\ntitle: 原题\nzip: 007\n---\n\n正文\n";
+    const read = () => readFileSync(file, "utf8");
+    writeFileSync(file, original);
+    await gotoNotes(page);
+    await treeItem(page, "属性.md").click();
+    const editor = prose(page);
+    await expect(editor).toContainText("正文");
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    const source = await holdBridgeTimers(editor);
+    await page.keyboard.insertText("首笔");
+    const first = original.replace("正文", "正文首笔");
+    await expect.poll(read, { timeout: 10_000 }).toBe(first);
+
+    await page.keyboard.insertText("末字");
+    await expect(editor).toContainText("正文首笔末字");
+    expect(await source()).toBe(first);
+    expect(read()).toBe(first);
+    const title = page.getByTestId("editor-properties").locator("textarea, input[type=text], input:not([type])").first();
+    await title.fill("新题");
+    await title.blur();
+    const final = first.replace("title: 原题", "title: 新题").replace("首笔", "首笔末字");
+    await expect.poll(read, { timeout: 10_000 }).toBe(final);
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
   } finally {
     await close();
   }

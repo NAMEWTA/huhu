@@ -1,7 +1,7 @@
 import type { VaultReadRangeOutput } from "@huhu/contracts";
 import { OkRoot, RichMarkdownEditor, coreRoutes, uploadRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
 import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
@@ -77,6 +77,15 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
       }),
     };
   }, [commentRoutes, engine]);
+  const downloadScope = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    downloadScope.current = controller;
+    return () => {
+      controller.abort();
+      downloadScope.current = null;
+    };
+  }, [engine, props.path]);
   const documentHost = useMemo(
     () => ({
       readAsset: async (path: string) => {
@@ -84,16 +93,30 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         const length = 4 * 1024 * 1024;
         const parts: BlobPart[] = [];
         let offset = 0;
+        const signal = downloadScope.current?.signal;
+        if (!signal) throw new DOMException("下载已取消", "AbortError");
+        let expectedVersion: string | undefined;
         let expectedSize: number | undefined;
         while (true) {
-          const chunk = await engine.call<VaultReadRangeOutput>("vault.readRange", { path, offset, length });
+          signal.throwIfAborted();
+          const chunk = await engine.call<VaultReadRangeOutput & { version: string }>("vault.readRange", { path, offset, length, expectedVersion }).catch((error: unknown) => {
+            if ((error as { code?: string })?.code === "VERSION_CONFLICT") throw new Error("附件在读取期间发生变化，请重新下载", { cause: error });
+            throw error;
+          });
+          signal.throwIfAborted();
+          expectedVersion ??= chunk.version;
           expectedSize ??= chunk.size;
-          if (chunk.size !== expectedSize || expectedSize > MAX_ATTACH_BYTES || (chunk.length === 0 && !chunk.eof)) {
-            throw new Error("附件超过下载上限或在读取期间发生变化");
+          if (expectedSize > MAX_ATTACH_BYTES) throw new Error("附件超过下载上限");
+          const bytes = Uint8Array.from(atob(chunk.base64), (char) => char.charCodeAt(0));
+          if (!expectedVersion || chunk.version !== expectedVersion || chunk.size !== expectedSize || chunk.offset !== offset || bytes.length !== chunk.length || offset + chunk.length > expectedSize || (chunk.length === 0 && !chunk.eof)) {
+            throw new Error("附件在读取期间发生变化，请重新下载");
           }
-          parts.push(Uint8Array.from(atob(chunk.base64), (char) => char.charCodeAt(0)));
+          parts.push(bytes);
           offset += chunk.length;
-          if (chunk.eof) return new Blob(parts, { type: "application/octet-stream" });
+          if (chunk.eof) {
+            if (offset !== expectedSize) throw new Error("附件在读取期间发生变化，请重新下载");
+            return new Blob(parts, { type: "application/octet-stream" });
+          }
         }
       },
       openDocument: (docName: string) => {

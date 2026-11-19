@@ -102,7 +102,7 @@
 
 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。
 
-- `app/src/editor/bubble-menu/FileBubbleButtons.tsx`：本地下载经宿主读取笔记相对路径的附件字节，通知失败，并支持按键激活。
+- `app/src/editor/bubble-menu/FileBubbleButtons.tsx`：本地下载经宿主读取笔记相对路径的附件字节，通知失败，并支持按键激活。切换选择、卸载或新的下载请求会使旧结果失效。
 
 - `app/src/editor/components/CodePreviewEditModal.tsx`：保持 CodeMirror 的挂载 ref 稳定，输入触发渲染时不销毁正在编辑的视图。
 

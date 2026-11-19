@@ -67,7 +67,7 @@ test("A06 行内、右键与 Shift+F10 的目标一致，方向键和 Enter 可�
 
     await resetClipboard();
     await row.hover();
-    await root.getByRole("button", { name: "Options" }).click();
+    await root.getByRole("button", { name: "文件操作选项" }).click();
     await expect(menu).toBeVisible();
     await copyPath.hover();
     await relative.click();

@@ -7,7 +7,14 @@ export function registerFlusher(fn: () => Promise<void>): () => void {
 }
 
 export async function runFlushers(): Promise<void> {
-  await Promise.allSettled([...flushers].map((f) => f()));
+  const results = await Promise.allSettled([...flushers].map(async (flush) => flush()));
+  const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
+  if (failures.length) {
+    const error = new AggregateError(failures, "退出前保存失败");
+    // 桌面端在回执后关闭窗口。会话先尽量保留草稿，此处记录未完成的交付。
+    console.error(error);
+    throw error;
+  }
 }
 
 /** 有未保存修改的文档（切换 / 关闭 Vault 前列给用户选择：保存，或保留为草稿）。 */
