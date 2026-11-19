@@ -342,7 +342,7 @@ test("逐项测试先将焦点移到顶层段落，离开代码块或引用后�
       await page.keyboard.press("Escape");
       await expect(end).toHaveText("结束锚点");
     }
-    await reopenSavedNote(page, file, /嵌套文字[\s\S]*嵌套文字/);
+    await reopenSavedNote(page, file, /嵌套文字[\s\S]*嵌套文字[\s\S]*\n\n\/表格\n\n\/表格\n$/);
     await expect(rich.locator(".ok-codeblock pre code")).toContainText("嵌套文字");
     await expect(rich.locator("blockquote")).toContainText("嵌套文字");
   } finally {
