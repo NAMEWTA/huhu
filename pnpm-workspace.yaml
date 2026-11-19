@@ -71,7 +71,7 @@ overrides:
   unist-util-visit-parents: 6.0.2
   vfile-location: 5.0.3
 
-# OK vendor 依赖补丁（与上游 pnpm-workspace.yaml 的同名条目一致，原样复制自 temp/sources/open-knowledge/patches；登记见 packages/editor/src/vendor/open-knowledge/PATCHES.md）
+# 依赖补丁（OK 原样补丁见 packages/editor/src/vendor/open-knowledge/PATCHES.md，本地补丁见 docs/upstream/ledger.md）
 patchedDependencies:
   "@handlewithcare/remark-prosemirror@0.1.5": patches/@handlewithcare%2Fremark-prosemirror@0.1.5.patch
   "@lingui/core@6.5.0": patches/@lingui%2Fcore@6.5.0.patch
@@ -83,3 +83,4 @@ patchedDependencies:
   "react-medium-image-zoom@5.4.3": patches/react-medium-image-zoom@5.4.3.patch
   "pdfjs-dist@6.3.289": patches/pdfjs-dist@6.3.289.patch
   "y-indexeddb@9.0.12": patches/y-indexeddb@9.0.12.patch
+  "prosemirror-view@1.41.8": patches/prosemirror-view@1.41.8.patch
