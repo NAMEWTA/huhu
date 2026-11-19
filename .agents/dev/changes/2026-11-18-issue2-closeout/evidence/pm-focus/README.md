@@ -64,3 +64,13 @@ ProseMirror 1.41.8 的聚焦回调在 20 ms 后比较 DOM 选区和观察器快�
 核对 npm 1.43.0 和上游 Git HEAD `c828930`。上游在重构后的 `DOMSelState` 中比较前后端点，只有端点仍相同时才把模型同步到 DOM。本地回移快照比较原则，在固定的 1.41.8 中用现有 DOM 观察器读取光标，并保持任务指定的导航、编辑和组合边界。源码、ESM 与 CJS 同步更新。 [1.43.0](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) · [上游 HEAD 源码](https://code.haverbeke.berlin/prosemirror/prosemirror-view/src/commit/c828930c0514183eaa9061103105f32ac7438b29/src/input.ts) · [Selection API 调度](https://www.w3.org/TR/selection-api/#selectionchange-event)
 
 完整知识库回归初跑有一条重新聚焦用例未等 End 的原生光标同步到 PM 就触发失焦，夹具的模型仍在段首。用例现先等待 DOM 与 PM 都确认段尾，再开始重新聚焦并模拟光标复位。该用例以零重试独立执行 10 次，全部通过。 [首轮回归](/tmp/huhu-pH02/regressions.log) · [专项复跑](/tmp/huhu-pH02/refocus-repeat.log)
+
+## 2026-11-20 · 键盘回到首段后导航到文档起点
+
+在 `f16f614` 的 Electron 44.9.1（Chromium 152.0.7977.167，Linux x64）中，夹具先将光标放在首段末尾并失焦，再用真实 Shift+Tab 回到编辑器。Home 与 Ctrl+Home 分别在聚焦后 14 ms 和 12 ms 把 DOM 光标移到偏移 0，PM 仍在位置 5。最近一次指针操作分别距 389 ms 和 391 ms。执行暂存的聚焦回调时，原版的观察器清零 `lastFocus`，将 DOM 光标写回偏移 4，PM 也留在位置 5。 [基线日志与 trace](/tmp/huhu-b06.DkdtYL/red3.log)
+
+npm 1.43.0 的聚焦回调使用前后选区端点判断浏览器复位，观察器仍有独立的 200 ms 文档起点恢复分支。1.41.8 的补丁让两个入口共享可信原生导航前的端点快照，并将有效期覆盖观察器窗口。实际移动到文档起点时走正常选区同步。没有本次导航时，观察器仍恢复原光标。源码、ESM、CJS、锁文件指纹和 R-53 同步更新。 [上游观察器源码](https://unpkg.com/prosemirror-view@1.43.0/src/domobserver.ts)
+
+回归夹具沿用生产的聚焦回调和观察器，使用 Playwright 固定 `Date` 时间来覆盖 200 ms 内的两种回调顺序。真实键盘导航的 DOM 与 PM 均应到达位置 1，随后 Shift+End 选中首段。无导航的对照只模拟浏览器复位到偏移 0，由生产观察器将 DOM 和 PM 恢复到首段末尾。 [Playwright Clock](https://playwright.dev/docs/clock)
+
+最终 Electron 批次在启动前均确认没有其他 Electron 或 Playwright 进程，使用单 worker 和零重试。专项 10/10、其余指定知识库回归 53/53、严格性能 6/6。严格性能的 1 MiB 打开耗时 432 ms，5,000 行实时预览输入 p95 为 13.6 ms。Web harness 也在独立的 Chromium 158.0.8127.18 中经 Shift+Tab 回到首段，以正常墙钟验证 Home 和 Shift+End。 [专项日志](/tmp/huhu-b06.DkdtYL/focus-clean.log) · [知识库回归](/tmp/huhu-b06.DkdtYL/regressions.log) · [严格性能](/tmp/huhu-b06.DkdtYL/strict.log) · [Web 日志](/tmp/huhu-b06.DkdtYL/browser.log)
