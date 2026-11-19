@@ -101,7 +101,9 @@ test("查找替换仅在相关快捷键查询浮层，浮层仍优先处理按�
       const menu = document.createElement("div");
       menu.setAttribute("role", "menu");
       menu.setAttribute("data-state", "open");
+      menu.tabIndex = -1;
       document.body.append(menu);
+      menu.focus();
       return menu;
     });
     await page.keyboard.press("Escape");
