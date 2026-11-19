@@ -315,3 +315,23 @@ Modern Web Guidance 检索了编辑区焦点、菜单键盘及可达名称。测
 | 知识库完整复验 `--retries=2` | 95 首次通过，2 个 flaky 重试通过，1 按默认配置跳过，退出 0。脚注因脚注气泡按钮未出现，在第二次重试通过。块类型因「文本」按钮未出现，在第一次重试通过。四个目标项均首次通过。 | `knowledge-complete.log` 及独立 Playwright 输出目录 |
 
 三次知识库全量均保留默认单 worker。前两次未设置重试，完整复验显式启用两次。原归档矩阵的运行输出重定向到本机日志目录。
+
+## 任务 08 设置页查找与本地模板
+
+开工合入集成 `9b143a4`（合并提交 `6439a6a`）。业务实现和 Electron 验证构建来自 `4394d12ede0e0417d6d67db2232fab02bd8221f5`，随后 `8849864` 格式化模板用例的定位语句。原始日志和 Playwright 输出在 `/tmp/huhu-parity08-po3ZrO/`。
+
+| 检查 | 结果 | 日志 |
+| --- | --- | --- |
+| 设置页 Ctrl/Mod+F 红绿 | 基线按键后，隐藏编辑器 DOM 内出现 1 个查找栏。修复后在设置页保持 0 个，返回可见笔记可按键打开、关闭。可见编辑器查找替换、普通键和浮层优先级的原用例也通过。 | `red.log`、`targeted.log` |
+| 导入模板并从模板新建红绿 | 基线磁盘已有原样导入的副本，但新建对话框没有「模板/样板.md」选项。修复后通过真实对话框选用此项，新笔记初始字节一致，保存编辑、关闭后从树重开可见。文件树「从模板新建」同样使用该模板并允许在写入前确定名称。原件和模板在两条路径后均保持原始字节。 | `template-red-confirm.log`、`targeted.log` |
+| 原子导入与同名竞争 | 专项 2 通过。模拟单次完整写入失败，磁盘无空模板，重试可用原名，保留 BOM 与 CRLF。并行同名导入分别写入两个新名称，保留旧模板。 | `template-unit.log` |
+| 独立 Chromium 158.0.8127.18 | 同一编辑器实现置于 `display:none` 的父节点时不消费查找按键，恢复显示后可通过键盘打开查找栏。 | `browser.log` |
+| `node scripts/ok-patches.mjs --check`、`--replay` | 267 条登记，无遗漏或多余。从固定上游重放 1,346 个文件，集合与字节零差异。均退出 0。 | `patches.log`、`replay.log` |
+| `pnpm build`、`pnpm lint`、`pnpm format:check` | 均退出 0。格式检查首跑定位到新增夹具一处需换行，格式化后复跑通过。 | `build.log`、`lint-final.log`、`format-check-final.log`、`format-check-delivery.log` |
+| `pnpm typecheck`、`pnpm knip` | 均退出 0。knip 给出两条编辑器既有依赖忽略配置提示。 | `typecheck-final.log`、`knip-final.log` |
+| `pnpm test` | 重启后从头运行，85 文件通过、1 文件跳过，999 项通过、1 项跳过，退出 0。 | `test-final.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge` | 默认 1 worker、0 重试，100 通过、1 跳过、1 失败，25.0 分钟，退出 126。两条回归及 F10 200 轮均通过。B01 的失败发生在等待「引擎就绪」5 秒超时，尚未进入标签页菜单。 | `knowledge.log`、`knowledge/knowledge-layout-tab-menu-*/trace.zip` |
+| B01 独立复跑 | 同一构建单 worker、零重试，连续 3 次通过，退出 0。 | `knowledge-failed-rerun.log` |
+| `pnpm test:vendor` | 首跑 6,390 通过、1 失败、4 跳过，另有 1 条 worker 通信超时。R13 依赖树扫描超过 120 秒。完整复跑 330 文件，6,391 通过、4 跳过，退出 0，依赖树扫描在 16 秒通过。 | `test-vendor-final.log`、`test-vendor-rerun.log`、`vendor-initial.json`、`vendor-rerun.json` |
+
+重启前的 `pnpm test` 没有退出状态，保留为 `test-interrupted.log`。重启后核对 Git 工作树、默认与定向 Playwright 结果，并重新执行该命令和此前未启动的 vendor、知识库全量。知识库运行使用独立输出目录，并将归档矩阵的运行输出重定向到日志目录。
