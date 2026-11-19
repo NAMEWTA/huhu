@@ -74,13 +74,46 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       scope: "write",
       exposable: true,
       defaultExposed: false,
-      input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional() }),
+      input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional() }),
       output: z.object({ path: z.string(), id: z.string() }),
       handler: async (c, i) => {
-        assertNotAutomationsDir(c.caller, i.folder);
-        const r = await svc.create({ name: i.name, ...(i.folder ? { folder: i.folder } : {}), ...(i.template ? { template: i.template } : {}) });
+        assertNotAutomationsDir(c.caller, i.folder, i.templatePath);
+        const r = await svc.create({
+          name: i.name,
+          ...(i.folder ? { folder: i.folder } : {}),
+          ...(i.template ? { template: i.template } : {}),
+          ...(i.templatePath !== undefined ? { templatePath: i.templatePath } : {}),
+        });
         changed(r.id, "created");
         return r;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.templates.list",
+      plugin: "notes",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({}),
+      output: z.array(z.string()),
+      handler: () => svc.templatePaths(),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.templates.import",
+      plugin: "notes",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: Path,
+      output: Path,
+      handler: async (_c, i) => {
+        const result = await svc.importTemplate(i.path);
+        changed(null, "created");
+        return result;
       },
     }),
   );

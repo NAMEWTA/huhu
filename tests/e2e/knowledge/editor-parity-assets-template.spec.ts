@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
@@ -52,29 +52,29 @@ test("B01：在正文就地操作附件、图片和双链，支持键盘菜单",
   }
 });
 
-test("把 Vault 笔记导入为本地模板，保存后关闭和重开", async () => {
+test("从导入的本地模板新建笔记，保存重开后模板字节不变", async () => {
+  test.setTimeout(90_000);
   const { page, vault, close } = await openApp();
   const initial = "---\ntitle: 本地样板\n---\n\n# 模板正文\n\n**保留粗体**\n";
   const source = path.join(vault, "样板.md");
   const destination = path.join(vault, "模板", "样板.md");
+  const readIfPresent = (file: string) => (existsSync(file) ? readFileSync(file, "utf8") : null);
   try {
+    mkdirSync(path.join(vault, "目标文件夹"));
     writeFileSync(source, initial);
     await openKnowledge(page);
     await treeMenu(page, treeItem(page, "样板.md"), "作为模板导入");
-    await expect
-      .poll(() => {
-        try {
-          return readFileSync(destination, "utf8");
-        } catch {
-          return null;
-        }
-      })
-      .toBe(initial);
+    await expect.poll(() => readIfPresent(destination), { timeout: 20_000 }).toBe(initial);
     expect(readFileSync(source, "utf8")).toBe(initial);
-    await treeSettled(page);
-    await treeFolder(page, "模板").click();
-    const imported = page.locator('[data-testid="notes-resource-tree"] [data-item-path="模板/样板.md"]');
-    await imported.click();
+    await page.getByRole("button", { name: "新建笔记", exact: true }).and(page.getByTitle("新建笔记", { exact: true })).click();
+    const dialog = page.getByTestId("new-note-dialog");
+    await dialog.getByLabel("文件名", { exact: true }).fill("从模板创建");
+    const picker = dialog.getByLabel("内容模板", { exact: true });
+    await expect(picker.getByRole("option", { name: "模板/样板.md", exact: true })).toBeAttached({ timeout: 15_000 });
+    await picker.selectOption({ label: "模板/样板.md" });
+    await dialog.getByTestId("new-note-submit").click();
+    const created = path.join(vault, "从模板创建.md");
+    await expect.poll(() => readIfPresent(created), { timeout: 15_000 }).toBe(initial);
     const rich = page.getByTestId("markdown-editor").locator(".ProseMirror");
     await expect(rich.getByRole("heading", { name: "模板正文" })).toBeVisible({ timeout: 15_000 });
     await expect(rich.locator("strong")).toHaveText("保留粗体");
@@ -82,13 +82,27 @@ test("把 Vault 笔记导入为本地模板，保存后关闭和重开", async (
     await page.keyboard.press("End");
     await page.keyboard.insertText("已保存");
     await page.keyboard.press("ControlOrMeta+s");
-    await expect.poll(() => readFileSync(destination, "utf8")).toContain("# 模板正文已保存");
-    const closeTab = page.getByRole("button", { name: "关闭 样板", exact: true });
+    await expect.poll(() => readFileSync(created, "utf8")).toContain("# 模板正文已保存");
+    const closeTab = page.getByRole("button", { name: "关闭 从模板创建", exact: true });
     await closeTab.click();
     await expect(closeTab).toHaveCount(0);
-    await imported.click();
+    await treeItem(page, "从模板创建.md").click();
     await expect(rich.getByRole("heading", { name: "模板正文已保存" })).toBeVisible({ timeout: 15_000 });
+
+    await treeSettled(page);
+    await treeFolder(page, "目标文件夹").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "从模板新建", exact: true }).hover();
+    await page.getByRole("menuitem", { name: "模板/样板.md", exact: true }).click();
+    const treeDialog = page.getByRole("dialog", { name: "新建文件", exact: true });
+    await expect(treeDialog.getByRole("combobox")).toContainText("模板/样板.md");
+    await treeDialog.getByLabel("文件名", { exact: true }).fill("从树创建");
+    await treeDialog.getByRole("button", { name: "创建", exact: true }).click();
+    await expect.poll(() => readIfPresent(path.join(vault, "目标文件夹", "从树创建.md")), { timeout: 15_000 }).toBe(initial);
+    await treeItem(page, "从树创建.md").click();
+    await expect(rich.getByRole("heading", { name: "模板正文", exact: true })).toBeVisible({ timeout: 15_000 });
+
     expect(readFileSync(source, "utf8")).toBe(initial);
+    expect(readFileSync(destination)).toEqual(Buffer.from(initial));
   } finally {
     await close();
   }

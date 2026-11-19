@@ -20,6 +20,7 @@ import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
 import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
+import { noteTemplateInput } from "./explorer/filesDeps.js";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
 const UnindexedFileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ UnindexedFileViewer }) => ({ default: UnindexedFileViewer })));
@@ -593,7 +594,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           error={error}
           onClose={() => setDialog(null)}
           onCreate={async (v) => {
-            const r = await run<{ path: string }>("notes.create", { name: v.name, ...(v.folder ? { folder: v.folder } : {}), template: v.template });
+            const r = await run<{ path: string }>("notes.create", { name: v.name, ...(v.folder ? { folder: v.folder } : {}), ...noteTemplateInput(v.template) });
             if (r) {
               setDialog(null);
               openNote(r.path);
