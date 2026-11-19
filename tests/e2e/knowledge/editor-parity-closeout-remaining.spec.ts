@@ -66,7 +66,7 @@ test("Embed 占位符可打开属性，外链不发请求，编辑后关闭重�
     const placeholder = embed.locator("[data-descriptor-placeholder]");
     await expect(placeholder).toBeVisible();
 
-    const source = page.getByRole("textbox", { name: /^src$/i });
+    const source = page.getByRole("dialog").getByRole("textbox", { name: "来源", exact: true });
     // 新建块可能自动打开属性。关闭后再用实际占位按钮打开。
     if (await source.isVisible()) {
       await page.keyboard.press("Escape");
@@ -342,7 +342,7 @@ test("逐项测试先将焦点移到顶层段落，离开代码块或引用后�
       await page.keyboard.press("Escape");
       await expect(end).toHaveText("结束锚点");
     }
-    await reopenSavedNote(page, file, /嵌套文字[\s\S]*嵌套文字/);
+    await reopenSavedNote(page, file, /嵌套文字[\s\S]*嵌套文字[\s\S]*\n\n\/表格\n\n\/表格\n$/);
     await expect(rich.locator(".ok-codeblock pre code")).toContainText("嵌套文字");
     await expect(rich.locator("blockquote")).toContainText("嵌套文字");
   } finally {
@@ -363,7 +363,7 @@ test("代码块设置弹层和预览编辑对话框响应键盘，预览修改�
     const block = editor(page).locator(".ok-codeblock");
     await block.hover();
 
-    const settings = block.getByRole("button", { name: /Code block settings|代码块设置/ });
+    const settings = block.getByRole("button", { name: "代码块设置", exact: true });
     await settings.press("Enter");
     const popover = page.getByRole("dialog");
     await expect(popover).toBeVisible();
@@ -383,8 +383,12 @@ test("代码块设置弹层和预览编辑对话框响应键盘，预览修改�
     await expect(popover).toBeHidden();
 
     await reopenSavedNote(page, file, original.replace(before, after));
+    await expect(block.locator("iframe").contentFrame().getByText("弹层预览乙", { exact: true })).toBeVisible();
     await block.hover();
-    await block.getByRole("button", { name: /Hide HTML preview|隐藏 HTML 预览/ }).click();
+    const hidePreview = block.getByRole("button", { name: "隐藏 HTML 预览", exact: true });
+    await expect(hidePreview).toHaveAttribute("aria-pressed", "true");
+    await hidePreview.click();
+    await expect(block.getByRole("button", { name: "显示 HTML 预览", exact: true })).toHaveAttribute("aria-pressed", "false");
     await expect(block.locator("pre code")).toBeVisible();
     await expect(block.locator("pre code")).toHaveText(after);
   } finally {
@@ -403,14 +407,14 @@ test("Callout 属性的下拉选择、高级折叠与开关在保存重开后保
     const rich = editor(page);
     const block = rich.locator('[data-component-name="Callout"]');
     await block.hover();
-    await block.getByRole("button", { name: /Callout properties|Callout 属性/ }).click();
+    await block.getByRole("button", { name: "提示框属性", exact: true }).click();
 
     const panel = page.locator("[data-prop-panel]");
-    await panel.getByRole("combobox", { name: "Type" }).click();
-    await page.getByRole("option", { name: "warning" }).click();
-    await panel.getByRole("button", { name: /Advanced|高级/ }).click();
-    await panel.getByRole("switch", { name: "Collapsible" }).click();
-    const defaultOpen = panel.getByRole("switch", { name: "Default Open" });
+    await panel.getByRole("combobox", { name: "类型", exact: true }).click();
+    await page.getByRole("option", { name: "警告", exact: true }).click();
+    await panel.getByRole("button", { name: "高级", exact: true }).click();
+    await panel.getByRole("switch", { name: "可折叠", exact: true }).click();
+    const defaultOpen = panel.getByRole("switch", { name: "默认展开", exact: true });
     await expect(defaultOpen).toHaveAttribute("aria-checked", "true");
     await defaultOpen.click();
     await expect(defaultOpen).toHaveAttribute("aria-checked", "false");
