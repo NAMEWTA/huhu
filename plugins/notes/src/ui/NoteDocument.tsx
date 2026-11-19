@@ -70,6 +70,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   }, [deferredText]);
 
   const [mode, setMode] = useState<Mode>("live");
+  const revealSource = useCallback(() => setMode("source"), []);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
@@ -209,7 +210,7 @@ export function NoteDocument(props: NoteDocumentProps) {
         </select>
         <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading} onClick={props.onAddComment} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
-        <IconButton icon={PanelRight} label={n.inspector} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
+        <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
         <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget, secondaryActions))} />
       </div>
       {state === "conflict" ? (
@@ -298,6 +299,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                 flush={flush}
                 onOpen={props.onOpen}
                 onPort={onPort}
+                onRevealSource={revealSource}
                 {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
               />
             </div>

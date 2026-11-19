@@ -1,9 +1,12 @@
+import { replaceBody, splitDocument } from "@huhu/vault/markdown";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import type { ArchiveDetailDto, ArchiveDto, ArchiveFieldDef, ArchiveTypeDto } from "@huhu/contracts";
 import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, SearchBox, type DataTableColumn } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient, useReferenceIndex } from "@huhu/workbench";
 import { ArrowUpRight, FilePlus2, FileText, Folder, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import type { DocumentSession, SessionSnapshot } from "../documents/DocumentSession.js";
+import { t } from "../i18n.js";
 import { archiveIcon } from "./icons.js";
 import { a } from "./i18n.js";
 import { folderName } from "./route.js";
@@ -282,19 +285,23 @@ export function ArchiveView({
   onOpenFile,
   onOpenFolder,
   onGone,
-  beforeWrite,
+  session,
+  snapshot,
+  autosave,
 }: {
   path: string;
   onOpenType(path: string): void;
   onOpenFile(path: string): void;
   onOpenFolder(path: string): void;
   onGone(): void;
-  /** 写 index.md 之前先让同一文件的会话（Markdown 视图里的未保存编辑）落盘；返回 false 则不写（E04）。 */
-  beforeWrite?: () => Promise<boolean>;
+  session: DocumentSession;
+  snapshot: SessionSnapshot;
+  autosave: boolean;
 }) {
+  const engine = useEngine();
   const rawCall = useArchiveCall();
   const call = async <T,>(capability: string, input: unknown): Promise<T> => {
-    if (beforeWrite && !(await beforeWrite())) throw new Error(a.flushFailed);
+    if (!(await session.flush())) throw new Error(a.flushFailed);
     return rawCall<T>(capability, input);
   };
   const detail = useCapability<ArchiveDetailDto>("archives.read", { path });
@@ -325,11 +332,20 @@ export function ArchiveView({
     );
   if (!d) return <p>{a.loading}</p>;
 
-  const save = async (patch: { fields?: Record<string, unknown>; body?: string; removeKeys?: string[] }) => {
+  const save = async (patch: { fields?: Record<string, unknown>; removeKeys?: string[] }) => {
     try {
       setError(null);
-      await call("archives.update", { path: d.path, ...(d.version ? { expectedVersion: d.version } : {}), ...patch });
-      return true;
+      return await session.writeFields(async (version) => {
+        const expectedVersion = version || d.version;
+        if (d.version && expectedVersion !== d.version) {
+          // 正文保存可以推进版本。若正在编辑的字段也被改动，仍交给用户处理冲突。
+          const current = await engine.call<ArchiveDetailDto>("archives.read", { path: d.path });
+          if (current.version !== expectedVersion || patch.removeKeys?.length || Object.keys(patch.fields ?? {}).some((key) => !Object.is(current.fields[key], d.fields[key]))) {
+            throw new Error("档案字段已被修改，请重新确认后保存");
+          }
+        }
+        await rawCall("archives.update", { path: d.path, ...(expectedVersion ? { expectedVersion } : {}), ...patch });
+      });
     } catch (e) {
       setError(message(e));
       await detail.refetch();
@@ -363,9 +379,9 @@ export function ArchiveView({
           ) : null}
         </div>
       </header>
-      {error ? (
+      {error || snapshot.flushError ? (
         <div role="alert" className="hu-field-error">
-          {error}
+          {error ?? snapshot.flushError}
         </div>
       ) : null}
       <h3>{a.fields}</h3>
@@ -390,7 +406,12 @@ export function ArchiveView({
         </>
       ) : null}
       <h3>{a.body}</h3>
-      <BodyEditor key={d.path} path={d.path} body={d.body} onSave={(body) => save({ body })} />
+      {snapshot.loaded ? <BodyEditor key={d.path} path={d.path} session={session} text={snapshot.text} /> : null}
+      {!autosave ? (
+        <Button disabled={!snapshot.loaded} data-testid="archive-save" onClick={() => void session.flush()}>
+          {t.save}
+        </Button>
+      ) : null}
       <h3>
         {a.files}
         <span className="notes-archive-actions">
@@ -573,62 +594,41 @@ function FieldInput({ def, value, problem, onCommit }: { def: ArchiveFieldDef; v
   );
 }
 
-/** 档案正文在停手、失焦或离开页面时保存。 */
-function BodyEditor({ path, body, onSave }: { path: string; body: string; onSave(body: string): Promise<boolean> }) {
+/** 只编辑正文，整个文件仍由共享会话负责版本、草稿和串行保存。 */
+function BodyEditor({ path, session, text }: { path: string; session: DocumentSession; text: string }) {
   const refs = useReferenceIndex();
-  const [text, setText] = useState(body);
   const port = useRef<RichEditorPort | null>(null);
-  const registerPort = useCallback((editor: RichEditorPort | null) => {
-    port.current = editor;
-  }, []);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef(body);
-  const save = useRef(onSave);
-  save.current = onSave;
-  const lastRequested = useRef(body);
-  const queue = useRef(Promise.resolve());
-  const flush = useCallback(async () => {
-    const editor = port.current;
-    await editor?.flush();
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    const next = editor?.getDraft() ?? latest.current;
-    if (next === lastRequested.current) return;
-    const previous = lastRequested.current;
-    lastRequested.current = next;
-    queue.current = queue.current.then(async () => {
-      if (!(await save.current(next)) && lastRequested.current === next) lastRequested.current = previous;
-    });
-    await queue.current;
-  }, []);
-  // 编辑器的 layout cleanup 先把桥里的事务同步交付给 onChange。
-  useEffect(
-    () => () => {
-      void flush();
+  const detach = useRef<(() => void) | undefined>(undefined);
+  const onPort = useCallback(
+    (editor: RichEditorPort | null) => {
+      detach.current?.();
+      port.current = editor;
+      detach.current = editor ? session.attachDrainer(() => editor.flush()) : undefined;
     },
-    [flush],
+    [session],
   );
   return (
     <div
       className="notes-archive-body"
       data-testid="archive-body"
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) void flush();
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          void port.current?.flush().catch((error: unknown) => session.setError(message(error)));
+        }
       }}
     >
       <Suspense fallback={null}>
         <CompactInput
           id={`archive:${path}`}
-          value={text}
+          value={splitDocument(text).body.replace(/^\r?\n/, "")}
           pages={refs.pages}
           referenceSearch={refs.search}
           placeholder={a.body}
-          onPort={registerPort}
-          onChange={(v) => {
-            latest.current = v;
-            setText(v);
-            if (timer.current) clearTimeout(timer.current);
-            timer.current = setTimeout(() => void flush(), 800);
+          onPort={onPort}
+          onChange={(body) => {
+            const current = session.currentText();
+            const leading = /^\r?\n/.exec(splitDocument(current).body)?.[0] ?? "";
+            session.setText(replaceBody(current, leading + body));
           }}
         />
       </Suspense>

@@ -36,6 +36,7 @@ export interface FilesRouteDeps {
   /** 移入回收站（可恢复）。 */
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
+  importTemplate?(sourcePath: string): Promise<{ path: string }>;
   createFolder(input: { path: string }): Promise<{ path: string }>;
   /** 上传：写入 parentDir 下。 */
   upload?: UploadProvider;
@@ -153,6 +154,19 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
     },
     // 回收站清理：Huhu 的“永久删除”在回收站列表里完成（需要 trashId），树里没有该入口。
     "POST /api/trash/cleanup": () => ({ deletedDocNames: [] }),
+    ...(deps.importTemplate
+      ? {
+          "POST /api/template/import": async ({ body }: Parameters<HostRoutes[string]>[0]) => {
+            const input = body as { deleteSource?: boolean; targetFolder?: string };
+            const sourcePath = realFile("file", pathFromBody(body, "sourcePath"));
+            if (input.deleteSource || input.targetFolder !== dirOf(sourcePath) || !MD_EXT.test(sourcePath)) {
+              throw new Error("只能从笔记所在文件夹导入 Markdown 模板，并保留原文件");
+            }
+            const imported = await deps.importTemplate?.(sourcePath);
+            return { path: imported?.path, created: true, warnings: [] };
+          },
+        }
+      : {}),
     "POST /api/create-page": async ({ body }) => {
       const path = pathFromBody(body, "path");
       const template = (body as { template?: string }).template;

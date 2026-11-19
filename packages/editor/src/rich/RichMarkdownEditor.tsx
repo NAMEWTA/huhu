@@ -7,7 +7,14 @@ import type { EditorPort } from "@huhu/contracts";
 import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
+import { Toaster } from "sonner";
 import { getEditorForDoc, subscribeEditorRegistry } from "@/editor/active-editor";
+import { EmojiInsertPopover } from "@/editor/components/EmojiInsertPopover";
+import { TagDialog } from "@/editor/components/TagDialog";
+import { requestViewInSource } from "@/editor/mode-switch-landing";
+import { VIEW_IN_SOURCE_EVENT, type ViewInSourceDetail } from "@/editor/view-in-source-event";
+import { matchesKeyboardShortcut } from "@/lib/keyboard-shortcuts";
+import { isOverlayLayerOpen } from "@/lib/overlay-layers";
 import { FindReplaceController } from "@/editor/find-replace/FindReplaceController";
 import { getMarkdownSourceViewForDoc } from "@/editor/full-page-cm-views";
 import { PropertyPanel } from "@/components/PropertyPanel";
@@ -16,7 +23,9 @@ import { TiptapEditor } from "@/editor/TiptapEditor";
 import { replaceRawBody } from "../vendor/open-knowledge/server-bridge/bridge-intake";
 import { acquireProvider, releaseProvider } from "../host/provider-pool";
 import { registerAtReference, type ReferenceCandidate } from "./at-reference";
+import { EditorAssetMenu, type EditorAssetActions } from "./EditorAssetMenu";
 import { FILE_LOAD_ORIGIN } from "../host/doc-source";
+import { registerOfflineEmojiRoutes } from "../host/offline-emoji";
 import type { LocalDocProvider } from "../host/hocuspocus-provider";
 
 export type EditorViewMode = "rich" | "source" | "read";
@@ -38,6 +47,8 @@ export interface RichMarkdownEditorProps {
   value: string;
   onChange(text: string): void;
   mode?: EditorViewMode;
+  onRevealSource?(): void;
+  assetActions?: EditorAssetActions;
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
@@ -75,6 +86,33 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const { docName, value, onChange, mode = "rich", variant = "document", readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch } = props;
   const [provider, setProvider] = useState<LocalDocProvider | null>(null);
+  const editorScope = useRef<HTMLDivElement>(null);
+  const { onRevealSource } = props;
+  const enableEmojiPicker = mode === "rich" && !readOnly;
+  const showProperties = (properties ?? variant === "document") && !readOnly && mode !== "read";
+  const needsEmojiData = enableEmojiPicker || showProperties;
+  useEffect(() => (needsEmojiData ? registerOfflineEmojiRoutes() : undefined), [needsEmojiData]);
+  useEffect(() => {
+    if (!onRevealSource || !enableEmojiPicker) return;
+    const revealSource = (event: Event) => {
+      const { detail } = event as CustomEvent<ViewInSourceDetail>;
+      if (detail?.docName === docName) onRevealSource();
+    };
+    const requestSource = (event: KeyboardEvent) => {
+      if (!matchesKeyboardShortcut(event, "view-source-at-cursor") || isOverlayLayerOpen()) return;
+      if (!(event.target instanceof Element) || !editorScope.current?.contains(event.target)) return;
+      const editor = getEditorForDoc(docName);
+      if (!editor?.isFocused || !provider) return;
+      event.preventDefault();
+      requestViewInSource({ editor, docName, ytext: provider.document.getText("source") });
+    };
+    window.addEventListener(VIEW_IN_SOURCE_EVENT, revealSource);
+    window.addEventListener("keydown", requestSource, true);
+    return () => {
+      window.removeEventListener(VIEW_IN_SOURCE_EVENT, revealSource);
+      window.removeEventListener("keydown", requestSource, true);
+    };
+  }, [docName, enableEmojiPicker, onRevealSource, provider]);
   // 滚动容器 / 内容挂载点：命令式创建（不归 React 管），由 TiptapEditor 的 chrome 搬进自己的 slot
   const [portal] = useState(() => {
     const el = document.createElement("div");
@@ -235,36 +273,43 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     };
   }, [docName, wantsReference, provider]);
 
-  // 快捷键作用在最新选区上：浏览器的 selectionchange 是异步事件，ProseMirror 靠它把 DOM 选区同步进 state。
-  // 紧贴着 Shift+Home / 鼠标拖选之后的 Mod-i 等快捷键会先于它到达，命令作用在旧的（折叠）选区上，只留下一个存储标记，看起来就像“首次按键被忽略”。
-  // 快捷键 keydown 的捕获阶段先让 ProseMirror 把待处理的 DOM 选区读进 state（DOMObserver.flush 就是它自己处理 selectionchange 的入口）。人手速度下该事件早已到达，这里是 no-op。
+  // selectionchange 异步分发。先用 ProseMirror 自己的 DOMObserver 读到
+  // 最新浏览器选区，避免输入和命令在下一次同步前改写旧选区。
   useEffect(() => {
+    type DOMSelectionRange = Pick<Selection, "anchorNode" | "anchorOffset" | "focusNode" | "focusOffset">;
+    type SelectionObserver = { currentSelection: { eq(selection: DOMSelectionRange): boolean }; flush(): void };
     let bound: Editor | null = null;
-    let handler: ((e: KeyboardEvent) => void) | null = null;
-    const unbind = () => {
-      if (bound && handler && !bound.isDestroyed) bound.view.dom.removeEventListener("keydown", handler, true);
-      bound = null;
-      handler = null;
-    };
+    let detach: (() => void) | undefined;
     const sync = () => {
-      const ed = getEditorForDoc(docName);
-      const next = ed && !ed.isDestroyed ? ed : null;
+      const editor = getEditorForDoc(docName);
+      const next = editor && !editor.isDestroyed ? editor : null;
       if (next === bound) return;
-      unbind();
-      if (!next) return;
+      detach?.();
       bound = next;
-      handler = (e) => {
-        if (!(e.ctrlKey || e.metaKey) || e.isComposing) return;
-        const observer = (next.view as unknown as { domObserver?: { flush?: () => void } }).domObserver;
-        observer?.flush?.();
+      detach = undefined;
+      if (!next) return;
+
+      const view = next.view;
+      // Use the same snapshot and shadow-root handling as DOMObserver. Ordinary
+      // keys with an already synchronized selection avoid a second flush.
+      const selectionView = view as unknown as { domObserver?: SelectionObserver; domSelectionRange(): DOMSelectionRange };
+      const flushSelection = (event: Event) => {
+        if (view.composing || (event as KeyboardEvent | InputEvent).isComposing) return;
+        const observer = selectionView.domObserver;
+        if (observer && !observer.currentSelection.eq(selectionView.domSelectionRange())) observer.flush();
       };
-      next.view.dom.addEventListener("keydown", handler, true);
+      view.dom.addEventListener("keydown", flushSelection, true);
+      view.dom.addEventListener("beforeinput", flushSelection, true);
+      detach = () => {
+        view.dom.removeEventListener("keydown", flushSelection, true);
+        view.dom.removeEventListener("beforeinput", flushSelection, true);
+      };
     };
     sync();
     const unsub = subscribeEditorRegistry(sync);
     return () => {
       unsub();
-      unbind();
+      detach?.();
     };
   }, [docName, provider]);
 
@@ -392,6 +437,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     <div
       className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ""}`}
       data-ok-editor
+      ref={editorScope}
       data-mode={mode}
       style={{
         height: "100%",
@@ -404,7 +450,14 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     >
       <Boundary {...(props.onError ? { onError: props.onError } : {})}>
         <Suspense fallback={null}>
-          {provider && (properties ?? variant === "document") && !readOnly && mode !== "read" ? (
+          {variant === "document" ? (
+            <>
+              <Toaster richColors closeButton />
+              <TagDialog key={docName} scope={editorScope} docName={docName} />
+              {props.assetActions && mode !== "source" ? <EditorAssetMenu key={docName} scope={editorScope} docName={docName} actions={props.assetActions} /> : null}
+            </>
+          ) : null}
+          {provider && showProperties ? (
             <div className="editor-ok-properties" data-testid="editor-properties" style={{ flex: "0 0 auto" }}>
               <PropertyPanel provider={provider as never} />
             </div>
@@ -412,7 +465,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
           {provider ? (
             <div style={variant === "document" ? { flex: "1 1 0", minHeight: 0, position: "relative" } : { display: "contents" }}>
               {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}
-              <div hidden={showSource} data-testid="editor-scroll-container" style={{ height: "100%", overflow: "auto" }}>
+              <div hidden={showSource} data-testid={showSource ? undefined : "editor-scroll-container"} style={{ height: "100%", overflow: "auto" }}>
                 {richReady ? (
                   <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
                 ) : mode !== "source" ? (
@@ -422,8 +475,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
                 ) : null}
               </div>
               {richReady && variant === "document" ? <FindReplaceController activeDocName={docName} isSourceMode={mode !== "rich" || readOnly} /> : null}
+              {richReady && enableEmojiPicker ? <EmojiInsertPopover scope={editorScope} /> : null}
               {showSource ? (
-                <div style={{ height: "100%", overflow: "auto" }}>
+                <div data-testid="editor-scroll-container" style={{ height: "100%", overflow: "auto" }}>
                   <SourceEditor key={`s-${docName}`} docName={docName} ytext={provider.document.getText("source")} provider={provider as never} isSourceModeActive />
                 </div>
               ) : null}

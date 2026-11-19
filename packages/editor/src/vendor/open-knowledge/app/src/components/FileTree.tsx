@@ -694,6 +694,16 @@ function FileTreeMenu({
                 }
               : undefined
           }
+          allowTemplateConversion={false}
+          onImportTemplate={
+            !isOkRow && target.kind === 'file' && /^\.?mdx?$/i.test(target.docExt ?? '') &&
+            !relativePath.split('/').slice(0, -1).includes('模板')
+              ? () => {
+                  close();
+                  onImportTemplate(target, false);
+                }
+              : undefined
+          }
           onCopyFullPath={() => {
             if (!workspace) return;
             close();

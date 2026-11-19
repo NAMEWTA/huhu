@@ -6,7 +6,7 @@ import { stripFrontmatter } from "../../vendor/open-knowledge/core/src/extension
 import { createCodeFenceTracker } from "../../vendor/open-knowledge/core/src/utils/code-fence-tracker";
 import { scanHeadingLine } from "../../vendor/open-knowledge/core/src/utils/heading-scan";
 import { resolveWikiLinkTargetDocName } from "../../vendor/open-knowledge/core/src/utils/wiki-link-resolve";
-import type { HostRoutes } from "../host-fetch";
+import { PASS_HOST_ROUTE, type HostRoutes } from "../host-fetch";
 
 export interface HostPageSummary {
   docName: string;
@@ -16,6 +16,7 @@ export interface HostPageSummary {
   /** 必填：上游 PageEntrySchema 要求，例如 'md' */
   docExt: string;
   icon?: string;
+  tags?: readonly string[];
 }
 
 export interface HostDocumentEntry {
@@ -43,6 +44,20 @@ function suggestionRoutes(deps: CoreRouteDeps, suggestions: NonNullable<CoreRout
         for (let end = tag.lastIndexOf("/"); end > 0; end = tag.lastIndexOf("/", end - 1)) parentTags.add(tag.slice(0, end));
       }
       return { tags: tags.map(({ tag, count }) => ({ name: tag, count, isLeaf: !parentTags.has(tag) })) };
+    },
+    "GET /api/tag-documents": async ({ url }) => {
+      const tag = url.searchParams.get("tag")?.toLowerCase();
+      if (!tag) return { docs: [] };
+      const currentDoc = url.searchParams.get("docName");
+      const docs = (await deps.listPages()).flatMap(({ docName, title, tags }) => {
+        if (docName === currentDoc) return [];
+        const matchingTags = tags?.filter((candidate) => {
+          const normalized = candidate.toLowerCase();
+          return normalized === tag || normalized.startsWith(`${tag}/`);
+        });
+        return matchingTags?.length ? [{ docName, title, matchingTags }] : [];
+      });
+      return { docs };
     },
     "GET /api/page-headings": async ({ url }) => {
       const docName = url.searchParams.get("docName") ?? "";
@@ -81,7 +96,8 @@ export function coreRoutes(deps: CoreRouteDeps): HostRoutes {
   return {
     ...(deps.suggestions ? suggestionRoutes(deps, deps.suggestions) : {}),
     "GET /api/pages": async () => ({ pages: await deps.listPages() }),
-    "GET /api/documents": async () => ({ documents: await deps.listDocuments() }),
+    // 分级目录列表由 Explorer 的 filesRoutes 提供，编辑器只提供引用候选。
+    "GET /api/documents": async ({ url }) => (url.searchParams.get("showAll") === "true" ? PASS_HOST_ROUTE : { documents: await deps.listDocuments() }),
     "GET /api/principal": () => ({ principal: { id: "local", name: "Huhu", kind: "human" } }),
   };
 }

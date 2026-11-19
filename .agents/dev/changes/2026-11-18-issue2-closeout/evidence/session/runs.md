@@ -74,3 +74,66 @@
 | 再次执行指定的严格性能子集 | 2/2，退出 0。1 MiB 为 413 ms，5000 行输入 p95 为 13.8 ms、最大 26.9 ms，80 样本。1 分钟负载开始 3.05、结束 5.24；一个 worktree 的 Electron 套件仍运行。 | `perf-final.log`、`perf-final-load.log` |
 | 第二轮全量 `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows --retries=3` | 107 一次通过、1 默认跳过、0 重试、0 失败，退出 0。属性和完整旅程均在首轮尝试通过。独立成本样本 30 条、30 实例、1,480 ms、堆增量 37 MB。 | `full-rerun.log`、`full-rerun-results/.last-run.json`、`full-rerun-load.log` |
 | 无其他 Playwright runner 时，重新执行指定的严格性能命令 | 2/2，退出 0。1 MiB 到可编辑 413 ms，5000 行输入 p95 14.1 ms、最大 23.2 ms，80 样本。8 核主机 1 分钟负载开始 1.07、结束 1.20，开始前 CPU 压力 `avg10=0.00`。 | `perf-idle.log`、`perf-idle-load.log` |
+
+## task03 独立审查修复
+
+集成点为 `03dc93b`，本工作分支先合入后的基线为 `4300e30`。原始日志与 trace 位于 `/tmp/huhu-session-03/`。重启后 test-results/ 中的 .last-run.json 属于旧运行，task03 使用单独输出目录。重启前在途的绿色单测、构建、类型与补丁登记命令均重新执行。
+
+| 批次 | 结果 | 日志 |
+| --- | --- | --- |
+| 基线 Electron 与 Vitest | A06 英文定位、档案直接退出最后一笔、手动切视图原文件不变均判红。带焦点拦截的切 Vault 基线漏报待保存档案。两个 drainer 场景均未保住快照，两个资产边界场景也未达成约定。 | `red.log`、`red-vault.log`、`red-drainer.log`、`red-assets.log` |
+| 首轮集成构建后的定向 Electron | 10 通过、3 失败。切 Vault 在确认后进入重载，原驱动取到已销毁的 context。另两项触发 E04 旧的等待前提与字段写入后旧会话版本。A06、三项 F03、同尺寸替换、档案无失焦退出和手动保存用例通过。 | `targeted.log` |
+| 队列修复后的定向 Electron | 6 通过、1 失败。档案退出、切 Vault、手动视图、取消迟到导航、两项 E04 均通过。原有档案删除用例等待返回类型页超时。 | `verify-focus.log` |
+| 会话与资产单测 | 3 文件、37 条通过。包括 drainer 先拒绝但等其它端口、销毁清理、在途档案条件写与新正文合并、受保护真实目标、拒绝同尺寸替换和尾段长度。 | `verify-session.log` |
+| 类型、lint、补丁登记、构建、格式、knip | `pnpm typecheck`、`pnpm lint`、`node scripts/ok-patches.mjs --check`、`pnpm build`、`pnpm format:check`、`pnpm knip` 最终均退出 0。登记 203 项，遗漏和多余各 0。 | `verify-typecheck.log`、`delivery-lint.log`、`verify-patch.log`、`delivery-build.log`、`delivery-format.log`、`delivery-knip.log` |
+| 首轮 `pnpm test` | 994 通过、2 失败、1 跳过。四条大样本富文本均通过。Engine 子进程 ready 超时单独 3/3，Vault 监听收到原子写临时文件两次，单独 2/3。 | `verify-test.log`、`retry-engine-{1,2,3}.log`、`retry-watcher-{1,2,3}.log` |
+| `pnpm test:vendor` | 首轮 6008 通过、1 失败、4 跳过，依赖树扫描超时且 worker RPC 超时；依赖树单独 3/3。完整复跑 290 文件、6009 通过、4 跳过，退出 0。两轮均将 Vitest forks / threads 限定为 2。 | `final-vendor.log`、`retry-vendor-{1,2,3}.log`、`delivery-vendor.log` |
+| 既有档案删除用例单独三次 | 2 通过、1 失败，失败时仍显示删除档案对话框。其他档案回归另有独立证据。 | `retry-delete.log` |
+| 完整复跑 pnpm test | 85 文件通过、1 跳过；996 条通过、1 跳过，退出 0。四个大样本实际完成构建富文本、序列化和第二会话读取。 | `delivery-test.log` |
+| 全量中的单独复跑 | D03/D04/D05 3/3，S2b 3/3。Embed 与格式气泡各 0/3，在本地化定位处超时。斜杠菜单矩阵 2/3，仍有一次找不到 listbox。属性用例 2/3，失败时读盘缺「追加正文」。 | `full-first-retries.log`、`retry-s2b.log`、`retry-matrix.log`、`retry-properties.log` |
+| 全量 Electron | 指定命令执行 146 条，137 通过、8 失败、1 跳过，Playwright 退出 1，pnpm 外层 126。跳过项为默认关闭的十万文件 Vault。档案退出、切 Vault、手动保存、迟到导航、A06、E04、F03 和同尺寸附件替换全部通过。 | `full.log`、`full-results/.last-run.json`、`full-load.log` |
+| 其余失败复跑 | H03 3/3。F04 原驱动 1/3，替换预览 iframe 时旧 frame 已经脱离，改为通过 FrameLocator 查找当前 iframe 后 3/3，继续要求读到「已更新页面」。F04 只修改测试驱动，使用同一应用构建。 | `retry-h03.log`、`retry-f04.log`、`verify-f04.log` |
+| F04 驱动改动后 | `pnpm lint`、`pnpm format:check` 各退出 0。 | `post-driver-lint.log`、`post-driver-format.log` |
+
+全量门槛仍未通过。独立审查已将一直失败的 Embed 与下划线气泡英语选择器交 w4:pA。本轮也保留斜杠菜单和属性保存各 2/3 的失败证据。运行生成的归档内 matrix-run.json 已恢复为仓库版本，副本留在本次日志目录。
+
+## task04 属性保存与 D01
+
+原始日志、临时探针及 Playwright 结果目录位于 /tmp/huhu-session-04/。临时探针已从工作区撤出。比较两份相同的原属性用例，均单 worker，连续使用四路 nice -n 5 的 CPU 工作进程。主分支使用构建标识为 9f870c0 的产物。任务分支使用 task03 最终源码对应的桌面构建。
+
+| 命令或批次 | 结果 | 证据 |
+| --- | --- | --- |
+| 原属性用例，task03 的 b147410 | 20/20，失败率 0/20。 | old-branch.log、old-branch-load.log |
+| 同一原用例，main 9f870c0 | 9/10，失败率 1/10。失败在 C03 正文输入后第一次读文件，与 task03 的失败行、已更新标题和未更新正文一致。 | old-main.log、old-main-results/ |
+| 属性正文、C04 合并与批注重开受控探针，各 3 次 | 9/9。慢桥时 DOM 有末字、源缓冲和磁盘无末字；提交属性后完整正文与属性同次写入。保留打开状态的批注面板在笔记读取期间暂不可见，旧驱动随后点击关闭它。 | probe.log、probe.spec.ts |
+| 保留原自动保存路径的定时探针 | 3/3。旧「已保存」取样到发出含新正文的写请求相隔 3,405、3,087、3,185 ms，最终全文读盘一致。时间包含人为延迟，用来识别事件顺序。 | timed.log、timed.spec.ts |
+| 集成 03dc93b 上的 D01 原用例 | 无拦截重跑 3/3。历史失败仍由集成 trace 和受控探针说明。 | old-comments.log、集成历史 trace |
+| 改后两个 spec 的定向 Electron | 4/4，包含 D01 关闭重开和真实慢桥 C04。 | targeted.log |
+| 改后属性原流程压力复跑 | 同样四路 CPU 工作进程，10/10。该批次同时运行最终全量，环境负载与基线各轮有所波动。 | updated.log、updated-load.log |
+| 六项门禁 | pnpm typecheck、pnpm lint、pnpm test、pnpm build、pnpm format:check、pnpm knip 均退出 0。单测 996 通过、1 跳过，Vitest workers 限定为 2。 | checks、test.log、typecheck.log、lint.log、build.log、format.log、knip.log |
+| 全量 Electron | xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows。144 通过、2 失败、1 默认跳过。两项失败均在 editor-parity-closeout-remaining.spec.ts，等待英文 Embed 选项和 underline 按钮超时，归 w4:pA。属性、C04、D01 和上一轮偶发失败的斜杠菜单矩阵均通过。 | full.log、full-results/.last-run.json、full-load.log |
+
+两条基线分支的属性用例 Git blob 都是 745484021df62ef42752af149a1313adfda02e9a。task03 的桌面产物在提交前构建，构建标识为当时的 HEAD 4300e30，代码随后提交至 8c5bf81 和 b147410。测试写出的归档 matrix-run.json 已恢复，生成版保存在日志目录。
+
+## task05 完整旅程切回后的尾字
+
+任务分支起点为 `b8df90f`，原旅程 Git blob 为 `4b7c7043a3a6ea659c6005c2d31961f4bb472637`。各轮实际启动同一份 Electron 应用，构建标识为 `b147410`，构建覆盖 task04 的产品改动。task05 只改 E2E 驱动和证据。原始日志、退出码、临时探针源文件和 Playwright trace 在 `/tmp/huhu-session-05/`。
+
+| 命令或批次 | 结果 | 证据 |
+| --- | --- | --- |
+| 原版 `xvfb-run -a pnpm e2e tests/e2e/knowledge/journey.spec.ts --repeat-each=20 --workers=1` | 6 通过、14 失败。同一单 worker 连续跑完 20 次，四路 `nice -n 5` CPU 工作进程同时执行。8 次在第 7 步切到冷笔记后仍显示「日志」。其余 12 次进入第 11 步，6 次旧「已保存」放行后读盘缺尾字。按全部尝试计为 6/20，按到达末段计为 6/12。历史 layout task03 和 session task02 的尾字失败与当前第 11 步断言一致。 | `baseline.log`、`baseline-load.log`、`baseline-results/` |
+| 原流程的探针 | 受控慢桥 1/3 到达末段并完成全文落盘，另 2 次先卡在冷笔记。自然桥的 3 次均先卡在冷笔记。 | `probe-{slow,natural}.log`、`probe.spec.ts` |
+| 改用已打开标签后探针复跑 | 自然桥 2/2 全文一致。第一次在启动计时第 58 ms 读到旧「已保存」、新尾字尚未进入源缓冲或磁盘，第 1,023 ms 发出含尾字的真实请求，第 1,933 ms 读到精确全文。第二次读状态时尾字已在磁盘。受控慢桥 1/2 捕获同样顺序并验证全文。另一次在取样时桥已结算，探针的「源缓冲尚无尾字」前提失败，未执行该次最终读盘断言。 | `probe-followup-{natural,slow}.log`、`probe-followup.spec.ts` |
+| 正式驱动的临时候选，用同一份测试内容 | 在基线 CPU 工作进程同时运行时，2/2 完整旅程通过。 | `candidate.log`、`candidate.spec.ts` |
+| 改后 `xvfb-run -a pnpm e2e tests/e2e/knowledge/journey.spec.ts --repeat-each=10 --workers=1` | 四路 `nice -n 5` CPU 工作进程下 10/10，耗时 6.9 分钟，退出 0。8 核主机的一分钟负载，开始 12.99、结束 19.06。 | `loaded.log`、`loaded-load.log`、`loaded-results/.last-run.json` |
+| 静态检查 | `pnpm lint`、`pnpm format:check` 均退出 0。 | `lint.log`、`format.log` |
+| 全量 `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows` | 142 通过、4 失败、1 默认跳过（十万文件 Vault），耗时 21.3 分钟。Playwright 退出 1，外层命令退出 126。完整旅程通过，耗时 22.1 秒。四项失败见下方。 | `full.log`、`full-load.log`、`full-results/.last-run.json` 及各失败 trace |
+| 全量失败的单用例复跑 | H03、ACC-WB-03 各 3/3 通过，均使用同一应用产物、单 worker、未开人工 CPU 负载。复跑完整执行各自的通过断言。 | `retry-h03.log`、`retry-wb03.log` 和对应结果目录 |
+
+全量失败位置：
+
+- `editor-parity-closeout-remaining.spec.ts:44` 与 `:182`，等待英文 `Embed` 选项和 `underline` 按钮超时，分别停止在其点击和悬停步骤。task04 全量有同样的定位失败，已归 w4:pA。
+- `i18n-zh-hans.spec.ts:89`，选区操作后等待格式气泡里的「粗体」按钮 5 秒超时。与 task03 全量的失败位置和 locator 一致，这次单独 3/3 通过。
+- `workflows/acceptance.spec.ts:221`（ACC-WB-03），返回甲库并显示引擎就绪后，等待资源树出现「草稿甲」30 秒超时，未进入草稿恢复断言。第一次离开甲库后原文件未被改写的断言已通过。单独 3/3 验证了草稿恢复和内容一致。当前证据将故障定位到回甲库后的树入口，尚未确定它偶发缺失的原因。
+
+全量写出的归档 `matrix-run.json` 已恢复到版本库内容，生成副本保存为 `matrix-run.generated.json`。

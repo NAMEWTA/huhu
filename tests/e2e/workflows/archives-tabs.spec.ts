@@ -201,16 +201,15 @@ test("E04 在途 Markdown 保存完成后，档案字段与正文都落盘并可
     await saveStarted.promise;
 
     await archiveTab.click();
-    await expect(page.getByTestId("markdown-editor")).toBeVisible();
-    await expect(page.getByTestId("archive-fields")).toHaveCount(0);
-    expect(readFileSync(file, "utf8")).not.toContain("两种编辑都保留");
-    releaseSave.resolve();
-
+    await expect(page.getByTestId("archive-body")).toContainText("两种编辑都保留");
     const phone = page.getByTestId("archive-fields").getByLabel("电话");
     await expect(phone).toHaveValue("123");
     await phone.fill("999");
     await phone.blur();
     const disk = () => readFileSync(file, "utf8");
+    expect(disk()).not.toContain("两种编辑都保留");
+    expect(disk()).not.toContain("999");
+    releaseSave.resolve();
     await expect.poll(disk).toContain("999");
     await expect.poll(disk).toContain("两种编辑都保留");
 
