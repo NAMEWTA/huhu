@@ -52,7 +52,7 @@ export function BareImg(props: ImageProps) {
 
 export function Image(props: ImageProps) {
   return (
-    <Zoom wrapElement="span" zoomMargin={20} zoomImg={{ sizes: undefined }}>
+    <Zoom classDialog="ok-root" wrapElement="span" zoomMargin={20} zoomImg={{ sizes: undefined }}>
       <BareImg {...props} />
     </Zoom>
   );

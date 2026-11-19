@@ -269,7 +269,7 @@ export function LinkPathSuggestionInput({
       aria-label={t`Path suggestions`}
       data-ok-layer-spawned=""
       data-ok-link-path-suggestion-panel=""
-      className="fixed z-70 max-h-52 overflow-y-auto overscroll-y-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md subtle-scrollbar pointer-events-auto"
+      className="ok-root fixed z-70 max-h-52 overflow-y-auto overscroll-y-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md subtle-scrollbar pointer-events-auto"
       onWheel={(event) => {
         event.stopPropagation();
       }}
