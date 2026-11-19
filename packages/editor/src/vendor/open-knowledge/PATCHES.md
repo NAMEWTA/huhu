@@ -88,7 +88,7 @@
 - `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。
 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。
 - `app/src/components/FileTree.tsx`：沿用文件树 Shadow DOM 的观察器，应用 Lingui 的文件操作按钮读屏名称。
-- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：增加对应的菜单分组、组件与文件操作选项文案。
+- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：增加对应的菜单分组、组件、文件操作选项与通知区名称。
 
 ## Issue #2 本地编辑验收补证
 
@@ -240,11 +240,11 @@
 - `app/src/editor/extensions/preview-iframe-csp-violation.test.ts`
 - `app/src/editor/extensions/preview-iframe-theme.test.ts`
 - `app/src/editor/extensions/preview-live-tokens.test.ts`
-
+- `app/src/editor/extensions/CodeBlockView.dom.test.tsx`：测试改动，按共享预览内页 URL 和隔离 CSP 校验发出的正文，继续断言无 `srcdoc`。
 
 ## 编辑器宿主浮层
 
-- `app/src/components/emoji-picker.tsx`：固定走宿主本地数据路由。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。
+- `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。
 - `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。
 - `app/src/editor/components/EmojiInsertPopover.dom.test.tsx`：原样迁入上游组件测试。
 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。
@@ -280,7 +280,6 @@
 - `app/src/editor/anchor-target.dom.test.ts`：原样迁入固定上游 DOM 用例。
 - `app/src/editor/components/TagView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
 - `app/src/editor/document-scrollports.dom.test.ts`：原样迁入固定上游 DOM 用例。
-- `app/src/editor/extensions/CodeBlockView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
 - `app/src/editor/extensions/ImageInlineZoomView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
 - `app/src/editor/extensions/ImageReferenceView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
 - `app/src/editor/extensions/InternalLinkPropPanel.dom.test.tsx`：原样迁入固定上游 DOM 用例。

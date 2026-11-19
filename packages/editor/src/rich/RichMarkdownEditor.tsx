@@ -4,6 +4,7 @@
 // 只有与“最近交给会话的文本”不同的 `value` 才会被当作外部变化，用 replaceRawBody 写回（不进撤销栈）。
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
 import type { EditorPort } from "@huhu/contracts";
+import { useLingui } from "@lingui/react/macro";
 import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
@@ -84,6 +85,7 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 }
 
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
+  const { t } = useLingui();
   const { docName, value, onChange, mode = "rich", variant = "document", readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch } = props;
   const [provider, setProvider] = useState<LocalDocProvider | null>(null);
   const editorScope = useRef<HTMLDivElement>(null);
@@ -452,7 +454,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         <Suspense fallback={null}>
           {variant === "document" ? (
             <>
-              <Toaster richColors closeButton />
+              <Toaster richColors closeButton containerAriaLabel={t`Notifications`} />
               <TagDialog key={docName} scope={editorScope} docName={docName} />
               {props.assetActions && mode !== "source" ? <EditorAssetMenu key={docName} scope={editorScope} docName={docName} actions={props.assetActions} /> : null}
             </>

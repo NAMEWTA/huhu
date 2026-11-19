@@ -12779,3 +12779,6 @@ msgstr "从左下角调整大小"
 
 msgid "Resize from the left"
 msgstr "从左侧调整大小"
+
+msgid "Notifications"
+msgstr "通知"
