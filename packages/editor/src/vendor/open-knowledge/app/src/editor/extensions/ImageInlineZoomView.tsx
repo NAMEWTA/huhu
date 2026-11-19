@@ -16,7 +16,7 @@ export function ImageInlineZoomView({ node, editor }: NodeViewProps) {
   const title = typeof rawTitle === 'string' ? rawTitle : undefined;
   return (
     <NodeViewWrapper as="span" data-image-inline-zoom data-clipboard-inline-leaf="image">
-      <Zoom wrapElement="span" zoomMargin={20} zoomImg={{ sizes: undefined }}>
+      <Zoom classDialog="ok-root" wrapElement="span" zoomMargin={20} zoomImg={{ sizes: undefined }}>
         <BareImg src={src} alt={alt} title={title} />
       </Zoom>
     </NodeViewWrapper>

@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "236704a8dd44056227a26a06d64fbc4fcd89df29f82b6ad5b663c1a2dc1a8195",
+      "sha256": "be83dd55769dacba9f87742ac4b67f8242ddb715e0b09e3a836048e79e2a4a36",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -1945,8 +1945,9 @@
       "target": "app/src/editor/bubble-menu/BubbleMenuBar.tsx",
       "upstream": "packages/app/src/editor/bubble-menu/BubbleMenuBar.tsx",
       "blob": "9f6b3d8e2baf23063543be4e48c7d03650ce1027",
-      "sha256": "a39bb9b30b66180fe1e828ba196615bec763c24e56ce58d58447dfed15d2e655",
-      "method": "copy"
+      "sha256": "559426d4277157d99805fabc18b31d22e35cefdee6a7cf67d7312caf98548d1d",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/bubble-menu/FileBubbleButtons.tsx",
@@ -2564,8 +2565,9 @@
       "target": "app/src/editor/components/Image.tsx",
       "upstream": "packages/app/src/editor/components/Image.tsx",
       "blob": "0a37de560170fd8d12f1f351fe992c0fead3cfd0",
-      "sha256": "13492f814d5dd4750f51cbe5968daeb33f9311f0913014aa0b2649db8d2ebf44",
-      "method": "copy"
+      "sha256": "3c27e3e3bbc087365fc7aa56ac909d87c7850b33a1cc210e56606e139bf93cf4",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/components/Math.test.tsx",
@@ -3021,8 +3023,9 @@
       "target": "app/src/editor/extensions/ImageInlineZoomView.tsx",
       "upstream": "packages/app/src/editor/extensions/ImageInlineZoomView.tsx",
       "blob": "53f579e1d95f27068768a9494aeb98adaf5a86ad",
-      "sha256": "bc96861f4953dc3ddaf211df2d45b9bf53e34869b437e79f21b6e76d5532df50",
-      "method": "copy"
+      "sha256": "0ab506900aba28968e3753d666ab608ad47c3cbc2538f3a8f5dddaf0eb2c9829",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/ImageReferenceView.dom.test.tsx",
@@ -3035,8 +3038,9 @@
       "target": "app/src/editor/extensions/ImageReferenceView.tsx",
       "upstream": "packages/app/src/editor/extensions/ImageReferenceView.tsx",
       "blob": "ad4ce50e9610060890518789694cb7d0807e728d",
-      "sha256": "c83f4e8c4f3a7c8c505bb6bb505e62f0b1c34857587a243e19da5b69a6487513",
-      "method": "copy"
+      "sha256": "1ae8ed7791319fe355ff7727b58c8f2c95ff1941ee0a979ef875b5f6cb9e0483",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/InternalLinkPropPanel.dom.test.tsx",
@@ -3424,8 +3428,9 @@
       "target": "app/src/editor/extensions/list-item-drag.ts",
       "upstream": "packages/app/src/editor/extensions/list-item-drag.ts",
       "blob": "62224684626403ff96d93ff00a6c01c1b74b6942",
-      "sha256": "ff4d8dfb1637cd1c9fff2934ac549f634685eb9ebfc9506b91bd9e8f356ff5b4",
-      "method": "copy"
+      "sha256": "129619f5d6291eacbb08e0d7c1ad02249f077a07f4fc62aa5325e86d43fb9c5a",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/mark-identity-decoration.test.ts",
@@ -3474,8 +3479,9 @@
       "target": "app/src/editor/extensions/markdown-lint-decorations.ts",
       "upstream": "packages/app/src/editor/extensions/markdown-lint-decorations.ts",
       "blob": "5639997e070ec697888615d77ab8d69b05d32473",
-      "sha256": "414690f048175ce17a92bb74e97c934032868539d9c128223594820b6c69fad1",
-      "method": "copy"
+      "sha256": "11864e1f135f6aaf0bb3fc956133509cc0d150f4bb40915936699c3db376177f",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/math-inline.ts",
@@ -3720,8 +3726,9 @@
       "target": "app/src/editor/extensions/suggestion-floating-ui.ts",
       "upstream": "packages/app/src/editor/extensions/suggestion-floating-ui.ts",
       "blob": "dfa5fce22a9ffb8692077590a032b9bbcd0d569b",
-      "sha256": "820d7f5fa895e9a52c8fb674f317adc1b3f5201495c81778f836f23e468a09e1",
-      "method": "copy"
+      "sha256": "e63da41b47e8d7c923095206185b1b33070b16e3047cef5d4352cd42d9efef30",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/extensions/suggestion-ime-triggers.dom.test.tsx",
@@ -4099,8 +4106,9 @@
       "target": "app/src/editor/link-path-suggestions.tsx",
       "upstream": "packages/app/src/editor/link-path-suggestions.tsx",
       "blob": "ededf43e0975b532adb9a0b969bdd16cfd894dd0",
-      "sha256": "f9b08d837f4c1de4c799e4457995ec67282e49810b47a9315bd36f9e8777c4d9",
-      "method": "copy"
+      "sha256": "54048fd3d48c90644aef0a6c613f0c2048a3094ad6934371ded3218c70aa96be",
+      "method": "patch",
+      "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
       "target": "app/src/editor/link-preview/ExternalLinkPreviewCard.tsx",

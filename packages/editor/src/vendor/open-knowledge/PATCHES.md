@@ -311,3 +311,7 @@
 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。
 - P-F09-08 `app/src/editor/caret-label-layer.ts`：首次注册协作光标标签前跳过编辑 DOM 的扫描，标签层仍在原时机创建和放置。
 - P-F09-09 `app/src/editor/extensions/paragraph-fast-path.test.ts`：新增装饰和 ID 等价性测试，覆盖输入守卫、占位提示及协作标签回退。
+
+## H02 样式作用域
+
+- P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。
