@@ -1,0 +1,11 @@
+{
+  "convert-selection": {
+    "status": "observed",
+    "value": {
+      "ref": "1",
+      "definition": "1",
+      "matches": true,
+      "text": "Footnote content↩"
+    }
+  }
+}

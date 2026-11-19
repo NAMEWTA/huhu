@@ -1,0 +1,19 @@
+{
+  "shortcut": {
+    "status": "observed",
+    "value": {
+      "properties": false,
+      "bubble": false,
+      "initialUrl": null,
+      "searchPalette": true
+    }
+  },
+  "edit-existing-destination": {
+    "status": "observed",
+    "value": {
+      "initialUrl": "",
+      "markup": "<span data-mark-id=\"m2\" data-resolution-state=\"external\">Edit link</span>",
+      "markdownUpdated": true
+    }
+  }
+}
