@@ -4,6 +4,7 @@
 
 import type { Mark, Node as PmNode } from '@tiptap/pm/model';
 import { type EditorState, Plugin, PluginKey } from '@tiptap/pm/state';
+import { topLevelParagraphInsert } from './top-level-paragraph-insert';
 
 interface PositionMapper {
   map(pos: number, assoc?: number): number;
@@ -178,7 +179,7 @@ export function markIdentityPlugin(params: MarkIdentityPluginParams): Plugin<Mar
         );
       },
       apply(tr, prev, _oldState, newState) {
-        if (!tr.docChanged) return prev;
+        if (!tr.docChanged || (prev.byId.size === 0 && topLevelParagraphInsert(tr))) return prev;
         return computeMarkIdentity(newState.doc, prev, markTypeSet, predicate, tr.mapping);
       },
     },
