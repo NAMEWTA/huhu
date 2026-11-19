@@ -282,7 +282,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                       {Notes && engineState === "ready" ? (
                         <div style={{ display: showNotes ? "contents" : "none" }}>
                           <ModuleBoundary moduleId="notes">
-                            <Notes section={s.sections.notes ?? ""} onSection={(id) => s.setSection("notes", id)} onNavigate={navigate} />
+                            <Notes active={showNotes} section={s.sections.notes ?? ""} onSection={(id) => s.setSection("notes", id)} onNavigate={navigate} />
                           </ModuleBoundary>
                         </div>
                       ) : null}
