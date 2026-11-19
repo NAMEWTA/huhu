@@ -96,3 +96,21 @@
 | F04 驱动改动后 | `pnpm lint`、`pnpm format:check` 各退出 0。 | `post-driver-lint.log`、`post-driver-format.log` |
 
 全量门槛仍未通过。独立审查已将一直失败的 Embed 与下划线气泡英语选择器交 w4:pA。本轮也保留斜杠菜单和属性保存各 2/3 的失败证据。运行生成的归档内 matrix-run.json 已恢复为仓库版本，副本留在本次日志目录。
+
+## task04 属性保存与 D01
+
+原始日志、临时探针及 Playwright 结果目录位于 /tmp/huhu-session-04/。临时探针已从工作区撤出。比较两份相同的原属性用例，均单 worker，连续使用四路 nice -n 5 的 CPU 工作进程。主分支使用构建标识为 9f870c0 的产物。任务分支使用 task03 最终源码对应的桌面构建。
+
+| 命令或批次 | 结果 | 证据 |
+| --- | --- | --- |
+| 原属性用例，task03 的 b147410 | 20/20，失败率 0/20。 | old-branch.log、old-branch-load.log |
+| 同一原用例，main 9f870c0 | 9/10，失败率 1/10。失败在 C03 正文输入后第一次读文件，与 task03 的失败行、已更新标题和未更新正文一致。 | old-main.log、old-main-results/ |
+| 属性正文、C04 合并与批注重开受控探针，各 3 次 | 9/9。慢桥时 DOM 有末字、源缓冲和磁盘无末字；提交属性后完整正文与属性同次写入。保留打开状态的批注面板在笔记读取期间暂不可见，旧驱动随后点击关闭它。 | probe.log、probe.spec.ts |
+| 保留原自动保存路径的定时探针 | 3/3。旧「已保存」取样到发出含新正文的写请求相隔 3,405、3,087、3,185 ms，最终全文读盘一致。时间包含人为延迟，用来识别事件顺序。 | timed.log、timed.spec.ts |
+| 集成 03dc93b 上的 D01 原用例 | 无拦截重跑 3/3。历史失败仍由集成 trace 和受控探针说明。 | old-comments.log、集成历史 trace |
+| 改后两个 spec 的定向 Electron | 4/4，包含 D01 关闭重开和真实慢桥 C04。 | targeted.log |
+| 改后属性原流程压力复跑 | 同样四路 CPU 工作进程，10/10。该批次同时运行最终全量，环境负载与基线各轮有所波动。 | updated.log、updated-load.log |
+| 六项门禁 | pnpm typecheck、pnpm lint、pnpm test、pnpm build、pnpm format:check、pnpm knip 均退出 0。单测 996 通过、1 跳过，Vitest workers 限定为 2。 | checks、test.log、typecheck.log、lint.log、build.log、format.log、knip.log |
+| 全量 Electron | xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows。144 通过、2 失败、1 默认跳过。两项失败均在 editor-parity-closeout-remaining.spec.ts，等待英文 Embed 选项和 underline 按钮超时，归 w4:pA。属性、C04、D01 和上一轮偶发失败的斜杠菜单矩阵均通过。 | full.log、full-results/.last-run.json、full-load.log |
+
+两条基线分支的属性用例 Git blob 都是 745484021df62ef42752af149a1313adfda02e9a。task03 的桌面产物在提交前构建，构建标识为当时的 HEAD 4300e30，代码随后提交至 8c5bf81 和 b147410。测试写出的归档 matrix-run.json 已恢复，生成版保存在日志目录。
