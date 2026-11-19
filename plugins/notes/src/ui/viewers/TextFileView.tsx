@@ -176,7 +176,7 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
       <div className="notes-document-status">
         <span className={`notes-save-dot${state === "saved" ? "" : " notes-unsaved"}`} />
         <span data-testid="save-state">{state === "saved" ? v.saved : state === "saving" ? v.saving : state === "conflict" ? v.conflictState : v.dirty}</span>
-        <span className="grow" />
+        <span className="hu-flex-fill" />
         {!autosave ? (
           <Button variant="primary" icon={Save} disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>
             {v.save}

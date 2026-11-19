@@ -164,7 +164,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
             {taskRows.map((t) => (
               <div className="hu-home-task-row" key={t.id}>
                 <button type="button" className="shell-task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
-                <button type="button" className="grow shell-task-open" onClick={() => nav("tasks")}>
+                <button type="button" className="hu-flex-fill shell-task-open" onClick={() => nav("tasks")}>
                   <strong>{t.title}</strong>
                   <span>
                     {t.project ?? tHome.tasksCard.personal}
@@ -343,7 +343,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
             const pos = col ? orderedCards(col).indexOf(c) : -1;
             return (
               <div key={c} className="row" data-testid="home-card-row">
-                <label className="checkbox-row grow">
+                <label className="checkbox-row hu-flex-fill">
                   <input type="checkbox" checked={show(c)} aria-label={cardLabel(c)} onChange={() => void toggleCard(c)} /> {cardLabel(c)}
                 </label>
                 {col ? (
@@ -383,7 +383,7 @@ function ActivityFeed({ compact = false, zone }: { compact?: boolean; zone: stri
           <div className="shell-activity-marker">
             <span />
           </div>
-          <div className="grow">
+          <div className="hu-flex-fill">
             <strong>{e.message}</strong>
             <div>
               {e.module} <span>·</span> {fmtTime(e.time, zone)}

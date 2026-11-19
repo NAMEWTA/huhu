@@ -99,7 +99,7 @@ export function NoteExplorer(p: ExplorerProps) {
       </div>
       <div className="hu-resource-head hu-knowledge-explorer-head">
         <div className="row">
-          <strong className="grow">{n.explorer}</strong>
+          <strong className="hu-flex-fill">{n.explorer}</strong>
           {!trash ? (
             <>
               <IconButton icon={FilePlus2} label={n.newNote} onClick={() => p.onNewNote()} />

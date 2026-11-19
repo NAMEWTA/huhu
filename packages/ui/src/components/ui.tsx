@@ -125,7 +125,7 @@ export function EmptyState({ title, hint, action, icon: Icon = Search }: { title
 export function PageHead({ eyebrow, title, description, actions, children }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode; children?: ReactNode }) {
   return (
     <header className="hu-page-head">
-      <div className="grow">
+      <div className="hu-flex-fill">
         {eyebrow ? <div className="hu-eyebrow">{eyebrow}</div> : null}
         <h1>{title}</h1>
         {description ? <p>{description}</p> : null}

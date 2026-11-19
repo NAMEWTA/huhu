@@ -95,7 +95,7 @@ export function LaunchMenu({
               onClick={() => pick(r)}
             >
               <SquareTerminal size={16} aria-hidden />
-              <span className="grow">新终端</span>
+              <span className="hu-flex-fill">新终端</span>
               <kbd>Ctrl+T</kbd>
             </button>
           ) : (
@@ -114,7 +114,7 @@ export function LaunchMenu({
               onClick={() => pick(r)}
             >
               <AgentIcon id={r.entry.id} size={16} />
-              <span className="grow">{r.entry.displayName}</span>
+              <span className="hu-flex-fill">{r.entry.displayName}</span>
               {r.isDefault ? <span className="agent-launch-menu-tag">默认</span> : null}
               {!r.installed ? <span className="agent-launch-menu-tag">未检测到</span> : hasSub(r) ? <ChevronRight size={14} aria-hidden /> : null}
             </button>
@@ -124,7 +124,7 @@ export function LaunchMenu({
         <div className="agent-launch-menu-sep" />
         <button type="button" role="menuitem" className="agent-launch-menu-row" data-testid="launch-open-settings" onClick={onOpenSettings}>
           <Settings2 size={16} aria-hidden />
-          <span className="grow">智能体设置…</span>
+          <span className="hu-flex-fill">智能体设置…</span>
         </button>
       </div>
       {subEntry ? <LaunchSubmenu key={subEntry.id} entry={subEntry} settings={settings} query={query} onLaunch={(o) => onLaunch(subEntry.id, o)} /> : null}

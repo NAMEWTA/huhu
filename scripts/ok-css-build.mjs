@@ -24,6 +24,7 @@ const prefix = `/* 生成文件（scripts/ok-css-build.mjs），不要手改。�
 @import "tailwindcss/utilities.css" layer(vendor.ok-utilities);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "react-medium-image-zoom/dist/styles.css" layer(vendor.ok-rules);
 @import "../vendor/open-knowledge/app/src/cmd-f.css" layer(vendor.ok-rules);`;
 css = prefix + css;
 css = css.replace('@import "./color-themes.generated.css";', '@import "../vendor/open-knowledge/app/src/color-themes.generated.css" layer(vendor.ok-rules);');

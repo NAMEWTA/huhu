@@ -220,7 +220,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
                 onClick={() => run(it)}
               >
                 <span className="shell-command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
-                <span className="grow">
+                <span className="hu-flex-fill">
                   <strong>{it.title}</strong>
                   {it.hint ? <small>{it.hint}</small> : null}
                 </span>

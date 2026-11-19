@@ -1670,7 +1670,7 @@ select[aria-invalid="true"]:focus-visible {
     outline-offset: -2px;
   }
 }
-.hu-page-head .grow > p,
+.hu-page-head .hu-flex-fill > p,
 .hu-field-description {
   display: none;
 }

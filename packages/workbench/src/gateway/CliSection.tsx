@@ -47,7 +47,7 @@ export function CliSection() {
           <span className="shell-plugin-large-icon">
             <SquareTerminal size={24} aria-hidden />
           </span>
-          <div className="grow">
+          <div className="hu-flex-fill">
             <h2>{c.title}</h2>
             <p>结构化 JSON · 稳定退出码 · 脚本与 MCP 共享同一套能力</p>
           </div>

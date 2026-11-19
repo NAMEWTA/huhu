@@ -62,7 +62,7 @@ export function DiscoverPanel({ onInstalled }: { onInstalled(id: string): void }
         </div>
       ) : null}
       <div className="row">
-        <div className="grow">
+        <div className="hu-flex-fill">
           <h2>外部扩展</h2>
           <p className="hu-hint-text">扩展在独立进程里运行，只能通过你授权的权限调用 HUHU 的能力；卸载默认保留它的数据。</p>
         </div>
@@ -81,7 +81,7 @@ export function DiscoverPanel({ onInstalled }: { onInstalled(id: string): void }
         {(examples.data ?? []).map((e) => (
           <article key={e.id} className="hu-card-alt" data-testid="plugin-example" data-plugin={e.id}>
             <div className="row">
-              <strong className="grow">{e.manifest.title}</strong>
+              <strong className="hu-flex-fill">{e.manifest.title}</strong>
               <Badge>v{e.manifest.version}</Badge>
             </div>
             <p className="small muted">{e.publisher}</p>
@@ -93,7 +93,7 @@ export function DiscoverPanel({ onInstalled }: { onInstalled(id: string): void }
             </div>
             <div className="shell-permission-tags">{e.manifest.permissions.length ? e.manifest.permissions.map((p) => <code key={p}>{p}</code>) : <span className="muted">无权限</span>}</div>
             <div className="row">
-              <span className="grow" />
+              <span className="hu-flex-fill" />
               {e.installed ? (
                 <Badge tone="success">已安装</Badge>
               ) : (
