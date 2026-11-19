@@ -114,3 +114,26 @@
 | 全量 Electron | xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows。144 通过、2 失败、1 默认跳过。两项失败均在 editor-parity-closeout-remaining.spec.ts，等待英文 Embed 选项和 underline 按钮超时，归 w4:pA。属性、C04、D01 和上一轮偶发失败的斜杠菜单矩阵均通过。 | full.log、full-results/.last-run.json、full-load.log |
 
 两条基线分支的属性用例 Git blob 都是 745484021df62ef42752af149a1313adfda02e9a。task03 的桌面产物在提交前构建，构建标识为当时的 HEAD 4300e30，代码随后提交至 8c5bf81 和 b147410。测试写出的归档 matrix-run.json 已恢复，生成版保存在日志目录。
+
+## task05 完整旅程切回后的尾字
+
+任务分支起点为 `b8df90f`，原旅程 Git blob 为 `4b7c7043a3a6ea659c6005c2d31961f4bb472637`。各轮实际启动同一份 Electron 应用，构建标识为 `b147410`，构建覆盖 task04 的产品改动。task05 只改 E2E 驱动和证据。原始日志、退出码、临时探针源文件和 Playwright trace 在 `/tmp/huhu-session-05/`。
+
+| 命令或批次 | 结果 | 证据 |
+| --- | --- | --- |
+| 原版 `xvfb-run -a pnpm e2e tests/e2e/knowledge/journey.spec.ts --repeat-each=20 --workers=1` | 6 通过、14 失败。同一单 worker 连续跑完 20 次，四路 `nice -n 5` CPU 工作进程同时执行。8 次在第 7 步切到冷笔记后仍显示「日志」。其余 12 次进入第 11 步，6 次旧「已保存」放行后读盘缺尾字。按全部尝试计为 6/20，按到达末段计为 6/12。历史 layout task03 和 session task02 的尾字失败与当前第 11 步断言一致。 | `baseline.log`、`baseline-load.log`、`baseline-results/` |
+| 原流程的探针 | 受控慢桥 1/3 到达末段并完成全文落盘，另 2 次先卡在冷笔记。自然桥的 3 次均先卡在冷笔记。 | `probe-{slow,natural}.log`、`probe.spec.ts` |
+| 改用已打开标签后探针复跑 | 自然桥 2/2 全文一致。第一次在启动计时第 58 ms 读到旧「已保存」、新尾字尚未进入源缓冲或磁盘，第 1,023 ms 发出含尾字的真实请求，第 1,933 ms 读到精确全文。第二次读状态时尾字已在磁盘。受控慢桥 1/2 捕获同样顺序并验证全文。另一次在取样时桥已结算，探针的「源缓冲尚无尾字」前提失败，未执行该次最终读盘断言。 | `probe-followup-{natural,slow}.log`、`probe-followup.spec.ts` |
+| 正式驱动的临时候选，用同一份测试内容 | 在基线 CPU 工作进程同时运行时，2/2 完整旅程通过。 | `candidate.log`、`candidate.spec.ts` |
+| 改后 `xvfb-run -a pnpm e2e tests/e2e/knowledge/journey.spec.ts --repeat-each=10 --workers=1` | 四路 `nice -n 5` CPU 工作进程下 10/10，耗时 6.9 分钟，退出 0。8 核主机的一分钟负载，开始 12.99、结束 19.06。 | `loaded.log`、`loaded-load.log`、`loaded-results/.last-run.json` |
+| 静态检查 | `pnpm lint`、`pnpm format:check` 均退出 0。 | `lint.log`、`format.log` |
+| 全量 `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/workflows` | 142 通过、4 失败、1 默认跳过（十万文件 Vault），耗时 21.3 分钟。Playwright 退出 1，外层命令退出 126。完整旅程通过，耗时 22.1 秒。四项失败见下方。 | `full.log`、`full-load.log`、`full-results/.last-run.json` 及各失败 trace |
+| 全量失败的单用例复跑 | H03、ACC-WB-03 各 3/3 通过，均使用同一应用产物、单 worker、未开人工 CPU 负载。复跑完整执行各自的通过断言。 | `retry-h03.log`、`retry-wb03.log` 和对应结果目录 |
+
+全量失败位置：
+
+- `editor-parity-closeout-remaining.spec.ts:44` 与 `:182`，等待英文 `Embed` 选项和 `underline` 按钮超时，分别停止在其点击和悬停步骤。task04 全量有同样的定位失败，已归 w4:pA。
+- `i18n-zh-hans.spec.ts:89`，选区操作后等待格式气泡里的「粗体」按钮 5 秒超时。与 task03 全量的失败位置和 locator 一致，这次单独 3/3 通过。
+- `workflows/acceptance.spec.ts:221`（ACC-WB-03），返回甲库并显示引擎就绪后，等待资源树出现「草稿甲」30 秒超时，未进入草稿恢复断言。第一次离开甲库后原文件未被改写的断言已通过。单独 3/3 验证了草稿恢复和内容一致。当前证据将故障定位到回甲库后的树入口，尚未确定它偶发缺失的原因。
+
+全量写出的归档 `matrix-run.json` 已恢复到版本库内容，生成副本保存为 `matrix-run.generated.json`。
