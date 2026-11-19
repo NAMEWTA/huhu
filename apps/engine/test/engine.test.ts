@@ -170,6 +170,42 @@ describe("Engine 启动与关闭", () => {
     expect((await post(e, e.cliToken, { capability: "tasks.list", input: {}, requestId: "r" })).ok).toBe(true);
     expect((await post(e, e.cliToken, { capability: "tasks.create", input: { title: "x" }, requestId: "r", idempotencyKey: "key-cli-1" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
+  test.each(["已移走", "占位.md", "占位.md/子目录"])("notes.move 拒绝非现存目录 %s 且保持磁盘不变", async (targetDir) => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: capability, idempotencyKey: capability });
+    await call("folders.create", { path: "目标" });
+    const created = await call("notes.create", { name: "笔记", folder: "目标" });
+    expect(created).toMatchObject({ ok: true, data: { path: "目标/笔记.md" } });
+    writeFileSync(path.join(dir, "占位.md"), "不变\n");
+    const source = path.join(dir, "目标/笔记.md");
+    const bytes = readFileSync(source);
+    const result = await call("notes.move", { path: "目标", targetDir });
+    expect(result).toMatchObject({ ok: false, error: { code: "NOT_FOUND", message: `目标文件夹不存在：${targetDir}` } });
+    expect(readFileSync(source)).toEqual(bytes);
+    expect(readFileSync(path.join(dir, "占位.md"), "utf8")).toBe("不变\n");
+    expect(existsSync(path.join(dir, targetDir, "目标"))).toBe(false);
+    expect(existsSync(path.join(dir, "已移走"))).toBe(false);
+  });
+
+  test("notes.move 仍可移动笔记到 Vault 根目录", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: capability, idempotencyKey: capability });
+    const created = await call("notes.create", { name: "移回根", folder: "子目录" });
+    expect(created).toMatchObject({ ok: true, data: { path: "子目录/移回根.md" } });
+    const source = path.join(dir, "子目录/移回根.md");
+    const bytes = readFileSync(source);
+    expect(await call("notes.move", { path: "子目录/移回根.md", targetDir: "" })).toMatchObject({
+      ok: true,
+      data: { moved: { "子目录/移回根.md": "移回根.md" } },
+    });
+    expect(existsSync(source)).toBe(false);
+    expect(readFileSync(path.join(dir, "移回根.md"))).toEqual(bytes);
+  });
+
   test("notes 插件：创建、改名改写双链、保存冲突、反链、日记", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
