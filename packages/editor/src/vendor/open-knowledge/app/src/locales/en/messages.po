@@ -12779,3 +12779,6 @@ msgstr "Resize from the bottom left"
 
 msgid "Resize from the left"
 msgstr "Resize from the left"
+
+msgid "Notifications"
+msgstr "Notifications"

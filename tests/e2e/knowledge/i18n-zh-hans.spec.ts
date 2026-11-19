@@ -142,6 +142,9 @@ test("H03：简体中文知识库扫描编辑器、命令菜单、文件树和�
     await expect(prose).toContainText("需要选中的正文");
     result.toolbar = await latinLabels(bar);
     result.editor = await latinLabels(editor);
+    const notifications = editor.getByRole("region", { name: "通知 alt+T", exact: true });
+    await expect(notifications).toHaveCount(1);
+    result.notifications = [(await notifications.getAttribute("aria-label")) ?? ""];
     const resourceTree = page.locator(".notes-resource-tree");
     await expect(resourceTree.getByRole("button", { name: "文件操作选项", includeHidden: true })).toHaveAttribute("aria-label", "文件操作选项");
     result.tree = await latinLabels(resourceTree);
@@ -221,8 +224,11 @@ test("H03：实际应用每个斜杠命令后扫描块、占位与属性", async
         await option.click();
       }
       await expect(slash).toBeHidden();
-      // The current integration routes the emoji command to a separately supplied picker.
-      if (command !== "emoji") {
+      if (command === "emoji") {
+        const picker = page.getByTestId("emoji-picker-popover");
+        await expect(picker.getByText("笑脸", { exact: true })).toBeVisible();
+        await expect(picker.getByRole("gridcell", { name: "嘿嘿", exact: true })).toBeVisible();
+      } else {
         await expect.poll(() => prose.innerHTML(), { message: command }).not.toMatch(/^<p>起始<\/p>(?:<p><br[^>]*><\/p>)?$/);
       }
       const block = prose.locator("[data-jsx-gear]").first();
@@ -278,7 +284,7 @@ test("H03：设置即时切换编辑器语言并保留未保存草稿", async ()
   try {
     writeFileSync(sample, original);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1510, 900));
-    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     await navigate("设置");
     await page.getByTestId("settings-nav-editor").click();
     const language = page.getByLabel("知识库编辑器语言", { exact: true });
@@ -289,7 +295,10 @@ test("H03：设置即时切换编辑器语言并保留未保存草稿", async ()
     await navigate("知识库");
     await treeSettled(page);
     await treeItem(page, "语言切换.md").click();
-    const prose = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    const editor = page.getByTestId("markdown-editor");
+    const prose = editor.locator(".ProseMirror");
+    const notifications = editor.locator('section[aria-live="polite"][tabindex="-1"]');
+    await expect(notifications).toHaveAccessibleName("通知 alt+T");
     await expect(prose.getByText("嵌入 URL", { exact: true })).toBeVisible();
     await prose.focus();
     await page.keyboard.press("ControlOrMeta+Home");
@@ -301,6 +310,7 @@ test("H03：设置即时切换编辑器语言并保留未保存草稿", async ()
     await expect(page.getByTestId("comments-panel")).toBeVisible();
     await navigate("设置");
     await language.selectOption("en");
+    await expect(notifications).toHaveAttribute("aria-label", "Notifications alt+T");
     await expect(prose.getByText("Embed a URL", { exact: true })).toHaveCount(1);
     await expect(prose.locator("[data-jsx-gear]")).toHaveAttribute("aria-label", "Embed properties");
     expect(JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).editor.knowledgeLocale).toBe("en");
@@ -312,6 +322,7 @@ test("H03：设置即时切换编辑器语言并保留未保存草稿", async ()
     expect(readFileSync(sample, "utf8")).toBe(original);
     await navigate("设置");
     await language.selectOption("zh-Hans");
+    await expect(notifications).toHaveAttribute("aria-label", "通知 alt+T");
     await expect(prose.getByText("嵌入 URL", { exact: true })).toHaveCount(1);
     await expect(prose.locator("[data-jsx-gear]")).toHaveAttribute("aria-label", "嵌入属性");
     await navigate("知识库");

@@ -37,7 +37,8 @@ test("表情选择器离线可用，键盘与鼠标插入后保存重开，Escap
     const requests: string[] = [];
     const recordRequest = (request: { url(): string }) => {
       const url = new URL(request.url());
-      // Vault operations use the local engine IPC endpoint independently of the picker.
+      // The picker uses packaged dictionary chunks and the editor uses the local Vault engine.
+      if (url.protocol === "huhu-app:" && url.host === "workbench" && url.pathname.startsWith("/assets/")) return;
       if (url.hostname === "127.0.0.1" && url.pathname === "/api/v1/call") return;
       requests.push(request.url());
     };
@@ -46,7 +47,7 @@ test("表情选择器离线可用，键盘与鼠标插入后保存重开，Escap
     let picker = await openEmojiPicker(page, rich.getByText("键盘", { exact: true }));
     let search = picker.getByRole("searchbox");
     await search.fill("party popper");
-    await expect(picker.getByRole("gridcell", { name: "Party popper", exact: true })).toBeVisible();
+    await expect(picker.getByRole("gridcell", { name: "拉炮彩带", exact: true })).toBeVisible();
     await search.press("ArrowDown");
     await search.press("Enter");
     await expect(picker).toBeHidden();
@@ -56,7 +57,7 @@ test("表情选择器离线可用，键盘与鼠标插入后保存重开，Escap
     picker = await openEmojiPicker(page, rich.getByText("鼠标", { exact: true }));
     search = picker.getByRole("searchbox");
     await search.fill("rocket");
-    await picker.getByRole("gridcell", { name: "Rocket", exact: true }).click();
+    await picker.getByRole("gridcell", { name: "火箭", exact: true }).click();
     await expect(picker).toBeHidden();
     await expect(rich).toBeFocused();
     await expect(rich.locator("p").last()).toHaveText("鼠标 🚀");
@@ -184,7 +185,7 @@ test("源码模式的属性图标仍能使用离线表情并保存", async () =>
     await page.getByTestId("page-icon-preview").click();
     const picker = page.getByRole("dialog");
     await picker.getByRole("searchbox").fill("rocket");
-    await picker.getByRole("gridcell", { name: "Rocket", exact: true }).click();
+    await picker.getByRole("gridcell", { name: "火箭", exact: true }).click();
     await expect(picker).toBeHidden();
     await expect(page.getByTestId("page-icon-widget")).toHaveValue("🚀");
     await expect.poll(() => readFileSync(file, "utf8")).toMatch(/icon: .*🚀.*\n---\n\n保留正文\n$/);

@@ -150,3 +150,23 @@
 [功能和隔离证据](html-preview.md) · [Electron 重复测试与负载](task04-e2e-repeat.txt) · [规定命令及查看器复跑原始结果](task04-e2e-viewers.txt)
 
 F04 子框架时序对照在生产渲染器与 preload 相同的条件下交替执行。仅把协议会话退回 `212f1cd` 也会出现单次查询得到空框架。等待框架挂载后，F04 行为断言在两个构建均为 3/3。[对照输出](task04-f04-diagnostic.txt)
+
+## task05 · 集成后的预览测试与通知区
+
+开工将 `closeout/issue2-integration` 的 `190605a` 合入 layout，合并提交为 `9714480`。按集成锁文件安装后构建桌面应用。
+
+上游 `CodeBlockView.dom.test.tsx` 原来要求固定文件名，并断言预览允许外部网络。用例现在从生产接线读取内页 URL，并核对现有隔离 CSP 与正文。继续断言没有 `srcdoc`。`PATCHES.md` 登记为测试改动，固定上游重放清单从 `copy` 更新为 `patch`。归档测试哈希清单保持只读。对归档后迁入的测试，`--check` 从重放清单读取固定上游 blob，已改用例计入测试改动，原样迁入用例仍需登记。
+
+`zh-modern-web-guidance` 检索通知区域的可访问名称与快捷键，读取 `accessibility`。采用指南中 “Names are short and identify the element” 的做法，借用已有通知区的名称入口，不额外创建实时播报区域。
+
+第一次生产扫描验证了测试能捕获问题。Lingui 将目录中的消息源文本编译为消息 ID，直接用原始英文查找会回退为英文。改用现有 Lingui React 宏生成并订阅相同消息 ID，再构建复验。集成版本逐命令实扫还覆盖了新挂载的表情选择器，发现 99 个英文分类名和表情可访问名称。
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm build` | 退出 0。生产产物标识为集成合并 `9714480`，包含本轮实现。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/i18n-zh-hans.spec.ts tests/e2e/knowledge/preview-html.spec.ts` | 4/4 通过。两个中文扫描白名单外均为 0，编辑器通知名称随设置即时切换，隔离预览的外部探测请求为 0。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-parity-shell-mounts.spec.ts --grep '表情选择器\|源码模式的属性图标'` | 2/2 通过。英文检索、中文读屏名称、离线资源、键鼠插入、属性图标以及落盘重开均通过。 |
+| `node scripts/ok-patches.mjs --check` | 266 项登记，无未登记或多余登记。JSON 中 `CodeBlockView.dom.test.tsx` 属于 `testsModified`。 |
+| `OK_SRC=/home/wta/projects/huhu/temp/sources/open-knowledge node scripts/ok-patches.mjs --refresh-replay` 与 `--replay` | 固定上游重放 1,346 个文件，文件集合和字节均为零差异。 |
+| `pnpm lint`、`pnpm typecheck`、`pnpm format:check`、`pnpm knip` | 均退出 0。Knip 保留两项已有配置提示。 |
+| `pnpm test:vendor` | 最终独立复跑退出 0，330 个文件通过、6,391 个测试通过、4 个跳过。CodeBlockView 的 13 个测试全部通过。四进程并行复跑曾在测试断言全部通过后出现 Vitest worker 通信超时，最终用 `VITEST_MAX_FORKS=2`、`VITEST_MAX_THREADS=2` 重跑。 |

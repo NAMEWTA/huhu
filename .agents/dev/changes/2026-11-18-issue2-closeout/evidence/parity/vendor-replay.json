@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "ca6326dc8cb41a16ae49d9dd2e490f675773c78353b492857071ea10c421d16e",
+      "sha256": "29b73e9d5e1166aefa3178dd9f1d06c2613354e0f41717aefcef5798b647823a",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -841,9 +841,9 @@
       "target": "app/src/components/emoji-picker.tsx",
       "upstream": "packages/app/src/components/emoji-picker.tsx",
       "blob": "19c2ec17d73d5377245a52053e26176627f9a40e",
-      "sha256": "9753d0c008bfce0daefe3c88ff470c91c7a8b965989d495bf71470e28b67817d",
+      "sha256": "fb26996e0d1745a04537695f008fbd07d27a17c1b56b6b8600267d778afb8885",
       "method": "patch",
-      "description": "PATCHES.md:247 - `app/src/components/emoji-picker.tsx`：固定走宿主本地数据路由。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。"
+      "description": "PATCHES.md:247 - `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。"
     },
     {
       "target": "app/src/components/extension-picker-utils.ts",
@@ -2995,8 +2995,9 @@
       "target": "app/src/editor/extensions/CodeBlockView.dom.test.tsx",
       "upstream": "packages/app/src/editor/extensions/CodeBlockView.dom.test.tsx",
       "blob": "cb0da5ad5e7df62b230f56c4f5f94a831e48c897",
-      "sha256": "5e40886a49b54dbde966ae9ebde486f357317f3bb140cd00971d1116f0d9d161",
-      "method": "copy"
+      "sha256": "954ffe8d83d65fd00d05d6ba86c85079ac82a1600f93c661a55a4faa90a055ca",
+      "method": "patch",
+      "description": "PATCHES.md:243 - `app/src/editor/extensions/CodeBlockView.dom.test.tsx`：测试改动，按共享预览内页 URL 和隔离 CSP 校验发出的正文，继续断言无 `srcdoc`。"
     },
     {
       "target": "app/src/editor/extensions/CodeBlockView.tsx",
@@ -5859,7 +5860,7 @@
       "target": "app/src/locales/en/messages.po",
       "upstream": "packages/app/src/locales/en/messages.po",
       "blob": "7e3974ca12795cc5cd9690eb4902095333bf74b5",
-      "sha256": "3de7e7d4a50bb391223d0deff9a91e48438655b9d31109f46e1db4b5809d5907",
+      "sha256": "d80a7a5bd6e9c5a55f7cae70064a103f77ca2d878082dc06899fbe761a5a0940",
       "method": "patch",
       "description": "PATCHES.md:21 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
     },
@@ -5867,7 +5868,7 @@
       "target": "app/src/locales/zh-Hans/messages.po",
       "upstream": "packages/app/src/locales/zh-Hans/messages.po",
       "blob": "e3ce9c9ab58688885c95ebbf973354413f654604",
-      "sha256": "e8e0a0c43eca1b5d13ead0660dcb4692e8166b059754ea3f8dab0daa07cf21e6",
+      "sha256": "60897293461f8a614c1af179ea92276448200ef99d36ca8d2c7ff965896d801c",
       "method": "patch",
       "description": "PATCHES.md:21 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
     },
