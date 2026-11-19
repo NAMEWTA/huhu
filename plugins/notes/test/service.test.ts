@@ -275,6 +275,7 @@ describe("任务文件与文件夹链接的改写（任务 spec §3.4）", () =>
   });
   test("单个文件移动不会改写指向其所在文件夹的 [[目录/]]", async () => {
     const { svc, root, rebuild } = await setup({ "设计/a.md": "# a\n", "笔记.md": "见 [[设计/]] 和 [[设计/a.md]]\n" });
+    await svc.createFolder("归档");
     await rebuild();
     await svc.move("设计/a.md", "归档");
     expect(rd(root, "笔记.md")).toBe("见 [[设计/]] 和 [[归档/a.md]]\n");
