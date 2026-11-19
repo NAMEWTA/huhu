@@ -69,6 +69,13 @@
 - 宿主侧（非 vendor 文件）`host/host-fetch.ts`：最低优先级兜底路由 `GET /api/pages` → `{pages: []}`、`GET /api/documents` → `{documents: []}`。详情栏批注页的 `OkRoot` 只带评论路由，其 `PageListProvider` 比编辑面更早请求 `/api/pages` 时曾得到 404 与 `[PageListContext] Failed to load pages`；有数据的宿主路由仍然优先。回归用例 `tests/e2e/knowledge/host-routes.spec.ts`（旧行为下失败，修复后通过）。
 - P-S3-08（宿主，非 vendor 文件）`rich/RichMarkdownEditor.tsx`：编辑器 DOM 上 `keydown`（捕获）带 Ctrl/Meta 时先 `view.domObserver.flush()`，让 ProseMirror 把待处理的 DOM 选区读进 state。原因：浏览器的 `selectionchange` 是异步事件，紧贴着选区变化之后的 Mod-i / Mod-b 先到达，命令作用在旧的（折叠）选区上，只留下一个存储标记，表现为“首次按键被忽略”。探针（无等待）：未修时 24 次按键里约 12 次选区折叠且无标记，修后 23/24 生效；剩下 1 次是 Shift+Home 自身没有扩展 DOM 选区（与快捷键无关，根因未定位）。人手速度下 selectionchange 早已到达，该 flush 是 no-op。
 
+## H03 知识库界面本地化
+
+- `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。
+- `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。
+- `app/src/components/FileTree.tsx`：沿用文件树 Shadow DOM 的观察器，应用 Lingui 的文件操作按钮读屏名称。
+- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：增加对应的菜单分组、组件与文件操作选项文案。
+
 ## Issue #2 本地编辑验收补证
 
 - `app/src/components/ui/input-group.tsx`：查找替换栏依赖的输入组，原样复制。

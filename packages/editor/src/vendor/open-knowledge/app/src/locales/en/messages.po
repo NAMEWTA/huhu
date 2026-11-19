@@ -12320,3 +12320,69 @@ msgstr ""
 
 msgid "Add comment"
 msgstr ""
+
+msgid "Accordion"
+msgstr "Accordion"
+
+msgid "Align block"
+msgstr "Align block"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "Basic blocks"
+msgstr "Basic blocks"
+
+msgid "Callout"
+msgstr "Callout"
+
+msgid "Chart"
+msgstr "Chart"
+
+msgid "Components"
+msgstr "Components"
+
+msgid "Custom SVG"
+msgstr "Custom SVG"
+
+msgid "Embed"
+msgstr "Embed"
+
+msgid "Embeds"
+msgstr "Embeds"
+
+msgid "File options"
+msgstr "File options"
+
+msgid "Image"
+msgstr "Image"
+
+msgid "Insert"
+msgstr "Insert"
+
+msgid "Interactive control"
+msgstr "Interactive control"
+
+msgid "Math"
+msgstr "Math"
+
+msgid "Media"
+msgstr "Media"
+
+msgid "Mirror"
+msgstr "Mirror"
+
+msgid "Mirror Source"
+msgstr "Mirror Source"
+
+msgid "Stat cards"
+msgstr "Stat cards"
+
+msgid "Tabs"
+msgstr "Tabs"
+
+msgid "Toggle"
+msgstr "Toggle"
+
+msgid "Video"
+msgstr "Video"

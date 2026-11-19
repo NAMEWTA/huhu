@@ -291,15 +291,10 @@ export class ArchivesService {
       return all.has(t) || all.has(`${t}.md`) || resolveFolderLink(`${t}/`, (p) => all.has(p)) !== null || [...all].some((p) => path.basename(p, path.extname(p)) === t);
     };
     const outgoing = parseWikiLinks(a.body).map((l) => ({ target: l.target, exists: exists(l.target) }));
-    const seen = new Set<string>();
-    const backlinks: { path: string; title: string }[] = [];
-    for (const target of [`${dir}/${INDEX}`, ...[...all].filter((p) => p.startsWith(`${dir}/`) && /\.md$/i.test(p) && p !== `${dir}/${INDEX}`)]) {
-      for (const b of this.d.index.backlinks(target)) {
-        if (b.path.startsWith(`${dir}/`) || seen.has(b.path)) continue; // 档案文件夹内部文件之间的链接不算
-        seen.add(b.path);
-        backlinks.push(b);
-      }
-    }
+    const descendants = new Set([`${dir}/${INDEX}`, ...files.filter((f) => f.kind !== "folder").map((f) => f.path), ...[...all].filter((p) => p.startsWith(`${dir}/`))]);
+    const notes = [...descendants].filter((p) => /\.md$/i.test(p));
+    const assets = [...descendants].filter((p) => !/\.md$/i.test(p));
+    const backlinks = this.d.index.backlinksTo(notes, assets).filter((b) => !b.path.startsWith(`${dir}/`));
     return { ...a, files, outgoing, backlinks };
   }
 

@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { useCallback } from "react";
 import { useDocumentSession } from "../documents/useDocumentSession.js";
 import { ArchiveView } from "./ArchivesViews.js";
+import { a } from "./i18n.js";
 
 type Props = Omit<ComponentProps<typeof ArchiveView>, "beforeWrite"> & {
   /** `Archives/<类型>/<名称>/index.md`：与 Markdown 视图是同一个文件。 */
@@ -17,6 +18,7 @@ type Props = Omit<ComponentProps<typeof ArchiveView>, "beforeWrite"> & {
  */
 export function ArchiveRecordView({ indexPath, ...rest }: Props) {
   const { session } = useDocumentSession(indexPath, true);
-  const beforeWrite = useCallback(async () => (session ? session.flush() : true), [session]);
+  const beforeWrite = useCallback(async () => (session ? session.flush() : false), [session]);
+  if (!session) return <p>{a.loading}</p>;
   return <ArchiveView {...rest} beforeWrite={beforeWrite} />;
 }

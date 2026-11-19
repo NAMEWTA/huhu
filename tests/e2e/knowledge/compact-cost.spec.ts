@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 
-// S2c / Q4 / H05：紧凑变体的每实例成本，以及输入—保存—撤销—输入法在任务评论里可用。
+// S2c / Q4 / H05：紧凑变体的每实例成本。评论提交行为在 compact-submit.spec.ts 验证。
 // 数据写到 test-results/compact-cost.json，由 evidence/s2/compact-cost.md 引用（机器环境不同数值会变，记录的是量级与方法）。
 
 type Call = (cap: string, input?: unknown) => Promise<{ ok?: boolean; data?: unknown }>;
@@ -23,7 +23,7 @@ async function caller(page: Page): Promise<Call> {
     );
 }
 
-test("S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可输入 / 提交 / 撤销", async () => {
+test("S2c：任务评论 30 条的紧凑阅读实例成本", async () => {
   const { page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
@@ -48,26 +48,17 @@ test("S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可�
         .nth(N - 1)
         .locator(".ProseMirror"),
     ).toContainText(`第 ${N} 条评论`, { timeout: 60_000 });
+    const instancesOnScreen = page.locator('[data-testid="task-comment"] .ProseMirror');
+    await expect(instancesOnScreen).toHaveCount(N, { timeout: 30_000 });
     const renderMs = Date.now() - t0;
     const after = await heap();
-    const instances = await page.locator('[data-testid="task-comment"] .ProseMirror').count();
+    const instances = await instancesOnScreen.count();
     const perInstanceKB = Math.round((after - before) / N / 1024); // 30 个紧凑阅读实例
     const result = { comments: N, proseMirrorInstances: instances, renderAllMs: renderMs, heapDeltaMB: Math.round((after - before) / 1024 / 1024), perInstanceKB };
     mkdirSync("test-results", { recursive: true });
     writeFileSync(path.join("test-results", "compact-cost.json"), JSON.stringify(result, null, 2));
     console.log("COMPACT-COST " + JSON.stringify(result));
     expect(instances).toBe(N); // 紧凑实例不进 editor-cache LRU（P-S2c-01），30 条评论全部在挂载
-
-    // H05：评论输入框（紧凑输入）可输入、提交、撤销
-    const input = page.getByTestId("comment-input").locator(".ProseMirror");
-    await input.click();
-    await page.keyboard.type("撤销测试");
-    await page.keyboard.press("ControlOrMeta+z");
-    await expect(input).not.toContainText("撤销测试");
-    await page.keyboard.type("真正的评论");
-    await page.getByTestId("comment-submit").click();
-    await expect(page.getByTestId("task-comment")).toHaveCount(N + 1, { timeout: 15_000 });
-    await expect(page.getByTestId("task-comment").last()).toContainText("真正的评论");
   } finally {
     await close();
   }

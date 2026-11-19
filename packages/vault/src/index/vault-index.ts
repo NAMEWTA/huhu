@@ -225,11 +225,24 @@ export class VaultIndex {
    * 文件夹笔记（`目录/index.md`）不参与裸名匹配（否则 `[[index]]` 会算成每个文件夹笔记的反链），只认 `[[目录/]]`、`[[目录]]` 和完整路径。
    */
   backlinks(targetPath: string): { path: string; title: string }[] {
-    const base = path.basename(targetPath, path.extname(targetPath));
-    const noExt = targetPath.replace(/\.[^./]+$/, "");
-    const folderForms = folderNoteLinkTargets(targetPath);
-    const accepts = (t: string): boolean => (folderForms ? folderForms.includes(t) : t === base || t === noExt || t === targetPath);
-    return [...this.notes.values()].filter((n) => n.path !== targetPath && n.links.some((l) => accepts(l.target))).map((n) => ({ path: n.path, title: n.title }));
+    return this.backlinksTo([targetPath]);
+  }
+
+  /** 对一组文档解析笔记别名，附件使用完整的 Vault 相对路径。 */
+  backlinksTo(notePaths: readonly string[], assetPaths: readonly string[] = []): { path: string; title: string }[] {
+    const targets = new Set([...notePaths, ...assetPaths]);
+    const matches = new Set(assetPaths);
+    for (const target of notePaths) {
+      const forms = folderNoteLinkTargets(target);
+      if (forms) {
+        for (const form of forms) matches.add(form);
+      } else {
+        matches.add(target);
+        matches.add(target.replace(/\.[^./]+$/, ""));
+        matches.add(path.basename(target, path.extname(target)));
+      }
+    }
+    return [...this.notes.values()].filter((n) => !targets.has(n.path) && n.links.some((l) => matches.has(l.target))).map((n) => ({ path: n.path, title: n.title }));
   }
 
   /** 全部标签及出现的笔记数（标签云用）。 */

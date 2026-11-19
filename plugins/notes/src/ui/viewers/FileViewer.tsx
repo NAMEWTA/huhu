@@ -1,7 +1,8 @@
 import { MermaidBlock } from "@huhu/editor";
-import { host } from "@huhu/workbench";
+import type { VaultListOutput } from "@huhu/contracts";
+import { host, useEngine } from "@huhu/workbench";
 import { FolderSearch } from "lucide-react";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import "./viewers.css";
 import { chooseViewer, humanSize } from "./dispatch.js";
 import { FileToolbar } from "./FileChrome.js";
@@ -62,6 +63,38 @@ export function FileViewer({ path, size, mtimeMs }: { path: string; size: number
       </div>
     </section>
   );
+}
+
+/** 资源索引可能落后于磁盘。打开已知的非 Markdown 路径时，从真实父目录读取元信息。 */
+export function UnindexedFileViewer({ path }: { path: string }) {
+  const engine = useEngine();
+  const [metadata, setMetadata] = useState<{ size: number; mtimeMs: number } | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    const dir = path.slice(0, Math.max(path.lastIndexOf("/"), 0));
+    const read = async () => {
+      let cursor: string | undefined;
+      do {
+        const listing = await engine.call<VaultListOutput>("vault.list", { dir, cursor, includeProtected: true });
+        const entry = listing.entries.find((file) => file.path === path && file.kind === "file");
+        if (entry) {
+          if (live) setMetadata({ size: entry.size ?? 0, mtimeMs: entry.mtimeMs ?? 0 });
+          return;
+        }
+        cursor = listing.nextCursor;
+      } while (live && cursor);
+      if (live) setMetadata(null);
+    };
+    void read().catch(() => {
+      if (live) setMetadata(null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [engine, path]);
+
+  if (!metadata) return <p role={metadata === null ? "alert" : "status"}>{metadata === null ? v.missing : v.reading}</p>;
+  return <FileViewer path={path} {...metadata} />;
 }
 
 function PdfViewWithChrome({ path }: { path: string }) {

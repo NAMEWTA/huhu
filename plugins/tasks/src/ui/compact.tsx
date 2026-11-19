@@ -1,4 +1,4 @@
-import type { ReferenceCandidate } from "@huhu/editor/rich";
+import type { ReferenceCandidate, RichEditorPort } from "@huhu/editor/rich";
 import { Suspense, lazy } from "react";
 import type { ReferenceIndex } from "./references.js";
 
@@ -14,10 +14,10 @@ export function TaskMarkdownView({ id, value, refs, onOpen }: { id: string; valu
   );
 }
 
-export function TaskMarkdownInput({ id, value, onChange, refs, placeholder }: { id: string; value: string; onChange(text: string): void; refs: ReferenceIndex; placeholder?: string }) {
+export function TaskMarkdownInput({ id, value, onChange, onPort, refs, placeholder }: { id: string; value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; refs: ReferenceIndex; placeholder?: string }) {
   return (
     <Suspense fallback={null}>
-      <Input id={id} value={value} onChange={onChange} pages={refs.pages} referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]} {...(placeholder ? { placeholder } : {})} />
+      <Input id={id} value={value} onChange={onChange} {...(onPort ? { onPort } : {})} pages={refs.pages} referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]} {...(placeholder ? { placeholder } : {})} />
     </Suspense>
   );
 }

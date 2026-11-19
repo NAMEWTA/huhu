@@ -449,12 +449,30 @@ function getCustomBlockComponentItems(): SlashCommandItem[] {
   ];
 }
 
+// Translate built-ins at the app boundary, leaving registry metadata and search terms intact.
+const COMPONENT_LABELS: Partial<Record<string, MessageDescriptor>> = {
+  'Callout': msg`Callout`,
+  'Image': msg`Image`,
+  'Video': msg`Video`,
+  'Audio': msg`Audio`,
+  'Embed': msg`Embed`,
+  'Accordion': msg`Accordion`,
+  'Toggle': msg`Toggle`,
+  'Tabs': msg`Tabs`,
+  'Math': msg`Math`,
+  'Mirror': msg`Mirror`,
+  'Mirror Source': msg`Mirror Source`,
+  'Align block': msg`Align block`,
+};
+
 export function getComponentItems(): SlashCommandItem[] {
   const descriptors = getRegisteredDescriptors().filter(
     (desc) => desc.surface === 'canonical' && !SLASH_HIDDEN_CANONICALS.has(desc.name),
   );
 
   const descriptorItems = descriptors.map((desc) => {
+    const label = desc.displayName ?? desc.name;
+    const message = COMPONENT_LABELS[label];
     const config = PREVIEW_CONFIG[desc.name];
     const Component = desc.Component;
     const preview: SlashCommandItem['preview'] = config
@@ -468,11 +486,11 @@ export function getComponentItems(): SlashCommandItem[] {
 
     return {
       name: `component-${desc.name}`,
-      label: desc.displayName ?? desc.name,
+      label: message ? t(message) : label,
       icon: resolveIcon(desc.icon),
       category: desc.category ?? 'content',
       command: createInsertCommand(desc),
-      aliases: desc.searchTerms,
+      aliases: message ? [label, ...(desc.searchTerms ?? [])] : desc.searchTerms,
       description: desc.description,
       insertsBlockComponent: true,
       preview,

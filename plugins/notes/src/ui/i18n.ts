@@ -54,6 +54,7 @@ export const n = {
   noDocHint: "选择一篇笔记，或从空白页开始。",
   noTrashDoc: "没有已删除的笔记",
   modes: { live: "实时预览", source: "源码", preview: "阅读", split: "双栏" },
+  compactLiveMode: "预览",
   modeHint: { live: "直接在正文中写作，光标所在行显示 Markdown 语法", source: "完整 Markdown 原文 · 所有模式共享同一份文档", preview: "只读正文 · 返回编辑时保留光标与撤销历史", split: "左侧编辑源码，右侧即时预览" },
   autosave: "自动保存",
   manualSave: "手动保存 · Ctrl / ⌘ S",
