@@ -181,3 +181,36 @@ xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-s3-matrix.spec.ts -g '菜单逐�
 本机日志目录为 `/tmp/huhu-parity03-waVMyW/`。校验了 20 份 `slash-matrix.json`，每份选项集合都与归档的 36 项一致，共 720 次命令验证。每份均包含 34 项文档变化、1 项附件入库和 1 项表情命令派发，页面异常列表为空。新的斜杠证据写入 Playwright 独立输出目录，便于并行核对。
 
 Modern Web Guidance 检索了编辑区焦点、菜单键盘及可达名称。测试采用 `html` 与 `accessibility` 的焦点边界原则，在真实顶层段落内确认折叠光标。菜单选项用现有 listbox 内的完整可达名称定位。
+
+## 任务 04 编辑器壳层挂载
+
+基线为 `c80391c`，上游为 `44a2e0a`。原始日志和独立测试输出在本机 `/tmp/huhu-parity04-Iw7xbq/`。有关挂载点、产品适用性和真实用例见 [shell-mounts.md](shell-mounts.md)。
+
+- 机器于执行中重启。恢复时确认工作树改动保留，分支 HEAD 仍为 `c80391c`，未暂存。根 `test-results` 中仍是此前任务的产物，`packages/editor/test-results/vendor.json` 是表情 DOM 定向用例的完整输出。被中断的上游测试和类型检查按新一轮执行记录核验。
+- `emoji-pilot.log` 首次显示选择器确实加载，Frimousse 结果是 `gridcell`。`emoji-pilot2.log` 验到了键盘／鼠标插入及重开后的正文，重开时检测到 Vault 的回环 IPC。最终只剔除 `127.0.0.1/api/v1/call`，其余页面请求要求为 0。
+- `shell-pilot.log` 中源码已打开，焦点未落到 CodeMirror。把可见滚动容器的标识随编辑模式切换后，`e2e-targeted.log` 中四个壳层用例全部通过。该轮 36 项测试在 `Image` 的文档变化断言超时，重启后原测试独立重跑通过（`matrix-reboot.log`）。普通项等目标项的 `aria-selected` 后按 Enter，沿用逐项真实效果检查。`e2e-knowledge-verified.log` 中键盘提交文件项偶发等不到系统选择器。文件项恢复原来的真实点击，表情项也用实际点击打开。最后独立执行 36 项全过。
+- `e2e-knowledge-resumed.log` 的第一轮全量在确认 YAML 图标控件的源码模式也需要字典后主动中断。后续轮次统一使用补齐数据路由后的构建。
+- Electron 使用共享工作树内的 `herdr-core`，每个 Xvfb 压力分路都有独立的输出目录。全量 Markdown 构造的旧归档 JSON 输出使用预加载器重定向到日志目录。第三方声明同样重定向生成物，保留任务写入范围，生成记录包括 `emojibase-data 16.0.2` 和自动解析的 `emojibase 18.0.0`，均为 MIT。
+
+- `e2e-knowledge-final.log` 中五个壳层用例通过。原批注锚点用例有一次偏移仍为 17，`comments-recheck.log` 独立复跑三次均通过。原拖放用例在关闭目标标签后还会显示上一标签的富文本，关闭断言改为等待目标标签本身消失，并验证重开后该标签为当前标签。修正后独立复跑三次均通过（`sidebar-recheck.log`）。
+- 重叠运行的 `e2e-knowledge-delivery.log` 中批注锚点通过，紧凑评论成本用例的提交正文少了后三字，随后主动停止该轮。任务列出的紧凑编辑和保存结算边界交由所属改动处理。下一轮串行复验。
+- 36 项最终夹具在 `e2e-knowledge-final.log` 中全过。该轮还记录了原 S2b 保存状态 10 秒未完成的超时。保存结算归属见任务约定，结果未通过后结束该轮。
+- `e2e-knowledge-serial.log` 的批注锚点、紧凑评论、拖放均通过。Embed 在修改已有属性后输入框已经关闭，旧夹具在已不存在的输入框上按 Enter 并超时。更新用例观察实时应用后的 URL 状态，再通过页面 Escape 关闭，继续验证保存和重开。独立复跑三次均通过（`embed-recheck.log`）。
+- 重启后的上游首次全量扫描 386.8 秒，超过依赖产物检查的 120 秒门限，并伴随 Vitest worker RPC 超时（`test-vendor-resumed.log`）。同一依赖产物用例在缓存预热后复跑 10 项通过，扫描 3.532 秒（`vendor-scan-warm.log`）。
+
+| 门禁或验收 | 退出码 | 结果 | 日志 |
+| --- | ---: | --- | --- |
+| `pnpm typecheck` | 0 | 重启后完整工作区检查通过 | `typecheck-resumed.log` |
+| `pnpm lint` | 0 | 规则与 CSS 检查通过 | `lint-delivery.log` |
+| `VITEST_MAX_FORKS=2 pnpm test` | 0 | 83 文件通过，859 用例通过，1 跳过 | `test.log` |
+| `node scripts/ok-patches.mjs --check` | 0 | 205 条登记，无缺项或多余登记 | `patches-delivery.log` |
+| `pnpm build` | 0 | 补齐源码属性图标路由后的工作树构建通过 | `build-resumed.log` |
+| `pnpm format:check` | 0 | 665 文件符合格式 | `format-check-last.log` |
+| `pnpm knip` | 0 | 通过，保留两条已有配置提示 | `knip-delivery.log` |
+| `pnpm notices` | 0 | 生成 1402 项 | `notices.log` |
+| 表情专项，四路各 `--repeat-each=3` | 0（四路） | 12 次均通过，键鼠插入、磁盘、重开、Escape 恢复焦点与请求计数均覆盖 | `emoji-pressure-1.log` 至 `emoji-pressure-4.log` |
+| 原样迁入的表情组件 DOM 定向套件 | 0 | 6 项通过 | `emoji-dom.log` |
+| 36 项斜杠菜单（含真实表情） | 0 | 36 项与目录一致，表情打开选择器并插入 🎉，页面错误记录为空 | `matrix-delivery.log` 与输出目录下的 `slash-matrix.json` |
+| `VITEST_MAX_FORKS=2 VITEST_MAX_THREADS=2 nice -n 7 ionice -c 2 -n 7 pnpm test:vendor` | 0 | 291 文件通过，6015 用例通过，4 跳过 | `test-vendor-serial.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge`，最后一次默认配置全跑 | 126 | 59 通过，3 失败，1 按配置跳过。失败是 D03 批注偏移仍为 17、S2b 关应用时笔记只剩部分输入、文件项用 Enter 未触发系统选择器。随后恢复文件项的点击并独立验证 36 项。 | `e2e-knowledge-verified.log` |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge --retries=2`，最终完整复验 | 0 | 61 首次通过，1 格式选区用例第一次重试通过（Playwright 标为 flaky），1 大 Vault 用例按默认配置跳过。五个壳层专项、36 项矩阵、D03、S2b 和 F10 200 轮均通过。 | `e2e-knowledge-retry.log` 和相应输出目录 |
