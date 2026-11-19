@@ -98,3 +98,31 @@
 ### Modern Web Guidance
 
 检索了 `split lazy javascript modules` 和 `localize accessible button labels`。读取 `conditional-async-dependencies`、`performance` 和 `accessibility`。将“DO use dynamic imports”用于非 Markdown 查看器边界。应用“Do include a control’s visible text in its accessible name”，气泡菜单用同一消息生成鼠标提示和读屏名称。
+
+## task03 复验
+
+重启后现场为集成合并 `e473f76`，保留了合并后尚未暂存的实现。旧 `test-results` 仅用于回溯，重启前的 build、类型检查和 rc.4 打包均重跑。通过 `pnpm install --frozen-lockfile` 对齐集成锁文件。完整 Electron 运行使用生产配置，Xvfb 为 2200 × 1300。因早期打包仍在读取默认 out，从临时目录启动相同生产配置构建的 `b8bafc9`。E2E 矩阵对历史 `matrix-run.json` 的唯一写入重定向到 /tmp。
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm knip` | 业务构建均退出 0。 |
+| `pnpm build` | 重启后重跑成功，默认 out 和独立暂存均用相同生产构建配置，完成文件标记 `b8bafc9`。 |
+| `node scripts/ok-patches.mjs --check` | 217 条登记，未登记 0，多余登记 0。 |
+| `pnpm notices` | 退出 0，列出 1,400 项。生成文件新增集成分支引入的测试辅助依赖 `@testing-library/user-event`，保留生成差异用于核对，清除业务提交中的生成副作用。 |
+| `pnpm test` | 初次并发时 Engine 的 3 项测试超时。单独重跑 3 轮，每个用例均通过。第二次全量 987 通过、1 跳过，退出 0。 |
+| `pnpm test:vendor` | 首次 6,008 通过，R13 依赖树扫描超时，另有 Vitest RPC 超时。R13 单独复跑三次均通过。第二次全量 290 文件，6,009 通过、4 跳过，退出 0。 |
+| H03 和 B01 定向 Electron | 4/4 通过。中文表面和逐命令扫描白名单外均为零。 |
+
+### Modern Web Guidance
+
+- **`menu`**：复用了现有菜单容器，并在键盘触发时聚焦第一项，Esc 后返回标签（“Closes it and restores focus to its trigger”）。
+- **`viewport-aware-dropdowns`**：原生 Popover 让菜单独立于标签条滚动区域。位置按窗口与菜单实际尺寸限制。鼠标触发使用指针，键盘触发使用标签位置。
+- **`forms`**：语言使用原生单选下拉，显示标签通过 `for` 和 `id` 关联，选项声明各自的内容语言。
+
+### 全量端到端结果
+
+`xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/a11y.spec.ts` 的 Playwright 结果为 80 通过、6 失败、1 默认跳过。a11y 的 4 个场景、H03 的 3 个场景、B01 标签菜单、F07 全部宽度和 F10 的 200 轮均通过。[全量日志](task03-e2e-full.txt)
+
+- 4 项稳定定位失败。复刻测试的 Embed 仍找英文菜单项，气泡仍找 `underline`，Callout 仍找 `Callout properties` / `Callout 属性`，而文件树用例仍找 `Options`。这些用例归其他工作项维护，实际显示分别为“嵌入”“下划线”“提示框属性”“文件操作选项”。
+- 完整旅程首次在 TXT 查看器等待 `.cm-content` 超时。独立复跑三次通过两次，另一回切回笔记继续输入后，磁盘断言缺少尾字。两种失败的共同原因尚未定位。[旅程复跑](task03-journey-retries.txt)
+- F08 主题矩阵原先依赖从设置返回知识库时详情栏重置。H03 语言切换要求保留现有详情栏，测试改为显式打开详情和选择属性页，独立复跑 3/3 通过。[F08 复跑日志](task03-f08-retries.txt)
