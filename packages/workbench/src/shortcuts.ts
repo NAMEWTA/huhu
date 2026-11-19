@@ -6,7 +6,8 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
-  { keys: "Mod+K", action: "打开 / 关闭命令面板", scope: "全局" },
+  { keys: "Mod+K", action: "打开 / 关闭命令面板", scope: "富文本编辑器外" },
+  { keys: "Mod+K", action: "编辑链接", scope: "富文本编辑器" },
   { keys: "Mod+Shift+N", action: "快速捕获到收件箱", scope: "全局" },
   { keys: "F6", action: "在功能栏、侧栏、内容、详情之间切换焦点（Shift+F6 反向）", scope: "全局" },
   { keys: "Esc", action: "关闭命令面板", scope: "命令面板" },

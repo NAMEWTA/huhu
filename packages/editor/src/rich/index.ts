@@ -14,4 +14,18 @@ export { dropProvider } from "../host/provider-pool";
 export { CompactMarkdownView, CompactMarkdownInput, type CompactPage } from "./compact";
 export type { ReferenceCandidate } from "./at-reference";
 // S4 评论宿主
-export { CommentsPanelHost, commentRoutes, notifyCommentsChanged, onCommentPosted, startComment, toThreadMeta, type CommentRouteDeps, type CommentsPanelHostProps, type CommentsPort, type HuhuComment, type PassageInput } from "./comments";
+export {
+  CommentsPanelHost,
+  commentRoutes,
+  dismissOpenCommentThread,
+  notifyCommentsChanged,
+  onCommentPosted,
+  onCommentThreadOpened,
+  startComment,
+  toThreadMeta,
+  type CommentRouteDeps,
+  type CommentsPanelHostProps,
+  type CommentsPort,
+  type HuhuComment,
+  type PassageInput,
+} from "./comments";

@@ -246,6 +246,7 @@ async function link({ editor, page, capture, file }: Surface): Promise<void> {
     await expect.poll(async () => (await dialog.isVisible()) || (await input.isVisible()) || (await palette.isVisible())).toBe(true);
     const properties = await dialog.isVisible();
     const bubble = await input.isVisible();
+    if (bubble) await expect(input).toBeFocused();
     const initialUrl = properties ? await dialog.locator("input").first().inputValue() : bubble ? await input.inputValue() : null;
     return { properties, bubble, initialUrl, searchPalette: await palette.isVisible() };
   });
@@ -282,14 +283,15 @@ async function comments({ editor, page, side, capture }: Surface): Promise<void>
     await input.fill(bodyText);
     await input.press("Enter");
     await expect(highlight).toHaveText("Anchor sentence to discuss.");
+    await expect(marker).toHaveCount(1);
     return { highlight: await highlight.evaluate((node) => node.outerHTML), markerCount: await marker.count() };
   });
   await capture("edge-marker", async () => {
-    if (!(await marker.count())) return { available: false };
     const name = await marker.getAttribute("aria-label");
     await marker.click();
     await expect(body).toContainText("Compare");
-    return { available: true, name };
+    await expect(marker).toHaveAccessibleName(/^(Close comment|关闭评论|关闭批注)$/);
+    return { available: true, name, activeName: await marker.getAttribute("aria-label"), thread: await body.textContent() };
   });
   await capture("open-thread-and-render-markdown", async () => {
     await highlight.click();

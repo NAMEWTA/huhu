@@ -130,18 +130,39 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     setInspectorTab("comments");
     void import("@huhu/editor/rich").then((m) => m.startComment());
   };
-  // 在编辑器里发表批注（OK 的选区入口）之后，打开详情栏的批注页
+  // 发布或从正文打开批注时，显示详情栏的批注页。
   useEffect(() => {
     let off: (() => void) | null = null;
     let live = true;
     void import("@huhu/editor/rich").then((m) => {
-      if (live) off = m.onCommentPosted(() => (setInspector(true), setInspectorTab("comments")));
+      if (!live) return;
+      const showComments = () => {
+        setInspector(true);
+        setInspectorTab("comments");
+      };
+      const stopPosted = m.onCommentPosted(showComments);
+      const stopOpened = m.onCommentThreadOpened(showComments);
+      off = () => {
+        stopPosted();
+        stopOpened();
+      };
     });
     return () => {
       live = false;
       off?.();
     };
   }, []);
+  const commentsVisible = inspector && inspectorTab === "comments";
+  useEffect(() => {
+    if (commentsVisible) return;
+    let live = true;
+    void import("@huhu/editor/rich").then((m) => {
+      if (live) m.dismissOpenCommentThread();
+    });
+    return () => {
+      live = false;
+    };
+  }, [commentsVisible]);
   const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
   // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileViewer 与标签存活判断；树本身直接列举文件系统
