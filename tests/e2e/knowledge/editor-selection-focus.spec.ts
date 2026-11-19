@@ -82,6 +82,43 @@ async function holdFocusTimer(editor: Locator, releaseOn: "range" | "home" | "ma
         after: null as ReturnType<typeof readSelection> | null,
         flushes: 0,
         readSelection,
+        stageDocumentStartReset() {
+          const { flush } = view.domObserver;
+          // 把本次观察器处理推迟到真实 Home 的默认动作完成之后。
+          view.domObserver.flush = () => {};
+          const selection = window.getSelection()!;
+          selection.collapse(selection.anchorNode, 0);
+          const node = selection.anchorNode;
+          const staged = readSelection();
+          const steps = { staged, beforeKey: null as ReturnType<typeof readSelection> | null, unchanged: false };
+          const keys = new AbortController();
+          const options = { capture: true, signal: keys.signal };
+          document.addEventListener(
+            "keydown",
+            (event) => {
+              if (event.isTrusted && event.key === "Home") steps.beforeKey = readSelection();
+            },
+            options,
+          );
+          document.addEventListener(
+            "keyup",
+            (event) => {
+              if (!event.isTrusted || event.key !== "Home") return;
+              keys.abort();
+              view.domObserver.flush = flush;
+              steps.unchanged = selection.isCollapsed && selection.anchorNode === node && selection.anchorOffset === 0;
+              if (runFocusTimer) {
+                probe.release();
+              } else {
+                probe.before = readSelection();
+                view.domObserver.flush();
+                probe.after = readSelection();
+              }
+            },
+            options,
+          );
+          return steps;
+        },
         simulateDocumentStartReset() {
           const selection = window.getSelection()!;
           selection.collapse(selection.anchorNode, 0);
@@ -189,9 +226,14 @@ const documentStartCases = [
   { title: "Ctrl+Home 与聚焦回调同时发生时保留文档起点", key: "Control+Home", timerFirst: false },
   { title: "聚焦回调结束后，观察器保留 Ctrl+Home 到达的文档起点", key: "Control+Home", timerFirst: true },
   { title: "无导航时，观察器把浏览器复位的光标恢复到首段末尾", key: null, timerFirst: false },
+  { title: "浏览器先复位，Home 仍确认文档起点", key: "Home", timerFirst: false, resetFirst: true },
+  { title: "浏览器先复位，Ctrl+Home 仍确认文档起点", key: "Control+Home", timerFirst: false, resetFirst: true },
+  { title: "回调已结束且浏览器先复位，Ctrl+Home 仍确认文档起点", key: "Control+Home", timerFirst: true, resetFirst: true },
 ] as const;
 
-for (const { title, key, timerFirst } of documentStartCases) {
+for (const scenario of documentStartCases) {
+  const { title, key, timerFirst } = scenario;
+  const resetFirst = "resetFirst" in scenario;
   test(`B06：Shift+Tab 重新聚焦后，${title}`, async () => {
     const { page, close, editor } = await openFocusFixture();
     try {
@@ -214,7 +256,7 @@ for (const { title, key, timerFirst } of documentStartCases) {
       // Chromium 仍生成真实键盘事件和 DOM 选区，探针只控制回调何时放行。
       const refocusTime = Date.now() + 310;
       await page.clock.setFixedTime(refocusTime);
-      const probe = await holdFocusTimer(editor, key && !timerFirst ? "home" : "manual", prefix);
+      const probe = await holdFocusTimer(editor, key && !timerFirst && !resetFirst ? "home" : "manual", prefix);
       await page.keyboard.press("Shift+Tab");
       const atEnd = { domNode: prefix, offset: prefix.length, collapsed: true, from: firstEnd, to: firstEnd, focused: true };
       const atStart = { ...atEnd, offset: 0, from: 1, to: 1 };
@@ -237,8 +279,20 @@ for (const { title, key, timerFirst } of documentStartCases) {
         await probe.evaluate((value) => value.release());
         expect(await probe.evaluate((value) => value.after)).toMatchObject(atEnd);
       }
+      const reset = resetFirst ? await probe.evaluateHandle((value) => value.stageDocumentStartReset()) : null;
       await page.keyboard.press(key);
-      if (!timerFirst) {
+      if (reset) {
+        const steps = await reset.jsonValue();
+        const timing = await probe.evaluate(({ before, after }) => ({ before, after }));
+        const evidence = { steps, ...timing };
+        const beforeFlush = { ...atEnd, offset: 0, cached: false };
+        expect(steps).toMatchObject({ staged: beforeFlush, beforeKey: beforeFlush, unchanged: true });
+        expect(timing.before).toMatchObject(beforeFlush);
+        expect(timing.before?.focusAge).toBeLessThan(200);
+        expect(timing.before?.pointerAge).toBeGreaterThanOrEqual(300);
+        await test.info().attach("浏览器先复位后导航", { body: JSON.stringify(evidence), contentType: "application/json" });
+        expect(timing.after, JSON.stringify(evidence)).toMatchObject(atStart);
+      } else if (!timerFirst) {
         await expect.poll(() => probe.evaluate((value) => value.before)).toMatchObject({ ...atEnd, offset: 0, cached: false });
         const timing = await probe.evaluate(({ before, after, flushes }) => ({ before, after, flushes }));
         expect(timing.before?.focusAge).toBeLessThan(200);
