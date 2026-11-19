@@ -322,6 +322,9 @@ export class NotesService {
 
   async move(rel: string, targetDir: string): Promise<MoveResult> {
     const dir = targetDir ? normalizeRelPath(targetDir) : "";
+    if (dir && !statSync(this.d.files.abs(dir), { throwIfNoEntry: false })?.isDirectory()) {
+      throw errors.notFound(`目标文件夹不存在：${dir}`);
+    }
     return this.moveEntry(rel, `${dir ? `${dir}/` : ""}${path.basename(rel)}`);
   }
 
