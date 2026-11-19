@@ -24,9 +24,13 @@ async function reopenSavedNote(page: Page, file: string, expected: string | RegE
   else await disk.toMatch(expected);
   const saved = readFileSync(file, "utf8");
   const filename = path.basename(file);
-  await page.getByRole("button", { name: `关闭 ${path.basename(file, ".md")}`, exact: true }).click();
-  await expect(editor(page)).toHaveCount(0);
+  const title = path.basename(file, ".md");
+  const tabs = page.getByTestId("document-tabs");
+  const closeTab = tabs.getByRole("button", { name: `关闭 ${title}`, exact: true });
+  await closeTab.click();
+  await expect(closeTab).toHaveCount(0);
   await openNote(page, filename);
+  await expect(tabs.getByRole("button", { name: title, exact: true })).toHaveAttribute("aria-current", "true");
   expect(readFileSync(file, "utf8")).toBe(saved);
   return saved;
 }
