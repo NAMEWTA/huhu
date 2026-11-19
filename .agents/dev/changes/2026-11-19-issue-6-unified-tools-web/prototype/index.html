@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>统一工具与 Web 工作台 · Huhu</title>
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="module.css">
+  <script src="workbench.js" defer></script>
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主内容</a>
+  <header class="window">
+    <div class="brand"><img src="huhu-mark.svg" alt=""><span>huhu<small>workbench</small></span></div>
+    <div class="vault" id="vault">项目工作 Vault</div>
+    <div class="window-end"><button id="theme" class="quiet" type="button" aria-pressed="false">深色模式</button></div>
+  </header>
+  <div class="workbench">
+    <nav class="rail" aria-label="功能栏">
+      <button type="button" data-action="home" aria-label="能力网关" title="能力网关" aria-current="page">⌘</button>
+      <button type="button" data-action="rail-settings" aria-label="Web 工作台设置" title="Web 工作台设置">⚙</button>
+    </nav>
+    <aside class="sidebar"><h2>能力网关</h2><nav id="sections" aria-label="能力网关导航"></nav></aside>
+    <main id="main" tabindex="-1"><div class="content">
+      <div id="view"></div>
+      <p id="status" role="status" aria-atomic="true"></p>
+      <details class="demo"><summary>原型演示控制</summary><div id="demo" class="row"></div></details>
+    </div></main>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title"></dialog>
+</body>
+</html>
+

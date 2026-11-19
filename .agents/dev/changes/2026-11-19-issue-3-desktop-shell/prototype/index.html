@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HUHU 工作台 · 桌面外壳原型</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="themes.generated.css">
+<link rel="stylesheet" href="workbench.css">
+<style>
+.system-menu{background:var(--sidebar);border-bottom:1px solid var(--line);padding-inline:10px}
+.system-menu button{min-height:30px}
+.native{display:flex;flex:none;gap:1px}
+.native button{border:0;background:transparent;border-radius:4px;width:34px}
+.native .close:hover{background:var(--danger-bg);color:var(--danger-text)}
+.chrome[data-platform=mac] .native{gap:7px;margin-inline:6px}
+.chrome[data-platform=mac] .native button{min-height:14px;width:14px;border-radius:50%;font-size:0;border:1px solid #0003}
+.chrome[data-platform=mac] .native .close{background:#ff5f57}
+.chrome[data-platform=mac] .native .minimize{background:#febc2e}
+.chrome[data-platform=mac] .native .maximize{background:#28c840}
+.chrome[data-platform=linux] .native button{border:1px solid var(--line);border-radius:50%;width:29px;min-height:29px}
+.drag-zone{min-width:8px;flex:1;align-self:stretch}
+[data-window=fullscreen] .native{display:none}
+[data-window=blurred] .chrome{color:var(--muted)}
+[data-window=minimized] .workbench,[data-window=closed] .workbench,[data-window=quit] .workbench{min-height:0}
+[data-window=minimized] .drag-zone,[data-window=closed] .drag-zone,[data-window=quit] .drag-zone{min-width:0}
+.menu{margin:0;inset:var(--menu-top,44px) auto auto var(--menu-left,8px);width:min(290px,calc(100vw - 16px));padding:10px}
+.menu section+section{border-top:1px solid var(--line);margin-top:8px;padding-top:8px}
+.menu h3{font-size:.75rem;color:var(--muted);padding:2px 4px}
+.menu button{width:100%;text-align:left;border-color:transparent}
+.menu button small{float:right}
+.overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.launch{display:grid;grid-template-columns:1.15fr 1fr;gap:22px;align-items:center;min-height:54vh;max-width:1040px}
+.launch h1{font-size:clamp(1.55rem,3.9vw,3.1rem)}
+.notes{display:grid;grid-template-columns:minmax(140px,210px) minmax(0,1fr);gap:14px}
+.notes textarea{min-height:220px;line-height:1.8}
+#body{min-width:0}
+#workspace[data-focus=true] .rail,#workspace[data-focus=true] .tabs{display:none}
+@media(max-width:700px){.launch,.notes,.overview{grid-template-columns:1fr}.vault{max-width:36%}}
+@media(max-width:390px){.vault{max-width:29%}.native button{width:27px}.chrome .icon{width:29px}.chrome{gap:2px}.brand{gap:4px}.brand img{width:16px;height:16px}}
+</style>
+<script src="shell.js" defer></script>
+</head>
+<body>
+<div id="frame" data-window="normal">
+  <nav id="system" class="system-menu row" aria-label="macOS 系统菜单栏（模拟）" hidden>
+    <button type="button" class="quiet" aria-haspopup="dialog" data-action="menu" data-group="HUHU">HUHU</button>
+    <button type="button" class="quiet" aria-haspopup="dialog" data-action="menu" data-group="文件">文件</button>
+    <button type="button" class="quiet" aria-haspopup="dialog" data-action="menu" data-group="编辑">编辑</button>
+    <button type="button" class="quiet" aria-haspopup="dialog" data-action="menu" data-group="视图">视图</button>
+    <button type="button" class="quiet" aria-haspopup="dialog" data-action="menu" data-group="窗口">窗口</button>
+    <button type="button" class="quiet" aria-haspopup="dialog" data-action="menu" data-group="帮助">帮助</button>
+  </nav>
+  <header id="titlebar" class="chrome" data-platform="win">
+    <button type="button" id="brand" class="quiet brand" data-action="home" aria-label="HUHU 工作台首页"><img src="huhu-mark-mono.svg" alt=""> <span>huhu<small>workbench</small></span></button>
+    <button id="menu-button" type="button" class="icon quiet" data-action="menu" aria-label="应用菜单" aria-haspopup="dialog" title="应用菜单 · Alt / F10">☰</button>
+    <button id="vault-title" type="button" class="vault quiet ellip" data-action="vault" aria-haspopup="dialog"></button>
+    <span id="drag-zone" class="drag-zone" title="窗口拖动区（位置示意）"></span>
+    <button id="search-button" type="button" class="icon quiet" data-action="palette" aria-label="搜索与命令" aria-haspopup="dialog" title="搜索与命令">⌕</button>
+    <div id="native" class="native" aria-label="窗口控制（模拟）">
+      <button type="button" class="icon minimize" data-action="minimize" aria-label="最小化窗口" title="最小化窗口">−</button>
+      <button id="maximize" type="button" class="icon maximize" data-action="maximize" aria-label="最大化窗口" title="最大化窗口">□</button>
+      <button type="button" class="icon close" data-action="close" aria-label="关闭窗口" title="关闭窗口">×</button>
+    </div>
+  </header>
+  <div id="workspace" class="workbench" data-focus="false">
+    <nav id="rail" class="rail" aria-label="功能图标栏">
+      <button type="button" class="icon quiet" data-action="home" aria-label="首页" title="首页">⌂</button>
+      <button type="button" class="icon quiet" data-action="notes" aria-label="知识库" title="知识库">▤</button>
+      <button type="button" class="icon quiet" data-action="tasks" aria-label="任务" title="任务">☑</button>
+      <button type="button" class="icon quiet last" data-action="about" aria-label="关于 HUHU" title="关于 HUHU">ⓘ</button>
+    </nav>
+    <main id="body">
+      <nav id="tabs" class="tabs" aria-label="已打开的功能"></nav>
+      <div id="crumb" class="crumb"></div>
+      <div id="page"></div>
+    </main>
+  </div>
+  <footer class="statusbar"><span id="status" role="status">引擎就绪</span><span id="window-status">普通窗口</span></footer>
+</div>
+<details class="demo">
+  <summary>原型演练 · 模拟窗口和示例数据</summary>
+  <div class="row" id="demo-controls">
+    <label>平台 <select id="platform"><option value="win">Windows</option><option value="mac">macOS</option><option value="linux">Linux（控件在右）</option><option value="web">Web（无桌面宿主）</option></select></label>
+    <label>场景 <select id="scene"><option value="ready">正常工作台</option><option value="launch">无 Vault</option><option value="starting">引擎启动中</option><option value="engine">引擎断开</option><option value="renderer">主页面加载失败</option><option value="readonly">只读 Vault</option><option value="blur">窗口失焦</option></select></label>
+    <label>保存方式 <select id="policy"><option value="auto">自动写入文件</option><option value="manual">手动模式 · 关闭时保留草稿</option></select></label>
+    <label>下次保存 <select id="fault"><option value="">正常</option><option value="write">磁盘写入失败</option><option value="conflict">文件版本冲突</option><option value="timeout">等待超时</option></select></label>
+    <label>主题 <select id="theme"><option value="claude">Claude</option><option value="apple">Apple</option><option value="notion">Notion</option><option value="vercel">Vercel</option></select></label>
+    <label>明暗 <select id="mode"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+    <label>窄窗入口 <select id="compact-choice"><option value="show">保留搜索按钮</option><option value="menu">搜索收进菜单</option></select></label>
+    <button type="button" data-action="reset">重置演练</button>
+  </div>
+</details>
+<dialog id="menu" class="menu" aria-labelledby="menu-title"><div class="row"><h2 id="menu-title" class="grow">HUHU 应用菜单</h2><button type="button" class="icon quiet" data-action="dismiss" aria-label="关闭菜单">×</button></div><div id="menu-items"></div></dialog>
+<dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>

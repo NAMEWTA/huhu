@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HUHU 工作台 · 首页看板原型</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="themes.generated.css">
+<link rel="stylesheet" href="workbench.css">
+<style>
+.board-area{container:board / inline-size}
+.board{--gap:12px;--unit:78px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));grid-auto-rows:var(--unit);gap:var(--gap);position:relative}
+.board.editing{border-radius:var(--radius-card);background:repeating-linear-gradient(to bottom,transparent 0 calc(var(--unit) - 1px),var(--line) var(--unit),transparent calc(var(--unit) + 1px) calc(var(--unit) + var(--gap)));min-height:calc(var(--unit) * 2 + var(--gap))}
+.widget{container:widget / inline-size;grid-column:var(--column)/span var(--width);grid-row:var(--row)/span var(--height);display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.widget h2{overflow-wrap:anywhere;min-width:0}
+.widget-body{overflow:auto;min-height:0;min-width:0;overflow-wrap:anywhere}
+.widget .list-row{align-items:start}
+.widget .list-row input{margin-top:4px}
+.widget-actions{flex-wrap:nowrap;gap:3px}
+.widget-actions .icon{width:29px;min-height:28px}
+.handle{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.handle:active{cursor:grabbing}
+.widget.moving{outline:2px dashed var(--accent-strong);outline-offset:-3px;background:var(--accent-soft)}
+.widget.invalid{outline-color:var(--danger)}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.metrics button{background:var(--muted-bg);padding:9px 12px;text-align:start;line-height:1.35}
+.metrics button:hover{border-color:var(--line-strong)}
+.metrics strong{font-size:1.15rem}
+.board-notice{margin-bottom:12px}
+.catalog-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.catalog-row p{font-size:.8rem;color:var(--muted)}
+.inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#drawer h3{font-size:.92rem}
+#catalog-results fieldset{margin:0;padding:0;border:0;min-width:0}
+#catalog-results legend{padding-block:6px;color:var(--muted)}
+#dashboard[data-editing=true] #layout-actions{display:flex}
+@container widget (max-width:340px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container board (max-width:650px){
+ .board{display:flex;flex-direction:column;gap:10px}
+ .board.editing{background:none}
+ .widget{min-height:calc(45px + 54px * var(--height))}
+ .widget-body{max-height:calc(32px + 52px * var(--height))}
+ .desktop-layout,.widget-actions .desktop-layout{display:none}
+ .widget{padding:12px}
+}
+@container board (min-width:651px){.narrow-note{display:none}}
+@media(max-width:450px){.content{padding-inline:10px}.page-head{align-items:start}.widget-actions .icon{width:27px}}
+</style>
+<script src="dashboard.js" defer></script>
+</head>
+<body>
+<header class="chrome">
+ <button type="button" class="quiet brand" aria-label="HUHU 工作台首页" data-nav="home"><img src="huhu-mark-mono.svg" alt=""> <span>huhu<small>workbench</small></span></button>
+ <button type="button" id="vault" class="vault quiet ellip" data-action="vault" aria-haspopup="dialog"></button>
+ <span class="grow"></span>
+ <button type="button" class="icon quiet" data-action="search" aria-label="搜索与命令" title="搜索与命令">⌕</button>
+ <button type="button" class="icon quiet" data-nav="closed" aria-label="关闭窗口（模拟）" title="关闭窗口（模拟）">×</button>
+</header>
+<div class="workbench">
+ <nav id="rail" class="rail" aria-label="功能图标栏">
+  <button type="button" class="icon quiet" data-nav="home" aria-label="首页" title="首页">⌂</button>
+  <button type="button" class="icon quiet" data-nav="notes" aria-label="知识库" title="知识库">▤</button>
+  <button type="button" class="icon quiet" data-nav="tasks" aria-label="任务" title="任务">☑</button>
+  <button type="button" class="icon quiet" data-nav="inbox" aria-label="收件箱" title="收件箱">▣</button>
+  <button type="button" class="icon quiet last" data-nav="plugins" aria-label="插件中心" title="插件中心">◈</button>
+ </nav>
+ <main>
+  <nav class="tabs" id="tabs" aria-label="已打开的功能"></nav>
+  <div class="crumb" id="crumb"></div>
+  <section id="dashboard" class="content" aria-labelledby="page-title">
+   <div class="row page-head">
+    <div class="grow"><h1 id="page-title">工作台</h1><p id="page-description" class="muted">按你的工作方式组织首页。</p></div>
+    <div class="row end" id="toolbar">
+     <button type="button" id="begin" data-action="edit">编辑布局</button>
+     <button type="button" class="primary" id="add" data-action="catalog">＋ 添加小组件</button>
+     <div class="row" id="layout-actions" hidden>
+      <button type="button" data-action="cancel">取消编辑</button>
+      <button type="button" class="primary" id="save" data-action="save">保存布局</button>
+     </div>
+    </div>
+   </div>
+   <div id="notice" class="board-notice" aria-live="polite"></div>
+   <div class="board-area">
+    <div id="board-tools" class="board-notice row" hidden>
+     <button type="button" class="desktop-layout" data-action="defaults">恢复默认布局</button>
+     <button type="button" data-action="undo">撤销布局改动</button>
+     <span class="muted desktop-layout">拖动把手或用方向键移动，小组件菜单可输入位置和尺寸。</span>
+     <span class="muted narrow-note">顺序与尺寸调整会写回同一布局。</span>
+    </div>
+    <div id="board" class="board" aria-label="首页小组件"></div>
+    <div id="empty" class="empty stack" hidden><h2>首页还没有小组件</h2><div><button type="button" class="primary desktop-layout" id="empty-add" data-action="catalog">添加首个小组件</button><span class="muted narrow-note">在宽窗打开目录可添加小组件。</span></div></div>
+   </div>
+  </section>
+  <section id="module" class="content stack" hidden></section>
+ </main>
+</div>
+<footer class="statusbar"><span id="status" role="status">引擎就绪</span><span id="revision"></span></footer>
+<details class="demo">
+ <summary>原型演练 · 示例数据与故障设置</summary>
+ <div class="row">
+  <label>保存结果 <select id="save-fault"><option value="">正常</option><option value="write">写入失败</option><option value="conflict">版本冲突</option><option value="lost">提交完成后回执丢失</option></select></label>
+  <label>看板状态 <select id="board-scenario"><option value="">可编辑</option><option value="readonly">Vault 只读</option><option value="recovery">新格式损坏 · 有备份</option></select></label>
+  <label>SSH 插件 <select id="ssh-state"><option value="on">启用</option><option value="off">已停用</option><option value="missing">定义缺失</option><option value="denied">读取授权不足</option><option value="error">请求失败</option><option value="broken-host">主机配置失效</option></select></label>
+  <label>主题 <select id="theme"><option value="claude">Claude</option><option value="apple">Apple</option><option value="notion">Notion</option><option value="vercel">Vercel</option></select></label>
+  <label>明暗 <select id="appearance"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label>
+  <button type="button" data-action="reset">重置演练</button>
+ </div>
+ <p class="muted">使用窗口与模块入口重开已提交布局。刷新 HTML 会重新载入示例。</p>
+</details>
+<dialog id="drawer" class="drawer" aria-labelledby="drawer-title">
+ <div class="stack">
+  <div class="row"><h2 class="grow" id="drawer-title">添加小组件</h2><button type="button" class="icon quiet" data-action="dismiss" aria-label="关闭小组件目录">×</button></div>
+  <label>搜索小组件 <input type="search" id="catalog-search" placeholder="输入名称、能力或插件" autofocus></label>
+  <label>显示类别 <select id="catalog-category"><option value="">全部</option><option value="system">系统</option><option value="plugin">插件</option></select></label>
+  <div id="catalog-results" class="stack"></div>
+ </div>
+</dialog>
+<dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>

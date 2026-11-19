@@ -1,0 +1,26 @@
+#task-workarea { --detail-w: 392px; }
+.task-card { width: 100%; display: grid; align-content: start; gap: 7px; text-align: start; border-color: var(--line); min-height: 86px; }
+.task-card[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.task-card small { display: block; }
+.task-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.board { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; align-items: start; }
+.column { min-inline-size: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--sidebar); }
+.task-heading { overflow-wrap: anywhere; }
+.task-heading.done { text-decoration: line-through; }
+.detail-head { padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+.detail-head h2 { overflow-wrap: anywhere; }
+.detail-meta { display: grid; grid-template-columns: minmax(0,108px) minmax(0,1fr); gap: 6px; }
+.detail-meta dt { color: var(--muted); }
+.detail-meta dd { margin: 0; overflow-wrap: anywhere; }
+.timeline { border-left: 1px solid var(--line-strong); padding-left: 12px !important; }
+.timeline li { position: relative; overflow-wrap: anywhere; }
+.timeline li::before { content: ""; position: absolute; top: 15px; left: -16px; width: 7px; height: 7px; border-radius: 100%; background: var(--accent); }
+.rule-table { width: 100%; border-collapse: collapse; text-align: start; overflow-wrap: anywhere; }
+.rule-table th, .rule-table td { border-bottom: 1px solid var(--line); padding: 9px 5px; text-align: start; }
+.rule-table td:first-child button { width: 100%; text-align: start; }
+.snapshot p { white-space: pre-wrap; }
+@media (max-width: 1180px) { #task-workarea { --detail-w: 330px; } }
+@media (max-width: 1000px) { #task-workarea { --detail-w: 315px; } .task-list { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 860px) { .board { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 470px) { .rule-table th, .rule-table td { padding: 5px 2px; } .rule-table button { padding: 3px 5px; } }
+

@@ -1,0 +1,64 @@
+/* 共享 token：与主题无关（间距、尺寸、字号阶梯、层级、动效）。颜色、字体、圆角、阴影由主题生成（themes.generated.css）。 */
+:root {
+  --font-size: 14px;
+
+  /* 字号阶梯：全部基于 --font-size */
+  --fs-page: calc(var(--font-size) * 24 / 14);
+  --fs-section: calc(var(--font-size) * 16 / 14);
+  --fs-body: var(--font-size);
+  --fs-list: max(12px, calc(var(--font-size) - 1px));
+  --fs-meta: max(11px, calc(var(--font-size) - 2px));
+  --fs-mono: calc(var(--font-size) * 13 / 14);
+  --fs-editor: calc(var(--font-size) * 16 / 14);
+  --editor-line: 1.8;
+  --editor-measure: 760px;
+
+  /* 间距（4px 栅格） */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --page-gutter: 28px;
+
+  /* 尺寸 */
+  --control-h: 36px;
+  --icon-control-size: 32px;
+  --row-h: 40px;
+  --rail-w: 56px;
+  --sidebar-w: 220px;
+  --detail-w: 400px;
+  --resource-wide: 260px;
+
+  /* 层级 */
+  --z-sticky: 10;
+  --z-sidebar: 30;
+  --z-popover: 50;
+  --z-dialog: 60;
+  --z-toast: 70;
+  --z-palette: 80;
+
+  /* 动效 */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-enter: 180ms;
+  --motion-exit: 144ms;
+  --motion-move: 220ms;
+  --motion-reduced-fade: 80ms;
+  --motion-stagger: 30ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+@media (max-width: 1279px) {
+  :root {
+    --page-gutter: 20px;
+  }
+}
+
+/* 与主题无关的中性墨色：阴影、遮罩用黑，实色块上的白字用白（主题 token 里没有的纯黑纯白只在这里定义） */
+:root {
+  --shadow-ink: #000;
+  --on-solid: #fff;
+}

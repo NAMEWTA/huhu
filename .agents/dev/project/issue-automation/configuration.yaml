@@ -1,0 +1,19 @@
+schema_version: 2
+
+task:
+  purpose: "按需从 Huhu 项目的 GitHub Issues 获取 Issue"
+  method: ".agents/dev/project/issue-automation/README.md"
+  output: "当前会话"
+
+source:
+  type: "issue"
+  scope: "https://github.com/NAMEWTA/huhu/issues"
+  read_action: "GitHub CLI (gh issue list, gh issue view)"
+  reply_mode: "run-output"
+
+monitor:
+  mode: "manual"
+
+repository:
+  url: "https://github.com/NAMEWTA/huhu"
+  default_branch: "main"

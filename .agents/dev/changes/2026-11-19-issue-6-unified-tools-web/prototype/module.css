@@ -1,0 +1,13 @@
+.summary-grid,.filter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px }
+.summary-grid strong { display:block; margin-top:4px; font-size:1.6rem; font-variant-numeric:tabular-nums }
+.filter-grid { grid-template-columns:2fr repeat(3,minmax(0,1fr)) }
+.filter-grid label,.facet-grid { color:var(--muted) }
+.facet-grid { margin-top:10px }
+.filter-grid input { width:100% }
+td:nth-child(2) { max-width:285px }
+.preview-list { max-height:220px; overflow:auto }
+summary { cursor:pointer }
+#task-add { align-items:end }
+#task-add label { flex:1 1 220px }
+@media(max-width:740px) { .filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)) } .summary-grid { gap:5px } .summary-grid strong { font-size:1.3rem } }
+

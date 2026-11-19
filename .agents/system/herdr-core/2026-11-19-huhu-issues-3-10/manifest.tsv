@@ -1,0 +1,9 @@
+terminal_address	task	status
+t1	task01.md	blocked
+t2	task01.md	blocked
+t3	task01.md	blocked
+t4	task01.md	blocked
+t5	task01.md	done
+t6	task01.md	done
+t7	task01.md	done
+t8	task01.md	done

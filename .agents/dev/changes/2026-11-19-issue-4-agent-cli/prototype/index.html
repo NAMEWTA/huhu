@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; img-src 'self'">
+  <link rel="stylesheet" href="themes.css">
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="agent.css">
+  <script src="agent.js" defer></script>
+  <title>Agent CLI · Huhu</title>
+</head>
+<body>
+  <header class="wb-top">
+    <div class="brand"><img class="brand-mark" src="huhu-mark-mono.svg" alt="" draggable="false">huhu<small>workbench</small></div>
+    <div class="vault ellipsis">▱ 产品与工程 Vault</div>
+    <button type="button" class="subtle" id="appearance" aria-label="切换深色外观">深色</button>
+  </header>
+  <div class="wb">
+    <nav class="rail" aria-label="功能图标栏">
+      <span aria-current="page" title="Agent CLI">CLI</span>
+      <a class="button subtle" href="../../2026-11-19-issue-5-task-automation/prototype/index.html" aria-label="任务与自动化原型" title="任务与自动化">任务</a>
+    </nav>
+    <aside class="sidebar" aria-label="Agent CLI 导航">
+      <div class="row between group"><span>工作区</span><button class="subtle" data-act="space-new" type="button">＋ 新建</button></div>
+      <div id="spaces" class="narrow-row"></div>
+      <details id="recent-wrap"><summary>最近工作区</summary><div id="recent"></div></details>
+      <div class="group">Agents</div>
+      <div id="agents" class="narrow-row"></div>
+    </aside>
+    <main class="main">
+      <header class="module-head">
+        <div class="row between">
+          <div><div class="muted">Agent CLI</div><h1 id="space-title"></h1><p id="space-path" class="mono muted"></p></div>
+          <div class="row"><button data-act="space-edit" type="button">工作区设置</button><button data-act="inspect" data-value="history" type="button">历史会话</button><button data-act="launch" data-value="tab" class="primary" type="button">＋ 新建标签</button></div>
+        </div>
+        <div class="row" id="space-facts"></div>
+      </header>
+      <div id="tab-strip" class="section-row row">
+        <div id="tabs" class="row" role="tablist" aria-label="工作区标签"></div>
+        <button data-act="tab-left" type="button" class="subtle" aria-label="向前移动当前标签">←</button>
+        <button data-act="tab-right" type="button" class="subtle" aria-label="向后移动当前标签">→</button>
+        <button data-act="tab-close" type="button" class="subtle">关闭标签</button>
+      </div>
+      <div class="workarea" id="agent-workarea">
+        <section id="terminal-panel" class="canvas" role="tabpanel" aria-label="终端工作台">
+          <div id="pane-bar" class="row between"></div>
+          <div id="pane-tree" class="pane-tree"></div>
+        </section>
+        <aside class="inspector stack" id="agent-inspector" aria-label="工作区辅助面板">
+          <div class="row segmented" aria-label="辅助面板">
+            <button data-act="inspect" data-value="session" type="button">现场</button>
+            <button data-act="inspect" data-value="history" type="button">历史</button>
+            <button data-act="inspect" data-value="files" type="button">文件</button>
+            <button data-act="inspect" data-value="changes" type="button">变更</button>
+          </div>
+          <div id="inspect-body" class="stack"></div>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <footer class="statusbar row between"><span id="status" role="status"></span><span id="connection"></span></footer>
+  <details class="demo" open>
+    <summary>演示控制 · 内存数据</summary>
+    <div class="row">
+      <label for="fault">下次启动</label><select id="fault"><option value="normal">正常</option><option value="fail">启动失败 · 明确未创建</option><option value="unknown">确认丢失 · 待核实</option><option value="late">延迟返回 · 可切工作区</option><option value="stale">目标过期 · 模拟另一窗口关闭目标</option></select>
+      <button data-act="transport" type="button">断开视图</button><button data-act="kept" type="button">模拟 Agent 原进程丢失</button>
+      <button data-act="conflict" type="button">模拟布局版本冲突</button><label for="theme">主题</label><select id="theme"><option value="claude">Claude</option><option value="apple">Apple</option><option value="notion">Notion</option><option value="vercel">Vercel</option></select><button data-act="reset" type="button">复位</button>
+    </div>
+  </details>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <div class="dialog-head row between"><h2 id="editor-title"></h2><button type="button" data-act="dismiss" aria-label="关闭对话框">×</button></div>
+    <div id="editor-body"></div>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' file:; script-src 'self' file:; img-src 'self' file: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>保险箱 · Huhu 工作台</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="prototype.css">
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <header class="titlebar row spread"><div class="row"><span class="brand" aria-hidden="true">H</span><strong>Huhu</strong></div><span class="sub">演示 Vault</span></header>
+  <div class="shell">
+    <nav class="rail" aria-label="工作台模块">
+      <button class="quiet" type="button" data-action="module" aria-current="page" aria-label="保险箱">◇</button>
+      <button class="quiet" type="button" data-action="settings" aria-label="保险箱设置">⚙</button>
+    </nav>
+    <div class="workbench">
+      <nav class="tabs" aria-label="工作台标签"><button class="quiet" type="button" data-action="module" aria-current="page">保险箱</button></nav>
+      <div class="crumb row spread"><span>演示 Vault <span aria-hidden="true">›</span> <b id="crumb">保险箱</b></span>
+        <div class="row"><select id="theme" aria-label="工作台主题"><option value="notion">Notion</option><option value="claude" selected>Claude</option><option value="apple">Apple</option><option value="vercel">Vercel</option></select><button type="button" data-action="theme-mode">深色</button></div>
+      </div>
+      <div class="status" id="status" role="status"></div>
+      <main id="main" class="pad"></main>
+      <div>
+        <details class="demo"><summary>演示控制 · 使用模拟数据</summary><div class="row"><label>下一操作 <select id="fault" aria-label="保险箱故障场景"><option value="">正常</option><option value="save">保存失败</option><option value="conflict">版本冲突</option><option value="copy">复制被拒绝</option><option value="damaged">库损坏</option><option value="protect">本机保护不可用</option></select></label><button type="button" data-action="clean">清洁安装</button><button type="button" data-action="restart">模拟重启</button><button type="button" data-action="idle">模拟到达自动锁定时间</button><button type="button" data-action="toggle-safe" aria-pressed="false">模拟停用保险箱</button><button type="button" data-action="reset">重置演示</button></div></details>
+        <footer class="footer">Huhu 工作台 · 保险箱 · 界面待确认</footer>
+      </div>
+    </div>
+  </div>
+  <dialog id="modal" aria-labelledby="modal-title">
+    <div class="row spread section-head"><h2 id="modal-title" tabindex="-1"></h2><button type="button" class="quiet" data-action="close-modal" aria-label="关闭对话框">×</button></div>
+    <div id="modal-body"></div>
+  </dialog>
+</body>
+</html>
