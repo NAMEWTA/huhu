@@ -45,11 +45,18 @@ export function buildPreviewDocumentMessage(html: string): PreviewDocumentMessag
 }
 
 const PREVIEW_HEIGHT_MESSAGE_KEY = 'okPreviewHeight';
+const PREVIEW_POINTER_MESSAGE_KEY = 'okPreviewPointerInside';
 
 export function parsePreviewHeightMessage(data: unknown): number | null {
   if (typeof data !== 'object' || data === null) return null;
   const h = (data as Record<string, unknown>)[PREVIEW_HEIGHT_MESSAGE_KEY];
   return typeof h === 'number' && Number.isFinite(h) && h > 0 ? Math.ceil(h) : null;
+}
+
+export function parsePreviewPointerMessage(data: unknown): boolean | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const inside = (data as Record<string, unknown>)[PREVIEW_POINTER_MESSAGE_KEY];
+  return typeof inside === 'boolean' ? inside : null;
 }
 
 const PREVIEW_CSP_VIOLATION_MESSAGE_KEY = 'okPreviewCspViolation';
@@ -141,6 +148,12 @@ function previewBootstrapScript(theme: PreviewTheme): string {
     `}` +
     `if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}` +
     `else{init();}` +
+    `function reportPointer(e){` +
+    `if(e.isTrusted&&e.pointerType==='mouse'&&e.relatedTarget===null){` +
+    `parent.postMessage({${PREVIEW_POINTER_MESSAGE_KEY}:e.type==='pointerover'},'*');` +
+    `}}` +
+    `addEventListener('pointerover',reportPointer,true);` +
+    `addEventListener('pointerout',reportPointer,true);` +
     `var cspSeen=new Set();var cspList=[];var cspTrunc=false;var cspTimer;` +
     `function cspFlush(){parent.postMessage({${PREVIEW_CSP_VIOLATION_MESSAGE_KEY}:{blocked:cspList.slice(),truncated:cspTrunc}},'*');}` +
     `addEventListener('securitypolicyviolation',function(e){` +
