@@ -1,0 +1,4 @@
+apps/desktop/release/HUHU-0.0.1-rc.4-linux-x64.deb 225401008 d7d013a09b9adbe66ad9da4a31df91018a6ec5029e7c0599d53d705cee88e3fa
+Package: huhu
+Version: 0.0.1~rc.4
+Architecture: amd64
