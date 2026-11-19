@@ -55,6 +55,12 @@ test("Mod+K：富文本选区与链接内光标编辑 URL，编辑器外和源�
     await page.keyboard.press("Escape");
     await expect(source).toContainText(finished);
     expect(readFileSync(note, "utf8")).toContain(finished);
+
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    await page.getByTestId("settings-nav-shortcuts").click();
+    const shortcutRow = page.getByTestId("shortcut-row").filter({ hasText: "富文本内编辑链接" });
+    await expect(shortcutRow).toContainText("命令面板");
+    await expect(shortcutRow.locator("kbd")).toHaveText(process.platform === "darwin" ? "⌘+K" : "Ctrl+K");
   } finally {
     await close();
   }
