@@ -74,3 +74,9 @@ npm 1.43.0 的聚焦回调使用前后选区端点判断浏览器复位，观察
 回归夹具沿用生产的聚焦回调和观察器，使用 Playwright 固定 `Date` 时间来覆盖 200 ms 内的两种回调顺序。真实键盘导航的 DOM 与 PM 均应到达位置 1，随后 Shift+End 选中首段。无导航的对照只模拟浏览器复位到偏移 0，由生产观察器将 DOM 和 PM 恢复到首段末尾。 [Playwright Clock](https://playwright.dev/docs/clock)
 
 最终 Electron 批次在启动前均确认没有其他 Electron 或 Playwright 进程，使用单 worker 和零重试。专项 10/10、其余指定知识库回归 53/53、严格性能 6/6。严格性能的 1 MiB 打开耗时 432 ms，5,000 行实时预览输入 p95 为 13.6 ms。Web harness 也在独立的 Chromium 158.0.8127.18 中经 Shift+Tab 回到首段，以正常墙钟验证 Home 和 Shift+End。 [专项日志](/tmp/huhu-b06.DkdtYL/focus-clean.log) · [知识库回归](/tmp/huhu-b06.DkdtYL/regressions.log) · [严格性能](/tmp/huhu-b06.DkdtYL/strict.log) · [Web 日志](/tmp/huhu-b06.DkdtYL/browser.log)
+
+## 2026-11-20 · 浏览器先复位，再按 Home 或 Ctrl+Home
+
+以 `f9f0186` 启动真实 Electron。重新聚焦后，夹具先用 DOM Selection API 模拟浏览器把光标复位到文档起点，并将观察器的处理推迟到真实 Home 的默认动作完成。三条新用例覆盖 Home、Ctrl+Home 和聚焦回调已经结束时的 Ctrl+Home。可信按键触发前后，DOM 端点均保持在首段偏移 0，PM 仍在位置 5。原版在放行聚焦回调或直接放行观察器后把 DOM 写回偏移 4，PM 仍在位置 5。修复后两种放行顺序均得到 DOM 偏移 0、PM 位置 1，之后 Shift+End 选中首段。无导航的浏览器复位对照仍恢复到位置 5。 [判红时序](/tmp/huhu-b06-task02.vAH7kc/red.json) · [转绿时序](/tmp/huhu-b06-task02.vAH7kc/focus.json)
+
+上游 1.43.0 在键盘处理前通过 `forceFlush(true)` 读取 `DOMSelState`。本地 1.41.8 补丁记录可信原生导航事件及其端点，使聚焦回调和观察器能保留用户已经确认的文档起点。Home 和 Ctrl+Home 在起点无须再次改变端点，仍可同步该位置。导航事件若在冒泡阶段被取消，仍走原有判断。 [上游发布包](https://registry.npmjs.org/prosemirror-view/-/prosemirror-view-1.43.0.tgz)
