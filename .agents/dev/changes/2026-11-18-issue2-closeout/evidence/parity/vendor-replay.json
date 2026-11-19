@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "f2e4c471c9200b59ae0295740a6ae7ae52ae8209b3713512ae3dbd45ad2f4516",
+      "sha256": "2874cc8273bb582032c3e281113d09fe1031075511915fa1f26a7f08baf2e7cb",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -559,7 +559,7 @@
       "target": "app/src/components/FileTree.tsx",
       "upstream": "packages/app/src/components/FileTree.tsx",
       "blob": "49eda5b8d8f398d63804162d3eaf850080b797b2",
-      "sha256": "c385cc1ae74d14a63551e36feefc27385c685fe616abdee2b5ba7e1f5219b747",
+      "sha256": "036500c3bc105fc95ffdd9ab41e04e25c71731354dd1f80a31d2b409f8fe0839",
       "method": "patch",
       "description": "PATCHES.md:54 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
@@ -3878,9 +3878,9 @@
       "target": "app/src/editor/find-replace/FindReplaceController.tsx",
       "upstream": "packages/app/src/editor/find-replace/FindReplaceController.tsx",
       "blob": "cc496c05ff37b3bffb62a6aff8591b42d06eb8ad",
-      "sha256": "6eb72f94790e1622a52c9a9862bdf43ed9399df5f5e7ee1519d47c16988d70b3",
+      "sha256": "72475f6efec208011dfd286ce431dcf2e58de0f8a772337269f3341eaea14657",
       "method": "patch",
-      "description": "PATCHES.md:102 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，普通输入跳过浮层查询，相关快捷键继续尊重挂载在编辑器外的浮层。"
+      "description": "PATCHES.md:102 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，再检查编辑面是否可见并尊重挂载在编辑器外的浮层，普通输入跳过这些 DOM 查询。"
     },
     {
       "target": "app/src/editor/find-replace/find-types.ts",

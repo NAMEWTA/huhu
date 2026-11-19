@@ -1,4 +1,5 @@
 import { Button, Dialog, Field } from "@huhu/ui";
+import { useCapability } from "@huhu/workbench";
 import { FileText } from "lucide-react";
 import { useState } from "react";
 import { n } from "./i18n.js";
@@ -80,6 +81,7 @@ export function NewNoteDialog({ folder, folders, error, onClose, onCreate }: { f
   const [name, setName] = useState("");
   const [dir, setDir] = useState(folder);
   const [template, setTemplate] = useState("blank");
+  const templates = useCapability<string[]>("notes.templates.list");
   return (
     <Dialog
       open
@@ -121,6 +123,11 @@ export function NewNoteDialog({ folder, folders, error, onClose, onCreate }: { f
             {(Object.keys(n.templates) as (keyof typeof n.templates)[]).map((k) => (
               <option key={k} value={k}>
                 {n.templates[k]}
+              </option>
+            ))}
+            {templates.data?.map((path) => (
+              <option key={path} value={path}>
+                {path}
               </option>
             ))}
           </select>

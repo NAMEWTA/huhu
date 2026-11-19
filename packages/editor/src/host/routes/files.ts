@@ -36,6 +36,7 @@ export interface FilesRouteDeps {
   /** 移入回收站（可恢复）。 */
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
+  listTemplates?(): Promise<string[]>;
   importTemplate?(sourcePath: string): Promise<{ path: string }>;
   createFolder(input: { path: string }): Promise<{ path: string }>;
   /** 上传：写入 parentDir 下。 */
@@ -154,6 +155,24 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
     },
     // 回收站清理：Huhu 的“永久删除”在回收站列表里完成（需要 trashId），树里没有该入口。
     "POST /api/trash/cleanup": () => ({ deletedDocNames: [] }),
+    ...(deps.listTemplates
+      ? {
+          "GET /api/folder-config": async ({ url }: Parameters<HostRoutes[string]>[0]) => {
+            const folder = url.searchParams.get("path") ?? "";
+            const templates = (await deps.listTemplates?.()) ?? [];
+            return {
+              folder: {
+                path: folder,
+                type: "directory",
+                templates_available: templates.map((path) => {
+                  const sourceFolder = dirOf(dirOf(path));
+                  return { name: path, path, source_folder: sourceFolder, scope: sourceFolder === folder ? "local" : "inherited" };
+                }),
+              },
+            };
+          },
+        }
+      : {}),
     ...(deps.importTemplate
       ? {
           "POST /api/template/import": async ({ body }: Parameters<HostRoutes[string]>[0]) => {

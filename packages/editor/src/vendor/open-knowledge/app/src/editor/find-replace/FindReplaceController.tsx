@@ -220,6 +220,10 @@ export function FindReplaceController({ activeDocName, isSourceMode }: FindRepla
       const isDismiss = findState.open && event.key === 'Escape';
       if (!isFind && !isReplace && !isFindNext && !isFindPrevious && !isDismiss) return;
 
+      // A parked editor can stay mounted beneath a hidden workspace module.
+      const dom = getEditorView(editor)?.dom;
+      if (!dom?.getClientRects().length || dom.closest('[inert]')) return;
+
       // Portaled overlays can live outside the editor and own these shortcuts.
       if (isOverlayLayerOpen()) return;
       event.preventDefault();

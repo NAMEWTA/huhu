@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { OperationLog, Trash, VaultFiles, VaultIndex } from "@huhu/vault";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { NotesService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
@@ -24,7 +24,7 @@ async function setup(files: Record<string, string> = {}) {
   await index.build();
   const svc = new NotesService({ files: vf, ops: new OperationLog(vf, path.join(d, "ops")), index, trash: new Trash(vf), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
   const rebuild = () => index.build();
-  return { svc, root, rebuild };
+  return { svc, root, rebuild, vf };
 }
 const rd = (root: string, p: string) => readFileSync(path.join(root, p), "utf8");
 
@@ -42,6 +42,36 @@ describe("新建与校验", () => {
     await expect(svc.create({ name: "a/b" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     await expect(svc.create({ name: "CON" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     await expect(svc.create({ name: "readme" })).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+  });
+});
+
+describe("Vault 模板", () => {
+  test("导入首次写入完整字节，写入失败后可重试且不留空模板", async () => {
+    const contents = "\uFEFF# 样板\r\n\r\n**原样保留**\r\n";
+    const { svc, root, vf } = await setup({ "项目/样板.md": contents });
+    const write = vi.spyOn(vf, "write").mockRejectedValueOnce(new Error("模拟写入中断"));
+    const templatePath = "项目/模板/样板.md";
+    await expect(svc.importTemplate("项目/样板.md")).rejects.toThrow("模拟写入中断");
+    expect(write).toHaveBeenCalledExactlyOnceWith(templatePath, Buffer.from(contents), { expectedVersion: null });
+    expect(existsSync(path.join(root, templatePath))).toBe(false);
+    expect(svc.templatePaths()).toEqual([]);
+    await expect(svc.importTemplate("项目/样板.md")).resolves.toEqual({ path: templatePath });
+    expect(svc.templatePaths()).toEqual([templatePath]);
+
+    const created = await svc.create({ name: "新笔记", templatePath });
+    expect(rd(root, created.path)).toBe(contents);
+    expect(rd(root, templatePath)).toBe(contents);
+    expect(rd(root, "项目/样板.md")).toBe(contents);
+    await expect(svc.create({ name: "不应创建", templatePath: "项目/样板.md" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(existsSync(path.join(root, "不应创建.md"))).toBe(false);
+  });
+
+  test("并行导入同名模板分别写入且保留原有文件", async () => {
+    const { svc, root } = await setup({ "样板.md": "新模板", "模板/样板.md": "已有模板" });
+    const imports = await Promise.all([svc.importTemplate("样板.md"), svc.importTemplate("样板.md")]);
+    expect(imports.map((item) => item.path).sort()).toEqual(["模板/样板-2.md", "模板/样板-3.md"]);
+    expect(imports.map((item) => rd(root, item.path))).toEqual(["新模板", "新模板"]);
+    expect(rd(root, "模板/样板.md")).toBe("已有模板");
   });
 });
 

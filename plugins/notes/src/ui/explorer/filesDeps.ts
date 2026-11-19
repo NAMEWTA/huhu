@@ -1,5 +1,4 @@
 import type { VaultListEntry, VaultListOutput } from "@huhu/contracts";
-import { hasProtectedSegment } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 
 /** 资源管理器的宿主依赖（OK 文件树 → Huhu 能力）。纯逻辑，可单测；React 与 vendor 都不在这里。 */
@@ -44,6 +43,10 @@ export const LIST_MAX_PAGES = 10;
 const dirOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 const baseOf = (p: string): string => p.split("/").at(-1) ?? p;
 const join = (dir: string, name: string): string => (dir ? `${dir}/${name}` : name);
+
+export function noteTemplateInput(template: string) {
+  return ["blank", "meeting", "project", "daily"].includes(template) ? { template } : { templatePath: template };
+}
 
 /** 把“先移动、再改名”两步的结果合成 from → to。 */
 export function composeMoves(first: Record<string, string>, second: Record<string, string>): Record<string, string> {
@@ -115,36 +118,14 @@ export function createFilesDeps(o: FilesDepsOptions) {
       o.onTrashed?.(i.path, r.trashId);
       return { paths: [i.path] };
     },
-    async importTemplate(sourcePath: string) {
-      if (hasProtectedSegment(sourcePath)) throw new Error("不能从受保护目录导入模板");
-      const parent = dirOf(sourcePath);
-      const templateDir = join(parent, "模板");
-      if (parent === "模板" || parent.endsWith("/模板")) throw new Error("这已经是模板文件");
-      const source = await o.engine.call<{ text: string }>("notes.read", { path: sourcePath });
-      const existing = await o.engine.call<VaultListOutput>("vault.list", { dir: parent, limit: LIST_PAGE_LIMIT });
-      const templateFolder = existing.entries.find((entry) => entry.path === templateDir);
-      if (templateFolder && templateFolder.kind !== "dir") throw new Error("目标模板目录已被同名文件占用");
-      if (!templateFolder) await o.engine.call("folders.create", { path: templateDir }, { write: true });
-      const title = baseOf(sourcePath)
-        .replace(/\.mdx?$/i, "")
-        .trim();
-      let candidate = title;
-      // 由 notes.create 仲裁同名冲突，不覆盖已有的模板。
-      const templates = await o.engine.call<VaultListOutput>("vault.list", { dir: templateDir, limit: LIST_PAGE_LIMIT });
-      const names = new Set(templates.entries.map((entry) => entry.name.toLowerCase()));
-      for (let i = 2; names.has(`${candidate}.md`.toLowerCase()); i++) candidate = `${title}-${i}`;
-      const created = await o.engine.call<{ path: string }>("notes.create", { folder: templateDir, name: candidate }, { write: true });
-      const blank = await o.engine.call<{ text: string; version: string }>("notes.read", { path: created.path });
-      if (blank.text !== `# ${candidate}\n\n`) throw new Error("模板在导入期间已有修改");
-      await o.engine.call("notes.save", { path: created.path, text: source.text, expectedVersion: blank.version }, { write: true });
-      return { path: created.path };
-    },
+    listTemplates: () => o.engine.call<string[]>("notes.templates.list"),
+    importTemplate: (sourcePath: string) => o.engine.call<{ path: string }>("notes.templates.import", { path: sourcePath }, { write: true }),
     async createPage(i: { path: string; template?: string }) {
       const name = baseOf(i.path);
       if (/\.[A-Za-z0-9]+$/.test(name) && !/\.(md|mdx)$/i.test(name)) throw new Error("目前只能创建 Markdown 笔记（.md）");
       const folder = dirOf(i.path);
-      const template = i.template && ["blank", "meeting", "project", "daily"].includes(i.template) ? i.template : undefined;
-      const r = await o.engine.call<{ path: string }>("notes.create", { name: name.replace(/\.(md|mdx)$/i, ""), ...(folder ? { folder } : {}), ...(template ? { template } : {}) }, { write: true });
+      const template = i.template ? noteTemplateInput(i.template) : {};
+      const r = await o.engine.call<{ path: string }>("notes.create", { name: name.replace(/\.(md|mdx)$/i, ""), ...(folder ? { folder } : {}), ...template }, { write: true });
       return { path: r.path };
     },
     async createFolder(i: { path: string }) {

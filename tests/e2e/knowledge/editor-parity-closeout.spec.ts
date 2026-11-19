@@ -62,6 +62,35 @@ test("查找替换快捷键打开查找栏、定位下一个匹配并一次替�
   }
 });
 
+test("设置页 Ctrl+F 不打开隐藏笔记的查找栏", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(path.join(vault, filename), "留在笔记中的正文\n");
+    await openNote(page);
+    const rail = page.locator('[data-region="rail"]');
+    await rail.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByTestId("settings-nav-editor").click();
+    const language = page.getByLabel("知识库编辑器语言", { exact: true });
+    await language.focus();
+    await expect(language).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(language).toBeFocused();
+    const bar = page.getByTestId("find-replace-bar");
+    await expect(bar).toHaveCount(0);
+
+    await rail.getByRole("button", { name: "知识库", exact: true }).click();
+    await expect(prose(page)).toContainText("留在笔记中的正文");
+    await expect(bar).toHaveCount(0);
+    await prose(page).focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(bar.locator("#ok-find-input")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(bar).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
 test("查找替换仅在相关快捷键查询浮层，浮层仍优先处理按键", async () => {
   const { page, vault, close } = await openApp();
   try {
