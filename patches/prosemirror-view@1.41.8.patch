@@ -1,0 +1,99 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index ce89be47cebd61a79c6039950f6dcd10df0e3c7e..a8d65b6351909881d2b75eba4fa7cd3aff29b1d2 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -3563,8 +3563,23 @@ handlers.focus = function (view) {
+     view.dom.classList.add("ProseMirror-focused");
+     view.domObserver.start();
+     view.focused = true;
++    var startSel = view.domSelectionRange(),
++      anchorNode = startSel.anchorNode,
++      anchorOffset = startSel.anchorOffset,
++      focusNode = startSel.focusNode,
++      focusOffset = startSel.focusOffset;
+     setTimeout(function () {
+-      if (view.docView && view.hasFocus() && !view.domObserver.currentSelection.eq(view.domSelectionRange())) selectionToDOM(view);
++      if (!view.docView || !view.hasFocus()) return;
++      var sel = view.domSelectionRange();
++      if (view.domObserver.currentSelection.eq(sel)) return;
++      if (view.editable && !view.composing && sel.anchorNode && sel.focusNode && view.dom.contains(sel.anchorNode) && view.dom.contains(sel.focusNode) && !selectionCollapsed(sel)) {
++        view.domObserver.flush();
++        if (!view.docView || !view.hasFocus()) return;
++        sel = view.domSelectionRange();
++        // Preserve a range formed after focus even if the observer hasn't caught up yet.
++        if (sel.anchorNode && sel.focusNode && !selectionCollapsed(sel) && (sel.anchorNode != anchorNode || sel.anchorOffset != anchorOffset || sel.focusNode != focusNode || sel.focusOffset != focusOffset)) return;
++      }
++      if (!view.domObserver.currentSelection.eq(sel)) selectionToDOM(view);
+     }, 20);
+   }
+ };
+diff --git a/dist/index.js b/dist/index.js
+index 2f19364145a8bb8c0f44c738d58271c76078e6f9..d1d2b5e67ee65be94c594c395acb3f99ea8d6301 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -3816,8 +3816,26 @@ handlers.focus = view => {
+         view.dom.classList.add("ProseMirror-focused");
+         view.domObserver.start();
+         view.focused = true;
++        let { anchorNode, anchorOffset, focusNode, focusOffset } = view.domSelectionRange();
+         setTimeout(() => {
+-            if (view.docView && view.hasFocus() && !view.domObserver.currentSelection.eq(view.domSelectionRange()))
++            if (!view.docView || !view.hasFocus())
++                return;
++            let sel = view.domSelectionRange();
++            if (view.domObserver.currentSelection.eq(sel))
++                return;
++            if (view.editable && !view.composing && sel.anchorNode && sel.focusNode &&
++                view.dom.contains(sel.anchorNode) && view.dom.contains(sel.focusNode) && !selectionCollapsed(sel)) {
++                view.domObserver.flush();
++                if (!view.docView || !view.hasFocus())
++                    return;
++                sel = view.domSelectionRange();
++                // Preserve a range formed after focus even if the observer hasn't caught up yet.
++                if (sel.anchorNode && sel.focusNode && !selectionCollapsed(sel) &&
++                    (sel.anchorNode != anchorNode || sel.anchorOffset != anchorOffset ||
++                        sel.focusNode != focusNode || sel.focusOffset != focusOffset))
++                    return;
++            }
++            if (!view.domObserver.currentSelection.eq(sel))
+                 selectionToDOM(view);
+         }, 20);
+     }
+diff --git a/src/input.ts b/src/input.ts
+index fc65988b97cd6e8d2ac774995410ff8d60863083..eb88a11f7d87976dfe3ed1f7599240f8bb44c2cd 100644
+--- a/src/input.ts
++++ b/src/input.ts
+@@ -6,7 +6,7 @@ import * as browser from "./browser"
+ import {captureKeyDown} from "./capturekeys"
+ import {parseFromClipboard, serializeForClipboard} from "./clipboard"
+ import {selectionBetween, selectionToDOM, selectionFromDOM} from "./selection"
+-import {keyEvent, DOMNode, textNodeBefore, textNodeAfter} from "./dom"
++import {keyEvent, DOMNode, textNodeBefore, textNodeAfter, selectionCollapsed} from "./dom"
+ import {EditorView} from "./index"
+ import {ViewDesc} from "./viewdesc"
+ 
+@@ -785,9 +785,22 @@ handlers.focus = view => {
+     view.dom.classList.add("ProseMirror-focused")
+     view.domObserver.start()
+     view.focused = true
++    let {anchorNode, anchorOffset, focusNode, focusOffset} = view.domSelectionRange()
+     setTimeout(() => {
+-      if (view.docView && view.hasFocus() && !view.domObserver.currentSelection.eq(view.domSelectionRange()))
+-        selectionToDOM(view)
++      if (!view.docView || !view.hasFocus()) return
++      let sel = view.domSelectionRange()
++      if (view.domObserver.currentSelection.eq(sel)) return
++      if (view.editable && !view.composing && sel.anchorNode && sel.focusNode &&
++          view.dom.contains(sel.anchorNode) && view.dom.contains(sel.focusNode) && !selectionCollapsed(sel)) {
++        view.domObserver.flush()
++        if (!view.docView || !view.hasFocus()) return
++        sel = view.domSelectionRange()
++        // Preserve a range formed after focus even if the observer hasn't caught up yet.
++        if (sel.anchorNode && sel.focusNode && !selectionCollapsed(sel) &&
++            (sel.anchorNode != anchorNode || sel.anchorOffset != anchorOffset ||
++             sel.focusNode != focusNode || sel.focusOffset != focusOffset)) return
++      }
++      if (!view.domObserver.currentSelection.eq(sel)) selectionToDOM(view)
+     }, 20)
+   }
+ }
