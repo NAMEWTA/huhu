@@ -315,3 +315,5 @@
 ## H02 样式作用域
 
 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。
+
+- P-H02-02 `app/src/globals.css` 与 P-H02-01 的八个浮层文件：深色变体和图片遮罩接受宿主 `data-mode="dark"`，保留独立预览的 `.dark`；图片缩放库样式由宿主 CSS 生成器按 OK 作用域导入。浮层追加 `editor-ok-portal` 标记，供宿主映射其 UI 字体，拖拽预览继续沿用正文计算样式。

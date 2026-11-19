@@ -1432,7 +1432,7 @@
   .notes-doc-container {
     container: notes-doc / inline-size;
   }
-  .hu-knowledge-document-toolbar > .row.grow {
+  .hu-knowledge-document-toolbar > .row.hu-flex-fill {
     min-width: 0;
     flex: 1 1 0%;
   }
@@ -1450,7 +1450,7 @@
       gap: 3px;
       padding-inline: 4px;
     }
-    .hu-knowledge-document-toolbar > .row.grow,
+    .hu-knowledge-document-toolbar > .row.hu-flex-fill,
     .notes-toolbar-modes {
       display: none;
     }

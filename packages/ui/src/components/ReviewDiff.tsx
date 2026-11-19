@@ -202,7 +202,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
           <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
           显示全部上下文
         </label>
-        <div className="grow" />
+        <div className="hu-flex-fill" />
         <Button variant="ghost" icon={ArrowUp} disabled={!changed.length} onClick={() => jump(-1)} title="上一处更改">
           上一处
         </Button>
@@ -278,7 +278,7 @@ export function ReviewDiff({ before = "", after = "", path = "document.md", mode
           {selected ? `${selected.side === "old" ? "旧" : "新"}版本 · 第 ${selected.line} 行` : "选择行号定位审查位置"}
           {cursor >= 0 && changed.length ? ` · 更改 ${cursor + 1}/${changed.length}` : ""}
         </span>
-        <div className="grow" />
+        <div className="hu-flex-fill" />
         <Button
           icon={copy ? Check : Copy}
           disabled={!!error}

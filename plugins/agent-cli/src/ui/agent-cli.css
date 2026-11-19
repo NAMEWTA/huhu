@@ -176,7 +176,7 @@
     }
   }
   @media (max-width: 999px) {
-    .hu-v9-terminal-heading > span:not(.agent-provider-mark):not(.grow) {
+    .hu-v9-terminal-heading > span:not(.agent-provider-mark):not(.hu-flex-fill) {
       display: none;
     }
   }

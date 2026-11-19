@@ -196,7 +196,7 @@
     margin-top: 3px;
     color: var(--muted);
   }
-  .ssh-session-row .grow {
+  .ssh-session-row .hu-flex-fill {
     min-width: 0;
   }
   .ssh-session-row strong {

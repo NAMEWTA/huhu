@@ -55,14 +55,14 @@ function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: s
   };
   return (
     <form
-      className="flex flex-col gap-1.5 border-t p-2"
+      className="editor-comments-composer"
       onSubmit={(e) => {
         e.preventDefault();
         send();
       }}
     >
       <Textarea aria-label={label} placeholder={placeholder} data-testid="comment-whole-note-input" value={text} onChange={(e) => setText(e.target.value)} rows={2} />
-      <Button type="submit" size="sm" disabled={text.trim().length === 0} data-testid="comment-whole-note-add" className="self-end">
+      <Button type="submit" size="sm" disabled={text.trim().length === 0} data-testid="comment-whole-note-add" className="editor-comments-submit">
         {submit}
       </Button>
     </form>
@@ -84,12 +84,12 @@ export function CommentsPanelHost({ docName, routes, locale, readOnly = false, r
   return (
     <OkRoot routes={routes} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
       <CommentsReadOnly readOnly={readOnly} />
-      <div className="flex h-full min-h-0 flex-col" data-testid="comments-panel">
-        <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="editor-comments-panel" data-testid="comments-panel">
+        <div className="editor-comments-list">
           <CommentsPanel docName={docName} />
         </div>
         {readOnly ? (
-          <p className="border-t p-2 text-xs text-muted-foreground" data-testid="comments-readonly-reason">
+          <p className="editor-comments-readonly" data-testid="comments-readonly-reason">
             {readOnlyReason}
           </p>
         ) : (

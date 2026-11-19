@@ -23,7 +23,7 @@ export function registerAtReference(editor: Editor, search: (query: string) => r
     menu.replaceChildren();
     items.forEach((c, i) => {
       const row = document.createElement("div");
-      row.className = `editor-ref-item${i === index ? " is-active" : ""}`;
+      row.className = `editor-ref-item${i === index ? " editor-ref-item-active" : ""}`;
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(i === index));
       row.textContent = c.path;

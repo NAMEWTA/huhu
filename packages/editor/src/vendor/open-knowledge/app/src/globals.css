@@ -12,7 +12,7 @@
    overlay — the lightbox flashes white in dark mode without this override.
    The unprefixed library rule remains correct for light mode (white ≈ the
    light-mode --background by construction). */
-.dark [data-rmiz-modal-overlay="visible"] {
+:is([data-mode="dark"], .dark) [data-rmiz-modal-overlay="visible"] {
   background-color: var(--background);
 }
 
@@ -69,7 +69,7 @@
 @source "../index.html";
 @source "../uninstall.html";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is([data-mode="dark"] *, .dark *));
 
 /* Opt a single utility into the reduced-transparency fallback. The @media
    block further down strips `backdrop-filter` from every slot that opts into a

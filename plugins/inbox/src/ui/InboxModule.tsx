@@ -75,7 +75,7 @@ export function InboxModule() {
       <aside className="hu-resource-pane inbox-knowledge-inbox-list" aria-label={t.title}>
         <div className="hu-resource-head">
           <div className="row">
-            <strong className="grow">
+            <strong className="hu-flex-fill">
               {t.title}
               <span className="inbox-knowledge-count">{items.length}</span>
             </strong>
@@ -215,7 +215,7 @@ export function InboxModule() {
               <span>{cur.source}</span>
               <span>·</span>
               <span>{new Date(cur.createdAt ?? 0).toLocaleString("zh-CN")}</span>
-              <span className="grow" />
+              <span className="hu-flex-fill" />
               <IconButton icon={Pencil} label="编辑收集条目" onClick={() => setDialog({ kind: "edit", item: cur })} />
               <IconButton icon={Trash2} label="删除收集记录" onClick={() => setDialog({ kind: "delete", item: cur })} />
             </div>

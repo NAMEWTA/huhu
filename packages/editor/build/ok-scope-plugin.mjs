@@ -18,8 +18,14 @@ const scopeSelectors = selectorParser((selectors) => {
     const target = selector.nodes.slice(selector.nodes.findLastIndex((node) => node.type === "combinator") + 1);
     if (target.some((node) => node.type === "class" && node.value === "ok-root")) continue;
     const pseudoElement = target.find((node) => node.type === "pseudo" && (node.value.startsWith("::") || LEGACY_PSEUDO_ELEMENT.test(node.value)));
-    if (pseudoElement) selector.insertBefore(pseudoElement, OK_TARGET.clone());
-    else selector.append(OK_TARGET.clone());
+    const scope = OK_TARGET.clone();
+    if (pseudoElement) {
+      scope.spaces.before = pseudoElement.spaces.before;
+      pseudoElement.spaces.before = "";
+      selector.insertBefore(pseudoElement, scope);
+    } else {
+      selector.append(scope);
+    }
   }
 });
 

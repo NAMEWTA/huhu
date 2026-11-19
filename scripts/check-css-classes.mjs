@@ -33,6 +33,7 @@ for (const f of cssFiles) {
         if (n.type !== "class") return;
         defined.add(n.value);
         const c = n.value;
+        if (c === "ok-root" && f === "packages/editor/src/rich/token-map.css") return; // OP-D05 的 OK 作用域边界
         if (THIRD.test(c) || STATE.test(c) || PREFIX.test(c) || allowed.has(c)) return;
         errors.push(`${f}:${rule.source.start.line} 类名 .${c} 不符合前缀规则（共享组件 hu-，工作台 shell-，插件用插件前缀）；历史遗留请登记到 scripts/css-class-exceptions.json`);
       }),

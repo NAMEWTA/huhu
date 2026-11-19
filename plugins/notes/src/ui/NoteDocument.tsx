@@ -187,7 +187,7 @@ export function NoteDocument(props: NoteDocumentProps) {
     <section className="notes-document-area notes-doc-container" data-testid="note-document">
       {/* 单行工具栏按文档容器宽度收纳，详情面板仅覆盖编辑区。 */}
       <div className="hu-knowledge-document-toolbar" data-testid="note-toolbar">
-        <div className="row grow">
+        <div className="row hu-flex-fill">
           <span className="notes-breadcrumb">{folder}</span>
           <ChevronRight size={12} aria-hidden />
           <span className="notes-filename" title={filename}>
@@ -271,7 +271,7 @@ export function NoteDocument(props: NoteDocumentProps) {
       <div className="notes-editor-mode-hint">
         <strong>{n.modes[mode]}</strong>
         <span>{n.modeHint[mode]}</span>
-        <span className="grow" />
+        <span className="hu-flex-fill" />
         <span>{ed?.autosave === false ? n.manualSave : n.autosave}</span>
       </div>
       <div className="notes-editor-layout">
@@ -312,7 +312,7 @@ export function NoteDocument(props: NoteDocumentProps) {
         <span data-testid="save-state">{state === "saved" ? n.status.saved : state === "saving" ? n.status.saving : state === "conflict" ? n.status.conflict : n.status.dirty}</span>
         <span>{n.words(stats.chars)}</span>
         <span>{n.lines(stats.lines)}</span>
-        <span className="grow" />
+        <span className="hu-flex-fill" />
         <span>UTF-8</span>
         {ed?.autosave === false ? (
           <Button variant="primary" icon={Save} disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>

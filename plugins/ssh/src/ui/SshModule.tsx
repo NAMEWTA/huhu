@@ -196,7 +196,7 @@ export function SshModule() {
       <aside className="hu-resource-pane" aria-label={t.title}>
         <div className="hu-resource-head ssh-resource-head">
           <div className="row">
-            <span className="grow ssh-resource-title">{t.hosts}</span>
+            <span className="hu-flex-fill ssh-resource-title">{t.hosts}</span>
             <span className="ssh-count">{(hosts.data ?? []).length}</span>
             <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => openEditor(null)} />
           </div>
@@ -218,7 +218,7 @@ export function SshModule() {
               }}
             >
               <Server size={17} aria-hidden />
-              <span className="grow">
+              <span className="hu-flex-fill">
                 <strong>{h.name}</strong>
                 <span className="small muted">
                   {h.user}@{h.host}
@@ -271,7 +271,7 @@ export function SshModule() {
               { value: "audit", label: "审计", icon: Activity },
             ]}
           />
-          <span className="grow" />
+          <span className="hu-flex-fill" />
           {host ? <Badge tone={status === "connected" ? "success" : "neutral"}>{status === "connected" ? t.connected : status === "connecting" ? "连接中" : t.notConnected}</Badge> : null}
         </div>
         {error ? (
@@ -293,7 +293,7 @@ export function SshModule() {
         {tab === "audit" ? (
           <div className="hu-scroll ssh-pad" data-testid="ssh-audit">
             <div className="row ssh-section-heading">
-              <h3 className="grow">全部连接审计</h3>
+              <h3 className="hu-flex-fill">全部连接审计</h3>
             </div>
             <DataTable
               label="连接审计"
@@ -315,7 +315,7 @@ export function SshModule() {
               <div className={`ssh-server-icon ${status}`}>
                 <Server size={30} aria-hidden />
               </div>
-              <div className="grow">
+              <div className="hu-flex-fill">
                 <h2>
                   {host.user}@{host.host}
                 </h2>
@@ -387,7 +387,7 @@ export function SshModule() {
                 <code>独立 PTY / Exec · 用户断开后撤销租约</code>
               </div>
               <div className="row">
-                <span className="grow" />
+                <span className="hu-flex-fill" />
                 <Button data-testid="ssh-host-edit" onClick={() => openEditor(host)}>
                   编辑主机
                 </Button>
@@ -421,7 +421,7 @@ export function SshModule() {
                       </button>
                     ))}
                   </div>
-                  <span className="grow" />
+                  <span className="hu-flex-fill" />
                   <Button type="submit" variant="primary" icon={Play} disabled={!cmd.trim() || !isConn}>
                     {t.run}
                   </Button>
@@ -432,7 +432,7 @@ export function SshModule() {
             {result ? (
               <div className="ssh-exec-result">
                 <div className="row">
-                  <code className="grow">$ {cmd}</code>
+                  <code className="hu-flex-fill">$ {cmd}</code>
                   <span className="small muted">{result.ms} ms</span>
                   <Badge tone={result.exitCode === 0 ? "success" : "danger"}>{result.interrupted ? "已中断" : `exit ${result.exitCode ?? "?"}`}</Badge>
                 </div>
@@ -456,7 +456,7 @@ export function SshModule() {
                   </button>
                 ))}
               </div>
-              <span className="grow" />
+              <span className="hu-flex-fill" />
               <IconButton icon={Plus} label={t.newShell} disabled={!isConn} onClick={() => void newShell()} />
             </div>
             {activeShell ? (
@@ -464,7 +464,7 @@ export function SshModule() {
                 <div className="ssh-console-panel" style={{ height: "52vh" }}>
                   <div className="hu-ssh-console-panel-head">
                     <Terminal size={13} aria-hidden />
-                    <strong className="grow">{(shells.data ?? []).find((s) => s.id === activeShell)?.name}</strong>
+                    <strong className="hu-flex-fill">{(shells.data ?? []).find((s) => s.id === activeShell)?.name}</strong>
                     <Button variant="danger" icon={X} onClick={() => void engine.call("ssh.shells.close", { id: activeShell }, { write: true }).then(refresh)}>
                       {t.endShell}
                     </Button>
@@ -587,7 +587,7 @@ export function SshModule() {
                   const j = (hosts.data ?? []).find((x) => x.id === jid);
                   return (
                     <div className="row" key={jid} data-testid="ssh-jump-item">
-                      <span className="grow">
+                      <span className="hu-flex-fill">
                         {i + 1}. {j ? `${j.name}（${j.host}）` : jid}
                       </span>
                       <Button disabled={i === 0} aria-label={`上移 ${j?.name ?? jid}`} onClick={() => setForm({ ...form, jumps: swap(form.jumps, i, i - 1) })}>
