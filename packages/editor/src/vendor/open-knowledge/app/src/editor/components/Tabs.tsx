@@ -5,6 +5,7 @@
  */
 
 import { useLingui } from '@lingui/react/macro';
+import { t } from '@lingui/core/macro';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useJsxComponentHost } from './jsx-host-context.tsx';
 
@@ -27,7 +28,7 @@ export function readTabSlots(root: HTMLElement): TabSummary[] {
   return renderers.map((r, i) => {
     const tabEl = r.querySelector<HTMLElement>('[data-tab-label]');
     const fromAttr = tabEl?.getAttribute('data-tab-label');
-    const label = fromAttr?.trim() || `Tab ${i + 1}`;
+    const label = fromAttr?.trim() || t`Tab ${i + 1}`;
     const panelId = tabEl?.getAttribute('data-tab-id') ?? null;
     return { index: i, label, panelId };
   });

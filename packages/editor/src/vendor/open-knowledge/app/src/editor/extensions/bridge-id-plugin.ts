@@ -3,6 +3,7 @@ import type { EditorState } from '@tiptap/pm/state';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { ySyncPluginKey } from '@tiptap/y-tiptap';
 import type * as Y from 'yjs';
+import { topLevelParagraphInsert } from './top-level-paragraph-insert';
 
 interface BridgeIdState {
   yElementToId: WeakMap<Y.XmlElement, string>;
@@ -111,6 +112,8 @@ export const BridgeIdPlugin = Extension.create({
               }
               return { ...prev, posToId: newPosToId };
             }
+
+            if (prev.posToId.size === 0 && topLevelParagraphInsert(tr)) return prev;
 
             const newPosToId = new Map<number, string>();
             let { counter } = prev;

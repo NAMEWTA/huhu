@@ -23,7 +23,7 @@ const SCALE_BOUNDS = { min: MIN_SCALE, max: MAX_SCALE, step: SCALE_STEP };
 export const PDF_MAX_BYTES = 512 * 1024 * 1024;
 const FIND_QUERY_MAX = 2048;
 
-type RangeResult = { size: number; base64: string; length: number; eof: boolean };
+type RangeResult = { version: string; size: number; base64: string; length: number; eof: boolean };
 
 const decodeBase64 = (b64: string): Uint8Array => {
   const bin = atob(b64);
@@ -118,16 +118,16 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
     });
     loaderRef.current = loader;
     // 先取一字节拿到真实大小（目录里的 size 可能已过期），再按范围读取
-    const read: PdfRangeReader = async (offset, length) => {
-      const r = await engine.call<RangeResult>("vault.readRange", { path, offset, length });
-      return decodeBase64(r.base64);
-    };
     void engine
       .call<RangeResult>("vault.readRange", { path, offset: 0, length: 1 })
       .then((head) => {
         if (!alive) return;
         if (head.size > PDF_MAX_BYTES) return setError(v.pdfTooLarge);
         if (head.size === 0) return setError(v.pdfEmpty);
+        const read: PdfRangeReader = async (offset, length) => {
+          const chunk = await engine.call<RangeResult>("vault.readRange", { path, offset, length, expectedVersion: head.version });
+          return decodeBase64(chunk.base64);
+        };
         loader.load({ read, length: head.size });
       })
       .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));

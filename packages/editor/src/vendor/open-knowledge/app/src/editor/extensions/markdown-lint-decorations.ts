@@ -110,7 +110,7 @@ function createLintTooltip(
   },
 ): { destroy: () => void } {
   const tooltip = document.createElement('div');
-  tooltip.className = 'ok-lint-tooltip';
+  tooltip.className = 'ok-root ok-lint-tooltip';
   tooltip.hidden = true;
   const message = document.createElement('div');
   message.className = 'ok-lint-tooltip-message';

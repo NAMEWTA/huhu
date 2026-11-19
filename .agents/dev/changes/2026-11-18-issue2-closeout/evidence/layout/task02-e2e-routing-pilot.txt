@@ -1,0 +1,104 @@
+$ playwright test tests/e2e/knowledge tests/e2e/a11y.spec.ts tests/e2e/perf.spec.ts --output=/tmp/huhu-task02-e2e-results
+
+Running 53 tests using 1 worker
+
+(node:501076) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/e2e/a11y.spec.ts:29:1 › axe：每个模块主页面没有 serious / critical 违规 (46.6s)
+  ✓   2 tests/e2e/a11y.spec.ts:48:1 › axe：命令面板与快速捕获对话框 (10.1s)
+  ✓   3 tests/e2e/a11y.spec.ts:64:1 › 键盘：不碰鼠标新建笔记、新建任务并用空格勾选 (5.8s)
+  ✓   4 tests/e2e/a11y.spec.ts:95:1 › axe：知识库打开两篇笔记后（文档标签条 + 编辑器 + 详情面板） (7.3s)
+  ✓   5 tests/e2e/knowledge/attachments.spec.ts:61:1 › 粘贴 / 拖入图片：落在笔记旁 attachments/，引用写进笔记，图片真的渲染；同图再粘贴不重复 (8.0s)
+  ✓   6 tests/e2e/knowledge/attachments.spec.ts:97:1 › 不支持的类型 / 空文件被拒绝：不落盘，笔记不被改 (5.6s)
+  ✓   7 tests/e2e/knowledge/attachments.spec.ts:115:1 › 文件树拖入外部文件：落在被拖到的目录；类型不支持则拒绝 (5.3s)
+  ✘   8 tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 (36.6s)
+(node:514137) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   9 tests/e2e/knowledge/comments-s4.spec.ts:62:1 › D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注 (3.2s)
+  ✓  10 tests/e2e/knowledge/comments-s4.spec.ts:115:1 › D03/D04/D05：点线程定位正文；前插内容锚点跟随；重复句子锚点唯一；删除原文变孤立不吸附；发表后继续编辑 (5.0s)
+  ✓  11 tests/e2e/knowledge/comments-s4.spec.ts:174:1 › D06：改名后评论仍绑定同一笔记；未解决的批注在重开应用后仍锚定 (4.2s)
+COMPACT-COST {"comments":30,"proseMirrorInstances":30,"renderAllMs":1260,"heapDeltaMB":37,"perInstanceKB":1249}
+  ✓  12 tests/e2e/knowledge/compact-cost.spec.ts:26:1 › S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可输入 / 提交 / 撤销 (4.2s)
+  ✓  13 tests/e2e/knowledge/editor-s2b.spec.ts:18:1 › S2b：打开—无编辑不写盘—输入—保存—重开一致；立即切换不丢最后字符；视图切换保留正文 (9.5s)
+  ✘  14 tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） (3.8s)
+(node:517601) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  15 tests/e2e/knowledge/editor-s3-large.spec.ts:21:1 › S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本；源码里的改动在富文本里可见 (14.2s)
+  ✓  16 tests/e2e/knowledge/editor-s3-large.spec.ts:52:1 › S3：5000 段文档在实时预览里输入后立刻切源码 / 切文件，最后一个字符不丢 (26.2s)
+  ✓  17 tests/e2e/knowledge/editor-s3-matrix.spec.ts:39:1 › 矩阵·Markdown 构造：无编辑打开 / 关闭字节不变，且文档可渲染（不崩溃） (35.8s)
+  ✓  18 tests/e2e/knowledge/editor-s3-matrix.spec.ts:77:1 › 矩阵·`/` 菜单逐项：每个选项都能打开、应用后文档或界面有可观察变化、一次撤销回退 (40.7s)
+  ✓  19 tests/e2e/knowledge/editor-s3-menus.spec.ts:19:1 › S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤回一个命令 (7.8s)
+  ✓  20 tests/e2e/knowledge/editor-s3-parity.spec.ts:63:1 › B06：鼠标拖选（段内与跨段）与上下行光标，不错位、不反向、不原地不动 (11.8s)
+  ✓  21 tests/e2e/knowledge/editor-s3-parity.spec.ts:151:1 › B07：IME 组合输入（CDP 合成，非真实输入法）——组合中不提交、提交后落盘、取消不留残余 (12.5s)
+  ✓  22 tests/e2e/knowledge/editor-s3-parity.spec.ts:192:1 › C05：坏 YAML——面板逐字给出诊断，修复入口是源码模式，修好后诊断消失且落盘 (7.8s)
+  ✓  23 tests/e2e/knowledge/editor-s3-properties.spec.ts:18:1 › S3：属性显示、只改属性不丢正文与其它键、改正文保留 frontmatter、未保存正文时改属性落同一文件 (9.7s)
+  ✓  24 tests/e2e/knowledge/editor-s3-properties.spec.ts:78:1 › S3：坏 YAML 不被清空——面板给出诊断，源码里的原文保留 (6.3s)
+  ✓  25 tests/e2e/knowledge/editor-s3-rules.spec.ts:55:1 › 矩阵·输入规则：逐条输入 Markdown 简写，生成对应块 / 标记 (7.2s)
+  ✘  26 tests/e2e/knowledge/editor-s3-rules.spec.ts:78:1 › 矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / 裸 URL 粘贴 (14.5s)
+
+
+  1) tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 ─────────────────
+
+    TimeoutError: locator.click: Timeout 30000ms exceeded.
+    Call log:
+      - waiting for locator('[data-testid="notes-resource-tree"] :is([data-item-path="图.png"], [data-item-path$="/图.png"])').first()
+
+
+       at helpers/tree.ts:42
+
+      40 |   for (let attempt = 0; attempt < 5; attempt++) {
+      41 |     await treeSettled(page);
+    > 42 |     await row.first().click({ button: "right" });
+         |                       ^
+      43 |     try {
+      44 |       await target.click({ timeout: 3_000 });
+      45 |       return;
+        at treeMenu (/home/wta/projects/huhu-wt-layout/tests/e2e/helpers/tree.ts:42:23)
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/knowledge/attachments.spec.ts:171:5
+
+    Error Context: ../../../../tmp/huhu-task02-e2e-results/knowledge-attachments-笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-e2e-results/knowledge-attachments-笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-e2e-results/knowledge-attachments-笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） ─────────────────────────
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected substring: "关闭前的最后输入"
+    Received string:    "# 重开·
+    初始关
+    "
+
+       97 |     // 不等自动保存，直接关闭应用：退出前 flush 必须把它落盘
+       98 |     await app.close();
+    >  99 |     expect(readFileSync(file, "utf8")).toContain("关闭前的最后输入");
+          |                                        ^
+      100 |   } finally {
+      101 |     await close().catch(() => undefined);
+      102 |   }
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/knowledge/editor-s2b.spec.ts:99:40
+
+    Error Context: ../../../../tmp/huhu-task02-e2e-results/knowledge-editor-s2b-S2b：重开应用后内容一致（保存—关闭—重开）/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-e2e-results/knowledge-editor-s2b-S2b：重开应用后内容一致（保存—关闭—重开）/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-e2e-results/knowledge-editor-s2b-S2b：重开应用后内容一致（保存—关闭—重开）/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 ──────────────────
+    tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） ──────────────────────────
+  1 interrupted
+    tests/e2e/knowledge/editor-s3-rules.spec.ts:78:1 › 矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / 裸 URL 粘贴 ─────
+  27 did not run
+  23 passed (5.9m)
+[ELIFECYCLE] Command failed with exit code 130.

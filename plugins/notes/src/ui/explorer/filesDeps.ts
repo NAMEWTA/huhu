@@ -44,6 +44,10 @@ const dirOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf
 const baseOf = (p: string): string => p.split("/").at(-1) ?? p;
 const join = (dir: string, name: string): string => (dir ? `${dir}/${name}` : name);
 
+export function noteTemplateInput(template: string) {
+  return ["blank", "meeting", "project", "daily"].includes(template) ? { template } : { templatePath: template };
+}
+
 /** 把“先移动、再改名”两步的结果合成 from → to。 */
 export function composeMoves(first: Record<string, string>, second: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -114,12 +118,14 @@ export function createFilesDeps(o: FilesDepsOptions) {
       o.onTrashed?.(i.path, r.trashId);
       return { paths: [i.path] };
     },
+    listTemplates: () => o.engine.call<string[]>("notes.templates.list"),
+    importTemplate: (sourcePath: string) => o.engine.call<{ path: string }>("notes.templates.import", { path: sourcePath }, { write: true }),
     async createPage(i: { path: string; template?: string }) {
       const name = baseOf(i.path);
       if (/\.[A-Za-z0-9]+$/.test(name) && !/\.(md|mdx)$/i.test(name)) throw new Error("目前只能创建 Markdown 笔记（.md）");
       const folder = dirOf(i.path);
-      const template = i.template && ["blank", "meeting", "project", "daily"].includes(i.template) ? i.template : undefined;
-      const r = await o.engine.call<{ path: string }>("notes.create", { name: name.replace(/\.(md|mdx)$/i, ""), ...(folder ? { folder } : {}), ...(template ? { template } : {}) }, { write: true });
+      const template = i.template ? noteTemplateInput(i.template) : {};
+      const r = await o.engine.call<{ path: string }>("notes.create", { name: name.replace(/\.(md|mdx)$/i, ""), ...(folder ? { folder } : {}), ...template }, { write: true });
       return { path: r.path };
     },
     async createFolder(i: { path: string }) {

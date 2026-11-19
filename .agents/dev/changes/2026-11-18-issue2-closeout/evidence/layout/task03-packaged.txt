@@ -1,0 +1,16 @@
+$ playwright test -c playwright.packaged.config.ts --output=/tmp/huhu-task03-packaged-results
+
+Running 4 tests using 1 worker
+
+(node:205629) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/e2e/packaged/packaged.spec.ts:77:1 › 打包后：创建笔记并保存；新建任务并勾选；导出数据包 (3.7s)
+  ✓  2 tests/e2e/packaged/packaged.spec.ts:101:1 › 打包后：随包 Herdr Core 可用——Space 里启动 shell 会话，Core 状态为已连接 (3.0s)
+(node:206266) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `huhu --trace-warnings ...` to show where the warning was created)
+(node:206282) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `huhu --trace-warnings ...` to show where the warning was created)
+  ✓  3 tests/e2e/packaged/packaged.spec.ts:142:1 › 打包后：随包命令行 huhu --version 与应用版本一致，huhu call vault.info 返回 ok (2.3s)
+  ✓  4 tests/e2e/packaged/packaged.spec.ts:161:1 › 打包后：Agent 规则经监督进程运行（fake provider），运行页显示已完成与结果 (4.1s)
+
+  4 passed (13.6s)

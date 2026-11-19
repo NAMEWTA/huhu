@@ -1,6 +1,6 @@
 import { Badge, Banner, ControlsProvider, Hint, IconButton, MotionProvider, Segmented } from "@huhu/ui";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Folder, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from "lucide-react";
-import { Component, Fragment, useEffect, useMemo, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Component, Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { ModuleIconsContext, SettingsPagesContext, type ContributionRegistry, type ModuleContribution } from "../contributions.js";
@@ -95,6 +95,15 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
     if (s.activeModule !== id) s.openModule(id);
   };
   const setSection = (id: string) => active && s.setSection(active.id, id);
+  // Entering Settings from an open note keeps its editor and inspector mounted.
+  const showNotes = active?.id === "notes";
+  const notesVisited = useRef(false);
+  const inSettings = active?.id === "settings";
+  useEffect(() => {
+    if (!inSettings) notesVisited.current = showNotes;
+  }, [inSettings, showNotes]);
+  const retainNotes = showNotes || (inSettings && notesVisited.current);
+  const Notes = retainNotes && s.openTabs.includes("notes") ? modules.find((module) => module.id === "notes")?.component : undefined;
   const shellNav = active?.nav === "shell" && sections.length > 0;
   const startResize = (e: ReactPointerEvent) => {
     e.preventDefault();
@@ -270,13 +279,21 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                   ) : null}
                   <div className={`shell-main-body hu-module-${active?.id ?? "none"} hu-module-section-${section}`}>
                     <div className="shell-page-surface">
-                      {Active && active && engineState === "ready" ? (
-                        <ModuleBoundary moduleId={active.id}>
-                          <Active section={section} onSection={setSection} onNavigate={navigate} />
-                        </ModuleBoundary>
-                      ) : (
-                        <div className="hu-empty-main">选择左侧的模块开始</div>
-                      )}
+                      {Notes && engineState === "ready" ? (
+                        <div style={{ display: showNotes ? "contents" : "none" }}>
+                          <ModuleBoundary moduleId="notes">
+                            <Notes active={showNotes} section={s.sections.notes ?? ""} onSection={(id) => s.setSection("notes", id)} onNavigate={navigate} />
+                          </ModuleBoundary>
+                        </div>
+                      ) : null}
+                      {!showNotes &&
+                        (Active && active && engineState === "ready" ? (
+                          <ModuleBoundary moduleId={active.id}>
+                            <Active section={section} onSection={setSection} onNavigate={navigate} />
+                          </ModuleBoundary>
+                        ) : (
+                          <div className="hu-empty-main">选择左侧的模块开始</div>
+                        ))}
                     </div>
                   </div>
                 </main>

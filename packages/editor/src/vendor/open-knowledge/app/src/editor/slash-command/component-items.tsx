@@ -8,6 +8,7 @@ import { setPendingLinkEdit } from '../extensions/link-edit-autoopen';
 import { findMarkIdAt } from '../extensions/mark-identity';
 import { admitAssetUpload, uploadAndInsert } from '../image-upload/index.ts';
 import { getInteractionLayer } from '../interaction-layer-host';
+import { blockLabel } from '../registry/block-labels.ts';
 import { resolveIcon } from '../registry/icons.ts';
 import { getDescriptor, getRegisteredDescriptors } from '../registry/index.ts';
 import type { JsxComponentDescriptor } from '../registry/types.ts';
@@ -390,8 +391,8 @@ function createInsertCommand(
       const tab2 = createChildNode('Tab');
       const tab1Attrs = tab1.attrs as Record<string, unknown>;
       const tab2Attrs = tab2.attrs as Record<string, unknown>;
-      tab1Attrs.props = { ...(tab1Attrs.props as Record<string, unknown>), label: 'Tab 1' };
-      tab2Attrs.props = { ...(tab2Attrs.props as Record<string, unknown>), label: 'Tab 2' };
+      tab1Attrs.props = { ...(tab1Attrs.props as Record<string, unknown>), label: t`Tab ${1}` };
+      tab2Attrs.props = { ...(tab2Attrs.props as Record<string, unknown>), label: t`Tab ${2}` };
       (inserted as Record<string, unknown>).content = [tab1, tab2];
     }
     if (descriptor.name === 'MirrorSource') {
@@ -455,6 +456,7 @@ export function getComponentItems(): SlashCommandItem[] {
   );
 
   const descriptorItems = descriptors.map((desc) => {
+    const label = desc.displayName ?? desc.name;
     const config = PREVIEW_CONFIG[desc.name];
     const Component = desc.Component;
     const preview: SlashCommandItem['preview'] = config
@@ -468,11 +470,11 @@ export function getComponentItems(): SlashCommandItem[] {
 
     return {
       name: `component-${desc.name}`,
-      label: desc.displayName ?? desc.name,
+      label: blockLabel(label),
       icon: resolveIcon(desc.icon),
       category: desc.category ?? 'content',
       command: createInsertCommand(desc),
-      aliases: desc.searchTerms,
+      aliases: [label, ...(desc.searchTerms ?? [])],
       description: desc.description,
       insertsBlockComponent: true,
       preview,
@@ -546,7 +548,7 @@ export function getInlineComponentItems(): SlashCommandItem[] {
         chain()
           .insertContent({
             type: 'text',
-            text: 'link',
+            text: t`link`,
             marks: [{ type: 'link', attrs: { href: '' } }],
           })
           .run();

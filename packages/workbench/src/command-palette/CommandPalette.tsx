@@ -56,6 +56,8 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (e.defaultPrevented || e.isComposing || e.altKey || e.shiftKey) return;
+        if (e.target instanceof Element && e.target.closest('[data-editor-link-shortcut] .ProseMirror[contenteditable="true"]')) return;
         e.preventDefault();
         setOpen(!ui.getState().paletteOpen);
         setQ("");

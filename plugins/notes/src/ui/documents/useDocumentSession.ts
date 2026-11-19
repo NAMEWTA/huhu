@@ -1,5 +1,6 @@
 import { queryKey, registerDirtyDoc, registerFlusher, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { archiveNoteRoute } from "../archives/route.js";
 import { DocumentSession, type SessionSnapshot } from "./DocumentSession.js";
 import { DocumentSessionRegistry, type SessionLease } from "./DocumentSessionRegistry.js";
 
@@ -31,6 +32,8 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
   autosaveRef.current = autosave;
 
   useEffect(() => {
+    const archive = archiveNoteRoute(path);
+    const reportReleaseError = (err: unknown) => console.error(`释放文档会话失败：${path}`, err);
     let cancelled = false;
     let lease: SessionLease | null = null;
     setSession(null);
@@ -42,19 +45,23 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
           new DocumentSession({
             id,
             engine: { call: (cap, input, opts) => engine.call(cap, input, opts) },
-            autosave: () => autosaveRef.current,
-            onSaved: () => void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) }),
+            // 同一会话可以移交到另一个视图。读共享设置缓存，使旧视图卸载后仍能读取最新偏好。
+            autosave: () => qc.getQueryData<{ editor: { autosave: boolean } }>(queryKey(engine.vaultId, "settings.get"))?.editor.autosave ?? autosaveRef.current,
+            onSaved: () => {
+              void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
+              if (archive?.kind === "archive") void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "archives.read", { path: archive.path }) });
+            },
           }),
         (s) => {
           // 退出前落盘 / 切换 Vault 前的未保存文档：每个会话只注册一次，随会话销毁注销
           const offFlush = registerFlusher(() => s.flushForExit());
-          const offDirty = registerDirtyDoc({ label: path, isDirty: () => s.getSnapshot().hasUnsaved, save: () => s.save(), keepDraft: () => s.keepDraft() });
+          const offDirty = registerDirtyDoc({ label: path, drain: () => s.drainEditors(), isDirty: () => s.getSnapshot().hasUnsaved, save: () => s.flush(), keepDraft: () => s.keepDraft() });
           return () => (offFlush(), offDirty());
         },
       )
       .then((l) => {
         if (cancelled) {
-          void l.release();
+          void l.release().catch(reportReleaseError);
           return;
         }
         lease = l;
@@ -64,7 +71,7 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
     return () => {
       cancelled = true;
       setSession(null);
-      void lease?.release();
+      void lease?.release({ handoff: archive?.kind === "archive" }).catch(reportReleaseError);
     };
   }, [engine, path, qc]);
 

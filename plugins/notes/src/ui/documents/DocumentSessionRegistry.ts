@@ -3,7 +3,7 @@ import { DocumentSession, type SessionOptions } from "./DocumentSession.js";
 export interface SessionLease {
   readonly session: DocumentSession;
   /** 归还引用；最后一个引用归还时销毁会话（离开时落盘 / 留草稿）。重复调用无效。 */
-  release(): Promise<void>;
+  release(options?: { handoff: boolean }): Promise<void>;
 }
 
 interface Entry {
@@ -33,7 +33,7 @@ export class DocumentSessionRegistry {
   async acquire(vaultId: string, path: string, make: (id: SessionOptions["id"]) => DocumentSession, bind?: (s: DocumentSession) => () => void): Promise<SessionLease> {
     const key = DocumentSessionRegistry.key(vaultId, path);
     const pending = this.map.get(key)?.disposing;
-    if (pending) await pending; // 等旧会话把未保存内容写完
+    if (pending) await pending.catch(() => undefined); // 等旧会话把未保存内容写完
     let e = this.map.get(key);
     if (!e) {
       const session = make({ vaultId, path, epoch: ++this.epoch });
@@ -45,9 +45,11 @@ export class DocumentSessionRegistry {
     let released = false;
     return {
       session: entry.session,
-      release: async () => {
+      release: async (options) => {
         if (released) return;
         released = true;
+        // 同一次 React 提交中卸载旧视图、挂载同一文件的新视图时保留会话。
+        if (options?.handoff) await Promise.resolve();
         if (--entry.refs > 0) return;
         entry.disposing = (async () => {
           try {

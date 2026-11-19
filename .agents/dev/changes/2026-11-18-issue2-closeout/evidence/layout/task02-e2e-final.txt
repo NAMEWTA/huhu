@@ -1,0 +1,318 @@
+$ playwright test tests/e2e/knowledge tests/e2e/a11y.spec.ts tests/e2e/perf.spec.ts --output=/tmp/huhu-task02-e2e-final-results
+
+Running 53 tests using 1 worker
+
+(node:560021) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/e2e/a11y.spec.ts:29:1 › axe：每个模块主页面没有 serious / critical 违规 (26.5s)
+  ✓   2 tests/e2e/a11y.spec.ts:48:1 › axe：命令面板与快速捕获对话框 (4.0s)
+  ✓   3 tests/e2e/a11y.spec.ts:64:1 › 键盘：不碰鼠标新建笔记、新建任务并用空格勾选 (2.4s)
+  ✓   4 tests/e2e/a11y.spec.ts:95:1 › axe：知识库打开两篇笔记后（文档标签条 + 编辑器 + 详情面板） (4.5s)
+  ✓   5 tests/e2e/knowledge/attachments.spec.ts:61:1 › 粘贴 / 拖入图片：落在笔记旁 attachments/，引用写进笔记，图片真的渲染；同图再粘贴不重复 (5.7s)
+  ✓   6 tests/e2e/knowledge/attachments.spec.ts:97:1 › 不支持的类型 / 空文件被拒绝：不落盘，笔记不被改 (9.4s)
+  ✓   7 tests/e2e/knowledge/attachments.spec.ts:115:1 › 文件树拖入外部文件：落在被拖到的目录；类型不支持则拒绝 (16.7s)
+  ✓   8 tests/e2e/knowledge/attachments.spec.ts:141:1 › 笔记改名后附件引用仍有效；附件被删除后笔记原文不变且不崩溃 (20.9s)
+  ✘   9 tests/e2e/knowledge/comments-s4.spec.ts:62:1 › D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注 (33.3s)
+(node:576174) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  10 tests/e2e/knowledge/comments-s4.spec.ts:115:1 › D03/D04/D05：点线程定位正文；前插内容锚点跟随；重复句子锚点唯一；删除原文变孤立不吸附；发表后继续编辑 (14.3s)
+  ✓  11 tests/e2e/knowledge/comments-s4.spec.ts:174:1 › D06：改名后评论仍绑定同一笔记；未解决的批注在重开应用后仍锚定 (10.8s)
+COMPACT-COST {"comments":30,"proseMirrorInstances":30,"renderAllMs":3470,"heapDeltaMB":37,"perInstanceKB":1253}
+  ✘  12 tests/e2e/knowledge/compact-cost.spec.ts:26:1 › S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可输入 / 提交 / 撤销 (17.3s)
+(node:584135) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  13 tests/e2e/knowledge/editor-s2b.spec.ts:18:1 › S2b：打开—无编辑不写盘—输入—保存—重开一致；立即切换不丢最后字符；视图切换保留正文 (14.8s)
+  ✓  14 tests/e2e/knowledge/editor-s2b.spec.ts:85:1 › S2b：重开应用后内容一致（保存—关闭—重开） (6.4s)
+  ✓  15 tests/e2e/knowledge/editor-s3-large.spec.ts:21:1 › S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本；源码里的改动在富文本里可见 (29.4s)
+  ✓  16 tests/e2e/knowledge/editor-s3-large.spec.ts:52:1 › S3：5000 段文档在实时预览里输入后立刻切源码 / 切文件，最后一个字符不丢 (26.4s)
+  ✓  17 tests/e2e/knowledge/editor-s3-matrix.spec.ts:39:1 › 矩阵·Markdown 构造：无编辑打开 / 关闭字节不变，且文档可渲染（不崩溃） (36.8s)
+  ✓  18 tests/e2e/knowledge/editor-s3-matrix.spec.ts:77:1 › 矩阵·`/` 菜单逐项：每个选项都能打开、应用后文档或界面有可观察变化、一次撤销回退 (2.2m)
+  ✓  19 tests/e2e/knowledge/editor-s3-menus.spec.ts:19:1 › S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤回一个命令 (9.0s)
+  ✓  20 tests/e2e/knowledge/editor-s3-parity.spec.ts:63:1 › B06：鼠标拖选（段内与跨段）与上下行光标，不错位、不反向、不原地不动 (14.2s)
+  ✓  21 tests/e2e/knowledge/editor-s3-parity.spec.ts:151:1 › B07：IME 组合输入（CDP 合成，非真实输入法）——组合中不提交、提交后落盘、取消不留残余 (7.8s)
+  ✓  22 tests/e2e/knowledge/editor-s3-parity.spec.ts:192:1 › C05：坏 YAML——面板逐字给出诊断，修复入口是源码模式，修好后诊断消失且落盘 (9.6s)
+  ✓  23 tests/e2e/knowledge/editor-s3-properties.spec.ts:18:1 › S3：属性显示、只改属性不丢正文与其它键、改正文保留 frontmatter、未保存正文时改属性落同一文件 (11.6s)
+  ✓  24 tests/e2e/knowledge/editor-s3-properties.spec.ts:78:1 › S3：坏 YAML 不被清空——面板给出诊断，源码里的原文保留 (6.5s)
+  ✓  25 tests/e2e/knowledge/editor-s3-rules.spec.ts:55:1 › 矩阵·输入规则：逐条输入 Markdown 简写，生成对应块 / 标记 (9.7s)
+  ✓  26 tests/e2e/knowledge/editor-s3-rules.spec.ts:78:1 › 矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / 裸 URL 粘贴 (9.7s)
+  ✓  27 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:17:3 › S3：窗口 1440px，长中文标题下工具栏单行且不溢出 (3.2s)
+  ✓  28 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:17:3 › S3：窗口 1100px，长中文标题下工具栏单行且不溢出 (3.3s)
+  ✓  29 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:17:3 › S3：窗口 900px，长中文标题下工具栏单行且不溢出 (2.9s)
+  ✓  30 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:17:3 › S3：窗口 800px，长中文标题下工具栏单行且不溢出 (3.2s)
+  ✓  31 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:17:3 › S3：窗口 480px，长中文标题下工具栏单行且不溢出 (2.8s)
+  ✓  32 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:43:3 › S3：缩放 125%（窗口 1280px），工具栏单行且核心操作可达 (2.8s)
+  ✓  33 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:43:3 › S3：缩放 150%（窗口 1280px），工具栏单行且核心操作可达 (3.5s)
+  ✓  34 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:43:3 › S3：缩放 200%（窗口 1280px），工具栏单行且核心操作可达 (3.0s)
+  ✓  35 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:75:1 › F07：1280px 下详情面板不能覆盖笔记工具栏 (3.1s)
+  ✓  36 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：800px × 4 个缩放 × 4 个详情/批注状态 (13.5s)
+  ✓  37 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1024px × 4 个缩放 × 4 个详情/批注状态 (13.4s)
+  ✓  38 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1280px × 4 个缩放 × 4 个详情/批注状态 (13.5s)
+  ✓  39 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1439px × 4 个缩放 × 4 个详情/批注状态 (14.7s)
+  ✓  40 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1440px × 4 个缩放 × 4 个详情/批注状态 (14.9s)
+  ✓  41 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：1920px × 4 个缩放 × 4 个详情/批注状态 (15.2s)
+  ✓  42 tests/e2e/knowledge/host-routes.spec.ts:10:1 › 宿主路由：打开笔记、切源码、打开批注页，没有 /api 404 与“加载页面失败” (6.8s)
+  -  43 tests/e2e/knowledge/huge-vault.spec.ts:14:1 › 10 万文件 Vault：仅统计已展开目录，平铺大目录正确标记部分结果
+{"toolbar":[],"editor":[],"tree":[".agents",".huhu"],"properties":[],"comments":[],"treeMenu":[],"bubbleMenu":[],"slashMenu":["Excalidraw","HTML","Mermaid","PDF"]}
+  ✓  44 tests/e2e/knowledge/i18n-zh-hans.spec.ts:52:1 › H03：简体中文知识库扫描编辑器、命令菜单、文件树和详情 (5.9s)
+  ✓  45 tests/e2e/knowledge/journey.spec.ts:81:1 › 用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 / 插块 / 属性 / 评论 → 保存重开 → JSON·TXT·PDF·HTML → 档案标签 → 切回继续编辑 (17.2s)
+{
+ "samples": [
+  {
+   "round": 20,
+   "prosemirror": 0,
+   "iframes": 0,
+   "objectUrlsLive": 0,
+   "objectUrlsCreatedTotal": 0,
+   "workersCreatedTotal": 20,
+   "workersLive": 0,
+   "intervalsLive": 1,
+   "timeoutsPending": 18,
+   "yDocs": 1,
+   "nodes": 1307,
+   "jsEventListeners": 614,
+   "jsHeapUsedMB": 27.7,
+   "panelsOpen": 4
+  },
+  {
+   "round": 50,
+   "prosemirror": 0,
+   "iframes": 0,
+   "objectUrlsLive": 0,
+   "objectUrlsCreatedTotal": 0,
+   "workersCreatedTotal": 50,
+   "workersLive": 0,
+   "intervalsLive": 1,
+   "timeoutsPending": 18,
+   "yDocs": 1,
+   "nodes": 1307,
+   "jsEventListeners": 614,
+   "jsHeapUsedMB": 27.7,
+   "panelsOpen": 4
+  },
+  {
+   "round": 100,
+   "prosemirror": 0,
+   "iframes": 0,
+   "objectUrlsLive": 0,
+   "objectUrlsCreatedTotal": 0,
+   "workersCreatedTotal": 98,
+   "workersLive": 0,
+   "intervalsLive": 1,
+   "timeoutsPending": 17,
+   "yDocs": 1,
+   "nodes": 1307,
+   "jsEventListeners": 614,
+   "jsHeapUsedMB": 28,
+   "panelsOpen": 4
+  },
+  {
+   "round": 150,
+   "prosemirror": 0,
+   "iframes": 0,
+   "objectUrlsLive": 0,
+   "objectUrlsCreatedTotal": 0,
+   "workersCreatedTotal": 148,
+   "workersLive": 0,
+   "intervalsLive": 1,
+   "timeoutsPending": 17,
+   "yDocs": 1,
+   "nodes": 1307,
+   "jsEventListeners": 614,
+   "jsHeapUsedMB": 28,
+   "panelsOpen": 4
+  },
+  {
+   "round": 200,
+   "prosemirror": 0,
+   "iframes": 0,
+   "objectUrlsLive": 0,
+   "objectUrlsCreatedTotal": 0,
+   "workersCreatedTotal": 198,
+   "workersLive": 0,
+   "intervalsLive": 1,
+   "timeoutsPending": 12,
+   "yDocs": 1,
+   "nodes": 1307,
+   "jsEventListeners": 614,
+   "jsHeapUsedMB": 28.1,
+   "panelsOpen": 4
+  }
+ ],
+ "final": {
+  "round": 201,
+  "prosemirror": 0,
+  "iframes": 0,
+  "objectUrlsLive": 0,
+  "objectUrlsCreatedTotal": 0,
+  "workersCreatedTotal": 198,
+  "workersLive": 0,
+  "intervalsLive": 1,
+  "timeoutsPending": 12,
+  "yDocs": 1,
+  "nodes": 1220,
+  "jsEventListeners": 563,
+  "jsHeapUsedMB": 27.4,
+  "panelsOpen": 0
+ }
+}
+  ✓  46 tests/e2e/knowledge/leak.spec.ts:128:1 › F10 泄漏专项：笔记编辑器 / PDF / HTML 预览 / TXT 反复切换 200 轮无持续增长 (2.0m)
+{"electron":"44.9.1","chromium":"152.0.7977.167"}
+  ✓  47 tests/e2e/knowledge/theme-ok-tokens.spec.ts:86:1 › F08：四主题的明暗色、紧凑与减少动效 (20.4s)
+[perf] 冷启动到首页可交互: 1638 ms（目标 ≤ 3000）
+[perf] 插件停用 / 启用: 59 ms / 99 ms（目标 ≤ 300）
+[perf] Engine 常驻内存: 171 MiB（目标 ≤ 600）
+  ✓  48 tests/e2e/perf.spec.ts:30:1 › 冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；Engine 常驻内存 ≤ 600 MiB（2,000 篇笔记） (2.3s)
+[perf] 打开 1 MiB 文档到可编辑: 511 ms（目标 ≤ 500）
+  ✘  49 tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms (4.1s)
+(node:670939) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[perf] 输入延迟分阶段（中位数）: keydown→CM 事务完成 0.0 ms；doc.function toString() { [native code] } 0.0 ms；onChange 同步部分 0.0 ms
+[perf] 编辑输入延迟（keydown→编辑区 DOM 更新）: p95 22.7 ms，最大 25.8 ms，样本 80（目标 p95 ≤ 16 ms）
+  ✘  50 tests/e2e/perf.spec.ts:148:1 › 编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档） (14.8s)
+(node:672706) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[perf] 任务列表 1,000 行滚动: 帧间隔最大 50 ms，超过 66 ms（约 4 帧）的有 0 次；可滚动高度 62981px；DOM 行数 1001
+  ✓  51 tests/e2e/perf.spec.ts:181:1 › 任务列表 1,000 行滚动：没有超过 50 ms 的长任务 (9.6s)
+[perf] 终端 10 MiB 输出期间输入响应: p95 30.9 ms，最大 46.6 ms，样本 22（目标 ≤ 100）
+  ✓  52 tests/e2e/perf.spec.ts:243:1 › 终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms (6.2s)
+[perf] scale-vault 生成: 10000 篇 / 1000 任务 / 1000 档案，7875 ms
+[perf] 打开 scale-vault 到文件树可用: 5079 ms（目标 ≤ 6000）
+[perf] scale-vault 索引完成（自启动起）: 13386 ms
+[perf] scale-vault Engine 常驻内存: 401 MiB（目标 ≤ 600）
+  ✓  53 tests/e2e/perf.spec.ts:294:1 › scale-vault（10,000 篇笔记 / 1,000 任务 / 1,000 档案）：打开到文件树可用 ≤ 6 s；索引在后台完成；Engine 内存 ≤ 600 MiB (24.2s)
+
+
+  1) tests/e2e/knowledge/comments-s4.spec.ts:62:1 › D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByTestId('comment-composer')
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" getByTestId('comment-composer') with timeout 5000ms
+      - waiting for getByTestId('comment-composer')
+        13 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      73 |     await expect(page.getByTestId("comment-composer")).toBeVisible();
+      74 |     await page.keyboard.press("Escape");
+    > 75 |     await expect(page.getByTestId("comment-composer")).toHaveCount(0);
+         |                                                        ^
+      76 |     expect(commentFiles(vault)).toHaveLength(0);
+      77 |
+      78 |     // 发表
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/knowledge/comments-s4.spec.ts:75:56
+
+    Error Context: ../../../../tmp/huhu-task02-e2e-final-results/knowledge-comments-s4-D01--620fb-消不留伪线程；回复-解决-重开-删除确认；整篇笔记批注/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-e2e-final-results/knowledge-comments-s4-D01--620fb-消不留伪线程；回复-解决-重开-删除确认；整篇笔记批注/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-e2e-final-results/knowledge-comments-s4-D01--620fb-消不留伪线程；回复-解决-重开-删除确认；整篇笔记批注/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e/knowledge/compact-cost.spec.ts:26:1 › S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可输入 / 提交 / 撤销 ─────
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByTestId('task-comment').last()
+    Expected substring: "真正的评论"
+    Received string:    "人工我11/18/2026, 6:53:30 PM撤"
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" getByTestId('task-comment').last() with timeout 5000ms
+      - waiting for getByTestId('task-comment').last()
+        - locator resolved to <article data-source="human" data-testid="task-comment" data-comment-id="c-mwm06mwo1p43" class="tasks-comment tasks-comment-human">…</article>
+        - unexpected value "人工我11/18/2026, 6:53:30 PM…"
+        11 × locator resolved to <article data-source="human" data-testid="task-comment" data-comment-id="c-mwm06mwo1p43" class="tasks-comment tasks-comment-human">…</article>
+           - unexpected value "人工我11/18/2026, 6:53:30 PM撤"
+
+
+      68 |     await page.getByTestId("comment-submit").click();
+      69 |     await expect(page.getByTestId("task-comment")).toHaveCount(N + 1, { timeout: 15_000 });
+    > 70 |     await expect(page.getByTestId("task-comment").last()).toContainText("真正的评论");
+         |                                                           ^
+      71 |   } finally {
+      72 |     await close();
+      73 |   }
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/knowledge/compact-cost.spec.ts:70:59
+
+    Error Context: ../../../../tmp/huhu-task02-e2e-final-results/knowledge-compact-cost-S2c：任务评论-30-条的紧凑阅读实例成本；评论输入框可输入-提交-撤销/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-e2e-final-results/knowledge-compact-cost-S2c：任务评论-30-条的紧凑阅读实例成本；评论输入框可输入-提交-撤销/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-e2e-final-results/knowledge-compact-cost-S2c：任务评论-30-条的紧凑阅读实例成本；评论输入框可输入-提交-撤销/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms ─────────────────────────────────
+
+    Error: expect(received).toBeLessThanOrEqual(expected)
+
+    Expected: <= 500
+    Received:    511
+
+      19 | const STRICT = !process.env["CI"] || process.env["HUHU_PERF_STRICT"] === "1";
+      20 | function atMost(value: number, max: number): void {
+    > 21 |   if (STRICT) expect(value).toBeLessThanOrEqual(max);
+         |                             ^
+      22 | }
+      23 |
+      24 | /** quality.md §3 中可以在 E2E 里自动测量的指标：测量值写进用例注解，超过目标即失败。 */
+        at atMost (/home/wta/projects/huhu-wt-layout/tests/e2e/perf.spec.ts:21:29)
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/perf.spec.ts:119:5
+
+    Error Context: ../../../../tmp/huhu-task02-e2e-final-results/perf-打开-1-MiB-Markdown-到可编辑-≤-500-ms/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-e2e-final-results/perf-打开-1-MiB-Markdown-到可编辑-≤-500-ms/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-e2e-final-results/perf-打开-1-MiB-Markdown-到可编辑-≤-500-ms/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) tests/e2e/perf.spec.ts:148:1 › 编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档） ─────────────────────────────
+
+    Error: expect(received).toBeLessThanOrEqual(expected)
+
+    Expected: <= 16
+    Received:    22.700000000186265
+
+      19 | const STRICT = !process.env["CI"] || process.env["HUHU_PERF_STRICT"] === "1";
+      20 | function atMost(value: number, max: number): void {
+    > 21 |   if (STRICT) expect(value).toBeLessThanOrEqual(max);
+         |                             ^
+      22 | }
+      23 |
+      24 | /** quality.md §3 中可以在 E2E 里自动测量的指标：测量值写进用例注解，超过目标即失败。 */
+        at atMost (/home/wta/projects/huhu-wt-layout/tests/e2e/perf.spec.ts:21:29)
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/perf.spec.ts:174:5
+
+    Error Context: ../../../../tmp/huhu-task02-e2e-final-results/perf-编辑输入延迟-p95-≤-16-ms（实时预览，5-000-行文档）/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task02-e2e-final-results/perf-编辑输入延迟-p95-≤-16-ms（实时预览，5-000-行文档）/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task02-e2e-final-results/perf-编辑输入延迟-p95-≤-16-ms（实时预览，5-000-行文档）/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    tests/e2e/knowledge/comments-s4.spec.ts:62:1 › D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注
+    tests/e2e/knowledge/compact-cost.spec.ts:26:1 › S2c：任务评论 30 条的紧凑阅读实例成本；评论输入框可输入 / 提交 / 撤销 ──────
+    tests/e2e/perf.spec.ts:86:1 › 打开 1 MiB Markdown 到可编辑 ≤ 500 ms ──────────────────────────────────
+    tests/e2e/perf.spec.ts:148:1 › 编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档） ──────────────────────────────
+  1 skipped
+  48 passed (14.2m)
+[ELIFECYCLE] Command failed with exit code 1.

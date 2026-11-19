@@ -44,10 +44,13 @@ contextBridge.exposeInMainWorld("huhuHost", {
   restartEngine: (): Promise<void> => ipcRenderer.invoke("huhu:restartEngine"),
   /** 应用退出前主进程会请求界面把未落盘的编辑写出去；回调完成后回 ack。 */
   onFlush: (cb: () => Promise<void>): void => {
-    ipcRenderer.on("huhu:flush", () => {
-      void cb()
-        .catch(() => undefined)
-        .finally(() => ipcRenderer.send("huhu:flushed"));
+    ipcRenderer.on("huhu:flush", (_event, requestId: number) => {
+      void Promise.resolve()
+        .then(() => cb())
+        .then(
+          () => ipcRenderer.send("huhu:flushed", requestId, true),
+          () => ipcRenderer.send("huhu:flushed", requestId, false),
+        );
     });
   },
   onEngineState: (cb: (s: EngineState) => void): (() => void) => {

@@ -28,6 +28,7 @@ export interface DocumentContextValue {
   isNewTabActive: boolean;
   docPanelAgentId: string | null;
   systemProvider: HocuspocusProvider | null;
+  readAsset?: (path: string) => Promise<Blob>;
   openDocument: (docName: string) => void;
   openDocumentTransition: (docName: string) => void;
   openTarget: (target: ResolvedNavigationTarget, options?: OpenTargetOptions) => void;

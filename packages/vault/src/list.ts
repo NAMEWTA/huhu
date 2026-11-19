@@ -1,19 +1,9 @@
 import { lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { errors, type ProtectedKind, type VaultListEntry, type VaultListOutput, VAULT_LIST_DEFAULT_LIMIT } from "@huhu/contracts";
-import { resolveInVault } from "./paths.js";
+import { errors, type VaultListEntry, type VaultListOutput, VAULT_LIST_DEFAULT_LIMIT } from "@huhu/contracts";
+import { protectedKindOf, resolveInVault } from "./paths.js";
 
-const PROTECTED_BY_NAME: Record<string, ProtectedKind> = { ".huhu": "internal", ".git": "git", node_modules: "dependency", ".agents": "agents" };
 const NOISE_FILES = new Set([".DS_Store", "Thumbs.db"]);
-
-/** 路径任一段命中受保护目录名即为受保护。 */
-export function protectedKindOf(rel: string): ProtectedKind | undefined {
-  for (const seg of rel.split("/")) {
-    const k = PROTECTED_BY_NAME[seg];
-    if (k) return k;
-  }
-  return undefined;
-}
 
 export interface ListDirOptions {
   cursor?: string | undefined;
@@ -47,14 +37,14 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
   }
   if (!st.isDirectory()) throw errors.invalidInput(`不是目录：${rel}`);
   const rootSep = root.endsWith(path.sep) ? root : root + path.sep;
-  const dirProtected = rel === "" ? undefined : protectedKindOf(rel);
+  const dirProtected = protectedKindOf(rel) ?? protectedKindOf(path.relative(root, realpathSync(abs)).split(path.sep).join("/"));
   if (dirProtected && !includeProtected) throw errors.invalidInput(`受保护目录：${rel}`);
 
   const all: VaultListEntry[] = [];
   for (const ent of readdirSync(abs, { withFileTypes: true })) {
     if (NOISE_FILES.has(ent.name)) continue;
     const childRel = rel === "" ? ent.name : `${rel}/${ent.name}`;
-    const prot = dirProtected ?? protectedKindOf(childRel);
+    let prot = dirProtected ?? protectedKindOf(childRel);
     if (prot && !includeProtected) continue;
     const p = path.join(abs, ent.name);
     let entry: VaultListEntry;
@@ -69,6 +59,7 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
           const real = realpathSync(p);
           inside = real === root || real.startsWith(rootSep);
           if (inside) {
+            prot ??= protectedKindOf(path.relative(root, real).split(path.sep).join("/"));
             const s = statSync(real);
             kind = s.isDirectory() ? "dir" : s.isFile() ? "file" : null;
             if (kind === "file") {
@@ -89,6 +80,7 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
     } catch {
       continue; // 刚被删除
     }
+    if (prot && !includeProtected) continue;
     if (prot) entry = { ...entry, protected: prot };
     all.push(entry);
   }

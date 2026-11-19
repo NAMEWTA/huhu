@@ -2,6 +2,7 @@
  * Per-Precedent #30 the children of those unregistered components stay editable (wildcard
  * `hasChildren: true`).
  */
+import { t } from '@lingui/core/macro';
 import { Accordion } from './Accordion.tsx';
 import { AlignBlock } from './AlignBlock.tsx';
 import { Audio } from './Audio.tsx';
@@ -35,7 +36,7 @@ export const componentMap: Record<string, React.ComponentType<any>> = {
   Excalidraw: ExcalidrawEmbed,
   Accordion,
   // biome-ignore lint/suspicious/noExplicitAny: mirrors componentMap's heterogeneous prop shape
-  Toggle: (props: any) => <Accordion {...props} title={props.title ?? 'Toggle'} />,
+  Toggle: (props: any) => <Accordion {...props} title={props.title ?? t`Toggle`} />,
   HtmlAlignBlock: AlignBlock,
   Tabs,
   Tab,

@@ -1,0 +1,53 @@
+$ playwright test tests/e2e/knowledge/journey.spec.ts --repeat-each=3 --output=/tmp/huhu-task03-retry-results
+
+Running 3 tests using 1 worker
+
+(node:224655) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/e2e/knowledge/journey.spec.ts:81:1 › 用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 / 插块 / 属性 / 评论 → 保存重开 → JSON·TXT·PDF·HTML → 档案标签 → 切回继续编辑 (20.0s)
+(node:225929) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 tests/e2e/knowledge/journey.spec.ts:81:1 › 用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 / 插块 / 属性 / 评论 → 保存重开 → JSON·TXT·PDF·HTML → 档案标签 → 切回继续编辑 (21.7s)
+(node:227450) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  3 tests/e2e/knowledge/journey.spec.ts:81:1 › 用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 / 插块 / 属性 / 评论 → 保存重开 → JSON·TXT·PDF·HTML → 档案标签 → 切回继续编辑 (22.1s)
+
+
+  1) tests/e2e/knowledge/journey.spec.ts:81:1 › 用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 / 插块 / 属性 / 评论 → 保存重开 → JSON·TXT·PDF·HTML → 档案标签 → 切回继续编辑
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected substring: "切回后继续写"
+    Received string:    "---
+    title: 旅程乙
+    zip: 007
+    ---·
+    # 日志·
+    第一段正文，用于批注与选择。·
+    参见 [[资料/机密笔记.md]]·
+    - 条目甲
+    "
+
+      233 |     await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 15_000 });
+      234 |     const finalDisk = readFileSync(path.join(vault, "日志.md"), "utf8");
+    > 235 |     expect(finalDisk).toContain("切回后继续写");
+          |                       ^
+      236 |     expect(finalDisk).toContain("title: 旅程乙");
+      237 |     expect(finalDisk).toContain("zip: 007");
+      238 |     expect(treeRows(page)).toBeTruthy();
+        at /home/wta/projects/huhu-wt-layout/tests/e2e/knowledge/journey.spec.ts:235:23
+
+    Error Context: ../../../../tmp/huhu-task03-retry-results/knowledge-journey-用户完整路径：全-837e0-XT·PDF·HTML-→-档案标签-→-切回继续编辑/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../../../tmp/huhu-task03-retry-results/knowledge-journey-用户完整路径：全-837e0-XT·PDF·HTML-→-档案标签-→-切回继续编辑/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace ../../../../tmp/huhu-task03-retry-results/knowledge-journey-用户完整路径：全-837e0-XT·PDF·HTML-→-档案标签-→-切回继续编辑/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e/knowledge/journey.spec.ts:81:1 › 用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 / 插块 / 属性 / 评论 → 保存重开 → JSON·TXT·PDF·HTML → 档案标签 → 切回继续编辑
+  2 passed (1.1m)
+[ELIFECYCLE] Command failed with exit code 1.

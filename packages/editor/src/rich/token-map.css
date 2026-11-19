@@ -1,0 +1,170 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+
+@layer tokens {
+  /* Important declarations invert layer order. Override OK's default light file-tree color in the earlier token layer. */
+  /* stylelint-disable declaration-no-important -- vendor overrides both the inline token and its default light rule */
+  [class~="ok-root"] file-tree-container {
+    --trees-selected-fg: var(--text) !important;
+  }
+  /* stylelint-enable declaration-no-important */
+}
+
+@layer modules {
+  /* The editor, explorer and their portal use separate OK roots. */
+  [class~="ok-root"] {
+    color-scheme: inherit;
+    --background: var(--bg);
+    --foreground: var(--text);
+    --card: var(--panel);
+    --card-foreground: var(--text);
+    --popover: var(--elevated);
+    --popover-foreground: var(--text);
+    --primary: var(--link);
+    --primary-foreground: var(--accent-fg);
+    --secondary: var(--muted-bg);
+    --secondary-foreground: var(--text);
+    --muted: var(--muted-bg);
+    --muted-foreground: var(--huhu-ok-muted-text);
+    --accent: var(--accent-soft);
+    --accent-foreground: var(--text);
+    --destructive: var(--danger-text);
+    --border: var(--line);
+    --input: var(--line-strong);
+    --ring: var(--focus);
+    --selection-soft: var(--selection);
+    --ok-comment-hue: var(--accent-text);
+
+    --identity-1: var(--tag-4-text);
+    --identity-2: var(--tag-5-text);
+    --identity-3: var(--tag-2-text);
+    --identity-4: var(--tag-1-text);
+    --chart-1: var(--tag-5);
+    --chart-2: var(--tag-3);
+    --chart-3: var(--tag-6);
+    --chart-4: var(--tag-4);
+    --chart-5: var(--tag-1);
+    --desk: var(--sidebar);
+    --desk-hover: var(--muted-bg);
+    --sidebar-foreground: var(--text);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--accent-soft);
+    --sidebar-accent-foreground: var(--accent-text);
+    --sidebar-hover: var(--muted-bg);
+    --sidebar-hover-foreground: var(--text);
+    --sidebar-hover-muted-foreground: var(--huhu-ok-muted-text);
+    --sidebar-hover-destructive-foreground: var(--destructive);
+    --sidebar-selected: var(--selection);
+    --sidebar-selected-foreground: var(--text);
+    --sidebar-selected-muted-foreground: var(--huhu-ok-muted-text);
+    --sidebar-selected-destructive-foreground: var(--destructive);
+    --sidebar-border: var(--line);
+    --sidebar-ring: var(--focus);
+
+    --syntax-tag: var(--syntax-heading);
+    --syntax-attr: var(--syntax-variable);
+    --syntax-atom: var(--syntax-number);
+    --syntax-func: var(--syntax-function);
+    --syntax-var: var(--syntax-variable);
+    --syntax-meta: var(--syntax-comment);
+    --syntax-operator: var(--syntax-punctuation);
+    --syntax-bg: var(--muted-bg);
+    --ok-editor-text: var(--text);
+    --ok-codeblock-title-bg: var(--sidebar);
+    --ok-codeblock-title-foreground: var(--huhu-ok-muted-text);
+    --link-color: var(--link);
+    --broken-link-color: var(--danger-text);
+    --lint-warning-color: var(--warning-text);
+    --lint-error-color: var(--danger-text);
+    --diff-added: var(--success-text);
+    --diff-removed: var(--danger-text);
+    --diff-modified: var(--info-text);
+    --ok-find-match: var(--warning-bg);
+    --ok-find-match-active: var(--warning-text);
+    --ok-viewer-find-match: var(--warning-bg);
+    --ok-unresolved-link: var(--danger-text);
+    --ok-table-cell-selected: var(--selection);
+    --ok-table-resize-handle: var(--huhu-ok-accent);
+    --ok-diff-ins: var(--success-text);
+    --ok-diff-del: var(--danger);
+    --ok-diff-del-foreground: var(--danger-text);
+    --ok-agent-thread-text: var(--text);
+    --ok-tree-muted: var(--faint);
+    --file-tree-foreground: var(--text);
+
+    --callout-note-color: var(--info-text);
+    --callout-tip-color: var(--success-text);
+    --callout-important-color: var(--tag-4-text);
+    --callout-warning-color: var(--warning-text);
+    --callout-caution-color: var(--danger-text);
+    --callout-abstract-color: var(--tag-7-text);
+    --callout-info-color: var(--info-text);
+    --callout-todo-color: var(--tag-5-text);
+    --callout-success-color: var(--success-text);
+    --callout-question-color: var(--tag-2-text);
+    --callout-failure-color: var(--danger-text);
+    --callout-danger-color: var(--danger-text);
+    --callout-bug-color: var(--danger-text);
+    --callout-example-color: var(--tag-4-text);
+    --callout-quote-color: var(--faint);
+
+    --ansi-black: var(--term-ansi-0);
+    --ansi-red: var(--term-ansi-1);
+    --ansi-green: var(--term-ansi-2);
+    --ansi-yellow: var(--term-ansi-3);
+    --ansi-blue: var(--term-ansi-4);
+    --ansi-magenta: var(--term-ansi-5);
+    --ansi-cyan: var(--term-ansi-6);
+    --ansi-white: var(--term-ansi-7);
+    --ansi-bright-black: var(--term-ansi-8);
+    --ansi-bright-red: var(--term-ansi-9);
+    --ansi-bright-green: var(--term-ansi-10);
+    --ansi-bright-yellow: var(--term-ansi-11);
+    --ansi-bright-blue: var(--term-ansi-12);
+    --ansi-bright-magenta: var(--term-ansi-13);
+    --ansi-bright-cyan: var(--term-ansi-14);
+    --ansi-bright-white: var(--term-ansi-15);
+
+    /* These roles retain their Huhu names, but the vendor supplies local defaults. */
+    --sidebar: inherit;
+    --success: inherit;
+    --warning: inherit;
+    --info: inherit;
+    --syntax-keyword: inherit;
+    --syntax-string: inherit;
+    --syntax-number: inherit;
+    --syntax-comment: inherit;
+    --syntax-type: inherit;
+  }
+
+  [class~="ok-root"] file-tree-container {
+    --trees-fg-override: var(--text);
+    --trees-fg-muted-override: var(--faint);
+  }
+
+  [class~="ok-root"] :where(input, textarea)::placeholder {
+    color: var(--muted-foreground);
+  }
+
+  [class~="ok-root"] :is(.cm-content, [data-slot="kbd"]) {
+    --muted-foreground: var(--huhu-ok-muted-text);
+  }
+
+  [class~="ok-root"] .cm-content {
+    --link-color: var(--link);
+    --syntax-type: var(--huhu-ok-syntax-type);
+    --destructive: var(--danger-text);
+  }
+
+  [class~="ok-root"] .cm-selectionLayer {
+    --selection-soft: var(--selection);
+  }
+
+  [class~="ok-root"] .cm-editor :is(.cm-searchMatch, .cm-selectionMatch) {
+    background-color: var(--warning-bg);
+  }
+
+  [class~="ok-root"] .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+    background-color: var(--selection);
+  }
+}

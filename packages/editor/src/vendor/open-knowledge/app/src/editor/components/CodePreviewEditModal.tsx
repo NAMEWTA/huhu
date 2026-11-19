@@ -17,7 +17,7 @@ import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { Trans, useLingui } from '@lingui/react/macro';
 import { mermaid } from 'codemirror-lang-mermaid';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -104,12 +104,18 @@ export function CodePreviewEditModal({
 
   const [draft, setDraft] = useState(initialValue);
   const [debouncedDraft, setDebouncedDraft] = useState(initialValue);
+  const viewRef = useRef<EditorView | null>(null);
 
   useEffect(() => {
-    if (open) {
-      setDraft(initialValue);
-      setDebouncedDraft(initialValue);
+    if (!open) return;
+    const view = viewRef.current;
+    if (view && view.state.doc.toString() !== initialValue) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: initialValue },
+      });
     }
+    setDraft(initialValue);
+    setDebouncedDraft(initialValue);
   }, [open, initialValue]);
 
   useEffect(() => {
@@ -119,7 +125,6 @@ export function CodePreviewEditModal({
     return () => window.clearTimeout(timer);
   }, [draft, debouncedDraft, renderPreview, previewDebounceMs]);
 
-  const viewRef = useRef<EditorView | null>(null);
   const languageRef = useRef(language);
   const initialValueRef = useRef(initialValue);
   const titleRef = useRef(title);
@@ -135,7 +140,7 @@ export function CodePreviewEditModal({
     if (view) relabelCodeMirrorContent(view, title);
   }, [title]);
 
-  const setHostRef = (host: HTMLDivElement | null) => {
+  const setHostRef = useCallback((host: HTMLDivElement | null) => {
     if (!host) {
       if (viewRef.current) {
         viewRef.current.destroy();
@@ -183,7 +188,7 @@ export function CodePreviewEditModal({
     const view = new EditorView({ state, parent: host });
     viewRef.current = view;
     requestAnimationFrame(() => view.focus());
-  };
+  }, []);
 
   const previewEnabled = renderPreview !== undefined;
   const handleSave = () => {

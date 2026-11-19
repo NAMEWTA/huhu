@@ -2,17 +2,20 @@
 // 所有 OK 渲染的内容（含 portal）都必须在 `.ok-root` 之内；样式与变量只落在该容器上，不渗入 Huhu 其它界面。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@lingui/react";
+import { t } from "@lingui/core/macro";
 import { ThemeProvider } from "next-themes";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import "../ok/ok-globals.css";
 import "../editor.css";
 import { PageListProvider } from "@/components/PageListContext";
 import { PropertyProvider } from "@/components/PropertyContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { dynamicActivate } from "@/lib/activate-locale";
+import { linkLabel } from "@/editor/registry/block-labels";
+import { dynamicActivate, getRequestedLocale } from "@/lib/activate-locale";
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "@/lib/doc-hash";
 import { setHostLintAvailable } from "@/lib/host-features";
 import { i18n } from "@/lib/i18n";
+import { hasSidebarDragType, navigationForSidebarDragPayload, parseSidebarDragPayload } from "@/lib/sidebar-drag";
 import { HostConfigProvider, type HostEditorConfig } from "../host/config-provider";
 import { installDesktopBridge } from "../host/desktop-bridge";
 import { DocumentProvider, type DocumentHostCallbacks } from "../host/document-context";
@@ -32,6 +35,7 @@ export interface OkRootProps {
   poolKey?: string;
   /** 打开文档 / 目标的宿主回调（wiki-link、内部链接点击） */
   documentHost?: DocumentHostCallbacks;
+  acceptSidebarDrop?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -52,9 +56,10 @@ function useHuhuDarkClass(): boolean {
   return dark;
 }
 
-export function OkRoot({ children, locale = "en", host, routes, config, poolKey, documentHost, className, style }: OkRootProps) {
+export function OkRoot({ children, locale, host, routes, config, poolKey, documentHost, acceptSidebarDrop, className, style }: OkRootProps) {
   const dark = useHuhuDarkClass();
   const [ready, setReady] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
   const features = useMemo(() => ({ ...DEFAULT_FEATURES, ...host?.features }), [host?.features]);
   const openExternal = host?.openExternal;
   useEffect(() => {
@@ -90,15 +95,38 @@ export function OkRoot({ children, locale = "en", host, routes, config, poolKey,
   }, [poolKey]);
   useEffect(() => {
     let live = true;
-    const target = locale.toLowerCase().startsWith("zh") ? "zh-Hans" : "en";
-    void dynamicActivate(target).then(() => live && setReady(true));
+    const target = locale ? (locale.toLowerCase().startsWith("zh") ? "zh-Hans" : "en") : getRequestedLocale();
+    void dynamicActivate(target).then(() => {
+      if (!live) return;
+      for (const link of root.current?.querySelectorAll(".footnote-backref") ?? []) link.setAttribute("aria-label", t`Back to reference`);
+      for (const link of root.current?.querySelectorAll("[data-link]") ?? []) link.setAttribute("aria-label", linkLabel(link.getAttribute("href") ?? ""));
+      setReady(true);
+    });
     return () => {
       live = false;
     };
   }, [locale]);
   if (!ready) return null;
   return (
-    <div className={`ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`} style={style} data-ok-root>
+    <div
+      ref={root}
+      className={`ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`}
+      style={style}
+      data-ok-root
+      lang={locale ?? getRequestedLocale()}
+      onDragOverCapture={(event) => {
+        if (!acceptSidebarDrop || !hasSidebarDragType(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDropCapture={(event) => {
+        if (!acceptSidebarDrop || !hasSidebarDragType(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const payload = parseSidebarDragPayload(event.dataTransfer);
+        if (payload) documentHost?.openTarget?.(navigationForSidebarDragPayload(payload).target);
+      }}
+    >
       <I18nProvider i18n={i18n}>
         {/* 'next-themes' 在 vendor 里是别名到 host/next-themes-shim 的替身：只给 useTheme() 提供值，不往 DOM 注入 <script> */}
         <ThemeProvider forcedTheme={dark ? "dark" : "light"}>

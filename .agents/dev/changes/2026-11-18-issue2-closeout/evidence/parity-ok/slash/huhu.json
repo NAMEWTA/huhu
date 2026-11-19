@@ -1,0 +1,166 @@
+{
+  "categories-and-order": {
+    "status": "observed",
+    "value": {
+      "groups": [
+        {
+          "name": "基础块",
+          "options": [
+            "一级标题",
+            "二级标题",
+            "三级标题",
+            "无序列表",
+            "有序列表",
+            "任务清单",
+            "引用",
+            "代码块"
+          ]
+        },
+        {
+          "name": "插入",
+          "options": [
+            "表格",
+            "分隔符",
+            "脚注",
+            "表情符号",
+            "行内公式",
+            "链接"
+          ]
+        },
+        {
+          "name": "组件",
+          "options": [
+            "提示框",
+            "折叠面板",
+            "折叠块",
+            "标签页",
+            "数学公式",
+            "Mermaid",
+            "镜像块",
+            "镜像来源",
+            "对齐块",
+            "标签"
+          ]
+        },
+        {
+          "name": "媒体",
+          "options": [
+            "图片",
+            "视频",
+            "音频",
+            "PDF",
+            "文件"
+          ]
+        },
+        {
+          "name": "嵌入预览",
+          "options": [
+            "Excalidraw",
+            "嵌入",
+            "HTML",
+            "图表",
+            "统计卡片",
+            "自定义 SVG",
+            "交互控件"
+          ]
+        }
+      ],
+      "selected": "二级标题",
+      "previous": "一级标题",
+      "preview": "一级标题大号章节标题。"
+    }
+  },
+  "english": {
+    "status": "observed",
+    "value": {
+      "query": "accordion",
+      "options": [
+        "折叠面板"
+      ],
+      "status": null
+    }
+  },
+  "chinese": {
+    "status": "observed",
+    "value": {
+      "query": "折叠",
+      "options": [
+        "折叠面板",
+        "折叠块"
+      ],
+      "status": null
+    }
+  },
+  "alias": {
+    "status": "observed",
+    "value": {
+      "query": "h2",
+      "options": [
+        "二级标题"
+      ],
+      "status": null
+    }
+  },
+  "no-results": {
+    "status": "observed",
+    "value": {
+      "query": "zzzzparitynoresult",
+      "options": [],
+      "status": "没有结果"
+    }
+  },
+  "enter": {
+    "status": "observed",
+    "value": {
+      "selected": "Heading 2",
+      "mark": "<h2 headingstyle=\"atx\" sourcecontiguousnext=\"false\" data-ok-selection-block=\"\" id=\"chosen-by-enter\">Chosen by Enter</h2>"
+    }
+  },
+  "tab": {
+    "status": "observed",
+    "value": {
+      "selected": "Heading 2",
+      "mark": "<h2 headingstyle=\"atx\" sourcecontiguousnext=\"false\" data-ok-selection-block=\"\" id=\"chosen-by-tab\">Chosen by Tab</h2>"
+    }
+  },
+  "mouse": {
+    "status": "observed",
+    "value": {
+      "selected": "Heading 2",
+      "mark": "<h2 headingstyle=\"atx\" sourcecontiguousnext=\"false\" data-ok-selection-block=\"\" id=\"chosen-by-mouse\">Chosen by Mouse</h2>"
+    }
+  },
+  "escape": {
+    "status": "observed",
+    "value": {
+      "focused": true,
+      "lastBlock": "/heading"
+    }
+  },
+  "viewport-edge": {
+    "status": "observed",
+    "value": {
+      "menuRect": {
+        "x": 495,
+        "y": 457.4375,
+        "width": 110.5625,
+        "height": 360
+      },
+      "caret": {
+        "x": 500.765625,
+        "y": 821.4375,
+        "width": 0,
+        "height": 20,
+        "top": 821.4375,
+        "right": 500.765625,
+        "bottom": 841.4375,
+        "left": 500.765625
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "fits": true
+    }
+  }
+}

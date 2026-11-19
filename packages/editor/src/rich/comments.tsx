@@ -2,7 +2,7 @@
 // 能力经 CommentsPort 注入（packages/editor 不依赖业务模块）；路由见 host/routes/comments.ts。
 import { type ReactNode, useEffect, useState } from "react";
 import { CommentsPanel } from "@/comments/CommentsPanel";
-import { createFileThread, emitStartComment, setCommentsReadOnly, subscribeCommentPosted } from "@/comments/store";
+import { createFileThread, emitOpenThread, emitStartComment, getOpenThread, setCommentsReadOnly, subscribeCommentPosted, subscribeOpenThread } from "@/comments/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { emitDocumentsChanged } from "@/lib/documents-events";
@@ -19,6 +19,17 @@ export function startComment(): void {
 /** 在编辑器里发表批注之后（宿主据此打开详情栏的批注页）。返回取消订阅。 */
 export function onCommentPosted(handler: () => void): () => void {
   return subscribeCommentPosted(handler);
+}
+
+/** 正文高亮或边缘按钮请求打开线程时，让宿主显示文档批注页。 */
+export function onCommentThreadOpened(handler: () => void): () => void {
+  return subscribeOpenThread((threadId) => {
+    if (threadId !== null) handler();
+  });
+}
+
+export function dismissOpenCommentThread(): void {
+  if (getOpenThread() !== null) emitOpenThread(null);
 }
 
 /** 批注数据在宿主侧变化（engine 事件 / 保存后重定位）：让 OK 的 store 重新拉取。 */

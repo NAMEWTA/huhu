@@ -75,6 +75,20 @@ interface NoteFile {
 
 type Listener = () => void;
 
+function mergeText(base: string, mine: string, theirs: string): { text: string; conflicts: number } {
+  const parts = diff3Merge(mine.split("\n"), base.split("\n"), theirs.split("\n"), { excludeFalseConflicts: true });
+  const lines: string[] = [];
+  let conflicts = 0;
+  for (const part of parts) {
+    if ("ok" in part && part.ok) lines.push(...part.ok);
+    else if (part.conflict) {
+      conflicts++;
+      lines.push("<<<<<<< 我的修改", ...part.conflict.a, "=======", ...part.conflict.b, ">>>>>>> 磁盘上的新内容");
+    }
+  }
+  return { text: lines.join("\n"), conflicts };
+}
+
 export class DocumentSession {
   readonly id: SessionOptions["id"];
   readonly kind: DocumentKind;
@@ -99,7 +113,7 @@ export class DocumentSession {
   private inflight: Promise<boolean> | null = null;
   private loadSeq = 0;
   private readonly listeners = new Set<Listener>();
-  private readonly drainers = new Set<() => void>();
+  private readonly drainers = new Set<() => void | Promise<void>>();
   private snap: SessionSnapshot;
 
   constructor(opts: SessionOptions) {
@@ -144,10 +158,21 @@ export class DocumentSession {
   }
 
   // ---- 载入 ----
-  async load(): Promise<void> {
+  async load(expectedRevision?: number, isCurrent = () => true): Promise<boolean> {
     const seq = ++this.loadSeq;
-    const f = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
-    if (this.disposed || seq !== this.loadSeq) return; // 迟到结果丢弃
+    const [f, d] = await Promise.all([
+      this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
+      this.engine.call<SessionDraft | null>("notes.draft.get", { path: this.id.path }).catch((error: unknown) => {
+        if (expectedRevision !== undefined) throw error;
+        return null;
+      }),
+    ]);
+    if (this.disposed || seq !== this.loadSeq || !isCurrent()) return false;
+    if (expectedRevision !== undefined) {
+      // 重开读取期间编辑器仍可输入，先结算可能还没有进会话的正文。
+      await this.drainEditors();
+      if (this.disposed || seq !== this.loadSeq || !isCurrent() || expectedRevision !== this.revision || d?.text !== this.text) return false;
+    }
     this.text = f.text;
     this.version = f.version;
     this.savedText = f.text;
@@ -156,16 +181,13 @@ export class DocumentSession {
     this.loaded = true;
     this.revision++;
     this.flushError = null;
-    this.emit();
-    // 手动保存模式离开时留下的草稿
-    const d = await this.engine.call<SessionDraft | null>("notes.draft.get", { path: this.id.path }).catch(() => null);
-    if (this.disposed || seq !== this.loadSeq) return;
     if (d && d.text !== f.text) this.draft = d;
     else {
       this.draft = null;
       if (d) void this.engine.call("notes.draft.discard", { path: this.id.path }, { write: true }).catch(() => undefined);
     }
     this.emit();
+    return true;
   }
 
   // ---- 编辑 ----
@@ -184,13 +206,19 @@ export class DocumentSession {
     if (this.autosave()) this.timer = setTimeout(() => void this.save(), this.autosaveMs); // 关闭自动保存：只在 Mod+S 或点“保存”时写入
   }
 
-  /** 注册“编辑 → 会话”的待排空来源（编辑器的 300 ms 防抖）。flush() 先调用它们。 */
-  attachDrainer(fn: () => void): () => void {
+  /** 注册在保存或检查未保存状态前向会话交付文本的编辑器。 */
+  attachDrainer(fn: () => void | Promise<void>): () => void {
     this.drainers.add(fn);
     return () => this.drainers.delete(fn);
   }
-  private drain(): void {
-    for (const d of this.drainers) d();
+  async drainEditors(): Promise<void> {
+    const results = await Promise.allSettled([...this.drainers].map(async (drain) => drain()));
+    const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
+    if (failures.length) {
+      const message = failures.map((error) => (error instanceof Error ? error.message : String(error))).join("；");
+      this.setError(message);
+      throw new AggregateError(failures, message);
+    }
   }
 
   // ---- 保存（串行）----
@@ -222,47 +250,127 @@ export class DocumentSession {
     }
   }
 
-  /** 保存串行化：自动保存在途时，Mod+S 或改名前的落盘要等它完成，否则会拿旧版本号造成假冲突。 */
-  save(): Promise<boolean> {
-    const prev = this.inflight;
-    const run = async (): Promise<boolean> => {
-      if (prev) await prev.catch(() => false);
-      if (this.savedText !== null && this.text === this.savedText) return true;
-      return this.doSave();
+  private serializeWrite(write: () => Promise<boolean>): Promise<boolean> {
+    const previous = this.inflight;
+    const pending = (async () => {
+      if (previous) await previous.catch(() => false);
+      return write();
+    })();
+    this.inflight = pending;
+    const clear = () => {
+      if (this.inflight === pending) this.inflight = null;
     };
-    const p = run();
-    this.inflight = p;
-    void p.finally(() => {
-      if (this.inflight === p) this.inflight = null;
-    });
-    return p;
+    void pending.then(clear, clear);
+    return pending;
   }
 
-  /** 排空编辑防抖后保存（切视图 / 切标签 / 关闭 / 改名前调用）。 */
+  /** 保存串行化：明确保存等待旧回执，并使用更新后的版本。 */
+  save(): Promise<boolean> {
+    return this.serializeWrite(async () => (this.savedText !== null && this.text === this.savedText ? true : this.doSave()));
+  }
+
+  /** 档案字段的写入与正文保存共用队列，回读的新版本作为后续编辑的基准。 */
+  async writeFields(write: (version: string) => Promise<unknown>): Promise<boolean> {
+    try {
+      await this.drainForWrite();
+    } catch {
+      return false;
+    }
+    return this.serializeWrite(async () => {
+      if (this.savedText !== null && this.text !== this.savedText && !(await this.doSave())) return false;
+      const before = this.text;
+      this.state = "saving";
+      this.emit();
+      try {
+        await write(this.version);
+        const file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+        const merged = this.text === before ? { text: file.text, conflicts: 0 } : mergeText(before, this.text, file.text);
+        if (merged.conflicts) {
+          this.state = "conflict";
+          this.setError("档案已写入，仍有与磁盘版本冲突的未保存编辑");
+          return false;
+        }
+        this.text = merged.text;
+        this.savedText = file.text;
+        this.version = file.version;
+        this.format = detectTextFormat(file.text);
+        this.loaded = true;
+        this.revision++;
+        this.state = this.text === file.text ? "saved" : "dirty";
+        this.flushError = null;
+        if (this.state === "dirty") this.armAutosave();
+        this.emit();
+        return true;
+      } catch (error) {
+        this.state = this.text === this.savedText ? "saved" : "dirty";
+        this.fail(error);
+        return false;
+      }
+    });
+  }
+
+  private async preserveDraft(): Promise<void> {
+    // 文件与草稿共用写入队列。离开界面与退出重叠时，也按顺序取快照。
+    await this.serializeWrite(async () => {
+      if (this.savedText !== null && this.text !== this.savedText) {
+        await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
+      }
+      return true;
+    });
+  }
+
+  private async drainForWrite(): Promise<void> {
+    try {
+      await this.drainEditors().finally(() => {
+        if (this.timer) clearTimeout(this.timer);
+        this.timer = null;
+      });
+    } catch (error) {
+      try {
+        await this.preserveDraft();
+      } catch (draftError) {
+        const message = `${String(error)}；草稿保存失败：${String(draftError)}`;
+        this.setError(message);
+        throw new AggregateError([error, draftError], message);
+      }
+      throw error;
+    }
+  }
+
+  /** 显式保存前结算编辑；交付失败时保留已经交付的草稿，不用不完整的正文覆盖文件。 */
   async flush(): Promise<boolean> {
-    this.drain();
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    try {
+      await this.drainForWrite();
+    } catch {
+      return false;
+    }
+    await this.inflight;
     if (this.savedText !== null && this.text !== this.savedText) return this.save();
     return true;
   }
 
-  /** 应用退出前：自动保存模式落盘，手动模式留草稿（与离开笔记时一致）。 */
+  /** 退出时自动保存，关闭自动保存或保存失败时保留草稿。 */
   async flushForExit(): Promise<void> {
-    this.drain();
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    await this.drainForWrite();
+    await this.inflight;
     if (this.savedText === null || this.text === this.savedText) return;
-    if (this.autosave()) await this.save();
-    else await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
+    if (this.autosave() && (await this.save())) return;
+    await this.preserveDraft();
   }
 
   /** 切换 Vault 前“保留草稿”。 */
   async keepDraft(): Promise<void> {
-    this.drain();
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
+    await this.drainForWrite();
+    await this.preserveDraft();
+  }
+
+  /** 显式重开保留挂载的文件时，和销毁会话后重开一样提供草稿恢复。 */
+  async reopenDraft(expectedRevision = this.revision, isCurrent = () => true): Promise<void> {
+    await this.drainEditors();
+    if (this.disposed || !isCurrent() || this.savedText === null || this.text === this.savedText) return;
+    // 隐藏时的 checkpoint 已落盘。只在返回期间发生新输入时更新草稿。
+    if (expectedRevision === this.revision && (await this.load(expectedRevision, isCurrent))) return;
+    if (!this.disposed && isCurrent()) await this.keepDraft();
   }
 
   // ---- 外部变更 / 冲突 ----
@@ -332,18 +440,7 @@ export class DocumentSession {
     this.clearError();
     try {
       const theirs = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
-      const base = this.savedText ?? "";
-      const parts = diff3Merge(this.text.split("\n"), base.split("\n"), theirs.text.split("\n"), { excludeFalseConflicts: true });
-      const lines: string[] = [];
-      let conflicts = 0;
-      for (const part of parts) {
-        if ("ok" in part && part.ok) lines.push(...part.ok);
-        else if (part.conflict) {
-          conflicts++;
-          lines.push("<<<<<<< 我的修改", ...part.conflict.a, "=======", ...part.conflict.b, ">>>>>>> 磁盘上的新内容");
-        }
-      }
-      const merged = lines.join("\n");
+      const { text: merged, conflicts } = mergeText(this.savedText ?? "", this.text, theirs.text);
       // 之后的保存以磁盘上的新版本为准；合并结果相对它就是“我的未保存修改”
       this.text = merged;
       this.version = theirs.version;
@@ -384,22 +481,16 @@ export class DocumentSession {
   /** 引用归零：离开时把未保存的编辑写入——自动保存模式落盘（失败改存草稿），手动模式留草稿（ACC-KN-04）。 */
   async dispose(): Promise<void> {
     if (this.disposed) return;
-    this.drain();
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
-    const unsaved = this.savedText !== null && this.text !== this.savedText;
-    const snap = { text: this.text, baseVersion: this.version };
-    if (unsaved) {
-      if (this.autosave()) {
-        // 走串行队列：在途的自动保存完成后再用新版本号写，不会丢最后几个字；失败（冲突 / I/O）改存草稿，不让编辑静默丢失
-        const ok = await this.save().catch(() => false);
-        if (!ok) await this.engine.call("notes.draft.save", { path: this.id.path, ...snap }, { write: true }).catch(() => undefined);
-      } else await this.engine.call("notes.draft.save", { path: this.id.path, ...snap }, { write: true }).catch(() => undefined);
+    try {
+      await this.flushForExit();
+    } finally {
+      this.disposed = true;
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = null;
+      if (this.poll) clearInterval(this.poll);
+      this.poll = null;
+      this.listeners.clear();
+      this.drainers.clear();
     }
-    this.disposed = true;
-    if (this.poll) clearInterval(this.poll);
-    this.poll = null;
-    this.listeners.clear();
-    this.drainers.clear();
   }
 }
