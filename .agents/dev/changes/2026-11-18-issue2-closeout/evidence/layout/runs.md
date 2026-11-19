@@ -128,3 +128,25 @@
 - F08 主题矩阵原先依赖从设置返回知识库时详情栏重置。H03 语言切换要求保留现有详情栏，测试改为显式打开详情和选择属性页，独立复跑 3/3 通过。[F08 复跑日志](task03-f08-retries.txt)
 
 最终 ASAR 路径与内容断言通过，解包应用冒烟验证 4/4 通过。G07 的同格式 Debian 体积对照完成。30 分钟负载监测未达到开跑阈值，启动样本未生成。[ASAR 证据](asar-contents.md) · [G07 证据](g07-budget.md)
+
+## task04 HTML 代码块预览
+
+`zh-modern-web-guidance` 检索词为 `isolate sandboxed iframe content`，读取 `security`、`validate-origins`。按 “Always validate the `event.origin` of incoming messages” 校验父窗口来源和窗口引用，再校验正文类型。子框架使用不透明来源，发送端按实际 iframe 的 `contentWindow` 投递，桌面主进程限制该框架的导航和请求。根据 “verify `event.source === expectedWidgetWindow`”，上游编辑器接收预览高度和 CSP 事件时沿用其对具体 iframe 窗口的核对。
+
+生产基线确认缺失内页，首轮修复运行在加载富编辑器时耗尽 5 秒断言时限。另一轮已跑通手写预览的网络与权限断言，工具栏按钮改用键盘操作后通过编辑入口。180 秒整条时限的轨迹显示前四种模板已成功编辑、保存、重开，第五种模板已渲染。最终用例给予整条六场景流程 300 秒，在单项中保留 12 秒 DOM 断言时限。
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm typecheck` | 退出 0。首次发现主进程的 Vite 原始资源导入缺少类型声明，补齐引用后全量复跑通过。 |
+| `pnpm lint`、`pnpm format:check`、`pnpm knip` | 均退出 0。Knip 报告编辑器已有的两条 ignoreDependencies 配置提示。 |
+| `pnpm test:vendor` | 单次执行 290 文件、6,009 通过、4 跳过，退出 0。以 `VITEST_MAX_FORKS=2`、`VITEST_MAX_THREADS=2` 控制本机并发。 |
+| `node scripts/ok-patches.mjs --check` | 220 条登记，未登记 0，多余登记 0。 |
+| `pnpm build` | 退出 0。主进程内联内页，同时生成浏览器资源 `preview-frame-BkDyy7do.html`。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/preview-*.spec.ts tests/e2e/workflows/viewers.spec.ts` | 9/10 通过。新用例和两项 F05 通过，F04 在切回预览后单次获取子框架时提前退出。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/preview-*.spec.ts --repeat-each=5` | 5/5 通过，每轮本地监听器收到 0 个请求。8 个逻辑核，1 分钟负载采样范围 27.54–62.54。 |
+| `xvfb-run -a pnpm e2e tests/e2e/workflows/viewers.spec.ts --grep 'F04\|F05' --repeat-each=3` | 两项 F05 均 3/3。F04 三次均在相同的子框架获取步骤提前退出。 |
+| `pnpm --filter @huhu/editor build:harness` + Chromium | 浏览器从带哈希的内页渲染 HTML，iframe 来源为 `null`，本地监听器收到 0 个请求。 |
+
+[功能和隔离证据](html-preview.md) · [Electron 重复测试与负载](task04-e2e-repeat.txt) · [规定命令及查看器复跑原始结果](task04-e2e-viewers.txt)
+
+F04 子框架时序对照在生产渲染器与 preload 相同的条件下交替执行。仅把协议会话退回 `212f1cd` 也会出现单次查询得到空框架。等待框架挂载后，F04 行为断言在两个构建均为 3/3。[对照输出](task04-f04-diagnostic.txt)

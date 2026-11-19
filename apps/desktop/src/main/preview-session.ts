@@ -1,4 +1,8 @@
+/// <reference types="vite/client" />
+
 import { BrowserWindow, ipcMain, protocol, session as electronSession, type Session, type WebContents } from "electron";
+import editorPreviewFrame from "../../../../packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/preview-frame.html?raw";
+import { EDITOR_PREVIEW_CSP, EDITOR_PREVIEW_URL } from "../../../../packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/preview-frame-policy.js";
 import { PREVIEW_SCHEME, PreviewGrants, handlePreviewRequest, isPreviewUrl, nonceOf } from "./preview-protocol.js";
 
 /** Electron 侧的 HTML 预览接线：协议、IPC、会话级硬化（design §11.3）。纯逻辑在 preview-protocol.ts。 */
@@ -37,6 +41,23 @@ function createBlockedCounter(notify: (nonce: string, count: number) => void): (
   };
 }
 
+function isEditorPreviewUrl(url: string | undefined): boolean {
+  return url?.split("#", 1)[0] === EDITOR_PREVIEW_URL;
+}
+
+function serveEditorPreview(method: string, parentOrigin: string): Response {
+  if (method !== "GET" && method !== "HEAD") return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+  const originAttribute = parentOrigin.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+  const html = editorPreviewFrame.replace('data-parent-origin=""', `data-parent-origin="${originAttribute}"`);
+  return new Response(method === "HEAD" ? null : html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `${EDITOR_PREVIEW_CSP} sandbox allow-scripts; frame-ancestors ${parentOrigin};`,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 export function registerPreviewHandlers(deps: PreviewDeps, ses: Session = electronSession.defaultSession): PreviewController {
   const grants = new PreviewGrants();
   const notifyAll = (nonce: string, count: number): void => {
@@ -44,7 +65,7 @@ export function registerPreviewHandlers(deps: PreviewDeps, ses: Session = electr
   };
   const blocked = createBlockedCounter(notifyAll);
 
-  protocol.handle(PREVIEW_SCHEME, (request) => handlePreviewRequest(request, grants, deps.frameAncestors()));
+  protocol.handle(PREVIEW_SCHEME, (request) => (request.url === EDITOR_PREVIEW_URL ? serveEditorPreview(request.method, deps.frameAncestors()) : handlePreviewRequest(request, grants, deps.frameAncestors())));
 
   ipcMain.handle("huhu:previewGrant", (event, rel: unknown): { ok: true; url: string; nonce: string } | { ok: false; reason: string } => {
     deps.assertTrusted(event.senderFrame?.url);
@@ -60,6 +81,10 @@ export function registerPreviewHandlers(deps: PreviewDeps, ses: Session = electr
 
   // 预览页面发出的任何非 huhu-preview: 请求都拦（img / script / font 等被 CSP 拦掉之前的第二层）
   ses.webRequest.onBeforeRequest((details, callback) => {
+    if (isEditorPreviewUrl(details.frame?.url) && !details.url.startsWith("data:") && !details.url.startsWith("blob:")) {
+      callback({ cancel: true });
+      return;
+    }
     const fromPreview = isPreviewUrl(details.frame?.url) || isPreviewUrl(details.referrer);
     if (fromPreview && !isPreviewUrl(details.url) && !details.url.startsWith("data:") && !details.url.startsWith("blob:")) {
       blocked(nonceOf(details.frame?.url ?? details.referrer));
@@ -94,6 +119,10 @@ export function hardenWindowForPreview(wc: WebContents, blocked?: (nonce: string
   wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   // will-frame-navigate 覆盖子框架导航（will-navigate 只管主框架）：预览框架只能停在 huhu-preview: 内；其发起的导航不得去往别处
   wc.on("will-frame-navigate", (event) => {
+    if (isEditorPreviewUrl(event.frame?.url) || isEditorPreviewUrl(event.initiator?.url)) {
+      event.preventDefault();
+      return;
+    }
     const fromPreview = isPreviewUrl(event.frame?.url) || isPreviewUrl(event.initiator?.url);
     if (!fromPreview) return;
     if (!isPreviewUrl(event.url)) {

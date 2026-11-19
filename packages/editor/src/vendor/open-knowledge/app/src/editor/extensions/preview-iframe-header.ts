@@ -1,4 +1,6 @@
 import { PREVIEW_THEME_TOKENS } from '@inkeep/open-knowledge-core/constants/preview-theme-tokens';
+import browserPreviewFrameUrl from './preview-frame.html?url&no-inline';
+import { EDITOR_PREVIEW_CSP, EDITOR_PREVIEW_URL } from './preview-frame-policy';
 import {
   domPreviewTokenEnv,
   type PreviewTokenEnv,
@@ -33,7 +35,10 @@ export interface PreviewDocumentMessage {
   [PREVIEW_DOCUMENT_MESSAGE_KEY]: string;
 }
 
-export const PREVIEW_FRAME_URL = `${import.meta.env.BASE_URL}assets/preview-frame.html`;
+export const PREVIEW_FRAME_URL =
+  typeof window !== 'undefined' && ('huhuHost' in window || window.location.protocol === 'huhu-app:')
+    ? EDITOR_PREVIEW_URL
+    : browserPreviewFrameUrl;
 
 export function buildPreviewDocumentMessage(html: string): PreviewDocumentMessage {
   return { [PREVIEW_DOCUMENT_MESSAGE_KEY]: html };
@@ -151,21 +156,11 @@ function previewBootstrapScript(theme: PreviewTheme): string {
   );
 }
 
-const PREVIEW_CSP =
-  "default-src 'none'; " +
-  "script-src 'unsafe-inline' https:; " +
-  "style-src 'unsafe-inline' https: data:; " +
-  'img-src https: data: blob:; ' +
-  'font-src https: data:; ' +
-  'connect-src https: wss: data: blob:; ' +
-  'media-src https: data: blob:; ' +
-  "frame-src https:; child-src https:; form-action 'none'; base-uri 'none';";
-
 export function buildPreviewIframeHeader(
   theme: PreviewTheme,
   env: PreviewTokenEnv | null = domPreviewTokenEnv(),
 ): string {
-  return `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">
+  return `<meta http-equiv="Content-Security-Policy" content="${EDITOR_PREVIEW_CSP}">
 ${themeTokenStyle(env)}
 ${PREVIEW_SCROLLBAR_STYLE}
 ${previewBootstrapScript(theme)}`;
