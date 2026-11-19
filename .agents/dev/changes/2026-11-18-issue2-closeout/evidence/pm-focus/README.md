@@ -62,3 +62,5 @@ ProseMirror 1.41.8 的聚焦回调在 20 ms 后比较 DOM 选区和观察器快�
 每次聚焦创建独立的待处理记录。在 PM 允许浏览器处理的可信导航键上记录其默认动作前的 DOM 端点。延迟回调发现该次导航改变了编辑器内的折叠光标时，先调用 DOM 观察器，避免恢复旧模型位置。记录随回调消费，仅属于对应的聚焦。原扩选判断保留。专项另验证了带旧按键记录的普通重新聚焦、CDP 合成 IME 组合和提交、销毁后的延迟回调、原键盘扩选及鼠标拖选。
 
 核对 npm 1.43.0 和上游 Git HEAD `c828930`。上游在重构后的 `DOMSelState` 中比较前后端点，只有端点仍相同时才把模型同步到 DOM。本地回移快照比较原则，在固定的 1.41.8 中用现有 DOM 观察器读取光标，并保持任务指定的导航、编辑和组合边界。源码、ESM 与 CJS 同步更新。 [1.43.0](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) · [上游 HEAD 源码](https://code.haverbeke.berlin/prosemirror/prosemirror-view/src/commit/c828930c0514183eaa9061103105f32ac7438b29/src/input.ts) · [Selection API 调度](https://www.w3.org/TR/selection-api/#selectionchange-event)
+
+完整知识库回归初跑有一条重新聚焦用例未等 End 的原生光标同步到 PM 就触发失焦，夹具的模型仍在段首。用例现先等待 DOM 与 PM 都确认段尾，再开始重新聚焦并模拟光标复位。该用例以零重试独立执行 10 次，全部通过。 [首轮回归](/tmp/huhu-pH02/regressions.log) · [专项复跑](/tmp/huhu-pH02/refocus-repeat.log)

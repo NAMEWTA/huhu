@@ -181,6 +181,14 @@ test("B06：重新聚焦时，旧按键记录不影响原光标恢复", async ()
     await page.mouse.click(x, y);
     await page.keyboard.press("Home");
     await page.keyboard.press("End");
+    await expect
+      .poll(() =>
+        editor.evaluate((dom) => {
+          const { from, to } = (dom as HTMLElement & { editor: { view: EditorView } }).editor.view.state.selection;
+          return { from, to, offset: window.getSelection()?.anchorOffset };
+        }),
+      )
+      .toEqual({ from: end, to: end, offset: selected.length });
     await editor.evaluate((dom) => (dom as HTMLElement).blur());
     const probe = await holdFocusTimer(editor, "manual");
     await editor.focus();
