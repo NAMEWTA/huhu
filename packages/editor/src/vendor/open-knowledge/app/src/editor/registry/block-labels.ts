@@ -132,3 +132,7 @@ export function enumLabel(value: string): string {
   const message = ENUM_LABELS[value];
   return message ? t(message) : value;
 }
+
+export function linkLabel(href: string): string {
+  return href ? t`Link: ${href}` : t`Link`;
+}

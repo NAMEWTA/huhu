@@ -12752,3 +12752,30 @@ msgstr "默认展开"
 
 msgid "Source Attrs"
 msgstr "源码属性"
+
+msgid "Link: {href}"
+msgstr "链接：{href}"
+
+msgid "Resize from the top left"
+msgstr "从左上角调整大小"
+
+msgid "Resize from the top"
+msgstr "从上侧调整大小"
+
+msgid "Resize from the top right"
+msgstr "从右上角调整大小"
+
+msgid "Resize from the right"
+msgstr "从右侧调整大小"
+
+msgid "Resize from the bottom right"
+msgstr "从右下角调整大小"
+
+msgid "Resize from the bottom"
+msgstr "从下侧调整大小"
+
+msgid "Resize from the bottom left"
+msgstr "从左下角调整大小"
+
+msgid "Resize from the left"
+msgstr "从左侧调整大小"

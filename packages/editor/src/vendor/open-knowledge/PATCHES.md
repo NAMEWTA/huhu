@@ -76,6 +76,7 @@
 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。
 - `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。
 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。
+- `app/src/editor/extensions/internal-link.ts`、`app/src/editor/components/ResizeHandles.tsx`：翻译链接和预览缩放手柄的读屏名称。
 
 - `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。
 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。

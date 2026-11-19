@@ -10,6 +10,7 @@ import "../editor.css";
 import { PageListProvider } from "@/components/PageListContext";
 import { PropertyProvider } from "@/components/PropertyContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { linkLabel } from "@/editor/registry/block-labels";
 import { dynamicActivate, getRequestedLocale } from "@/lib/activate-locale";
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "@/lib/doc-hash";
 import { setHostLintAvailable } from "@/lib/host-features";
@@ -98,6 +99,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
     void dynamicActivate(target).then(() => {
       if (!live) return;
       for (const link of root.current?.querySelectorAll(".footnote-backref") ?? []) link.setAttribute("aria-label", t`Back to reference`);
+      for (const link of root.current?.querySelectorAll("[data-link]") ?? []) link.setAttribute("aria-label", linkLabel(link.getAttribute("href") ?? ""));
       setReady(true);
     });
     return () => {

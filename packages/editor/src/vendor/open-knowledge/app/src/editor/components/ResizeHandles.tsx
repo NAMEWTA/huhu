@@ -157,6 +157,16 @@ export function ResizeHandles({ targetRef, onResize, onResizeEnd, bounds }: Resi
     window.addEventListener('pointercancel', onPointerUp);
   }
 
+  const handles = {
+    tl: t`Resize from the top left`,
+    t: t`Resize from the top`,
+    tr: t`Resize from the top right`,
+    r: t`Resize from the right`,
+    br: t`Resize from the bottom right`,
+    b: t`Resize from the bottom`,
+    bl: t`Resize from the bottom left`,
+    l: t`Resize from the left`,
+  };
   return (
     <div className="ok-resize-overlay" contentEditable={false} aria-hidden="true">
       {HANDLES.map((handle) => {
@@ -166,7 +176,7 @@ export function ResizeHandles({ targetRef, onResize, onResizeEnd, bounds }: Resi
             key={handleKey}
             type="button"
             className={cn(handle.className)}
-            aria-label={t`Resize ${handleKey}`}
+            aria-label={handles[handleKey]}
             tabIndex={-1}
             style={{ cursor: handle.cursor }}
             onPointerDown={(e) => handlePointerDown(e, handle)}

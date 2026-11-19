@@ -12752,3 +12752,30 @@ msgstr "Default Open"
 
 msgid "Source Attrs"
 msgstr "Source Attrs"
+
+msgid "Link: {href}"
+msgstr "Link: {href}"
+
+msgid "Resize from the top left"
+msgstr "Resize from the top left"
+
+msgid "Resize from the top"
+msgstr "Resize from the top"
+
+msgid "Resize from the top right"
+msgstr "Resize from the top right"
+
+msgid "Resize from the right"
+msgstr "Resize from the right"
+
+msgid "Resize from the bottom right"
+msgstr "Resize from the bottom right"
+
+msgid "Resize from the bottom"
+msgstr "Resize from the bottom"
+
+msgid "Resize from the bottom left"
+msgstr "Resize from the bottom left"
+
+msgid "Resize from the left"
+msgstr "Resize from the left"

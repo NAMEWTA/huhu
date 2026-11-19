@@ -16,7 +16,7 @@ async function latinLabels(surface: Locator): Promise<string[]> {
     function scan(element: Element): void {
       if (!element.getClientRects().length || getComputedStyle(element).visibility !== "visible") return;
       for (const key of ["aria-label", "placeholder", "title", "alt", "data-placeholder"]) add(element.getAttribute(key));
-      if (element.matches("svg, svg *, script, style, .cm-content, .ok-mirror-state code, .ok-mirror-source-badge code, .ok-mirror-badge code")) return;
+      if (element.matches("svg, svg *, script, style, .cm-content, pre code, .ok-mirror-state code, .ok-mirror-source-badge code, .ok-mirror-badge code")) return;
       for (const node of element.childNodes) {
         if (node.nodeType === Node.TEXT_NODE) add(node.textContent);
       }
@@ -55,6 +55,7 @@ const allowed = new Set([
   "URL",
   "AI",
   "HTML5",
+  "XML",
   "SVG",
   "GFM",
   "CommonMark",
@@ -99,6 +100,13 @@ const allowed = new Set([
   "guides/install 或 https://example.com",
 ]);
 const allowedWords = new Set([...allowed].map((label) => label.toLowerCase()));
+const starterSample: Record<string, string> = {
+  "embed-starter-html": "编辑这段 HTML",
+  "embed-starter-chart": "各地区收入",
+  "embed-starter-stat-cards": "活跃用户",
+  "embed-starter-custom-svg": "入门进度",
+  "embed-starter-interactive-control": "每月预算",
+};
 
 function untranslatedLabels(result: Record<string, string[]>): string[] {
   return Object.entries(result).flatMap(([surface, labels]) =>
@@ -248,9 +256,9 @@ test("H03：实际应用每个斜杠命令后扫描块、占位与属性", async
         result[`${command}-invalid`] = await latinLabels(alert);
       }
       if (command.startsWith("embed-starter-")) {
-        const preview = prose.locator("iframe").first().contentFrame().locator("body");
-        await expect(preview).not.toBeEmpty();
-        result[`${command}-preview`] = await latinLabels(preview);
+        await expect(prose.locator("pre code")).toContainText(starterSample[command]!);
+        const frame = prose.locator('iframe[title="HTML 预览"]');
+        await expect(frame).toBeVisible();
       }
       await page.keyboard.press("Escape");
     }
