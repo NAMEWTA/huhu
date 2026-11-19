@@ -31,6 +31,13 @@
 - P-S2a-srv 上游 server 文件原样复制：`server-bridge/server-observers.ts`、`server-bridge/map-driven-splice.ts`、`server-bridge/bridge-watchdog.ts`、`server-bridge/bridge-quiescence.ts`、`server-bridge/pre-drain-discriminator.ts`、`server-bridge/bridge-intake.ts`、`server-bridge/bridge-loss-detector.ts`、`server-bridge/doc-extensions.ts`、`server-bridge/md-manager.ts`。
 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。
 
+## HTML 代码块预览
+
+- `app/src/editor/extensions/preview-iframe-header.ts`：通过显式构建依赖提供浏览器内页；Electron 接入专用预览协议，内页只允许内联脚本和嵌入资源。
+- `app/src/editor/extensions/preview-frame.html`：迁入并适配上游 public 内页，只接收可信父窗口发送的预览正文。
+- `app/src/editor/extensions/preview-frame-policy.ts`：Electron 协议响应和 iframe 正文共享的安全策略。
+- `app/src/editor/extensions/code-block-preview-csp.test.ts`：校验请求、子框架和表单限制。
+
 ## 构建期替换（不改 vendor 文件，tsconfig.vendor.json paths + `build/aliases.mjs` 同源）
 
 - `@hocuspocus/provider` → `host/hocuspocus-provider.ts`（LocalDocProvider；`HocuspocusProvider` 为其别名）
@@ -45,7 +52,7 @@
 
 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。
 - P-S5-02 `app/src/components/FileTree.tsx`：移除“Open with AI”子菜单（`OpenInAgentContextSubmenu` 的 import 与 `openWithAi` 属性）——Q2 登记不适用。
-- P-S5-03 `app/src/components/FileTree.tsx`：移除“Import as template”（`/api/template/import` 无 Huhu 对应能力）；“New from template”仍显示，但 `/api/templates` 返回 NOT_AVAILABLE 时没有模板项（待 S3 后评估是否映射 Huhu 模板）。
+- P-S5-03 `app/src/components/FileTree.tsx`：恢复“作为模板导入”，由 `/api/template/import` 在源文件同级的 `模板/` 中创建副本并保留源文件。“New from template”仍沿用原有入口。
 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。
 - 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
@@ -71,10 +78,17 @@
 
 ## H03 知识库界面本地化
 
+- `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。
+- `app/src/lib/activate-locale.ts`：允许同窗口内不指定语言的紧凑渲染继承已请求的知识库语言，防止覆盖已打开编辑器的 Lingui 目录。
+- `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。
+- `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。
+- `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。
+- `app/src/editor/extensions/internal-link.ts`、`app/src/editor/components/ResizeHandles.tsx`：翻译链接和预览缩放手柄的读屏名称。
+
 - `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。
 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。
 - `app/src/components/FileTree.tsx`：沿用文件树 Shadow DOM 的观察器，应用 Lingui 的文件操作按钮读屏名称。
-- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：增加对应的菜单分组、组件与文件操作选项文案。
+- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：增加对应的菜单分组、组件、文件操作选项与通知区名称。
 
 ## Issue #2 本地编辑验收补证
 
@@ -84,7 +98,7 @@
 - `core/src/markdown/html-to-mdast.ts`：对可能超限的多字节 HTML 用 UTF-8 字节数执行上限。
 - `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。
 - `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。
-- `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。
+- `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，普通输入跳过浮层查询，相关快捷键继续尊重挂载在编辑器外的浮层。
 
 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。
 
@@ -226,3 +240,58 @@
 - `app/src/editor/extensions/preview-iframe-csp-violation.test.ts`
 - `app/src/editor/extensions/preview-iframe-theme.test.ts`
 - `app/src/editor/extensions/preview-live-tokens.test.ts`
+- `app/src/editor/extensions/CodeBlockView.dom.test.tsx`：测试改动，按共享预览内页 URL 和隔离 CSP 校验发出的正文，继续断言无 `srcdoc`。
+
+## 编辑器宿主浮层
+
+- `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。
+- `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。
+- `app/src/editor/components/EmojiInsertPopover.dom.test.tsx`：原样迁入上游组件测试。
+- `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。
+- `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。
+
+### Task05 本地编辑器右键与模板导入
+
+- `app/src/editor/plugins/asset-context-menu.ts`：识别 File 组件的本地文件目标（包括 .txt）及已带扩展名的双链，供宿主编辑器菜单复用。
+- `app/src/components/FileTargetMenuItems.tsx`：宿主可把模板导入显示为仅保留原文件的单项操作。
+- `app/src/components/FileTargetMenuItems.dom.test.tsx`：迁入菜单行为测试。
+- `app/src/components/PropertyDisclosure.dom.test.tsx`：迁入属性折叠测试。
+
+### Task05 固定上游 DOM 测试核对
+
+- `app/src/comments/comment-chips.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/comments/property-anchor-click.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/comments/property-row-rect.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/comments/reveal-comment.dom.test.ts`：原样迁入固定上游 DOM 用例。
+- `app/src/components/AddPropertyNameField.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/CopyButton.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/FileTreeFilteredToZeroNotice.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/PropertyInlineLinks.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/PropertyWidgets.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/TrashFailureModal.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/UserText.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/editor/SelectionAnnouncer.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/file-tree-extension-badge.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/file-tree-rename-chip.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/components/properties-collapsed-store.dom.test.tsx`：为 Node/jsdom 测试注入隔离 Storage，保留持久化断言。
+- `app/src/components/use-file-tree-listing.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/EditorContent.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/SourceEditor.dom.test.tsx`：移除 OK 专属 Ask AI 与 Problems 组，保留源码行为。
+- `app/src/editor/anchor-target.dom.test.ts`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/components/TagView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/document-scrollports.dom.test.ts`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/extensions/ImageInlineZoomView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/extensions/ImageReferenceView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/extensions/InternalLinkPropPanel.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/extensions/WikiLinkEmbedImageView.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/extensions/WikiLinkPropPanel.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/interaction-layer.dom.test.ts`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/link-preview/InternalDocPreviewCard.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/link-preview/use-internal-doc-preview.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/selection/place-caret.dom.test.ts`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/slash-command/apply-item.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/utils/editor-visible-region.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/editor/wiki-link-suggestion/WikiLinkSuggestionMenu.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/lib/editor-toolbar-overlap.dom.test.ts`：原样迁入固定上游 DOM 用例。
+- `app/src/lib/ime-composition.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+- `app/src/lib/overlay-layers.dom.test.tsx`：原样迁入固定上游 DOM 用例。

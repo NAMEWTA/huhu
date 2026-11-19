@@ -1,0 +1,153 @@
+{
+  "surfaces": {
+    "toolbar": [
+      "导出 Markdown",
+      "本地化样本.md"
+    ],
+    "editor": [
+      "通知 alt+T"
+    ],
+    "notifications": [
+      "通知 alt+T"
+    ],
+    "tree": [
+      ".agents",
+      ".huhu",
+      "本地化样本.md"
+    ],
+    "properties": [],
+    "comments": [],
+    "treeMenu": [],
+    "bubbleMenu": [
+      "在 markdown 源码中查看"
+    ],
+    "slashMenu": [
+      "Excalidraw",
+      "HTML",
+      "Mermaid",
+      "PDF",
+      "自定义 SVG"
+    ]
+  },
+  "commands": {
+    "heading1": [],
+    "heading2": [],
+    "heading3": [],
+    "bulletList": [],
+    "orderedList": [],
+    "taskList": [],
+    "blockquote": [],
+    "codeBlock": [
+      "JavaScript",
+      "代码块语言：JavaScript。点击可更改。",
+      "对此代码块发表评论或询问 AI"
+    ],
+    "table": [],
+    "separator": [],
+    "footnote": [],
+    "emoji": [],
+    "inlineMath": [],
+    "link": [
+      "guides/install 或 https://example.com",
+      "编辑 markdown 链接"
+    ],
+    "component-Callout": [
+      "#F05032 或 rgb(240,80,50)",
+      "lucide:Lightbulb 或 📘"
+    ],
+    "component-Accordion": [
+      "lucide:Lightbulb 或 📘"
+    ],
+    "component-Toggle": [
+      "lucide:Lightbulb 或 📘"
+    ],
+    "component-Tabs": [],
+    "component-Math": [],
+    "component-MermaidFence": [
+      "Cmd/Ctrl+Enter",
+      "Esc",
+      "删除 Mermaid",
+      "添加 Mermaid 图",
+      "编辑Mermaid源码"
+    ],
+    "component-Mirror": [],
+    "component-MirrorSource": [],
+    "component-HtmlAlignBlock": [],
+    "component-Tag": [],
+    "component-img": [
+      "图片文件直链 URL（.png, .jpg, .jpeg, .gif, .webp, .avif, .svg）"
+    ],
+    "component-img-invalid": [
+      "缺少文件扩展名。支持 .png, .jpg, .jpeg, .gif, .webp, .avif, .svg。"
+    ],
+    "component-video": [
+      "图片文件直链 URL（.png, .jpg, .jpeg, .gif, .webp, .avif, .svg）",
+      "视频文件直链 URL（.mp4, .webm, .mov, .m4v, .mkv）"
+    ],
+    "component-video-invalid": [
+      "缺少文件扩展名。支持 .mp4, .webm, .mov, .m4v, .mkv。"
+    ],
+    "component-audio": [
+      "音频文件直链 URL（.mp3, .wav, .ogg, .m4a, .flac, .aac, .opus）"
+    ],
+    "component-audio-invalid": [
+      "缺少文件扩展名。支持 .mp3, .wav, .ogg, .m4a, .flac, .aac, .opus。"
+    ],
+    "component-Pdf": [
+      "PDF 属性",
+      "PDF属性",
+      "删除 PDF",
+      "添加 PDF"
+    ],
+    "component-File": [
+      "对此维基嵌入文件发表评论或询问 AI",
+      "样本.txt"
+    ],
+    "component-Excalidraw": [
+      "Excalidraw 属性",
+      "尚未选择画板。在此块的属性中输入 .excalidraw 文档的路径。"
+    ],
+    "component-Embed": [
+      "100px、50%、26rem、auto",
+      "嵌入 URL"
+    ],
+    "component-Embed-invalid": [
+      "URL 必须以 http:// 或 https:// 开头"
+    ],
+    "embed-starter-html": [
+      "HTML 预览",
+      "XML / HTML",
+      "代码块语言：XML / HTML。点击可更改。",
+      "对此代码块发表评论或询问 AI",
+      "隐藏 HTML 预览"
+    ],
+    "embed-starter-chart": [
+      "HTML 预览",
+      "XML / HTML",
+      "代码块语言：XML / HTML。点击可更改。",
+      "对此代码块发表评论或询问 AI",
+      "隐藏 HTML 预览"
+    ],
+    "embed-starter-stat-cards": [
+      "HTML 预览",
+      "XML / HTML",
+      "代码块语言：XML / HTML。点击可更改。",
+      "对此代码块发表评论或询问 AI",
+      "隐藏 HTML 预览"
+    ],
+    "embed-starter-custom-svg": [
+      "HTML 预览",
+      "XML / HTML",
+      "代码块语言：XML / HTML。点击可更改。",
+      "对此代码块发表评论或询问 AI",
+      "隐藏 HTML 预览"
+    ],
+    "embed-starter-interactive-control": [
+      "HTML 预览",
+      "XML / HTML",
+      "代码块语言：XML / HTML。点击可更改。",
+      "对此代码块发表评论或询问 AI",
+      "隐藏 HTML 预览"
+    ]
+  }
+}

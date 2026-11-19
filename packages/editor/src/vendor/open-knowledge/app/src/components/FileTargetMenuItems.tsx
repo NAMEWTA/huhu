@@ -84,6 +84,7 @@ export interface FileTargetMenuItemsProps {
   onCopyRelativePath: () => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
+  allowTemplateConversion?: boolean;
   onImportTemplate?: (deleteSource: boolean) => void;
   onRename?: () => void;
   workspaceReady: boolean;
@@ -104,6 +105,7 @@ export function FileTargetMenuItems({
   onCopyRelativePath,
   onDelete,
   onDuplicate,
+  allowTemplateConversion = true,
   onImportTemplate,
   onRename,
   workspaceReady,
@@ -208,7 +210,12 @@ export function FileTargetMenuItems({
         <>
           <Separator />
           <Group>
-            {onImportTemplate ? (
+            {onImportTemplate && !allowTemplateConversion ? (
+              <Item disabled={busy} onSelect={() => onImportTemplate(false)}>
+                <FileKey aria-hidden="true" />
+                <Trans>Import as template</Trans>
+              </Item>
+            ) : onImportTemplate ? (
               <Sub>
                 <SubTrigger disabled={busy}>
                   <FileKey aria-hidden="true" />

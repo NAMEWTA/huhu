@@ -70,6 +70,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   }, [deferredText]);
 
   const [mode, setMode] = useState<Mode>("live");
+  const revealSource = useCallback(() => setMode("source"), []);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
@@ -298,6 +299,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                 flush={flush}
                 onOpen={props.onOpen}
                 onPort={onPort}
+                onRevealSource={revealSource}
                 {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
               />
             </div>

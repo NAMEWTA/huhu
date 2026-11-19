@@ -4,6 +4,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createFilesDeps, type ListedDirState } from "./filesDeps.js";
 import { addHiddenRule, removeHiddenRule } from "./hiddenPaths.js";
 import { r } from "./i18n.js";
+import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
 
 // vendor 编辑器闭包很大：经 package exports 懒加载，notes 模块入口不静态引用（design §12）。
 const OkExplorer = lazy(() => import("@huhu/editor/ok-explorer").then((m) => ({ default: m.OkExplorer })));
@@ -37,6 +38,7 @@ function useThemeMode(): "light" | "dark" {
 /** 文件资源管理器：OK 文件树（真实文件系统）+ Huhu 的隐藏 / 计数。隐藏只作用于这里，`@` / 双链 / 搜索 / 标签不使用它。 */
 export function ResourceTree(p: ResourceTreeProps) {
   const engine = useEngine();
+  const locale = useKnowledgeLocale();
   const hiddenQ = useCapability<{ hiddenPaths: string[] }>("notes.hidden.get", {});
   const location = useCapability<{ root: string }>("vault.location", {});
   const hidden = useMemo(() => hiddenQ.data?.hiddenPaths ?? [], [hiddenQ.data]);
@@ -152,7 +154,7 @@ export function ResourceTree(p: ResourceTreeProps) {
       ) : null}
       <div className="notes-resource-body" data-testid="notes-resource-body">
         <Suspense fallback={<div className="notes-resource-loading">{r.loading}</div>}>
-          <OkExplorer deps={deps} onOpen={onOpen} onHide={onHide} menuItems={menuItems} locale="zh-Hans" refreshToken={token} mode={mode} activePath={p.selected} />
+          <OkExplorer deps={deps} onOpen={onOpen} onHide={onHide} menuItems={menuItems} locale={locale} refreshToken={token} mode={mode} activePath={p.selected} />
         </Suspense>
       </div>
     </div>

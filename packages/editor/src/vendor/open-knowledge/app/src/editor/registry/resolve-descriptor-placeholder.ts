@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { getAutoFocusedPropName } from '../utils/editor-strings.ts';
+import { blockPlaceholder } from './block-labels.ts';
 import { resolveIcon } from './icons.ts';
 import type { JsxComponentDescriptor } from './types.ts';
 
@@ -17,9 +18,7 @@ export function resolveDescriptorPlaceholder(descriptor: JsxComponentDescriptor)
   label: string;
   Icon: LucideIcon;
 } {
-  const overrideLabel = descriptor.placeholder?.label;
-  const fallbackLabel = `Add ${(descriptor.displayName ?? descriptor.name).toLowerCase()}`;
-  const label = overrideLabel ?? fallbackLabel;
+  const label = blockPlaceholder(descriptor.placeholder?.label, descriptor.displayName ?? descriptor.name);
 
   const iconName = descriptor.placeholder?.icon ?? descriptor.icon;
   const Icon = resolveIcon(iconName);

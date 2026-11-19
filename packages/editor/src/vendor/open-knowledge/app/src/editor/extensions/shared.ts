@@ -1,4 +1,5 @@
 import { sharedExtensions as coreExtensions } from '@inkeep/open-knowledge-core/extensions/shared';
+import { t } from '@lingui/core/macro';
 import { type AnyExtension, Extension } from '@tiptap/core';
 import FileHandler from '@tiptap/extension-file-handler';
 import { KeyboardNav } from '../block-ux/keyboard-nav';
@@ -65,6 +66,7 @@ export const sharedExtensions = [
     if (ext.name === 'mathInline') return MathInline;
     if (ext.name === 'tag') return Tag;
     if (ext.name === 'codeBlock') return CodeBlockFidelity;
+    if (ext.name === 'footnoteDefinition') return ext.configure({ backRefLabel: () => t`Back to reference` });
     return ext;
   }),
   CellInsertionGate,

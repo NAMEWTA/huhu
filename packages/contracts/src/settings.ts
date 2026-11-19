@@ -24,9 +24,10 @@ export const SettingsSchema = z.object({
       autosave: z.boolean().catch(true),
       lineNumbers: z.boolean().catch(true),
       spellcheck: z.boolean().catch(false),
+      knowledgeLocale: z.enum(["zh-Hans", "en"]).catch("zh-Hans"),
       readableWidth: z.enum(["680", "760", "880", "full"]).catch("760"),
     })
-    .catch({ fontSize: 16, lineHeight: 1.8, autosave: true, lineNumbers: true, spellcheck: false, readableWidth: "760" }),
+    .catch({ fontSize: 16, lineHeight: 1.8, autosave: true, lineNumbers: true, spellcheck: false, knowledgeLocale: "zh-Hans", readableWidth: "760" }),
   dateTime: z
     .object({
       zone: z

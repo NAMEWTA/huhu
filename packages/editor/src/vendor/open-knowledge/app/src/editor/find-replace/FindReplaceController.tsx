@@ -212,39 +212,32 @@ export function FindReplaceController({ activeDocName, isSourceMode }: FindRepla
 
     function onKeyDown(event: KeyboardEvent) {
       if (!editor?.isEditable || isSourceMode || event.defaultPrevented || event.isComposing) return;
-      if (isOverlayLayerOpen()) return;
 
-      if (matchesKeyboardShortcut(event, 'find')) {
-        event.preventDefault();
+      const isFind = matchesKeyboardShortcut(event, 'find');
+      const isReplace = matchesKeyboardShortcut(event, 'replace');
+      const isFindNext = findState.open && matchesKeyboardShortcut(event, 'find-next');
+      const isFindPrevious = findState.open && matchesKeyboardShortcut(event, 'find-previous');
+      const isDismiss = findState.open && event.key === 'Escape';
+      if (!isFind && !isReplace && !isFindNext && !isFindPrevious && !isDismiss) return;
+
+      // Portaled overlays can live outside the editor and own these shortcuts.
+      if (isOverlayLayerOpen()) return;
+      event.preventDefault();
+
+      if (isFind) {
         if (findState.open) {
           closeFindForEditor(editor, setFindState, setMatchSummary);
         } else {
           openFind(false);
         }
-        return;
-      }
-
-      if (matchesKeyboardShortcut(event, 'replace')) {
-        event.preventDefault();
+      } else if (isReplace) {
         openFind(true);
-        return;
-      }
-
-      if (findState.open) {
-        const isFindNext = matchesKeyboardShortcut(event, 'find-next');
-        const isFindPrevious = matchesKeyboardShortcut(event, 'find-previous');
-        if (isFindNext || isFindPrevious) {
-          event.preventDefault();
-          const didSelect = isFindPrevious
-            ? editor?.commands.selectPreviousFindMatch()
-            : editor?.commands.selectNextFindMatch();
-          if (didSelect) scrollActiveFindMatchIntoView(editor);
-          return;
-        }
-      }
-
-      if (event.key === 'Escape' && findState.open) {
-        event.preventDefault();
+      } else if (isFindNext || isFindPrevious) {
+        const didSelect = isFindPrevious
+          ? editor.commands.selectPreviousFindMatch()
+          : editor.commands.selectNextFindMatch();
+        if (didSelect) scrollActiveFindMatchIntoView(editor);
+      } else {
         closeFindForEditor(editor, setFindState, setMatchSummary);
       }
     }
