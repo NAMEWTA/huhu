@@ -110,3 +110,59 @@ test("从导入的本地模板新建笔记，保存重开后模板字节不变",
     await close();
   }
 });
+
+test("树菜单只显示本地和祖先模板，甲的模板能从甲子目录继承", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const markdown = "# 甲的模板正文\n";
+    const rootTemplate = "模板/根样板.md";
+    const parentTemplate = "甲/模板/甲样板.md";
+    mkdirSync(path.join(vault, "甲", "子"), { recursive: true });
+    mkdirSync(path.join(vault, "乙"));
+    mkdirSync(path.join(vault, "模板"));
+    writeFileSync(path.join(vault, rootTemplate), "# 根样板\n");
+    writeFileSync(path.join(vault, "甲", "甲样板.md"), markdown);
+    await openKnowledge(page);
+    const folderRow = (relativePath: string) => page.getByTestId("notes-resource-tree").locator(`[data-item-path=${JSON.stringify(`${relativePath}/`)}]`);
+    const parent = folderRow("甲");
+    await expect(parent).toBeVisible();
+    if ((await parent.getAttribute("aria-expanded")) === "false") await parent.click();
+    await treeMenu(page, treeItem(page, "甲样板.md"), "作为模板导入");
+    await expect.poll(() => existsSync(path.join(vault, parentTemplate))).toBe(true);
+
+    const openTemplateMenu = async (folder: string) => {
+      await treeSettled(page);
+      const row = folderRow(folder);
+      await expect(row).toBeVisible();
+      await row.click({ button: "right" });
+      await page.getByRole("menuitem", { name: "从模板新建", exact: true }).hover();
+      await expect(page.getByRole("menuitem", { name: rootTemplate, exact: true })).toBeVisible();
+    };
+    const inheritedTemplate = page.getByRole("menuitem", { name: parentTemplate, exact: true });
+    await openTemplateMenu("乙");
+    await expect(inheritedTemplate).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    await page
+      .getByRole("button", { name: "新建笔记", exact: true })
+      .and(page.getByTitle("新建笔记", { exact: true }))
+      .click();
+    const globalDialog = page.getByTestId("new-note-dialog");
+    await expect(globalDialog.getByLabel("内容模板", { exact: true }).getByRole("option", { name: parentTemplate, exact: true })).toBeAttached();
+    await page.keyboard.press("Escape");
+    await expect(globalDialog).toBeHidden();
+
+    await openTemplateMenu("甲/子");
+    await inheritedTemplate.click();
+    const treeDialog = page.getByRole("dialog", { name: "新建文件", exact: true });
+    const selectedTemplate = treeDialog.getByRole("combobox");
+    await expect(selectedTemplate).toContainText(parentTemplate);
+    await expect(selectedTemplate.getByText("甲", { exact: true })).toBeVisible();
+    await treeDialog.getByLabel("文件名", { exact: true }).fill("继承模板创建");
+    await treeDialog.getByRole("button", { name: "创建", exact: true }).click();
+    const created = path.join(vault, "甲", "子", "继承模板创建.md");
+    await expect.poll(() => (existsSync(created) ? readFileSync(created, "utf8") : null)).toBe(markdown);
+  } finally {
+    await close();
+  }
+});

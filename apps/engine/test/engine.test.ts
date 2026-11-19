@@ -1132,6 +1132,25 @@ describe("Engine 启动与关闭", () => {
     // 引擎仍然健康，并且并发回落后可以再次正常使用
     expect(await slow()).toBe(200);
   }, 30_000);
+  test("notes.create 的 Vault 模板路径仅桌面可用，CLI 仍可使用内置模板", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    const call = (token: string, capability: string, input: unknown) => post(e, token, { capability, input, requestId: "r", idempotencyKey: crypto.randomUUID() });
+    const markdown = "# 本地模板测试\n\n模板正文\n";
+    writeFileSync(path.join(e.vault.root, "样板.md"), markdown);
+    expect((await call(e.rendererToken, "notes.templates.import", { path: "样板.md" })).ok).toBe(true);
+    expect((await call(e.rendererToken, "gateway.update", { capability: "notes.read", exposed: false })).ok).toBe(true);
+    expect((await call(e.rendererToken, "gateway.update", { capability: "notes.create", exposed: true })).ok).toBe(true);
+
+    const templatePath = "模板/样板.md";
+    expect((await call(e.cliToken, "notes.read", { path: templatePath })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect(await call(e.cliToken, "notes.create", { name: "外部本地模板", templatePath })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(existsSync(path.join(e.vault.root, "外部本地模板.md"))).toBe(false);
+    expect((await call(e.cliToken, "notes.create", { name: "外部会议", template: "meeting" })).ok).toBe(true);
+    expect(readFileSync(path.join(e.vault.root, "外部会议.md"), "utf8")).toContain("## 参会者");
+    expect((await call(e.rendererToken, "notes.create", { name: "桌面本地模板", templatePath })).ok).toBe(true);
+    expect(readFileSync(path.join(e.vault.root, "桌面本地模板.md"), "utf8")).toBe(markdown);
+  }, 30_000);
   test("审计回归：外部入口即使开放 notes 写能力，也不能在 Automations/ 下创建/改写/复制/移入规则", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

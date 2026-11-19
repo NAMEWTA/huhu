@@ -77,7 +77,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional() }),
       output: z.object({ path: z.string(), id: z.string() }),
       handler: async (c, i) => {
-        assertNotAutomationsDir(c.caller, i.folder, i.templatePath);
+        if (i.templatePath !== undefined && c.caller !== "desktop") throw errors.permissionDenied("Vault 本地模板（仅桌面可用）");
+        assertNotAutomationsDir(c.caller, i.folder);
         const r = await svc.create({
           name: i.name,
           ...(i.folder ? { folder: i.folder } : {}),
