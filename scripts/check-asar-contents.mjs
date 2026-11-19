@@ -10,15 +10,24 @@ if (!archive) {
 const desktopRequire = createRequire(new URL("../apps/desktop/package.json", import.meta.url));
 const builderRequire = createRequire(desktopRequire.resolve("electron-builder"));
 const libraryRequire = createRequire(builderRequire.resolve("app-builder-lib"));
-const { listPackage } = libraryRequire("@electron/asar");
+const { extractFile, listPackage } = libraryRequire("@electron/asar");
 const entries = listPackage(archive).map((name) => name.replaceAll("\\", "/"));
-const excluded = entries.filter((name) => /\.(?:test|spec|test-helpers?)\.[^/]+$/i.test(name) || /\/(?:__tests__|__fixtures__|test-utils|test|tests)(?:\/|$)/.test(name) || /\/open-knowledge\/(?:[^/]+\/)*fixtures(?:\/|$)/.test(name));
+const excluded = entries.filter(
+  (name) => /\.(?:test|spec|test-helpers?)\.[^/]+$/i.test(name) || /\/(?:__tests__|__fixtures__|test-utils|test-results|test|tests)(?:\/|$)/.test(name) || /\/open-knowledge\/(?:[^/]+\/)*fixtures(?:\/|$)/.test(name),
+);
 if (excluded.length > 0) {
   console.error(excluded.join("\n"));
   process.exitCode = 1;
-} else if (entries.some((name) => name === "/out/build-info.json")) {
-  console.log(`${entries.length} ASAR entries checked. No test sources, helpers, or fixtures found.`);
 } else {
-  console.error("缺少 /out/build-info.json，请使用 Huhu 的应用 ASAR。");
-  process.exitCode = 1;
+  try {
+    const manifest = JSON.parse(extractFile(archive, "package.json").toString("utf8"));
+    const build = JSON.parse(extractFile(archive, "out/build-info.json").toString("utf8"));
+    if (manifest.name !== "@huhu/desktop" || build.version !== manifest.version || !build.commit) {
+      throw new Error("应用名、版本或提交标识无效");
+    }
+    console.log(`${entries.length} ASAR entries checked for ${build.version} (${build.commit}). No test sources, helpers, results, or fixtures found.`);
+  } catch {
+    console.error("无法读取 Huhu ASAR 的应用清单或构建标识，请检查归档内容。");
+    process.exitCode = 1;
+  }
 }
