@@ -85,15 +85,17 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
         return r;
       },
     };
-    const unregister = registerHostRoutes(filesRoutes(tracked));
+    // 菜单回调变化时，子树的首次列举仍须命中已注册的文件路由。
+    return registerHostRoutes(filesRoutes(tracked));
+  }, [deps]);
+  useEffect(() => {
     setHostHiddenPaths({ hide: (p, k) => onHide(p, k) });
     setHostMenuExtras(menuItems ? { items: menuItems } : null);
     return () => {
-      unregister();
       setHostHiddenPaths(null);
       setHostMenuExtras(null);
     };
-  }, [deps, onHide, menuItems]);
+  }, [onHide, menuItems]);
   useEffect(() => {
     if (refreshToken > 0) notifyExplorerChanged();
   }, [refreshToken]);
