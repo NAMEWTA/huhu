@@ -68,10 +68,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       parkedDocument.current = null;
       // 语言即时切换继续使用原编辑缓冲，普通返回则提供草稿恢复。
       if (!parked || parked.session !== session || parked.locale !== locale) return;
+      const revision = parked.session.getSnapshot().dirtyRevision;
       let cancelled = false;
       void parked.checkpoint
         .then((hasDraft) => {
-          if (!cancelled && hasDraft) return parked.session.reopenDraft();
+          if (!cancelled && hasDraft) return parked.session.reopenDraft(revision, () => !cancelled);
         })
         .catch((error: unknown) => setError(String(error)));
       return () => {
@@ -190,18 +191,6 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     if (pendingArchive.current?.key === key) pendingArchive.current = null;
     dispatch({ type: "close", key });
   };
-  async function closeTabsFromMenu(keys: readonly string[]) {
-    const active = activeTabRef.current;
-    const vault = vaultRef.current;
-    const flush = active && keys.includes(tabKey(active)) ? flushRef.current : null;
-    try {
-      if (flush && !(await flush())) return;
-      if (vaultRef.current !== vault || activeTabRef.current !== active) return;
-      keys.forEach(closeTab);
-    } catch (error) {
-      setError(String(error));
-    }
-  }
   async function copyTabPath(path: string) {
     try {
       const desktop = host();
@@ -439,7 +428,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
             activeKey={shell.tabs.activeKey}
             onFocus={focusTab}
             onClose={closeTab}
-            onCloseMany={(keys) => void closeTabsFromMenu(keys)}
+            onCloseMany={(keys) => keys.forEach(closeTab)}
             onCopyPath={(path) => void copyTabPath(path)}
             onRevealPath={(path) => {
               setSection("all");

@@ -156,3 +156,36 @@
 | 最终静态检查 | `pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm knip` 均退出 0。 | `typecheck-return.log`、`lint-return.log`、`format-return.log`、`knip-return.log` |
 | 最终完整单测 | `pnpm test --maxWorkers=2 --minWorkers=1` 完整复跑 85 个文件通过、1 跳过，997 条通过、1 跳过，退出 0，保持 Vitest 的默认单测时限。前一轮仅版本历史「规则文件恢复后一律暂停」触及 5 秒时限，单独复跑 2.344 秒通过。 | `test-return.log`、`retry-history.log`、`test-retry.log` |
 | 最终指定 E2E | 原样执行 `xvfb-run -a pnpm e2e tests/e2e/shell.spec.ts tests/e2e/knowledge/session-*.spec.ts tests/e2e/knowledge/compact-submit.spec.ts tests/e2e/workflows/archives-tabs.spec.ts`，71/71 通过，耗时 10.4 分钟，退出 0。包含手动保存切笔记、切 Vault、关闭标签按钮与退出应用，以及 ACC-KN-05 合并。 | `subset-return.log`、`subset-return-results/.last-run.json` |
+
+## task07 设置返回竞态、标签关闭、退出回执、H01
+
+同步目标是 `9b143a4`，工作分支合并点 `c13ce84`。记录和 trace 在 `/tmp/huhu-session-07/`。
+
+| 批次 | 结果 | 证据 |
+| --- | --- | --- |
+| 修复前设置返回并发 | `14d116c` 的本地桌面构建与 `9b143a4` 的相关产品源码相同。暂停写草稿时，新增内容消失，编辑区被低版本读盘覆盖。暂停读取时，草稿仍只有「初始正文首」，缺少刚输入的整段。 | `red.log`、`red-results/` |
+| 精确候选 `9b143a4` 红灯 | 使用集成产物，三种手动菜单关闭均在「原字节不变」断言失败。注入退出草稿写入故障后，应用连接被销毁，等不到保留窗口的确认。 | `red-exact.log`、`red-exact-results/` |
+| 修复后定向 Electron | 9/9。三种标签菜单各验手动留草稿和自动写盘，写草稿和读文档两个在途阶段各通过，退出明确失败时窗口仍在，撤去故障后走正常退出，新进程读到精确草稿。早期定向捕获光标落在标题的夹具误差，以及通过 Playwright 结束进程后读不到草稿，最终用例明确选取正文行并通过原生退出动作验证。 | `target-refined.log`、`target-refined-results/.last-run.json` |
+| 构建 | `pnpm build` 退出 0。构建标识为提交前的 `c13ce84`。 | `build.log` |
+| H01 语义验证 | 原弱断言可接受显示文字与顶层块数相同的语义差异。新增反例验证粗体丢失和链接目标变化会被拒绝，CRLF 等价变化通过。正式 H01 相关测试 128/128，四个大样本均通过 vendor 语义判定或字节相等。此项仅加强验证，生产序列化器无改动，因此没有同一批真实样本的生产故障红灯。 | `h01-inspect.log`、`test.log` |
+| 静态检查 | 最终 `pnpm typecheck`、`pnpm lint`、`pnpm format:check` 和 `pnpm knip` 均退出 0。首次类型检查发现直接类型导入将 vendor 拉入宿主编译，已改用测试里实际使用的结构类型并复查。 | `typecheck-final.log`、`lint.log`、`format.log`、`knip.log` |
+| 首轮全量单测及失败隔离 | 994 通过、4 失败、1 跳过。失败是 Engine 笔记能力流程、外部插件发现与 quick-clip，以及自动化进程退出。分别单独复跑 3 次，12/12 通过。 | `test.log`、`unit-case-*.log` |
+| 重启核对 | 分支仍在合并点 `c13ce84`，10 个任务文件改动均未提交、暂存区空。旧 `test-results` 没有 `.last-run.json`。全量 E2E 中断前记录 43 通过、2 失败，完整单测复跑未写出结果。已保留中断日志和 trace，并从第一项重跑这两个命令。之前已结束的构建、静态检查、9 项定向和 12 次单测隔离各有退出记录。 | `full-interrupted.log`、`pre-reboot-full-results/`、`test-retry-interrupted.log`、`checks` |
+| 重启后完整单测 | `pnpm test --maxWorkers=1 --minWorkers=1` 重新执行完整套件，85 文件通过、1 跳过，998 条通过、1 跳过，退出 0。单 worker 限制并行负载，Vitest 超时与断言保持原值。 | `test-retry.log`、`checks` |
+| 重启后指定全量 E2E | 原样执行 `xvfb-run -a pnpm e2e tests/e2e/shell.spec.ts tests/e2e/knowledge tests/e2e/workflows`。209 通过、8 失败、1 默认跳过（十万文件 Vault），38.1 分钟。Playwright 退出 1，外层命令退出 126。两条设置返回竞态、六条菜单关闭、退出失败后保留窗口与重试、原 ACC-KN-04/05 均在该轮通过。 | `full.log`、`full-load.log`、`full-results/.last-run.json`、各失败 trace |
+| E2E 失败隔离 | 重启前后失败的 10 个独立用例均按原文件和行号单 worker 复跑 3 次。29/30 通过。ACC-WB-02 单独 2/3，失败一次显示「Engine 启动失败」，在更早的只读目录错误提示断言处停止。 | `e2e-retry-cases.tsv`、`e2e-retry-1.log` 至 `e2e-retry-10.log`、对应 trace |
+
+| 失败用例 | 观察到的失败 | 单独复跑 |
+| --- | --- | --- |
+| 文件树拖入外部文件 | 重启前在等待落到目标目录的文件时触及整例时限。 | 3/3 |
+| 富文本重开保真 | 重启前在打开应用、等待引擎就绪的步骤触及整例时限。 | 3/3 |
+| D03/D04/D05 批注定位 | 插入后的落盘锚点仍是 17，没有观察到位移。 | 3/3 |
+| H03 简体中文扫描 | 格式气泡没有出现「粗体」。同一候选上已由 w4:pD 的 report03 单独复现并分析聚焦选区回写。 | 3/3 |
+| ACC-AG-01 新建 Space | 等不到「外部项目」按钮。 | 3/3 |
+| ACC-WB-01 打开已有目录 | 文件树条目从未达到预期的三个。 | 3/3 |
+| ACC-WB-02 只读打开 | 全量等待「只读笔记」树条目超时。单独失败是更早的引擎启动错误。 | 2/3 |
+| Agent CLI 历史固定 | 初始历史标题未出现预期的两行。 | 3/3 |
+| Agent CLI Space 改名删除 | 新创建后等不到「旧名字」条目，未进入改名删除。 | 3/3 |
+| 附件同尺寸替换 | 找不到「附件在读取期间发生变化，请重新下载」提示。 | 3/3 |
+
+指定全量 E2E 仍未满足零失败验收。四项任务改动和各自的验证已交付。全量信息与复跑结果同时保留，待集成侧解决剩余门槛。
