@@ -9,6 +9,8 @@ const GROUP_RANK: Record<RailGroup, number> = { primary: 0, execution: 1, system
 export interface ModuleProps {
   /** 当前分区 id（模块没有 sections 时为空串）。 */
   section: string;
+  /** 保留挂载的模块可以在隐藏时交付当前工作。 */
+  active?: boolean;
   onSection(id: string): void;
   /** 跳转到另一个模块（例如从笔记属性页打开版本历史）。 */
   onNavigate?(moduleId: string, section?: string): void;

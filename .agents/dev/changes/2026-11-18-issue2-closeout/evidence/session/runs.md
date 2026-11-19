@@ -137,3 +137,22 @@
 - `workflows/acceptance.spec.ts:221`（ACC-WB-03），返回甲库并显示引擎就绪后，等待资源树出现「草稿甲」30 秒超时，未进入草稿恢复断言。第一次离开甲库后原文件未被改写的断言已通过。单独 3/3 验证了草稿恢复和内容一致。当前证据将故障定位到回甲库后的树入口，尚未确定它偶发缺失的原因。
 
 全量写出的归档 `matrix-run.json` 已恢复到版本库内容，生成副本保存为 `matrix-run.generated.json`。
+
+## task06 ACC-KN-04 手动保存草稿
+
+工作分支用 `git merge --no-ff --no-edit closeout/issue2-integration` 同步 `33e2113`，合并点为 `c155102`。原始日志和 Playwright trace 在 `/tmp/huhu-session-06/`。
+
+| 命令或批次 | 结果 | 证据 |
+| --- | --- | --- |
+| 对照 `03dc93b` 与 `33e2113` | Lead 在 `03dc93b` 的全量第 100 项通过。逐提交对照找到 `06d0afb`，外壳为语言即时切换把设置页后台的知识库从卸载变为隐藏。 | Lead `scratchpad/int/e2e-full-1.log:221`、`scratchpad/int3/e2e-full.log:514`，以及 `git show 06d0afb -- packages/workbench/src/shell/AppShell.tsx` |
+| 候选 `33e2113` 的原 ACC-KN-04/05，单 worker 重复 3 次 | 0/3。三次都执行了合并和显式保存，等待草稿恢复入口超时。桌面产物标识核实为 `33e2113`。 | `exact-baseline.log`、`exact-baseline-results/` |
+| 新增慢桥用例在候选上的红灯 | 「打开设置」失败，草稿查询为空。切换笔记与关闭标签按钮用例均通过，分别验证了精确草稿、原文件字节以及实际恢复。 | `red-direct.log`、`red-direct-results/` |
+| 首版修复构建及定向 | 原 ACC-KN-04/05 5/5 通过。H03 语言即时切换和 B01 右键标签菜单各通过。 | `build-final.log`、`fixed-five.log`、`layout.log` |
+| 首版修复的指定子集 | 确认仍有缺陷后中断。记录 32 通过、2 失败、1 中断、36 未运行。自动保存重启用例正确打开笔记且显示已保存，富文本冷加载超过 5 秒。新增设置页用例已保存全文，重点击树中当前选中且路由相同的文件时，文件树合并导航，恢复入口未出现。相同复况探针 4/4 捕获该症状。 | `subset.log`、`subset-results/`、`probe.log` |
+| 最终桌面构建 | `pnpm --filter @huhu/desktop build` 退出 0。构建标识是提交前的合并点 `c155102`，渲染产物包含活动态恢复、重开二次结算与修订保护。 | `build-return.log` |
+| DocumentSession 定向单测 | 29/29。新增回归验证重开读盘期间尚在编辑器的后续输入仍留在会话，稍后离开会以最新全文保存草稿。 | `session-unit.log` |
+| 最终构建的原 ACC-KN-04/05 | 原 shell 用例及断言原样保留。单 worker 5/5 通过，退出 0，耗时 1.9 分钟。 | `return-five.log`、`return-five-results/.last-run.json` |
+| 最终构建的设置与标签定向 | 普通返回出现草稿恢复入口、语言即时切换继续编辑、标签右键菜单各 2/2 通过。普通返回回归等待后台保存的完整草稿，并在点恢复前验证编辑器显示原文。 | `return-compat.log`、`return-compat-results/.last-run.json` |
+| 最终静态检查 | `pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm knip` 均退出 0。 | `typecheck-return.log`、`lint-return.log`、`format-return.log`、`knip-return.log` |
+| 最终完整单测 | `pnpm test --maxWorkers=2 --minWorkers=1` 完整复跑 85 个文件通过、1 跳过，997 条通过、1 跳过，退出 0，保持 Vitest 的默认单测时限。前一轮仅版本历史「规则文件恢复后一律暂停」触及 5 秒时限，单独复跑 2.344 秒通过。 | `test-return.log`、`retry-history.log`、`test-retry.log` |
+| 最终指定 E2E | 原样执行 `xvfb-run -a pnpm e2e tests/e2e/shell.spec.ts tests/e2e/knowledge/session-*.spec.ts tests/e2e/knowledge/compact-submit.spec.ts tests/e2e/workflows/archives-tabs.spec.ts`，71/71 通过，耗时 10.4 分钟，退出 0。包含手动保存切笔记、切 Vault、关闭标签按钮与退出应用，以及 ACC-KN-05 合并。 | `subset-return.log`、`subset-return-results/.last-run.json` |

@@ -158,10 +158,15 @@ export class DocumentSession {
   }
 
   // ---- 载入 ----
-  async load(): Promise<void> {
+  async load(expectedRevision?: number): Promise<void> {
     const seq = ++this.loadSeq;
     const f = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
-    if (this.disposed || seq !== this.loadSeq) return; // 迟到结果丢弃
+    if (this.disposed || seq !== this.loadSeq) return;
+    if (expectedRevision !== undefined) {
+      // 重开读取期间编辑器仍可输入，先结算可能还没有进会话的正文。
+      await this.drainEditors();
+      if (this.disposed || seq !== this.loadSeq || expectedRevision !== this.revision) return;
+    }
     this.text = f.text;
     this.version = f.version;
     this.savedText = f.text;
@@ -302,11 +307,13 @@ export class DocumentSession {
   }
 
   private async preserveDraft(): Promise<void> {
-    // 在途保存可能更新基准版本，等回执后再取草稿快照。
-    await this.inflight;
-    if (this.savedText !== null && this.text !== this.savedText) {
-      await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
-    }
+    // 文件与草稿共用写入队列。离开界面与退出重叠时，也按顺序取快照。
+    await this.serializeWrite(async () => {
+      if (this.savedText !== null && this.text !== this.savedText) {
+        await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
+      }
+      return true;
+    });
   }
 
   private async drainForWrite(): Promise<void> {
@@ -352,6 +359,12 @@ export class DocumentSession {
   async keepDraft(): Promise<void> {
     await this.drainForWrite();
     await this.preserveDraft();
+  }
+
+  /** 显式重开保留挂载的文件时，和销毁会话后重开一样提供草稿恢复。 */
+  async reopenDraft(): Promise<void> {
+    await this.flushForExit();
+    if (this.savedText !== null && this.text !== this.savedText) await this.load(this.revision);
   }
 
   // ---- 外部变更 / 冲突 ----
