@@ -11,7 +11,7 @@ export async function runFlushers(): Promise<void> {
   const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
   if (failures.length) {
     const error = new AggregateError(failures, "退出前保存失败");
-    // 桌面端在回执后关闭窗口。会话先尽量保留草稿，此处记录未完成的交付。
+    // 回执将失败传回桌面端，让用户保留窗口并重试。
     console.error(error);
     throw error;
   }

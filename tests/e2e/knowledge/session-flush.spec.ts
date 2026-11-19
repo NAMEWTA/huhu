@@ -185,3 +185,112 @@ for (const leave of ["打开设置", "切换笔记", "关闭标签"] as const) {
     }
   });
 }
+
+for (const phase of ["notes.draft.save", "notes.read"] as const) {
+  test(`C06 设置返回：${phase} 在途的新输入留在编辑器和草稿`, async () => {
+    const { page, vault, close } = await openApp();
+    const file = path.join(vault, name);
+    const reached = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const fresh = "返回后的新内容";
+    let pause = false;
+    let writes = 0;
+    try {
+      writeFileSync(file, original);
+      await engineReady(page);
+      await manualSave(page);
+      await openNote(page);
+      const editor = prose(page);
+      await editor.getByText("初始正文", { exact: true }).click();
+      await page.keyboard.press("End");
+      await page.keyboard.insertText(first);
+      await expect(editor.getByText(`初始正文${first}`, { exact: true })).toBeVisible();
+      await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
+      await page.route("**/api/v1/call", async (route) => {
+        const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+        if (request.input?.path === name) {
+          if (request.capability === "notes.draft.save") writes++;
+          if (pause && request.capability === phase) {
+            pause = false;
+            reached.resolve();
+            await release.promise;
+          }
+        }
+        await route.continue();
+      });
+      pause = phase === "notes.draft.save";
+      await page.getByRole("button", { name: "设置", exact: true }).first().click();
+      if (phase === "notes.read") {
+        await expect.poll(async () => (await call<{ text: string } | null>(page, "notes.draft.get", { path: name }))?.text).toContain(first);
+        pause = true;
+      } else {
+        await reached.promise;
+      }
+      await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+      await reached.promise;
+      await editor.getByText(`初始正文${first}`, { exact: true }).click();
+      await page.keyboard.press("End");
+      await page.keyboard.insertText(fresh);
+      await expect(editor.getByText(`初始正文${first}${fresh}`, { exact: true })).toBeVisible();
+      release.resolve();
+      const expected = original.replace("初始正文", `初始正文${first}${fresh}`);
+      await expect.poll(async () => (await call<{ text: string } | null>(page, "notes.draft.get", { path: name }))?.text).toBe(expected);
+      await expect(editor).toContainText(fresh);
+      expect(writes).toBe(2);
+      expect(readFileSync(file, "utf8")).toBe(original);
+
+      await page.getByRole("button", { name: "关闭 退出交付", exact: true }).click();
+      await openNote(page);
+      await page.getByTestId("note-draft-restore").click();
+      await expect(editor).toContainText(fresh);
+      expect(readFileSync(file, "utf8")).toBe(original);
+    } finally {
+      release.resolve();
+      await close();
+    }
+  });
+}
+
+test("C06 退出前草稿写入失败时保留窗口，可再次关闭并保存草稿", async () => {
+  const { app, page, vault, close } = await openApp();
+  const file = path.join(vault, name);
+  let failDraft = true;
+  try {
+    writeFileSync(file, original);
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await inputWithPendingBridge(page);
+    await app.evaluate(({ BrowserWindow, dialog }) => {
+      dialog.showMessageBox = (async () => {
+        BrowserWindow.getAllWindows()[0]?.setTitle("测试：退出保存失败");
+        return { response: 0, checkboxChecked: false };
+      }) as typeof dialog.showMessageBox;
+    });
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (!failDraft || request.capability !== "notes.draft.save" || request.input?.path !== name) return route.continue();
+      await route.fulfill({ status: 200, json: { ok: false, error: { code: "INTERNAL", message: "测试草稿写入失败" } } });
+    });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle()), { timeout: 10_000 }).toBe("测试：退出保存失败");
+    await expect(prose(page)).toContainText(last);
+    expect(readFileSync(file, "utf8")).toBe(original);
+
+    failDraft = false;
+    await page.unrouteAll({ behavior: "wait" });
+    await Promise.all([app.waitForEvent("close"), app.evaluate(({ app }) => app.quit())]);
+    expect(readFileSync(file, "utf8")).toBe(original);
+    const reopened = await openApp({ HUHU_VAULT: vault });
+    try {
+      await engineReady(reopened.page);
+      expect(await reopened.page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
+      expect((await call<{ text: string } | null>(reopened.page, "notes.draft.get", { path: name }))?.text).toBe(written);
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    failDraft = false;
+    await close();
+  }
+});

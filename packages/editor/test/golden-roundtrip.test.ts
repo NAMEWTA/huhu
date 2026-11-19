@@ -43,6 +43,10 @@ interface Provider {
 
 let providerModule: { LocalDocProvider: new (config: { name: string; lazyRich: boolean }) => Provider };
 let markdown: { schema: Schema; mdManager: { serialize(content: JSONContent): string } };
+let normalization: {
+  normalizeBridge(markdown: string): string;
+  addsBlankLines(original: string, serialized: string): boolean;
+};
 let bridge: { replaceRawBody(document: Y.Doc, text: string): void };
 
 beforeAll(async () => {
@@ -57,6 +61,7 @@ beforeAll(async () => {
   host = (await server.ssrLoadModule("/src/host/doc-source.ts")) as typeof host;
   providerModule = (await server.ssrLoadModule("/src/host/hocuspocus-provider.ts")) as typeof providerModule;
   markdown = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/md-manager.ts")) as typeof markdown;
+  normalization = (await server.ssrLoadModule("/src/vendor/open-knowledge/core/src/bridge/normalize.ts")) as typeof normalization;
   bridge = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/bridge-intake.ts")) as typeof bridge;
 }, 120_000);
 
@@ -94,6 +99,18 @@ test.each(samples)(
   90_000,
 );
 
+/** 同 OK persistence 的普通保存分支，使用 vendor 的规范化与空白行检查。 */
+function markdownSemanticallyUnchanged(original: string, serialized: string): boolean {
+  const { normalizeBridge, addsBlankLines } = normalization;
+  return normalizeBridge(original) === normalizeBridge(serialized) && !addsBlankLines(original, serialized);
+}
+
+test("H01 语义等价接受换行格式，拒绝相同正文的标记或链接目标变化", () => {
+  expect(markdownSemanticallyUnchanged("**正文**\n", "**正文**\r\n")).toBe(true);
+  expect(markdownSemanticallyUnchanged("**正文**\n", "正文\n")).toBe(false);
+  expect(markdownSemanticallyUnchanged("[正文](one.md)\n", "[正文](two.md)\n")).toBe(false);
+});
+
 test.each(largeSamples)(
   "H01 大样本构建富文本、序列化并回读 $name",
   async ({ name, bytes }) => {
@@ -112,7 +129,7 @@ test.each(largeSamples)(
       expect(provider.document.getText("source").toString() === original).toBe(true);
       expect(initial.serialized.length).toBeGreaterThan(0);
     });
-    // 序列化器可规范化 Markdown 拼写。回读应保留富文本正文和块结构，并且序列化已经稳定。
+    if (initial.serialized !== original) expect(markdownSemanticallyUnchanged(original, initial.serialized), name).toBe(true);
     await withProvider(name, initial.serialized, async (provider) => {
       const result = await inspectRich(provider);
       expect(result.blocks).toBe(initial.blocks);

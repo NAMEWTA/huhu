@@ -62,3 +62,14 @@ Lead 在 `03dc93b` 运行的全量记录中，ACC-KN-04 / ACC-KN-05 通过。候
 ### Modern Web Guidance
 
 我检索并读取了 `faster-spa-view-transitions` 与 HTML 的焦点与可见性章节。改动沿用设置页原先的隐藏容器和可见性行为，并通过现有模块属性传递状态。草稿通过项目原有的会话和引擎接口持久化。
+
+## task07 复审阻断项
+
+- 设置重显时立刻记录当前文档会话的修订号。等隐藏时的 checkpoint 结束后，如果有新输入，保留当前编辑缓冲并更新草稿。磁盘正文和草稿一起读取后，先结算可能积压的编辑，再确认请求与修订号仍有效、草稿涵盖当前内容，之后才用磁盘原文替换编辑区。常规返回复用已有草稿，省去第二次写入。受控真实 Electron 分别暂停草稿请求和重显后的读盘请求，验证新增内容留在编辑器和可恢复草稿里，原 Markdown 字节不动。
+- 标签右键的关闭、关闭其他和关闭右侧使用标签关闭按钮同一个关闭入口。手动模式经会话释放留草稿，自动模式经同一释放流程写盘。回归逐项比较正文或草稿的精确字节，手动模式实际重开并恢复。明确保存按钮仍是独立动作。契约见工作台知识库定义的 US-KN-05 和 ACC-KN-04。
+- 桌面退出回执附当前请求 ID 与结果。主进程核对该窗口的主框架，并在回执或 3 秒超时后解除监听。明确失败时停在原窗口，由用户保留窗口重试或明确放弃。无回执满 3 秒沿用超时退出并记日志。窗口 X 和应用退出使用同一确认逻辑。Electron 注入草稿写入失败，验证原窗口及最后输入仍在，撤除故障后请求正常退出，新进程能读回完整草稿。[Electron BrowserWindow](https://www.electronjs.org/docs/latest/api/browser-window#event-close) [Electron dialog](https://www.electronjs.org/docs/latest/api/dialog#dialogshowmessageboxbrowserwindow-options)
+- H01 原字节断言保留。大样本的富文本序列化只在字节变化时进入语义检查，复用 vendor 的 `normalizeBridge` 与 `addsBlankLines`，对应固定 OK 普通保存的 `markdownSemanticallyUnchanged` 分支。最小反例覆盖同样显示文本但丢失粗体、链接目标变更两种情况，换行格式的等价变化则通过。大样本仍基于真实 LocalDocProvider 构建、序列化、再载入。
+
+### Modern Web Guidance
+
+我检索了导航保留状态的指引，核对已有设置页保留挂载的行为。这次变更在会话层处理持久化和修订检查，沿用原来的可见性和焦点处理。退出确认沿用 Electron 原生对话框。

@@ -158,14 +158,20 @@ export class DocumentSession {
   }
 
   // ---- 载入 ----
-  async load(expectedRevision?: number): Promise<void> {
+  async load(expectedRevision?: number, isCurrent = () => true): Promise<boolean> {
     const seq = ++this.loadSeq;
-    const f = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
-    if (this.disposed || seq !== this.loadSeq) return;
+    const [f, d] = await Promise.all([
+      this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
+      this.engine.call<SessionDraft | null>("notes.draft.get", { path: this.id.path }).catch((error: unknown) => {
+        if (expectedRevision !== undefined) throw error;
+        return null;
+      }),
+    ]);
+    if (this.disposed || seq !== this.loadSeq || !isCurrent()) return false;
     if (expectedRevision !== undefined) {
       // 重开读取期间编辑器仍可输入，先结算可能还没有进会话的正文。
       await this.drainEditors();
-      if (this.disposed || seq !== this.loadSeq || expectedRevision !== this.revision) return;
+      if (this.disposed || seq !== this.loadSeq || !isCurrent() || expectedRevision !== this.revision || d?.text !== this.text) return false;
     }
     this.text = f.text;
     this.version = f.version;
@@ -175,16 +181,13 @@ export class DocumentSession {
     this.loaded = true;
     this.revision++;
     this.flushError = null;
-    this.emit();
-    // 手动保存模式离开时留下的草稿
-    const d = await this.engine.call<SessionDraft | null>("notes.draft.get", { path: this.id.path }).catch(() => null);
-    if (this.disposed || seq !== this.loadSeq) return;
     if (d && d.text !== f.text) this.draft = d;
     else {
       this.draft = null;
       if (d) void this.engine.call("notes.draft.discard", { path: this.id.path }, { write: true }).catch(() => undefined);
     }
     this.emit();
+    return true;
   }
 
   // ---- 编辑 ----
@@ -362,9 +365,12 @@ export class DocumentSession {
   }
 
   /** 显式重开保留挂载的文件时，和销毁会话后重开一样提供草稿恢复。 */
-  async reopenDraft(): Promise<void> {
-    await this.flushForExit();
-    if (this.savedText !== null && this.text !== this.savedText) await this.load(this.revision);
+  async reopenDraft(expectedRevision = this.revision, isCurrent = () => true): Promise<void> {
+    await this.drainEditors();
+    if (this.disposed || !isCurrent() || this.savedText === null || this.text === this.savedText) return;
+    // 隐藏时的 checkpoint 已落盘。只在返回期间发生新输入时更新草稿。
+    if (expectedRevision === this.revision && (await this.load(expectedRevision, isCurrent))) return;
+    if (!this.disposed && isCurrent()) await this.keepDraft();
   }
 
   // ---- 外部变更 / 冲突 ----
