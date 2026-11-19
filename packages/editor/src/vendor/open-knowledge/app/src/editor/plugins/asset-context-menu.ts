@@ -36,12 +36,16 @@ export function classifyContextMenuTarget(
       if (!target) return null;
       return {
         kind: 'wiki-link',
-        relPath: `${target}.md`,
+        relPath: /\.mdx?$/i.test(target) ? target : `${target}.md`,
         title: target,
       };
     }
     if (cur.tagName === 'A' && cur.hasAttribute('href')) {
       const href = cur.getAttribute('href') ?? '';
+      if (cur.getAttribute('class')?.split(/\s+/).includes('ok-file-attachment')) {
+        const relPath = resolveAssetProjectPath(href, sourceDocName, { literal: false });
+        if (relPath) return { kind: 'asset', relPath, title: relPath.split('/').pop() ?? href };
+      }
       const classified = classifyMarkdownHref(href, sourceDocName);
       if (classified?.kind === 'asset') {
         const relPath = resolveAssetProjectPath(classified.url, sourceDocName, {

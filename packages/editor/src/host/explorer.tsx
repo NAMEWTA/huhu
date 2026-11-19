@@ -16,6 +16,7 @@ import { dynamicActivate } from "@/lib/activate-locale";
 import { emitDocumentsChanged } from "@/lib/documents-events";
 import { setHostHiddenPaths, setHostMenuExtras } from "@/lib/host-hidden";
 import { i18n } from "@/lib/i18n";
+import { FILE_TREE_REVEAL_EVENT } from "./file-tree-reveal";
 import { HostConfigProvider } from "./config-provider";
 import { DocumentProvider } from "./document-context";
 import { installHostFetch, registerHostRoutes } from "./host-fetch";
@@ -58,6 +59,14 @@ export function notifyExplorerChanged(): void {
 export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken = 0, mode = "light", activePath = null, menuItems }: OkExplorerProps) {
   const [ready, setReady] = useState(false);
   const known = useRef(new Set<string>());
+  const [reveal, setReveal] = useState<{ requested: string; active: string | null } | null>(null);
+  useEffect(() => {
+    setReveal(null);
+    const show = (event: Event) => setReveal({ requested: (event as CustomEvent<string>).detail, active: activePath });
+    window.addEventListener(FILE_TREE_REVEAL_EVENT, show);
+    return () => window.removeEventListener(FILE_TREE_REVEAL_EVENT, show);
+  }, [activePath]);
+  const treePath = reveal?.active === activePath ? reveal.requested : activePath;
   useEffect(() => {
     let live = true;
     void dynamicActivate(locale).then(() => live && setReady(true));
@@ -91,12 +100,12 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
   const host = useMemo(
     () => ({
       // 选中高亮：树按 activeTarget / activeDocName 标出当前打开的文件
-      activeDocName: activePath && /\.(md|mdx)$/i.test(activePath) ? activePath.replace(/\.(md|mdx)$/i, "") : null,
-      activeTarget: !activePath
+      activeDocName: treePath && /\.(md|mdx)$/i.test(treePath) ? treePath.replace(/\.(md|mdx)$/i, "") : null,
+      activeTarget: !treePath
         ? null
-        : /\.(md|mdx)$/i.test(activePath)
-          ? { kind: "doc", target: activePath.replace(/\.(md|mdx)$/i, ""), docName: activePath.replace(/\.(md|mdx)$/i, "") }
-          : { kind: "asset", target: activePath, assetPath: activePath, mediaKind: null },
+        : /\.(md|mdx)$/i.test(treePath)
+          ? { kind: "doc", target: treePath.replace(/\.(md|mdx)$/i, ""), docName: treePath.replace(/\.(md|mdx)$/i, "") }
+          : { kind: "asset", target: treePath, assetPath: treePath, mediaKind: null },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
         // 'large-file'：OK 对超过 512 KiB 的文档不进编辑器；Huhu 由查看器分派（viewers/dispatch.ts）决定上限，源码优先打开大笔记（P-S3-01）
         if (t.kind === "doc" || t.kind === "folder-index" || t.kind === "large-file") onOpen({ kind: "file", path: resolveDocPath(t.docName ?? "", known.current) });
@@ -105,7 +114,7 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
       },
       openDocument: (docName: string) => onOpen({ kind: "file", path: resolveDocPath(docName, known.current) }),
     }),
-    [onOpen, activePath],
+    [onOpen, treePath],
   );
   if (!ready) return null;
   return (

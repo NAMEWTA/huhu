@@ -1,5 +1,5 @@
 import type { VaultReadRangeOutput } from "@huhu/contracts";
-import { OkRoot, RichMarkdownEditor, coreRoutes, uploadRoutes, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
+import { OkRoot, RichMarkdownEditor, coreRoutes, requestFileTreeReveal, uploadRoutes, type EditorAssetActions, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
 import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
@@ -78,6 +78,23 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
       }),
     };
   }, [commentRoutes, engine]);
+  const assetActions = useMemo<EditorAssetActions>(
+    () => ({
+      resolve: (path, kind) => {
+        if (hasProtectedSegment(path)) return null;
+        if (kind !== "wiki-link") return path;
+        const direct = notes.current.find((entry) => entry.path === path);
+        return direct?.path ?? notes.current.find((entry) => entry.path === `${docNameOf(path)}/index.md`)?.path ?? null;
+      },
+      open: (path) => onOpen.current(path),
+      reveal: requestFileTreeReveal,
+      copy: (path) => {
+        const host = (window as Window & { huhuHost?: { copyText?(value: string): Promise<void> } }).huhuHost;
+        void (host?.copyText ? host.copyText(path) : navigator.clipboard.writeText(path));
+      },
+    }),
+    [],
+  );
   const documentHost = useMemo(
     () => ({
       readAsset: async (path: string) => {
@@ -123,6 +140,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         value={props.value}
         onChange={props.onChange}
         mode={props.mode}
+        assetActions={assetActions}
         onPort={props.onPort}
         onRevealSource={props.onRevealSource}
         {...(props.fontSize ? { fontSize: props.fontSize } : {})}

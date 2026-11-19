@@ -14,12 +14,21 @@ export interface RichEditorPort extends EditorPort {
   canRedo(): boolean;
 }
 
+export interface EditorAssetActions {
+  resolve(path: string, kind: "asset" | "wiki-link" | "image"): string | null;
+  open(path: string): void;
+  reveal(path: string): void;
+  copy(path: string): void;
+}
+export function requestFileTreeReveal(path: string): void;
+
 export interface RichMarkdownEditorProps {
   docName: string;
   value: string;
   onChange(text: string): void;
   mode?: EditorViewMode;
   onRevealSource?(): void;
+  assetActions?: EditorAssetActions;
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;

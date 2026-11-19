@@ -2,7 +2,7 @@
 
 行号对应归档 `evidence/parity-matrix.md`。测试路径均相对工作树。任务 02 的验收以真实 Electron 的可见操作和磁盘结果为准。任务 04 的壳层入口见 [shell-mounts.md](shell-mounts.md)。
 
-82 行中已验证 77 行，由 Huhu 等价物取代且已验证 5 行，有效不适用 0 行。下表列出本行实际可见入口和范围。
+82 行中已验证 78 行，由 Huhu 等价物取代且已验证 4 行，有效不适用 0 行。下表列出本行实际可见入口和范围。
 
 | 行 | 归档项 | 状态 | 实际证据或缺口 | 缺陷及处理 |
 | ---: | --- | --- | --- | --- |
@@ -81,7 +81,7 @@
 | 222 | 代码预览编辑 Mod-Enter | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/CodePreviewEditModal.dom.test.tsx:Cmd/Ctrl+Enter commits the draft via onSave and closes the modal` | — |
 | 224 | 查找快捷键（`matchesKeyboardShortcut`） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:查找替换快捷键打开查找栏、定位下一个匹配并一次替换保存` | — |
 | 225 | 格式按钮快捷键 ID（format-bold / italic / underline / strike / inline-code / highlight） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:格式气泡显示下划线和高亮快捷键，真实按键持久化两种标记`。实际按键写入下划线和高亮，重开验证标记。余下四项沿用 `tests/e2e/knowledge/editor-s3-rules.spec.ts:矩阵·快捷键与粘贴：格式键、块移动、纯文本 / HTML / 裸 URL 粘贴` 与已有套件中的气泡加粗。 | — |
-| 233 | 编辑器内资源右键 asset-context-menu（asset / wiki-link / image 目标；`contextmenu` → `okDesktop.shell.showAssetMenu`） | 由 Huhu 等价物取代且已验证 | 由 Huhu ResourceTree 的 DOM 资源菜单取代，依据 design §8。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证右键复制相对路径到系统剪贴板并打开资源页。 | 编辑区内的原生资源右键入口仍缺，用户可以从资源树执行操作。 |
+| 233 | 编辑器内资源右键 asset-context-menu（附件、双链、图片） | 已验证 | `tests/e2e/knowledge/editor-parity-assets-template.spec.ts:B01：在正文就地操作附件、图片和双链，支持键盘菜单`。就地复制附件路径，定位图片的树行，双链由键盘唤出并打开 DocTab。 | 复用上游目标识别，接入宿主菜单与资源树镜像。 |
 | 235 | 标签页右键 EditorTabTargetMenuItems | 由 Huhu 等价物取代且已验证 | 由 DocTab 标签操作和资源树文件命令取代，依据 design §7 与 §8。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证标签切换、关闭和文件右键命令。 | 标签条没有独立右键入口。Share 属 OP-D19 Q2。 |
 | 236 | 重命名对话框 FileTargetRenameDialog | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:文件树重命名拒绝带路径分隔符的名称，并保留 Markdown 扩展名` | — |
 | 238 | 侧栏拖放打开 sidebar-drop（拖文件到编辑区） | 由 Huhu 等价物取代且已验证 | 由 ResourceTree 拖拽负载和 Huhu DocTab 导航取代，依据 design §7 与 §8。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:从文件树拖到正文打开 DocTab，外部图片拖入仍保存为附件` 验证真实文件树拖入打开另一标签、源笔记字节不改、系统文件仍按附件保存并重开。 | 编辑区接入上游拖放负载及目标解析，复用 Huhu 的 openTarget。 |
@@ -108,13 +108,14 @@
 | 116 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:折叠块、对齐、音频、文件、数学和嵌入块保存重开后仍可渲染` |
 | 117 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/Mermaid.dom.test.tsx:the toolbar still pans and zooms the diagram after the tab is shown again` |
 | 124 | `tests/e2e/knowledge/editor-parity-shell-mounts.spec.ts:表情选择器离线可用，键盘与鼠标插入后保存重开，Escape 归还编辑焦点`、`editor-s3-matrix.spec.ts` 的表情命令和上游 `EmojiInsertPopover.dom.test.tsx`。文档编辑面已挂载组件，键盘与鼠标插入、磁盘与重开内容、Escape 焦点和零选择器网络请求均通过。 |
+| 276 | 本地模板导入已接入 Huhu 文件树，详见 [接口矩阵补充](endpoint-matrix.md) 与真实 Electron 导入、保存和重开测试。 |
 | 128 | `tests/e2e/knowledge/editor-s3-large.spec.ts:S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本；源码里的改动在富文本里可见` |
 | 129 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:TXT 与 JSON 纯文本编辑各自保存后关闭重开，保留原格式` |
 | 115 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Embed 占位符可打开属性，外链不发请求，编辑后关闭重开仍显示阻止状态`。Q3 与 OP-D19 的默认不联网已落实为可见提示和源 URL。无 iframe 或外部请求。插入、更新 URL、保存关闭重开与源 Markdown 保真均通过。 |
 
 ## 上游 app 测试迁入
 
-固定 SHA `44a2e0a` 中 `packages/app` 有 596 个已跟踪的 `*.dom.test.*` 文件，包含应用壳、设置、账户等。此次按 82 行所涉模块和闭包抽取候选，仍缺完整的逐文件适用性核对。
+固定 SHA `44a2e0a` 中 `packages/app` 有 596 个已跟踪的 `*.dom.test.*` 文件，包含应用壳、设置、账户等。任务 05 全量逐文件判断，见 [DOM 测试适用性](dom-tests-applicability.md) 和 [审查修复](review-fixes.md)。下表保留任务 02–04 中已单列的迁入记录。
 
 | 统计范围 | 总数（文件） | 原样通过 | 适配后通过 | 不适用 |
 | --- | ---: | ---: | ---: | --- |

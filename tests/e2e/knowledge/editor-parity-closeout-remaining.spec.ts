@@ -61,13 +61,9 @@ test("Embed 占位符可打开属性，外链不发请求，编辑后关闭重�
     await openNote(page, "外部嵌入.md");
     const rich = editor(page);
     const list = await openSlashMenu(page, rich.getByText("起始", { exact: true }), "embed");
-    await list
-      .getByRole("option")
-      .filter({ hasText: /^Embed\b/ })
-      .first()
-      .click();
+    await list.getByRole("option", { name: "嵌入", exact: true }).click();
     const embed = rich.locator('[data-component-name="Embed"]');
-    const placeholder = embed.getByRole("button", { name: "Embed a URL" });
+    const placeholder = embed.locator("[data-descriptor-placeholder]");
     await expect(placeholder).toBeVisible();
 
     const source = page.getByRole("textbox", { name: /^src$/i });
@@ -88,7 +84,7 @@ test("Embed 占位符可打开属性，外链不发请求，编辑后关闭重�
     await page.keyboard.press("Escape");
     const saved = await reopenSavedNote(page, file, /<Embed src="https:\/\/example\.invalid\/updated"\s*\/>/);
     expect(saved).not.toContain(originalUrl);
-    await expect(embed.getByRole("status")).toContainText(/Off — external links|关闭——外部链接只显示 URL/);
+    await expect(embed.getByRole("status")).toContainText(/关闭——外部链接只显示 URL/);
     await expect(embed.getByRole("status")).toContainText(finalUrl);
     await expect(embed.locator("iframe")).toHaveCount(0);
     expect(externalRequests).toEqual([]);
@@ -193,18 +189,25 @@ test("格式气泡显示下划线和高亮快捷键，真实按键持久化两�
     await openNote(page, "格式快捷键.md");
     const rich = editor(page);
     for (const [text, button, key, accessible, selector] of [
-      ["下划线样本", "underline", "ControlOrMeta+u", /Control U|Command U/i, "u"],
-      ["高亮样本", "highlight", "ControlOrMeta+Shift+h", /Control Shift H|Command Shift H|Shift Command H/i, "mark"],
+      ["下划线样本", "下划线", "ControlOrMeta+u", /Control U|Command U/i, "u"],
+      ["高亮样本", "高亮", "ControlOrMeta+Shift+h", /Control Shift H|Command Shift H|Shift Command H/i, "mark"],
     ] as const) {
-      await rich.getByText(text, { exact: true }).click();
-      await page.keyboard.press("Home");
-      await page.keyboard.press("Shift+End");
+      await rich.getByText(text, { exact: true }).evaluate((paragraph) => {
+        paragraph.closest<HTMLElement>(".ProseMirror")?.focus();
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      });
       await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(text);
-      await page.mouse.move(0, 0);
       const trigger = page.getByRole("button", { name: button, exact: true });
-      await trigger.hover();
-      const hint = page.getByRole("tooltip", { name: new RegExp(`^${button} `) }).locator("kbd");
-      await expect(hint).toHaveAttribute("aria-label", accessible);
+      const hint = page.getByRole("tooltip", { name: new RegExp(`^${button}`) }).locator("kbd");
+      await expect(async () => {
+        await page.mouse.move(0, 0);
+        await trigger.hover();
+        await expect(hint).toHaveAttribute("aria-label", accessible, { timeout: 1600 });
+      }).toPass({ timeout: 8000 });
       await page.keyboard.press(key);
       await expect(rich.locator(selector)).toHaveText(text);
     }

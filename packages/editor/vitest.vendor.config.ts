@@ -20,7 +20,7 @@ export default defineConfig({
         resolve: { alias: aliases },
         test: {
           name: "ok-node",
-          exclude,
+          exclude: [...exclude, "**/*.dom.test.ts"],
           include: ["src/vendor/open-knowledge/core/src/**/*.test.ts", "src/vendor/open-knowledge/app/src/comments/**/*.test.ts"],
           environment: "node",
           setupFiles: ["./test/vendor-setup.ts"],
@@ -36,7 +36,11 @@ export default defineConfig({
         test: {
           name: "ok-app",
           exclude,
-          include: ["src/vendor/open-knowledge/app/src/{editor,components}/**/*.test.{ts,tsx}"],
+          include: [
+            "src/vendor/open-knowledge/app/src/{editor,components}/**/*.test.{ts,tsx}",
+            "src/vendor/open-knowledge/app/src/comments/**/*.dom.test.{ts,tsx}",
+            "src/vendor/open-knowledge/app/src/lib/{overlay-layers,ime-composition,editor-toolbar-overlap}.dom.test.{ts,tsx}",
+          ],
           environment: "jsdom",
           environmentOptions: { jsdom: { url: "http://localhost:5173", pretendToBeVisual: true } },
           setupFiles: ["./test/vendor-setup.ts", "./test/vendor-jsdom-setup.ts"],

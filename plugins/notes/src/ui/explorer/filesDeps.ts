@@ -1,4 +1,5 @@
 import type { VaultListEntry, VaultListOutput } from "@huhu/contracts";
+import { hasProtectedSegment } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 
 /** 资源管理器的宿主依赖（OK 文件树 → Huhu 能力）。纯逻辑，可单测；React 与 vendor 都不在这里。 */
@@ -113,6 +114,30 @@ export function createFilesDeps(o: FilesDepsOptions) {
       const r = await o.engine.call<{ trashId: string }>("notes.trash", { path: i.path }, { write: true });
       o.onTrashed?.(i.path, r.trashId);
       return { paths: [i.path] };
+    },
+    async importTemplate(sourcePath: string) {
+      if (hasProtectedSegment(sourcePath)) throw new Error("不能从受保护目录导入模板");
+      const parent = dirOf(sourcePath);
+      const templateDir = join(parent, "模板");
+      if (parent === "模板" || parent.endsWith("/模板")) throw new Error("这已经是模板文件");
+      const source = await o.engine.call<{ text: string }>("notes.read", { path: sourcePath });
+      const existing = await o.engine.call<VaultListOutput>("vault.list", { dir: parent, limit: LIST_PAGE_LIMIT });
+      const templateFolder = existing.entries.find((entry) => entry.path === templateDir);
+      if (templateFolder && templateFolder.kind !== "dir") throw new Error("目标模板目录已被同名文件占用");
+      if (!templateFolder) await o.engine.call("folders.create", { path: templateDir }, { write: true });
+      const title = baseOf(sourcePath)
+        .replace(/\.mdx?$/i, "")
+        .trim();
+      let candidate = title;
+      // 由 notes.create 仲裁同名冲突，不覆盖已有的模板。
+      const templates = await o.engine.call<VaultListOutput>("vault.list", { dir: templateDir, limit: LIST_PAGE_LIMIT });
+      const names = new Set(templates.entries.map((entry) => entry.name.toLowerCase()));
+      for (let i = 2; names.has(`${candidate}.md`.toLowerCase()); i++) candidate = `${title}-${i}`;
+      const created = await o.engine.call<{ path: string }>("notes.create", { folder: templateDir, name: candidate }, { write: true });
+      const blank = await o.engine.call<{ text: string; version: string }>("notes.read", { path: created.path });
+      if (blank.text !== `# ${candidate}\n\n`) throw new Error("模板在导入期间已有修改");
+      await o.engine.call("notes.save", { path: created.path, text: source.text, expectedVersion: blank.version }, { write: true });
+      return { path: created.path };
     },
     async createPage(i: { path: string; template?: string }) {
       const name = baseOf(i.path);

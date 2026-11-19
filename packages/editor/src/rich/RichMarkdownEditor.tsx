@@ -23,6 +23,7 @@ import { TiptapEditor } from "@/editor/TiptapEditor";
 import { replaceRawBody } from "../vendor/open-knowledge/server-bridge/bridge-intake";
 import { acquireProvider, releaseProvider } from "../host/provider-pool";
 import { registerAtReference, type ReferenceCandidate } from "./at-reference";
+import { EditorAssetMenu, type EditorAssetActions } from "./EditorAssetMenu";
 import { FILE_LOAD_ORIGIN } from "../host/doc-source";
 import { registerOfflineEmojiRoutes } from "../host/offline-emoji";
 import type { LocalDocProvider } from "../host/hocuspocus-provider";
@@ -47,6 +48,7 @@ export interface RichMarkdownEditorProps {
   onChange(text: string): void;
   mode?: EditorViewMode;
   onRevealSource?(): void;
+  assetActions?: EditorAssetActions;
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
@@ -271,36 +273,43 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     };
   }, [docName, wantsReference, provider]);
 
-  // 快捷键作用在最新选区上：浏览器的 selectionchange 是异步事件，ProseMirror 靠它把 DOM 选区同步进 state。
-  // 紧贴着 Shift+Home / 鼠标拖选之后的 Mod-i 等快捷键会先于它到达，命令作用在旧的（折叠）选区上，只留下一个存储标记，看起来就像“首次按键被忽略”。
-  // 快捷键 keydown 的捕获阶段先让 ProseMirror 把待处理的 DOM 选区读进 state（DOMObserver.flush 就是它自己处理 selectionchange 的入口）。人手速度下该事件早已到达，这里是 no-op。
+  // selectionchange 异步分发。先用 ProseMirror 自己的 DOMObserver 读到
+  // 最新浏览器选区，避免输入和命令在下一次同步前改写旧选区。
   useEffect(() => {
+    type DOMSelectionRange = Pick<Selection, "anchorNode" | "anchorOffset" | "focusNode" | "focusOffset">;
+    type SelectionObserver = { currentSelection: { eq(selection: DOMSelectionRange): boolean }; flush(): void };
     let bound: Editor | null = null;
-    let handler: ((e: KeyboardEvent) => void) | null = null;
-    const unbind = () => {
-      if (bound && handler && !bound.isDestroyed) bound.view.dom.removeEventListener("keydown", handler, true);
-      bound = null;
-      handler = null;
-    };
+    let detach: (() => void) | undefined;
     const sync = () => {
-      const ed = getEditorForDoc(docName);
-      const next = ed && !ed.isDestroyed ? ed : null;
+      const editor = getEditorForDoc(docName);
+      const next = editor && !editor.isDestroyed ? editor : null;
       if (next === bound) return;
-      unbind();
-      if (!next) return;
+      detach?.();
       bound = next;
-      handler = (e) => {
-        if (!(e.ctrlKey || e.metaKey) || e.isComposing) return;
-        const observer = (next.view as unknown as { domObserver?: { flush?: () => void } }).domObserver;
-        observer?.flush?.();
+      detach = undefined;
+      if (!next) return;
+
+      const view = next.view;
+      // Use the same snapshot and shadow-root handling as DOMObserver. Ordinary
+      // keys with an already synchronized selection avoid a second flush.
+      const selectionView = view as unknown as { domObserver?: SelectionObserver; domSelectionRange(): DOMSelectionRange };
+      const flushSelection = (event: Event) => {
+        if (view.composing || (event as KeyboardEvent | InputEvent).isComposing) return;
+        const observer = selectionView.domObserver;
+        if (observer && !observer.currentSelection.eq(selectionView.domSelectionRange())) observer.flush();
       };
-      next.view.dom.addEventListener("keydown", handler, true);
+      view.dom.addEventListener("keydown", flushSelection, true);
+      view.dom.addEventListener("beforeinput", flushSelection, true);
+      detach = () => {
+        view.dom.removeEventListener("keydown", flushSelection, true);
+        view.dom.removeEventListener("beforeinput", flushSelection, true);
+      };
     };
     sync();
     const unsub = subscribeEditorRegistry(sync);
     return () => {
       unsub();
-      unbind();
+      detach?.();
     };
   }, [docName, provider]);
 
@@ -445,6 +454,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
             <>
               <Toaster richColors closeButton />
               <TagDialog key={docName} scope={editorScope} docName={docName} />
+              {props.assetActions && mode !== "source" ? <EditorAssetMenu key={docName} scope={editorScope} docName={docName} actions={props.assetActions} /> : null}
             </>
           ) : null}
           {provider && showProperties ? (

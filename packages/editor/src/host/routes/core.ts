@@ -6,7 +6,7 @@ import { stripFrontmatter } from "../../vendor/open-knowledge/core/src/extension
 import { createCodeFenceTracker } from "../../vendor/open-knowledge/core/src/utils/code-fence-tracker";
 import { scanHeadingLine } from "../../vendor/open-knowledge/core/src/utils/heading-scan";
 import { resolveWikiLinkTargetDocName } from "../../vendor/open-knowledge/core/src/utils/wiki-link-resolve";
-import type { HostRoutes } from "../host-fetch";
+import { PASS_HOST_ROUTE, type HostRoutes } from "../host-fetch";
 
 export interface HostPageSummary {
   docName: string;
@@ -96,7 +96,8 @@ export function coreRoutes(deps: CoreRouteDeps): HostRoutes {
   return {
     ...(deps.suggestions ? suggestionRoutes(deps, deps.suggestions) : {}),
     "GET /api/pages": async () => ({ pages: await deps.listPages() }),
-    "GET /api/documents": async () => ({ documents: await deps.listDocuments() }),
+    // 分级目录列表由 Explorer 的 filesRoutes 提供，编辑器只提供引用候选。
+    "GET /api/documents": async ({ url }) => (url.searchParams.get("showAll") === "true" ? PASS_HOST_ROUTE : { documents: await deps.listDocuments() }),
     "GET /api/principal": () => ({ principal: { id: "local", name: "Huhu", kind: "human" } }),
   };
 }
