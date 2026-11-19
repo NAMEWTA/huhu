@@ -322,7 +322,8 @@ for (const mode of MODES)
       await expect.poll(() => readFileSync(`${vault}/页面.html`, "utf8")).toContain("<!-- 改动 -->");
       writeFileSync(`${vault}/页面.html`, readFileSync(`${vault}/页面.html`, "utf8").replace("你好页面", "已更新页面"));
       await page.getByTestId("html-mode").getByRole("tab", { name: "预览" }).click();
-      await expect.poll(async () => (await previewFrame(page)).locator("#h").textContent(), { timeout: 15_000 }).toBe("已更新页面");
+      // 保存和外部写入都会换预览 iframe，断言跟随当前预览实例。
+      await expect(page.frameLocator('[data-testid="html-preview-frame"]').locator("#h")).toHaveText("已更新页面", { timeout: 15_000 });
     } finally {
       await close();
     }

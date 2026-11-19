@@ -91,3 +91,8 @@
 | 既有档案删除用例单独三次 | 2 通过、1 失败，失败时仍显示删除档案对话框。其他档案回归另有独立证据。 | `retry-delete.log` |
 | 完整复跑 pnpm test | 85 文件通过、1 跳过；996 条通过、1 跳过，退出 0。四个大样本实际完成构建富文本、序列化和第二会话读取。 | `delivery-test.log` |
 | 全量中的单独复跑 | D03/D04/D05 3/3，S2b 3/3。Embed 与格式气泡各 0/3，在本地化定位处超时。斜杠菜单矩阵 2/3，仍有一次找不到 listbox。属性用例 2/3，失败时读盘缺「追加正文」。 | `full-first-retries.log`、`retry-s2b.log`、`retry-matrix.log`、`retry-properties.log` |
+| 全量 Electron | 指定命令执行 146 条，137 通过、8 失败、1 跳过，Playwright 退出 1，pnpm 外层 126。跳过项为默认关闭的十万文件 Vault。档案退出、切 Vault、手动保存、迟到导航、A06、E04、F03 和同尺寸附件替换全部通过。 | `full.log`、`full-results/.last-run.json`、`full-load.log` |
+| 其余失败复跑 | H03 3/3。F04 原驱动 1/3，替换预览 iframe 时旧 frame 已经脱离，改为通过 FrameLocator 查找当前 iframe 后 3/3，继续要求读到「已更新页面」。F04 只修改测试驱动，使用同一应用构建。 | `retry-h03.log`、`retry-f04.log`、`verify-f04.log` |
+| F04 驱动改动后 | `pnpm lint`、`pnpm format:check` 各退出 0。 | `post-driver-lint.log`、`post-driver-format.log` |
+
+全量门槛仍未通过。独立审查已将一直失败的 Embed 与下划线气泡英语选择器交 w4:pA。本轮也保留斜杠菜单和属性保存各 2/3 的失败证据。运行生成的归档内 matrix-run.json 已恢复为仓库版本，副本留在本次日志目录。
