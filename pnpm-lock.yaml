@@ -670,6 +670,9 @@ importers:
       diff-match-patch:
         specifier: 1.0.5
         version: 1.0.5
+      emojibase-data:
+        specifier: 16.0.2
+        version: 16.0.2(emojibase@18.0.0)
       frimousse:
         specifier: 0.3.0
         version: 0.3.0(react@19.3.1)(typescript@5.9.3)
@@ -5961,6 +5964,15 @@ packages:
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
+
+  emojibase-data@16.0.2:
+    resolution: {integrity: sha512-vRM82rvhjB4z5jDvxYanK/CZVe1QCu9ihxockyNvitd/aFkTT6Y4eeBW49GoXv5JMCNFrzDarADWrv7tjLcefA==}
+    peerDependencies:
+      emojibase: '*'
+
+  emojibase@18.0.0:
+    resolution: {integrity: sha512-5PG+EEt5zQ9qvqdHZw61+T9iz96g+r621QS/w8jEzPg+3mjzAdjl8LPLc+e9ABv/yboNfMwEair7aK9qKnwAbQ==}
+    engines: {node: '>=20.0.0'}
 
   encodeurl@2.0.1:
     resolution: {integrity: sha512-Ev/hIyePLZtpL98x562lvPtenrUfGr0lfaf44HFZ+hDEwso7ccV9QAZrEVLg0hxNAzygaAFxy2dYaAKKM0G06A==}
@@ -13398,6 +13410,12 @@ snapshots:
   emoji-regex@10.6.0: {}
 
   emoji-regex@8.0.0: {}
+
+  emojibase-data@16.0.2(emojibase@18.0.0):
+    dependencies:
+      emojibase: 18.0.0
+
+  emojibase@18.0.0: {}
 
   encodeurl@2.0.1: {}
 

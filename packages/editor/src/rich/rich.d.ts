@@ -19,6 +19,7 @@ export interface RichMarkdownEditorProps {
   value: string;
   onChange(text: string): void;
   mode?: EditorViewMode;
+  onRevealSource?(): void;
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
@@ -40,6 +41,7 @@ export interface HostPageSummary {
   modified: string;
   docExt: string;
   icon?: string;
+  tags?: readonly string[];
 }
 export interface HostDocumentEntry {
   kind: "document" | "asset" | "folder" | "file";

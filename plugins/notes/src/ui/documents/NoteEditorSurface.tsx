@@ -10,6 +10,7 @@ import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 export interface SurfaceNoteRef {
   path: string;
   title: string;
+  tags?: readonly string[];
 }
 
 export interface NoteEditorSurfaceProps {
@@ -17,6 +18,7 @@ export interface NoteEditorSurfaceProps {
   value: string;
   onChange(text: string): void;
   mode: EditorViewMode;
+  onRevealSource(): void;
   notes: readonly SurfaceNoteRef[];
   /** 编辑器内点击 wiki-link / 内部链接：交给笔记模块打开 */
   onOpen(path: string): void;
@@ -56,7 +58,8 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
       // 粘贴 / 拖入图片与文件：落在当前笔记旁的 attachments/（notes.attach：原子写 + OperationLog，同内容去重）
       ...uploadRoutes(async ({ file, name, notePath: parent }) => attachFile(engine, { file, name, notePath: parent ?? notePath.current })),
       ...coreRoutes({
-        listPages: () => notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
+        listPages: () =>
+          notes.current.map((x) => ({ docName: docNameOf(x.path), title: x.title, ...(x.tags ? { tags: x.tags } : {}), size: 0, modified: new Date(0).toISOString(), docExt: (/\.(\w+)$/.exec(x.path)?.[1] ?? "md").toLowerCase() })),
         listDocuments: () => notes.current.map((x) => ({ kind: "document" as const, path: x.path, docName: docNameOf(x.path) })),
         suggestions: {
           listTags: () => engine.call<{ tag: string; count: number }[]>("notes.tags", {}),
@@ -121,6 +124,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         onChange={props.onChange}
         mode={props.mode}
         onPort={props.onPort}
+        onRevealSource={props.onRevealSource}
         {...(props.fontSize ? { fontSize: props.fontSize } : {})}
         {...(props.contentWidth !== undefined ? { contentWidth: props.contentWidth } : {})}
       />

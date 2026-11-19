@@ -147,31 +147,29 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
         const { editor, listbox, initial } = await openSlashFixture(page, index + 1);
         const option = listbox.getByRole("option", { name: label, exact: true });
         const withQuery = await documentSnapshot(editor);
+        await option.hover();
+        // 等预览选中目标后走菜单的键盘提交入口，避免鼠标按下与浮层重新布局竞争。
+        await expect(option).toHaveAttribute("aria-selected", "true");
+        await expect(editor).toBeFocused();
 
         if (label === "文件") {
-          const [chooser] = await Promise.all([page.waitForEvent("filechooser"), option.click()]);
+          const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.keyboard.press("Enter")]);
           const contents = Buffer.from("斜杠命令上传的文件\n");
           await chooser.setFiles({ name: "slash-matrix.txt", mimeType: "text/plain", buffer: contents });
           await expect(editor.getByRole("link", { name: /^slash-matrix\.txt/ })).toHaveAttribute("href", /\/attachments\/slash-matrix\.txt$/);
           expect(readFileSync(path.join(vault, "attachments", "slash-matrix.txt"))).toEqual(contents);
           results[label] = "打开文件选择器并插入附件";
         } else if (label === "表情符号") {
-          // Huhu 没有挂载 OK 应用壳的表情选择器。验证命令通知的是当前文档的编辑器。
-          await editor.evaluate((element) => {
-            document.addEventListener(
-              "ok:emoji-picker-open",
-              (event) => {
-                const request = event as CustomEvent<{ editor: { view: { dom: HTMLElement } } }>;
-                if (request.detail.editor.view.dom === element) element.setAttribute("data-emoji-requested", "true");
-              },
-              { once: true },
-            );
-          });
-          await option.click();
-          await expect(editor).toHaveAttribute("data-emoji-requested", "true");
-          results[label] = "当前编辑器发出表情选择请求";
+          await page.keyboard.press("Enter");
+          const picker = page.getByTestId("emoji-picker-popover");
+          await expect(picker).toBeVisible();
+          await picker.getByRole("searchbox").fill("party popper");
+          await picker.getByRole("gridcell", { name: "Party popper", exact: true }).click();
+          await expect(picker).toBeHidden();
+          await expect(editor.locator(":scope > p").last()).toHaveText("🎉");
+          results[label] = "打开表情选择器并插入表情";
         } else {
-          await option.click();
+          await page.keyboard.press("Enter");
           await expect
             .poll(
               async () => {

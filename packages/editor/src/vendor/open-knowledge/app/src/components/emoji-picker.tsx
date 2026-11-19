@@ -32,6 +32,7 @@ export function FrimousseEmojiPicker({ onSelect }: { onSelect: (emoji: string) =
   const { t } = useLingui();
   return (
     <EmojiPicker.Root
+      emojibaseUrl="/api/local-emoji"
       className="isolate flex h-[326px] w-[320px] flex-col bg-popover text-popover-foreground"
       onEmojiSelect={({ emoji }) => onSelect(emoji)}
     >

@@ -1,6 +1,6 @@
 # B01 复刻矩阵补证与 H07
 
-行号对应归档 `evidence/parity-matrix.md`。测试路径均相对工作树。任务 02 的验收以真实 Electron 的可见操作和磁盘结果为准。
+行号对应归档 `evidence/parity-matrix.md`。测试路径均相对工作树。任务 02 的验收以真实 Electron 的可见操作和磁盘结果为准。任务 04 的壳层入口见 [shell-mounts.md](shell-mounts.md)。
 
 82 行中已验证 77 行，由 Huhu 等价物取代且已验证 5 行，有效不适用 0 行。下表列出本行实际可见入口和范围。
 
@@ -46,7 +46,7 @@
 | 142 | 图片对齐 ImageAlignButtons（左 / 中 / 右） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:本地图片气泡的左、中、右按钮更新选择并逐次保存重开`。每次点选均确认气泡按钮的按压状态、磁盘上的对齐值和重开后的图片及对齐。 | — |
 | 143 | 文件块按钮 FileBubbleButtons（下载文件） | 已验证 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:文件块气泡下载按笔记相对路径读取真实文件并保留下载名`。从位置在子目录的笔记下载 11 MiB 本地附件，比较文件名和完整字节。 | 原链接未用当前笔记的相对目录，也没有可读的附件下载响应。改用 Vault 分段读取，复用附件 25 MiB 上限。 |
 | 144 | 脚注转换按钮 FootnoteBubbleButton | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:气泡工具栏把选区转换为脚注，引用和定义保存重开后配对` | — |
-| 145 | “在源码中查看”按钮 ViewInSourceBubbleButton | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/bubble-menu/ViewInSourceBubbleButton.dom.test.tsx:clicking jumps to the selection block and asks the pane to flip` | — |
+| 145 | “在源码中查看”按钮 ViewInSourceBubbleButton | 已验证 | `tests/e2e/knowledge/editor-parity-shell-mounts.spec.ts:富文本选区的源码入口保留定位与磁盘内容`。点击气泡按钮和 Ctrl+Alt+E 均切到源码并聚焦目标行。原上游 DOM 用例继续验证派发事件。 | 接入 Huhu 模式切换和可见源码滚动容器。 |
 | 146 | 选区评论按钮 CommentBubbleButton | 已验证 | `tests/e2e/knowledge/comments-s4.spec.ts:D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注` | — |
 | 147 | 编辑器工具栏 EditorToolbar（属性按钮、模式切换、面包屑、Lint 诊断入口） | 由 Huhu 等价物取代且已验证 | 由 NoteDocument 工具栏和正文前的属性面板取代，依据 design §10、ui-design §1。`tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦和关闭，资源菜单可复制路径` 验证属性可达及源码和实时预览切换。真实 Electron 键盘探针补验属性区折叠和展开，磁盘字节不变。OP-D19 Q2 已排除服务端 Lint。 | — |
 | 148 | 模式切换 EditorModeToggle（“Markdown 源码 / Visual 编辑器”） | 已验证 | `tests/e2e/knowledge/editor-s2b.spec.ts:S2b：打开—无编辑不写盘—输入—保存—重开一致；立即切换不丢最后字符；视图切换保留正文` | — |
@@ -54,7 +54,7 @@
 | 150 | 表格行列句柄 TableCellHandles | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:表格光标显示行列句柄，拖拽移动数据行并保存重开` | — |
 | 151 | 表格拖拽重排 useTableDragReorder | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:表格光标显示行列句柄，拖拽移动数据行并保存重开`；`packages/editor/src/vendor/open-knowledge/app/src/editor/table-controls/useTableDragReorder.test.ts:move to end: from=0 to=3 → col 0 ends up last` | — |
 | 179 | 列表输入规则（`- `、`1. `、`[ ] `） | 已验证 | `tests/e2e/knowledge/editor-s3-rules.spec.ts:矩阵·输入规则：逐条输入 Markdown 简写，生成对应块 / 标记` | — |
-| 184 | `#` 标签触发 TagSuggestion | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:# 与 [[ 候选来自当前 Vault，插入后保存并重开` | 补接缺失的 /api/tags，通过 Huhu notes.tags 返回真实候选。 |
+| 184 | `#` 标签触发 TagSuggestion | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:# 与 [[ 候选来自当前 Vault，插入后保存并重开` | 补接 /api/tags，通过 Huhu notes.tags 返回真实候选。点击标签的弹窗与本地索引另见第 91 行和壳层清单。 |
 | 185 | `[[` 维基链接触发 WikiLinkSuggestion | 已验证 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:# 与 [[ 候选来自当前 Vault，插入后保存并重开`；`packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/wiki-link-suggestion.test.ts:degrades to the still-successful side when one endpoint errors (HTTP 500)` | 补接 /api/page-headings、/api/forward-links 与 /api/backlinks。修复输入过快时多个查询竞争同一次标题请求而导致空列表。 |
 | 186 | 链接路径候选 link-path-suggestions | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/link-path-suggestions.dom.test.tsx:opens suggestions for a bare name and lists the matching page` | — |
 | 188 | 拖放分派 createHandleDrop（有文件时让位给 FileHandler） | 已验证 | `packages/editor/src/vendor/open-knowledge/app/src/editor/clipboard/handle-drop.test.ts:defers to FileHandler when dataTransfer.files is non-empty (returns false)` | — |
@@ -96,6 +96,7 @@
 | 行 | 本次重跑或新增证据 |
 | ---: | --- |
 | 71 | `packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/slash-command-atomicity.dom.test.tsx:running a slash-command item dispatches exactly one doc-changing transaction`；`tests/e2e/knowledge/editor-s3-menus.spec.ts:S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤回一个命令` |
+| 91 | `tests/e2e/knowledge/editor-parity-shell-mounts.spec.ts:正文标签弹窗列出匹配笔记并能跳转`。正文标签点击触发真实弹窗，查询本地层级标签并跳转。 |
 | 89 | `packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/bare-html-image-decoration.test.tsx:promotes a local HTML void image while leaving its PM bytes literal` |
 | 107 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/Callout.test.tsx:collapsible=true renders a chevron <svg> inside <summary>` |
 | 108 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/Accordion.test.tsx:defaultOpen=true renders the open attribute on <details>` |
@@ -106,6 +107,7 @@
 | 113 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:折叠块、对齐、音频、文件、数学和嵌入块保存重开后仍可渲染` |
 | 116 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:折叠块、对齐、音频、文件、数学和嵌入块保存重开后仍可渲染` |
 | 117 | `packages/editor/src/vendor/open-knowledge/app/src/editor/components/Mermaid.dom.test.tsx:the toolbar still pans and zooms the diagram after the tab is shown again` |
+| 124 | `tests/e2e/knowledge/editor-parity-shell-mounts.spec.ts:表情选择器离线可用，键盘与鼠标插入后保存重开，Escape 归还编辑焦点`、`editor-s3-matrix.spec.ts` 的表情命令和上游 `EmojiInsertPopover.dom.test.tsx`。文档编辑面已挂载组件，键盘与鼠标插入、磁盘与重开内容、Escape 焦点和零选择器网络请求均通过。 |
 | 128 | `tests/e2e/knowledge/editor-s3-large.spec.ts:S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本；源码里的改动在富文本里可见` |
 | 129 | `tests/e2e/knowledge/editor-parity-closeout.spec.ts:TXT 与 JSON 纯文本编辑各自保存后关闭重开，保留原格式` |
 | 115 | `tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts:Embed 占位符可打开属性，外链不发请求，编辑后关闭重开仍显示阻止状态`。Q3 与 OP-D19 的默认不联网已落实为可见提示和源 URL。无 iframe 或外部请求。插入、更新 URL、保存关闭重开与源 Markdown 保真均通过。 |
@@ -116,12 +118,12 @@
 
 | 统计范围 | 总数（文件） | 原样通过 | 适配后通过 | 不适用 |
 | --- | ---: | ---: | ---: | --- |
-| 本次已运行的上游 app DOM | 45 | 39 | 6 | 0 文件。下列两条测试分别因应用壳与 AI 范围跳过。 |
+| 已记录的上游 app DOM | 46 | 40 | 6 | 0 文件。下列两条测试分别因应用壳与 AI 范围跳过。 |
 | 本次已运行的上游 app 其他测试 | 77 | 61 | 16 | 0 文件。 |
 
 - `shared.dom.test.tsx:no menu accelerator is claimed by the editor keymap` 测试 OK 桌面应用壳命令注册表。Huhu 自己注册桌面命令。
 - `trailing-affordance.dom.test.ts:the composer's reserved band is not part of the zone` 测试 OK Ask AI 输入栏占用空间。Huhu 笔记编辑器无此输入栏。
-- 未迁入 `EmojiInsertPopover.dom.test.tsx` 与 `sidebar-drop.test.ts`，原因是对应产品模块不在 Huhu 闭包。第 238 行改由 Huhu DocTab 的真实拖放用例验收。
+- 任务 04 原样迁入 `EmojiInsertPopover.dom.test.tsx`，6 项通过，计入下表。`sidebar-drop.test.ts` 仍由第 238 行的 Huhu DocTab 真实拖放用例替代。
 
 | 迁入 DOM 文件（vendor 相对路径） | 分类 | 通过用例 |
 | --- | --- | ---: |
@@ -140,6 +142,7 @@
 | `app/src/components/ui/spinner.dom.test.tsx` | 原样通过 | 7 |
 | `app/src/components/ui/tooltip.dom.test.tsx` | 原样通过 | 7 |
 | `app/src/editor/bubble-menu/FootnoteBubbleButton.dom.test.tsx` | 原样通过 | 5 |
+| `app/src/editor/components/EmojiInsertPopover.dom.test.tsx` | 原样通过 | 6 |
 | `app/src/editor/bubble-menu/LinkEditPopover.dom.test.tsx` | 原样通过 | 19 |
 | `app/src/editor/bubble-menu/ViewInSourceBubbleButton.dom.test.tsx` | 原样通过 | 10 |
 | `app/src/editor/clipboard/copy-image.dom.test.ts` | 原样通过 | 4 |

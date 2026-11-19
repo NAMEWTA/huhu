@@ -219,3 +219,12 @@
 - `app/src/editor/extensions/preview-iframe-csp-violation.test.ts`
 - `app/src/editor/extensions/preview-iframe-theme.test.ts`
 - `app/src/editor/extensions/preview-live-tokens.test.ts`
+
+
+## 编辑器宿主浮层
+
+- `app/src/components/emoji-picker.tsx`：固定走宿主本地数据路由。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。
+- `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。
+- `app/src/editor/components/EmojiInsertPopover.dom.test.tsx`：原样迁入上游组件测试。
+- `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。
+- `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。

@@ -16,6 +16,7 @@ export interface HostPageSummary {
   /** 必填：上游 PageEntrySchema 要求，例如 'md' */
   docExt: string;
   icon?: string;
+  tags?: readonly string[];
 }
 
 export interface HostDocumentEntry {
@@ -43,6 +44,20 @@ function suggestionRoutes(deps: CoreRouteDeps, suggestions: NonNullable<CoreRout
         for (let end = tag.lastIndexOf("/"); end > 0; end = tag.lastIndexOf("/", end - 1)) parentTags.add(tag.slice(0, end));
       }
       return { tags: tags.map(({ tag, count }) => ({ name: tag, count, isLeaf: !parentTags.has(tag) })) };
+    },
+    "GET /api/tag-documents": async ({ url }) => {
+      const tag = url.searchParams.get("tag")?.toLowerCase();
+      if (!tag) return { docs: [] };
+      const currentDoc = url.searchParams.get("docName");
+      const docs = (await deps.listPages()).flatMap(({ docName, title, tags }) => {
+        if (docName === currentDoc) return [];
+        const matchingTags = tags?.filter((candidate) => {
+          const normalized = candidate.toLowerCase();
+          return normalized === tag || normalized.startsWith(`${tag}/`);
+        });
+        return matchingTags?.length ? [{ docName, title, matchingTags }] : [];
+      });
+      return { docs };
     },
     "GET /api/page-headings": async ({ url }) => {
       const docName = url.searchParams.get("docName") ?? "";
