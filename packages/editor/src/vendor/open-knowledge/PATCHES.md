@@ -33,7 +33,8 @@
 
 ## HTML 代码块预览
 
-- `app/src/editor/extensions/preview-iframe-header.ts`：通过显式构建依赖提供浏览器内页；Electron 接入专用预览协议，内页只允许内联脚本和嵌入资源。
+- `app/src/editor/extensions/preview-iframe-header.ts`：通过显式构建依赖提供浏览器内页；Electron 接入专用预览协议，内页只允许内联脚本和嵌入资源。转发沙箱 iframe 的鼠标进入和离开。
+- `app/src/editor/extensions/CodeBlockView.tsx`：用当前预览 iframe 的指针消息显示浮动工具栏，保持重开后可点击预览开关。
 - `app/src/editor/extensions/preview-frame.html`：迁入并适配上游 public 内页，只接收可信父窗口发送的预览正文。
 - `app/src/editor/extensions/preview-frame-policy.ts`：Electron 协议响应和 iframe 正文共享的安全策略。
 - `app/src/editor/extensions/code-block-preview-csp.test.ts`：校验请求、子框架和表单限制。
@@ -98,7 +99,7 @@
 - `core/src/markdown/html-to-mdast.ts`：对可能超限的多字节 HTML 用 UTF-8 字节数执行上限。
 - `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。
 - `app/src/editor/find-replace/FindReplaceBar.tsx`：复用 OK 查找替换栏，组合输入期间放行由输入法占用的按键。
-- `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。
+- `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，普通输入跳过浮层查询，相关快捷键继续尊重挂载在编辑器外的浮层。
 
 - `app/src/editor/components/Embed.tsx`、`app/src/editor/components/PreviewBlockedNotice.tsx`、`core/src/registry/built-ins.ts`：外部 Embed 按 Q3 在创建 iframe 前停止，复用预览阻止提示的呈现样式，并显示源 URL。
 

@@ -268,3 +268,50 @@ Modern Web Guidance 检索了编辑区焦点、菜单键盘及可达名称。测
 独立审查在 `03dc93b` 的早期运行得到 414 ms 和 17.9 ms，启动前 1 分钟负载 2.52，详见共享区 `w4:pE/report01.md`。这次空闲复跑中 1 MiB 三次合格，输入尾延迟三次均超限。
 
 同一 Electron 构建的诊断对照见 `perf-guard-paired.log` 和本机 `perf-guard-probe.ts`。使用相同的 5,000 行样本、每次新 Vault、80 次 ASCII 输入和 DOM 变更探针。按交替顺序跑 10 次，仅在其中 5 次通过 CDP 从当前编辑器 DOM 移除本任务新增的两条捕获监听，并由 CDP 复核。每次检查 80 个输入样本及可见正文的 80 字符。带守卫 p95 各轮中位数为 26.7 ms，范围 25.2–31.4 ms。移除守卫为 26.8 ms，范围 23.5–32.1 ms。1 分钟负载范围 1.67–2.21。两组范围重叠，全部超过 16 ms，此对照未检出守卫带来可测的尾延迟差异。正式门禁以原用例的空闲三轮为准。
+
+## 任务 06 查找替换按键与 F09
+
+在分支合入 `88fdabd`（合并提交 `0308796`），实现与最终验证构建为 `8cbf09f4a5672ae402b40ebac78f8d0d6223ea8c`。调用点、上游差异、测试计数与 5+5 配对测量见 [f09-findreplace.md](f09-findreplace.md)。原始日志在 `/tmp/huhu-parity06-kHwIIe/`。
+
+| 检查 | 结果 | 日志 |
+| --- | --- | --- |
+| Electron 查询次数回归 | 修复前 3 键触发 3 次，退出 126。修复后正文与查找输入框的普通键查询增量均为 0，快捷键仍检查浮层。 | `red.log`、`focused.log` |
+| 查找替换与键盘交互 | Electron 定向 6 项通过，覆盖查找、替换、IME、Esc、斜杠菜单、表情和 B06。测试的外部浮层夹具需将焦点移到浮层，再按 Escape 验证窗口处理器。独立 Chromium 同样通过。 | `focused-first.log`、`focused.log`、`browser.log` |
+| `pnpm typecheck`、`pnpm lint`、`pnpm build` | 全部退出 0。另在独立 main worktree 构建通过。 | `typecheck.log`、`lint.log`、`candidate-build.log`、`main-build.log` |
+| `pnpm format:check`、`pnpm knip` | 均退出 0。 | `format-check-final.log`、`knip.log` |
+| `pnpm test:vendor` | 330 文件，6,391 项通过、4 项跳过，退出 0。含查找扩展及匹配器 16 项、浮层 DOM 10 项、IME DOM 3 项和链接弹层事件 3 项。 | `vendor.log` |
+| `node scripts/ok-patches.mjs --check`、`--replay` | 差异登记 266 条，无缺项或多余登记。固定来源重放 1,346 文件，集合和字节零差异。均退出 0。 | `patches.log`、`replay.log` |
+| F09 主线与候选配对 | 各 5 个有效轮，每轮 80 个键，起跑负载 1 分钟值 <4。两侧 p95 中位数为 22.4 / 21.5 ms，差 0.9 ms，在两侧各自轮间波动内。严格 16 ms 门槛均为 0/5。 | `measurements.tsv`、`perf-*.log` |
+| 打开 1 MiB | main 194 ms，候选 433 ms，均通过 500 ms 门槛，退出 0。 | `perf-1MiB-main-1.log`、`perf-1MiB-candidate-1.log` |
+
+## 任务 07 候选本地化与代码预览悬停
+
+开工合入集成 `33e2113`（合并提交 `6ecc0d9`）。修复后的 Electron 构建来自 `e99571c46e25b1f60683a20481531a2dd1d75381`，原始日志和 Playwright 输出在 `/tmp/huhu-parity07-tPFY8N/`。
+
+| 用例 | 基线观察 | 修法与原有断言 |
+| --- | --- | --- |
+| Embed | 基线快照已显示 textbox「来源」。旧的 `src` 可达名称失配。 | 在属性对话框按「来源」精确定位，保留点击占位即聚焦、外链无请求、编辑落盘和重开断言。 |
+| 代码块设置和预览编辑 | 「隐藏 HTML 预览」能定位。重开后鼠标悬停在跨源沙箱 iframe 上时，父页的 `:hover` 和 React 悬停状态都未激活。工具栏仍为 `pointer-events: none`，按钮中心命中前段「导言」。原鼠标路径复现 3 次。确认 iframe 内容已经显示后，同一故障仍出现。 | 预览内页按鼠标进入和离开发送布尔状态。父组件仅接受当前 frame 的消息，沿用工具栏悬停样式和键盘入口。用例等待实际 iframe 内容，保留鼠标点击切回源码、代码内容、键盘操作和保存重开检查。 |
+| Callout | vendor 的 `Callout` 和属性字段已本地化。 | 按「提示框属性」「类型」「警告」「高级」「可折叠」「默认展开」定位。保留开关状态、磁盘内容、折叠后重开和展开检查。 |
+| 36 项斜杠菜单 | `party popper` 仍是搜索别名，结果可达名称为「拉炮彩带」。 | 通过实际中文表情结果点击，保留选择器关闭、插入 🎉、全部 36 项及页面错误断言。 |
+
+鼠标故障和焦点复核见 Lead 基线 trace、`pointer.log`、`pointer-loaded.log`、`pilot.log` 与 `fix-pilot.log`。Modern Web Guidance 的 `natural-interactions` 要求悬停类控件也能在键盘聚焦时出现（“must also appear on keyboard focus”）。本次沿用原有按钮焦点样式和原生键盘交互，补齐 iframe 内的真实鼠标悬停。保留沙箱属性和已有预览 CSP。独立 Chromium 158.0.8127.18 在浏览器夹具中验证 iframe 实际渲染、鼠标切回源码和源码文字，见 `browser.log`。
+
+默认全量首跑在同机其他任务并行时，H05「发表并关闭」已发出带正确正文的请求，但评论节点只显示作者、时间和加载内容，正文在 5 秒断言内未出现。另一个斜杠用例先以包含两条嵌套文字的宽匹配接受了早于最后一次输入的磁盘快照，随后关闭标签完成保存，导致前后字节比较多出一个 `/表格` 段落。提交 `88bbc30` 将该夹具的保存前置断言收紧到两个已输入的 `/表格` 段落均落盘。
+
+| 检查 | 结果 | 日志 |
+| --- | --- | --- |
+| `pnpm build`、编辑器类型检查 | 通过，退出 0 | `build-delivery.log`、`typecheck-editor.log` |
+| `pnpm lint`、`pnpm format:check` | 均通过，退出 0 | `lint-final.log`、`format-check-final.log` |
+| 预览 DOM 与 CSP 专项 | 2 文件 20 项通过 | `vendor-preview.log` |
+| `ok-patches.mjs --check` 和 `--replay` | 登记 267 条，无缺项或多余。1,346 个文件从固定上游重放，集合和字节零差异。 | `patches.log`、`replay.log` |
+| Embed、代码块、Callout 分别独立三次 | 每个用例 3 通过，均退出 0 | `repeat-embed.log`、`repeat-codeblock.log`、`repeat-callout.log` |
+| 中文表情的 36 项斜杠命令矩阵独立三次 | 三次全过，每份结果含 36 个命令、表情项真实插入及零页面错误。 | `repeat-emoji.log`、`delivery-emoji/**/slash-matrix.json` |
+| 斜杠夹具等待最后输入落盘 | 收紧两个 `/表格` 的检查后，专项通过。 | `slash-smoke.log` |
+| 知识库默认命令首跑 | 94 通过、3 失败、1 跳过，退出 126，35.1 分钟。四个指定用例、H03 和 F10 200 轮通过。失败为 H05 评论挂载、斜杠落盘夹具、B06 鼠标拖选选区长度为 0。 | `knowledge-full.log` 及独立输出目录中的 trace |
+| 首跑失败项复验 | H05 评论与已修订的斜杠夹具各 3 通过，B06 鼠标拖选 3 通过，两条命令退出 0。 | `fixture-reruns.log`、`b06-reruns.log` |
+| 知识库默认命令第二轮 | 96 通过、1 失败、1 跳过，退出 126，13.6 分钟。首跑的三项本轮均通过。新增脚注用例在打开气泡前的原生文字选区为空，超过 5 秒等待。 | `knowledge-rerun.log` |
+| 脚注用例单独复跑 | 3 通过，退出 0。 | `footnote-reruns.log` |
+| 知识库完整复验 `--retries=2` | 95 首次通过，2 个 flaky 重试通过，1 按默认配置跳过，退出 0。脚注因脚注气泡按钮未出现，在第二次重试通过。块类型因「文本」按钮未出现，在第一次重试通过。四个目标项均首次通过。 | `knowledge-complete.log` 及独立 Playwright 输出目录 |
+
+三次知识库全量均保留默认单 worker。前两次未设置重试，完整复验显式启用两次。原归档矩阵的运行输出重定向到本机日志目录。

@@ -144,3 +144,44 @@ test("C06 切 Vault 前从尚未报告 dirty 的编辑器收集修改", async ()
     rmTree(otherVault);
   }
 });
+
+for (const leave of ["打开设置", "切换笔记", "关闭标签"] as const) {
+  test(`C06 手动保存模式：${leave}留下全文草稿，显式重开后可以恢复`, async () => {
+    const { page, vault, close } = await openApp();
+    const file = path.join(vault, name);
+    try {
+      writeFileSync(file, original);
+      writeFileSync(path.join(vault, "别篇.md"), "别篇内容\n");
+      await engineReady(page);
+      await manualSave(page);
+      await openNote(page);
+      await inputWithPendingBridge(page);
+      if (leave === "打开设置") {
+        await page.getByRole("button", { name: "设置", exact: true }).first().click();
+        await expect(page.getByTestId("notes-module")).toBeHidden();
+      } else if (leave === "切换笔记") {
+        await treeItem(page, "别篇.md").click();
+        await expect(prose(page)).toContainText("别篇内容");
+      } else {
+        await page.getByRole("button", { name: "关闭 退出交付", exact: true }).click();
+        await expect(prose(page)).toHaveCount(0);
+      }
+      await expect.poll(async () => (await call<{ text: string } | null>(page, "notes.draft.get", { path: name }))?.text).toBe(written);
+      expect(readFileSync(file, "utf8")).toBe(original);
+
+      if (leave === "打开设置") {
+        await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+      } else {
+        await openNote(page);
+      }
+      const restore = page.getByTestId("note-draft-restore");
+      await expect(restore).toBeVisible();
+      await expect(prose(page)).not.toContainText(last);
+      await restore.click();
+      await expect(prose(page)).toContainText(`初始正文${first}${last}`);
+      expect(readFileSync(file, "utf8")).toBe(original);
+    } finally {
+      await close();
+    }
+  });
+}

@@ -331,6 +331,34 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(s.currentText()).toBe("two");
   });
 
+  test("重开草稿读取期间的待结算输入保留在当前编辑器", async () => {
+    const eng = new FakeEngine({ "a.md": "原文" });
+    const s = mk(eng, "a.md", { autosave: () => false });
+    await s.load();
+    s.setText("第一笔");
+    let pending = "第一笔";
+    s.attachDrainer(() => s.setText(pending));
+    const started = Promise.withResolvers<void>();
+    const done = Promise.withResolvers<void>();
+    const call = eng.call.bind(eng);
+    eng.call = async <T>(cap: string, input: unknown): Promise<T> => {
+      if (cap === "notes.read") {
+        started.resolve();
+        await done.promise;
+      }
+      return call<T>(cap, input);
+    };
+    const reopening = s.reopenDraft();
+    await started.promise;
+    pending = "第一笔和后来输入";
+    done.resolve();
+    await reopening;
+    expect(s.currentText()).toBe("第一笔和后来输入");
+    expect(eng.disk("a.md")).toBe("原文");
+    await s.flushForExit();
+    expect(eng.drafts.get("a.md")?.text).toBe("第一笔和后来输入");
+  });
+
   test("编码：BOM / CRLF / 末尾换行原样读写，不规范化", async () => {
     const text = "﻿line1\r\nline2\r\n";
     const eng = new FakeEngine({ "a.md": text });

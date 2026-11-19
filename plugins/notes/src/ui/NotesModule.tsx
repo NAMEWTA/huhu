@@ -11,6 +11,8 @@ import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
 import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
 import { TabStrip } from "./tabs/TabStrip.js";
 import { documentSessions } from "./documents/useDocumentSession.js";
+import type { DocumentSession } from "./documents/DocumentSession.js";
+import { useKnowledgeLocale } from "./useKnowledgeLocale.js";
 import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
@@ -34,7 +36,7 @@ export type DialogState =
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** 知识库（原型 NotesView）：左侧文件资源管理器 + 文档区 + 右侧详情抽屉。 */
-export function NotesModule({ onNavigate }: ModuleProps) {
+export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [section, setSection] = useState<Section>("all");
@@ -57,6 +59,36 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const notesRoot = useRef<HTMLDivElement>(null);
   const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
+  const locale = useKnowledgeLocale();
+  const parkedDocument = useRef<{ session: DocumentSession; locale: typeof locale; checkpoint: Promise<boolean> } | null>(null);
+  useEffect(() => {
+    const session = selected ? documentSessions.get(vaultId, selected) : undefined;
+    const parked = parkedDocument.current;
+    if (active) {
+      parkedDocument.current = null;
+      // 语言即时切换继续使用原编辑缓冲，普通返回则提供草稿恢复。
+      if (!parked || parked.session !== session || parked.locale !== locale) return;
+      let cancelled = false;
+      void parked.checkpoint
+        .then((hasDraft) => {
+          if (!cancelled && hasDraft) return parked.session.reopenDraft();
+        })
+        .catch((error: unknown) => setError(String(error)));
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!session || parked?.session === session) return;
+    // 设置页隐藏知识库时，编辑器仍挂载以即时应用语言变化。交付正文与草稿独立于卸载。
+    const checkpoint = session.flushForExit().then(
+      () => session.getSnapshot().hasUnsaved,
+      (error: unknown) => {
+        setError(String(error));
+        return false;
+      },
+    );
+    parkedDocument.current = { session, locale, checkpoint };
+  }, [active, locale, selected, vaultId]);
   const [inspector, setInspector] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [docText, setDocText] = useState("");

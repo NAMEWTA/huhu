@@ -160,7 +160,7 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
           const picker = page.getByTestId("emoji-picker-popover");
           await expect(picker).toBeVisible();
           await picker.getByRole("searchbox").fill("party popper");
-          await picker.getByRole("gridcell", { name: "Party popper", exact: true }).click();
+          await picker.getByRole("gridcell", { name: "拉炮彩带", exact: true }).click();
           await expect(picker).toBeHidden();
           await expect(editor.locator(":scope > p").last()).toHaveText("🎉");
           results[label] = "打开表情选择器并插入表情";
