@@ -7,20 +7,24 @@ import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
 const { values, positionals } = parseArgs({
-  options: { aa: { type: "boolean" }, pairs: { type: "string" }, "trace-modules": { type: "boolean" } },
+  options: { aa: { type: "boolean" }, pairs: { type: "string" }, "trace-modules": { type: "boolean" }, "nav-only": { type: "boolean" }, "frame-click": { type: "boolean" } },
   allowPositionals: true,
 });
 const aa = values.aa;
 const [baselineRoot, count] = aa ? [null, positionals[0]] : positionals;
 if ((!aa && !baselineRoot) || positionals.length > (aa ? 1 : 2) || (count !== undefined && values.pairs !== undefined)) {
-  throw new Error("用法：node scripts/measure-notes-startup.mjs (<rc.4 worktree> | --aa) [每侧次数 | --pairs N] [--trace-modules]");
+  throw new Error("用法：node scripts/measure-notes-startup.mjs (<rc.4 worktree> | --aa) [每侧次数 | --pairs N] [--trace-modules | --nav-only] [--frame-click]");
 }
 const pairsRequested = Number(values.pairs ?? count ?? 20);
 const traceModules = values["trace-modules"];
+const navOnly = values["nav-only"];
+const frameClick = values["frame-click"];
+if (navOnly && traceModules) throw new Error("--nav-only 不包含编辑器加载场景，不能与 --trace-modules 一起使用");
 if (!Number.isSafeInteger(pairsRequested) || pairsRequested < 1) throw new Error("采样对数必须为正整数");
 const fixtureText = "这是一篇用于测量初次打开时间的笔记";
 const taskTitle = "冷启动任务探针";
 const inboxTitle = "冷启动收件探针";
+const inboxBody = "用于测量收件箱冷启动。";
 const fixtureDate = "2026-01-01T00:00:00Z";
 const readyTimeout = 30_000;
 const bootstrapResamples = 10_000;
@@ -74,10 +78,24 @@ const earlyNavigation = [
       status: "pending",
       createdAt: fixtureDate,
     },
-    body: "用于测量收件箱冷启动。\n",
+    body: `${inboxBody}\n`,
+    bodyProbe: {
+      selector: '[data-testid="inbox-module"] .inbox-knowledge-inbox-note',
+      text: new RegExp(`^${inboxBody}$`),
+      frameMetric: "inboxBodyMs",
+      locatorMetric: "inboxBodyLocatorMs",
+    },
   },
 ];
-const metrics = ["homeMs", "homeLocatorMs", "inboxMs", "noteMs", ...[homeData, ...earlyNavigation].flatMap(({ frameMetric, locatorMetric }) => [frameMetric, locatorMetric])];
+const navigationMetrics = earlyNavigation.flatMap(({ id, frameMetric, locatorMetric, bodyProbe }) => [
+  frameMetric,
+  locatorMetric,
+  `${id}RailReadyMs`,
+  `${id}RailClickMs`,
+  `${id}ClickToDataMs`,
+  ...(bodyProbe ? [bodyProbe.frameMetric, bodyProbe.locatorMetric] : []),
+]);
+const metrics = navOnly ? navigationMetrics : ["homeMs", "homeLocatorMs", "inboxMs", "noteMs", homeData.frameMetric, homeData.locatorMetric, ...navigationMetrics];
 const chunkName = /^(?:rich-|host-fetch-|NoteEditorSurface-|explorer-|ok-globals-|katex-).*\.(js|css)$/;
 const sizeOf = (dir) =>
   readdirSync(dir, { withFileTypes: true, recursive: true })
@@ -115,9 +133,10 @@ console.log(
     logicalCPUs: cpus().length,
     launches: pairsRequested,
     pairsRequested,
-    coldLaunchesPerBuildPerPair: 3,
+    coldLaunchesPerBuildPerPair: navOnly ? 2 : 3,
     fixtureNotes: 2001,
     earlyNavigation: "fresh process, profile and vault; click the target rail button as soon as actionable",
+    clickDriver: frameClick ? "trusted pointer from first hit-testable renderer frame" : "Playwright locator actionability",
     bootstrapResamples,
     bootstrapSeed,
   }),
@@ -254,15 +273,59 @@ async function timeHomeAndNote(build, sample) {
 }
 
 async function timeBuild(build, sample) {
-  const result = await timeHomeAndNote(build, sample);
+  const result = navOnly ? {} : await timeHomeAndNote(build, sample);
   for (const scenario of earlyNavigation) {
     const times = await withColdLaunch(
       build,
       sample,
       async (page, launchStart) => {
         const button = page.locator(".shell-rail-item").and(page.getByRole("button", { name: scenario.name, exact: true }));
-        const [dataTimes] = await Promise.all([timeVisibleData(page, launchStart, scenario), button.click({ timeout: readyTimeout })]);
-        return dataTimes;
+        // Record the actual trusted click in the same renderer clock as data readiness.
+        // Otherwise launch-to-data cannot distinguish delayed input from slow module loading.
+        await page.evaluate((name) => {
+          document.addEventListener(
+            "click",
+            function onRailClick(event) {
+              const rail = event.target instanceof Element && event.target.closest(".shell-rail-item");
+              if (!event.isTrusted || !rail || rail.getAttribute("aria-label") !== name) return;
+              performance.mark("startup-rail-click");
+              document.removeEventListener("click", onRailClick, true);
+            },
+            true,
+          );
+        }, scenario.name);
+        const railReady = page
+          .waitForFunction(
+            (name) => {
+              const rail = [...document.querySelectorAll("button.shell-rail-item:not(:disabled)")].find((item) => item.getAttribute("aria-label") === name);
+              if (!rail || rail.closest('[aria-disabled="true"]')) return false;
+              const { x, y, width, height } = rail.getBoundingClientRect();
+              const cx = x + width / 2;
+              const cy = y + height / 2;
+              if (!width || !height || !rail.contains(document.elementFromPoint(cx, cy))) return false;
+              return { x: cx, y: cy, timestamp: performance.timeOrigin + performance.now() };
+            },
+            scenario.name,
+            { polling: "raf", timeout: readyTimeout },
+          )
+          .then((handle) => handle.jsonValue());
+        const click = frameClick ? railReady.then(({ x, y }) => page.mouse.click(x, y)) : button.click({ timeout: readyTimeout });
+        const [dataTimes, { timestamp: readyTimestamp }, , bodyTimes] = await Promise.all([
+          timeVisibleData(page, launchStart, scenario),
+          railReady,
+          click,
+          scenario.bodyProbe ? timeVisibleData(page, launchStart, scenario.bodyProbe) : undefined,
+        ]);
+        const clickTimestamp = await page.evaluate(() => performance.timeOrigin + (performance.getEntriesByName("startup-rail-click", "mark")[0]?.startTime ?? NaN));
+        if (!Number.isFinite(clickTimestamp)) throw new Error(`${scenario.name} 未捕获到导航点击`);
+        const clickMs = clickTimestamp - (performance.timeOrigin + launchStart);
+        return {
+          ...dataTimes,
+          ...bodyTimes,
+          [`${scenario.id}RailReadyMs`]: readyTimestamp - (performance.timeOrigin + launchStart),
+          [`${scenario.id}RailClickMs`]: clickMs,
+          [`${scenario.id}ClickToDataMs`]: dataTimes[scenario.frameMetric] - clickMs,
+        };
       },
       scenario,
     );
