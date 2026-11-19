@@ -8,6 +8,9 @@ npmRebuild: false # 没有需要针对 Electron ABI 编译的模块（@parcel/wa
 files:
   - out/**
   - package.json
+  - "!**/*.{test,spec,test-helper,test-helpers}.*"
+  - "!**/{__tests__,__fixtures__,test-utils,test,tests}/**"
+  - "!**/open-knowledge/**/{test,tests,fixtures}/**"
 extraResources:
   - from: resources/bin
     to: bin
