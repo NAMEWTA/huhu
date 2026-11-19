@@ -79,12 +79,13 @@ test("Embed 占位符可打开属性，外链不发请求，编辑后关闭重�
     await placeholder.click();
     await expect(source).toBeFocused();
     await source.fill(originalUrl);
-    await source.press("Enter");
     await expect(embed.getByRole("status")).toContainText(originalUrl);
+    await page.keyboard.press("Escape");
+    await expect(source).toBeHidden();
     await embed.locator("button[data-jsx-gear]").click();
     await source.fill(finalUrl);
-    await source.press("Enter");
     await expect(embed.getByRole("status")).toContainText(finalUrl);
+    await page.keyboard.press("Escape");
     const saved = await reopenSavedNote(page, file, /<Embed src="https:\/\/example\.invalid\/updated"\s*\/>/);
     expect(saved).not.toContain(originalUrl);
     await expect(embed.getByRole("status")).toContainText(/Off — external links|关闭——外部链接只显示 URL/);
