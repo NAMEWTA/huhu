@@ -4,6 +4,7 @@
 // 没有对应 Huhu 能力的端点返回 404 + { code: 'NOT_AVAILABLE' }，由 OkHost.features 关闭对应入口。
 export type HostRouteHandler = (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown;
 export type HostRoutes = Record<string, HostRouteHandler>;
+export const PASS_HOST_ROUTE = Symbol("pass host route");
 
 // 兜底路由表（最低优先级，永远在表里）：页面 / 文档清单没有宿主注入时返回空清单而不是 404，
 // 例如详情栏的批注页（OkRoot 只带评论路由）挂载时比编辑面更早发出 /api/pages。有数据的宿主路由仍然优先。
@@ -45,7 +46,9 @@ export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): P
       }
     }
     try {
-      return jsonResponse(200, await handler({ url, method, body }));
+      const result = await handler({ url, method, body });
+      if (result === PASS_HOST_ROUTE) continue;
+      return jsonResponse(200, result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // title / detail：vendor 的 ProblemDetailsSchema（RFC 9457）读这两个字段给用户看

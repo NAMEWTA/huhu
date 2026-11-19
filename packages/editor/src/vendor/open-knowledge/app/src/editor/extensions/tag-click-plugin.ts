@@ -5,11 +5,12 @@ export const TAG_CLICK_EVENT = 'ok:tag-click';
 
 export interface TagClickEventDetail {
   value: string;
+  anchor?: HTMLElement;
 }
 
-export function dispatchTagClickEvent(value: string): void {
+export function dispatchTagClickEvent(value: string, anchor?: HTMLElement): void {
   if (typeof document === 'undefined') return;
-  const detail: TagClickEventDetail = { value };
+  const detail: TagClickEventDetail = { value, anchor };
   document.dispatchEvent(new CustomEvent<TagClickEventDetail>(TAG_CLICK_EVENT, { detail }));
 }
 
@@ -34,7 +35,7 @@ export const TagClickPlugin = Extension.create({
 
               event.preventDefault();
               event.stopPropagation();
-              dispatchTagClickEvent(value);
+              dispatchTagClickEvent(value, anchor);
               return true;
             },
           },

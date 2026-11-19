@@ -445,7 +445,7 @@ export function ListWidget({ keyName, value, onCommit }: CommonWidgetProps<strin
                 data-tag={chip}
                 aria-label={t`Open documents tagged #${chip}`}
                 dir="auto"
-                onClick={() => dispatchTagClickEvent(chip)}
+                onClick={(event) => dispatchTagClickEvent(chip, event.currentTarget)}
                 className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 #{chip}
