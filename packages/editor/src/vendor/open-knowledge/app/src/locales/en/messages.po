@@ -12386,3 +12386,396 @@ msgstr "Toggle"
 
 msgid "Video"
 msgstr "Video"
+
+msgid "Tab"
+msgstr "Tab"
+
+msgid "GFM Callout"
+msgstr "GFM Callout"
+
+msgid "CommonMark Image"
+msgstr "CommonMark Image"
+
+msgid "Wiki Embed Image"
+msgstr "Wiki Embed Image"
+
+msgid "Wiki Embed Video"
+msgstr "Wiki Embed Video"
+
+msgid "Wiki Embed Audio"
+msgstr "Wiki Embed Audio"
+
+msgid "Wiki Embed File"
+msgstr "Wiki Embed File"
+
+msgid "HTML5 Details"
+msgstr "HTML5 Details"
+
+msgid "Dollar Math"
+msgstr "Dollar Math"
+
+msgid "Math Fence"
+msgstr "Math Fence"
+
+msgid "Add an image"
+msgstr "Add an image"
+
+msgid "Add a video"
+msgstr "Add a video"
+
+msgid "Add audio"
+msgstr "Add audio"
+
+msgid "Add a PDF"
+msgstr "Add a PDF"
+
+msgid "Add a file"
+msgstr "Add a file"
+
+msgid "Embed a URL"
+msgstr "Embed a URL"
+
+msgid "Add a Mermaid diagram"
+msgstr "Add a Mermaid diagram"
+
+msgid "Embed only supports cross-origin URLs"
+msgstr "Embed only supports cross-origin URLs"
+
+msgid "URL must start with http:// or https://"
+msgstr "URL must start with http:// or https://"
+
+msgid "Add {translated}"
+msgstr "Add {translated}"
+
+msgid "Icon"
+msgstr "Icon"
+
+msgid "Color"
+msgstr "Color"
+
+msgid "Collapsible"
+msgstr "Collapsible"
+
+msgid "Default open"
+msgstr "Default open"
+
+msgid "Src"
+msgstr "Src"
+
+msgid "Alt"
+msgstr "Alt"
+
+msgid "Width"
+msgstr "Width"
+
+msgid "Height"
+msgstr "Height"
+
+msgid "Srcset"
+msgstr "Srcset"
+
+msgid "Sizes"
+msgstr "Sizes"
+
+msgid "Decoding"
+msgstr "Decoding"
+
+msgid "Fetchpriority"
+msgstr "Fetchpriority"
+
+msgid "Crossorigin"
+msgstr "Crossorigin"
+
+msgid "Referrerpolicy"
+msgstr "Referrerpolicy"
+
+msgid "Align"
+msgstr "Align"
+
+msgid "Controls"
+msgstr "Controls"
+
+msgid "Autoplay"
+msgstr "Autoplay"
+
+msgid "Poster"
+msgstr "Poster"
+
+msgid "Muted"
+msgstr "Muted"
+
+msgid "Loop"
+msgstr "Loop"
+
+msgid "Playsinline"
+msgstr "Playsinline"
+
+msgid "Preload"
+msgstr "Preload"
+
+msgid "Id"
+msgstr "Id"
+
+msgid "Source attrs"
+msgstr "Source attrs"
+
+msgid "Alias"
+msgstr "Alias"
+
+msgid "Label"
+msgstr "Label"
+
+msgid "Formula"
+msgstr "Formula"
+
+msgid "Anchor"
+msgstr "Anchor"
+
+msgid "note"
+msgstr "note"
+
+msgid "tip"
+msgstr "tip"
+
+msgid "important"
+msgstr "important"
+
+msgid "warning"
+msgstr "warning"
+
+msgid "caution"
+msgstr "caution"
+
+msgid "abstract"
+msgstr "abstract"
+
+msgid "info"
+msgstr "info"
+
+msgid "todo"
+msgstr "todo"
+
+msgid "success"
+msgstr "success"
+
+msgid "question"
+msgstr "question"
+
+msgid "failure"
+msgstr "failure"
+
+msgid "danger"
+msgstr "danger"
+
+msgid "bug"
+msgstr "bug"
+
+msgid "example"
+msgstr "example"
+
+msgid "quote"
+msgstr "quote"
+
+msgid "eager"
+msgstr "eager"
+
+msgid "lazy"
+msgstr "lazy"
+
+msgid "sync"
+msgstr "sync"
+
+msgid "async"
+msgstr "async"
+
+msgid "auto"
+msgstr "auto"
+
+msgid "high"
+msgstr "high"
+
+msgid "low"
+msgstr "low"
+
+msgid "anonymous"
+msgstr "anonymous"
+
+msgid "use-credentials"
+msgstr "use-credentials"
+
+msgid "center"
+msgstr "center"
+
+msgid "left"
+msgstr "left"
+
+msgid "right"
+msgstr "right"
+
+msgid "justify"
+msgstr "justify"
+
+msgid "none"
+msgstr "none"
+
+msgid "metadata"
+msgstr "metadata"
+
+msgid "video"
+msgstr "video"
+
+msgid "audio"
+msgstr "audio"
+
+msgid "image"
+msgstr "image"
+
+msgid "Tab {0}"
+msgstr "Tab {0}"
+
+msgid "Tab {index}"
+msgstr "Tab {index}"
+
+msgid "Edit {componentLabel} source"
+msgstr "Edit {componentLabel} source"
+
+msgid "Comment or ask AI about this {componentLabel}"
+msgstr "Comment or ask AI about this {componentLabel}"
+
+msgid "100px, 50%, 26rem, auto"
+msgstr "100px, 50%, 26rem, auto"
+
+msgid "Not a valid URL."
+msgstr "Not a valid URL."
+
+msgid "Data URIs are not supported for media fields. Use a hosted file URL."
+msgstr "Data URIs are not supported for media fields. Use a hosted file URL."
+
+msgid "Direct {media} file URL — {sample}"
+msgstr "Direct {media} file URL — {sample}"
+
+msgid "Unrecognized {name} URL. Paste a valid {name} share or embed link, or a direct {media} file URL."
+msgstr "Unrecognized {name} URL. Paste a valid {name} share or embed link, or a direct {media} file URL."
+
+msgid "{name} URLs are not direct {media} files. Paste a direct {media} file URL."
+msgstr "{name} URLs are not direct {media} files. Paste a direct {media} file URL."
+
+msgid "Missing file extension. Accepts: {accepted}."
+msgstr "Missing file extension. Accepts: {accepted}."
+
+msgid "Unsupported extension .{0}. Accepts: {accepted}."
+msgstr "Unsupported extension .{0}. Accepts: {accepted}."
+
+msgid "Enter a number (e.g. 100), a number with a CSS unit (e.g. 100px, 50%, 26rem), or one of: auto, inherit, initial, unset."
+msgstr "Enter a number (e.g. 100), a number with a CSS unit (e.g. 100px, 50%, 26rem), or one of: auto, inherit, initial, unset."
+
+msgid "Unknown CSS unit. Use px, %, rem, em, vh, vw, ch, ex, or fr."
+msgstr "Unknown CSS unit. Use px, %, rem, em, vh, vw, ch, ex, or fr."
+
+msgid "Revenue by region"
+msgstr "Revenue by region"
+
+msgid "North"
+msgstr "North"
+
+msgid "South"
+msgstr "South"
+
+msgid "East"
+msgstr "East"
+
+msgid "West"
+msgstr "West"
+
+msgid "Central"
+msgstr "Central"
+
+msgid "Active users"
+msgstr "Active users"
+
+msgid "Revenue"
+msgstr "Revenue"
+
+msgid "Churn"
+msgstr "Churn"
+
+msgid "MoM"
+msgstr "MoM"
+
+msgid "70 percent complete"
+msgstr "70 percent complete"
+
+msgid "Onboarding progress"
+msgstr "Onboarding progress"
+
+msgid "7 of 10 steps complete"
+msgstr "7 of 10 steps complete"
+
+msgid "Monthly budget"
+msgstr "Monthly budget"
+
+msgid "Drag to adjust — the figure updates live."
+msgstr "Drag to adjust — the figure updates live."
+
+msgid "Drag to adjust"
+msgstr "Drag to adjust"
+
+msgid "sandbox"
+msgstr "sandbox"
+
+msgid "A bar chart whose series colors track the OK chart palette."
+msgstr "A bar chart whose series colors track the OK chart palette."
+
+msgid "A row of metric cards on themed card surfaces."
+msgstr "A row of metric cards on themed card surfaces."
+
+msgid "An inline SVG progress ring drawn with theme tokens."
+msgstr "An inline SVG progress ring drawn with theme tokens."
+
+msgid "A themed range slider with a live-updating value."
+msgstr "A themed range slider with a live-updating value."
+
+msgid "link"
+msgstr "link"
+
+msgid "Back to reference"
+msgstr "Back to reference"
+
+msgid "#F05032 or rgb(240,80,50)"
+msgstr "#F05032 or rgb(240,80,50)"
+
+msgid "lucide:Lightbulb or 📘"
+msgstr "lucide:Lightbulb or 📘"
+
+msgid "Default Open"
+msgstr "Default Open"
+
+msgid "Source Attrs"
+msgstr "Source Attrs"
+
+msgid "Link: {href}"
+msgstr "Link: {href}"
+
+msgid "Resize from the top left"
+msgstr "Resize from the top left"
+
+msgid "Resize from the top"
+msgstr "Resize from the top"
+
+msgid "Resize from the top right"
+msgstr "Resize from the top right"
+
+msgid "Resize from the right"
+msgstr "Resize from the right"
+
+msgid "Resize from the bottom right"
+msgstr "Resize from the bottom right"
+
+msgid "Resize from the bottom"
+msgstr "Resize from the bottom"
+
+msgid "Resize from the bottom left"
+msgstr "Resize from the bottom left"
+
+msgid "Resize from the left"
+msgstr "Resize from the left"

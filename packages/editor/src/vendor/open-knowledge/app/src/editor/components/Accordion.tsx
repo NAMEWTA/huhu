@@ -5,6 +5,7 @@
  */
 
 import { ChevronRight } from 'lucide-react';
+import { useLingui } from '@lingui/react/macro';
 import { resolveLucideIcon } from './lucide-icon-allowlist.ts';
 
 interface AccordionProps {
@@ -18,6 +19,7 @@ interface AccordionProps {
 }
 
 export function Accordion(props: AccordionProps) {
+  const { t } = useLingui();
   const IconOverride = resolveLucideIcon(props.icon);
 
   return (
@@ -34,7 +36,7 @@ export function Accordion(props: AccordionProps) {
           <IconOverride size={16} className="accordion-icon" aria-hidden="true" />
         ) : null}
         <span className="accordion-title-group">
-          <span className="accordion-title">{props.title ?? 'Accordion'}</span>
+          <span className="accordion-title">{props.title ?? t`Accordion`}</span>
           {props.description ? (
             <span className="accordion-description">{props.description}</span>
           ) : null}

@@ -757,7 +757,7 @@ msgid "{seconds}s ago"
 msgstr "{seconds} 秒前"
 
 msgid "{settingsDescriptorLabel} properties"
-msgstr "{settingsDescriptorLabel} 属性"
+msgstr "{settingsDescriptorLabel}属性"
 
 msgid "{shareBranch} isn't a valid branch name."
 msgstr "{shareBranch} 不是有效的分支名。"
@@ -10332,7 +10332,7 @@ msgid "Tag value"
 msgstr "标签值"
 
 msgid "tag-name"
-msgstr "tag-name"
+msgstr "标签名"
 
 msgid "tags"
 msgstr "标签"
@@ -12386,3 +12386,396 @@ msgstr "折叠块"
 
 msgid "Video"
 msgstr "视频"
+
+msgid "Tab"
+msgstr "标签"
+
+msgid "GFM Callout"
+msgstr "GFM 提示框"
+
+msgid "CommonMark Image"
+msgstr "CommonMark 图片"
+
+msgid "Wiki Embed Image"
+msgstr "维基嵌入图片"
+
+msgid "Wiki Embed Video"
+msgstr "维基嵌入视频"
+
+msgid "Wiki Embed Audio"
+msgstr "维基嵌入音频"
+
+msgid "Wiki Embed File"
+msgstr "维基嵌入文件"
+
+msgid "HTML5 Details"
+msgstr "HTML5 详情"
+
+msgid "Dollar Math"
+msgstr "行内数学公式"
+
+msgid "Math Fence"
+msgstr "数学公式块"
+
+msgid "Add an image"
+msgstr "添加图片"
+
+msgid "Add a video"
+msgstr "添加视频"
+
+msgid "Add audio"
+msgstr "添加音频"
+
+msgid "Add a PDF"
+msgstr "添加 PDF"
+
+msgid "Add a file"
+msgstr "添加文件"
+
+msgid "Embed a URL"
+msgstr "嵌入 URL"
+
+msgid "Add a Mermaid diagram"
+msgstr "添加 Mermaid 图"
+
+msgid "Embed only supports cross-origin URLs"
+msgstr "嵌入仅支持跨源 URL"
+
+msgid "URL must start with http:// or https://"
+msgstr "URL 必须以 http:// 或 https:// 开头"
+
+msgid "Add {translated}"
+msgstr "添加{translated}"
+
+msgid "Icon"
+msgstr "图标"
+
+msgid "Color"
+msgstr "颜色"
+
+msgid "Collapsible"
+msgstr "可折叠"
+
+msgid "Default open"
+msgstr "默认展开"
+
+msgid "Src"
+msgstr "来源"
+
+msgid "Alt"
+msgstr "替代文本"
+
+msgid "Width"
+msgstr "宽度"
+
+msgid "Height"
+msgstr "高度"
+
+msgid "Srcset"
+msgstr "候选图片"
+
+msgid "Sizes"
+msgstr "图片尺寸"
+
+msgid "Decoding"
+msgstr "解码方式"
+
+msgid "Fetchpriority"
+msgstr "资源优先级"
+
+msgid "Crossorigin"
+msgstr "跨源请求"
+
+msgid "Referrerpolicy"
+msgstr "引用来源政策"
+
+msgid "Align"
+msgstr "对齐方式"
+
+msgid "Controls"
+msgstr "播放控件"
+
+msgid "Autoplay"
+msgstr "自动播放"
+
+msgid "Poster"
+msgstr "封面图"
+
+msgid "Muted"
+msgstr "静音"
+
+msgid "Loop"
+msgstr "循环播放"
+
+msgid "Playsinline"
+msgstr "内嵌播放"
+
+msgid "Preload"
+msgstr "预加载"
+
+msgid "Id"
+msgstr "标识符"
+
+msgid "Source attrs"
+msgstr "源码属性"
+
+msgid "Alias"
+msgstr "别名"
+
+msgid "Label"
+msgstr "标签"
+
+msgid "Formula"
+msgstr "公式"
+
+msgid "Anchor"
+msgstr "锚点"
+
+msgid "note"
+msgstr "备注"
+
+msgid "tip"
+msgstr "提示"
+
+msgid "important"
+msgstr "重要"
+
+msgid "warning"
+msgstr "警告"
+
+msgid "caution"
+msgstr "注意"
+
+msgid "abstract"
+msgstr "摘要"
+
+msgid "info"
+msgstr "信息"
+
+msgid "todo"
+msgstr "待办"
+
+msgid "success"
+msgstr "成功"
+
+msgid "question"
+msgstr "问题"
+
+msgid "failure"
+msgstr "失败"
+
+msgid "danger"
+msgstr "危险"
+
+msgid "bug"
+msgstr "缺陷"
+
+msgid "example"
+msgstr "示例"
+
+msgid "quote"
+msgstr "引用"
+
+msgid "eager"
+msgstr "立即加载"
+
+msgid "lazy"
+msgstr "延迟加载"
+
+msgid "sync"
+msgstr "同步"
+
+msgid "async"
+msgstr "异步"
+
+msgid "auto"
+msgstr "自动"
+
+msgid "high"
+msgstr "高"
+
+msgid "low"
+msgstr "低"
+
+msgid "anonymous"
+msgstr "匿名"
+
+msgid "use-credentials"
+msgstr "带凭据"
+
+msgid "center"
+msgstr "居中"
+
+msgid "left"
+msgstr "左对齐"
+
+msgid "right"
+msgstr "右对齐"
+
+msgid "justify"
+msgstr "两端对齐"
+
+msgid "none"
+msgstr "无"
+
+msgid "metadata"
+msgstr "元数据"
+
+msgid "video"
+msgstr "视频"
+
+msgid "audio"
+msgstr "音频"
+
+msgid "image"
+msgstr "图片"
+
+msgid "Tab {0}"
+msgstr "标签 {0}"
+
+msgid "Tab {index}"
+msgstr "标签 {index}"
+
+msgid "Edit {componentLabel} source"
+msgstr "编辑{componentLabel}源码"
+
+msgid "Comment or ask AI about this {componentLabel}"
+msgstr "对此{componentLabel}发表评论或询问 AI"
+
+msgid "100px, 50%, 26rem, auto"
+msgstr "100px、50%、26rem、auto"
+
+msgid "Not a valid URL."
+msgstr "URL 格式无效。"
+
+msgid "Data URIs are not supported for media fields. Use a hosted file URL."
+msgstr "媒体字段不支持数据 URI。请使用文件的 URL。"
+
+msgid "Direct {media} file URL — {sample}"
+msgstr "{media}文件直链 URL（{sample}）"
+
+msgid "Unrecognized {name} URL. Paste a valid {name} share or embed link, or a direct {media} file URL."
+msgstr "无法识别 {name} URL。请粘贴有效的 {name} 分享、嵌入链接或{media}文件直链。"
+
+msgid "{name} URLs are not direct {media} files. Paste a direct {media} file URL."
+msgstr "{name} URL 不是{media}文件直链。请粘贴文件的 URL。"
+
+msgid "Missing file extension. Accepts: {accepted}."
+msgstr "缺少文件扩展名。支持 {accepted}。"
+
+msgid "Unsupported extension .{0}. Accepts: {accepted}."
+msgstr "不支持扩展名 .{0}。支持 {accepted}。"
+
+msgid "Enter a number (e.g. 100), a number with a CSS unit (e.g. 100px, 50%, 26rem), or one of: auto, inherit, initial, unset."
+msgstr "请输入数字（如 100）、带 CSS 单位的数值（如 100px、50%、26rem），或使用 auto、inherit、initial、unset。"
+
+msgid "Unknown CSS unit. Use px, %, rem, em, vh, vw, ch, ex, or fr."
+msgstr "未知 CSS 单位。请使用 px、%、rem、em、vh、vw、ch、ex 或 fr。"
+
+msgid "Revenue by region"
+msgstr "各地区收入"
+
+msgid "North"
+msgstr "北部"
+
+msgid "South"
+msgstr "南部"
+
+msgid "East"
+msgstr "东部"
+
+msgid "West"
+msgstr "西部"
+
+msgid "Central"
+msgstr "中部"
+
+msgid "Active users"
+msgstr "活跃用户"
+
+msgid "Revenue"
+msgstr "收入"
+
+msgid "Churn"
+msgstr "流失率"
+
+msgid "MoM"
+msgstr "环比"
+
+msgid "70 percent complete"
+msgstr "已完成 70%"
+
+msgid "Onboarding progress"
+msgstr "入门进度"
+
+msgid "7 of 10 steps complete"
+msgstr "已完成 10 步中的 7 步"
+
+msgid "Monthly budget"
+msgstr "每月预算"
+
+msgid "Drag to adjust — the figure updates live."
+msgstr "拖动以调整，数值会实时更新。"
+
+msgid "Drag to adjust"
+msgstr "拖动以调整"
+
+msgid "sandbox"
+msgstr "沙箱"
+
+msgid "A bar chart whose series colors track the OK chart palette."
+msgstr "使用图表调色板的柱状图。"
+
+msgid "A row of metric cards on themed card surfaces."
+msgstr "使用主题样式显示一排指标卡片。"
+
+msgid "An inline SVG progress ring drawn with theme tokens."
+msgstr "使用主题样式绘制的行内 SVG 进度环。"
+
+msgid "A themed range slider with a live-updating value."
+msgstr "带有实时数值的主题滑块。"
+
+msgid "link"
+msgstr "链接"
+
+msgid "Back to reference"
+msgstr "返回脚注引用"
+
+msgid "#F05032 or rgb(240,80,50)"
+msgstr "#F05032 或 rgb(240,80,50)"
+
+msgid "lucide:Lightbulb or 📘"
+msgstr "lucide:Lightbulb 或 📘"
+
+msgid "Default Open"
+msgstr "默认展开"
+
+msgid "Source Attrs"
+msgstr "源码属性"
+
+msgid "Link: {href}"
+msgstr "链接：{href}"
+
+msgid "Resize from the top left"
+msgstr "从左上角调整大小"
+
+msgid "Resize from the top"
+msgstr "从上侧调整大小"
+
+msgid "Resize from the top right"
+msgstr "从右上角调整大小"
+
+msgid "Resize from the right"
+msgstr "从右侧调整大小"
+
+msgid "Resize from the bottom right"
+msgstr "从右下角调整大小"
+
+msgid "Resize from the bottom"
+msgstr "从下侧调整大小"
+
+msgid "Resize from the bottom left"
+msgstr "从左下角调整大小"
+
+msgid "Resize from the left"
+msgstr "从左侧调整大小"

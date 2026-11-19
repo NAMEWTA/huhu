@@ -98,3 +98,55 @@
 ### Modern Web Guidance
 
 检索了 `split lazy javascript modules` 和 `localize accessible button labels`。读取 `conditional-async-dependencies`、`performance` 和 `accessibility`。将“DO use dynamic imports”用于非 Markdown 查看器边界。应用“Do include a control’s visible text in its accessible name”，气泡菜单用同一消息生成鼠标提示和读屏名称。
+
+## task03 复验
+
+重启后现场为集成合并 `e473f76`，保留了合并后尚未暂存的实现。旧 `test-results` 仅用于回溯，重启前的 build、类型检查和 rc.4 打包均重跑。通过 `pnpm install --frozen-lockfile` 对齐集成锁文件。完整 Electron 运行使用生产配置，Xvfb 为 2200 × 1300。因早期打包仍在读取默认 out，从临时目录启动相同生产配置构建的 `b8bafc9`。E2E 矩阵对历史 `matrix-run.json` 的唯一写入重定向到 /tmp。
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm knip` | 业务构建均退出 0。 |
+| `pnpm build` | 重启后重跑成功，默认 out 和独立暂存均用相同生产构建配置，完成文件标记 `b8bafc9`。 |
+| `node scripts/ok-patches.mjs --check` | 217 条登记，未登记 0，多余登记 0。 |
+| `pnpm notices` | 退出 0，列出 1,400 项。生成文件新增集成分支引入的测试辅助依赖 `@testing-library/user-event`，保留生成差异用于核对，清除业务提交中的生成副作用。 |
+| `pnpm test` | 初次并发时 Engine 的 3 项测试超时。单独重跑 3 轮，每个用例均通过。第二次全量 987 通过、1 跳过，退出 0。 |
+| `pnpm test:vendor` | 首次 6,008 通过，R13 依赖树扫描超时，另有 Vitest RPC 超时。R13 单独复跑三次均通过。第二次全量 290 文件，6,009 通过、4 跳过，退出 0。 |
+| H03 和 B01 定向 Electron | 4/4 通过。中文表面和逐命令扫描白名单外均为零。 |
+
+### Modern Web Guidance
+
+- **`menu`**：复用了现有菜单容器，并在键盘触发时聚焦第一项，Esc 后返回标签（“Closes it and restores focus to its trigger”）。
+- **`viewport-aware-dropdowns`**：原生 Popover 让菜单独立于标签条滚动区域。位置按窗口与菜单实际尺寸限制。鼠标触发使用指针，键盘触发使用标签位置。
+- **`forms`**：语言使用原生单选下拉，显示标签通过 `for` 和 `id` 关联，选项声明各自的内容语言。
+
+### 全量端到端结果
+
+`xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/a11y.spec.ts` 的 Playwright 结果为 80 通过、6 失败、1 默认跳过。a11y 的 4 个场景、H03 的 3 个场景、B01 标签菜单、F07 全部宽度和 F10 的 200 轮均通过。[全量日志](task03-e2e-full.txt)
+
+- 4 项稳定定位失败。复刻测试的 Embed 仍找英文菜单项，气泡仍找 `underline`，Callout 仍找 `Callout properties` / `Callout 属性`，而文件树用例仍找 `Options`。这些用例归其他工作项维护，实际显示分别为“嵌入”“下划线”“提示框属性”“文件操作选项”。
+- 完整旅程首次在 TXT 查看器等待 `.cm-content` 超时。独立复跑三次通过两次，另一回切回笔记继续输入后，磁盘断言缺少尾字。两种失败的共同原因尚未定位。[旅程复跑](task03-journey-retries.txt)
+- F08 主题矩阵原先依赖从设置返回知识库时详情栏重置。H03 语言切换要求保留现有详情栏，测试改为显式打开详情和选择属性页，独立复跑 3/3 通过。[F08 复跑日志](task03-f08-retries.txt)
+
+最终 ASAR 路径与内容断言通过，解包应用冒烟验证 4/4 通过。G07 的同格式 Debian 体积对照完成。30 分钟负载监测未达到开跑阈值，启动样本未生成。[ASAR 证据](asar-contents.md) · [G07 证据](g07-budget.md)
+
+## task04 HTML 代码块预览
+
+`zh-modern-web-guidance` 检索词为 `isolate sandboxed iframe content`，读取 `security`、`validate-origins`。按 “Always validate the `event.origin` of incoming messages” 校验父窗口来源和窗口引用，再校验正文类型。子框架使用不透明来源，发送端按实际 iframe 的 `contentWindow` 投递，桌面主进程限制该框架的导航和请求。根据 “verify `event.source === expectedWidgetWindow`”，上游编辑器接收预览高度和 CSP 事件时沿用其对具体 iframe 窗口的核对。
+
+生产基线确认缺失内页，首轮修复运行在加载富编辑器时耗尽 5 秒断言时限。另一轮已跑通手写预览的网络与权限断言，工具栏按钮改用键盘操作后通过编辑入口。180 秒整条时限的轨迹显示前四种模板已成功编辑、保存、重开，第五种模板已渲染。最终用例给予整条六场景流程 300 秒，在单项中保留 12 秒 DOM 断言时限。
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm typecheck` | 退出 0。首次发现主进程的 Vite 原始资源导入缺少类型声明，补齐引用后全量复跑通过。 |
+| `pnpm lint`、`pnpm format:check`、`pnpm knip` | 均退出 0。Knip 报告编辑器已有的两条 ignoreDependencies 配置提示。 |
+| `pnpm test:vendor` | 单次执行 290 文件、6,009 通过、4 跳过，退出 0。以 `VITEST_MAX_FORKS=2`、`VITEST_MAX_THREADS=2` 控制本机并发。 |
+| `node scripts/ok-patches.mjs --check` | 220 条登记，未登记 0，多余登记 0。 |
+| `pnpm build` | 退出 0。主进程内联内页，同时生成浏览器资源 `preview-frame-BkDyy7do.html`。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/preview-*.spec.ts tests/e2e/workflows/viewers.spec.ts` | 9/10 通过。新用例和两项 F05 通过，F04 在切回预览后单次获取子框架时提前退出。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge/preview-*.spec.ts --repeat-each=5` | 5/5 通过，每轮本地监听器收到 0 个请求。8 个逻辑核，1 分钟负载采样范围 27.54–62.54。 |
+| `xvfb-run -a pnpm e2e tests/e2e/workflows/viewers.spec.ts --grep 'F04\|F05' --repeat-each=3` | 两项 F05 均 3/3。F04 三次均在相同的子框架获取步骤提前退出。 |
+| `pnpm --filter @huhu/editor build:harness` + Chromium | 浏览器从带哈希的内页渲染 HTML，iframe 来源为 `null`，本地监听器收到 0 个请求。 |
+
+[功能和隔离证据](html-preview.md) · [Electron 重复测试与负载](task04-e2e-repeat.txt) · [规定命令及查看器复跑原始结果](task04-e2e-viewers.txt)
+
+F04 子框架时序对照在生产渲染器与 preload 相同的条件下交替执行。仅把协议会话退回 `212f1cd` 也会出现单次查询得到空框架。等待框架挂载后，F04 行为断言在两个构建均为 3/3。[对照输出](task04-f04-diagnostic.txt)

@@ -118,7 +118,7 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
                 <PageListProvider>
                   <ExternalHandoffGateProvider>
                     <SidebarProvider style={{ minHeight: 0, height: "100%", flex: 1 }}>
-                      <div className="ok-root ok-explorer-root" data-testid="ok-explorer" style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+                      <div className="ok-root ok-explorer-root" lang={locale} data-testid="ok-explorer" style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
                         <FileTree />
                       </div>
                     </SidebarProvider>

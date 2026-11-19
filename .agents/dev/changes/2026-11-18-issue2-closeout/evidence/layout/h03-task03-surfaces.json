@@ -1,0 +1,25 @@
+{
+  "toolbar": [
+    "导出 Markdown",
+    "本地化样本.md"
+  ],
+  "editor": [],
+  "tree": [
+    ".agents",
+    ".huhu",
+    "本地化样本.md"
+  ],
+  "properties": [],
+  "comments": [],
+  "treeMenu": [],
+  "bubbleMenu": [
+    "在 markdown 源码中查看"
+  ],
+  "slashMenu": [
+    "Excalidraw",
+    "HTML",
+    "Mermaid",
+    "PDF",
+    "自定义 SVG"
+  ]
+}

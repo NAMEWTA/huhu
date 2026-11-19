@@ -27,6 +27,7 @@ import { UploadFailedError, UploadRejectedError } from '@/editor/image-upload/up
 import { uploadFile } from '@/editor/image-upload/upload-file.ts';
 import type { JsxComponentDescriptor } from '@/editor/registry/types.ts';
 import { authoredText } from '@/editor/utils/authored-text.ts';
+import { enumLabel, propertyLabel } from '@/editor/registry/block-labels';
 import { getAutoFocusedPropName, humanizePropName } from '@/editor/utils/editor-strings.ts';
 import {
   cssLengthValidationMessage,
@@ -213,7 +214,7 @@ function PropControl({
         return (
           <div className="flex flex-col gap-1">
             <label id={labelId} htmlFor={stringId} className="text-xs text-muted-foreground">
-              {humanizePropName(propDef.name)}
+              {propertyLabel(humanizePropName(propDef.name))}
             </label>
             <CodeMirrorPropInput
               id={stringId}
@@ -237,7 +238,7 @@ function PropControl({
         return (
           <div className="flex flex-col gap-1">
             <label htmlFor={stringId} className="text-xs text-muted-foreground">
-              {humanizePropName(propDef.name)}
+              {propertyLabel(humanizePropName(propDef.name))}
             </label>
             <IconPickerInput
               id={stringId}
@@ -259,7 +260,7 @@ function PropControl({
         return (
           <div className="flex flex-col gap-1">
             <label htmlFor={stringId} className="text-xs text-muted-foreground">
-              {humanizePropName(propDef.name)}
+              {propertyLabel(humanizePropName(propDef.name))}
             </label>
             <ColorPickerInput
               id={stringId}
@@ -285,7 +286,7 @@ function PropControl({
         return (
           <div className="flex flex-col gap-1">
             <label htmlFor={stringId} className="text-xs text-muted-foreground">
-              {humanizePropName(propDef.name)}
+              {propertyLabel(humanizePropName(propDef.name))}
             </label>
             <DocumentAutocomplete
               id={stringId}
@@ -304,7 +305,7 @@ function PropControl({
         return (
           <div className="flex flex-col gap-1">
             <label htmlFor={stringId} className="text-xs text-muted-foreground">
-              {humanizePropName(propDef.name)}
+              {propertyLabel(humanizePropName(propDef.name))}
             </label>
             <MirrorSourceAutocomplete
               id={stringId}
@@ -326,13 +327,13 @@ function PropControl({
         return (
           <div className="flex flex-col gap-1">
             <label htmlFor={stringId} className="text-xs text-muted-foreground">
-              {humanizePropName(propDef.name)}
+              {propertyLabel(humanizePropName(propDef.name))}
             </label>
             <Input
               id={stringId}
               type="text"
               value={stringValue}
-              placeholder="100px, 50%, 26rem, auto"
+              placeholder={t`100px, 50%, 26rem, auto`}
               onChange={(e) => {
                 const raw = e.target.value;
                 if (raw === '' && treatEmptyAsUndefined) {
@@ -378,7 +379,7 @@ function PropControl({
       return (
         <div className="flex flex-col gap-1">
           <label htmlFor={stringId} className="text-xs text-muted-foreground">
-            {humanizePropName(propDef.name)}
+            {propertyLabel(humanizePropName(propDef.name))}
           </label>
           <div className="flex flex-col gap-1.5">
             {accept !== undefined ? (
@@ -441,7 +442,7 @@ function PropControl({
 
     case 'boolean': {
       const boolId = `prop-${propDef.name}`;
-      const boolLabel = humanizePropName(propDef.name);
+      const boolLabel = propertyLabel(humanizePropName(propDef.name));
       return (
         <div className="flex items-center justify-between gap-2">
           <label htmlFor={boolId} className="text-xs text-muted-foreground">
@@ -462,7 +463,7 @@ function PropControl({
       return (
         <div className="flex flex-col gap-1">
           <label htmlFor={enumId} className="text-xs text-muted-foreground">
-            {humanizePropName(propDef.name)}
+            {propertyLabel(humanizePropName(propDef.name))}
           </label>
           <Select value={enumValue} onValueChange={onChange}>
             <SelectTrigger id={enumId} size="sm">
@@ -471,7 +472,7 @@ function PropControl({
             <SelectContent className="z-70">
               {propDef.enumValues.map((v) => (
                 <SelectItem key={v} value={v}>
-                  {v}
+                  {enumLabel(v)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -485,7 +486,7 @@ function PropControl({
       return (
         <div className="flex flex-col gap-1">
           <label htmlFor={numberId} className="text-xs text-muted-foreground">
-            {humanizePropName(propDef.name)}
+            {propertyLabel(humanizePropName(propDef.name))}
           </label>
           <Input
             id={numberId}

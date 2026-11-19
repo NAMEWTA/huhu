@@ -17,15 +17,13 @@ describe('buildPreviewIframeHeader — CSP directives', () => {
     expect(csp).toContain("default-src 'none'");
   });
 
-  test('opens the network surface to https:/wss: scheme-sources', () => {
-    expect(csp).toContain("script-src 'unsafe-inline' https:");
-    expect(csp).toContain("style-src 'unsafe-inline' https: data:");
-    expect(csp).toContain('img-src https: data: blob:');
-    expect(csp).toContain('font-src https: data:');
-    expect(csp).toContain('connect-src https: wss: data: blob:');
-    expect(csp).toContain('media-src https: data: blob:');
-    expect(csp).toContain('frame-src https:');
-    expect(csp).toContain('child-src https:');
+  test('blocks external requests and only allows embedded media and fonts', () => {
+    expect(csp).toContain("connect-src 'none'");
+    expect(csp).toContain("frame-src 'none'");
+    expect(csp).toContain('img-src data: blob:;');
+    expect(csp).toContain('font-src data:;');
+    expect(csp).toContain('media-src data: blob:;');
+    expect(csp).not.toMatch(/\b(?:https?|wss?):/);
   });
 
   test('permits inline scripts + styles (the whole point of the preview)', () => {

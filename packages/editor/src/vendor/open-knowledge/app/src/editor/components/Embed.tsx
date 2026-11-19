@@ -1,3 +1,4 @@
+import { useLingui } from '@lingui/react/macro';
 import { ExternalEmbedBlockedNotice } from './PreviewBlockedNotice.tsx';
 
 interface EmbedProps {
@@ -15,16 +16,17 @@ function isCrossOriginUrl(src: string): boolean {
 }
 
 export function Embed({ src }: EmbedProps) {
+  const { t } = useLingui();
   if (typeof src === 'string' && HTTP_SCHEME_RE.test(src) && isCrossOriginUrl(src)) {
     // Q3: the editor never starts an external request for an authored Embed block.
     return <ExternalEmbedBlockedNotice url={src} />;
   }
 
-  let message = 'Embed a URL';
+  let message = t`Embed a URL`;
   if (typeof src === 'string' && src.length > 0) {
     message = HTTP_SCHEME_RE.test(src)
-      ? 'Embed only supports cross-origin URLs'
-      : 'URL must start with http:// or https://';
+      ? t`Embed only supports cross-origin URLs`
+      : t`URL must start with http:// or https://`;
   }
 
   return (

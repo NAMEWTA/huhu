@@ -8,12 +8,16 @@ declare module '@tiptap/core' {
   }
 }
 
-export const FootnoteDefinition = Node.create({
+export const FootnoteDefinition = Node.create<{ backRefLabel: () => string }>({
   name: 'footnoteDefinition',
   group: 'block',
   content: 'block+',
   defining: true,
   priority: 60,
+
+  addOptions() {
+    return { backRefLabel: () => 'Back to reference' };
+  },
 
   addAttributes() {
     return {
@@ -52,7 +56,7 @@ export const FootnoteDefinition = Node.create({
           href: `#fnref-${id}`,
           class: 'footnote-backref',
           contentEditable: 'false',
-          'aria-label': 'Back to reference',
+          'aria-label': this.options.backRefLabel(),
         },
         '↩',
       ],
