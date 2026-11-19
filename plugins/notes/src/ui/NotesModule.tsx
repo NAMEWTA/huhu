@@ -1,6 +1,6 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { onOpenRequest, queryKey, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, onOpenRequest, queryKey, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
@@ -52,6 +52,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const archiveTab = tab && tab.kind !== "file" ? tab : null;
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<NoteContextMenuProps["menu"] | null>(null);
+  const [treeReveal, setTreeReveal] = useState<{ path: string; tab: typeof tab } | null>(null);
+  const notesRoot = useRef<HTMLDivElement>(null);
+  const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
@@ -144,6 +147,52 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
   }, [shell.tabs, vaultId]);
   const closeTab = (key: string) => dispatch({ type: "close", key });
+  async function closeTabsFromMenu(keys: readonly string[]) {
+    const active = activeTabRef.current;
+    const vault = vaultRef.current;
+    const flush = active && keys.includes(tabKey(active)) ? flushRef.current : null;
+    try {
+      if (flush && !(await flush())) return;
+      if (vaultRef.current !== vault || activeTabRef.current !== active) return;
+      keys.forEach(closeTab);
+    } catch (error) {
+      setError(String(error));
+    }
+  }
+  async function copyTabPath(path: string) {
+    try {
+      const desktop = host();
+      await (desktop ? desktop.copyText(path) : navigator.clipboard.writeText(path));
+    } catch (error) {
+      setError(String(error));
+    }
+  }
+  useEffect(() => {
+    if (!reveal || !notesRoot.current) return;
+    const root = notesRoot.current;
+    const selector = `[data-item-path="${CSS.escape(reveal.path)}"]`;
+    let shadow: ShadowRoot | null = null;
+    const observer = new MutationObserver(focusRow);
+    function focusRow() {
+      const next = root.querySelector('[data-testid="notes-resource-tree"] file-tree-container')?.shadowRoot ?? null;
+      if (next && next !== shadow) {
+        shadow = next;
+        observer.observe(next, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-item-path"] });
+      }
+      const row = shadow?.querySelector<HTMLElement>(selector);
+      if (!row) return;
+      observer.disconnect();
+      row.scrollIntoView({ block: "nearest" });
+      row.focus({ preventScroll: true });
+    }
+    observer.observe(root, { childList: true, subtree: true });
+    focusRow();
+    const timeout = window.setTimeout(() => observer.disconnect(), 5000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+    };
+  }, [reveal]);
   const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
   const expandTo = (dir: string) => {
     const parts = dir.split("/").filter(Boolean);
@@ -266,7 +315,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       />
     ) : null;
   return (
-    <div className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
       <NoteExplorer
         vaultName={vault.data?.name ?? "Vault"}
         section={section}
@@ -296,10 +345,10 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onTag={setTag}
         query={query}
         onQuery={setQuery}
-        selected={tab?.kind === "file" ? tab.path : null}
+        selected={reveal?.path ?? (tab?.kind === "file" ? tab.path : null)}
         onOpen={openNote}
         onOpenArchives={openArchivesHome}
-        archivesActive={archivesActive}
+        archivesActive={archivesActive && !reveal}
         archivesPanel={
           <ArchivesSidebar
             expanded={shell.sidebar.views.archives.expanded}
@@ -333,7 +382,22 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onDailyDate={setDailyDate}
       />
       <div className="notes-main">
-        {section !== "trash" && shell.tabs.tabs.length > 0 ? <TabStrip tabs={shell.tabs.tabs} activeKey={shell.tabs.activeKey} onFocus={focusTab} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} /> : null}
+        {section !== "trash" && shell.tabs.tabs.length > 0 ? (
+          <TabStrip
+            tabs={shell.tabs.tabs}
+            activeKey={shell.tabs.activeKey}
+            onFocus={focusTab}
+            onClose={closeTab}
+            onCloseMany={(keys) => void closeTabsFromMenu(keys)}
+            onCopyPath={(path) => void copyTabPath(path)}
+            onRevealPath={(path) => {
+              setSection("all");
+              setQuery("");
+              setTreeReveal({ path, tab });
+            }}
+            onNew={() => setDialog({ kind: "new", folder: "" })}
+          />
+        ) : null}
         {error ? (
           <div role="alert" className="hu-field-error">
             {error}

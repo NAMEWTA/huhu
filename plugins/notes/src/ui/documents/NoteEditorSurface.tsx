@@ -5,6 +5,7 @@ import { useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
+import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -37,6 +38,7 @@ const docNameOf = (path: string): string => path.replace(MD, "");
  */
 export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const engine = useEngine();
+  const locale = useKnowledgeLocale();
   // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
   const refs = useReferenceIndex();
   const notes = useRef(props.notes);
@@ -113,7 +115,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
 
   return (
-    <OkRoot acceptSidebarDrop locale="zh-Hans" routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}

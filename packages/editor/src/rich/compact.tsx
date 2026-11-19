@@ -64,7 +64,7 @@ function useCompactHost(pages: readonly CompactPage[] | undefined, onOpenPath: (
 export function CompactMarkdownView(props: CompactBase & { value: string }) {
   const { routes, documentHost } = useCompactHost(props.pages, props.onOpenPath);
   return (
-    <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} {...(props.className ? { className: props.className } : {})}>
+    <OkRoot routes={routes} documentHost={documentHost} {...(props.className ? { className: props.className } : {})}>
       <RichMarkdownEditor docName={`compact-view/${props.id}`} value={props.value} onChange={() => {}} mode="read" readOnly variant="compact" />
     </OkRoot>
   );
@@ -75,7 +75,7 @@ export function CompactMarkdownInput(
 ) {
   const { routes, documentHost } = useCompactHost(props.pages, props.onOpenPath);
   return (
-    <OkRoot locale="zh-Hans" routes={routes} documentHost={documentHost} {...(props.className ? { className: props.className } : {})}>
+    <OkRoot routes={routes} documentHost={documentHost} {...(props.className ? { className: props.className } : {})}>
       <RichMarkdownEditor
         docName={`compact-input/${props.id}`}
         value={props.value}

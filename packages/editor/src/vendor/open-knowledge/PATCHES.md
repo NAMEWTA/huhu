@@ -71,6 +71,12 @@
 
 ## H03 知识库界面本地化
 
+- `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。
+- `app/src/lib/activate-locale.ts`：允许同窗口内不指定语言的紧凑渲染继承已请求的知识库语言，防止覆盖已打开编辑器的 Lingui 目录。
+- `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。
+- `app/src/editor/components/ColorPickerInput.tsx`、`app/src/editor/components/IconPickerInput.tsx`、`app/src/editor/components/componentMap.tsx`：翻译输入示例与折叠块默认标题。
+- `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。
+
 - `app/src/editor/bubble-menu/InlineFormatButtons.tsx`：用 Lingui 的格式名称同时标记读屏按钮与气泡提示。
 - `app/src/editor/slash-command/SlashCommandMenu.tsx`、`app/src/editor/slash-command/component-items.tsx`、`app/src/editor/slash-command/embed-starter-items.tsx`：翻译分组、内置块和预览模板名称，原英文名称保留在搜索别名中。
 - `app/src/components/FileTree.tsx`：沿用文件树 Shadow DOM 的观察器，应用 Lingui 的文件操作按钮读屏名称。

@@ -1,6 +1,11 @@
 import { n } from "./i18n.js";
 import type { NoteRef } from "./NoteExplorer.js";
 import type { DialogState } from "./NotesModule.js";
+import type { ComponentProps } from "react";
+
+export function NoteMenu(props: ComponentProps<"div">) {
+  return <div {...props} className="shell-knowledge-file-menu" role="menu" />;
+}
 
 export interface NoteMenuAction {
   label: string;
@@ -24,13 +29,7 @@ export function NoteContextMenu({ menu, trash, onOpen, onDialog, onClose, onRest
   const note = menu.note;
   const act = (fn: () => void) => () => (fn(), onClose());
   return (
-    <div
-      className="shell-knowledge-file-menu"
-      role="menu"
-      aria-label="文件操作菜单"
-      style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y, maxHeight: `calc(100dvh - ${menu.y}px - 8px)` }}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <NoteMenu aria-label="文件操作菜单" style={{ position: "fixed", left: Math.max(8, menu.x - 200), top: menu.y, maxHeight: `calc(100dvh - ${menu.y}px - 8px)` }} onClick={(e) => e.stopPropagation()}>
       <div className="knowledge-menu-caption">{note.path.split("/").at(-1)}</div>
       {menu.actions?.length ? (
         <>
@@ -96,6 +95,6 @@ export function NoteContextMenu({ menu, trash, onOpen, onDialog, onClose, onRest
           </button>
         </>
       )}
-    </div>
+    </NoteMenu>
   );
 }

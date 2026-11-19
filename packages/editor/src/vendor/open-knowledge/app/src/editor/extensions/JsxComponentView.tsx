@@ -44,6 +44,7 @@ import {
   PopoverTrigger,
 } from '../../components/ui/popover.tsx';
 import { ViewInSourceBubbleButton } from '../bubble-menu/ViewInSourceBubbleButton.tsx';
+import { blockLabel } from '../registry/block-labels.ts';
 import { OPT_OUT_ATTR } from '../clipboard/index.ts';
 import { CodePreviewEditModal } from '../components/CodePreviewEditModal';
 import { DescriptorPlaceholder } from '../components/DescriptorPlaceholder.tsx';
@@ -406,7 +407,7 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
 
   if (stuck) {
     const componentName = node.attrs.componentName as string;
-    const descriptorLabel = descriptor.displayName ?? descriptor.name;
+    const descriptorLabel = blockLabel(descriptor.displayName ?? descriptor.name);
     const label =
       descriptor.name === '*'
         ? t`<${componentName}> isn't a known component. Copy the source to use it elsewhere, or delete the block.`
@@ -498,7 +499,7 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
 
   if (needsConversion) {
     const componentName = node.attrs.componentName as string;
-    const descriptorLabel = descriptor.displayName ?? descriptor.name;
+    const descriptorLabel = blockLabel(descriptor.displayName ?? descriptor.name);
     const label =
       descriptor.name === '*'
         ? t`Unknown component: ${componentName} — source editable below`
@@ -514,9 +515,9 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
   }
 
   const Comp = descriptor.Component;
-  const deleteDescriptorLabel = descriptor.displayName ?? descriptor.name;
-  const settingsDescriptorLabel = descriptor.displayName ?? descriptor.name;
-  const propPanelDescriptorLabel = descriptor.displayName ?? descriptor.name;
+  const deleteDescriptorLabel = blockLabel(descriptor.displayName ?? descriptor.name);
+  const settingsDescriptorLabel = blockLabel(descriptor.displayName ?? descriptor.name);
+  const propPanelDescriptorLabel = blockLabel(descriptor.displayName ?? descriptor.name);
 
   const handleBodyClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (showPlaceholder || showSourcePlaceholder) return;
@@ -542,7 +543,7 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
     setPopoverOpen(true);
   };
 
-  const componentLabel = descriptor.displayName ?? descriptor.name;
+  const componentLabel = blockLabel(descriptor.displayName ?? descriptor.name);
   const isGroupContainer = Boolean(descriptor.emptyChildName);
   const groupAriaLabel = isGroupContainer
     ? formatContainerAriaLabel(componentLabel, descriptor.emptyChildName, node.childCount)
@@ -782,7 +783,7 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
             <button
               type="button"
               className="jsx-chrome-btn"
-              aria-label={t`Edit ${descriptor.displayName ?? descriptor.name} source`}
+              aria-label={t`Edit ${componentLabel} source`}
               data-testid="jsx-component-edit-btn"
               onClick={() => setEditModalOpen(true)}
             >
@@ -818,7 +819,7 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
             <button
               type="button"
               className="jsx-chrome-btn"
-              aria-label={t`Comment or ask AI about this ${descriptor.displayName ?? descriptor.name}`}
+              aria-label={t`Comment or ask AI about this ${componentLabel}`}
               data-testid="jsx-component-ask-ai-btn"
               onClick={() => {
                 try {
@@ -1018,7 +1019,7 @@ export function JsxComponentView({ node, editor, extension, getPos, selected }: 
               : ''
           }
           language={editableSource.language}
-          title={t`Edit ${descriptor.displayName ?? descriptor.name} source`}
+          title={t`Edit ${componentLabel} source`}
           renderPreview={(value, setValue) => {
             const Component = descriptor.Component;
             const previewProps = {

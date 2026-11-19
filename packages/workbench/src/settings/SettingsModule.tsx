@@ -5,6 +5,7 @@ import { NotebookPen } from "lucide-react";
 import { createContext, useContext, useState } from "react";
 import { useSettingsPages, type ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
+import { queryKey } from "../engine-client/query.js";
 import { t } from "../i18n/zh-CN.js";
 
 export interface SettingsData {
@@ -42,6 +43,7 @@ export function SettingsModule({ section }: ModuleProps) {
     try {
       const next = await engine.call<Settings>("settings.update", { patch }, { write: true });
       appearanceController().set(next.appearance);
+      qc.setQueryData(queryKey(engine.vaultId, "settings.get"), next);
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -73,6 +75,17 @@ export function EditorPage() {
     <div data-testid="settings-editor">
       <section className="hu-settings-section hu-card-alt">
         <h2>阅读与编辑</h2>
+        <div className="hu-setting-row">
+          <label htmlFor="knowledge-editor-language">知识库编辑器语言</label>
+          <select id="knowledge-editor-language" value={e.knowledgeLocale} onChange={(ev) => set({ knowledgeLocale: ev.target.value })}>
+            <option value="zh-Hans" lang="zh-Hans">
+              简体中文
+            </option>
+            <option value="en" lang="en">
+              English
+            </option>
+          </select>
+        </div>
         <div className="hu-setting-row">
           <div>
             <strong>{t.settings.editorFontSize}</strong>
@@ -127,7 +140,7 @@ export function EditorPage() {
           <ChoiceSwitch checked={e.spellcheck} onChange={(v) => set({ spellcheck: v })} label={t.settings.spellcheck} />
         </div>
         <div className="row">
-          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: true, spellcheck: false })}>
+          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: true, spellcheck: false, knowledgeLocale: "zh-Hans" })}>
             {t.settings.resetEditor}
           </Button>
         </div>

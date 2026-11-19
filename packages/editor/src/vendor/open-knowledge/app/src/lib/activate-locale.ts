@@ -24,7 +24,11 @@ const CATALOG_LOADERS: Record<SupportedLocale, CatalogLoader> = {
 
 const loadedLocales = new Set<SupportedLocale>([FALLBACK_LOCALE]);
 
-let requestedLocale: SupportedLocale = FALLBACK_LOCALE;
+let requestedLocale: SupportedLocale = 'zh-Hans';
+
+export function getRequestedLocale(): SupportedLocale {
+  return requestedLocale;
+}
 
 export async function dynamicActivate(locale: SupportedLocale): Promise<void> {
   requestedLocale = locale;

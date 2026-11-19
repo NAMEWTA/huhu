@@ -133,6 +133,7 @@ export function SlashCommandMenu({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  data-slash-command={item.name}
                   data-selected={isSelected}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left ${
                     isSelected ? 'bg-accent text-accent-foreground' : ''
