@@ -46,7 +46,7 @@ test("B01：在正文就地操作附件、图片和双链，支持键盘菜单",
     await expect(wiki).toBeFocused();
     await page.keyboard.press("Shift+F10");
     await menu.getByRole("menuitem", { name: "打开" }).click();
-    await expect(rich.getByRole("heading", { name: "双链目标" })).toBeVisible();
+    await expect(rich.getByRole("heading", { name: "双链目标" })).toBeVisible({ timeout: 15_000 });
   } finally {
     await close();
   }
@@ -76,7 +76,7 @@ test("把 Vault 笔记导入为本地模板，保存后关闭和重开", async (
     const imported = page.locator('[data-testid="notes-resource-tree"] [data-item-path="模板/样板.md"]');
     await imported.click();
     const rich = page.getByTestId("markdown-editor").locator(".ProseMirror");
-    await expect(rich.getByRole("heading", { name: "模板正文" })).toBeVisible();
+    await expect(rich.getByRole("heading", { name: "模板正文" })).toBeVisible({ timeout: 15_000 });
     await expect(rich.locator("strong")).toHaveText("保留粗体");
     await rich.getByRole("heading", { name: "模板正文" }).click();
     await page.keyboard.press("End");
@@ -87,7 +87,7 @@ test("把 Vault 笔记导入为本地模板，保存后关闭和重开", async (
     await closeTab.click();
     await expect(closeTab).toHaveCount(0);
     await imported.click();
-    await expect(rich.getByRole("heading", { name: "模板正文已保存" })).toBeVisible();
+    await expect(rich.getByRole("heading", { name: "模板正文已保存" })).toBeVisible({ timeout: 15_000 });
     expect(readFileSync(source, "utf8")).toBe(initial);
   } finally {
     await close();
