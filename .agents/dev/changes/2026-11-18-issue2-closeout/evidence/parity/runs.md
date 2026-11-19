@@ -268,3 +268,18 @@ Modern Web Guidance 检索了编辑区焦点、菜单键盘及可达名称。测
 独立审查在 `03dc93b` 的早期运行得到 414 ms 和 17.9 ms，启动前 1 分钟负载 2.52，详见共享区 `w4:pE/report01.md`。这次空闲复跑中 1 MiB 三次合格，输入尾延迟三次均超限。
 
 同一 Electron 构建的诊断对照见 `perf-guard-paired.log` 和本机 `perf-guard-probe.ts`。使用相同的 5,000 行样本、每次新 Vault、80 次 ASCII 输入和 DOM 变更探针。按交替顺序跑 10 次，仅在其中 5 次通过 CDP 从当前编辑器 DOM 移除本任务新增的两条捕获监听，并由 CDP 复核。每次检查 80 个输入样本及可见正文的 80 字符。带守卫 p95 各轮中位数为 26.7 ms，范围 25.2–31.4 ms。移除守卫为 26.8 ms，范围 23.5–32.1 ms。1 分钟负载范围 1.67–2.21。两组范围重叠，全部超过 16 ms，此对照未检出守卫带来可测的尾延迟差异。正式门禁以原用例的空闲三轮为准。
+
+## 任务 06 查找替换按键与 F09
+
+在分支合入 `88fdabd`（合并提交 `0308796`），实现与最终验证构建为 `8cbf09f4a5672ae402b40ebac78f8d0d6223ea8c`。调用点、上游差异、测试计数与 5+5 配对测量见 [f09-findreplace.md](f09-findreplace.md)。原始日志在 `/tmp/huhu-parity06-kHwIIe/`。
+
+| 检查 | 结果 | 日志 |
+| --- | --- | --- |
+| Electron 查询次数回归 | 修复前 3 键触发 3 次，退出 126。修复后正文与查找输入框的普通键查询增量均为 0，快捷键仍检查浮层。 | `red.log`、`focused.log` |
+| 查找替换与键盘交互 | Electron 定向 6 项通过，覆盖查找、替换、IME、Esc、斜杠菜单、表情和 B06。测试的外部浮层夹具需将焦点移到浮层，再按 Escape 验证窗口处理器。独立 Chromium 同样通过。 | `focused-first.log`、`focused.log`、`browser.log` |
+| `pnpm typecheck`、`pnpm lint`、`pnpm build` | 全部退出 0。另在独立 main worktree 构建通过。 | `typecheck.log`、`lint.log`、`candidate-build.log`、`main-build.log` |
+| `pnpm format:check`、`pnpm knip` | 均退出 0。 | `format-check-final.log`、`knip.log` |
+| `pnpm test:vendor` | 330 文件，6,391 项通过、4 项跳过，退出 0。含查找扩展及匹配器 16 项、浮层 DOM 10 项、IME DOM 3 项和链接弹层事件 3 项。 | `vendor.log` |
+| `node scripts/ok-patches.mjs --check`、`--replay` | 差异登记 266 条，无缺项或多余登记。固定来源重放 1,346 文件，集合和字节零差异。均退出 0。 | `patches.log`、`replay.log` |
+| F09 主线与候选配对 | 各 5 个有效轮，每轮 80 个键，起跑负载 1 分钟值 <4。两侧 p95 中位数为 22.4 / 21.5 ms，差 0.9 ms，在两侧各自轮间波动内。严格 16 ms 门槛均为 0/5。 | `measurements.tsv`、`perf-*.log` |
+| 打开 1 MiB | main 194 ms，候选 433 ms，均通过 500 ms 门槛，退出 0。 | `perf-1MiB-main-1.log`、`perf-1MiB-candidate-1.log` |
