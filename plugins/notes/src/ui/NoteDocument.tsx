@@ -299,6 +299,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                 flush={flush}
                 onOpen={props.onOpen}
                 onPort={onPort}
+                onRevealSource={revealSource}
                 {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
               />
             </div>
