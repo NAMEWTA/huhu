@@ -5,9 +5,13 @@ import { openApp } from "../helpers/launch.js";
 import { treeFolder, treeMenu, treeSettled } from "../helpers/tree.js";
 
 async function openComments(page: Page): Promise<void> {
-  const inspector = page.getByTestId("note-inspector");
-  if (!(await inspector.isVisible())) await page.getByRole("button", { name: "文档详情", exact: true }).click();
-  await inspector.getByRole("tab", { name: "批注" }).click();
+  const toggle = page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情", exact: true });
+  await expect(toggle).toBeVisible();
+  // 详情栏随文档挂载。按钮就绪后，在同一次 DOM 调用中读取状态并按需打开。
+  await toggle.evaluate((button) => {
+    if (button.getAttribute("aria-expanded") === "false") button.click();
+  });
+  await page.getByTestId("note-inspector").getByRole("tab", { name: "批注" }).click();
 }
 
 test("D01 / D06 属性评论取消不落盘，创建后重开、移动、回收站恢复均保留", async () => {
@@ -51,6 +55,7 @@ test("D01 / D06 属性评论取消不落盘，创建后重开、移动、回收�
     expect(stored()).toContain("保留属性批注");
     expect(stored()).not.toContain("应当取消");
 
+    await openComments(page);
     await page.getByRole("button", { name: "关闭 带批注", exact: true }).click();
     await row.click();
     await openComments(page);

@@ -17,6 +17,7 @@ import {
   openInternalHashHrefInNewTab,
 } from '../internal-link-helpers';
 import { getPageListCache, type PageListCacheSnapshot } from '../page-list-cache';
+import { linkLabel } from '../registry/block-labels';
 import { createAssetContextMenuPlugin } from '../plugins/asset-context-menu';
 import { isSafeNavigationUrl } from '../safe-navigation-url';
 import { InternalLinkPropPanel } from './InternalLinkPropPanel';
@@ -98,7 +99,7 @@ export const InternalLink = LinkFidelity.extend<InternalLinkOptions>({
 
   renderHTML({ HTMLAttributes }) {
     const href = typeof HTMLAttributes.href === 'string' ? HTMLAttributes.href : '';
-    const ariaLabel = href ? `Link: ${href}` : 'Link';
+    const ariaLabel = linkLabel(href);
     return [
       'span',
       mergeAttributes(HTMLAttributes, {

@@ -1,6 +1,6 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { onOpenRequest, queryKey, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
@@ -10,6 +10,7 @@ import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
 import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
 import { TabStrip } from "./tabs/TabStrip.js";
+import { documentSessions } from "./documents/useDocumentSession.js";
 import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
@@ -52,6 +53,9 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const archiveTab = tab && tab.kind !== "file" ? tab : null;
   const [dialog, setDialog] = useState<DialogState>(null);
   const [menu, setMenu] = useState<NoteContextMenuProps["menu"] | null>(null);
+  const [treeReveal, setTreeReveal] = useState<{ path: string; tab: typeof tab } | null>(null);
+  const notesRoot = useRef<HTMLDivElement>(null);
+  const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
@@ -143,7 +147,63 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   useEffect(() => {
     if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
   }, [shell.tabs, vaultId]);
-  const closeTab = (key: string) => dispatch({ type: "close", key });
+  const pendingArchive = useRef<{ key: string } | null>(null);
+  useEffect(
+    () => () => {
+      pendingArchive.current = null;
+    },
+    [],
+  );
+  const closeTab = (key: string) => {
+    if (pendingArchive.current?.key === key) pendingArchive.current = null;
+    dispatch({ type: "close", key });
+  };
+  async function closeTabsFromMenu(keys: readonly string[]) {
+    const active = activeTabRef.current;
+    const vault = vaultRef.current;
+    const flush = active && keys.includes(tabKey(active)) ? flushRef.current : null;
+    try {
+      if (flush && !(await flush())) return;
+      if (vaultRef.current !== vault || activeTabRef.current !== active) return;
+      keys.forEach(closeTab);
+    } catch (error) {
+      setError(String(error));
+    }
+  }
+  async function copyTabPath(path: string) {
+    try {
+      const desktop = host();
+      await (desktop ? desktop.copyText(path) : navigator.clipboard.writeText(path));
+    } catch (error) {
+      setError(String(error));
+    }
+  }
+  useEffect(() => {
+    if (!reveal || !notesRoot.current) return;
+    const root = notesRoot.current;
+    const selector = `[data-item-path="${CSS.escape(reveal.path)}"]`;
+    let shadow: ShadowRoot | null = null;
+    const observer = new MutationObserver(focusRow);
+    function focusRow() {
+      const next = root.querySelector('[data-testid="notes-resource-tree"] file-tree-container')?.shadowRoot ?? null;
+      if (next && next !== shadow) {
+        shadow = next;
+        observer.observe(next, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-item-path"] });
+      }
+      const row = shadow?.querySelector<HTMLElement>(selector);
+      if (!row) return;
+      observer.disconnect();
+      row.scrollIntoView({ block: "nearest" });
+      row.focus({ preventScroll: true });
+    }
+    observer.observe(root, { childList: true, subtree: true });
+    focusRow();
+    const timeout = window.setTimeout(() => observer.disconnect(), 5000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+    };
+  }, [reveal]);
   const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
   const expandTo = (dir: string) => {
     const parts = dir.split("/").filter(Boolean);
@@ -156,11 +216,13 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 打开档案首页（唯一的标签，重复点击只聚焦）。 */
   const openArchivesHome = () => {
+    pendingArchive.current = null;
     setSection((s) => (s === "trash" ? "all" : s));
     dispatch({ type: "open", tab: archivesHomeTab(vaultRef.current) });
   };
   /** 打开档案类型页（真实标签）。 */
   const openArchiveType = (typePath: string) => {
+    pendingArchive.current = null;
     const t = archiveTypeTab(vaultRef.current, typePath);
     if (!t) return openArchivesHome();
     setSection((s) => (s === "trash" ? "all" : s));
@@ -169,6 +231,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 档案以文件夹路径标识；打开的是真实的档案记录标签（同一 index.md 与 Markdown 视图共用会话）。 */
   const openArchive = (dir: string): void => {
+    pendingArchive.current = null;
     const t = archiveRecordTab(vaultRef.current, dir);
     if (!t) return openTarget(dir);
     const show = () => {
@@ -181,14 +244,17 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       show();
       return;
     }
-    const route = archiveNoteRoute(current.path);
-    const flush = flushRef.current;
+    const request = { key: tabKey(t) };
+    pendingArchive.current = request;
     void (async () => {
-      if (route?.kind !== "archive" || (flush && !(await flush()))) return;
-      if (activeTabRef.current !== current || vaultRef.current !== t.vaultId) return;
-      // Markdown 落盘后才读取档案字段，避免表单拿着同一文件的旧版本提交。
-      qc.removeQueries({ queryKey: queryKey(t.vaultId, "archives.read", { path: route.path }), exact: true });
-      show();
+      try {
+        await documentSessions.get(t.vaultId, current.path)?.drainEditors();
+        if (pendingArchive.current === request && activeTabRef.current === current && vaultRef.current === t.vaultId) show();
+      } catch (e) {
+        if (pendingArchive.current === request) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (pendingArchive.current === request) pendingArchive.current = null;
+      }
     })();
   };
   /** 打开档案首页或类型视图（旧入口名：按路径深度分派）。 */
@@ -207,6 +273,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 文件树 / 标签条的打开：永远是文件标签（Markdown 视图）；档案的 index.md 在这里也是 Markdown（E04）。 */
   const openNote = (path: string) => {
+    pendingArchive.current = null;
     setSection((s) => (s === "trash" ? "all" : s));
     dispatch({ type: "open", tab: fileTab(vaultRef.current, path) });
     expandTo(path.split("/").slice(0, -1).join("/")); // 展开它所在的文件夹，树里能定位到
@@ -214,6 +281,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
   const openLinked = (path: string): void => (archiveNoteRoute(path) ? openArchive(path) : openNote(path));
   const focusTab = (key: string) => {
+    pendingArchive.current = null;
     const next = shell.tabs.tabs.find((x) => tabKey(x) === key);
     if (next?.kind === "archive-record" && tab?.kind === "file" && tab.path === tabFilePath(next)) {
       openArchive(tab.path);
@@ -266,7 +334,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       />
     ) : null;
   return (
-    <div className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
       <NoteExplorer
         vaultName={vault.data?.name ?? "Vault"}
         section={section}
@@ -296,10 +364,10 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onTag={setTag}
         query={query}
         onQuery={setQuery}
-        selected={tab?.kind === "file" ? tab.path : null}
+        selected={reveal?.path ?? (tab?.kind === "file" ? tab.path : null)}
         onOpen={openNote}
         onOpenArchives={openArchivesHome}
-        archivesActive={archivesActive}
+        archivesActive={archivesActive && !reveal}
         archivesPanel={
           <ArchivesSidebar
             expanded={shell.sidebar.views.archives.expanded}
@@ -333,7 +401,22 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onDailyDate={setDailyDate}
       />
       <div className="notes-main">
-        {section !== "trash" && shell.tabs.tabs.length > 0 ? <TabStrip tabs={shell.tabs.tabs} activeKey={shell.tabs.activeKey} onFocus={focusTab} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} /> : null}
+        {section !== "trash" && shell.tabs.tabs.length > 0 ? (
+          <TabStrip
+            tabs={shell.tabs.tabs}
+            activeKey={shell.tabs.activeKey}
+            onFocus={focusTab}
+            onClose={closeTab}
+            onCloseMany={(keys) => void closeTabsFromMenu(keys)}
+            onCopyPath={(path) => void copyTabPath(path)}
+            onRevealPath={(path) => {
+              setSection("all");
+              setQuery("");
+              setTreeReveal({ path, tab });
+            }}
+            onNew={() => setDialog({ kind: "new", folder: "" })}
+          />
+        ) : null}
         {error ? (
           <div role="alert" className="hu-field-error">
             {error}

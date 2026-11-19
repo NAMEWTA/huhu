@@ -116,8 +116,9 @@ test("F08：四主题的明暗色、紧凑与减少动效", async () => {
         const file = treeItem(page, "主题样本");
         await file.click();
         await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toContainText("主题样本");
-        await page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情" }).click();
         const detail = page.getByTestId("note-inspector");
+        if (!(await detail.isVisible())) await page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情" }).click();
+        await detail.getByRole("tab", { name: "属性", exact: true }).click();
         await expect(detail.getByText("基本属性")).toBeVisible();
         await expect(detail).toHaveCSS("animation-name", "none");
         await page.screenshot({ path: testInfo.outputPath(`${id}.png`), animations: "disabled" });

@@ -1,3 +1,5 @@
+import { t } from '@lingui/core/macro';
+
 import {
   AUDIO_EXTENSIONS,
   IMAGE_EXTENSIONS,
@@ -108,11 +110,20 @@ export function mediaKindForAccept(accept: readonly string[]): MediaKind | undef
   return undefined;
 }
 
+function mediaLabel(kind: MediaKind): string {
+  switch (kind) {
+    case 'video': return t`video`;
+    case 'audio': return t`audio`;
+    case 'image': return t`image`;
+  }
+}
+
 export function mediaUrlPlaceholder(kind: MediaKind): string {
   const sample = Array.from(EXTENSIONS_BY_KIND[kind])
     .map((e) => `.${e}`)
     .join(', ');
-  return `Direct ${kind} file URL — ${sample}`;
+  const media = mediaLabel(kind);
+  return t`Direct ${media} file URL — ${sample}`;
 }
 
 const PROVIDER_DISPLAY_NAMES: Record<EmbedProvider, string> = {
@@ -126,22 +137,23 @@ export function mediaUrlValidationMessage(
   kind: MediaKind,
 ): string {
   if (result.valid) return '';
-  if (result.reason === 'invalid-url') return 'Not a valid URL.';
+  if (result.reason === 'invalid-url') return t`Not a valid URL.`;
   if (result.reason === 'data-uri') {
-    return 'Data URIs are not supported for media fields. Use a hosted file URL.';
+    return t`Data URIs are not supported for media fields. Use a hosted file URL.`;
   }
   if (result.reason === 'embed-provider') {
     const name = PROVIDER_DISPLAY_NAMES[result.provider];
+    const media = mediaLabel(kind);
     if (kind === 'video') {
-      return `Unrecognized ${name} URL. Paste a valid ${name} share or embed link, or a direct ${kind} file URL.`;
+      return t`Unrecognized ${name} URL. Paste a valid ${name} share or embed link, or a direct ${media} file URL.`;
     }
-    return `${name} URLs are not direct ${kind} files. Paste a direct ${kind} file URL.`;
+    return t`${name} URLs are not direct ${media} files. Paste a direct ${media} file URL.`;
   }
   const accepted = Array.from(EXTENSIONS_BY_KIND[kind])
     .map((e) => `.${e}`)
     .join(', ');
   if (result.extension === '') {
-    return `Missing file extension. Accepts: ${accepted}.`;
+    return t`Missing file extension. Accepts: ${accepted}.`;
   }
-  return `Unsupported extension .${result.extension}. Accepts: ${accepted}.`;
+  return t`Unsupported extension .${result.extension}. Accepts: ${accepted}.`;
 }

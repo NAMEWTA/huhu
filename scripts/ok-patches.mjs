@@ -155,6 +155,11 @@ for (const f of man.files) {
 // 非上游文件：vendor 目录下不在清单里的（不含 PATCHES / UPSTREAM / LICENSE 说明文件与资源目录 locales / css 拷贝）
 const added = [];
 const testsModified = [];
+// 收尾迁入的测试有固定上游 blob，归档测试清单仍按归档时的版本保存。
+const replay = existsSync(REPLAY_MANIFEST) ? JSON.parse(readFileSync(REPLAY_MANIFEST, "utf8")) : null;
+const replayTestBlobs = new Map(
+  (replay?.upstreamCommit === PIN ? replay.files : []).filter(({ target, upstream, blob }) => blob && upstream === `packages/${target}` && /\.test\.tsx?$/.test(target)).map(({ target, blob }) => [target, blob]),
+);
 const EXTRA_OK = new Set(["PATCHES.md", "UPSTREAM.md", "LICENSE"]);
 function walk(d) {
   for (const n of readdirSync(d)) {
@@ -166,6 +171,15 @@ function walk(d) {
       if (testsMan[r]) {
         if (sha(p) !== testsMan[r]) testsModified.push(r);
         continue;
+      }
+      const upstreamTestBlob = replayTestBlobs.get(r);
+      if (upstreamTestBlob) {
+        const bytes = readFileSync(p);
+        const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+        if (blob !== upstreamTestBlob) {
+          testsModified.push(r);
+          continue;
+        }
       }
       added.push(r);
     }
@@ -201,7 +215,7 @@ if (process.argv.includes("--write-tests-manifest")) {
   console.log(`tests-manifest: ${Object.keys(out).length} files`);
   process.exit(0);
 }
-if (process.argv.includes("--json")) console.log(JSON.stringify({ modified, removed, added, unregistered, stale }, null, 2));
+if (process.argv.includes("--json")) console.log(JSON.stringify({ modified, testsModified, removed, added, unregistered, stale }, null, 2));
 else console.log(`改动 ${modified.length}｜测试改动 ${testsModified.length}｜删除 ${removed.length}｜新增 ${added.length}｜PATCHES.md 登记 ${registered.size}｜未登记 ${unregistered.length}｜多余登记 ${stale.length}`);
 if (unregistered.length) console.log("未登记：\n  " + unregistered.join("\n  "));
 if (stale.length) console.log("多余登记：\n  " + stale.join("\n  "));

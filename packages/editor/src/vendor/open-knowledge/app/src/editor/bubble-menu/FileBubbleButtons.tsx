@@ -3,7 +3,7 @@ import { Trans, useLingui } from '@lingui/react/macro';
 import type { Editor } from '@tiptap/react';
 import { useEditorState } from '@tiptap/react';
 import { Download } from 'lucide-react';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { basenameFromUrl } from '@/editor/components/File';
@@ -61,6 +61,11 @@ export function FileBubbleButtons({ editor }: FileBubbleButtonsProps) {
     selector: (ctx) => readActiveFileSrc(ctx.editor),
   });
 
+  const request = useRef<symbol | null>(null);
+  useLayoutEffect(() => () => {
+    request.current = null;
+  }, [editor, src]);
+
   if (src === null) return null;
 
   const download = async () => {
@@ -71,10 +76,14 @@ export function FileBubbleButtons({ editor }: FileBubbleButtonsProps) {
     const selection = editor.state.selection as { node?: { attrs: Record<string, unknown> } };
     const literal = selection.node?.attrs.componentName === 'WikiEmbedFile';
     const path = resolveAssetProjectPath(liveSrc, docName, { literal });
+    const attempt = Symbol();
+    request.current = attempt;
     setFailure(null);
     try {
       if (path && readAsset) {
-        const blobUrl = URL.createObjectURL(await readAsset(path));
+        const blob = await readAsset(path);
+        if (request.current !== attempt) return;
+        const blobUrl = URL.createObjectURL(blob);
         try {
           triggerDownload(blobUrl, suggestedName);
         } finally {
@@ -86,6 +95,7 @@ export function FileBubbleButtons({ editor }: FileBubbleButtonsProps) {
         triggerDownload(safeSrc, suggestedName);
       }
     } catch (error) {
+      if (request.current !== attempt) return;
       const fileName = suggestedName || liveSrc;
       const message =
         error instanceof Error && error.message

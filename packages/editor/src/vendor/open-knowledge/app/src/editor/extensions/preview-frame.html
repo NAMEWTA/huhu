@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en" data-parent-origin="">
+  <meta charset="utf-8">
+  <title>HTML preview</title>
+  <script>
+    const parentOrigin = document.documentElement.dataset.parentOrigin || location.origin;
+    addEventListener('message', (event) => {
+      if (event.source !== parent || event.origin !== parentOrigin) return;
+      const html = event.data?.okPreviewDocument;
+      if (typeof html !== 'string') return;
+      document.open();
+      document.write(html);
+      document.close();
+    });
+  </script>
+</html>
