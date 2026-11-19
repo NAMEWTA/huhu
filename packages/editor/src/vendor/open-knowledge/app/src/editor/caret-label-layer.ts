@@ -6,9 +6,11 @@ const CARET_SELECTOR = '.collaboration-cursor__caret';
 const LAYER_CLASS = 'collaboration-cursor__label-layer';
 
 const caretLabels = new WeakMap<HTMLElement, HTMLElement>();
+let hasRegisteredCaretLabel = false;
 
 export function attachCaretLabel(caret: HTMLElement, label: HTMLElement): void {
   caretLabels.set(caret, label);
+  hasRegisteredCaretLabel = true;
 }
 
 interface MountedLabel {
@@ -90,6 +92,7 @@ class CaretLabelLayerView {
 
   private reconcile(): void {
     this.placeLayerBesideDocument();
+    if (!hasRegisteredCaretLabel) return;
     const live = new Set<HTMLElement>();
     for (const caret of this.view.dom.querySelectorAll<HTMLElement>(CARET_SELECTOR)) {
       const label = caretLabels.get(caret);

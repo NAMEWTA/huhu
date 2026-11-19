@@ -297,3 +297,17 @@
 - `app/src/lib/editor-toolbar-overlap.dom.test.ts`：原样迁入固定上游 DOM 用例。
 - `app/src/lib/ime-composition.dom.test.tsx`：原样迁入固定上游 DOM 用例。
 - `app/src/lib/overlay-layers.dom.test.tsx`：原样迁入固定上游 DOM 用例。
+
+## F09 实时预览输入快路径
+
+重放以 `vendor-replay.json` 和 `vendor-replay.patch.gz` 为准。下面各项按登记的文件应用补丁，本地新增文件由补丁直接创建。
+
+- P-F09-01 `app/src/editor/extensions/top-level-paragraph-insert.ts`：新增共享事务守卫，只接受一个闭合切片中的无标记文本插入，且位置在顶层段落内。历史和远端同步事务沿用完整计算。
+- P-F09-02 `app/src/editor/extensions/bare-html-image-decoration.tsx`：旧装饰为空时，检查插入所在段落的 HTML 和插入点的字面文本上下文。其余文档变更沿用原图片扫描和渲染。
+- P-F09-03 `app/src/editor/extensions/bridge-id-plugin.ts`：旧位置索引为空且事务无法新增 JSX 时保留已有插件状态，省去遍历 Yjs 映射与正文。
+- P-F09-04 `app/src/editor/extensions/mark-identity.ts`：旧标记 ID 表为空且仅插入无标记文本时保留插件状态，沿用原有注册与注销回调。
+- P-F09-05 `app/src/editor/extensions/code-block-lowlight-plugin.ts`：在普通段落插字且选区未涉及高亮块时映射已有装饰，保留可能改变高亮的事务的完整检查。
+- P-F09-06 `app/src/editor/extensions/heading-anchors.ts`：将标题装饰存入插件状态，普通顶层段落插字只映射位置，可能改变标题或结构时重新分配 slug。
+- P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。
+- P-F09-08 `app/src/editor/caret-label-layer.ts`：首次注册协作光标标签前跳过编辑 DOM 的扫描，标签层仍在原时机创建和放置。
+- P-F09-09 `app/src/editor/extensions/paragraph-fast-path.test.ts`：新增装饰和 ID 等价性测试，覆盖输入守卫、占位提示及协作标签回退。

@@ -11,7 +11,14 @@ import type { AgentFlashEntry } from '@inkeep/open-knowledge-core/types/awarenes
 import { deriveIconColor } from '@inkeep/open-knowledge-core/utils/identity';
 import { randomUUID } from '@inkeep/open-knowledge-core/utils/random-uuid';
 import { t } from '@lingui/core/macro';
-import { type AnyExtension, Editor, type EditorOptions, Extension, isMacOS } from '@tiptap/core';
+import {
+  type AnyExtension,
+  Editor,
+  type EditorOptions,
+  Extension,
+  isMacOS,
+  isNodeEmpty,
+} from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
 import Placeholder from '@tiptap/extension-placeholder';
 import { initProseMirrorDoc, yCursorPlugin, ySyncPluginKey } from '@tiptap/y-tiptap';
@@ -30,8 +37,8 @@ import { getInteractionLayer } from './interaction-layer-host';
 
 const editorCtorStartTimes = new WeakMap<object, number>();
 
-import { type Transaction as PMTransaction, TextSelection } from '@tiptap/pm/state';
-import type { EditorView as PMEditorView } from '@tiptap/pm/view';
+import { Plugin, type Transaction as PMTransaction, TextSelection } from '@tiptap/pm/state';
+import { DecorationSet, type EditorView as PMEditorView } from '@tiptap/pm/view';
 import { CommentAnchorLayer } from '@/comments/anchor-decorations';
 import { CommentMarginRail } from '@/comments/CommentMarginRail';
 import { CommentSelectionAffordance } from '@/comments/CommentSelectionAffordance';
@@ -251,13 +258,52 @@ function buildPrewarmBoundCollaboration(
   };
 }
 
+export const LocalPlaceholder = Placeholder.extend({
+  addProseMirrorPlugins() {
+    return (this.parent?.() ?? []).map((plugin) => {
+      const decorations = plugin.props.decorations;
+      if (!decorations) return plugin;
+      const { editor, options } = this;
+      return new Plugin({
+        ...plugin.spec,
+        props: {
+          ...plugin.spec.props,
+          decorations(state) {
+            const { selection } = state;
+            const { $anchor } = selection;
+            // Placeholder includes both endpoints of each block. An interior
+            // cursor leaves only this nonempty top-level block as a candidate.
+            if (
+              options.showOnlyCurrent &&
+              !options.includeChildren &&
+              editor.isEditable &&
+              !editor.view.composing &&
+              selection instanceof TextSelection &&
+              selection.empty &&
+              $anchor.depth === 1 &&
+              $anchor.parent.isTextblock &&
+              $anchor.parentOffset > 0 &&
+              $anchor.parentOffset < $anchor.parent.content.size &&
+              !isNodeEmpty($anchor.parent)
+            ) {
+              return DecorationSet.empty;
+            }
+            // ProseMirror binds functions in plugin.props in the Plugin constructor.
+            return (decorations as OmitThisParameter<typeof decorations>)(state);
+          },
+        },
+      });
+    });
+  },
+});
+
 export function buildExtensionList(args: BuildEditorOptionsArgs): AnyExtension[] {
   const { provider, placeholder, prebuiltMapping, onWedged } = args;
   const { collaboration, guard } = buildPrewarmBoundCollaboration(provider, prebuiltMapping);
   return [
     ...scopeExtensionsToDocument(sharedExtensions, provider.configuration.name ?? ''),
     createBareHtmlImageDecoration(provider.configuration.name ?? ''),
-    Placeholder.configure({
+    LocalPlaceholder.configure({
       placeholder: () => placeholder ?? t`Type '/' for commands`,
       showOnlyCurrent: true,
     }),

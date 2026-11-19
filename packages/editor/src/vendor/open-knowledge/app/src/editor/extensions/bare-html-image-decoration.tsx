@@ -5,6 +5,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { ReactRenderer } from '@tiptap/react';
+import { topLevelParagraphInsert } from './top-level-paragraph-insert';
 import { BareImg, type ImageProps } from '../components/Image';
 
 const pluginKey = new PluginKey<DecorationSet>('bareHtmlImageDecoration');
@@ -179,10 +180,26 @@ export function createBareHtmlImageDecoration(sourceDocName: string): Extension 
           key: pluginKey,
           state: {
             init: (_, state) => buildDecorations(state.doc, editor, sourceDocName),
-            apply: (transaction, previous) =>
-              transaction.docChanged
-                ? buildDecorations(transaction.doc, editor, sourceDocName)
-                : previous.map(transaction.mapping, transaction.doc),
+            apply(transaction, previous) {
+              if (!transaction.docChanged) {
+                return previous.map(transaction.mapping, transaction.doc);
+              }
+              if (previous === DecorationSet.empty) {
+                const insertion = topLevelParagraphInsert(transaction);
+                if (insertion) {
+                  const paragraph = transaction.doc.resolve(insertion.from).parent;
+                  const { parent, nodeBefore, nodeAfter } = transaction.before.resolve(insertion.from);
+                  if (
+                    !paragraph.textContent.includes('<') &&
+                    !(nodeBefore && isLiteralOnlyContext(nodeBefore, parent)) &&
+                    !(nodeAfter && isLiteralOnlyContext(nodeAfter, parent))
+                  ) {
+                    return previous;
+                  }
+                }
+              }
+              return buildDecorations(transaction.doc, editor, sourceDocName);
+            },
           },
           props: {
             decorations: (state) => pluginKey.getState(state) ?? DecorationSet.empty,

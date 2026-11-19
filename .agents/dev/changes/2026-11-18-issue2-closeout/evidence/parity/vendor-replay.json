@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "58b9a4f70821b94439ba6d819808545410511d2d01ca4358e910877b01fc593f",
+      "sha256": "236704a8dd44056227a26a06d64fbc4fcd89df29f82b6ad5b663c1a2dc1a8195",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -1804,8 +1804,9 @@
       "target": "app/src/editor/TiptapEditor.tsx",
       "upstream": "packages/app/src/editor/TiptapEditor.tsx",
       "blob": "dc5884c87bff1042f17c535856abaecb5dd61a1a",
-      "sha256": "28c8a015e218b38cef49756a9a8f3f1c7ca4cb62e68bb4236adb523305a154d9",
-      "method": "copy"
+      "sha256": "3a85f66aee30bc0e3fb3f3495c2223e3f54c33982de2bf5d3afead77a81207ce",
+      "method": "patch",
+      "description": "PATCHES.md:311 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。"
     },
     {
       "target": "app/src/editor/active-editor.ts",
@@ -2058,8 +2059,9 @@
       "target": "app/src/editor/caret-label-layer.ts",
       "upstream": "packages/app/src/editor/caret-label-layer.ts",
       "blob": "b05bf37fc5d108f67b34fa55ad789541750c331c",
-      "sha256": "c809b6b985144c7edc5c416fe491e5aa8972a5c81aa8f3fb67549e47710422f6",
-      "method": "copy"
+      "sha256": "35bb348e9c3873f5385e2e2b7671ea3e52403a7bf4515950774f34087af04ac6",
+      "method": "patch",
+      "description": "PATCHES.md:312 - P-F09-08 `app/src/editor/caret-label-layer.ts`：首次注册协作光标标签前跳过编辑 DOM 的扫描，标签层仍在原时机创建和放置。"
     },
     {
       "target": "app/src/editor/client-persistence.ts",
@@ -3168,8 +3170,9 @@
       "target": "app/src/editor/extensions/bare-html-image-decoration.tsx",
       "upstream": "packages/app/src/editor/extensions/bare-html-image-decoration.tsx",
       "blob": "f6402876fed3b2fc9dbf951c838bd52864ccff9e",
-      "sha256": "9513169f0733fa80b621157385d29005dfe2e2396ab51a0f607027fa03bcc94a",
-      "method": "copy"
+      "sha256": "c0073fa1ef57ae153c7877f0bafdf2caf0a2f5c7f4aa539bd14260c62ac9f0ed",
+      "method": "patch",
+      "description": "PATCHES.md:306 - P-F09-02 `app/src/editor/extensions/bare-html-image-decoration.tsx`：旧装饰为空时，检查插入所在段落的 HTML 和插入点的字面文本上下文。其余文档变更沿用原图片扫描和渲染。"
     },
     {
       "target": "app/src/editor/extensions/block-mover.ts",
@@ -3189,8 +3192,9 @@
       "target": "app/src/editor/extensions/bridge-id-plugin.ts",
       "upstream": "packages/app/src/editor/extensions/bridge-id-plugin.ts",
       "blob": "4be26e6969bb73ac37473f3efb18af0db3b17625",
-      "sha256": "91140d74590e10433131e5aff89fcbb22139c7fd344b66ba9ecef3f33c617463",
-      "method": "copy"
+      "sha256": "1eb5ea23e3b477010c490a3f51e7c565f586f310073e899d74a0dc7d9afd108b",
+      "method": "patch",
+      "description": "PATCHES.md:307 - P-F09-03 `app/src/editor/extensions/bridge-id-plugin.ts`：旧位置索引为空且事务无法新增 JSX 时保留已有插件状态，省去遍历 Yjs 映射与正文。"
     },
     {
       "target": "app/src/editor/extensions/cell-insertion-gate.test.ts",
@@ -3241,8 +3245,9 @@
       "target": "app/src/editor/extensions/code-block-lowlight-plugin.ts",
       "upstream": "packages/app/src/editor/extensions/code-block-lowlight-plugin.ts",
       "blob": "d0e980befa4eca2bef69dae7281e8e67da3c693a",
-      "sha256": "0c00056393fa7f8fdfaa32a9f0e8c2b7a0364f0b5d87011fce9f1886ad235abc",
-      "method": "copy"
+      "sha256": "f06b062ee90fbd4f47faead8fabe6c24c43b46909ab9c01ee134974a0f0c7a03",
+      "method": "patch",
+      "description": "PATCHES.md:309 - P-F09-05 `app/src/editor/extensions/code-block-lowlight-plugin.ts`：在普通段落插字且选区未涉及高亮块时映射已有装饰，保留可能改变高亮的事务的完整检查。"
     },
     {
       "target": "app/src/editor/extensions/code-block-meta.ts",
@@ -3326,8 +3331,9 @@
       "target": "app/src/editor/extensions/heading-anchors.ts",
       "upstream": "packages/app/src/editor/extensions/heading-anchors.ts",
       "blob": "902ebc9e608abd76aa158adb9f36143353adff54",
-      "sha256": "2ebdf79f253743e0b9e2b3147338b979c5316b4410e8ea3d2cc56bc39426fd47",
-      "method": "copy"
+      "sha256": "0bfc7d7fa1413daf4f92fba8e0c5e01682706c8949cac9ae5156a9500a8935d7",
+      "method": "patch",
+      "description": "PATCHES.md:310 - P-F09-06 `app/src/editor/extensions/heading-anchors.ts`：将标题装饰存入插件状态，普通顶层段落插字只映射位置，可能改变标题或结构时重新分配 slug。"
     },
     {
       "target": "app/src/editor/extensions/image-inline-zoom.ts",
@@ -3446,8 +3452,9 @@
       "target": "app/src/editor/extensions/mark-identity.ts",
       "upstream": "packages/app/src/editor/extensions/mark-identity.ts",
       "blob": "a5c564ba570262845e82ad043fa2cdb3b60cc4b5",
-      "sha256": "9ce1913d67419e248e0dc3e01adb24dbe4571d6b1033104c57db71f8cf03f1bc",
-      "method": "copy"
+      "sha256": "b546fd55ad48bf16a65804466c167f949e82d8049fdc77a5f055109a6387c03f",
+      "method": "patch",
+      "description": "PATCHES.md:308 - P-F09-04 `app/src/editor/extensions/mark-identity.ts`：旧标记 ID 表为空且仅插入无标记文本时保留插件状态，沿用原有注册与注销回调。"
     },
     {
       "target": "app/src/editor/extensions/mark-interaction-bridge.test.tsx",
@@ -3497,6 +3504,14 @@
       "blob": "4bbae7ec92bd6f57b8e78a738712b8280f72b233",
       "sha256": "0d7e1b4827923f1b21ec3b5438f3f1019c3738d878234fa34f970ad70841ab1b",
       "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/paragraph-fast-path.test.ts",
+      "upstream": null,
+      "blob": null,
+      "sha256": "01c0df0d9afb887cac8c9ac8fbf839af820893b430c274203a34846046fa16ad",
+      "method": "local",
+      "description": "PATCHES.md:313 - P-F09-09 `app/src/editor/extensions/paragraph-fast-path.test.ts`：新增装饰和 ID 等价性测试，覆盖输入守卫、占位提示及协作标签回退。"
     },
     {
       "target": "app/src/editor/extensions/preview-frame-policy.ts",
@@ -3792,6 +3807,14 @@
       "blob": "2e62284c7ee092eb1adbdd84a73573a1b4a6cfe1",
       "sha256": "d6f50d3c567b04f8c7410ba6cf34f62483b20cfed385d754cdbd4a13406ab0d1",
       "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/top-level-paragraph-insert.ts",
+      "upstream": null,
+      "blob": null,
+      "sha256": "183c29887000cfaf1e54be06346cc61e203f40c9d58320ed0e6ff47cdc925e35",
+      "method": "local",
+      "description": "PATCHES.md:305 - P-F09-01 `app/src/editor/extensions/top-level-paragraph-insert.ts`：新增共享事务守卫，只接受一个闭合切片中的无标记文本插入，且位置在顶层段落内。历史和远端同步事务沿用完整计算。"
     },
     {
       "target": "app/src/editor/extensions/trailing-affordance.dom.test.ts",
