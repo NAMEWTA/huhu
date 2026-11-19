@@ -54,3 +54,11 @@ ProseMirror 1.41.8 的聚焦回调在 20 ms 后比较 DOM 选区和观察器快�
 ### Modern Web Guidance
 
 我查阅了 HTML 焦点边界和 JavaScript DOM 事件指南。它们未涉及此处的原生选区调度，补丁复用了 ProseMirror 已有的取选区和折叠判断，事件时序按 Selection API 规范核对。
+
+## 2026-11-20 · Home 后的折叠光标
+
+在 `3dbd420` 上以真实 Electron、鼠标和键盘复现。点击「需要注释」末字右缘后，Home 把 DOM 光标移到偏移 0，PM 仍为 11→11。原 20 ms 回调在观察器之前执行，DOM 偏移回到 4。补丁后的同一用例中，回调返回时 DOM 偏移保持 0，PM 变为 7→7。随后 Shift+End 选中 7→11，并显示气泡。 [红灯日志](/tmp/huhu-pH02/red.log) · [绿灯日志](/tmp/huhu-pH02/green.log)
+
+每次聚焦创建独立的待处理记录。在 PM 允许浏览器处理的可信导航键上记录其默认动作前的 DOM 端点。延迟回调发现该次导航改变了编辑器内的折叠光标时，先调用 DOM 观察器，避免恢复旧模型位置。记录随回调消费，仅属于对应的聚焦。原扩选判断保留。专项另验证了带旧按键记录的普通重新聚焦、CDP 合成 IME 组合和提交、销毁后的延迟回调、原键盘扩选及鼠标拖选。
+
+核对 npm 1.43.0 和上游 Git HEAD `c828930`。上游在重构后的 `DOMSelState` 中比较前后端点，只有端点仍相同时才把模型同步到 DOM。本地回移快照比较原则，在固定的 1.41.8 中用现有 DOM 观察器读取光标，并保持任务指定的导航、编辑和组合边界。源码、ESM 与 CJS 同步更新。 [1.43.0](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) · [上游 HEAD 源码](https://code.haverbeke.berlin/prosemirror/prosemirror-view/src/commit/c828930c0514183eaa9061103105f32ac7438b29/src/input.ts) · [Selection API 调度](https://www.w3.org/TR/selection-api/#selectionchange-event)
