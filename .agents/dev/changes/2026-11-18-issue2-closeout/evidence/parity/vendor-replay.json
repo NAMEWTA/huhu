@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "29b73e9d5e1166aefa3178dd9f1d06c2613354e0f41717aefcef5798b647823a",
+      "sha256": "bbfcc418c6610f60cbd93900bafe4cc7f7bc2e036cabd6039252b79fc61e8b2e",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -3877,9 +3877,9 @@
       "target": "app/src/editor/find-replace/FindReplaceController.tsx",
       "upstream": "packages/app/src/editor/find-replace/FindReplaceController.tsx",
       "blob": "cc496c05ff37b3bffb62a6aff8591b42d06eb8ad",
-      "sha256": "a2942055213f13a348f7b4cacc2669bc325e9d6639f8da9573bb0bd6d8cb850d",
+      "sha256": "6eb72f94790e1622a52c9a9862bdf43ed9399df5f5e7ee1519d47c16988d70b3",
       "method": "patch",
-      "description": "PATCHES.md:101 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。"
+      "description": "PATCHES.md:101 - `app/src/editor/find-replace/FindReplaceController.tsx`：复用 OK 查找替换控制器，卸载时移除缓存编辑器中的匹配装饰。先匹配查找相关快捷键，普通输入跳过浮层查询，相关快捷键继续尊重挂载在编辑器外的浮层。"
     },
     {
       "target": "app/src/editor/find-replace/find-types.ts",

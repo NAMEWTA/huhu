@@ -62,6 +62,58 @@ test("查找替换快捷键打开查找栏、定位下一个匹配并一次替�
   }
 });
 
+test("查找替换仅在相关快捷键查询浮层，浮层仍优先处理按键", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(path.join(vault, filename), "alpha beta\n");
+    await openNote(page);
+    const editor = prose(page);
+    await editor.click();
+    await page.keyboard.press("End");
+    const probe = await page.evaluateHandle(() => {
+      const original = document.querySelectorAll;
+      const probe = { count: 0 };
+      document.querySelectorAll = function (selector: string) {
+        if (selector.includes('[data-state="open"][role="listbox"]') && selector.includes("[data-radix-popper-content-wrapper]")) {
+          probe.count++;
+        }
+        return original.call(this, selector);
+      };
+      return probe;
+    });
+    const count = () => probe.evaluate((value) => value.count);
+    const bar = page.getByTestId("find-replace-bar");
+
+    await page.keyboard.type("abc");
+    await expect(editor).toContainText("alpha betaabc");
+    expect(await count(), "在查找栏关闭时输入").toBe(0);
+
+    await page.keyboard.press("ControlOrMeta+f");
+    const find = bar.locator("#ok-find-input");
+    await expect(find).toBeFocused();
+    const afterOpen = await count();
+    expect(afterOpen).toBeGreaterThan(0);
+    await page.keyboard.type("abc");
+    await expect(find).toHaveValue("abc");
+    expect(await count(), "在查找栏打开时输入").toBe(afterOpen);
+
+    const overlay = await page.evaluateHandle(() => {
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.setAttribute("data-state", "open");
+      document.body.append(menu);
+      return menu;
+    });
+    await page.keyboard.press("Escape");
+    await expect(bar).toBeVisible();
+    await overlay.evaluate((menu) => menu.remove());
+    await page.keyboard.press("Escape");
+    await expect(bar).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
 test("下划线、高亮、转义、HTML 块、行内 JSX 与未知 MDX 在富文本编辑重开后保真", async () => {
   const { page, vault, close } = await openApp();
   const file = path.join(vault, filename);
