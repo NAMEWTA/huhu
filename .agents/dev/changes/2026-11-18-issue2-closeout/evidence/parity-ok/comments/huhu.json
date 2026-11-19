@@ -1,0 +1,71 @@
+{
+  "create-and-highlight": {
+    "status": "observed",
+    "value": {
+      "highlight": "<span data-comment-thread=\"cmt-mwnfz1pd0kzv\" style=\"border-radius: 2px; padding-bottom: 1px; cursor: pointer; background-color: color-mix(in srgb,var(--ok-comment-hue, rgb(37 99 235)) 22%,transparent); box-shadow: inset 0 -2px 0 color-mix(in srgb,var(--ok-comment-hue, rgb(37 99 235)) 70%,transparent);\">Anchor sentence to discuss.</span>",
+      "markerCount": 1
+    }
+  },
+  "edge-marker": {
+    "status": "observed",
+    "value": {
+      "available": true,
+      "name": "打开评论",
+      "activeName": "关闭评论",
+      "thread": "Compare **bold** detail."
+    }
+  },
+  "open-thread-and-render-markdown": {
+    "status": "observed",
+    "value": {
+      "text": "Compare **bold** detail.",
+      "strong": []
+    }
+  },
+  "reply": {
+    "status": "observed",
+    "value": {
+      "available": true,
+      "text": "我 · 7:03 PMFollow-up **reply**.",
+      "strong": [
+        "我"
+      ]
+    }
+  },
+  "resolve": {
+    "status": "observed",
+    "value": {
+      "available": true,
+      "activeThreadCount": 0
+    }
+  },
+  "filter-resolved": {
+    "status": "observed",
+    "value": {
+      "available": true,
+      "state": "resolved",
+      "text": "7:03 PM已解决“Anchor sentence to discuss.”Compare **bold** detail.我 · 7:03 PMFollow-up **reply**."
+    }
+  },
+  "reopen": {
+    "status": "observed",
+    "value": {
+      "available": true,
+      "text": "7:03 PM“Anchor sentence to discuss.”Compare **bold** detail.我 · 7:03 PMFollow-up **reply**."
+    }
+  },
+  "delete-confirmation": {
+    "status": "observed",
+    "value": {
+      "confirmation": true,
+      "remainingBeforeConfirm": 1
+    }
+  },
+  "delete-thread": {
+    "status": "observed",
+    "value": {
+      "threadCount": 0,
+      "highlightCount": 0
+    }
+  }
+}

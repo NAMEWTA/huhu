@@ -170,3 +170,28 @@ F04 子框架时序对照在生产渲染器与 preload 相同的条件下交替�
 | `OK_SRC=/home/wta/projects/huhu/temp/sources/open-knowledge node scripts/ok-patches.mjs --refresh-replay` 与 `--replay` | 固定上游重放 1,346 个文件，文件集合和字节均为零差异。 |
 | `pnpm lint`、`pnpm typecheck`、`pnpm format:check`、`pnpm knip` | 均退出 0。Knip 保留两项已有配置提示。 |
 | `pnpm test:vendor` | 最终独立复跑退出 0，330 个文件通过、6,391 个测试通过、4 个跳过。CodeBlockView 的 13 个测试全部通过。四进程并行复跑曾在测试断言全部通过后出现 Vitest worker 通信超时，最终用 `VITEST_MAX_FORKS=2`、`VITEST_MAX_THREADS=2` 重跑。 |
+
+## task07 · 评论边缘按钮与富文本 Mod+K
+
+实现提交 `fbea0f6df5cfd6265a34d88d3377962f1f959087`，生产 Electron 44.9.1（Chromium 152.0.7977.167）。集成分支仍在 `9b143a4`，开工分支已含该提交。OK 在独立工作树按固定 `44a2e0a6acce5952da0764746e3693fded5025b4` 从上游预构建启动，本轮使用新的隔离内容目录。用户授权追加 NotesModule 的批注打开订阅与根 Knip 的两条独立对照入口登记。
+
+- 两端各跑评论和链接用例 2/2。D02 打开边缘按钮的 DOM 状态完全一致，两端均从「打开评论」变为「关闭评论」并显示 `Compare **bold** detail.`。链接场景的 URL 气泡在两端均获得焦点，命令面板未出现。两组最终 Markdown 分别逐字节一致，22 张成对步骤截图均为 1440 × 900。[对照说明](../parity-ok/README.md)
+- Electron 专项用例 2/2。1100 像素宽时验证两条边缘按钮与对应正文的对齐、逐条 Tab 导航、鼠标和 Enter 打开、从「属性」切回同一线程以及详情栏开关时的点击遮挡。富文本用例覆盖选区创建链接、光标在链接内编辑并落盘、编辑器外和源码继续打开命令面板。源码正文保持原样。[窄窗详情打开](../parity-ok/comments/narrow-detail-open.png) · [窄窗详情关闭](../parity-ok/comments/narrow-detail-closed.png)
+- 保留上游原生按钮的键盘激活，未添加模拟 Enter 或 Space 的监听。沿用 28 像素按钮，在详情浮层盖住右侧留白时通过编辑区的实际几何和浮层挂载状态切换到左侧留白。Modern Web Guidance 使用 `accessibility` 的 “Don't attach keyboard handlers to native interactive elements” 与 `form-factor-adaptation` 的 “Let components respond to their container”。
+
+| 验证 | 实际结果 |
+| --- | --- |
+| `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm format:check`、`pnpm knip` | 通过。Knip 保留两个既有依赖配置提示。默认 Playwright 发现 149 项，包含两条新 E2E。固定 OK 的对照脚本仍由独立配置发现。 |
+| `node scripts/ok-patches.mjs --check`、`--replay` | 通过。上游原始归档未改动，重放 1,346 个文件，文件集合及字节零差异。 |
+| 新增专项 `--repeat-each=5` | 10/10，3.9 分钟。运行时额外启动两个 CPU 压力进程，起始 1 分钟负载均值 37.17，同时有默认全量 E2E。 |
+| `pnpm test` | 首次同机并行时 10 失败、987 通过、1 跳过。降低并发执行 `pnpm test --maxWorkers=2` 后 997 通过、1 跳过，退出 0。 |
+| `pnpm test:vendor` | 首次 6,391 通过、4 跳过，worker `onTaskUpdate` RPC 超时使本轮失败。用 `VITEST_MAX_FORKS=2 VITEST_MAX_THREADS=2 pnpm test:vendor --maxWorkers=2` 重跑，330 文件通过，6,391 通过、4 跳过，退出 0。 |
+| `xvfb-run -a pnpm e2e tests/e2e/knowledge tests/e2e/shell.spec.ts` | 初轮在 `fbea0f6` 上完整跑完，144 通过、4 失败、1 跳过，25.7 分钟。两条新增用例均通过。属性评论移动后的树行超时，独立复跑 1/1。H03 未等到格式气泡，独立复跑 3/3。另有快捷键表固定六行断言和 Agent CLI 退出后的终端关闭超时。 |
+
+设置页按组合键标识行。修订提交 `c43813e0853cbb66fa8bd28d7903e68273e63267` 改成一个 Mod+K 条目，说明富文本内编辑链接和其他位置打开命令面板。新增 E2E 也检查该设置行实际显示。该修订不涉及键盘处理、评论位置或已有对照截图。
+
+最终构建 `c43813e` 重跑 `shell.spec.ts` 共 46/46，设置快捷键表、命令面板和 Agent CLI 结束状态通过。属性评论持久化在最终构建复跑通过。旧 H03 中文扫描仍间歇性等不到「粗体」气泡，最终低并发复跑为 1/3，另一次最终构建复跑为 0/3。两轮均在中文扫描断言之前失效。保留这项回归记录，未更改旧用例或选区同步逻辑。
+
+最终负载复验先在现有真实编辑器里用 DOM Range 准备确定的段落选区，确认选区后再点击评论按钮或发送真实 Mod+K。两个新增用例各五次，总计 10/10，耗时 52.4 秒。使用两个额外 CPU 压力进程，起始 1 分钟负载均值 3.22。此前按 Home/Shift+End 准备选区的轮次曾在触发操作前失败。窄窗截图使用最终负载复跑记录。
+
+本机日志位于 `/tmp/huhu-task07.1cjmwH`。原始全量见 `delivery-full.log`，最终 Shell 见 `settings-shell.log`，专项负载见 `range-load.log`，旧 H03 的复验见 `settings-zh.log` 和 `quiet-zh.log`。

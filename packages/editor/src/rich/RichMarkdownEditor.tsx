@@ -5,7 +5,7 @@
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
 import type { EditorPort } from "@huhu/contracts";
 import { useLingui } from "@lingui/react/macro";
-import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { Toaster } from "sonner";
@@ -28,6 +28,7 @@ import { EditorAssetMenu, type EditorAssetActions } from "./EditorAssetMenu";
 import { FILE_LOAD_ORIGIN } from "../host/doc-source";
 import { registerOfflineEmojiRoutes } from "../host/offline-emoji";
 import type { LocalDocProvider } from "../host/hocuspocus-provider";
+import { DocumentProvider, useDocumentContext } from "../host/document-context";
 
 export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
@@ -91,6 +92,24 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const editorScope = useRef<HTMLDivElement>(null);
   const { onRevealSource } = props;
   const enableEmojiPicker = mode === "rich" && !readOnly;
+  const documentHost = useDocumentContext();
+  const documentEditor = variant === "document" && mode === "rich";
+  const linkShortcut = documentEditor && !readOnly;
+  const activeDocumentHost = useMemo(() => ({ ...documentHost, activeDocName: documentEditor ? docName : null }), [documentHost, documentEditor, docName]);
+  // The vendor shortcut edits a collapsed Markdown link through its property dialog.
+  // Select the current link first so the same shortcut uses the selection toolbar.
+  useLayoutEffect(() => {
+    if (!linkShortcut) return;
+    function selectCurrentLink(event: KeyboardEvent): void {
+      if (event.defaultPrevented || event.isComposing || !matchesKeyboardShortcut(event, "add-link") || isOverlayLayerOpen()) return;
+      if (!(event.target instanceof Element) || !editorScope.current?.contains(event.target)) return;
+      const editor = getEditorForDoc(docName);
+      if (!editor?.isFocused || !editor.state.selection.empty || !editor.isActive("link")) return;
+      editor.commands.extendMarkRange("link");
+    }
+    window.addEventListener("keydown", selectCurrentLink, true);
+    return () => window.removeEventListener("keydown", selectCurrentLink, true);
+  }, [docName, linkShortcut]);
   const showProperties = (properties ?? variant === "document") && !readOnly && mode !== "read";
   const needsEmojiData = enableEmojiPicker || showProperties;
   useEffect(() => (needsEmojiData ? registerOfflineEmojiRoutes() : undefined), [needsEmojiData]);
@@ -439,6 +458,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     <div
       className={`editor-ok-surface editor-ok-${variant}${className ? ` ${className}` : ""}`}
       data-ok-editor
+      data-editor-link-shortcut={linkShortcut ? "" : undefined}
       ref={editorScope}
       data-mode={mode}
       style={{
@@ -469,7 +489,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
               {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}
               <div hidden={showSource} data-testid={showSource ? undefined : "editor-scroll-container"} style={{ height: "100%", overflow: "auto" }}>
                 {richReady ? (
-                  <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+                  <DocumentProvider host={activeDocumentHost}>
+                    <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+                  </DocumentProvider>
                 ) : mode !== "source" ? (
                   <div role="status" className="ok-editor-loading">
                     …
