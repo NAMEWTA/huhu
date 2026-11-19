@@ -4,11 +4,19 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFil
 import { arch, cpus, platform, release, tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { parseArgs } from "node:util";
 
-const baselineRoot = process.argv[2];
-if (!baselineRoot) throw new Error("用法：node scripts/measure-notes-startup.mjs <rc.4 worktree>");
-const launches = Number(process.argv[3] ?? 20);
-const traceModules = process.argv.includes("--trace-modules");
+const { values, positionals } = parseArgs({
+  options: { aa: { type: "boolean" }, "trace-modules": { type: "boolean" } },
+  allowPositionals: true,
+});
+const aa = values.aa;
+const [baselineRoot, count] = aa ? [null, positionals[0]] : positionals;
+if ((!aa && !baselineRoot) || positionals.length > (aa ? 1 : 2)) {
+  throw new Error("用法：node scripts/measure-notes-startup.mjs (<rc.4 worktree> | --aa) [每侧次数] [--trace-modules]");
+}
+const launches = Number(count ?? 20);
+const traceModules = values["trace-modules"];
 if (!Number.isSafeInteger(launches) || launches < 1) throw new Error("采样次数必须为正整数");
 const fixtureText = "这是一篇用于测量初次打开时间的笔记";
 const scratch = mkdtempSync(path.join(tmpdir(), "huhu-notes-startup-"));
@@ -22,10 +30,14 @@ for (let i = 0; i < 40; i++) {
 }
 writeFileSync(path.join(fixture, "冷启动探针.md"), `# 冷启动探针\n\n${fixtureText}\n`);
 
-const builds = [
-  { name: "rc4", root: path.resolve(baselineRoot, "apps/desktop"), legacy: true },
-  { name: "candidate", root: path.resolve(import.meta.dirname, "../apps/desktop"), legacy: false },
-];
+const candidate = { name: "candidate", root: path.resolve(import.meta.dirname, "../apps/desktop"), legacy: false };
+const builds = aa
+  ? [
+      { ...candidate, name: "candidate-a" },
+      { ...candidate, name: "candidate-b" },
+    ]
+  : [{ name: "rc4", root: path.resolve(baselineRoot, "apps/desktop"), legacy: true }, candidate];
+const metrics = ["homeMs", "homeLocatorMs", "inboxMs", "noteMs"];
 const chunkName = /^(?:rich-|host-fetch-|NoteEditorSurface-|explorer-|ok-globals-|katex-).*\.(js|css)$/;
 const sizeOf = (dir) =>
   readdirSync(dir, { withFileTypes: true, recursive: true })
@@ -58,9 +70,27 @@ async function timeBuild(build, sample) {
   });
   try {
     const page = await app.firstWindow();
-    await page.getByTestId("home-module").waitFor();
-    await page.waitForFunction(() => document.querySelector('[data-testid="engine-state"]')?.textContent === "引擎就绪", null, { timeout: 30_000, polling: "raf" });
-    const homeMs = performance.now() - launchStart;
+    // Keep the original serial locator measurement in parallel with the in-page endpoint.
+    const homeFrame = page
+      .waitForFunction(
+        () => {
+          const home = document.querySelector('[data-testid="home-module"]');
+          const rect = home?.getBoundingClientRect();
+          if (!rect?.width || !rect.height || getComputedStyle(home).visibility !== "visible") return false;
+          if (document.querySelector('[data-testid="engine-state"]')?.textContent !== "引擎就绪") return false;
+          return performance.timeOrigin + performance.now();
+        },
+        null,
+        { polling: "raf", timeout: 30_000 },
+      )
+      .then((handle) => handle.jsonValue());
+    const homeLocator = (async () => {
+      await page.getByTestId("home-module").waitFor();
+      await page.waitForFunction(() => document.querySelector('[data-testid="engine-state"]')?.textContent === "引擎就绪", null, { timeout: 30_000, polling: "raf" });
+      return performance.now() - launchStart;
+    })();
+    const [homeFrameTimestamp, homeLocatorMs] = await Promise.all([homeFrame, homeLocator]);
+    const homeMs = homeFrameTimestamp - (performance.timeOrigin + launchStart);
     const parsed = new Set();
     if (traceModules) {
       const cdp = await page.context().newCDPSession(page);
@@ -111,21 +141,21 @@ async function timeBuild(build, sample) {
     if (traceModules && !build.legacy && (byPhase.home.length || byPhase.inbox.length || !byPhase.note.some((name) => name.startsWith("rich-")))) {
       throw new Error(`编辑器块加载时机异常：${JSON.stringify(byPhase)}`);
     }
-    return { homeMs, inboxMs, noteMs, modules: traceModules ? { editor: byPhase, all: { home: homeFiles, inbox: inboxFiles, note: noteFiles } } : undefined };
+    return { homeMs, homeLocatorMs, inboxMs, noteMs, modules: traceModules ? { editor: byPhase, all: { home: homeFiles, inbox: inboxFiles, note: noteFiles } } : undefined };
   } finally {
     await app.close();
     rmSync(dir, { force: true, recursive: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
-const observations = Object.fromEntries(builds.map(({ name }) => [name, []]));
+const observations = Object.fromEntries(builds.map(({ name }) => [name, new Map()]));
 let failures = 0;
 try {
   for (let sample = 1; sample <= launches; sample++) {
     for (const build of sample % 2 ? builds : [...builds].reverse()) {
       try {
         const result = await timeBuild(build, sample);
-        observations[build.name].push(result);
+        observations[build.name].set(sample, result);
         console.log(JSON.stringify({ build: build.name, sample, ...result }));
       } catch (error) {
         failures++;
@@ -134,11 +164,20 @@ try {
     }
   }
   for (const [build, samples] of Object.entries(observations)) {
-    for (const metric of ["homeMs", "inboxMs", "noteMs"]) {
-      const values = samples.map((sample) => sample[metric]).sort((a, b) => a - b);
+    for (const metric of metrics) {
+      const values = [...samples.values()].map((sample) => sample[metric]).sort((a, b) => a - b);
       const percentile = (p) => values[Math.ceil(values.length * p) - 1];
       console.log(JSON.stringify({ build, metric, n: values.length, min: values[0], p50: percentile(0.5), p95: percentile(0.95), max: values.at(-1) }));
     }
+  }
+  const [left, right] = builds.map(({ name }) => name);
+  const pairedSamples = [...observations[left]].filter(([sample]) => observations[right].has(sample));
+  for (const metric of metrics) {
+    const deltas = pairedSamples.map(([sample, first]) => observations[right].get(sample)[metric] - first[metric]).sort((a, b) => a - b);
+    const pairs = deltas.length;
+    const middle = Math.floor(pairs / 2);
+    const pairedMedianDeltaMs = pairs === 0 ? null : (deltas[Math.floor((pairs - 1) / 2)] + deltas[middle]) / 2;
+    console.log(JSON.stringify({ baseline: left, candidate: right, metric, pairs, pairedMedianDeltaMs, candidateSlowerPairs: deltas.filter((delta) => delta > 0).length }));
   }
   if (failures) process.exitCode = 1;
 } finally {
