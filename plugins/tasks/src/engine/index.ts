@@ -22,7 +22,7 @@ import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, StopLookup, StopReceipt } from "./dispatch-store.js";
-import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView } from "./native-replies.js";
+import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { agentDispatchBlocker, TasksService } from "./service.js";
 
@@ -167,6 +167,39 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
 
+  api.defineCapability(
+    def({
+      name: "tasks.supplement",
+      plugin: "tasks",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      idempotency: "handler",
+      input: TaskSupplementInput,
+      output: TaskSupplementView,
+      handler: async ({ caller, signal }, input) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("发送任务补充");
+        const accepted = await dispatch.acceptSupplement(input, signal);
+        void dispatch.check();
+        return accepted;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.supplement.read",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: TaskSupplementLookup,
+      output: TaskSupplementView,
+      handler: ({ caller }, input) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务补充");
+        return dispatch.readSupplement(input);
+      },
+    }),
+  );
   api.defineCapability(
     def({
       name: "tasks.dispatch",

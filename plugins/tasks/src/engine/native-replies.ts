@@ -39,6 +39,17 @@ export const TaskReplyView = TaskReplyLookup.extend({
   status: z.enum(["pending", "sending", "unknown", "accepted", "expired", "not_sent", "unsupported"]),
   followUpRunId: Id.optional(),
 });
+export const TaskSupplementLookup = Question.pick({ taskId: true, runId: true, sessionId: true }).extend({ supplementId: Id });
+export const TaskSupplementInput = TaskSupplementLookup.extend({
+  text: z.string().min(1).max(20_000).regex(/\S/).optional(),
+  messageIds: z.array(Id).max(32).default([]),
+});
+export const TaskSupplementView = TaskSupplementLookup.extend({
+  acceptedAt: TaskReplyView.shape.acceptedAt,
+  status: TaskReplyView.shape.status,
+  followUpRunId: Id,
+  messageIds: z.array(Id),
+});
 const Entry = z.strictObject({
   input: TaskReplyInput,
   execution: ExecutionBindingSchema,

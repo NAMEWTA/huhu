@@ -6,6 +6,7 @@ import {
   DispatchStore,
   ReplySource,
   RuleSource,
+  SupplementSource,
   eventIdOf,
   fingerprint,
   holdsTask,
@@ -20,7 +21,18 @@ import {
 } from "./dispatch-store.js";
 import { agentDispatchBlocker, type TasksService } from "./service.js";
 import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
-import { type AgentReplyInput, type AgentReplyResult, type ReplyAvailability, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup, type TaskReplyView } from "./native-replies.js";
+import {
+  type AgentReplyInput,
+  type AgentReplyResult,
+  type ReplyAvailability,
+  type TaskNativeReplies,
+  type TaskReplyInput,
+  type TaskReplyLookup,
+  type TaskReplyView,
+  type TaskSupplementInput,
+  type TaskSupplementLookup,
+  type TaskSupplementView,
+} from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
 import type { z } from "zod";
 
@@ -43,15 +55,15 @@ type RuleSlots = Map<string, Set<string>>;
 type ReplyInput = z.infer<typeof TaskReplyInput>;
 type ReplyLookup = z.infer<typeof TaskReplyLookup>;
 type ReplyView = z.infer<typeof TaskReplyView>;
+type SupplementInput = z.infer<typeof TaskSupplementInput>;
+type SupplementLookup = z.infer<typeof TaskSupplementLookup>;
+type SupplementView = z.infer<typeof TaskSupplementView>;
+type ContinuationSource = z.infer<typeof ReplySource> | z.infer<typeof SupplementSource>;
 
 const normalDispatchId = ({ taskId, replyId }: ReplyLookup) => `reply-${fingerprint([taskId, replyId])}`;
+const supplementDispatchId = ({ taskId, supplementId }: SupplementLookup) => `supplement-${fingerprint([taskId, supplementId])}`;
 
-function normalReplyView(record: DispatchRecord): ReplyView | undefined {
-  const {
-    receipt,
-    snapshot: { source },
-  } = record;
-  if (source.kind !== "reply") return undefined;
+function continuationStatus(receipt: DispatchReceipt): ReplyView["status"] {
   const statusByState: Record<DispatchReceipt["state"], ReplyView["status"]> = {
     pending: "pending",
     claimed: "pending",
@@ -63,6 +75,15 @@ function normalReplyView(record: DispatchRecord): ReplyView | undefined {
     expired: "expired",
     blocked: receipt.reason === "target_unsupported" ? "unsupported" : "not_sent",
   };
+  return statusByState[receipt.state];
+}
+
+function normalReplyView(record: DispatchRecord): ReplyView | undefined {
+  const {
+    receipt,
+    snapshot: { source },
+  } = record;
+  if (source.kind !== "reply") return undefined;
   return {
     taskId: receipt.taskId,
     runId: source.parent.runId,
@@ -71,9 +92,36 @@ function normalReplyView(record: DispatchRecord): ReplyView | undefined {
     requestVersion: source.requestVersion,
     replyId: source.replyId,
     acceptedAt: receipt.acceptedAt,
-    status: statusByState[receipt.state],
+    status: continuationStatus(receipt),
     followUpRunId: receipt.runId,
   };
+}
+
+function supplementView(record: DispatchRecord): SupplementView | undefined {
+  const {
+    receipt,
+    snapshot: { source },
+  } = record;
+  if (source.kind !== "supplement") return undefined;
+  return {
+    taskId: receipt.taskId,
+    runId: source.parent.runId,
+    sessionId: source.parent.sessionBinding.sessionId,
+    supplementId: source.supplementId,
+    acceptedAt: receipt.acceptedAt,
+    status: continuationStatus(receipt),
+    followUpRunId: receipt.runId,
+    messageIds: source.messageIds,
+  };
+}
+
+function selectedInput(task: TaskDto, text: string | undefined, messageIds: readonly string[]): string {
+  const selected = [...new Set(messageIds)].map((id) => task.comments.find((comment) => comment.id === id));
+  if (selected.length !== messageIds.length || selected.some((comment) => !comment)) throw errors.invalidInput("所选任务消息不存在或重复");
+  const context = selected.map((comment) => comment!.body).join("\n\n");
+  const body = text && context ? `${text}\n\n附带的任务消息\n\n${context}` : (text ?? context);
+  if (!AgentDispatchInputSchema.shape.input.safeParse(body.replaceAll("\r\n", "\n")).success) throw errors.invalidInput("输入与所选消息不符合发送格式");
+  return body;
 }
 
 export interface TaskDispatchExecutor {
@@ -170,6 +218,40 @@ export class TaskDispatch {
     return this.replies.readReply(input, this.matchesExecution);
   }
 
+  acceptSupplement(input: SupplementInput, outer: AbortSignal): Promise<SupplementView> {
+    return this.tasks.withTaskWrite(input.taskId, async () => {
+      AbortSignal.any([outer, this.abort.signal]).throwIfAborted();
+      const task = this.tasks.read(input.taskId);
+      const dispatchId = supplementDispatchId(input);
+      const prior = this.store.read(eventIdOf(dispatchId))?.record;
+      if (prior) {
+        const source = prior.snapshot.source;
+        const view = supplementView(prior);
+        if (!view || source.kind !== "supplement" || !this.store.owns(prior)) throw new HuhuError("VERSION_CONFLICT", "补充轮次的归属不匹配");
+        if (view.runId !== input.runId || view.sessionId !== input.sessionId || source.text !== input.text || fingerprint(source.messageIds) !== fingerprint(input.messageIds)) throw errors.idempotencyMismatch();
+        return view;
+      }
+      this.store.assertWritable();
+      if (task.type !== "agent" || task.status === "completed") throw errors.invalidInput("当前任务无法发送补充信息");
+      const records = this.store.list().filter(({ receipt }) => receipt.taskId === task.id);
+      const parent = records.find(({ receipt }) => receipt.runId === input.runId);
+      const execution = parent?.boundExecution;
+      if (!parent || !execution || execution.sessionBinding.sessionId !== input.sessionId || !this.matchesExecution(execution)) throw new HuhuError("RUN_UNKNOWN", "无法确认补充信息的原会话");
+      this.assertContinuationSlot(task, records, input.runId);
+      const source = SupplementSource.parse({ kind: "supplement", parent: execution, supplementId: input.supplementId, text: input.text, messageIds: input.messageIds });
+      const body = selectedInput(task, input.text, input.messageIds);
+      return supplementView(await this.saveContinuation(task, parent, source, dispatchId, body))!;
+    });
+  }
+
+  readSupplement(input: SupplementLookup): SupplementView {
+    this.tasks.read(input.taskId);
+    const record = this.store.read(eventIdOf(supplementDispatchId(input)))?.record;
+    const view = record && this.store.owns(record) ? supplementView(record) : undefined;
+    if (!view || view.runId !== input.runId || view.sessionId !== input.sessionId) throw errors.notFound("没有这条任务补充记录");
+    return view;
+  }
+
   private acceptNormalReply(input: ReplyInput, signal: AbortSignal): Promise<ReplyView> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       signal.throwIfAborted();
@@ -207,66 +289,69 @@ export class TaskDispatch {
         throw new HuhuError("VERSION_CONFLICT", "任务问题已变化，请重新读取");
       }
       const parent = this.store.read(eventIdOf(question.receipt.execution.dispatchId))?.record;
-      const spaceId = parent?.snapshot.execution.spaceId;
-      if (!parent || !spaceId) throw new HuhuError("RUN_UNKNOWN", "缺少原会话的派遣记录");
+      if (!parent) throw new HuhuError("RUN_UNKNOWN", "缺少原会话的派遣记录");
       const records = this.store.list().filter(({ receipt }) => receipt.taskId === task.id);
       if (records.some(({ snapshot }) => snapshot.source.kind === "reply" && snapshot.source.parent.runId === input.runId && snapshot.source.requestId === input.requestId && snapshot.source.requestVersion === input.requestVersion)) {
         throw new HuhuError("VERSION_CONFLICT", "该任务问题已有一条回答");
       }
-      const { outcomes } = this.receipts.history(task.id, this.matchesExecution, this.onError);
-      if (records.some((record) => record.receipt.runId !== input.runId && holdsRun(record, outcomes, task))) rejectDispatch("task_occupied", "该任务已有待派或活动运行");
-
-      const selected = [...new Set(messageIds)].map((id) => task.comments.find((comment) => comment.id === id));
-      if (selected.length !== messageIds.length || selected.some((comment) => !comment)) throw errors.invalidInput("所选任务消息不存在或重复");
-      const context = selected.map((comment) => comment!.body).join("\n\n");
-      const body = context ? `${input.answer}\n\n附带的任务消息\n\n${context}` : input.answer;
-      if (!AgentDispatchInputSchema.shape.input.safeParse(body.replaceAll("\r\n", "\n")).success) throw errors.invalidInput("回答与所选消息不符合发送格式");
+      this.assertContinuationSlot(task, records, input.runId);
+      const body = selectedInput(task, input.answer, messageIds);
       const source = ReplySource.parse({ kind: "reply", parent: question.receipt.execution, requestId: input.requestId, requestVersion: input.requestVersion, replyId: input.replyId, answer: input.answer, messageIds });
-      const acceptedAt = this.now();
-      const launch = parent.snapshot.execution;
-      const binding = source.parent.sessionBinding;
-      const snapshot: DispatchSnapshot = {
-        taskId: task.id,
-        expectedVersion: task.version,
-        taskVersion: task.version,
-        inputRevision: task.inputRevision,
-        inputHash: task.inputHash,
-        body,
-        execution: { ...launch, target: { mode: "existing", sessionId: binding.sessionId } },
-        references: [],
-        source,
-      };
-      const intent: DispatchInput = {
-        taskId: task.id,
-        dispatchId,
-        expectedVersion: task.version,
-        inputRevision: task.inputRevision,
-        inputHash: task.inputHash,
-      };
-      const receipt: DispatchReceipt = {
-        taskId: task.id,
-        dispatchId,
-        eventId,
-        runId: newId("run", acceptedAt.getTime()),
-        attempt: 1,
-        acceptedAt: acceptedAt.toISOString(),
-        state: "pending",
-        reason: null,
-        cancelRequested: false,
-        parentRunId: parent.receipt.runId,
-      };
-      const spaceRevision = parent.agentTarget?.mode === "resume" ? undefined : parent.agentTarget?.spaceRevision;
-      const record = await this.store.create({
-        receipt,
-        requestHash: fingerprint({ input: intent, source }),
-        snapshot,
-        snapshotHash: fingerprint(snapshot),
-        agentTarget: { mode: "existing", spaceId, ...(spaceRevision !== undefined && { spaceRevision }), binding },
-        claim: null,
-        startedAt: null,
-        finishedAt: null,
-      });
-      return normalReplyView(record)!;
+      return normalReplyView(await this.saveContinuation(task, parent, source, dispatchId, body))!;
+    });
+  }
+
+  private assertContinuationSlot(task: TaskDto, records: DispatchRecord[], parentRunId: string): void {
+    const { outcomes } = this.receipts.history(task.id, this.matchesExecution, this.onError);
+    if (records.some((record) => record.receipt.runId !== parentRunId && holdsRun(record, outcomes, task))) rejectDispatch("task_occupied", "该任务已有待派或活动运行");
+  }
+
+  private saveContinuation(task: TaskDto, parent: DispatchRecord, source: ContinuationSource, dispatchId: string, body: string) {
+    const acceptedAt = this.now();
+    const launch = parent.snapshot.execution;
+    const spaceId = launch.spaceId;
+    if (!spaceId) throw new HuhuError("RUN_UNKNOWN", "缺少原会话的工作区");
+    const binding = source.parent.sessionBinding;
+    const snapshot: DispatchSnapshot = {
+      taskId: task.id,
+      expectedVersion: task.version,
+      taskVersion: task.version,
+      inputRevision: task.inputRevision,
+      inputHash: task.inputHash,
+      body,
+      execution: { ...launch, target: { mode: "existing", sessionId: binding.sessionId } },
+      references: [],
+      source,
+    };
+    const intent: DispatchInput = {
+      taskId: task.id,
+      dispatchId,
+      expectedVersion: task.version,
+      inputRevision: task.inputRevision,
+      inputHash: task.inputHash,
+    };
+    const receipt: DispatchReceipt = {
+      taskId: task.id,
+      dispatchId,
+      eventId: eventIdOf(dispatchId),
+      runId: newId("run", acceptedAt.getTime()),
+      attempt: 1,
+      acceptedAt: acceptedAt.toISOString(),
+      state: "pending",
+      reason: null,
+      cancelRequested: false,
+      parentRunId: parent.receipt.runId,
+    };
+    const spaceRevision = parent.agentTarget?.mode === "resume" ? undefined : parent.agentTarget?.spaceRevision;
+    return this.store.create({
+      receipt,
+      requestHash: fingerprint({ input: intent, source }),
+      snapshot,
+      snapshotHash: fingerprint(snapshot),
+      agentTarget: { mode: "existing", spaceId, ...(spaceRevision !== undefined && { spaceRevision }), binding },
+      claim: null,
+      startedAt: null,
+      finishedAt: null,
     });
   }
 
@@ -577,18 +662,21 @@ export class TaskDispatch {
     }
   }
 
-  private continuation(source: z.infer<typeof ReplySource>): "ready" | "waiting" | "stale" {
-    const { parent, requestId, requestVersion } = source;
+  private continuation(source: ContinuationSource): "ready" | "waiting" | "stale" {
+    const { parent } = source;
+    if (!this.matchesExecution(parent)) return "stale";
     const route = this.replyAvailability(parent);
     if (route === "closed") return "stale";
     if (route === "stopping") return "waiting";
-    const question = this.receipts.question(parent.taskId, parent.runId, requestId, this.matchesExecution);
-    if (question?.receipt.payload.mode !== "normal" || question.view.status !== "awaiting" || question.view.requestVersion !== requestVersion || fingerprint(question.receipt.execution) !== fingerprint(parent)) return "stale";
+    if (source.kind === "reply") {
+      const question = this.receipts.question(parent.taskId, parent.runId, source.requestId, this.matchesExecution);
+      if (question?.receipt.payload.mode !== "normal" || question.view.status !== "awaiting" || question.view.requestVersion !== source.requestVersion || fingerprint(question.receipt.execution) !== fingerprint(parent)) return "stale";
+    }
     const { outcomes } = this.receipts.history(parent.taskId, this.matchesExecution, this.onError);
     return outcomes.get(parent.runId)?.finishedAt ? "ready" : "waiting";
   }
 
-  private async projectNormalAnswer(record: OwnedRecord, source: z.infer<typeof ReplySource>): Promise<void> {
+  private async projectContinuation(record: OwnedRecord, source: ContinuationSource): Promise<void> {
     const { receipt } = record;
     try {
       await this.tasks.addComment(receipt.taskId, {
@@ -598,9 +686,7 @@ export class TaskDispatch {
         author: "我",
         run: source.parent.runId,
         session: source.parent.sessionBinding.sessionId,
-        ask: source.requestId,
-        event: "answer",
-        body: source.answer,
+        ...(source.kind === "reply" ? { ask: source.requestId, event: "answer", body: source.answer } : { event: "supplement", body: record.snapshot.body }),
       });
     } catch (error) {
       if (!isHuhuError(error) || error.code !== "NOT_FOUND") throw error;
@@ -622,7 +708,7 @@ export class TaskDispatch {
     }
     const work: TaskDispatchWork = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash, ...(agentTarget && { agentTarget }) };
     if (receipt.state === "pending" || receipt.state === "claimed") {
-      if (snapshot.source.kind === "reply") await this.projectNormalAnswer(record, snapshot.source);
+      if ("parent" in snapshot.source) await this.projectContinuation(record, snapshot.source);
       // 重开后先检查原快照有效性，过期或已关闭的任务不做目标预检。
       if (!(await this.prepare(record, "check")) || !executor) return;
       const next = this.current(record)?.record.receipt.state;
@@ -692,7 +778,7 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const now = this.now();
       const source = snapshot.source;
-      const continuation = source.kind === "reply" ? this.continuation(source) : null;
+      const continuation = "parent" in source ? this.continuation(source) : null;
       const next = { ...receipt };
       let claim = record.claim;
       let agentTarget = record.agentTarget;
@@ -733,9 +819,9 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const source = record.snapshot.source;
       if (!task || this.tasks.hasLegacyRun(taskId)) return false;
-      if (source.kind === "reply" ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !sameInput(task, record.snapshot) || !this.dispatchable(task)) return false;
+      if ("parent" in source ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !sameInput(task, record.snapshot) || !this.dispatchable(task)) return false;
       const now = this.now();
-      if ((source.kind !== "reply" && !maySend(task, record.receipt, now)) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
+      if ((!("parent" in source) && !maySend(task, record.receipt, now)) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
       await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version);
       return !this.abort.signal.aborted;
     });
@@ -759,7 +845,7 @@ export class TaskDispatch {
       const receipt = { ...record.receipt };
       if (receipt.state !== "sending" && receipt.state !== "unknown") return null;
       const source = record.snapshot.source;
-      if (source.kind === "reply" && (result === "accepted" || (typeof result === "object" && fingerprint(result.execution.sessionBinding) !== fingerprint(source.parent.sessionBinding)))) result = "unknown";
+      if ("parent" in source && (result === "accepted" || (typeof result === "object" && fingerprint(result.execution.sessionBinding) !== fingerprint(source.parent.sessionBinding)))) result = "unknown";
       const now = this.now().toISOString();
       if (result === "accepted" || typeof result === "object") {
         receipt.state = "running";

@@ -540,6 +540,46 @@ test("普通回答重开后只派发一轮到原会话，保留父运行和明�
   expect(saved.comments.filter(({ event }) => event === "answer")).toMatchObject([{ run: run.runId, session: ask.sessionId, body: "明确答复" }]);
 });
 
+test("只派发显式选择的补充，忙时重开仍只发送一次，丢失确认后只核对", { timeout: 60_000 }, async () => {
+  const { engine, task, root, fake, run, execution } = await startBoundRun();
+  const post = (taskId: string, body: string) => call(engine, "tasks.comments.add", { taskId, body });
+  await post(task.id, "未选中的讨论");
+  await post(task.id, "这条补充发给原会话");
+  const { data: other } = await call<TaskDto>(engine, "tasks.create", { title: "另一任务", body: "另一份正文" });
+  await post(other.id, "来自其他任务的讨论");
+  const note = async (id: string, body: string) => (await call<TaskDto>(engine, "tasks.read", { id })).data.comments.find((comment) => comment.body === body)!.id;
+  const selected = await note(task.id, "这条补充发给原会话");
+  const foreign = await note(other.id, "来自其他任务的讨论");
+  const lookup = { taskId: task.id, runId: run.runId, sessionId: execution.sessionBinding.sessionId, supplementId: "supplement-once" };
+  expect(await call(engine, "tasks.supplement", { ...lookup, messageIds: [foreign] })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(await submitReceipt(engine, { version: 1, kind: "result", receiptId: "supplement-parent-result", execution, payload: { message: "上轮结果不应随补充发送" } })).toMatchObject({ ok: true });
+  vi.mocked(fake.ready).mockResolvedValue("busy");
+  const input = { ...lookup, messageIds: [selected] };
+  const accepted = await call<{ followUpRunId: string }>(engine, "tasks.supplement", input);
+  expect(accepted).toMatchObject({ ok: true, data: { status: "pending", messageIds: [selected] } });
+  const followUpRunId = accepted.data.followUpRunId;
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  await stop(engine);
+
+  vi.mocked(fake.dispatch).mockRejectedValueOnce(new Error("合成确认丢失"));
+  vi.mocked(fake.inspect).mockResolvedValue("unknown");
+  vi.mocked(fake.ready).mockResolvedValue("ready");
+  const reopened = await start(root);
+  await expect.poll(() => call(reopened, "tasks.supplement.read", lookup)).toMatchObject({ ok: true, data: { status: "unknown", followUpRunId } });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  expect(fake.dispatch).toHaveBeenLastCalledWith(
+    expect.objectContaining({ runId: followUpRunId, snapshot: expect.objectContaining({ body: "这条补充发给原会话" }), agentTarget: expect.objectContaining({ binding: execution.sessionBinding }) }),
+    expect.any(AbortSignal),
+  );
+  expect(await call(reopened, "tasks.supplement", input)).toMatchObject({ ok: true, data: { status: "unknown", followUpRunId } });
+  expect(await call(reopened, "tasks.supplement", { ...input, text: "重交不同内容" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  vi.mocked(fake.inspect).mockImplementation(async ({ runId, dispatchId, attempt }) => ({ state: "accepted", execution: { ...execution, runId, dispatchId, attempt } }));
+  await expect.poll(() => call(reopened, "tasks.supplement.read", lookup)).toMatchObject({ ok: true, data: { status: "accepted", followUpRunId } });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  const { data: saved } = await call<TaskDto>(reopened, "tasks.read", { id: task.id });
+  expect(saved.comments.filter(({ event }) => event === "supplement")).toMatchObject([{ run: run.runId, session: lookup.sessionId, body: "这条补充发给原会话" }]);
+});
+
 test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeout: 60_000 }, async () => {
   const { engine, task, run, execution } = await startBoundRun();
   const normal = {
