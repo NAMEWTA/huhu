@@ -23,6 +23,7 @@
     "test/block-selection.test.tsx",
     "test/file-tree-feedback.test.tsx",
     "test/provider-pool.test.ts",
+    "test/clipboard-instrument.test.ts",
     "test/upload-routes.test.ts",
     "test/frontmatter-codec.test.ts",
     "test/markdown-parity.test.ts"
