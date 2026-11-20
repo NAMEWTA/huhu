@@ -1,8 +1,9 @@
 import { Button, Dialog, PageHead } from "@huhu/ui";
-import { useCapability, useEngine } from "@huhu/workbench";
+import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useId, useState } from "react";
-import { layoutProblem, MAX_WORKSPACE_PANES, paneCount, splitTree, type SplitTree, type WorkspaceLayout as Layout, type WorkspacePane, type WorkspaceTemplate } from "../shared/workspace.js";
+import { layoutProblem, MAX_WORKSPACE_PANES, paneCount, splitTree, type SplitTree, type WorkspaceLayout as Layout, type WorkspacePane, type WorkspaceRun, type WorkspaceRunPane, type WorkspaceTemplate } from "../shared/workspace.js";
 import { LAYOUT_LABELS, WorkspaceLayout } from "./WorkspaceLayout.js";
+import { WorkspaceRunView } from "./WorkspaceRunView.js";
 
 export interface WorkspaceHost {
   hostId: string;
@@ -13,6 +14,7 @@ export interface WorkspaceHost {
 }
 
 interface Editor {
+  temporary: boolean;
   previous?: WorkspaceTemplate;
   name: string;
   panes: WorkspacePane[];
@@ -52,7 +54,7 @@ function SplitEditor({ node, first, change }: { node: SplitTree; first: number; 
 
 function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layout; name: (hostId: string) => string }) {
   return (
-    <section aria-label="布局预览" className="ssh-workspace-preview">
+    <section aria-label="布局预览">
       <WorkspaceLayout
         layout={layout}
         labels={panes.map(({ hostId }) => name(hostId))}
@@ -71,24 +73,36 @@ function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layo
 
 export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
   const engine = useEngine();
+  const qc = useQueryClient();
   const directory = useCapability<{ hosts: WorkspaceHost[] }>("ssh.hosts.directory", {});
   const templates = useCapability<WorkspaceTemplate[]>("ssh.workspace.templates.list", {});
+  const runs = useCapability<WorkspaceRun[]>("ssh.workspace.runs.list", {});
   const [selected, select] = useState("");
+  const [runId, selectRun] = useState("");
+  const [templateName, setTemplateName] = useState<string>();
   const [draft, setDraft] = useState<Editor>();
   const [deleting, setDeleting] = useState<WorkspaceTemplate>();
   const [hostToAdd, chooseHost] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const formId = useId();
+  const saveRunFormId = useId();
   const current = templates.data?.find(({ id }) => id === selected);
+  const run = runs.data?.find(({ id }) => id === runId);
   const hosts = directory.data?.hosts ?? [];
   const name = (hostId: string) => hosts.find((host) => host.hostId === hostId)?.name ?? `已移除的主机（${hostId}）`;
 
-  function edit(previous?: WorkspaceTemplate) {
+  useEngineEvents((event) => {
+    if (event.type === "ssh.hostKeyPrompt" || event.type === "ssh.connectionChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-workspace-run")) {
+      void qc.invalidateQueries({ predicate: (query) => query.queryKey[0] === engine.vaultId && query.queryKey[1] === "ssh.workspace.runs.list" });
+    }
+  });
+
+  function edit(previous?: WorkspaceTemplate, temporary = false) {
     setError(undefined);
     chooseHost("");
     const panes = previous?.panes.map(({ hostId, loginCommand }) => ({ hostId, ...(loginCommand === undefined ? {} : { loginCommand }) })) ?? [];
-    setDraft({ ...(previous ? { previous } : {}), name: previous?.name ?? "", panes, layout: previous?.layout ?? { kind: "two" }, rebindHostIds: [] });
+    setDraft({ temporary, ...(previous ? { previous } : {}), name: previous?.name ?? "", panes, layout: previous?.layout ?? { kind: "two" }, rebindHostIds: [] });
   }
 
   function changePanes(panes: WorkspacePane[]) {
@@ -108,6 +122,10 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
     const panes = draft.panes.map(({ hostId, loginCommand }) => ({ hostId, ...(loginCommand?.trim() ? { loginCommand: loginCommand.trim() } : {}) }));
     const problem = layoutProblem(panes, draft.layout);
     if (problem) return setError(problem);
+    if (draft.temporary) {
+      await start({ name: draft.name, panes, layout: draft.layout });
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
@@ -123,12 +141,65 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
         { write: true },
       );
       await templates.refetch();
+      selectRun("");
       select(template.id);
       setDraft(undefined);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function start(input: { name: string; panes: WorkspacePane[]; layout: Layout } | { templateId: string; expectedRevision: string }) {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const opened = await engine.call<WorkspaceRun>("ssh.workspace.runs.start", input, { write: true });
+      await runs.refetch();
+      select("");
+      selectRun(opened.id);
+      setDraft(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runAction(capability: "reconnect" | "close" | "saveTemplate", id: string) {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (capability === "saveTemplate") {
+        const saved = await engine.call<WorkspaceTemplate>("ssh.workspace.runs.saveTemplate", { id, name: templateName }, { write: true });
+        await templates.refetch();
+        setTemplateName(undefined);
+        selectRun("");
+        select(saved.id);
+      } else {
+        await engine.call(`ssh.workspace.runs.${capability}`, { id }, { write: true });
+        await runs.refetch();
+        if (capability === "close") selectRun("");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function trust(prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) {
+    setError(undefined);
+    try {
+      const decision = await engine.call<{ applied: boolean }>("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept }, { write: true });
+      if (!decision.applied) setError("此主机密钥确认已结束");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      await runs.refetch();
     }
   }
 
@@ -150,28 +221,94 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
 
   return (
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-workspace-library">
-      <aside className="hu-resource-pane" aria-label="工作区模板">
+      <aside className="hu-resource-pane" aria-label="工作区">
         <div className="hu-resource-head">
           <Button variant="ghost" onClick={onHosts}>
             主机
           </Button>
         </div>
         <div className="hu-resource-list">
+          {runs.data?.length ? <div className="ssh-list-label">工作区运行</div> : null}
+          {runs.data?.map(({ id, name: title, generation }) => (
+            <button
+              className={`ssh-resource-row${id === runId ? " active" : ""}`}
+              type="button"
+              key={id}
+              aria-current={id === runId}
+              onClick={() => {
+                selectRun(id);
+                select("");
+                setError(undefined);
+                void runs.refetch();
+              }}
+            >
+              <strong>{title}</strong>
+              <span>代次 {generation}</span>
+            </button>
+          ))}
+          <div className="ssh-list-label">模板</div>
           {templates.data?.map(({ id, name: title }) => (
-            <button className={`ssh-resource-row${id === selected ? " active" : ""}`} type="button" key={id} aria-current={id === selected} onClick={() => select(id)}>
+            <button
+              className={`ssh-resource-row${id === selected ? " active" : ""}`}
+              type="button"
+              key={id}
+              aria-current={id === selected}
+              onClick={() => {
+                select(id);
+                selectRun("");
+                setError(undefined);
+              }}
+            >
               {title}
             </button>
           ))}
         </div>
       </aside>
       <main className="hu-view-content">
-        <PageHead title={current?.name ?? "工作区模板"} actions={<Button onClick={() => edit()}>新建模板</Button>} />
+        <PageHead
+          title={run?.name ?? current?.name ?? "工作区模板"}
+          actions={
+            <>
+              <Button onClick={() => edit(undefined, true)}>临时启动</Button>
+              <Button onClick={() => edit()}>新建模板</Button>
+            </>
+          }
+        />
         <div className="hu-scroll ssh-pad">
-          {(templates.error || directory.error) && <p role="alert">{(templates.error ?? directory.error)?.message}</p>}
-          {!current && templates.data?.length === 0 && <p className="muted">暂无工作区模板</p>}
+          {(templates.error || directory.error || runs.error) && <p role="alert">{(templates.error ?? directory.error ?? runs.error)?.message}</p>}
+          {error && !draft && !deleting && templateName === undefined && <p role="alert">{error}</p>}
+          {!current && !run && templates.data?.length === 0 && <p className="muted">暂无工作区模板</p>}
+          {run && (
+            <>
+              <div className="ssh-workspace-controls">
+                {run.panes.every(({ phase }) => phase === "reconnect") && (
+                  <Button loading={busy} onClick={() => void runAction("reconnect", run.id)}>
+                    重连工作区
+                  </Button>
+                )}
+                {!run.templateId && (
+                  <Button
+                    onClick={() => {
+                      setError(undefined);
+                      setTemplateName(run.name);
+                    }}
+                  >
+                    存为模板
+                  </Button>
+                )}
+                <Button disabled={busy} onClick={() => void runAction("close", run.id)}>
+                  关闭运行
+                </Button>
+              </div>
+              <WorkspaceRunView key={run.id} run={run} onTrust={trust} />
+            </>
+          )}
           {current && (
             <>
               <div className="ssh-workspace-controls">
+                <Button loading={busy} onClick={() => void start({ templateId: current.id, expectedRevision: current.revision })}>
+                  启动模板
+                </Button>
                 <Button onClick={() => edit(current)}>编辑模板</Button>
                 <Button
                   variant="danger"
@@ -198,7 +335,7 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
         <Dialog
           open
           wide
-          title={draft.previous ? "编辑工作区模板" : "新建工作区模板"}
+          title={draft.temporary ? "临时启动工作区" : draft.previous ? "编辑工作区模板" : "新建工作区模板"}
           error={error}
           onClose={() => {
             if (!busy) setDraft(undefined);
@@ -209,7 +346,7 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
                 取消
               </Button>
               <Button variant="primary" type="submit" form={formId} loading={busy}>
-                保存模板
+                {draft.temporary ? "启动工作区" : "保存模板"}
               </Button>
             </>
           }
@@ -224,7 +361,7 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
             }}
           >
             <label>
-              模板名称 <input value={draft.name} required maxLength={100} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+              {draft.temporary ? "工作区名称" : "模板名称"} <input value={draft.name} required maxLength={100} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
             </label>
             <div className="ssh-workspace-controls">
               <label>
@@ -329,6 +466,39 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
           }
         >
           <p>删除「{deleting.name}」？</p>
+        </Dialog>
+      )}
+      {run && templateName !== undefined && (
+        <Dialog
+          open
+          title="将运行存为模板"
+          error={error}
+          onClose={() => {
+            if (!busy) setTemplateName(undefined);
+          }}
+          actions={
+            <>
+              <Button disabled={busy} onClick={() => setTemplateName(undefined)}>
+                取消
+              </Button>
+              <Button variant="primary" loading={busy} type="submit" form={saveRunFormId}>
+                保存模板
+              </Button>
+            </>
+          }
+        >
+          <form
+            id={saveRunFormId}
+            className="ssh-workspace-editor"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void runAction("saveTemplate", run.id);
+            }}
+          >
+            <label>
+              模板名称 <input value={templateName} required maxLength={100} onChange={(event) => setTemplateName(event.target.value)} />
+            </label>
+          </form>
         </Dialog>
       )}
     </div>

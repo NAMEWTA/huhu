@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HostKeyPrompt } from "./trust.js";
 
 export const MAX_WORKSPACE_PANES = 12;
 export const PRESETS = ["one", "two", "three", "main-right", "main-bottom", "tabs"] as const;
@@ -51,6 +52,26 @@ export const WorkspaceTemplate = WorkspaceDraft.extend({
 });
 export type WorkspaceTemplate = z.infer<typeof WorkspaceTemplate>;
 export type WorkspaceDraft = z.infer<typeof WorkspaceDraft>;
+
+const RunPane = z.object({
+  paneId: z.uuid(),
+  hostId: z.string(),
+  label: z.string(),
+  phase: z.enum(["reconnect", "connecting", "trust", "ready", "failed", "ended"]),
+  sessionId: z.string().optional(),
+  prompt: HostKeyPrompt.optional(),
+  error: z.object({ code: z.string(), message: z.string() }).optional(),
+});
+export const WorkspaceRun = z.object({
+  id: z.uuid(),
+  templateId: z.uuid().optional(),
+  name: WorkspaceName,
+  generation: z.number().int().min(1),
+  layout: WorkspaceLayout,
+  panes: z.array(RunPane).min(1).max(MAX_WORKSPACE_PANES),
+});
+export type WorkspaceRun = z.infer<typeof WorkspaceRun>;
+export type WorkspaceRunPane = WorkspaceRun["panes"][number];
 
 // Leaves correspond to panes in reading order, as in Motty workspace/spec.go.
 export function splitTree(count: number): SplitTree {

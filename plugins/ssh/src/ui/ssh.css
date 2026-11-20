@@ -965,3 +965,20 @@
 .ssh-workspace-tabstrip [aria-pressed="true"] {
   font-weight: 700;
 }
+
+.ssh-workspace-run-pane {
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.ssh-workspace-trust {
+  overflow-wrap: anywhere;
+}
+
+.ssh-workspace-terminal {
+  height: 240px;
+  min-inline-size: 0;
+  position: relative;
+}

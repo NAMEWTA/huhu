@@ -21,6 +21,7 @@ export interface FakeSshOptions {
   publicKey?: string;
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
+  onShellInput?: (text: string) => void;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -81,6 +82,7 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
           ch.write("welcome\n");
           ch.on("data", (d: Buffer) => {
             const text = d.toString();
+            o.onShellInput?.(text);
             if (text.includes("exit")) {
               ch.exit(0);
               ch.end();

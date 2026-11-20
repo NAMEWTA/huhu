@@ -45,6 +45,11 @@
       "ssh.shells.close",
       "ssh.shells.list",
       "ssh.shells.open",
+      "ssh.workspace.runs.close",
+      "ssh.workspace.runs.list",
+      "ssh.workspace.runs.reconnect",
+      "ssh.workspace.runs.saveTemplate",
+      "ssh.workspace.runs.start",
       "ssh.workspace.templates.delete",
       "ssh.workspace.templates.list",
       "ssh.workspace.templates.save"

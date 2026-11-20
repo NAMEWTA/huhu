@@ -9,6 +9,7 @@ import { HostConfigurations, type SshCredentialHost } from "./host-configuration
 import { hostImportConfirm, hostImportPreview } from "./import/capability.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
+import { WorkspaceRuns } from "./workspace-runs.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -36,12 +37,21 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
   });
-  ctx.effect(() => () => manager.disposeAll()); // 插件停用 / Vault 关闭：断开全部连接
+  const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
+  ctx.effect(() => () => {
+    runs.dispose();
+    manager.disposeAll();
+  });
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, () => templates.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, ({ signal }, i) => templates.save(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, ({ signal }, i) => templates.delete(i, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsList, () => runs.list()));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsStart, ({ signal }, i) => runs.start(i, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsReconnect, ({ signal }, i) => runs.reconnect(i.id, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsClose, ({ signal }, i) => runs.close(i.id, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsSaveTemplate, ({ signal }, i) => runs.saveTemplate(i.id, i.name, signal)));
   api.defineCapability(hostImportPreview(hosts));
   api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
   api.defineCapability(

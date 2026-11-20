@@ -4,7 +4,8 @@ import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
 import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput, LegacyHostView, ManagedHostView } from "./auth-profile.js";
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
-import { WorkspaceTemplate } from "../shared/workspace.js";
+import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
+import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
 const Ok = z.object({ ok: z.literal(true) });
@@ -16,6 +17,56 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  workspaceRunsList: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.runs.list",
+    title: "SSH 工作区运行",
+    description: "查看分栏会话及等待中的主机密钥确认。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(WorkspaceRun),
+  }),
+  workspaceRunsStart: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.runs.start",
+    title: "启动 SSH 工作区",
+    description: "提交分栏绑定并分别建立 SSH 会话。",
+    scope: "execute",
+    risk: "high",
+    input: StartWorkspace,
+    output: WorkspaceRun,
+  }),
+  workspaceRunsReconnect: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.runs.reconnect",
+    title: "重连 SSH 工作区",
+    description: "按已保存的绑定重连应用重启前的工作区。",
+    scope: "execute",
+    risk: "high",
+    input: RunId,
+    output: WorkspaceRun,
+  }),
+  workspaceRunsClose: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.runs.close",
+    title: "关闭 SSH 工作区",
+    description: "移除运行绑定并关闭所属 Shell。",
+    scope: "execute",
+    risk: "normal",
+    input: RunId,
+    output: Ok,
+  }),
+  workspaceRunsSaveTemplate: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.runs.saveTemplate",
+    title: "将 SSH 工作区存为模板",
+    description: "从运行的分栏绑定生成工作区模板。",
+    scope: "write",
+    risk: "normal",
+    input: SaveRunTemplate,
+    output: WorkspaceTemplate,
+  }),
   workspaceTemplatesList: defineCapabilityDescriptor({
     ...ssh,
     name: "ssh.workspace.templates.list",
