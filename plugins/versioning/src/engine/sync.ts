@@ -2,9 +2,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
+import { openAskpass, scrubEnvironment } from "./askpass.js";
 import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
 import { loadSession } from "./conflicts/session.js";
-import { GitRunner } from "./git.js";
+import { GitRunner, gitCancelled } from "./git.js";
+import { authenticationFailed, canSendAuthentication, hasUrlCredentials, httpTarget, type ConfigureGitAuth, type GitLogin, type GitRemoteCredentials } from "./remote-auth.js";
 
 export interface SyncConfig {
   remote: string;
@@ -98,16 +100,26 @@ export class VaultSync {
   private _status: { name: SyncStatusName; detail: string } = { name: "idle", detail: "" };
   private readonly cf: SyncConflicts;
   private tail: Promise<unknown> = Promise.resolve();
+  private readonly lifetime = new AbortController();
 
   constructor(
     private readonly root: string,
     private readonly identity = { name: "HUHU", email: "huhu@localhost" },
     hooks: ConflictHooks = {},
     private readonly resolveSecret?: (ref: string) => string,
+    private readonly credentials?: GitRemoteCredentials,
   ) {
     // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
     this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1" } });
     this.cf = new SyncConflicts(root, this.git, identity, hooks);
+  }
+
+  dispose(): void {
+    this.lifetime.abort();
+  }
+
+  private signal(signal?: AbortSignal): AbortSignal {
+    return signal ? AbortSignal.any([this.lifetime.signal, signal]) : this.lifetime.signal;
   }
 
   /** 进程内互斥：preview/run/resolve/cancel 不会交错执行（规格：同一时刻只有一个同步类 Git 操作）。 */
@@ -149,13 +161,16 @@ export class VaultSync {
   }
 
   update(patch: Partial<SyncConfig>): SyncConfig {
-    const next = { ...this.config(), ...patch };
+    const previous = this.config();
+    const next = { ...previous, ...patch };
     if (!["off", "follow", "full"].includes(next.mode)) throw errors.invalidInput("同步模式无效");
     if (next.remote && /^\s|\s$|[\0\n]/.test(next.remote)) throw errors.invalidInput("远端地址无效");
     if (next.remote.startsWith("-")) throw errors.invalidInput("远端地址不能以 - 开头");
     // 凭据不能写进远端地址（配置文件、日志、错误信息都会带出来）：https://user:token@host 之类一律拒绝
     // （http/https 的 userinfo 即便只有一段也多半是令牌，如 https://ghp_xxx@github.com/…；ssh://git@host 这类用户名是正常写法）
-    if (/^[a-z][a-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/i.test(next.remote) || /^https?:\/\/[^/]*@/i.test(next.remote)) throw errors.invalidInput("远端地址不能包含用户名密码或令牌");
+    if (hasUrlCredentials(next.remote)) throw errors.invalidInput("远端地址不能包含用户名密码或令牌");
+    next.remote = httpTarget(next.remote) ?? next.remote;
+    if (patch.remote !== undefined && patch.remote !== previous.remote && patch.credential === undefined && (!/^https?:\/\//i.test(next.remote) || httpTarget(next.remote) !== httpTarget(previous.remote))) next.credential = "";
     if (next.credential && !/^safe:\/\/item-[0-9a-z]+$/.test(next.credential)) throw errors.invalidInput("凭据引用格式无效");
     if (!/^[A-Za-z0-9._@-]{1,64}$/.test(next.credentialUser)) throw errors.invalidInput("凭据用户名无效");
     // 令牌只能走加密连接：https，或本机回环上的 http（本地测试用）；其他 http 远端会让令牌以明文发出
@@ -168,6 +183,31 @@ export class VaultSync {
     mkdirSync(path.dirname(this.cfgFile()), { recursive: true });
     writeFileSync(this.cfgFile(), JSON.stringify(next, null, 2));
     return next;
+  }
+
+  updateConfig(patch: Partial<SyncConfig>, signal?: AbortSignal): Promise<SyncConfig> {
+    return this.exclusive(async () => {
+      if (this.signal(signal).aborted) throw gitCancelled();
+      if (patch.credential && (await this.authStatus()).revision) throw errors.invalidInput("此远端使用 Versioning 自有认证");
+      return this.update(patch);
+    });
+  }
+
+  authStatus() {
+    return this.credentials?.status(httpTarget(this.config().remote)) ?? { revision: null, state: "temporarily-unavailable" as const };
+  }
+
+  configureAuth(input: ConfigureGitAuth, signal?: AbortSignal) {
+    return this.exclusive(async () => {
+      const operation = this.signal(signal);
+      if (operation.aborted) throw gitCancelled();
+      const config = this.config();
+      const target = httpTarget(input.remote);
+      if (!target || target !== httpTarget(config.remote) || !canSendAuthentication(target)) throw errors.invalidInput("请先保存要配置的 HTTPS 远端");
+      if (config.credential) throw errors.invalidInput("请先清除同步设置中的旧保险箱引用");
+      if (!this.credentials) throw authenticationFailed("local-protection-unavailable");
+      return this.credentials.configure(target, input, operation);
+    });
   }
 
   status(): { name: SyncStatusName; detail: string } {
@@ -197,50 +237,61 @@ export class VaultSync {
    * 需要联网的 Git 命令（fetch/push）的环境：配置了保险箱凭据且远端是 http(s) 时，写一个一次性 GIT_ASKPASS 脚本，
    * 秘密只通过子进程环境变量传递（不在命令行、不在配置、不在 URL 里），命令结束后脚本目录立即删除。
    */
-  private netEnv(c: SyncConfig): { env: NodeJS.ProcessEnv; args: string[]; done(): void } {
-    const none = { env: {}, args: [] as string[], done: () => undefined };
-    const secure = /^https:\/\//i.test(c.remote) || (/^http:\/\//i.test(c.remote) && isLoopbackHttp(c.remote));
-    if (!c.credential || !secure) return none;
-    if (!this.resolveSecret) throw errors.invalidInput("保险箱插件未启用，无法使用凭据");
-    const token = this.resolveSecret(c.credential);
-    const host = new URL(c.remote).host; // 含端口，与 git 提示里的主机写法一致
+  private async authenticatedGit(target: string, args: string[], login: GitLogin, signal: AbortSignal) {
+    if (process.platform === "win32") {
+      const askpass = await openAskpass(target, login);
+      try {
+        return await this.git.run([...askpass.args, ...args], { env: askpass.env, signal, privateNetwork: true });
+      } finally {
+        askpass.close();
+      }
+    }
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-askpass-")); // 0700
     try {
-      const win = process.platform === "win32";
-      const script = path.join(dir, win ? "askpass.cmd" : "askpass.sh");
-      if (win) {
-        // cmd 会对变量值再次解析（& | ) ^ !），所以交给 PowerShell 处理，值只当作数据
-        writeFileSync(
-          path.join(dir, "askpass.ps1"),
-          [
-            "param([string]$prompt)",
-            "if ($prompt -notmatch \"'[^']*?://(?:[^/@']*@)?([^/']+)\") { exit 1 }",
-            "if ($Matches[1].ToLower() -ne $env:HUHU_GIT_HOST.ToLower()) { exit 1 }",
-            "if ($prompt -like 'Username*') { [Console]::Out.Write($env:HUHU_GIT_USER) } else { [Console]::Out.Write($env:HUHU_GIT_TOKEN) }",
-            "",
-          ].join("\r\n"),
-        );
-        writeFileSync(script, '@echo off\r\npowershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0askpass.ps1" "%~1"\r\n');
-      } else {
-        // 只回答针对配置主机的提示：被重定向到别的主机时不交出令牌
-        writeFileSync(script, POSIX_ASKPASS, { mode: 0o700 });
-      }
-    } catch (e) {
+      const script = path.join(dir, "askpass.sh");
+      writeFileSync(script, POSIX_ASKPASS, { mode: 0o700 });
+      return await this.git.run(args, { env: { GIT_ASKPASS: script, HUHU_GIT_USER: login.username, HUHU_GIT_TOKEN: login.token, HUHU_GIT_HOST: new URL(target).host }, signal, privateNetwork: true });
+    } finally {
       rmSync(dir, { recursive: true, force: true });
-      throw e;
     }
-    return {
-      env: { GIT_ASKPASS: path.join(dir, process.platform === "win32" ? "askpass.cmd" : "askpass.sh"), GIT_TERMINAL_PROMPT: "0", HUHU_GIT_USER: c.credentialUser, HUHU_GIT_TOKEN: token, HUHU_GIT_HOST: host },
-      // 清空系统的 credential helper（否则它可能抢先给出别的凭据，或把令牌存进钥匙串/明文文件），并固定用户名让 git 只需要问密码
-      args: ["-c", "credential.helper=", "-c", `credential.username=${c.credentialUser}`],
-      done: () => {
-        try {
-          rmSync(dir, { recursive: true, force: true });
-        } catch {
-          /* 杀毒软件占用等：目录里没有秘密，留给系统临时目录清理 */
-        }
-      },
-    };
+  }
+
+  private async network(config: SyncConfig, operation: "fetch" | "push", signal: AbortSignal): Promise<void> {
+    const args = (remote: string, explicit: boolean) => (operation === "fetch" ? ["fetch", "--quiet", remote, ...(explicit ? ["+refs/heads/*:refs/remotes/origin/*"] : [])] : ["push", "--quiet", remote, `HEAD:refs/heads/${config.branch}`]);
+    const target = httpTarget(config.remote);
+    if (!target) {
+      await this.git.run(args("origin", false), { signal });
+      return;
+    }
+    const settings = (key: string, value: string) => ["-c", `${key}=${value}`];
+    const networkArgs = [
+      ...settings("credential.helper", ""),
+      ...settings("core.askPass", ""),
+      ...settings("credential.useHttpPath", "true"),
+      ...settings(`credential.${target}.useHttpPath`, "true"),
+      ...settings(`http.${target}.followRedirects`, "false"),
+      ...settings("http.followRedirects", "false"),
+      ...settings(`http.${target}.sslVerify`, "true"),
+      ...settings("http.extraHeader", ""),
+      ...settings(`http.${target}.extraHeader`, ""),
+      ...settings(`http.${target}.proxy`, ""),
+      ...settings(`http.${target}.cookieFile`, ""),
+      ...settings(`http.${target}.saveCookies`, "false"),
+      ...args(target, true),
+    ];
+    const urls = await this.git.run(["remote", "get-url", "--all", ...(operation === "push" ? ["--push"] : []), "origin"], { signal, privateNetwork: true });
+    const effective = urls.stdout.trim().split(/\r?\n/);
+    if (effective.length !== 1 || httpTarget(effective[0]!) !== target) throw authenticationFailed("target-mismatch");
+    const summary = await this.credentials?.status(target);
+    if (summary?.revision && summary.state !== "unconfigured") {
+      if (!canSendAuthentication(target) || summary.state !== "configured") throw authenticationFailed(summary.state);
+      await this.credentials!.use(target, (login) => this.authenticatedGit(target, networkArgs, login, signal));
+    } else if (!summary?.revision && config.credential && canSendAuthentication(target)) {
+      if (!this.resolveSecret) throw errors.invalidInput("保险箱插件未启用，无法使用凭据");
+      await this.authenticatedGit(target, networkArgs, { username: config.credentialUser, token: this.resolveSecret(config.credential) }, signal);
+    } else {
+      await this.git.run(networkArgs, { env: { ...scrubEnvironment(), GIT_ASKPASS: "", GIT_ALLOW_PROTOCOL: new URL(target).protocol.slice(0, -1) }, signal, privateNetwork: true });
+    }
   }
 
   private track(e: unknown): never {
@@ -252,19 +303,15 @@ export class VaultSync {
     throw e;
   }
 
-  preview(): Promise<SyncPreview> {
-    return this.exclusive(() => this.previewLocked());
+  preview(signal?: AbortSignal): Promise<SyncPreview> {
+    return this.exclusive(() => this.previewLocked(this.signal(signal)));
   }
 
-  private async previewLocked(): Promise<SyncPreview> {
+  private async previewLocked(signal: AbortSignal): Promise<SyncPreview> {
+    if (signal.aborted) throw gitCancelled();
     const c = await this.ready();
     try {
-      const net = this.netEnv(c);
-      try {
-        await this.git.run([...net.args, "fetch", "--quiet", "origin"], { env: net.env });
-      } finally {
-        net.done();
-      }
+      await this.network(c, "fetch", signal);
     } catch (e) {
       this.track(e);
     }
@@ -332,27 +379,24 @@ export class VaultSync {
   }
 
   /** 同步一次：follow = 只拉取；full = 拉取后推送。冲突 → 回退合并、状态 conflict，抛 GIT_CONFLICT（附冲突文件）。 */
-  run(mode: "pull" | "push" | "sync"): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
-    return this.exclusive(() => this.runLocked(mode));
+  run(mode: "pull" | "push" | "sync", signal?: AbortSignal): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+    return this.exclusive(() => this.runLocked(mode, this.signal(signal)));
   }
 
-  private async runLocked(mode: "pull" | "push" | "sync"): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+  private async runLocked(mode: "pull" | "push" | "sync", signal: AbortSignal): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+    if (signal.aborted) throw gitCancelled();
     const c = await this.ready();
     let committed = false;
     try {
       if (mode !== "pull") committed = await this.commitIncluded("HUHU 同步");
-      const net = this.netEnv(c);
-      try {
-        await this.git.run([...net.args, "fetch", "--quiet", "origin"], { env: net.env });
-      } finally {
-        net.done();
-      }
+      await this.network(c, "fetch", signal);
       const remoteRef = `origin/${c.branch}`;
       const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(
         () => true,
         () => false,
       );
       let pulled = false;
+      if (signal.aborted) throw gitCancelled();
       if (mode !== "push" && hasRemote) {
         const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
           () => true,
@@ -388,12 +432,7 @@ export class VaultSync {
       }
       let pushed = false;
       if (mode !== "pull") {
-        const net = this.netEnv(c);
-        try {
-          await this.git.run([...net.args, "push", "--quiet", "origin", `HEAD:refs/heads/${c.branch}`], { env: net.env });
-        } finally {
-          net.done();
-        }
+        await this.network(c, "push", signal);
         pushed = true;
       }
       this._status = { name: "idle", detail: "" };
@@ -429,7 +468,7 @@ export class VaultSync {
       this._status = { name: "idle", detail: "" };
       if (this.config().mode !== "full") return { commit, pushed: false };
       try {
-        const r = await this.runLocked("sync");
+        const r = await this.runLocked("sync", this.signal());
         return { commit, pushed: r.pushed };
       } catch (e) {
         return { commit, pushed: false, syncError: e instanceof HuhuError ? e.code : "INTERNAL" };

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { VaultGit } from "../src/engine/repo.js";
 import { VaultSync, classify } from "../src/engine/sync.js";
+import { GitRunner } from "../src/engine/git.js";
 
 // Windows 上每次 git 调用都要几百毫秒，一个用例里有几十次：默认的 5 秒不够
 vi.setConfig({ testTimeout: 60_000 });
@@ -214,8 +215,14 @@ describe("审计回归", () => {
 
   test("保险箱凭据：经一次性 GIT_ASKPASS 传给 git（服务端收到 Basic 认证），配置里只有引用，错误信息不含秘密，脚本目录用完即删", async () => {
     const http = await import("node:http");
-    const { readdirSync } = await import("node:fs");
     const seen: string[] = [];
+    const launchers: string[] = [];
+    const run = GitRunner.prototype.run;
+    const observe = vi.spyOn(GitRunner.prototype, "run").mockImplementation(function (this: GitRunner, args, options) {
+      const launcher = options?.env?.["GIT_ASKPASS"];
+      if (launcher) launchers.push(launcher);
+      return run.call(this, args, options);
+    });
     const srv = http.createServer((req, res) => {
       const a = req.headers.authorization;
       if (!a) {
@@ -238,7 +245,6 @@ describe("审计回归", () => {
         return "s3cr3t-tok3n";
       });
       sync.update({ remote: `http://127.0.0.1:${port}/r.git`, credential: "safe://item-1", credentialUser: "alice" });
-      const before = readdirSync(tmpdir()).filter((f) => f.startsWith("huhu-askpass-")).length;
       const err = await sync.run("pull").catch((e: Error) => e);
       expect(err).toBeInstanceOf(Error);
       expect(String((err as Error).message)).not.toContain("s3cr3t-tok3n");
@@ -246,8 +252,10 @@ describe("审计回归", () => {
       expect(seen[0]).toBe(`Basic ${Buffer.from("alice:s3cr3t-tok3n").toString("base64")}`);
       expect(readFileSync(path.join(root, ".huhu/sync/config.json"), "utf8")).not.toContain("s3cr3t-tok3n");
       expect(sync.config().credential).toBe("safe://item-1");
-      expect(readdirSync(tmpdir()).filter((f) => f.startsWith("huhu-askpass-")).length).toBe(before); // 没有残留
+      expect(launchers).toHaveLength(1);
+      expect(launchers.every((launcher) => !existsSync(path.dirname(launcher)))).toBe(true);
     } finally {
+      observe.mockRestore();
       srv.close();
     }
   });

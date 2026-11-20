@@ -25,6 +25,8 @@
       "history.read",
       "history.restore",
       "history.timeline",
+      "sync.auth.configure",
+      "sync.auth.get",
       "sync.get",
       "sync.preview",
       "sync.run",

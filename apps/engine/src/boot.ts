@@ -345,7 +345,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(versioningManifest),
-    apply: (ctx, api) => void versioning.apply(ctx, api),
+    apply: (ctx, api) => void versioning.apply(ctx, api, moduleCredentialHost ? { credentialHost: { ...moduleCredentialHost, vault } } : undefined),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),

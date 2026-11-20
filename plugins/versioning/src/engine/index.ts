@@ -7,6 +7,7 @@ import { z } from "zod";
 import { AutoSync } from "./auto-sync.js";
 import { FileHistory, type HistoryEntry } from "./history.js";
 import { VaultGit } from "./repo.js";
+import { ConfigureGitAuth, GitAuthSummary, GitRemoteCredentials, isPlainSyncRemote, type GitCredentialHost } from "./remote-auth.js";
 import { VaultSync } from "./sync.js";
 
 export { FileHistory } from "./history.js";
@@ -20,6 +21,7 @@ const DEBOUNCE_MS = 2000;
 
 export interface VersioningOptions {
   debounceMs?: number;
+  credentialHost?: GitCredentialHost;
   /** 恢复任务文件后通知 automations：该输入不应被重复处理（缺省时从 `automations` 服务取）。 */
   holdRestoredInput?: (taskId: string, inputHash: string) => void;
 }
@@ -219,6 +221,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       if (!su) throw Object.assign(new Error("保险箱插件未启用"), { code: "SECRET_REF_INVALID" });
       return su.resolve(ref, { plugin: "versioning", purpose: "sync" });
     },
+    opts.credentialHost && new GitRemoteCredentials(opts.credentialHost),
   );
   let publishStatus = () => {};
   // 自动同步：按模式与间隔定时拉取/推送；认证失败或冲突后暂停，插件停用即停止
@@ -238,10 +241,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     const paused = auto.state().pausedReason;
     api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0, ...(paused ? { pausedReason: paused } : {}) });
   };
-  ctx.effect(() => () => auto.stop());
-  // 保险箱解锁：因为锁定/凭据不可用而暂停的自动同步自动恢复（真正的认证失败会在下一拍再次暂停）
+  ctx.effect(() => () => {
+    auto.stop();
+    sync.dispose();
+  });
   api.events.subscribe((e) => {
-    if (e.type === "safe.unlocked" && auto.state().pausedReason === "auth-failed") auto.restart();
+    if (e.type === "engine.closing") sync.dispose();
+    if (e.type === "safe.unlocked" && sync.config().credential && auto.state().pausedReason === "auth-failed") auto.restart();
   });
   const Cfg = z.object({
     remote: z.string(),
@@ -254,6 +260,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     exclude: z.array(z.string()),
   });
   api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
+  const desktopAuth = { plugin: "versioning", desktopOnly: true, exposable: false, defaultExposed: false } as const;
+  api.defineCapability(def({ ...desktopAuth, name: "sync.auth.get", scope: "read", input: z.object({}), output: GitAuthSummary, handler: () => sync.authStatus() }));
+  api.defineCapability(def({ ...desktopAuth, name: "sync.auth.configure", scope: "admin", input: ConfigureGitAuth, output: GitAuthSummary, handler: ({ signal }, input) => sync.configureAuth(input, signal) }));
   api.defineCapability(
     def({
       name: "sync.update",
@@ -261,10 +270,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       scope: "write",
       exposable: false,
       defaultExposed: false,
-      input: Cfg.partial(),
+      input: Cfg.extend({ remote: z.string().refine(isPlainSyncRemote, "远端地址无效或包含认证材料"), credential: z.string().regex(/^(?:safe:\/\/item-[0-9a-z]+)?$/) })
+        .partial()
+        .strict(),
       output: Cfg,
-      handler: (_c, i) => {
-        const next = sync.update(i as never);
+      handler: async ({ signal }, i) => {
+        const next = await sync.updateConfig(i as never, signal);
         auto.restart();
         return next;
       },
@@ -280,7 +291,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       timeoutMs: 120_000,
       input: z.object({}),
       output: z.object({ push: z.array(z.string()), skipped: z.array(z.object({ path: z.string(), reason: z.string() })), pull: z.array(z.string()), ahead: z.number(), behind: z.number() }),
-      handler: () => sync.preview(),
+      handler: ({ signal }) => sync.preview(signal),
     }),
   );
   api.defineCapability(
@@ -293,9 +304,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       timeoutMs: 10 * 60_000,
       input: z.object({ mode: z.enum(["pull", "push", "sync"]).default("sync") }),
       output: z.object({ pulled: z.boolean(), pushed: z.boolean(), committed: z.boolean() }),
-      handler: async (_c, i) => {
+      handler: async ({ signal }, i) => {
         try {
-          const r = await sync.run(i.mode);
+          const r = await sync.run(i.mode, signal);
           auto.restart(); // 手动同步成功：清除暂停与退避
           return r;
         } catch (e) {
