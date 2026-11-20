@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import type {
   ApplyIntent,
   ApplyReport,
@@ -55,7 +56,7 @@ async function requestAgentConnectionIntents(
 
   let response: Response;
   try {
-    response = await fetch('/api/agent-integrations/apply', {
+    response = await okFetch('/api/agent-integrations/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ intents }),

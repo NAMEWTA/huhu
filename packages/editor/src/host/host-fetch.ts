@@ -1,7 +1,9 @@
 // hostFetch：vendor 里所有 `fetch('/api/…')` 的统一替身（design §4）。
-// 安装方式：installHostFetch() 包住 window.fetch，只拦截同源相对路径 `/api/`；其它请求原样放行。
+// vendor 的局部入口只拦截相对路径 `/api/`。
 // 路由按切片分文件（core：S2a；comments：S4；files：S5），本文件只负责组合与兜底。
 // 没有对应 Huhu 能力的端点返回 404 + { code: 'NOT_AVAILABLE' }，由 OkHost.features 关闭对应入口。
+import { attachOkFetch } from "../vendor/open-knowledge/app/src/lib/ok-fetch";
+
 export type HostRouteHandler = (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown;
 export type HostRoutes = Record<string, HostRouteHandler>;
 export const PASS_HOST_ROUTE = Symbol("pass host route");
@@ -58,19 +60,10 @@ export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): P
   return jsonResponse(404, { code: "NOT_AVAILABLE", message: `Huhu 宿主未实现 ${key}` });
 }
 
-let restore: (() => void) | null = null;
-
 export function installHostFetch(): () => void {
-  if (restore) return restore;
-  const original = window.fetch.bind(window);
-  window.fetch = (input, init) => {
+  return attachOkFetch((input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (raw.startsWith("/api/") || raw === "/api") return hostFetch(input, init);
-    return original(input, init);
-  };
-  restore = () => {
-    window.fetch = original;
-    restore = null;
-  };
-  return restore;
+    return globalThis.fetch(input, init);
+  });
 }

@@ -1,17 +1,8 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 
-@layer tokens {
-  /* Important declarations invert layer order. Override OK's default light file-tree color in the earlier token layer. */
-  /* stylelint-disable declaration-no-important -- vendor overrides both the inline token and its default light rule */
-  .ok-root file-tree-container {
-    --trees-selected-fg: var(--text) !important;
-  }
-  /* stylelint-enable declaration-no-important */
-}
-
 /* OK CSS may load after this chunk. Reserve its layers before registering the host mappings. */
 @layer vendor {
-  @layer ok-theme, ok-base, ok-utilities, ok-rules, ok-host;
+  @layer ok-theme, ok-base, ok-components, ok-utilities, ok-rules, ok-host;
 }
 
 @layer vendor.ok-host {
@@ -143,6 +134,8 @@
   }
 
   .ok-root file-tree-container {
+    /* The tree reads this through its inline selected-foreground token. */
+    --color-primary: var(--text);
     --trees-fg-override: var(--text);
     --trees-fg-muted-override: var(--faint);
   }

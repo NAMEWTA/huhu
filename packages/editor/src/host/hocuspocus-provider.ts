@@ -11,6 +11,7 @@ import { composeAndWriteRawBody, deriveFragmentFromYtext } from "../vendor/open-
 import { setupServerObservers } from "../vendor/open-knowledge/server-bridge/server-observers.ts";
 import { getDocSource, FILE_LOAD_ORIGIN } from "./doc-source";
 
+/** @public Vendored sync-promise imports this type through @hocuspocus/provider. */
 export interface onCloseParameters {
   event: { code?: number; reason?: string };
 }
@@ -177,4 +178,5 @@ export class LocalDocProvider {
   }
 }
 
+/** @public Vendored editor imports this alias through @hocuspocus/provider. */
 export { LocalDocProvider as HocuspocusProvider };

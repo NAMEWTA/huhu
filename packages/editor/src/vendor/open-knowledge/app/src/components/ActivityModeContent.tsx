@@ -1,5 +1,6 @@
 // oxlint-disable ok/no-physical-direction-utility -- pre-rule backlog — physical margin/padding/inset utilities predate the rule; drain by swapping ml/mr → ms/me, pl/pr → ps/pe, left/right → start/end, then deleting this line. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-physical-direction-utility
 
+import { okFetch } from '@/lib/ok-fetch';
 import { t } from '@lingui/core/macro';
 import { Plural, Trans, useLingui } from '@lingui/react/macro';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
@@ -26,7 +27,7 @@ async function postAgentUndo(body: {
   count?: number;
   agentName?: string;
 }): Promise<void> {
-  const res = await fetch('/api/agent-undo', {
+  const res = await okFetch('/api/agent-undo', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

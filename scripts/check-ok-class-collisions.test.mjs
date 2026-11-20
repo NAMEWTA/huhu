@@ -72,6 +72,19 @@ test("rejects scoped A/B intersections", () => {
   assert.match(output, /待决 B.*ok-editor-error/);
 });
 
+test("a host UI rule excluding the OK boundary does not collide with it", () => {
+  const built = "@layer vendor.ok-rules { .ok-root { color: inherit } }";
+  const excluded = check(built, "ok.css", {
+    "packages/component.css": '@layer components { h1:where(:not([class~="ok-root"] *)) { color: inherit } }',
+  });
+  assert.equal(excluded.status, 0, excluded.output);
+  const styled = check(built, "ok.css", {
+    "packages/component.css": '@layer components { [class~="ok-root"] h1 { color: inherit } }',
+  });
+  assert.equal(styled.status, 1, styled.output);
+  assert.match(styled.output, /待决 A.*ok-root/);
+});
+
 test("OK host mappings are also checked for scope violations", () => {
   const inside = check("@layer vendor.ok-host { .ok-root .mapping-target { --background: red } }");
   assert.equal(inside.status, 0, inside.output);
@@ -112,4 +125,13 @@ test("emits a backdrop selector that also matches a dialog which is itself an OK
 test("ignores host CSS even in a chunk named rich", () => {
   const { status, output } = check("@layer modules { :root { --host: red } .hu-page-head { color: red } }", "rich-decoy.css");
   assert.equal(status, 0, output);
+});
+
+test("keeps OK base and component rules within vendor sublayers", async () => {
+  const result = await postcss([okScopePlugin()]).process("@layer base { input { color: inherit } } @layer components { .widget { color: inherit } }", { from: "ok-globals.css" });
+  assert.deepEqual(
+    result.root.nodes.map((node) => node.params),
+    ["vendor.ok-base", "vendor.ok-components", "vendor.ok-rules"],
+  );
+  assert.match(result.css, /input:where\(\.ok-root, \.ok-root \*\)/);
 });

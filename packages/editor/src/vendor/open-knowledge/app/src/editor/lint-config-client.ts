@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type FrontmatterFieldConstraint,
   FrontmatterSchemasListSuccessSchema,
@@ -28,7 +29,7 @@ async function fetchLintConfig(docName?: string): Promise<LintConfigResponse | n
   if (!isHostLintAvailable()) return null;
   try {
     const query = docName !== undefined ? `?doc=${encodeURIComponent(docName)}` : '';
-    const res = await fetch(`/api/lint/config${query}`);
+    const res = await okFetch(`/api/lint/config${query}`);
     if (!res.ok) return null;
     const body = await res.json().catch(() => null);
     const parsed = LintConfigResponseSchema.safeParse(body);
@@ -58,7 +59,7 @@ export async function fixLintDoc(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LINT_FIX_TIMEOUT_MS);
   try {
-    const res = await fetch('/api/lint/fix', {
+    const res = await okFetch('/api/lint/fix', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ docName }),
@@ -96,7 +97,7 @@ export async function writeMarkdownlintRule(
   value: MarkdownlintRuleWriteValue | null,
 ): Promise<{ ok: true; response: LintConfigResponse } | { ok: false; errorDetail: string | null }> {
   try {
-    const res = await fetch('/api/lint/markdownlint-config', {
+    const res = await okFetch('/api/lint/markdownlint-config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ruleId, value }),
@@ -128,7 +129,7 @@ async function postFrontmatterSchema(body: {
   { ok: true; response: LintConfigResponse } | { ok: false; errorDetail: string | null }
 > {
   try {
-    const res = await fetch('/api/lint/frontmatter-schema', {
+    const res = await okFetch('/api/lint/frontmatter-schema', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -164,7 +165,7 @@ export async function writeFrontmatterSchemaField(
 
 async function listFrontmatterSchemas(): Promise<string[]> {
   try {
-    const res = await fetch('/api/lint/frontmatter-schemas');
+    const res = await okFetch('/api/lint/frontmatter-schemas');
     if (!res.ok) return [];
     const body = await res.json().catch(() => null);
     const parsed = FrontmatterSchemasListSuccessSchema.safeParse(body);

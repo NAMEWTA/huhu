@@ -5,6 +5,8 @@ import { WorkspaceSuccessSchema } from "../src/vendor/open-knowledge/core/src/sc
 import { hostFetch, registerHostRoutes } from "../src/host/host-fetch";
 import { filesRoutes, isHidden, type FilesRouteDeps, type HostFsEntry } from "../src/host/routes/files";
 
+import { parseApiError } from "../src/vendor/open-knowledge/app/src/lib/parse-api-error";
+
 const e = (path: string, kind: HostFsEntry["kind"], extra: Partial<HostFsEntry> = {}): HostFsEntry => ({ name: path.split("/").at(-1)!, path, kind, size: 3, mtimeMs: 1_700_000_000_000, ...extra });
 const tree: Record<string, HostFsEntry[]> = {
   "": [e("Notes", "dir"), e("Empty", "dir"), e("readme.md", "file"), e("data.json", "file"), e("paper.PDF", "file"), e(".huhu", "dir", { protected: "internal" })],
@@ -137,4 +139,50 @@ describe("A07：写操作走同一业务能力", () => {
     const res = await hostFetch("/api/rename-path", { method: "POST", body: JSON.stringify({ kind: "file" }) });
     expect(res.status).toBe(500);
   });
+});
+
+test.each([
+  { method: "GET", path: "/api/documents?showAll=true", shape: { documents: [] } },
+  { method: "GET", path: "/api/workspace", shape: { contentDir: "/vault" } },
+  { method: "GET", path: "/api/folder-config?path=docs", shape: { folder: { path: "docs" } } },
+  { method: "POST", path: "/api/rename-path", payload: { fromPath: "a.md", toPath: "b.md" }, shape: { renamed: [{ fromDocName: "a", toDocName: "b" }] } },
+  { method: "POST", path: "/api/duplicate-path", payload: { path: "a.md" }, shape: { duplicatedDocNames: ["a copy"] } },
+  { method: "POST", path: "/api/delete-path", payload: { path: "a.md" }, shape: { deletedDocNames: ["a"] } },
+  { method: "POST", path: "/api/create-page", payload: { path: "new.md" }, shape: { docName: "new" } },
+  { method: "POST", path: "/api/create-folder", payload: { path: "docs" }, shape: { path: "docs" } },
+  { method: "POST", path: "/api/template/import", payload: { sourcePath: "docs/a.md", targetFolder: "docs" }, shape: { created: true, path: "docs/模板/a.md" } },
+])("H04 $method $path returns the client payload or exposes a host failure to the error formatter", async ({ method, path, payload, shape }) => {
+  let failed = false;
+  const result = <T>(value: T): T => {
+    if (failed) throw new Error("无法读取或修改 Vault");
+    return value;
+  };
+  const off = registerHostRoutes(
+    filesRoutes({
+      ...deps,
+      list: async () => result({ entries: [] }),
+      workspace: () => result({ root: "/vault", separator: "/" }),
+      rename: async () => result({ moved: { "a.md": "b.md" } }),
+      duplicate: async () => result({ path: "a copy.md", paths: ["a copy.md"] }),
+      trash: async () => result({ paths: ["a.md"] }),
+      createPage: async ({ path }) => result({ path }),
+      createFolder: async ({ path }) => result({ path }),
+      listTemplates: async () => result([]),
+      importTemplate: async () => result({ path: "docs/模板/a.md" }),
+    }),
+  );
+  try {
+    const init = payload === undefined ? { method } : { method, body: JSON.stringify(payload) };
+    const success = await hostFetch(path, init);
+    expect(success.status).toBe(200);
+    expect(await success.json()).toMatchObject(shape);
+    failed = true;
+    const failure = await hostFetch(path, init);
+    expect(failure.status).toBe(500);
+    const body = await failure.json();
+    expect(body).toMatchObject({ code: "HOST_ERROR", status: 500 });
+    expect(parseApiError(body)).toBe("无法读取或修改 Vault");
+  } finally {
+    off();
+  }
 });

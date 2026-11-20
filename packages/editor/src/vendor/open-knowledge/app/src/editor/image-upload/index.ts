@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   AUDIO_EXTENSIONS,
   DEFAULT_DEDUP_UI,
@@ -252,7 +253,7 @@ export async function uploadAndInsert(
 
   let res: Response;
   try {
-    res = await fetch('/api/upload', { method: 'POST', body: formData });
+    res = await okFetch('/api/upload', { method: 'POST', body: formData });
   } catch (networkError) {
     let report: UploadFailureReport | undefined;
     try {

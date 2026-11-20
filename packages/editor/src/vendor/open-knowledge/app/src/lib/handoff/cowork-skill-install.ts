@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { defaultSkillInstaller, type SkillInstaller } from '@/lib/handoff/skill-installer';
 import '@/lib/desktop-bridge-types';
 
@@ -131,7 +132,7 @@ function defaultFallbackSkillVersion(): string {
 async function defaultFetchSnapshot(): Promise<SkillInstallStateSnapshotShape | null> {
   let response: Response;
   try {
-    response = await fetch(INSTALL_STATE_PATH, { method: 'GET', cache: 'no-store' });
+    response = await okFetch(INSTALL_STATE_PATH, { method: 'GET', cache: 'no-store' });
   } catch {
     return null;
   }

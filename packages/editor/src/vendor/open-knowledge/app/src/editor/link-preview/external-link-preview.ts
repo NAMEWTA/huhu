@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type LinkPreviewMetadata,
   LinkPreviewResponseSchema,
@@ -12,7 +13,7 @@ async function requestLinkPreview(
   url: string,
   signal: AbortSignal | undefined,
 ): Promise<LinkPreviewMetadata | null> {
-  const res = await fetch('/api/link-preview', {
+  const res = await okFetch('/api/link-preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),

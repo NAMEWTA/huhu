@@ -37,7 +37,13 @@ export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
     <CommentsPanelHost
       docName={docNameOf(props.path)}
       routes={routes}
-      {...(openExternal ? { openExternal } : {})}
+      {...(openExternal
+        ? {
+            openExternal: async (url: string) => {
+              await openExternal(url);
+            },
+          }
+        : {})}
       locale={locale}
       readOnly={props.readOnly}
       readOnlyReason={locale === "en" ? "This note is read-only" : props.readOnlyReason}

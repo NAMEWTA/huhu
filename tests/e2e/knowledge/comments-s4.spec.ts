@@ -391,8 +391,9 @@ test("D02 评论正文与回复安全渲染 Markdown，关闭重开和只读 Vau
   };
 
   try {
-    await app.evaluate(({ shell }) => {
+    await app.evaluate(({ dialog, shell }) => {
       const opened: string[] = [];
+      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
       Object.assign(globalThis, { commentExternalUrls: opened });
       shell.openExternal = async (url) => {
         opened.push(url);

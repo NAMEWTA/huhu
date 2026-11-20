@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { CreatePageSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { t } from '@lingui/core/macro';
 import { emitDocumentsChanged } from '@/lib/documents-events';
@@ -13,7 +14,7 @@ export async function createPageRequest(args: {
   if (args.template !== undefined) requestBody.template = args.template;
 
   try {
-    const res = await fetch('/api/create-page', {
+    const res = await okFetch('/api/create-page', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),

@@ -109,7 +109,7 @@ export interface OkRootProps {
   locale?: string;
   host?: Partial<OkHost>;
   routes?: HostRoutes;
-  config?: { wordWrap?: boolean; showHiddenFiles?: boolean; showOnlyMarkdownFiles?: boolean; linkPreviewsEnabled?: boolean };
+  config?: { wordWrap?: boolean; showHiddenFiles?: boolean; showOnlyMarkdownFiles?: boolean; linkPreviewsEnabled?: boolean; requestLinkPreview?(url: string): Promise<unknown> };
   poolKey?: string;
   acceptSidebarDrop?: boolean;
   documentHost?: {

@@ -107,7 +107,3 @@ export function dropProvider(docName: string): void {
   if (entry.refs === 0) destroy(docName);
   else entry.closing = true;
 }
-
-export function __poolSize(): number {
-  return entries.size;
-}

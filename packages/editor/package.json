@@ -13,13 +13,18 @@
       "types": "./src/rich/rich.d.ts",
       "default": "./src/rich/index.ts"
     },
+    "./editor-find-shortcut": {
+      "types": "./src/host/editor-find-shortcut.d.ts",
+      "default": "./src/host/editor-find-shortcut.ts"
+    },
+    "./link-preview-main": "./src/host/link-preview-main.ts",
     "./ok-explorer": {
       "types": "./src/host/ok-explorer.d.ts",
       "default": "./src/host/explorer.tsx"
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.vendor.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.vendor.json && node build/check-host-types.mjs",
     "build:harness": "vite build -c vite.harness.config.ts",
     "test:vendor": "vitest run -c vitest.vendor.config.ts"
   },

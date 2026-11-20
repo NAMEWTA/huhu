@@ -3,6 +3,7 @@
 // 编辑 → Y.Text 变化 → 防抖 300 ms → `onChange(全文)` 交给会话；会话把外部版本（载入 / 合并 / 恢复草稿）经 `value` 带回，
 // 只有与“最近交给会话的文本”不同的 `value` 才会被当作外部变化，用 replaceRawBody 写回（不进撤销栈）。
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
+import { markdownFileBody, restoreMarkdownFileEnvelope } from "../host/markdown-file-envelope";
 import type { EditorPort } from "@huhu/contracts";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -26,6 +27,7 @@ import { isOverlayLayerOpen } from "@/lib/overlay-layers";
 import { FindReplaceController } from "@/editor/find-replace/FindReplaceController";
 import { getMarkdownSourceViewForDoc, subscribeFullPageCmViewRegistry } from "@/editor/full-page-cm-views";
 import { PropertyPanel } from "@/components/PropertyPanel";
+import { documentHistory } from "@/editor/document-history";
 import { ReadonlyPropertyPanel } from "@/components/ReadonlyPropertyPanel";
 import { getSharedMarkdownManager } from "@/editor/utils/md-singleton";
 import { stripFrontmatter } from "../vendor/open-knowledge/core/src/extensions/frontmatter";
@@ -36,7 +38,6 @@ import { acquireProvider } from "../host/provider-pool";
 import { registerAtReference, type ReferenceCandidate } from "./at-reference";
 import { EditorAssetMenu, type EditorAssetActions } from "./EditorAssetMenu";
 import { FILE_LOAD_ORIGIN } from "../host/doc-source";
-import { registerOfflineEmojiRoutes } from "../host/offline-emoji";
 import type { LocalDocProvider } from "../host/hocuspocus-provider";
 import { DocumentProvider, useDocumentContext } from "../host/document-context";
 import { okRootClassName } from "./OkRoot";
@@ -161,8 +162,6 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   }, [docName, linkShortcut]);
   const showProperties = properties ?? variant === "document";
   const propertiesReadOnly = readOnly || mode === "read";
-  const needsEmojiData = enableEmojiPicker || (showProperties && !propertiesReadOnly);
-  useEffect(() => (needsEmojiData ? registerOfflineEmojiRoutes() : undefined), [needsEmojiData]);
   useEffect(() => {
     if (!onRevealSource || !enableEmojiPicker) return;
     const revealSource = (event: Event) => {
@@ -196,7 +195,8 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   onChangeRef.current = onChange;
   const retainSession = useRef(props.retainSession);
   retainSession.current = props.retainSession;
-  const lastEmitted = useRef<string>(value);
+  const lastEmitted = useRef(markdownFileBody(value));
+  const lastDeliveredFile = useRef<string | undefined>(undefined);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queued = useRef(false);
   // 输入法组合进行中不把未提交的拼音交给会话（否则 800 ms 自动保存会把拼音写进磁盘）；组合结束后补一次交付。flush / 卸载仍然无条件交付。
@@ -218,7 +218,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     const text = yt.toString();
     if (text === lastEmitted.current) return;
     lastEmitted.current = text;
-    onChangeRef.current(text);
+    const fileText = restoreMarkdownFileEnvelope(valueRef.current, text, modeRef.current !== "source");
+    lastDeliveredFile.current = fileText;
+    onChangeRef.current(fileText);
   }, []);
 
   useEffect(() => {
@@ -246,7 +248,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   // 创建 / 销毁 provider（每个 docName 一个；park 的编辑器 DOM 由 vendor 的 editor-cache 管）
   useEffect(() => {
-    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === "source", park: variant === "document", retainSession: retainSession.current });
+    const pooled = acquireProvider(docName, () => markdownFileBody(valueRef.current), { lazyRich: modeRef.current === "source", park: variant === "document", retainSession: retainSession.current });
     const p = pooled.provider;
     providerRef.current = p;
     let disposeObserve: (() => void) | null = null;
@@ -256,6 +258,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       ytextRef.current = yt;
       // 复用 park 住的 provider 时，Y.Doc 里可能是旧文本：以 Y.Doc 为准，随后由 value 副作用决定是否 replaceRawBody
       lastEmitted.current = yt.toString();
+      lastDeliveredFile.current = undefined;
       const observer = (_e: Y.YTextEvent, tr: Y.Transaction) => {
         if (tr.origin === FILE_LOAD_ORIGIN) return;
         // 同一事务批内合并为一次交付（微任务）：会话的文本始终与编辑器保持同步，退出前 flush 不依赖定时器
@@ -315,11 +318,13 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   useEffect(() => {
     const yt = ytextRef.current;
     if (!provider || !yt) return;
-    if (value === lastEmitted.current || value === yt.toString()) return;
+    const body = markdownFileBody(value);
+    if (value === lastDeliveredFile.current || body === yt.toString()) return;
+    lastDeliveredFile.current = undefined;
     provider.document.transact(() => {
-      replaceRawBody(provider.document, value);
+      replaceRawBody(provider.document, body);
     }, FILE_LOAD_ORIGIN);
-    lastEmitted.current = value;
+    lastEmitted.current = body;
   }, [value, provider]);
 
   // `@` 引用补全：编辑器出现（含 park 后重新出现）时注册，消失时注销
@@ -523,14 +528,25 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         emitNow();
       },
       undo() {
-        if (mode === "source") return void cm()?.focus();
+        if (isRead()) return;
+        if (mode === "source") {
+          cm()?.focus();
+          documentHistory(provider.document).undo();
+          return;
+        }
         tip()?.commands.undo();
       },
       redo() {
+        if (isRead()) return;
+        if (mode === "source") {
+          cm()?.focus();
+          documentHistory(provider.document).redo();
+          return;
+        }
         tip()?.commands.redo();
       },
-      canUndo: () => tip()?.can().undo() ?? false,
-      canRedo: () => tip()?.can().redo() ?? false,
+      canUndo: () => !isRead() && documentHistory(provider.document).canUndo(),
+      canRedo: () => !isRead() && documentHistory(provider.document).canRedo(),
       isComposing: () => composing.current,
     };
     onPort(port);
@@ -582,7 +598,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
               <div hidden={showSource} data-testid={showSource ? undefined : "editor-scroll-container"} style={{ height: "100%", overflow: "auto" }}>
                 {richReady ? (
                   <DocumentProvider host={activeDocumentHost}>
-                    <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+                    <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} compact={variant === "compact"} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
                   </DocumentProvider>
                 ) : mode !== "source" ? (
                   <div role="status" className="ok-editor-loading">

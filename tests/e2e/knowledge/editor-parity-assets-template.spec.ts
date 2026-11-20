@@ -98,8 +98,18 @@ test("从导入的本地模板新建笔记，保存重开后模板字节不变",
     await page.getByRole("menuitem", { name: "模板/样板.md", exact: true }).click();
     const treeDialog = page.getByRole("dialog", { name: "新建文件", exact: true });
     await expect(treeDialog.getByRole("combobox")).toContainText("模板/样板.md");
-    await treeDialog.getByLabel("文件名", { exact: true }).fill("从树创建");
-    await treeDialog.getByRole("button", { name: "创建", exact: true }).click();
+    const existing = path.join(vault, "目标文件夹", "已有文件.md");
+    writeFileSync(existing, "# 不可覆盖\n");
+    const fileName = treeDialog.getByLabel("文件名", { exact: true });
+    const create = treeDialog.getByRole("button", { name: "创建", exact: true });
+    await fileName.fill("已有文件");
+    await create.click();
+    await expect(treeDialog.getByRole("alert")).toContainText("同名");
+    expect(readFileSync(existing, "utf8")).toBe("# 不可覆盖\n");
+
+    await fileName.fill("从树创建");
+    await create.click();
+    await expect(treeDialog).toBeHidden();
     await expect.poll(() => readIfPresent(path.join(vault, "目标文件夹", "从树创建.md")), { timeout: 15_000 }).toBe(initial);
     await treeItem(page, "从树创建.md").click();
     await expect(rich.getByRole("heading", { name: "模板正文", exact: true })).toBeVisible({ timeout: 15_000 });

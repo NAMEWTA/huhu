@@ -44,6 +44,7 @@ export interface NoteEditorSurfaceProps {
   onOpen(path: string): void;
   onPort(port: RichEditorPort | null): void;
   fontSize?: number;
+  linkPreviewsEnabled: boolean;
   /** 正文可读宽度 px；null = 不限制 */
   contentWidth?: number | null;
   /** 批注创建前把编辑落盘（引擎在已保存文本上解析引用文字） */
@@ -60,6 +61,9 @@ const docNameOf = (path: string): string => path.replace(MD, "");
 export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const engine = useEngine();
   const locale = useKnowledgeLocale();
+  const host = (globalThis as { huhuHost?: { externalLinkPreview?(url: string): Promise<unknown> } }).huhuHost;
+  const requestLinkPreview = host?.externalLinkPreview;
+  const config = requestLinkPreview && props.linkPreviewsEnabled ? { linkPreviewsEnabled: true, requestLinkPreview } : undefined;
   const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
   useCommentsReadOnlySync(vault.data?.readOnly !== false);
   useLayoutEffect(() => {
@@ -185,7 +189,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
 
   return (
-    <OkRoot acceptSidebarDrop locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}

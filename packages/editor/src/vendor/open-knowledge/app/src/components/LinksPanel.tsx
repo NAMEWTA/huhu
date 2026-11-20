@@ -1,6 +1,7 @@
 // oxlint-disable ok/no-raw-error-toast -- pre-rule backlog: toasts here show raw error text; delete this line once the file maps each failure to written copy. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-raw-error-toast
 // oxlint-disable ok/no-raw-html-interactive-element -- pre-rule backlog — file uses raw <button>/<input>/<textarea> awaiting shadcn migration; tracked at https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-raw-html-interactive-element
 // oxlint-disable ok/no-physical-direction-utility -- pre-rule backlog — physical margin/padding/inset utilities predate the rule; drain by swapping ml/mr → ms/me, pl/pr → ps/pe, left/right → start/end, then deleting this line. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-physical-direction-utility
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type BacklinkEntry,
   BacklinksSuccessSchema,
@@ -51,7 +52,7 @@ import { resolveTargetNavigationIntent } from './target-navigation-intent';
 const INITIAL_VISIBLE = 5;
 
 async function fetchBacklinks(docName: string): Promise<BacklinkEntry[]> {
-  const res = await fetch(`/api/backlinks?docName=${encodeURIComponent(docName)}`);
+  const res = await okFetch(`/api/backlinks?docName=${encodeURIComponent(docName)}`);
   const body = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
     const problem = ProblemDetailsSchema.safeParse(body);
@@ -74,7 +75,7 @@ async function fetchBacklinks(docName: string): Promise<BacklinkEntry[]> {
 }
 
 async function fetchForwardLinks(docName: string): Promise<ForwardLinksSuccess> {
-  const res = await fetch(`/api/forward-links?docName=${encodeURIComponent(docName)}`);
+  const res = await okFetch(`/api/forward-links?docName=${encodeURIComponent(docName)}`);
   const body = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
     const problem = ProblemDetailsSchema.safeParse(body);

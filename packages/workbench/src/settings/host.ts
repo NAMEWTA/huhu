@@ -2,9 +2,9 @@
 export interface HostApi {
   appInfo(): Promise<{ name: string; version: string; commit?: string; builtAt?: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
   revealVault(): Promise<void>;
-  openExternal?(url: string): Promise<void>;
   /** 用系统应用打开 Vault 里的文件（主进程校验路径在 Vault 内并按扩展名白名单放行；其余只在文件夹中显示）。 */
   openVaultFile?(rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;
+  openExternal?(url: string): Promise<boolean>;
   /** HTML 预览（主进程校验路径、签发一次一页的 `huhu-preview://` URL）；浏览器里单独运行界面时不存在。 */
   previewGrant?(rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }>;
   previewRevoke?(nonce: string): Promise<void>;

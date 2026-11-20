@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type ValidationAuditCountsResponse,
   ValidationAuditCountsResponseSchema,
@@ -48,7 +49,7 @@ async function fetchAudit<T>(
     else if (scope.kind === 'doc') params.set('doc', scope.docName);
     if (counts) params.set('counts', '1');
     const query = params.size === 0 ? '' : `?${params}`;
-    const res = await fetch(`/api/audit${query}`, signal === undefined ? undefined : { signal });
+    const res = await okFetch(`/api/audit${query}`, signal === undefined ? undefined : { signal });
     if (!res.ok) {
       if (res.status === 409) return AUDIT_SUPERSEDED;
       console.warn('[audit] request failed', res.status, res.statusText);

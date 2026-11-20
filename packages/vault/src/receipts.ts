@@ -2,9 +2,19 @@ const TTL_MS = 10_000;
 
 /** 自写回执：监听器收到事件后用 `consume` 识别并过滤自己写入造成的回声。 */
 export class ReceiptLog {
+  private readonly temporaryFiles = new Set<string>();
   private readonly map = new Map<string, { version: string; at: number }[]>();
 
   constructor(private readonly now: () => number = Date.now) {}
+
+  trackTemporaryFile(path: string): () => void {
+    this.temporaryFiles.add(path);
+    return () => this.temporaryFiles.delete(path);
+  }
+
+  isTemporaryFile(path: string): boolean {
+    return this.temporaryFiles.has(path);
+  }
 
   record(path: string, version: string): void {
     const list = this.map.get(path) ?? [];

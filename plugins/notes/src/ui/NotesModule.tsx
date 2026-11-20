@@ -429,7 +429,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       />
     ) : null;
   return (
-    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" data-notes-find-pane onClick={() => setMenu(null)}>
       <NoteExplorer
         vaultName={vault.data?.name ?? "Vault"}
         section={section}
@@ -555,14 +555,14 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         ) : selectedFile?.file && section !== "trash" ? (
           <>
             <Suspense fallback={<p role="status">{t.loading}</p>}>
-              <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+              <FileViewer ownsCommands={active} path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
             </Suspense>
             {detail}
           </>
         ) : tab?.kind === "file" && section !== "trash" && (restrictedFile || !/\.md$/i.test(tab.path)) ? (
           <>
             <Suspense fallback={<p role="status">{t.loading}</p>}>
-              <UnindexedFileViewer key={tab.path} path={tab.path} />
+              <UnindexedFileViewer ownsCommands={active} key={tab.path} path={tab.path} />
             </Suspense>
             {detail}
           </>

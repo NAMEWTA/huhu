@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import type { HandoffTarget, InstallState } from '@inkeep/open-knowledge-core/handoff';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -29,7 +30,7 @@ export function defaultProbeDeps(): ProbeDeps {
       now: Date.now,
     };
   }
-  const fetchFn = globalThis.fetch.bind(globalThis);
+  const fetchFn = okFetch;
   return {
     probe: (): Promise<SchemeStates> => probeViaFetch({ fetch: fetchFn }),
     isElectronHost: () => false,

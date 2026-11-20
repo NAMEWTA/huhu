@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type FolderConfigWarningCode,
   type TemplatesListSuccess,
@@ -69,7 +70,7 @@ export function useFolderConfig(folderPath: string | null): FolderConfigHandle {
     let cancelled = false;
     setState({ status: 'loading' });
     const qs = folderPath ? `?path=${encodeURIComponent(folderPath)}` : '';
-    fetch(`/api/folder-config${qs}`)
+    okFetch(`/api/folder-config${qs}`)
       .then(async (r) => {
         if (!r.ok) {
           const body = (await r.json().catch(() => null)) as unknown;
@@ -127,7 +128,7 @@ export function useAllTemplates(): AsyncState<TemplatesListSuccess> {
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });
-    fetch('/api/templates')
+    okFetch('/api/templates')
       .then(async (r) => {
         if (!r.ok) {
           const body = (await r.json().catch(() => null)) as unknown;

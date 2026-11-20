@@ -234,5 +234,3 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
 export function handleUpload(deps: FilesRouteDeps, form: FormData): Promise<{ src: string; path: string; deduped?: boolean }> {
   return handleUploadForm(deps.upload, form);
 }
-
-export const __test = { dirOf };

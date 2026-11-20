@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { toWikiLinkSlug } from '@inkeep/open-knowledge-core/utils/slug';
 import {
   asTargetNamespace,
@@ -98,7 +99,7 @@ function mergePageTitles(
 }
 
 async function loadPages(): Promise<PageSummary[]> {
-  const r = await fetch('/api/pages');
+  const r = await okFetch('/api/pages');
   if (!r.ok) {
     const body = (await r.json().catch(() => null)) as unknown;
     throw new Error(parseApiError(body) ?? `/api/pages responded with ${r.status}`);

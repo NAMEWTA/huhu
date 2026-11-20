@@ -48,7 +48,7 @@ const VIEW: Record<Mode, EditorViewMode> = { live: "rich", source: "source", pre
 /** 文档区（原型 knowledge-document-area）：面包屑 + 模式切换 + 编辑工具条 → 编辑 / 阅读（含双栏）→ 状态栏。 */
 export function NoteDocument(props: NoteDocumentProps) {
   const { path } = props;
-  const settings = useCapability<{ editor: { fontSize: number; lineHeight: number; autosave: boolean; lineNumbers: boolean; spellcheck: boolean; readableWidth: "680" | "760" | "880" | "full" } }>("settings.get", {});
+  const settings = useCapability<{ editor: { fontSize: number; lineHeight: number; autosave: boolean; lineNumbers: boolean; spellcheck: boolean; linkPreviews: boolean; readableWidth: "680" | "760" | "880" | "full" } }>("settings.get", {});
   const ed = settings.data?.editor;
   const readOnly = useCapability<{ readOnly: boolean }>("vault.info", {}).data?.readOnly === true;
   // 保存 / 冲突 / 草稿 / flush 全部在 DocumentSession 里（按 (vaultId, path) 引用计数，生命周期长于本组件）
@@ -312,6 +312,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                 flush={flush}
                 onOpen={props.onOpen}
                 onPort={onPort}
+                linkPreviewsEnabled={ed?.linkPreviews === true}
                 onRevealSource={revealSource}
                 {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
               />

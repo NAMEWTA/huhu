@@ -140,6 +140,7 @@ export class VaultWatcher {
     const dirs: string[] = [];
 
     for (const p of paths) {
+      if (this.o.receipts.isTemporaryFile(p)) continue;
       const absolute = path.join(this.o.root, p);
       const before = this.snapshot.get(p);
       const after = infoOf(absolute, true);

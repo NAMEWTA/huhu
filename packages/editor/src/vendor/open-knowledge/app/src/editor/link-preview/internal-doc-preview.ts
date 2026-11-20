@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   stripFrontmatter,
   unwrapFrontmatterFences,
@@ -51,15 +52,26 @@ const contentCache = new Map<string, string>();
 const backlinkCountCache = new Map<string, number>();
 const inflightContent = new Map<string, Promise<string | null>>();
 const inflightBacklink = new Map<string, Promise<number | null>>();
+let vaultGeneration = 0;
+
+// Huhu may reopen the same docName in another Vault without reloading the renderer.
+export function resetInternalDocPreviewCache(): void {
+  vaultGeneration++;
+  contentCache.clear();
+  backlinkCountCache.clear();
+  inflightContent.clear();
+  inflightBacklink.clear();
+}
+
 
 async function fetchDocContent(docName: string): Promise<string> {
-  const res = await fetch(`/api/document?docName=${encodeURIComponent(docName)}`);
+  const res = await okFetch(`/api/document?docName=${encodeURIComponent(docName)}`);
   if (!res.ok) throw new Error(`document read failed: ${res.status}`);
   return DocumentReadSuccessSchema.parse(await res.json()).content;
 }
 
 async function fetchBacklinkCount(docName: string): Promise<number> {
-  const res = await fetch(`/api/backlink-counts?docNames=${encodeURIComponent(docName)}`);
+  const res = await okFetch(`/api/backlink-counts?docNames=${encodeURIComponent(docName)}`);
   if (!res.ok) throw new Error(`backlink-counts failed: ${res.status}`);
   const { counts } = BacklinkCountsSuccessSchema.parse(await res.json());
   return counts[docName] ?? 0;
@@ -74,9 +86,11 @@ export function loadDocContent(docName: string): Promise<string | null> {
   }
   const existing = inflightContent.get(docName);
   if (existing) return existing;
+  const generation = vaultGeneration;
   const promise = (async () => {
     try {
       const content = await fetchDocContent(docName);
+      if (generation !== vaultGeneration) return null;
       contentCache.set(docName, content);
       while (contentCache.size > CONTENT_CACHE_MAX_ENTRIES) {
         const oldest = contentCache.keys().next().value;
@@ -93,7 +107,7 @@ export function loadDocContent(docName: string): Promise<string | null> {
       }
       return null;
     } finally {
-      inflightContent.delete(docName);
+      if (generation === vaultGeneration) inflightContent.delete(docName);
     }
   })();
   inflightContent.set(docName, promise);
@@ -109,9 +123,11 @@ export function loadBacklinkCount(docName: string): Promise<number | null> {
   }
   const existing = inflightBacklink.get(docName);
   if (existing) return existing;
+  const generation = vaultGeneration;
   const promise = (async () => {
     try {
       const count = await fetchBacklinkCount(docName);
+      if (generation !== vaultGeneration) return null;
       backlinkCountCache.set(docName, count);
       while (backlinkCountCache.size > CONTENT_CACHE_MAX_ENTRIES) {
         const oldest = backlinkCountCache.keys().next().value;
@@ -128,7 +144,7 @@ export function loadBacklinkCount(docName: string): Promise<number | null> {
       }
       return null;
     } finally {
-      inflightBacklink.delete(docName);
+      if (generation === vaultGeneration) inflightBacklink.delete(docName);
     }
   })();
   inflightBacklink.set(docName, promise);

@@ -140,3 +140,62 @@ test("F08：四主题的明暗色、紧凑与减少动效", async () => {
   expect(Object.keys(result)).toHaveLength(8);
   expect(Object.values(result).flatMap((screens) => Object.values(screens).flatMap(({ colors }) => colors.map(([key]) => key)))).toEqual([]);
 });
+
+test("OP-D05：加载 OK 样式保持根变量，并在编辑器和浮层隔离控件重置", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(path.join(vault, "样式隔离.md"), "# 样式隔离\n\n编辑器主题对照\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    const rootTokens = () =>
+      page.locator("html").evaluate((element) => {
+        const style = getComputedStyle(element);
+        const tokens = ["--bg", "--text", "--muted", "--accent", "--font-mono", "--radius-lg", "--shadow-sm", "--background", "--color-primary"];
+        return Object.fromEntries(tokens.map((name) => [name, style.getPropertyValue(name).trim()]));
+      });
+    const before = await rootTokens();
+    expect(before["--bg"]).toBeTruthy();
+    expect(before["--muted"]).toBeTruthy();
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await treeSettled(page);
+    await treeItem(page, "样式隔离").click();
+    await expect(page.locator(".ok-root .ProseMirror")).toContainText("编辑器主题对照");
+    expect(await rootTokens()).toEqual(before);
+
+    const editor = page
+      .locator(".ok-root")
+      .filter({ has: page.locator(".ProseMirror") })
+      .last();
+    await page.locator(".ok-root .ProseMirror p").first().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/h2");
+    const portal = page.locator(".ok-root.editor-ok-portal").filter({ has: page.getByRole("listbox", { name: /斜杠命令|Slash commands/ }) });
+    await expect(portal).toBeVisible();
+    for (const scope of [editor, portal, page.locator("body")]) {
+      const styles = await scope.evaluate((scope) => {
+        const probe = document.createElement("div");
+        probe.style.cssText = "font: 17px monospace; letter-spacing: 2px";
+        for (const tag of ["button", "input", "select", "h1"]) probe.append(document.createElement(tag));
+        scope.append(probe);
+        try {
+          return Array.from(probe.children, (element) => {
+            const style = getComputedStyle(element);
+            return { box: style.boxSizing, size: style.fontSize, tracking: style.letterSpacing };
+          });
+        } finally {
+          probe.remove();
+        }
+      });
+      expect(styles.map(({ box }) => box)).toEqual(["border-box", "border-box", "border-box", "border-box"]);
+      if (scope === editor || scope === portal) {
+        expect(styles.map(({ size }) => size)).toEqual(["17px", "17px", "17px", "17px"]);
+        expect(styles[3]?.tracking).toBe("2px");
+      } else {
+        expect(styles.slice(1).map(({ size }) => size)).not.toContain("17px");
+        expect(styles[3]?.tracking).not.toBe("2px");
+      }
+    }
+  } finally {
+    await close();
+  }
+});

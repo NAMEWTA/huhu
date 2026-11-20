@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   BacklinksSuccessSchema,
   ForwardLinksSuccessSchema,
@@ -290,7 +291,7 @@ export interface FetchPagesOptions {
 }
 
 export async function fetchPages(options: FetchPagesOptions = {}): Promise<PageItem[]> {
-  const r = await fetch('/api/pages');
+  const r = await okFetch('/api/pages');
   let body: unknown;
   try {
     body = await r.json();
@@ -367,7 +368,7 @@ export async function fetchPages(options: FetchPagesOptions = {}): Promise<PageI
 }
 
 export async function fetchHeadings(docName: string): Promise<HeadingEntry[]> {
-  const r = await fetch(`/api/page-headings?docName=${encodeURIComponent(docName)}`);
+  const r = await okFetch(`/api/page-headings?docName=${encodeURIComponent(docName)}`);
   let body: unknown;
   try {
     body = await r.json();
@@ -393,7 +394,7 @@ export async function fetchHeadings(docName: string): Promise<HeadingEntry[]> {
 
 async function fetchForwardLinkTargets(docName: string): Promise<string[]> {
   try {
-    const r = await fetch(`/api/forward-links?docName=${encodeURIComponent(docName)}`);
+    const r = await okFetch(`/api/forward-links?docName=${encodeURIComponent(docName)}`);
     if (!r.ok) {
       console.warn('[wiki-link-suggestion] /api/forward-links responded', r.status, docName);
       return [];
@@ -409,7 +410,7 @@ async function fetchForwardLinkTargets(docName: string): Promise<string[]> {
 
 async function fetchBacklinkSources(docName: string): Promise<string[]> {
   try {
-    const r = await fetch(`/api/backlinks?docName=${encodeURIComponent(docName)}`);
+    const r = await okFetch(`/api/backlinks?docName=${encodeURIComponent(docName)}`);
     if (!r.ok) {
       console.warn('[wiki-link-suggestion] /api/backlinks responded', r.status, docName);
       return [];

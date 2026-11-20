@@ -59,11 +59,19 @@ export class VaultFiles {
     mkdirSync(path.dirname(p), { recursive: true });
     const version = versionOf(bytes);
     this.receipts.record(rel, version);
+    let untrackTemporaryFile: (() => void) | undefined;
     try {
-      await writeFileAtomic(p, Buffer.from(bytes));
+      await writeFileAtomic(p, Buffer.from(bytes), {
+        tmpfileCreated: (file) => {
+          const temporaryPath = path.posix.join(path.posix.dirname(rel), path.basename(file));
+          untrackTemporaryFile = this.receipts.trackTemporaryFile(temporaryPath);
+        },
+      });
     } catch (e) {
       this.receipts.forget(rel, version);
       throw e;
+    } finally {
+      untrackTemporaryFile?.();
     }
     return { version };
   }

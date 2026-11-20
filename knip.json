@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": ["vendor/**", "packages/editor/src/vendor/**", ".agents/**", "scripts/lint-samples/**", "examples/**", "packages/editor/build/**", "packages/editor/harness/**", "packages/editor/src/host/**", "playwright.vendor.config.ts"],
+  "ignore": ["vendor/**", "packages/editor/src/vendor/**", ".agents/**", "scripts/lint-samples/**", "examples/**", "packages/editor/build/**", "packages/editor/harness/**", "playwright.vendor.config.ts"],
   "ignoreExportsUsedInFile": true,
   "workspaces": {
     ".": {
@@ -31,23 +31,11 @@
       "ignoreDependencies": ["tsx"]
     },
     "packages/editor": {
-      "ignoreDependencies": [
-        "@fontsource-variable/inter",
-        "@fontsource-variable/jetbrains-mono",
-        "@types/diff-match-patch",
-        "diff-match-patch",
-        "mdast-util-to-hast",
-        "micromark-util-sanitize-uri",
-        "node-diff3",
-        "rehype-parse",
-        "rehype-remark",
-        "rehype-stringify",
-        "remark-rehype",
-        "vite-tsconfig-paths",
-        "y-indexeddb"
-      ],
+      "entry": ["src/host/core-barrel.ts", "src/host/hocuspocus-server.ts", "src/host/next-themes-shim.tsx"],
+      "ignoreDependencies": ["@fontsource-variable/inter", "@fontsource-variable/jetbrains-mono", "vite-tsconfig-paths", "y-indexeddb"],
       "paths": {
-        "@/*": ["src/vendor/open-knowledge/app/src/*"]
+        "@/*": ["src/vendor/open-knowledge/app/src/*"],
+        "@inkeep/open-knowledge-core/*": ["src/vendor/open-knowledge/core/src/*"]
       }
     },
     "packages/ui": {

@@ -65,5 +65,17 @@
       }
     }
   ],
-  "ignorePatterns": ["temp/**", "**/dist/**", "**/node_modules/**", "scripts/lint-samples/**", ".agents/**", ".claude/**", "vendor/**", "packages/editor/src/vendor/**", "packages/editor/harness-dist/**", "packages/editor/test-results/**"]
+  "ignorePatterns": [
+    "temp/**",
+    "**/dist/**",
+    "**/node_modules/**",
+    "scripts/lint-samples/**",
+    ".agents/**",
+    ".claude/**",
+    "vendor/**",
+    "packages/editor/src/vendor/**",
+    "plugins/notes/src/vendor/orca/**",
+    "packages/editor/harness-dist/**",
+    "packages/editor/test-results/**"
+  ]
 }

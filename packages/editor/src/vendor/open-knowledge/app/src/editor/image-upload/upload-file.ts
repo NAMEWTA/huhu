@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   ProblemDetailsSchema,
   UploadAssetSuccessSchema,
@@ -32,7 +33,7 @@ export async function uploadFile(
   deps: UploadFileDeps = {},
 ): Promise<UploadFileResult> {
   if (deps.singleFile) throw new UploadFailedError(singleFileUploadMessage(), 'single-file-mode');
-  const fetchImpl = deps.fetch ?? globalThis.fetch;
+  const fetchImpl = deps.fetch ?? okFetch;
   const sizeAtPick = file.size;
 
   const docName = deps.docName !== undefined ? deps.docName : getCurrentDocName();

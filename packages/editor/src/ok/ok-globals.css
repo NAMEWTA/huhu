@@ -1,15 +1,11 @@
 /* 生成文件（scripts/ok-css-build.mjs），不要手改。上游：vendor/open-knowledge/app/src/globals.css */
-@layer vendor.ok-theme, vendor.ok-base, vendor.ok-utilities, vendor.ok-rules;
+@layer vendor.ok-theme, vendor.ok-base, vendor.ok-components, vendor.ok-utilities, vendor.ok-rules;
 @import "tailwindcss/theme.css" layer(vendor.ok-theme);
 @import "tailwindcss/utilities.css" layer(vendor.ok-utilities);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "react-medium-image-zoom/dist/styles.css" layer(vendor.ok-rules);
 @import "../vendor/open-knowledge/app/src/cmd-f.css" layer(vendor.ok-rules);
-/* IDE color-theme palettes (Dracula, Nord, …). Generated from
-   src/lib/color-themes.ts — `html[data-color-theme="…"]` rules out-specify the
-   base :root/.dark blocks below. See color-themes.ts for the generator. */
-@import "../vendor/open-knowledge/app/src/color-themes.generated.css" layer(vendor.ok-rules);
 @plugin "tailwind-scrollbar";
 
 /* react-medium-image-zoom hardcodes rgba(255,255,255,1) for the visible
@@ -481,6 +477,20 @@ body[style*="pointer-events: none"] .corner-card-column .floating-card-surface {
 
 /* Base styles */
 @layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  :where(button, input, select, textarea) {
+    font: inherit;
+    color: inherit;
+  }
+  :where(h1, h2, h3, h4, h5, h6) {
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
   *,
   *::before,
   *::after {
@@ -6693,11 +6703,6 @@ html[data-bug-report-capturing] [data-slot="dialog-overlay"]:has(~ [data-bug-rep
 
 html:not([data-color-theme]):not(.dark) .raw-mdx-fallback-wrapper[data-severity="error"] > div > span {
   color: #a31524;
-}
-
-html:not([data-color-theme]):not(.dark) file-tree-container {
-  /* biome-ignore lint/complexity/noImportantStyles: the tree host receives --trees-selected-fg as an inline style, which no selector specificity can outrank. */
-  --trees-selected-fg: #1d4ed8 !important;
 }
 
 html:not([data-color-theme]) .file-tree-empty-text {
