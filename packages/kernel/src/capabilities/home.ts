@@ -1,6 +1,19 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DashboardViewSchema, FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, WidgetsStateSchema, errors, isKnownCard } from "@huhu/contracts";
+import {
+  DashboardBoardSchema,
+  DashboardViewSchema,
+  FOCUS_SECONDS,
+  FocusActionSchema,
+  FocusStateSchema,
+  FocusViewSchema,
+  HabitsActionSchema,
+  HabitsStateSchema,
+  HabitsViewSchema,
+  WidgetsStateSchema,
+  errors,
+  isKnownCard,
+} from "@huhu/contracts";
 import type { Vault } from "@huhu/vault";
 import type { FocusState, FocusView, HabitsState, HabitsView, WidgetsState } from "@huhu/contracts";
 import { z } from "zod";
@@ -158,6 +171,20 @@ export function registerHomeCapabilities(registry: CapabilityRegistry, store: Ho
     registry.register(defineCapability({ name: "home.widgets.get", ...desktop, scope: "read", input: none, output: WidgetsStateSchema, handler: () => store.widgets() })),
     registry.register(defineCapability({ name: "home.widgets.update", ...desktop, scope: "write", input: WidgetsUpdateSchema, output: WidgetsStateSchema, handler: (_c, i) => store.setWidgets(i) })),
     registry.register(defineCapability({ name: "home.dashboard.get", ...desktop, scope: "read", input: none, output: DashboardViewSchema, handler: () => readDashboard(vault) })),
+    registry.register(
+      defineCapability({
+        name: "home.dashboard.backup",
+        ...desktop,
+        scope: "read",
+        input: none,
+        output: DashboardBoardSchema,
+        handler: () => {
+          const snapshot = readDashboard(vault);
+          if (snapshot.source !== "stored") throw errors.invalidInput("当前没有可备份的已保存看板", [{ reason: snapshot.source }]);
+          return snapshot.board;
+        },
+      }),
+    ),
   ];
   return () => offs.forEach((o) => o());
 }
