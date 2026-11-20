@@ -1,4 +1,5 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import type { HistoryEntry } from "./scanner.js";
 
 /** 历史会话的只读记录：只取对话文本（用户/助手），工具调用与思考过程不展示。 */
 export interface TranscriptMessage {
@@ -60,9 +61,32 @@ function readTail(file: string): { text: string; cut: boolean } {
   }
 }
 
-export function readTranscript(provider: "claude" | "codex", file: string): Transcript {
+function piBranch(entries: Record<string, unknown>[]): { entries: Record<string, unknown>[]; incomplete: boolean } {
+  const byId = new Map<string, Record<string, unknown>>();
+  let leaf: string | null = null;
+  for (const entry of entries) {
+    const id = entry["type"] !== "session" && Object.hasOwn(entry, "parentId") ? str(entry["id"]) : null;
+    if (!id) continue;
+    if (byId.has(id)) return { entries: [], incomplete: true };
+    byId.set(id, entry);
+    leaf = id;
+  }
+  if (!leaf) return { entries, incomplete: false };
+  const branch: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
+  while (leaf) {
+    const entry = byId.get(leaf);
+    if (!entry || seen.has(leaf)) return { entries: branch.reverse(), incomplete: true };
+    branch.push(entry);
+    seen.add(leaf);
+    leaf = str(entry["parentId"]);
+  }
+  return { entries: branch.reverse(), incomplete: false };
+}
+
+export function readTranscript(provider: HistoryEntry["provider"], file: string): Transcript {
   const { text, cut } = readTail(file);
-  const messages: TranscriptMessage[] = [];
+  const records: Record<string, unknown>[] = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     let r: Record<string, unknown> | null;
@@ -71,22 +95,31 @@ export function readTranscript(provider: "claude" | "codex", file: string): Tran
     } catch {
       continue;
     }
-    if (!r) continue;
+    if (r) records.push(r);
+  }
+  const visible = provider === "pi" ? piBranch(records) : { entries: records, incomplete: false };
+  const messages: TranscriptMessage[] = [];
+  for (const r of visible.entries) {
     let role: "user" | "assistant" | null = null;
     let body = "";
     if (provider === "claude") {
       if ((r["type"] !== "user" && r["type"] !== "assistant") || r["isMeta"] === true || r["isSidechain"] === true) continue;
       role = r["type"];
       body = blocksText(obj(r["message"])?.["content"], ["text"]);
-    } else {
+    } else if (provider === "codex") {
       const p = obj(r["payload"]);
       if (r["type"] !== "response_item" || !p || p["type"] !== "message" || (p["role"] !== "user" && p["role"] !== "assistant")) continue;
       role = p["role"];
       body = blocksText(p["content"], ["input_text", "output_text", "text"]);
+    } else {
+      const message = obj(r["message"]);
+      if (r["type"] !== "message" || (message?.["role"] !== "user" && message?.["role"] !== "assistant")) continue;
+      role = message["role"];
+      body = blocksText(message["content"], ["text"]);
     }
     if (!role || !meaningful(body)) continue;
     messages.push({ role, text: body.length > MAX_TEXT ? `${body.slice(0, MAX_TEXT)}…` : body, at: str(r["timestamp"]) });
   }
-  const truncated = cut || messages.length > MAX_MESSAGES;
+  const truncated = cut || visible.incomplete || messages.length > MAX_MESSAGES;
   return { messages: messages.slice(-MAX_MESSAGES), truncated };
 }

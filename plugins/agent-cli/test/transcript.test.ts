@@ -67,4 +67,23 @@ describe("历史记录只读查看", () => {
     expect(r.messages.at(-1)?.text).toBe("m249");
     expect(r.truncated).toBe(true);
   });
+
+  test("Pi 只沿当前持久分支展示对话文字，并报告未能还原的祖先", () => {
+    const message = (id: string, parentId: string | null, role: string, content: unknown) => ({ type: "message", id, parentId, message: { role, content } });
+    const first = message("root", null, "user", "根提问");
+    const previous = message("previous", "root", "assistant", ["上一分支"]);
+    const tool = message("tool", "root", "toolResult", [{ type: "text", text: "工具输出" }]);
+    const current = message("current", "tool", "assistant", [
+      { type: "thinking", text: "不显示" },
+      { type: "text", text: "当前分支" },
+    ]);
+    expect(readTranscript("pi", file([first, previous, tool, current]))).toEqual({
+      messages: [
+        { role: "user", text: "根提问", at: null },
+        { role: "assistant", text: "当前分支", at: null },
+      ],
+      truncated: false,
+    });
+    expect(readTranscript("pi", file([current]))).toMatchObject({ messages: [{ text: "当前分支" }], truncated: true });
+  });
 });

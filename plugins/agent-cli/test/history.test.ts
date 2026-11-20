@@ -156,7 +156,37 @@ describe("历史扫描", () => {
     expect(scanHistory({ roots: [tmp()], home, env: {} }).entries).toEqual([]);
   });
 
-  test("没有任何历史目录 → 空结果", async () => {
-    expect(scanHistory({ roots: [tmp()], home: tmp(), env: {} })).toEqual({ entries: [], skipped: 0 });
+  test("Pi 在已绑定目录内按原生头读取，同 ID 的独立文件保留各自引用", () => {
+    const home = tmp();
+    const root = tmp();
+    const override = tmp();
+    const bucket = path.join(override, "--project--");
+    mkdirSync(bucket);
+    const entries = [
+      ["旧记录", root],
+      ["新记录", root],
+      ["工作区外", tmp()],
+      ["无效目录", "."],
+    ] as const;
+    for (const [title, cwd] of entries) {
+      writeFileSync(path.join(bucket, `${title}.jsonl`), jl({ type: "session", version: 3, id: "same-id", cwd }, { type: "message", id: "prompt", parentId: null, message: { role: "user", content: [{ type: "text", text: title }] } }));
+    }
+    const options = { roots: [root], home, env: { PI_CODING_AGENT_SESSION_DIR: override } };
+    const result = scanHistory(options);
+    expect(result.skipped).toBe(1);
+    expect(result.entries.map(({ provider, title }) => [provider, title]).sort()).toEqual(
+      [
+        ["pi", "新记录"],
+        ["pi", "旧记录"],
+      ].sort(),
+    );
+    const ids = result.entries.map(({ historyId }) => historyId);
+    expect(new Set(ids).size).toBe(2);
+    expect(scanHistory(options).entries.map(({ historyId }) => historyId)).toEqual(ids);
+    expect(scanHistory({ ...options, env: {} }).entries).toEqual([]);
+  });
+
+  test("没有任何历史目录 → 空结果", () => {
+    expect(scanHistory({ roots: [tmp()], home: tmp(), env: {} })).toEqual({ entries: [], skipped: 0, limitedProviders: [] });
   });
 });

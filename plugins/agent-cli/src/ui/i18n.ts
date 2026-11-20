@@ -88,7 +88,7 @@ export const t = {
     pin: (title: string) => `固定 ${title}`,
     unpin: (title: string) => `取消固定 ${title}`,
     skipped: (n: number) => `${n} 个历史文件无法解析，已跳过`,
-    provider: { claude: "Claude", codex: "Codex" } as Record<string, string>,
+    provider: { claude: "Claude", codex: "Codex", pi: "Pi" },
     note: "历史来自各 CLI 自己保存的会话记录，只读扫描；恢复会在原来的目录里重新打开它。",
   },
 } as const;

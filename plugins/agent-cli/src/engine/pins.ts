@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-/** 历史固定项（data-model.md：agent-cli/pins.json）：按 Space 记录 `provider:nativeSessionId`。读失败当作没有固定项。 */
+/** 历史固定项按 Space 记入 agent-cli/pins.json。 */
 export class PinStore {
   constructor(private readonly file: string) {}
 
@@ -20,9 +20,10 @@ export class PinStore {
     return new Set(this.read()[spaceId] ?? []);
   }
 
-  set(spaceId: string, key: string, pinned: boolean): void {
+  set(spaceId: string, key: string, pinned: boolean, legacyKey?: string): void {
     const all = this.read();
     const cur = new Set(all[spaceId] ?? []);
+    if (legacyKey) cur.delete(legacyKey);
     if (pinned) cur.add(key);
     else cur.delete(key);
     all[spaceId] = [...cur];

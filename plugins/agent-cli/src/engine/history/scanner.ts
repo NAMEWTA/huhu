@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 /** 各 Agent CLI 原生保存的历史会话（只读扫描；路径与格式见 Orca 的 ai-vault 扫描器）。 */
 export interface HistoryEntry {
-  provider: "claude" | "codex";
+  provider: "claude" | "codex" | "pi";
+  historyId: string;
   /** provider 自己的会话 id，恢复时原样交给 CLI。 */
   nativeSessionId: string;
   cwd: string;
@@ -25,6 +27,7 @@ export interface ScanOptions {
 export interface ScanResult {
   entries: HistoryEntry[];
   skipped: number;
+  limitedProviders: HistoryEntry["provider"][];
 }
 
 /** 每个文件最多读取的头部字节与行数：标题与 cwd 都在会话开头附近。 */
@@ -147,12 +150,34 @@ function parseCodex(file: string): Parsed {
   return { id, cwd, title };
 }
 
+function parsePi(file: string): Parsed {
+  const [first = "", ...entries] = headLines(file);
+  const header = parse(first);
+  const cwd = header?.["type"] === "session" ? str(header["cwd"]) : null;
+  const id = cwd && path.isAbsolute(cwd) ? str(header?.["id"]) : null;
+  let title: string | null = null;
+  if (id) {
+    for (const line of entries) {
+      const event = parse(line);
+      const message = event?.["type"] === "message" ? obj(event["message"]) : null;
+      if (message?.["role"] !== "user") continue;
+      title = cleanTitle(textOf(message["content"]) ?? "");
+      if (title) break;
+    }
+  }
+  return { id, cwd, title };
+}
+
 function claudeRoot(env: NodeJS.ProcessEnv, home: string): string {
   return path.join(env["CLAUDE_CONFIG_DIR"] || path.join(home, ".claude"), "projects");
 }
 
 function codexRoot(env: NodeJS.ProcessEnv, home: string): string {
   return path.join(env["CODEX_HOME"] || path.join(home, ".codex"), "sessions");
+}
+
+function piRoot(env: NodeJS.ProcessEnv, home: string): string {
+  return env["PI_CODING_AGENT_SESSION_DIR"] || path.join(env["PI_CODING_AGENT_DIR"] || path.join(home, ".pi", "agent"), "sessions");
 }
 
 /** claude 按 cwd 把非字母数字字符替换为 - 作为 projects 下的目录名。 */
@@ -169,21 +194,23 @@ function readdirSafe(dir: string): import("node:fs").Dirent[] {
   }
 }
 
-function* walkCodex(dir: string, depth = 0): Generator<string> {
-  if (depth > 5 || !existsSync(dir)) return;
+function* walkHistory(dir: string, accepts: (name: string) => boolean, depth: number): Generator<string> {
+  if (depth < 0 || !existsSync(dir)) return;
   for (const e of readdirSafe(dir)) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) yield* walkCodex(p, depth + 1);
-    else if (e.isFile() && e.name.startsWith("rollout-") && e.name.endsWith(".jsonl")) yield p;
+    if (e.isDirectory()) yield* walkHistory(p, accepts, depth - 1);
+    else if (e.isFile() && e.name.endsWith(".jsonl") && accepts(e.name)) yield p;
   }
 }
 
-/** 扫描 claude 与 codex 的历史会话；解析失败的文件计入 skipped，不中断。 */
+/** 扫描原生历史会话；解析失败的文件计入 skipped。 */
 export function scanHistory(o: ScanOptions): ScanResult {
   const env = o.env ?? process.env;
   const home = o.home ?? os.homedir();
   const roots = o.roots.map(real);
   const entries: HistoryEntry[] = [];
+  const limitedProviders: HistoryEntry["provider"][] = [];
+  const seen = new Set<string>();
   let skipped = 0;
   const accept = (provider: HistoryEntry["provider"], p: Parsed, fallbackId: string | null, mtime: Date, file: string) => {
     const id = p.id ?? fallbackId;
@@ -194,7 +221,13 @@ export function scanHistory(o: ScanOptions): ScanResult {
     const cwd = real(p.cwd);
     if (!roots.some((r) => within(r, cwd))) return;
     if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
-    entries.push({ provider, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file });
+    const location = real(file);
+    const historyId = createHash("sha256")
+      .update(JSON.stringify([provider, id, location]))
+      .digest("hex");
+    if (seen.has(historyId)) return;
+    seen.add(historyId);
+    entries.push({ provider, historyId, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file: location });
   };
 
   // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件
@@ -217,7 +250,8 @@ export function scanHistory(o: ScanOptions): ScanResult {
         }
       }
     }
-    cFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+    cFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || a.file.localeCompare(b.file));
+    if (cFiles.length > MAX_FILES) limitedProviders.push("claude");
     for (const { file, id, mtime } of cFiles.slice(0, MAX_FILES)) {
       try {
         accept("claude", parseClaude(file), id, mtime, file);
@@ -227,25 +261,30 @@ export function scanHistory(o: ScanOptions): ScanResult {
     }
   }
 
-  // codex：按修改时间取最近的若干文件
-  const xRoot = codexRoot(env, home);
-  const files: { file: string; mtime: Date }[] = [];
-  for (const file of walkCodex(xRoot)) {
-    try {
-      files.push({ file, mtime: statSync(file).mtime });
-    } catch {
-      skipped++;
+  const nativeStores = [
+    { provider: "codex" as const, files: walkHistory(codexRoot(env, home), (name) => name.startsWith("rollout-"), 5), parse: parseCodex },
+    { provider: "pi" as const, files: walkHistory(piRoot(env, home), () => true, 1), parse: parsePi },
+  ];
+  for (const store of nativeStores) {
+    const files: { file: string; mtime: Date }[] = [];
+    for (const file of store.files) {
+      try {
+        files.push({ file, mtime: statSync(file).mtime });
+      } catch {
+        skipped++;
+      }
     }
-  }
-  files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-  for (const { file, mtime } of files.slice(0, MAX_FILES)) {
-    try {
-      accept("codex", parseCodex(file), null, mtime, file);
-    } catch {
-      skipped++;
+    files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || a.file.localeCompare(b.file));
+    if (files.length > MAX_FILES) limitedProviders.push(store.provider);
+    for (const { file, mtime } of files.slice(0, MAX_FILES)) {
+      try {
+        accept(store.provider, store.parse(file), null, mtime, file);
+      } catch {
+        skipped++;
+      }
     }
   }
 
-  entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return { entries: o.limit ? entries.slice(0, o.limit) : entries, skipped };
+  entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.historyId.localeCompare(b.historyId));
+  return { entries: o.limit ? entries.slice(0, o.limit) : entries, skipped, limitedProviders };
 }

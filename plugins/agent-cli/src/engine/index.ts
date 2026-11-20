@@ -5,7 +5,7 @@ import { machineId } from "@huhu/vault";
 import path from "node:path";
 import { z } from "zod";
 import { HerdrCore } from "./herdr-core.js";
-import { isValidNativeId, scanHistory } from "./history/scanner.js";
+import { isValidNativeId, scanHistory, type HistoryEntry } from "./history/scanner.js";
 import { readTranscript } from "./history/transcript.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
@@ -509,7 +509,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       },
     }),
   );
-  const Entry = z.object({ provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), cwd: z.string(), title: z.string(), updatedAt: z.string(), active: z.boolean(), pinned: z.boolean() });
+  const HistoryProvider = z.enum(["claude", "codex", "pi"]);
+  const HistoryScope = z.object({ spaceId: z.string(), allSpaces: z.boolean().default(false) });
+  const HistoryReference = HistoryScope.extend({
+    provider: HistoryProvider,
+    nativeSessionId: z.string(),
+    historyId: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  });
+  const Entry = z.object({
+    provider: HistoryProvider,
+    historyId: z.string(),
+    nativeSessionId: z.string(),
+    cwd: z.string(),
+    title: z.string(),
+    updatedAt: z.string(),
+    active: z.boolean(),
+    pinned: z.boolean(),
+    canResume: z.boolean(),
+  });
   const spaceOf = (id: string) => {
     const sp = spaces.list().find((x) => x.id === id);
     if (!sp) throw errors.notFound("Space 不存在");
@@ -520,14 +540,37 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const pins = new PinStore(path.join(api.vault.stateDir, "agent-cli", "pins.json"));
   const resuming = new Set<string>();
   const cache = new Map<string, { at: number; r: ReturnType<typeof scanHistory> }>();
-  const scanCached = (root: string) => {
-    const hit = cache.get(root);
+  const historyRoots = (i: z.infer<typeof HistoryScope>) => {
+    const sp = spaceOf(i.spaceId);
+    return i.allSpaces
+      ? [
+          ...new Set(
+            spaces
+              .list()
+              .filter(spaceCanLaunch)
+              .map((space) => space.root),
+          ),
+        ].sort()
+      : [sp.root];
+  };
+  const scanCached = (roots: string[]) => {
+    const key = JSON.stringify(roots);
+    const hit = cache.get(key);
     if (hit && Date.now() - hit.at < 3000) return hit.r;
-    const r = scan(root);
-    cache.set(root, { at: Date.now(), r });
+    const r = scan(roots);
+    for (const [old, snapshot] of cache) if (Date.now() - snapshot.at >= 3000) cache.delete(old);
+    cache.set(key, { at: Date.now(), r });
     return r;
   };
-  const scan = (root: string) => scanHistory({ roots: [root], ...(opts.history?.home ? { home: opts.history.home } : {}), ...(opts.history?.env ? { env: opts.history.env } : {}) });
+  const scan = (roots: string[]) => scanHistory({ roots, ...(opts.history?.home ? { home: opts.history.home } : {}), ...(opts.history?.env ? { env: opts.history.env } : {}) });
+  const nativeKey = (e: Pick<HistoryEntry, "provider" | "nativeSessionId">) => `${e.provider}:${e.nativeSessionId}`;
+  function historyReference(i: z.infer<typeof HistoryReference>) {
+    if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
+    const matches = scan(historyRoots(i)).entries.filter((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
+    const selected = i.historyId ? matches.find((e) => e.historyId === i.historyId) : matches.length === 1 ? matches[0] : undefined;
+    if (!selected) throw errors.notFound(matches.length > 1 ? "会话标识不唯一，请重新选择历史记录" : "没有找到这个历史会话");
+    return { selected, unique: matches.length === 1 };
+  }
   api.defineCapability(
     def({
       name: "agent.history.list",
@@ -535,23 +578,39 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "read",
       exposable: false,
       defaultExposed: false,
-      input: z.object({ spaceId: z.string(), limit: z.number().int().min(1).max(500).default(100) }),
-      output: z.object({ entries: z.array(Entry), skipped: z.number() }),
+      input: HistoryScope.extend({
+        provider: HistoryProvider.optional(),
+        query: z.string().trim().max(256).default(""),
+        filter: z.enum(["all", "active", "resumable"]).default("all"),
+        offset: z.number().int().min(0).default(0),
+        limit: z.number().int().min(1).max(500).default(100),
+      }),
+      output: z.object({ entries: z.array(Entry), skipped: z.number(), total: z.number(), nextOffset: z.number().nullable(), limitedProviders: z.array(HistoryProvider) }),
       handler: async (_c, i) => {
-        const sp = spaceOf(i.spaceId);
+        const roots = historyRoots(i);
         await sessions.reconcile(); // 已结束的会话不再算“运行中”
         const live = new Set(
           sessions
-            .list(sp.id)
+            .list(i.allSpaces ? undefined : i.spaceId)
             .filter((x) => x.state === "running" && x.nativeSessionId)
-            .map((x) => `${x.provider}:${x.nativeSessionId}`),
+            .map((x) => JSON.stringify([x.provider, x.nativeSessionId, x.cwd])),
         );
-        const r = scanCached(sp.root);
-        const pinned = pins.list(sp.id);
-        const all = r.entries.map(({ file: _file, ...e }) => ({ ...e, active: live.has(`${e.provider}:${e.nativeSessionId}`), pinned: pinned.has(`${e.provider}:${e.nativeSessionId}`) }));
-        // 固定项置顶；其余保持扫描器给出的时间倒序（sort 稳定）
+        const r = scanCached(roots);
+        const pinned = pins.list(i.spaceId);
+        const counts = new Map<string, number>();
+        for (const entry of r.entries) counts.set(nativeKey(entry), (counts.get(nativeKey(entry)) ?? 0) + 1);
+        const query = i.query.normalize("NFC").toLowerCase();
+        const all = r.entries
+          .filter((e) => (!i.provider || e.provider === i.provider) && (!query || [e.title, e.nativeSessionId, e.cwd].some((text) => text.normalize("NFC").toLowerCase().includes(query))))
+          .map(({ file: _file, ...e }) => {
+            const unique = counts.get(nativeKey(e)) === 1;
+            const active = unique && live.has(JSON.stringify([e.provider, e.nativeSessionId, e.cwd]));
+            return { ...e, active, canResume: unique && e.provider !== "pi" && !active, pinned: pinned.has(e.historyId) || (unique && pinned.has(nativeKey(e))) };
+          })
+          .filter((e) => i.filter === "all" || (i.filter === "active" ? e.active : e.canResume));
         const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
-        return { entries: ordered.slice(0, i.limit), skipped: r.skipped };
+        const end = i.offset + i.limit;
+        return { entries: ordered.slice(i.offset, end), skipped: r.skipped, total: ordered.length, nextOffset: end < ordered.length ? end : null, limitedProviders: r.limitedProviders };
       },
     }),
   );
@@ -562,14 +621,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "read",
       exposable: false,
       defaultExposed: false,
-      input: z.object({ spaceId: z.string(), provider: z.enum(["claude", "codex"]), nativeSessionId: z.string() }),
+      input: HistoryReference,
       output: z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string(), at: z.string().nullable() })), truncated: z.boolean() }),
       handler: (_c, i) => {
-        if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
-        const sp = spaceOf(i.spaceId);
-        // 只读扫描结果里确实存在的会话文件：不接受调用方给出的路径
-        const hit = scan(sp.root).entries.find((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
-        if (!hit) throw errors.notFound("没有找到这个历史会话");
+        const { selected: hit } = historyReference(i);
         return readTranscript(hit.provider, hit.file);
       },
     }),
@@ -581,12 +636,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "write",
       exposable: false,
       defaultExposed: false,
-      input: z.object({ spaceId: z.string(), provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), pinned: z.boolean() }),
+      input: HistoryReference.extend({ pinned: z.boolean() }),
       output: z.object({ pinned: z.boolean() }),
       handler: async (_c, i) => {
-        if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
-        const sp = spaceOf(i.spaceId);
-        pins.set(sp.id, `${i.provider}:${i.nativeSessionId}`, i.pinned);
+        const { selected, unique } = historyReference(i);
+        pins.set(i.spaceId, selected.historyId, i.pinned, unique ? nativeKey(selected) : undefined);
         return { pinned: i.pinned };
       },
     }),
@@ -599,18 +653,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       exposable: false,
       defaultExposed: false,
       timeoutMs: 60_000,
-      input: z.object({ spaceId: z.string(), spaceRevision: z.number(), provider: z.enum(["claude", "codex"]), nativeSessionId: z.string(), requestId: z.string() }),
+      input: HistoryReference.extend({ spaceRevision: z.number(), requestId: z.string() }),
       output: Session,
       handler: async (_c, i) => {
         await sessions.reconcile();
-        if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
         const sp = spaceOf(i.spaceId);
-        // 只接受扫描结果里确实存在的会话：不能把任意字符串交给 CLI
-        const hit = scan(sp.root).entries.find((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
-        if (!hit) throw errors.notFound("没有找到这个历史会话");
-        const key = `${i.provider}:${i.nativeSessionId}`;
+        const { selected: hit, unique } = historyReference({ ...i, allSpaces: false });
+        if (i.provider === "pi" || !unique) throw errors.invalidInput("此记录目前只能预览");
+        const key = nativeKey(hit);
         // launching 也算占用；resuming 在 await 之前同步占位，挡住双击和多窗口并发
-        if (resuming.has(key) || sessions.list(sp.id).some((x) => (x.state === "running" || x.state === "launching") && x.provider === i.provider && x.nativeSessionId === i.nativeSessionId)) throw errors.invalidInput("这个会话已经在运行");
+        if (resuming.has(key) || sessions.list().some((x) => (x.state === "running" || x.state === "launching") && x.provider === i.provider && x.nativeSessionId === i.nativeSessionId)) throw errors.invalidInput("这个会话已经在运行");
         resuming.add(key);
         return sessions
           .launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd }, _c.signal)
