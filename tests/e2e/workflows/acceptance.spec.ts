@@ -703,6 +703,61 @@ test("任务详情：提前派遣先核对原目标，不可用时重开仍显�
   }
 });
 
+test("任务详情的一次性跟进可辨别时钟回拨、改期和取消", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect(await call("settings.update", { patch: { dateTime: { zone: "America/New_York" } } })).toMatchObject({ ok: true, data: { dateTime: { zone: "America/New_York" } } });
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const created = await call("tasks.create", { title: "跟进原任务", type: "agent", body: "查看处理结果" });
+    expect(created.ok).toBe(true);
+    const taskId = created.data.id as string;
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    const task = page.getByRole("button", { name: "打开任务 跟进原任务" });
+    await task.click();
+    const detail = page.getByTestId("task-detail");
+    const section = detail.getByRole("region", { name: "一次性跟进", exact: true });
+    const schedule = section.getByRole("button", { name: "安排一次性跟进" });
+    await schedule.click();
+    const editor = page.getByRole("dialog", { name: "一次性跟进", exact: true });
+    const timestamp = editor.getByLabel("跟进时间");
+    await expect(timestamp).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(schedule).toBeFocused();
+    await schedule.click();
+    await expect(editor).toContainText("America/New_York");
+    await timestamp.fill("2099-03-08T02:30");
+    await editor.getByRole("button", { name: "保存跟进" }).click();
+    await expect(editor.getByRole("alert")).toContainText("此时区没有这个本地时间");
+    expect((await call("automations.followUps.get", { taskId })).data).toBeNull();
+
+    await timestamp.fill("2099-11-01T01:30");
+    await editor.getByLabel("回拨时间选项").selectOption("2099-11-01T06:30:00.000Z");
+    await editor.getByRole("button", { name: "保存跟进" }).click();
+    await expect(section.getByRole("status")).toHaveText("一次性跟进已保存。");
+    const first = (await call("automations.followUps.get", { taskId })).data;
+    expect(first).toMatchObject({ taskId, state: "scheduled", scheduledFor: "2099-11-01T06:30:00.000Z" });
+    await section.getByRole("button", { name: "改期", exact: true }).click();
+    await timestamp.fill("2099-11-01T03:45");
+    await editor.getByRole("button", { name: "保存跟进" }).click();
+    await expect(section.locator("time")).toHaveAttribute("datetime", "2099-11-01T08:45:00.000Z");
+    const rescheduled = (await call("automations.followUps.get", { taskId })).data;
+    expect(rescheduled).toMatchObject({ taskId, scheduledFor: "2099-11-01T08:45:00.000Z", state: "scheduled" });
+    expect(rescheduled.followUpId).not.toBe(first.followUpId);
+    await page.getByRole("button", { name: "关闭任务详情", exact: true }).click();
+    await task.click();
+    await section.getByRole("button", { name: "取消跟进", exact: true }).click();
+    await page.getByRole("dialog", { name: "取消一次性跟进" }).getByRole("button", { name: "确认取消" }).click();
+    await expect(section).toContainText("已取消");
+    expect((await call("automations.followUps.get", { taskId })).data).toMatchObject({ taskId, followUpId: rescheduled.followUpId, state: "cancelled" });
+    expect((await call("tasks.dispatch.list", { taskId })).data).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
 test("工作流 W-A：收件箱想法进入 Agent 任务后，自动化在任务详情留下同一笔受控派遣", async () => {
   const { page, vault, close } = await openApp();
   try {

@@ -47,6 +47,7 @@ export class FollowUps {
     private readonly tasks: () => Pick<TaskQueryLike, "snapshot"> | undefined,
     private readonly dispatch: () => TaskFollowUpDispatch | undefined,
     private readonly now: () => Date,
+    private readonly onChanged: (taskId: string) => void,
   ) {
     const root = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(root);
@@ -82,9 +83,10 @@ export class FollowUps {
     }
   }
 
-  private save(data: Schedule, expectedVersion: string | null): Promise<unknown> {
+  private async save(data: Schedule, expectedVersion: string | null): Promise<void> {
     this.lifetime.signal.throwIfAborted();
-    return this.files.write(this.pathname(data.taskId), Buffer.from(JSON.stringify(data) + "\n"), { expectedVersion });
+    await this.files.write(this.pathname(data.taskId), Buffer.from(JSON.stringify(data) + "\n"), { expectedVersion });
+    this.onChanged(data.taskId);
   }
 
   private view(data: Schedule): View {

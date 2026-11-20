@@ -10,6 +10,7 @@ import { useReferenceIndex } from "./references.js";
 import { StatusSelect } from "./TaskViews.js";
 import type { TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import { TaskDispatchPanel } from "./TaskDispatchPanel.js";
+import { TaskFollowUp } from "./TaskFollowUp.js";
 
 interface Space {
   id: string;
@@ -170,6 +171,7 @@ export function TaskDetail({
             ))}
           </section>
         ) : null}
+        {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} /> : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
         {agent ? <RunRecords task={task} zone={zone} onOpenAgent={onOpenAgent} /> : null}
         <CommentComposer key={task.id} task={task} refs={refs} onChanged={onChanged} onMessage={onMessage} />

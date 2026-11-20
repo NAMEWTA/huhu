@@ -107,6 +107,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     () => api.service<TaskQueryLike>("taskQuery"),
     () => api.service<TaskFollowUpDispatch>("taskFollowUpDispatch"),
     now,
+    (taskId) => api.events.publish("entity.changed", { kind: "task-follow-up", id: taskId, op: "updated" }),
   );
   api.provide("taskFollowUps", followUps);
   const reminders = opts.reminderNotifications
