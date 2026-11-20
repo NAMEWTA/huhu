@@ -3,7 +3,8 @@ import type { EngineEndpoint } from "@huhu/workbench";
 export type BrowserEndpoint = EngineEndpoint & { generation: string };
 
 export async function browserEndpoint(signal = AbortSignal.timeout(5_000)): Promise<BrowserEndpoint | null> {
-  const response = await fetch("/api/v1/bootstrap", { signal });
+  // 绝对同源 URL 避开编辑器对供应商相对 /api 路由的拦截。
+  const response = await fetch(new URL("/api/v1/bootstrap", location.origin), { signal });
   if (response.status === 401) return null;
   if (!response.ok) throw new Error("无法连接工作台");
   const { vaultId, generation } = (await response.json()) as Partial<BrowserEndpoint>;
@@ -16,7 +17,7 @@ export async function joinBrowserWorkbench(signal: AbortSignal): Promise<Browser
   const fragment = new URLSearchParams(url.hash.slice(1));
   const invite = fragment.get("invite");
   if (invite !== null) {
-    const response = await fetch("/api/v1/session", { method: "POST", headers: { authorization: `Bearer ${invite}` }, signal });
+    const response = await fetch(new URL("/api/v1/session", url.origin), { method: "POST", headers: { authorization: `Bearer ${invite}` }, signal });
     if (response.status === 401) return null;
     if (response.status !== 204) throw new Error("无法加入工作台");
     if (location.hash === url.hash) {

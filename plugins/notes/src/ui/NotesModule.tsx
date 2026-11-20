@@ -33,6 +33,7 @@ export type DialogState =
   | { kind: "trash"; note: NoteRef }
   | { kind: "purge"; note: NoteRef }
   | { kind: "version"; note: NoteRef }
+  | { kind: "copyPath"; path: string }
   | null;
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -214,11 +215,12 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     dispatch({ type: "close", key });
   };
   async function copyTabPath(path: string) {
+    const desktop = host();
     try {
-      const desktop = host();
       await (desktop ? desktop.copyText(path) : navigator.clipboard.writeText(path));
     } catch (error) {
-      setError(String(error));
+      if (desktop) setError(String(error));
+      else setDialog({ kind: "copyPath", path });
     }
   }
   useEffect(() => {
@@ -731,6 +733,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           }
         >
           <p className="hu-confirm-description">「{dialog.note.title}」将被永久删除。</p>
+        </Dialog>
+      ) : null}
+      {dialog?.kind === "copyPath" ? (
+        <Dialog open title="复制路径" description="已选中路径，可以使用浏览器的复制命令。" onClose={() => setDialog(null)}>
+          <input aria-label="文件路径" value={dialog.path} readOnly onFocus={(event) => event.currentTarget.select()} />
         </Dialog>
       ) : null}
     </div>
