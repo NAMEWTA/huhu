@@ -28,7 +28,7 @@ import { TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
 export type { TaskDispatchExecutor } from "./dispatch.js";
-export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule">;
+export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule"> & Pick<TasksService, "createFromRule">;
 
 /** 其他插件通过 `api.service<TaskQuery>("taskQuery")` 使用。 */
 export interface TaskQuery {
@@ -247,6 +247,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.provide("taskDispatch", {
+    createFromRule: (input) => svc.createFromRule(input),
     acceptRule: async (input, source) => {
       const receipt = await dispatch.acceptRule(input, source);
       void dispatch.check();

@@ -1,11 +1,13 @@
 import {
   errors,
+  HuhuError,
   isHuhuError,
   isTaskAvailable,
   matchesTags,
   newId,
   normalizeTags,
   TaskExecutionSchema,
+  TaskWritableSchema,
   type EventPayload,
   type EventType,
   type TaskComment,
@@ -16,7 +18,7 @@ import {
   type TaskStatus,
   type TaskWritable,
 } from "@huhu/contracts";
-import { appendComment, buildTaskBody, parseTaskBody, parseWikiLinks, replaceTaskSection, versionOf, type Entity, type NewComment, type SemanticRepository, type Trash } from "@huhu/vault";
+import { appendComment, buildTaskBody, idFromFilename, parseTaskBody, parseWikiLinks, replaceTaskSection, versionOf, type Entity, type NewComment, type SemanticRepository, type Trash } from "@huhu/vault";
 import { inCategory, todayIn, type TaskCategory } from "../shared/categories.js";
 import { canonicalJson, inputHash, processingKey } from "../shared/input.js";
 import { matchesQuery } from "../shared/search.js";
@@ -35,6 +37,8 @@ export interface TasksDeps {
   hasDispatchHold?(taskId: string): boolean;
   hasStartedDispatch?(taskId: string): boolean;
 }
+
+export type RuleTemplateTask = { taskId: string; ruleId: string; occurrenceId: string; title: string; body: string; execution: NonNullable<TaskDto["execution"]> };
 
 type TaskData = {
   title: string;
@@ -201,7 +205,7 @@ export class TasksService {
   }
 
   /** 文件级问题列表（健康中心）：schema 1、缺少 type / status 等由仓储按 kind 报告。 */
-  async create(input: TaskWritable, origin: TaskOrigin): Promise<TaskDto> {
+  async create(input: TaskWritable, origin: TaskOrigin, reservedId?: string): Promise<TaskDto> {
     const now = iso(this.d.now());
     const data = {
       title: input.title,
@@ -219,9 +223,38 @@ export class TasksService {
       createdAt: now,
       updatedAt: now,
     };
-    const e = await this.d.repo.create("task", data, buildTaskBody(input.body));
+    const e = await this.d.repo.create("task", data, buildTaskBody(input.body), reservedId);
     this.d.publish("entity.changed", { kind: "task", id: e.id, op: "created" });
     return this.dto(e);
+  }
+
+  createFromRule({ taskId, ruleId, occurrenceId, title, body, execution }: RuleTemplateTask): Promise<TaskDto> {
+    const input = TaskWritableSchema.parse({ type: "agent", title, body, execution });
+    const origin = { kind: "automation", ruleId, activationId: occurrenceId } as const;
+    return this.withTaskWrite(taskId, async () => {
+      let existing: TaskDto | undefined;
+      try {
+        existing = this.read(taskId);
+      } catch (error) {
+        if (!isHuhuError(error) || error.code !== "NOT_FOUND") throw error;
+      }
+      if (existing) {
+        const expectedBody = parseTaskBody(buildTaskBody(body)).task ?? "";
+        if (
+          existing.origin.kind !== "automation" ||
+          existing.origin.ruleId !== ruleId ||
+          existing.origin.activationId !== occurrenceId ||
+          existing.inputRevision !== 1 ||
+          existing.inputHash !== taskInputHash(expectedBody, executionWithDefault("agent", input.execution))
+        ) {
+          throw new HuhuError("VERSION_CONFLICT", "模板任务已变化，请查看原任务", { details: { reason: "stale_input" } });
+        }
+        return existing;
+      }
+      if (this.d.trash.list().some(({ originalPath }) => originalPath.startsWith("Tasks/") && idFromFilename(originalPath) === taskId)) throw errors.notFound("此模板任务已移到回收站");
+      if (this.d.repo.problemList().some(({ kind, path }) => kind === "task" && idFromFilename(path) === taskId)) throw new HuhuError("WRITE_PARTIAL", "无法读取原模板任务", { details: { taskId } });
+      return this.create(input, origin, taskId);
+    });
   }
 
   /**

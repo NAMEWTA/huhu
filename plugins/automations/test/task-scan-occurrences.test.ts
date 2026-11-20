@@ -20,6 +20,7 @@ const fixture = {
   dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>(),
   accept: vi.fn<TaskRuleDispatch["acceptRule"]>(),
   legacyWorker: vi.fn(),
+  refresh: vi.fn<() => Promise<void>>(),
 };
 
 vi.mock("@huhu/plugin-automations/engine", async (original) => {
@@ -36,7 +37,7 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
             if (name === "taskScanOccurrences") fixture.scans = service as TaskScanOccurrences;
           },
         },
-        { ...opts, schedule: false, now: () => fixture.now, refreshClis: async () => {}, cliAvailable: () => true, worker: fixture.legacyWorker },
+        { ...opts, schedule: false, now: () => fixture.now, refreshClis: fixture.refresh, cliAvailable: () => true, worker: fixture.legacyWorker },
       )) satisfies typeof automations.apply,
   };
 });
@@ -52,8 +53,9 @@ vi.mock("../../tasks/src/engine/index.js", async (original) => {
           ...api,
           provide(name, service) {
             if (name !== "taskDispatch") return api.provide(name, service);
-            fixture.accept.mockImplementation((service as TaskRuleDispatch).acceptRule);
-            api.provide(name, { acceptRule: fixture.accept } satisfies TaskRuleDispatch);
+            const dispatch = service as TaskRuleDispatch;
+            fixture.accept.mockImplementation(dispatch.acceptRule);
+            api.provide(name, { ...dispatch, acceptRule: fixture.accept } satisfies TaskRuleDispatch);
           },
         },
         {
@@ -77,6 +79,7 @@ beforeEach(() => {
   fixture.ready.mockReset().mockResolvedValue("busy");
   fixture.dispatch.mockReset().mockResolvedValue("accepted");
   fixture.accept.mockReset();
+  fixture.refresh.mockReset().mockResolvedValue(undefined);
   fixture.legacyWorker.mockReset().mockRejectedValue(new Error("旧 worker 不应参加任务扫描"));
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 });
@@ -200,6 +203,88 @@ test("真实两规则和工作台争同一任务，重交沿用原版本，运�
   } finally {
     releaseDispatch?.();
   }
+  expect(fixture.legacyWorker).not.toHaveBeenCalled();
+});
+
+test("刷新未完成时保留扫描资格，冻结完成后重交不再刷新", async () => {
+  const { engine, scans } = await start();
+  const rule = await createRule(engine, "等待 CLI 探测");
+  const task = await createTask(engine, "应当入选的任务");
+  fixture.now = at("01:15:00");
+  const failed = new Error("合成探测超时");
+  fixture.refresh.mockRejectedValueOnce(failed);
+  await expect(scans.scheduled(rule.id, fixture.now)).rejects.toBe(failed);
+  expect(scans.list()).toEqual([]);
+  expect(fixture.accept).not.toHaveBeenCalled();
+  const captured = await scans.scheduled(rule.id, fixture.now);
+  expect(captured?.items).toMatchObject([{ taskId: task.id, state: "accepted" }]);
+  expect(await scans.scheduled(rule.id, fixture.now)).toEqual(captured);
+  expect(fixture.refresh).toHaveBeenCalledTimes(2);
+  expect(fixture.accept).toHaveBeenCalledTimes(1);
+});
+
+test("模板派遣在任务文件落盘后中断，恢复使用原任务和模板，各计划点有独立身份", async () => {
+  const first = await start();
+  const [space] = await invoke<{ id: string }[]>(first.engine, "agent.spaces.list", {});
+  const created = await invoke<Rule>(first.engine, "automations.create", {
+    title: "独立模板任务",
+    body: "第一版模板正文",
+    trigger,
+    action: { kind: "agent", input: { source: "prompt", spaceId: space!.id, provider: "codex", model: "fixture-model", effort: "high", fast: true } },
+  });
+  const rule = await invoke<Rule>(first.engine, "automations.setEnabled", { id: created.id, enabled: true });
+  fixture.now = at("01:15:00");
+  const slot = fixture.now;
+  const write = VaultFiles.prototype.write;
+  const interrupted = new Error("创建模板任务后中断");
+  const injection = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, rel, bytes, options) {
+    const result = await write.call(this, rel, bytes, options);
+    if (rel.startsWith("Tasks/") && options?.expectedVersion === null) throw interrupted;
+    return result;
+  });
+  try {
+    await expect(first.scans.scheduled(rule.id, slot)).rejects.toBe(interrupted);
+  } finally {
+    injection.mockRestore();
+  }
+  const [frozen] = first.scans.list();
+  const [task] = await invoke<TaskDto[]>(first.engine, "tasks.list", {});
+  expect(frozen).toMatchObject({ finishedAt: null, template: { taskId: task!.id }, items: [], ruleVersion: rule.version });
+  expect(task).toMatchObject({ body: "第一版模板正文", execution: { model: "fixture-model", effort: "high", fast: true }, origin: { kind: "automation", ruleId: rule.id, activationId: frozen!.id } });
+  expect(dispatchRecords(first.engine)).toEqual([]);
+
+  fixture.now = at("01:16:00");
+  const changed = await invoke<Rule>(first.engine, "automations.update", { id: rule.id, expectedVersion: rule.version, patch: {}, body: "第二版模板正文" });
+  await stop(first.engine);
+  const reopened = await start(first.engine.vault.root);
+  await reopened.scans.recover();
+  expect(await invoke<TaskDto[]>(reopened.engine, "tasks.list", {})).toHaveLength(1);
+  const firstRun = dispatchRecords(reopened.engine)[0]!;
+  expect(firstRun.snapshot).toMatchObject({ taskId: task!.id, body: "第一版模板正文", source: { ruleVersion: rule.version, occurrenceId: frozen!.id } });
+  expect(firstRun.snapshot.source).not.toHaveProperty("instructions");
+  expect(await reopened.scans.scheduled(rule.id, slot)).toMatchObject({ items: [{ taskId: task!.id, state: "accepted", eventId: firstRun.receipt.eventId, runId: firstRun.receipt.runId }] });
+
+  fixture.now = at("01:30:00");
+  const next = await reopened.scans.scheduled(rule.id, fixture.now);
+  expect(next?.template?.taskId).not.toBe(task!.id);
+  expect(next).toMatchObject({ ruleVersion: changed.version, items: [{ state: "accepted", taskId: next?.template?.taskId }] });
+  expect(dispatchRecords(reopened.engine)).toHaveLength(2);
+  expect(dispatchRecords(reopened.engine).find(({ receipt }) => receipt.taskId === next?.template?.taskId)?.snapshot.body).toBe("第二版模板正文");
+  expect(fixture.legacyWorker).not.toHaveBeenCalled();
+});
+
+test("模板预检失败保存原因，且不会创建任务或运行", async () => {
+  const { engine, scans } = await start();
+  const rule = await invoke<Rule>(engine, "automations.create", {
+    title: "空间缺失的模板",
+    body: "模板正文",
+    trigger,
+    action: { kind: "agent", input: { source: "prompt", spaceId: "space-missing", provider: "codex" } },
+  });
+  const result = await scans.invoke(rule.id);
+  expect(result).toMatchObject({ scheduledForUTC: null, finishedAt: expect.any(String), template: { issue: "missing-space" }, items: [] });
+  expect(await invoke<TaskDto[]>(engine, "tasks.list", {})).toEqual([]);
+  expect(dispatchRecords(engine)).toEqual([]);
   expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 

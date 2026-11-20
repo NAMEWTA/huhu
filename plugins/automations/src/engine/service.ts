@@ -338,6 +338,19 @@ export class AutomationsService {
     };
   }
 
+  async refreshTaskScanTargets(): Promise<void> {
+    await this.d.refreshClis?.();
+  }
+
+  templateIssue(spaceId: string, provider: string, body: string): string | undefined {
+    if (!body.trim()) return "empty-template";
+    if (!spaceId.trim()) return "missing-space";
+    const { state } = this.d.spaceState(spaceId);
+    if (state !== "ok") return state === "missing" ? "missing-space" : "space-inaccessible";
+    if (!provider.trim() || !this.d.cliAvailable(provider)) return "cli-missing";
+    return undefined;
+  }
+
   private allTasks(query: TaskQueryLike | undefined) {
     return (query?.listAll() ?? []).map((task) => this.snapshotOf(task));
   }
@@ -551,7 +564,7 @@ export class AutomationsService {
 
   private async scan(ruleId: string, maxConcurrent: number, filter: ScanFilter, instruction: string): Promise<{ processed: number; skipped: number } | { state: string }> {
     if (!this.d.taskQuery()) return { state: "tasks-disabled" }; // ACC-AU-10：任务插件已停用，跳过
-    await this.d.refreshClis?.().catch(() => undefined);
+    await this.refreshTaskScanTargets().catch(() => undefined);
     const { candidates, skipped } = classify(this.allTasks(this.d.taskQuery()), this.scanEnv(), filter);
     let next = 0;
     let processed = 0;

@@ -34,9 +34,10 @@ const Occurrence = z.object({
   startedAt: Instant,
   finishedAt: Instant.nullable(),
   rule: AutomationRuleFrontmatterSchema.pick({ title: true, trigger: true, missedRunGraceMinutes: true }).extend({
-    input: AgentInputSchema.refine((input) => input.source === "tasks"),
+    input: AgentInputSchema,
     instructions: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT),
   }),
+  template: z.strictObject({ taskId: z.string().regex(/^task-[a-f0-9]{32}$/), issue: z.string().optional() }).optional(),
   tasksDisabled: z.boolean(),
   items: z.array(Item),
 });
@@ -52,6 +53,7 @@ function digest(parts: readonly string[]): string {
 
 const occurrenceId = (ruleId: string, at: string) => `occ-${digest([ruleId, at])}`;
 const dispatchId = (id: string, taskId: string) => `scan-${digest([id, taskId])}`;
+const templateTaskId = (id: string) => `task-${digest(["template", id]).slice(0, 32)}`;
 
 function rejection(error: unknown): { reason: string; detail: string; blockingRunId?: string } | null {
   if (!isHuhuError(error)) return null;
@@ -71,7 +73,7 @@ export class TaskScanOccurrences {
   constructor(
     private readonly files: VaultFiles,
     private readonly vaultId: string,
-    private readonly rules: Pick<AutomationsService, "rule" | "classifyTaskScan">,
+    private readonly rules: Pick<AutomationsService, "rule" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
   ) {
@@ -157,11 +159,14 @@ export class TaskScanOccurrences {
       const { scheduledForUTC: at } = row;
       const correctId = at ? occurrenceId(row.ruleId, at) : id.startsWith("inv-") && id;
       const taskIds = new Set(row.items.map((item) => item.taskId));
+      const { template } = row;
       if (
         row.id !== id ||
         correctId !== id ||
         taskIds.size !== row.items.length ||
         (row.tasksDisabled && row.items.length !== 0) ||
+        (row.rule.input.source === "prompt") !== (template !== undefined) ||
+        (template && (template.taskId !== templateTaskId(id) || row.items.length > 1 || row.items.some(({ taskId }) => taskId !== template.taskId))) ||
         row.items.some((item) => (item.dispatchId && item.dispatchId !== dispatchId(id, item.taskId)) || (row.finishedAt !== null && item.state === "pending"))
       )
         throw new Error("扫描发生身份或状态不一致");
@@ -186,13 +191,15 @@ export class TaskScanOccurrences {
     let stored = this.load(id);
     if (!stored && trigger) {
       this.files.assertWritable();
+      await this.rules.refreshTaskScanTargets();
+      signal.throwIfAborted();
       const rule = this.rules.rule(trigger.ruleId);
       const now = this.now();
       if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
       if (trigger.at && Date.parse(trigger.at) > now.getTime()) throw errors.invalidInput("计划派遣时间尚未到达");
-      if (!isTaskScanRule(rule)) throw errors.invalidInput("该规则没有扫描已有任务");
       if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
-      stored = await this.persist(this.freeze(id, rule, trigger.at, now, this.owner), null);
+      const occurrence = isTaskScanRule(rule) ? this.freeze(id, rule, trigger.at, now, this.owner) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
+      stored = await this.persist(occurrence, null);
     }
     if (!stored) throw new HuhuError("WRITE_PARTIAL", "扫描发生记录在读取期间消失", { details: { id } });
     // A restored scan is history. Only its original machine and directory may finish acceptance.
@@ -200,6 +207,11 @@ export class TaskScanOccurrences {
     this.files.assertWritable();
 
     const row = stored.occurrence;
+    if (row.template && !row.template.issue && row.items.length === 0) {
+      await this.createTemplateTask(row, row.template);
+      signal.throwIfAborted();
+      stored = await this.persist(row, stored.version);
+    }
     for (const [index, item] of row.items.entries()) {
       if (item.state !== "pending") continue;
       signal.throwIfAborted();
@@ -241,6 +253,47 @@ export class TaskScanOccurrences {
     };
   }
 
+  private freezeTemplate(id: string, rule: ReturnType<AutomationsService["rule"]>, at: string | null, now: Date, owner: string): Occurrence {
+    const { action, title, trigger, missedRunGraceMinutes } = rule.data;
+    if (action.kind !== "agent" || action.input.source !== "prompt") throw errors.invalidInput("该规则没有任务输入");
+    if (rule.body.length > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("任务模板不能超过 20000 字符");
+    const tasksDisabled = !this.taskDispatch();
+    const issue = tasksDisabled ? "tasks-disabled" : this.rules.templateIssue(action.input.spaceId, action.input.provider, rule.body);
+    return {
+      schema: 1,
+      vaultId: this.vaultId,
+      owner,
+      id,
+      ruleId: rule.id,
+      ruleVersion: rule.version,
+      maxConcurrent: 1,
+      scheduledForUTC: at,
+      startedAt: now.toISOString(),
+      finishedAt: null,
+      rule: { title, trigger, missedRunGraceMinutes, input: action.input, instructions: rule.body },
+      template: { taskId: templateTaskId(id), ...(issue && { issue }) },
+      tasksDisabled,
+      items: [],
+    };
+  }
+
+  private async createTemplateTask(row: Occurrence, template: NonNullable<Occurrence["template"]>): Promise<void> {
+    const tasks = this.taskDispatch();
+    if (!tasks) throw errors.pluginDisabled("tasks");
+    const { input, instructions, title } = row.rule;
+    if (input.source !== "prompt") throw new HuhuError("WRITE_PARTIAL", "模板规则输入损坏");
+    const { source: _source, ...execution } = input;
+    try {
+      const task = await tasks.createFromRule({ taskId: template.taskId, ruleId: row.ruleId, occurrenceId: row.id, title, body: instructions, execution });
+      const { id: taskId, title: taskTitle, version: expectedVersion, inputRevision, inputHash } = task;
+      row.items.push({ taskId, title: taskTitle, expectedVersion, inputRevision, inputHash, dispatchId: dispatchId(row.id, taskId), state: "pending" });
+    } catch (error) {
+      const skipped = rejection(error);
+      if (!skipped) throw error;
+      template.issue = skipped.reason;
+    }
+  }
+
   private async accept(row: Occurrence, item: Extract<Item, { state: "pending" }>): Promise<Item> {
     const tasks = this.taskDispatch();
     if (!tasks) throw errors.pluginDisabled("tasks");
@@ -249,7 +302,14 @@ export class TaskScanOccurrences {
     try {
       receipt = await tasks.acceptRule(
         { taskId, dispatchId, expectedVersion, inputRevision, inputHash },
-        { kind: "automation", ruleId: row.ruleId, ruleVersion: row.ruleVersion, occurrenceId: row.id, instructions: row.rule.instructions, ...(row.maxConcurrent !== undefined && { maxConcurrent: row.maxConcurrent }) },
+        {
+          kind: "automation",
+          ruleId: row.ruleId,
+          ruleVersion: row.ruleVersion,
+          occurrenceId: row.id,
+          ...(!row.template && { instructions: row.rule.instructions }),
+          ...(row.maxConcurrent !== undefined && { maxConcurrent: row.maxConcurrent }),
+        },
       );
     } catch (error) {
       const skipped = rejection(error);
