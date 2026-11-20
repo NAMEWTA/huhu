@@ -21,6 +21,8 @@
 | R-52 | open-knowledge 44a2e0a | pnpm-lock.yaml 的解析版本 | pnpm-workspace.yaml 的 overrides（tiptap / ProseMirror / mdast / hast 等） | 版本对齐（行为基线）：浮动到更新的传递依赖会改变编辑器行为（例：mdast-util-gfm-task-list-item 2.0.1 把任务项序列化成 `- [ ] [ ] x`）；登记见 PATCHES.md P-D-01 |
 | R-53 | prosemirror-view 1.41.8（MIT），参照 [1.42.9 聚焦修复](https://code.haverbeke.berlin/prosemirror/prosemirror-view/commit/2978d100a6c6f94bf59a97cbe88f53d3bcaf6f9d) 与 [1.43.0](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) | `src/input.ts`、`src/domobserver.ts`、`dist/index.js`、`dist/index.cjs` | `patches/prosemirror-view@1.41.8.patch`，由 `pnpm-workspace.yaml` 登记 | B06 聚焦竞态。保留聚焦后形成的扩选。可编辑视图中，本次聚焦后的原生导航使折叠光标移动时，先让 DOM 观察器读取光标，且观察器的 200 ms 文档起点恢复窗口内尊重这次移动。浏览器先复位到文档起点时，可信且未取消的 Home 或 Ctrl+Home 即使不再移动端点，也确认该位置。无该导航时沿用原有恢复，组合输入期间不提前读取。升级依赖时复跑 `editor-selection-focus.spec.ts` 核对补丁能否移除。 |
 
+| R-54 | open-knowledge 44a2e0a | `packages/server/src/link-preview/{guarded-fetch,html-metadata}.ts`、`packages/core/src/util/ip-classifier.ts` | `packages/editor/src/vendor/open-knowledge/server-bridge/link-preview/` | 复用网络地址验证、限量读取及标题和描述提取。桌面主进程在用户启用 Q3 后调用。补丁与来源见 [逐文件清单](../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/source-file-catalog.md)。 |
+
 ## 黄金往返测试夹具
 
 - Open Knowledge 固定在 `44a2e0a`（Inkeep，GPL-3.0-or-later）。`packages/editor/test/golden-roundtrip.test.ts` 直接从对应的 vendor 目录 `packages/editor/src/vendor/open-knowledge/core/src/markdown/fixtures/` 读取，目录映射到上游 `packages/core/src/markdown/fixtures/`。该目录有 10 个 Markdown 数据文件、6 个 JSON 数据文件、4 个 `.gitkeep` 和 2 个 TypeScript 管理文件。6 个 JSON 文件按 `markdown`、`input`、`source`、`blockForm`、`inlineForm` 展开共 109 个 Markdown 样本。数据文件与原测试副本逐字节一致。原项目许可证保留在 vendor 的 `LICENSE`。
@@ -28,5 +30,5 @@
 
 ## 知识库移植的文件级来源
 
-- R-43 至 R-45 的 ORCA 文件和 R-46 至 R-51 的 OK vendor 文件按固定上游路径查询[逐文件清单与重放命令](../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/source-file-catalog.md)。
+- R-43 至 R-45 的 ORCA 文件和 R-46 至 R-51 与 R-54 的 OK vendor 文件按固定上游路径查询[逐文件清单与重放命令](../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/source-file-catalog.md)。
 - 初始依赖闭包保留在[归档 closure-manifest.json](../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json)。R-50 另见归档的 [vendor 测试结果](../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/vendor-test-results.md)。

@@ -11,7 +11,8 @@ interface ApplySlashCommandItemArgs {
 export function applySlashCommandItem({ editor, item, range }: ApplySlashCommandItemArgs): void {
   const deferred: Array<() => void> = [];
   let itemError: unknown;
-  const history = yUndoPluginKey.getState(editor.state)?.undoManager;
+  const state = editor.state;
+  const history = state ? yUndoPluginKey.getState(state)?.undoManager : undefined;
   history?.stopCapturing();
 
   try {

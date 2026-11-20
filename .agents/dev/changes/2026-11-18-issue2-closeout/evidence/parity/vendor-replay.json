@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "6c0eb1407c6f80f9ca73761c80036669c00c4df05183df5236fdd5a0c3a03668",
+      "sha256": "f39cbe6878473ac8984a51a631771e467cda99524309108925ea6e29d83ca660",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -1806,7 +1806,7 @@
       "target": "app/src/editor/SourceEditor.tsx",
       "upstream": "packages/app/src/editor/SourceEditor.tsx",
       "blob": "215ddcd7c554201341b0ee5533bc9f81b908ecee",
-      "sha256": "2fb8cbb7bc026fd1f627f1ca38d48e0c99b43605abb7a0dd9f11a3e29b02d12b",
+      "sha256": "cb26ef8f7bf269d17f3a8b6997831ac014c848dec1c8312b39894749d0a181b0",
       "method": "patch",
       "description": "PATCHES.md:336 - `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。"
     },
@@ -2959,7 +2959,7 @@
       "target": "app/src/editor/document-history.ts",
       "upstream": null,
       "blob": null,
-      "sha256": "0ab056896425ed6bad7699bdbf41a5dd25f8d0e60cfcc28c74ba5b2444e85d58",
+      "sha256": "ed2a2a24e12a51626b751047bbf2b40616fdce65d3b14c294d001c18c508add9",
       "method": "local",
       "description": "PATCHES.md:360 - `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。"
     },
@@ -4507,7 +4507,7 @@
       "target": "app/src/editor/slash-command/apply-item.ts",
       "upstream": "packages/app/src/editor/slash-command/apply-item.ts",
       "blob": "3a9d8c64a3d070716000bde999d3316cd5422f45",
-      "sha256": "9629fc082c88094fff737cb0089937f1f0f306e5f9e44c73fbb4973c25692a59",
+      "sha256": "e7d67a4cffbf72432e97b9d90a7dd729743c026020b4de6b494b67e4f4560bbc",
       "method": "patch",
       "description": "PATCHES.md:342 - `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。"
     },
@@ -9605,6 +9605,14 @@
       "description": "PATCHES.md:33 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
     },
     {
+      "target": "server-bridge/observer-origin.ts",
+      "upstream": null,
+      "blob": null,
+      "sha256": "b6bd006fea8d2aee98a21466ca05925228192afc99f391ac34cbf70adf5b9e32",
+      "method": "local",
+      "description": "PATCHES.md:371 - `server-bridge/observer-origin.ts`：与撤销管理器共享桥投影事务身份。"
+    },
+    {
       "target": "server-bridge/pre-drain-discriminator.ts",
       "upstream": "packages/server/src/pre-drain-discriminator.ts",
       "blob": "918ea5652512a190dd25abf66a47a980519c317f",
@@ -9615,7 +9623,7 @@
       "target": "server-bridge/server-observers.ts",
       "upstream": "packages/server/src/server-observers.ts",
       "blob": "ab8b60c33a1ce854dfdff23bd770d28d23d05efe",
-      "sha256": "eecb8d07166fa12f7eade31c57d583ac86754e9f5084101957dfad5126dd0702",
+      "sha256": "e0305ca5adaf578d6fa5b65df711701c49db372df05a03a6e655cb1ecb24f31a",
       "method": "patch",
       "description": "PATCHES.md:32 - P-S2a-srv 上游 server 文件原样复制：`server-bridge/server-observers.ts`、`server-bridge/map-driven-splice.ts`、`server-bridge/bridge-watchdog.ts`、`server-bridge/bridge-quiescence.ts`、`server-bridge/pre-drain-discriminator.ts`、`server-bridge/bridge-intake.ts`、`server-bridge/bridge-loss-detector.ts`、`server-bridge/doc-extensions.ts`、`server-bridge/md-manager.ts`。"
     },

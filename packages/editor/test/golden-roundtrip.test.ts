@@ -3,10 +3,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
-import { yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
+import { ySyncPluginKey, yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createServer, type ViteDevServer } from "vite";
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import { okAliases } from "../build/aliases.mjs";
 
 const fixtureRoots = [new URL("../src/vendor/open-knowledge/core/src/markdown/fixtures/", import.meta.url), new URL("./fixtures/golden/huhu/", import.meta.url)];
@@ -55,6 +55,7 @@ let core: {
   isParseEquivalentBridge(original: string, serialized: string, canonicalize: (body: string) => string): boolean;
 };
 let createDocCanonicalizer: (manager: MarkdownRuntime["mdManager"], options: object) => (body: string) => string;
+let documentHistory: (doc: Y.Doc) => Y.UndoManager;
 let bridge: { replaceRawBody(document: Y.Doc, text: string): void };
 
 beforeAll(async () => {
@@ -66,6 +67,7 @@ beforeAll(async () => {
     optimizeDeps: { noDiscovery: true, include: [] },
     server: { middlewareMode: true, watch: null, ws: false },
   });
+  ({ documentHistory } = (await server.ssrLoadModule("/src/vendor/open-knowledge/app/src/editor/document-history.ts")) as { documentHistory: typeof documentHistory });
   host = (await server.ssrLoadModule("/src/host/doc-source.ts")) as typeof host;
   providerModule = (await server.ssrLoadModule("/src/host/hocuspocus-provider.ts")) as typeof providerModule;
   markdown = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/md-manager.ts")) as typeof markdown;
@@ -213,23 +215,62 @@ test.each(samples)(
   360_000,
 );
 
-test("B05 以外部文件来源替换正文不产生撤销记录", async () => {
-  await withProvider("undo.md", "原文\n", ({ document }) => {
+test("B05 外部文件来源的正文更新不进入实际撤销历史", async () => {
+  await withProvider("undo.md", "原文\n", (provider) => {
+    const { document } = provider;
     const source = document.getText("source");
     const fragment = document.getXmlFragment("default");
-    const userEdit = Symbol("user edit");
-    const undo = new Y.UndoManager([source, fragment], { trackedOrigins: new Set([userEdit]) });
-    try {
-      document.transact(() => bridge.replaceRawBody(document, "外部版本\n"), host.FILE_LOAD_ORIGIN);
-      expect(source.toString()).toBe("外部版本\n");
-      expect(fragment.toString()).toContain("外部版本");
-      expect(undo.undoStack).toHaveLength(0);
-      document.transact(() => source.insert(0, "我的"), userEdit);
-      expect(undo.undoStack).toHaveLength(1);
-      undo.undo();
-      expect(source.toString()).toBe("外部版本\n");
-    } finally {
-      undo.destroy();
-    }
+    const history = documentHistory(document);
+    document.transact(() => bridge.replaceRawBody(document, "外部版本\n"), host.FILE_LOAD_ORIGIN);
+    provider.settleNow();
+    expect(source.toString()).toBe("外部版本\n");
+    expect(fragment.toString()).toContain("外部版本");
+    expect(history.undoStack).toHaveLength(0);
+
+    const sourceBinding = {};
+    history.addTrackedOrigin(sourceBinding);
+    document.transact(() => source.insert(0, "我的"), sourceBinding);
+    provider.settleNow();
+    expect(history.undoStack).toHaveLength(1);
+    history.undo();
+    provider.settleNow();
+    expect(source.toString()).toBe("外部版本\n");
+    expect(fragment.toString()).toContain("外部版本");
+  });
+});
+
+test("B05 源码与富文本交错替换同一片段可按顺序撤销和重做", async () => {
+  await withProvider("history-overlap.md", "X\n", (provider) => {
+    const doc = provider.document;
+    const source = doc.getText("source");
+    const fragment = doc.getXmlFragment("default");
+    const rich = (fragment.get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    const history = documentHistory(doc);
+    const check = (text: string) => {
+      provider.settleNow();
+      expect(source.toString().trimEnd()).toBe(text);
+      expect(yXmlFragmentToProseMirrorRootNode(fragment, markdown.schema).textContent).toBe(text);
+    };
+
+    doc.transact(() => rich.insert(1, "A"), ySyncPluginKey);
+    check("XA");
+    history.stopCapturing();
+
+    const cm = {};
+    history.addTrackedOrigin(cm);
+    doc.transact(() => {
+      source.delete(1, 1);
+      source.insert(1, "B");
+    }, cm);
+    check("XB");
+    expect(history.undoStack).toHaveLength(2);
+    history.undo();
+    check("XA");
+    history.undo();
+    check("X");
+    history.redo();
+    check("XA");
+    history.redo();
+    check("XB");
   });
 });

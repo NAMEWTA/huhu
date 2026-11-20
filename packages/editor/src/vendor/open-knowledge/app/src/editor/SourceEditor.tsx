@@ -62,6 +62,10 @@ import { createLocalTargetDiagnosticsExtension } from './source-lint/local-targe
 import { createMarkdownLintExtension } from './source-lint/markdown-lint-source';
 import { sourceModeSetup } from './source-mode-setup';
 import { createSourcePolishExtension } from './source-polish';
+import {
+  createSourceUndoFlipExtension,
+  setSourceViewUndoFlipActive,
+} from './source-undo-mode-flip';
 import { attachTypingBurstDetector } from './typing-burst-detector';
 
 const noScrollEffect = StateEffect.define<null>();
@@ -75,11 +79,14 @@ interface SourceEditorProps {
 }
 
 function cleanupSourceEditorEntry(docName: string, entry: CmCacheEntry): void {
-  entry.view.state.facet(ySyncFacet).undoManager.stopCapturing();
   try {
-    parkCmEditor(entry);
+    setSourceViewUndoFlipActive(entry.view, false);
   } finally {
-    unregisterFullPageCmView(docName, entry.view);
+    try {
+      parkCmEditor(entry);
+    } finally {
+      unregisterFullPageCmView(docName, entry.view);
+    }
   }
 }
 
@@ -220,6 +227,7 @@ export function SourceEditor({
               keymap.of([indentWithTab]),
               yCollab(ytext, provider.awareness, { undoManager }),
               keymap.of(yUndoManagerKeymap),
+              createSourceUndoFlipExtension({ docName: resolvedDocName, ytext, undoManager }),
               ...createNestedCMExtensions({
                 themeCompartment,
                 resolvedTheme,
@@ -296,6 +304,7 @@ export function SourceEditor({
       cmEntryRef.current = entry;
       viewRef.current = entry.view;
       entry.view.state.facet(ySyncFacet).undoManager.stopCapturing();
+      setSourceViewUndoFlipActive(entry.view, isSourceModeActive);
       registerFullPageCmView(docName, entry.view, 'sourceEditor');
       if (claimNoteWindowInitialFocus()) entry.view.focus();
     } catch (err) {
@@ -316,7 +325,8 @@ export function SourceEditor({
 
   useEffect(() => {
     sourceModeActiveRef.current = isSourceModeActive;
-    viewRef.current?.state.facet(ySyncFacet).undoManager.stopCapturing();
+    const view = viewRef.current;
+    if (view) setSourceViewUndoFlipActive(view, isSourceModeActive);
   }, [isSourceModeActive]);
 
   useEffect(() => {

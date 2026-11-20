@@ -11,7 +11,8 @@ const [ok, orca] = gunzipSync(readFileSync(join(archive, "source-file-catalog.js
   .trim()
   .split("\n")
   .map(JSON.parse);
-const results = [...readJson(join(root, "packages/editor/test-results/vendor.json")).testResults, ...readJson(process.argv[2]).testResults];
+const okResults = process.argv[3] ?? join(root, "packages/editor/test-results/vendor.json");
+const results = [...readJson(okResults).testResults, ...readJson(process.argv[2]).testResults];
 const byTarget = new Map(
   results.map((row) => [
     row.name
@@ -33,7 +34,9 @@ const okExcludedAreas = new Map([
   [/^packages\/server\/src\/embeddings\//, "宿主保留 Huhu 搜索与索引，上游嵌入服务未接入"],
   [/^packages\/server\/src\/seed\//, "原项目的种子装载服务未挂载，Huhu 独立装载示例 Vault"],
   [/^packages\/app\/src\/components\/acp\//, "Q2 不接上游 Agent 对话，Huhu Agent CLI 独立"],
-  [/^packages\/app\/src\/lib\/handoff\//, "Q2 不接上游 handoff"],
+  [/^packages\/app\/src\/lib\/(?:acp|handoff)\//, "Q2 不接上游 Agent 对话与 handoff"],
+  [/^packages\/app\/src\/components\/handoff\//, "Q2 不挂载上游 Agent handoff 组件"],
+  [/^packages\/app\/src\/lib\/share\//, "Q2 不接上游 Share 会话"],
   [/^packages\/core\/src\/(?:acp|agent-registry|skills-catalog)\//, "Q2 所测的上游 Agent 协议、注册表或安装功能未接入"],
 ]);
 const orcaNotApplicable = new Map([
@@ -41,8 +44,17 @@ const orcaNotApplicable = new Map([
   ["pdf-viewer-zoom-ownership.test.tsx", "ORCA 分组命令所有权未迁入，Huhu 使用查看器本地快捷键"],
   ["use-pdf-viewer-find-shortcut.test.tsx", "依赖 ORCA 全局键盘路由。OP-D09 行为等价待确认"],
   ["pdf-viewer-failed-load-recovery.test.tsx", "Huhu 的 PdfView 自行渲染错误及重载状态。OP-D09 外壳等价待确认"],
+  ["pdfjs-viewer-assets-stream.test.ts", "测试 ORCA 开发服务的背压与文件句柄清理。Huhu 构建时复制静态 PDF.js 资源，未接 ORCA 响应流"],
+  ["cdp-print-to-pdf.test.ts", "测试 ORCA 浏览器 CDP 导出的句柄、游标与过期回收。Huhu PDF 查看器不提供打印到 PDF 流"],
 ]);
-const substitutes = new Map([["packages/app/src/editor/editor-cache.test.ts", "tests/e2e/knowledge/editor-s2b.spec.ts 验证打开、切换与写盘，缓存上限及实例身份仍缺断言"]]);
+const substitutes = new Map([
+  ["packages/app/src/editor/editor-cache.test.ts", "tests/e2e/knowledge/editor-s2b.spec.ts 验证打开、切换与写盘，缓存上限仍缺断言"],
+  ["packages/server/src/link-preview/guarded-fetch.test.ts", "packages/editor/test/link-preview-main.test.ts 对主进程拒绝本地地址、实际 HTTP 读取及字节和截止时间有断言，其余上游边界仍待核对"],
+  ["packages/server/src/link-preview/html-metadata.test.ts", "packages/editor/test/link-preview-main.test.ts 断言实际响应的标题和描述，其余上游解析边界仍待核对"],
+  ["tests/e2e/pdf-find-counter.spec.ts", "tests/e2e/workflows/viewers.spec.ts 验证定位与计数，连续导航、改查词和重开后的计数待核对"],
+  ["tests/e2e/pdf-viewer-rebuild-recovery.spec.ts", "tests/e2e/workflows/viewers.spec.ts 验证外部修改后不展示旧页面，多次失败再恢复待核对"],
+  ["tests/e2e/pdf-viewer-reload-cleanup.spec.ts", "tests/e2e/workflows/viewers.spec.ts 验证重复打开关闭后的 DOM，worker、事件监听和本地化观察器逐项释放待核对"],
+]);
 const outcomes = [];
 const skips = [];
 for (const source of [ok, orca]) {
@@ -62,7 +74,7 @@ for (const source of [ok, orca]) {
     } else if (known.has(file.upstream) && source === ok) {
       status = "not-applicable";
       reason = known.get(file.upstream);
-    } else if (substitutes.has(file.upstream) && source === ok) {
+    } else if (substitutes.has(file.upstream)) {
       status = "partial";
       reason = substitutes.get(file.upstream);
     } else if (file.target) {

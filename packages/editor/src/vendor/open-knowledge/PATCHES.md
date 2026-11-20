@@ -367,3 +367,6 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - P-WP6-02 `app/src/editor/link-preview/internal-doc-preview.ts`：随 OK 根切换 Vault 清空内容及反链缓存，迟到的旧 Vault 请求不填入新缓存。宿主复用本地笔记读取及反链路由。
 
 - `app/src/editor/extensions/slash-command.ts`：组合输入期间将确认键交回输入法。
+
+- `server-bridge/observer-origin.ts`：与撤销管理器共享桥投影事务身份。
+- `server-bridge/server-observers.ts`：从独立模块导入原桥投影来源。
