@@ -46,8 +46,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const settingsStore = new AgentSettingsStore(path.join(api.vault.stateDir, "agent-cli", "agents.json"));
   const detector = new AgentDetector({ settings: () => settingsStore.get() });
   const resolve = async (input: Parameters<typeof resolveAgentLaunch>[1]) => {
-    const detected = input.preview ? undefined : (await detector.detect()).find((r) => r.id === input.agentId);
-    return resolveAgentLaunch({ settings: settingsStore.get(), detected }, input);
+    const settings = settingsStore.get();
+    const locatedCommand = input.preview ? null : (detector.locate(input.agentId, settings)?.path ?? null);
+    return resolveAgentLaunch({ settings, locatedCommand }, input);
   };
   const mid = machineId();
   const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr") });
@@ -165,6 +166,20 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       },
     }),
   );
+  const LaunchTarget = z.object({
+    spaceId: z.string(),
+    spaceRevision: z.number(),
+    provider: z.enum(["claude", "codex", "pi", "shell"]),
+    model: z.string().optional(),
+    effort: z.string().optional(),
+    fast: z.boolean().optional(),
+    prompt: z.string().optional(),
+    cwd: z.string().optional(),
+    /** 终端命令（automations 的 terminal 动作）：provider 必须是 shell；解释规则来自 shell。 */
+    command: z.string().min(1).max(4000).optional(),
+    shell: z.enum(["default", "bash", "zsh", "sh", "powershell", "cmd"]).optional(),
+  });
+  const SessionPreview = z.object({ machineId: z.string(), cwd: z.string(), command: z.string().nullable(), argv: z.array(z.string()) });
   api.defineCapability(
     def({
       name: "agent.launch.resolve",
@@ -172,20 +187,26 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "read",
       exposable: false,
       defaultExposed: false,
-      input: z.object({
-        agentId: z.string(),
-        mode: z.enum(["interactive", "headless"]),
-        model: z.string().optional(),
-        effort: z.string().optional(),
-        fast: z.boolean().optional(),
-        prompt: z.string().optional(),
-        sessionId: z.string().optional(),
-        resume: z.string().optional(),
-        draft: AgentSettingsEntry.optional(),
-        preview: z.boolean().optional(),
-      }),
-      output: z.object({ command: z.string(), argv: z.array(z.string()), env: z.record(z.string(), z.string()), stdin: z.string().optional(), warnings: z.array(z.string()), unsupported: z.literal("headless").optional() }),
-      handler: (_c, i) => resolve(i),
+      input: z.union([
+        z.strictObject({ session: LaunchTarget }),
+        z.object({
+          agentId: z.string(),
+          mode: z.enum(["interactive", "headless"]),
+          model: z.string().optional(),
+          effort: z.string().optional(),
+          fast: z.boolean().optional(),
+          prompt: z.string().optional(),
+          sessionId: z.string().optional(),
+          resume: z.string().optional(),
+          draft: AgentSettingsEntry.optional(),
+          preview: z.boolean().optional(),
+        }),
+      ]),
+      output: z.union([
+        SessionPreview,
+        z.object({ command: z.string(), argv: z.array(z.string()), env: z.record(z.string(), z.string()), stdin: z.string().optional(), warnings: z.array(z.string()), unsupported: z.literal("headless").optional() }),
+      ]),
+      handler: (_c, i) => ("session" in i ? sessions.preview(i.session) : resolve(i)),
     }),
   );
 
@@ -229,18 +250,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "execute",
       exposable: false,
       defaultExposed: false,
-      input: z.object({
-        spaceId: z.string(),
-        spaceRevision: z.number(),
-        provider: z.enum(["claude", "codex", "pi", "shell"]),
-        model: z.string().optional(),
-        effort: z.string().optional(),
-        fast: z.boolean().optional(),
-        prompt: z.string().optional(),
+      input: LaunchTarget.extend({
         requestId: z.string().min(8),
-        /** 终端命令（automations 的 terminal 动作）：provider 必须是 shell；命令里的 shell 语义只来自规则作者写下的文本。 */
-        command: z.string().min(1).max(4000).optional(),
-        shell: z.enum(["default", "bash", "zsh", "sh", "powershell", "cmd"]).optional(),
         /** 环境变量名 → 保险箱引用：在引擎侧解析（调用方插件的身份），值只传给 terminal.run，不落盘、不回显。 */
         envRefs: z.record(z.string(), z.string()).optional(),
       }),

@@ -57,7 +57,10 @@ const mask = (env: Record<string, string>): Record<string, string> => Object.fro
  * 顺序参照 Orca tui-agent-launch-command.ts，并补上 HUHU 已有的 headless / 恢复会话：
  * 命令 → 前缀子命令 → 启动选项 → 用户参数 → 模式参数 → 会话参数 → 位置参数 → 末尾参数。
  */
-export function resolveAgentLaunch(ctx: { settings: AgentSettingsFile; detected?: DetectInfo | undefined; /** 测试用：替换目录。 */ catalog?: readonly AgentCatalogEntry[] }, input: ResolveInput): ResolvedLaunch {
+export function resolveAgentLaunch(
+  ctx: { settings: AgentSettingsFile; detected?: DetectInfo | undefined; /** 引擎已解析的本机绝对路径，null 表示找不到。 */ locatedCommand?: string | null; /** 测试用：替换目录。 */ catalog?: readonly AgentCatalogEntry[] },
+  input: ResolveInput,
+): ResolvedLaunch {
   const entry = (ctx.catalog ?? AGENT_CATALOG).find((e) => e.id === input.agentId);
   if (!entry) throw errors.invalidInput(`未知的智能体：${input.agentId}`);
   if (input.draft && !input.preview) throw errors.invalidInput("draft 只能与 preview 一起使用");
@@ -87,11 +90,12 @@ export function resolveAgentLaunch(ctx: { settings: AgentSettingsFile; detected?
   }
   if (!enabled && !preview) throw new HuhuError("AGENT_DISABLED", `${entry.displayName} 已停用`);
   const override = user.command?.trim();
-  let command: string;
+  let command: string | null | undefined;
   if (preview) command = override || entry.launch.command;
+  else if (ctx.locatedCommand !== undefined) command = ctx.locatedCommand;
   else if (override) command = override;
   else if (ctx.detected?.installed && ctx.detected.path) command = ctx.detected.path;
-  else throw new HuhuError("AGENT_NOT_FOUND", `未检测到 ${entry.displayName}`);
+  if (!command) throw new HuhuError("AGENT_NOT_FOUND", `未检测到 ${entry.displayName}`);
 
   const warnings: string[] = [];
   const userArgs = user.args ?? entry.fullAccessArgs;

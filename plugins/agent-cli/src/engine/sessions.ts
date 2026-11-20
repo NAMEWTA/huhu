@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { HuhuError, errors, newId } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
@@ -70,6 +70,7 @@ export interface ProgramStatus {
 }
 
 const MAX_COMMENTS = 200;
+const localDrivePath = (directory: string): string => (process.platform === "win32" ? directory.replace(/^\\\\\?\\(?=[a-z]:\\)/i, "") : directory);
 const hasControl = (s: string): boolean => {
   for (const ch of s) {
     const n = ch.codePointAt(0) as number;
@@ -100,7 +101,7 @@ export interface LaunchInput {
   requestId: string;
   /** 恢复历史会话（仅内部调用：id 来自对历史的扫描结果，不由外部直接传入）。 */
   resumeSessionId?: string | undefined;
-  /** 恢复时在原会话的 cwd 启动（必须在 Space 根之内）。 */
+  /** 显式 cwd 必须是 Space 范围内的现有绝对目录。 */
   cwd?: string | undefined;
   /** 终端命令（只与 provider=shell 一起用）：以 `argv = [shell, -c, command]` 运行，能拿到退出码。 */
   command?: string | undefined;
@@ -174,11 +175,26 @@ export class SessionsService {
     return p;
   }
 
-  private async doLaunch(input: LaunchInput): Promise<SessionRecord> {
-    // 同一 requestId 重复提交：返回已有会话，不重复启动
-    const dup = this.list().find((s) => s.requestId === input.requestId);
-    if (dup) return dup;
+  private launchDirectory(root: string, cwd: string | undefined): string {
+    if (cwd === undefined) return root;
+    if (path.isAbsolute(cwd)) {
+      try {
+        const explicit = realpathSync(cwd);
+        if (isWithin(localDrivePath(realpathSync(root)), localDrivePath(explicit)) && statSync(explicit).isDirectory()) return explicit;
+      } catch {
+        // 不存在或不可访问。
+      }
+    }
+    throw errors.invalidInput("启动目录必须是 Space 内现有的绝对目录");
+  }
+
+  private async prepareLaunch(input: Omit<LaunchInput, "requestId">) {
     const space = this.d.spaces.validateForLaunch(input.spaceId, input.spaceRevision);
+    const directory = this.launchDirectory(space.root, input.cwd);
+    const drivePath = localDrivePath(directory);
+    // cmd.exe 把盘符的扩展路径当作 UNC。常规长度的本机路径可用普通盘符形式启动。
+    const cwd = drivePath.length < 260 ? drivePath : directory;
+    if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
     let argv: string[] | undefined;
     let env: Record<string, string> | undefined;
     if (input.command !== undefined) {
@@ -190,17 +206,21 @@ export class SessionsService {
       argv = [r.command, ...r.argv];
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
     }
-    const cwd = input.cwd ?? space.root;
-    if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
-    if (input.cwd !== undefined) {
-      let ok = false;
-      try {
-        ok = isWithin(realpathSync(space.root), realpathSync(input.cwd));
-      } catch {
-        /* 目录不存在 */
-      }
-      if (!ok) throw errors.invalidInput("启动目录必须在 Space 之内且存在");
-    }
+    return { space, cwd, argv, env };
+  }
+
+  /** 已保存配置的会话预览。Core 默认 shell 由 Core 配置选择。 */
+  async preview(input: Omit<LaunchInput, "requestId" | "env" | "resumeSessionId">): Promise<{ machineId: string; cwd: string; command: string | null; argv: string[] }> {
+    const { space, cwd, argv } = await this.prepareLaunch(input);
+    const [command, ...args] = argv ?? [];
+    return { machineId: space.machineId, cwd, command: command ?? null, argv: args };
+  }
+
+  private async doLaunch(input: LaunchInput): Promise<SessionRecord> {
+    // 同一 requestId 重复提交：返回已有会话，不重复启动
+    const dup = this.list().find((s) => s.requestId === input.requestId);
+    if (dup) return dup;
+    const { space, cwd, argv, env } = await this.prepareLaunch(input);
     const session: SessionRecord = {
       id: newId("cap").replace(/^cap-/, "sess-"),
       spaceId: space.id,

@@ -32,9 +32,11 @@ function runnable(candidate: string, platform: NodeJS.Platform): boolean {
 
 /** 在一组目录里查找可执行文件（Windows 考虑 PATHEXT）。 */
 export function findInDirs(cmd: string, dirs: string[], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
+  const extensions = exts(env, platform);
+  const suffixes = extensions.includes(path.extname(cmd).toLowerCase()) ? [""] : extensions;
   for (const dir of dirs) {
-    for (const ext of exts(env, platform)) {
-      const candidate = path.join(dir, cmd + ext);
+    for (const ext of suffixes) {
+      const candidate = path.resolve(dir, cmd + ext);
       if (runnable(candidate, platform)) return candidate;
     }
   }
@@ -74,8 +76,24 @@ export function installDirs(home: string = homedir(), platform: NodeJS.Platform 
 
 /** 运行 `<exe> <args>`，5 秒超时；返回首行文本或 null。 */
 export function probeVersion(exe: string, args: string[] = ["--version"], timeoutMs = 5000, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const batch = process.platform === "win32" && /\.(cmd|bat)$/i.test(exe);
+  let command = exe;
+  let argv = args;
+  let childEnv = env;
+  if (batch) {
+    const values = [exe, ...args];
+    // cmd 要显式引用批处理路径。展开带引号的环境变量，避免把路径或参数拼进命令文本。
+    if (values.some((value) => /["\r\n\0]/.test(value))) return Promise.resolve(null);
+    const vars = Object.fromEntries(values.map((value, i) => [`HUHU_PROBE_ARG_${i}`, value]));
+    const line = Object.keys(vars)
+      .map((key) => `"%${key}%"`)
+      .join(" ");
+    command = env["ComSpec"] ?? "cmd.exe";
+    argv = ["/d", "/s", "/v:off", "/c", `"${line}"`];
+    childEnv = { ...env, ...vars };
+  }
   return new Promise((resolve) => {
-    execFile(exe, args, { timeout: timeoutMs, env, windowsHide: true, shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(exe) }, (err, stdout) => {
+    execFile(command, argv, { timeout: timeoutMs, env: childEnv, windowsHide: true, windowsVerbatimArguments: batch }, (err, stdout) => {
       if (err) return resolve(null);
       resolve(
         String(stdout)
@@ -108,29 +126,37 @@ export class AgentDetector {
     this.cache = null;
   }
 
+  /** 查找实际启动的程序，不执行版本命令。启动与会话预览使用同一位置解析。 */
+  locate(agentId: string, settings = this.d.settings()): { path: string; via: NonNullable<DetectInfo["via"]> } | null {
+    const entry = (this.d.catalog ?? AGENT_CATALOG).find((item) => item.id === agentId);
+    return entry ? this.locateEntry(entry, settings) : null;
+  }
+
+  private locateEntry(entry: AgentCatalogEntry, settings: AgentSettingsFile): { path: string; via: NonNullable<DetectInfo["via"]> } | null {
+    if (!isEnabled(settings, entry.id)) return null;
+    const env = this.d.env ?? process.env;
+    const platform = this.d.platform ?? process.platform;
+    const override = entryOf(settings, entry.id).command?.trim();
+    if (override) {
+      const found = path.isAbsolute(override) ? (runnable(override, platform) ? override : null) : findOnPath(override, env, platform);
+      return found ? { path: found, via: "override" } : null;
+    }
+    const onPath = findOnPath(entry.detect.command, env, platform);
+    if (onPath) return { path: onPath, via: "path" };
+    const inDir = findInDirs(entry.detect.command, installDirs(this.d.home, platform), env, platform);
+    return inDir ? { path: inDir, via: "installDir" } : null;
+  }
+
   async detect(refresh = false): Promise<DetectInfo[]> {
     const now = this.d.now ?? Date.now;
     if (!refresh && this.cache && now() - this.cache.at < TTL_MS) return this.cache.results;
     const env = this.d.env ?? process.env;
-    const platform = this.d.platform ?? process.platform;
     const settings = this.d.settings();
     const results = await Promise.all(
       (this.d.catalog ?? AGENT_CATALOG).map(async (e): Promise<DetectInfo> => {
         const base = { id: e.id, displayName: e.displayName, headless: e.headless !== undefined, detectedAt: new Date(now()).toISOString() };
         if (!isEnabled(settings, e.id)) return { ...base, installed: false, skipped: true };
-        const override = entryOf(settings, e.id).command?.trim();
-        let found: { path: string; via: "path" | "installDir" | "override" } | null = null;
-        if (override) {
-          const p = path.isAbsolute(override) ? (runnable(override, platform) ? override : null) : findOnPath(override, env, platform);
-          if (p) found = { path: p, via: "override" };
-        } else {
-          const onPath = findOnPath(e.detect.command, env, platform);
-          if (onPath) found = { path: onPath, via: "path" };
-          else {
-            const inDir = findInDirs(e.detect.command, installDirs(this.d.home, platform), env, platform);
-            if (inDir) found = { path: inDir, via: "installDir" };
-          }
-        }
+        const found = this.locateEntry(e, settings);
         if (!found) return { ...base, installed: false };
         const version = await probeVersion(found.path, e.detect.versionArgs, 5000, env);
         return { ...base, installed: true, path: found.path, via: found.via, ...(version ? { version } : {}) };

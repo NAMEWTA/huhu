@@ -79,6 +79,7 @@ describe("智能体检测", () => {
     expect(findOnPath("dirtool", { PATH: bin }, "linux")).toBeNull();
     writeFileSync(path.join(bin, "cl.cmd"), "x");
     expect(findOnPath("cl", { PATH: bin, PATHEXT: ".EXE;.CMD" }, "win32")).toBe(path.join(bin, "cl.cmd"));
+    expect(findOnPath("cl.cmd", { PATH: bin, PATHEXT: ".EXE;.CMD" }, "win32")).toBe(path.join(bin, "cl.cmd"));
   });
 });
 
