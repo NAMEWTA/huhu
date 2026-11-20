@@ -4,6 +4,7 @@ export * from "./engine-client/client.js";
 export * from "./engine-client/query.js";
 export * from "./state/ui-store.js";
 export * from "./shell/AppShell.js";
+export { WindowTitleBar } from "./shell/WindowTitleBar.js";
 export * from "./engine-client/react.js";
 export * from "./settings/SettingsModule.js";
 export * from "./notifications/NotificationBell.js";

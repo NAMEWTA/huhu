@@ -8,11 +8,11 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { boot, type RunningEngine } from "../src/boot.js";
 
-async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken) {
+async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, intentKey?: string) {
   const reply = await fetch("http://127.0.0.1:" + engine.port + "/api/v1/call", {
     method: "POST",
     headers: { authorization: "Bearer " + token, "content-type": "application/json" },
-    body: JSON.stringify({ capability, input, requestId: randomUUID() }),
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), ...(intentKey && { intentKey }) }),
   });
   expect(reply.status).toBe(200);
   return CapabilityResultSchema.parse(await reply.json());
@@ -100,6 +100,35 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
     expect(await call(engine, "plugins.setEnabled", { id: "ssh", enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
     expect((await directory(engine, true)).filter((entry) => entry.plugin === "ssh")).toEqual(published);
     expect(await call(engine, "ssh.hosts.list")).toEqual({ ok: true, data: [] });
+  } finally {
+    try {
+      await engine?.shutdown();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}, 60_000);
+
+test("任务插件停用时可预配置静态工具，重开与启用沿用相同 schema", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-task-catalog-"));
+  let engine: RunningEngine | undefined;
+  try {
+    const input = { title: "静态目录测试任务" };
+    const capability = "tasks.create";
+    engine = await boot({ vaultPath: dir, create: true });
+    const entry = (await directory(engine, true)).find((item) => item.name === capability)!;
+    expect(entry).toMatchObject({ plugin: "tasks", scope: "write", availability: "active", exposed: false, input: { properties: { title: { type: "string" } } } });
+    expect(await call(engine, capability, input, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    expect(await call(engine, "plugins.setEnabled", { id: "tasks", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
+    expect(await call(engine, "gateway.update", { capability, exposed: true })).toMatchObject({ ok: true });
+    await engine.shutdown();
+    engine = await boot({ vaultPath: dir });
+    expect((await directory(engine, true)).find((item) => item.name === capability)).toEqual({ ...entry, selected: true, exposed: false, availability: "plugin-disabled" });
+    expect(await call(engine, capability, input, engine.cliToken)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+    expect(await call(engine, "plugins.setEnabled", { id: "tasks", enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
+    expect((await directory(engine, true)).find((item) => item.name === capability)).toEqual({ ...entry, selected: true, exposed: true, availability: "active" });
+    const created = await call(engine, capability, input, engine.cliToken, "static-catalog-create");
+    expect(created, JSON.stringify(created)).toMatchObject({ ok: true, data: input });
   } finally {
     try {
       await engine?.shutdown();

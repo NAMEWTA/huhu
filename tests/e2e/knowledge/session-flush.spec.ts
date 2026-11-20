@@ -610,8 +610,9 @@ test("TB-15 工作台失联时可重新加载，仍保留窗口和 Vault", async
 });
 
 test("TB-15 启动页资源加载失败且无 Vault 时可关闭", async () => {
-  const { app, close } = await openApp({ HUHU_VAULT: "" });
+  const { app, page, close } = await openApp({ HUHU_VAULT: "" });
   try {
+    await expect(page.getByTestId("vault-launch")).toBeVisible();
     await app.evaluate(async ({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]!;
       await win.loadURL("data:text/html,Startup%20failure%20fixture");

@@ -6,8 +6,7 @@ import type { StoreApi } from "zustand/vanilla";
 import { ModuleIconsContext, SettingsPagesContext, type ContributionRegistry, type ModuleContribution } from "../contributions.js";
 import { host } from "../settings/host.js";
 import { useRegionCycle } from "./region-cycle.js";
-import { BrandMark } from "./BrandMark.js";
-import { AppMenuButton } from "./AppMenuButton.js";
+import { WindowTitleBar } from "./WindowTitleBar.js";
 import { VaultMenu } from "./VaultMenu.js";
 import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
 import { registerModuleLeaveGuard, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
@@ -180,28 +179,31 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
         <ModuleIconsContext.Provider value={moduleIcons}>
           <SettingsPagesContext.Provider value={settingsPages}>
             <div className={`hu-app${s.focusMode ? " hu-focus-mode" : ""}`}>
-              <header className="hu-window-bar">
-                <div className="row">
-                  <AppMenuButton />
-                  <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="huhu workbench 首页">
-                    <BrandMark className="shell-brand-mark" />
-                    <span>
-                      huhu<span className="shell-brand-suffix">workbench</span>
-                    </span>
-                  </button>
-                </div>
-                {host()?.vault ? (
-                  <VaultMenu vaultName={vaultName} onSwitch={requestVaultSwitch} />
-                ) : (
-                  <div className="hu-window-center shell-vault-title-button" data-testid="vault-name">
-                    <Folder size={13} aria-hidden />
-                    <span>{vaultName}</span>
-                    <ChevronDown size={12} aria-hidden />
-                  </div>
-                )}
-                {host()?.vault ? <VaultSwitchDialog open={switchOpen} {...(switchTarget ? { target: switchTarget } : {})} onClose={() => setSwitchOpen(false)} /> : null}
-                <div className="row">{version ? <Badge tone="neutral">{version}</Badge> : null}</div>
-              </header>
+              <WindowTitleBar
+                onHome={() => home && s.openModule(home.id)}
+                center={
+                  host()?.vault ? (
+                    <VaultMenu vaultName={vaultName} onSwitch={requestVaultSwitch} />
+                  ) : (
+                    <div className="shell-vault-title-button" data-testid="vault-name">
+                      <Folder size={13} aria-hidden />
+                      <span>{vaultName}</span>
+                      <ChevronDown size={12} aria-hidden />
+                    </div>
+                  )
+                }
+                actions={
+                  <>
+                    <IconButton icon={Search} label="搜索与命令" onClick={() => s.setPaletteOpen(true)} />
+                    {version ? (
+                      <span className="shell-window-titlebar-version">
+                        <Badge tone="neutral">{version}</Badge>
+                      </span>
+                    ) : null}
+                  </>
+                }
+              />
+              {host()?.vault ? <VaultSwitchDialog open={switchOpen} {...(switchTarget ? { target: switchTarget } : {})} onClose={() => setSwitchOpen(false)} /> : null}
               <div className="workbench">
                 {!s.focusMode ? (
                   <nav className="rail" aria-label="功能图标栏" data-region="rail">
@@ -285,7 +287,6 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                         {engineState === "ready" ? <CheckCircle2 size={13} aria-hidden /> : <AlertCircle size={13} aria-hidden />}
                         <span>{ENGINE_TEXT[engineState]}</span>
                       </span>
-                      <IconButton icon={Search} label="搜索与命令" onClick={() => s.setPaletteOpen(true)} />
                       {engineState === "ready" ? statusSlot : null}
                     </div>
                   </div>

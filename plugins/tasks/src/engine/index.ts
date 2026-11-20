@@ -15,7 +15,7 @@ import {
 } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
-import { defineCapability as def } from "@huhu/kernel";
+import { bindCapability, defineCapability as def, defineCapabilityDescriptor } from "@huhu/kernel";
 import { machineId, VaultFiles } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
 import { AgentDispatchTargetInfoSchema } from "@huhu/plugin-agent-cli/engine";
@@ -44,6 +44,47 @@ export interface TaskQuery {
 }
 
 const Id = z.object({ id: z.string() });
+const ListInput = z.object({ category: TaskCategorySchema.default("all"), status: z.array(TaskStatusSchema).optional(), type: TaskTypeSchema.optional(), tags: z.array(z.string()).optional(), query: z.string().optional() });
+
+export const taskToolDescriptors = {
+  list: defineCapabilityDescriptor({
+    name: "tasks.list",
+    plugin: "tasks",
+    title: "列出任务",
+    description: "按状态、类型、分类、标签或文字查询任务。",
+    risk: "normal",
+    scope: "read",
+    exposable: true,
+    defaultExposed: true,
+    input: ListInput,
+    output: z.array(TaskDtoSchema),
+  }),
+  read: defineCapabilityDescriptor({
+    name: "tasks.read",
+    plugin: "tasks",
+    title: "读取任务",
+    description: "读取指定任务的当前内容和版本。",
+    risk: "normal",
+    scope: "read",
+    exposable: true,
+    defaultExposed: true,
+    input: Id,
+    output: TaskDtoSchema,
+  }),
+  create: defineCapabilityDescriptor({
+    name: "tasks.create",
+    plugin: "tasks",
+    title: "新建任务",
+    description: "在当前 Vault 创建任务，并可按原受理意图核实结果。",
+    risk: "normal",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "durable",
+    input: TaskWritableSchema,
+    output: TaskDtoSchema,
+  }),
+};
 
 /** 创建来源：种类由网关根据受信的 caller 推导（请求体里自报的来源一律忽略）。明细 ID 由 T02 的 onBehalfOf 补上。 */
 export function originOf(caller: string): TaskOrigin {
@@ -357,34 +398,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     };
   });
 
-  const ListInput = z.object({ category: TaskCategorySchema.default("all"), status: z.array(TaskStatusSchema).optional(), type: TaskTypeSchema.optional(), tags: z.array(z.string()).optional(), query: z.string().optional() });
   api.defineCapability(
-    def({
-      name: "tasks.list",
-      plugin: "tasks",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: ListInput,
-      output: z.array(TaskDtoSchema),
-      handler: (_c, i) => svc.list({ category: i.category, ...(i.status ? { status: i.status } : {}), ...(i.type ? { type: i.type } : {}), ...(i.tags ? { tags: i.tags } : {}), ...(i.query ? { query: i.query } : {}) }),
-    }),
+    bindCapability(taskToolDescriptors.list, (_c, i) =>
+      svc.list({ category: i.category, ...(i.status ? { status: i.status } : {}), ...(i.type ? { type: i.type } : {}), ...(i.tags ? { tags: i.tags } : {}), ...(i.query ? { query: i.query } : {}) }),
+    ),
   );
-  api.defineCapability(def({ name: "tasks.read", plugin: "tasks", scope: "read", exposable: true, defaultExposed: true, input: Id, output: TaskDtoSchema, handler: (_c, i) => svc.read(i.id) }));
+  api.defineCapability(bindCapability(taskToolDescriptors.read, (_c, i) => svc.read(i.id)));
   api.defineCapability(
-    def({
-      name: "tasks.create",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      idempotency: "durable",
-      input: TaskWritableSchema,
-      output: TaskDtoSchema,
-      handler: (c, i) => {
-        assertAgentAllowed(c.caller, i);
-        return svc.create(i, originOf(c.caller));
-      },
+    bindCapability(taskToolDescriptors.create, (c, i) => {
+      assertAgentAllowed(c.caller, i);
+      return svc.create(i, originOf(c.caller));
     }),
   );
   api.defineCapability(

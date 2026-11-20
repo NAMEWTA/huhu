@@ -70,13 +70,12 @@
     flex-direction: column;
     background: var(--sidebar);
     overflow: auto;
+    scroll-padding-block-start: 48px;
   }
-  .shell-vault-launch-bar {
-    height: 64px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 32px;
+  .shell-vault-launch > .shell-window-titlebar {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
   }
   .shell-vault-launch-main {
     width: min(960px, calc(100% - 64px));
@@ -299,12 +298,6 @@
   @media (max-width: 800px) {
     .shell-brand-logo img {
       height: 44px;
-    }
-  }
-  @media (max-width: 800px) {
-    .shell-vault-launch-bar {
-      padding: 0 20px;
-      height: 54px;
     }
   }
   @media (max-width: 800px) {
@@ -647,16 +640,63 @@
       overflow: auto;
     }
   }
-  .hu-window-bar {
-    height: 39px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 14px 0 13px;
+  .shell-window-titlebar {
+    --shell-title-x: 0px;
+    --shell-title-y: 0px;
+    --shell-title-width: 100%;
+    --shell-title-height: var(--shell-window-height, 40px);
+    flex: none;
+    padding-block-start: var(--shell-title-y);
     background: var(--sidebar);
     border-bottom: 1px solid var(--line);
+  }
+  .shell-window-titlebar[data-platform]:not([data-window-fullscreen="true"]) {
+    --shell-title-x: env(titlebar-area-x, var(--shell-title-fallback-left, 0px));
+    --shell-title-y: env(titlebar-area-y, 0px);
+    --shell-title-width: env(titlebar-area-width, calc(100% - var(--shell-title-fallback-left, 0px) - var(--shell-title-fallback-right, 0px)));
+    --shell-title-height: max(var(--shell-window-height, 40px), env(titlebar-area-height, 0px));
+  }
+  .shell-window-titlebar-content {
+    container: window-title / inline-size;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    inline-size: var(--shell-title-width);
+    min-block-size: var(--shell-title-height);
+    /* The system overlay gives a physical rectangle from the left edge. */
+    margin-left: var(--shell-title-x);
+    padding-inline: 12px;
+  }
+  .shell-window-titlebar-controls {
+    display: flex;
+    flex: none;
+    gap: 6px;
+    align-items: center;
+  }
+  .shell-window-titlebar-drag {
+    flex: 1;
+    min-inline-size: 12px;
+    align-self: stretch;
+  }
+  .shell-window-titlebar[data-platform]:not([data-window-fullscreen="true"]) .shell-window-titlebar-drag {
+    -webkit-app-region: drag;
     user-select: none;
+  }
+  .shell-window-titlebar[data-platform] :is(.shell-window-titlebar-controls, .shell-vault-title-button) {
+    -webkit-app-region: no-drag;
+  }
+  .shell-window-titlebar[data-window-focused="false"] .brand {
+    color: var(--muted);
+  }
+  .shell-window-titlebar-version .hu-badge {
+    background: transparent;
+    white-space: nowrap;
+  }
+  @container window-title (inline-size < 500px) {
+    .shell-window-titlebar-content .shell-brand-suffix,
+    .shell-window-titlebar-version {
+      display: none;
+    }
   }
   .brand {
     display: flex;
@@ -1000,9 +1040,6 @@
   .shell-status-local {
     color: var(--faint);
     font-size: 12px;
-  }
-  .hu-focus-mode .hu-window-bar {
-    display: none;
   }
   .hu-focus-mode .hu-breadcrumb-bar {
     height: 34px;
@@ -1692,11 +1729,6 @@
     /* stylelint-enable declaration-no-important */
   }
   @media (max-width: 900px) {
-    .hu-window-bar .shell-brand-suffix {
-      display: none;
-    }
-  }
-  @media (max-width: 900px) {
     .shell-home-grid {
       grid-template-columns: 1fr;
     }
@@ -1864,11 +1896,6 @@
   @media (max-width: 520px) {
     .shell-status-bar button {
       font-size: 12px;
-    }
-  }
-  @media (max-width: 520px) {
-    .hu-window-bar {
-      padding-right: 9px;
     }
   }
   @media (max-width: 520px) {
@@ -2925,19 +2952,29 @@
     }
   }
   .shell-vault-title-button {
-    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-inline-size: 0;
+    min-block-size: 28px;
+    border-radius: 6px;
     padding: 4px 8px;
     max-width: 34%;
     white-space: nowrap;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .shell-vault-title-button svg {
+    flex: none;
+  }
+  .shell-vault-title-button span {
+    min-inline-size: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .shell-vault-title-button:hover {
     background: var(--muted-bg);
     color: var(--text);
-  }
-  .hu-window-bar {
-    height: 36px;
   }
   .hu-primary-nav {
     padding: 20px 12px 12px;
@@ -3055,9 +3092,6 @@
     text-decoration: line-through;
     text-decoration-thickness: 1.5px;
   }
-  .hu-focus-mode .hu-window-center {
-    display: none;
-  }
   @media (max-width: 1180px) {
     .shell-system-scroll {
       padding: 20px;
@@ -3127,12 +3161,6 @@
   .shell-source-full-url + svg {
     flex-shrink: 0;
   }
-  .hu-window-bar {
-    height: 38px;
-    min-height: 38px;
-    padding: 0 16px;
-    background: var(--sidebar);
-  }
   .brand {
     font-weight: 600;
     letter-spacing: -0.4px;
@@ -3141,12 +3169,6 @@
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.8px;
-    color: var(--muted);
-  }
-  .shell-vault-title-button {
-    min-height: 28px;
-    border-radius: 6px;
-    font-size: 12px;
     color: var(--muted);
   }
   .rail {
@@ -3692,11 +3714,6 @@
   @media (max-width: 780px) {
     .shell-rail-item.active::before {
       left: -5px;
-    }
-  }
-  @media (max-width: 780px) {
-    .hu-window-bar {
-      padding: 0 12px;
     }
   }
   @media (max-width: 780px) {

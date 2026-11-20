@@ -1,6 +1,6 @@
 import "@huhu/ui/styles.css";
 import "@huhu/workbench/shell.css";
-import { appearanceController, Button, EmptyState } from "@huhu/ui";
+import { APPEARANCE_CHANGED, appearanceController, Button, EmptyState } from "@huhu/ui";
 import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
@@ -38,6 +38,7 @@ import {
   systemSettingsPages,
   useCapability,
   createUiStore,
+  WindowTitleBar,
   type EngineEndpoint,
 } from "@huhu/workbench";
 import { Activity, Bell, Blocks, CalendarDays, HeartPulse, House, LayoutGrid, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
@@ -48,6 +49,26 @@ import { browserEndpoint, browserLocation, joinBrowserWorkbench, type BrowserEnd
 
 // 首帧：用 localStorage 里缓存的最近一次外观（没有就是默认主题 + 跟随系统），打开 Vault 后再以 Vault 的设置为准
 appearanceController().refresh();
+syncWindowChromeColors();
+
+function syncWindowChromeColors() {
+  const chrome = window.huhuHost?.windowChrome;
+  if (!chrome) return;
+  const root = getComputedStyle(document.documentElement);
+  void chrome
+    .setColors({
+      background: root.getPropertyValue("--sidebar").trim(),
+      foreground: root.getPropertyValue("--text").trim(),
+      canvas: root.getPropertyValue("--bg").trim(),
+    })
+    .catch(() => undefined);
+}
+
+function subscribeWindowChromeColors() {
+  window.addEventListener(APPEARANCE_CHANGED, syncWindowChromeColors);
+  syncWindowChromeColors();
+  return () => window.removeEventListener(APPEARANCE_CHANGED, syncWindowChromeColors);
+}
 
 type EngineState = "starting" | "ready" | "stopped" | "crashed";
 
@@ -363,12 +384,20 @@ function connectWindowExit(): () => void {
 
 /** 根：先问 Main 当前有没有打开的 Vault；没有就显示启动页，打开成功后重新载入界面（旧 Vault 的缓存与事件随页面一起丢弃）。 */
 function DesktopRoot() {
-  const [vault, setVault] = useState<VaultHostState | null>(null);
+  const [vault, setVault] = useState<VaultHostState | "loading" | "failed">("loading");
   useEffect(connectWindowExit, []);
+  useEffect(subscribeWindowChromeColors, []);
   useEffect(() => {
-    void window.huhuHost.vault.state().then(setVault);
+    void window.huhuHost.vault.state().then(setVault, () => setVault("failed"));
   }, []);
-  if (!vault) return null;
+  if (typeof vault === "string") {
+    return (
+      <div className="shell-vault-launch">
+        <WindowTitleBar />
+        <EmptyState title={vault === "loading" ? "正在读取 Vault…" : "无法读取 Vault 状态"} action={vault === "failed" ? <Button onClick={() => location.reload()}>重新加载工作台</Button> : undefined} />
+      </div>
+    );
+  }
   if (vault.path === null) return <LaunchPage state={vault} onOpened={() => window.location.reload()} />;
   return <DesktopApp />;
 }

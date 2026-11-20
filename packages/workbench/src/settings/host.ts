@@ -8,9 +8,21 @@ export interface AppMenuHost {
   onAction(callback: (action: AppMenuAction) => void): () => void;
 }
 
+export type WindowChromeState = { focused: boolean; maximized: boolean; fullScreen: boolean };
+export type WindowChromeColors = { background: string; foreground: string; canvas: string };
+export interface WindowChromeHost {
+  platform: NodeJS.Platform;
+  height: number;
+  fallback: { left: number; right: number };
+  state(): Promise<WindowChromeState>;
+  onChange(callback: (state: WindowChromeState) => void): () => void;
+  setColors(colors: WindowChromeColors): Promise<void>;
+}
+
 /** Electron 主进程经 preload 暴露的宿主能力（浏览器里单独运行界面时不存在）。 */
 export interface HostApi {
   appMenu?: AppMenuHost;
+  windowChrome?: WindowChromeHost;
   appInfo(): Promise<{ name: string; version: string; commit?: string; builtAt?: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
   revealVault(): Promise<void>;
   /** 用系统应用打开 Vault 里的文件（主进程校验路径在 Vault 内并按扩展名白名单放行；其余只在文件夹中显示）。 */
