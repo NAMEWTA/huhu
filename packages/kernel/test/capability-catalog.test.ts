@@ -51,3 +51,28 @@ test("登记的静态描述只接受同源 handler，卸载 handler 后可重新
   unbind();
   expect(registry.get(descriptor.name)).toBe(next);
 });
+
+test.each(["先登记", "先绑定"])("普通描述%s后固定输入、输出和归属", (order) => {
+  const registry = new CapabilityRegistry();
+  const source = { ...descriptor };
+  const declare = () => registry.declareDescriptors("notes", [source]);
+  const bind = () => bindCapability(source, (_c, i) => i.path);
+  if (order === "先登记") declare();
+  const firstBinding = order === "先绑定" ? bind() : undefined;
+  source.input = z.object({ path: z.string().min(5) });
+  source.output = z.string().min(5);
+  source.plugin = "other";
+  source.title = "已修改";
+
+  if (order === "先绑定") declare();
+  const bound = firstBinding ?? bind();
+  expect(() => registry.register({ ...bound })).toThrow("与已登记的描述不匹配");
+  registry.register(bound);
+  const fixed = registry.getDescriptor(descriptor.name);
+  expect(fixed?.input).toBe(bound.input);
+  expect(fixed?.output).toBe(bound.output);
+  expect(fixed).toMatchObject({ plugin: "notes", title: descriptor.title });
+  expect(Object.isFrozen(fixed)).toBe(true);
+  expect(fixed?.input.safeParse({ path: "a" }).success).toBe(true);
+  expect(fixed?.output.safeParse("a").success).toBe(true);
+});

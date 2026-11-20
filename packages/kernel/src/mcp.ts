@@ -1,6 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { type CapabilityResult } from "@huhu/contracts";
+import { mcpToolName } from "./capabilities/define.js";
 
 export interface McpBackend {
   /** 对当前调用者可见（已对外开放）的能力。 */
@@ -18,10 +19,8 @@ async function need<T>(p: Promise<CapabilityResult<T>>): Promise<T> {
   if (!r.ok) throw new Error(r.error.message);
   return r.data;
 }
-const toolName = (cap: string) => cap.replace(/\./g, "_");
-
 export function resolveMcpToolName(known: readonly string[], name: string): string | undefined {
-  const matches = known.filter((cap) => toolName(cap) === name);
+  const matches = known.filter((cap) => mcpToolName(cap) === name);
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -62,7 +61,7 @@ export function createMcpServer(
     };
   }
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: (await backend.list()).map((c) => ({ name: toolName(c.name), description: `${c.name}（${c.plugin} · ${c.scope}）`, inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" } })),
+    tools: (await backend.list()).map((c) => ({ name: mcpToolName(c.name), description: `${c.name}（${c.plugin} · ${c.scope}）`, inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" } })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const r = await backend.callTool(req.params.name, req.params.arguments ?? {});

@@ -198,6 +198,51 @@ describe("PluginManager", () => {
     expect(pm.state("slow")).toBe("disabled");
   });
 
+  test("卸载等待并发停用完成，且阻止重新启用", async () => {
+    const { registry, pm } = setup();
+    pm.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
+    pm.onUnregister = (id) => registry.forgetPlugin(id);
+    let enter!: () => void;
+    let finish!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const name = "slow.ping";
+    const entry: PluginEntry = {
+      manifest: PluginManifestSchema.parse({ ...manifest("slow"), contributes: { capabilities: [name] } }),
+      apply: (ctx, api) => {
+        api.defineCapability(cap(name, "slow"));
+        ctx.effect(() => async () => {
+          enter();
+          await release;
+        });
+      },
+    };
+    pm.register(entry);
+    expect(await pm.enable("slow")).toBe("active");
+    const disable = pm.disable("slow");
+    await entered;
+    const uninstall = pm.unregister("slow");
+    const retry = pm.unregister("slow");
+    try {
+      expect(await pm.enable("slow")).toBe("disabled");
+      expect(pm.has("slow")).toBe(true);
+      expect(registry.knownPlugin(name)).toBe("slow");
+    } finally {
+      finish();
+      await Promise.all([disable, uninstall, retry]);
+    }
+    expect(pm.has("slow")).toBe(false);
+    expect(registry.knownPlugin(name)).toBeUndefined();
+    expect(registry.get(name)).toBeUndefined();
+    pm.register(entry);
+    expect(await pm.enable("slow")).toBe("active");
+    await pm.unregister("slow");
+  });
+
   test("provide/service：服务随提供者作用域注册与注销", async () => {
     const { pm } = setup();
     let seen: unknown;

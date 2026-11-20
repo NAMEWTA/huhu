@@ -142,6 +142,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
+  plugins.onUnregister = (id) => registry.forgetPlugin(id);
   const serverRef: { current?: RunningServer } = {};
   const gatewayTokens = new GatewayTokens(
     path.join(vault.stateDir, "gateways.json"),

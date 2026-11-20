@@ -20,6 +20,8 @@ interface Runtime {
 export class PluginManager {
   private readonly plugins = new Map<string, Runtime>();
   private readonly enabling = new Map<string, Promise<PluginState>>();
+  private readonly disabling = new Map<string, Promise<string[]>>();
+  private readonly unregistering = new Map<string, Promise<void>>();
 
   constructor(
     private readonly root: Context,
@@ -32,8 +34,8 @@ export class PluginManager {
     if (this.plugins.has(id)) throw new Error(`插件重复：${id}`);
     const cycle = findDependencyCycle([...[...this.plugins.values()].map((p) => p.entry.manifest), entry.manifest]);
     if (cycle) throw new Error(`插件依赖成环：${cycle.join(" → ")}`);
-    this.plugins.set(id, { entry, state: "disabled" });
     this.onRegister?.(entry.manifest);
+    this.plugins.set(id, { entry, state: "disabled" });
   }
 
   state(id: string): PluginState | undefined {
@@ -63,6 +65,7 @@ export class PluginManager {
 
   /** 启用插件及其硬依赖。依赖缺失或未能启用则该插件不启用并写明原因。 */
   enable(id: string): Promise<PluginState> {
+    if (this.unregistering.has(id)) return Promise.resolve("disabled");
     const running = this.enabling.get(id);
     if (running) return running;
     const p = this.doEnable(id).finally(() => this.enabling.delete(id));
@@ -109,7 +112,15 @@ export class PluginManager {
   }
 
   /** 停用插件；依赖它的插件先被停用，返回被一并停用的 id（含自身）。 */
-  async disable(id: string): Promise<string[]> {
+  disable(id: string): Promise<string[]> {
+    const running = this.disabling.get(id);
+    if (running) return running;
+    const pending = this.doDisable(id).finally(() => this.disabling.delete(id));
+    this.disabling.set(id, pending);
+    return pending;
+  }
+
+  private async doDisable(id: string): Promise<string[]> {
     const rt = this.plugins.get(id);
     if (!rt) throw new Error(`未知插件：${id}`);
     await this.enabling.get(id)?.catch(() => undefined); // 等进行中的启用结束，再停用
@@ -141,9 +152,17 @@ export class PluginManager {
 
   /** 卸载外部扩展时移除注册（先停用）。 */
   async unregister(id: string): Promise<void> {
+    const running = this.unregistering.get(id);
+    if (running) return running;
     if (!this.plugins.has(id)) return;
-    await this.disable(id);
-    this.plugins.delete(id);
+    const pending = this.disable(id)
+      .then(() => {
+        this.plugins.delete(id);
+        this.onUnregister?.(id);
+      })
+      .finally(() => this.unregistering.delete(id));
+    this.unregistering.set(id, pending);
+    return pending;
   }
 
   has(id: string): boolean {
@@ -153,6 +172,7 @@ export class PluginManager {
   /** 按依赖顺序启用全部 activation=vault-open 的插件。 */
   /** 注册时回调（Engine 用它把清单声明的能力登记给注册表）。 */
   onRegister?: (manifest: PluginManifest) => void;
+  onUnregister?: (id: string) => void;
 
   /** 返回 false 的插件在 enableAll 时保持停用（用户偏好）。 */
   shouldEnable: (id: string) => boolean = () => true;

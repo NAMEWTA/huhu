@@ -1,8 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { CapabilityCatalogEntrySchema, CapabilityResultSchema, HuhuErrorSchema } from "@huhu/contracts";
 import { boot, type RunningEngine } from "@huhu/engine";
 import { Vault } from "@huhu/vault";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { run } from "../src/main.js";
 
@@ -75,6 +81,108 @@ describe("CLI", () => {
     expect(await run(["call", "no.such", "--vault", dir], c.io)).toBe(1);
     expect(c.out.join("")).toContain("CAPABILITY_NOT_FOUND");
   });
+  test("同一 Engine 的扩展卸载与复装在目录、CLI 和两种 MCP 上一致", async () => {
+    const vault = tmp();
+    const e = await boot({ vaultPath: vault, create: true });
+    engines.push(e);
+    const id = "review-catalog-example";
+    const capability = id + ".fixture.read";
+    const name = id + "_fixture_read";
+    const fixture = (owner: string, claimed: string) => {
+      const source = tmp();
+      writeFileSync(
+        path.join(source, "huhu-plugin.json"),
+        JSON.stringify({
+          id: owner,
+          title: owner,
+          description: "",
+          version: "1.0.0",
+          origin: "external",
+          main: "main.mjs",
+          contributes: { capabilities: [claimed] },
+        }),
+      );
+      writeFileSync(path.join(source, "main.mjs"), "export function activate() {}\n");
+      return source;
+    };
+    const source = fixture(id, capability);
+    const rpc = async (route: string, body: unknown, token = e.rendererToken) => {
+      const response = await fetch("http://127.0.0.1:" + e.port + route, {
+        method: "POST",
+        headers: { authorization: "Bearer " + token, "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const desktop = async (name: string, input: unknown = {}) => CapabilityResultSchema.parse(await rpc("/api/v1/call", { capability: name, input, requestId: randomUUID(), idempotencyKey: randomUUID() }));
+    const http = (method: string, params: unknown = {}) => rpc("/mcp", { jsonrpc: "2.0", id: 1, method, params }, e.mcpToken);
+    const install = (source: string) => desktop("plugins.install", { source, grants: [] });
+    const stdio = new Client({ name: "lifecycle-test", version: "1" });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [createRequire(import.meta.url).resolve("tsx/cli"), path.resolve(import.meta.dirname, "../src/bin.ts"), "mcp", "--vault", vault],
+    });
+    const check = async (availability: string, error: object) => {
+      const found = availability !== "not-found";
+      const checkError = (actual: { details?: unknown }) => {
+        expect.soft(actual).toMatchObject(error);
+        if (!found) expect.soft(actual.details).toBeUndefined();
+      };
+      const checkToolError = (data: unknown) => {
+        const reply = CallToolResultSchema.parse(data);
+        expect(reply.isError).toBe(true);
+        const content = reply.content[0];
+        if (content?.type !== "text") throw new Error("MCP 未返回错误文本");
+        checkError(HuhuErrorSchema.parse(JSON.parse(content.text)));
+      };
+      const directory = await desktop("capabilities.list", { includeInactive: true });
+      if (!directory.ok) throw new Error(directory.error.message);
+      const entry = CapabilityCatalogEntrySchema.array()
+        .parse(directory.data)
+        .find((entry) => entry.name === capability);
+      if (found) expect(entry).toMatchObject({ plugin: id, availability, exposed: false });
+      else expect(entry).toBeUndefined();
+      expect(await desktop("gateway.check", { capability })).toMatchObject({
+        ok: true,
+        data: { found, availability, identities: ["cli", "mcp", "http"].map((identity) => ({ identity, allowed: false })) },
+      });
+      const cli = capture();
+      expect(await run(["capabilities", "list", "--vault", vault, "--json"], cli.io)).toBe(0);
+      expect(JSON.parse(cli.out.join(""))).toMatchObject({ ok: true, data: [] });
+      const invocation = capture();
+      expect(await run(["call", capability, "--vault", vault, "--json"], invocation.io)).toBe(1);
+      const cliReply = CapabilityResultSchema.parse(JSON.parse(invocation.out.join("")));
+      if (cliReply.ok) throw new Error("CLI 调用意外成功");
+      checkError(cliReply.error);
+      expect(await stdio.listTools()).toMatchObject({ tools: [] });
+      checkToolError(await stdio.callTool({ name, arguments: {} }));
+      expect(await http("tools/list")).toMatchObject({ result: { tools: [] } });
+      const httpReply = (await http("tools/call", { name, arguments: {} })) as { result?: unknown };
+      checkToolError(httpReply.result);
+    };
+    const missing = { code: "CAPABILITY_NOT_FOUND" };
+    const unbound = { ...missing, details: { reason: "handler-missing", plugin: id } };
+    try {
+      expect(await desktop("gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+      await stdio.connect(transport);
+      await check("not-found", missing);
+      expect(await install(source)).toMatchObject({ ok: true });
+      await check("handler-missing", unbound);
+      expect(await desktop("plugins.setEnabled", { id, enabled: false })).toMatchObject({ ok: true });
+      await check("plugin-disabled", { code: "PLUGIN_DISABLED", details: { plugin: id } });
+      expect(await desktop("plugins.uninstall", { id })).toMatchObject({ ok: true });
+      await check("not-found", missing);
+      const conflict = { ok: false, error: { code: "NAME_CONFLICT" } };
+      expect.soft(await install(fixture("review-other", capability))).toMatchObject(conflict);
+      expect.soft(await install(fixture("review-alias", id + ".fixture_read"))).toMatchObject(conflict);
+      await check("not-found", missing);
+      expect(await install(source)).toMatchObject({ ok: true });
+      await check("handler-missing", unbound);
+    } finally {
+      await stdio.close();
+    }
+  }, 60_000);
   test("无 Engine 时自动启动无界面 Engine，空闲后自行退出", async () => {
     const dir = tmp();
     await (await Vault.open(dir, { create: true })).close();
