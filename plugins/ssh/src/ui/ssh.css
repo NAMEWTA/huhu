@@ -1,22 +1,22 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @layer modules {
-  dialog:modal:has(.ssh-import-body) {
+  dialog:modal:has(.ssh-import-body, .ssh-host-form) {
     overscroll-behavior: contain;
   }
-  dialog:modal:has(form.ssh-import-body) {
+  dialog:modal:has(form.ssh-import-body, .ssh-host-form) {
     display: flex;
     flex-direction: column;
     inline-size: min(44rem, calc(100vw - 32px));
     overflow: hidden;
   }
-  dialog:modal:has(form.ssh-import-body) > :is(.hu-modal-head, .hu-modal-footer) {
+  dialog:modal:has(form.ssh-import-body, .ssh-host-form) > :is(.hu-modal-head, .hu-modal-footer) {
     flex: none;
   }
-  dialog:modal:has(form.ssh-import-body) > .hu-modal-body {
+  dialog:modal:has(form.ssh-import-body, .ssh-host-form) > .hu-modal-body {
     min-block-size: 0;
     overflow: auto;
   }
-  dialog:has(.ssh-import-body)::backdrop {
+  dialog:has(.ssh-import-body, .ssh-host-form)::backdrop {
     overflow: hidden;
     overscroll-behavior: contain;
   }
@@ -69,6 +69,33 @@
   .ssh-import-details {
     padding-inline-start: 1.2em;
     margin-block: 4px;
+    overflow-wrap: anywhere;
+  }
+  .ssh-host-fields {
+    display: grid;
+    gap: 10px;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control, 8px);
+  }
+  .ssh-host-fields details > .hu-field-grid {
+    margin-block-start: 8px;
+  }
+  .ssh-host-references {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .ssh-host-references li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
     overflow-wrap: anywhere;
   }
   .hu-ssh-console {

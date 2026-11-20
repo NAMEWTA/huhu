@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree } from "../helpers/launch.js";
+import { desktopCall } from "./workbench.js";
 
 const imports = [
   ["openssh", "config", "Host openssh\n HostName openssh.invalid\n User fixture\n Port 2222"],
@@ -52,23 +53,6 @@ async function preview(page: Page, format: string, file: string) {
 
 type SavedHost = { id: string; name: string; host: string; user: string; port: number };
 type Directory = { groups: { groupId: string; parentId: string | null; name: string }[]; hosts: { hostId: string; groupId: string | null }[] };
-
-async function desktopCall<T>(page: Page, capability: string, input: unknown = {}): Promise<T> {
-  const response = await page.evaluate(
-    async ({ capability, input }) => {
-      const { baseUrl, token } = await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string; token: string }> } }).huhuHost.engine();
-      const res = await fetch(`${baseUrl}/api/v1/call`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
-      });
-      return res.json() as Promise<{ ok: true; data: unknown } | { ok: false; error: { code: string } }>;
-    },
-    { capability, input },
-  );
-  if (!response.ok) throw new Error(`${capability}: ${response.error.code}`);
-  return response.data as T;
-}
 
 test("SSH 文件选择、八种格式映射、写入和重新打开目录", async () => {
   const fixtures = mkdtempSync(path.join(tmpdir(), "huhu-ssh-import-fixtures-"));
@@ -250,6 +234,9 @@ test("SSH Web 入口可查看已保存主机和分组，导入入口仅出现在
     await expect(hostList(tab).getByRole("button", { name: /fixture@netcatty\.invalid/ })).toBeVisible();
     await expect(moduleView(tab).getByText("Fixtures / Cat", { exact: true })).toBeVisible();
     await expect(importButton(tab)).toHaveCount(0);
+    for (const name of ["新增 SSH 主机", "编辑主机", "复制主机", "删除主机"]) {
+      await expect(moduleView(tab).getByRole("button", { name, exact: true })).toHaveCount(0);
+    }
   } finally {
     try {
       await browser?.close();
