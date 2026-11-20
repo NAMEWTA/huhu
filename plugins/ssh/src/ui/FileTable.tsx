@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type DragEvent, type ReactNode } from "react";
 import type { FileEntry } from "../shared/files.js";
 import { t } from "./i18n.js";
 
@@ -18,6 +18,7 @@ export function FileTable({
   actions,
   current,
   disabled,
+  selection,
 }: {
   caption: string;
   entries: FileEntry[];
@@ -25,6 +26,7 @@ export function FileTable({
   actions?: (entry: FileEntry) => ReactNode;
   current?: string | null;
   disabled?: boolean;
+  selection?: { names: string[]; disabled: boolean; canDrag: boolean; toggle: (name: string) => void; start: (name: string, event: DragEvent) => void; end: () => void } | undefined;
 }) {
   const captionId = useId();
   const [sort, setSort] = useState<{ key: Column; desc: boolean }>({ key: "name", desc: false });
@@ -39,6 +41,7 @@ export function FileTable({
         <caption id={captionId}>{caption}</caption>
         <thead>
           <tr>
+            {selection && <th scope="col">选择</th>}
             {columns.map(({ key, label }) => (
               <th key={key} scope="col" aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}>
                 <button type="button" className="hu-btn hu-btn-ghost" onClick={() => setSort({ key, desc: sort.key === key && !sort.desc })}>
@@ -50,25 +53,29 @@ export function FileTable({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((entry) => (
-            <tr key={entry.name} data-testid="files-row">
-              <td>
-                {entry.type === "dir" || actions ? (
-                  <button type="button" className="hu-nav-item" disabled={disabled} aria-current={current === entry.name ? "location" : undefined} onClick={() => onOpen(entry)} data-testid="files-open">
-                    {entry.type === "dir" ? `📁 ${entry.name}` : entry.name}
-                  </button>
-                ) : (
-                  entry.name
-                )}
-              </td>
-              <td>{entry.type === "dir" ? "—" : fmtSize(entry.size)}</td>
-              <td>{entry.mtime ? new Date(entry.mtime).toLocaleString() : ""}</td>
-              <td>
-                <code>{entry.mode}</code>
-              </td>
-              {actions && <td>{actions(entry)}</td>}
-            </tr>
-          ))}
+          {sorted.map((entry) => {
+            const selectable = entry.type === "file" || entry.type === "dir";
+            return (
+              <tr key={entry.name} data-testid="files-row" draggable={selectable && selection?.canDrag} onDragStart={selection && selectable ? (event) => selection.start(entry.name, event) : undefined} onDragEnd={selection?.end}>
+                {selection && <td>{selectable && <input type="checkbox" aria-label={`选择 ${entry.name}`} checked={selection.names.includes(entry.name)} disabled={selection.disabled} onChange={() => selection.toggle(entry.name)} />}</td>}
+                <td>
+                  {entry.type === "dir" || actions ? (
+                    <button type="button" className="hu-nav-item" disabled={disabled} aria-current={current === entry.name ? "location" : undefined} onClick={() => onOpen(entry)} data-testid="files-open">
+                      {entry.type === "dir" ? `📁 ${entry.name}` : entry.name}
+                    </button>
+                  ) : (
+                    entry.name
+                  )}
+                </td>
+                <td>{entry.type === "dir" ? "—" : fmtSize(entry.size)}</td>
+                <td>{entry.mtime ? new Date(entry.mtime).toLocaleString() : ""}</td>
+                <td>
+                  <code>{entry.mode}</code>
+                </td>
+                {actions && <td>{actions(entry)}</td>}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -5,6 +5,7 @@ import type { FileDirectory, FileSession } from "../shared/files.js";
 import { FilesPanel } from "./FilesPanel.js";
 import { FileTable } from "./FileTable.js";
 import { TransferCenter } from "./TransferCenter.js";
+import { FileBatchProvider, useFileBatch } from "./FileBatch.js";
 import "./files.css";
 
 interface LocalBridge {
@@ -96,6 +97,8 @@ function LocalFiles({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const picker = localPicker();
+  const shown = where?.entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
+  const batch = useFileBatch("local", where?.path ?? "", shown, loading);
   async function navigate(next: string[], root?: string) {
     setLoading(true);
     setError("");
@@ -111,8 +114,9 @@ function LocalFiles({ id }: { id: string }) {
     }
   }
   return (
-    <section aria-label="本机文件">
+    <section aria-label="本机文件" {...batch.drop}>
       <h2>本机文件</h2>
+      {batch.controls}
       {picker ? (
         <>
           <div className="ssh-workspace-controls">
@@ -157,7 +161,8 @@ function LocalFiles({ id }: { id: string }) {
               )}
               <FileTable
                 caption="本机目录项目"
-                entries={where.entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase()))}
+                entries={shown}
+                selection={batch.selection}
                 disabled={loading}
                 onOpen={(entry) => {
                   if (entry.type === "dir") void navigate([...parts, entry.name]);
@@ -180,6 +185,9 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
   const [error, setError] = useState("");
   const [reversed, setReversed] = useState<Record<string, boolean>>({});
   const [transfers, showTransfers] = useState(false);
+  useEffect(() => {
+    if (seed) showTransfers(false);
+  }, [seed]);
   const [fileFocus, setFileFocus] = useState<{ id: string; path: string }>();
   const current = sessions.data?.find(({ fileSessionId }) => fileSessionId === selectedId) ?? (sessions.isFetching && seed?.fileSessionId === selectedId ? seed : undefined);
   useEffect(() => {
@@ -271,7 +279,13 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                     <Button onClick={() => setReversed({ ...reversed, [session.fileSessionId]: !reversed[session.fileSessionId] })}>交换左右位置</Button>
                     <Button onClick={() => void close(session.fileSessionId)}>关闭独立文件视图</Button>
                   </div>
-                  <div className="ssh-file-columns">{panes}</div>
+                  {localPicker() ? (
+                    <FileBatchProvider session={session}>
+                      <div className="ssh-file-columns">{panes}</div>
+                    </FileBatchProvider>
+                  ) : (
+                    <div className="ssh-file-columns">{panes}</div>
+                  )}
                 </section>
               );
             })}

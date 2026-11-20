@@ -59,6 +59,7 @@
       "ssh.transfers.resume",
       "ssh.transfers.retry",
       "ssh.transfers.start",
+      "ssh.transfers.startBatch",
       "ssh.shells.close",
       "ssh.shells.list",
       "ssh.shells.open",

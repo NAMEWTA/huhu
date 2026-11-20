@@ -6,6 +6,7 @@ import type { TransferRequest } from "../shared/transfers.js";
 import { FileTable } from "./FileTable.js";
 import { RemoteTextEditor } from "./RemoteTextEditor.js";
 import { RemoteCopyDialog } from "./RemoteCopyDialog.js";
+import { useFileBatch } from "./FileBatch.js";
 import { t } from "./i18n.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
@@ -42,6 +43,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [located, setLocated] = useState<string>();
   const request = useRef<AbortController>(null);
   const ready = session.state === "ready";
+  const batch = useFileBatch("remote", cwd, entries?.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase())) ?? [], !ready);
   const { fileSessionId } = session;
 
   const call = useCallback(<T,>(cap: string, input: Record<string, unknown>) => engine.call<T>(cap, { fileSessionId, ...input }, { write: true }), [engine, fileSessionId]);
@@ -165,8 +167,9 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const up = cwd.split("/").slice(0, -1).join("/") || "/";
 
   return (
-    <section data-testid="files-panel" aria-label={title}>
+    <section data-testid="files-panel" aria-label={title} {...batch.drop}>
       <h2>{title}</h2>
+      {batch.controls}
       <div className="hu-row">
         <Button disabled={!ready} onClick={() => void navigate("")}>
           {t.files.home}
@@ -358,6 +361,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
       ) : (
         <FileTable
           caption="远端目录项目"
+          selection={batch.selection}
           entries={entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase()))}
           disabled={!ready}
           current={located ?? null}

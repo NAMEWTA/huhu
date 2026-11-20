@@ -1,11 +1,11 @@
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
 import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
-import type { TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
+import type { TransferBatch, TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 async function sshCall<T>(page: Page, capability: string, input: unknown = {}): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
@@ -800,5 +800,120 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
     ended.resolve();
     await fixture.close();
     await Promise.all([source.close(), destination.close()]);
+  }
+});
+
+test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃逸", async () => {
+  test.setTimeout(90_000);
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page, app, vault } = fixture;
+    const localRoot = path.join(vault, "selected-root");
+    const outside = path.join(vault, "outside-batch");
+    mkdirSync(path.join(localRoot, "tree", "nested"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(path.join(localRoot, "tree", "ok.txt"), "目录中的新内容");
+    writeFileSync(path.join(localRoot, "tree", "same.txt"), "不能覆盖的源内容");
+    writeFileSync(path.join(localRoot, "tree", "nested", "excluded.txt"), "随父目录跳过");
+    writeFileSync(path.join(localRoot, "extra.txt"), "同批独立文件");
+    writeFileSync(path.join(outside, "outside.txt"), "不得遍历");
+    symlinkSync(outside, path.join(localRoot, "tree", "escape"), "junction");
+    first.fs.dirs.add("/home/test/tree");
+    first.fs.dirs.add("/home/test/tree/nested");
+    first.fs.dirs.add("/home/test/pull");
+    first.fs.dirs.add("/home/test/pull/sub");
+    first.fs.files.set("/home/test/tree/same.txt", Buffer.from("远端原文件"));
+    first.fs.files.set("/home/test/tree/nested/keep.txt", Buffer.from("远端子目录原件"));
+    first.fs.files.set("/home/test/pull/sub/pulled.txt", Buffer.from("从回环 SFTP 下载"));
+    first.fs.links.set("/home/test/pull/remote-link", "/home/test/tree");
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = (async (ownerOrOptions, options) => {
+        const props = options ?? ownerOrOptions;
+        if (!("properties" in props) || !props.properties?.includes("openDirectory")) return { canceled: true, filePaths: [] };
+        return { canceled: false, filePaths: [directory] };
+      }) as typeof dialog.showOpenDialog;
+    }, localRoot);
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "批量甲", first.port, password);
+    const b = await configureLoopback(page, "批量乙", second.port, password);
+    expect(
+      (
+        await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+          name: "批量目录组",
+          layout: { kind: "tabs" },
+          panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+        })
+      ).ok,
+    ).toBe(true);
+    await page.getByRole("button", { name: /批量目录组.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    async function openSource() {
+      await run.getByRole("button", { name: "信任并连接" }).click();
+      await run.getByRole("button", { name: "分栏文件" }).click();
+      await run.getByRole("button", { name: "打开独立双栏" }).click();
+      return (await page.getByTestId("ssh-independent-files").filter({ visible: true }).getAttribute("data-file-session-id"))!;
+    }
+    const sourceId = await openSource();
+    const local = page.getByRole("region", { name: "本机文件", exact: true });
+    await local.getByRole("button", { name: "选择本机目录" }).click();
+    await local.getByRole("checkbox", { name: "选择 tree", exact: true }).check();
+    await local.getByRole("checkbox", { name: "选择 extra.txt", exact: true }).check();
+    await local.getByRole("button", { name: "上传所选项目" }).click();
+    await expect(page.getByText("已加入传输中心，目录和文件分别核对")).toBeVisible();
+    const center = page.getByRole("button", { name: "传输中心", exact: true });
+    await center.click();
+    const all = page.getByTestId("ssh-transfer-row");
+    const rootRow = all.filter({ hasText: /目录 · tree → tree/ });
+    const nestedRow = all.filter({ hasText: /目录 · nested → nested/ });
+    const fileRow = all.filter({ hasText: /same\.txt → same\.txt/ });
+    await rootRow.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("dialog", { name: "已存在同名目录" }).getByRole("button", { name: "合并此目录" }).click();
+    await nestedRow.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("dialog", { name: "已存在同名目录" }).getByRole("button", { name: "保留原目录" }).click();
+    await fileRow.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("dialog", { name: "已存在同名文件" }).getByRole("button", { name: "保留原文件" }).click();
+    await expect(page.getByTestId("ssh-transfer-batch").first()).toHaveAttribute("data-state", "partial");
+    await expect(all.filter({ hasText: "escape" })).toContainText("未遍历链接");
+    expect(first.fs.files.get("/home/test/tree/ok.txt")?.toString()).toBe("目录中的新内容");
+    expect(first.fs.files.get("/home/test/extra.txt")?.toString()).toBe("同批独立文件");
+    expect(first.fs.files.get("/home/test/tree/same.txt")?.toString()).toBe("远端原文件");
+    expect(first.fs.files.get("/home/test/tree/nested/keep.txt")?.toString()).toBe("远端子目录原件");
+    expect(first.fs.files.has("/home/test/tree/nested/excluded.txt")).toBe(false);
+    expect(first.fs.files.has("/home/test/tree/escape/outside.txt")).toBe(false);
+
+    await page
+      .getByRole("complementary", { name: "独立文件会话" })
+      .getByRole("button", { name: /批量甲.*原连接在线/ })
+      .click();
+    const pull = page
+      .getByTestId("ssh-independent-files")
+      .filter({ visible: true })
+      .getByTestId("files-panel")
+      .getByTestId("files-row")
+      .filter({ has: page.getByRole("checkbox", { name: "选择 pull", exact: true }) });
+    await pull.dragTo(local);
+    await expect(page.getByText("已加入传输中心，目录和文件分别核对")).toBeVisible();
+    await center.click();
+    await expect(page.getByTestId("ssh-transfer-batch").first()).toHaveAttribute("data-state", "partial");
+    expect(readFileSync(path.join(localRoot, "pull", "sub", "pulled.txt")).toString()).toBe("从回环 SFTP 下载");
+
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await run.getByRole("button", { name: "批量乙", exact: true }).click();
+    const targetId = await openSource();
+    const cross = await sshCall<TransferBatch>(page, "ssh.transfers.startBatch", {
+      source: { kind: "remote", fileSessionId: sourceId, path: "/home/test/pull" },
+      target: { kind: "remote", fileSessionId: targetId, path: "/home/test" },
+      names: ["sub"],
+    });
+    expect(cross.ok, cross.error?.message).toBe(true);
+    await center.click();
+    await expect(page.getByTestId("ssh-transfer-batch").first()).toHaveAttribute("data-state", "completed");
+    expect(second.fs.files.get("/home/test/sub/pulled.txt")?.toString()).toBe("从回环 SFTP 下载");
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
   }
 });

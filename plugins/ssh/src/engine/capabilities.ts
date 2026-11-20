@@ -6,7 +6,7 @@ import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-sche
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
-import { TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
+import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
@@ -29,6 +29,17 @@ export const sshCapabilityDescriptors = {
     risk: "high",
     input: TransferRequest,
     output: TransferJob,
+  }),
+  transferStartBatch: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.startBatch",
+    title: "加入目录和文件批量传输",
+    description: "在两个已绑定目录中安全展开选中项目，按子任务处理冲突。",
+    scope: "execute",
+    risk: "high",
+    input: TransferBatchRequest,
+    output: TransferBatch,
   }),
   transferList: defineCapabilityDescriptor({
     ...ssh,

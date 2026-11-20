@@ -18,6 +18,7 @@ const labels: Record<TransferJob["state"], string> = {
 };
 const describe = (entry: TransferOrigin) => (entry.kind === "remote" ? `${entry.session.name} · ${entry.session.user}@${entry.session.host}:${entry.session.port}` : "本机");
 const leaf = (entry: TransferOrigin) => entry.path.split(/[\\/]/).at(-1);
+const batchLabels = { active: "处理中", completed: "全部完成", partial: "部分完成", failed: "未完成" };
 
 export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocation) => void }) {
   const engine = useEngine();
@@ -67,10 +68,34 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
       {queue.data && <p>{queue.data.canQueue ? `最多 ${queue.data.liveLimit} 个待办，并发 ${queue.data.parallel}` : "队列已满，等待任务结束或取消后可继续加入"}</p>}
       {!selection && (error || queue.error) && <p role="alert">{error || queue.error?.message}</p>}
       {queue.data?.jobs.length === 0 && <EmptyState title="暂无传输任务" />}
+      {queue.data?.batches.map((batch) => {
+        const rows = queue.data?.jobs.filter(({ batchId }) => batchId === batch.batchId) ?? [];
+        return (
+          <section key={batch.batchId} data-testid="ssh-transfer-batch" data-batch-id={batch.batchId} data-state={batch.state} id={`batch-${batch.batchId}`}>
+            <h3>目录与文件批量传输</h3>
+            <p>
+              {describe(batch.source)} <code>{batch.source.path}</code> → {describe(batch.target)} <code>{batch.target.path}</code>
+            </p>
+            <p role="status">
+              {batchLabels[batch.state]} · 已完成 {rows.filter(({ state }) => state === "completed").length} / {batch.children.length} 项
+            </p>
+            <ul>
+              {rows.map((job) => (
+                <li key={job.transferId}>
+                  <Button variant="ghost" onClick={() => document.getElementById(`transfer-${job.transferId}`)?.focus()}>
+                    {leaf(job.source)} · {labels[job.state]}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
       <ul className="ssh-transfer-list">
         {queue.data?.jobs.map((job) => (
-          <li key={job.transferId} data-testid="ssh-transfer-row" data-transfer-id={job.transferId} data-state={job.state}>
+          <li key={job.transferId} id={`transfer-${job.transferId}`} tabIndex={-1} data-testid="ssh-transfer-row" data-transfer-id={job.transferId} data-batch-id={job.batchId} data-state={job.state}>
             <strong>
+              {job.directory ? "目录 · " : ""}
               {leaf(job.source)} → {leaf(job.target)}
             </strong>
             <p>
@@ -125,7 +150,7 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
       {selection && (
         <Dialog
           open
-          title="已存在同名文件"
+          title={selection.directory ? "已存在同名目录" : "已存在同名文件"}
           error={error}
           onClose={() => {
             if (!saving) select(undefined);
@@ -133,24 +158,32 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
           actions={
             <>
               <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "reject" }, () => select(undefined))}>
-                保留原文件
+                {selection.directory ? "保留原目录" : "保留原文件"}
               </Button>
               <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "skip" }, () => select(undefined))}>
                 跳过
               </Button>
-              <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "resume" }, () => select(undefined))}>
-                校验后续传
-              </Button>
-              <Button variant="danger" disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "replace" }, () => select(undefined))}>
-                确认覆盖
-              </Button>
+              {selection.directory ? (
+                <Button variant="primary" disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "merge" }, () => select(undefined))}>
+                  合并此目录
+                </Button>
+              ) : (
+                <>
+                  <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "resume" }, () => select(undefined))}>
+                    校验后续传
+                  </Button>
+                  <Button variant="danger" disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "replace" }, () => select(undefined))}>
+                    确认覆盖
+                  </Button>
+                </>
+              )}
             </>
           }
         >
           <p>
             {describe(selection.target)} <code>{selection.target.path}</code>
           </p>
-          <p>覆盖和续传都会重新核对目标。续传还会验证已有字节是源文件的完整前缀。</p>
+          <p>{selection.directory ? "仅合并此目录。内部同名目录及文件仍会分别确认。" : "覆盖和续传都会重新核对目标。续传还会验证已有字节是源文件的完整前缀。"}</p>
         </Dialog>
       )}
     </section>

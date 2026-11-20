@@ -3,17 +3,31 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { z } from "zod";
-import type { TransferChoice, TransferEndpoint, TransferJob, TransferOrigin, TransferQueue, TransferRequest } from "../shared/transfers.js";
+import path from "node:path";
+import type { TransferBatch, TransferBatchRequest, TransferChoice, TransferEndpoint, TransferJob, TransferOrigin, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import type { FileSessions } from "./file-sessions.js";
 import type { SshManager } from "./manager.js";
 import { digest, fingerprint, localTransferFile, remoteTransferFile, removeTemp, sameSnapshot, transferChanged, type Snapshot, type TransferFile } from "./transfer-io.js";
+import { localTree, remoteTree, sameDirectory, scanTree, type TransferTree, type TreeItem, type TreeStat } from "./transfer-tree.js";
 
 const LIVE_LIMIT = 32;
 const HISTORY_LIMIT = 64;
 const PARALLEL = 2;
 const terminal = new Set<TransferJob["state"]>(["completed", "failed", "cancelled", "skipped"]);
 type Plan = { source: Snapshot; target: Snapshot | null };
-type Record = { job: TransferJob; controller?: AbortController; plan?: Plan; choice?: "replace" | "resume"; pausedFrom?: "queued" | "running"; wake?: () => void; locks: string[] };
+type Batch = Omit<TransferBatch, "state">;
+type Record = {
+  job: TransferJob;
+  controller?: AbortController;
+  plan?: Plan;
+  choice?: "replace" | "resume" | "merge";
+  pausedFrom?: "queued" | "running";
+  wake?: () => void;
+  locks: string[];
+  parentId?: string;
+  initial?: TreeStat;
+  directoryTarget?: TreeStat | null;
+};
 
 function location(origin: TransferOrigin): string {
   return origin.kind === "remote" ? `ssh:${origin.session.connectionId}` : `file:${origin.path.toLowerCase()}`;
@@ -26,7 +40,9 @@ async function* copyWithPrefix(from: TransferFile, to: TransferFile, length: num
 
 export class Transfers {
   private readonly records = new Map<string, Record>();
+  private readonly batches = new Map<string, Batch>();
   private readonly active = new Set<Record>();
+  private planning = false;
   private disposed = false;
 
   constructor(
@@ -41,32 +57,105 @@ export class Transfers {
       const lost = [rec.job.source, rec.job.target].some((origin) => origin.kind === "remote" && this.manager.fileOrigin(origin.session.hostId)?.connectionId !== origin.session.connectionId);
       if (lost) this.finish(rec, "failed", "文件会话的原连接已断开", "SSH_DISCONNECTED");
     }
-    return { jobs: [...this.records.values()].map(({ job }) => ({ ...job })).reverse(), liveLimit: LIVE_LIMIT, parallel: PARALLEL, canQueue: this.liveCount() < LIVE_LIMIT };
+    return {
+      jobs: [...this.records.values()].map(({ job }) => ({ ...job })).reverse(),
+      batches: [...this.batches.values()].map((batch) => this.batchView(batch)).reverse(),
+      liveLimit: LIVE_LIMIT,
+      parallel: PARALLEL,
+      canQueue: this.liveCount() < LIVE_LIMIT,
+    };
   }
 
   start(request: TransferRequest): TransferJob {
-    if (this.disposed) throw errors.notFound("传输中心所属的 Vault 已关闭");
-    if (this.liveCount() >= LIVE_LIMIT) throw errors.invalidInput("传输队列已满，请等待任务结束或取消待处理任务");
-    if (request.source.kind === "local" && request.target.kind === "local") throw errors.invalidInput("至少选择一个 SSH 端点");
+    this.checkCapacity(1);
     const source = this.origin(request.source);
     const target = this.origin(request.target);
-    if (source.kind === "remote" && target.kind === "remote" && source.session.connectionId === target.session.connectionId) throw errors.invalidInput("跨远端复制需要两个独立 SSH 连接");
-    const transferId = randomUUID();
-    const job: TransferJob = { transferId, source, target, state: "queued", bytes: 0, total: null, bytesPerSecond: 0 };
-    this.records.set(transferId, { job, locks: [location(source), location(target)] });
-    this.changed(transferId);
+    this.checkEndpoints(source, target);
+    const record = this.add(source, target);
+    this.changed(record.job.transferId);
     queueMicrotask(() => this.pump());
-    return { ...job };
+    return { ...record.job };
+  }
+
+  async startBatch(request: TransferBatchRequest, signal: AbortSignal): Promise<TransferBatch> {
+    this.checkCapacity(1);
+    if (this.planning) throw errors.invalidInput("正在核对另一批目录，请稍后再试");
+    const source = this.origin(request.source, true);
+    const target = this.origin(request.target, true);
+    this.checkEndpoints(source, target);
+    for (const origin of [source, target])
+      if (origin.kind === "local") {
+        if (!request.localFileSessionId) throw errors.invalidInput("请先在双栏选择本机目录");
+        this.sessions.checkLocalDirectory(request.localFileSessionId, origin.path);
+      }
+    this.planning = true;
+    let items: TreeItem[];
+    try {
+      await this.withTree(target, signal, async (tree) => {
+        if ((await tree.stat([]))?.kind !== "dir") throw errors.invalidInput("目标目录不存在或不可用");
+      });
+      items = await this.withTree(source, signal, (tree, active) => scanTree(tree, request.names, LIVE_LIMIT - this.liveCount(), target.kind === "local", active));
+    } finally {
+      this.planning = false;
+    }
+    signal.throwIfAborted();
+    this.checkCapacity(items.length);
+    const batchId = randomUUID();
+    const ids = new Map<TreeItem, string>();
+    const children = items.map((item) => {
+      // Invalid leaf names never reach the IO adapters.
+      const sourcePath = item.error ? source.path : this.join(source, item.parts);
+      const targetPath = item.error ? target.path : this.join(target, item.parts);
+      const parentId = item.parent ? ids.get(item.parent) : undefined;
+      const rec = this.add({ ...source, path: sourcePath }, { ...target, path: targetPath }, { batchId, directory: item.stat?.kind === "dir" });
+      if (parentId) rec.parentId = parentId;
+      if (item.stat) rec.initial = item.stat;
+      if (item.error) Object.assign(rec.job, { state: "failed", message: `${item.parts.join("/")} · ${item.error}` });
+      ids.set(item, rec.job.transferId);
+      return rec.job.transferId;
+    });
+    const batch = { batchId, source, target, children };
+    this.batches.set(batchId, batch);
+    this.trimHistory();
+    this.changed(batchId);
+    queueMicrotask(() => this.pump());
+    return this.batchView(batch);
+  }
+
+  private join(origin: TransferOrigin, parts: string[]) {
+    return (origin.kind === "local" ? path : path.posix).join(origin.path, ...parts);
+  }
+
+  private add(source: TransferOrigin, target: TransferOrigin, group?: Pick<TransferJob, "batchId" | "directory">): Record {
+    const transferId = randomUUID();
+    const job: TransferJob = { transferId, source, target, state: "queued", bytes: 0, total: null, bytesPerSecond: 0, ...group };
+    const rec = { job, locks: [location(source), location(target)] };
+    this.records.set(transferId, rec);
+    return rec;
+  }
+
+  private checkCapacity(count: number) {
+    if (this.disposed) throw errors.notFound("传输中心所属的 Vault 已关闭");
+    if (this.liveCount() + count > LIVE_LIMIT) throw errors.invalidInput("传输队列已满，请等待任务结束或取消待处理任务");
+  }
+
+  private checkEndpoints(source: TransferOrigin, target: TransferOrigin) {
+    if (source.kind === "local" && target.kind === "local") throw errors.invalidInput("至少选择一个 SSH 端点");
+    if (source.kind === "remote" && target.kind === "remote" && source.session.connectionId === target.session.connectionId) throw errors.invalidInput("跨远端复制需要两个独立 SSH 连接");
   }
 
   decide(id: string, choice: z.infer<typeof TransferChoice>): TransferJob {
     const rec = this.lookup(id);
     if (rec.job.state !== "waiting") throw errors.invalidInput("此任务当前无需覆盖确认");
-    if (choice === "replace" || choice === "resume") {
+    if ((rec.job.directory && (choice === "replace" || choice === "resume")) || (!rec.job.directory && choice === "merge")) throw errors.invalidInput("请按项目类型处理冲突");
+    if (choice === "replace" || choice === "resume" || choice === "merge") {
       rec.choice = choice;
       this.update(rec, { state: "queued" });
       queueMicrotask(() => this.pump());
-    } else this.finish(rec, choice === "reject" ? "cancelled" : "skipped", "已保留原目标");
+    } else {
+      this.finish(rec, choice === "reject" ? "cancelled" : "skipped", "已保留原目标");
+      queueMicrotask(() => this.pump());
+    }
     return { ...rec.job };
   }
 
@@ -78,7 +167,10 @@ export class Transfers {
     if (rec.controller && inFlight) {
       this.update(rec, { state: "cancelling" });
       rec.controller.abort();
-    } else this.finish(rec, "cancelled", "已取消，原件保持");
+    } else {
+      this.finish(rec, "cancelled", "已取消，原件保持");
+      queueMicrotask(() => this.pump());
+    }
     return { ...rec.job };
   }
 
@@ -126,9 +218,14 @@ export class Transfers {
   clear(): { removed: number } {
     let removed = 0;
     for (const [id, { job }] of this.records)
-      if (terminal.has(job.state)) {
+      if (!job.batchId && terminal.has(job.state)) {
         this.records.delete(id);
         removed++;
+      }
+    for (const [id, batch] of this.batches)
+      if (this.batchView(batch).state !== "active") {
+        for (const child of batch.children) if (this.records.delete(child)) removed++;
+        this.batches.delete(id);
       }
     if (removed) this.changed("history");
     return { removed };
@@ -145,8 +242,8 @@ export class Transfers {
     return found;
   }
 
-  private origin(input: TransferEndpoint): TransferOrigin {
-    if (input.kind === "local") return { kind: "local", path: localTransferFile(input.path).path };
+  private origin(input: TransferEndpoint, directory = false): TransferOrigin {
+    if (input.kind === "local") return { kind: "local", path: directory ? localTree(input.path).path([]) : localTransferFile(input.path).path };
     const session = this.sessions.get(input.fileSessionId);
     if (session.state !== "ready") throw new HuhuError("SSH_DISCONNECTED", "传输的原连接已断开");
     return { ...input, session };
@@ -163,8 +260,31 @@ export class Transfers {
 
   private finish(rec: Record, state: "completed" | "failed" | "cancelled" | "skipped", message?: string, errorCode?: string) {
     this.update(rec, { state, bytesPerSecond: 0, ...(message ? { message } : {}), ...(errorCode ? { errorCode } : {}) });
-    const finished = [...this.records].filter(([, { job }]) => terminal.has(job.state));
-    for (const [id] of finished.slice(0, Math.max(0, finished.length - HISTORY_LIMIT))) this.records.delete(id);
+    this.trimHistory();
+  }
+
+  private batchView(batch: Batch): TransferBatch {
+    const states = batch.children.map((id) => this.records.get(id)?.job.state ?? "skipped");
+    const state = states.some((state) => !terminal.has(state)) ? "active" : states.every((state) => state === "completed") ? "completed" : states.some((state) => state === "completed") ? "partial" : "failed";
+    return { ...batch, state };
+  }
+
+  private trimHistory() {
+    let count = this.records.size - this.liveCount();
+    for (const [id, { job }] of this.records) {
+      if (count <= HISTORY_LIMIT) break;
+      if (!terminal.has(job.state)) continue;
+      if (!job.batchId) {
+        this.records.delete(id);
+        count--;
+        continue;
+      }
+      const batch = this.batches.get(job.batchId);
+      if (batch && this.batchView(batch).state !== "active") {
+        for (const child of batch.children) if (this.records.delete(child)) count--;
+        this.batches.delete(batch.batchId);
+      }
+    }
   }
 
   private pump(): void {
@@ -173,15 +293,54 @@ export class Transfers {
     for (const rec of this.records.values()) {
       if (this.active.size >= PARALLEL) break;
       if (rec.job.state !== "queued" || this.active.has(rec) || rec.locks.some((lock) => occupied.has(lock))) continue;
+      if (rec.parentId) {
+        const parent = this.records.get(rec.parentId)?.job.state;
+        if (parent !== "completed") {
+          if (parent && terminal.has(parent)) this.finish(rec, "skipped", "上级目录未创建或未同意合并");
+          continue;
+        }
+      }
       for (const lock of rec.locks) occupied.add(lock);
       this.active.add(rec);
       rec.controller = new AbortController();
       this.update(rec, { state: "checking" });
-      void this.run(rec, rec.controller.signal).finally(() => {
+      const work = rec.job.directory ? this.runDirectory(rec, rec.controller.signal) : this.run(rec, rec.controller.signal);
+      void work.finally(() => {
         this.active.delete(rec);
         delete rec.controller;
         this.pump();
       });
+    }
+  }
+
+  private withTree<T>(origin: TransferOrigin, signal: AbortSignal, use: (tree: TransferTree, active: AbortSignal) => Promise<T>): Promise<T> {
+    if (origin.kind === "local") return use(localTree(origin.path), signal);
+    return this.manager.withSftp({ ...origin.session, signal }, "transfer.directory", origin.path, (channel, active) => use(remoteTree(channel, origin.path), active), { signal });
+  }
+
+  private async runDirectory(rec: Record, signal: AbortSignal) {
+    const { source, target } = rec.job;
+    try {
+      const current = await this.withTree(source, signal, (tree) => tree.stat([]));
+      if (!rec.initial || !sameDirectory(current, rec.initial)) throw transferChanged("源目录");
+      await this.withTree(target, signal, async (tree, active) => {
+        const dest = await tree.stat([]);
+        if (dest && dest.kind !== "dir") throw errors.invalidInput("同名目标不是普通目录，原件保持");
+        if (rec.directoryTarget !== undefined && !sameDirectory(rec.directoryTarget, dest)) throw transferChanged("目标目录");
+        rec.directoryTarget = dest;
+        if (dest && !rec.choice) {
+          this.update(rec, { state: "waiting" });
+          return;
+        }
+        active.throwIfAborted();
+        this.update(rec, { state: "committing" });
+        if (!dest) await tree.mkdir([]);
+        this.finish(rec, "completed", dest ? "已确认此目录合并，文件冲突另行处理" : "已创建目标目录");
+      });
+    } catch (error) {
+      if (rec.job.state === "completed") return;
+      if (signal.aborted) this.finish(rec, "cancelled", "已取消，原件保持");
+      else this.finish(rec, "failed", error instanceof Error ? error.message : "目录任务失败", error instanceof HuhuError ? error.code : "INTERNAL");
     }
   }
 
@@ -223,6 +382,7 @@ export class Transfers {
           const sourceSnapshot = await fingerprint(from, active);
           const targetSnapshot = await fingerprint(to, active);
           if (!sourceSnapshot) throw errors.notFound("源文件已移除");
+          if (rec.initial && !sameSnapshot(sourceSnapshot, rec.initial)) throw transferChanged("源文件");
           if (rec.plan && (!sameSnapshot(sourceSnapshot, rec.plan.source) || !sameSnapshot(targetSnapshot, rec.plan.target))) {
             throw transferChanged(!sameSnapshot(sourceSnapshot, rec.plan.source) ? "源文件" : "目标文件");
           }

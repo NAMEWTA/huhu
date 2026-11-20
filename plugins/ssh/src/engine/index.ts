@@ -146,6 +146,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   // SFTP（仅桌面；复用已建立的连接）。覆盖需要 overwrite=true（界面先让用户确认）；上传先写临时文件再改名
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (_c, i) => files.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStart, (_c, i) => transfers.start(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStartBatch, ({ signal }, i) => transfers.startBatch(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferList, () => transfers.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferDecide, (_c, i) => transfers.decide(i.transferId, i.choice)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferCancel, (_c, i) => transfers.cancel(i.transferId)));

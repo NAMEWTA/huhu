@@ -43,6 +43,13 @@ export class FileSessions {
     return this.get(session.fileSessionId);
   }
 
+  checkLocalDirectory(id: string, directory: string): void {
+    const root = this.lookup(id).localRoot;
+    if (!root || !path.isAbsolute(directory)) throw errors.invalidInput("请先在该双栏选择本机目录");
+    const relative = path.relative(root, directory);
+    if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) throw errors.invalidInput("本机目录超出所选范围");
+  }
+
   source(input: { hostId: string } | { fileSessionId: string }): SftpSource {
     if ("hostId" in input) return input.hostId;
     const { session, controller } = this.lookup(input.fileSessionId);
