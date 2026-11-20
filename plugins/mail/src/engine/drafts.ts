@@ -72,11 +72,26 @@ function draftAttachmentDigests(snapshot: Snapshot): string[] {
   return Object.values(snapshot.drafts).flatMap(({ draft }) => draft?.attachments?.map(({ digest }) => digest) ?? []);
 }
 
-/** Resolve committed references even with Mail disabled. Hold the active Mail snapshot through the ZIP's last read. */
+/** Resolve committed references while holding the Vault's Mail snapshot boundary. */
 export function mailAttachmentPackagePaths(files: VaultFiles): ReadonlySet<string> {
   const { snapshot } = readDraftSnapshot(files);
   const outbox = new OutboxStorage(files);
   return new Set([...draftAttachmentDigests(snapshot), ...outbox.attachmentDigests()].map(attachmentObjectPath));
+}
+
+const snapshotTails = new WeakMap<VaultFiles, Promise<void>>();
+
+/** Keep the same writer boundary even if Mail is disabled or installed again during export. */
+export function withMailSnapshot<T>(files: VaultFiles, run: () => Promise<T>): Promise<T> {
+  const operation = (snapshotTails.get(files) ?? Promise.resolve()).then(run);
+  snapshotTails.set(
+    files,
+    operation.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return operation;
 }
 
 export class MailDrafts {
@@ -300,7 +315,7 @@ export class MailDrafts {
   }
 
   serialize<T>(run: () => Promise<T>): Promise<T> {
-    const operation = this.tail.then(run);
+    const operation = withMailSnapshot(this.files, run);
     this.tail = operation.then(
       () => undefined,
       () => undefined,

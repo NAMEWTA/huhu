@@ -159,17 +159,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       return r.data;
     },
   });
-  registerPackageCapabilities(registry, vault, (read, signal) => {
-    const attachments = getService<mail.MailDraftAttachments>(mail.MAIL_DRAFT_ATTACHMENTS_SERVICE);
-    const exportSnapshot = (active: AbortSignal) => {
+  registerPackageCapabilities(registry, vault, (read, signal) =>
+    mail.withMailSnapshot(vault.files, () => {
+      signal.throwIfAborted();
       const retained = mail.mailAttachmentPackagePaths(vault.files);
-      return read(active, (relative) => {
+      return read(signal, (relative) => {
         const normalized = relative.toLowerCase();
         return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
       });
-    };
-    return attachments ? attachments.withSnapshot(exportSnapshot, signal) : exportSnapshot(signal);
-  });
+    }),
+  );
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);

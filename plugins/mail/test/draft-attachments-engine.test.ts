@@ -8,7 +8,17 @@ import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
 
-const shared = vi.hoisted(() => ({ services: new Map<string, MailDraftAttachments>() }));
+const shared = vi.hoisted(() => ({ services: new Map<string, MailDraftAttachments>(), beforeExport: new Map<string, () => Promise<void>>() }));
+vi.mock("@huhu/vault", async (original) => {
+  const vault = await original<typeof import("@huhu/vault")>();
+  return {
+    ...vault,
+    async exportPackage(...args: Parameters<typeof vault.exportPackage>) {
+      await shared.beforeExport.get(args[1])?.();
+      return vault.exportPackage(...args);
+    },
+  };
+});
 vi.mock("@huhu/plugin-mail/engine", async (original) => {
   const mail = await original<typeof import("../src/engine/index.js")>();
   return {
@@ -50,6 +60,7 @@ async function fixture(run: (root: string, vaultPath: string, open: (options?: P
       await Promise.all(engines.map((engine) => engine.shutdown()));
     } finally {
       shared.services.clear();
+      shared.beforeExport.clear();
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
       expect(existsSync(root)).toBe(false);
     }
@@ -193,6 +204,57 @@ testWindows(
 );
 
 testWindows(
+  "Mail 停用时开始导出，重新启用后的附件提交仍等同一份快照",
+  async () => {
+    await fixture(async (root, vaultPath, open) => {
+      const engine = await open({ create: true });
+      const draft = await newDraft(engine);
+      expect(await call(engine, "plugins.setEnabled", { id: "mail", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
+      const dest = path.join(root, "before-mail-enabled.zip");
+      const entering = Promise.withResolvers<void>();
+      const resume = Promise.withResolvers<void>();
+      shared.beforeExport.set(dest, () => {
+        entering.resolve();
+        return resume.promise;
+      });
+      const exporting = call(engine, "vault.exportPackage", { dest, includeAttachments: true });
+      await entering.promise;
+      const bytes = Buffer.from("attachment created by the reopened mail service");
+      const relative = `${objects}/${hash(bytes)}`;
+      let reading = false;
+      let adding: ReturnType<MailDraftAttachments["addAttachment"]> | undefined;
+      try {
+        expect(await call(engine, "plugins.setEnabled", { id: "mail", enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
+        adding = service(engine).addAttachment(
+          { draftId: draft.draftId, expectedRevision: draft.revision },
+          {
+            name: "after-export.bin",
+            size: bytes.length,
+            async *read() {
+              reading = true;
+              yield bytes;
+            },
+          },
+        );
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(reading).toBe(false);
+      } finally {
+        resume.resolve();
+        await exporting;
+      }
+      await expect(exporting).resolves.toMatchObject({ ok: true });
+      expect((await adding)?.draft.revision).not.toBe(draft.revision);
+      expect(readFileSync(path.join(vaultPath, relative))).toEqual(bytes);
+      const restored = path.join(root, "restored-before-mail-enabled");
+      importPackage(dest, restored);
+      expect(JSON.parse(readFileSync(path.join(restored, draftsFile), "utf8")).drafts[draft.draftId]).toMatchObject({ revision: draft.revision });
+      expect(existsSync(path.join(restored, relative))).toBe(false);
+    });
+  },
+  120_000,
+);
+
+testWindows(
   "数据包引用读取拒绝未知草稿格式和损坏的发件记录",
   async () => {
     await fixture(async (_root, _vaultPath, open) => {
@@ -260,14 +322,10 @@ testWindows(
       const destination = path.join(root, "restored");
       const started = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      const snapshot = managed.withSnapshot;
-      const guarded = vi.spyOn(managed, "withSnapshot").mockImplementation(<T>(read: (signal: AbortSignal) => Promise<T>, requestSignal?: AbortSignal) =>
-        snapshot(async (signal) => {
-          started.resolve();
-          await release.promise;
-          return read(signal);
-        }, requestSignal),
-      );
+      shared.beforeExport.set(archive, () => {
+        started.resolve();
+        return release.promise;
+      });
       const exportInput = { dest: archive, includeAttachments: false };
       expect(await engine.dispatcher.call("web:fixture", { capability: "vault.exportPackage", input: exportInput, requestId: randomUUID(), idempotencyKey: randomUUID() })).toMatchObject({
         ok: false,
@@ -297,7 +355,6 @@ testWindows(
       });
       await new Promise((resolve) => setImmediate(resolve));
       release.resolve();
-      guarded.mockRestore();
       expect(settled).toBe(false);
       const exportedZip = await exported;
       expect(exportedZip).toMatchObject({ ok: true, data: { path: archive, sha256: hash(readFileSync(archive)), vaultId: engine.vault.id } });
