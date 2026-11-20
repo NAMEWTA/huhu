@@ -1,11 +1,12 @@
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
 import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
 import type { TransferBatch, TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
+import type { ArchiveResult, ArchiveSupport } from "../../../plugins/ssh/src/shared/archives.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 async function sshCall<T>(page: Page, capability: string, input: unknown = {}): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
@@ -915,5 +916,112 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
   } finally {
     await fixture.close();
     await Promise.all([first.close(), second.close()]);
+  }
+});
+
+test("H7.3 原生 ZIP 列表、摘要及解压绑定实际设备，失败保留原件", async () => {
+  test.setTimeout(90_000);
+  const password = randomUUID();
+  const archiveHost = await startFakeSsh({ password });
+  const noSftp = await startFakeSsh({ password, noSftp: true });
+  const fixture = await openApp();
+  try {
+    const { page, app, vault } = fixture;
+    const localRoot = path.join(vault, "native-archive");
+    mkdirSync(path.join(localRoot, "local-docs"), { recursive: true });
+    writeFileSync(path.join(localRoot, "local-docs", "local.txt"), "本机 ZIP 成员");
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [directory] })) as typeof dialog.showOpenDialog;
+    }, localRoot);
+    const body = Buffer.from("绑定回环 SFTP 的归档内容");
+    const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    const file = "/home/test/docs/子目录/正文.txt";
+    const stamp = 1_700_000_124;
+    archiveHost.fs.dirs.add("/home/test/docs");
+    archiveHost.fs.dirs.add("/home/test/docs/子目录");
+    archiveHost.fs.files.set(file, body);
+    archiveHost.fs.timestamps.set(file, stamp);
+    archiveHost.fs.files.set("/home/test/broken.zip", Buffer.from("invalid zip"));
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "归档甲", archiveHost.port, password);
+    const b = await configureLoopback(page, "无 SFTP 乙", noSftp.port, password);
+    expect((await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "归档能力双端", layout: { kind: "tabs" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+    })).ok).toBe(true);
+    await page.getByRole("button", { name: /归档能力双端.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const panel = page.getByTestId("ssh-independent-files").filter({ visible: true });
+    async function openBoundFiles() {
+      await run.getByRole("button", { name: "信任并连接" }).click();
+      await run.getByRole("button", { name: "分栏文件" }).click();
+      await run.getByRole("button", { name: "打开独立双栏" }).click();
+      return (await panel.getAttribute("data-file-session-id"))!;
+    }
+    const id = await openBoundFiles();
+    await panel.getByText("远端 ZIP 归档", { exact: true }).click();
+    const remote = panel.getByRole("region", { name: "远端归档能力" });
+    await expect(remote).toContainText("ZIP 可用");
+    await expect(remote).toContainText("TAR、TGZ 和 7z");
+    await remote.getByLabel("归档项目", { exact: true }).selectOption("docs");
+    await remote.getByRole("button", { name: "生成 ZIP" }).click();
+    await page.getByRole("dialog", { name: "生成 ZIP 归档" }).getByRole("button", { name: "确认", exact: true }).click();
+    const result = remote.getByTestId("ssh-archive-result");
+    await expect(result).toContainText("docs/子目录/正文.txt", { timeout: 20_000 });
+    await expect(result).toContainText(digest(body));
+    const zip = archiveHost.fs.files.get("/home/test/docs.zip");
+    expect(zip?.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    await expect(result).toContainText(digest(zip!));
+
+    await remote.getByLabel("归档项目", { exact: true }).selectOption("docs.zip");
+    await remote.getByRole("button", { name: "查看 ZIP 清单" }).click();
+    await expect(result).toContainText(digest(body));
+    await expect(result).toContainText(digest(zip!));
+    await remote.getByRole("button", { name: "解压至新目录" }).click();
+    const unpack = page.getByRole("dialog", { name: "解压 ZIP 到新目录" });
+    await unpack.getByLabel("新目录名称").fill("unpacked");
+    await unpack.getByRole("button", { name: "确认", exact: true }).click();
+    await expect(result).toContainText("已解压至 /home/test/unpacked");
+    const restored = "/home/test/unpacked/docs/子目录/正文.txt";
+    expect(archiveHost.fs.files.get(restored)).toEqual(body);
+    expect(archiveHost.fs.timestamps.get(restored)).toBe(stamp);
+    const req = { directory: { kind: "remote", fileSessionId: id, path: "/home/test" }, name: "docs.zip", operation: "extract", output: "unpacked" };
+    expect((await sshCall(page, "ssh.archives.run", req)).ok).toBe(false);
+    expect(archiveHost.fs.files.get(restored)).toEqual(body);
+    await remote.getByLabel("归档项目", { exact: true }).selectOption("broken.zip");
+    await remote.getByRole("button", { name: "查看 ZIP 清单" }).click();
+    await expect(remote.getByRole("alert")).toContainText("ZIP 损坏");
+    expect([...archiveHost.fs.dirs, ...archiveHost.fs.files.keys()].some((name) => name.includes(".huhu-zip-"))).toBe(false);
+
+    const local = panel.getByRole("region", { name: "本机文件", exact: true });
+    await local.getByRole("button", { name: "选择本机目录" }).click();
+    await local.getByText("本机 ZIP 归档", { exact: true }).click();
+    const localTools = local.getByRole("region", { name: "本机归档能力" });
+    await expect(localTools).toContainText("系统选择器支持单文件或目录");
+    const localEndpoint = { kind: "local", path: localRoot };
+    const made = await sshCall<ArchiveResult>(page, "ssh.archives.run", {
+      directory: localEndpoint, localFileSessionId: id, name: "local-docs", operation: "compress", output: "local.zip",
+    });
+    expect(made.ok, made.error?.message).toBe(true);
+    expect(digest(readFileSync(path.join(localRoot, "local.zip")))).toBe(made.data.archiveSha256);
+    const extracted = await sshCall<ArchiveResult>(page, "ssh.archives.run", {
+      directory: localEndpoint, localFileSessionId: id, name: "local.zip", operation: "extract", output: "restored",
+    });
+    expect(extracted.ok, extracted.error?.message).toBe(true);
+    expect(extracted.data.entries.find(({ name }) => name === "local-docs/local.txt")?.sha256).toBe(digest(Buffer.from("本机 ZIP 成员")));
+    expect(readFileSync(path.join(localRoot, "restored", "local-docs", "local.txt"), "utf8")).toBe("本机 ZIP 成员");
+
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await run.getByRole("button", { name: "无 SFTP 乙", exact: true }).click();
+    const idB = await openBoundFiles();
+    const support = await sshCall<ArchiveSupport>(page, "ssh.archives.support", { fileSessionId: idB });
+    expect(support.data.local.zip).toBe(true);
+    expect(support.data.remote).toMatchObject({ zip: false, reason: expect.stringContaining("没有开启 SFTP") });
+    await panel.getByText("远端 ZIP 归档", { exact: true }).click();
+    const unsupported = panel.getByRole("region", { name: "远端归档能力" });
+    await expect(unsupported).toContainText("ZIP 不可用");
+    await expect(unsupported.getByRole("button", { name: "生成 ZIP" })).toBeDisabled();
+  } finally {
+    await fixture.close();
+    await Promise.all([archiveHost.close(), noSftp.close()]);
   }
 });

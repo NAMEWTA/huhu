@@ -53,4 +53,9 @@
     padding: 8px;
     overflow-wrap: anywhere;
   }
+
+  .ssh-archive-tools {
+    margin-block: 8px;
+    overflow-wrap: anywhere;
+  }
 }

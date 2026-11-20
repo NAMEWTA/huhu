@@ -230,7 +230,7 @@ function serveSftp(
   sftp.on("LSTAT", stat);
   sftp.on("SETSTAT", (id, p, attrs) => {
     const n = norm(p);
-    if (!fs.files.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    if (!fs.files.has(n) && !fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     if (typeof attrs.mode === "number") fs.permissions.set(n, attrs.mode & 0o7777);
     if (typeof attrs.mtime === "number") fs.timestamps.set(n, attrs.mtime);
     st(id, STATUS_CODE.OK);
@@ -316,8 +316,10 @@ function serveSftp(
   sftp.on("RMDIR", (id, p) => {
     const n = norm(p);
     if (!fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
-    if ([...fs.dirs, ...fs.files.keys()].some((x) => x !== n && x.startsWith(`${n}/`))) return st(id, STATUS_CODE.FAILURE);
+    if ([...fs.dirs, ...fs.files.keys(), ...fs.links.keys()].some((x) => x !== n && x.startsWith(`${n}/`))) return st(id, STATUS_CODE.FAILURE);
     fs.dirs.delete(n);
+    fs.permissions.delete(n);
+    fs.timestamps.delete(n);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("RENAME", (id, from, to) => {
@@ -337,8 +339,22 @@ function serveSftp(
       if (mtime !== undefined) fs.timestamps.set(b, mtime);
       fs.timestamps.delete(a);
     } else if (fs.dirs.has(a)) {
-      fs.dirs.delete(a);
-      fs.dirs.add(b);
+      const below = (key: string) => key === a || key.startsWith(`${a}/`);
+      const moved = (key: string) => b + key.slice(a.length);
+      for (const key of [...fs.dirs].filter(below)) {
+        fs.dirs.delete(key);
+        fs.dirs.add(moved(key));
+      }
+      function moveContents<T>(values: Map<string, T>) {
+        for (const [key, value] of [...values].filter(([key]) => below(key))) {
+          values.delete(key);
+          values.set(moved(key), value);
+        }
+      }
+      moveContents(fs.files);
+      moveContents(fs.links);
+      moveContents(fs.permissions);
+      moveContents(fs.timestamps);
     }
     st(id, STATUS_CODE.OK);
   });

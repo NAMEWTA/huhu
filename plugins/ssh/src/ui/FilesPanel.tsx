@@ -7,6 +7,7 @@ import { FileTable } from "./FileTable.js";
 import { RemoteTextEditor } from "./RemoteTextEditor.js";
 import { RemoteCopyDialog } from "./RemoteCopyDialog.js";
 import { useFileBatch } from "./FileBatch.js";
+import { ArchiveTools } from "./ArchiveTools.js";
 import { t } from "./i18n.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
@@ -170,6 +171,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
     <section data-testid="files-panel" aria-label={title} {...batch.drop}>
       <h2>{title}</h2>
       {batch.controls}
+      {queuedTransfers ? <ArchiveTools side="remote" directory={cwd} entries={entries ?? []} id={fileSessionId} ready={ready} refresh={() => void load(cwd)} /> : <p>ZIP 后端和本机路径选取可在 Windows 桌面应用中使用。</p>}
       <div className="hu-row">
         <Button disabled={!ready} onClick={() => void navigate("")}>
           {t.files.home}

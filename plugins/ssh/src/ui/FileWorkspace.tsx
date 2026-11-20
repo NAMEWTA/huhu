@@ -6,6 +6,7 @@ import { FilesPanel } from "./FilesPanel.js";
 import { FileTable } from "./FileTable.js";
 import { TransferCenter } from "./TransferCenter.js";
 import { FileBatchProvider, useFileBatch } from "./FileBatch.js";
+import { ArchiveTools } from "./ArchiveTools.js";
 import "./files.css";
 
 interface LocalBridge {
@@ -117,6 +118,7 @@ function LocalFiles({ id }: { id: string }) {
     <section aria-label="本机文件" {...batch.drop}>
       <h2>本机文件</h2>
       {batch.controls}
+      {picker && <ArchiveTools side="local" directory={where?.path ?? ""} entries={where?.entries ?? []} id={id} ready refresh={() => void navigate(parts)} />}
       {picker ? (
         <>
           <div className="ssh-workspace-controls">

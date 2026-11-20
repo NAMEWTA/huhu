@@ -1,4 +1,4 @@
-import { lstat, mkdir, opendir, realpath } from "node:fs/promises";
+import { lstat, mkdir, opendir, realpath, rename, rmdir, utimes } from "node:fs/promises";
 import path from "node:path";
 import { errors } from "@huhu/contracts";
 import type { FileEntryWithStats, SFTPWrapper, Stats } from "ssh2";
@@ -18,6 +18,9 @@ export interface TransferTree {
   stat(parts: readonly string[]): Promise<TreeStat | null>;
   names(parts: readonly string[]): AsyncIterable<string>;
   mkdir(parts: readonly string[]): Promise<void>;
+  touchDirectory(parts: readonly string[], mtime: number): Promise<void>;
+  moveDirectory(source: readonly string[], target: readonly string[]): Promise<void>;
+  rmdir(parts: readonly string[]): Promise<void>;
 }
 export type TreeItem = { parts: string[]; stat?: TreeStat; error?: string; parent?: TreeItem };
 
@@ -69,6 +72,21 @@ export function localTree(root: string): TransferTree {
       await guard(path.dirname(file));
       await mkdir(file);
     },
+    async touchDirectory(parts, mtime) {
+      const file = at(parts);
+      await guard(file);
+      const stamp = new Date(mtime);
+      await utimes(file, stamp, stamp);
+    },
+    async moveDirectory(source, target) {
+      await guard(at(source));
+      await guard(path.dirname(at(target)));
+      await rename(at(source), at(target));
+    },
+    async rmdir(parts) {
+      await guard(path.dirname(at(parts)));
+      await rmdir(at(parts));
+    },
   };
 }
 
@@ -113,6 +131,21 @@ export function remoteTree(channel: SFTPWrapper, root: string): TransferTree {
       const file = at(parts);
       await guard(path.posix.dirname(file));
       await call<void>((callback) => channel.mkdir(file, callback));
+    },
+    async touchDirectory(parts, mtime) {
+      const file = at(parts);
+      await guard(file);
+      const stamp = Math.floor(mtime / 1000);
+      await call<void>((callback) => channel.setstat(file, { atime: stamp, mtime: stamp }, callback));
+    },
+    async moveDirectory(source, target) {
+      await guard(at(source));
+      await guard(path.posix.dirname(at(target)));
+      await call<void>((callback) => channel.rename(at(source), at(target), callback));
+    },
+    async rmdir(parts) {
+      await guard(path.posix.dirname(at(parts)));
+      await call<void>((callback) => channel.rmdir(at(parts), callback));
     },
   };
 }

@@ -7,6 +7,7 @@ import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./impo
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
+import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
@@ -19,6 +20,29 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  archiveSupport: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.archives.support",
+    title: "查看文件会话归档能力",
+    description: "探测本机原生 ZIP 后端及原绑定的 SFTP 通道，说明设备与格式。",
+    scope: "read",
+    risk: "normal",
+    input: FileSessionId,
+    output: ArchiveSupport,
+  }),
+  archiveRun: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.archives.run",
+    title: "处理文件会话的 ZIP 归档",
+    description: "生成、读取或解压所选 ZIP，按目标目录安全暂存和发布。",
+    scope: "execute",
+    risk: "high",
+    timeoutMs: 120_000,
+    input: ArchiveRequest,
+    output: ArchiveResult,
+  }),
   transferStart: defineCapabilityDescriptor({
     ...ssh,
     desktopOnly: true,
