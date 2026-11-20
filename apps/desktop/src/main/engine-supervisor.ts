@@ -39,6 +39,7 @@ export class EngineSupervisor {
   private stopping = false;
   private restartWhenStopped = false;
   private stopGeneration = 0;
+  private attachmentLifetime = new AbortController();
   /** 最近一次启动失败的原因（Engine 在 stderr 上输出的 {"type":"error"} 行）。 */
   lastError: { code: string; message: string } | null = null;
 
@@ -61,11 +62,12 @@ export class EngineSupervisor {
     const child = this.child;
     const unavailable = { status: "failed", reason: "unavailable" } as const;
     if (!child || !this.mailAttachmentEndpoint(request.vaultId)) return Promise.resolve(unavailable);
-    if (signal.aborted) return Promise.resolve({ status: "cancelled" });
+    const active = AbortSignal.any([signal, this.attachmentLifetime.signal]);
+    if (active.aborted) return Promise.resolve({ status: "cancelled" });
     return new Promise((resolve) => {
       const { port1, port2 } = new MessageChannelMain();
       const finish = (result: SelectDraftAttachmentResult) => {
-        signal.removeEventListener("abort", cancel);
+        active.removeEventListener("abort", cancel);
         child.off("exit", exited);
         port1.removeAllListeners();
         port1.close();
@@ -73,7 +75,7 @@ export class EngineSupervisor {
       };
       const cancel = () => finish({ status: "cancelled" });
       const exited = () => finish(unavailable);
-      signal.addEventListener("abort", cancel, { once: true });
+      active.addEventListener("abort", cancel, { once: true });
       child.once("exit", exited);
       port1.once("close", exited);
       port1.once("message", (event) => finish(event.data as SelectDraftAttachmentResult));
@@ -94,6 +96,8 @@ export class EngineSupervisor {
   }
 
   start(): void {
+    this.attachmentLifetime.abort();
+    this.attachmentLifetime = new AbortController();
     this.stopGeneration++;
     this.stopping = false;
     this.restartWhenStopped = false;
@@ -212,6 +216,7 @@ export class EngineSupervisor {
     const child = this.child;
     if (!child) return generation;
     this.stopping = true;
+    this.attachmentLifetime.abort();
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         child.kill();

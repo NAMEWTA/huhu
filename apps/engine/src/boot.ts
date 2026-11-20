@@ -485,9 +485,11 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
 
   let closed: Promise<void> | undefined;
+  const attachmentLifetime = new AbortController();
   const shutdown = () =>
     (closed ??= (async () => {
       real.beginClose();
+      attachmentLifetime.abort();
       events.publish("engine.closing", {});
       try {
         await watcher.close();
@@ -524,7 +526,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     ...(moduleCredentialHost ? { moduleCredentialHost } : {}),
     addMailDraftAttachment: (request, signal) => {
       if (request.vaultId !== vault.id || vault.readOnly) return Promise.resolve({ status: "failed", reason: "unavailable" });
-      return addDesktopMailAttachment(getService<mail.MailDraftAttachments>(mail.MAIL_DRAFT_ATTACHMENTS_SERVICE), request, signal);
+      return addDesktopMailAttachment(getService<mail.MailDraftAttachments>(mail.MAIL_DRAFT_ATTACHMENTS_SERVICE), request, AbortSignal.any([signal, attachmentLifetime.signal]));
     },
     shutdown,
   };
