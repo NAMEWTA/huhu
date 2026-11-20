@@ -2,40 +2,39 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
+import { z } from "zod";
+import { canSendAuthentication } from "../shared/git-auth.js";
 import { openAskpass, scrubEnvironment } from "./askpass.js";
 import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
 import { loadSession } from "./conflicts/session.js";
 import { GitRunner, gitCancelled } from "./git.js";
 import {
   authenticationFailed,
-  canSendAuthentication,
   hasUrlCredentials,
   httpTarget,
+  isPlainSyncRemote,
   isSyncAuthError,
   SyncAuthFailure,
   type ConfigureGitAuth,
   type GitAuthSummary,
   type GitLogin,
   type GitRemoteCredentials,
-  type LegacyAuth,
-  type SyncAuthScope,
   type VersioningAuth,
 } from "./remote-auth.js";
 
-export interface SyncConfig {
-  remote: string;
-  branch: string;
-  mode: "off" | "follow" | "full";
-  /** 自动同步的拉取/推送间隔（秒，30–3600）。 */
-  pullIntervalSec: number;
-  pushIntervalSec: number;
-  /** 保险箱凭据引用 `safe://<id>`（只存引用，不存秘密）；空表示用系统的 Git 凭据助手 / SSH agent。仅对 http(s) 远端生效。 */
-  credential: string;
-  /** 配合令牌使用的用户名（GitHub 等接受任意非空值）。 */
-  credentialUser: string;
-  /** 用户追加的排除规则（gitignore 子集：`*`、`**`、前缀目录 `dir/`、前导 `/`）。 */
-  exclude: string[];
-}
+export const SyncConfigSchema = z.object({
+  remote: z.string(),
+  branch: z.string(),
+  mode: z.enum(["off", "follow", "full"]),
+  pullIntervalSec: z.number().int(),
+  pushIntervalSec: z.number().int(),
+  exclude: z.array(z.string()),
+});
+export const SyncConfigPatch = SyncConfigSchema.extend({ remote: z.string().refine(isPlainSyncRemote, "远端地址无效或包含认证材料") })
+  .partial()
+  .strict();
+export type SyncConfig = z.infer<typeof SyncConfigSchema>;
+type StoredSyncConfig = { config: SyncConfig; authReconfigurationRequired: boolean };
 
 /**
  * 只回答针对配置主机（HUHU_GIT_HOST，含端口）的提示：被重定向到别的主机（含名字相似的主机）时不交出令牌。
@@ -57,16 +56,7 @@ case "$1" in
 esac
 `;
 
-function isLoopbackHttp(remote: string): boolean {
-  try {
-    const h = new URL(remote).hostname;
-    return h === "127.0.0.1" || h === "localhost" || h === "[::1]";
-  } catch {
-    return false;
-  }
-}
-
-export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", pullIntervalSec: 30, pushIntervalSec: 60, credential: "", credentialUser: "git", exclude: [] };
+export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", pullIntervalSec: 30, pushIntervalSec: 60, exclude: [] };
 
 /** `.huhu/` 下默认纳入同步的路径（其余一律跳过：runtime/cache/ui/history/drafts/operations/claims 等）。 */
 const HUHU_INCLUDE = ["vault.json", "settings.json", "plugins.json", "notes/", "home/", "agent-cli/spaces/", "ssh/hosts/", "ssh/known_hosts", "automations/scripts.json", "safe/"]; // sync/config.json 含本机的远端与分支设置，不随同步传播（与规格偏离：两台设备各自配置，否则首次拉取会与本地未跟踪的同名文件冲突）
@@ -107,7 +97,11 @@ export interface SyncPreview {
 }
 
 export type SyncStatusName = "idle" | "conflict" | "offline" | "auth-failed" | "not-configured" | "read-only" | "unknown";
-type NetworkAuth = { scope: SyncAuthScope; summary: GitAuthSummary | undefined };
+type NetworkAuth = { scope: VersioningAuth; summary: GitAuthSummary };
+
+function withMigrationStatus(summary: GitAuthSummary, needsReplacement: boolean): GitAuthSummary {
+  return needsReplacement && (summary.revision === null || summary.state === "unconfigured") ? { ...summary, state: "needs-reconfiguration" } : summary;
+}
 
 /** 远端同步：纳入范围只含指定文件；冲突时回退合并并报告，不留下半合并状态。 */
 export class VaultSync {
@@ -121,7 +115,6 @@ export class VaultSync {
     private readonly root: string,
     private readonly identity = { name: "HUHU", email: "huhu@localhost" },
     hooks: ConflictHooks = {},
-    private readonly resolveSecret?: (ref: string) => string,
     private readonly credentials?: GitRemoteCredentials,
     private readonly readOnly = false,
   ) {
@@ -165,21 +158,29 @@ export class VaultSync {
     return path.join(this.root, ".huhu", "sync", "config.json");
   }
 
-  config(): SyncConfig {
+  private readConfig(): StoredSyncConfig {
     try {
-      const c = { ...DEFAULT_SYNC, ...(JSON.parse(readFileSync(this.cfgFile(), "utf8")) as Partial<SyncConfig>) };
+      const raw = JSON.parse(readFileSync(this.cfgFile(), "utf8")) as Partial<SyncConfig> & { credential?: unknown; authReconfigurationRequired?: unknown };
+      const c = { ...DEFAULT_SYNC, ...raw };
       // 手改文件写出的非法间隔回退默认值，避免调度器拿到 NaN
       for (const k of ["pullIntervalSec", "pushIntervalSec"] as const) if (!Number.isInteger(c[k]) || c[k] < 30 || c[k] > 3600) c[k] = DEFAULT_SYNC[k];
-      return c;
+      const config = SyncConfigSchema.parse(c);
+      // 旧字段只用来判断是否需要补配，任何值都不进入能力输出或网络路径。
+      const authReconfigurationRequired = c.authReconfigurationRequired === true || (typeof c.credential === "string" && c.credential.trim().length > 0);
+      return { config, authReconfigurationRequired };
     } catch {
-      return { ...DEFAULT_SYNC };
+      return { config: { ...DEFAULT_SYNC }, authReconfigurationRequired: false };
     }
   }
 
-  update(patch: Partial<SyncConfig>): SyncConfig {
+  config(): SyncConfig {
+    return this.readConfig().config;
+  }
+
+  update(patch: z.input<typeof SyncConfigPatch>): SyncConfig {
     this.requireWritable();
-    const previous = this.config();
-    const next = { ...previous, ...patch };
+    const { config: previous, authReconfigurationRequired } = this.readConfig();
+    const next = { ...previous, ...patch } as SyncConfig;
     if (!["off", "follow", "full"].includes(next.mode)) throw errors.invalidInput("同步模式无效");
     if (next.remote && /^\s|\s$|[\0\n]/.test(next.remote)) throw errors.invalidInput("远端地址无效");
     if (next.remote.startsWith("-")) throw errors.invalidInput("远端地址不能以 - 开头");
@@ -187,32 +188,34 @@ export class VaultSync {
     // （http/https 的 userinfo 即便只有一段也多半是令牌，如 https://ghp_xxx@github.com/…；ssh://git@host 这类用户名是正常写法）
     if (hasUrlCredentials(next.remote)) throw errors.invalidInput("远端地址不能包含用户名密码或令牌");
     next.remote = httpTarget(next.remote) ?? next.remote;
-    if (patch.remote !== undefined && patch.remote !== previous.remote && patch.credential === undefined && (!/^https?:\/\//i.test(next.remote) || httpTarget(next.remote) !== httpTarget(previous.remote))) next.credential = "";
-    if (next.credential && !/^safe:\/\/item-[0-9a-z]+$/.test(next.credential)) throw errors.invalidInput("凭据引用格式无效");
-    if (!/^[A-Za-z0-9._@-]{1,64}$/.test(next.credentialUser)) throw errors.invalidInput("凭据用户名无效");
-    // 令牌只能走加密连接：https，或本机回环上的 http（本地测试用）；其他 http 远端会让令牌以明文发出
-    if (next.credential && /^http:\/\//i.test(next.remote) && !isLoopbackHttp(next.remote)) throw errors.invalidInput("凭据只能用于 https 远端");
     for (const k of ["pullIntervalSec", "pushIntervalSec"] as const) {
       const v = next[k];
       if (!Number.isInteger(v) || v < 30 || v > 3600) throw errors.invalidInput("同步间隔需要在 30–3600 秒之间");
     }
     if (!/^[A-Za-z0-9._/-]+$/.test(next.branch) || next.branch.startsWith("-")) throw errors.invalidInput("分支名无效");
+    const config = SyncConfigSchema.parse(next);
+    const sameTarget = config.remote === previous.remote || (isPlainSyncRemote(previous.remote) && config.remote === httpTarget(previous.remote));
+    const stored = authReconfigurationRequired && sameTarget && httpTarget(config.remote) ? { ...config, authReconfigurationRequired: true } : config;
     mkdirSync(path.dirname(this.cfgFile()), { recursive: true });
-    writeFileSync(this.cfgFile(), JSON.stringify(next, null, 2));
-    return next;
+    writeFileSync(this.cfgFile(), JSON.stringify(stored, null, 2));
+    return config;
   }
 
-  updateConfig(patch: Partial<SyncConfig>, signal?: AbortSignal): Promise<SyncConfig> {
+  updateConfig(patch: z.input<typeof SyncConfigPatch>, signal?: AbortSignal): Promise<SyncConfig> {
     return this.exclusive(async () => {
       if (this.signal(signal).aborted) throw gitCancelled();
-      this.requireWritable();
-      if (patch.credential && (await this.authStatus()).revision) throw errors.invalidInput("此远端使用 Versioning 自有认证");
       return this.update(patch);
     });
   }
 
+  private async authSummary(target: string | null, authReconfigurationRequired: boolean): Promise<GitAuthSummary> {
+    const summary = (await this.credentials?.status(target)) ?? { revision: null, state: "temporarily-unavailable" };
+    return withMigrationStatus(summary, target !== null && authReconfigurationRequired);
+  }
+
   authStatus() {
-    return this.credentials?.status(httpTarget(this.config().remote)) ?? { revision: null, state: "temporarily-unavailable" as const };
+    const { config, authReconfigurationRequired } = this.readConfig();
+    return this.authSummary(httpTarget(config.remote), authReconfigurationRequired);
   }
 
   configureAuth(input: ConfigureGitAuth, signal?: AbortSignal, onSaved?: (target: string, summary: GitAuthSummary) => void) {
@@ -220,12 +223,11 @@ export class VaultSync {
       const operation = this.signal(signal);
       if (operation.aborted) throw gitCancelled();
       this.requireWritable();
-      const config = this.config();
+      const { config, authReconfigurationRequired } = this.readConfig();
       const target = httpTarget(input.remote);
       if (!target || target !== httpTarget(config.remote) || !canSendAuthentication(target)) throw errors.invalidInput("请先保存要配置的 HTTPS 远端");
-      if (config.credential) throw errors.invalidInput("请先清除同步设置中的旧保险箱引用");
       if (!this.credentials) throw authenticationFailed("local-protection-unavailable");
-      const summary = await this.credentials.configure(target, input, operation);
+      const summary = withMigrationStatus(await this.credentials.configure(target, input, operation), authReconfigurationRequired);
       onSaved?.(target, summary);
       return summary;
     });
@@ -237,6 +239,18 @@ export class VaultSync {
     const sess = loadSession(this.root);
     if (sess) return { name: "conflict", detail: sess.files.map((f) => f.path).join("、") };
     return this._status.name === "conflict" ? { name: "idle", detail: "" } : this._status;
+  }
+
+  /** Legacy references need an actionable status before the first network operation. */
+  async visibleStatus(): Promise<ReturnType<VaultSync["status"]>> {
+    const status = this.status();
+    if (status.name === "conflict" || status.name === "read-only" || status.name === "auth-failed") return status;
+    const { config, authReconfigurationRequired } = this.readConfig();
+    if (!authReconfigurationRequired) return status;
+    const target = httpTarget(config.remote);
+    if (!target) return status;
+    const { state } = await this.authSummary(target, authReconfigurationRequired);
+    return state === "configured" ? status : { name: "auth-failed", detail: authenticationFailed(state).message };
   }
 
   private requireWritable(): void {
@@ -259,7 +273,7 @@ export class VaultSync {
   }
 
   /**
-   * 需要联网的 Git 命令（fetch/push）的环境：配置了保险箱凭据且远端是 http(s) 时，写一个一次性 GIT_ASKPASS 脚本，
+   * 需要联网的 Git 命令（fetch/push）的环境：使用当前远端的本机认证，通过一次性 GIT_ASKPASS 交给系统 Git，
    * 秘密只通过子进程环境变量传递（不在命令行、不在配置、不在 URL 里），命令结束后脚本目录立即删除。
    */
   private async authenticatedGit(target: string, args: string[], login: GitLogin, signal: AbortSignal) {
@@ -285,16 +299,12 @@ export class VaultSync {
     return httpTarget(this.config().remote);
   }
 
-  legacyAuth(config = this.config()): LegacyAuth | null {
-    const target = httpTarget(config.remote);
-    return target && config.credential && canSendAuthentication(target) ? { source: "legacy-safe", target, reference: config.credential } : null;
-  }
-
-  private async networkAuth(config: SyncConfig): Promise<NetworkAuth | null> {
+  private async networkAuth({ config, authReconfigurationRequired }: StoredSyncConfig): Promise<NetworkAuth | null> {
     const target = httpTarget(config.remote);
     if (!target) return null;
-    const summary = await this.credentials?.status(target);
-    const scope = (!summary?.revision && this.legacyAuth(config)) || { source: "versioning", target, revision: summary?.revision ?? null };
+    const summary = await this.authSummary(target, authReconfigurationRequired);
+    const scope: VersioningAuth = { source: "versioning", target, revision: summary.revision };
+    if (authReconfigurationRequired && summary.state !== "configured") throw new SyncAuthFailure(authenticationFailed(summary.state), scope);
     return { scope, summary };
   }
 
@@ -326,13 +336,10 @@ export class VaultSync {
       const urls = await this.git.run(["remote", "get-url", "--all", ...(operation === "push" ? ["--push"] : []), "origin"], { signal, privateNetwork: true });
       const effective = urls.stdout.trim().split(/\r?\n/);
       if (effective.length !== 1 || httpTarget(effective[0]!) !== target) throw authenticationFailed("target-mismatch");
-      if (summary?.revision && summary.state !== "unconfigured") {
+      if (summary.revision && summary.state !== "unconfigured") {
         if (!canSendAuthentication(target)) throw authenticationFailed("insecure-target");
         if (summary.state !== "configured") throw authenticationFailed(summary.state);
         await this.credentials!.use(target, (login) => this.authenticatedGit(target, networkArgs, login, signal));
-      } else if (scope.source === "legacy-safe") {
-        if (!this.resolveSecret) throw new HuhuError("SECRET_REF_INVALID", "保险箱插件未启用，无法使用凭据");
-        await this.authenticatedGit(target, networkArgs, { username: config.credentialUser, token: this.resolveSecret(scope.reference) }, signal);
       } else {
         await this.git.run(networkArgs, { env: { ...scrubEnvironment(), GIT_ASKPASS: "", GIT_ALLOW_PROTOCOL: new URL(target).protocol.slice(0, -1) }, signal, privateNetwork: true });
       }
@@ -344,8 +351,7 @@ export class VaultSync {
 
   private track(e: unknown): never {
     if (e instanceof HuhuError) {
-      // 保险箱锁定/凭据不可用同样需要用户去重新配置，按认证失败处理
-      const map: Record<string, SyncStatusName> = { GIT_OFFLINE: "offline", GIT_AUTH_FAILED: "auth-failed", GIT_CONFLICT: "conflict", SAFE_LOCKED: "auth-failed", SECRET_REF_INVALID: "auth-failed" };
+      const map: Record<string, SyncStatusName> = { GIT_OFFLINE: "offline", GIT_AUTH_FAILED: "auth-failed", GIT_CONFLICT: "conflict" };
       this._status = { name: map[e.code] ?? "unknown", detail: e.message };
     }
     throw e;
@@ -357,10 +363,11 @@ export class VaultSync {
 
   private async previewLocked(signal: AbortSignal): Promise<SyncPreview> {
     if (signal.aborted) throw gitCancelled();
-    const c = this.config();
+    const stored = this.readConfig();
+    const c = stored.config;
     await this.ready(c);
     try {
-      await this.network(c, await this.networkAuth(c), "fetch", signal);
+      await this.network(c, await this.networkAuth(stored), "fetch", signal);
     } catch (e) {
       this.track(e);
     }
@@ -434,26 +441,28 @@ export class VaultSync {
   runAutomatic(mode: "pull" | "sync", isCurrent: () => boolean, repair?: VersioningAuth): Promise<boolean> {
     // 与配置保存共用队列，拿到执行权后再次确认当前修订。
     return this.exclusive(async () => {
-      const c = this.config();
+      const stored = this.readConfig();
+      const c = stored.config;
       const signal = this.signal();
       if (!isCurrent() || signal.aborted || this.readOnly || loadSession(this.root) || c.mode === "off" || (mode === "sync" && c.mode !== "full")) return false;
       if (!repair) {
-        await this.runLocked(mode, signal, c);
+        await this.runLocked(mode, signal, stored);
       } else {
-        const auth = await this.networkAuth(c);
-        if (!isCurrent() || signal.aborted || auth?.scope.source !== "versioning" || auth.scope.target !== repair.target || auth.scope.revision !== repair.revision || auth.summary?.state !== "configured") return false;
-        await this.runLocked(mode, signal, c, auth);
+        const auth = await this.networkAuth(stored);
+        if (!isCurrent() || signal.aborted || auth?.scope.target !== repair.target || auth.scope.revision !== repair.revision || auth.summary.state !== "configured") return false;
+        await this.runLocked(mode, signal, stored, auth);
       }
       return true;
     });
   }
 
-  private async runLocked(mode: "pull" | "push" | "sync", signal: AbortSignal, c = this.config(), preparedAuth?: NetworkAuth): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+  private async runLocked(mode: "pull" | "push" | "sync", signal: AbortSignal, stored = this.readConfig(), preparedAuth?: NetworkAuth): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
     if (signal.aborted) throw gitCancelled();
+    const c = stored.config;
     await this.ready(c);
     let committed = false;
     try {
-      const auth = preparedAuth ?? (await this.networkAuth(c));
+      const auth = preparedAuth ?? (await this.networkAuth(stored));
       if (mode !== "pull") committed = await this.commitIncluded("HUHU 同步", c.exclude);
       await this.network(c, auth, "fetch", signal);
       const remoteRef = `origin/${c.branch}`;

@@ -11,8 +11,8 @@ const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
-async function launch(vault: string, extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
-  return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
+async function launch(vault: string, extraEnv: Record<string, string> = {}, appRoot = root): Promise<ElectronApplication> {
+  return electron.launch({ args: [appRoot, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault, ...(existsSync(HERDR) ? { HUHU_HERDR_BIN: HERDR } : {}), ...extraEnv } });
 }
 
 /** 不指定 HUHU_VAULT 启动：显示启动页。目录选择框用主进程里的桩替换（原生对话框无法被 Playwright 驱动）。 */
@@ -1258,43 +1258,68 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   }
 });
 
-test("同步凭据：下拉只列出保险箱里允许 versioning 的令牌；保存后配置里只有 safe:// 引用，没有秘密", async () => {
+test("同步设置用 Versioning 凭据补配旧 HTTPS 目标，换目标后明确提示重新配置", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
-  const app = await launch(vault);
+  const first = "https://example.invalid/team/notes.git";
+  const second = "https://example.invalid/team/other.git";
+  const retiredReference = "safe://item-retiredfixture";
+  const secret = crypto.randomUUID();
+  const configDir = path.join(vault, ".huhu", "sync");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(path.join(configDir, "config.json"), JSON.stringify({ remote: first, branch: "main", mode: "off", credential: retiredReference, credentialUser: "previous-user" }));
+  let app: ElectronApplication | undefined;
   try {
+    app = await launch(vault, {}, process.env["HUHU_VERSIONING_E2E_APP"] ?? root);
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const calls: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/v1/call") {
+        const input = request.postDataJSON() as { capability?: string };
+        if (input.capability) calls.push(input.capability);
+      }
+    });
     await page.evaluate(async () => {
       const ep = await window.huhuHost.engine();
-      const call = async (capability: string, input: unknown) => {
-        const r = await fetch(`${ep.baseUrl}/api/v1/call`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
-          body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
-        });
-        const j = (await r.json()) as { ok: boolean; data: any; error?: unknown }; // eslint-disable-line
-        if (!j.ok) throw new Error(JSON.stringify(j.error));
-        return j.data;
-      };
-      await call("git.init", {});
-      await call("safe.setup", { password: "correct horse battery staple" });
-      await call("safe.items.save", { name: "GitHub 令牌", type: "token", value: "ghp_e2e_secret_value", allowedModules: ["versioning"] });
-      await call("safe.items.save", { name: "别的模块的令牌", type: "token", value: "other_secret", allowedModules: ["ssh"] });
+      const response = await fetch(`${ep.baseUrl}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability: "plugins.setEnabled", input: { id: "safe", enabled: false }, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!(await response.json()).ok) throw new Error("Synthetic Vault could not disable Safe");
     });
     await page.getByRole("button", { name: "设置" }).first().click();
     await page.getByTestId("settings-nav-versioning").click();
-    const sel = page.getByTestId("sync-credential");
-    await expect(sel.locator("option")).toHaveText(["无（使用系统的 Git 凭据助手 / SSH agent）", "GitHub 令牌"], { timeout: 10_000 });
-    await page.getByTestId("sync-remote").fill("https://example.invalid/team/notes.git");
-    await sel.selectOption({ label: "GitHub 令牌" });
-    await page.getByTestId("sync-credential-user").fill("alice");
+    const panel = page.getByTestId("sync-auth-panel");
+    const remote = page.getByTestId("sync-remote");
+    const state = panel.getByTestId("sync-auth-state");
+    await expect(remote).toHaveValue(first);
+    await expect(state).toHaveText("请在此重新配置该 Git 远端的认证");
+    await expect(page.getByTestId("sync-credential")).toHaveCount(0);
+    await panel.getByLabel("用户名").fill("new-fixture-user");
+    const token = panel.getByLabel("密码或令牌");
+    await expect(token).toHaveAttribute("type", "password");
+    await token.fill(secret);
+    await panel.getByRole("button", { name: "保存认证" }).click();
+    await expect(state).toHaveText("认证已配置");
+    await expect(token).toHaveValue("");
+    await expect(panel.getByLabel("用户名")).toHaveValue("");
+    await remote.fill(second);
+    await expect(panel).toHaveCount(0);
+    await expect(page.getByText("先保存远端地址，再配置该远端的认证。")).toBeVisible();
     await page.getByTestId("sync-save").click();
-    await expect(page.getByTestId("sync-message")).toHaveText("已保存");
-    const cfg = readFileSync(path.join(vault, ".huhu/sync/config.json"), "utf8");
-    expect(JSON.parse(cfg)).toMatchObject({ credential: expect.stringMatching(/^safe:\/\/item-[0-9a-z]+$/), credentialUser: "alice" });
-    expect(cfg).not.toContain("ghp_e2e_secret_value");
+    await expect(state).toHaveText("请在此重新配置该 Git 远端的认证");
+    const cfg = readFileSync(path.join(configDir, "config.json"), "utf8");
+    expect(JSON.parse(cfg)).toMatchObject({ remote: second, branch: "main", mode: "off" });
+    expect([secret, retiredReference, "previous-user", "new-fixture-user"].some((material) => cfg.includes(material))).toBe(false);
+    expect(calls).not.toContain("safe.items.list");
+    await remote.fill(first);
+    await page.getByTestId("sync-save").click();
+    await expect(state).toHaveText("认证已配置");
+    await panel.getByRole("button", { name: "清除认证" }).click();
+    await expect(state).toHaveText("尚未配置认证");
   } finally {
-    await app.close();
+    await app?.close();
     rmTree(vault);
   }
 });

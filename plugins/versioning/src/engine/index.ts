@@ -1,5 +1,5 @@
 import path from "node:path";
-import { HuhuError, KINDS, errors } from "@huhu/contracts";
+import { KINDS, errors } from "@huhu/contracts";
 import { normalizeRelPath, parseFrontmatter, parseTaskBody, patchFrontmatter, replaceBody, replaceTaskSection, splitDocument } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
@@ -7,8 +7,8 @@ import { z } from "zod";
 import { AutoSync } from "./auto-sync.js";
 import { FileHistory, type HistoryEntry } from "./history.js";
 import { VaultGit } from "./repo.js";
-import { ConfigureGitAuth, GitAuthSummary, GitRemoteCredentials, isPlainSyncRemote, type GitCredentialHost } from "./remote-auth.js";
-import { VaultSync } from "./sync.js";
+import { ConfigureGitAuth, GitAuthSummary, GitRemoteCredentials, type GitCredentialHost } from "./remote-auth.js";
+import { SyncConfigPatch, SyncConfigSchema, VaultSync } from "./sync.js";
 
 export { FileHistory } from "./history.js";
 import { gitInstalled } from "./git.js";
@@ -220,12 +220,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
         if (text.startsWith("---")) parseFrontmatter(text);
       },
     },
-    (ref) => {
-      // 秘密只经 SecretUse 取得，且仅限被允许引用的模块（versioning）
-      const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
-      if (!su) throw new HuhuError("SECRET_REF_INVALID", "保险箱插件未启用");
-      return su.resolve(ref, { plugin: "versioning", purpose: "sync" });
-    },
     opts.credentialHost && new GitRemoteCredentials(opts.credentialHost),
     files.readOnly,
   );
@@ -255,19 +249,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   });
   api.events.subscribe((e) => {
     if (e.type === "engine.closing") sync.dispose();
-    if (e.type === "safe.unlocked") auto.legacyUnlocked(() => sync.legacyAuth());
   });
-  const Cfg = z.object({
-    remote: z.string(),
-    branch: z.string(),
-    mode: z.enum(["off", "follow", "full"]),
-    pullIntervalSec: z.number().int(),
-    pushIntervalSec: z.number().int(),
-    credential: z.string(),
-    credentialUser: z.string(),
-    exclude: z.array(z.string()),
-  });
-  api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
+  api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: SyncConfigSchema, handler: () => sync.config() }));
   const desktopAuth = { plugin: "versioning", desktopOnly: true, exposable: false, defaultExposed: false } as const;
   api.defineCapability(def({ ...desktopAuth, name: "sync.auth.get", scope: "read", input: z.object({}), output: GitAuthSummary, handler: () => sync.authStatus() }));
   api.defineCapability(
@@ -290,12 +273,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       scope: "write",
       exposable: false,
       defaultExposed: false,
-      input: Cfg.extend({ remote: z.string().refine(isPlainSyncRemote, "远端地址无效或包含认证材料"), credential: z.string().regex(/^(?:safe:\/\/item-[0-9a-z]+)?$/) })
-        .partial()
-        .strict(),
-      output: Cfg,
+      input: SyncConfigPatch,
+      output: SyncConfigSchema,
       handler: async ({ signal }, i) => {
-        const next = await sync.updateConfig(i as never, signal);
+        const next = await sync.updateConfig(i, signal);
         auto.configChanged();
         return next;
       },
@@ -432,9 +413,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
         name: z.string(),
         detail: z.string(),
         pausedReason: z.enum(["conflict", "auth-failed"]).nullable(),
-        authPause: z.object({ source: z.enum(["versioning", "legacy-safe"]), target: z.string(), revision: z.uuidv4().nullable(), reason: z.string() }).optional(),
+        authPause: z.object({ source: z.literal("versioning"), target: z.string(), revision: z.uuidv4().nullable(), reason: z.string() }).optional(),
       }),
-      handler: () => ({ ...sync.status(), pausedReason: auto.state().pausedReason, authPause: auto.authPause() }),
+      handler: async () => ({ ...(await sync.visibleStatus()), pausedReason: auto.state().pausedReason, authPause: auto.authPause() }),
     }),
   );
   auto.restart(); // 启动时按已保存的模式与间隔排程

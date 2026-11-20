@@ -1,14 +1,15 @@
 import { Button } from "@huhu/ui";
-import { useCapability } from "@huhu/workbench";
+import { host, useCapability } from "@huhu/workbench";
 import { useState } from "react";
+import { canSendAuthentication } from "../../shared/git-auth.js";
 import { t } from "../i18n.js";
 import { useCall } from "../useCall.js";
+import { GitAuthPanel } from "./GitAuthPanel.js";
 import type { Cfg, SyncStatus } from "./types.js";
 
 /** 同步设置页（versioning 插件）：远端、分支、凭据、同步模式、间隔与排除规则。状态、预览与执行留在版本模块的同步页。 */
 export function SyncSettingsPage() {
   const cfg = useCapability<Cfg>("sync.get", {});
-  const items = useCapability<{ id: string; name: string; type: string; allowedModules: string[] }[]>("safe.items.list", {}); // 保险箱插件停用/未解锁时会报错，忽略即可
   const status = useCapability<SyncStatus>("sync.status", {});
   if (cfg.isError)
     return (
@@ -18,39 +19,29 @@ export function SyncSettingsPage() {
     );
   if (!cfg.data) return <p>…</p>;
   // 不能用配置值做 key：保存后配置变化会让表单重挂载，把“已保存”提示一并清掉
-  return <SyncSettingsForm cfg={cfg.data} safeItems={(items.data ?? []).filter((i) => i.allowedModules.includes("versioning") && (i.type === "token" || i.type === "password"))} pausedReason={status.data?.pausedReason ?? null} />;
+  return <SyncSettingsForm cfg={cfg.data} status={status.data} />;
 }
 
-function SyncSettingsForm({ cfg, safeItems, pausedReason }: { cfg: Cfg; safeItems: { id: string; name: string }[]; pausedReason: SyncStatus["pausedReason"] }) {
+function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | undefined }) {
   const call = useCall();
   const [remote, setRemote] = useState(cfg.remote);
   const [branch, setBranch] = useState(cfg.branch);
   const [mode, setMode] = useState(cfg.mode);
   const [exclude, setExclude] = useState(cfg.exclude.join("\n"));
-  const [credential, setCredential] = useState(cfg.credential);
-  const [credUser, setCredUser] = useState(cfg.credentialUser);
   const [pullSec, setPullSec] = useState(String(cfg.pullIntervalSec));
   const [pushSec, setPushSec] = useState(String(cfg.pushIntervalSec));
   const okSec = (v: string) => /^\d+$/.test(v) && Number(v) >= 30 && Number(v) <= 3600;
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-  const dirty =
-    remote !== cfg.remote ||
-    branch !== cfg.branch ||
-    mode !== cfg.mode ||
-    exclude !== cfg.exclude.join("\n") ||
-    credential !== cfg.credential ||
-    credUser !== cfg.credentialUser ||
-    pullSec !== String(cfg.pullIntervalSec) ||
-    pushSec !== String(cfg.pushIntervalSec);
+  const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n") || pullSec !== String(cfg.pullIntervalSec) || pushSec !== String(cfg.pushIntervalSec);
+  const pausedReason = status?.pausedReason;
 
   async function save() {
     setMsg(null);
+    const target = remote.trim();
     const r = await call<Cfg>("sync.update", {
-      remote: remote.trim(),
+      remote: target,
       branch: branch.trim(),
       mode,
-      credential,
-      credentialUser: credUser.trim() || "git",
       pullIntervalSec: okSec(pullSec) ? Number(pullSec) : cfg.pullIntervalSec,
       pushIntervalSec: okSec(pushSec) ? Number(pushSec) : cfg.pushIntervalSec,
       exclude: exclude
@@ -58,6 +49,7 @@ function SyncSettingsForm({ cfg, safeItems, pausedReason }: { cfg: Cfg; safeItem
         .map((l) => l.trim())
         .filter(Boolean),
     });
+    if (r.ok) setRemote((current) => (current.trim() === target ? r.data.remote : current));
     setMsg(r.ok ? { tone: "ok", text: t.sync.saved } : { tone: "error", text: r.message });
   }
 
@@ -79,25 +71,6 @@ function SyncSettingsForm({ cfg, safeItems, pausedReason }: { cfg: Cfg; safeItem
           {t.sync.branch}
           <input className="hu-input" data-testid="sync-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
         </label>
-        <label>
-          {t.sync.credential}
-          <select data-testid="sync-credential" aria-label={t.sync.credential} value={credential} onChange={(e) => setCredential(e.target.value)}>
-            <option value="">{t.sync.credentialNone}</option>
-            {safeItems.map((i) => (
-              <option key={i.id} value={`safe://${i.id}`}>
-                {i.name}
-              </option>
-            ))}
-            {credential && !safeItems.some((i) => `safe://${i.id}` === credential) ? <option value={credential}>{t.sync.credentialMissing}</option> : null}
-          </select>
-        </label>
-        {credential ? (
-          <label>
-            {t.sync.credentialUser}
-            <input className="hu-input" data-testid="sync-credential-user" value={credUser} onChange={(e) => setCredUser(e.target.value)} />
-          </label>
-        ) : null}
-        <p>{safeItems.length === 0 ? t.sync.credentialHint : t.sync.credentialNote}</p>
         <fieldset>
           <legend>{t.sync.mode}</legend>
           <div role="radiogroup" aria-label={t.sync.mode} className="hu-row">
@@ -143,6 +116,23 @@ function SyncSettingsForm({ cfg, safeItems, pausedReason }: { cfg: Cfg; safeItem
           {msg.text}
         </div>
       ) : null}
+      {canConfigureAuth(remote.trim()) ? (
+        cfg.remote !== remote.trim() ? (
+          <p role="status">{t.sync.credentialSaveRemote}</p>
+        ) : host() ? (
+          <GitAuthPanel key={cfg.remote} remote={cfg.remote} readOnly={status?.name === "read-only"} />
+        ) : (
+          <p role="status">{t.sync.credentialDesktop}</p>
+        )
+      ) : null}
     </div>
   );
+}
+
+function canConfigureAuth(remote: string): boolean {
+  try {
+    return canSendAuthentication(remote);
+  } catch {
+    return false;
+  }
 }

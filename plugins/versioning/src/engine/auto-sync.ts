@@ -1,4 +1,4 @@
-import { isSyncAuthError, SyncAuthFailure, type LegacyAuth, type VersioningAuth } from "./remote-auth.js";
+import { isSyncAuthError, SyncAuthFailure, type VersioningAuth } from "./remote-auth.js";
 
 export type AutoMode = "off" | "follow" | "full";
 export type RunMode = "pull" | "sync";
@@ -53,7 +53,7 @@ export class AutoSync {
     const error = this.authFailure;
     if (!error) return undefined;
     const { scope, reason } = error;
-    return { source: scope.source, target: scope.target, revision: scope.source === "versioning" ? scope.revision : null, reason };
+    return { ...scope, reason };
   }
 
   restart(): void {
@@ -81,7 +81,7 @@ export class AutoSync {
       if (e instanceof SyncAuthFailure) {
         const { scope } = e;
         if (this.d.authTarget && this.d.authTarget() !== scope.target) return;
-        if (scope.source === "versioning" && this.latestRevision !== undefined && scope.revision !== this.latestRevision) return;
+        if (this.latestRevision !== undefined && scope.revision !== this.latestRevision) return;
       }
       this.pause("auth-failed", e instanceof SyncAuthFailure ? e : undefined);
     }
@@ -97,21 +97,13 @@ export class AutoSync {
     // 凭据记录的修订链包含 keep 和 clear，只有实际替换可以排队恢复。
     if (this.latestRevision !== undefined && this.latestRevision !== previous) return;
     const scope = this.authFailure?.scope;
-    const followsFailedRevision = scope?.source === "legacy-safe" || this.latestRevision !== undefined || scope?.revision === previous;
+    const followsFailedRevision = this.latestRevision !== undefined || scope?.revision === previous;
     this.latestRevision = next.revision;
     this.clearRepair();
     if (replaced && followsFailedRevision && scope?.target === next.target && this.recoveryMode(next)) {
       this.repair = next;
       this.scheduleRepair();
     }
-  }
-
-  legacyUnlocked(legacyAuth: () => LegacyAuth | null): void {
-    const failed = this.authFailure;
-    const scope = failed?.scope;
-    if (failed?.code !== "SAFE_LOCKED" || scope?.source !== "legacy-safe") return;
-    const current = legacyAuth();
-    if (current?.target === scope.target && current.reference === scope.reference) this.restart();
   }
 
   private clearRepair(): void {

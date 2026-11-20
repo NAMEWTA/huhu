@@ -6,6 +6,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { LocalProtectionError } from "@huhu/kernel";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
@@ -309,6 +310,74 @@ test("HTTP 目标归一化端口和仓库，并拒绝 URL 内嵌认证材料与�
 });
 
 testWindows(
+  "有效的旧 Safe 引用只提示 Versioning 补配，零联网；停用 Safe 后按保存的目标恢复一次",
+  async () => {
+    const live = await fixture();
+    const user = `owner-${randomUUID()}`;
+    const token = `current-${randomUUID()}`;
+    const previousValue = `retired-${randomUUID()}`;
+    const previousUser = `previous-${randomUUID()}`;
+    const safePassword = randomUUID();
+    const endpoint = await remote(live.remoteRoot, user, token);
+    const config = { remote: `${endpoint.base}/a.git`, branch: "main", mode: "follow" };
+    const status = () => live.client.call<SyncState>("sync.status");
+    const readAuth = () => live.client.call<Auth>("sync.auth.get");
+    const pull = () => live.client.call("sync.run", { mode: "pull" }, { write: true });
+    const configure = (expectedRevision: string | null, value = token) => live.client.call<Auth>("sync.auth.configure", { remote: config.remote, expectedRevision, credential: { action: "replace", username: user, token: value } });
+
+    await live.client.call("safe.setup", { password: safePassword });
+    const legacy = await live.client.call<{ id: string }>("safe.items.save", { name: "Synthetic legacy credential", type: "token", value: previousValue, allowedModules: ["versioning"] }, { write: true });
+    const reference = `safe://${legacy.id}`;
+    const configDir = path.join(live.vaultPath, ".huhu", "sync");
+    const configFile = path.join(configDir, "config.json");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(configFile, JSON.stringify({ ...config, credential: reference, credentialUser: previousUser }));
+    expect(await live.client.call("sync.get")).toMatchObject(config);
+    expect(await readAuth()).toEqual({ revision: null, state: "needs-reconfiguration" });
+    expect(await status()).toMatchObject({ name: "auth-failed", detail: expect.stringContaining("重新配置") });
+    expect(await capture(live.client.call("sync.update", { credential: reference, credentialUser: previousUser }, { write: true }))).toBe("INVALID_INPUT");
+    expect(await capture(live.client.call("sync.preview"))).toBe("GIT_AUTH_FAILED");
+    const failed = await pull().catch((error: CapabilityError) => error);
+    expect(failed).toMatchObject({ code: "GIT_AUTH_FAILED", details: { reason: "needs-reconfiguration" } });
+    expect(await status()).toMatchObject({ pausedReason: "auth-failed", authPause: { source: "versioning", target: config.remote, revision: null, reason: "needs-reconfiguration" } });
+    for (const secret of [reference, previousUser, previousValue]) {
+      const visible = JSON.stringify([await live.client.call("sync.get"), await readAuth(), await status(), failed]);
+      expect(visible.includes(secret)).toBe(false);
+    }
+
+    await live.client.call("safe.lock");
+    await live.client.call("safe.unlock", { password: safePassword });
+    await live.client.call("plugins.setEnabled", { id: "safe", enabled: false }, { write: true });
+    expect(endpoint.seen).toHaveLength(0);
+    expect((await status()).pausedReason).toBe("auth-failed");
+    await live.client.call("sync.update", { pushIntervalSec: 120 }, { write: true });
+    expect(JSON.parse(readFileSync(configFile, "utf8"))).toEqual({ ...config, exclude: [], pullIntervalSec: 30, pushIntervalSec: 120, authReconfigurationRequired: true });
+
+    const saved = await configure(null);
+    expect(saved.state).toBe("configured");
+    await expect.poll(async () => (await status()).pausedReason, { timeout: 15_000 }).toBeNull();
+    expect((await status()).name).toBe("idle");
+    expect(endpoint.seen.filter((request) => request.auth === "correct" && request.path.endsWith("/info/refs")).map((request) => request.service)).toEqual(["git-upload-pack"]);
+    expect(endpoint.seen.some((request) => request.auth === "other")).toBe(false);
+
+    const requests = endpoint.seen.length;
+    expect(await capture(configure(null))).toBe("VERSION_CONFLICT");
+    const protection = vi.spyOn(live.engine.moduleCredentialHost!.protection, "read").mockRejectedValue(new LocalProtectionError("unavailable"));
+    try {
+      expect(await readAuth()).toEqual({ ...saved, state: "temporarily-unavailable" });
+      expect(await capture(configure(saved.revision, `failed-${randomUUID()}`))).toBe("GIT_AUTH_FAILED");
+      expect(await capture(pull())).toBe("GIT_AUTH_FAILED");
+    } finally {
+      protection.mockRestore();
+    }
+    expect(endpoint.seen).toHaveLength(requests);
+    expect(await readAuth()).toEqual(saved);
+    expect(await capture(pull())).toBe("OK");
+  },
+  120_000,
+);
+
+testWindows(
   "真实 Git fetch/push 使用 Versioning 自有认证，换仓库或端口后不送旧认证",
   async () => {
     const live = await fixture();
@@ -320,6 +389,10 @@ testWindows(
     const configure = (remote: string, expectedRevision: string | null) => live.client.call<Auth>("sync.auth.configure", { remote, expectedRevision, credential: { action: "replace", username: user, token } });
     const operation = (mode: "pull" | "push") => live.client.call("sync.run", { mode }, { write: true });
     const first = `${a.base}/a.git`;
+    const helperStore = path.join(live.root, "git-credentials");
+    const helperContents = `${a.base.replace("://", "://stale:helper-fixture@")}\n`;
+    writeFileSync(helperStore, helperContents);
+    writeFileSync(live.privateGitConfig, `[credential]\n\thelper = store --file="${helperStore.replaceAll("\\", "/")}"\n`);
     await choose(first);
     const setting = configure(first, null);
     expect(await capture(setting)).toBe("OK");
@@ -336,6 +409,8 @@ testWindows(
     await live.client.call("plugins.setEnabled", { id: "safe", enabled: false }, { write: true });
     expect(await capture(operation("pull"))).toBe("OK");
     expect(a.seen.some((record) => record.auth === "correct")).toBe(true);
+    expect(a.seen.some((record) => record.auth === "other")).toBe(false);
+    expect(readFileSync(helperStore, "utf8")).toBe(helperContents);
 
     await choose(`${a.base}/b.git`);
     expect(await capture(operation("pull"))).toBe("GIT_AUTH_FAILED");

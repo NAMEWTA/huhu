@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { HuhuError } from "@huhu/contracts";
 import { AutoSync, type AutoSyncConfig, type RunMode } from "../src/engine/auto-sync.js";
-import { SyncAuthFailure, type LegacyAuth, type VersioningAuth } from "../src/engine/remote-auth.js";
+import { SyncAuthFailure, type VersioningAuth } from "../src/engine/remote-auth.js";
 
 function setup(cfg: Partial<AutoSyncConfig> = {}, runRepair?: (repair: VersioningAuth, isCurrent: () => boolean) => Promise<boolean>) {
   const config: AutoSyncConfig = { mode: "full", pullIntervalSec: 30, pushIntervalSec: 60, ...cfg };
@@ -86,17 +86,6 @@ describe("自动同步调度", () => {
     await t.fire(30_000);
     expect(t.auto.state().pausedReason).toBe("conflict");
     expect(t.live()).toHaveLength(0);
-  });
-
-  test("保险箱锁定/凭据引用失效同样暂停自动同步（等用户解锁或重新配置）", async () => {
-    for (const code of ["SAFE_LOCKED", "SECRET_REF_INVALID"]) {
-      const t = setup();
-      t.auto.restart();
-      t.st.fail = err(code);
-      await t.fire(30_000);
-      expect(t.auto.state().pausedReason).toBe("auth-failed");
-      expect(t.live()).toHaveLength(0);
-    }
   });
 
   test("离线等其他失败：指数退避（每次翻倍，封顶 3600 秒），成功后恢复原间隔", async () => {
@@ -279,23 +268,5 @@ describe("自动同步调度", () => {
       expect(t.auto.authPause()).toMatchObject({ revision: "r1", reason: "remote-rejected" });
       expect(t.live()).toHaveLength(0);
     }
-  });
-
-  test("Safe 解锁只恢复匹配旧引用的锁定暂停", () => {
-    const t = setup();
-    const legacy: LegacyAuth = { source: "legacy-safe", target: t.st.target, reference: "safe://item-fixture" };
-    t.auto.restart();
-    t.auto.noteManualFailure(new SyncAuthFailure(new HuhuError("SAFE_LOCKED", "fixture"), legacy));
-    t.auto.legacyUnlocked(() => ({ ...legacy, reference: "safe://item-other" }));
-    expect(t.live()).toHaveLength(0);
-    t.auto.legacyUnlocked(() => legacy);
-    expect(t.live()).toHaveLength(2);
-    t.auto.noteManualFailure(new SyncAuthFailure(new HuhuError("GIT_AUTH_FAILED", "fixture"), legacy));
-    const shouldNotReadLegacy = () => {
-      throw new Error("远端拒绝不应解析旧引用");
-    };
-    t.auto.legacyUnlocked(shouldNotReadLegacy);
-    expect(t.auto.authPause()).toMatchObject({ source: "legacy-safe", reason: "remote-rejected" });
-    expect(t.live()).toHaveLength(0);
   });
 });

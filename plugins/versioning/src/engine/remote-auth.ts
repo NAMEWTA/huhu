@@ -27,23 +27,20 @@ export type GitAuthSummary = z.infer<typeof GitAuthSummary>;
 export type GitLogin = { username: string; token: string };
 
 export type VersioningAuth = { source: "versioning"; target: string; revision: string | null };
-export type LegacyAuth = { source: "legacy-safe"; target: string; reference: string };
-export type SyncAuthScope = VersioningAuth | LegacyAuth;
 
-const AUTH_CODES = new Set(["GIT_AUTH_FAILED", "SAFE_LOCKED", "SECRET_REF_INVALID"]);
-export const isSyncAuthError = (code: string): boolean => AUTH_CODES.has(code);
+export const isSyncAuthError = (code: string): boolean => code === "GIT_AUTH_FAILED";
 
 export class SyncAuthFailure extends HuhuError {
   readonly reason: string;
 
   constructor(
     error: HuhuError,
-    readonly scope: SyncAuthScope,
+    readonly scope: VersioningAuth,
   ) {
     const { retryable, details, recovery } = error;
     super(error.code, error.message, { retryable, ...(details && { details }), ...(recovery && { recovery }) });
     const reason = error.details?.reason;
-    this.reason = typeof reason === "string" ? reason : error.code === "GIT_AUTH_FAILED" ? "remote-rejected" : error.code.toLowerCase().replaceAll("_", "-");
+    this.reason = typeof reason === "string" ? reason : "remote-rejected";
   }
 }
 
@@ -83,13 +80,9 @@ export function httpTarget(remote: string): string | null {
   return `${url.origin}${repository}`;
 }
 
-export function canSendAuthentication(target: string): boolean {
-  const url = new URL(target);
-  return url.protocol === "https:" || ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
-}
-
 export function authenticationFailed(reason: string): HuhuError {
-  return new HuhuError("GIT_AUTH_FAILED", "Git 远端认证不可用，请检查同步凭据", { details: { reason } });
+  const message = reason === "needs-reconfiguration" ? "请在同步设置中重新配置此 Git 远端的认证" : "Git 远端认证不可用，请检查同步凭据";
+  return new HuhuError("GIT_AUTH_FAILED", message, { details: { reason } });
 }
 
 function mapCredentialError(error: unknown): never {
