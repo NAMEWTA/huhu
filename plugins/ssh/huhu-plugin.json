@@ -44,7 +44,10 @@
       "ssh.sftp.write",
       "ssh.shells.close",
       "ssh.shells.list",
-      "ssh.shells.open"
+      "ssh.shells.open",
+      "ssh.workspace.templates.delete",
+      "ssh.workspace.templates.list",
+      "ssh.workspace.templates.save"
     ],
     "fileKinds": []
   }

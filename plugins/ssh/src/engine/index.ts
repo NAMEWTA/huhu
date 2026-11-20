@@ -8,6 +8,7 @@ import { HostStore } from "./hosts.js";
 import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
 import { hostImportConfirm, hostImportPreview } from "./import/capability.js";
 import { SshManager } from "./manager.js";
+import { WorkspaceTemplates } from "./workspace-templates.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -19,6 +20,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const stateInVault = !path.isAbsolute(relativeState) && relativeState !== ".." && !relativeState.startsWith(`..${path.sep}`);
   const hosts = new HostConfigurations(new HostStore(path.join(root, "hosts")), credentialHost);
   const directory = new HostDirectory(hosts, api.vault.files);
+  const templates = new WorkspaceTemplates(api.vault.files, hosts);
   const manager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
@@ -37,6 +39,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   ctx.effect(() => () => manager.disposeAll()); // 插件停用 / Vault 关闭：断开全部连接
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, () => templates.list()));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, ({ signal }, i) => templates.save(i, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, ({ signal }, i) => templates.delete(i, signal)));
   api.defineCapability(hostImportPreview(hosts));
   api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
   api.defineCapability(
@@ -66,7 +71,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsDelete, async (_c, i) => {
       api.vault.files.assertWritable();
-      await hosts.deleteLegacy(i.id);
+      await hosts.deleteLegacy(i.id, () => templates.assertUnused(i.id));
       manager.forgetConnection(i.id);
       api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" });
       return { ok: true as const };
@@ -88,7 +93,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsRemove, async ({ signal }, input) => {
-      await hosts.remove(input, signal);
+      await hosts.remove(input, signal, () => templates.assertUnused(input.hostId));
       manager.forgetConnection(input.hostId);
       api.events.publish("entity.changed", { kind: "ssh-host", id: input.hostId, op: "deleted" });
       return { ok: true as const };

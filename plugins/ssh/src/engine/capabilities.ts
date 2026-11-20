@@ -4,6 +4,8 @@ import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
 import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput, LegacyHostView, ManagedHostView } from "./auth-profile.js";
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
+import { WorkspaceTemplate } from "../shared/workspace.js";
+import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
@@ -14,6 +16,36 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  workspaceTemplatesList: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.templates.list",
+    title: "SSH 工作区模板",
+    description: "列出本 Vault 的工作区模板。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(WorkspaceTemplate),
+  }),
+  workspaceTemplatesSave: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.templates.save",
+    title: "保存 SSH 工作区模板",
+    description: "保存有序的主机引用及布局。",
+    scope: "write",
+    risk: "normal",
+    input: SaveTemplate,
+    output: WorkspaceTemplate,
+  }),
+  workspaceTemplatesDelete: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.workspace.templates.delete",
+    title: "删除 SSH 工作区模板",
+    description: "删除指定版本的工作区模板。",
+    scope: "write",
+    risk: "normal",
+    input: TemplateRevision,
+    output: Ok,
+  }),
   hostsImportPreview: hostImportPreviewDescriptor,
   hostsImportConfirm: hostImportConfirmDescriptor,
   hostsDirectory: defineCapabilityDescriptor({

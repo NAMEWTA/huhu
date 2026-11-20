@@ -12,6 +12,7 @@ import { HostKeyDialog, hostEndpoint } from "./HostKeyDialog.js";
 import { HostRecordActionDialog } from "./HostRecordActionDialog.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHost } from "./host-record.js";
+import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
 import { t } from "./i18n.js";
 
 interface Shell {
@@ -67,6 +68,7 @@ export function SshModule() {
   const [activeShell, setActiveShell] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
+  const [workspaces, setWorkspaces] = useState(false);
   const [importVault, setImportVault] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
@@ -158,10 +160,14 @@ export function SshModule() {
       setConnectError({ hostId: h.id, message: message(e) });
     }
   }
+  if (workspaces) return <WorkspaceLibrary onHosts={() => setWorkspaces(false)} />;
   return (
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
         <div className="hu-resource-head ssh-resource-head">
+          <Button variant="ghost" onClick={() => setWorkspaces(true)}>
+            工作区
+          </Button>
           <div className="row">
             <span className="grow ssh-resource-title">{t.hosts}</span>
             <span className="ssh-count">{(hosts.data ?? []).length}</span>

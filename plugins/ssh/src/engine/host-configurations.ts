@@ -117,10 +117,15 @@ export class HostConfigurations {
     return this.mutate(async () => this.legacy.save(input));
   }
 
-  deleteLegacy(id: string) {
+  withStableDirectory<T>(operation: () => Promise<T>): Promise<T> {
+    return this.mutate(operation);
+  }
+
+  deleteLegacy(id: string, assertUnused?: () => void) {
     if (OwnedHostId.safeParse(id).success) throw errors.invalidInput("请通过 SSH 主机配置管理新版主机");
     return this.mutate(async () => {
       await this.assertUnused(id);
+      assertUnused?.();
       this.legacy.delete(id);
     });
   }
@@ -192,11 +197,12 @@ export class HostConfigurations {
     });
   }
 
-  remove({ hostId, expectedRevision }: z.infer<typeof HostRevision>, signal: AbortSignal) {
+  remove({ hostId, expectedRevision }: z.infer<typeof HostRevision>, signal: AbortSignal, assertUnused?: () => void) {
     return this.mutate(async () => {
       const owner = this.credentials();
       this.checkRevision(hostId, expectedRevision, await owner.list());
       await this.assertUnused(hostId);
+      assertUnused?.();
       await owner.delete(hostId, expectedRevision, signal);
     });
   }
