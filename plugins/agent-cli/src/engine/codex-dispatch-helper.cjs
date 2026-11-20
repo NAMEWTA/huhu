@@ -7,6 +7,38 @@ const { createServer } = require("node:net");
 const path = require("node:path");
 const { createInterface } = require("node:readline");
 
+const validText = (value, limit) => typeof value === "string" && value.length <= limit && /\S/.test(value) && value.isWellFormed();
+
+function createNativeAnswerOutputReader() {
+  const calls = new Map();
+  const tool = "request_user_input";
+  return (method, params, threadId, turnId) => {
+    if (!turnId || params?.threadId !== threadId || params?.turnId !== turnId || !params.item) return null;
+    const { item } = params;
+    let itemId;
+    if (method === "item/completed" && item.type === "functionCallOutput" && item.name === tool) {
+      itemId = item.id;
+    } else if (method === "rawResponseItem/completed" && typeof item.call_id === "string") {
+      const callId = item.call_id;
+      const prior = calls.get(callId);
+      if (item.type === "function_call") {
+        if (prior !== undefined || calls.size < 128) calls.set(callId, prior !== false && item.name === tool);
+        return null;
+      }
+      // The native Codex raw output can omit name. The earlier call on this turn supplies it.
+      if (item.type === "function_call_output" && prior !== false && (item.name === tool || (item.name == null && prior === true))) itemId = callId;
+    }
+    if (typeof itemId !== "string") return null;
+    const output = Array.isArray(item.output) && item.output.length === 1 && item.output[0]?.type === "input_text" ? item.output[0].text : item.output;
+    if (!validText(output, 16_000)) return null;
+    try {
+      return { itemId, result: JSON.parse(output) };
+    } catch {
+      return null;
+    }
+  };
+}
+
 function main(file) {
   const config = JSON.parse(readFileSync(file, "utf8"));
   const directory = path.dirname(file);
@@ -58,6 +90,7 @@ function main(file) {
   let executionBinding;
   const questions = new Map();
   const submittedAnswers = new Map();
+  const readAnswerOutput = createNativeAnswerOutputReader();
   const seenQuestionIds = new Set();
   const seenQuestionItems = new Set();
   let currentQuestion;
@@ -86,7 +119,6 @@ function main(file) {
   }
 
   const validId = (value) => typeof value === "string" && id.test(value);
-  const validText = (value, limit) => typeof value === "string" && value.length <= limit && /\S/.test(value) && value.isWellFormed();
   const hash = (values) => createHash("sha256").update(JSON.stringify(values)).digest("hex");
   const executionFields = ({ vaultId, taskId, runId, attempt, dispatchId, sessionBinding: b }) => [
     vaultId,
@@ -173,9 +205,7 @@ function main(file) {
       confirmAnswer(answer);
       return;
     }
-    if (params.turnId === turnId && turnId && (method === "item/completed" || method === "rawResponseItem/completed")) {
-      recordAnswerOutput(method, params.item);
-    }
+    recordAnswerOutput(readAnswerOutput(method, params, threadId, turnId));
     if (method === "item/completed" && validId(params.turnId) && (!turnId || params.turnId === turnId)) {
       const item = params.item;
       if (item?.type !== "agentMessage" || item.phase !== "final_answer" || !validId(item.id) || !validText(item.text, 64_000)) return;
@@ -189,20 +219,10 @@ function main(file) {
     }
   }
 
-  function recordAnswerOutput(method, item) {
-    if (item?.name !== "request_user_input") return;
-    const itemId = method === "item/completed" && item.type === "functionCallOutput" ? item.id : method === "rawResponseItem/completed" && item.type === "function_call_output" ? item.call_id : undefined;
-    const answer = [...submittedAnswers.values()].find((entry) => entry.source.itemId === itemId);
-    if (!answer) return;
-    const output = Array.isArray(item.output) && item.output.length === 1 && item.output[0]?.type === "input_text" ? item.output[0].text : item.output;
-    if (!validText(output, 16_000)) return;
-    let parsed;
-    try {
-      parsed = JSON.parse(output);
-    } catch {
-      return;
-    }
-    if (JSON.stringify(parsed) !== JSON.stringify(answer.result)) return;
+  function recordAnswerOutput(evidence) {
+    if (!evidence) return;
+    const answer = [...submittedAnswers.values()].find((entry) => entry.source.itemId === evidence.itemId);
+    if (!answer || JSON.stringify(evidence.result) !== JSON.stringify(answer.result)) return;
     answer.consumed = true;
     confirmAnswer(answer);
   }
@@ -380,9 +400,12 @@ function main(file) {
   });
 }
 
-try {
-  main(process.argv[2]);
-} catch {
-  process.stderr.write("HUHU Codex: controlled launch unavailable\n");
-  process.exitCode = 1;
+module.exports = { createNativeAnswerOutputReader };
+if (require.main === module) {
+  try {
+    main(process.argv[2]);
+  } catch {
+    process.stderr.write("HUHU Codex: controlled launch unavailable\n");
+    process.exitCode = 1;
+  }
 }

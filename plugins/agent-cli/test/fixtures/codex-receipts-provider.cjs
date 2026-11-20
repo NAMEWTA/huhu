@@ -71,16 +71,21 @@ if (process.argv.includes("--version")) {
       if (message.id !== 0) return;
       const output = (method, thread, turn, item) => send({ method, params: { threadId: thread, turnId: turn, item } });
       const consumed = { type: "functionCallOutput", id: "fixture-question", name: "request_user_input", output: JSON.stringify(message.result) };
+      const rawCall = { type: "function_call", call_id: "fixture-question", name: "request_user_input" };
+      const rawOutput = { type: "function_call_output", call_id: "fixture-question", output: consumed.output };
       waitFor("resolve-without-proof", () => {
         send({ method: "serverRequest/resolved", params: { threadId, requestId: 0 } });
         output("item/completed", "foreign-thread", turnId, consumed);
         output("item/completed", threadId, "foreign-turn", consumed);
         output("item/completed", threadId, turnId, { ...consumed, id: "older-question" });
         output("item/completed", threadId, turnId, { ...consumed, output: JSON.stringify({ answers: { choice: { answers: ["Wrong"] } } }) });
+        output("rawResponseItem/completed", threadId, "foreign-turn", rawCall);
+        output("rawResponseItem/completed", threadId, turnId, rawOutput);
         log("resolution-without-proof");
       });
       waitFor("allow-answer-proof", () => {
-        output("rawResponseItem/completed", threadId, turnId, { type: "function_call_output", call_id: "fixture-question", name: "request_user_input", output: [{ type: "input_text", text: consumed.output }] });
+        output("rawResponseItem/completed", threadId, turnId, rawCall);
+        output("rawResponseItem/completed", threadId, turnId, rawOutput);
         log("original-answer-output");
       });
     }
