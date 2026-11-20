@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { WorkspaceCanvas, type WorkspaceSession as Session } from "./WorkspaceCanvas.js";
-import { leaves, removePane, replacePane, splitPane, type PaneLeaf, type SpaceLayout, type SplitDirection, type WorkspaceView } from "../shared/workspace-layout.js";
+import { leaves, placeSession, replacePane, sessionPlacement, type PaneLeaf, type SpaceLayout, type WorkspaceLaunchView, type WorkspaceTarget, type WorkspaceView } from "../shared/workspace-layout.js";
 import { t } from "./i18n.js";
 
 interface Space {
@@ -22,11 +22,10 @@ interface Detected {
   installed: boolean;
 }
 
-type LaunchTarget = { kind: "tab" } | { kind: "leaf"; tab: string; leaf: string; direction?: SplitDirection };
 interface LaunchIntent {
   space: Space;
   view: WorkspaceView;
-  target: LaunchTarget;
+  target: WorkspaceTarget;
   navigation: number;
   id: string;
   trigger?: HTMLButtonElement;
@@ -34,25 +33,12 @@ interface LaunchIntent {
 }
 type ViewSelection = { tab: string; leaf: string; zoom: string | null };
 
-function addSession(layout: SpaceLayout, target: LaunchTarget, sessionId: string): { layout: SpaceLayout; tab: string; leaf: string } {
-  const opened: PaneLeaf = { kind: "leaf", id: createRequestId(), sessionId };
-  if (target.kind === "tab") {
-    const tab = createRequestId();
-    return { tab, leaf: opened.id, layout: { tabs: [...layout.tabs, { id: tab, pane: opened }] } };
-  }
-  const { tab, leaf, direction } = target;
-  return {
-    tab,
-    leaf: direction ? opened.id : leaf,
-    layout: {
-      tabs: layout.tabs.map((item) => {
-        if (item.id !== tab) return item;
-        const pane = direction ? splitPane(item.pane, leaf, direction, createRequestId(), opened) : replacePane(item.pane, leaf, (current) => (current.kind === "leaf" && !current.sessionId ? { ...current, sessionId } : current));
-        return { ...item, pane };
-      }),
-    },
-  };
-}
+type LaunchRecovery = {
+  intent: Omit<LaunchIntent, "trigger" | "position">;
+  provider: string;
+  options: LaunchOptions;
+  outcome: "unknown" | "not-created";
+};
 
 export function AgentCliModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
@@ -62,6 +48,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const [active, setActive] = useState<string | null>(null);
   const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string } | null>(null);
   const [menu, setMenu] = useState<LaunchIntent | null>(null);
+  const [recoveries, setRecoveries] = useState<Record<string, LaunchRecovery | null>>({});
   const launcher = useRef<HTMLDivElement>(null);
   const [selections, setSelections] = useState<Record<string, ViewSelection | null>>({});
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
@@ -83,6 +70,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
   const view = workspace.data;
+  const recovery = space ? recoveries[space.id] : null;
   const inSpace = space ? selections[space.id] : null;
   const tab = view?.layout.tabs.find(({ id }) => id === inSpace?.tab) ?? view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId !== null)) ?? view?.layout.tabs[0];
   const openLeaves = tab ? leaves(tab.pane) : [];
@@ -123,7 +111,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
         setSpaceId(request.spaceId);
         setMenu(null);
         setError(null);
-        void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" });
+        void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && ["agent.sessions.list", "agent.workspace.get"].includes(String(q.queryKey[1])) });
       }),
     [engine.vaultId, qc],
   );
@@ -135,31 +123,29 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
       setRequestedSession(null);
       return;
     }
-    if (space?.id !== requestedSession.spaceId || sessions.isFetching || !sessions.isFetched || (!workspace.isFetched && !workspace.isError)) return;
+    if (space?.id !== requestedSession.spaceId || sessions.isFetching || !sessions.isFetched || workspace.isFetching || (!workspace.isFetched && !workspace.isError)) return;
     const session = sessions.data?.find(({ id }) => id === requestedSession.sessionId);
     if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
     else {
       setActive(session.id);
       const owner = view?.layout.tabs.find((item) => leaves(item.pane).some(({ sessionId }) => sessionId === session.id));
       const leaf = owner && leaves(owner.pane).find(({ sessionId }) => sessionId === session.id);
-      if (owner && leaf) setSelections((previous) => ({ ...previous, [space.id]: { tab: owner.id, leaf: leaf.id, zoom: null } }));
+      if (owner && leaf) {
+        setSelections((previous) => ({ ...previous, [space.id]: { tab: owner.id, leaf: leaf.id, zoom: null } }));
+        setFocusTarget(leaf.id);
+      }
     }
     setRequestedSession(null);
-  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, view, workspace.isFetched, workspace.isError]);
+  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, view, workspace.isFetched, workspace.isFetching, workspace.isError]);
 
-  async function saveWorkspace(basis: WorkspaceView, layout: SpaceLayout) {
-    const key = queryKey(engine.vaultId, "agent.workspace.get", { spaceId: basis.spaceId });
-    try {
-      const saved = await engine.call<WorkspaceView>("agent.workspace.save", { spaceId: basis.spaceId, baseVersion: basis.version, layout }, { write: true });
-      await qc.cancelQueries({ queryKey: key, exact: true });
-      qc.setQueryData<WorkspaceView>(key, (previous) => (previous && previous.version > saved.version ? previous : saved));
-      return saved;
-    } finally {
-      void qc.invalidateQueries({ queryKey: key, exact: true });
-    }
+  async function rememberWorkspace(saved: WorkspaceView) {
+    const key = queryKey(engine.vaultId, "agent.workspace.get", { spaceId: saved.spaceId });
+    await qc.cancelQueries({ queryKey: key, exact: true });
+    qc.setQueryData<WorkspaceView>(key, (previous) => (previous && previous.version > saved.version ? previous : saved));
+    void qc.invalidateQueries({ queryKey: key, exact: true });
   }
 
-  function startTarget(target: LaunchTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
+  function startTarget(target: WorkspaceTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
     if (!space || !view || !editable || working.current) return null;
     const intent: LaunchIntent = { space, view, target, navigation: navigation.current, id: createRequestId() };
     if (!event) return intent;
@@ -175,28 +161,37 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     return { ...intent, trigger, position };
   }
 
-  async function launch(intent: LaunchIntent, provider: string, o: LaunchOptions = {}) {
+  async function launch(intent: LaunchIntent, provider: string, options: LaunchOptions = {}) {
     if (working.current) return;
+    const { space, target, id } = intent;
     const stay = () => navigation.current === intent.navigation;
     working.current = true;
     setBusy(true);
     setMenu(null);
     setError(null);
-    let opened: Session | undefined;
     try {
-      opened = await engine.call<Session>("agent.sessions.launch", { spaceId: intent.space.id, spaceRevision: intent.space.revision, provider, ...o, requestId: intent.id }, { write: true });
-      const next = addSession(intent.view.layout, intent.target, opened.id);
-      await saveWorkspace(intent.view, next.layout);
+      const result = await engine.call<WorkspaceLaunchView>("agent.workspace.launch", { spaceId: space.id, spaceRevision: space.revision, baseVersion: intent.view.version, requestId: id, target, provider, ...options }, { write: true });
+      setRecoveries((previous) => (previous[space.id]?.intent.id === id ? { ...previous, [space.id]: null } : previous));
+      await rememberWorkspace(result.workspace);
       if (stay()) {
-        setSelections((previous) => ({ ...previous, [intent.space.id]: { tab: next.tab, leaf: next.leaf, zoom: null } }));
-        setActive(opened.id);
-        setFocusTarget(next.leaf);
+        setActive(result.sessionId);
+        if (result.placement) {
+          const { tab, leaf } = result.placement;
+          setSelections((previous) => ({ ...previous, [space.id]: { tab, leaf, zoom: null } }));
+          setFocusTarget(leaf);
+        } else setError("会话已启动，原分栏暂时无法使用。可从当前 Space 的 Agents 列表继续。");
       }
     } catch (e) {
-      if (stay()) {
-        if (opened) setActive(opened.id);
-        setError(opened ? "会话已启动，布局未能更新。可从当前 Space 的 Agents 列表打开。" : e instanceof Error ? e.message : String(e));
+      const outcome = e instanceof CapabilityError ? (e.code === "RUN_UNKNOWN" || e.code === "INTERNAL" ? "unknown" : e.details?.["reason"] === "confirmed_not_created" ? "not-created" : null) : "unknown";
+      if (outcome) {
+        setRecoveries((previous) => ({
+          ...previous,
+          [space.id]: { intent: { space, target, id, view: intent.view, navigation: intent.navigation }, provider, options, outcome },
+        }));
+      } else {
+        setRecoveries((previous) => (previous[space.id]?.intent.id === id ? { ...previous, [space.id]: null } : previous));
       }
+      if (stay()) setError(e instanceof Error ? e.message : String(e));
     } finally {
       working.current = false;
       setBusy(false);
@@ -230,8 +225,8 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   }
 
   const list = sessions.data ?? [];
-  // 有会话在运行时每 5 秒刷新一次列表：程序结束后徽标会自己变成“已结束”
-  const anyRunning = list.some((s) => s.state === "running");
+  // 定期在真实 Core 中核对待确认启动和运行中的会话。
+  const anyRunning = list.some((s) => s.state === "running" || s.state === "launching" || s.state === "unknown");
   useEffect(() => {
     if (!anyRunning) return;
     const id = setInterval(() => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" }), 5000);
@@ -239,7 +234,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   }, [anyRunning, engine.vaultId, qc]);
   const currentSession = active ?? currentLeaf?.sessionId;
   const cur = list.find((s) => s.id === currentSession) ?? null;
-  const preview = cur && !view?.layout.tabs.some(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId === cur.id)) ? cur : null;
+  const preview = cur && (!view || !sessionPlacement(view.layout, cur.id)) ? cur : null;
   const stateBadge = (s: Session) => <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>;
 
   function tabFocus(tabId: string, leafId: string, sessionId: string | null, zoomId: string | null = null) {
@@ -252,29 +247,21 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     setActive(sessionId);
   }
 
-  async function edit(basis: WorkspaceView, next: SpaceLayout, focus?: { tab: string; leaf: PaneLeaf } | null, kill?: Session) {
+  type Destination = { tab: string; leaf: PaneLeaf };
+
+  async function commitWorkspace(operation: () => Promise<WorkspaceView>, onSaved?: (view: WorkspaceView) => Destination | null) {
     if (working.current) return;
     const generation = navigation.current;
     working.current = true;
     setBusy(true);
     setError(null);
     try {
-      if (kill) {
-        const actual = await engine.call<WorkspaceView>("agent.workspace.get", { spaceId: basis.spaceId });
-        if (actual.version !== basis.version) throw new Error("分栏已更新。请重新选择要关闭的会话。");
-        await engine.call("agent.sessions.kill", { id: kill.id }, { write: true });
-        let done = false;
-        for (let i = 0; i < 12 && !done; i++) {
-          const sessions = await engine.call<Session[]>("agent.sessions.list", { spaceId: basis.spaceId });
-          done = sessions.find(({ id }) => id === kill.id)?.state === "exited";
-          if (!done) await new Promise((resolve) => setTimeout(resolve, 250));
-        }
-        if (!done) throw new Error("尚未核实终端已退出，原分栏仍可查看。");
-      }
-      await saveWorkspace(basis, next);
-      if (navigation.current === generation && focus !== undefined) {
+      const view = await operation();
+      await rememberWorkspace(view);
+      if (navigation.current === generation && onSaved) {
+        const focus = onSaved(view);
         setActive(focus?.leaf.sessionId ?? null);
-        setSelections((previous) => ({ ...previous, [basis.spaceId]: focus ? { tab: focus.tab, leaf: focus.leaf.id, zoom: null } : null }));
+        setSelections((previous) => ({ ...previous, [view.spaceId]: focus ? { tab: focus.tab, leaf: focus.leaf.id, zoom: null } : null }));
         setFocusTarget(focus?.leaf.id ?? null);
       }
     } catch (e) {
@@ -287,15 +274,21 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     }
   }
 
-  function closePane(basis: WorkspaceView, tabId: string, leafId: string, kill?: Session) {
-    const tabs = basis.layout.tabs.flatMap((entry) => {
-      if (entry.id !== tabId) return [entry];
-      const pane = removePane(entry.pane, leafId);
-      return pane ? [{ ...entry, pane }] : [];
-    });
-    const nextTab = tabs.find(({ id }) => id === tabId) ?? tabs[0];
-    const nextLeaf = nextTab && leaves(nextTab.pane)[0];
-    return edit(basis, { tabs }, nextLeaf && nextTab ? { tab: nextTab.id, leaf: nextLeaf } : null, kill);
+  function edit(basis: WorkspaceView, layout: SpaceLayout, focus?: Destination) {
+    return commitWorkspace(() => engine.call<WorkspaceView>("agent.workspace.save", { spaceId: basis.spaceId, baseVersion: basis.version, layout }, { write: true }), focus ? () => focus : undefined);
+  }
+
+  function closePane(basis: WorkspaceView, tab: string, leaf: string, terminate = false) {
+    const owner = basis.layout.tabs.find(({ id }) => id === tab);
+    const target = owner && leaves(owner.pane).find(({ id }) => id === leaf);
+    if (!target) return;
+    return commitWorkspace(
+      () => engine.call<WorkspaceView>("agent.workspace.close", { spaceId: basis.spaceId, baseVersion: basis.version, tab, leaf, sessionId: target.sessionId, terminate }, { write: true }),
+      (saved) => {
+        const next = saved.layout.tabs.find(({ id }) => id === tab) ?? saved.layout.tabs[0];
+        return next ? { tab: next.id, leaf: leaves(next.pane)[0]! } : null;
+      },
+    );
   }
 
   function openExisting(session: Session) {
@@ -373,6 +366,14 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
         {error ? (
           <div role="alert" className="hu-callout danger">
             <p>{error}</p>
+          </div>
+        ) : null}
+        {recovery ? (
+          <div className="hu-callout" role="status" data-testid="workspace-launch-recovery">
+            <p>{recovery.outcome === "unknown" ? "启动结果待核实。可使用原请求找回终端。" : "确认尚未创建终端。可按原配置重试。"}</p>
+            <Button disabled={busy} onClick={() => void launch({ ...recovery.intent, navigation: navigation.current }, recovery.provider, recovery.options)}>
+              {recovery.outcome === "unknown" ? "核对原启动" : "重试原启动"}
+            </Button>
           </div>
         ) : null}
         <div className="agent-tabs">
@@ -453,7 +454,8 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
                 disabled={!editable}
                 onClick={() => {
                   if (!view) return;
-                  const next = addSession(view.layout, { kind: "tab" }, preview.id);
+                  const next = placeSession(view.layout, { kind: "tab" }, preview.id, createRequestId());
+                  if (!next) return;
                   const assigned = next.layout.tabs.at(-1)!;
                   void edit(view, next.layout, { tab: next.tab, leaf: leaves(assigned.pane)[0]! });
                 }}
@@ -485,7 +487,10 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             editable={editable}
             showReview={showReview && active === currentLeaf?.sessionId}
             status={stateBadge}
-            onFocus={(leafId, sessionId) => tabFocus(tab.id, leafId, sessionId, zoom)}
+            onFocus={(leafId, sessionId) => {
+              if (working.current && leafId !== currentLeaf?.id) ++navigation.current;
+              tabFocus(tab.id, leafId, sessionId, zoom);
+            }}
             onRequest={(event, leaf, direction) => setMenu(startTarget({ kind: "leaf", tab: tab.id, leaf, ...(direction ? { direction } : {}) }, event))}
             onClose={(leafId) => {
               if (!view) return;
@@ -498,6 +503,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             onZoom={(leaf) => {
               const current = openLeaves.find(({ id }) => id === leaf);
               if (!current) return;
+              ++navigation.current;
               tabFocus(tab.id, leaf, current.sessionId, zoom ? null : leaf);
               setFocusTarget(leaf);
             }}
@@ -544,7 +550,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
               <Button disabled={busy} onClick={() => void closePane(closing.view, closing.tab, closing.leaf)}>
                 收起分栏
               </Button>
-              <Button disabled={busy} variant="danger" onClick={() => void closePane(closing.view, closing.tab, closing.leaf, closing.session)}>
+              <Button disabled={busy} variant="danger" onClick={() => void closePane(closing.view, closing.tab, closing.leaf, true)}>
                 终止并关闭
               </Button>
             </>

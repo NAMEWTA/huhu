@@ -1,14 +1,39 @@
+import { setTimeout as wait } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { errors, HuhuError } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { WORKSPACE_DOCUMENT, emptyLayout, leaves, WorkspaceDocumentSchema, WorkspaceEditSchema, WorkspaceViewSchema, type SpaceLayout, type WorkspaceView } from "../shared/workspace-layout.js";
-import type { SessionsService } from "./sessions.js";
+import {
+  WORKSPACE_DOCUMENT,
+  emptyLayout,
+  leaves,
+  placeSession,
+  removePane,
+  sessionPlacement,
+  SpaceLayoutSchema,
+  WorkspaceDocumentSchema,
+  WorkspaceEditSchema,
+  WorkspaceViewSchema,
+  type SpaceLayout,
+  type WorkspaceLaunchView,
+  type WorkspaceTarget,
+  type WorkspaceView,
+} from "../shared/workspace-layout.js";
+import type { LaunchInput, SessionsService } from "./sessions.js";
+import { launchHash } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
 
 const envelope = z.strictObject({ version: z.int().nonnegative(), value: z.unknown() });
 const saved = z.strictObject({ version: z.int().positive() });
+const closeInput = WorkspaceEditSchema.pick({ spaceId: true, baseVersion: true })
+  .extend({
+    tab: z.string().min(1).max(128),
+    leaf: z.string().min(1).max(128),
+    sessionId: z.string().min(1).max(128).nullable(),
+    terminate: z.boolean(),
+  })
+  .strict();
 
 interface WorkspaceDeps {
   core(): Promise<HerdrClient>;
@@ -28,19 +53,35 @@ class WorkspaceLayoutService {
     if (!reply.success) throw new HuhuError("INTERNAL", "无法核对 Core 保存的工作区布局");
     const { version, value } = reply.data;
     const parsed = WorkspaceDocumentSchema.safeParse(value ?? { format: 1, spaces: {} });
-    if (!parsed.success) throw errors.invalidInput("工作区布局格式损坏。已保留原记录");
+    if (!parsed.success) throw errors.invalidInput("工作区布局格式无效，已保留原文档");
     return { version, value: parsed.data };
   }
 
-  async read(spaceId: string): Promise<WorkspaceView> {
+  private async current(spaceId: string) {
     this.deps.spaces.get(spaceId);
     const client = await this.deps.core();
-    const { value, version } = await this.document(client);
-    return { spaceId, version, layout: value.spaces[spaceId] ?? emptyLayout(spaceId), writable: !this.deps.readOnly };
+    const document = await this.document(client);
+    const layout = document.value.spaces[spaceId];
+    const view: WorkspaceView = {
+      spaceId,
+      version: document.value.revisions?.[spaceId] ?? (layout ? document.version : 0),
+      layout: layout ?? emptyLayout(spaceId),
+      writable: !this.deps.readOnly,
+    };
+    return { client, document, view };
   }
 
-  update(spaceId: string, baseVersion: number, layout: SpaceLayout, signal: AbortSignal): Promise<WorkspaceView> {
-    const operation = this.tail.then(() => this.write(spaceId, baseVersion, layout, signal));
+  async read(spaceId: string): Promise<WorkspaceView> {
+    return (await this.current(spaceId)).view;
+  }
+
+  private operate<T>(signal: AbortSignal, action: (active: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.deps.readOnly) return Promise.reject(errors.permissionDenied("工作区布局为只读"));
+    const active = AbortSignal.any([signal, this.deps.signal]);
+    const operation = this.tail.then(() => {
+      active.throwIfAborted();
+      return action(active);
+    });
     this.tail = operation.then(
       () => undefined,
       () => undefined,
@@ -48,38 +89,101 @@ class WorkspaceLayoutService {
     return operation;
   }
 
-  private async write(spaceId: string, baseVersion: number, layout: SpaceLayout, signal: AbortSignal): Promise<WorkspaceView> {
-    if (this.deps.readOnly) throw errors.permissionDenied("工作区当前为只读");
+  private checkVersion(view: WorkspaceView, baseVersion: number) {
+    if (view.version !== baseVersion) throw errors.versionConflict(String(view.version));
+  }
+
+  private async save(current: Awaited<ReturnType<WorkspaceLayoutService["current"]>>, layout: SpaceLayout, active: AbortSignal): Promise<WorkspaceView> {
+    const { client, document, view } = current;
+    const { spaceId } = view;
     this.deps.spaces.get(spaceId);
-    const active = AbortSignal.any([signal, this.deps.signal]);
-    active.throwIfAborted();
-    const client = await this.deps.core();
-    const current = await this.document(client);
-    if (current.version !== baseVersion) throw errors.versionConflict(String(current.version));
-    this.deps.spaces.get(spaceId);
-    const existing = current.value.spaces[spaceId];
-    const known = new Set(this.deps.sessions.list(spaceId).map(({ id }) => id));
-    for (const tab of existing?.tabs ?? []) for (const leaf of leaves(tab.pane)) if (leaf.sessionId) known.add(leaf.sessionId);
-    for (const tab of layout.tabs) {
-      for (const { sessionId } of leaves(tab.pane)) {
-        if (sessionId && !known.has(sessionId)) throw errors.invalidInput("只能绑定此工作区中的会话");
-      }
-    }
-    active.throwIfAborted();
-    const content = { ...current.value, spaces: { ...current.value.spaces, [spaceId]: layout } };
+    const version = view.version + 1;
+    const revisions = document.value.revisions ?? Object.fromEntries(Object.keys(document.value.spaces).map((id) => [id, document.version]));
+    const content = { ...document.value, revisions: { ...revisions, [spaceId]: version }, spaces: { ...document.value.spaces, [spaceId]: layout } };
     if (Buffer.byteLength(JSON.stringify(content)) > 1024 * 1024) throw errors.invalidInput("工作区布局超过 1 MiB");
+    active.throwIfAborted();
     try {
-      const result = saved.parse(await client.call("doc.set", { name: WORKSPACE_DOCUMENT, version: baseVersion, value: content }));
-      return { spaceId, version: result.version, layout, writable: true };
+      saved.parse(await client.call("doc.set", { name: WORKSPACE_DOCUMENT, version: document.version, value: content }));
     } catch (error) {
-      const actual = await this.deps
-        .core()
-        .then((next) => this.document(next))
-        .catch(() => null);
-      if (actual?.version === baseVersion + 1 && isDeepStrictEqual(actual.value, content)) return { spaceId, version: actual.version, layout, writable: true };
-      if (actual && (actual.version !== baseVersion || (error instanceof HerdrError && error.kind === "conflict"))) throw errors.versionConflict(String(actual.version));
-      throw new HuhuError("HERDR_UNAVAILABLE", "未收到布局保存确认。请先核对当前工作区");
+      const actual = await this.current(spaceId).catch(() => null);
+      if (actual?.document.version === document.version + 1 && isDeepStrictEqual(actual.document.value, content)) return actual.view;
+      if (actual && (actual.document.version !== document.version || (error instanceof HerdrError && error.kind === "conflict"))) throw errors.versionConflict(String(actual.view.version));
+      throw new HuhuError("HERDR_UNAVAILABLE", "无法核对布局保存结果，请重新读取工作区");
     }
+    return { ...view, version, layout };
+  }
+
+  update(spaceId: string, baseVersion: number, layout: SpaceLayout, signal: AbortSignal): Promise<WorkspaceView> {
+    return this.operate(signal, async (active) => {
+      const current = await this.current(spaceId);
+      this.checkVersion(current.view, baseVersion);
+      const known = new Set(this.deps.sessions.list(spaceId).map(({ id }) => id));
+      for (const tab of current.view.layout.tabs) for (const leaf of leaves(tab.pane)) if (leaf.sessionId) known.add(leaf.sessionId);
+      for (const tab of layout.tabs) {
+        for (const { sessionId } of leaves(tab.pane)) if (sessionId && !known.has(sessionId)) throw errors.invalidInput("只能绑定当前工作区的会话");
+      }
+      return this.save(current, layout, active);
+    });
+  }
+
+  launch(input: LaunchInput, target: WorkspaceTarget, baseVersion: number, signal: AbortSignal): Promise<WorkspaceLaunchView> {
+    return this.operate(signal, async (active) => {
+      const { spaceId, requestId } = input;
+      const current = await this.current(spaceId);
+      const recorded = this.deps.sessions.list(spaceId).find((session) => session.requestId === requestId && session.launchReceipt?.attempt);
+      const pending = placeSession(current.view.layout, target, `pending-${requestId}`, requestId);
+      if (!recorded) {
+        this.checkVersion(current.view, baseVersion);
+        if (!pending || !SpaceLayoutSchema.safeParse(pending.layout).success) throw errors.invalidInput("目标分栏已关闭、已占用或超出布局限制");
+      }
+      // 已经提交过的请求走会话对账，即使其他窗口关闭了当时的分栏。
+      const session = await this.deps.sessions.launch({ ...input, workspaceIntent: launchHash({ baseVersion, target }) }, active);
+      const attached = sessionPlacement(current.view.layout, session.id);
+      if (attached) return { sessionId: session.id, workspace: current.view, placement: attached };
+      if (current.view.version === baseVersion && pending) {
+        const next = placeSession(current.view.layout, target, session.id, requestId);
+        if (next && SpaceLayoutSchema.safeParse(next.layout).success) {
+          try {
+            const workspace = await this.save(current, next.layout, active);
+            return { sessionId: session.id, workspace, placement: { tab: next.tab, leaf: next.leaf } };
+          } catch {
+            const latest = await this.read(spaceId).catch(() => current.view);
+            return { sessionId: session.id, workspace: latest, placement: sessionPlacement(latest.layout, session.id) };
+          }
+        }
+      }
+      return { sessionId: session.id, workspace: current.view, placement: null };
+    });
+  }
+
+  close(input: z.infer<typeof closeInput>, signal: AbortSignal): Promise<WorkspaceView> {
+    return this.operate(signal, async (active) => {
+      const { spaceId, baseVersion, tab, leaf, sessionId, terminate } = input;
+      const current = await this.current(spaceId);
+      this.checkVersion(current.view, baseVersion);
+      const owner = current.view.layout.tabs.find(({ id }) => id === tab);
+      const target = owner && leaves(owner.pane).find(({ id }) => id === leaf);
+      if (!target || target.sessionId !== sessionId) throw errors.versionConflict(String(current.view.version));
+      if (terminate && sessionId) {
+        const session = this.deps.sessions.get(sessionId);
+        if (session.spaceId !== spaceId) throw errors.invalidInput("只能关闭当前工作区的会话");
+        active.throwIfAborted();
+        if (session.state !== "exited") await this.deps.sessions.kill(sessionId);
+        for (let count = 0; this.deps.sessions.get(sessionId).state !== "exited"; count++) {
+          if (count >= 16) throw new HuhuError("RUN_UNKNOWN", "尚未核实终端已退出，原分栏仍可查看");
+          await this.deps.sessions.reconcile();
+          await wait(250, undefined, { signal: active });
+        }
+      }
+      const next: SpaceLayout = {
+        tabs: current.view.layout.tabs.flatMap((entry) => {
+          if (entry.id !== tab) return [entry];
+          const pane = removePane(entry.pane, leaf);
+          return pane ? [{ ...entry, pane }] : [];
+        }),
+      };
+      return this.save(current, next, active);
+    });
   }
 }
 
@@ -107,4 +211,15 @@ export function registerWorkspaceLayout(api: HuhuApi, deps: WorkspaceDeps) {
       handler: ({ signal }, { spaceId, baseVersion, layout }) => service.update(spaceId, baseVersion, layout, signal),
     }),
   );
+  api.defineCapability(
+    defineCapability({
+      ...scope,
+      name: "agent.workspace.close",
+      scope: "execute",
+      input: closeInput,
+      output: WorkspaceViewSchema,
+      handler: ({ signal }, input) => service.close(input, signal),
+    }),
+  );
+  return service;
 }

@@ -52,9 +52,21 @@ export const SpaceLayoutSchema = z
     return tabs.every((item) => unique(item.id, ids) && walk(item.pane));
   }, "标签、分栏及会话绑定必须唯一");
 
-export const WorkspaceDocumentSchema = z.strictObject({ format: z.literal(1), spaces: z.record(id, SpaceLayoutSchema) });
+export const WorkspaceDocumentSchema = z.strictObject({
+  format: z.literal(1),
+  spaces: z.record(id, SpaceLayoutSchema),
+  revisions: z.record(id, z.int().nonnegative()).optional(),
+});
 export const WorkspaceViewSchema = z.strictObject({ spaceId: id, version: z.int().nonnegative(), layout: SpaceLayoutSchema, writable: z.boolean() });
 export const WorkspaceEditSchema = z.strictObject({ spaceId: id, baseVersion: z.int().nonnegative(), layout: SpaceLayoutSchema });
+export const WorkspaceTargetSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("tab") }), z.strictObject({ kind: z.literal("leaf"), tab: id, leaf: id, direction: z.enum(["up", "down", "left", "right"]).optional() })]);
+export type WorkspaceTarget = z.infer<typeof WorkspaceTargetSchema>;
+export const WorkspaceLaunchViewSchema = z.strictObject({
+  sessionId: id,
+  workspace: WorkspaceViewSchema,
+  placement: z.strictObject({ tab: id, leaf: id }).nullable(),
+});
+export type WorkspaceLaunchView = z.infer<typeof WorkspaceLaunchViewSchema>;
 
 export function emptyLayout(space: string): SpaceLayout {
   return { tabs: [{ id: `tab-${space}`, pane: { kind: "leaf", id: `pane-${space}`, sessionId: null } }] };
@@ -89,4 +101,35 @@ export function removePane(pane: Pane, id: string): Pane | null {
   if (first === null) return second;
   if (second === null) return first;
   return first === pane.first && second === pane.second ? pane : { ...pane, first, second };
+}
+
+export function sessionPlacement(layout: SpaceLayout, sessionId: string): { tab: string; leaf: string } | null {
+  for (const { id, pane } of layout.tabs) {
+    const leaf = leaves(pane).find((leaf) => leaf.sessionId === sessionId);
+    if (leaf) return { tab: id, leaf: leaf.id };
+  }
+  return null;
+}
+
+export function placeSession(layout: SpaceLayout, target: WorkspaceTarget, sessionId: string, operationId: string): { layout: SpaceLayout; tab: string; leaf: string } | null {
+  const opened: PaneLeaf = { kind: "leaf", id: `pane-${operationId}`, sessionId };
+  if (target.kind === "tab") {
+    const tab = `tab-${operationId}`;
+    return { tab, leaf: opened.id, layout: { tabs: [...layout.tabs, { id: tab, pane: opened }] } };
+  }
+  const { tab, leaf, direction } = target;
+  const entry = layout.tabs.find(({ id }) => id === tab);
+  const existing = entry && leaves(entry.pane).find(({ id }) => id === leaf);
+  if (!existing || (!direction && existing.sessionId !== null)) return null;
+  return {
+    tab,
+    leaf: direction ? opened.id : leaf,
+    layout: {
+      tabs: layout.tabs.map((item) => {
+        if (item.id !== tab) return item;
+        const pane = direction ? splitPane(item.pane, leaf, direction, `split-${operationId}`, opened) : replacePane(item.pane, leaf, () => ({ ...existing, sessionId }));
+        return { ...item, pane };
+      }),
+    },
+  };
 }

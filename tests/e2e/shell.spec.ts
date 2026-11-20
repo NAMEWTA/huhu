@@ -1834,6 +1834,45 @@ test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收
   }
 });
 
+test("Agent CLI 的启动响应丢失后，用原请求找回原终端及目标分栏", async () => {
+  test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  let page: Page | undefined;
+  try {
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const requests: string[] = [];
+    await page.route("**/api/v1/call", async (route) => {
+      const body = route.request().postDataJSON() as { capability?: string; input?: { requestId?: string } } | null;
+      if (body?.capability !== "agent.workspace.launch" || !body.input?.requestId) return route.continue();
+      requests.push(body.input.requestId);
+      if (requests.length > 1) return route.continue();
+      const original = await route.fetch();
+      expect(await original.json()).toMatchObject({ ok: true, data: { sessionId: expect.any(String), placement: { leaf: expect.any(String) } } });
+      await route.abort("connectionreset");
+    });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    const pane = page.getByTestId("workspace-pane");
+    const original = await pane.getAttribute("data-pane-id");
+    await pane.getByTestId("workspace-pane-launch").click();
+    await page.getByTestId("launch-shell").click();
+    await expect(page.getByTestId("workspace-launch-recovery")).toContainText("待核实", { timeout: 20_000 });
+    await expect(page.getByTestId("session-tab")).toHaveCount(1);
+    await page.getByRole("button", { name: "核对原启动" }).click();
+    await expect(pane.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 20_000 });
+    await expect(pane).toHaveAttribute("data-pane-id", original!);
+    await expect(page.getByTestId("session-tab")).toHaveCount(1);
+    await expect(page.getByTestId("workspace-launch-recovery")).toHaveCount(0);
+    expect(requests).toHaveLength(2);
+    expect(new Set(requests).size).toBe(1);
+  } finally {
+    await page?.unrouteAll({ behavior: "wait" });
+    await app.close();
+    rmTree(vault);
+  }
+});
+
 test("Agent CLI：shell 里 exit 之后，会话标记为已结束（带退出码），不再提供终端；其他会话不受影响", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));

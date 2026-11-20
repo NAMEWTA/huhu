@@ -80,8 +80,8 @@ export class WaitingWatcher {
     // Core 还没启动（没有人开过终端）：不替用户启动它，稍后再看
     if (process.platform !== "win32" && !existsSync(this.d.endpoint)) return this.schedule();
     subscribeEvents(this.d.endpoint, {
-      labels: { "huhu.vault": this.d.vaultId },
-      ...(this.d.document && { docs: [this.d.document.name] }),
+      // 固定 Core 0.1.19 只向未按终端标签筛选的阅者发文档事件。
+      ...(!this.d.document && { labels: { "huhu.vault": this.d.vaultId } }),
       onEvent: (e) => void this.onEvent(e),
       onLost: () => {
         this.sub = null;
@@ -101,7 +101,7 @@ export class WaitingWatcher {
 
   private sessionOf(t: TerminalRecord): SessionRecord | null {
     const id = t.labels?.["huhu.session"];
-    if (!id || !t.address) return null;
+    if (!id || !t.address || t.labels?.["huhu.vault"] !== this.d.vaultId) return null;
     return this.d.sessions.byTerminal(t.address, id);
   }
 

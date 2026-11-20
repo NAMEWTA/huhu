@@ -120,6 +120,8 @@ export interface LaunchInput {
   fast?: boolean | undefined;
   prompt?: string | undefined;
   requestId: string;
+  /** 分栏发起的启动只可使用首次接受的工作区操作重查。 */
+  workspaceIntent?: string;
   /** 恢复历史会话（仅内部调用：id 来自对历史的扫描结果，不由外部直接传入）。 */
   resumeSessionId?: string | undefined;
   /** 显式 cwd 必须是 Space 范围内的现有绝对目录。 */

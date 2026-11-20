@@ -7,7 +7,7 @@ import { machineId } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { boot, type RunningEngine } from "../src/boot.js";
-import { WORKSPACE_DOCUMENT, emptyLayout, splitPane, type WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
+import { WORKSPACE_DOCUMENT, emptyLayout, splitPane, type WorkspaceLaunchView, type WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
 
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 
@@ -44,7 +44,8 @@ test.skipIf(process.platform !== "win32" || !coreBinary)(
       const aLayout = { tabs: [{ ...initial, pane: splitPane(initial.pane, initial.pane.id, "left", "edge-a", { kind: "leaf", id: "left-a", sessionId: null }) }] };
       const confirmed = await data<WorkspaceView>("agent.workspace.save", { spaceId: a!.id, baseVersion: 0, layout: aLayout });
       expect(confirmed).toMatchObject({ version: 1, layout: aLayout });
-      expect(await call("agent.workspace.save", { spaceId: b.id, baseVersion: 0, layout: { tabs: [] } })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(await call("agent.workspace.save", { spaceId: a!.id, baseVersion: 0, layout: { tabs: [] } })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: b.id })).toMatchObject({ version: 0, layout: openedB.layout });
 
       const realCall = HerdrClient.prototype.call;
       let sets = 0;
@@ -54,25 +55,104 @@ test.skipIf(process.platform !== "win32" || !coreBinary)(
         return result as T;
       });
       try {
-        expect(await data<WorkspaceView>("agent.workspace.save", { spaceId: b.id, baseVersion: 1, layout: { tabs: [] } })).toMatchObject({ version: 2, layout: { tabs: [] } });
+        expect(await data<WorkspaceView>("agent.workspace.save", { spaceId: b.id, baseVersion: 0, layout: { tabs: [] } })).toMatchObject({ version: 1, layout: { tabs: [] } });
         expect(sets).toBe(1);
       } finally {
         dropped.mockRestore();
       }
-      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: a!.id })).toMatchObject({ version: 2, layout: aLayout });
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: a!.id })).toMatchObject({ version: 1, layout: aLayout });
 
       await engine.shutdown();
       await core.stop();
-      engine = await boot({ vaultPath });
-      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: a!.id })).toMatchObject({ version: 2, layout: aLayout });
-      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: b.id })).toMatchObject({ version: 2, layout: { tabs: [] } });
+      let subscribed = false;
+      const observed = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown) {
+        const result = await realCall.call(this, method, params);
+        if (method === "events.subscribe") subscribed = true;
+        return result as T;
+      });
+      try {
+        engine = await boot({ vaultPath });
+        await data<WorkspaceView>("agent.workspace.get", { spaceId: a!.id });
+        await expect.poll(() => subscribed, { timeout: 5000 }).toBe(true);
+      } finally {
+        observed.mockRestore();
+      }
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: a!.id })).toMatchObject({ version: 1, layout: aLayout });
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: b.id })).toMatchObject({ version: 1, layout: { tabs: [] } });
       const client = await core.ensure();
       const document = await client.call<{ version: number; value: unknown }>("doc.get", { name: WORKSPACE_DOCUMENT });
-      expect(document).toMatchObject({ version: 2, value: { format: 1, spaces: { [a!.id]: aLayout, [b.id]: { tabs: [] } } } });
-      await client.call("doc.set", { name: WORKSPACE_DOCUMENT, version: 2, value: { format: 2, spaces: {} } });
+      expect(document).toMatchObject({ version: 2, value: { format: 1, revisions: { [a!.id]: 1, [b.id]: 1 }, spaces: { [a!.id]: aLayout, [b.id]: { tabs: [] } } } });
+      let changes = 0;
+      const unsubscribe = engine.events.subscribe((event) => {
+        if (event.type === "entity.changed" && (event.payload as { kind?: string }).kind === "agent-workspace") changes++;
+      });
+      try {
+        await client.call("doc.set", { name: WORKSPACE_DOCUMENT, version: 2, value: { format: 2, spaces: {} } });
+        await expect.poll(() => changes, { timeout: 5000 }).toBeGreaterThan(0);
+      } finally {
+        unsubscribe();
+      }
       expect(await call("agent.workspace.get", { spaceId: a!.id })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       expect(await call("agent.workspace.save", { spaceId: a!.id, baseVersion: 3, layout: { tabs: [] } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       expect(await client.call("doc.get", { name: WORKSPACE_DOCUMENT })).toEqual({ version: 3, value: { format: 2, spaces: {} } });
+    } finally {
+      await engine?.shutdown();
+      await core?.stop();
+      vi.unstubAllEnvs();
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  },
+  60_000,
+);
+
+test.skipIf(process.platform !== "win32" || !coreBinary)(
+  "真实 Core 在旧分栏版本下既不会启动，也不会终止已收起的会话",
+  async () => {
+    const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-workspace-guard-")));
+    vi.stubEnv("HUHU_HERDR_BIN", coreBinary!);
+    let engine: RunningEngine | undefined;
+    let core: HerdrCore | undefined;
+    const call = (capability: string, input: unknown) => engine!.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const data = async <T>(capability: string, input: unknown): Promise<T> => {
+      const reply = await call(capability, input);
+      assert(reply.ok, JSON.stringify(reply));
+      return reply.data as T;
+    };
+    try {
+      engine = await boot({ vaultPath: fixture, create: true });
+      core = new HerdrCore({ bin: coreBinary!, vaultId: engine.vault.id, machineId: machineId(), runtimeDir: path.join(engine.vault.runtimeDir, "herdr") });
+      const [space] = await data<{ id: string; revision: number }[]>("agent.spaces.list", {});
+      assert(space);
+      const opened = await data<WorkspaceView>("agent.workspace.get", { spaceId: space.id });
+      const [tab] = opened.layout.tabs;
+      assert(tab);
+      const originalLaunch = {
+        spaceId: space.id,
+        spaceRevision: space.revision,
+        baseVersion: 0,
+        requestId: randomUUID(),
+        target: { kind: "leaf", tab: tab.id, leaf: tab.pane.id },
+        provider: "shell",
+      };
+      const otherWindow = await data<WorkspaceView>("agent.workspace.close", { spaceId: space.id, baseVersion: 0, tab: tab.id, leaf: tab.pane.id, sessionId: null, terminate: false });
+      expect(otherWindow.layout.tabs).toEqual([]);
+      expect(await call("agent.workspace.launch", originalLaunch)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(await data<unknown[]>("agent.sessions.list", { spaceId: space.id })).toEqual([]);
+
+      const intended = { ...originalLaunch, baseVersion: 1, target: { kind: "tab" } };
+      const start = await data<WorkspaceLaunchView>("agent.workspace.launch", intended);
+      assert(start.placement);
+      expect(start.workspace.version).toBe(2);
+      const replay = await data<WorkspaceLaunchView>("agent.workspace.launch", intended);
+      expect(replay).toEqual(start);
+      expect(await call("agent.workspace.launch", { ...intended, baseVersion: 2 })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      const close = { spaceId: space.id, baseVersion: 2, ...start.placement, sessionId: start.sessionId };
+      const parked = await data<WorkspaceView>("agent.workspace.close", { ...close, terminate: false });
+      expect(parked).toMatchObject({ version: 3, layout: { tabs: [] } });
+      expect(await call("agent.workspace.close", { ...close, terminate: true })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(await data<WorkspaceLaunchView>("agent.workspace.launch", intended)).toEqual({ sessionId: start.sessionId, workspace: parked, placement: null });
+      expect(await data<unknown[]>("agent.sessions.list", { spaceId: space.id })).toMatchObject([{ id: start.sessionId, state: "running" }]);
+      await data("agent.sessions.kill", { id: start.sessionId });
     } finally {
       await engine?.shutdown();
       await core?.stop();

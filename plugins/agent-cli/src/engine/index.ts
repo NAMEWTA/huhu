@@ -27,7 +27,7 @@ import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.j
 import { registerAgentEnvironments, type AgentCredentialHost } from "./launch-environment.js";
 import { ProtectedLaunch } from "./protected-launch.js";
 import { launchHash } from "./launch-binding.js";
-import { WORKSPACE_DOCUMENT } from "../shared/workspace-layout.js";
+import { WORKSPACE_DOCUMENT, WorkspaceLaunchViewSchema, WorkspaceTargetSchema } from "../shared/workspace-layout.js";
 import { registerWorkspaceLayout } from "./workspace-layout.js";
 
 export { HerdrCore } from "./herdr-core.js";
@@ -163,7 +163,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   });
   waiting.start();
   ctx.effect(() => () => waiting.stop()); // 停用时关闭订阅连接；重新启用后 apply 再次运行，重连并用快照补齐期间的 blocked
-  registerWorkspaceLayout(api, {
+  const workspaceLayout = registerWorkspaceLayout(api, {
     core: async () => {
       const client = await core.ensure();
       waiting.poke();
@@ -342,6 +342,28 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         const s = await sessions.launch(i, c.signal);
         waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
         return publicSession(s);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.workspace.launch",
+      plugin: "agent-cli",
+      scope: "execute",
+      exposable: false,
+      defaultExposed: false,
+      input: LaunchTarget.omit({ command: true, shell: true })
+        .extend({
+          requestId: z.string().regex(/^[A-Za-z0-9_-]{8,110}$/),
+          baseVersion: z.int().nonnegative(),
+          target: WorkspaceTargetSchema,
+        })
+        .strict(),
+      output: WorkspaceLaunchViewSchema,
+      handler: async ({ signal }, { baseVersion, target, ...launch }) => {
+        const view = await workspaceLayout.launch(launch, target, baseVersion, signal);
+        waiting.poke();
+        return view;
       },
     }),
   );

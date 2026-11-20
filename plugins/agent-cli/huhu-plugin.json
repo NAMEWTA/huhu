@@ -49,7 +49,9 @@
       "agent.spaces.list",
       "agent.spaces.save",
       "agent.targets.list",
+      "agent.workspace.close",
       "agent.workspace.get",
+      "agent.workspace.launch",
       "agent.workspace.save"
     ],
     "fileKinds": []
