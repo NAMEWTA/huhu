@@ -18,6 +18,8 @@
     "test/host-files.test.ts",
     "test/core-routes.test.ts",
     "test/host-feedback.test.tsx",
+    "test/block-selection.test.tsx",
+    "test/file-tree-feedback.test.tsx",
     "test/upload-routes.test.ts",
     "test/frontmatter-codec.test.ts",
     "test/markdown-parity.test.ts"

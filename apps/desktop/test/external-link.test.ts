@@ -29,7 +29,8 @@ test.each([
   { choice: 0, stillCurrent: true, opens: false },
   { choice: 1, stillCurrent: false, opens: false },
   { choice: 1, stillCurrent: true, opens: true },
-])("native external-link confirmation only opens a current, confirmed request", async ({ choice, stillCurrent, opens }) => {
+  { choice: 1, stillCurrent: true, opens: true, shellFails: true },
+])("native external-link confirmation only opens a current, confirmed request", async ({ choice, stillCurrent, opens, shellFails }) => {
   const url = "https://example.com/preview";
   const win = { isDestroyed: () => false } as Parameters<typeof confirmExternalLink>[0];
   let current = true;
@@ -37,8 +38,18 @@ test.each([
     current = stillCurrent;
     return { response: choice };
   });
-  await expect(confirmExternalLink(win, url, () => current)).resolves.toBe(opens);
+  if (shellFails) electron.shell.openExternal.mockRejectedValueOnce(new Error("No browser handler"));
+  await expect(confirmExternalLink(win, url, () => current)).resolves.toBe(opens && !shellFails);
   expect(electron.dialog.showMessageBox).toHaveBeenCalledWith(win, expect.objectContaining({ detail: url, defaultId: 0 }));
   if (opens) expect(electron.shell.openExternal).toHaveBeenCalledExactlyOnceWith(url);
   else expect(electron.shell.openExternal).not.toHaveBeenCalled();
+  if (shellFails) {
+    expect(electron.dialog.showMessageBox).toHaveBeenNthCalledWith(2, win, {
+      type: "error",
+      message: "无法在系统浏览器中打开链接",
+      detail: url,
+    });
+  } else {
+    expect(electron.dialog.showMessageBox).toHaveBeenCalledTimes(1);
+  }
 });

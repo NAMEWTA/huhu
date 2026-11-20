@@ -1,4 +1,25 @@
-# 上游测试结果（G04，三分类）
+# 上游测试结果（G04）
+
+## 2026-11-20 固定来源与交付闭包分母
+
+测试按固定 Git 树逐文件计数。通过数来自实际 Vitest 收集的 `copy` 和 `patch` 文件，每个文件至少有一个通过用例且无失败。上游测试用例的跳过条目另见 [清单](vendor-test-catalog.json)。替代证据未达到原文件完整覆盖时保留 `partial`，计入分母。
+
+- 适用分母包含生产模块随 Huhu 交付的文件。被测主体与 [G01 来源清单](source-file-catalog.md) 的路径及处置逐条相连。相同模块的点号测试变体和明确登记的异名套件按被测主体分类。无法确认主体的 112 文件仍计入分母。已有的不适用条目和 Q2 理由保持原样。
+- 604 个文件的被测模块在 G01 为 `omit`，逐档记为 `not-applicable` 并附原路径和处置。文件导入其他已交付 helper 不改变被测主体的分类。若沿用原保守分母，这 604 个文件仍计入。
+- 新增 154 个 OK 固定来源测试文件原样接入。另有 55 个原样试跑失败或无终态，逐项原因见 [适配清单](vendor-test-adaptation.json)。其中未迁入且仍适用的文件还需适配。ORCA 保留其独立口径。
+
+| 固定源 | 交付闭包口径 | 若按原保守分母 | 70% 所需通过数（交付闭包口径） |
+| --- | --- | --- | --- |
+| OK `44a2e0a` | **512 / 711（72.01%）** | 512 / 1315（38.94%） | 498 |
+| ORCA | 4 / 11（36.36%） | 4 / 11（36.36%） | 8 |
+
+OK 交付闭包口径超过 70%。候选分母规则交 Lead 与用户确认，保守口径与 ORCA 的单独结果仍低于 70%。首次全套 OK 运行收集到 515 文件、9,066 个通过用例、4 个跳过，另有一个 Vitest worker RPC 超时导致命令失败。以 3 个 worker 复跑成功，文件、通过及跳过计数一致。515 个运行文件中有 512 个能对应固定上游来源。
+
+完整结果见 [逐文件 JSONL](vendor-test-files.jsonl.gz) 和 [执行及分母汇总](vendor-test-catalog.json)。
+
+---
+
+## 2026-11-15 历史三分类结果
 
 生成：`node scripts/ok-test-report.mjs`（数据 `packages/editor/test-results/vendor.json` ← `pnpm --filter @huhu/editor test:vendor`；不适用清单 `vendor-tests-na.json` ← `scripts/ok-tests-prune.mjs`；原样基线 `tests-manifest.json` ← `ok-patches.mjs --write-tests-manifest`）。固定上游 `44a2e0a`。
 

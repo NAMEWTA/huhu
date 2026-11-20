@@ -1,6 +1,6 @@
 {
   "extends": ["../../tsconfig.base.json", "./tsconfig.vendor.json"],
   "compilerOptions": { "lib": ["ES2024", "DOM", "DOM.Iterable"] },
-  "include": ["src/host/**/*", "test/core-routes.test.ts", "test/host-feedback.test.tsx"],
+  "include": ["src/host/**/*", "test/core-routes.test.ts", "test/host-feedback.test.tsx", "test/block-selection.test.tsx", "test/file-tree-feedback.test.tsx"],
   "exclude": ["src/host/**/*.test.ts"]
 }

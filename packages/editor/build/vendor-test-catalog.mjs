@@ -1,12 +1,12 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join, posix, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 const root = resolve(import.meta.dirname, "../../..");
 const archive = join(root, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
 const parity = join(root, ".agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity");
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
+const adaptation = readJson(join(archive, "vendor-test-adaptation.json"));
 const [ok, orca] = gunzipSync(readFileSync(join(archive, "source-file-catalog.jsonl.gz")))
   .toString()
   .trim()
@@ -63,59 +63,105 @@ const serverOnly =
   /^(?:acp|agent|audit|auth|backup|billing|branch|channel|checkout|cloud|cron|daemon|dispatch|github|handoff|heritage|lint|oauth|otel|presence|publish|release|remote|run-session|share|shadow|skill|staging|sync|telemetry|tunnel|worktree)(?:[.-]|$)/;
 const upstreamTest = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 const possibleOkTests = /^packages\/(?:app\/src\/(?:editor|components|lib|comments|hooks)|core\/src|server\/src)\//;
-const okFileList = ok.files.filter(({ upstream }) => upstreamTest.test(upstream) && possibleOkTests.test(upstream));
-const okSource = process.env.OK_SRC;
-if (!okSource) throw new Error("需要 OK_SRC 指向固定 OK Git 工作副本");
-const gitBlobs = execFileSync("git", ["-C", okSource, "cat-file", "--batch"], {
-  input: okFileList.map(({ blob }) => blob).join("\n") + "\n",
-  maxBuffer: 36 * 1024 * 1024,
-});
-const testImports = new Map();
-let position = 0;
-for (const { upstream, blob } of okFileList) {
-  const headerEnd = gitBlobs.indexOf(10, position);
-  const [id, kind, sizeText] = gitBlobs.subarray(position, headerEnd).toString().split(" ");
-  if (id !== blob || kind !== "blob") throw new Error(`缺少固定测试 Git blob：${upstream}`);
-  position = headerEnd + 1;
-  const size = Number(sizeText);
-  const text = gitBlobs.subarray(position, position + size).toString();
-  position += size + 1;
-  const imports = new Set();
-  for (const [, name] of text.matchAll(/(?:\bfrom\s+|\bimport\s*(?:\(\s*)?|\brequire\(\s*)['"]([^'"]+)['"]/g)) {
-    if (name.startsWith(".")) imports.add(posix.join(posix.dirname(upstream), name));
-    else if (name.startsWith("@/")) imports.add(`packages/app/src/${name.slice(2)}`);
-    else if (name.startsWith("@inkeep/open-knowledge-core/")) imports.add(`packages/core/src/${name.slice("@inkeep/open-knowledge-core/".length)}`);
+const moduleExtension = /\.[cm]?[jt]sx?$/;
+
+// Suites whose subject is named differently from the test file. These entries
+// describe the implementation exercised by the assertions, including suites
+// that call it through OK's composed listener or an upstream test helper.
+const okSubjects = [
+  [/^app\/src\/components\/agent-panel-selection-label\./, "app/src/components/command-palette-commands.ts"],
+  [/^app\/src\/components\/command-palette-(?:chat-history-side|dock-moves|new-skill|open-in-new-window)\./, "app/src/components/command-palette-commands.ts"],
+  [/^app\/src\/components\/command-palette-(?:flicker|vocabulary)\./, "app/src/components/command-palette-search.ts"],
+  [/^app\/src\/components\/settings\/markdownlint-rule-toggle\./, "app/src/components/settings/markdownlint-rule-browser.tsx"],
+  [/^app\/src\/editor\/(?:provider-pool-|qa-001-crash-window\.)/, "app/src/editor/provider-pool.ts"],
+  [/^app\/src\/editor\/editor-cache-visible-scroll-container\./, "app/src/editor/editor-cache.ts"],
+  [/^app\/src\/editor\/list-boundary-merge\./, "core/src/extensions/list-boundary-merge.ts"],
+  [/^app\/src\/editor\/image-upload\/(?:media-drop-shape-invariant|single-file-upload)\./, "app/src/editor/image-upload/index.ts"],
+  [/^app\/src\/editor\/source-polish\/engine-invariants\./, "app/src/editor/source-polish/engine-invariants.reads.ts"],
+  [/^app\/src\/editor\/slash-command\/(?:auto-open-flag|focus-inserted-component)\./, "app/src/editor/slash-command/component-items.tsx"],
+  [/^app\/src\/lib\/palette-paint-strengths\./, "core/scripts/chrome-resolver.ts"],
+  [/^server\/src\/api-agent-integrations(?:[-.])/, "server/src/http/agent-integrations-routes.ts"],
+  [/^server\/src\/api-(?:agent-write|agent-control-admission)(?:[-.])/, "server/src/http/agent-write-routes.ts"],
+  [/^server\/src\/api-artifact-body-control-admission\./, "server/src/http/api-pipeline.ts"],
+  [/^server\/src\/api-artifact-flush-settlement\./, "server/src/persistence.ts"],
+  [/^server\/src\/api-(?:agent-frontmatter|agent-patch|agent-session-capacity|docname-validation|empty-docname|patch|write-link-policy)(?:[-.])/, "server/src/api-extension.ts"],
+  [/^server\/src\/api-(?:asset|asset-text)\./, "server/src/http/asset-routes.ts"],
+  [/^server\/src\/api-(?:backlinks|forward-links-local-targets|link-graph|resolved-link-views|suggest-links)(?:[-.])/, "server/src/http/link-graph-routes.ts"],
+  [/^server\/src\/api-comments-composition\./, "server/src/http/comment-routes.ts"],
+  [/^server\/src\/api-(?:create-page|document|pages|tags)(?:[-.])/, "server/src/http/document-routes.ts"],
+  [/^server\/src\/(?:api-(?:file-ops|folder-delete-duplicate-disk-enum|folder-rename-disk-enum|rename|trash-cleanup)|rename-identity|resolve-upload-dest-dir)(?:[-.])/, "server/src/http/file-ops-routes.ts"],
+  [/^server\/src\/api-(?:folder-config|folder-template|template-ancestry|template-get)(?:[-.])/, "server/src/http/folder-template-routes.ts"],
+  [
+    /^server\/src\/api-(?:config|git-composition|history-composition|lint|local-op-composition|metrics-composition|seed-composition|share-composition|sync-composition|system-actions-composition|workspace-tools-composition)(?:[-.])/,
+    "server/src/api-extension.ts",
+  ],
+  [/^server\/src\/api-(?:mcp|skill|skills)(?:[-.])/, "server/src/http/http-app.ts"],
+  [/^server\/src\/api-(?:admission|content-admission-cause|opaque-origin-composition|request-id)(?:[-.])/, "server/src/http/api-pipeline.ts"],
+  [/^server\/src\/(?:api-derived-index|api-search|link-classification-uniformity|local-target-watcher-integration)(?:[-.])/, "server/src/derived-document-index.ts"],
+  [
+    /^server\/src\/(?:boot-|collab-|composition-precedence|deployment-cases-composition|document-room-canonicalization|health-routes|http-limits|mcp-collab-composition|mcp-local-dispatch-parity|mcp-managed-rename-resolution|mcp-write-asset-placement|server-authority-retirement|server-exit-reason|server-freshness-default|server-head-watcher-degraded|server-shutdown-parcel-release|shutdown-progress)(?:[-.])?/,
+    "server/src/boot.ts",
+  ],
+  [/^server\/src\/(?:file-watcher-|watcher-resubscribe|polled-watcher-contract)/, "server/src/file-watcher.ts"],
+  [/^server\/src\/(?:persistence-|serialize-doc-vs-git-show-byte-equality|serialize-doc-ytext|save-version)/, "server/src/persistence.ts"],
+  [/^server\/src\/(?:process-lock-|desktop-attach-contract)/, "server/src/process-lock.ts"],
+  [/^server\/src\/process-scan-/, "server/src/process-scan.ts"],
+  [/^server\/src\/git-preflight-/, "server/src/git-preflight.ts"],
+  [/^server\/src\/(?:content-filter-|showall-)/, "server/src/content-filter.ts"],
+];
+const reviewedServerSubjects = new Map(
+  Object.entries({
+    "config-telemetry": "config-persistence.ts",
+    "backlink-resolution": "backlink-index.ts",
+    "document-durability-cache": "document-durability-state.ts",
+    "external-change-private-state": "external-change.ts",
+    "fs-copy-observer": "fs-traced.ts",
+    "head-watcher-parcel-release": "head-watcher.ts",
+    "local-target-index-telemetry": "local-target-index.ts",
+    "shell-identity": "http/shell-csp.ts",
+  }),
+);
+
+function subjectsFor(upstream, byPath, byStem) {
+  const relative = upstream.slice("packages/".length);
+  const reviewed = relative.startsWith("server/src/") ? reviewedServerSubjects.get(relative.split("/").at(-1).replace(upstreamTest, "")) : undefined;
+  const mapped = reviewed ? `server/src/${reviewed}` : okSubjects.find(([pattern]) => pattern.test(relative))?.[1];
+  if (mapped) {
+    const subject = byPath.get(`packages/${mapped}`);
+    if (!subject) throw new Error(`G01 缺少 ${upstream} 的被测模块：${mapped}`);
+    return [subject];
   }
-  testImports.set(
-    upstream,
-    [...imports].map((name) => name.replace(/\.[cm]?[jt]sx?$/, "")),
-  );
-}
-function adaptationReason(file, modules) {
-  const stem = file.upstream.replace(/(?:\.(?:browser|dom|integration|property|unit|uncached))?\.(?:test|spec)\.[cm]?[jt]sx?$/, "");
-  const module = modules.get(stem);
-  if (module?.target) return `生产模块 ${module.target} 已接入；需核对本用例的导入、环境或断言并适配`;
-  const imports = (testImports.get(file.upstream) ?? []).map((name) => modules.get(name) ?? modules.get(name + "/index")).filter(Boolean);
-  const reused = imports
-    .filter(({ target }) => target)
-    .map(({ target }) => target)
-    .slice(0, 3);
-  if (reused.length) return `固定测试导入已复用模块 ${reused.join("、")}；需核对测试环境与 Huhu 宿主接线`;
-  if (module) return `对应模块 ${module.upstream} 未直接复制；需对照 Huhu 等价行为并补适配或替代断言`;
-  const omitted = imports.slice(0, 2).map(({ upstream }) => upstream);
-  if (omitted.length) return `固定测试导入未直接复制的模块 ${omitted.join("、")}；需核对 Huhu 是否提供等价行为`;
-  return `契约用例 ${file.upstream} 无同名固定源模块；保留在候选分母，逐断言的等价入口待核对`;
+  // Dot-separated suites such as .dom / .browser / .collab exercise the
+  // module prefix. Hyphenated filenames are distinct unless reviewed above.
+  let stem = upstream.replace(upstreamTest, "");
+  while (true) {
+    const subjects = [...(byStem.get(stem.toLowerCase()) ?? []), ...(byStem.get(stem.toLowerCase() + "/index") ?? [])];
+    if (subjects.length) return subjects;
+    const parent = stem.replace(/\.[^/.]+$/, "");
+    if (parent === stem) return [];
+    stem = parent;
+  }
 }
 
 const outcomes = [];
 const skips = [];
 for (const source of [ok, orca]) {
-  const modules = new Map(source.files.filter(({ upstream }) => /\.[cm]?[jt]sx?$/.test(upstream)).map((module) => [module.upstream.replace(/\.[cm]?[jt]sx?$/, ""), module]));
+  const byPath = new Map(source.files.map((file) => [file.upstream, file]));
+  const byStem = new Map();
+  for (const module of source.files) {
+    if (!moduleExtension.test(module.upstream) || upstreamTest.test(module.upstream)) continue;
+    const stem = module.upstream.replace(moduleExtension, "").toLowerCase();
+    const matches = byStem.get(stem) ?? [];
+    matches.push(module);
+    byStem.set(stem, matches);
+  }
   for (const file of source.files) {
     if (!/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file.upstream)) continue;
     const row = file.target ? byTarget.get(file.target) : undefined;
     let status;
     let reason;
+    let subjects;
+    let closureExcluded = false;
     if (row) {
       const failures = row.assertionResults.filter(({ status }) => status === "failed");
       const passed = row.assertionResults.filter(({ status }) => status === "passed");
@@ -141,7 +187,15 @@ for (const source of [ok, orca]) {
       reason = `固定 OK 测试 ${file.upstream} 所属云／项目服务未接入（Q2／Q10）；Huhu 本地 Vault 不使用该服务`;
     } else if (source === ok && possibleOkTests.test(file.upstream)) {
       status = "needs-adaptation";
-      reason = adaptationReason(file, modules);
+      subjects = subjectsFor(file.upstream, byPath, byStem);
+      if (subjects.length && subjects.every(({ target }) => !target)) {
+        status = "not-applicable";
+        closureExcluded = true;
+        reason = `被测模块未进入闭包；G01：${subjects.map(({ upstream, action, reason }) => `${upstream} (${action}，${reason})`).join("；")}`;
+      } else {
+        const targets = subjects.flatMap(({ target }) => (target ? [target] : []));
+        reason = targets.length ? `被测模块已交付（G01：${targets.join("、")}）；按上游夹具、环境及行为断言适配` : "固定测试主体尚未与 G01 模块确认对应；保留在适用分母";
+      }
     } else if (source === orca && /(?:pdf|image-viewer-zoom)/i.test(file.upstream)) {
       const decision = orcaNotApplicable.get(file.upstream.split("/").at(-1));
       status = decision ? "not-applicable" : "needs-adaptation";
@@ -150,7 +204,16 @@ for (const source of [ok, orca]) {
       status = "outside-product";
       reason = source === ok ? "路径位于固定本地编辑器实现和测试范围外" : "路径及名称位于 PDF 最小移植和构建资源范围外";
     }
-    outcomes.push({ source: source.source, upstream: file.upstream, target: file.target, status, reason });
+    if (status === "needs-adaptation" && adaptation[file.upstream]) reason += `；${adaptation[file.upstream]}`;
+    outcomes.push({
+      source: source.source,
+      upstream: file.upstream,
+      target: file.target,
+      status,
+      reason,
+      ...(subjects?.length ? { testedModules: subjects.map(({ upstream }) => upstream) } : {}),
+      ...(closureExcluded ? { closureExcluded: true } : {}),
+    });
   }
 }
 const summary = {};
@@ -162,8 +225,9 @@ const coverage = Object.fromEntries(
   Object.entries(summary).map(([source, counts]) => {
     const passed = (counts.copy ?? 0) + (counts.patch ?? 0);
     const denominator = outcomes.filter((row) => row.source === source && !["outside-product", "not-applicable"].includes(row.status)).length;
+    const conservativeDenominator = denominator + outcomes.filter((row) => row.source === source && row.closureExcluded).length;
     const minimumFor70Percent = Math.ceil(denominator * 0.7);
-    return [source, { passed, denominator, minimumFor70Percent, additional: Math.max(0, minimumFor70Percent - passed) }];
+    return [source, { passed, denominator, conservativeDenominator, minimumFor70Percent, additional: Math.max(0, minimumFor70Percent - passed) }];
   }),
 );
 writeFileSync(join(archive, "vendor-test-catalog.json"), JSON.stringify({ summary, coverage, skips }, null, 2) + "\n");

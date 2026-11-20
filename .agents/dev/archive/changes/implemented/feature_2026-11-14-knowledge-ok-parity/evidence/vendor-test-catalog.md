@@ -6,7 +6,7 @@
 pnpm test:vendor
 pnpm exec vitest run plugins/notes/test/orca-pdf-{scale-preference,view-position,range-transport,zoom-wheel}.test.ts \
   --reporter=json --outputFile=/tmp/huhu-orca-tests.json
-OK_SRC=/path/to/open-knowledge node packages/editor/build/vendor-test-catalog.mjs /tmp/huhu-orca-tests.json
+node packages/editor/build/vendor-test-catalog.mjs /tmp/huhu-orca-tests.json
 ```
 
 | 案例 | 运行条件与位置 |
@@ -16,8 +16,4 @@ OK_SRC=/path/to/open-knowledge node packages/editor/build/vendor-test-catalog.mj
 | 测试实际 PowerShell 对单值与单命令参数的解析 | `core/src/handoff/terminal-launch.test.ts:757`，本机缺 `pwsh` 时跳过，`CI=true` 时须有实际 PowerShell。 |
 | 测试实际 PowerShell 对启动命令的解析 | `core/src/handoff/terminal-launch.test.ts:832`，同一环境条件。 |
 
-适用分母仍待按产品行为逐条确认。已收集通过数量及名称证明当前运行范围，不应据此判定 OP-D02 的 70% 条件。
-
-## task02 覆盖口径
-
-实际 Vitest 文件按 `copy` 或 `patch` 计入通过数。按固定文件清单，除 `outside-product` 和明确无产品入口的 `not-applicable` 外，均保留在候选分母。部分替代证据与待适配文件暂不计入通过数。逐文件记录的 `needs-adaptation` 是保守分类，需要再核对实际断言，并计入分母。以 JSON 的 `coverage` 为准，达到 70% 所需的数量向上取整。范围外的上游性能用例按这次任务的测试纪律留待集成阶段。
+当前分母和原保守分母见 [vendor-test-results.md](vendor-test-results.md)。逐文件结果在 G01 能定位主体时记录 `testedModules`，仅由本轮闭包规则排除的条目另记 `closureExcluded`。固定源原样试跑失败或未取得终态的文件及原因见 [vendor-test-adaptation.json](vendor-test-adaptation.json)。明确的 Q2 排除按已有理由保留。

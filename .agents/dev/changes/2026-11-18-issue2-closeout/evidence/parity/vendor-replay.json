@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "c4290022472e2903d2d012b115b6086a65dd5c9f96d28ee78113e6a832721081",
+      "sha256": "ddb901862892ee32c641c5dce31f3716e4b80ffb65ae486d40678f6b30c71096",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -473,10 +473,24 @@
       "description": "PATCHES.md:329 - `app/src/components/ActivityModeContent.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/components/ActivityPanelBurstRow.test.tsx",
+      "upstream": "packages/app/src/components/ActivityPanelBurstRow.test.tsx",
+      "blob": "e376de3d382fb93a69f9baff6fa617f6dfff93bd",
+      "sha256": "02387f556ac8c73bafc7caf742e6faf1e53b3944664f4ccd5454db6c7017f20d",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/ActivityPanelBurstRow.tsx",
       "upstream": "packages/app/src/components/ActivityPanelBurstRow.tsx",
       "blob": "61e4473aacd390ed206bb8b8c3f1431056c85a2f",
       "sha256": "6eede31f73889b19e91bc889b190fc56fab30331366c0a69febac41f6bdc30fa",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/ActivityPanelFileRow.test.tsx",
+      "upstream": "packages/app/src/components/ActivityPanelFileRow.test.tsx",
+      "blob": "595bb48566d29aab38b1f7f24aea6612430d6511",
+      "sha256": "9bd8bcff8cac763b2229885f9760db7ad89e4294d6e4bf37d41da63347c281af",
       "method": "copy"
     },
     {
@@ -594,6 +608,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/GraphLegend.test.tsx",
+      "upstream": "packages/app/src/components/GraphLegend.test.tsx",
+      "blob": "5b4f48b46f3c43f7253f55b34edd0d36ba78fa3a",
+      "sha256": "624948c9656ce6b560d64acf272116a65ff49c4d316d2e45d27915bc88363c78",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/GraphLegend.tsx",
       "upstream": "packages/app/src/components/GraphLegend.tsx",
       "blob": "18b622b509e993c1c0e498ef9b1ce1890be68b1f",
@@ -632,6 +653,13 @@
       "description": "PATCHES.md:332 - `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/components/NewItemDialog.test.ts",
+      "upstream": "packages/app/src/components/NewItemDialog.test.ts",
+      "blob": "89c4f1cb48d4faade31fd8afb04ba9592b75c48f",
+      "sha256": "264874368be6f566a4ed051fe58cb4638b59cffac7450f25da6b6e631fa35c52",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/NewItemDialog.tsx",
       "upstream": "packages/app/src/components/NewItemDialog.tsx",
       "blob": "abe24dc998e0181e607412a279b32aa8fdff0bf5",
@@ -660,6 +688,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/OutlinePanel.query-semantics.test.ts",
+      "upstream": "packages/app/src/components/OutlinePanel.query-semantics.test.ts",
+      "blob": "4b13e37c0cce067b1c3a4008bfa6c78b56c0d8ff",
+      "sha256": "804d5356da036df8d8e91c7931f148c92f47c69ea7572fa41fa8800a6f4d7ca8",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/OutlinePanel.tsx",
       "upstream": "packages/app/src/components/OutlinePanel.tsx",
       "blob": "a2520b387ee64cbacd0d8ac074860a3f48b78830",
@@ -672,6 +707,13 @@
       "upstream": "packages/app/src/components/PageHeaderWidgets.tsx",
       "blob": "dae358a6915c0c3ccdcfeaf8a082c46f39603707",
       "sha256": "96461033b462ed6e85ad372c64980b05998343cd77d352adf71d438926da1650",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/PageListContext.test.ts",
+      "upstream": "packages/app/src/components/PageListContext.test.ts",
+      "blob": "dbcd04b87b49ba4526ec36f7676acc5d0e2a3799",
+      "sha256": "c0734fbf1dfc7efb06c01b2bb00a42bed08a6e3da03764a55a7bf87575a52c75",
       "method": "copy"
     },
     {
@@ -732,6 +774,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/PropertyPanel.test.tsx",
+      "upstream": "packages/app/src/components/PropertyPanel.test.tsx",
+      "blob": "8171c1a237bcaf473e781ed551f3c65b62bf6cdf",
+      "sha256": "6c124a43cb5c103a2e93895adc1eb5f4e0224ca9c02d8688be437d625bca684d",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/PropertyPanel.tsx",
       "upstream": "packages/app/src/components/PropertyPanel.tsx",
       "blob": "3fa97714cb55d3f52319132e5433ce9dd61cf013",
@@ -743,6 +792,13 @@
       "upstream": "packages/app/src/components/PropertyWidgets.dom.test.tsx",
       "blob": "670e75115559a3b203f802940be027712f780f20",
       "sha256": "d4bd8d16ee291e9bce345c1aeeafe28ad98779cbc42394a13063a63ba2dae0fe",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/PropertyWidgets.test.ts",
+      "upstream": "packages/app/src/components/PropertyWidgets.test.ts",
+      "blob": "74e5229bf97bc4e4b9246eddb629f80bf61300c6",
+      "sha256": "1942063e7e713c2a09875263e4f89b34bdef7dc08bf31a64e2b7de1a29fa3efe",
       "method": "copy"
     },
     {
@@ -761,6 +817,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/TimelinePanel.test.ts",
+      "upstream": "packages/app/src/components/TimelinePanel.test.ts",
+      "blob": "580e05834e4bfeb763f0c34f5d1a0185e1bf6450",
+      "sha256": "02099bc871b560abe8002c0bbf282bf949448e01db48308cf1b4237aeb078952",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/TimelinePanel.tsx",
       "upstream": "packages/app/src/components/TimelinePanel.tsx",
       "blob": "6d663c4abacfdde342bb8bd055f0f7a019436b7c",
@@ -773,6 +836,13 @@
       "upstream": "packages/app/src/components/TrashFailureModal.dom.test.tsx",
       "blob": "f0c8d341dc66ba56890bb8fb166b079956fafaa3",
       "sha256": "56aa463f12c1a37cf44d399037a4d3cfae86c3c8b0e3afce7d4a2fc07f790154",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/TrashFailureModal.test.ts",
+      "upstream": "packages/app/src/components/TrashFailureModal.test.ts",
+      "blob": "8df0c319453c0ea65401f5bbe1b2df5999ad4846",
+      "sha256": "9889dfacabd1b584a8f51a45cd92614d2eeb68d407be9c6620e0b1a0d31b8711",
       "method": "copy"
     },
     {
@@ -811,6 +881,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/composer-draft-store.test.ts",
+      "upstream": "packages/app/src/components/composer-draft-store.test.ts",
+      "blob": "d861daab0fb066fdc7256bfd8e06122ee407e6a7",
+      "sha256": "fd39af9c114476e9aac8a488d7d06d5e634aea48536bf63ee5b2e1f9e4ce7135",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/composer-draft-store.ts",
       "upstream": "packages/app/src/components/composer-draft-store.ts",
       "blob": "a25ad8a7554a8919baefed435735e25bec146143",
@@ -839,6 +916,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/editor/SelectionAnnouncer.test.ts",
+      "upstream": "packages/app/src/components/editor/SelectionAnnouncer.test.ts",
+      "blob": "623c0fd255920976b98a4af15ff0969b904b8ec9",
+      "sha256": "ef316b45d336b837a9b715e36db3fa0c3edbd8da21f270d0863d4a7d15ed3bd4",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/editor/SelectionAnnouncer.tsx",
       "upstream": "packages/app/src/components/editor/SelectionAnnouncer.tsx",
       "blob": "128538778df860a69cd1f366ed29fb43363df795",
@@ -854,10 +938,24 @@
       "description": "PATCHES.md:249 - `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。"
     },
     {
+      "target": "app/src/components/extension-picker-utils.test.ts",
+      "upstream": "packages/app/src/components/extension-picker-utils.test.ts",
+      "blob": "61d3b0eb28fccfd3beca030b19bf7fb93fbff2b4",
+      "sha256": "2288d52d07c702b2365adfe50b60517a1b56b16e0d4dfa1b4ba7bc9a2f01f744",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/extension-picker-utils.ts",
       "upstream": "packages/app/src/components/extension-picker-utils.ts",
       "blob": "6dcef95c9e7952df4c1cf09dc2b34b41138bf1d8",
       "sha256": "0b386d4e1e062ac401f9c509990a172a4447dde3a5f7c6ead076de70312ebf3f",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-entry-icon.test.tsx",
+      "upstream": "packages/app/src/components/file-entry-icon.test.tsx",
+      "blob": "a56a3024b6411e54d57a2d0a61bce0198415e2d5",
+      "sha256": "f078f9bb998bf095ea0e37139733ec91392cd2eed4137815eb6c8d7eac8392ea",
       "method": "copy"
     },
     {
@@ -868,10 +966,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/file-tree-adapter.test.ts",
+      "upstream": "packages/app/src/components/file-tree-adapter.test.ts",
+      "blob": "47d4c3a6af40706220bed7aee6f08ea85958c8d2",
+      "sha256": "e639add08c40ff1d4c57b8dc95caa19d1f0eaec36d594110e7907cfed71f4300",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/file-tree-adapter.ts",
       "upstream": "packages/app/src/components/file-tree-adapter.ts",
       "blob": "d1cf82980f4e0661e8a4a1e08e96ff1710ea66b3",
       "sha256": "e1189b1259ad44974d518438accd62a876c7e73c614e9083d8c4665e792c74b8",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-tree-density.test.ts",
+      "upstream": "packages/app/src/components/file-tree-density.test.ts",
+      "blob": "5c7a9ee6c2df73e43296de543f9e4133eb6dc4e9",
+      "sha256": "707c09c366fc31867dc760c2ff3e9f62936d97b932b82d314999fdeb2e757dd7",
       "method": "copy"
     },
     {
@@ -903,6 +1015,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/file-tree-listing-transport.test.ts",
+      "upstream": "packages/app/src/components/file-tree-listing-transport.test.ts",
+      "blob": "dc799be75eeb60cb36dc8f39de888fa265886196",
+      "sha256": "d1c62566e1b103eee1e6159dcb1fa40a9593af6f51add881311dc158a75894e5",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/file-tree-listing-transport.ts",
       "upstream": "packages/app/src/components/file-tree-listing-transport.ts",
       "blob": "b20a1dfced75e67415d0824ef17f21e816828c47",
@@ -929,6 +1048,13 @@
       "upstream": "packages/app/src/components/file-tree-okignore.ts",
       "blob": "f868ed7848428ac37f20d578bafe2d378f58854e",
       "sha256": "ef35e9fa60f91a7a267180d5cbf77b8b6fa5049062ac88b95d879b686140fea1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-tree-operations.test.ts",
+      "upstream": "packages/app/src/components/file-tree-operations.test.ts",
+      "blob": "cebef0d9c0e436d2d301b5f1792f3ead8a9ebe08",
+      "sha256": "792788111a1fc4c0e882f52d617a7c3c9052fff5ada405086f656cbd463c0a76",
       "method": "copy"
     },
     {
@@ -1104,6 +1230,13 @@
       "upstream": "packages/app/src/components/graph-skill-filter.ts",
       "blob": "9d5a424c4fae630e798db54c98e86a638457bbe7",
       "sha256": "6439d9b3e185604c0cecddeb5006289c882c2d63884cfac9fce3f2fe15e8d9c1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/graph-theme.test.ts",
+      "upstream": "packages/app/src/components/graph-theme.test.ts",
+      "blob": "83c15db3f0698455b434da988d7e48fb6be8323f",
+      "sha256": "76bd262fc7b4b1d9b2640c33c6bcfbaea2e9e7beef9dbab64c29253a2fff5289",
       "method": "copy"
     },
     {
@@ -1339,6 +1472,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/ok-blob-logic.test.ts",
+      "upstream": "packages/app/src/components/ok-blob-logic.test.ts",
+      "blob": "ea13413ce2991b084575c8f9d5aeed1278c3259c",
+      "sha256": "79e212d7229cf5eee985056b0129df1bf7f5aee924126f6abda989c3591eaa93",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/ok-blob-logic.ts",
       "upstream": "packages/app/src/components/ok-blob-logic.ts",
       "blob": "6b04fe4246b372c54c1661a1546d127d9eb057fa",
@@ -1369,10 +1509,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/prewarm-correlation.test.ts",
+      "upstream": "packages/app/src/components/prewarm-correlation.test.ts",
+      "blob": "6929d147c0932a8094105d6fc0a493d8f4f67171",
+      "sha256": "50636f3e0aa056c51ab50a67dabbb163a99f631c22ecfdd4c0e3027d86c3875a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/prewarm-correlation.ts",
       "upstream": "packages/app/src/components/prewarm-correlation.ts",
       "blob": "d3d479e2652e24eedc47596fcab6a780962e682b",
       "sha256": "ca3bd8ca63dd9b21327d212c0fac52513efc9d807c9792d7707803e30711660c",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/problems-sweep.test.ts",
+      "upstream": "packages/app/src/components/problems-sweep.test.ts",
+      "blob": "c05747ce9d56303d02929c270817d2e3905f0499",
+      "sha256": "140d289da3a657dd6d2585750a08ea816f753d8d2597c4bcd924ef3a4027fb59",
       "method": "copy"
     },
     {
@@ -1389,6 +1543,13 @@
       "sha256": "b931bc586f95b5409f7c3adb0266370a02a8388e00280dd6eb9d59116d6b7ad8",
       "method": "patch",
       "description": "PATCHES.md:280 - `app/src/components/properties-collapsed-store.dom.test.tsx`：为 Node/jsdom 测试注入隔离 Storage，保留持久化断言。"
+    },
+    {
+      "target": "app/src/components/properties-collapsed-store.test.ts",
+      "upstream": "packages/app/src/components/properties-collapsed-store.test.ts",
+      "blob": "c6378dd3f53de53c838c6894d946d1652dd86bd0",
+      "sha256": "e0cb9ad85893cffe62313768841bc995ed45fbd63400c4255fa179a46c54117c",
+      "method": "copy"
     },
     {
       "target": "app/src/components/properties-collapsed-store.ts",
@@ -1412,10 +1573,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/reusable-session-store.test.ts",
+      "upstream": "packages/app/src/components/reusable-session-store.test.ts",
+      "blob": "6d9dea06dde40d3c4521f86c09cdc81f37614dfb",
+      "sha256": "a47fbd56b4022783ab7820cc01c86fe8b32ed261508b2f24c6a55642d4984dc9",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/reusable-session-store.ts",
       "upstream": "packages/app/src/components/reusable-session-store.ts",
       "blob": "62f68c2210c3e9237d00a434127213c9275fb1ef",
       "sha256": "3e3706d6cbf0458a9be6ee4f7e0569e2675706743226af83b0a5331312da1bfb",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/scroll-restore.test.ts",
+      "upstream": "packages/app/src/components/scroll-restore.test.ts",
+      "blob": "fc5fc315b4764821c3207d7a9e182c3868bd46e3",
+      "sha256": "531e6cebac57ab5ca6b7f5ff2e8ae1031bc3a05fd3ba32764f642815797feb8a",
       "method": "copy"
     },
     {
@@ -1454,6 +1629,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/settings/okignore-doc.test.ts",
+      "upstream": "packages/app/src/components/settings/okignore-doc.test.ts",
+      "blob": "217b16f2fa5f4e88ebd0dfa49583692bb483e09d",
+      "sha256": "d57088c56d03195f36b88e1ed3c07d50144e44f378354209bcf9bff884a14fa5",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/settings/okignore-doc.ts",
       "upstream": "packages/app/src/components/settings/okignore-doc.ts",
       "blob": "60cbc48b8b4bfe5e81de11c4e8a95b4b6ffeab21",
@@ -1475,10 +1657,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/sidebar-hover-prewarm.test.ts",
+      "upstream": "packages/app/src/components/sidebar-hover-prewarm.test.ts",
+      "blob": "ff6f507bf6a2634287ce551a0f14af3e6dec221d",
+      "sha256": "9d511ade393423725825cbcb6fda4c69d6b0c9db511a576500ae4073a64d37cd",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/sidebar-hover-prewarm.ts",
       "upstream": "packages/app/src/components/sidebar-hover-prewarm.ts",
       "blob": "44dcf30b89f5e34b337417b0b569367353150608",
       "sha256": "cd79965ed82a9241362f3fa4ff7d3bf1eb530bcf8c459c24e3723edf89364112",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/skills-dock-expanded-store.test.ts",
+      "upstream": "packages/app/src/components/skills-dock-expanded-store.test.ts",
+      "blob": "33621525f882d92882318c6f65c7b214351f5ced",
+      "sha256": "8c11392e6ec41ab0de65f380e015360cdf0e9caee6d71eaa1542bf47d461b1a0",
       "method": "copy"
     },
     {
@@ -1947,6 +2143,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/agent-follow-scroll.test.ts",
+      "upstream": "packages/app/src/editor/agent-follow-scroll.test.ts",
+      "blob": "e4ed120dd5958502949b4330096fed1a61b67758",
+      "sha256": "adae05e759dab45b68332295e61454b29d646e1663fa762b35b8e09d635afb4a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/agent-follow-scroll.ts",
       "upstream": "packages/app/src/editor/agent-follow-scroll.ts",
       "blob": "939243b9bf8d8aba367bd7ccbbbab79e2170f296",
@@ -1975,6 +2178,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/apply-lint-fix.test.ts",
+      "upstream": "packages/app/src/editor/apply-lint-fix.test.ts",
+      "blob": "89fd6346049fccef03a73769270759fe30491a56",
+      "sha256": "357afbacbd2885821bc61f26a636c6c63be763d096391b53d0f560eb8a3f2785",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/apply-lint-fix.ts",
       "upstream": "packages/app/src/editor/apply-lint-fix.ts",
       "blob": "b30313bf9a792d81dfb3cb6a026ef47f54f7f1f6",
@@ -1989,6 +2199,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/asset-dispatch/dispatcher.test.ts",
+      "upstream": "packages/app/src/editor/asset-dispatch/dispatcher.test.ts",
+      "blob": "f45b1886c8f84b3914116ba8022da520e906d1f8",
+      "sha256": "ce5360841ba8b447ab2302543b3011e8c6825b2775eef6230f7a5b0120696938",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/asset-dispatch/dispatcher.ts",
       "upstream": "packages/app/src/editor/asset-dispatch/dispatcher.ts",
       "blob": "74831fa3e62be93ded7aac8e07d2d690b0f0fc4c",
@@ -2000,6 +2217,13 @@
       "upstream": "packages/app/src/editor/asset-dispatch/index.ts",
       "blob": "297810a287c649f27ba6c7def7113f967ab37915",
       "sha256": "69a9566510a2c261d53c64bfc04c6e8682c21bd18c6d40eeff6d1aa0a4cd1883",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/asset-dispatch/registry.test.ts",
+      "upstream": "packages/app/src/editor/asset-dispatch/registry.test.ts",
+      "blob": "4ea7c1f117b59c64de6390da1ebfd07f3bf8f8da",
+      "sha256": "2b71f784b8ac16d6fdf678d154fb254f8baac50da4bad22c7c932d217e5459df",
       "method": "copy"
     },
     {
@@ -2024,6 +2248,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/awareness-heartbeat.test.ts",
+      "upstream": "packages/app/src/editor/awareness-heartbeat.test.ts",
+      "blob": "699a8690f67394e450d43a2b6f37a696ad4dc6ec",
+      "sha256": "6f86a64bafdf0dfb87797c22c875005ade3b46936aeea463c990bfb72ac49e65",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/awareness-heartbeat.ts",
       "upstream": "packages/app/src/editor/awareness-heartbeat.ts",
       "blob": "533db2757133934371abd966746659ffa9c7fbf0",
@@ -2042,6 +2273,13 @@
       "upstream": "packages/app/src/editor/awareness-user.ts",
       "blob": "d2b6b3fde0cb952d3cbd505b2f2231168a603e5e",
       "sha256": "30576a5f3d016e2c51ffa469ccb9635006e60729536be15be76a0fc6b99a19fd",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/binding-staleness-guard.test.ts",
+      "upstream": "packages/app/src/editor/binding-staleness-guard.test.ts",
+      "blob": "0bc9c852bddbb2501e02ffe7e819ccfac7ea45de",
+      "sha256": "e492eaa3a7ed76789eccf559a5251046b28fb6ed24c9b1556c26bd7fdbe8415a",
       "method": "copy"
     },
     {
@@ -2200,6 +2438,13 @@
       "upstream": "packages/app/src/editor/client-persistence.ts",
       "blob": "d0657d07fd71ff017dd4e6cdc046967848ba91e7",
       "sha256": "7044d974e9f108da77e0089f98abe1a4641fdfedfddaf011138a939e7527ead4",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/client-removal-reconciliation.test.ts",
+      "upstream": "packages/app/src/editor/client-removal-reconciliation.test.ts",
+      "blob": "b8244d688c938e05a059237001ef0b918052021a",
+      "sha256": "fdb4c1b81b4e5c2e5e403d2832862fca541169a76f6adec1b5956c68d849f05f",
       "method": "copy"
     },
     {
@@ -2876,6 +3121,13 @@
       "description": "PATCHES.md:85 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
     },
     {
+      "target": "app/src/editor/components/TagDialog.test.tsx",
+      "upstream": "packages/app/src/editor/components/TagDialog.test.tsx",
+      "blob": "cddbf53012a3a2a530b340962adee3bc44c9a085",
+      "sha256": "3d5d0a3f97f01bafd2d5b2b2a811c36e3923a43eda54f7dd897a8c0b0d296c11",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/components/TagDialog.tsx",
       "upstream": "packages/app/src/editor/components/TagDialog.tsx",
       "blob": "6e748976cfa677255925f64c1aa4c661f76194d1",
@@ -2888,6 +3140,13 @@
       "upstream": "packages/app/src/editor/components/TagView.dom.test.tsx",
       "blob": "4669003dc0da0cc6f81407c926618bcab7027ec6",
       "sha256": "b433b86ceab5f8d7df8e745649f7b4ec02a3d2573a662d98aa3e5b1b3c40ce85",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/components/TagView.test.tsx",
+      "upstream": "packages/app/src/editor/components/TagView.test.tsx",
+      "blob": "c062a42c52bdea1ea10c3eb23255eefc23c81288",
+      "sha256": "b41e176479ba61a654164676a154be18c0294477b93341fb046c96cddeb536d3",
       "method": "copy"
     },
     {
@@ -3064,10 +3323,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/composer-mention/composer-mention.test.ts",
+      "upstream": "packages/app/src/editor/composer-mention/composer-mention.test.ts",
+      "blob": "3a49dc70761373c00f27e907aec5012bed10c059",
+      "sha256": "a6abb0a1a6c0d2d652272d88f405983896de02027b8354294d96d72536e5bc5c",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/composer-mention/composer-mention.ts",
       "upstream": "packages/app/src/editor/composer-mention/composer-mention.ts",
       "blob": "53c2f5d9d7a83d094d09732f9ac07a50761ecfb9",
       "sha256": "02fac213b585f79c20629ac62c24db82654f42fe663d67aa72a5368d0d75cc00",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/composer-mention/composer-slash-command.test.ts",
+      "upstream": "packages/app/src/editor/composer-mention/composer-slash-command.test.ts",
+      "blob": "b55242eebf9ef6fbc8be87dff74b0437b2d5098d",
+      "sha256": "c69cb2956907add362bc65a949b9da9d8ee5f11c4a41757f8bef9728d28065b0",
       "method": "copy"
     },
     {
@@ -3100,6 +3373,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/edit-with-ai-selection.test.ts",
+      "upstream": "packages/app/src/editor/edit-with-ai-selection.test.ts",
+      "blob": "078f807cd93a1c5b6c1aa46efd91a26d97dd4d49",
+      "sha256": "1fe3bb1a73a16aeb6ef1761a01a6460c9d4b1330e226de281775b53e1b90acae",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/edit-with-ai-selection.ts",
       "upstream": "packages/app/src/editor/edit-with-ai-selection.ts",
       "blob": "3447c2403b1cf5b1ddca0dcf3bb8e293916c23ca",
@@ -3115,6 +3395,13 @@
       "description": "PATCHES.md:11 - P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。"
     },
     {
+      "target": "app/src/editor/editor-panes.test.ts",
+      "upstream": "packages/app/src/editor/editor-panes.test.ts",
+      "blob": "d2e17b044d114e078df524894953b921c17adeb1",
+      "sha256": "e9747df4959e36695a2b5d78525b2a173cd25bf464ff66f9b4ff1793f49c4490",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/editor-panes.ts",
       "upstream": "packages/app/src/editor/editor-panes.ts",
       "blob": "959ddb80d6937a3ddc311a8b9a5ea28301d23cf3",
@@ -3128,6 +3415,13 @@
       "sha256": "5e215191b6cf15d0046fcd15c12cf68eadfdc45b56259d0cd90ed344196340fe",
       "method": "patch",
       "description": "PATCHES.md:187 - `app/src/editor/editor-rig.test-helper.ts`"
+    },
+    {
+      "target": "app/src/editor/editor-tabs.test.ts",
+      "upstream": "packages/app/src/editor/editor-tabs.test.ts",
+      "blob": "1cd91f95e8e9dc31751dc535e0edc5f0409ca920",
+      "sha256": "67d3018eabddf456c8a104128efa72494cfa6a3b8d56731ea7c2b06036760d81",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/editor-tabs.ts",
@@ -3175,6 +3469,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/ImageReferenceView.test.ts",
+      "upstream": "packages/app/src/editor/extensions/ImageReferenceView.test.ts",
+      "blob": "47eb3a3a3849a2471530e36a674018ac9593954f",
+      "sha256": "cc6d4f63a6043506074563b867ab3e645a59e73b13558d06f1889ce3991fccee",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/ImageReferenceView.tsx",
       "upstream": "packages/app/src/editor/extensions/ImageReferenceView.tsx",
       "blob": "ad4ce50e9610060890518789694cb7d0807e728d",
@@ -3187,6 +3488,13 @@
       "upstream": "packages/app/src/editor/extensions/InternalLinkPropPanel.dom.test.tsx",
       "blob": "e1ae8ff243ee1366cf42a936088d4b87e757bc53",
       "sha256": "6ff08e853ba3f3dd8ee91a33e0389cd9891653d7394342a501a12844dd918cf7",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/InternalLinkPropPanel.test.ts",
+      "upstream": "packages/app/src/editor/extensions/InternalLinkPropPanel.test.ts",
+      "blob": "bfc060de5a0708b0d3799689799a8ac62db5d406",
+      "sha256": "4bc2452fdfbfaba656abc8ee611a91f327957af5228956d0d61ab052c77f9786",
       "method": "copy"
     },
     {
@@ -3386,6 +3694,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/code-block-languages.test.ts",
+      "upstream": "packages/app/src/editor/extensions/code-block-languages.test.ts",
+      "blob": "de8f762c2f463f33212dcf6975b5a4df334e1185",
+      "sha256": "c0b961e8d24d83222a2beacc7eb5a8731d5d66f74114b4c384ff6534c0964f6a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/code-block-languages.ts",
       "upstream": "packages/app/src/editor/extensions/code-block-languages.ts",
       "blob": "e9175268345e4077e810d9d24fa381273adeba48",
@@ -3421,6 +3736,13 @@
       "sha256": "33c44665a5ba062b1c7dc51f5e700e2bd37c89924b14e0418209379fb6310777",
       "method": "patch",
       "description": "PATCHES.md:41 - `app/src/editor/extensions/code-block-preview-csp.test.ts`：校验请求、子框架和表单限制。"
+    },
+    {
+      "target": "app/src/editor/extensions/code-block.test.ts",
+      "upstream": "packages/app/src/editor/extensions/code-block.test.ts",
+      "blob": "145743245871b0de84fab746ab1ca7aa299c87dc",
+      "sha256": "d686fb27fb92bb3e568732d571edf036fb771e4a6cb18d8a553e4c767695ac47",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/extensions/code-block.ts",
@@ -3469,6 +3791,13 @@
       "upstream": "packages/app/src/editor/extensions/formatting-shortcuts.ts",
       "blob": "6a40673ed8db1183c3eb3ab5009219112d30341d",
       "sha256": "fea0d1b6d3179018bc2a0ab6cf29e1105eb841f08dbcf86aa8782eb4dcb77ab8",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/frozen-table-headers.test.ts",
+      "upstream": "packages/app/src/editor/extensions/frozen-table-headers.test.ts",
+      "blob": "a6a955372de20fd98981b862725f4b8a9b45d6b9",
+      "sha256": "3b9f1169b50be2241c518c2794933345d97ef77a1bf305ebd63476f0b9c32078",
       "method": "copy"
     },
     {
@@ -3551,6 +3880,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/jsx-render-contract.test.ts",
+      "upstream": "packages/app/src/editor/extensions/jsx-render-contract.test.ts",
+      "blob": "7a0b978d8f24c9e6cbd28edc6bcc55fff5d19214",
+      "sha256": "397c977bd764f4adbd58eaac97b1b86b86fbeb5d8764da27d1f70b24d7bc7ef1",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/jsx-render-contract.ts",
       "upstream": "packages/app/src/editor/extensions/jsx-render-contract.ts",
       "blob": "0b823e7190dd20c9839dd7ced63c3ac4f5784f08",
@@ -3558,10 +3894,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/link-edit-autoopen.test.ts",
+      "upstream": "packages/app/src/editor/extensions/link-edit-autoopen.test.ts",
+      "blob": "3109adc99ba2224db0117e8e8b8fa5a354762338",
+      "sha256": "8b32897f63a8316f671581380178e7e614b82a080526e49c404b31228073374a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/link-edit-autoopen.ts",
       "upstream": "packages/app/src/editor/extensions/link-edit-autoopen.ts",
       "blob": "069d0ed99de007593d5c87f24f4916e370ff3926",
       "sha256": "4f524316dc2fbf988665bcf4f3ae624b73627edaaefe095da235b327dcfbb44b",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/link-resolution-decoration.test.ts",
+      "upstream": "packages/app/src/editor/extensions/link-resolution-decoration.test.ts",
+      "blob": "1e8e24ed728e729db106596cfe3528ed420e9f9d",
+      "sha256": "ba2dac513a25c62207d2bb2498f6ce289e45bb88f116ddf698097b6616fb1506",
       "method": "copy"
     },
     {
@@ -3583,6 +3933,27 @@
       "upstream": "packages/app/src/editor/extensions/list-editing-helpers.ts",
       "blob": "85c599ea55d9900c443a8fb0ffb7f6e2d479a6de",
       "sha256": "bdd1fce609166f50421f38b38a8da0561ec343465b7cbed4b193cad677594143",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/list-item-drag.bubble.test.ts",
+      "upstream": "packages/app/src/editor/extensions/list-item-drag.bubble.test.ts",
+      "blob": "0627bfc252fb1f12264002e71276e5441b128a7c",
+      "sha256": "8dae9a37be16d7418061bafe09746f562f42b4f191063d3311b01396963a8d56",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/list-item-drag.collab.test.ts",
+      "upstream": "packages/app/src/editor/extensions/list-item-drag.collab.test.ts",
+      "blob": "f2b95f560d982bad2f672f5f79ae1984a85e438c",
+      "sha256": "508f9a9268a96401f65e368bb32450aad78942170a6d576c5cb4790dd6ea9bbc",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/list-item-drag.test.ts",
+      "upstream": "packages/app/src/editor/extensions/list-item-drag.test.ts",
+      "blob": "e3582a657b171c28260063c4d611c8142543adbf",
+      "sha256": "a7526d425a8184971a843b0066f093394b7aa70e16ea41d9fe767146c62a2078",
       "method": "copy"
     },
     {
@@ -3792,6 +4163,13 @@
       "description": "PATCHES.md:87 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。"
     },
     {
+      "target": "app/src/editor/extensions/skill-path-links.test.ts",
+      "upstream": "packages/app/src/editor/extensions/skill-path-links.test.ts",
+      "blob": "5152a8369d67c2c00b7a84b8c3b562f80c2da871",
+      "sha256": "d3051134f2cbf3badcdccf1c463f86b4a0c20a1e5b734d8e9d16bf892634f302",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/skill-path-links.ts",
       "upstream": "packages/app/src/editor/extensions/skill-path-links.ts",
       "blob": "5fb83cb553673c18bcc72b82ad7849d036502135",
@@ -3921,6 +4299,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/table-insert-commands.test.ts",
+      "upstream": "packages/app/src/editor/extensions/table-insert-commands.test.ts",
+      "blob": "871c5d96d711e6c42e123ea52d18f74be1f75a5e",
+      "sha256": "58e1d9aefdc48a875821c8800104496f162456882e705418675f316cba3ad281",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/table-insert-commands.ts",
       "upstream": "packages/app/src/editor/extensions/table-insert-commands.ts",
       "blob": "83e8a42c737bd9819b0174d0e4ad13ae7fc1689b",
@@ -4009,6 +4394,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/wiki-link-embed.test.ts",
+      "upstream": "packages/app/src/editor/extensions/wiki-link-embed.test.ts",
+      "blob": "0dad8b11cc3f278d02ad3ef560b3533e7dd9c2ee",
+      "sha256": "d79f026aed1d0f4d71bfb171275b1e02008dc137f5ab7cf04b4aeae47cb44ea9",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/wiki-link-embed.ts",
       "upstream": "packages/app/src/editor/extensions/wiki-link-embed.ts",
       "blob": "68555633400ba6e6f9f3ad1b4ec8f2076a1ab332",
@@ -4059,6 +4451,13 @@
       "sha256": "a5ca8a3a3e830e520b29a38b2a788d5a0f6649c8ed95e6b4535cf434fd6ab4ef",
       "method": "patch",
       "description": "PATCHES.md:222 - `app/src/editor/extensions/wiki-link.external-open.test.ts`"
+    },
+    {
+      "target": "app/src/editor/extensions/wiki-link.resolution-cache.test.ts",
+      "upstream": "packages/app/src/editor/extensions/wiki-link.resolution-cache.test.ts",
+      "blob": "94e212529c1bd3c6b8daa16601c3cd96991dfa2f",
+      "sha256": "ae8cb41b022357e764e89ae5ef969082ba275c8c52ad7ed3dfce8ddbb053a01f",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/extensions/wiki-link.ts",
@@ -4116,6 +4515,13 @@
       "upstream": "packages/app/src/editor/find-replace/tiptap-find-replace-extension.ts",
       "blob": "a0a6afb2aa1befa26364144f04df43d38105a56d",
       "sha256": "84db29d896a5c44feb90294b13f3a9773c77e9219a4aa887b0fc47d5d2b066a4",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/full-page-cm-views.test.ts",
+      "upstream": "packages/app/src/editor/full-page-cm-views.test.ts",
+      "blob": "adee33e940e72295138bcb99fb112dfed02949f8",
+      "sha256": "b57d24c54cdd669cceabbf129d884b6294221e039f30402f181c2c2a2d1354c9",
       "method": "copy"
     },
     {
@@ -4190,10 +4596,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/image-upload/upload-failure.test.ts",
+      "upstream": "packages/app/src/editor/image-upload/upload-failure.test.ts",
+      "blob": "d5e6d1b3eb634df01cc64aab0101246443f63a34",
+      "sha256": "caf5af49da1df585a99c5d9cf21043c34acbe4bc5d1d1abcbe33ba7765e99f33",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/image-upload/upload-failure.ts",
       "upstream": "packages/app/src/editor/image-upload/upload-failure.ts",
       "blob": "6c5b63cd30cec6e365313da73934818dbe7382b0",
       "sha256": "ba57bc3d3405286e132c4d51ee47c94b833128fc6b21e8ac5ecb2a9d158fb277",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/image-upload/upload-file.test.ts",
+      "upstream": "packages/app/src/editor/image-upload/upload-file.test.ts",
+      "blob": "f12d51252958bf033a6f559cb0fb94a993173529",
+      "sha256": "9b135119b22836e1b4d402bbd4c94318844d143c3fbf1d3240ff05e88b80ae38",
       "method": "copy"
     },
     {
@@ -4212,6 +4632,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/interaction-layer-host.test.ts",
+      "upstream": "packages/app/src/editor/interaction-layer-host.test.ts",
+      "blob": "a2861c5eed103de7bd386fb25cddac81c9ad9597",
+      "sha256": "e7cfd54da8e999305cdf7c84f89211da67f950666899aa36715e2cae7a644ed5",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/interaction-layer-host.ts",
       "upstream": "packages/app/src/editor/interaction-layer-host.ts",
       "blob": "a3749ebedccdc95ad5cc8d1797d6d5c8743142e3",
@@ -4223,6 +4650,13 @@
       "upstream": "packages/app/src/editor/interaction-layer.dom.test.ts",
       "blob": "386baf515c72f0c1310382f9ab2dfe4ca8608101",
       "sha256": "441d69ee24e0e71775980c7cc89e6bb4b4bca42653dcfab869e0b1c46df6f15d",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/interaction-layer.test.ts",
+      "upstream": "packages/app/src/editor/interaction-layer.test.ts",
+      "blob": "d569b1ed004e77012119262a9b2667a62bd1e824",
+      "sha256": "3c590e8a77b44262f61d04a92d521b5da522b55af43f6fdcb008c0a91d8cc892",
       "method": "copy"
     },
     {
@@ -4244,6 +4678,13 @@
       "upstream": "packages/app/src/editor/is-system-doc.ts",
       "blob": "5f48ac25ce46064900f8820121b1036e233b738c",
       "sha256": "a38898151c6bf868f2d560087e5c9cb9a2c23ca21333b8907f3419426fbfd1d9",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/landing-controller.test.ts",
+      "upstream": "packages/app/src/editor/landing-controller.test.ts",
+      "blob": "fc9454703443692eefdaedc82462c7e9a4a52767",
+      "sha256": "16fb8e45f1d11198a2a8c45f9c9fd22f7d64b01b640a5b396cf264530a30d2bf",
       "method": "copy"
     },
     {
@@ -4318,12 +4759,26 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/link-preview/external-link-preview.test.ts",
+      "upstream": "packages/app/src/editor/link-preview/external-link-preview.test.ts",
+      "blob": "5dddca36be653800e5cb20a45a84073b343e1590",
+      "sha256": "8ca953f945b7f5a0134b17cdbe40445106a15f062179c6ac4270693ca4c716d1",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/link-preview/external-link-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/external-link-preview.ts",
       "blob": "106fcc31f82048a5fb0a4b06feed2366f6b72b25",
       "sha256": "d7e21ab054a2c685dc73034b56c05fb70fcf88e2642baabe6c7984bbfc64677f",
       "method": "patch",
       "description": "PATCHES.md:342 - `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
+    },
+    {
+      "target": "app/src/editor/link-preview/internal-doc-preview.test.ts",
+      "upstream": "packages/app/src/editor/link-preview/internal-doc-preview.test.ts",
+      "blob": "edd1792908f39dc20eeadb7abf9fad362af601c1",
+      "sha256": "8398ecd17c2674ce447a9e6847718045474be9e7ff4a37c3adc1ebd72baab70f",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/link-preview/internal-doc-preview.ts",
@@ -4398,6 +4853,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/mode-switch-landing.test.ts",
+      "upstream": "packages/app/src/editor/mode-switch-landing.test.ts",
+      "blob": "6ad78764b3986623a2fb4f2fcab4f78e48890c70",
+      "sha256": "9e519ab3bc18f304bf985bff04aad39ad55305c7cad3130bf12991a31bb1b31e",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/mode-switch-landing.ts",
       "upstream": "packages/app/src/editor/mode-switch-landing.ts",
       "blob": "65400654cd03e49e1cedcfa00e05225ef331c4b2",
@@ -4412,6 +4874,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/mount-id-registry.test.ts",
+      "upstream": "packages/app/src/editor/mount-id-registry.test.ts",
+      "blob": "6773eaa801abe4f227c4dd5c2aeb55daa60f19e7",
+      "sha256": "22f74be7727691466f55f56d8c6450837de55184d3470da1ba19483d45795ec6",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/mount-id-registry.ts",
       "upstream": "packages/app/src/editor/mount-id-registry.ts",
       "blob": "8d457715ac3f786083ac2105d94b383039cec2c7",
@@ -4423,6 +4892,13 @@
       "upstream": "packages/app/src/editor/mount-promise.ts",
       "blob": "1dd9311aa49c63f8c44aa76458a22f3bc6959713",
       "sha256": "25a9e74e86d5a03279a1c365768ff9501e4778d20f20d086d0560b02a3f39a4d",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/observers.test.ts",
+      "upstream": "packages/app/src/editor/observers.test.ts",
+      "blob": "95e3af349391e6fe4f2ea69553a576d3c4e0a021",
+      "sha256": "838bd55580d4cc99d6c1c3e73b8eda593c1acbab8e17897ea8bb62685beeab75",
       "method": "copy"
     },
     {
@@ -4444,6 +4920,13 @@
       "upstream": "packages/app/src/editor/plugins/agent-flash-source.ts",
       "blob": "509299fc5fc0281a0df6ad12ccd3aa04e89fffdb",
       "sha256": "fef06dc63505ce70216e3b980c4610faef5ccecd5165920036cdd169b673818d",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/plugins/agent-insert-flash.test.ts",
+      "upstream": "packages/app/src/editor/plugins/agent-insert-flash.test.ts",
+      "blob": "8583b6cf613dc3cc9cc1fa51d595ecb39754e7cf",
+      "sha256": "de573e25f88dde1e7d180902513980d583d85c32e84057e8a4007e715217af10",
       "method": "copy"
     },
     {
@@ -4476,6 +4959,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/plugins/landing-flash-shared.test.ts",
+      "upstream": "packages/app/src/editor/plugins/landing-flash-shared.test.ts",
+      "blob": "6a222f0e3560b626a117fbeb66a4b8eb2ae4dd59",
+      "sha256": "9213aa8c0285b8d7d68717b1284f9563d326a58ad2877510640be9c648d169c9",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/plugins/landing-flash-shared.ts",
       "upstream": "packages/app/src/editor/plugins/landing-flash-shared.ts",
       "blob": "a97e676a276f8d3ae08d77667783ac145a8c0623",
@@ -4483,10 +4973,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/plugins/landing-flash-source.test.ts",
+      "upstream": "packages/app/src/editor/plugins/landing-flash-source.test.ts",
+      "blob": "427f8aa5b6539c8c8a41b8476a817d31e21e9503",
+      "sha256": "843a2fb57d91217857999b107284b6b46562cbb73b6bb7dc9b79b05a3d7389de",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/plugins/landing-flash-source.ts",
       "upstream": "packages/app/src/editor/plugins/landing-flash-source.ts",
       "blob": "f13b188e1412e2412afd0a2e6d09fc4961133a55",
       "sha256": "a3bb0ebb18a91358f7838a68cf8351d44e23b82c7e4c4dbba49a6cfa6c0ce655",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/plugins/landing-flash-wysiwyg.test.ts",
+      "upstream": "packages/app/src/editor/plugins/landing-flash-wysiwyg.test.ts",
+      "blob": "ea7199232f7b4250407b7292fa4d7cc2380d7d52",
+      "sha256": "9657d3eb770c060aeb8db9f25a8c4e827590adffeea36c5ca001db09cb3b830e",
       "method": "copy"
     },
     {
@@ -4504,6 +5008,20 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/plugins/wiki-link-source.destination.test.ts",
+      "upstream": "packages/app/src/editor/plugins/wiki-link-source.destination.test.ts",
+      "blob": "cd3c2fd0acb408af991b032e03538d3a0afff828",
+      "sha256": "59a72494075de2aec7822650a69dd7d28879b656e6bd9c0709251d674e95b936",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/plugins/wiki-link-source.test.ts",
+      "upstream": "packages/app/src/editor/plugins/wiki-link-source.test.ts",
+      "blob": "25f4415779f25530c650ea915f645dd902e5cf27",
+      "sha256": "8e01785f250bb076c59b1437a6b2ca1be1892daecfddaa4ebd7dd49add33fd26",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/plugins/wiki-link-source.ts",
       "upstream": "packages/app/src/editor/plugins/wiki-link-source.ts",
       "blob": "a9cd7d66eadebb43ab50d7a3e32fe9c2c8608406",
@@ -4515,6 +5033,13 @@
       "upstream": "packages/app/src/editor/preview-open-disposition.ts",
       "blob": "18286b37824a0cadecb068e2ad723466da52ecf6",
       "sha256": "a8e026410bc0bce957397577d4c66d370229d68a7db063a03e8c3ffe14028370",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/preview-tab-promotion.test.ts",
+      "upstream": "packages/app/src/editor/preview-tab-promotion.test.ts",
+      "blob": "03587c04ff1d2f0915709408763cf20a80fc6cec",
+      "sha256": "8db49cffbe136cddc361b4263ab6aa0170909f43d90e7929ec405d0ec348beec",
       "method": "copy"
     },
     {
@@ -4531,6 +5056,13 @@
       "sha256": "d70cb95809ca0c90a363b047e6db0847b006ac97063e9b28947abcb21405731c",
       "method": "local",
       "description": "PATCHES.md:83 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
+    },
+    {
+      "target": "app/src/editor/registry/file-icons.test.ts",
+      "upstream": "packages/app/src/editor/registry/file-icons.test.ts",
+      "blob": "eb00a2525d1d06f100e2d92980c9b4bd79e91af3",
+      "sha256": "8d076ff6a8a2d6c87725ad34a2606d53632654bdde527aab569784446f55b8ec",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/registry/file-icons.ts",
@@ -4551,6 +5083,13 @@
       "upstream": "packages/app/src/editor/registry/index.ts",
       "blob": "55a3b7579f0182d7ebbd2f9bc4026f9359181656",
       "sha256": "38e8c1af5fe34cc2206bbb0249bffd7281ae1d8108387c8cca4d920c2c02a0f4",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/registry/lucide-svg.test.ts",
+      "upstream": "packages/app/src/editor/registry/lucide-svg.test.ts",
+      "blob": "7348950e7f4ffd162483900d043f4796e5cc7af0",
+      "sha256": "8a5a3742d40d9459485d0b4b4d5c6b70e660b1260dbb83942e16babb542e9ac7",
       "method": "copy"
     },
     {
@@ -4583,6 +5122,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/safe-navigation-url.test.ts",
+      "upstream": "packages/app/src/editor/safe-navigation-url.test.ts",
+      "blob": "6333ca536f90822c1d455b6a2e116efaff910661",
+      "sha256": "77ee50fb9594fb7bbb4ba1b3bda9c1548e057e8f5d9302d0d99bc37d57660a1a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/safe-navigation-url.ts",
       "upstream": "packages/app/src/editor/safe-navigation-url.ts",
       "blob": "1cad7ef8b0191b9ef637b74a418ea2faff4bef45",
@@ -4590,10 +5136,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/scroll-restore-coordination.test.ts",
+      "upstream": "packages/app/src/editor/scroll-restore-coordination.test.ts",
+      "blob": "e9f8a2bcfc7f709105d3e9268e828cc444575d8d",
+      "sha256": "e37fb222502d69605f33fe9d941be9dd639c84578a45c84d7a3e05e853824da1",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/scroll-restore-coordination.ts",
       "upstream": "packages/app/src/editor/scroll-restore-coordination.ts",
       "blob": "d1e328188f2d3a69479eda66bbe77ae8a9e0b549",
       "sha256": "1170a703efc49fe7a29a4dd9e55d24286c8b64af881e9d699a9925616a33747d",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/selection-context.test.ts",
+      "upstream": "packages/app/src/editor/selection-context.test.ts",
+      "blob": "f044310ca54f4bc333cd09fdefef855502c3fdfa",
+      "sha256": "5c153de8205721c55f47adc2dec10119616f00d8dfba34c809d197ecbe10949c",
       "method": "copy"
     },
     {
@@ -4643,6 +5203,13 @@
       "upstream": "packages/app/src/editor/selection/place-caret.ts",
       "blob": "b17e21d82e9b503aa6680f9fff18facec0526e54",
       "sha256": "41468c50e124cbf92e1b5aff6d74a9724ccffa871b35b5c2f9bdd683aedb7033",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/skill-path-links-source.test.ts",
+      "upstream": "packages/app/src/editor/skill-path-links-source.test.ts",
+      "blob": "b32a61918490a0f41b4be79b54086291cc48fced",
+      "sha256": "7d9c6bdc2976329dd536f21e45567ac82fc1b8868202f744f52f6e40bd2c691f",
       "method": "copy"
     },
     {
@@ -4706,10 +5273,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/slash-command/items.test.ts",
+      "upstream": "packages/app/src/editor/slash-command/items.test.ts",
+      "blob": "621b37deb038442cbd04569d291775c6f38214e3",
+      "sha256": "a2c019e1f7845dbd2e5b9db1e720796a3675edafa5caefce7f508995e07861d7",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/slash-command/items.tsx",
       "upstream": "packages/app/src/editor/slash-command/items.tsx",
       "blob": "1db9529058641ca571298166fce6b734c81a2db2",
       "sha256": "954b075f2f087610d2f0c386c3240a96e5c06adb71f4ee3087b52dbc93612cb7",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/slash-command/mirror-source-name.test.ts",
+      "upstream": "packages/app/src/editor/slash-command/mirror-source-name.test.ts",
+      "blob": "3576091f7ada4ee0bc353062cc8c9973471e2bf8",
+      "sha256": "e8008ea660f862aec36c9a9f23e8fa440f8dbf10576655e558ce941d9778d043",
       "method": "copy"
     },
     {
@@ -4734,10 +5315,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/slash-command/skill-reference-items.test.ts",
+      "upstream": "packages/app/src/editor/slash-command/skill-reference-items.test.ts",
+      "blob": "3372bf6fbf36d9efbdcdb054b43245658717c6ce",
+      "sha256": "948cc22f9df2b18da9e5ad9b7a00fa3f34c2f08806ad17ae40002d281d1d1013",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/slash-command/skill-reference-items.tsx",
       "upstream": "packages/app/src/editor/slash-command/skill-reference-items.tsx",
       "blob": "0beac9488346aa0ba905e286047c4c606fb3a18e",
       "sha256": "10509287e8f13c459661f7f50e95993df15d687659e15c2bfda0cf40a896cf2b",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/source-editor-navigation.test.ts",
+      "upstream": "packages/app/src/editor/source-editor-navigation.test.ts",
+      "blob": "198249fa15e18bb7be8d9e006a42e00a6560cdff",
+      "sha256": "59baaf87e68a04e8ef4ed5732650f63582215a28935b02aec78adf42a023cffb",
       "method": "copy"
     },
     {
@@ -4776,10 +5371,31 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/source-lint/local-target-diagnostics.test.ts",
+      "upstream": "packages/app/src/editor/source-lint/local-target-diagnostics.test.ts",
+      "blob": "fc82640b6c722b90ebe7584fe70566bc8c442136",
+      "sha256": "8d0531ce52dd94eb183b78067a427e64ba6fe41307ddde94024f5d1de553acf9",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/source-lint/local-target-diagnostics.test.tsx",
+      "upstream": "packages/app/src/editor/source-lint/local-target-diagnostics.test.tsx",
+      "blob": "354b3923f7e42e997a292682fb64586e7f68e96b",
+      "sha256": "07570b5e607d6f65d7938157394b86af909a2aa9a1e02bf7555266c558f117ae",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/source-lint/local-target-diagnostics.ts",
       "upstream": "packages/app/src/editor/source-lint/local-target-diagnostics.ts",
       "blob": "11599fcb1723bf646c05ae5c2502a14185622104",
       "sha256": "13e456aef90f7368eea0ca719f056cda6008efc2c867cb9decf4b05a769efe50",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/source-lint/markdown-lint-source.test.ts",
+      "upstream": "packages/app/src/editor/source-lint/markdown-lint-source.test.ts",
+      "blob": "a3674d14a4eb5fb7ee8d08ec587392a6e535a975",
+      "sha256": "45ca8bfbaf37ed20a44e7f11007420dadac686c398f1e3a9f13abd05e826c69d",
       "method": "copy"
     },
     {
@@ -4797,6 +5413,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/source-polish/broken-ref-field.test.ts",
+      "upstream": "packages/app/src/editor/source-polish/broken-ref-field.test.ts",
+      "blob": "5d4de7988c95bb81ef1bfa9a3657070671fa3bf6",
+      "sha256": "c12ce83acb9539b9efb569ead686bc0957de0c4a1bf74847aec640da84e0ec6f",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/source-polish/broken-ref-field.ts",
       "upstream": "packages/app/src/editor/source-polish/broken-ref-field.ts",
       "blob": "2d3490bd490897f09f67b5670097f404c55ff194",
@@ -4808,6 +5431,13 @@
       "upstream": "packages/app/src/editor/source-polish/index.ts",
       "blob": "2b91b31dc0c3155bf1459da0eab85e7fb3125c52",
       "sha256": "64bfefa15ee013cea5c49aea56112b5a14397a34528993eaac22f91b9b0ff484",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/source-polish/view-plugin.test.ts",
+      "upstream": "packages/app/src/editor/source-polish/view-plugin.test.ts",
+      "blob": "feda623292d689d979823f7998172cda75045090",
+      "sha256": "a26604d9b91ce9c5bcea07dd8836a2269970de7feb1de7ba185b16e5f7db0807",
       "method": "copy"
     },
     {
@@ -4837,6 +5467,13 @@
       "upstream": "packages/app/src/editor/source-undo-mode-flip.ts",
       "blob": "6447ea3d6cc3f985445ecd8a8ebbc5271debcae6",
       "sha256": "64e5e14f0e9a6b19e66f998a7bc45cd26d7786f0fd98391850ae96622cc6639c",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/sync-promise.test.ts",
+      "upstream": "packages/app/src/editor/sync-promise.test.ts",
+      "blob": "8d2ed1b8d95cf3152e1600e35f663d87cf4fe77b",
+      "sha256": "8d81aa89b04ba8f4b437909a3bb0a2c3effe6b1d95abacf6419617ae847e0733",
       "method": "copy"
     },
     {
@@ -4903,6 +5540,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/typing-burst-detector.test.ts",
+      "upstream": "packages/app/src/editor/typing-burst-detector.test.ts",
+      "blob": "75c96c6bd525a1f36c530018df5ca0389563796c",
+      "sha256": "bb706c03d9f61e32e64939c7a6d17b8470888966d3d92747d0f2acd7b673c4a1",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/typing-burst-detector.ts",
       "upstream": "packages/app/src/editor/typing-burst-detector.ts",
       "blob": "21c60a9ae81c12eb23adfe6815640d142f4458b4",
@@ -4925,6 +5569,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/use-editor-mode.test.ts",
+      "upstream": "packages/app/src/editor/use-editor-mode.test.ts",
+      "blob": "0aa45fba316de1f0b78d947e447cd9278ed8ce85",
+      "sha256": "7ec15e2bedfd54a0574878f209c626a0d0d9a616ce6184257203eebd699cc3cc",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/use-editor-mode.ts",
       "upstream": "packages/app/src/editor/use-editor-mode.ts",
       "blob": "53d0e34df49bca22cce82d5bd239644037912cfe",
@@ -4939,6 +5590,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/useFrontmatterDiagnostics.test.ts",
+      "upstream": "packages/app/src/editor/useFrontmatterDiagnostics.test.ts",
+      "blob": "699a05f01cf5d663f4383ff62b9a92325f221e7b",
+      "sha256": "8219a82cbd96eadfbbd90398c70f84e44df0dcdd59ddbdbe27d0942210ad60f5",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/useFrontmatterDiagnostics.ts",
       "upstream": "packages/app/src/editor/useFrontmatterDiagnostics.ts",
       "blob": "93234e7e048f4f45e757febdc11419c6efd339c5",
@@ -4950,6 +5608,13 @@
       "upstream": "packages/app/src/editor/utils/alignable-descriptors.ts",
       "blob": "ace54ea1198fdff41b3c9ece3504456f1ed1c5ef",
       "sha256": "ceddf28b7998691e84b4345f5cf2922fb2ab69fb3113cbb5b706ef049003ca4c",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/utils/animate-align-change.test.ts",
+      "upstream": "packages/app/src/editor/utils/animate-align-change.test.ts",
+      "blob": "1aeea5a87fcee1a9da14be1174d9c3fb40152f9c",
+      "sha256": "1668528dd9343f365d7f7bd8479c6e8b95262ec82f68188d84a56ea4cfe59c57",
       "method": "copy"
     },
     {
@@ -5027,6 +5692,13 @@
       "upstream": "packages/app/src/editor/utils/reconstruct-source.ts",
       "blob": "421cee454298d5bee1fcc899727f05a28ec30140",
       "sha256": "71af854952ad3612a802f8ec5d218c59e2e2c2d6abe8abafb0a6079349fff845",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/utils/sanitize-url.test.ts",
+      "upstream": "packages/app/src/editor/utils/sanitize-url.test.ts",
+      "blob": "9591934340ba2391c30151d83226943ee9a3fde4",
+      "sha256": "8c06a0b4b55cdb99a6ef5e79c2a4cc03c5f704c9f0efacfc1e5cc7c17f1165c5",
       "method": "copy"
     },
     {
@@ -5172,6 +5844,13 @@
       "description": "PATCHES.md:347 - `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/hooks/use-is-embedded.test.ts",
+      "upstream": "packages/app/src/hooks/use-is-embedded.test.ts",
+      "blob": "51079e7dedf5c643e68f99fa33086b67b71c1355",
+      "sha256": "5f15fb5930c307f0ae38f7df197a4afcadc2d4735d25b7ec5e04b3938a3b9c0c",
+      "method": "copy"
+    },
+    {
       "target": "app/src/hooks/use-is-embedded.ts",
       "upstream": "packages/app/src/hooks/use-is-embedded.ts",
       "blob": "8510f9b207917ad19d0faa07bd0f433b09bc18e3",
@@ -5204,6 +5883,13 @@
       "upstream": "packages/app/src/hooks/use-sidebar-resize.ts",
       "blob": "438f6b2fba37c4f0c326edd5cf61c829ed23e723",
       "sha256": "ee584215f296c4e02f6c4868d4b595573c7ec82d4523fbd28329749cf8f226a0",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/hooks/use-theme-bridge.test.ts",
+      "upstream": "packages/app/src/hooks/use-theme-bridge.test.ts",
+      "blob": "1ae90f4db827538cd6c76ce2feaf6e0b070ba9ba",
+      "sha256": "d0b4274761c9040c7b82545ed2421ee6e6b6383445a38ba660ab1ecbb7e3e9fd",
       "method": "copy"
     },
     {
@@ -5300,10 +5986,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/agent-presence.test.ts",
+      "upstream": "packages/app/src/lib/agent-presence.test.ts",
+      "blob": "efd89eb52b102264d54cbf9837452a99069ead6a",
+      "sha256": "bf59117b1b5be356f0bc63a53ff950382151d3e5a8f79f726844d36b6a9e0aa4",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/agent-presence.ts",
       "upstream": "packages/app/src/lib/agent-presence.ts",
       "blob": "618d09025c56cf205ebba0f25918f3d5061564cf",
       "sha256": "09f163ab02597183f9ef29b4bac38ecc503e0721c48051841a0bcf6c0dff3d95",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/api-config.test.ts",
+      "upstream": "packages/app/src/lib/api-config.test.ts",
+      "blob": "00987629f06b42cd4dea1385872eaae49467b2d1",
+      "sha256": "2fbe5b47e0c3242c1c49908e9266456899fe05f88ca235e8ae82553fd36e1195",
       "method": "copy"
     },
     {
@@ -5322,10 +6022,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/bounded-park.test.ts",
+      "upstream": "packages/app/src/lib/bounded-park.test.ts",
+      "blob": "bdf13a1e7175cb1ba72b809492d81bad5d68785f",
+      "sha256": "7eb815d1b7be72c5391630afda8e35d7edfea36c937c66dfbe9942338a4d45df",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/bounded-park.ts",
       "upstream": "packages/app/src/lib/bounded-park.ts",
       "blob": "b305a69f04e828c296df241abd67e3d177a4ebcc",
       "sha256": "9f8cefbc0a866253fe0ac17f4220ccddda3f46a2acb40d06556a02d7896edbe5",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/branch-recycle-notice.test.ts",
+      "upstream": "packages/app/src/lib/branch-recycle-notice.test.ts",
+      "blob": "e28e044d3054bab06b6d8ea9f328c651300ff72f",
+      "sha256": "9bff4d20bfe34365447749c933e963512c91a0d4e6dd3eb3a79a88fba74e47ac",
       "method": "copy"
     },
     {
@@ -5336,6 +6050,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/cc1.test.ts",
+      "upstream": "packages/app/src/lib/cc1.test.ts",
+      "blob": "a74b6708800fc6eb50ecd0fefdb63dc1eee9ccd7",
+      "sha256": "8af97ff2b6f7c209172e68e9195f328033274aad0c53ac833fd5504dc9a1a2c9",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/cc1.ts",
       "upstream": "packages/app/src/lib/cc1.ts",
       "blob": "53dc291592c098d9f698c294e9da79746e2d5837",
@@ -5343,10 +6064,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/channel-cli-copy.test.ts",
+      "upstream": "packages/app/src/lib/channel-cli-copy.test.ts",
+      "blob": "d4fa00b57ab0160806170132adc9d892951b9942",
+      "sha256": "a0cdaca42903b5a439b88c89f04de269b8cc3658bc1e196d21d67fb3c798fb0f",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/channel-cli-copy.ts",
       "upstream": "packages/app/src/lib/channel-cli-copy.ts",
       "blob": "3b0d2d94ebb1c64c14a32ffd03e16a0186277c05",
       "sha256": "937ddf44ad6d4be8fc4e7eb4306b1cc635d42654eb5caa5b3fa4d8e985c97210",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/client-version.test.ts",
+      "upstream": "packages/app/src/lib/client-version.test.ts",
+      "blob": "eec74ec02e77827771d24d85c5404af0228a6548",
+      "sha256": "594175c12da3ca69c90556d4cdefd2b97bac93438771b5dbee1b5de361066c8d",
       "method": "copy"
     },
     {
@@ -5394,12 +6129,26 @@
       "description": "PATCHES.md:350 - `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/lib/create-page-request.test.ts",
+      "upstream": "packages/app/src/lib/create-page-request.test.ts",
+      "blob": "e15b51769bf6a481657e522e270f8507c2c3a344",
+      "sha256": "660731cc7c42d5681371fd2a7be9d9d608203b80c08e5f4e504cfc84a4df002b",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/create-page-request.ts",
       "upstream": "packages/app/src/lib/create-page-request.ts",
       "blob": "d27849d58f937321ddc3a9814b19784ed2aa0209",
       "sha256": "9e464f39587248f68b897eb43f7b5836e305a256d35ca010cf3f4bac63537713",
       "method": "patch",
       "description": "PATCHES.md:351 - `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。"
+    },
+    {
+      "target": "app/src/lib/create-page.test.ts",
+      "upstream": "packages/app/src/lib/create-page.test.ts",
+      "blob": "34c1a1010b529f96df105f7cf0f8407b14a4b186",
+      "sha256": "cb65729101b4c54331404233d6f49281d50848efe1968d64fc0ffefe78e3411d",
+      "method": "copy"
     },
     {
       "target": "app/src/lib/create-page.ts",
@@ -5446,10 +6195,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/doc-paths.test.ts",
+      "upstream": "packages/app/src/lib/doc-paths.test.ts",
+      "blob": "09d37fb28d45421c511b8cb77931ccb16166deda",
+      "sha256": "2b96a6828dd08f5d460645a70f2c1ac961a843d04240b025b87fca526e5e3540",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/doc-paths.ts",
       "upstream": "packages/app/src/lib/doc-paths.ts",
       "blob": "b366240bc11d77424cbd56f14cbd8a2cadcadd24",
       "sha256": "fbdafce7e07c5fea1dcbda99004332673388f2d2b3173759adda64c21edc8592",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/document-stats.test.ts",
+      "upstream": "packages/app/src/lib/document-stats.test.ts",
+      "blob": "3acf85e7fd9bde101b2d4f1b3cd688e6886bab23",
+      "sha256": "b1c1af0130028e303a14b4cdaab68e3913b2aa2c058f30b6e30ccbbb54f83be2",
       "method": "copy"
     },
     {
@@ -5460,10 +6223,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/documents-events.test.ts",
+      "upstream": "packages/app/src/lib/documents-events.test.ts",
+      "blob": "a296da2aa7683bde6bf10f0998405cb7cebc3770",
+      "sha256": "9ce541aab5f4f262f0f0a60fd947ded1a14d910d540dc235dd5c27a1430cc800",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/documents-events.ts",
       "upstream": "packages/app/src/lib/documents-events.ts",
       "blob": "fbf56b0d56ae63cd2e4a91a87747316689aeb132",
       "sha256": "4a2a96301331f1cbb94ab89ad3cce2d91c8772ec9cd85039e7168a1cb53a6b6c",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/documents-fetch.test.ts",
+      "upstream": "packages/app/src/lib/documents-fetch.test.ts",
+      "blob": "94dd644011c401960b8758d052dcae43fc1b6a69",
+      "sha256": "20d13a310538f1a38ca35d822949e8924bef7b593a0e167bedbe0c5babc74205",
       "method": "copy"
     },
     {
@@ -5503,6 +6280,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/excalidraw-scene.test.ts",
+      "upstream": "packages/app/src/lib/excalidraw-scene.test.ts",
+      "blob": "c37513810793126be43b1bb4fe0562d48b8c107a",
+      "sha256": "53e235f20bea816257a3b78278a74def13e6236eb01d40355d7a84bb7e9f79dc",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/excalidraw-scene.ts",
       "upstream": "packages/app/src/lib/excalidraw-scene.ts",
       "blob": "c7750f419ffe53a3505b1d9857a05aea4a309d3d",
@@ -5510,10 +6294,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/external-link.test.ts",
+      "upstream": "packages/app/src/lib/external-link.test.ts",
+      "blob": "7da9381949cb45d791b467c717c8f002977c0229",
+      "sha256": "8b75769b74158b9d08f5a8162bd7d5e50ea4c7d477871180daf4e2e16e3c53c2",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/external-link.ts",
       "upstream": "packages/app/src/lib/external-link.ts",
       "blob": "3a90967cd40278a8c2af5b224678b9b041299242",
       "sha256": "f3dcb5c052cc95dd0a1859eca69324e94ace6eda3cfee8a6f54963c674a8779c",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/file-tree-menu-action-events.test.ts",
+      "upstream": "packages/app/src/lib/file-tree-menu-action-events.test.ts",
+      "blob": "0bba8756e99e5df46d077b39e3f96303f8a46a97",
+      "sha256": "1e94f28a559fa647a75e105b12266f2476e2ff557e72c939af9f0abc7ed99e1c",
       "method": "copy"
     },
     {
@@ -5532,10 +6330,31 @@
       "description": "PATCHES.md:354 - `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/lib/frontmatter-enum-constraints.test.ts",
+      "upstream": "packages/app/src/lib/frontmatter-enum-constraints.test.ts",
+      "blob": "3857cfa2ffbad36c668dd3ce99be46b076b5fdc3",
+      "sha256": "d55b110338d2523eb426de2e259d9b2ef2730986326bf1d3cceeac167a63ba9c",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/frontmatter-enum-constraints.ts",
       "upstream": "packages/app/src/lib/frontmatter-enum-constraints.ts",
       "blob": "effb615217aeacba762cd9d56e181c5b2c468b93",
       "sha256": "388aeb2b974f2a1f5242567699f224df0219de77d0d6196adea65eea5e96b99b",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/frontmatter-schema-fields.okf.test.ts",
+      "upstream": "packages/app/src/lib/frontmatter-schema-fields.okf.test.ts",
+      "blob": "4803142b36c7929adab2d9b5535ea2c909f5dc92",
+      "sha256": "6a25222da5830ef1243a4eec1ab33ef25b7eb3b0f24aa6eb79c0bb376bcc263a",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/frontmatter-schema-fields.test.ts",
+      "upstream": "packages/app/src/lib/frontmatter-schema-fields.test.ts",
+      "blob": "eb5a7412a951d62910e3aa4f1a7f9ac92b285edc",
+      "sha256": "072d2cd8a6dffb3bc5322709cbb1923da30fd11113de6c52952bc938f85fb63d",
       "method": "copy"
     },
     {
@@ -5636,6 +6455,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/install-document-teardown-observer.test.ts",
+      "upstream": "packages/app/src/lib/install-document-teardown-observer.test.ts",
+      "blob": "efd5288bcd81ea7b8e5927a83f91ec74d0de95af",
+      "sha256": "92667895771706fe387e6c2e95137890c6bd431a11a130aea9dec76554586be9",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/install-document-teardown-observer.ts",
       "upstream": "packages/app/src/lib/install-document-teardown-observer.ts",
       "blob": "aa4341e4969164762f58ede5fd5e38fa77a14959",
@@ -5647,6 +6473,13 @@
       "upstream": "packages/app/src/lib/keyboard-shortcuts.ts",
       "blob": "4e9378bd2327cff41947bd4817c41af2697bc895",
       "sha256": "7d897ec04a89ac698856b9be29335ff17604287e98a428295ea8f5581bbd4ba3",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/known-skill-dirs.test.ts",
+      "upstream": "packages/app/src/lib/known-skill-dirs.test.ts",
+      "blob": "0ae90074b47e07fb35d923effeb8874e5552ad6c",
+      "sha256": "e19d596f732365ccce4c5bbdb78d579839513952d5e53f9e7040734855dc0061",
       "method": "copy"
     },
     {
@@ -5671,10 +6504,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/lru-string-cache.test.ts",
+      "upstream": "packages/app/src/lib/lru-string-cache.test.ts",
+      "blob": "b56dbb99c671c253417d799733465dd669defcae",
+      "sha256": "79ffd37ace30322540fa7eff06ad4b28ce3869494b2283ff4645296c6bc683eb",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/lru-string-cache.ts",
       "upstream": "packages/app/src/lib/lru-string-cache.ts",
       "blob": "f3c54c7a5e5c931f5de3d40965b7e94066917a7a",
       "sha256": "bed1be933a2e81d4010e13dd9980984d10a7197770d14bcc8ba3ecf24dd1a68a",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/managed-artifact-doc-name.test.ts",
+      "upstream": "packages/app/src/lib/managed-artifact-doc-name.test.ts",
+      "blob": "406353118e5464ad129627684b8cf3167efce2de",
+      "sha256": "36e969c6b79f9e1d65ba65a326fc98a4e1f03025bc3a87bacbfee8f27f4c9fc5",
       "method": "copy"
     },
     {
@@ -5743,10 +6590,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/pane-visibility-store.test.ts",
+      "upstream": "packages/app/src/lib/pane-visibility-store.test.ts",
+      "blob": "9cdbcfb97064e7002f03bb89101cd1625dde152a",
+      "sha256": "d4d7aae58bd438c6cc9f2c095114852dbe948c9111033f96c7b9d4cb6963e020",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/pane-visibility-store.ts",
       "upstream": "packages/app/src/lib/pane-visibility-store.ts",
       "blob": "aaf5a5ea0d99d4472380044664d1e746626855bf",
       "sha256": "a8559f888781e1fe0f65878770dee738bf2c95bc5f0dac238fd9e7c46b17fa22",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/parse-api-error.test.ts",
+      "upstream": "packages/app/src/lib/parse-api-error.test.ts",
+      "blob": "79ad0f837f1ecef8f2a726e16ce0b7846bf73d65",
+      "sha256": "ac1e60d9fc1eef2101c9c85f221b3c54fc925a55caf5ba288e95134ebccaa602",
       "method": "copy"
     },
     {
@@ -5764,10 +6625,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/circular-buffer.test.ts",
+      "upstream": "packages/app/src/lib/perf/circular-buffer.test.ts",
+      "blob": "022a89b75906d5f66da2055a3f085ae2d6fb1b24",
+      "sha256": "fb85a91517eebd3b0707f21eb911fc0c18077db1ffe0752fb0075aba34686f32",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/circular-buffer.ts",
       "upstream": "packages/app/src/lib/perf/circular-buffer.ts",
       "blob": "f0dc64cc0a46d87e7e290a2f95de05f20b7aff1d",
       "sha256": "e07293fec8ea147393b5b2b7914c6b1acf9bbeeb51fa73ea2048d3196fbd30d1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/perf/cold-mount-instrumentation.test.ts",
+      "upstream": "packages/app/src/lib/perf/cold-mount-instrumentation.test.ts",
+      "blob": "697768c586d72c6c2f1d23b4c82574145f07b46f",
+      "sha256": "04b6d3e4e343b4082ff24ae5c7413736f585a7adeb3f6d49397342637c824495",
       "method": "copy"
     },
     {
@@ -5778,6 +6653,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/collector.test.ts",
+      "upstream": "packages/app/src/lib/perf/collector.test.ts",
+      "blob": "f8aadc71c3e33a528fece3bc5e6e3a82dff07a43",
+      "sha256": "7e30fc7eb0bec4ed10e81502d404d8e114d000f31ccfeeed6b6560934b1373fd",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/collector.ts",
       "upstream": "packages/app/src/lib/perf/collector.ts",
       "blob": "1f0cc43c97bc0dc954dcf66036e5b86f31854727",
@@ -5785,10 +6667,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/env-override.test.ts",
+      "upstream": "packages/app/src/lib/perf/env-override.test.ts",
+      "blob": "c3762c33fe3c93b4a5f8d72a21ede432fccf5fc3",
+      "sha256": "228ec283ca88c6d244eab42f7e20ed5c0eb486643eb55c7de90074357c67d588",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/env-override.ts",
       "upstream": "packages/app/src/lib/perf/env-override.ts",
       "blob": "7aeeed29fa4e3a23c401cd301875c9f0ba8d8878",
       "sha256": "d902a2335abc643c2872270558c6363ee64cebaae2d3832de8453f7574647c6a",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/perf/hdr-histogram.test.ts",
+      "upstream": "packages/app/src/lib/perf/hdr-histogram.test.ts",
+      "blob": "0acfdd8701452c4f7f0fd72c678791d189873114",
+      "sha256": "e553956ce3777999c97c00f855671610587915efbd502f9cbaa2aa146970cdf2",
       "method": "copy"
     },
     {
@@ -5806,6 +6702,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/mark.test.ts",
+      "upstream": "packages/app/src/lib/perf/mark.test.ts",
+      "blob": "602628710bdcd751bc9ab3f7ca8f7bc987e83ffd",
+      "sha256": "7fb85fb01a71b932a22dd3e484e68939e9d761786553fc7ebac15989a00f04a3",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/mark.ts",
       "upstream": "packages/app/src/lib/perf/mark.ts",
       "blob": "82e4b5ad000c6b528210f695aade374dc09bf5f3",
@@ -5820,6 +6723,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/profiler-boundary.test.tsx",
+      "upstream": "packages/app/src/lib/perf/profiler-boundary.test.tsx",
+      "blob": "a2b095d4870aeef2e743a7313e803424edde7cf7",
+      "sha256": "e94619b0bc56a342cd1e8e84914a5ac665c6cc27528726d6ee8b3bd497841b73",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/profiler-boundary.tsx",
       "upstream": "packages/app/src/lib/perf/profiler-boundary.tsx",
       "blob": "bcc461126412d9507b4312ca487773a10ae10351",
@@ -5827,10 +6737,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/scheduler-polyfill-shim.test.ts",
+      "upstream": "packages/app/src/lib/perf/scheduler-polyfill-shim.test.ts",
+      "blob": "2289f23f04c8af3d273af6590e7505278841820f",
+      "sha256": "7195f0d05e2e6f40970d652f686da4be4c026e2c728119fde45a178d8d3f25ef",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/scheduler-polyfill-shim.ts",
       "upstream": "packages/app/src/lib/perf/scheduler-polyfill-shim.ts",
       "blob": "c1cee3fe00deefa6d6e9488e230c602adf396533",
       "sha256": "81bf51bb38a1bcdc8aae2f8fc88b44812ca42ff3fdbe0fe298599ff846ed51c8",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/perf/startup-marks.test.ts",
+      "upstream": "packages/app/src/lib/perf/startup-marks.test.ts",
+      "blob": "21411c9bc5b282c0213eafe9f6bc32152881ee27",
+      "sha256": "9acc7e9b3645cbb9769be3790b064904e3ae5984a0841b9e5841302115a7361e",
       "method": "copy"
     },
     {
@@ -5848,6 +6772,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/perf/web-vitals.test.ts",
+      "upstream": "packages/app/src/lib/perf/web-vitals.test.ts",
+      "blob": "27e1b5ef589a8bb0209868203cf4d2d834337418",
+      "sha256": "3474a3bb0aaf54f9fd112811bb61f451ad8373a2409207678dffa69c719340b3",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/perf/web-vitals.ts",
       "upstream": "packages/app/src/lib/perf/web-vitals.ts",
       "blob": "a3381e938b67e5f8f5b3f5bad7f3a3ea2df46858",
@@ -5862,10 +6793,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/project-fix-sweep-store.test.ts",
+      "upstream": "packages/app/src/lib/project-fix-sweep-store.test.ts",
+      "blob": "60fa005f6e8c078014f8129fd8e5bdfdb4b67cdb",
+      "sha256": "c7570ff08084cadbab9afafbcc43501c4c6f2f700316b155469d85b615ea6c2f",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/project-fix-sweep-store.ts",
       "upstream": "packages/app/src/lib/project-fix-sweep-store.ts",
       "blob": "09c779eedccd4a148e64471b9f16b49960c5a5b8",
       "sha256": "603d37aa13288128b7bdb7e04e354cb5d7c715b5e5624b5f6728b026e0922ec2",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/refresh-scheduler.test.ts",
+      "upstream": "packages/app/src/lib/refresh-scheduler.test.ts",
+      "blob": "3e429e6ee582cfc5c1bfade7789f695985b945f9",
+      "sha256": "ddb7d9981435cb3e26e4814879b2d626488ae490926c4b4efde85056f0f3b481",
       "method": "copy"
     },
     {
@@ -5876,10 +6821,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/relaunch-store.test.ts",
+      "upstream": "packages/app/src/lib/relaunch-store.test.ts",
+      "blob": "1c2e62c029939ede0b95332efe88f3221bf56e70",
+      "sha256": "75118a98c0dd412814a3cc2adefd6c587460ec147043c3017034e1c00692251c",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/relaunch-store.ts",
       "upstream": "packages/app/src/lib/relaunch-store.ts",
       "blob": "747d38bf5e1b44a9d7509da211dd83432e538d73",
       "sha256": "4783d72b02ca761195abc6f92ef32a9195268e061fff410e97a84a543680be0a",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/restart-collab-server.test.ts",
+      "upstream": "packages/app/src/lib/restart-collab-server.test.ts",
+      "blob": "443e0c0389b8ddf372cacba4f4fc80043f32fd2c",
+      "sha256": "674e2c7a8d0a0f47d8cde037e97090c9982510708a0b5cd5bf9cf4016b08bc89",
       "method": "copy"
     },
     {
@@ -5890,10 +6849,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/retrying-loader.test.ts",
+      "upstream": "packages/app/src/lib/retrying-loader.test.ts",
+      "blob": "6cec828398f4d8e72ed90d8709523596df6fda77",
+      "sha256": "35a2d6cf6eb360e88e097d8c376b8c517f2986583b829454e258942fe6c9bb3e",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/retrying-loader.ts",
       "upstream": "packages/app/src/lib/retrying-loader.ts",
       "blob": "d6df8e5e5d889a085dd91bfe6af531fc267a33d9",
       "sha256": "e70d94a47dbaf434f3a99e794225334e879abd23e11f0591a6284337fc48dbf6",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/reveal-editor.test.ts",
+      "upstream": "packages/app/src/lib/reveal-editor.test.ts",
+      "blob": "8499da76737901f103c69a68228eadbbb350c1cb",
+      "sha256": "1c22f68bf95c6e2fc911e112c9b4eebdf83dbefb5517fbb19bf9ae784a9c60fa",
       "method": "copy"
     },
     {
@@ -5912,6 +6885,13 @@
       "description": "PATCHES.md:358 - `app/src/lib/saved-themes-client.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/lib/self-scheduling-poll.test.ts",
+      "upstream": "packages/app/src/lib/self-scheduling-poll.test.ts",
+      "blob": "a7f3c44742b287e0bed5b7d08ea53a54bd6a39ec",
+      "sha256": "8075173c49bd208bfd437abae65f9d88b2f9d560a75d4b20a52851aa35912f49",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/self-scheduling-poll.ts",
       "upstream": "packages/app/src/lib/self-scheduling-poll.ts",
       "blob": "2535bda417d3135deb4978f02ce13a27b715e1be",
@@ -5919,10 +6899,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/server-instance-store.test.ts",
+      "upstream": "packages/app/src/lib/server-instance-store.test.ts",
+      "blob": "e68faf225726f4cf969a009529ff6f6dfde31823",
+      "sha256": "c123ecda09d5cecc9911df11baf714ae1a66f226472616c8991e05eac7699ed4",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/server-instance-store.ts",
       "upstream": "packages/app/src/lib/server-instance-store.ts",
       "blob": "7e036b5431b1ec89515fcf07728caa21e754bf99",
       "sha256": "1f16c611f5f02e70d815a3c7235c1252b47225118975d4fd50d101fdc94bc5d6",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/server-version-store.test.ts",
+      "upstream": "packages/app/src/lib/server-version-store.test.ts",
+      "blob": "105a4eacefa2408944d75931afb7850cc4b8b71f",
+      "sha256": "e2e983bdbce3f04b3ef1575785ba760a08cd027faa0b7638d327e6e8d4175a5f",
       "method": "copy"
     },
     {
@@ -5947,6 +6941,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/show-all-stream.test.ts",
+      "upstream": "packages/app/src/lib/show-all-stream.test.ts",
+      "blob": "46a2f8b4d791e8850f500426eebf309066c01d43",
+      "sha256": "fb6eb0c4a83813e277a66eaef1f5869506d8dabbfe0432e1914e7b0b2fa22057",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/show-all-stream.ts",
       "upstream": "packages/app/src/lib/show-all-stream.ts",
       "blob": "ace4dfdcb0313dc9f6822e8869ec3f5225951f45",
@@ -5961,10 +6962,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/sidebar-partition.test.ts",
+      "upstream": "packages/app/src/lib/sidebar-partition.test.ts",
+      "blob": "7dec7db3dec079ba77b7c6bcb7e4abec82a89ac9",
+      "sha256": "3c04e58dcf02b8d6720e5821e842efb7d44d6e1f505ca46380bc7ec6e93e50ca",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/sidebar-partition.ts",
       "upstream": "packages/app/src/lib/sidebar-partition.ts",
       "blob": "905506ca002084a2adb7a5c2f674eb39d2d1a4c1",
       "sha256": "1b057f97c048a6fc761748d992b4e5e81956af5e4d94ed2293d5fdecff705deb",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/sidebar-pin-store.test.ts",
+      "upstream": "packages/app/src/lib/sidebar-pin-store.test.ts",
+      "blob": "b35bc2c80cc65a431940c6b7ee354909c709e985",
+      "sha256": "fbde20fc41f41c377b59ce3295fe84be96d2c207ecdf460571899de142bf18d3",
       "method": "copy"
     },
     {
@@ -6018,6 +7033,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/tab-session-restore-suppression.test.ts",
+      "upstream": "packages/app/src/lib/tab-session-restore-suppression.test.ts",
+      "blob": "0d45887121225e71d6e1aeb945cc087eafc2a0f9",
+      "sha256": "3be81bdc3018447134c655e3d35d67c8b70161347888454d7127b76ceb236306",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/tab-session-restore-suppression.ts",
       "upstream": "packages/app/src/lib/tab-session-restore-suppression.ts",
       "blob": "f3d4f2fe93522e0ea1eeb5d35732a54eb8fb24b1",
@@ -6053,6 +7075,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/tool-list-format.test.ts",
+      "upstream": "packages/app/src/lib/tool-list-format.test.ts",
+      "blob": "a90e28c37e4736ebbffd01817e847e14a6e926e6",
+      "sha256": "79f1215d6368d4712c1f14ebe4ddfe1eada7a94789152a70ffbc4ef4efec5453",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/tool-list-format.ts",
       "upstream": "packages/app/src/lib/tool-list-format.ts",
       "blob": "78b52cfa012cd077163cf4428491db54dc0ff467",
@@ -6064,6 +7093,13 @@
       "upstream": "packages/app/src/lib/unified-agent-store.ts",
       "blob": "4887c7bb4c1615ec11820afa513d2d50bda8f766",
       "sha256": "6b34fa4a73e9a7a38873ee62c921838db5b62c3ad3da4ef8a4faa8cb49f5b999",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/use-activity-panel.test.ts",
+      "upstream": "packages/app/src/lib/use-activity-panel.test.ts",
+      "blob": "2ddc16fab802ae27d42c17a9766992f0b0795707",
+      "sha256": "aefdb723106e06d1608516de5acc08694a28e588e67caec0dccbc1e5462a4359",
       "method": "copy"
     },
     {
@@ -6096,6 +7132,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/use-collab-url.test.ts",
+      "upstream": "packages/app/src/lib/use-collab-url.test.ts",
+      "blob": "77479741616c66fdc2f4d1c9c36d27fa4456c454",
+      "sha256": "533c6eebe0bfab41141061821fcd2c6ff4da6ae14f030867f5e9111577c07d27",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/use-collab-url.ts",
       "upstream": "packages/app/src/lib/use-collab-url.ts",
       "blob": "13d7dd465e7aaf8d37f4c93fcfeb40a72c03712b",
@@ -6110,10 +7153,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/use-settings-route.test.ts",
+      "upstream": "packages/app/src/lib/use-settings-route.test.ts",
+      "blob": "87843a939c8584ff5b3174bed2ca7c7c56ea7147",
+      "sha256": "b53c5783cc9d35ccba60b79ad7abbdb9409b42be3c5326638bc44f546aa50dc4",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/use-settings-route.ts",
       "upstream": "packages/app/src/lib/use-settings-route.ts",
       "blob": "c1e67838b73f9c0d3438cf610e8d93b474281834",
       "sha256": "9a3d5f7faaa5de50ae61941a9395c0cd0d6335aff305f829a8835bbc403d42e5",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/use-workspace.test.ts",
+      "upstream": "packages/app/src/lib/use-workspace.test.ts",
+      "blob": "194daeb77044bc68f6c41587cfbbb331237b2599",
+      "sha256": "63b6cb768ef38c5de1fbf6783444285e6a2f4c4d390cada56180477857d2de13",
       "method": "copy"
     },
     {
@@ -6132,6 +7189,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/validation-store.test.ts",
+      "upstream": "packages/app/src/lib/validation-store.test.ts",
+      "blob": "4f11acde60a90836536282a829ae85d25c31dda9",
+      "sha256": "0fe6ce6ebc31226aa3201a677a2ca9f343bc49cb185cee07f8c56662a310a9e4",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/validation-store.ts",
       "upstream": "packages/app/src/lib/validation-store.ts",
       "blob": "005365b0ea5c144e2004f0fda2b6e1920d3f226d",
@@ -6139,10 +7203,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/lib/workspace-hash-writes.test.ts",
+      "upstream": "packages/app/src/lib/workspace-hash-writes.test.ts",
+      "blob": "51aa139fe78d9e04632ea3efb0f9bc4a1fe664d7",
+      "sha256": "f8f97ff4dae6363c37f7304a17fde9ee04f5bb6c7425efdcb95bae4273fbc080",
+      "method": "copy"
+    },
+    {
       "target": "app/src/lib/workspace-hash-writes.ts",
       "upstream": "packages/app/src/lib/workspace-hash-writes.ts",
       "blob": "34a149ae68ab6b0fae2e868e1be2fe190087bef1",
       "sha256": "16dd3a6a2f1ce858616c081289b0536d783d470bda62003a18adaafdc72b93a1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/lib/workspace-paths.test.ts",
+      "upstream": "packages/app/src/lib/workspace-paths.test.ts",
+      "blob": "141d82e03af434d069a4a768f64c5d5ce41dc3e4",
+      "sha256": "09abbeb05c57227c45e797c00532707d9ce4479a3a1cc004ceabbbe3452c56b9",
       "method": "copy"
     },
     {
