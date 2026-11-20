@@ -28,6 +28,7 @@ export const TaskQuestionView = z.strictObject({
 });
 type QuestionView = z.infer<typeof TaskQuestionView>;
 type StoredQuestion = { view: QuestionView; receipt: Extract<ExecutionReceipt, { kind: "question" }>; payloadHash: string };
+export type RunOutcome = { state: "succeeded" | "failed"; finishedAt: string } | { state: "unknown"; finishedAt: null };
 
 function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
@@ -99,19 +100,21 @@ export class TaskReceiptInbox {
     }
   }
 
-  questions(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError: (error: unknown) => void = () => {}): QuestionView[] {
-    return this.currentQuestions(taskId, bound, onError)
-      .map(({ view }) => view)
-      .sort((a, b) => a.at.localeCompare(b.at) || a.runId.localeCompare(b.runId) || a.requestId.localeCompare(b.requestId));
+  history(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError: (error: unknown) => void = () => {}) {
+    const { questions, outcomes } = this.currentHistory(taskId, bound, onError);
+    return {
+      outcomes,
+      questions: questions.map(({ view }) => view).sort((a, b) => a.at.localeCompare(b.at) || a.runId.localeCompare(b.runId) || a.requestId.localeCompare(b.requestId)),
+    };
   }
 
   question(taskId: string, runId: string, requestId: string, bound: (execution: ExecutionBinding) => boolean): StoredQuestion | undefined {
-    return this.currentQuestions(taskId, bound).find(({ view }) => view.runId === runId && view.requestId === requestId);
+    return this.currentHistory(taskId, bound).questions.find(({ view }) => view.runId === runId && view.requestId === requestId);
   }
 
-  private currentQuestions(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void): StoredQuestion[] {
+  private currentHistory(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void) {
     const questions = new Map<string, StoredQuestion>();
-    const finished = new Set<string>();
+    const terminal = new Map<string, { outcome: RunOutcome; payloadHash: string }>();
     for (const file of this.filesInInbox()) {
       try {
         const value = this.read(file);
@@ -120,7 +123,15 @@ export class TaskReceiptInbox {
         const { execution } = receipt;
         if (execution.taskId !== taskId || !bound(execution)) continue;
         if (receipt.kind !== "question") {
-          if (receipt.kind !== "progress") finished.add(execution.runId);
+          if (receipt.kind !== "progress") {
+            const payloadHash = fingerprint([receipt.kind, receipt.payload]);
+            const previous = terminal.get(execution.runId);
+            if (previous && previous.payloadHash !== payloadHash) {
+              terminal.set(execution.runId, { payloadHash: "", outcome: { state: "unknown", finishedAt: null } });
+            } else if (!previous || (previous.outcome.finishedAt && at < previous.outcome.finishedAt)) {
+              terminal.set(execution.runId, { payloadHash, outcome: { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at } });
+            }
+          }
           continue;
         }
         const { requestId, requestVersion, mode, text, options } = receipt.payload;
@@ -138,11 +149,15 @@ export class TaskReceiptInbox {
         onError(error);
       }
     }
-    return [...questions.values()].map((question) => {
-      const { view } = question;
-      if (view.mode === "native_deferred" && finished.has(view.runId)) return { ...question, view: { ...view, status: "closed" } };
-      return question;
-    });
+    const outcomes = new Map([...terminal].map(([runId, { outcome }]) => [runId, outcome]));
+    return {
+      outcomes,
+      questions: [...questions.values()].map((question): StoredQuestion => {
+        const { view } = question;
+        if (view.mode === "native_deferred" && outcomes.has(view.runId)) return { ...question, view: { ...view, status: "closed" } };
+        return question;
+      }),
+    };
   }
 
   async replay(tasks: TasksService, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {

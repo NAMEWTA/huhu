@@ -481,7 +481,16 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     expect(await consume(reopened, { ...input, payload: { message: "同 ID 异载荷" } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     await vi.waitFor(() => expect(durable().status).toBe("delivered"));
     expect(await resultComments(reopened)).toMatchObject([{ id: messageId, run: run.runId, body: input.payload.message }]);
-    expect((await call<TaskDto>(reopened, "tasks.read", { id: task.id })).data.status).toBe("in_progress");
+    const afterResult = (await call<TaskDto>(reopened, "tasks.read", { id: task.id })).data;
+    expect(afterResult.status).toBe("in_progress");
+    expect(await call(reopened, "tasks.runs", { id: task.id })).toMatchObject({
+      ok: true,
+      data: [{ id: run.runId, state: "succeeded", finishedAt: expect.any(String), questions: 0 }],
+    });
+    const closed = await call<TaskDto>(reopened, "tasks.setStatus", { id: task.id, expectedVersion: afterResult.version, status: "completed" });
+    expect(closed).toMatchObject({ ok: true, data: { status: "completed" } });
+    const reopenedTask = await call<TaskDto>(reopened, "tasks.setStatus", { id: task.id, expectedVersion: closed.data.version, status: "not_started" });
+    expect(reopenedTask).toMatchObject({ ok: true, data: { status: "not_started", inputRevision: afterResult.inputRevision + 1 } });
     expect(fake.dispatch).toHaveBeenCalledTimes(1);
   } finally {
     injection.mockRestore();
@@ -521,13 +530,13 @@ test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeou
   });
   expect(pending.data).toHaveLength(2);
   expect(JSON.stringify(pending)).not.toContain("private-native-route");
-  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 2 })] });
+  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, state: "waiting_input", questions: 2 })] });
 
   expect(await submitReceipt(engine, { version: 1, receiptId: "same-run-finished", kind: "no_update", execution, payload: {} })).toMatchObject({ ok: true });
   expect(await list()).toMatchObject({
     data: expect.arrayContaining([expect.objectContaining({ requestId: "normal", status: "awaiting" }), expect.objectContaining({ requestId: "native", status: "closed" })]),
   });
-  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 1 })] });
+  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, state: "succeeded", questions: 1 })] });
 });
 
 test("原生回答先落盘，竞争只保存一个回答，确认丢失后只对账", { timeout: 60_000 }, async () => {

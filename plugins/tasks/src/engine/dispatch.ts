@@ -15,7 +15,7 @@ import {
   type OwnedRecord,
 } from "./dispatch-store.js";
 import type { TasksService } from "./service.js";
-import type { TaskReceiptInbox } from "./receipt-inbox.js";
+import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
 import { type AgentReplyInput, type AgentReplyResult, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup } from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
 import type { z } from "zod";
@@ -53,6 +53,14 @@ function rejectDispatch(reason: Rejection, message: string, existing?: DispatchR
 
 function maySend(task: TaskDto, receipt: DispatchReceipt, now: Date): boolean {
   return isTaskAvailable(task.availableAt, now) || task.availableAt === receipt.overriddenAvailableAt;
+}
+
+function holdsRun(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutcome>, task: TaskDto | null): boolean {
+  if (!holdsTask(record.receipt)) return false;
+  const outcome = outcomes.get(record.receipt.runId);
+  if (record.receipt.state !== "running" || !outcome || outcome.state === "unknown") return true;
+  // The terminal receipt can race the initial task link. Keep that accepted input occupied until linked.
+  return task !== null && task.status === "not_started" && sameInput(task, record.snapshot);
 }
 
 export class TaskDispatch {
@@ -107,29 +115,46 @@ export class TaskDispatch {
 
   questions(taskId: string) {
     this.tasks.read(taskId);
+    return this.history(taskId).questions;
+  }
+
+  private history(taskId: string) {
     const replies = this.replies.list(taskId, this.matchesExecution);
-    return this.receipts.questions(taskId, this.matchesExecution, this.onError).map((question) => {
+    const history = this.receipts.history(taskId, this.matchesExecution, this.onError);
+    const questions = history.questions.map((question) => {
       const reply = replies.find((reply) => reply.runId === question.runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion);
       return { ...question, ...(reply && { reply }) };
     });
+    return { ...history, questions };
   }
 
   hasHold(taskId: string): boolean {
-    return this.store.list().some(({ receipt }) => receipt.taskId === taskId && holdsTask(receipt));
+    const candidates = this.store.list().filter(({ receipt }) => receipt.taskId === taskId && holdsTask(receipt));
+    if (!candidates.length) return false;
+    const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
+    const task = this.task(taskId);
+    return candidates.some((record) => holdsRun(record, outcomes, task));
   }
 
   hasActiveRun(taskId: string): boolean {
-    return this.store.list().some((record) => record.receipt.taskId === taskId && record.receipt.state === "running" && this.store.owns(record));
+    const running = this.store.list().filter((record) => record.receipt.taskId === taskId && record.receipt.state === "running" && this.store.owns(record));
+    if (!running.length) return false;
+    const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
+    return running.some(({ receipt }) => !outcomes.get(receipt.runId)?.finishedAt);
   }
 
   runs(taskId: string): ReturnType<TasksService["runs"]> {
-    const questions = this.questions(taskId).filter(({ status, reply }) => status === "awaiting" && !reply);
+    const { questions, outcomes } = this.history(taskId);
     return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt }) => {
       if (receipt.taskId !== taskId || !claim) return [];
+      const open = questions.filter(({ runId, status }) => runId === receipt.runId && status === "awaiting");
+      const outcome = outcomes.get(receipt.runId);
       let state = "queued";
-      if (receipt.state === "running" || receipt.state === "unknown" || receipt.state === "cancelled") state = receipt.state;
-      if (receipt.state === "stale_input" || receipt.state === "expired" || receipt.state === "blocked") state = "cancelled";
-      return [{ id: receipt.runId, state, startedAt, finishedAt, model: snapshot.execution.model, questions: questions.filter(({ runId }) => runId === receipt.runId).length }];
+      if (outcome) state = outcome.state;
+      else if (receipt.state === "running") state = open.some(({ reply }) => reply?.status !== "accepted") ? "waiting_input" : "running";
+      else if (receipt.state === "unknown") state = "unknown";
+      else if (["cancelled", "stale_input", "expired", "blocked"].includes(receipt.state)) state = "cancelled";
+      return [{ id: receipt.runId, state, startedAt, finishedAt: outcome ? outcome.finishedAt : finishedAt, model: snapshot.execution.model, questions: open.filter(({ reply }) => !reply).length }];
     });
   }
 
@@ -151,7 +176,8 @@ export class TaskDispatch {
         this.store.assertWritable();
         const task = this.tasks.read(input.taskId);
         const acceptedAt = this.now();
-        const existing = this.store.list().find(({ receipt }) => receipt.taskId === task.id && holdsTask(receipt));
+        const { outcomes } = this.receipts.history(task.id, this.matchesExecution, this.onError);
+        const existing = this.store.list().find((record) => record.receipt.taskId === task.id && holdsRun(record, outcomes, task));
         if (existing || this.tasks.hasLegacyRun(task.id)) rejectDispatch("task_occupied", "该任务已有待派或活动运行", existing?.receipt);
         if (!sameInput(task, input)) rejectDispatch("stale_input", "任务输入已变化，请重新读取任务");
         const execution = this.dispatchable(task);
