@@ -21,12 +21,12 @@
       "evidence": null,
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1749048,
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1749703,
           "kind": "literal"
         }
@@ -39,7 +39,7 @@
       "evidence": "Q2 服务端审计",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2137353,
           "kind": "literal"
         }
@@ -54,7 +54,7 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 275523,
           "kind": "literal"
         }
@@ -69,7 +69,7 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2673359,
           "kind": "literal"
         }
@@ -85,12 +85,12 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1664205,
           "kind": "call-argument"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1666236,
           "kind": "literal"
         }
@@ -106,17 +106,17 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1665076,
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1665094,
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1665229,
           "kind": "call-argument"
         }
@@ -129,7 +129,7 @@
       "evidence": "上游协作和单文件配置入口（Q2/Q10）。Huhu 提供 HostConfigProvider，工作台未挂上游 SingleFileModeProvider",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1757947,
           "kind": "call-argument"
         }
@@ -169,7 +169,7 @@
           "kind": "call-argument"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2140182,
           "kind": "call-argument"
         }
@@ -204,7 +204,7 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 275255,
           "kind": "literal"
         }
@@ -281,7 +281,7 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2672777,
           "kind": "literal"
         }
@@ -322,8 +322,8 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
-          "offset": 3983665,
+          "chunk": "rich-DEnpj3TV.js",
+          "offset": 3983735,
           "kind": "call-argument"
         }
       ]
@@ -335,7 +335,7 @@
       "evidence": "Q2 上游 lint",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1795788,
           "kind": "literal"
         }
@@ -344,16 +344,16 @@
     {
       "kind": "api",
       "path": "/api/local-emoji",
-      "state": "handler-path",
+      "state": "static-assets",
       "evidence": [
-        "GET /api/local-emoji/en/data.json → packages/editor/src/host/offline-emoji.ts:17",
-        "GET /api/local-emoji/en/messages.json → packages/editor/src/host/offline-emoji.ts:18",
-        "GET /api/local-emoji/zh/data.json → packages/editor/src/host/offline-emoji.ts:19",
-        "GET /api/local-emoji/zh/messages.json → packages/editor/src/host/offline-emoji.ts:20"
+        "/api/local-emoji/en/data.json",
+        "/api/local-emoji/en/messages.json",
+        "/api/local-emoji/zh/data.json",
+        "/api/local-emoji/zh/messages.json"
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1471423,
           "kind": "literal"
         }
@@ -368,12 +368,12 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2672036,
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2672402,
           "kind": "literal"
         }
@@ -399,12 +399,12 @@
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2669831,
           "kind": "call-argument"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2670142,
           "kind": "literal"
         }
@@ -463,12 +463,12 @@
       "evidence": "Q2 上游 Agent skill",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2744058,
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2744089,
           "kind": "literal"
         }
@@ -481,7 +481,7 @@
       "evidence": "Q2 上游 Agent skill",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2744451,
           "kind": "literal"
         }
@@ -509,7 +509,7 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1477202,
           "kind": "literal"
         }
@@ -524,13 +524,13 @@
       ],
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
-          "offset": 4156010,
+          "chunk": "rich-DEnpj3TV.js",
+          "offset": 4156080,
           "kind": "call-argument"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
-          "offset": 4156052,
+          "chunk": "rich-DEnpj3TV.js",
+          "offset": 4156122,
           "kind": "literal"
         }
       ]
@@ -580,13 +580,13 @@
           "kind": "call-argument"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1755634,
           "kind": "literal"
         },
         {
-          "chunk": "rich-DNUiT-uk.js",
-          "offset": 3272565,
+          "chunk": "rich-DEnpj3TV.js",
+          "offset": 3272635,
           "kind": "call-argument"
         }
       ]
@@ -637,7 +637,7 @@
       "evidence": "app/src/lib/copy-image.ts 使用 navigator.clipboard.write 回退",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 2698560
         }
       ]
@@ -649,7 +649,7 @@
       "evidence": "Q10 不启用 OK 独立笔记窗口，undefined 与默认工作台模式对齐",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 258624
         }
       ]
@@ -673,7 +673,7 @@
       "evidence": "Q2/Q10 不启用 OK 独立笔记窗口",
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 258923
         }
       ]
@@ -705,7 +705,7 @@
       "evidence": null,
       "calls": [
         {
-          "chunk": "rich-DNUiT-uk.js",
+          "chunk": "rich-DEnpj3TV.js",
           "offset": 1690279
         }
       ]

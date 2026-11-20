@@ -165,14 +165,17 @@ test("OP-D05：加载 OK 样式保持根变量，并在编辑器和浮层隔离�
       .locator(".ok-root")
       .filter({ has: page.locator(".ProseMirror") })
       .last();
-    await page.locator(".ok-root .ProseMirror p").first().dblclick();
-    const portal = page.locator(".ok-root.editor-ok-portal.editor-ok-bubble");
+    await page.locator(".ok-root .ProseMirror p").first().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/h2");
+    const portal = page.locator(".ok-root.editor-ok-portal").filter({ has: page.getByRole("listbox", { name: /斜杠命令|Slash commands/ }) });
     await expect(portal).toBeVisible();
     for (const scope of [editor, portal, page.locator("body")]) {
       const styles = await scope.evaluate((scope) => {
         const probe = document.createElement("div");
         probe.style.cssText = "font: 17px monospace; letter-spacing: 2px";
-        for (const tag of ["button", "input", "h1"]) probe.append(document.createElement(tag));
+        for (const tag of ["button", "input", "select", "h1"]) probe.append(document.createElement(tag));
         scope.append(probe);
         try {
           return Array.from(probe.children, (element) => {
@@ -183,12 +186,13 @@ test("OP-D05：加载 OK 样式保持根变量，并在编辑器和浮层隔离�
           probe.remove();
         }
       });
-      expect(styles.map(({ box }) => box)).toEqual(["border-box", "border-box", "border-box"]);
+      expect(styles.map(({ box }) => box)).toEqual(["border-box", "border-box", "border-box", "border-box"]);
       if (scope === editor || scope === portal) {
-        expect(styles.map(({ size }) => size)).toEqual(["17px", "17px", "17px"]);
-        expect(styles[2]?.tracking).toBe("2px");
+        expect(styles.map(({ size }) => size)).toEqual(["17px", "17px", "17px", "17px"]);
+        expect(styles[3]?.tracking).toBe("2px");
       } else {
-        expect(styles[2]?.tracking).not.toBe("2px");
+        expect(styles.slice(1).map(({ size }) => size)).not.toContain("17px");
+        expect(styles[3]?.tracking).not.toBe("2px");
       }
     }
   } finally {

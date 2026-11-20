@@ -25,8 +25,11 @@ test("OP-D18 紧凑任务描述保留文本命令和 @，隐藏文档级命令�
     await page.keyboard.press("Enter");
     await expect(body.locator("[data-wiki-link]")).toContainText("Research/");
 
-    await page.keyboard.press("ControlOrMeta+a");
-    await expect(page.getByTestId("bubble-menu-bar")).toBeVisible();
+    await body.getByText(/参考/).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("参考");
     await expect(page.getByTestId("comment-bubble-button")).toHaveCount(0);
     await page.keyboard.press("ControlOrMeta+Shift+m");
     await expect(page.getByTestId("comment-composer")).toHaveCount(0);

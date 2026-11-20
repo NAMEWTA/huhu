@@ -27,7 +27,7 @@ test("Q3 外链预览默认关闭，开启后使用桌面请求并在失败时�
     await notes.click();
     await treeSettled(page);
     await treeItem(page, "外链.md").click();
-    const link = page.getByTestId("markdown-editor").getByRole("link", { name: "外链" });
+    const link = page.getByTestId("markdown-editor").getByRole("link", { name: /example\.invalid/ });
     await expect(link).toHaveAttribute("href", url);
     await link.hover();
     await expect(page.locator('[data-slot="internal-link-prop-panel-text"]')).toHaveAttribute("href", url);

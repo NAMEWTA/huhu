@@ -114,8 +114,10 @@ function isKeyframe(rule) {
   return rule.parent?.type === "atrule" && rule.parent.name.endsWith("keyframes");
 }
 
-function addClasses(selector, out) {
+function addClasses(selector, out, hostUi = false) {
   selector.walk((node) => {
+    // The OK boundary is also used to keep host element rules outside the editor.
+    if (hostUi && node.type === "attribute" && isScopeAttribute(node) && node.parent?.parent?.value === ":not") return;
     if (node.type === "class") out.add(node.value);
     if (node.type === "attribute" && node.attribute === "class" && ["=", "~="].includes(node.operator)) {
       for (const token of node.value.split(/\s+/)) out.add(token);
@@ -220,7 +222,7 @@ for (const [file, css] of hostCss) {
     if (isKeyframe(rule)) return;
     const selector = selectorParser().astSync(rule.selector);
     addClasses(selector, hostClasses);
-    if (isUiRule(rule, uiImports.has(file))) addClasses(selector, hostUiClasses);
+    if (isUiRule(rule, uiImports.has(file))) addClasses(selector, hostUiClasses, true);
   });
 }
 

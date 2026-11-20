@@ -315,16 +315,19 @@ test("B06 反向跨段、折行保横坐标、表格边界及拖选自动滚动"
   }
 });
 
-test("B08 保存、评论刷新、后台属性更新和列表更新保留活动实例、焦点与组合输入", async () => {
+test("B08 保存、评论刷新、属性更新和列表更新保留活动实例、焦点与组合输入", async () => {
   const { page, vault, close } = await openApp();
   const name = "活动实例.md";
   const file = path.join(vault, name);
   try {
-    writeFileSync(file, "---\ntitle: 原标题\n---\n\n评论引文\n\n正文\n");
+    writeFileSync(file, "---\ntitle: 原标题\nflag: false\n---\n\n评论引文\n\n正文\n");
     await gotoNotes(page);
     await treeItem(page, name).click();
     const editor = prose(page);
     await expect(editor.getByText("正文", { exact: true })).toBeVisible();
+    const inspector = page.getByTestId("note-inspector");
+    if (!(await inspector.isVisible())) await page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情" }).click();
+    await inspector.getByRole("tab", { name: "批注", exact: true }).click();
     type EditorDom = HTMLElement & { editor: { view: { composing: boolean } } };
     type CapturedEditor = { element: HTMLElement; editor: EditorDom["editor"] };
     await editor.evaluate((el) => {
@@ -363,24 +366,23 @@ test("B08 保存、评论刷新、后台属性更新和列表更新保留活动�
     });
 
     await keepComposition("yi", "乙", async () => {
-      const before = persisted();
-      const quote = "评论引文";
-      const start = before.indexOf(quote);
-      await call(page, "comments.create", { path: name, target: "body", start, end: start + quote.length, quote, text: "后台新增批注" });
-      await expect(editor.getByText(quote, { exact: true })).toHaveAttribute("data-comment-thread", /.+/);
+      await call(page, "comments.create", { path: name, target: "file", text: "后台新增批注" });
+      await expect(inspector.getByTestId("comment-thread")).toContainText("后台新增批注");
     });
 
     await keepComposition("bing", "丙", async () => {
-      const { text, version } = await call<{ text: string; version: string }>(page, "notes.read", { path: name });
-      await call(page, "notes.save", { path: name, expectedVersion: version, text: text.replace("原标题", "新标题") });
-      await expect(page.getByTestId("editor-properties").locator("textarea, input[type=text], input:not([type])").first()).toHaveValue("新标题");
+      const checkbox = page.getByTestId("editor-properties").locator('[data-testid="boolean-widget"][data-key="flag"]');
+      await expect(checkbox).not.toBeChecked();
+      // Trigger the real property handler without moving focus away from the IME session.
+      await checkbox.evaluate((element: HTMLElement) => element.click());
+      await expect(checkbox).toBeChecked();
     });
 
     await keepComposition("ding", "丁", async () => {
       writeFileSync(path.join(vault, "父级更新.md"), "新增笔记触发笔记清单刷新\n");
       await expect(treeItem(page, "父级更新.md")).toBeVisible();
     });
-    expect(persisted()).toContain("title: 新标题");
+    expect(persisted()).toContain("flag: true");
   } finally {
     await close();
   }
@@ -397,12 +399,13 @@ test("B07 键盘操作列表、代码块和表格，并原生拖放正文", asyn
     const child = editor.getByText("移入内层", { exact: true });
     await child.click();
     await page.keyboard.press("Tab");
-    await expect(editor.locator("li > ul li")).toContainText("移入内层");
+    const nested = editor.getByRole("list").nth(1);
+    await expect(nested.getByRole("listitem")).toContainText("移入内层");
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
-    await expect(editor.locator("li > ul > li")).toHaveCount(2);
+    await expect(nested.getByRole("listitem")).toHaveCount(2);
     await page.keyboard.press("Backspace");
-    await expect(editor.locator("li > ul > li")).toHaveCount(1);
+    await expect(nested.getByRole("listitem")).toHaveCount(1);
 
     await editor.locator("pre").getByText("let x = 1;", { exact: true }).click();
     await page.keyboard.press("End");

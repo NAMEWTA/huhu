@@ -27,7 +27,6 @@ import { acquireProvider, releaseProvider } from "../host/provider-pool";
 import { registerAtReference, type ReferenceCandidate } from "./at-reference";
 import { EditorAssetMenu, type EditorAssetActions } from "./EditorAssetMenu";
 import { FILE_LOAD_ORIGIN } from "../host/doc-source";
-import { registerOfflineEmojiRoutes } from "../host/offline-emoji";
 import type { LocalDocProvider } from "../host/hocuspocus-provider";
 import { DocumentProvider, useDocumentContext } from "../host/document-context";
 
@@ -112,8 +111,6 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     return () => window.removeEventListener("keydown", selectCurrentLink, true);
   }, [docName, linkShortcut]);
   const showProperties = (properties ?? variant === "document") && !readOnly && mode !== "read";
-  const needsEmojiData = enableEmojiPicker || showProperties;
-  useEffect(() => (needsEmojiData ? registerOfflineEmojiRoutes() : undefined), [needsEmojiData]);
   useEffect(() => {
     if (!onRevealSource || !enableEmojiPicker) return;
     const revealSource = (event: Event) => {

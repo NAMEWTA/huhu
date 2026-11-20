@@ -133,8 +133,8 @@ test("B05 一次撤销 H2 斜杠命令，外部更新不会产生历史项", asy
     await expect.poll(() => readFileSync(file, "utf8")).toContain("## 原文");
     await page.keyboard.press("ControlOrMeta+z");
     await expect(rich.locator("h2")).toHaveCount(0);
-    await expect(rich.locator(":scope > p")).toHaveText(["邻文甲", expect.stringContaining("原文"), "邻文乙"]);
-    await expect.poll(() => readFileSync(file, "utf8")).not.toContain("## 原文");
+    await expect(rich.locator(":scope > p")).toHaveText(["邻文甲", "原文 /h2", "邻文乙"]);
+    await expect.poll(() => readFileSync(file, "utf8")).toBe("邻文甲\n\n原文 /h2\n\n邻文乙\n");
 
     const undoDepth = () =>
       rich.evaluate((element) => {

@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
+import { offlineEmojiAssetPaths } from "./offline-emoji.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
 const assets = join(root, "apps/desktop/out/renderer/assets");
@@ -75,7 +76,11 @@ const bridge = new Map([
 ]);
 const rows = [];
 for (const [path, calls] of [...api].sort(([a], [b]) => a.localeCompare(b))) {
-  const matches = path === "/api/local-emoji" ? [...routes].filter(([key]) => key.startsWith(`${path}/`)).flatMap(([, values]) => values) : routes.get(path);
+  const matches = routes.get(path);
+  if (path === "/api/local-emoji" && offlineEmojiAssetPaths.every((asset) => existsSync(join(assets, "..", asset.slice(1))))) {
+    rows.push({ kind: "api", path, state: "static-assets", evidence: offlineEmojiAssetPaths, calls });
+    continue;
+  }
   const reason = excludedApi.get(path);
   rows.push({ kind: "api", path, state: matches ? "handler-path" : reason ? "excluded" : "unresolved", evidence: matches ?? reason ?? null, calls });
 }

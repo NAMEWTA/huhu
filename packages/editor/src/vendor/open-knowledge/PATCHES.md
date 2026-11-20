@@ -247,6 +247,8 @@
 ## 编辑器宿主浮层
 
 - `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。
+- Frimousse 直接取同源 JSON，桌面与浏览器验证入口由 `packages/editor/build/offline-emoji.mjs` 提供固定离线数据，中文继续保留英文搜索别名。
+- `app/src/editor/components/image-target-existence.ts` 将桌面笔记索引之外的图片交给已有 Vault 媒体协议判定，避免将存在的相对路径图片标记为丢失。
 - `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。
 - `app/src/editor/components/EmojiInsertPopover.dom.test.tsx`：原样迁入上游组件测试。
 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。

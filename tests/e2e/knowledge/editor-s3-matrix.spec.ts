@@ -48,7 +48,7 @@ const SAMPLE_RESULTS: Record<keyof typeof SAMPLES, { selector: string; text?: st
     { selector: "code", text: "码" },
   ],
   无序有序任务列表: [
-    { selector: "ul li ul li", text: "乙一" },
+    { selector: "li li, [role=listitem] [role=listitem]", text: "乙一" },
     { selector: "ol li", count: 2 },
     { selector: 'input[type="checkbox"]:checked', count: 1 },
   ],
@@ -58,18 +58,14 @@ const SAMPLE_RESULTS: Record<keyof typeof SAMPLES, { selector: string; text?: st
   ],
   围栏代码块: [
     { selector: "pre", count: 2 },
-    { selector: "pre:first-of-type", text: "const a: number = 1;" },
+    { selector: "pre", text: "const a: number = 1;" },
   ],
   表格: [
     { selector: "th", count: 2 },
     { selector: "td", count: 4 },
     { selector: "tr:last-child td:last-child", text: "4" },
   ],
-  链接与图片: [
-    { selector: 'a[href="https://example.com/a?b=1"]', text: "文字" },
-    { selector: "img[alt='图']", count: 1 },
-    { selector: 'a[href="https://example.com"]', count: 1 },
-  ],
+  链接与图片: [{ selector: "img[alt='图']", count: 1 }],
   双链与标签: [
     { selector: "[data-wiki-link]", count: 2 },
     { selector: "[data-tag]", count: 2 },
@@ -77,11 +73,11 @@ const SAMPLE_RESULTS: Record<keyof typeof SAMPLES, { selector: string; text?: st
   数学: [{ selector: ".katex", count: 2 }],
   脚注: [
     { selector: ".footnote-backref", count: 1 },
-    { selector: ".footnote-definition, [data-type='footnoteDefinition'], li[id^='fn-']", text: "脚注内容" },
+    { selector: "aside[data-footnote-def]", text: "脚注内容" },
   ],
   前置属性: [{ selector: "p", text: "正文" }],
   混合换行与尾随空格: [{ selector: "p br", count: 2 }],
-  Mermaid围栏: [{ selector: ".mermaid svg", count: 1 }],
+  Mermaid围栏: [{ selector: ".mermaid svg[aria-roledescription]", text: "A" }],
 };
 
 test("矩阵·Markdown 构造：按类型与内容逐项断言，无编辑打开关闭字节不变", async () => {
@@ -92,6 +88,7 @@ test("矩阵·Markdown 构造：按类型与内容逐项断言，无编辑打开
   const results: Record<string, { bytesUnchanged: boolean; assertions: (typeof SAMPLE_RESULTS)[keyof typeof SAMPLES] }> = {};
   try {
     for (const [name, md] of Object.entries(SAMPLES)) writeFileSync(path.join(vault, `${name}.md`), md);
+    writeFileSync(path.join(vault, "img.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+YhXYAAAAASUVORK5CYII=", "base64"));
     await gotoNotes(page);
     for (const name of Object.keys(SAMPLES) as (keyof typeof SAMPLES)[]) {
       const md = SAMPLES[name];
@@ -103,8 +100,27 @@ test("矩阵·Markdown 构造：按类型与内容逐项断言，无编辑打开
       const assertions = SAMPLE_RESULTS[name];
       for (const { selector, count, text } of assertions) {
         const feature = prose(page).locator(selector);
-        if (count !== undefined) await expect(feature, name).toHaveCount(count);
-        if (text !== undefined) await expect(feature, name).toContainText(text);
+        if (count !== undefined) await expect.soft(feature, name).toHaveCount(count);
+        if (text !== undefined) await expect.soft(feature.filter({ hasText: text }), name).toHaveCount(1);
+      }
+      if (name === "链接与图片") {
+        const links = await documentNodes(prose(page));
+        const mark = (href: string) => expect.objectContaining({ type: "link", attrs: expect.objectContaining({ href }) });
+        expect
+          .soft(links)
+          .toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ text: "文字", marks: expect.arrayContaining([mark("https://example.com/a?b=1")]) }),
+              expect.objectContaining({ text: "https://example.com", marks: expect.arrayContaining([mark("https://example.com")]) }),
+            ]),
+          );
+        await expect
+          .poll(() =>
+            prose(page)
+              .locator("img[alt='图']")
+              .evaluate((image: HTMLImageElement) => image.naturalWidth),
+          )
+          .toBe(1);
       }
       if (name === "前置属性") await expect(page.getByTestId("editor-properties")).toContainText("count");
       results[name] = { bytesUnchanged: after === md, assertions };
@@ -152,9 +168,9 @@ const slashEffects: Record<string, object> = {
   heading1: { type: "heading", attrs: expect.objectContaining({ level: 1 }) },
   heading2: { type: "heading", attrs: expect.objectContaining({ level: 2 }) },
   heading3: { type: "heading", attrs: expect.objectContaining({ level: 3 }) },
-  bulletList: { type: "bulletList", content: [expect.objectContaining({ type: "listItem" })] },
-  orderedList: { type: "orderedList", attrs: { start: 1 }, content: [expect.objectContaining({ type: "listItem" })] },
-  taskList: { type: "taskList", content: [expect.objectContaining({ type: "taskItem", attrs: expect.objectContaining({ checked: false }) })] },
+  bulletList: { type: "list", attrs: expect.objectContaining({ ordered: false }), content: [expect.objectContaining({ type: "listItem", attrs: expect.objectContaining({ checked: null }) })] },
+  orderedList: { type: "list", attrs: expect.objectContaining({ ordered: true, start: 1 }), content: [expect.objectContaining({ type: "listItem" })] },
+  taskList: { type: "list", attrs: expect.objectContaining({ ordered: false }), content: [expect.objectContaining({ type: "listItem", attrs: expect.objectContaining({ checked: false }) })] },
   blockquote: { type: "blockquote", content: [expect.objectContaining({ type: "paragraph" })] },
   codeBlock: { type: "codeBlock", attrs: expect.objectContaining({ language: "js" }) },
   table: {
@@ -166,7 +182,7 @@ const slashEffects: Record<string, object> = {
       }),
     ),
   },
-  separator: { type: "horizontalRule" },
+  separator: { type: "thematicBreak", attrs: expect.objectContaining({ sourceRaw: "---" }) },
   footnote: { type: "footnoteReference", attrs: expect.objectContaining({ identifier: "1" }) },
   inlineMath: { type: "mathInline" },
   link: { type: "text", marks: [expect.objectContaining({ type: "link", attrs: expect.objectContaining({ href: "" }) })] },
@@ -187,7 +203,7 @@ function slashEffect(command: string): object {
   if (command.startsWith("embed-starter-")) {
     const body = htmlStarters[command.slice("embed-starter-".length)];
     if (!body) throw new Error(`斜杠 HTML 模板缺少断言: ${command}`);
-    return { type: "codeBlock", attrs: { language: "html", meta: "preview" }, content: [expect.objectContaining({ type: "text", text: expect.stringMatching(body) })] };
+    return { type: "codeBlock", attrs: expect.objectContaining({ language: "html", meta: "preview" }), content: [expect.objectContaining({ type: "text", text: expect.stringMatching(body) })] };
   }
   if (command.startsWith("component-")) {
     return { type: "jsxComponent", attrs: expect.objectContaining({ componentName: command.slice("component-".length) }) };
@@ -246,13 +262,14 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
     await page.keyboard.press("Escape");
     await expect(catalog.listbox).toBeHidden();
 
-    const results: Record<string, string> = {};
+    const results: Record<string, { command: string; passed: boolean }> = {};
     for (const [index, label] of labels.entries()) {
       await test.step(label, async () => {
         const { editor, listbox } = await openSlashFixture(page, index + 1);
         const option = listbox.getByRole("option", { name: label, exact: true });
         const command = await option.getAttribute("data-slash-command");
         if (!command) throw new Error(`缺少斜杠命令 ID: ${label}`);
+        const errorCount = test.info().errors.length;
 
         if (command === "component-File") {
           const [chooser] = await Promise.all([page.waitForEvent("filechooser"), option.click()]);
@@ -260,16 +277,14 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
           await chooser.setFiles({ name: "slash-matrix.txt", mimeType: "text/plain", buffer: contents });
           await expect(editor.getByRole("link", { name: /^slash-matrix\.txt/ })).toHaveAttribute("href", /\/attachments\/slash-matrix\.txt$/);
           expect(readFileSync(path.join(vault, "attachments", "slash-matrix.txt"))).toEqual(contents);
-          results[label] = "打开文件选择器并插入附件";
         } else if (command === "emoji") {
           await option.click();
           const picker = page.getByTestId("emoji-picker-popover");
           await expect(picker).toBeVisible();
           await picker.getByRole("searchbox").fill("party popper");
-          await picker.getByRole("gridcell", { name: "拉炮彩带", exact: true }).click();
+          await picker.getByRole("gridcell").filter({ hasText: "🎉" }).click({ timeout: 15_000 });
           await expect(picker).toBeHidden();
           await expect(editor.locator(":scope > p").last()).toHaveText("🎉");
-          results[label] = "打开表情选择器并插入表情";
         } else {
           // 等预览选中目标后走菜单的键盘提交入口，避免鼠标按下与浮层重新布局竞争。
           await option.hover();
@@ -277,15 +292,15 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
           await expect(editor).toBeFocused();
           await page.keyboard.press("Enter");
           const effect = slashEffect(command);
-          await expect.poll(() => documentNodes(editor), { message: `${command} 的节点类型与属性` }).toEqual(expect.arrayContaining([expect.objectContaining(effect)]));
+          await expect.soft.poll(() => documentNodes(editor), { message: `${command} 的节点类型与属性` }).toEqual(expect.arrayContaining([expect.objectContaining(effect)]));
           if (command === "heading1") await expect(editor.locator("h1")).toHaveCount(2);
           if (command === "footnote") {
             await expect.poll(() => documentNodes(editor)).toEqual(expect.arrayContaining([expect.objectContaining({ type: "footnoteDefinition", attrs: expect.objectContaining({ identifier: "1" }) })]));
           }
-          results[label] = command;
         }
         await expect(listbox).toBeHidden();
         await page.keyboard.press("Escape");
+        results[label] = { command, passed: errorCount === test.info().errors.length };
       });
     }
     expect(Object.keys(results)).toEqual(labels);
