@@ -34,7 +34,7 @@
   }
   .safe-grid {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     gap: 22px;
   }
   .safe-grid > .hu-card-alt {
@@ -59,12 +59,58 @@
     background: var(--accent-soft);
     color: var(--text);
   }
+  .safe-secret-row > svg {
+    flex: none;
+  }
+  .safe-secret-row > span,
+  .hu-safe-detail h2,
+  .safe-account-head h3 {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
   .hu-safe-detail-body {
     padding: 0 22px 22px;
+  }
+  .hu-safe-detail .shell-card-head,
+  .safe-account-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .hu-safe-detail .safe-back {
+    display: none;
+  }
+  .safe-account-card {
+    min-inline-size: 0;
+    margin: 0;
+    padding: 12px;
+  }
+  .safe-account-card select,
+  .hu-safe-detail select {
+    max-inline-size: 100%;
+    min-inline-size: 0;
+  }
+  .safe-editor-fields {
+    display: grid;
+    gap: 12px;
+    min-inline-size: 0;
+    padding: 0;
+    border: 0;
+  }
+  .safe-form-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+    gap: 12px;
+  }
+  .safe-form-pair .hu-field {
+    min-inline-size: 0;
   }
   .hu-secret-value {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     border: 1px solid var(--line);
     background: var(--sidebar);
     border-radius: 7px;
@@ -117,15 +163,25 @@
     border-radius: 7px;
     padding: 9px 12px;
     font-size: 12px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
   @media (max-width: 1250px) {
     .safe-grid {
-      grid-template-columns: 230px 1fr;
+      grid-template-columns: 230px minmax(0, 1fr);
     }
   }
-  @media (max-width: 1000px) {
+  @media (max-width: 760px) {
     .safe-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+    }
+    .safe-grid[data-view="list"] .hu-safe-detail,
+    .safe-grid[data-view="detail"] .safe-list {
+      display: none;
+    }
+    .hu-safe-detail .safe-back {
+      display: inline-flex;
     }
   }
 }

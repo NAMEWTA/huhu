@@ -1,4 +1,4 @@
-import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -636,59 +636,177 @@ test("收件箱与档案：捕获 → 转为任务；创建类型与档案并建
   }
 });
 
-test("保险箱：设置主密码、新增凭据、显示、锁定后需要解锁、密文不含明文", async () => {
+const safeMaster = "safe playwright fixture";
+
+async function setupPersonalSafe(page: Page) {
+  await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+  await page.getByRole("button", { name: "保险箱", exact: true }).first().click();
+  await expect(page.getByTestId("safe-setup")).toBeVisible();
+  const submit = page.getByRole("button", { name: "创建保险箱" });
+  await page.getByLabel("主密码", { exact: true }).fill(safeMaster);
+  await page.getByLabel("确认主密码").fill(safeMaster);
+  await expect(submit).toBeDisabled();
+  await page.getByLabel("我已了解").check();
+  await submit.click();
+  await expect(page.getByTestId("safe-new")).toBeEnabled({ timeout: 15_000 });
+}
+
+async function revealAfter(page: Page, beforeRelease: () => Promise<void>) {
+  const fetched = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const match = "**/api/v1/call";
+  await page.route(match, async (route) => {
+    if (route.request().postDataJSON()?.capability !== "safe.accounts.reveal") return route.continue();
+    const response = await route.fetch();
+    fetched.resolve();
+    await release.promise;
+    try {
+      await route.fulfill({ response });
+    } catch {
+      // Leaving an account or session can abort the renderer's request.
+    } finally {
+      await response.dispose();
+    }
+  });
+  try {
+    await page.getByRole("button", { name: "显示密码" }).press("Enter");
+    await fetched.promise;
+    await beforeRelease();
+  } finally {
+    release.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+}
+
+test("保险箱：多账号创建、编辑、显隐与锁定清除", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
   try {
     const page = await app.firstWindow();
-    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    await page.getByRole("button", { name: "保险箱" }).first().click();
-    await expect(page.getByTestId("safe-setup")).toBeVisible();
-    const submit = page.getByRole("button", { name: "创建保险箱" });
-    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
-    await page.getByLabel("确认主密码").fill("correct horse battery");
-    await expect(submit).toBeDisabled(); // 未勾选「我已了解」
-    await page.getByLabel("我已了解").check();
-    await submit.click();
-    await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await setupPersonalSafe(page);
+    const entryName = "合成条目" + "长名称".repeat(22);
+    const longUrl = "https://example.test/" + "a".repeat(120);
+    const longNote = "备注长文本".repeat(40);
+    const firstPassword = "  e2e-secret-first  ";
+    const secondPassword = "e2e-secret-second";
+    const dialog = page.getByTestId("safe-item-dialog");
+    const row = page.getByTestId("safe-item");
+    const secret = page.getByTestId("secret-value");
+    const newEntry = page.getByTestId("safe-new");
+    const addAccount = dialog.getByRole("button", { name: "再添加一个账号" });
+    const save = dialog.getByTestId("safe-save");
+    const accountSelect = page.getByRole("combobox", { name: "账号", exact: true });
+    let reveals = 0;
+    page.on("request", (request) => {
+      if (request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "safe.accounts.reveal") reveals++;
+    });
+    await newEntry.press("Enter");
+    const name = dialog.getByLabel("名称（必填）");
+    await expect(name).toBeFocused();
+    await save.press("Enter");
+    await expect(name).toBeFocused();
+    await name.fill(entryName);
+    await dialog.getByLabel("网址").fill(longUrl);
+    await dialog.getByLabel("账号（必填）").fill("同名账号");
+    await dialog.getByLabel("手机号").fill("0012345");
+    await dialog.getByLabel("密码", { exact: true }).fill(firstPassword);
+    await addAccount.press("Enter");
+    await expect(dialog.getByLabel("账号（必填）").last()).toBeFocused();
+    await dialog.getByLabel("账号（必填）").last().fill("同名账号");
+    await dialog.getByLabel("密码", { exact: true }).last().fill(secondPassword);
+    await dialog.getByLabel("备注").last().fill(longNote);
+    await addAccount.press("Enter");
+    await dialog.getByLabel("账号（必填）").last().fill("空密码账号");
+    await save.press("Enter");
+    await expect(row).toContainText("3 个账号");
+    await expect(secret).toHaveText("••••••••");
+    expect(reveals).toBe(0);
+    await expect(page.getByText("0012345", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "显示密码" }).press("Enter");
+    await expect(secret).toHaveJSProperty("textContent", firstPassword);
+    await page.getByRole("button", { name: "隐藏密码" }).press("Enter");
+    await expect(secret).toHaveText("••••••••");
 
-    await page.getByTestId("safe-new").click();
-    await page.getByLabel("凭据名称").fill("GitHub");
-    await page.getByLabel("秘密值").fill("HUHU-MARKER-7f3a");
-    await page.getByTestId("safe-save").click();
-    await expect(page.getByTestId("safe-item")).toHaveCount(1);
-    await expect(page.getByTestId("secret-value")).toHaveText("••••••••");
-    await page.getByRole("button", { name: "显示" }).click();
-    await expect(page.getByTestId("secret-value")).toHaveText("HUHU-MARKER-7f3a");
+    await revealAfter(page, async () => {
+      await accountSelect.selectOption({ index: 1 });
+      await expect(secret).toHaveText("••••••••");
+    });
+    await expect(secret).toHaveText("••••••••");
+    await page.getByRole("button", { name: "显示密码" }).press("Enter");
+    await expect(secret).toHaveText(secondPassword);
+    await accountSelect.selectOption({ index: 2 });
+    await expect(secret).toHaveText("未设置");
+    await expect(page.getByRole("button", { name: "显示密码" })).toBeDisabled();
+    await expect(page.getByText(secondPassword, { exact: true })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "手动锁定" }).click();
+    await page.getByRole("button", { name: "编辑条目" }).press("Enter");
+    const changedUrl = longUrl + "/updated";
+    await dialog.getByLabel("网址").fill(changedUrl);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveAccessibleName("放弃本次编辑？");
+    const continueEditing = dialog.getByRole("button", { name: "继续编辑" });
+    await expect(continueEditing).toBeFocused();
+    await continueEditing.press("Enter");
+    await expect(dialog.getByLabel("网址")).toHaveValue(changedUrl);
+    await save.press("Enter");
+    await expect(row).toContainText(changedUrl);
+    await expect(row).toContainText("3 个账号");
+
+    await accountSelect.selectOption({ index: 1 });
+    await page.getByRole("button", { name: "编辑账号" }).press("Enter");
+    await expect(dialog.getByLabel("备注")).toHaveValue(longNote);
+    await expect(dialog.getByLabel("新密码")).toHaveValue("");
+    await expect(dialog.getByLabel("新密码")).toBeDisabled();
+    await dialog.getByLabel("备注").fill("只更新第二个账号");
+    await save.press("Enter");
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText("只更新第二个账号", { exact: true })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("safe-desktop-masked.png") });
+    await page.getByRole("button", { name: "显示密码" }).press("Enter");
+    await expect(secret).toHaveText(secondPassword);
+    await accountSelect.selectOption({ index: 2 });
+    await page.getByRole("button", { name: "编辑账号" }).press("Enter");
+    await dialog.getByLabel("密码操作").selectOption("set");
+    await dialog.getByLabel("新密码").fill("e2e-added-then-cleared");
+    await save.press("Enter");
+    await expect(dialog).toHaveCount(0);
+    await expect(secret).toHaveText("••••••••");
+    await page.getByRole("button", { name: "显示密码" }).press("Enter");
+    await expect(secret).toHaveText("e2e-added-then-cleared");
+    await page.getByRole("button", { name: "编辑账号" }).press("Enter");
+    await dialog.getByLabel("密码操作").selectOption("clear");
+    await save.press("Enter");
+    await expect(secret).toHaveText("未设置");
+
+    await accountSelect.selectOption({ index: 0 });
+    await expect(secret).toHaveText("••••••••");
+    await expect(page.getByText("0012345", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "显示密码" }).press("Enter");
+    await expect(secret).toHaveJSProperty("textContent", firstPassword);
+    await page.getByRole("button", { name: "工作台", exact: true }).first().click();
+    await expect(page.getByTestId("safe-unlocked")).toHaveCount(0);
+    await page.getByRole("button", { name: "保险箱", exact: true }).first().click();
+    await row.press("Enter");
+    await expect(secret).toHaveText("••••••••");
+    await page.getByRole("button", { name: "编辑账号" }).click();
+    await dialog.getByLabel("密码操作").selectOption("set");
+    await dialog.getByLabel("新密码").fill("draft-secret-not-saved");
+    await dialog.getByRole("button", { name: "锁定保险箱" }).press("Enter");
     await expect(page.getByTestId("safe-locked")).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    await expect(row).toHaveCount(0);
     await page.getByLabel("主密码", { exact: true }).fill("wrong password!");
     await page.getByRole("button", { name: "解锁保险箱" }).click();
     await expect(page.getByText("主密码不正确")).toBeVisible();
-    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
+    await page.getByLabel("主密码", { exact: true }).fill(safeMaster);
     await page.getByRole("button", { name: "解锁保险箱" }).click();
     await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
 
-    await page.getByTestId("safe-item").click();
-    const fetched = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    await page.route("**/api/v1/call", async (route) => {
-      if (route.request().postDataJSON()?.capability !== "safe.items.reveal") return route.continue();
-      const response = await route.fetch();
-      fetched.resolve();
-      await release.promise;
-      try {
-        await route.fulfill({ response });
-      } catch {
-        // The lock may already have aborted the renderer's request.
-      } finally {
-        await response.dispose();
-      }
-    });
-    try {
-      await page.getByRole("button", { name: "显示" }).click();
-      await fetched.promise;
+    await row.press("Enter");
+    await expect(secret).toHaveText("••••••••");
+    await revealAfter(page, async () => {
       const endpoint = await page.evaluate(() => window.huhuHost.engine());
       const response = await page.request.post(`${endpoint.baseUrl}/api/v1/call`, {
         headers: { authorization: `Bearer ${endpoint.token}` },
@@ -696,23 +814,158 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
       });
       expect(await response.json()).toMatchObject({ ok: true });
       await expect(page.getByTestId("safe-locked")).toBeVisible({ timeout: 2500 });
-    } finally {
-      release.resolve();
-      await page.unrouteAll({ behavior: "wait" });
-    }
-    await expect(page.getByTestId("secret-value")).toHaveCount(0);
+    });
+    await expect(secret).toHaveCount(0);
 
+    const markers = [firstPassword.trim(), secondPassword, "e2e-added-then-cleared", "draft-secret-not-saved", entryName, changedUrl, longNote];
     const all: string[] = [];
     const walk = (d: string) => {
       for (const n of readdirSync(d)) {
         const p = path.join(d, n);
         if (statSync(p).isDirectory()) walk(p);
-        else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) all.push(p);
+        else if (markers.some((marker) => readFileSync(p).includes(marker))) all.push(p);
       }
     };
     walk(vault);
     expect(all).toEqual([]);
   } finally {
+    await app.close();
+    rmTree(vault);
+  }
+});
+
+test("保险箱：本机 Web 分享的工作台提示使用桌面入口", async () => {
+  const chrome = process.platform === "win32" ? path.join(process.env["ProgramFiles"] ?? "C:/Program Files", "Google/Chrome/Application/chrome.exe") : "";
+  const executablePath = [chrome, chromium.executablePath()].find((file) => file && existsSync(file));
+  test.skip(!executablePath, "需要本机 Chrome 或 Playwright Chromium");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    await page.getByRole("tab", { name: "服务端" }).click();
+    const share = page.getByTestId("web-share-panel");
+    await expect(share.getByRole("combobox", { name: "分享范围" })).toHaveValue("local");
+    await share.getByRole("button", { name: "启动分享" }).click();
+    await share.getByRole("button", { name: "创建邀请" }).click();
+    const invitation = page.getByRole("dialog", { name: "Web 邀请链接" });
+    const link = await invitation.getByRole("textbox", { name: /^邀请链接 127.0.0.1:/ }).inputValue();
+    await invitation.getByRole("button", { name: "完成" }).click();
+    expect(new URL(link).hostname).toBe("127.0.0.1");
+
+    const browser = await chromium.launch({ executablePath: executablePath!, headless: true });
+    try {
+      const tab = await browser.newPage();
+      await tab.goto(link);
+      await expect(tab.getByTestId("home-dashboard")).toBeVisible();
+      await tab.getByRole("button", { name: "保险箱", exact: true }).first().click();
+      await expect(tab.getByText("请在桌面工作台管理个人账号。")).toBeVisible();
+      await expect(tab.getByTestId("safe-setup")).toHaveCount(0);
+      await expect(tab.getByTestId("safe-unlocked")).toHaveCount(0);
+      await tab.getByRole("button", { name: "工作台", exact: true }).first().click();
+      await expect(tab.getByTestId("home-dashboard")).toBeVisible();
+    } finally {
+      await browser.close();
+    }
+    await share.getByRole("button", { name: "停止分享" }).click();
+    await page.getByRole("dialog", { name: "停止 Web 分享" }).getByRole("button", { name: "确认停止" }).click();
+    await expect(share.getByText("已停止", { exact: true })).toBeVisible();
+  } finally {
+    await app.close();
+    rmTree(vault);
+  }
+});
+
+test("保险箱：窄窗创建三账号，保存回执丢失与编辑冲突", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  const page = await app.firstWindow();
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+    await expect.poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual([390, 844]);
+    await setupPersonalSafe(page);
+    const dialog = page.getByTestId("safe-item-dialog");
+    const name = dialog.getByLabel("名称（必填）");
+    const save = dialog.getByTestId("safe-save");
+    const row = page.getByTestId("safe-item");
+    const match = "**/api/v1/call";
+    const entryName = "窄窗长名称".repeat(15);
+    let dropReceipt = true;
+    await page.route(match, async (route) => {
+      if (!dropReceipt || route.request().postDataJSON()?.capability !== "safe.entries.create") return route.continue();
+      dropReceipt = false;
+      const response = await route.fetch();
+      try {
+        expect(await response.json()).toMatchObject({ ok: true });
+        await route.abort();
+      } finally {
+        await response.dispose();
+      }
+    });
+    await page.getByTestId("safe-new").press("Enter");
+    await name.fill(entryName);
+    await dialog.getByLabel("网址").fill("https://example.test/" + "x".repeat(180));
+    for (let index = 0; index < 3; index++) {
+      if (index) await dialog.getByRole("button", { name: "再添加一个账号" }).press("Enter");
+      await dialog
+        .getByLabel("账号（必填）")
+        .last()
+        .fill(`窄窗账号 ${index + 1}`);
+    }
+    await save.press("Enter");
+    await expect(dialog.getByRole("alert")).toContainText("未收到保存确认");
+    await expect(name).toHaveValue(entryName);
+    await save.press("Enter");
+    await expect(dialog.getByRole("alert")).toContainText("版本已变化");
+    await dialog.getByRole("button", { name: "核对当前条目" }).press("Enter");
+    await expect(dialog.getByRole("status")).toContainText("已刷新条目列表");
+    await expect(save).toBeDisabled();
+    await expect(name).toHaveValue(entryName);
+    await dialog.getByRole("button", { name: "取消编辑" }).press("Enter");
+    await dialog.getByRole("button", { name: "放弃更改" }).press("Enter");
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("3 个账号");
+    await row.press("Enter");
+    await expect(page.getByRole("heading", { name: entryName })).toBeFocused();
+    await expect(row).toBeHidden();
+    await page.getByRole("button", { name: "返回条目" }).press("Enter");
+    await expect(row).toBeFocused();
+    await row.press("Enter");
+    await expect(page.getByTestId("safe-unlocked")).toBeVisible();
+    await expect.poll(() => page.getByTestId("safe-unlocked").evaluate((grid) => grid.scrollWidth - grid.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: test.info().outputPath("safe-narrow-detail.png") });
+
+    const endpoint = await page.evaluate(() => window.huhuHost.engine());
+    let commitCompetingEdit = true;
+    await page.route(match, async (route) => {
+      const body = route.request().postDataJSON();
+      if (!commitCompetingEdit || body?.capability !== "safe.entries.update") return route.fallback();
+      commitCompetingEdit = false;
+      const response = await page.request.post(`${endpoint.baseUrl}/api/v1/call`, {
+        headers: { authorization: `Bearer ${endpoint.token}` },
+        data: { ...body, requestId: "safe-test-competing-edit", input: { ...body.input, name: "另一窗口已保存" } },
+      });
+      expect(await response.json()).toMatchObject({ ok: true });
+      await route.continue();
+    });
+    await page.getByRole("button", { name: "编辑条目" }).press("Enter");
+    await name.fill("冲突时保留本次编辑");
+    await save.press("Enter");
+    await expect(dialog.getByRole("alert")).toContainText("版本已变化");
+    await expect(name).toHaveValue("冲突时保留本次编辑");
+    await dialog.getByRole("button", { name: "重读当前版本" }).press("Enter");
+    await dialog.getByRole("button", { name: "重读并替换表单" }).press("Enter");
+    await expect(name).toHaveValue("另一窗口已保存");
+    await name.fill("重新核对后保存");
+    await save.press("Enter");
+    await expect(page.getByRole("heading", { name: "重新核对后保存" })).toBeVisible();
+    await page.unrouteAll({ behavior: "wait" });
+    await page.getByRole("button", { name: "手动锁定" }).click();
+    await expect(page.getByTestId("safe-locked")).toBeVisible();
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     await app.close();
     rmTree(vault);
   }
