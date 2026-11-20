@@ -13,6 +13,7 @@ import { WorkspaceRuns } from "./workspace-runs.js";
 import { FileSessions } from "./file-sessions.js";
 import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
+import { ForwardRules } from "./forward-rules.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -25,6 +26,11 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const hosts = new HostConfigurations(new HostStore(path.join(root, "hosts")), credentialHost);
   const directory = new HostDirectory(hosts, api.vault.files);
   const templates = new WorkspaceTemplates(api.vault.files, hosts);
+  const forwardRules = new ForwardRules(api.vault.files, hosts);
+  const assertHostUnused = (id: string) => {
+    templates.assertUnused(id);
+    forwardRules.assertUnused(id);
+  };
   const manager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
@@ -52,6 +58,21 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, () => forwardRules.list()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.forwardRulesSave, async ({ signal }, input) => {
+      const result = await forwardRules.save(input, signal);
+      api.events.publish("entity.changed", { kind: "ssh-forward", id: result.id, op: input.previous ? "updated" : "created" });
+      return result;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.forwardRulesDelete, async ({ signal }, input) => {
+      const result = await forwardRules.delete(input, signal);
+      api.events.publish("entity.changed", { kind: "ssh-forward", id: input.id, op: "deleted" });
+      return result;
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, () => templates.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, ({ signal }, i) => templates.save(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, ({ signal }, i) => templates.delete(i, signal)));
@@ -89,7 +110,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsDelete, async (_c, i) => {
       api.vault.files.assertWritable();
-      await hosts.deleteLegacy(i.id, () => templates.assertUnused(i.id));
+      await hosts.deleteLegacy(i.id, () => assertHostUnused(i.id));
       manager.forgetConnection(i.id);
       api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" });
       return { ok: true as const };
@@ -111,7 +132,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsRemove, async ({ signal }, input) => {
-      await hosts.remove(input, signal, () => templates.assertUnused(input.hostId));
+      await hosts.remove(input, signal, () => assertHostUnused(input.hostId));
       manager.forgetConnection(input.hostId);
       api.events.publish("entity.changed", { kind: "ssh-host", id: input.hostId, op: "deleted" });
       return { ok: true as const };

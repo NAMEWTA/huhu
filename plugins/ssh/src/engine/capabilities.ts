@@ -10,6 +10,7 @@ import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, Transf
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
+import { ForwardRevision, ForwardRule, SaveForward } from "../shared/forwarding.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
@@ -20,6 +21,39 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  forwardRulesList: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.rules.list",
+    title: "查看 SSH 转发规则",
+    description: "查看已配置的回环监听和出口。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(ForwardRule),
+  }),
+  forwardRulesSave: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.rules.save",
+    title: "保存 SSH 转发规则",
+    description: "按版本保存转发规则。",
+    scope: "write",
+    risk: "normal",
+    input: SaveForward,
+    output: ForwardRule,
+  }),
+  forwardRulesDelete: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.rules.delete",
+    title: "删除 SSH 转发规则",
+    description: "按版本删除指定的转发规则。",
+    scope: "write",
+    risk: "normal",
+    input: ForwardRevision,
+    output: Ok,
+  }),
   archiveSupport: defineCapabilityDescriptor({
     ...ssh,
     desktopOnly: true,

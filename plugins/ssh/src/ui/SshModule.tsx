@@ -14,6 +14,7 @@ import { HostRecordActionDialog } from "./HostRecordActionDialog.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
+import { ForwardingPanel } from "./ForwardingPanel.js";
 import { t } from "./i18n.js";
 
 interface Shell {
@@ -70,6 +71,7 @@ export function SshModule() {
   const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
   const [workspaces, setWorkspaces] = useState(false);
+  const [forwarding, setForwarding] = useState(false);
   const [fileView, showFileView] = useState(false);
   const [selectedFile, selectFile] = useState("");
   const [fileSeed, setFileSeed] = useState<FileSession | null>(null);
@@ -181,6 +183,7 @@ export function SshModule() {
     </>
   );
   if (workspaces) return withFileWorkspace(<WorkspaceLibrary onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  if (forwarding) return withFileWorkspace(<ForwardingPanel hosts={hosts.data ?? []} onBack={() => setForwarding(false)} />);
   return withFileWorkspace(
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
@@ -191,6 +194,11 @@ export function SshModule() {
           <Button variant="ghost" onClick={() => openFiles()}>
             独立文件会话
           </Button>
+          {desktop && (
+            <Button variant="ghost" onClick={() => setForwarding(true)}>
+              端口转发
+            </Button>
+          )}
           <div className="row">
             <span className="grow ssh-resource-title">{t.hosts}</span>
             <span className="ssh-count">{(hosts.data ?? []).length}</span>
