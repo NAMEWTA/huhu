@@ -2,12 +2,24 @@
 
 const { spawn } = require("node:child_process");
 const { createHash, createHmac, timingSafeEqual } = require("node:crypto");
-const { readFileSync, renameSync, statSync, writeFileSync } = require("node:fs");
+const { closeSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } = require("node:fs");
 const { createServer } = require("node:net");
 const path = require("node:path");
 const { createInterface } = require("node:readline");
 
 const validText = (value, limit) => typeof value === "string" && value.length <= limit && /\S/.test(value) && value.isWellFormed();
+
+function executableSha256(file) {
+  const handle = openSync(file, "r");
+  try {
+    const hash = createHash("sha256");
+    const bytes = Buffer.allocUnsafe(1024 * 1024);
+    for (let count; (count = readSync(handle, bytes)) > 0;) hash.update(bytes.subarray(0, count));
+    return hash.digest("hex");
+  } finally {
+    closeSync(handle);
+  }
+}
 
 function createNativeAnswerOutputReader() {
   const calls = new Map();
@@ -59,6 +71,10 @@ function main(file) {
   if (stamp(config.command) !== config.binaryStamp || stamp(config.helper) !== config.helperStamp) throw new Error("Launch configuration changed");
   const userConfig = path.join(config.home, "config.toml");
   if ((statSync(userConfig, { throwIfNoEntry: false }) ? stamp(userConfig) : null) !== config.configStamp) throw new Error("Provider configuration changed");
+  const nativeChoiceBridge = config.nativeChoiceBridge === true;
+  if (nativeChoiceBridge && (executableSha256(config.command) !== "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7" || stamp(config.command) !== config.binaryStamp)) {
+    throw new Error("Provider fingerprint changed before native questions could be enabled");
+  }
 
   // A recovered shell or a second process with the same argv cannot start another App Server.
   writeFileSync(path.join(directory, "helper-started"), "", { flag: "wx", flush: true });
@@ -80,7 +96,6 @@ function main(file) {
   env.CODEX_HOME = config.home;
 
   const nativeChoiceFeature = "default_mode_request_user_input";
-  const nativeChoiceBridge = config.nativeChoiceBridge === true;
   const choiceArgs = nativeChoiceBridge ? ["--enable", nativeChoiceFeature] : [];
   const app = spawn(config.command, [...config.args, ...choiceArgs, "--config", "mcp_servers={}", "--config", 'web_search="disabled"', "--disable", "shell_tool", "app-server", "--listen", "stdio://"], {
     cwd: process.cwd(),
