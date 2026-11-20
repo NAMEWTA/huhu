@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { lstatSync, readdirSync, unlinkSync } from "node:fs";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
@@ -15,7 +15,9 @@ import { messageBody, parseMessageBody } from "./message-body.js";
 import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDigest } from "./prepare-forward.js";
 import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply.js";
 import { publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
+import { preserveReadOverrides, readOverridePath, readOverrides } from "./read-overrides.js";
 import { sourceMessage } from "./reply-context.js";
+import type { makeMailSearchText } from "./search-text.js";
 
 const mailbox = sourceMessage.omit({ localMessageId: true });
 const uidValidity = z.string().regex(/^[1-9][0-9]*$/);
@@ -122,7 +124,24 @@ export const mailMessageSourceDescriptor = defineCapabilityDescriptor({
 });
 
 const digest = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
-const cachePath = ({ accountId, folder }: Mailbox) => `.huhu/cache/mail/${digest([accountId, folder])}.json`;
+const cacheDirectory = ".huhu/cache/mail";
+const cachePath = ({ accountId, folder }: Mailbox) => `${cacheDirectory}/${digest([accountId, folder])}.json`;
+const usageSchema = z.strictObject({ files: z.int().nonnegative(), bytes: z.int().nonnegative(), indexEntries: z.int().nonnegative(), indexBytes: z.int().nonnegative() });
+export type MailCacheUsage = z.infer<typeof usageSchema>;
+
+function mailCacheFiles(files: Files) {
+  try {
+    return readdirSync(files.abs(cacheDirectory), { withFileTypes: true }).flatMap((entry) => {
+      if (!entry.isFile() || !/^[0-9a-f]{64}\.json$/.test(entry.name)) return [];
+      const relative = `${cacheDirectory}/${entry.name}`;
+      const file = lstatSync(files.abs(relative));
+      return file.isFile() ? [{ relative, bytes: file.size }] : [];
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
 const messageId = ({ accountId, folder }: Mailbox, validity: string, uid: number) => digest([accountId, folder, validity, uid]);
 const gmailMessageId = ({ accountId, folder }: Mailbox, binding: string, id: string) => digest([accountId, folder, "gmail", binding, id]);
 
@@ -183,8 +202,18 @@ export function requireCachedMessage(files: Files, input: z.infer<typeof sourceM
 
 export type MailNotificationSink = (notice: { id: string; module: "mail"; title: string }) => void;
 
-export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal, removals: AccountRemovals, writer: Pick<MailDrafts, "serialize">, notify?: MailNotificationSink) {
+export function registerMessageCache(
+  api: HuhuApi,
+  accounts: ReturnType<typeof openMailAccounts> | undefined,
+  lifetime: AbortSignal,
+  removals: AccountRemovals,
+  writer: Pick<MailDrafts, "serialize">,
+  search: Pick<ReturnType<typeof makeMailSearchText>, "clear" | "usage">,
+  notify?: MailNotificationSink,
+) {
   const files = api.vault.files;
+  let epoch = new AbortController();
+  let clearing: Promise<MailCacheUsage> | undefined;
   const writes = new Map<string, { accountId: string; task: Promise<unknown> }>();
   const authorize = (caller: string, name: string) => {
     if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(name);
@@ -239,7 +268,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
     }
   }
 
-  async function gmailEntries(input: Mailbox, result: GmailPage, binding: string, previous: GmailSnapshot | undefined) {
+  async function gmailEntries(input: Mailbox, result: GmailPage, binding: string, previous: GmailSnapshot | undefined, marked: ReadonlySet<string>) {
     const old = new Map(cachedEntries(previous ?? null).map((entry) => [entry.summary.nativeId, entry]));
     const rows = result.initial ? new Map<string, GmailEntry>() : new Map(old);
     for (const row of result.rows) {
@@ -248,7 +277,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         continue;
       }
       const existing = old.get(row.id);
-      const localRead = existing?.localRead || existing?.summary.readState === "local";
+      const localMessageId = gmailMessageId(input, binding, row.id);
+      const localRead = existing?.localRead || existing?.summary.readState === "local" || marked.has(localMessageId);
       const state = row.seen ? "synced" : localRead ? "local" : "unread";
       if (row.bytes && row.receivedAt) {
         const headers = await rootHeaders(row.bytes).catch(() => undefined);
@@ -257,7 +287,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
             ...input,
             transport: "gmail",
             nativeId: row.id,
-            localMessageId: gmailMessageId(input, binding, row.id),
+            localMessageId,
             subject: headers?.getDecoded("Subject")[0]?.value ?? "",
             readState: state,
           },
@@ -291,6 +321,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       if (accounts!.readDefinition(input.accountId)?.revision !== generation.revision) throw new MailAccountError("mailbox-changed");
     };
     const before = readSnapshot(files, input);
+    const marked = readOverrides(files, input.accountId).ids;
     const oldImap = before.record?.format === 2 ? before.record.imap : (before.record ?? undefined);
     const cachedGmail = before.record?.format === 2 ? before.record.gmail : undefined;
     const activeGmail = before.record?.format === 2 && before.record.active === "gmail";
@@ -307,7 +338,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         fallback = error.reason;
       });
       if (gmail) {
-        const entries = await gmailEntries(input, gmail, binding, previous);
+        const entries = await gmailEntries(input, gmail, binding, previous, marked);
         assertCurrent();
         const carried = new Set(previous?.pendingNotices);
         const arrivals = new Set(gmail.rows.filter((row) => !("removed" in row) && row.added).map(({ id }) => id));
@@ -356,10 +387,11 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       const source = row.source?.toString("base64") ?? existing!.source;
       if (entries.length >= maxCachedMessages || size + source.length > maxCacheSourceChars) continue;
       const projection = row.source ? await readPublicMail(row.source).catch(() => undefined) : existing?.publicMail;
-      const localRead = existing?.localRead || existing?.summary.readState === "local";
+      const localMessageId = messageId(input, result.uidValidity, row.uid);
+      const localRead = existing?.localRead || existing?.summary.readState === "local" || marked.has(localMessageId);
       const state = row.seen ? "synced" : localRead ? "local" : "unread";
       entries.push({
-        summary: { ...input, uidValidity: result.uidValidity, uid: row.uid, localMessageId: messageId(input, result.uidValidity, row.uid), subject: row.subject, transport: "imap", readState: state },
+        summary: { ...input, uidValidity: result.uidValidity, uid: row.uid, localMessageId, subject: row.subject, transport: "imap", readState: state },
         source,
         ...(projection && { publicMail: projection }),
         ...(localRead && { localRead: true }),
@@ -385,13 +417,14 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
 
   function refresh(input: Mailbox, signal: AbortSignal) {
     files.assertWritable();
+    epoch.signal.throwIfAborted();
     if (!accounts) throw errors.invalidInput("此 Vault 的本机邮箱凭据不可用");
     signal.throwIfAborted();
     const key = cachePath(input);
     let active = jobs.get(key);
     if (!active || active.controller.signal.aborted) {
       const controller = new AbortController();
-      const cancelled = AbortSignal.any([controller.signal, lifetime, removals.signal(input.accountId)]);
+      const cancelled = AbortSignal.any([controller.signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
       const task = (accountTails.get(input.accountId) ?? Promise.resolve()).catch(() => undefined).then(() => serialize(input, () => syncMailbox(input, cancelled)));
       active = { controller, task, waiters: 0 };
       jobs.set(key, active);
@@ -415,8 +448,93 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
     });
   }
 
+  function usage(): MailCacheUsage {
+    const found = mailCacheFiles(files);
+    const index = search.usage();
+    return { files: found.length, bytes: found.reduce((sum, item) => sum + item.bytes, 0), indexEntries: index.entries, indexBytes: index.bytes };
+  }
+
+  function drainCacheWork() {
+    return Promise.allSettled([...accountTails.values(), ...[...writes.values()].map(({ task }) => task)]);
+  }
+
+  async function clearCache(signal: AbortSignal) {
+    files.assertWritable();
+    signal.throwIfAborted();
+    lifetime.throwIfAborted();
+    if (clearing) return clearing;
+    epoch.abort(errors.invalidInput("邮件缓存正在清理。"));
+    clearing = (async () => {
+      await drainCacheWork();
+      return writer.serialize(async () => {
+        lifetime.throwIfAborted();
+        const found = mailCacheFiles(files);
+        const removed = usage();
+        const marked = new Map<string, Set<string>>();
+        for (const { relative } of found) {
+          const content = files.read(relative);
+          if (!content) continue;
+          let parsed: CacheRecord;
+          try {
+            parsed = cacheRecord.parse(JSON.parse(content.bytes.toString("utf8")));
+          } catch {
+            // Corrupt cache is rebuildable and cannot supply a verified local mark.
+            continue;
+          }
+          const snapshots = parsed.format === 1 ? [parsed] : [parsed.imap, parsed.gmail];
+          const entries = snapshots.flatMap((snapshot) => cachedEntries<CacheEntry>(snapshot ?? null));
+          const summary = entries[0]?.summary;
+          if (!summary || cachePath(summary) !== relative || !readSnapshot(files, summary).record || removals.read(summary.accountId)) continue;
+          const ids = marked.get(summary.accountId) ?? new Set<string>();
+          for (const item of entries) if (item.localRead || item.summary.readState === "local") ids.add(item.summary.localMessageId);
+          if (ids.size) marked.set(summary.accountId, ids);
+        }
+        for (const [accountId, ids] of marked) await preserveReadOverrides(files, accountId, ids);
+        lifetime.throwIfAborted();
+        search.clear();
+        for (const { relative } of found) {
+          const abs = files.abs(relative);
+          if (lstatSync(abs, { throwIfNoEntry: false })?.isFile()) unlinkSync(abs);
+        }
+        return removed;
+      });
+    })().finally(() => {
+      epoch = new AbortController();
+      clearing = undefined;
+      if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-cache", id: "all", op: "updated" });
+    });
+    return clearing;
+  }
+
+  api.defineCapability(
+    defineCapability({
+      ...internal,
+      name: "mail.cache.usage",
+      scope: "read",
+      input: z.strictObject({}),
+      output: usageSchema,
+      handler: ({ caller }) => {
+        authorize(caller, "mail.cache.usage");
+        return usage();
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...internal,
+      name: "mail.cache.clear",
+      scope: "write",
+      input: z.strictObject({ confirm: z.literal(true) }),
+      output: usageSchema,
+      handler: ({ caller, signal }) => {
+        authorize(caller, "mail.cache.clear");
+        return clearCache(signal);
+      },
+    }),
+  );
+
   async function prepareRelated<T>(input: z.infer<typeof sourceMessage>, signal: AbortSignal, prepare: (bytes: Buffer, subject: string, sender: string | null, own: string[]) => Promise<T>) {
-    const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
+    const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
     cancelled.throwIfAborted();
     const message = requireCachedMessage(files, input);
     const available = await accounts?.list();
@@ -567,7 +685,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           authorize(caller, name);
           const stale = { state: "needs-refresh" } as const;
           if (removals.read(input.accountId) || (publicOnly && !(await isPublicSource(input)))) return stale;
-          const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
+          const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
           cancelled.throwIfAborted();
           const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
           if (!message) return stale;
@@ -596,7 +714,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       handler: ({ caller, signal }, input) => {
         authorize(caller, "mail.messages.markRead");
         files.assertWritable();
-        const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
+        const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
+        cancelled.throwIfAborted();
         return serialize(input, async () => {
           cancelled.throwIfAborted();
           const { record, snapshot, version } = readSnapshot(files, input);
@@ -605,6 +724,10 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           if (message.summary.readState === "synced") return { state: "synced" as const, remoteSynced: message.summary.transport === "imap" };
           let expectedVersion = version;
           if (message.summary.readState !== "local") {
+            await writer.serialize(() => {
+              cancelled.throwIfAborted();
+              return preserveReadOverrides(files, input.accountId, [input.localMessageId]);
+            });
             message.summary.readState = "local";
             message.localRead = true;
             expectedVersion = (await write(input, record, version, cancelled)).version;
@@ -628,22 +751,23 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
   );
   return {
     refresh,
+    signal: () => epoch.signal,
     versions: (accountId: string, folders: string[]) => folders.map((folder) => [folder, files.currentVersion(cachePath({ accountId, folder }))] as const),
     async drainAccount(accountId: string) {
       await Promise.allSettled([accountTails.get(accountId), ...[...writes.values()].filter((entry) => entry.accountId === accountId).map(({ task }) => task)]);
     },
     retireAccount(accountId: string, folders: string[]) {
       files.assertWritable();
-      for (const folder of folders) {
+      for (const relative of [readOverridePath(accountId), ...folders.map((folder) => cachePath({ accountId, folder }))]) {
         try {
-          unlinkSync(files.abs(cachePath({ accountId, folder })));
+          unlinkSync(files.abs(relative));
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
     },
     async drain() {
-      await Promise.allSettled([...accountTails.values(), ...[...writes.values()].map(({ task }) => task)]);
+      await Promise.allSettled([drainCacheWork(), clearing]);
     },
   };
 }

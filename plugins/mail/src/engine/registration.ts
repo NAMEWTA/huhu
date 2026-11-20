@@ -13,6 +13,7 @@ import type { MailOAuthRuntime } from "./oauth-provider.js";
 import { registerMailOAuth } from "./oauth-sessions.js";
 import type { MailSmtpTransport } from "./smtp.js";
 import { registerMailSyncSchedule, type MailSyncOptions } from "./sync-schedule.js";
+import { makeMailSearchText } from "./search-text.js";
 
 const accountSummary = z.strictObject({
   accountId: z.string(),
@@ -51,9 +52,10 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   const intents = owner && !owner.vault.readOnly ? { ledger: new OperationReceipts(path.join(owner.vault.runtimeDir, "mail-oauth-intents.ndjson")), vaultInstance: owner.localVaultInstanceId } : undefined;
   const drainOAuth = registerMailOAuth(api, accounts, oauthRuntime, lifetime.signal, intents);
   const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals);
-  const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts, syncOptions.notify);
+  const searchText = makeMailSearchText();
+  const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts, searchText, syncOptions.notify);
   const drainSync = registerMailSyncSchedule(api, accounts, messages, lifetime.signal, syncOptions);
-  registerConversations(api, accounts, removals, lifetime.signal);
+  registerConversations(api, accounts, removals, lifetime.signal, messages, searchText);
   registerAccountRemoval(api, accounts, removals, drafts, outbox, messages, lifetime.signal);
   ctx.effect(() => async () => {
     lifetime.abort();

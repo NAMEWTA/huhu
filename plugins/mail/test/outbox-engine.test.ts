@@ -116,11 +116,11 @@ function services(engine: RunningEngine) {
   return { outbox: found.outbox, attachments: found.attachments };
 }
 
-async function account(engine: RunningEngine, port: number, password: string) {
+async function account(engine: RunningEngine, port: number, password: string, imapPort = port) {
   assert(engine.moduleCredentialHost);
   const accounts = openMailAccounts({ ...engine.moduleCredentialHost, vault: engine.vault }, async () => [{ path: "INBOX", name: "INBOX", delimiter: "/", flags: [], specialUse: null }]);
   const settings = { host: "127.0.0.1", port, security: "none" } as const;
-  const draft = accounts.begin({ provider: "custom_imap", email: sender, label: "loopback", auth: "password", imap: settings, smtpEnabled: true, smtp: settings }, password);
+  const draft = accounts.begin({ provider: "custom_imap", email: sender, label: "loopback", auth: "password", imap: { ...settings, port: imapPort }, smtpEnabled: true, smtp: settings }, password);
   await draft.testConnection();
   return draft.save();
 }
@@ -142,6 +142,100 @@ async function save(engine: RunningEngine, accountId: string, draftId: string = 
   const draft = result.data as { draftId: string; revision: string };
   return { draftId: draft.draftId, expectedRevision: draft.revision };
 }
+
+testWindows(
+  "确认清理隔离旧同步，重开后保留已读覆盖、附件、认证和未知投递",
+  async () => {
+    await fixture(async ({ smtp, password, open }) => {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let hold = false;
+      const message = { uidValidity: 14, uid: 42, subject: "Cache fixture", refuseRead: true, source: `From: Reader <reader@example.invalid>\r\nTo: ${sender}\r\nSubject: Cache fixture\r\n\r\nsearchable-cache-marker\r\n` };
+      const inbox = { uidValidity: 14, messages: [message] };
+      const imap = await openImapFixture({
+        windows: { INBOX: inbox },
+        beforeSource: async () => {
+          if (hold) {
+            entered.resolve();
+            await release.promise;
+          }
+        },
+      });
+      try {
+        let engine = await open({ create: true });
+        const { accountId, revision } = await account(engine, smtp.port, password, imap.port);
+        const box = { accountId, folder: "INBOX" };
+        const refresh = () => call(engine, "mail.sync.refresh", box);
+        const usage = () => call(engine, "mail.cache.usage", {});
+        const search = () => call(engine, "mail.conversations.search", { text: "searchable-cache-marker", accountId });
+        const latest = await refresh();
+        assert(latest.ok);
+        const { localMessageId } = (latest.data as { message: { localMessageId: string } }).message;
+        expect(await search()).toMatchObject({ ok: true, data: { total: 1 } });
+        expect(await call(engine, "mail.messages.markRead", { ...box, localMessageId })).toMatchObject({ ok: true, data: { state: "local", remoteSynced: false } });
+
+        const draft = await save(engine, accountId);
+        const bytes = Buffer.from("cache-sweep-draft-attachment");
+        const attachment = await services(engine).attachments.addAttachment(
+          draft,
+          {
+            name: "fixture.txt",
+            size: bytes.length,
+            async *read() {
+              yield bytes;
+            },
+          },
+          new AbortController().signal,
+        );
+        smtp.configure("lose-reply");
+        const unknown = await services(engine).outbox.submit(await save(engine, accountId));
+        const status = () => call(engine, "mail.outbox.status", { operationId: unknown.operationId });
+        await expect.poll(status).toMatchObject({ ok: true, data: { state: "unknown" } });
+        const oldOutbox = await status();
+        const readOnly = await open({ readOnly: true });
+        expect(await call(readOnly, "mail.cache.clear", { confirm: true })).toMatchObject({ ok: false, error: { code: "READ_ONLY_VAULT" } });
+        await readOnly.shutdown();
+
+        const before = await usage();
+        const relative = `.huhu/cache/mail/${createHash("sha256")
+          .update(JSON.stringify([accountId, "INBOX"]))
+          .digest("hex")}.json`;
+        expect(before).toMatchObject({ ok: true, data: { files: 1, bytes: engine.vault.files.read(relative)?.bytes.length, indexEntries: 1, indexBytes: "searchable-cache-marker".length } });
+        expect(await call(engine, "mail.cache.clear", { confirm: false })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        expect(await usage()).toEqual(before);
+
+        inbox.messages.push({ ...message, uid: 43 });
+        hold = true;
+        const late = refresh();
+        await entered.promise;
+        const clear = await call(engine, "mail.cache.clear", { confirm: true });
+        expect(clear).toMatchObject(before);
+        release.resolve();
+        expect(await late).toMatchObject({ ok: false });
+        expect(await usage()).toEqual({ ok: true, data: { files: 0, bytes: 0, indexEntries: 0, indexBytes: 0 } });
+        expect(await search()).toMatchObject({ ok: true, data: { total: 0 } });
+        expect(await call(engine, "mail.messages.loadBody", { ...box, localMessageId })).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
+        expect(await status()).toEqual(oldOutbox);
+
+        await engine.shutdown();
+        engine = await open();
+        expect(await search()).toMatchObject({ ok: true, data: { total: 0 } });
+        expect(await status()).toEqual(oldOutbox);
+        expect(await call(engine, "mail.drafts.get", { draftId: draft.draftId })).toMatchObject({ ok: true, data: { draft: { revision: attachment.draft.revision, attachments: [{ name: "fixture.txt", state: "ready" }] } } });
+        expect(await call(engine, "mail.accounts.list", {})).toMatchObject({ ok: true, data: { accounts: [{ accountId, revision, authState: { "account-password": "configured" } }] } });
+        expect(smtp.counts.data).toBe(1);
+        inbox.messages.pop();
+        expect(await refresh()).toMatchObject({ ok: true, data: { message: { localMessageId, readState: "local" } } });
+        expect(await search()).toMatchObject({ ok: true, data: { total: 1 } });
+        expect(smtp.counts.data).toBe(1);
+      } finally {
+        release.resolve();
+        await imap.close();
+      }
+    });
+  },
+  90_000,
+);
 
 testWindows(
   "本地删除邮箱按 ID 和预览修订执行，停止在途 IMAP/SMTP 并可重启续清理",

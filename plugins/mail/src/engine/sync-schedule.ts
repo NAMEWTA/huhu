@@ -24,7 +24,13 @@ function scheduleTimer(run: () => void, delay: number) {
 }
 
 /** One Vault-owned timer reconciles the selected folders. Network failures only delay their account. */
-export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, messages: Pick<ReturnType<typeof registerMessageCache>, "refresh">, stopped: AbortSignal, options: MailSyncOptions) {
+export function registerMailSyncSchedule(
+  api: HuhuApi,
+  accounts: ReturnType<typeof openMailAccounts> | undefined,
+  messages: Pick<ReturnType<typeof registerMessageCache>, "refresh" | "signal">,
+  stopped: AbortSignal,
+  options: MailSyncOptions,
+) {
   const { files } = api.vault;
   const now = options.now ?? Date.now;
   const schedule = options.schedule ?? scheduleTimer;
@@ -58,7 +64,7 @@ export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<type
   function watchInbox(accountId: string, revision: string, cursor: { folder: string; uidValidity: string; through: number }) {
     if (!accounts || watchers.size >= 2 || stopped.aborted || !read().minutes) return;
     const controller = new AbortController();
-    const signal = AbortSignal.any([stopped, controller.signal, accounts.signal(accountId)]);
+    const signal = AbortSignal.any([stopped, controller.signal, accounts.signal(accountId), messages.signal()]);
     watchers.set(accountId, controller);
     const wake = () => {
       if (signal.aborted) return;
@@ -78,13 +84,14 @@ export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<type
   }
 
   async function sweep(minutes: number) {
+    const signal = AbortSignal.any([stopped, messages.signal()]);
     const rows = (await accounts?.list()) ?? [];
     const available = new Set(rows.map(({ accountId }) => accountId));
     for (const id of states.keys()) if (!available.has(id)) states.delete(id);
     for (const id of failures.keys()) if (!available.has(id)) failures.delete(id);
     for (const id of watchers.keys()) if (!available.has(id)) stopWatcher(id);
     for (const account of rows) {
-      if (stopped.aborted || !read().minutes) return;
+      if (signal.aborted || !read().minutes) return;
       const { accountId, definition, authState } = account;
       if (authState["account-password"] !== "configured") continue;
       const failure = failures.get(accountId);
@@ -95,7 +102,7 @@ export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<type
       let revision = account.revision;
       try {
         if (definition.oauth) {
-          await accounts!.ensureOAuthAccess(accountId, stopped);
+          await accounts!.ensureOAuthAccess(accountId, signal);
           const current = accounts!.readDefinition(accountId);
           if (!current || JSON.stringify(current.definition) !== JSON.stringify(definition)) continue;
           revision = current.revision;
@@ -103,19 +110,19 @@ export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<type
         let more = false;
         let idle: Awaited<ReturnType<typeof messages.refresh>>["idle"];
         for (const folder of definition.folders) {
-          stopped.throwIfAborted();
+          signal.throwIfAborted();
           if (accounts!.readDefinition(accountId)?.revision !== revision) break;
-          const result = await messages.refresh({ accountId, folder: folder.path }, stopped);
+          const result = await messages.refresh({ accountId, folder: folder.path }, signal);
           more ||= result.more;
           idle ??= result.idle;
         }
-        if (stopped.aborted) return;
+        if (signal.aborted) return;
         if (!read().minutes || accounts!.readDefinition(accountId)?.revision !== revision) continue;
         failures.set(accountId, { count: 0, next: now() + (more ? 1000 : minutes * 60_000) });
         states.set(accountId, { accountId, phase: "ready", at: new Date(now()).toISOString() });
         if (idle && !more) watchInbox(accountId, revision, idle);
       } catch (error) {
-        if (stopped.aborted) return;
+        if (signal.aborted) return;
         if (accounts!.readDefinition(accountId)?.revision !== revision) continue;
         if (error instanceof MailAccountError && error.code === "oauth-reauthorize") {
           failures.delete(accountId);
@@ -195,8 +202,18 @@ export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<type
       },
     }),
   );
+  const off = api.events.subscribe((event) => {
+    if (event.type !== "entity.changed" || !("kind" in event.payload) || event.payload.kind !== "mail-cache") return;
+    version++;
+    failures.clear();
+    states.clear();
+    for (const id of watchers.keys()) stopWatcher(id);
+    arm(false);
+    changed();
+  });
   arm();
   return async () => {
+    off();
     stopTimer?.();
     for (const id of watchers.keys()) stopWatcher(id);
     await active;

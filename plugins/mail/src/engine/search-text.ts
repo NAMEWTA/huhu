@@ -24,7 +24,8 @@ export function makeMailSearchText() {
   const cache = new Map<string, string>();
   const maxChars = 6 * 1024 * 1024;
   let chars = 0;
-  return async (source: string): Promise<string> => {
+  async function read(source: string, signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted();
     const key = createHash("sha256").update(source).digest("hex");
     const cached = cache.get(key);
     if (cached !== undefined) {
@@ -33,6 +34,7 @@ export function makeMailSearchText() {
       return cached;
     }
     const body = await parseMessageBody(Buffer.from(source, "base64")).catch(() => null);
+    signal.throwIfAborted();
     const variants = [body?.text, body?.untrustedHtml ? searchableHtml(body.untrustedHtml) : null];
     const text = [...new Set(variants.flatMap((variant) => (variant ? [variant.replace(/\s+/g, " ").trim()] : [])))].filter(Boolean).join(" ");
     if (cache.has(key) || text.length > maxChars) return text;
@@ -44,5 +46,13 @@ export function makeMailSearchText() {
     cache.set(key, text);
     chars += text.length;
     return text;
+  }
+  return {
+    read,
+    usage: () => ({ entries: cache.size, bytes: [...cache.values()].reduce((total, value) => total + Buffer.byteLength(value), 0) }),
+    clear() {
+      cache.clear();
+      chars = 0;
+    },
   };
 }

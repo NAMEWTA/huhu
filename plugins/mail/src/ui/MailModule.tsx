@@ -10,6 +10,7 @@ import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
+import { MailCacheSettings } from "./MailCacheSettings.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
@@ -134,6 +135,14 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       noticeNavigation.current?.abort();
       setAccountEpoch((epoch) => epoch + 1);
       setNavigation(({ revision }) => ({ revision, location: null }));
+    }
+    if (event.payload.kind === "mail-cache") {
+      noticeNavigation.current?.abort();
+      setAccountEpoch((epoch) => epoch + 1);
+      setNavigation(({ revision }) => ({ revision: revision + 1, location: null }));
+      const predicate = (entry: { queryKey: readonly unknown[] }) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]);
+      void query.cancelQueries({ predicate });
+      void query.resetQueries({ predicate });
     }
     if (event.payload.kind === "mail-message" || event.payload.kind === "mail-mailbox") {
       void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]) });
@@ -317,6 +326,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
         }
       />
       <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
+      <MailCacheSettings readOnly={readOnly} />
       <nav className="hu-mail-row" aria-label="邮件工作区">
         {tabs.map(({ id, label }) => (
           <Button

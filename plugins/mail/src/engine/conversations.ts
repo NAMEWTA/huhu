@@ -134,17 +134,23 @@ function sameTarget(message: ConversationMessage, target: MailLocationTarget) {
   return message.source === "imap" && message.uidValidity === target.uidValidity && message.uid === target.uid;
 }
 
-export function registerConversations(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, removals: AccountRemovals, lifetime: AbortSignal) {
+export function registerConversations(
+  api: HuhuApi,
+  accounts: ReturnType<typeof openMailAccounts> | undefined,
+  removals: AccountRemovals,
+  lifetime: AbortSignal,
+  cache: { signal(): AbortSignal },
+  searchText: ReturnType<typeof makeMailSearchText>,
+) {
   const files = api.vault.files;
   const outbox = new OutboxStorage(files);
-  const searchText = makeMailSearchText();
   const internal = { plugin: "mail", scope: "read", exposable: false, defaultExposed: false } as const;
   function authorize(caller: string, capability: string) {
     if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(capability);
   }
 
   async function readGroups({ accountId: scope, time }: Pick<z.infer<typeof pageInput>, "accountId" | "time">, request: AbortSignal, text?: string) {
-    const signal = AbortSignal.any([request, lifetime]);
+    const signal = AbortSignal.any([request, lifetime, cache.signal()]);
     const rows = (await accounts?.list()) ?? [];
     const own = new Set(rows.map(({ definition }) => definition.settings.email.trim().toLowerCase()));
     const selected = rows.filter(({ accountId }) => !scope || scope === accountId);
@@ -163,7 +169,7 @@ export function registerConversations(api: HuhuApi, accounts: ReturnType<typeof 
           const message: ConversationMessage = entry.summary.transport === "gmail" ? { ...entry.summary, source: "gmail", date } : { ...entry.summary, source: "imap", date };
           if (text && ++indexed % 16 === 0) await setImmediate(undefined, { signal });
           signal.throwIfAborted();
-          const body = text ? bodyMatch(await searchText(entry.source), text) : undefined;
+          const body = text ? bodyMatch(await searchText.read(entry.source, signal), text) : undefined;
           candidates.push({
             message,
             addresses: info.participants,
