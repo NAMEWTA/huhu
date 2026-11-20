@@ -22,11 +22,19 @@ const phases: Record<ForwardRun["state"], string> = {
 function RunningState({ run }: { run?: ForwardRun | undefined }) {
   return (
     <>
-      <p role="status">{run ? phases[run.state] : "已配置"}</p>
-      {run?.listener && (
+      <p role="status">{run?.state === "running" && run.listener?.device === "remote" ? "服务端已确认" : run ? phases[run.state] : "已配置"}</p>
+      {run?.listener?.device === "local" && (
         <p>
           实际绑定 <code>{hostEndpoint(run.listener)}</code>
         </p>
+      )}
+      {run?.listener?.device === "remote" && (
+        <>
+          <p>
+            已确认的远端请求 <code>{hostEndpoint({ host: run.listener.requestedHost, port: run.listener.requestedPort })}</code>
+          </p>
+          <p>实际绑定地址由服务端策略（如 GatewayPorts）决定，客户端无法核验。</p>
+        </>
       )}
       {run?.connection && (
         <p>
@@ -227,7 +235,7 @@ export function ForwardingPanel({ hosts, onBack, onReview }: { hosts: Host[]; on
                 {hosts.find(({ id }) => id === rule.hostId)?.name ?? rule.hostId} · {forwardLabels[rule.mode]}
               </p>
               <p>
-                {rule.mode === "remote" ? "远端监听" : "本机监听"}{" "}
+                {rule.mode === "remote" ? "远端申请监听" : "本机监听"}{" "}
                 <code>
                   {FORWARD_BIND}:{rule.listenPort}
                 </code>{" "}

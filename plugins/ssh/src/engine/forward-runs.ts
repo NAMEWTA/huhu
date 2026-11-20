@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
-import { FORWARD_BIND, type ForwardRevision, type ForwardRule, type ForwardRun, type SaveForward } from "../shared/forwarding.js";
+import type { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { ForwardListener } from "./forward-listener.js";
 import type { ForwardRules } from "./forward-rules.js";
@@ -141,12 +141,12 @@ export class ForwardRuns {
       run.offTransport = () => lease.client.off("close", disconnected);
       const listener = new ForwardListener(rule, lease.client);
       run.listener = listener;
-      await listener.open(abort.signal);
+      const listenerView = await listener.open(abort.signal);
       await lease.validate();
       abort.signal.throwIfAborted();
       if (run.lost) throw new HuhuError("SSH_DISCONNECTED", "原转发连接已关闭");
       listener.enable();
-      this.update(run, { state: "running", prompt: undefined, message: undefined, listener: { device: rule.mode === "remote" ? "remote" : "local", host: FORWARD_BIND, port: rule.listenPort } });
+      this.update(run, { state: "running", prompt: undefined, message: undefined, listener: listenerView });
     } catch (error) {
       if (abort.signal.aborted) return;
       try {

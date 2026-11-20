@@ -5,10 +5,13 @@
 | 场景 | 实际观察 |
 | --- | --- |
 | 四种运行模式 | Local、Remote、SOCKS5、HTTP CONNECT 均通过真实 TCP 读取原样合成字节。收发方向与实际字节数一致，活动连接数和累计连接数由成功打开的流产生。HTTP CONNECT 同包的首段数据也计入。 |
-| 监听发布与控制 | 首次信任期间本机端口拒绝连接。远端夹具绑定后暂缓 SSH 确认，规则保持启动中且无实际监听回执，收到确认才进入监听。重复启动返回同一实例。 |
+| 监听发布与控制 | 首次信任期间本机端口拒绝连接。远端夹具绑定后暂缓 SSH 确认，规则保持启动中且没有服务端回执，收到确认才显示已确认请求。重复启动返回同一实例。 |
 | 生命周期 | 四条规则共享一个专用 SSH 连接。停止其中一条时，另一条仍传输。编辑先停止旧监听，删除最后一个实例后专用连接关闭。重复启动可重新绑定端口。 |
 | 借用与失败 | 已有普通会话被借用，停止和失败均保留该 SSH 所有者。实际本机端口冲突、远端拒绝绑定、SSH 拒绝 TCP 出口各有结果。远端拒绝释放时保留待确认状态，阻止新的监听或删除规则，重试释放后端口拒绝连接。 |
 | 跳板与停用 | 逐跳各自核对指纹。切断跳板关闭监听，显式恢复建立新连接。主动停止后仍保持停止。绑定账户变化阻止旧规则拨号。停用插件释放监听和连接，重新启用仅加载配置。 |
 | Windows Workbench | 从实际规则编辑器保存和打开四个模式，核对监听位置与字段。点击启动、信任、停止和再次启动。实际 TCP 核对数据与页面计数，两次停止后连接均被拒绝。 |
 
-命令为 `vitest run --no-cache --pool forks --maxWorkers 1 plugins/ssh/test`（66 项）及 `playwright test -c plugins/ssh/e2e/playwright.config.ts`（1 项）。归档、传输与既有 SSH 测试随插件套件运行。SSH 转发固定监听 `127.0.0.1`，本轮后端提供 SSH TCP，界面明确显示 Shell 中继不可用。
+命令为 `vitest run --no-cache --pool forks --maxWorkers 1 plugins/ssh/test`（66 项）及 `playwright test -c plugins/ssh/e2e/playwright.config.ts`（1 项）。归档、传输与既有 SSH 测试随插件套件运行。Local、SOCKS5 和 HTTP CONNECT 读取本机实际监听地址，均绑定 `127.0.0.1`。Remote 请求 `127.0.0.1`，SSH 回包只证明服务端确认了请求，实际监听范围取决于服务端策略（例如 GatewayPorts）。本轮后端提供 SSH TCP，界面明确显示 Shell 中继不可用。
+## Remote 复核补充
+
+在 Windows 两端均为本机回环的夹具内复跑 `vitest run --no-cache --pool forks --maxWorkers 1 plugins/ssh/test/forwarding.engine.test.ts`（4 项）及 `playwright test tests/e2e/ssh/forwarding.spec.ts --workers=1`（1 项）。Remote 在确认前没有监听回执，确认后 API 仅返回请求地址和未知绑定标记。Workbench 显示请求地址与服务端策略说明。夹具回环端口实际可连接，停止后拒绝连接。其他三个模式仍返回本机套接字的实际地址并完成 TCP 字节校验。夹具明确使用回环，外部服务器策略范围保持未核验。 [独立复核](<D:/Document/code/huhu/.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t1bh/report01.md>)

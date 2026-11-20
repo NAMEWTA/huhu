@@ -245,9 +245,12 @@ test("all four modes forward real TCP, publish after acknowledgement and share o
     expect((await findRun(client, remote))?.listener).toBeUndefined();
     (await f.socket(remote.listenPort)).destroy();
     releaseBind();
-    expect(await state(client, remote, "running")).toMatchObject({ listener: { device: "remote", host: FORWARD_BIND, port: remote.listenPort } });
+    expect((await state(client, remote, "running")).listener).toEqual({ device: "remote", requestedHost: FORWARD_BIND, requestedPort: remote.listenPort, binding: "server-policy-unknown" });
     await command(client, "start", http);
     await state(client, http, "running");
+    for (const rule of [local, socks, http]) {
+      expect((await findRun(client, rule))?.listener).toEqual({ device: "local", host: FORWARD_BIND, port: rule.listenPort });
+    }
 
     const localSocket = await f.socket(local.listenPort);
     const remoteSocket = await f.socket(remote.listenPort);

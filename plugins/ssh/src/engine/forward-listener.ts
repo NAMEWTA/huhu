@@ -3,7 +3,7 @@ import net, { type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { HuhuError } from "@huhu/contracts";
 import type { Client, ClientChannel, TcpConnectionDetails } from "ssh2";
-import { FORWARD_BIND, type ForwardDestination, type ForwardRule } from "../shared/forwarding.js";
+import { FORWARD_BIND, type ForwardDestination, type ForwardListenerView, type ForwardRule } from "../shared/forwarding.js";
 import { httpDestination, SOCKS_OK, socksDestination, socksFailure } from "./forward-proxy.js";
 
 const MAX_CONNECTIONS = 64;
@@ -92,7 +92,7 @@ export class ForwardListener {
     this.serving = true;
   }
 
-  async open(signal: AbortSignal) {
+  async open(signal: AbortSignal): Promise<ForwardListenerView> {
     const { rule } = this;
     if (rule.mode === "remote") {
       const target = rule.target;
@@ -110,7 +110,8 @@ export class ForwardListener {
           done(this.remote === "denied" ? new HuhuError("NAME_CONFLICT", "远端拒绝监听，回环端口可能已占用或服务器禁止转发") : error, port);
         });
       });
-      return;
+      // The SSH success reply cannot attest the address selected by the server's bind policy.
+      return { device: "remote", requestedHost: FORWARD_BIND, requestedPort: rule.listenPort, binding: "server-policy-unknown" };
     }
 
     if (rule.mode === "http-connect") {
@@ -145,6 +146,9 @@ export class ForwardListener {
       });
       server.listen({ host: FORWARD_BIND, port: rule.listenPort, exclusive: true }, resolve);
     });
+    const bound = server.address();
+    if (!bound || typeof bound === "string" || bound.address !== FORWARD_BIND) throw new HuhuError("INTERNAL", "无法确认本机回环监听地址");
+    return { device: "local", host: bound.address, port: bound.port };
   }
 
   async close(transportLost = false) {
