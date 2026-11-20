@@ -1056,7 +1056,7 @@ test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可
   test.skip(process.platform !== "win32" || process.arch !== "x64", "使用 Windows Credential Manager 和 PowerShell 夹具");
   const { page, close } = await openApp();
   const prefix = "automations.terminal.environment";
-  const variable = "HUHU_STAGED_FIXTURE";
+  const variable = "HUHU_RULE_SECRET_STAGED_FIXTURE";
   let clearSynthetic: (() => Promise<void>) | undefined;
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -1066,7 +1066,7 @@ test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可
       trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
       action: {
         kind: "terminal",
-        command: "if (-not $env:HUHU_STAGED_FIXTURE) { exit 7 }; [Console]::WriteLine('protected-environment-ok'); [Console]::WriteLine($env:HUHU_STAGED_FIXTURE)",
+        command: "if (-not $env:HUHU_RULE_SECRET_STAGED_FIXTURE) { exit 7 }; [Console]::WriteLine('protected-environment-ok'); [Console]::WriteLine($env:HUHU_RULE_SECRET_STAGED_FIXTURE)",
         shell: "powershell",
         spaceId: null,
       },
@@ -1088,6 +1088,18 @@ test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可
     await config.getByLabel("受保护值").fill(synthetic);
     await config.getByRole("button", { name: "保存配置" }).click();
     await expect(page.getByRole("status").filter({ hasText: "规则环境已保存" })).toBeVisible();
+    const approval = page.getByRole("dialog", { name: "终端规则的外部授权" });
+    const openApproval = page.getByRole("button", { name: "管理 CLI / MCP 授权" });
+    await openApproval.click();
+    await expect(approval.getByRole("region", { name: "PowerShell 命令" })).toContainText(variable);
+    await expect(approval.getByLabel("批准的变量名")).toHaveValue(variable);
+    await page.keyboard.press("Escape");
+    await expect(approval).not.toBeVisible();
+    await expect(openApproval).toBeFocused();
+    expect((await call("automations.terminal.approval.review", { ruleId: rule.data.id })).data.approvalId).toBeNull();
+    await openApproval.click();
+    await approval.getByRole("button", { name: "批准这条规则" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已批准本机手动使用" })).toBeVisible();
     expect((await call("plugins.setEnabled", { id: "safe", enabled: false })).ok).toBe(true);
     await page.getByRole("button", { name: "立即运行", exact: true }).click();
     await page.getByRole("button", { name: "运行", exact: true }).click();
@@ -1103,11 +1115,14 @@ test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可
       .getByRole("button", { name: /^定时自动化/ })
       .click();
     await page.getByTestId("rule-row").filter({ hasText: "桌面规则的独立环境" }).click();
-    await page.getByRole("button", { name: "清除 HUHU_STAGED_FIXTURE" }).click();
+    await openApproval.click();
+    await approval.getByRole("button", { name: "撤销批准" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已撤销本机批准" })).toBeVisible();
+    await page.getByRole("button", { name: `清除 ${variable}` }).click();
     await page.getByRole("dialog", { name: "清除受保护变量" }).getByRole("button", { name: "确认清除" }).click();
     await expect(page.getByRole("status").filter({ hasText: "已清除本机值" })).toBeVisible();
     const row = (await call(`${prefix}.get`, { ruleId: rule.data.id })).data;
-    expect(row).toMatchObject({ states: { HUHU_STAGED_FIXTURE: "unconfigured" } });
+    expect(row).toMatchObject({ states: { [variable]: "unconfigured" } });
     expect(JSON.stringify(row)).not.toContain(synthetic);
     expect(await call("automations.runNow", { id: rule.data.id })).toMatchObject({ ok: true, data: { summary: { state: "failed" } } });
   } finally {

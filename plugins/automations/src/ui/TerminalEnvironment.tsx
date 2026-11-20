@@ -1,6 +1,7 @@
 import { Button, Dialog } from "@huhu/ui";
 import { useCapability, useEngine } from "@huhu/workbench";
 import { useId, useState } from "react";
+import { TerminalApproval } from "./TerminalApproval.js";
 
 type AuthState = "unconfigured" | "configured" | "temporarily-unavailable" | "needs-reconfiguration" | "corrupt";
 type Environment = { revision: string | null; names: string[]; localAvailable: boolean; targetChanged: boolean; states: Record<string, AuthState> };
@@ -12,7 +13,7 @@ const stateText: Record<AuthState, string> = {
   corrupt: "配置损坏",
 };
 
-export function TerminalEnvironment({ ruleId }: { ruleId: string }) {
+export function TerminalEnvironment({ ruleId, showExternalApproval }: { ruleId: string; showExternalApproval: boolean }) {
   const engine = useEngine();
   const info = useCapability<Environment>("automations.terminal.environment.get", { ruleId });
   const form = useId();
@@ -77,6 +78,7 @@ export function TerminalEnvironment({ ruleId }: { ruleId: string }) {
         </div>
       ))}
       {configuration?.localAvailable ? <Button onClick={() => open("replace")}>添加受保护变量</Button> : null}
+      {configuration?.localAvailable && showExternalApproval ? <TerminalApproval ruleId={ruleId} /> : null}
       <p role="status">{notice}</p>
       <Dialog
         open={edit !== null}

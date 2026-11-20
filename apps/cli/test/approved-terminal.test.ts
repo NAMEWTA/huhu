@@ -1,0 +1,237 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { CapabilityResultSchema } from "@huhu/contracts";
+import { boot, type RunningEngine } from "@huhu/engine";
+import { exportPackage, importPackage } from "@huhu/vault";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { assert, expect, test, vi } from "vitest";
+import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
+import { run } from "../src/main.js";
+
+const prefix = "automations.terminal.external";
+const approvals = "automations.terminal.approval";
+const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+const mcpName = (name: string) => `${prefix}.${name}`.replaceAll(".", "_");
+
+test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
+  "Windows CLI/MCP 的终端授权、保护值轮换与原意图对账",
+  async () => {
+    const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-approved-terminal-")));
+    const vault = path.join(fixture, "vault");
+    const userData = path.join(fixture, "app");
+    const archive = path.join(fixture, "vault.zip");
+    const restored = path.join(fixture, "restored");
+    const marker = `synthetic-approval-${randomUUID()}`;
+    const rotatedMarker = `synthetic-rotation-${randomUUID()}`;
+    const variable = "HUHU_RULE_SECRET_FIXTURE";
+    const starts: unknown[] = [];
+    let omitCoreAck = true;
+    let e: RunningEngine | undefined;
+    let copy: RunningEngine | undefined;
+    let cleanup: (() => Promise<void>) | undefined;
+    const original = HerdrClient.prototype.call;
+    const probe = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, input?: unknown) {
+      if (method === "terminal.list" && starts.length === 1 && omitCoreAck) throw new Error("暂时无法核对原终端");
+      const out = await original.call(this, method, input);
+      if (method === "terminal.run") {
+        starts.push(input);
+        if (starts.length === 1 && omitCoreAck) throw new Error("丢失已创建终端的回包");
+      }
+      return out as T;
+    });
+    const desktop = async <T>(capability: string, input: unknown = {}, engine = e!) => {
+      const reply = await engine.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+      if (!reply.ok) throw new Error(reply.error.message);
+      return reply.data as T;
+    };
+    const cli = async (op: string, input: unknown, engine = e!) => {
+      const capture: string[] = [];
+      const requestFile = path.join(fixture, `request-${randomUUID()}.json`);
+      writeFileSync(requestFile, JSON.stringify(input), { flag: "wx", mode: 0o600 });
+      try {
+        // 使用真实 CLI 的 run 和认证传输。合成值由请求文件读入测试进程，测试进程的 argv 不含值。
+        const json = readFileSync(requestFile, "utf8");
+        await run(["call", `${prefix}.${op}`, "--vault", engine.vault.root, "--json", "--input-json", json], { out: (line) => capture.push(line), err: () => undefined });
+        return CapabilityResultSchema.parse(JSON.parse(capture.join("")));
+      } finally {
+        rmSync(requestFile);
+      }
+    };
+    const mcp = async (method: string, params: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${e!.port}/mcp`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${e!.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { result: { isError?: boolean; content?: { text: string }[]; tools?: { name: string }[] } }).result;
+    };
+    const tool = async (op: string, args: unknown) => {
+      const reply = await mcp("tools/call", { name: mcpName(op), arguments: args });
+      return { ok: !reply.isError, data: JSON.parse(reply.content?.[0]?.text ?? "{}") };
+    };
+    const setAccess = (op: string, exposed: boolean, engine = e!) => desktop("gateway.update", { capability: `${prefix}.${op}`, exposed }, engine);
+    const denied = (code: string) => ({ ok: false, error: { code } });
+
+    try {
+      vi.stubEnv("HUHU_HERDR_BIN", coreBinary);
+      mkdirSync(vault);
+      mkdirSync(userData);
+      e = await boot({ vaultPath: vault, create: true, desktopUserData: userData });
+      const command = "if (-not $env:HUHU_RULE_SECRET_FIXTURE) { exit 7 }; [Console]::WriteLine($env:HUHU_RULE_SECRET_FIXTURE); Write-Output 'approved-fixture-ok'";
+      const create = (title: string) =>
+        desktop<{ id: string; version: string }>("automations.create", {
+          title,
+          trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+          action: { kind: "terminal", command, shell: "powershell", spaceId: null },
+        });
+      const rule = await create("仅用于授权测试");
+      const other = await create("另一条未批准规则");
+      const id = { ruleId: rule.id };
+      await desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+      expect((await mcp("tools/list", {})).tools).toEqual([]);
+      expect(await cli("status", id)).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
+      for (const op of ["run", "save", "status"]) await setAccess(op, true);
+      expect((await mcp("tools/list", {})).tools?.map(({ name }) => name)).toEqual(expect.arrayContaining(["run", "save", "status"].map(mcpName)));
+      expect(await cli("status", id)).toMatchObject(denied("PERMISSION_DENIED"));
+      const review = await desktop<{ ruleVersion: string; target: string; command: string; space: { root: string }; approvalId: null }>(`${approvals}.review`, id);
+      expect(review).toMatchObject({ command, space: { root: vault }, approvalId: null });
+      const approve = { ...id, expectedRuleVersion: review.ruleVersion, target: review.target, names: [variable], expectedApprovalId: null };
+      expect(await e.dispatcher.call("cli", { capability: `${approvals}.approve`, input: approve, requestId: randomUUID() })).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
+      const { approvalId } = await desktop<{ approvalId: string }>(`${approvals}.approve`, approve);
+      expect(await cli("status", id)).toMatchObject({ ok: true, data: { ruleVersion: rule.version, revision: null, states: { [variable]: "unconfigured" } } });
+      expect(await cli("status", { ruleId: other.id })).toMatchObject(denied("PERMISSION_DENIED"));
+      const approveRule = async (ruleId: string) => {
+        const { target, ruleVersion, approvalId } = await desktop<{ target: string; ruleVersion: string; approvalId: string | null }>(`${approvals}.review`, { ruleId });
+        return desktop(`${approvals}.approve`, { ruleId, target, expectedRuleVersion: ruleVersion, names: [variable], expectedApprovalId: approvalId });
+      };
+      await approveRule(other.id);
+      await desktop("automations.update", { id: other.id, expectedVersion: other.version, patch: { action: { kind: "terminal", command: "Write-Output 'changed fixture'", shell: "powershell", spaceId: null } } });
+      expect(await cli("status", { ruleId: other.id })).toMatchObject(denied("PERMISSION_DENIED"));
+      await approveRule(other.id);
+      await desktop("automations.terminal.environment.save", {
+        ruleId: other.id,
+        expectedRevision: null,
+        names: ["HUHU_RULE_SECRET_OTHER"],
+        changes: [],
+      });
+      expect(await cli("status", { ruleId: other.id })).toMatchObject(denied("PERMISSION_DENIED"));
+      const workspace = path.join(fixture, "workspace");
+      const moved = path.join(fixture, "moved");
+      mkdirSync(workspace);
+      mkdirSync(moved);
+      const space = await desktop<{ id: string; revision: number }>("agent.spaces.save", { name: "批准目标", root: workspace });
+      const isolated = await desktop<{ id: string }>("automations.create", {
+        title: "Space 版本测试",
+        trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+        action: { kind: "terminal", command, shell: "powershell", spaceId: space.id },
+      });
+      await approveRule(isolated.id);
+      expect(await cli("status", { ruleId: isolated.id })).toMatchObject({ ok: true });
+      await desktop("agent.spaces.save", { id: space.id, name: "批准目标", root: moved, expectedRevision: space.revision });
+      expect(await cli("status", { ruleId: isolated.id })).toMatchObject(denied("PERMISSION_DENIED"));
+      const expected = { ...id, expectedRuleVersion: rule.version, expectedRevision: null as string | null };
+      expect(await cli("save", { ...expected, changes: [{ name: "PATH", action: "replace", value: marker }] })).toMatchObject(denied("PERMISSION_DENIED"));
+      const saved = await cli("save", { ...expected, changes: [{ name: variable, action: "replace", value: marker }] });
+      assert(saved.ok);
+      const revision = (saved.data as { revision: string }).revision;
+      cleanup = async () => {
+        if (!e) return;
+        const current = await desktop<{ revision: string; states: Record<string, string> }>("automations.terminal.environment.get", id);
+        if (current.states[variable] === "configured") await desktop("automations.terminal.environment.save", { ...id, expectedRevision: current.revision, names: [variable], changes: [{ name: variable, action: "clear" }] });
+      };
+      expect(JSON.stringify(saved)).not.toContain(marker);
+      expect(await cli("save", { ...expected, changes: [{ name: variable, action: "clear" }] })).toMatchObject(denied("VERSION_CONFLICT"));
+      const intent = { ...expected, expectedRevision: revision, intentId: randomUUID() };
+      expect(await cli("run", { ...intent, command: "fixture override" })).toMatchObject(denied("INVALID_INPUT"));
+      // 第一次 CLI 回包在调用方被丢弃。重投使用同一个意图，Core 仍处于无法核对状态。
+      const [, repeat] = await Promise.all([cli("run", intent), cli("run", intent)]);
+      assert(repeat.ok);
+      const first = repeat.data as { runId: string; activationId: string; state: string };
+      expect(first.state).toBe("unknown");
+      expect(starts).toHaveLength(1);
+      expect(await cli("run", { ...intent, expectedRevision: randomUUID() })).toMatchObject(denied("IDEMPOTENCY_MISMATCH"));
+      expect(await tool("run", intent)).toMatchObject({ ok: false, data: { code: "IDEMPOTENCY_MISMATCH" } });
+      omitCoreAck = false;
+      await vi.waitFor(async () => expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, activationId: first.activationId, state: "succeeded" } }), { timeout: 12_000, interval: 400 });
+      const details = await desktop<{ body: string }>("automations.runs.read", { runId: first.runId });
+      expect(details.body).toContain("approved-fixture-ok");
+      expect(details.body).toContain("***");
+      expect(details.body).not.toContain(marker);
+      expect(JSON.stringify(starts)).not.toContain(marker);
+
+      const rotated = await tool("save", { ...expected, expectedRevision: revision, changes: [{ name: variable, action: "replace", value: rotatedMarker }] });
+      expect(rotated).toMatchObject({ ok: true, data: { states: { [variable]: "configured" } } });
+      const mcpIntent = { ...intent, expectedRevision: rotated.data.revision as string, intentId: randomUUID() };
+      const mcpRun = await tool("run", mcpIntent);
+      expect(mcpRun.ok).toBe(true);
+      await vi.waitFor(async () => expect(await tool("run", mcpIntent)).toMatchObject({ ok: true, data: { runId: mcpRun.data.runId, state: "succeeded" } }), { timeout: 8_000, interval: 300 });
+      expect(starts).toHaveLength(2);
+      expect(JSON.stringify(starts)).not.toContain(rotatedMarker);
+      await setAccess("run", false);
+      expect(await cli("run", intent)).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
+      expect(await tool("run", mcpIntent)).toMatchObject({ ok: false, data: { code: "CAPABILITY_NOT_EXPOSED" } });
+      await setAccess("run", true);
+      expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, state: "succeeded" } });
+      const audit = readFileSync(path.join(e.vault.runtimeDir, "gateway-audit.ndjson"), "utf8");
+      expect(audit).not.toContain(marker);
+      expect(audit).not.toContain(rotatedMarker);
+      const manifest = await exportPackage(vault, archive);
+      expect(manifest.files.some(({ path }) => path.includes("automations-terminal-approvals"))).toBe(false);
+      importPackage(archive, restored);
+      expect(
+        manifest.files.some(({ path: file }) => {
+          const bytes = readFileSync(path.join(restored, file));
+          return bytes.includes(marker) || bytes.includes(rotatedMarker);
+        }),
+      ).toBe(false);
+      copy = await boot({ vaultPath: restored, desktopUserData: userData });
+      await setAccess("run", true, copy);
+      expect(await cli("run", intent, copy)).toMatchObject(denied("PERMISSION_DENIED"));
+      await copy.shutdown();
+      copy = undefined;
+      await e.shutdown();
+      e = await boot({ vaultPath: vault, desktopUserData: userData });
+      expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, state: "succeeded" } });
+      await desktop("gateway.mcp.update", { enabled: true, transport: "stdio" });
+      const stdio = new Client({ name: "approved-terminal-test", version: "1" });
+      await stdio.connect(
+        new StdioClientTransport({
+          command: process.execPath,
+          args: [createRequire(import.meta.url).resolve("tsx/cli"), path.resolve(import.meta.dirname, "../src/bin.ts"), "mcp", "--vault", vault],
+        }),
+      );
+      try {
+        const same = CallToolResultSchema.parse(await stdio.callTool({ name: mcpName("run"), arguments: mcpIntent }));
+        expect(same.isError).toBeFalsy();
+        expect(same.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(mcpRun.data.runId) });
+      } finally {
+        await stdio.close();
+      }
+      const cleared = await cli("save", { ...expected, expectedRevision: mcpIntent.expectedRevision, changes: [{ name: variable, action: "clear" }] });
+      expect(cleared).toMatchObject({ ok: true, data: { states: { [variable]: "unconfigured" } } });
+      assert(cleared.ok);
+      const clearedRevision = (cleared.data as { revision: string }).revision;
+      expect(await cli("run", { ...intent, expectedRevision: clearedRevision, intentId: randomUUID() })).toMatchObject(denied("INVALID_INPUT"));
+      await desktop(`${approvals}.revoke`, { ...id, expectedApprovalId: approvalId });
+      expect(await cli("run", intent)).toMatchObject(denied("PERMISSION_DENIED"));
+      expect(await cli("status", id)).toMatchObject(denied("PERMISSION_DENIED"));
+      expect(starts).toHaveLength(2);
+    } finally {
+      try {
+        await cleanup?.();
+      } finally {
+        await Promise.allSettled([e?.shutdown(), copy?.shutdown()]);
+        probe.mockRestore();
+        vi.unstubAllEnvs();
+        rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+      }
+    }
+  },
+  90_000,
+);

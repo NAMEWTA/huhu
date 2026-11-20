@@ -26,8 +26,14 @@
       "automations.runs.list",
       "automations.runs.read",
       "automations.setEnabled",
+      "automations.terminal.approval.approve",
+      "automations.terminal.approval.review",
+      "automations.terminal.approval.revoke",
       "automations.terminal.environment.get",
       "automations.terminal.environment.save",
+      "automations.terminal.external.run",
+      "automations.terminal.external.save",
+      "automations.terminal.external.status",
       "automations.update"
     ],
     "fileKinds": ["automation-rule", "automation-run"]

@@ -86,5 +86,10 @@ export const AutomationRunFrontmatterSchema = z.object({
       submittedAt: dateLike(IsoTime).nullable(),
     })
     .optional(),
+  /** 已批准的外部手动运行意图绑定，只含非秘密身份的摘要。 */
+  terminalIntent: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
 });
 export type AutomationRunFrontmatter = z.infer<typeof AutomationRunFrontmatterSchema>;

@@ -84,8 +84,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     vaultRoot: api.vault.files.root,
     terminalOwner,
     call: (capability, input, idempotencyKey) => api.call(capability, input, idempotencyKey ? { idempotencyKey } : undefined),
-    launchTerminal: (ruleId, action, input, signal) =>
-      terminalEnvironments.use(ruleId, action, input, async (env) => {
+    launchTerminal: (ruleId, action, input, signal, expectedEnvironmentRevision) =>
+      terminalEnvironments.use(ruleId, action, input, expectedEnvironmentRevision, async (env) => {
         if (!env) return (await api.call("agent.sessions.launch", input, { idempotencyKey: input.requestId, signal })) as { id: string };
         const agent = api.service<{ launch(request: typeof input & { env: Record<string, string> }, signal: AbortSignal): Promise<{ id: string }> }>("agentProtectedTerminal");
         if (!agent) throw errors.invalidInput("Agent CLI 的受保护启动服务不可用");

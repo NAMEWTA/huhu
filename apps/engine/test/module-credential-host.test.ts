@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { ModuleCredentials } from "@huhu/kernel";
 import { exportPackage, importPackage, machineId } from "@huhu/vault";
 import { HerdrCore } from "@huhu/plugin-agent-cli/engine";
+import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { unzipSync } from "fflate";
 import { assert, expect, test, vi } from "vitest";
 import { z } from "zod";
@@ -153,6 +154,100 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启�
 });
 
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
+  "Windows 工作台手动与定时规则在凭据 lease 内拒绝同目标轮换后的修订",
+  async () => {
+    const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-rule-lease-")));
+    const vaultPath = path.join(fixture, "vault");
+    const desktopUserData = path.join(fixture, "app");
+    let engine: RunningEngine | undefined;
+    let ruleId: string | undefined;
+    let revision: string | null = null;
+    let rotate = false;
+    let starts = 0;
+    const name = "HUHU_RULE_SECRET_LEASE";
+    const observe = vi.spyOn(AutomationsService.prototype, "activateNonAgent");
+    const actualCall = HerdrClient.prototype.call;
+    const count = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown) {
+      if (method === "terminal.run") starts++;
+      return (await actualCall.call(this, method, params)) as T;
+    });
+    const call = async <T>(capability: string, input: unknown = {}) => {
+      assert(engine);
+      const result = await engine.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+      if (!result.ok) throw new Error(result.error.message);
+      return result.data as T;
+    };
+    const replace = async () => {
+      const saved = await call<{ revision: string }>("automations.terminal.environment.save", { ruleId, names: [name], expectedRevision: revision, changes: [{ name, action: "replace", value: `synthetic-lease-${randomUUID()}` }] });
+      revision = saved.revision;
+    };
+    const actualUse = ModuleCredentials.prototype.use;
+    const lease = vi.spyOn(ModuleCredentials.prototype, "use").mockImplementation(async function <R>(
+      this: ModuleCredentials<unknown>,
+      entityId: string,
+      purposes: readonly string[],
+      operation: (definition: unknown, values: ReadonlyMap<string, string>, revision: string) => Promise<R>,
+    ) {
+      if (rotate && entityId === ruleId) {
+        rotate = false;
+        // 已经过 Automations 最后一次外层比对。故意在 ModuleCredentials 捕获 lease 之前提交同一目标的新版本。
+        await replace();
+      }
+      return (await actualUse.call(this, entityId, purposes, operation)) as R;
+    });
+    try {
+      vi.stubEnv("HUHU_HERDR_BIN", coreBinary!);
+      mkdirSync(vaultPath);
+      mkdirSync(desktopUserData);
+      engine = await boot({ vaultPath, desktopUserData, create: true });
+      const rule = await call<{ id: string }>("automations.create", {
+        title: "本机凭据修订竞态夹具",
+        trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+        action: { kind: "terminal", command: "if (-not $env:HUHU_RULE_SECRET_LEASE) { exit 7 }; Write-Output 'lease-ok'", shell: "powershell", spaceId: null },
+      });
+      ruleId = rule.id;
+      await replace();
+      const initial = revision;
+      rotate = true;
+      const manual = await call<{ activationId: string; summary: { state: string } }>("automations.runNow", { id: rule.id });
+      expect(manual.summary.state).toBe("failed");
+      expect(revision).not.toBe(initial);
+      expect(starts).toBe(0);
+      const service = observe.mock.contexts[0] as AutomationsService | undefined;
+      assert(service);
+
+      await call("automations.setEnabled", { id: rule.id, enabled: true });
+      const slot = new Date();
+      const beforeSchedule = revision;
+      rotate = true;
+      const scheduled = await service.activateNonAgent(rule.id, "schedule", slot);
+      expect(scheduled.summary).toEqual({ state: "failed" });
+      expect(revision).not.toBe(beforeSchedule);
+      expect(await service.activateNonAgent(rule.id, "schedule", slot)).toEqual(scheduled);
+      await service.reconcileTerminals();
+      await service.idle();
+      expect(starts).toBe(0);
+      expect(service.runs()).toHaveLength(2);
+
+      expect((await call<{ summary: { state: string } }>("automations.runNow", { id: rule.id })).summary.state).toBe("succeeded");
+      expect(starts).toBe(1);
+    } finally {
+      try {
+        if (engine && revision && ruleId) await call("automations.terminal.environment.save", { ruleId, names: [name], expectedRevision: revision, changes: [{ name, action: "clear" }] });
+      } finally {
+        await engine?.shutdown();
+        lease.mockRestore();
+        count.mockRestore();
+        observe.mockRestore();
+        vi.unstubAllEnvs();
+        if (path.dirname(fixture) === realpathSync(tmpdir()) && path.basename(fixture).startsWith("huhu-rule-lease-")) rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+      }
+    }
+  },
+  60_000,
+);
+
 test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
   "Windows 自动化用同一请求只启动一次，本机规则环境不进入 Core 或 ZIP",
   async () => {

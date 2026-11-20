@@ -22,6 +22,8 @@ interface CapabilityContract<I, O> {
   desktopOnly?: boolean;
   /** 覆盖默认 60 秒超时。 */
   timeoutMs?: number;
+  /** 由 handler 持久去重，每次重交重新授权并读取当前结果。 */
+  idempotency?: "handler";
 }
 
 /** 由领域模块提供，安装后可在插件启用之前登记。 */
@@ -35,8 +37,6 @@ const descriptorSnapshots = new WeakMap<object, CapabilityDescriptor>();
 const descriptorBindings = new WeakMap<object, CapabilityDescriptor>();
 
 export interface CapabilityDefinition<I = unknown, O = unknown> extends CapabilityContract<I, O> {
-  /** The handler durably deduplicates requests and returns the current outcome on replay. */
-  idempotency?: "handler";
   handler: (ctx: CapabilityContext, input: I) => Promise<O> | O;
 }
 

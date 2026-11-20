@@ -45,7 +45,7 @@ export interface AutomationsDeps {
   vaultRoot: string;
   terminalOwner: string | null;
   call(capability: string, input: unknown, idempotencyKey?: string): Promise<unknown>;
-  launchTerminal?(ruleId: string, action: TerminalRuleAction, input: TerminalRuleLaunch, signal: AbortSignal): Promise<{ id: string }>;
+  launchTerminal?(ruleId: string, action: TerminalRuleAction, input: TerminalRuleLaunch, signal: AbortSignal, expectedEnvironmentRevision: string | null): Promise<{ id: string }>;
   /** 测试用：终端会话轮询间隔（毫秒），缺省 500。 */
   terminalPollMs?: number;
   notify(n: { title: string; module: string }): void;
@@ -55,13 +55,20 @@ export interface AutomationsDeps {
 }
 
 type TerminalRuleAction = Extract<AutomationRuleFrontmatter["action"], { kind: "terminal" }>;
-type TerminalRuleLaunch = {
+export type TerminalRuleLaunch = {
   spaceId: string;
   spaceRevision: number;
   provider: "shell";
   command: string;
   shell: TerminalRuleAction["shell"];
   requestId: string;
+};
+export type ApprovedTerminalReceipt = {
+  runId: string;
+  activationId: string;
+  state: string;
+  startedAt: string;
+  finishedAt: string | null;
 };
 type TerminalSession = { id: string; requestId: string; state: string; exitCode?: number | null; hasEnv?: boolean };
 type TerminalReservation = { run: Entity; input?: TerminalRuleLaunch; created: boolean };
@@ -126,6 +133,7 @@ export class AutomationsService {
   private readonly abort = new AbortController();
   /** 活动规则的互斥和取消控制器。 */
   private readonly ruleAbort = new Map<string, AbortController>();
+  private ruleChanges: Promise<unknown> = Promise.resolve();
 
   /** 取消一条正在执行的规则；没有在执行则返回 false。 */
   cancel(ruleId: string): boolean {
@@ -172,6 +180,13 @@ export class AutomationsService {
 
   constructor(private readonly d: AutomationsDeps) {}
 
+  /** 把规则自身的变更、桌面批准和外部受理放在同一顺序中。 */
+  withRuleConfiguration<T>(operation: () => Promise<T> | T): Promise<T> {
+    const next = this.ruleChanges.then(operation);
+    this.ruleChanges = next.catch(() => undefined);
+    return next;
+  }
+
   // ---- 规则 ----
   rules(): { id: string; path: string; version: string; body: string; data: RuleData }[] {
     return this.d.repo.list("automation-rule").map((e) => ({ id: e.id, path: e.path, version: e.version, body: e.body.replace(/^\r?\n/, ""), data: e.data as unknown as RuleData }));
@@ -199,6 +214,10 @@ export class AutomationsService {
   }
 
   async update(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>, body?: string) {
+    return this.withRuleConfiguration(() => this.updateRule(id, expectedVersion, patch, body));
+  }
+
+  private async updateRule(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>, body?: string) {
     const cur = this.rule(id);
     if (patch.trigger) validateSchedule(patch.trigger.cron, patch.trigger.zone);
     const currentAction = cur.data.action;
@@ -218,17 +237,21 @@ export class AutomationsService {
   }
 
   async setEnabled(id: string, enabled: boolean) {
-    const cur = this.rule(id);
-    if (enabled && hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
-    await this.d.repo.patch("automation-rule", id, { enabled, updatedAt: iso(this.d.now()) }, cur.version);
-    this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
-    return this.rule(id);
+    return this.withRuleConfiguration(async () => {
+      const cur = this.rule(id);
+      if (enabled && hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
+      await this.d.repo.patch("automation-rule", id, { enabled, updatedAt: iso(this.d.now()) }, cur.version);
+      this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
+      return this.rule(id);
+    });
   }
 
   async delete(id: string): Promise<void> {
-    const cur = this.rule(id);
-    await this.d.repo.delete("automation-rule", id, cur.version);
-    this.d.publish("entity.changed", { kind: "automation-rule", id, op: "deleted" });
+    await this.withRuleConfiguration(async () => {
+      const cur = this.rule(id);
+      await this.d.repo.delete("automation-rule", id, cur.version);
+      this.d.publish("entity.changed", { kind: "automation-rule", id, op: "deleted" });
+    });
   }
 
   // ---- 扫描 ----
@@ -381,8 +404,15 @@ export class AutomationsService {
       this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger });
       let summary: ActivationRecord["summary"];
       if (a.kind === "terminal") {
-        const run = await this.createTerminalRun(rec);
-        summary = await this.runTerminalAction(run, rule.data.title, a);
+        let revision: string | null = null;
+        let failure = "";
+        try {
+          revision = this.terminalEnvironment(ruleId)?.revision ?? null;
+        } catch {
+          failure = "无法冻结规则的受保护环境修订。";
+        }
+        const run = await this.createTerminalRun(rec, { failure });
+        summary = failure ? { state: "failed" } : await this.runTerminalAction(run, rule.data.title, a, undefined, revision);
       } else if (a.kind === "reminder") summary = await this.runReminderAction(rule.data.title, a);
       else summary = { state: "unsupported" };
       const pending = "state" in summary && (summary.state === "running" || summary.state === "unknown");
@@ -433,13 +463,13 @@ export class AutomationsService {
     let failure = "";
     try {
       const target = await this.terminalInput(action, runId);
-      launch = { fingerprint: this.terminalFingerprint(rule.id, rule.version, target), submittedAt: null };
+      launch = { fingerprint: this.terminalFingerprint(rule.version, target, this.terminalEnvironment(rule.id)), submittedAt: null };
       input = target;
     } catch (error) {
       failure = errorMessage(error) || "无法核对启动配置。";
     }
     try {
-      const run = await this.createTerminalRun(rec, runId, launch, failure);
+      const run = await this.createTerminalRun(rec, { runId, ...(launch && { terminalLaunch: launch }), failure });
       return { run, ...(input && { input }), created: true };
     } catch (error) {
       if (errorCode(error) !== "NAME_CONFLICT") throw error;
@@ -449,16 +479,93 @@ export class AutomationsService {
     }
   }
 
-  private createTerminalRun(rec: ActivationRecord, runId?: string, terminalLaunch?: AutomationRunFrontmatter["terminalLaunch"], failure = "") {
+  private createTerminalRun(rec: ActivationRecord, { runId, terminalLaunch, failure = "", terminalIntent }: { runId?: string; terminalLaunch?: AutomationRunFrontmatter["terminalLaunch"]; failure?: string; terminalIntent?: string } = {}) {
     const { terminalOwner } = this.d;
     if (!terminalOwner) throw errors.invalidInput("无法确认终端规则的本机归属");
     const { activationId, ruleId, trigger, scheduledFor, startedAt } = rec;
     return this.d.repo.create(
       "automation-run",
-      { activationId, ruleId, actionKind: "terminal", trigger, scheduledFor, startedAt, terminalOwner, ...(terminalLaunch && { terminalLaunch }), ...(failure ? { state: "failed", finishedAt: iso(this.d.now()) } : { state: "running" }) },
+      {
+        activationId,
+        ruleId,
+        actionKind: "terminal",
+        trigger,
+        scheduledFor,
+        startedAt,
+        terminalOwner,
+        ...(terminalLaunch && { terminalLaunch }),
+        ...(terminalIntent && { terminalIntent }),
+        ...(failure ? { state: "failed", finishedAt: iso(this.d.now()) } : { state: "running" }),
+      },
       failure,
       runId,
     );
+  }
+
+  private async markTerminalSubmission(run: Entity, fingerprint: string): Promise<string> {
+    const submittedAt = iso(this.d.now());
+    await this.d.repo.patch("automation-run", run.id, { terminalLaunch: { fingerprint, submittedAt } }, run.version);
+    return submittedAt;
+  }
+
+  /** 由已授权的模块在规则配置事务内调用。重投只返回原意图的运行。 */
+  async invokeApprovedTerminal(
+    ruleId: string,
+    intentId: string,
+    intent: string,
+    start: (submit: (target: Omit<TerminalRuleLaunch, "requestId">, fingerprint: string, validate: () => void, launch: (input: TerminalRuleLaunch, signal: AbortSignal) => Promise<{ id: string }>) => Promise<void>) => Promise<void>,
+  ): Promise<ApprovedTerminalReceipt> {
+    const identity = hash(["external-terminal", intentId]).slice(0, 32);
+    const runId = `arun-${identity}`;
+    const receipt = (run: Entity): ApprovedTerminalReceipt => {
+      const data = run.data as unknown as AutomationRunFrontmatter;
+      if (!this.d.terminalOwner || data.terminalOwner !== this.d.terminalOwner) throw errors.permissionDenied("外部运行必须属于当前本机 Vault");
+      if (data.actionKind !== "terminal" || data.ruleId !== ruleId || data.terminalIntent !== intent || !data.activationId || !data.startedAt) throw errors.idempotencyMismatch();
+      return { runId, activationId: data.activationId, state: data.state, startedAt: data.startedAt, finishedAt: data.finishedAt };
+    };
+    const previous = this.d.repo.list("automation-run").find(({ id }) => id === runId);
+    if (previous) return receipt(previous);
+    const title = this.rule(ruleId).data.title;
+    return this.withRule(ruleId, async () => {
+      await start(async (target, fingerprint, validate, launch) => {
+        validate();
+        this.abort.signal.throwIfAborted();
+        const startedAt = iso(this.d.now());
+        const activationId = `act-${identity}`;
+        const rec: ActivationRecord = { ruleId, activationId, trigger: "manual", scheduledFor: null, startedAt };
+        const run = await this.createTerminalRun(rec, { runId, terminalLaunch: { fingerprint, submittedAt: null }, terminalIntent: intent });
+        this.d.publish("automation.activated", { ruleId, activationId, trigger: "manual" });
+        const cancel = this.terminalSignal(ruleId, runId);
+        const signal = AbortSignal.any([cancel, this.abort.signal]);
+        let settling = false;
+        let possiblySubmitted = false;
+        try {
+          validate();
+          signal.throwIfAborted();
+          const submittedAt = await this.markTerminalSubmission(run, fingerprint);
+          possiblySubmitted = true;
+          validate();
+          signal.throwIfAborted();
+          const session = await launch({ ...target, requestId: terminalRequestId(runId) }, signal);
+          const current = this.d.repo.read("automation-run", runId);
+          await this.d.repo.patch("automation-run", runId, { sessionId: session.id }, current.version);
+          this.track(
+            this.settleTerminalRun(runId, session.id, submittedAt, title, cancel)
+              .then(() => undefined)
+              .finally(() => this.runAbort.delete(runId)),
+          );
+          settling = true;
+        } catch {
+          if (!this.abort.signal.aborted) {
+            if (possiblySubmitted) await this.terminalPending(runId, "核对原启动及终端状态。");
+            else await this.terminalPending(runId, "原手动运行已受理，启动状态待核对。");
+          }
+        } finally {
+          if (!settling) this.runAbort.delete(runId);
+        }
+      });
+      return receipt(this.d.repo.read("automation-run", runId));
+    });
   }
 
   private async terminalInput(action: TerminalRuleAction, runId: string): Promise<TerminalRuleLaunch> {
@@ -468,27 +575,32 @@ export class AutomationsService {
     return { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: action.command, shell: action.shell, requestId: terminalRequestId(runId) };
   }
 
-  private terminalFingerprint(ruleId: string, ruleVersion: string, input: TerminalRuleLaunch): string {
-    // 可移植定义及修订号均不含凭据，凭据的取用仍由已有启动入口处理。
+  private terminalEnvironment(ruleId: string) {
     const files = new VaultFiles(this.d.vaultRoot, undefined, true);
-    const environment = ModuleCredentials.readPortableDefinition(files, "automations", z.unknown(), ruleId);
+    return ModuleCredentials.readPortableDefinition(files, "automations", z.unknown(), ruleId);
+  }
+
+  private terminalFingerprint(ruleVersion: string, input: TerminalRuleLaunch, environment: unknown): string {
     return hash([ruleVersion, input.spaceId, input.spaceRevision, environment ?? null]);
   }
 
-  private matchesTerminalLaunch(ruleId: string, input: TerminalRuleLaunch, fingerprint: string): boolean {
+  private matchingEnvironmentRevision(ruleId: string, input: TerminalRuleLaunch, fingerprint: string): string | null | undefined {
     try {
       const rule = this.rule(ruleId);
-      return rule.data.enabled && rule.data.action.kind === "terminal" && !hasLegacyTerminalEnvironment(rule.data.action) && this.terminalFingerprint(ruleId, rule.version, input) === fingerprint;
+      if (!rule.data.enabled || rule.data.action.kind !== "terminal" || hasLegacyTerminalEnvironment(rule.data.action)) return undefined;
+      const environment = this.terminalEnvironment(ruleId);
+      if (this.terminalFingerprint(rule.version, input, environment) === fingerprint) return environment?.revision ?? null;
     } catch {
-      return false;
+      return undefined;
     }
+    return undefined;
   }
 
   /**
    * terminal 动作：在 Space 里以可见的 Herdr 终端会话运行命令（agent-cli 的 `agent.sessions.launch`，由 agent-cli 按平台 shell 构造命令行，见 plugins/agent-cli/src/shared/shell.ts）。
    * 规则环境只在 Engine 交给 Agent CLI 的启动服务。运行记录持有同一终端会话 ID。
    */
-  private async runTerminalAction(run: Entity, ruleTitle: string, action: TerminalRuleAction, preparedInput?: TerminalRuleLaunch): Promise<{ state: string }> {
+  private async runTerminalAction(run: Entity, ruleTitle: string, action: TerminalRuleAction, preparedInput?: TerminalRuleLaunch, expectedEnvironmentRevision: string | null = null): Promise<{ state: string }> {
     const { ruleId, startedAt, terminalLaunch } = run.data as unknown as AutomationRunFrontmatter;
     const cancel = this.terminalSignal(ruleId, run.id);
     const launchSignal = AbortSignal.any([this.abort.signal, cancel]);
@@ -506,25 +618,26 @@ export class AutomationsService {
       if (terminalLaunch) {
         if (this.abort.signal.aborted) return { state: "running" };
         if (cancel.aborted) return await this.finishTerminalRun(run.id, "cancelled", "提交前已取消。");
-        if (!this.matchesTerminalLaunch(ruleId, input, terminalLaunch.fingerprint)) {
+        const revision = this.matchingEnvironmentRevision(ruleId, input, terminalLaunch.fingerprint);
+        if (revision === undefined) {
           return await this.terminalPending(run.id, "原计划未提交，规则或启动配置已变化，需人工核对。", run.version);
         }
-        submittedAt = iso(this.d.now());
+        expectedEnvironmentRevision = revision;
         // 先持久化可能提交的边界。即使下一行尚未调用 Core，重启后也只能核对原请求。
         try {
-          await this.d.repo.patch("automation-run", run.id, { terminalLaunch: { ...terminalLaunch, submittedAt } }, run.version);
+          submittedAt = await this.markTerminalSubmission(run, terminalLaunch.fingerprint);
         } catch (error) {
           if (errorCode(error) === "VERSION_CONFLICT") return { state: String(this.d.repo.read("automation-run", run.id).data["state"]) };
           throw error;
         }
         if (this.abort.signal.aborted) return { state: "running" };
         if (cancel.aborted) return await this.finishTerminalRun(run.id, "cancelled", "提交前已取消。");
-        if (!this.matchesTerminalLaunch(ruleId, input, terminalLaunch.fingerprint)) {
+        if (this.matchingEnvironmentRevision(ruleId, input, terminalLaunch.fingerprint) !== expectedEnvironmentRevision) {
           return await this.terminalPending(run.id, "规则或启动配置在提交前已变化，需人工核对。");
         }
       }
       attempted = true;
-      const sess = this.d.launchTerminal ? await this.d.launchTerminal(ruleId, action, input, launchSignal) : ((await this.d.call("agent.sessions.launch", input, input.requestId)) as { id: string });
+      const sess = this.d.launchTerminal ? await this.d.launchTerminal(ruleId, action, input, launchSignal, expectedEnvironmentRevision) : ((await this.d.call("agent.sessions.launch", input, input.requestId)) as { id: string });
       accepted = true;
       const cur = this.d.repo.read("automation-run", run.id);
       await this.d.repo.patch("automation-run", run.id, { sessionId: sess.id }, cur.version);

@@ -186,7 +186,13 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
                     <p>{cur.data.action.text}</p>
                   </section>
                 )}
-                {cur.data.action.kind === "terminal" && host() ? cur.data.legacyEnvironment ? <p role="status">旧终端环境需要重新配置。编辑并确认替换后，规则会暂停。</p> : <TerminalEnvironment key={cur.id} ruleId={cur.id} /> : null}
+                {cur.data.action.kind === "terminal" && host() ? (
+                  cur.data.legacyEnvironment ? (
+                    <p role="status">旧终端环境需要重新配置。编辑并确认替换后，规则会暂停。</p>
+                  ) : (
+                    <TerminalEnvironment key={cur.id} ruleId={cur.id} showExternalApproval={cur.data.action.shell === "powershell"} />
+                  )
+                ) : null}
                 <RuleSchedule id={cur.id} zone={cur.data.trigger.zone} />
                 <div className="automations-rule-preview-action">
                   <Button icon={Search} onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>

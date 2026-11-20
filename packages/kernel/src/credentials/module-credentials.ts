@@ -190,7 +190,7 @@ export class ModuleCredentials<T> {
     );
   }
 
-  async save(input: { entityId: string; expectedRevision: string | null; definition: T; actions: readonly CredentialAction[]; signal?: AbortSignal }): Promise<CredentialSummary> {
+  async save(input: { entityId: string; expectedRevision: string | null; definition: T; actions: readonly CredentialAction[]; signal?: AbortSignal; isCurrent?: () => boolean }): Promise<CredentialSummary> {
     this.#vault.assertWritable();
     const { entityId, expectedRevision, signal } = input;
     parse(entityIdSchema, entityId, "invalid-input");
@@ -252,6 +252,7 @@ export class ModuleCredentials<T> {
         if (next.configured.length) this.#versions.stageSnapshot(snapshot);
         const summary = await this.#summarize(next, snapshot, verified);
         if (signal?.aborted) throw new CredentialError("cancelled");
+        if (input.isCurrent && !input.isCurrent()) throw new CredentialError("conflict");
         const updated = current ? entries.map((entry) => (entry === current ? next : entry)) : [...entries, next];
         await this.#publish(updated, version);
         return summary;
@@ -308,13 +309,13 @@ export class ModuleCredentials<T> {
     }
   }
 
-  /** The Vault writer holds one committed definition and its versions for trusted authentication. */
-  async use<R>(entityId: string, purposes: readonly string[], operation: (definition: T, values: ReadonlyMap<string, string>) => Promise<R>): Promise<R> {
+  /** The Vault writer pins one committed definition, its revision and its values for trusted authentication. */
+  async use<R>(entityId: string, purposes: readonly string[], operation: (definition: T, values: ReadonlyMap<string, string>, revision: string) => Promise<R>): Promise<R> {
     this.#vault.assertWritable();
     parse(entityIdSchema, entityId, "invalid-input");
     const requested = parse(z.array(purpose), purposes, "invalid-input");
     assertUnique(requested, "invalid-input");
-    const { definition, values, pin } = await this.#serial(async (queue) => {
+    const { definition, values, pin, revision } = await this.#serial(async (queue) => {
       const entry = this.#load().entries.find((item) => item.entityId === entityId);
       if (!entry) throw new CredentialError("not-found");
       const snapshot = this.#snapshot(entry);
@@ -327,10 +328,10 @@ export class ModuleCredentials<T> {
       }
       const pin = snapshot && { directory: this.#versions.directory, snapshot };
       if (pin) queue.pins.add(pin);
-      return { definition: entry.definition, values, pin };
+      return { definition: entry.definition, values, pin, revision: entry.revision };
     });
     try {
-      return await operation(definition, values);
+      return await operation(definition, values, revision);
     } catch {
       throw new CredentialError("operation-failed");
     } finally {
