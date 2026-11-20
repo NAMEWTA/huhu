@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AgentDispatch } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, LaunchOptions, ProviderAcceptance } from "./dispatch-store.js";
 import { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
+import { NativeStop, NativeStopStatus } from "./native-stop.js";
 
 export const AgentDispatchTargetInfoSchema = z.object({
   mode: z.enum(["new", "existing", "resume"]),
@@ -100,6 +101,34 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       handler: async ({ caller, signal }, input) => {
         trust(caller);
         return { status: await dispatch.answer(input, false, signal) };
+      },
+    }),
+  );
+  const stopOutput = z.strictObject({ status: NativeStopStatus });
+  api.defineCapability(
+    def({
+      ...internal,
+      name: "agent.runs.stop",
+      scope: "execute",
+      idempotency: "handler",
+      input: NativeStop,
+      output: stopOutput,
+      handler: async ({ caller, signal }, input) => {
+        trust(caller);
+        return { status: await dispatch.stop(input, true, signal) };
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      ...internal,
+      name: "agent.runs.stop.inspect",
+      scope: "read",
+      input: NativeStop,
+      output: stopOutput,
+      handler: async ({ caller, signal }, input) => {
+        trust(caller);
+        return { status: await dispatch.stop(input, false, signal) };
       },
     }),
   );

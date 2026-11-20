@@ -5,6 +5,7 @@ import { ProviderAcceptance, type AgentDispatchStore, type DispatchInput, type D
 import type { InputOwnership } from "./input-ownership.js";
 import { launchHash } from "./launch-binding.js";
 import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
+import type { NativeStop, NativeStopStatus } from "./native-stop.js";
 import type { SessionsService } from "./sessions.js";
 import type { SpaceStore } from "./spaces.js";
 import type { z } from "zod";
@@ -142,6 +143,31 @@ export class AgentDispatch {
     const record = this.lookup({ ...execution, machineId });
     if (!record?.execution || record.transport !== "native" || record.write === "not_sent" || launchHash(record.execution) !== launchHash(execution)) return "stale";
     return this.d.sessions.answerNative(input, send, signal, () => this.d.ownership.hasTask(sessionId, execution.dispatchId) && this.d.ownership.availableForTask(sessionId, execution.dispatchId));
+  }
+
+  async stop(input: NativeStop, send: boolean, requestSignal: AbortSignal): Promise<NativeStopStatus> {
+    const { execution } = input;
+    const { provider, sessionId, machineId, nativeSessionId } = execution.sessionBinding;
+    this.assertScope({ vaultId: execution.vaultId, machineId });
+    const signal = AbortSignal.any([this.d.signal, requestSignal]);
+    signal.throwIfAborted();
+    const adapter = this.d.providers[provider as AgentId];
+    if ((send && this.d.readOnly) || provider !== "codex" || adapter?.transport !== "native" || !nativeSessionId) return "unsupported";
+    const record = this.d.store.read(execution.dispatchId);
+    if (!record?.execution || record.transport !== "native" || record.write === "not_sent" || launchHash(record.execution) !== launchHash(execution)) return "stale";
+    if (record.adapterId !== adapter.id) return "unsupported";
+    const ownsInput = () => this.d.ownership.hasTask(sessionId, execution.dispatchId) && this.d.ownership.availableForTask(sessionId, execution.dispatchId);
+    const status = await this.d.sessions.stopNative(input, send, signal, {
+      inputSha256: record.inputSha256,
+      intent: () => this.d.store.stopIntent(execution),
+      ownsInput,
+      claim: () => ownsInput() && this.d.store.claimStop(input),
+    });
+    if ((status === "stopped" || status === "completed") && !this.d.readOnly && !signal.aborted && !this.inflight.has(execution.dispatchId)) {
+      const latest = this.d.store.read(execution.dispatchId);
+      if (latest?.ownerActive && launchHash(latest.execution) === launchHash(execution)) this.observeNative(latest, execution);
+    }
+    return status;
   }
 
   private assertScope(input: { vaultId: string; machineId: string }): void {

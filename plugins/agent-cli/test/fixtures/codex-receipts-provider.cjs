@@ -11,6 +11,16 @@ const threadId = "thread-" + process.pid;
 const turnId = "turn-" + process.pid;
 const taskReplyFixture = existsSync(path.join(directory, "tasks-reply-fixture"));
 const answerFixture = taskReplyFixture || existsSync(path.join(directory, "native-answer-fixture"));
+const stopFixture = existsSync(path.join(directory, "native-stop-fixture"));
+let stopScenario;
+
+function stopEvent(event, fields = {}) {
+  appendFileSync(path.join(directory, stopScenario + ".jsonl"), JSON.stringify({ event, ...fields }) + "\n");
+}
+
+function finishTurn(thread, turn, status) {
+  send({ method: "turn/completed", params: { threadId: thread, turn: { id: turn, status } } });
+}
 
 function waitFor(file, fn) {
   const timer = setInterval(() => {
@@ -27,7 +37,25 @@ if (process.argv.includes("--version")) {
     const message = JSON.parse(line);
     if (message.method === "initialize") send({ id: message.id, result: {} });
     else if (message.method === "thread/start") send({ id: message.id, result: { thread: { id: threadId } } });
-    else if (message.method === "turn/start") {
+    else if (stopFixture && message.method === "turn/start") {
+      stopScenario = JSON.parse(message.params.input[0].text).scenario;
+      if (!/^[a-z-]+$/.test(stopScenario)) throw new Error("Invalid isolated stop scenario");
+      stopEvent("turn-start", { threadId, turnId });
+      send({ id: message.id, result: { turn: { id: turnId } } });
+      waitFor(stopScenario + ".finish", () => {
+        const status = stopScenario === "held-interrupt" ? "interrupted" : stopScenario === "failed-before" ? "failed" : "completed";
+        finishTurn(threadId, turnId, status);
+        stopEvent("terminal", { status });
+      });
+    } else if (stopFixture && stopScenario && message.method === "turn/interrupt") {
+      stopEvent("interrupt", { params: message.params });
+      if (stopScenario !== "held-interrupt") return;
+      send({ id: message.id, result: {} });
+      stopEvent("interrupt-rpc-returned");
+      finishTurn(threadId, "foreign-turn", "interrupted");
+      finishTurn("foreign-thread", turnId, "interrupted");
+      stopEvent("foreign-terminals-sent");
+    } else if (message.method === "turn/start") {
       log("turn-input");
       const question = {
         id: "choice",

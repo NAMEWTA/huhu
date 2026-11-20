@@ -13,6 +13,7 @@ import { launchHash } from "./launch-binding.js";
 import { ProviderAcceptance } from "./dispatch-store.js";
 import { putReceiptFile } from "./execution-receipts.js";
 import { answerFingerprint, NativeAnswerIntents, NativeAnswerStatus, type NativeAnswer } from "./native-answer.js";
+import { NativeStopStatus, stopFingerprint, type NativeStop } from "./native-stop.js";
 import type { LaunchInput } from "./sessions.js";
 
 const Version = "codex-cli 0.171.0";
@@ -20,8 +21,9 @@ const Id = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive() });
 const Launch = z.object({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id });
-const Completion = z.object({ threadId: Id, turnId: Id });
+const Completion = z.strictObject({ threadId: Id, turnId: Id, status: z.enum(["completed", "failed", "interrupted"]).optional() });
 const AnswerAck = z.strictObject({ fingerprint: Digest });
+const StopWrite = z.strictObject({ fingerprint: Digest, threadId: Id, turnId: Id });
 const Item = z.strictObject({ threadId: Id, turnId: Id, itemId: Id });
 const NativeReport = z.strictObject({
   source: z.discriminatedUnion("kind", [Item.extend({ kind: z.literal("question"), rpcId: z.union([z.int(), Id]), questionId: Id }), Item.extend({ kind: z.literal("result") })]),
@@ -172,7 +174,8 @@ export class CodexDispatch {
     const proof = signedFile(bound.control, "receipt", ProviderAcceptance);
     if (!proof?.nativeTurnId || launchHash(proof.execution) !== launchHash(execution)) return null;
     const completed = signedFile(bound.control, "completed", Completion);
-    return { proof, finished: completed?.threadId === bound.thread.threadId && completed.turnId === proof.nativeTurnId };
+    const finished = completed?.threadId === bound.thread.threadId && completed.turnId === proof.nativeTurnId;
+    return { proof, finished, terminalStatus: finished ? completed.status : undefined };
   }
 
   *reports(execution: ExecutionBinding, session: BoundSession, inputSha256: string): Iterable<PendingReport> {
@@ -208,15 +211,31 @@ export class CodexDispatch {
     return signedFile(bound.control, "answer-ack-" + fingerprint, AnswerAck)?.fingerprint === fingerprint;
   }
 
-  async connectAnswer(input: NativeAnswer, session: BoundSession, signal: AbortSignal) {
+  stopWritten(input: NativeStop, session: BoundSession, turnId: string): boolean {
+    const { execution } = input;
+    const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
+    if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return false;
+    const write = signedFile(bound.control, "stop-write", StopWrite);
+    return write?.threadId === bound.thread.threadId && write.turnId === turnId && write.fingerprint === stopFingerprint(input);
+  }
+
+  connectAnswer(input: NativeAnswer, session: BoundSession, signal: AbortSignal) {
+    return this.connectControl("answer", NativeAnswerStatus, input, session, signal);
+  }
+
+  connectStop(input: NativeStop, session: BoundSession, signal: AbortSignal) {
+    return this.connectControl("stop", NativeStopStatus, input, session, signal);
+  }
+
+  private async connectControl<S extends string>(kind: "answer" | "stop", schema: z.ZodType<S>, input: { execution: ExecutionBinding }, session: BoundSession, signal: AbortSignal) {
     const connection = await this.open(input.execution, session, signal);
     if (!connection) return null;
     const { socket, nonce, secret } = connection;
     return {
-      exchange(operation: "answer.submit" | "answer.inspect"): Promise<NativeAnswerStatus> {
+      exchange(action: "submit" | "inspect"): Promise<S | "unknown"> {
         if (socket.destroyed) return Promise.resolve("unknown");
-        const data = { operation, ...input };
-        const result = answerResponse(socket, nonce, secret);
+        const data = { operation: `${kind}.${action}`, ...input };
+        const result = controlResponse(socket, nonce, secret, `${kind}-response`, schema);
         socket.end(JSON.stringify({ data, mac: signature(secret, "input", [nonce, data]) }) + "\n");
         return result;
       },
@@ -257,10 +276,10 @@ export class CodexDispatch {
   }
 }
 
-function answerResponse(socket: Socket, nonce: string, secret: string): Promise<NativeAnswerStatus> {
+function controlResponse<S extends string>(socket: Socket, nonce: string, secret: string, purpose: string, schema: z.ZodType<S>): Promise<S | "unknown"> {
   return new Promise((resolve) => {
     let buffer = "";
-    const finish = (status: NativeAnswerStatus) => {
+    const finish = (status: S | "unknown") => {
       clearTimeout(timer);
       socket.off("data", receive);
       socket.off("close", closed);
@@ -273,8 +292,8 @@ function answerResponse(socket: Socket, nonce: string, secret: string): Promise<
       else if (buffer.endsWith("\n")) {
         try {
           const frame = JSON.parse(buffer) as { status: unknown; mac: unknown };
-          const status = NativeAnswerStatus.parse(frame.status);
-          finish(authentic(frame.mac, signature(secret, "answer-response", [nonce, status])) ? status : "unknown");
+          const status = schema.parse(frame.status);
+          finish(authentic(frame.mac, signature(secret, purpose, [nonce, status])) ? status : "unknown");
         } catch {
           finish("unknown");
         }

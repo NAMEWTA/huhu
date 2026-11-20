@@ -31,6 +31,8 @@
       "agent.runs.inspect",
       "agent.runs.answer",
       "agent.runs.answer.inspect",
+      "agent.runs.stop",
+      "agent.runs.stop.inspect",
       "agent.sessions.interrupt",
       "agent.sessions.kill",
       "agent.sessions.launch",

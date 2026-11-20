@@ -12,6 +12,7 @@ import type { SpaceStore } from "./spaces.js";
 import type { InputOwnership } from "./input-ownership.js";
 import type { CodexDispatch } from "./codex-dispatch.js";
 import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
+import type { NativeStop, NativeStopStatus } from "./native-stop.js";
 
 export interface SessionRecord {
   id: string;
@@ -719,7 +720,7 @@ export class SessionsService {
       const terminal = await this.verifiedTerminal(session).catch(() => null);
       signal.throwIfAborted();
       if (!terminal || terminal.terminal.state === "finished" || terminal.terminal.finished_ms != null || !ownsInput()) return persisted() ?? "stale";
-      observed = await inspect.exchange("answer.inspect");
+      observed = await inspect.exchange("inspect");
     } finally {
       inspect.close();
     }
@@ -737,11 +738,58 @@ export class SessionsService {
       if (!this.nativeOwner(execution)) return persisted() ?? "stale";
       // There is no await between the Vault intent and the first possible socket write.
       if (!answerIntents.claim(input)) return persisted() ?? "unknown";
-      const result = await submit.exchange("answer.submit");
+      const result = await submit.exchange("submit");
       if (codex.answerAccepted(input, owner)) return "accepted";
       return result === "stale" || result === "unsupported" ? result : "unknown";
     } finally {
       submit.close();
+    }
+  }
+
+  async stopNative(input: NativeStop, send: boolean, signal: AbortSignal, control: { inputSha256: string; intent(): string | null; ownsInput(): boolean; claim(): boolean }): Promise<NativeStopStatus> {
+    const { execution, stopId } = input;
+    const { codex } = this.d;
+    if (!codex) return "unsupported";
+    const owner = this.nativeOwner(execution);
+    const original = () => {
+      const evidence = owner && codex.evidence(execution, owner);
+      return evidence?.proof.inputSha256 === control.inputSha256 ? evidence : null;
+    };
+    const persisted = (): NativeStopStatus | null => {
+      const id = control.intent();
+      const evidence = original();
+      if (evidence?.terminalStatus === "completed" || evidence?.terminalStatus === "failed") return "completed";
+      if (id !== null && id !== stopId) return "stale";
+      if (id === stopId) {
+        if (owner && evidence?.terminalStatus === "interrupted" && evidence.proof.nativeTurnId && codex.stopWritten(input, owner, evidence.proof.nativeTurnId)) return "stopped";
+        return "unknown";
+      }
+      if (evidence?.terminalStatus === "interrupted") return "stale";
+      return evidence?.finished ? "unknown" : null;
+    };
+    const prior = persisted();
+    if (prior) return prior;
+    const session = this.list().find(({ id }) => id === execution.sessionBinding.sessionId);
+    if (!owner || session?.state !== "running" || !control.ownsInput()) return "stale";
+    if (!original()) return "unknown";
+
+    const channel = await codex.connectStop(input, owner, signal);
+    try {
+      const verified = await this.verifiedTerminal(session).catch((error: unknown) => {
+        return error instanceof HuhuError && (error.details?.reason === "core_changed" || error.details?.reason === "binding_lost") ? "stale" : "unknown";
+      });
+      signal.throwIfAborted();
+      const latest = persisted();
+      if (latest) return latest;
+      if (typeof verified === "string") return verified;
+      if (verified.terminal.state === "finished" || verified.terminal.finished_ms != null || !this.nativeOwner(execution) || !control.ownsInput()) return "stale";
+      if (!channel) return "unknown";
+      // Hold the claim durably before the first possible socket write, with no await between them.
+      if (send && !control.claim()) return persisted() ?? "unknown";
+      const result = await channel.exchange(send ? "submit" : "inspect");
+      return persisted() ?? (!send && (result === "not_sent" || result === "stale" || result === "unsupported") ? result : "unknown");
+    } finally {
+      channel?.close();
     }
   }
 

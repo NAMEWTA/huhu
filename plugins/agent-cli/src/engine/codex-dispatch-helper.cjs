@@ -88,6 +88,7 @@ function main(file) {
   let threadId;
   let turnId;
   let executionBinding;
+  let stopRequest;
   const questions = new Map();
   const submittedAnswers = new Map();
   const readAnswerOutput = createNativeAnswerOutputReader();
@@ -134,6 +135,7 @@ function main(file) {
     b.provider,
     b.nativeSessionId,
   ];
+  const sameExecution = (execution) => execution?.sessionBinding && executionBinding && JSON.stringify(executionFields(execution)) === JSON.stringify(executionFields(executionBinding));
 
   function report(source, payload) {
     const { vaultId, runId, attempt, dispatchId, sessionBinding } = executionBinding;
@@ -171,7 +173,7 @@ function main(file) {
     }
     const final = finals.get(turnId);
     if (status === "completed" && final) report(final.source, { message: final.text });
-    save("completed", { threadId, turnId });
+    save("completed", { threadId, turnId, status });
     stop("original turn ended");
   }
 
@@ -235,7 +237,7 @@ function main(file) {
 
   function nativeAnswer(data) {
     const { execution, requestId, requestVersion, nativeRequestId, replyId, answer, operation } = data;
-    if (!turnId || closing || completed.has(turnId) || !execution?.sessionBinding || JSON.stringify(executionFields(execution)) !== JSON.stringify(executionFields(executionBinding)) || !currentQuestion) return "stale";
+    if (!turnId || closing || completed.has(turnId) || stopRequest || !sameExecution(execution) || !currentQuestion) return "stale";
     const { source, question } = currentQuestion;
     const identity = questionIdentity(source);
     if (source.turnId !== turnId || questions.get(source.rpcId) !== currentQuestion || identity.requestId !== requestId || identity.requestVersion !== requestVersion || identity.nativeRequestId !== nativeRequestId) return "stale";
@@ -248,6 +250,20 @@ function main(file) {
     save("answer-write-" + nativeRequestId, { fingerprint });
     submittedAnswers.set(source.rpcId, { source, fingerprint, result });
     send({ id: source.rpcId, result });
+    return "unknown";
+  }
+
+  function nativeStop({ execution, stopId, operation }) {
+    if (closing || !sameExecution(execution)) return "stale";
+    if (!turnId || completed.has(turnId)) return "unknown";
+    if (!validText(stopId, 256)) return "unsupported";
+    const fingerprint = hash([...executionFields(execution), stopId]);
+    if (stopRequest) return stopRequest === fingerprint ? "unknown" : "stale";
+    if (operation === "stop.inspect") return "not_sent";
+    save("stop-write", { fingerprint, threadId, turnId });
+    stopRequest = fingerprint;
+    // The response to turn/interrupt is transport feedback. Only nativeNotice records the terminal state.
+    request("turn/interrupt", { threadId, turnId }, () => {});
     return "unknown";
   }
 
@@ -322,15 +338,17 @@ function main(file) {
       }
       if (envelope && authentic(envelope.mac, sign("input", [nonce, envelope.data]))) {
         const operation = envelope.data?.operation;
-        if (operation === "answer.submit" || operation === "answer.inspect") {
+        const answerOperation = operation === "answer.submit" || operation === "answer.inspect";
+        const stopOperation = operation === "stop.submit" || operation === "stop.inspect";
+        if (answerOperation || stopOperation) {
           let status;
           try {
-            status = nativeAnswer(envelope.data);
+            status = answerOperation ? nativeAnswer(envelope.data) : nativeStop(envelope.data);
           } catch {
             status = "unknown";
             if (operation === "answer.submit") stop("native answer could not be confirmed");
           }
-          return socket.end(JSON.stringify({ status, mac: sign("answer-response", [nonce, status]) }) + "\n");
+          return socket.end(JSON.stringify({ status, mac: sign(answerOperation ? "answer-response" : "stop-response", [nonce, status]) }) + "\n");
         }
         try {
           submit(envelope.data);

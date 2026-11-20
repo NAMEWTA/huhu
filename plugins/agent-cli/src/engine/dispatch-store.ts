@@ -3,7 +3,9 @@ import path from "node:path";
 import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskRunAttemptSchema } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
+import { putReceiptFile } from "./execution-receipts.js";
 import { launchHash } from "./launch-binding.js";
+import { NativeStopIntent, type NativeStop } from "./native-stop.js";
 
 const Id = z.string().trim().min(1).max(256);
 const Fingerprint = z.string().regex(/^[a-f0-9]{64}$/);
@@ -90,6 +92,7 @@ type WriteIntent = z.infer<typeof WriteIntent>;
 export class AgentDispatchStore {
   private readonly directory: string;
   private readonly intents: string;
+  private readonly stops: string;
 
   constructor(
     stateDir: string,
@@ -98,6 +101,7 @@ export class AgentDispatchStore {
   ) {
     this.directory = path.join(stateDir, "agent-cli", "dispatches");
     this.intents = path.join(stateDir, "agent-cli", "dispatch-input-intents");
+    this.stops = path.join(stateDir, "agent-cli", "dispatch-stop-intents");
   }
 
   private file(id: string): string {
@@ -131,6 +135,29 @@ export class AgentDispatchStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw this.unavailable(id);
     }
+  }
+
+  private stopFile(id: string): string {
+    return path.join(this.stops, launchHash(id) + ".json");
+  }
+
+  stopIntent(execution: NativeStop["execution"]): string | null {
+    const { dispatchId } = execution;
+    try {
+      const intent = NativeStopIntent.parse(JSON.parse(readFileSync(this.stopFile(dispatchId), "utf8")));
+      if (intent.executionHash !== launchHash(execution)) throw this.unavailable(dispatchId);
+      return intent.stopId;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw this.unavailable(dispatchId);
+    }
+  }
+
+  claimStop({ execution, stopId }: NativeStop): boolean {
+    this.vaultFiles.assertWritable();
+    if (this.stopIntent(execution) !== null) return false;
+    putReceiptFile(this.stopFile(execution.dispatchId), { executionHash: launchHash(execution), stopId });
+    return this.stopIntent(execution) === stopId;
   }
 
   read(id: string): StoredDispatch | null {
