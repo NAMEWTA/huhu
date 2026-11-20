@@ -1,5 +1,5 @@
-import { Command, CommanderError } from "commander";
-import { callCapability, discoverCapabilities, render } from "./commands/call.js";
+import { Command, CommanderError, Option } from "commander";
+import { callCapability, discoverCapabilities, readCallFile, render } from "./commands/call.js";
 import { ConnectError, connect, type Connection } from "./connect.js";
 import type { CapabilityResult } from "@huhu/contracts";
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
@@ -27,14 +27,25 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
     .command("call <capability>")
     .description("通用能力调用")
     .option("--input-json <json>", "输入 JSON", "{}")
+    .addOption(new Option("--input-file <path>", "从 UTF-8 文件读取 JSON（与 --input-json 互斥）").conflicts("inputJson"))
     .option("--vault <path>", "Vault 路径")
     .option("--json", "输出 CapabilityResult JSON")
-    .action(async (capability: string, o: { inputJson: string; vault?: string; json?: boolean }) => {
+    .action(async (capability: string, o: { inputJson: string; inputFile?: string; vault?: string; json?: boolean }) => {
+      let text = o.inputJson;
+      if (o.inputFile !== undefined) {
+        const file = await readCallFile(o.inputFile);
+        if ("error" in file) {
+          io.err(file.error);
+          code = 2;
+          return;
+        }
+        text = file.text;
+      }
       let input: unknown;
       try {
-        input = JSON.parse(o.inputJson);
+        input = JSON.parse(text);
       } catch {
-        io.err("--input-json 不是合法 JSON");
+        io.err(`${o.inputFile === undefined ? "--input-json" : "--input-file"} 不是合法 JSON`);
         code = 2;
         return;
       }

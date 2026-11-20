@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityCatalogEntrySchema, CapabilityResultSchema, HuhuErrorSchema } from "@huhu/contracts";
 import { boot, type RunningEngine } from "@huhu/engine";
+import { MAX_BODY_BYTES } from "@huhu/kernel";
 import { Vault } from "@huhu/vault";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -71,6 +72,49 @@ describe("CLI", () => {
   test("参数错误 → 2", async () => {
     expect(await run(["call", "vault.info", "--input-json", "{bad"], capture().io)).toBe(2);
     expect(await run(["nosuchcommand"], capture().io)).toBe(2);
+  });
+  test("call 从带 BOM 的 UTF-8 文件发送原 JSON", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    await allowTools(e, "tasks.create");
+    const file = path.join(tmp(), "请求 内容.json");
+    writeFileSync(file, `\uFEFF${JSON.stringify({ title: "来自输入文件" })}`);
+    const c = capture();
+    expect(await run(["call", "tasks.create", "--input-file", file, "--vault", dir, "--json"], c.io)).toBe(0);
+    expect(JSON.parse(c.out.join(""))).toMatchObject({ ok: true, data: { title: "来自输入文件" } });
+    expect(c.err).toEqual([]);
+  });
+  test("文件读取、编码、大小和 JSON 错误只输出固定说明，并且在连接前返回 2", async () => {
+    const dir = tmp();
+    const malformed = path.join(dir, "bad.json");
+    const invalidEncoding = path.join(dir, "invalid-utf8.json");
+    const oversized = path.join(dir, "large.json");
+    const privateMarker = "synthetic-input-error";
+    writeFileSync(malformed, `{"fixture":"${privateMarker}"`);
+    writeFileSync(invalidEncoding, Buffer.from([0x7b, 0xff, 0x7d]));
+    writeFileSync(oversized, "");
+    truncateSync(oversized, MAX_BODY_BYTES + 1);
+    const cases = [
+      [path.join(dir, privateMarker), "无法读取 --input-file 指定的文件"],
+      [dir, "--input-file 必须指向普通文件"],
+      [invalidEncoding, "--input-file 必须使用 UTF-8 编码"],
+      [malformed, "--input-file 不是合法 JSON"],
+      [oversized, "--input-file 超过 8 MiB 输入上限"],
+    ] as const;
+    for (const [file, message] of cases) {
+      const c = capture();
+      expect(await run(["call", "vault.info", "--input-file", file, "--vault", path.join(dir, "missing-vault"), "--json"], c.io)).toBe(2);
+      expect(c.out).toEqual([]);
+      expect(c.err).toEqual([message]);
+    }
+  });
+  test("call 拒绝同时指定文件和行内输入", async () => {
+    const c = capture();
+    const file = path.join(tmp(), "missing.json");
+    expect(await run(["call", "vault.info", "--input-file", file, "--input-json", "{}", "--json"], c.io)).toBe(2);
+    expect(c.out).toEqual([]);
+    expect(c.err.join("")).toMatch(/--input-file.*--input-json/);
   });
   test("复用已运行的 Engine：call vault.info --json", async () => {
     const dir = tmp();

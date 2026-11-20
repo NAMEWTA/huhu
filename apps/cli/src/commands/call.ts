@@ -1,6 +1,40 @@
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import type { CapabilityDiscoveryEntry, CapabilityResult } from "@huhu/contracts";
+import { MAX_BODY_BYTES } from "@huhu/kernel";
 import { ConnectError, type Connection } from "../connect.js";
+
+export async function readCallFile(path: string): Promise<{ text: string } | { error: string }> {
+  let bytes: Buffer;
+  try {
+    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile()) return { error: "--input-file 必须指向普通文件" };
+      const tooLarge = { error: `--input-file 超过 ${MAX_BODY_BYTES / (1024 * 1024)} MiB 输入上限` };
+      if (stat.size > MAX_BODY_BYTES) return tooLarge;
+      // end 含上界。即使文件在读取期间变大，也最多读网关上限再加一个字节。
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of file.createReadStream({ start: 0, end: MAX_BODY_BYTES, autoClose: false }) as AsyncIterable<Buffer>) {
+        total += chunk.length;
+        if (total > MAX_BODY_BYTES) return tooLarge;
+        chunks.push(chunk);
+      }
+      bytes = Buffer.concat(chunks, total);
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return { error: "无法读取 --input-file 指定的文件" };
+  }
+  try {
+    return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { error: "--input-file 必须使用 UTF-8 编码" };
+  }
+}
 
 async function request(conn: Connection, route: string, init?: RequestInit): Promise<Response> {
   try {

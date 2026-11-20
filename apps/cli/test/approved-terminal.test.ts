@@ -1,8 +1,10 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { boot, type RunningEngine } from "@huhu/engine";
 import { exportPackage, importPackage } from "@huhu/vault";
@@ -11,11 +13,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { assert, expect, test, vi } from "vitest";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
-import { run } from "../src/main.js";
 
 const prefix = "automations.terminal.external";
 const approvals = "automations.terminal.approval";
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+const exec = promisify(execFile);
+const bundle = process.env["HUHU_CLI_TEST_BUNDLE"];
+const cliEntry = bundle ? [bundle] : [createRequire(import.meta.url).resolve("tsx/cli"), path.resolve(import.meta.dirname, "../src/bin.ts")];
 const mcpName = (name: string) => `${prefix}.${name}`.replaceAll(".", "_");
 
 test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
@@ -50,14 +54,25 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       return reply.data as T;
     };
     const cli = async (op: string, input: unknown, engine = e!) => {
-      const capture: string[] = [];
       const requestFile = path.join(fixture, `request-${randomUUID()}.json`);
       writeFileSync(requestFile, JSON.stringify(input), { flag: "wx", mode: 0o600 });
       try {
-        // 使用真实 CLI 的 run 和认证传输。合成值由请求文件读入测试进程，测试进程的 argv 不含值。
-        const json = readFileSync(requestFile, "utf8");
-        await run(["call", `${prefix}.${op}`, "--vault", engine.vault.root, "--json", "--input-json", json], { out: (line) => capture.push(line), err: () => undefined });
-        return CapabilityResultSchema.parse(JSON.parse(capture.join("")));
+        const args = [...cliEntry, "call", `${prefix}.${op}`, "--vault", engine.vault.root, "--json", "--input-file", requestFile];
+        const env = { ...process.env };
+        const hasValue = (text: string | undefined) => !!text && (text.includes(marker) || text.includes(rotatedMarker));
+        expect(args.some(hasValue)).toBe(false);
+        expect(Object.values(env).some(hasValue)).toBe(false);
+        const { stdout, stderr, code } = await exec(process.execPath, args, { env, windowsHide: true, timeout: 20_000 })
+          .then((output) => ({ ...output, code: 0 }))
+          .catch((error: { code: unknown; stdout: string; stderr: string }) => {
+            expect(error.code).toBe(1);
+            return { stdout: error.stdout, stderr: error.stderr, code: 1 };
+          });
+        expect(hasValue(stdout) || hasValue(stderr)).toBe(false);
+        expect(stderr.trim()).toBe("");
+        const result = CapabilityResultSchema.parse(JSON.parse(stdout));
+        expect(code).toBe(result.ok ? 0 : 1);
+        return result;
       } finally {
         rmSync(requestFile);
       }
@@ -203,7 +218,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       await stdio.connect(
         new StdioClientTransport({
           command: process.execPath,
-          args: [createRequire(import.meta.url).resolve("tsx/cli"), path.resolve(import.meta.dirname, "../src/bin.ts"), "mcp", "--vault", vault],
+          args: [...cliEntry, "mcp", "--vault", vault],
         }),
       );
       try {
