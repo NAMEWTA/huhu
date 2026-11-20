@@ -862,6 +862,32 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         await clone.shutdown();
       }
 
+      const restoredAddress = "restore-during-oauth@example.invalid";
+      const restoredAccount = randomUUID();
+      const waiting = await begin("gmail", restoredAddress);
+      const archiveVault = path.join(root, "archive-source");
+      mkdirSync(archiveVault);
+      const archiveSource = await boot({ vaultPath: archiveVault, desktopUserData, create: true });
+      let content: string;
+      try {
+        assert(archiveSource.moduleCredentialHost);
+        await openMailAccounts({ ...archiveSource.moduleCredentialHost, vault: archiveSource.vault }).restoreDefinition(
+          restoredAccount,
+          { ...googleAccount.definition, settings: { ...googleAccount.definition.settings, email: restoredAddress } },
+          new AbortController().signal,
+        );
+        const exported = await archiveSource.dispatcher.call("desktop", { capability: "mail.subset.create", input: { accountIds: [restoredAccount] }, requestId: randomUUID(), idempotencyKey: randomUUID() });
+        assert(exported.ok, JSON.stringify(exported));
+        content = (exported.data as { content: string }).content;
+      } finally {
+        await archiveSource.shutdown();
+      }
+      const { previewId } = await call<{ previewId: string }>("mail.subset.preview", { content });
+      await call("mail.subset.restore", { previewId, accountIds: [restoredAccount], confirm: true });
+      expect((await callback(waiting.url, { code: ticketFor(waiting, "gmail", restoredAddress) })).status).toBe(200);
+      await expect.poll(() => status(waiting.slot)).toMatchObject({ phase: "failed", reason: "account-changed" });
+      expect((await list()).accounts.filter(({ definition }) => definition.settings.email === restoredAddress)).toEqual([expect.objectContaining({ accountId: restoredAccount, authState: { "account-password": "unconfigured" } })]);
+
       rejectRefresh = true;
       now += 100_000;
       expect(await request("mail.sync.refresh", mbox)).toMatchObject({ ok: false, error: { details: { reason: "oauth-reauthorize" } } });

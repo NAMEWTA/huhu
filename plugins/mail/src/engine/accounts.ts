@@ -200,7 +200,14 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
         // The witness belongs to the very same protected generation as the new token.
         const value = JSON.stringify({ ...token, commit: { sessionId: target.sessionId, smtp: settings.smtpEnabled } });
         const save = () => credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value, reconfigure: true }], signal });
-        const saved = repair ? await save() : await removals.serializeAddress(email, save);
+        const saved = repair
+          ? await save()
+          : await removals.serializeAddress(email, async () => {
+              signal.throwIfAborted();
+              const existing = (await credentials.list()).some(({ definition }) => definition.settings.email.toLowerCase() === email.toLowerCase());
+              if (existing) throw new MailOAuthError("account-changed");
+              return save();
+            });
         rejectedRevisions.delete(accountId);
         return mailAccount(saved, definition);
       });
