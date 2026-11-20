@@ -81,7 +81,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   }
 
   async function save() {
-    if (savingRef.current) return;
+    if (savingRef.current || bodyPort?.isComposing()) return;
     savingRef.current = true;
     setSaving(true);
     setFailure(null);

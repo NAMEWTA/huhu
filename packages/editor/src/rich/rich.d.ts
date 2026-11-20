@@ -12,6 +12,7 @@ export interface RichEditorPort extends EditorPort {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  isComposing(): boolean;
 }
 
 export interface EditorAssetActions {
@@ -32,6 +33,7 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
+  ariaLabel?: string;
   fontSize?: number;
   contentWidth?: number | null;
   referenceSearch?: (query: string) => readonly { path: string; kind: "file" | "folder" }[];
@@ -126,7 +128,7 @@ interface CompactBase {
 }
 export function CompactMarkdownView(props: CompactBase & { value: string }): ReactElement;
 export function CompactMarkdownInput(
-  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; ariaLabel?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
 ): ReactElement;
 
 // S4 评论宿主
