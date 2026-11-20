@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { errors, ExecutionReceiptAckSchema, ExecutionReceiptSchema, HuhuError, type CapabilityResult, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck, type TaskDto } from "@huhu/contracts";
 import { createExecutionReceiptAck, executionReceiptIdentity, validateExecutionReceipt } from "@huhu/contracts/execution-receipt/engine";
-import { defineCapability } from "@huhu/kernel";
+import { CapabilityRegistry, defineCapability } from "@huhu/kernel";
 import { AgentDetector, HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
@@ -80,6 +80,11 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const firstAck = vi.spyOn(CodexDispatch.prototype, "acknowledgeReport").mockImplementation(() => {
       throw new Error("Fixture dropped agent_received after durable acceptance");
     });
+    const register = CapabilityRegistry.prototype.register;
+    const replaceTasksReceiver = vi.spyOn(CapabilityRegistry.prototype, "register").mockImplementation(function (this: CapabilityRegistry, def) {
+      if (def.name === TASKS_RECEIPTS_CONSUME) return () => {};
+      return register.call(this, def);
+    });
     const mid = machineId();
     let engine!: RunningEngine;
     let stopCore: (() => void) | undefined;
@@ -101,7 +106,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const deliveries: ExecutionReceipt[] = [];
     let answer: "drop" | "wrong-digest" | "exact" = "drop";
     function mountReceiver(expected: ExecutionBinding): void {
-      engine.registry.register(
+      register.call(
+        engine.registry,
         defineCapability({
           name: TASKS_RECEIPTS_CONSUME,
           plugin: "tasks",
@@ -236,8 +242,93 @@ test.skipIf(process.platform !== "win32" || !bin)(
         } finally {
           detect.mockRestore();
           firstAck.mockRestore();
+          replaceTasksReceiver.mockRestore();
           vi.unstubAllEnvs();
           if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-w63-live-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        }
+      }
+    }
+  },
+  85_000,
+);
+
+test.skipIf(process.platform !== "win32" || !bin)(
+  "Windows Engine delivers native receipts to the production Tasks inbox for the original run",
+  async () => {
+    const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w63-compose-")));
+    fixture.directory = sandbox;
+    const [vaultPath, desktopUserData, home] = ["vault", "desktop", "provider-home"].map((name) => {
+      const dir = path.join(sandbox, name);
+      mkdirSync(dir);
+      return dir;
+    }) as [string, string, string];
+    vi.stubEnv("HUHU_HERDR_BIN", bin!);
+    vi.stubEnv("HUHU_NODE_BIN", process.execPath);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_HOME", home);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_HELPER", path.resolve(import.meta.dirname, "../src/engine/codex-dispatch-helper.cjs"));
+    const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
+    let engine: RunningEngine | undefined;
+    let stopCore: (() => void) | undefined;
+    try {
+      engine = await boot({ vaultPath, desktopUserData, create: true });
+      const mid = machineId();
+      const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
+      const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
+      const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
+      for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
+      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      expect(cli("server", "status").status).toBe(5);
+      stopCore = () => {
+        if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
+        expect(cli("server", "status").status).toBe(5);
+      };
+      await call(engine, "plugins.setEnabled", { id: "automations", enabled: false });
+      const [space] = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+      const task = await call<TaskDto>(engine, "tasks.create", { title: "Fixture production Tasks", body: "Isolated native receipt for the Tasks inbox.", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+      const key = { taskId: task.id, dispatchId: "fixture-w63-compose" };
+      const run = await call<{ runId: string; attempt: number }>(engine, "tasks.dispatch", { ...key, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
+      const eventLog = path.join(sandbox, "native-events.log");
+      await expect.poll(() => files(sandbox, /^native-events\.log$/), { timeout: 20_000 }).toHaveLength(1);
+      writeFileSync(path.join(sandbox, "allow-turn-ack"), "");
+      const questions = () => call(engine!, "tasks.questions.list", { taskId: task.id });
+      await expect.poll(questions, { timeout: 15_000 }).toMatchObject([{ runId: run.runId, mode: "native_deferred", status: "awaiting", options: ["Circle", "Square"] }]);
+      expect(JSON.stringify(await questions())).not.toContain("nativeRequestId");
+      const acks = () => files(path.join(fixture.root, "agent-receipts"), /\.tasks-ack$/).map((file) => read(file) as ExecutionReceiptAck);
+      await expect.poll(acks).toMatchObject([{ stage: "tasks_consumed", receipt: { execution: { ...key, runId: run.runId } } }]);
+
+      writeFileSync(path.join(sandbox, "allow-turn-end"), "");
+      const results = async () => (await call<TaskDto>(engine!, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "result");
+      await expect.poll(results, { timeout: 15_000 }).toMatchObject([{ run: run.runId, body: "Synthetic result from the original turn." }]);
+      await expect.poll(questions).toMatchObject([{ runId: run.runId, status: "closed" }]);
+      await expect.poll(acks).toHaveLength(2);
+      const originalResults = await results();
+      const originalAcks = acks();
+      const bindings = originalAcks.map(({ receipt }) => receipt.execution);
+      expect(bindings[0]).toEqual(bindings[1]);
+      expect(originalResults[0]?.session).toBe(bindings[0]!.sessionBinding.sessionId);
+      const readCore = await call<{ id: string; address: string }[]>(engine, "agent.sessions.list", { spaceId: space!.id });
+      expect(readCore.find(({ id }) => id === bindings[0]!.sessionBinding.sessionId)).toBeDefined();
+      await engine.shutdown();
+      engine = await boot({ vaultPath, desktopUserData });
+      expect(await results()).toEqual(originalResults);
+      expect(acks()).toEqual(originalAcks);
+      expect(
+        readFileSync(eventLog, "utf8")
+          .split("\n")
+          .filter((event) => event === "turn-input"),
+      ).toHaveLength(1);
+      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 1, resultComments: originalResults.length, durableAcks: originalAcks.length }));
+    } finally {
+      try {
+        await engine?.shutdown();
+      } finally {
+        try {
+          stopCore?.();
+        } finally {
+          detect.mockRestore();
+          vi.unstubAllEnvs();
+          if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-w63-compose-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
         }
       }
     }

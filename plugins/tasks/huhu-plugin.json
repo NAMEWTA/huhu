@@ -28,7 +28,9 @@
       "tasks.dispatch.read",
       "tasks.dispatch.cancel",
       "tasks.receipts.consume",
-      "tasks.questions.list"
+      "tasks.questions.list",
+      "tasks.reply",
+      "tasks.reply.read"
     ],
     "fileKinds": ["task"]
   }
