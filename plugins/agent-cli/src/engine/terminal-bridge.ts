@@ -12,11 +12,12 @@ export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: nu
  * 客户端 → 服务端：二进制 = 键盘输入；文本 JSON `{type:"resize",cols,rows}`。
  * 关闭 WebSocket 只是 detach，进程继续运行（可从历史重新打开同一个终端）。
  */
-export function createTerminalBridge(d: { sessions: SessionsService; core: HerdrCore; ownership?: InputOwnership }): TerminalBridge {
+export function createTerminalBridge(d: { sessions: SessionsService; core: HerdrCore; ownership?: InputOwnership; signal?: AbortSignal }): TerminalBridge {
   /** 每个会话同一时刻只有一个视图可以输入（ACC-AG-09）：后来的视图自动成为观察者，不能输入、不改变终端尺寸。 */
   const controllers = new Map<string, WebSocket>();
   const demoted = new Map<string, WebSocket[]>(); // 被降级的视图：控制者离开后通知第一个重新连接以接管输入
   return async (sessionId, ws, requested) => {
+    if (d.signal?.aborted) return false;
     const s = d.sessions.list().find((x) => x.id === sessionId);
     if (!s?.terminalId) return false;
     const holder = controllers.get(sessionId);
@@ -44,7 +45,7 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     const queue: { data: Buffer; isBinary: boolean }[] = [];
     let term: Awaited<ReturnType<typeof attachTerminal>> | null = null;
     const handle = (data: Buffer, isBinary: boolean) => {
-      if (!term || opts.observe) return; // 观察者不能输入
+      if (!term || opts.observe || d.signal?.aborted) return; // 观察者不能输入
       if (isBinary) return data.length <= 1024 * 1024 ? term.write(data) : undefined; // 单条输入过大直接忽略（也避免帧编码异常）
       try {
         const m = JSON.parse(data.toString("utf8")) as { type?: string; cols?: number; rows?: number };
@@ -54,9 +55,21 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
       }
     };
     ws.on("error", () => undefined);
-    ws.on("message", (data, isBinary) => (term ? handle(Buffer.from(data as Buffer), isBinary) : queue.push({ data: Buffer.from(data as Buffer), isBinary })));
     let wsClosed = false;
+    ws.on("message", (data, isBinary) => {
+      if (wsClosed || d.signal?.aborted) return;
+      if (term) handle(Buffer.from(data as Buffer), isBinary);
+      else queue.push({ data: Buffer.from(data as Buffer), isBinary });
+    });
+    const onScopeEnd = () => {
+      wsClosed = true;
+      queue.length = 0;
+      term?.close();
+      if (ws.readyState === ws.OPEN) ws.close(1001, "agent-cli disabled");
+    };
+    d.signal?.addEventListener("abort", onScopeEnd, { once: true });
     ws.on("close", () => {
+      d.signal?.removeEventListener("abort", onScopeEnd);
       wsClosed = true;
       term?.close();
     });
@@ -64,9 +77,12 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     let t: Awaited<ReturnType<typeof attachTerminal>>;
     try {
       await d.core.ensure();
+      if (wsClosed) return true;
       t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe, canSend: () => ws.bufferedAmount < 4 * 1024 * 1024 });
     } catch (error) {
+      d.signal?.removeEventListener("abort", onScopeEnd);
       releaseControl();
+      if (wsClosed) return true;
       throw error;
     }
     if (wsClosed) {

@@ -88,7 +88,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     signal: lifetime.signal,
     inputOwnership: ownership,
   });
-  registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers: opts.dispatchProviders ?? {} }));
+  registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers: opts.dispatchProviders ?? {}, signal: lifetime.signal }));
 
   // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
   const waiting = new WaitingWatcher({
@@ -564,6 +564,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     }),
   );
   api.provide("agentCli", { spaces, detector, core });
-  api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core, ownership }));
+  api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core, ownership, signal: lifetime.signal }));
   return { spaces, detector, sessions, core };
 }

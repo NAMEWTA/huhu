@@ -637,14 +637,21 @@ export class SessionsService {
     };
   }
 
-  async writeExecutionInput({ sessionBinding: binding, dispatchId, vaultId }: ExecutionBinding, text: string): Promise<"core_written" | "not_sent" | "unknown"> {
-    const session = this.get(binding.sessionId);
-    const verified = await this.verifiedTerminal(session).catch(() => null);
-    const attempt = session.launchReceipt?.attempt;
-    if (!verified || !attempt?.binding || !this.d.inputOwnership?.hasTask(session.id, dispatchId) || verified.terminal.state === "finished" || verified.terminal.finished_ms != null) return "not_sent";
+  async writeExecutionInput({ sessionBinding: binding, vaultId }: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {
+    signal.throwIfAborted();
+    const previous = this.list().find(({ id }) => id === binding.sessionId);
+    if (!previous) return "not_sent";
+    const verified = await this.verifiedTerminal(previous).catch(() => null);
+    signal.throwIfAborted();
+    if (!verified || verified.terminal.state === "finished" || verified.terminal.finished_ms != null) return "not_sent";
+    const session = this.list().find(({ id }) => id === binding.sessionId);
+    const attempt = session?.launchReceipt?.attempt;
+    if (session?.state !== "running" || !attempt?.binding) return "not_sent";
     const generation = launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding });
     if (vaultId !== this.d.vaultId || binding.machineId !== this.d.spaces.machineId || binding.nativeSessionId !== null) return "not_sent";
     if (generation !== binding.processGeneration || session.terminalId !== binding.coreAddress || attempt.core.id !== binding.coreId || session.provider !== binding.provider) return "not_sent";
+    // Claim and submit in one synchronous turn on the connection used for verification.
+    if (!claim()) return "busy";
     try {
       await verified.client.call("terminal.send", { terminal: binding.coreAddress, text });
       return "core_written";

@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { HerdrClient } from "@huhu/herdr-client";
-import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PERMISSION_TABLE, createHuhuContext, type VaultServices } from "@huhu/kernel";
+import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PERMISSION_TABLE, PluginManager, createHuhuContext, type VaultServices } from "@huhu/kernel";
 import { Vault, machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
-import type { ExecutionBinding } from "@huhu/contracts";
+import { PluginManifestSchema, type ExecutionBinding } from "@huhu/contracts";
 import { apply } from "../src/engine/index.js";
 import type { DispatchProvider } from "../src/engine/dispatch.js";
 import type { DispatchInput, DispatchLookup } from "../src/engine/dispatch-store.js";
@@ -44,6 +44,25 @@ function read<T>(file: string): T | null {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+function gate() {
+  let enter!: () => void;
+  let resume!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const blocked = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  return {
+    entered,
+    resume,
+    wait: () => {
+      enter();
+      return blocked;
+    },
+  };
 }
 
 test.skipIf(process.platform !== "win32" || !bin)(
@@ -106,15 +125,26 @@ test.skipIf(process.platform !== "win32" || !bin)(
     };
     let allowProof = true;
     let allowReady = true;
+    let blockReady: (() => Promise<void>) | undefined;
+    let readySignal: AbortSignal | undefined;
+    let afterReady: (() => void) | undefined;
     const adapter: DispatchProvider = {
       id: "isolated-node-line-protocol-v1",
       modes: ["new", "existing"],
       async ready(binding, signal) {
+        const gate = blockReady;
+        blockReady = undefined;
+        if (gate) readySignal = signal;
+        await gate?.();
         if (!allowReady) return false;
         const pid = pidOf(binding.coreAddress);
         if (!pid) return false;
         for (let i = 0; i < 60; i++) {
-          if (read<{ pid: number }>(path.join(proofDir, binding.coreAddress + ".ready.json"))?.pid === pid) return true;
+          if (read<{ pid: number }>(path.join(proofDir, binding.coreAddress + ".ready.json"))?.pid === pid) {
+            afterReady?.();
+            afterReady = undefined;
+            return true;
+          }
           await pause(40, undefined, { signal });
         }
         return false;
@@ -135,16 +165,19 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const permissions = PERMISSION_TABLE as Record<string, readonly string[]>;
     const openViewers: FixtureViewer[] = [];
     let dispatcher: Dispatcher;
+    let manager!: PluginManager;
+    let refreshBridge!: () => void;
     let bridge: TerminalBridge | undefined;
     let dispose: (() => void) | undefined;
     let started = false;
     const engine = async (withAdapter: boolean) => {
       const registry = new CapabilityRegistry();
+      const events = new EventBus(() => vault.id);
       dispatcher = new Dispatcher({
         registry,
         audit: new GatewayAudit(),
         idempotency: new IdempotencyStore(),
-        isPluginEnabled: () => true,
+        isPluginEnabled: (id) => manager.isEnabled(id),
         exposureOverride: () => undefined,
         grantedPermissions: () => [permission],
         pluginOrigin: () => "builtin",
@@ -152,22 +185,29 @@ test.skipIf(process.platform !== "win32" || !bin)(
       });
       const { root, facade, getService } = createHuhuContext({
         registry,
-        events: new EventBus(() => vault.id),
+        events,
         vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
         call: async () => {
           throw new Error("isolated fixture does not call other plugins");
         },
       });
-      const plugin = root.plugin((ctx) => {
-        apply(ctx, facade("agent-cli", ctx), { herdrBin: bin!, history: { home: sandbox, env: {} }, ...(withAdapter ? { dispatchProviders: { claude: adapter } } : {}) });
+      manager = new PluginManager(root, facade, events);
+      manager.register({
+        manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "1.0.0", origin: "builtin" }),
+        apply: (ctx, api) => {
+          apply(ctx, api, { herdrBin: bin!, history: { home: sandbox, env: {} }, ...(withAdapter ? { dispatchProviders: { claude: adapter } } : {}) });
+        },
       });
-      dispose = () => plugin.dispose();
-      await plugin.await?.();
-      bridge = getService<TerminalBridge>("terminalBridge:agent")!;
+      dispose = () => manager.disposeAll();
+      expect(await manager.enable("agent-cli")).toBe("active");
+      refreshBridge = () => {
+        bridge = getService<TerminalBridge>("terminalBridge:agent")!;
+      };
+      refreshBridge();
     };
-    const request = (name: string, input: unknown, caller: "plugin:tasks" | "plugin:automations" | "desktop" = "plugin:tasks") => {
+    const request = (name: string, input: unknown, caller: "plugin:tasks" | "plugin:automations" | "desktop" = "plugin:tasks", idempotencyKey = crypto.randomUUID()) => {
       const requestId = crypto.randomUUID();
-      return dispatcher.call(caller, { capability: name, input, requestId, idempotencyKey: requestId });
+      return dispatcher.call(caller, { capability: name, input, requestId, idempotencyKey });
     };
     async function call<T>(name: string, input: unknown, caller?: "desktop"): Promise<T> {
       const reply = await request(name, input, caller);
@@ -332,6 +372,121 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(await call<Result>("agent.runs.inspect", key("zeroExit"))).toMatchObject({ status: "unknown", coreWrite: "core_written", providerAcceptance: null, ownerActive: false });
       expect(readers(exitAddress)).toHaveLength(1);
 
+      const gated = work("disabled-during-ready", target);
+      const readiness = gate();
+      const transportKey = crypto.randomUUID();
+      blockReady = readiness.wait;
+      const pending = request("agent.runs.dispatch", gated, "plugin:tasks", transportKey);
+      try {
+        expect(await Promise.race([readiness.entered.then(() => "paused"), pending.then(() => "finished")])).toBe("paused");
+        await manager.disable("agent-cli");
+        expect(await request("agent.runs.dispatch", gated)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      } finally {
+        readiness.resume();
+      }
+      const disabledReply = await pending;
+      const inputCount = (dispatchId: string) =>
+        readdirSync(proofDir)
+          .filter((file) => file.endsWith(".jsonl"))
+          .flatMap((file) => readers(file.slice(0, -6)))
+          .filter((line) => line.dispatchId === dispatchId).length;
+      console.info(JSON.stringify({ phase: "disabled-during-ready", disabledReply, inputCount: inputCount(gated.dispatchId), cancelled: readySignal?.aborted, endpoint: core.endpoint }));
+      expect(inputCount(gated.dispatchId)).toBe(0);
+      expect(readySignal?.aborted).toBe(true);
+      expect(disabledReply).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED", retryable: true } });
+      expect(read(recordFile(gated.dispatchId))).toMatchObject({ write: "not_sent", execution: null, ownerActive: false });
+      expect(await manager.enable("agent-cli")).toBe("active");
+      refreshBridge();
+      expect(await request("agent.runs.dispatch", gated, "plugin:tasks", transportKey)).toMatchObject({ ok: true, data: { status: "accepted" } });
+      expect(inputCount(gated.dispatchId)).toBe(1);
+
+      const manual = await call<{ id: string; terminalId: string }>("agent.sessions.launch", { spaceId: space!.id, spaceRevision: space!.revision, provider: "claude", requestId: "lifecycle-manual" }, "desktop");
+      const current = (await call<Target[]>("agent.targets.list", listing)).find((item) => item.binding?.sessionId === manual.id);
+      expect(current?.binding).toBeTruthy();
+      const oldBridge = bridge!;
+      const existingTarget = { mode: "existing", spaceId: space!.id, binding: current!.binding! } as const;
+      const checking = work("disabled-during-final-check", existingTarget);
+      const finalCheck = gate();
+      let checkNextList = false;
+      afterReady = () => {
+        checkNextList = true;
+      };
+      const delayedList = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
+        const reply = (await originalCall.call(this, method, params)) as T;
+        if (method === "terminal.list" && checkNextList) {
+          checkNextList = false;
+          await finalCheck.wait();
+        }
+        return reply;
+      });
+      const checkingOperation = request("agent.runs.dispatch", checking);
+      const oldViewer = new FixtureViewer();
+      openViewers.push(oldViewer);
+      try {
+        expect(await Promise.race([finalCheck.entered.then(() => "paused"), checkingOperation.then(() => "finished")])).toBe("paused");
+        expect(read(recordFile(checking.dispatchId))).toMatchObject({ write: "not_sent", ownerActive: false });
+        expect(await oldBridge(manual.id, oldViewer as never, { cols: 80, rows: 24, observe: false })).toBe(true);
+        expect(oldViewer.messages).not.toContain(JSON.stringify({ type: "mode", mode: "observe" }));
+        await manager.disable("agent-cli");
+        expect(oldViewer.readyState).toBe(3);
+        expect(await manager.enable("agent-cli")).toBe("active");
+        refreshBridge();
+        expect(await oldBridge(manual.id, new FixtureViewer() as never, { cols: 80, rows: 24, observe: false })).toBe(false);
+      } finally {
+        finalCheck.resume();
+        delayedList.mockRestore();
+      }
+      expect(await checkingOperation).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      expect(inputCount(checking.dispatchId)).toBe(0);
+      expect(read(recordFile(checking.dispatchId))).toMatchObject({ write: "not_sent", ownerActive: false });
+      console.info(JSON.stringify({ phase: "disabled-during-final-check", inputCount: inputCount(checking.dispatchId), oldViewerClosed: oldViewer.readyState === 3 }));
+
+      const crossed = work("disabled-after-send", existingTarget);
+      const lateSend = gate();
+      const delayedSend = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
+        const reply = (await originalCall.call(this, method, params)) as T;
+        if (method === "terminal.send" && (params as { text?: string }).text === crossed.input) {
+          await lateSend.wait();
+          throw new Error("discarded Core send reply after the scope switch");
+        }
+        return reply;
+      });
+      allowProof = false;
+      const crossing = request("agent.runs.dispatch", crossed);
+      try {
+        expect(await Promise.race([lateSend.entered.then(() => "paused"), crossing.then(() => "finished")])).toBe("paused");
+        expect(read(recordFile(crossed.dispatchId))).toMatchObject({ write: "sending", ownerActive: true });
+        await manager.disable("agent-cli");
+        expect(await manager.enable("agent-cli")).toBe("active");
+        refreshBridge();
+        expect(await call<Result>("agent.runs.dispatch", crossed)).toMatchObject({ status: "unknown", coreWrite: "unknown", ownerActive: true });
+        expect(await call<Result>("agent.runs.dispatch", work("during-switch-competing", existingTarget))).toMatchObject({ status: "busy", coreWrite: "not_sent" });
+        const switchedViewer = new FixtureViewer();
+        openViewers.push(switchedViewer);
+        expect(await bridge!(manual.id, switchedViewer as never, { cols: 80, rows: 24, observe: false })).toBe(true);
+        expect(switchedViewer.messages).toContain(JSON.stringify({ type: "mode", mode: "observe" }));
+        await call("agent.review.comment.add", { sessionId: manual.id, path: "synthetic.md", side: "new", line: 1, text: "switch review" }, "desktop");
+        expect(await request("agent.review.send", { sessionId: manual.id }, "desktop")).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        allowProof = true;
+        expect(await call<Result>("agent.runs.inspect", key(crossed.dispatchId))).toMatchObject({ status: "accepted", coreWrite: "unknown", providerAcceptance: { id: crossed.dispatchId + "-received" } });
+      } finally {
+        lateSend.resume();
+        delayedSend.mockRestore();
+      }
+      expect(await crossing).toMatchObject({ ok: false, error: { code: "RUN_UNKNOWN", details: { reason: "dispatch_scope_ended_after_send" } } });
+      const finalReceipt = await call<Result>("agent.runs.dispatch", crossed);
+      expect(finalReceipt).toMatchObject({ status: "accepted", coreWrite: "unknown", providerAcceptance: { id: crossed.dispatchId + "-received" }, execution: { sessionBinding: existingTarget.binding } });
+      expect(readers(manual.terminalId).map(({ dispatchId }) => dispatchId)).toEqual([crossed.dispatchId]);
+      console.info(
+        JSON.stringify({
+          phase: "disabled-after-send",
+          coreWrite: finalReceipt.coreWrite,
+          providerReceipt: finalReceipt.providerAcceptance,
+          inputCount: inputCount(crossed.dispatchId),
+          competingInputCount: inputCount("during-switch-competing"),
+        }),
+      );
+
       const records = path.join(vault.stateDir, "agent-cli", "dispatches");
       for (const file of readdirSync(records)) expect(readFileSync(path.join(records, file), "utf8")).not.toContain("isolated input");
       const coreInfo = JSON.parse(cli("server", "status").stdout) as { core: { id: string }; version: string };
@@ -343,9 +498,27 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await dispose?.();
       delete permissions[permission];
       try {
-        if (started && cli("server", "status").status === 0) {
+        const status = started ? cli("server", "status") : undefined;
+        if (status?.status === 0) {
+          const { pid, holders } = JSON.parse(status.stdout) as { pid: number; holders: { pid: number }[] };
+          const providerPids = readdirSync(proofDir)
+            .filter((file) => file.endsWith(".ready.json"))
+            .flatMap((file) => read<{ pid: number }>(path.join(proofDir, file))?.pid ?? []);
+          const pids = [pid, ...holders.map((holder) => holder.pid), ...providerPids];
           expect(cli("server", "stop").status).toBe(0);
-          expect(cli("server", "status").status).toBe(5);
+          const stopped = cli("server", "status").status;
+          const livePids = () =>
+            pids.filter((pid) => {
+              try {
+                return process.kill(pid, 0);
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+                throw error;
+              }
+            });
+          await expect.poll(livePids, { timeout: 5_000 }).toEqual([]);
+          console.info(JSON.stringify({ endpoint: core.endpoint, stopped, corePid: pid, holderPids: holders.map((holder) => holder.pid), providerPids, livePids: livePids() }));
+          expect(stopped).toBe(5);
         }
       } finally {
         await vault.close();

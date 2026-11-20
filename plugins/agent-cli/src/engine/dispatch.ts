@@ -41,6 +41,7 @@ export class AgentDispatch {
       ownership: InputOwnership;
       store: AgentDispatchStore;
       providers: Partial<Record<AgentId, DispatchProvider>>;
+      signal: AbortSignal;
     },
   ) {}
 
@@ -90,8 +91,9 @@ export class AgentDispatch {
     return [...newTargets, ...existing, ...resume].map((target) => ({ ...target, structuredReply: false, structuredResult: false, cancel: false }));
   }
 
-  async dispatch(input: DispatchInput, signal: AbortSignal): Promise<DispatchResponse> {
+  async dispatch(input: DispatchInput, requestSignal: AbortSignal): Promise<DispatchResponse> {
     this.assertScope(input);
+    const signal = AbortSignal.any([this.d.signal, requestSignal]);
     signal.throwIfAborted();
     const fingerprint = launchHash(input);
     const prior = this.lookup(input);
@@ -106,8 +108,10 @@ export class AgentDispatch {
     return result;
   }
 
-  async inspect(input: DispatchLookup, signal: AbortSignal): Promise<DispatchResponse> {
+  async inspect(input: DispatchLookup, requestSignal: AbortSignal): Promise<DispatchResponse> {
     this.assertScope(input);
+    const signal = AbortSignal.any([this.d.signal, requestSignal]);
+    signal.throwIfAborted();
     const prior = this.lookup(input);
     if (!prior) return receipt(null, "unknown", "receipt_not_found");
     if (this.inflight.has(input.dispatchId)) return receipt(prior, "unknown", "dispatch_in_progress");
@@ -126,6 +130,16 @@ export class AgentDispatch {
     if (!record) return null;
     if (launchHash(record.key) !== launchHash(dispatchKey(input))) throw errors.idempotencyMismatch();
     return record;
+  }
+
+  private assertCurrent(record: StoredDispatch): void {
+    if (launchHash(this.lookup(record.key)) !== launchHash(record)) {
+      throw this.unknown(record, "dispatch_receipt_changed");
+    }
+  }
+
+  private unknown(record: StoredDispatch, reason: string): HuhuError {
+    return new HuhuError("RUN_UNKNOWN", "派遣的输入状态待核实，请用原派遣标识重查", { retryable: true, details: { dispatchId: record.key.dispatchId, reason } });
   }
 
   private async advance(input: DispatchInput, fingerprint: string, prior: StoredDispatch | null, signal: AbortSignal): Promise<DispatchResponse> {
@@ -151,9 +165,11 @@ export class AgentDispatch {
       providerAcceptance: null,
     };
     if (!prior) this.d.store.save(record);
-    const id = record.execution?.sessionBinding.sessionId ?? (target.mode === "existing" ? target.binding.sessionId : await this.launchNew(target, record));
+    const id = record.execution?.sessionBinding.sessionId ?? (target.mode === "existing" ? target.binding.sessionId : await this.launchNew(target, record, signal));
+    signal.throwIfAborted();
     if (!id) return receipt(record, "not_sent", "launch_unverified");
     const current = await this.d.sessions.executionSession(id);
+    signal.throwIfAborted();
     if (!current || current.spaceId !== target.spaceId || current.binding.provider !== provider) return receipt(record, "not_sent", "binding_unverified");
     const expectation = record.execution?.sessionBinding ?? (target.mode === "existing" ? target.binding : null);
     if (expectation && launchHash(expectation) !== launchHash(current.binding)) {
@@ -162,24 +178,34 @@ export class AgentDispatch {
     if (current.finished) return this.observe(record, signal);
 
     if (!this.d.ownership.availableForTask(id, input.dispatchId)) return receipt(record, "busy", "input_owned");
-    if (!(await adapter.ready(current.binding, signal).catch(() => false))) return receipt(record, "not_sent", "provider_not_ready");
+    const ready = await adapter.ready(current.binding, signal).catch(() => false);
     signal.throwIfAborted();
-    if (!this.d.ownership.availableForTask(id, input.dispatchId)) return receipt(record, "busy", "input_owned");
-    // Commit the owner and the write intent together before touching the terminal.
+    if (!ready) return receipt(record, "not_sent", "provider_not_ready");
     const { machineId: _machineId, ...key } = record.key;
     const execution = { ...key, sessionBinding: current.binding };
     const sending: StoredDispatch = { ...record, execution, ownerActive: true, write: "sending" };
-    this.d.store.save(sending);
-    const write = await this.d.sessions.writeExecutionInput(execution, input.input).catch(() => "unknown" as const);
-    const updated: StoredDispatch = { ...sending, write, ownerActive: write !== "not_sent" };
+    const write = await this.d.sessions.writeExecutionInput(execution, input.input, signal, () => {
+      this.assertCurrent(record);
+      if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
+      this.d.store.save(sending);
+      return true;
+    });
+    if (write === "busy" || write === "not_sent") {
+      signal.throwIfAborted();
+      return write === "busy" ? receipt(record, "busy", "input_owned") : receipt(record, "not_sent", "binding_unverified");
+    }
+    // A new scope can reconcile the original sending intent. The disposed scope cannot update it.
+    if (this.d.signal.aborted) throw this.unknown(sending, "dispatch_scope_ended_after_send");
+    this.assertCurrent(sending);
+    const updated: StoredDispatch = { ...sending, write };
     this.d.store.save(updated);
     return this.observe(updated, signal);
   }
 
-  private async launchNew(target: Extract<DispatchInput["target"], { mode: "new" }>, record: StoredDispatch): Promise<string | null> {
+  private async launchNew(target: Extract<DispatchInput["target"], { mode: "new" }>, record: StoredDispatch, signal: AbortSignal): Promise<string | null> {
     const { mode: _mode, configurationId, ...launch } = target;
     try {
-      return (await this.d.sessions.launch({ ...launch, expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) })).id;
+      return (await this.d.sessions.launch({ ...launch, expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)).id;
     } catch (error) {
       if (error instanceof HuhuError && (error.code === "RUN_UNKNOWN" || error.code === "HERDR_UNAVAILABLE")) return null;
       throw error;
@@ -187,24 +213,32 @@ export class AgentDispatch {
   }
 
   private async observe(record: StoredDispatch, signal: AbortSignal): Promise<DispatchResponse> {
+    signal.throwIfAborted();
     if (!record.execution) return receipt(record, "not_sent");
     const sessionId = record.execution.sessionBinding.sessionId;
     let current = await this.d.sessions.executionSession(sessionId);
+    signal.throwIfAborted();
     if (!current && !this.d.readOnly) {
       await this.d.sessions.reconcile();
+      signal.throwIfAborted();
       current = await this.d.sessions.executionSession(sessionId);
+      signal.throwIfAborted();
     }
     if (!current || launchHash(current.binding) !== launchHash(record.execution.sessionBinding)) return receipt(record, "unknown", "binding_changed");
     let next = record.write === "sending" ? { ...record, write: "unknown" as const } : record;
     const adapter = this.d.providers[current.binding.provider as AgentId];
-    if (!next.providerAcceptance && next.write !== "not_sent" && adapter?.id === next.adapterId && !signal.aborted) {
+    if (!next.providerAcceptance && next.write !== "not_sent" && adapter?.id === next.adapterId) {
       const proof = ProviderAcceptance.safeParse(await adapter.acceptance(record.execution, record.inputSha256, signal).catch(() => null));
+      signal.throwIfAborted();
       if (proof.success && proof.data.inputSha256 === record.inputSha256 && launchHash(proof.data.execution) === launchHash(record.execution)) {
         next = { ...next, providerAcceptance: proof.data };
       }
     }
     if (current.finished && next.ownerActive) next = { ...next, ownerActive: false };
-    if (next !== record && !this.d.readOnly) this.d.store.save(next);
+    if (next !== record && !this.d.readOnly) {
+      this.assertCurrent(record);
+      this.d.store.save(next);
+    }
     if (next.providerAcceptance) return receipt(next, "accepted");
     if (next.write === "core_written") return receipt(next, "unknown", "provider_acceptance_unconfirmed");
     if (next.write === "unknown") return receipt(next, "unknown", "core_write_unconfirmed");
