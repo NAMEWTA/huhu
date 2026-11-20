@@ -32,6 +32,7 @@ import { Info, RefreshCw, TriangleAlert } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import {
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type Ref,
@@ -40,6 +41,7 @@ import {
   useEffectEvent,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -51,10 +53,6 @@ import {
   type FileTargetMenuPrimitives,
 } from '@/components/FileTargetMenuItems';
 import { FileTreeFilteredToZeroNotice } from '@/components/FileTreeFilteredToZeroNotice';
-import {
-  EXCALIDRAW_FILE_ICON_VIEWBOX,
-  MARKDOWN_FILE_ICON_VIEWBOX,
-} from '@/components/file-entry-icon';
 import {
   appendSidebarUploadFields,
   collectTreeFolderPathsFromDocuments,
@@ -85,10 +83,11 @@ import { createFileTreeStyle, FILE_TREE_DENSITY_OPTIONS } from '@/components/fil
 import { applyExtensionBadges } from '@/components/file-tree-extension-badge';
 import {
   AGENT_DECORATION_ICON_ID,
-  EXCALIDRAW_FILE_ICON_ID,
+  FILE_TREE_EXTENSION_ICONS,
   FILE_TREE_DECORATION_SPRITE_SHEET,
   LINK_DECORATION_ICON_ID,
-  MARKDOWN_FILE_ICON_ID,
+  RESTRICTED_DECORATION_ICON_ID,
+  fileTreeIcon,
 } from '@/components/file-tree-icon-sprite';
 import { buildOkignorePatternFromTarget } from '@/components/file-tree-okignore';
 import {
@@ -473,6 +472,22 @@ const DROPDOWN_FILE_TARGET_MENU_PRIMITIVES = {
   SubTrigger: DropdownMenuSubTrigger,
 } satisfies FileTargetMenuPrimitives;
 
+function restrictionMessage(entry: FileEntry | undefined, locale: string): string | null {
+  const zh = locale.startsWith('zh');
+  if (entry?.protected) return zh ? '受保护的资源，仅可查看元信息' : 'Protected resource: metadata only';
+  if (entry?.linkCycle) return zh ? '目录符号链接形成循环' : 'Directory symlink forms a cycle';
+  if (entry?.linkOutside) return zh ? '链接目标不在 Vault 内或已失效' : 'Link destination is unavailable or outside the Vault';
+  return null;
+}
+
+function pathForTreeTarget(target: FileTreeTarget): string {
+  return target.kind === 'file' ? docNameToTreePath(target.path, target.docExt) : target.path;
+}
+
+function ignoreComposingKeys(event: ReactKeyboardEvent) {
+  if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) event.stopPropagation();
+}
+
 interface FileTreeMenuProps {
   item: ContextMenuItem;
   context: ContextMenuOpenContext;
@@ -499,6 +514,7 @@ interface FileTreeMenuProps {
   folderTreePaths: readonly string[];
   isAsset: boolean;
   documents: readonly FileEntry[];
+  restriction: (path: string) => string | null;
 }
 
 function FileTreeMenu({
@@ -519,11 +535,13 @@ function FileTreeMenu({
   folderTreePaths,
   isAsset,
   documents,
+  restriction,
 }: FileTreeMenuProps) {
   const { t } = useLingui();
   const target = treeItemToTarget(item, documents);
   const isFolder = item.kind === 'directory';
-  const isOkRow = hasOkPathSegment(item.path);
+  const restricted = restriction(item.path);
+  const isOkRow = hasOkPathSegment(item.path) || restricted !== null;
   const canHide = getHostHiddenPaths() !== null;
   const hideLabel = isFolder ? t`Hide folder` : t`Hide this file`;
   const folderPath = isFolder ? treeDirectoryPathToFolderPath(item.path) : null;
@@ -537,6 +555,7 @@ function FileTreeMenu({
     ? selectedTreePathsToDeleteTargets(selectedTreePaths, documents)
     : [];
   const deleteTargets = selectedDeleteTargets.length > 1 ? selectedDeleteTargets : [target];
+  const deleteRestriction = restricted ?? deleteTargets.map((target) => restriction(pathForTreeTarget(target))).find(Boolean);
   const deleteLabel = plural(deleteTargets.length, { one: 'Delete', other: 'Delete # items' });
   const relativePath = relativePathForTreeItem(item);
   let handoffInput: HandoffDispatchInput | null = null;
@@ -634,7 +653,19 @@ function FileTreeMenu({
         align="start"
         data-file-tree-context-menu-root="true"
         className="min-w-52"
+        onKeyDownCapture={ignoreComposingKeys}
       >
+        {restricted && (
+          <>
+            <div className="px-1.5 py-1 text-sm" data-testid="file-tree-restriction-reason">{restricted}</div>
+            {[...(isFolder ? [t`New file`, t`New folder`] : []), t`Duplicate`, t`Rename`].map((label) => (
+              <DropdownMenuItem key={label} disabled title={restricted} aria-label={`${label}：${restricted}`}>{label}</DropdownMenuItem>
+            ))}
+          </>
+        )}
+        {deleteRestriction && (
+          <DropdownMenuItem disabled title={deleteRestriction} aria-label={`${deleteLabel}：${deleteRestriction}`}>{deleteLabel}</DropdownMenuItem>
+        )}
         <FileTargetMenuItems
           busy={anyActionBusy}
           deleteLabel={deleteLabel}
@@ -737,7 +768,7 @@ function FileTreeMenu({
               : undefined
           }
           onDuplicate={
-            !isAsset && !isOkRow
+            !isOkRow
               ? () => {
                   close();
                   onDuplicate(target);
@@ -763,7 +794,7 @@ function FileTreeMenu({
               : undefined
           }
           onDelete={
-            !isOkRow
+            !isOkRow && !deleteRestriction
               ? () => {
                   close();
                   onDelete(deleteTargets);
@@ -960,6 +991,16 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
     documents.filter(isAssetEntry).map((entry) => fileEntryToTreePath(entry)),
   );
   const assetTreePathsRef = useRef(assetTreePaths);
+  const entriesByTreePath = useMemo(() => new Map(documents.map((entry) => [fileEntryToTreePath(entry), entry])), [documents]);
+  const restrictionForPath = (path: string) => restrictionMessage(
+    entriesByTreePath.get(path) ?? entriesByTreePath.get(folderPathToTreeDirectoryPath(path)),
+    i18n.locale,
+  );
+  const restrictionRef = useRef(restrictionForPath);
+  restrictionRef.current = restrictionForPath;
+  const rootMenuActivating = useRef(false);
+  const [rootMenu, setRootMenu] = useState<{ x: number; y: number; focus: HTMLElement | null } | null>(null);
+
   const rowDecorationIndex = buildRowDecorationIndex(documents);
   const rowDecorationIndexRef = useRef(rowDecorationIndex);
   const activeAncestorTreePathsRef = useRef<string[]>([]);
@@ -1143,16 +1184,10 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
     stickyFolders: true,
     ...FILE_TREE_DENSITY_OPTIONS,
     icons: {
-      set: 'complete',
+      set: 'none',
       spriteSheet: FILE_TREE_DECORATION_SPRITE_SHEET,
-      byFileExtension: {
-        md: { name: MARKDOWN_FILE_ICON_ID, viewBox: MARKDOWN_FILE_ICON_VIEWBOX },
-        mdx: { name: MARKDOWN_FILE_ICON_ID, viewBox: MARKDOWN_FILE_ICON_VIEWBOX },
-        excalidraw: {
-          name: EXCALIDRAW_FILE_ICON_ID,
-          viewBox: EXCALIDRAW_FILE_ICON_VIEWBOX,
-        },
-      },
+      byFileExtension: FILE_TREE_EXTENSION_ICONS,
+      remap: { 'file-tree-icon-file': fileTreeIcon('file') },
     },
     unsafeCSS: FILE_TREE_UNSAFE_CSS,
     composition: {
@@ -1163,20 +1198,22 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       },
     },
     dragAndDrop: {
-      canDrag: isAvailable,
-      canDrop: isAvailable,
+      canDrag: (paths) => isAvailable() && paths.every((path) => !restrictionRef.current(path)),
+      canDrop: ({ target }) => isAvailable() && (!target.directoryPath || !restrictionRef.current(target.directoryPath)),
       onDropComplete: (event) => handleDropCompleteRef.current(event),
       onDropError: (message) => {
         toast.error(message);
       },
     },
     renaming: {
-      canRename: isAvailable,
+      canRename: ({ path }) => isAvailable() && !restrictionRef.current(path),
       onRename: (event) => handleRenameRef.current(event),
       onError: (message) => handleRenameErrorRef.current(message),
     },
     onSelectionChange: (selectedPaths) => handleSelectionChangeRef.current(selectedPaths),
     renderRowDecoration: ({ item }) => {
+      const reason = restrictionRef.current(item.path);
+      if (reason) return { icon: RESTRICTED_DECORATION_ICON_ID, title: reason };
       if (item.kind === 'file') {
         const doc = rowDecorationIndexRef.current.docsByTreePath.get(item.path);
         if (doc?.isSymlink) {
@@ -1311,7 +1348,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
   const isAssetTreePath = (treePath: string) => assetTreePathsRef.current.has(treePath);
 
   async function handleDuplicateTarget(target: FileTreeTarget) {
-    if (target.kind === 'asset') return;
+    if (restrictionRef.current(pathForTreeTarget(target))) return;
     if (busyPathRef.current !== null) return;
     const clearBusyState = () => {
       setBusyPath(null);
@@ -1366,6 +1403,8 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       if (success.path !== target.path) {
         if (success.kind === 'folder') {
           navigateWithPulse({ kind: 'folder', folderPath: success.path });
+        } else if (target.kind === 'asset') {
+          navigateWithPulse({ kind: 'asset', assetPath: success.path });
         } else {
           navigateWithPulse({ kind: 'doc', docName: success.path });
         }
@@ -2143,7 +2182,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
 
       let disposed = false;
       const handleCommitKeyDown = (event: KeyboardEvent) => {
-        if (event.key !== 'Enter') return;
+        if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return;
         if (isOverlayLayerOpen()) return;
         const pending = pendingCreateRef.current;
         if (!pending || pending.renamePath !== placeholder.renamePath) return;
@@ -2273,6 +2312,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return;
       const isPlatformShortcut = (event.metaKey || event.ctrlKey) && !event.altKey;
       const key = event.key.toLowerCase();
       const isSelectAll = isPlatformShortcut && key === 'a';
@@ -2332,7 +2372,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       if (isDelete) {
         if (busyPathRef.current !== null) return;
         const targets = resolveKeyboardDeleteTargets(model, documentsRef.current);
-        if (targets.length === 0) return;
+        if (targets.length === 0 || targets.some((target) => restrictionRef.current(pathForTreeTarget(target)))) return;
         setDeleteRequest({ targets });
         event.preventDefault();
         event.stopPropagation();
@@ -2366,8 +2406,11 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       for (const row of shadow.querySelectorAll<HTMLElement>('[data-item-path]')) {
         const treePath = row.dataset.itemPath;
         if (!treePath) continue;
-        const title = toTitle(treePath);
+        const reason = restrictionRef.current(treePath);
+        const title = reason ? `${toTitle(treePath)} — ${reason}` : toTitle(treePath);
         if (row.title !== title) row.title = title;
+        if (reason) row.setAttribute('data-file-restriction', reason);
+        else row.removeAttribute('data-file-restriction');
       }
       const anchor = shadow.querySelector<HTMLElement>('[data-type="context-menu-anchor"]');
       if (anchor) {
@@ -2391,7 +2434,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       attributeFilter: ['data-item-path', 'data-item-context-hover'],
     });
     return () => observer.disconnect();
-  }, [loading, documents.length, contextMenuLabel]);
+  }, [loading, entriesByTreePath, contextMenuLabel]);
 
   useEffect(() => {
     if (loading || documents.length === 0) return;
@@ -2405,7 +2448,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       childList: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['data-item-path'],
+      attributeFilter: ['data-item-path', 'aria-expanded'],
     });
     return () => observer.disconnect();
   }, [loading, documents.length]);
@@ -3092,6 +3135,50 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
     : null;
   const serverUnreachable = error === couldNotReachServerTitle;
 
+  function renderRootSurface(children: ReactNode) {
+    return (
+      <div
+        ref={fileTreeHostRef}
+        className="flex min-h-0 flex-1 flex-col"
+        onKeyDownCapture={ignoreComposingKeys}
+        onContextMenu={(event) => {
+          if (event.defaultPrevented || event.nativeEvent.composedPath().some(
+            (element) => element instanceof HTMLElement && element.matches('[data-item-path], [data-type="context-menu-trigger"], input, [role="menu"]'),
+          )) return;
+          event.preventDefault();
+          const focused = document.activeElement;
+          const active = focused?.shadowRoot?.activeElement ?? focused;
+          rootMenuActivating.current = false;
+          setRootMenu({ x: event.clientX, y: event.clientY, focus: active instanceof HTMLElement ? active : null });
+        }}
+      >
+        {children}
+        {rootMenu && (
+          <DropdownMenu open modal={false} onOpenChange={(open) => { if (!open) setRootMenu(null); }}>
+            <DropdownMenuTrigger asChild>
+              <span aria-hidden="true" className="block size-px" style={{ position: 'fixed', left: rootMenu.x, top: rootMenu.y }} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              data-testid="file-tree-root-menu"
+              className="min-w-52"
+              onKeyDownCapture={ignoreComposingKeys}
+              onCloseAutoFocus={(event) => { event.preventDefault(); if (!rootMenuActivating.current) rootMenu.focus?.focus(); }}
+            >
+              <DropdownMenuItem disabled={busyPath !== null} onSelect={() => { rootMenuActivating.current = true; startCreating('file', ''); }}><Trans>New file</Trans></DropdownMenuItem>
+              <DropdownMenuItem disabled={busyPath !== null} onSelect={() => { rootMenuActivating.current = true; startCreating('folder', ''); }}><Trans>New folder</Trans></DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={busyPath !== null}><Trans>New from template</Trans></DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <TemplateMenuRows parentDir="" ItemComponent={DropdownMenuItem} onSelectTemplate={(templateName) => { rootMenuActivating.current = true; setNewItemRequest({ parentDir: '', templateName }); }} />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    );
+  }
+
   if (documents.length === 0) {
     if (reconnectNotice !== null) {
       return (
@@ -3119,9 +3206,9 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
         knownPageCount: pages.size,
       }) === 'filtered-to-zero'
     ) {
-      return <FileTreeFilteredToZeroNotice />;
+      return renderRootSurface(<FileTreeFilteredToZeroNotice />);
     }
-    return (
+    return renderRootSurface(
       <FileTreeEmptyState
         active={emptyExternalFileDropActive}
         onDragOver={handleEmptyExternalFileDragOver}
@@ -3144,7 +3231,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
   }
   return (
     <>
-      <div ref={fileTreeHostRef} className="flex min-h-0 flex-1 flex-col">
+      {renderRootSurface(
         <PierreFileTree
           header={
             (error || reconnectNotice !== null || truncationNotice !== null) && (
@@ -3194,10 +3281,11 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
               folderTreePaths={folderTreePaths}
               isAsset={assetTreePaths.has(item.path)}
               documents={documents}
+              restriction={restrictionForPath}
             />
           )}
         />
-      </div>
+      )}
       <AlertDialog
         open={!!deleteRequest}
         onOpenChange={(open) => {

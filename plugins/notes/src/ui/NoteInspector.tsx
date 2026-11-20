@@ -1,4 +1,4 @@
-import { Button, EmptyState, IconButton } from "@huhu/ui";
+import { Button, EmptyState, FileIcon, IconButton } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
 import { ArrowUpRight, FileText, ListChecks, X } from "lucide-react";
 import { ChoiceSegmented } from "@huhu/ui";
@@ -66,7 +66,10 @@ export function NoteInspector({
             <dl className="notes-property-grid">
               <div>
                 <dt>{n.fTitle}</dt>
-                <dd>{path.split("/").at(-1)?.replace(/\.md$/, "")}</dd>
+                <dd className="row">
+                  <FileIcon name={path} size={14} />
+                  {path.split("/").at(-1)?.replace(/\.md$/, "")}
+                </dd>
               </div>
               <div>
                 <dt>{n.fFolder}</dt>
@@ -95,7 +98,7 @@ export function NoteInspector({
             <h4>{n.backlinksN((backlinks.data ?? []).length)}</h4>
             {(backlinks.data ?? []).map((b) => (
               <button key={b.path} type="button" className="notes-link-row" onClick={() => onOpen(b.path)}>
-                <FileText size={15} aria-hidden />
+                <FileIcon name={b.path} size={15} />
                 <span>{b.title}</span>
                 <ArrowUpRight size={13} aria-hidden />
               </button>

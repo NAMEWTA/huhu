@@ -1,8 +1,8 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { treeFolder, treeItem } from "../helpers/tree.js";
+import { treeFolder, treeItem, treeRename } from "../helpers/tree.js";
 import { openApp } from "../helpers/launch.js";
 
 /** S6（知识库 OK 对等）：档案首页 / 类型 / 记录是真实标签，侧栏上下文切换，普通目录只浏览，同一 index.md 同一会话（E01–E05）。 */
@@ -128,6 +128,11 @@ test("E03 普通目录点击只浏览；Archives/ 在文件视图里是真实目
     await treeFolder(page, "Archives").first().click();
     await expect(page.getByTestId("archives-home")).toHaveCount(0);
     await expect(treeFolder(page, "通讯录")).toBeVisible();
+    await treeFolder(page, "通讯录").click();
+    const tree = page.getByTestId("notes-resource-tree");
+    await expect(tree.locator('[data-item-path="Archives/通讯录/index.md"]')).toBeVisible();
+    await treeFolder(page, "张三").click();
+    await expect(tree.locator('[data-item-path="Archives/通讯录/张三/附件.txt"]')).toBeVisible();
   } finally {
     await close();
   }
@@ -164,6 +169,45 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
     await page.getByTestId("archive-open-markdown").click();
     await expect(page.getByTestId("markdown-editor")).toContainText("999");
     await expect(page.getByTestId("markdown-editor")).toContainText("来自 Markdown 的修改");
+  } finally {
+    await close();
+  }
+});
+
+test("E04：树改名同步两个标签，外部改写和删除更新同一档案文件", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    await seed(page);
+    await treeFolder(page, "Archives").click();
+    await treeFolder(page, "通讯录").click();
+    await treeFolder(page, "张三").click();
+    const root = page.getByTestId("notes-resource-tree");
+    const base = "Archives/通讯录/";
+    const oldPath = `${base}张三/index.md`;
+    const newPath = `${base}张 三/index.md`;
+    await root.locator(`[data-item-path="${oldPath}"]`).click();
+    await page.getByTestId("archive-open-record-view").click();
+    const recordTab = page.locator('[data-tab-kind="archive-record"]').getByTestId("document-tab");
+    const markdownTab = page.locator('[data-tab-kind="file"]').getByTestId("document-tab");
+    await expect(recordTab).toHaveAttribute("title", oldPath);
+    await page.getByTestId("notes-section-all").click();
+    const oldFolder = root.locator(`[data-item-path="${base}张三/"]`);
+    await treeRename(page, oldFolder, "张 三");
+    await expect(markdownTab).toHaveAttribute("title", newPath);
+    await expect(recordTab).toHaveAttribute("title", newPath);
+    expect(readdirSync(path.join(vault, base)).sort()).toEqual(["index.md", "张 三", "李四"]);
+
+    const disk = path.join(vault, newPath);
+    writeFileSync(disk, readFileSync(disk, "utf8").replace("123", "987") + "\n外部写入同一档案。\n");
+    await expect(page.getByTestId("archive-fields").getByLabel("电话")).toHaveValue("987", { timeout: 20_000 });
+    await expect(page.getByTestId("archive-body")).toContainText("外部写入同一档案。");
+    await markdownTab.click();
+    await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toContainText("外部写入同一档案。");
+    await expect(page.getByTestId("editor-properties")).toContainText("987");
+    rmSync(path.dirname(disk), { recursive: true });
+    await expect(markdownTab).toHaveCount(0, { timeout: 20_000 });
+    await expect(recordTab).toHaveCount(0, { timeout: 20_000 });
+    expect(readdirSync(path.join(vault, base)).sort()).toEqual(["index.md", "李四"]);
   } finally {
     await close();
   }

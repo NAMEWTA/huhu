@@ -1,6 +1,7 @@
 // `@` 引用补全（宿主侧，不改 vendor）：输入 `@` 弹出 Vault 文件 / 文件夹候选，选中后插入 OK 的 wikiLink 节点
 // （序列化为 `[[相对路径]]`，文件写完整相对路径含扩展名，文件夹以 `/` 结尾）。候选与打分由宿主提供（tasks 的 useReferenceIndex）。
 // 经 `editor.registerPlugin` 注册，随编辑器销毁 / 组件卸载注销；S5 把候选源换成共享的资源适配层。
+import { appendFileIcon } from "@huhu/ui";
 import type { Editor } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
@@ -26,7 +27,8 @@ export function registerAtReference(editor: Editor, search: (query: string) => r
       row.className = `editor-ref-item${i === index ? " editor-ref-item-active" : ""}`;
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(i === index));
-      row.textContent = c.path;
+      appendFileIcon(row, c.path, c.kind === "folder", 14);
+      row.append(document.createTextNode(c.path));
       const tag = document.createElement("span");
       tag.className = "editor-ref-kind";
       tag.textContent = c.kind === "folder" ? "文件夹" : "文件";
@@ -84,7 +86,7 @@ export function registerAtReference(editor: Editor, search: (query: string) => r
         place(p.clientRect?.() ?? null);
       },
       onKeyDown: (p: SuggestionKeyDownProps) => {
-        if (!menu || items.length === 0) return false;
+        if (!menu || items.length === 0 || p.event.isComposing || p.event.keyCode === 229) return false;
         if (p.event.key === "ArrowDown") {
           index = (index + 1) % items.length;
           paint();

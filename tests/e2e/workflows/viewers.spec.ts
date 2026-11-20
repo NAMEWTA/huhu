@@ -98,6 +98,20 @@ test("F01 / F02：TXT / JSON 编辑写回原文件；无效 JSON 不被清空；
     await expect(page.getByTestId("file-format-note")).toContainText("已格式化");
     await expect.poll(() => readFileSync(`${vault}/数据.json`, "utf8")).toBe('{\n  "a": 1\n}\n');
 
+    for (const [name, ext] of [
+      ["说明", "txt"],
+      ["数据", "json"],
+    ]) {
+      await page.getByRole("button", { name: `关闭 ${name}.${ext}`, exact: true }).click();
+      await openFile(page, name!);
+      const lines = () => page.locator(".cm-content .cm-line").allTextContents();
+      await expect.poll(async () => (await lines()).join("\n")).toBe(readFileSync(`${vault}/${name}.${ext}`, "utf8"));
+      if (ext === "json") {
+        await expect(page.getByTestId("file-diagnostic")).toContainText("JSON 语法正确");
+        await expect(page.locator(".cm-content .cm-line span").filter({ hasText: '"a"' }).first()).toBeVisible();
+      }
+    }
+
     // BOM + CRLF：在开头插入一个字符，其余字节不变
     await openFile(page, "bom");
     await page.locator(".cm-content").click();
@@ -176,13 +190,35 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await page.getByTestId("pdf-find-input").fill("Bravo");
     await expect(page.getByTestId("pdf-find-count")).toContainText("1 / 1", { timeout: 15_000 });
     await page.getByTestId("pdf-find-input").press("Escape");
-    // 选择：文字层可选
-    expect(
-      await page
-        .locator(".pdfViewer .textLayer span")
-        .first()
-        .evaluate((el) => getComputedStyle(el).userSelect),
-    ).not.toBe("none");
+    // 在第二页用实际指针拖选文字，再记录缩放与滚动状态。
+    const secondPage = page.locator('.pdfViewer .page[data-page-number="2"]');
+    const bravo = secondPage
+      .locator(".textLayer span")
+      .filter({ hasText: /^Bravo Page$/ })
+      .first();
+    await bravo.scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: "放大" }).click();
+    await secondPage.evaluate((el) => {
+      const container = el.closest<HTMLElement>(".notes-pdf-container")!;
+      container.scrollTop += el.getBoundingClientRect().top - container.getBoundingClientRect().top + 24;
+    });
+    await expect(bravo).toBeInViewport();
+    const box = (await bravo.boundingBox())!;
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("Bravo Page");
+    const container = page.locator(".notes-pdf-container");
+    const position = () =>
+      container.evaluate((el) => ({
+        top: el.scrollTop,
+        page: [...el.querySelectorAll<HTMLElement>(".pdfViewer .page")].find((item) => item.getBoundingClientRect().bottom > el.getBoundingClientRect().top)?.dataset.pageNumber,
+      }));
+    const before = await position();
+    expect(before.page).toBe("2");
+    expect(before.top).toBeGreaterThan(0);
+    const zoom = await page.getByTestId("pdf-zoom").textContent();
 
     // > 10 MiB：分段读取（不经 readBinary / readFile）
     calls.length = 0;
@@ -192,6 +228,12 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     expect(lengths.length).toBeGreaterThan(1);
     expect(lengths.every((length) => length > 0 && length <= 4 * 1024 * 1024)).toBe(true);
     expect(calls.some((c) => c.startsWith("vault.readBinary:") || c.startsWith("notes.read:"))).toBe(false);
+
+    await openFile(page, "手册");
+    await expect(bravo).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("pdf-zoom")).toHaveText(zoom!);
+    await expect.poll(async () => (await position()).page).toBe(before.page);
+    await expect.poll(async () => Math.abs((await position()).top - before.top)).toBeLessThanOrEqual(3);
 
     // 损坏：明确反馈，没有空白“假成功”
     await openFile(page, "坏");
@@ -462,6 +504,56 @@ for (const mode of MODES)
       await close();
     }
   });
+
+test("F06：树、标签、引用、搜索与详情使用同一组本地图形", async () => {
+  const { page, vault, close } = await launch();
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (/^https?:/.test(request.url()) && !/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(request.url())) requests.push(request.url());
+  });
+  try {
+    const fixtures = [
+      { name: "图标手册.pdf", kind: "pdf", data: buildPdf(["icon fixture"]) },
+      { name: "图标记录.md", kind: "markdown", data: "# 图标记录" },
+      { name: "图标压缩.zip", kind: "archive", data: Buffer.from([0x50, 0x4b, 3, 4]) },
+      { name: "图标未知.other", kind: "file", data: "unknown" },
+    ];
+    for (const { name, data } of fixtures) writeFileSync(path.join(vault, name), data);
+    mkdirSync(path.join(vault, "图标目录"));
+    await openKnowledge(page);
+    const tree = page.getByTestId("notes-resource-tree");
+    for (const { name, kind } of fixtures) {
+      const row = tree.locator(`[data-item-path="${name}"]`);
+      await expect(row.locator('[data-item-section="icon"] use')).toHaveAttribute("href", `#huhu-tree-${kind}`);
+      await row.click();
+      await expect(page.locator('[aria-current="true"][data-testid="document-tab"] [data-file-icon]')).toHaveAttribute("data-file-icon", kind);
+      if (kind !== "markdown") await expect(page.getByTestId("file-card").locator(`[data-file-icon="${kind}"]`).first()).toBeVisible();
+      const activeTab = page.locator('[aria-current="true"][data-testid="document-tab"]');
+      await activeTab.focus();
+      await page.keyboard.press("ControlOrMeta+k");
+      const palette = page.getByTestId("command-palette");
+      await palette.getByRole("combobox").fill(name.split(".")[0]!);
+      const result = palette.getByTestId("palette-item").filter({ hasText: name });
+      await expect(result.locator("[data-file-icon]")).toHaveAttribute("data-file-icon", kind);
+      await page.keyboard.press("Escape");
+    }
+    const folder = tree.locator('[data-item-path="图标目录/"]');
+    await expect(folder.locator("[data-huhu-folder-icon] use")).toHaveAttribute("href", "#huhu-tree-folder");
+    await treeItem(page, "图标记录.md").click();
+    const editor = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("@图标");
+    const options = page.getByTestId("editor-ref-menu").getByRole("option");
+    for (const { name, kind } of [...fixtures, { name: "图标目录/", kind: "folder" }]) {
+      await expect(options.filter({ hasText: name }).locator("[data-file-icon]")).toHaveAttribute("data-file-icon", kind);
+    }
+    expect(requests).toEqual([]);
+  } finally {
+    await close();
+  }
+});
 
 test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的 pdfViewer / iframe 不持续增长", async () => {
   const { page, vault, close } = await launch();

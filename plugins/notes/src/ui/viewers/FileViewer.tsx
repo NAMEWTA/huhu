@@ -1,3 +1,4 @@
+import { FileIcon } from "@huhu/ui";
 import { MermaidBlock } from "@huhu/editor";
 import type { ProtectedKind, VaultListOutput } from "@huhu/contracts";
 import { host, useEngine } from "@huhu/workbench";
@@ -68,7 +69,7 @@ export function FileViewer({ path, size, mtimeMs }: { path: string; size: number
 /** 资源索引可能落后于磁盘。打开已知的非 Markdown 路径时，从真实父目录读取元信息。 */
 export function UnindexedFileViewer({ path }: { path: string }) {
   const engine = useEngine();
-  const [metadata, setMetadata] = useState<{ size: number; mtimeMs: number; protection: ProtectedKind | undefined } | null | undefined>(undefined);
+  const [metadata, setMetadata] = useState<{ size: number; mtimeMs: number; protection: ProtectedKind | undefined; unavailable: string | undefined } | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
     const dir = path.slice(0, Math.max(path.lastIndexOf("/"), 0));
@@ -76,9 +77,12 @@ export function UnindexedFileViewer({ path }: { path: string }) {
       let cursor: string | undefined;
       do {
         const listing = await engine.call<VaultListOutput>("vault.list", { dir, cursor, includeProtected: true });
-        const entry = listing.entries.find((file) => file.path === path && file.kind === "file");
+        const entry = listing.entries.find((file) => file.path === path && file.kind !== "dir");
         if (entry) {
-          if (live) setMetadata({ size: entry.size ?? 0, mtimeMs: entry.mtimeMs ?? 0, protection: entry.protected });
+          if (live) {
+            const unavailable = entry.linkTarget?.cycle ? "目录符号链接形成循环" : entry.kind === "symlink" ? "链接目标不在 Vault 内或已失效" : undefined;
+            setMetadata({ size: entry.size ?? 0, mtimeMs: entry.mtimeMs ?? 0, protection: entry.protected, unavailable });
+          }
           return;
         }
         cursor = listing.nextCursor;
@@ -94,15 +98,18 @@ export function UnindexedFileViewer({ path }: { path: string }) {
   }, [engine, path]);
 
   if (!metadata) return <p role={metadata === null ? "alert" : "status"}>{metadata === null ? v.missing : v.reading}</p>;
-  if (metadata.protection) {
+  if (metadata.protection || metadata.unavailable) {
     return (
       <section className="notes-document-area" data-testid="file-card" data-viewer="protected">
-        <h3>{path.split("/").at(-1)}</h3>
+        <h3 className="row">
+          <FileIcon name={path} />
+          {path.split("/").at(-1)}
+        </h3>
         <p>{path}</p>
         <p>
           {humanSize(metadata.size)} · {new Date(metadata.mtimeMs).toLocaleString("zh-CN", { hour12: false })}
         </p>
-        <p>受保护的文件仅显示元信息。</p>
+        <p>{metadata.unavailable ?? "受保护的文件仅显示元信息。"}</p>
       </section>
     );
   }
