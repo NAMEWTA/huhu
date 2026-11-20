@@ -17,7 +17,7 @@ import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "
 import { setHostLintAvailable } from "@/lib/host-features";
 import { i18n } from "@/lib/i18n";
 import { hasSidebarDragType, navigationForSidebarDragPayload, parseSidebarDragPayload } from "@/lib/sidebar-drag";
-import { HostConfigProvider, type HostEditorConfig } from "../host/config-provider";
+import { HostConfigProvider, registerLinkPreviewRoute, type HostEditorConfig } from "../host/config-provider";
 import { installDesktopBridge } from "../host/desktop-bridge";
 import { DocumentProvider, type DocumentHostCallbacks } from "../host/document-context";
 import { installHostFetch, registerHostRoutes, type HostRoutes } from "../host/host-fetch";
@@ -70,15 +70,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
   }, [features, openExternal]);
   useEffect(installHostFetch, []);
   const requestLinkPreview = config?.linkPreviewsEnabled ? config.requestLinkPreview : undefined;
-  useEffect(() => {
-    if (!requestLinkPreview) return;
-    return registerHostRoutes({
-      "POST /api/link-preview": ({ body }) => {
-        const url = (body as { url?: unknown } | null)?.url;
-        return typeof url === "string" ? requestLinkPreview(url) : { ok: false, reason: "invalid-url" };
-      },
-    });
-  }, [requestLinkPreview]);
+  useEffect(() => (requestLinkPreview ? registerLinkPreviewRoute(requestLinkPreview) : undefined), [requestLinkPreview]);
   useEffect(() => (routes ? registerHostRoutes(routes) : undefined), [routes]);
   // OK 的内部链接用 URL hash 表示导航（window.location.assign(#…)）；Huhu 没有 OK 的路由，这里把 hash 翻译成宿主回调后清掉它
   useEffect(() => {

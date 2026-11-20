@@ -365,3 +365,5 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - P-WP6-01 `scripts/ok-css-build.mjs` 从 `app/src/globals.css` 生成宿主样式。输出去除上游颜色主题表的导入及文件树默认蓝色规则，加入局部控件重置。构建插件将 base/components 分别移入 `vendor.ok-base` / `vendor.ok-components`。
 
 - P-WP6-02 `app/src/editor/link-preview/internal-doc-preview.ts`：随 OK 根切换 Vault 清空内容及反链缓存，迟到的旧 Vault 请求不填入新缓存。宿主复用本地笔记读取及反链路由。
+
+- `app/src/editor/extensions/slash-command.ts`：组合输入期间将确认键交回输入法。

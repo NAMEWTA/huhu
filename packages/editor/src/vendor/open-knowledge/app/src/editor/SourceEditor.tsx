@@ -75,7 +75,7 @@ interface SourceEditorProps {
 }
 
 function cleanupSourceEditorEntry(docName: string, entry: CmCacheEntry): void {
-  documentHistory(entry.ydoc).stopCapturing();
+  entry.view.state.facet(ySyncFacet).undoManager.stopCapturing();
   try {
     parkCmEditor(entry);
   } finally {
@@ -295,7 +295,7 @@ export function SourceEditor({
       });
       cmEntryRef.current = entry;
       viewRef.current = entry.view;
-      documentHistory(provider.document).stopCapturing();
+      entry.view.state.facet(ySyncFacet).undoManager.stopCapturing();
       registerFullPageCmView(docName, entry.view, 'sourceEditor');
       if (claimNoteWindowInitialFocus()) entry.view.focus();
     } catch (err) {
@@ -316,8 +316,8 @@ export function SourceEditor({
 
   useEffect(() => {
     sourceModeActiveRef.current = isSourceModeActive;
-    documentHistory(provider.document).stopCapturing();
-  }, [isSourceModeActive, provider]);
+    viewRef.current?.state.facet(ySyncFacet).undoManager.stopCapturing();
+  }, [isSourceModeActive]);
 
   useEffect(() => {
     if (import.meta.env.PROD) return;

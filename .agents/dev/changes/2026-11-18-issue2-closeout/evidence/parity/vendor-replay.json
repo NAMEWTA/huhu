@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "afc4f17eebb168b907019a21113cb9c6788cc37afd61193897a21e804595e0ae",
+      "sha256": "6c0eb1407c6f80f9ca73761c80036669c00c4df05183df5236fdd5a0c3a03668",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -1806,7 +1806,7 @@
       "target": "app/src/editor/SourceEditor.tsx",
       "upstream": "packages/app/src/editor/SourceEditor.tsx",
       "blob": "215ddcd7c554201341b0ee5533bc9f81b908ecee",
-      "sha256": "3c48e5eed0a603cef7341108572de015dbff2edf5330165fff72d90ddbff8885",
+      "sha256": "2fb8cbb7bc026fd1f627f1ca38d48e0c99b43605abb7a0dd9f11a3e29b02d12b",
       "method": "patch",
       "description": "PATCHES.md:336 - `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。"
     },
@@ -2959,7 +2959,7 @@
       "target": "app/src/editor/document-history.ts",
       "upstream": null,
       "blob": null,
-      "sha256": "3c7878140e309570f47d28dfc3c735a3e6a5a1cc2e946459815b22ef763498a7",
+      "sha256": "0ab056896425ed6bad7699bdbf41a5dd25f8d0e60cfcc28c74ba5b2444e85d58",
       "method": "local",
       "description": "PATCHES.md:360 - `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。"
     },
@@ -3666,8 +3666,9 @@
       "target": "app/src/editor/extensions/slash-command.ts",
       "upstream": "packages/app/src/editor/extensions/slash-command.ts",
       "blob": "221c60abd1fa585297e0273ef6792507862f6fb1",
-      "sha256": "7e74264db4e15901909b2ad318782cbcaf17567b45e041983204f52bef216e93",
-      "method": "copy"
+      "sha256": "c25ac2cec3329574a24444b5fddab8d4478125f3a44095a7acae8b725db4e854",
+      "method": "patch",
+      "description": "PATCHES.md:369 - `app/src/editor/extensions/slash-command.ts`：组合输入期间将确认键交回输入法。"
     },
     {
       "target": "app/src/editor/extensions/source-dirty-flip.dom.test.tsx",

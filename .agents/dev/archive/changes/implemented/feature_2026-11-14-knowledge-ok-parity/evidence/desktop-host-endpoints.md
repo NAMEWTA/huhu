@@ -13,5 +13,5 @@ node packages/editor/build/check-host-endpoints.mjs --assert
 | --- | --- |
 | `/api/document`、`/api/backlink-counts` | 复用当前 Vault 的读取与反链服务。已加形状、错误文案及异步跨 Vault 缓存隔离的自动断言。 |
 | `/api/asset` | OK 的页图标／封面辅助函数构造浏览器图片地址。需核对成品属性编辑 UI 所有资源入口是否都经过 Huhu 媒体路径。 |
-| `/api/link-preview` | `HostConfigProvider` 默认关闭联网（Q3）。可启用的设置与限时限大小的主进程获取仍缺。 |
+| `/api/link-preview` | `HostConfigProvider` 默认关闭联网（Q3）。桌面编辑器设置开启后注册 POST 路由，由主进程按时间和大小上限抓取。失败时保留 URL。 |
 | `okDesktop.shell.openExternal` | bridge 能转交 `OkHost`，实际桌面渲染目前未安装外链 provider。与 OP-D08 的用户动作和桌面外链策略一起定案。 |

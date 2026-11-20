@@ -232,8 +232,9 @@ if (!gotLock) {
         const settings = JSON.parse(await readFile(path.join(vault.path, ".huhu", "settings.json"), "utf8")) as { editor?: { linkPreviews?: unknown } };
         if (current !== vault || settings?.editor?.linkPreviews !== true) return { ok: false, reason: "disabled" };
         return await fetchExternalLinkPreview(url);
-      } catch {
-        return { ok: false, reason: "unavailable" };
+      } catch (error) {
+        const missing = (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
+        return { ok: false, reason: missing ? "disabled" : "unavailable" };
       }
     });
     ipcMain.handle("huhu:vault:state", async (event): Promise<VaultState> => {

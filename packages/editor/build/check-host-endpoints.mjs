@@ -17,7 +17,7 @@ function record(map, key, entry) {
 
 for (const directory of [host, join(host, "routes")]) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
+    if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue;
     const file = join(directory, entry.name);
     for (const [line, source] of readFileSync(file, "utf8").split("\n").entries()) {
       const route = /"((?:GET|POST|DELETE|PUT|PATCH) (\/api\/[\w./-]+))"\s*:/.exec(source);

@@ -5,7 +5,9 @@ const historyByDocument = new WeakMap<Y.Doc, Y.UndoManager>();
 
 export function documentHistory(doc: Y.Doc): Y.UndoManager {
   const existing = historyByDocument.get(doc);
-  if (existing) return existing;
+  // The collaboration plugin destroys its manager when an uncached rich view
+  // is destroyed. A later mount on the same pooled document needs a live one.
+  if (existing?.trackedOrigins.has(existing)) return existing;
   const history = new Y.UndoManager([doc.getText('source'), doc.getXmlFragment('default')], {
     trackedOrigins: new Set([ySyncPluginKey]),
     captureTransaction: (transaction) => transaction.meta.get('addToHistory') !== false,
