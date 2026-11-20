@@ -1,6 +1,7 @@
 import { commentRoutes, notifyCommentsChanged, type HostRoutes } from "@huhu/editor/rich";
 import { useEngine, useEngineEvents } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
+import { documentSessions } from "../documents/useDocumentSession.js";
 import { createCommentsPort, docNameOf, pathOfDocName } from "./commentAdapter.js";
 
 /**
@@ -21,15 +22,22 @@ export function useCommentsBridge(opts: { paths: readonly string[]; flush(): Pro
       pathOf: (docName) => pathOfDocName(docName, paths.current),
       docNameOf,
       // 引擎在“已保存的文本”上解析引用文字：先落盘；落盘失败（如冲突）就不创建，避免批注对应错误的版本（D05）
-      flush: async () => {
-        if (!(await flushRef.current())) throw new Error("文档还没有保存成功（可能有冲突），先处理后再添加批注");
+      selectionRevision: (path) => {
+        const session = documentSessions.get(engine.vaultId, path);
+        if (!session) return;
+        const { dirtyRevision, baseVersion, loaded } = session.getSnapshot();
+        if (loaded) return { ...session.id, revision: dirtyRevision, sourceVersion: baseVersion };
+      },
+      flush: async (_docName, path) => {
+        const saved = await (path ? documentSessions.get(engine.vaultId, path)?.flush() : flushRef.current());
+        if (!saved) throw new Error("文档还没有保存成功（可能有冲突），先处理后再添加批注");
       },
     });
   }, [engine]);
 
   // 批注数据变化（本机或其它入口创建 / 回复 / 解决 / 保存后重定位）→ 让 OK 的 store 重新拉取
   useEngineEvents((e) => {
-    if (e.type === "entity.changed" && (e.payload as { kind?: string }).kind === "comment") notifyCommentsChanged();
+    if (e.type === "entity.changed" && (e.payload as { kind?: string }).kind === "comment") notifyCommentsChanged(engine.vaultId);
   });
   return { commentRoutes: routes };
 }

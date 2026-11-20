@@ -2953,6 +2953,9 @@ msgstr "Couldn't connect to the agent service. Make sure the OpenKnowledge serve
 msgid "Couldn't construct the share URL. Try Done and re-share."
 msgstr "Couldn't construct the share URL. Try Done and re-share."
 
+msgid "Couldn't copy image"
+msgstr "Couldn't copy image"
+
 msgid "Couldn't copy path"
 msgstr "Couldn't copy path"
 
@@ -3072,6 +3075,9 @@ msgstr "Couldn't load your bug reports."
 
 msgid "Couldn't mark that comment to send."
 msgstr "Couldn't mark that comment to send."
+
+msgid "Couldn't load comments"
+msgstr "Couldn't load comments"
 
 msgid "Couldn't move {0}: {1}"
 msgstr "Couldn't move {0}: {1}"
@@ -8970,6 +8976,9 @@ msgstr "Resuming the chat"
 
 msgid "Retrieving…"
 msgstr "Retrieving…"
+
+msgid "Retry"
+msgstr "Retry"
 
 msgid "Retry push"
 msgstr "Retry push"

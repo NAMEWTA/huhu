@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import parcelWatcher from "@parcel/watcher";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { ReceiptLog, VaultFiles, VaultWatcher, type FileChange } from "../src/index.js";
 
 const dirs: string[] = [];
@@ -27,6 +28,30 @@ async function until(cond: () => boolean, ms = process.platform === "win32" ? 10
 }
 
 describe("目录变化（A05）", () => {
+  test("目录删除事件补报该目录内仍在快照中的文件删除", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
+    dirs.push(root);
+    const folder = path.join(root, "记录");
+    mkdirSync(folder);
+    writeFileSync(path.join(folder, "index.md"), "正文");
+    const received: FileChange[] = [];
+    const dirChanges: string[] = [];
+    const backend = vi.spyOn(parcelWatcher, "subscribe");
+    backend.mockResolvedValueOnce({ unsubscribe: async () => {} });
+    try {
+      const w = new VaultWatcher({ root, receipts: new ReceiptLog(), batchMs: 5, onChanges: (changes) => received.push(...changes), onDirChanges: (paths) => dirChanges.push(...paths) });
+      watchers.push(w);
+      await w.start();
+      const removed = realpathSync(folder);
+      rmSync(folder, { recursive: true });
+      backend.mock.calls[0]![1](null, [{ path: removed, type: "delete" }]);
+      await until(() => dirChanges.includes("记录"));
+      expect(dirChanges).toContain("记录");
+      expect(received).toEqual([{ path: "记录/index.md", change: "deleted" }]);
+    } finally {
+      backend.mockRestore();
+    }
+  });
   test("外部创建 / 删除空目录触发 onDirChanges，且不产生文件事件", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
     dirs.push(root);
@@ -46,6 +71,21 @@ describe("目录变化（A05）", () => {
 });
 
 describe("原生监听", () => {
+  test.skipIf(process.platform !== "linux")("移入完整目录后继续监听所有子目录里的文件", async () => {
+    const { root, seen } = await setup();
+    const staging = mkdtempSync(path.join(tmpdir(), "huhu-wt-stage-"));
+    dirs.push(staging);
+    mkdirSync(path.join(staging, "类型", "档案"), { recursive: true });
+    writeFileSync(path.join(staging, "类型", "档案", "index.md"), "原题");
+    renameSync(staging, path.join(root, "Archives"));
+    const entry = "Archives/类型/档案/index.md";
+    await until(() => seen.some((change) => change.path === entry));
+    expect(seen).toContainEqual({ path: entry, change: "created" });
+    writeFileSync(path.join(root, entry), "外部改写的新正文");
+    await until(() => seen.some((change) => change.path === entry && change.change === "modified"));
+    expect(seen).toContainEqual({ path: entry, change: "modified" });
+  });
+
   test("外部创建/修改/删除在 1 秒内反映", async () => {
     const { root, seen } = await setup();
     const t0 = Date.now();

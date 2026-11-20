@@ -1,4 +1,25 @@
-# 上游测试结果（G04，三分类）
+# 上游测试结果（G04）
+
+## 2026-11-20 固定来源与交付闭包分母
+
+测试按固定 Git 树逐文件计数。OK 的通过数来自 Vitest，每个文件至少有一个通过用例且无失败。ORCA 还纳入通过 Electron 验证的 Huhu 适配用例。部分覆盖留在适用分母。跳过用例见 [执行汇总](vendor-test-catalog.json)。
+
+- 已核完 112 个待定文件。40 个被测模块或行为随 Huhu 交付，仍需适配。72 个的被测主体未交付，从适用分母移除。逐文件测试主体及理由见 [复核记录](vendor-test-subject-review.json)，生产源码对应关系见 [G01 来源清单](source-file-catalog.md)。
+- 原先确认的 604 个未交付模块继续按逐文件理由记为不适用。原保守口径将这 604 个与本轮排除的 72 个都计入分母。Q2 排除仍按现有具体理由登记。
+- 本轮 OK 测试运行通过 530 个文件、9,182 个用例，4 个用例跳过。适用通过数计 488 个原样上游文件及 28 个适配文件。另有 4 个本地测试文件，10 个已登记不适用的上游文件虽运行通过，仍按被测功能的交付范围排除。原样试跑失败或无终态的条目见 [适配清单](vendor-test-adaptation.json)。
+
+| 固定源 | 交付闭包口径 | 原保守口径 | 70% 所需通过数（交付闭包口径） |
+| --- | --- | --- | --- |
+| OK `44a2e0a` | **516 / 639（80.75%）** | 516 / 1315（39.24%） | 448 |
+| ORCA `7041ea02` | **8 / 11（72.73%）** | 8 / 11（72.73%） | 8 |
+
+ORCA 的四个外壳适配套件使用 Electron 结果。其中查找栏还要求 [组件回归测试](../../../../../../../plugins/notes/test/orca-pdf-find.test.tsx#L27) 全部通过，覆盖重开时订阅先于同步缓存回执、清空及改词后忽略晚旧回执，以及真实 PDF.js 控制器重新交付新查询结果。计数套件同时检查活动高亮所在文本、关闭后的高亮清除以及重开后继续导航。[查找快捷键](../../../../../../../tests/e2e/workflows/viewers.spec.ts#L744) · [计数和高亮](../../../../../../../tests/e2e/workflows/viewers.spec.ts#L830) · [查找栏重开](../../../../../../../tests/e2e/workflows/viewers.spec.ts#L888) · [坏文件恢复](../../../../../../../tests/e2e/workflows/viewers.spec.ts#L915)
+
+ORCA 分母仍含细节瓦片设备像素、尺寸读取次数，以及重载后的资源释放完整性。这三项未计作通过。设备像素及尺寸读次数待专项验证，现有重载清理仅有 DOM 证据。完整状态见 [逐文件 JSONL](vendor-test-files.jsonl.gz)。
+
+---
+
+## 2026-11-15 历史三分类结果
 
 生成：`node scripts/ok-test-report.mjs`（数据 `packages/editor/test-results/vendor.json` ← `pnpm --filter @huhu/editor test:vendor`；不适用清单 `vendor-tests-na.json` ← `scripts/ok-tests-prune.mjs`；原样基线 `tests-manifest.json` ← `ok-patches.mjs --write-tests-manifest`）。固定上游 `44a2e0a`。
 

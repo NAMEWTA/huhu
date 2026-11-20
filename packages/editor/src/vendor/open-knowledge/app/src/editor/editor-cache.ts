@@ -1,7 +1,7 @@
 /**
  * Module-level editor cache that survives React unmount, SPA navigation, Activity mode flips,
  * StrictMode double-invoke and HMR, per precedent #27(a): mount reparents, park detaches without
- * destroying, and evict is the only path that destroys the provider and Y.Doc.
+ * destroying. Huhu eviction destroys the view only; the host pool owns the provider and Y.Doc.
  */
 
 /**
@@ -458,27 +458,6 @@ export function evictTiptapEditor(docName: string): boolean {
   if (undoManager) {
     undoManager.restore = undefined;
   }
-  try {
-    entry.provider.destroy();
-  } catch (err) {
-    mark('ok/cache/evict-failed', {
-      docName,
-      kind: 'tiptap',
-      stage: 'provider',
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-  try {
-    entry.ydoc.destroy();
-  } catch (err) {
-    mark('ok/cache/evict-failed', {
-      docName,
-      kind: 'tiptap',
-      stage: 'ydoc',
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-
   tiptapCache.delete(docName);
   const lruIdx = tiptapLru.indexOf(docName);
   if (lruIdx !== -1) tiptapLru.splice(lruIdx, 1);
@@ -674,27 +653,6 @@ export function evictCmEditor(docName: string): boolean {
     });
   }
   destroyCmUndoManager(entry, docName, 'evict-failed');
-  try {
-    entry.provider.destroy();
-  } catch (err) {
-    mark('ok/cache/evict-failed', {
-      docName,
-      kind: 'cm',
-      stage: 'provider',
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-  try {
-    entry.ydoc.destroy();
-  } catch (err) {
-    mark('ok/cache/evict-failed', {
-      docName,
-      kind: 'cm',
-      stage: 'ydoc',
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-
   cmCache.delete(docName);
   const lruIdx = cmLru.indexOf(docName);
   if (lruIdx !== -1) cmLru.splice(lruIdx, 1);

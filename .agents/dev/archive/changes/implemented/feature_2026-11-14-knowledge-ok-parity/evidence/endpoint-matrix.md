@@ -261,3 +261,7 @@
 | `GET /api/pages`、`GET /api/documents` | 宿主未注入时返回空清单（最低优先级兜底），有数据的路由优先 | `host/host-fetch.ts` 的 baselineRoutes；数据路由在 `host/routes/core.ts`（笔记 / 紧凑编辑器注入） |
 | `GET /api/audit`、`GET /api/lint/config` | 不发请求：`OkHost.features.lint=false` → `setHostLintAvailable(false)`，vendor 客户端直接返回 null（P-S3-07） | `rich/OkRoot.tsx`、`app/src/lib/host-features.ts` |
 | 其余 `/api/lint/*`（fix / markdownlint-config / frontmatter-schema[s]） | 仅由用户显式操作的 UI（ProblemsPanel / 规则设置）触发，那些入口按 Q2 不接；若被触发返回 404 NOT_AVAILABLE | `host/host-fetch.ts` 兜底 404 |
+
+## H04 用户可见反馈补证
+
+[收尾端点矩阵](../../../../../changes/2026-11-18-issue2-closeout/evidence/parity/endpoint-matrix.md)列出每组实际宿主能力的状态码、对应渲染或 Electron 断言与未覆盖分支。

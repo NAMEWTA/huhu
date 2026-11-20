@@ -1,3 +1,4 @@
+import { editorFetch, okFetch } from '@/lib/ok-fetch';
 import {
   BacklinksSuccessSchema,
   ForwardLinksSuccessSchema,
@@ -289,8 +290,8 @@ export interface FetchPagesOptions {
   includeFolders?: boolean;
 }
 
-export async function fetchPages(options: FetchPagesOptions = {}): Promise<PageItem[]> {
-  const r = await fetch('/api/pages');
+export async function fetchPages(options: FetchPagesOptions = {}, request = okFetch): Promise<PageItem[]> {
+  const r = await request('/api/pages');
   let body: unknown;
   try {
     body = await r.json();
@@ -317,7 +318,7 @@ export async function fetchPages(options: FetchPagesOptions = {}): Promise<PageI
 
   let docData: { documents?: Array<{ kind?: string; path?: string }> };
   try {
-    const { ok, status, body } = await fetchDocumentListShared();
+    const { ok, status, body } = await fetchDocumentListShared(request);
     if (!ok) {
       console.warn('[wiki-link-suggestion] /api/documents responded with', status);
       return pages;
@@ -366,8 +367,8 @@ export async function fetchPages(options: FetchPagesOptions = {}): Promise<PageI
   return [...pages, ...assets, ...files, ...folders];
 }
 
-export async function fetchHeadings(docName: string): Promise<HeadingEntry[]> {
-  const r = await fetch(`/api/page-headings?docName=${encodeURIComponent(docName)}`);
+export async function fetchHeadings(docName: string, request = okFetch): Promise<HeadingEntry[]> {
+  const r = await request(`/api/page-headings?docName=${encodeURIComponent(docName)}`);
   let body: unknown;
   try {
     body = await r.json();
@@ -391,9 +392,9 @@ export async function fetchHeadings(docName: string): Promise<HeadingEntry[]> {
   return success.data.headings ?? [];
 }
 
-async function fetchForwardLinkTargets(docName: string): Promise<string[]> {
+async function fetchForwardLinkTargets(docName: string, request: typeof fetch): Promise<string[]> {
   try {
-    const r = await fetch(`/api/forward-links?docName=${encodeURIComponent(docName)}`);
+    const r = await request(`/api/forward-links?docName=${encodeURIComponent(docName)}`);
     if (!r.ok) {
       console.warn('[wiki-link-suggestion] /api/forward-links responded', r.status, docName);
       return [];
@@ -407,9 +408,9 @@ async function fetchForwardLinkTargets(docName: string): Promise<string[]> {
   }
 }
 
-async function fetchBacklinkSources(docName: string): Promise<string[]> {
+async function fetchBacklinkSources(docName: string, request: typeof fetch): Promise<string[]> {
   try {
-    const r = await fetch(`/api/backlinks?docName=${encodeURIComponent(docName)}`);
+    const r = await request(`/api/backlinks?docName=${encodeURIComponent(docName)}`);
     if (!r.ok) {
       console.warn('[wiki-link-suggestion] /api/backlinks responded', r.status, docName);
       return [];
@@ -423,11 +424,11 @@ async function fetchBacklinkSources(docName: string): Promise<string[]> {
   }
 }
 
-export async function loadWikiLinkContext(currentDocName: string | null): Promise<WikiLinkContext> {
+export async function loadWikiLinkContext(currentDocName: string | null, request = okFetch): Promise<WikiLinkContext> {
   if (!currentDocName) return EMPTY_WIKI_LINK_CONTEXT;
   const [outgoing, incoming] = await Promise.all([
-    fetchForwardLinkTargets(currentDocName),
-    fetchBacklinkSources(currentDocName),
+    fetchForwardLinkTargets(currentDocName, request),
+    fetchBacklinkSources(currentDocName, request),
   ]);
   const connectedDocNames = new Set<string>([...outgoing, ...incoming]);
   connectedDocNames.delete(currentDocName);
@@ -463,7 +464,7 @@ export function configureWikiLinkSuggestion(editor: Editor) {
           let request = headingRequests.get(pageTarget);
           if (!request) {
             // The query can change while the same page's headings are loading.
-            request = fetchHeadings(pageTarget).then(
+            request = fetchHeadings(pageTarget, editorFetch(editor)).then(
               (loaded) => {
                 if (cachedHeadings === cache) anchorFetchError = null;
                 cache.set(pageTarget, loaded);
@@ -486,8 +487,8 @@ export function configureWikiLinkSuggestion(editor: Editor) {
       }
 
       if (!pagesLoaded) {
-        pagesPromise ||= fetchPages();
-        contextPromise ||= loadWikiLinkContext(getEditorDocName(editor));
+        pagesPromise ||= fetchPages({}, editorFetch(editor));
+        contextPromise ||= loadWikiLinkContext(getEditorDocName(editor), editorFetch(editor));
         const [pagesResult, contextResult] = await Promise.allSettled([
           pagesPromise,
           contextPromise,

@@ -32,7 +32,7 @@ export const VaultListEntry = z.object({
   mtimeMs: z.number().optional(),
   protected: z.enum(PROTECTED_KINDS).optional(),
   /** 链接条目：目标是否仍在 Vault 内。越界 / 失效 / 循环时 kind 保持 'symlink'、inside=false，且不跟随。 */
-  linkTarget: z.object({ inside: z.boolean() }).optional(),
+  linkTarget: z.object({ inside: z.boolean(), cycle: z.literal(true).optional() }).optional(),
 });
 export type VaultListEntry = z.infer<typeof VaultListEntry>;
 

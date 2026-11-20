@@ -244,7 +244,7 @@ function resolveRelativeRange(
 
 function stylePreview(preview: HTMLElement, view: EditorView, source: Element | null): void {
   const style = getComputedStyle(view.dom);
-  preview.className = 'ok-root ProseMirror';
+  preview.className = 'ok-root editor-ok-portal ProseMirror';
   for (const name of [
     'font-family',
     'font-size',

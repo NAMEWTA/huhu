@@ -7,7 +7,7 @@ import { PanelFooter } from '@/components/ui/panel';
 import { formatShortcut, formatShortcutLabel } from '@/lib/keyboard-shortcuts';
 import { openAgentSettings } from '@/lib/use-settings-route';
 import { QueueNewChatRow } from './QueueNewChatRow';
-import { dispatchComments } from './store';
+import { dispatchComments, useCommentSurface } from './store';
 import { useCommentAgentPicker } from './use-comment-agent-picker';
 import { useCommentDispatch } from './use-comment-delivery';
 import { useSendQueue } from './use-send-queue';
@@ -25,6 +25,7 @@ export function CommentSendFooter({
 }) {
   const { t } = useLingui();
   const picker = useCommentAgentPicker();
+  const surface = useCommentSurface();
   const composeFreshTurn = useCommentDispatch();
   const reusableThread = useReusableSession();
   const openSession = reusableThread?.kind === 'thread' ? reusableThread : null;
@@ -96,7 +97,7 @@ export function CommentSendFooter({
             openSession !== null ? (
               <QueueNewChatRow
                 onStartNewChat={() =>
-                  void dispatchComments({ compose: composeFreshTurn, threadIds })
+                  void dispatchComments({ compose: composeFreshTurn, threadIds }, surface)
                 }
               />
             ) : undefined

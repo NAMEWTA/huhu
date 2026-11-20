@@ -28,3 +28,5 @@
 - 用户最初报告的“鼠标选区 / 上下行光标异常”在 rc.4 上**未能复现**（合成事件探针）；新编辑器上发现并修复了一个相近的真实缺陷（短文档 `content-visibility` 导致拖选落到别的段落，P-S3-06），很可能同源但未用真实鼠标证实，B06 因此不写“已解决”。
 - 复刻矩阵 283 行中 82 行没有逐行验证（上游 jsdom 测试未迁入、无专门 e2e），列在 `parity-matrix.md` §18。
 - 1 MiB 文档切实时预览偶发卡死：诊断指向 Playwright 在 12790 块 DOM 上的 ARIA 遍历，不是应用观察者；用例改为页内轮询后 10/10 通过，**但应用侧是否也有同类触发没有证伪**。
+
+原规格的 [R-21、R-22](../../archive/changes/implemented/feature_2026-11-09-huhu-workbench-definition/reuse.md) 分别记录 Atomic 实时预览与单一 CodeMirror EditorView 装配。本决定在知识库编辑器范围替代两项历史复用方案，并修订原[产品非目标](../../archive/changes/implemented/feature_2026-11-09-huhu-workbench-definition/product.md)中的可视化 WYSIWYG 条款。

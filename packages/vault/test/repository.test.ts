@@ -56,6 +56,18 @@ describe("SemanticRepository", () => {
     expect(text).toContain("customKey: 保留我");
     await expect(repo.patch("task", t.id, { status: "not_started" }, cur.version)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   });
+  test("F02：语义 Markdown 内容含非法 UTF-8 时拒绝改写字段和重命名，保留原字节", async () => {
+    const { repo, root } = setup();
+    const task = await repo.create("task", taskData("原名"));
+    const file = path.join(root, task.path);
+    const bytes = Buffer.concat([readFileSync(file), Buffer.from([0x0a, 0xc3, 0x28, 0x0a])]);
+    writeFileSync(file, bytes);
+    const { version } = repo.read("task", task.id);
+    await expect(repo.patch("task", task.id, { status: "completed" }, version)).rejects.toMatchObject({ code: "INVALID_INPUT", message: expect.stringContaining("UTF-8") });
+    await expect(repo.patch("task", task.id, { title: "新名" }, version)).rejects.toMatchObject({ code: "INVALID_INPUT", message: expect.stringContaining("UTF-8") });
+    expect(readdirSync(path.join(root, "Tasks"))).toEqual([path.basename(task.path)]);
+    expect(readFileSync(file)).toEqual(bytes);
+  });
   test("标题变更 → 文件改名，id 不变", async () => {
     const { repo, root } = setup();
     const t = await repo.create("task", taskData("旧标题"));

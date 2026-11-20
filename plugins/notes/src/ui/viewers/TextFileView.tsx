@@ -1,9 +1,11 @@
-import { PlainTextEditor, diagnoseJson, isValidUtf8, detectPlainFormat, lineSeparatorFor, type PlainTextEditorHandle } from "@huhu/editor";
+import { PlainTextEditor, diagnoseJson, detectPlainFormat, lineSeparatorFor, type PlainTextEditorHandle } from "@huhu/editor";
 import { Banner, Button, Dialog, ReviewDiff } from "@huhu/ui";
-import { useCapability, useEngine } from "@huhu/workbench";
+import { useCapability } from "@huhu/workbench";
 import { Braces, Save } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useDocumentSession } from "../documents/useDocumentSession.js";
+import { unsupportedEncoding } from "../../shared/text-encoding.js";
+import { EncodingConversion, type TextEncodingInfo } from "./EncodingConversion.js";
 import { FileToolbar } from "./FileChrome.js";
 import { v } from "./strings.js";
 
@@ -12,42 +14,17 @@ import { v } from "./strings.js";
  * 内容由 `DocumentSession` 持有（保存 / 冲突 / 草稿 / flush 与笔记同一套），编辑器是 `PlainTextEditor`（CM6，不绑 Y）；
  * JSON 的格式化只在点按钮时发生，保存路径永不重写内容。读取前先按字节确认是有效 UTF-8 文本，否则只读元信息，不会被当 UTF-8 覆盖。
  */
-type Probe = { state: "checking" } | { state: "ok" } | { state: "binary" } | { state: "encoding" } | { state: "error"; message: string };
-
 export function TextFileView({ path, language, toolbarLead, sidecar }: { path: string; language: "text" | "json"; toolbarLead?: ReactNode | undefined; sidecar?: ((text: string) => ReactNode) | undefined }) {
-  const engine = useEngine();
-  const [probe, setProbe] = useState<Probe>({ state: "checking" });
-  useEffect(() => {
-    let alive = true;
-    setProbe({ state: "checking" });
-    engine
-      .call<{ base64: string }>("vault.readBinary", { path })
-      .then((r) => {
-        if (!alive) return;
-        const bin = atob(r.base64);
-        const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-        if (bytes.includes(0)) return setProbe({ state: "binary" });
-        setProbe(isValidUtf8(bytes) ? { state: "ok" } : { state: "encoding" });
-      })
-      .catch((e: unknown) => alive && setProbe({ state: "error", message: e instanceof Error ? e.message : String(e) }));
-    return () => {
-      alive = false;
-    };
-  }, [engine, path]);
-
-  if (probe.state === "ok") return <TextEditorBody path={path} language={language} toolbarLead={toolbarLead} sidecar={sidecar} />;
+  const probe = useCapability<TextEncodingInfo>("notes.textEncoding", { path });
+  if (probe.data?.state === "ok") return <TextEditorBody path={path} language={language} toolbarLead={toolbarLead} sidecar={sidecar} />;
   return (
     <>
       <FileToolbar path={path}>{toolbarLead}</FileToolbar>
       <div className="hu-empty-state" style={{ margin: "auto" }} data-testid="file-unreadable">
-        {probe.state === "checking" ? <p className="hu-hint-text">{v.reading}</p> : null}
-        {probe.state === "binary" ? <p className="hu-hint-text">{v.binary}</p> : null}
-        {probe.state === "encoding" ? (
-          <p className="hu-field-error" data-testid="file-encoding-unsupported">
-            {v.encodingUnsupported}
-          </p>
-        ) : null}
-        {probe.state === "error" ? <p className="hu-field-error">{probe.message}</p> : null}
+        {probe.data?.state === "encoding" ? <EncodingConversion key={path} path={path} onConverted={() => void probe.refetch()} /> : null}
+        {probe.data?.state === "binary" ? <p className="hu-hint-text">{v.binary}</p> : null}
+        {probe.error ? <p className="hu-field-error">{probe.error.message}</p> : null}
+        {probe.isPending ? <p className="hu-hint-text">{v.reading}</p> : null}
       </div>
     </>
   );
@@ -68,7 +45,7 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
   // 结构诊断：JSON 才有；空文件不报错
   const diag = language === "json" && loaded && text.trim() !== "" ? diagnoseJson(text) : null;
   const eol = lineSeparatorFor(detectPlainFormat(text).eol);
-  const readOnly = !eol.editable;
+  const readOnly = !eol.editable || snap.flushError === unsupportedEncoding;
 
   useEffect(() => setNote(null), [path]);
 
@@ -85,6 +62,7 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }} data-testid="file-text-view">
+      {snap.flushError === unsupportedEncoding ? <EncodingConversion path={path} onConverted={() => session?.notifyExternalChange()} /> : null}
       <FileToolbar path={path}>
         {toolbarLead}
         {language === "json" ? (
@@ -176,7 +154,7 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
       <div className="notes-document-status">
         <span className={`notes-save-dot${state === "saved" ? "" : " notes-unsaved"}`} />
         <span data-testid="save-state">{state === "saved" ? v.saved : state === "saving" ? v.saving : state === "conflict" ? v.conflictState : v.dirty}</span>
-        <span className="grow" />
+        <span className="hu-flex-fill" />
         {!autosave ? (
           <Button variant="primary" icon={Save} disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>
             {v.save}

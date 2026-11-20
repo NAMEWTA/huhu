@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
@@ -62,6 +62,236 @@ test("S3：`/` 菜单过滤并插入块；气泡菜单加粗；一次撤销撤�
     await page.keyboard.press("ControlOrMeta+z");
     await expect(prose(page).locator("strong")).toHaveCount(0);
     await expect(prose(page).locator("ul li").first()).toContainText("条目甲");
+  } finally {
+    await close();
+  }
+});
+
+test("B05 富文本和源码按交错编辑顺序撤销和重做", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, "交错撤销.md");
+  const disk = () => readFileSync(file, "utf8");
+  const switchTo = (name: string) => page.getByRole("tab", { name, exact: true }).click();
+  const insertAtEnd = async (editable: Locator, text: string) => {
+    await editable.focus();
+    await page.keyboard.press("ControlOrMeta+Home");
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(text);
+    await expect.poll(disk).toContain(text);
+  };
+
+  try {
+    writeFileSync(file, "基线\n");
+    await gotoNotes(page);
+    await treeItem(page, "交错撤销.md").click();
+    const rich = prose(page);
+    const source = page.getByTestId("markdown-editor").locator(".cm-content").first();
+    await expect(rich).toHaveText("基线");
+    await insertAtEnd(rich, "富甲");
+    await switchTo("源码");
+    await insertAtEnd(source, "源乙");
+    await switchTo("实时预览");
+    await insertAtEnd(rich, "富丙");
+
+    await switchTo("源码");
+    await source.focus();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(source).toContainText("基线富甲源乙");
+    await expect.poll(disk).not.toContain("富丙");
+    await switchTo("实时预览");
+    await rich.focus();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(rich).toHaveText("基线富甲");
+    await expect.poll(disk).not.toContain("源乙");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(rich).toHaveText("基线");
+
+    for (const text of ["基线富甲", "基线富甲源乙", "基线富甲源乙富丙"]) {
+      await page.keyboard.press("ControlOrMeta+Shift+z");
+      await expect(rich).toHaveText(text);
+      await expect.poll(() => disk().trimEnd()).toBe(text);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("B05 一次撤销 H2 斜杠命令，外部更新不会产生历史项", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, "命令撤销.md");
+  try {
+    writeFileSync(file, "邻文甲\n\n原文\n\n邻文乙\n");
+    await gotoNotes(page);
+    await treeItem(page, "命令撤销.md").click();
+    const rich = prose(page);
+    await rich.getByText("原文", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" /h2");
+    await expect(page.locator('[data-slash-command="heading2"]')).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(rich.locator("h2")).toHaveText("原文");
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("## 原文");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(rich.locator("h2")).toHaveCount(0);
+    await expect(rich.locator(":scope > p")).toHaveText(["邻文甲", "原文 /h2", "邻文乙"]);
+    await expect.poll(() => readFileSync(file, "utf8")).toBe("邻文甲\n\n原文 /h2\n\n邻文乙\n");
+
+    const undoDepth = () =>
+      rich.evaluate((element) => {
+        const root = element as HTMLElement & { editor?: { extensionManager: { extensions: { name: string; options: { yUndoOptions?: { undoManager: { undoStack: unknown[] } } } }[] } } };
+        const collaboration = root.editor?.extensionManager.extensions.find(({ name }) => name === "collaboration");
+        return collaboration?.options.yUndoOptions?.undoManager.undoStack.length;
+      });
+    const depth = await undoDepth();
+    expect(depth).toBeGreaterThan(0);
+    const external = "邻文甲\n\n外来正文\n\n邻文乙\n";
+    writeFileSync(file, external);
+    await expect(rich.getByText("外来正文", { exact: true })).toBeVisible();
+    expect(await undoDepth()).toBe(depth);
+    expect(readFileSync(file, "utf8")).toBe(external);
+  } finally {
+    await close();
+  }
+});
+
+test("B03 斜杠合法前缀、键盘循环、滚动重定位及切文档清理", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const file = path.join(vault, "菜单边界.md");
+    writeFileSync(file, Array.from({ length: 24 }, (_, index) => `第 ${index + 1} 段`).join("\n\n") + "\n");
+    writeFileSync(path.join(vault, "另一位.md"), "切换目标\n");
+    await gotoNotes(page);
+    await treeItem(page, "另一位.md").click();
+    await expect(prose(page)).toHaveText("切换目标");
+    await treeItem(page, "菜单边界.md").click();
+    const rich = prose(page);
+    const row = rich.locator("p").filter({ hasText: /^第 14 段/ });
+    await row.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await row.click();
+    await page.keyboard.press("End");
+    const menu = page.getByRole("listbox", { name: /斜杠命令|Slash commands/ });
+    await page.keyboard.type("/h2");
+    await expect(menu).toBeHidden();
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.insertText("　/");
+    await expect(menu).toBeVisible();
+    const options = menu.getByRole("option");
+    await expect(options.first()).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await expect(options.last()).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowDown");
+    await expect(options.first()).toHaveAttribute("aria-selected", "true");
+
+    const original = await menu.boundingBox();
+    if (!original) throw new Error("菜单没有布局");
+    const scroller = page.getByTestId("editor-scroll-container");
+    await scroller.evaluate((element) => element.scrollBy(0, 70));
+    await expect.poll(async () => Math.abs((await menu.boundingBox())!.y - original.y)).toBeGreaterThan(20);
+    await expect(menu).toBeVisible();
+    await expect(rich).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    const edge = await row.evaluate((element) => {
+      const pane = element.closest('[data-testid="editor-scroll-container"]')!;
+      const offset = pane.getBoundingClientRect().right - element.getBoundingClientRect().right - 24;
+      const index = Array.from(element.parentElement!.children).indexOf(element) + 1;
+      return { offset, index };
+    });
+    await page.addStyleTag({
+      content: `[data-testid="markdown-editor"] .ProseMirror > p:nth-child(${edge.index}) { position: relative; left: ${edge.offset}px; text-align: right; }`,
+    });
+    await row.click();
+    await page.keyboard.press("End");
+    const paneRight = await scroller.evaluate((element) => element.getBoundingClientRect().right);
+    const caretRight = () => rich.evaluate(() => window.getSelection()?.getRangeAt(0).getBoundingClientRect().right ?? 0);
+    await expect.poll(caretRight).toBeGreaterThan(paneRight - 45);
+    await page.keyboard.insertText("　/");
+    await expect(menu).toBeVisible();
+    await expect.poll(caretRight).toBeGreaterThan(paneRight - 45);
+    await expect
+      .poll(async () => {
+        const bounds = await menu.boundingBox();
+        return bounds ? bounds.x + bounds.width : Number.POSITIVE_INFINITY;
+      })
+      .toBeLessThanOrEqual(paneRight + 2);
+
+    await treeItem(page, "另一位.md").click();
+    await expect(prose(page)).toHaveText("切换目标");
+    await expect(menu).toBeHidden();
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("第 14 段　/");
+  } finally {
+    await close();
+  }
+});
+
+test("B04 Electron 组合输入的斜杠触发、Enter、字面上下文和表格菜单", async () => {
+  const { app, page, vault, close } = await openApp();
+  try {
+    const file = path.join(vault, "组合菜单.md");
+    writeFileSync(file, "开头\n\n`code`\n\nhttps://example.com/alpha\n\n| 表头 |\n| --- |\n| 单元格 |\n");
+    await gotoNotes(page);
+    await treeItem(page, "组合菜单.md").click();
+    const rich = prose(page);
+    const cdp = await page.context().newCDPSession(page);
+    const menu = page.getByRole("listbox", { name: /斜杠命令|Slash commands/ });
+    await rich.getByText("开头", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    for (const trigger of ["/", "／"]) {
+      await cdp.send("Input.imeSetComposition", { text: `${trigger}h2`, selectionStart: 3, selectionEnd: 3 });
+      await expect(rich).toContainText(`${trigger}h2`);
+      await expect(menu).toBeHidden();
+      await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 229 });
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 229 });
+      await expect(rich.locator("h2")).toHaveCount(0);
+      await cdp.send("Input.insertText", { text: `${trigger}h2` });
+      await expect(menu.locator('[data-slash-command="heading2"]')).toBeVisible();
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Shift+Home");
+      await page.keyboard.press("Backspace");
+    }
+
+    await page.keyboard.type("/h2");
+    await expect(menu.locator('[data-slash-command="heading2"]')).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(rich.locator("h2")).toHaveCount(1);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(rich.locator("h2")).toHaveCount(0);
+    const commit = async (pinyin: string, text: string) => {
+      await cdp.send("Input.imeSetComposition", { text: pinyin, selectionStart: pinyin.length, selectionEnd: pinyin.length });
+      await expect(rich).toContainText(pinyin);
+      expect(readFileSync(file, "utf8")).not.toContain(pinyin);
+      await cdp.send("Input.insertText", { text });
+      await expect(rich).toContainText(text);
+      await expect(rich).toBeFocused();
+      await expect.poll(() => readFileSync(file, "utf8")).toContain(text);
+    };
+    await commit("nihao", "你好");
+    await app.evaluate(({ clipboard }) => clipboard.writeText("原生粘贴"));
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(rich).toContainText("原生粘贴");
+    await commit("zaijian", "再见");
+
+    await rich.locator("code").getByText("code", { exact: true }).click();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.insertText("/h2");
+    await expect(menu).toBeHidden();
+    await rich.getByText("https://example.com/alpha", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("/h2");
+    await expect(menu).toBeHidden();
+    await expect(rich).toContainText("https://example.com/alpha/h2");
+
+    await rich.getByRole("cell", { name: "单元格", exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(" /");
+    await expect(menu.locator('[data-slash-command="heading2"]')).toBeVisible();
+    await expect(menu.locator('[data-slash-command="component-File"]')).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(rich).toBeFocused();
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("单元格 /");
   } finally {
     await close();
   }

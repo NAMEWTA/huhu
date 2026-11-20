@@ -26,7 +26,7 @@ async function setup(files: Record<string, string> = {}) {
   await index.build();
   const ops = new OperationLog(vf, path.join(d, "ops"));
   const trash = new Trash(vf);
-  const notes = new NotesService({ files: vf, ops, index, trash, now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
+  const notes = new NotesService({ files: vf, stateDir: path.join(vf.root, ".huhu"), ops, index, trash, now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
   const events: unknown[] = [];
   const svc = new ArchivesService({ files: vf, ops, index, notes, publish: (t, p) => events.push([t, p]), now: () => new Date("2026-11-10T12:00:00Z") });
   return { svc, notes, root, put, rebuild: () => index.build(), events, ops, vf };

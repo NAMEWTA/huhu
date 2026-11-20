@@ -69,7 +69,7 @@ export function ImageReferenceView({ node, editor, extension }: NodeViewProps) {
       data-image-reference-view
       data-clipboard-inline-leaf="imageReference"
     >
-      <Zoom classDialog="ok-root" wrapElement="span" zoomMargin={20} zoomImg={{ sizes: undefined }}>
+      <Zoom classDialog="ok-root editor-ok-portal" wrapElement="span" zoomMargin={20} zoomImg={{ sizes: undefined }}>
         <ImageReferenceLeaf src={src} alt={alt} />
       </Zoom>
     </NodeViewWrapper>

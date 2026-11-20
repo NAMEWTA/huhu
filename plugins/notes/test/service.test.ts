@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { OperationLog, Trash, VaultFiles, VaultIndex } from "@huhu/vault";
+import { listDir, OperationLog, Trash, VaultFiles, VaultIndex } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { NotesService } from "../src/engine/service.js";
 
@@ -10,7 +10,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-async function setup(files: Record<string, string> = {}) {
+async function setup(files: Record<string, string> = {}, draftMoveSteps?: ConstructorParameters<typeof NotesService>[0]["draftMoveSteps"]) {
   const d = mkdtempSync(path.join(tmpdir(), "huhu-n-"));
   dirs.push(d);
   const root = path.join(d, "v");
@@ -22,9 +22,10 @@ async function setup(files: Record<string, string> = {}) {
   const vf = new VaultFiles(root);
   const index = new VaultIndex(root);
   await index.build();
-  const svc = new NotesService({ files: vf, ops: new OperationLog(vf, path.join(d, "ops")), index, trash: new Trash(vf), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
+  const ops = new OperationLog(vf, path.join(d, "ops"));
+  const svc = new NotesService({ files: vf, stateDir: path.join(vf.root, ".huhu"), ops, index, trash: new Trash(vf), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC", ...(draftMoveSteps ? { draftMoveSteps } : {}) });
   const rebuild = () => index.build();
-  return { svc, root, rebuild, vf };
+  return { svc, root, rebuild, vf, ops };
 }
 const rd = (root: string, p: string) => readFileSync(path.join(root, p), "utf8");
 
@@ -107,6 +108,67 @@ describe("ACC-KN-06 重命名改写双链", () => {
 });
 
 describe("移动", () => {
+  test("A07/A08/E04：监听器交付前移动含新文件、二进制文件与空目录的混合子树", async () => {
+    const { svc, root, ops } = await setup({ "docs/index.md": "档案", "ref.md": "[[docs/late]] [[docs/empty/]]" });
+    const id = await svc.ensureId("docs/index.md");
+    await svc.setHiddenPaths(["docs/empty"]);
+    mkdirSync(path.join(root, "docs/empty/deep"), { recursive: true });
+    writeFileSync(path.join(root, "docs/late.md"), "未入索引");
+    const bytes = Buffer.from([0x01, 0xfe, 0x00]);
+    writeFileSync(path.join(root, "docs/data.bin"), bytes);
+    const run = ops.run.bind(ops);
+    vi.spyOn(ops, "run").mockImplementationOnce((...args) => {
+      writeFileSync(path.join(root, "docs/during.txt"), "计划提交后出现");
+      return run(...args);
+    });
+    const result = await svc.rename("docs", "moved");
+    expect(result.moved).toMatchObject({ "docs/index.md": "moved/index.md", "docs/late.md": "moved/late.md", "docs/data.bin": "moved/data.bin", "docs/during.txt": "moved/during.txt" });
+    expect(rd(root, "ref.md")).toBe("[[moved/late]] [[moved/empty/]]");
+    expect(rd(root, "moved/late.md")).toBe("未入索引");
+    expect(rd(root, "moved/during.txt")).toBe("计划提交后出现");
+    expect(readFileSync(path.join(root, "moved/data.bin"))).toEqual(bytes);
+    expect(readdirSync(path.join(root, "moved/empty/deep"))).toEqual([]);
+    expect(existsSync(path.join(root, "docs"))).toBe(false);
+    expect(svc.hiddenPaths()).toEqual(["moved/empty"]);
+    expect(svc.noteId("moved/index.md")).toBe(id);
+    expect(ops.list().at(-1)?.steps).toContainEqual(expect.objectContaining({ action: "rename", from: "docs", path: "moved", done: true }));
+  });
+
+  test("A07：含受保护后代的目录整棵保留，避免部分搬迁", async () => {
+    const { svc, root } = await setup({ "docs/index.md": "档案", "docs/.git/config": "保护资源" });
+    await expect(svc.rename("docs", "moved")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(rd(root, "docs/.git/config")).toBe("保护资源");
+    expect(rd(root, "docs/index.md")).toBe("档案");
+    expect(existsSync(path.join(root, "moved"))).toBe(false);
+  });
+
+  test("A08：大小写改名的日志步骤失败时，恢复原名称、身份与草稿", async () => {
+    const { svc, root, ops } = await setup({ "Readme.md": "原文", ".huhu/old-draft": "草稿", "ref.md": "[[Readme]]" }, (from, to) => {
+      expect([from, to]).toEqual(["Readme.md", "README.md"]);
+      return [
+        { action: "write", path: ".huhu/new-draft", bytes: Buffer.from("草稿") },
+        { action: "delete", path: ".huhu/old-draft" },
+      ];
+    });
+    const id = await svc.ensureId("Readme.md");
+    const run = ops.run.bind(ops);
+    vi.spyOn(ops, "run").mockImplementation((opId, kind, steps) =>
+      run(opId, kind, steps, {
+        afterStep: (i) => {
+          if (i === steps.length - 1) throw new Error("模拟事务尾部失败");
+        },
+      }),
+    );
+    await expect(svc.rename("Readme.md", "README")).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
+    expect(readdirSync(root).sort()).toEqual([".huhu", "Readme.md", "ref.md"]);
+    expect(rd(root, "Readme.md")).toBe("原文");
+    expect(rd(root, "ref.md")).toBe("[[Readme]]");
+    expect(rd(root, ".huhu/old-draft")).toBe("草稿");
+    expect(existsSync(path.join(root, ".huhu/new-draft"))).toBe(false);
+    expect(svc.noteId("Readme.md")).toBe(id);
+    expect(ops.list().at(-1)?.state).toBe("rolled_back");
+  });
+
   test("文件夹移动带后代，路径双链更新；禁止移入自身/后代；同名不合并", async () => {
     const { svc, root } = await setup({ "docs/p.md": "p", "docs/sub/q.md": "q", "ref.md": "[[docs/p]] [[q]]", "archive/keep.md": "k" });
     await expect(svc.move("docs", "docs/sub")).rejects.toMatchObject({ code: "INVALID_INPUT" });
@@ -163,6 +225,25 @@ describe("移动", () => {
 });
 
 describe("复制、回收站", () => {
+  test("A07：选名后外部创建同名目标，保留两份原始字节", async () => {
+    const { svc, root, ops } = await setup({ "note.md": "副本来源" });
+    const rival = "note · 副本.md";
+    const bytes = Buffer.from([0xff, 0x02]);
+    const run = ops.run.bind(ops);
+    vi.spyOn(ops, "run").mockImplementationOnce((opId, kind, steps) => {
+      expect(kind).toBe("duplicate-file");
+      writeFileSync(path.join(root, rival), bytes, { flag: "wx" });
+      return run(opId, kind, steps);
+    });
+    await expect(svc.duplicate("note.md")).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+    expect(rd(root, "note.md")).toBe("副本来源");
+    expect(readFileSync(path.join(root, rival))).toEqual(bytes);
+    expect(svc.noteId(rival)).toBeNull();
+    const next = await svc.duplicate("note.md");
+    expect(rd(root, next.path)).toBe("副本来源");
+    expect(readFileSync(path.join(root, rival))).toEqual(bytes);
+  });
+
   test("复制：新 id、名称带副本、内容相同", async () => {
     const { svc, root } = await setup({ "n.md": "内容" });
     const a = await svc.ensureId("n.md");
@@ -185,11 +266,70 @@ describe("复制、回收站", () => {
     const again = await svc.duplicate("Proj");
     expect(again.path).toBe("Proj · 副本 (1)");
   });
-  test("A07 复制非 Markdown 文件保持扩展名", async () => {
-    const { svc, root } = await setup({ "data.json": "{}" });
+  test("A07：复制和身份一步提交；非 Markdown 回收再恢复原字节", async () => {
+    const original = '\uFEFF{ "值": 99 }\r\n';
+    const { svc, root, ops } = await setup({ "data.json": original });
     const d = await svc.duplicate("data.json");
     expect(d.path).toBe("data · 副本.json");
-    expect(rd(root, d.path)).toBe("{}");
+    expect(ops.list()).toContainEqual(
+      expect.objectContaining({
+        kind: "duplicate-file",
+        state: "committed",
+        steps: expect.arrayContaining([expect.objectContaining({ path: d.path }), expect.objectContaining({ path: ".huhu/notes/identities.json" })]),
+      }),
+    );
+    const { trashId } = await svc.trash(d.path);
+    expect(existsSync(path.join(root, d.path))).toBe(false);
+    expect(await svc.restore(trashId)).toBe(d.path);
+    expect(readFileSync(path.join(root, d.path))).toEqual(Buffer.from(original));
+    expect(readFileSync(path.join(root, "data.json"))).toEqual(Buffer.from(original));
+  });
+
+  test("OP-D10：真实列表到大小写改名保留中文、空格、Unicode 和磁盘元数据", async () => {
+    const parent = "项目 空间";
+    const base = "Café";
+    const decomposed = "Résumé";
+    const source = `${parent}/${base}.TXT`;
+    const other = `${parent}/${decomposed}.txt`;
+    const { svc, root } = await setup({ [source]: "原始\r\n", [other]: "另一份" });
+    const stored = readdirSync(path.join(root, parent));
+    const actualSource = stored.find((name) => name.normalize("NFC") === `${base}.TXT`)!;
+    const actualOther = stored.find((name) => name.normalize("NFD") === `${decomposed}.txt`)!;
+    const before = listDir(root, parent).entries;
+    expect(before).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: actualSource, path: `${parent}/${actualSource}`, kind: "file", size: Buffer.byteLength("原始\r\n"), mtimeMs: expect.any(Number) }),
+        expect.objectContaining({ name: actualOther, path: `${parent}/${actualOther}`, kind: "file" }),
+      ]),
+    );
+    await svc.rename(`${parent}/${actualSource}`, actualSource.toLowerCase());
+    const renamed = listDir(root, parent).entries.find((entry) => entry.name === actualSource.toLowerCase())!;
+    expect(renamed).toMatchObject({ kind: "file", size: before.find((entry) => entry.name === actualSource)!.size, mtimeMs: before.find((entry) => entry.name === actualSource)!.mtimeMs });
+    expect(readFileSync(path.join(root, renamed.path))).toEqual(Buffer.from("原始\r\n"));
+    expect(readFileSync(path.join(root, parent, actualOther))).toEqual(Buffer.from("另一份"));
+  });
+
+  test("A07：越界写操作不改变库内外文件字节", async () => {
+    const { svc, root } = await setup({ "inside.txt": "原始\r\n" });
+    const outside = path.resolve(root, "../outside.txt");
+    writeFileSync(outside, "外部\r\n");
+    const byPath = () => [readFileSync(outside), readFileSync(path.join(root, "inside.txt"))];
+    const before = byPath();
+    const operations = [
+      () => svc.create({ folder: "..", name: "escape" }),
+      () => svc.createFolder("../escape"),
+      () => svc.rename("../outside.txt", "escape"),
+      () => svc.move("../outside.txt", ""),
+      () => svc.move("inside.txt", ".."),
+      () => svc.moveEntry("inside.txt", "../outside.txt"),
+      () => svc.duplicate("../outside.txt"),
+      () => svc.trash("../outside.txt"),
+    ];
+    for (const operate of operations) {
+      await expect(operate()).rejects.toMatchObject({ code: "PATH_OUTSIDE_VAULT" });
+      expect(byPath()).toEqual(before);
+    }
+    expect(readdirSync(path.dirname(root)).sort()).toEqual(["outside.txt", "v"]);
   });
   test("ACC-KN-07 恢复：原路径有同名 → 要求新名称，原有文件不变；永久删除", async () => {
     const { svc, root } = await setup({ "n.md": "旧" });
@@ -292,6 +432,17 @@ describe("hiddenPaths（OP-D11：仅文件树隐藏的偏好）", () => {
     expect(svc.hiddenPaths()).toEqual(["a", "b"]);
   });
 
+  test("OP-D11：载入旧只含数组的规则，首次内部改名迁移并保留其余规则", async () => {
+    const { svc, root, rebuild } = await setup({ "d/a.md": "x", "solo.md": "s", ".huhu/notes/hidden-paths.json": '["d", "solo.md"]' });
+    expect(svc.hiddenPaths()).toEqual(["d", "solo.md"]);
+    await svc.rename("solo.md", "renamed");
+    expect(JSON.parse(rd(root, ".huhu/notes/ui-preferences.json"))).toEqual({ hiddenPaths: ["d", "renamed.md"] });
+    renameSync(path.join(root, "d"), path.join(root, "external"));
+    await rebuild();
+    expect(svc.hiddenPaths()).toEqual(["d", "renamed.md"]);
+    expect(svc.list("all").map((n) => n.path)).toContain("external/a.md");
+  });
+
   test("内部改名 / 移动：规则与子树规则一起重定位；无关规则不动", async () => {
     const { svc, rebuild } = await setup({ "d/a.md": "x", "d/sub/b.md": "y", "keep/c.md": "z", "solo.md": "s" });
     await svc.setHiddenPaths(["d", "d/sub/b.md", "keep", "solo.md"]);
@@ -318,4 +469,29 @@ describe("hiddenPaths（OP-D11：仅文件树隐藏的偏好）", () => {
     await svc.setHiddenPaths(["a.md"]);
     expect(svc.list("all").map((n) => n.path)).toContain("a.md");
   });
+});
+
+test("F02 普通保存拒绝非法 UTF-8，保留磁盘原字节", async () => {
+  const { svc, root, vf } = await setup();
+  const file = "旧编码.md";
+  const original = Buffer.from([0x41, 0xc3, 0x28, 0x0a]);
+  writeFileSync(path.join(root, file), original);
+  expect(() => svc.read(file)).toThrow(/UTF-8/);
+  await expect(svc.save(file, "替换", vf.currentVersion(file)!)).rejects.toThrow(/UTF-8/);
+  expect(readFileSync(path.join(root, file))).toEqual(original);
+});
+
+test("F02 显式转换需要原字节版本，按所选编码解码后才允许保存", async () => {
+  const { svc, root } = await setup();
+  const name = "旧文本.txt";
+  const file = path.join(root, name);
+  const old = Buffer.from([0xc4, 0xe3, 0xba, 0xc3, 0x0a]);
+  writeFileSync(file, old);
+  const info = svc.inspectEncoding(name);
+  expect(info.state).toBe("encoding");
+  await expect(svc.convertEncoding(name, "gb18030", "stale")).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  expect(readFileSync(file)).toEqual(old);
+  const converted = await svc.convertEncoding(name, "gb18030", info.version);
+  expect(svc.read(name)).toEqual({ path: name, text: "你好\n", version: converted.version });
+  expect(readFileSync(file)).toEqual(Buffer.from("你好\n"));
 });

@@ -1,3 +1,5 @@
+import { t } from '@lingui/core/macro';
+import { toast } from 'sonner';
 import { copyImage } from '@/lib/copy-image';
 
 let installed = false;
@@ -24,6 +26,7 @@ function onDocCopy(ev: ClipboardEvent): void {
     }
     if (!outcome.ok) {
       console.warn('[copy-image] browser clipboard write failed', outcome.reason, outcome.detail);
+      toast.error(t`Couldn't copy image`);
     }
   });
 }

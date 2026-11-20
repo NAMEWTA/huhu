@@ -12,10 +12,11 @@ const OkExplorer = lazy(() => import("@huhu/editor/ok-explorer").then((m) => ({ 
 export interface ResourceTreeProps {
   /** 当前打开的文件路径（树据此高亮）。 */
   selected: string | null;
-  onOpenFile(path: string): void;
+  onOpenFile(path: string, restricted?: boolean): void;
   onOpenFolder(path: string): void;
   /** A08：移动 / 重命名 / 复制 / 删除之前，先把打开着的相关文档落盘；false = 失败，操作取消。 */
   beforeMutate(paths: string[]): Promise<boolean>;
+  holdOpenPaths<T>(from: string, move: () => Promise<T>): Promise<T>;
   /** 内部改名 / 移动完成后的重定位（标签、选中项、展开状态）。 */
   onMoved(moved: Record<string, string>): void;
   onTrashed?: ((path: string, trashId: string) => void) | undefined;
@@ -77,6 +78,7 @@ export function ResourceTree(p: ResourceTreeProps) {
         getHidden: () => hiddenRef.current,
         getShowHidden: () => showRef.current,
         beforeMutate: (paths) => cb.current.beforeMutate(paths),
+        holdOpenPaths: (from, move) => cb.current.holdOpenPaths(from, move),
         onMoved: (m) => cb.current.onMoved(m),
         onTrashed: (path, id) => cb.current.onTrashed?.(path, id),
         onListed: (dir, state) => {
@@ -96,7 +98,7 @@ export function ResourceTree(p: ResourceTreeProps) {
     [engine, hiddenQ],
   );
   const onHide = useCallback((path: string) => writeHidden(addHiddenRule(hiddenRef.current, path)), [writeHidden]);
-  const onOpen = useCallback((t: { kind: "file" | "folder" | "asset"; path: string }) => (t.kind === "folder" ? cb.current.onOpenFolder(t.path) : cb.current.onOpenFile(t.path)), []);
+  const onOpen = useCallback((t: { kind: "file" | "folder" | "asset"; path: string; restricted?: boolean }) => (t.kind === "folder" ? cb.current.onOpenFolder(t.path) : cb.current.onOpenFile(t.path, t.restricted)), []);
 
   const menuItems = useCallback((path: string, kind: "file" | "folder") => {
     const isNote = kind === "file" && /\.md$/i.test(path);

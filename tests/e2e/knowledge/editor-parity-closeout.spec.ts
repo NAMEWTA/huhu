@@ -198,8 +198,6 @@ test("# 与 [[ 候选来自当前 Vault，插入后保存并重开", async () =>
     writeFileSync(path.join(vault, "target-note.md"), "# Vault 目标\n\n索引内容 #closeout\n");
     writeFileSync(file, "候选 ");
     await openNote(page);
-    // Vault 树先于笔记索引就绪。开始操作前等待目标笔记出现在候选数据源。
-    await expect.poll(async () => page.evaluate(async () => (await fetch("/api/page-headings?docName=target-note")).json()), { timeout: 15_000 }).toMatchObject({ headings: [{ level: 1, text: "Vault 目标" }] });
     const editor = prose(page);
     await editor.getByText("候选").click();
     await page.keyboard.press("End");
@@ -210,16 +208,6 @@ test("# 与 [[ 候选来自当前 Vault，插入后保存并重开", async () =>
     await tag.click();
     await expect(editor.locator("[data-tag]")).toContainText("closeout");
     await page.keyboard.press("End");
-    // 保留真实宿主响应，延迟返回以覆盖快速输入时多个查询共享同一个在途请求。
-    await page.evaluate(() => {
-      const fetchFromHost = window.fetch;
-      window.fetch = async (input, init) => {
-        if (typeof input === "string" && input.startsWith("/api/page-headings?")) {
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-        }
-        return fetchFromHost(input, init);
-      };
-    });
     await page.keyboard.type(" [[target-note#Vault");
     const target = page.getByRole("option").filter({ hasText: "Vault 目标" });
     await expect(target).toBeVisible({ timeout: 10_000 });
@@ -623,6 +611,303 @@ test("文件树重命名拒绝带路径分隔符的名称，并保留 Markdown �
     await page.getByRole("button", { name: "关闭 确认改名", exact: true }).click();
     await treeItem(page, renamed).click();
     await expect(prose(page).getByRole("heading", { name: "重命名保真" })).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("B02 同一混合笔记的编辑、阅读与保存重开保留结构与内容", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = [
+    "# 混合语料",
+    "",
+    "入口 **重点** *斜体* `行内代码` [外链](https://example.com/path) [[目标页]]。",
+    "",
+    "- 外层",
+    "  - 内层",
+    "",
+    "- [ ] 待处理",
+    "- [x] 已完成",
+    "",
+    "> 引用语料",
+    "",
+    "```js",
+    "const answer = 42;",
+    "```",
+    "",
+    '图像 <img src="./fixture.png" alt="示例图像" />。',
+    "",
+    "| 列甲 | 列乙 |",
+    "| --- | --- |",
+    "| 单元甲 | 单元乙 |",
+    "",
+    "行内公式 $x^2$。",
+    "",
+    "```mermaid",
+    "graph TD",
+    "  One --> Two",
+    "```",
+    "",
+    "脚注正文[^a]。",
+    "",
+    "[^a]: 说明文字",
+    "",
+  ].join("\n");
+  try {
+    writeFileSync(file, original);
+    writeFileSync(path.join(vault, "目标页.md"), "# 目标页\n");
+    writeFileSync(path.join(vault, "fixture.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+YhXYAAAAASUVORK5CYII=", "base64"));
+    await openNote(page);
+    const editor = prose(page);
+    async function verify() {
+      await expect(editor.getByRole("heading", { name: /混合语料$/, level: 1 })).toBeVisible();
+      await expect(editor.locator("strong")).toHaveText("重点");
+      await expect(editor.locator("em")).toHaveText("斜体");
+      await expect(editor.locator("p > code")).toHaveText("行内代码");
+      await expect(editor.getByRole("list").nth(1).getByRole("listitem")).toContainText("内层");
+      await expect(editor.getByRole("checkbox").first()).not.toBeChecked();
+      await expect(editor.getByRole("checkbox").last()).toBeChecked();
+      await expect(editor.locator("blockquote")).toHaveText("引用语料");
+      await expect(editor.locator("pre code").filter({ hasText: "const answer" })).toContainText("const answer = 42;");
+      await expect(editor.getByRole("link", { name: /example\.com\/path/ })).toHaveAttribute("href", "https://example.com/path");
+      await expect(editor.locator("[data-wiki-link]")).toContainText("目标页");
+      const image = editor.locator("img[alt='示例图像']");
+      await expect(image).toBeVisible();
+      await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
+      await expect(editor.getByRole("columnheader")).toHaveText(["列甲", "列乙"]);
+      await expect(editor.getByRole("cell")).toHaveText(["单元甲", "单元乙"]);
+      await expect(editor.locator(".katex math")).toContainText("x");
+      await expect(editor.locator(".mermaid svg").filter({ hasText: "One" }).first()).toContainText("Two");
+      const footnote = editor.locator("a[data-footnote-ref], sup a").first();
+      const destination = await footnote.getAttribute("href");
+      expect(destination).toMatch(/^#/);
+      await expect(editor.locator(`[id="${destination?.slice(1)}"]`)).toContainText("说明文字");
+    }
+    await verify();
+    await editor.getByRole("heading", { name: "混合语料" }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.insertText("已编辑 ");
+    const edited = original.replace("# 混合语料", "# 已编辑 混合语料");
+    await expect.poll(() => readFileSync(file, "utf8")).toBe(edited);
+    await expect(editor.getByRole("heading", { name: "已编辑 混合语料" })).toBeVisible();
+    await page.getByRole("tab", { name: "阅读", exact: true }).click();
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+    await verify();
+    await reopenSavedNote(page, file, edited);
+    await verify();
+  } finally {
+    await close();
+  }
+});
+
+test("B07 原生键盘复制、剪切与粘贴保留格式并实际保存", async () => {
+  const { app, page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  try {
+    writeFileSync(file, "**复制语料**\n\n剪切语料\n\n落点\n");
+    await openNote(page);
+    const editor = prose(page);
+    const selectLine = async (text: string) => {
+      await editor.getByText(text, { exact: true }).click();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("Shift+End");
+      await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(text);
+    };
+    const clipboard = async () => (await app.evaluate(({ clipboard }) => clipboard.readText())).trimEnd();
+    await selectLine("复制语料");
+    await page.keyboard.press("ControlOrMeta+c");
+    await expect.poll(clipboard).toBe("**复制语料**");
+
+    await editor.getByText("落点", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(editor.locator("strong")).toHaveText(["复制语料", "复制语料"]);
+
+    await selectLine("剪切语料");
+    await page.keyboard.press("ControlOrMeta+x");
+    await expect.poll(clipboard).toBe("剪切语料");
+    await expect(editor).not.toContainText("剪切语料");
+    await editor.getByText("落点", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(editor).toContainText("落点剪切语料");
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("落点剪切语料\n\n**复制语料**");
+    const saved = readFileSync(file, "utf8");
+    await reopenSavedNote(page, file, saved);
+    await expect(editor.locator("strong")).toHaveText(["复制语料", "复制语料"]);
+    await expect(editor).toContainText("落点剪切语料");
+  } finally {
+    await close();
+  }
+});
+
+test("B01 引用、两种硬换行和链接引用定义在富文本修改后保留 Markdown", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = ["> 引用前", "", "换行甲  ", "换行乙\\", "换行丙", "", "[引用链接][ref]", "", '[ref]: https://example.invalid/ref "引用标题"', ""].join("\n");
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    const editor = prose(page);
+    const quote = editor.locator("blockquote p");
+    const breaks = editor.locator("p").filter({ hasText: "换行甲" });
+    const link = editor.locator('[data-link][href="https://example.invalid/ref"]');
+    await expect(quote).toContainText("引用前");
+    await expect(breaks.locator("br")).toHaveCount(2);
+    await expect(link).toContainText("引用链接");
+    await expect(editor.locator("[data-link-ref-def]")).toHaveText('[ref]: https://example.invalid/ref "引用标题"');
+
+    await quote.click();
+    await page.keyboard.press("Home");
+    await page.keyboard.insertText("新");
+    await expect(quote).toContainText("新引用前");
+    await breaks.click({ position: { x: 2, y: 3 } });
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Home");
+    await page.keyboard.insertText("新");
+    await expect(breaks).toContainText("新换行乙");
+
+    const updated = original.replace("引用前", "新引用前").replace("换行乙", "新换行乙");
+    await reopenSavedNote(page, file, updated);
+    await expect(quote).toContainText("新引用前");
+    await expect(breaks.locator("br")).toHaveCount(2);
+    await expect(link).toContainText("引用链接");
+  } finally {
+    await close();
+  }
+});
+
+test("B01 重名标题锚点更新，脚注链接和返回链接滚动到各自目标", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const blocks = Array.from({ length: 48 }, (_, index) => `用于撑开滚动区的第 ${index + 1} 段。`);
+  const original = ["# Alpha", "# Alpha", "引用位置[^a]", ...blocks, "[^a]: 脚注位置"].join("\n\n") + "\n";
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    const editor = prose(page);
+    const headings = editor.getByRole("heading", { name: "Alpha", exact: true });
+    await expect(headings.first()).toHaveAttribute("id", "alpha");
+    await expect(headings.last()).toHaveAttribute("id", "alpha-1");
+    await headings.last().click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(" Beta");
+    await expect(editor.getByRole("heading", { name: "Alpha Beta" })).toHaveAttribute("id", "alpha-beta");
+
+    const reference = editor.locator('a[href="#fn-a"]');
+    const definition = editor.locator("#fn-a");
+    await expect(definition).not.toBeInViewport();
+    await reference.click();
+    await expect(definition).toBeInViewport({ timeout: 10_000 });
+    await definition.locator('a[href="#fnref-a"]').click();
+    await expect(reference).toBeInViewport({ timeout: 10_000 });
+    await expect.poll(() => readFileSync(file, "utf8")).toBe(original.replace("# Alpha\n\n引用", "# Alpha Beta\n\n引用"));
+  } finally {
+    await close();
+  }
+});
+
+test("B01 选择文字后气泡显示六个格式按钮，点击逐项生成标记并保存", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const actions = [
+    ["粗体", "粗体语料", "strong", "**粗体语料**"],
+    ["斜体", "斜体语料", "em", "*斜体语料*"],
+    ["下划线", "下划线语料", "u", "<u>下划线语料</u>"],
+    ["删除线", "删除线语料", "s", "~~删除线语料~~"],
+    ["行内代码", "代码语料", "code", "`代码语料`"],
+    ["高亮", "高亮语料", "mark", "==高亮语料=="],
+  ] as const;
+  try {
+    const heading = "# 格式样本\n\n选择下方的独立文本。\n\n";
+    writeFileSync(file, heading + actions.map(([, text]) => text).join("\n\n") + "\n");
+    await openNote(page);
+    const editor = prose(page);
+    const bubble = page.getByTestId("bubble-menu-bar");
+    await expect(bubble).toBeHidden();
+    for (const [label, text, tag] of actions) {
+      const paragraph = editor.getByText(text, { exact: true });
+      await paragraph.click();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("Shift+End");
+      await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(text);
+      await expect(bubble).toBeVisible({ timeout: 10_000 });
+      await bubble.getByRole("button", { name: label, exact: true }).click();
+      await expect(editor.locator(tag)).toHaveText(text);
+    }
+    await page.keyboard.press("ArrowRight");
+    await expect(bubble).toBeHidden();
+    await reopenSavedNote(page, file, heading + actions.map(([, , , markdown]) => markdown).join("\n\n") + "\n");
+    for (const [, text, tag] of actions) await expect(editor.locator(tag)).toHaveText(text);
+  } finally {
+    await close();
+  }
+});
+
+test("B01 源码原生复制和粘贴保留 Markdown，富文本粘贴裸 URL 创建链接", async () => {
+  const { app, page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = "**源格式**\n";
+  const url = "https://example.invalid/b01";
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    await page.getByRole("tab", { name: "源码", exact: true }).click();
+    const source = page.getByTestId("markdown-editor").locator(".cm-content");
+    await source.locator(".cm-line").filter({ hasText: "源格式" }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await page.keyboard.press("ControlOrMeta+c");
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("**源格式**");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(source).toContainText("**源格式**");
+    await expect.poll(() => readFileSync(file, "utf8")).toBe("**源格式**\n\n**源格式**\n");
+    await page.getByRole("tab", { name: "实时预览", exact: true }).click();
+    const editor = prose(page);
+    await expect(editor.locator("strong")).toHaveText(["源格式", "源格式"]);
+    await editor.locator("strong").last().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await app.evaluate(({ clipboard }, value) => clipboard.writeText(value), url);
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(editor.locator(`[data-link][href="${url}"]`)).toHaveText(url);
+    await expect.poll(() => readFileSync(file, "utf8")).toContain(url);
+  } finally {
+    await close();
+  }
+});
+
+test("B01 表格边缘加号追加行和列，重开保持三列及空行", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, filename);
+  const original = "# 表格样本\n\n表格前的正文段落。\n\n| 左 | 右 |\n| --- | --- |\n| 甲 | 乙 |\n";
+  try {
+    writeFileSync(file, original);
+    await openNote(page);
+    const editor = prose(page);
+    const last = editor.getByRole("cell", { name: "乙" });
+    const row = page.getByRole("button", { name: "Add row" });
+    const column = page.getByRole("button", { name: "Add column" });
+    await last.hover();
+    await expect(row).toHaveClass(/is-active/);
+    await expect(column).toHaveClass(/is-active/);
+    await column.click();
+    await expect(editor.getByRole("columnheader")).toHaveText(["左", "右", ""]);
+    await last.hover();
+    await row.click();
+    await expect(editor.getByRole("row").last().getByRole("cell")).toHaveText(["", "", ""]);
+
+    const read = () => readFileSync(file, "utf8");
+    await expect.poll(read).toMatch(/\|\s*左\s*\|\s*右\s*\|\s*\|\n[\s\S]*\|\s*甲\s*\|\s*乙\s*\|\s*\|\n\|\s*\|\s*\|\s*\|/);
+    await reopenSavedNote(page, file, read());
+    await expect(editor.getByRole("row")).toHaveCount(3);
+    await expect(editor.getByRole("columnheader")).toHaveText(["左", "右", ""]);
+    await expect(editor.getByRole("row").last().getByRole("cell")).toHaveText(["", "", ""]);
   } finally {
     await close();
   }

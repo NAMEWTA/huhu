@@ -191,6 +191,12 @@ export function applyDuplicateToDocuments(
     changed = true;
   };
 
+  if (duplicate.kind === 'file' && target.kind === 'asset') {
+    const source = documents.find((entry) => isAssetEntry(entry) && entry.path === target.path);
+    if (source?.kind === 'asset') addEntry({ ...source, path: duplicate.path, referencedBy: [], modified });
+    return changed ? next : documents;
+  }
+
   if (duplicate.kind === 'file') {
     const source = documents.find(
       (entry): entry is Extract<FileEntry, { kind: 'document' }> =>

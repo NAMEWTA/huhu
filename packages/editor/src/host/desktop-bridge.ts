@@ -3,24 +3,40 @@
 import type { OkDesktopBridge } from "@inkeep/open-knowledge-core/desktop-bridge";
 import type { OkHost } from "./ok-host";
 
+const owners: OkHost[] = [];
+let previous: OkDesktopBridge | undefined;
+let installed: OkDesktopBridge | undefined;
+
 export function installDesktopBridge(host: OkHost): () => void {
-  const p = navigator.platform.toLowerCase();
-  const bridge = {
-    platform: p.includes("win") ? "win32" : p.includes("mac") ? "darwin" : "linux",
-    config: { projectPath: "", singleFile: false },
-    shell: {
-      openExternal: async (url: string) => {
-        await host.openExternal(url);
-      },
-      recordHandoff: async () => {},
-    },
-    cliCommandName: null,
-    mcpServerName: null,
-  } as unknown as OkDesktopBridge;
   const w = window as unknown as { okDesktop?: OkDesktopBridge };
-  const prev = w.okDesktop;
-  w.okDesktop = bridge;
+  if (!owners.length) {
+    previous = w.okDesktop;
+    const p = navigator.platform.toLowerCase();
+    installed = {
+      platform: p.includes("win") ? "win32" : p.includes("mac") ? "darwin" : "linux",
+      config: { projectPath: "", singleFile: false },
+      shell: {
+        openExternal: async (url: string) => {
+          await owners.at(-1)?.openExternal(url);
+        },
+        recordHandoff: async () => {},
+      },
+      cliCommandName: null,
+      mcpServerName: null,
+    } as unknown as OkDesktopBridge;
+    w.okDesktop = installed;
+  }
+  owners.push(host);
   return () => {
-    if (w.okDesktop === bridge) w.okDesktop = prev as OkDesktopBridge;
+    const index = owners.indexOf(host);
+    if (index < 0) return;
+    owners.splice(index, 1);
+    if (owners.length) return;
+    if (w.okDesktop === installed) {
+      if (previous === undefined) delete w.okDesktop;
+      else w.okDesktop = previous;
+    }
+    previous = undefined;
+    installed = undefined;
   };
 }

@@ -35,10 +35,17 @@ test("表情选择器离线可用，键盘与鼠标插入后保存重开，Escap
     const rich = editor(page);
     await expect(rich).toBeVisible();
     const requests: string[] = [];
+    const dictionaryPaths = ["/api/local-emoji/zh/data.json", "/api/local-emoji/zh/messages.json"];
+    const dictionaryRequests = new Set<string>();
     const recordRequest = (request: { url(): string }) => {
       const url = new URL(request.url());
-      // The picker uses packaged dictionary chunks and the editor uses the local Vault engine.
-      if (url.protocol === "huhu-app:" && url.host === "workbench" && url.pathname.startsWith("/assets/")) return;
+      if (url.protocol === "huhu-app:" && url.host === "workbench") {
+        if (dictionaryPaths.includes(url.pathname)) {
+          dictionaryRequests.add(url.pathname);
+          return;
+        }
+        if (url.pathname.startsWith("/assets/")) return;
+      }
       if (url.hostname === "127.0.0.1" && url.pathname === "/api/v1/call") return;
       requests.push(request.url());
     };
@@ -62,6 +69,7 @@ test("表情选择器离线可用，键盘与鼠标插入后保存重开，Escap
     await expect(rich).toBeFocused();
     await expect(rich.locator("p").last()).toHaveText("鼠标 🚀");
     expect(requests).toEqual([]);
+    expect([...dictionaryRequests].sort()).toEqual(dictionaryPaths);
     page.off("request", recordRequest);
 
     await expect.poll(() => readFileSync(file, "utf8"), { timeout: 15_000 }).toBe(expected);

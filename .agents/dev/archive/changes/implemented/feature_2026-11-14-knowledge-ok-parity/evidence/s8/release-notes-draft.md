@@ -17,6 +17,8 @@
 | `notes.files` 删除 | 仓库内无其它调用方；旧文件树已被 `vault.list` 驱动的新树取代 |
 | 新增 `vault.list`、`vault.readRange`、`notes.hidden.get/set`、事件 `vault.dirChanged` | `vault.list` 在权限组 `vault.read`；`vault.readRange` 与 `notes.hidden.*` 不对外暴露（`exposable:false`） |
 | `notes.duplicate` 支持文件夹 | 向后兼容 |
+| `notes.move` 的非空 `targetDir` 必须指向已存在的目录 | 移动前先创建目标目录。空字符串仍表示 Vault 根目录 |
+| `notes.create.templatePath` 仅桌面端可用 | 外部调用可继续通过 `template` 选用内置模板 |
 
 ## 体积与依赖
 - 新增约 115 个 npm 依赖（编辑器闭包共 133 个，其中 16 个与原版本不同）（编辑器闭包：Tiptap / Yjs / Lingui / Tailwind v4 / `@pierre/trees` 等）；编辑器、文件树、PDF 查看器均为懒加载 chunk；`marked`、DOMPurify、`react-markdown` 等旧预览依赖已移除。

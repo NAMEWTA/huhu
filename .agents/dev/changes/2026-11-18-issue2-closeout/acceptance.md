@@ -1,5 +1,7 @@
 # Issue #2 关闭验收台账
 
+> **重新打开后的状态以[本轮验收记录](evidence/reopened/README.md)为准。** 下文保留 `ce913d2` 的历史验收；其中「达到关闭条件」已在 Issue 重新打开时撤回，不适用于当前候选。
+
 - 来源：[Issue #2](https://github.com/NAMEWTA/huhu/issues/2)。2026-11-18 与 2026-11-20 两次用 `gh issue view 2` 在线核对：OPEN，正文与 1 条用户补充评论（2026-11-14T14:25Z）同归档 `source-issue-2.md` 一致，之后没有新评论。
 - 规格：归档 [spec.md](../../archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md)，优先级 spec §3 > Issue 评论 > Issue 正文。Q1–Q10 按 `decisions.md` OP-D19 已定。
 - 起点：`main` `9f870c0`（OK 移植以 `7edcaa8` 进入）。历史分支 `feat/knowledge-ok-parity` 本地和远端均不存在，内容已在 `main`。

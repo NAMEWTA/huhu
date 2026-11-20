@@ -1,3 +1,4 @@
+import { legacyTextEncodings } from "../shared/text-encoding.js";
 import { errors } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
@@ -31,6 +32,7 @@ export { ArchivesService } from "./archives/service.js";
 export { CommentsService } from "./comments/service.js";
 
 const Path = z.object({ path: z.string().min(1) });
+const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string() });
 const NoteRef = z.object({ path: z.string(), id: z.string().nullable(), title: z.string(), trashId: z.string().optional(), deletedAt: z.string().optional(), favorite: z.boolean().optional(), tags: z.array(z.string()).optional() });
 const Moved = z.object({ moved: z.record(z.string(), z.string()), rewrittenFiles: z.array(z.string()), ambiguous: z.array(z.string()) });
 const Filter = z.union([z.enum(["all", "favorites", "daily", "trash"]), z.object({ tag: z.string() })]);
@@ -42,13 +44,35 @@ export interface NotesOptions {
 
 /** notes 插件入口：注册笔记与文件管理能力。 */
 export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): NotesService {
+  const draftName = (rel: string) => `note-${createHash("sha1").update(rel).digest("hex").slice(0, 16)}.json`;
+  const draftFile = (rel: string) => path.join(api.vault.stateDir, "drafts", draftName(rel));
+  const readDraft = (rel: string) => {
+    const f = draftFile(rel);
+    if (!existsSync(f)) return null;
+    try {
+      const draft = Draft.parse(JSON.parse(readFileSync(f, "utf8")));
+      return draft.path === rel ? draft : null;
+    } catch {
+      return null;
+    }
+  };
   const svc = new NotesService({
     files: api.vault.files,
+    stateDir: api.vault.stateDir,
     ops: new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations")),
     index: api.vault.index,
     trash: api.vault.trash,
     now: opts.now ?? (() => new Date()),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+    draftMoveSteps: (from, to) => {
+      const draft = readDraft(from);
+      if (!draft) return [];
+      if (existsSync(draftFile(to))) throw errors.nameConflict(`目标路径已有草稿：${to}`);
+      return [
+        { action: "write", path: `.huhu/drafts/${draftName(to)}`, bytes: Buffer.from(JSON.stringify({ ...draft, path: to })) },
+        { action: "delete", path: `.huhu/drafts/${draftName(from)}` },
+      ];
+    },
   });
   const comments = new CommentsService({
     repo: api.vault.repo,
@@ -120,6 +144,35 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   );
   api.defineCapability(
     def({
+      name: "notes.textEncoding",
+      plugin: "notes",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: Path,
+      output: z.object({ state: z.enum(["ok", "binary", "encoding"]), version: z.string() }),
+      handler: (_c, i) => svc.inspectEncoding(i.path),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.convertEncoding",
+      plugin: "notes",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: Path.extend({ encoding: z.enum(legacyTextEncodings), expectedVersion: z.string() }),
+      output: z.object({ version: z.string() }),
+      handler: async (c, i) => {
+        assertNotAutomationsDir(c.caller, i.path);
+        const result = await svc.convertEncoding(i.path, i.encoding, i.expectedVersion);
+        changed(svc.noteId(i.path), "updated");
+        return result;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
       name: "notes.save",
       plugin: "notes",
       scope: "write",
@@ -130,9 +183,10 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       handler: async (c, i) => {
         assertNotAutomationsDir(c.caller, i.path);
         const r = await svc.save(i.path, i.text, i.expectedVersion);
-        await comments.refind(i.path, i.text, r.version).catch(() => undefined); // 批注重定位失败不应让保存失败
+        const source = r.previous.version === i.expectedVersion ? r.previous : undefined;
+        await comments.refind(i.path, i.text, r.version, source).catch(() => undefined); // 批注重定位失败不应让保存失败
         changed(svc.noteId(i.path), "updated");
-        return r;
+        return { version: r.version };
       },
     }),
   );
@@ -390,6 +444,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         quote: z.string().optional(),
         prefix: z.string().optional(),
         suffix: z.string().optional(),
+        expectedSourceVersion: z.string().optional(),
         text: z.string(),
       }),
       output: CommentDto,
@@ -403,6 +458,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
           ...(i.quote !== undefined ? { quote: i.quote } : {}),
           ...(i.prefix !== undefined ? { prefix: i.prefix } : {}),
           ...(i.suffix !== undefined ? { suffix: i.suffix } : {}),
+          expectedSourceVersion: i.expectedSourceVersion,
           text: i.text,
           author: author(c.caller),
         }),
@@ -415,15 +471,13 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     def({
       name: "comments.relocate",
       ...cw,
-      input: Cid.extend({ start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional() }),
+      input: Cid.extend({ start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional(), expectedSourceVersion: z.string().optional() }),
       output: CommentDto,
-      handler: (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix }),
+      handler: (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix, expectedSourceVersion: i.expectedSourceVersion }),
     }),
   );
   api.defineCapability(def({ name: "comments.delete", ...cw, input: Cid, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await comments.delete(i.id), { ok: true as const }) }));
   // 手动保存模式下离开时保留的草稿：写在 .huhu/drafts/，不改动笔记文件（ACC-KN-04）
-  const draftFile = (rel: string) => path.join(api.vault.stateDir, "drafts", `note-${createHash("sha1").update(rel).digest("hex").slice(0, 16)}.json`);
-  const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string() });
   const dw = { plugin: "notes", scope: "write" as const, exposable: false, defaultExposed: false };
   api.defineCapability(
     def({
@@ -434,16 +488,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       defaultExposed: false,
       input: Path,
       output: Draft.nullable(),
-      handler: (_c, i) => {
-        const f = draftFile(i.path);
-        if (!existsSync(f)) return null;
-        try {
-          const d = JSON.parse(readFileSync(f, "utf8")) as z.infer<typeof Draft>;
-          return d.path === i.path ? d : null;
-        } catch {
-          return null;
-        }
-      },
+      handler: (_c, i) => readDraft(i.path),
     }),
   );
   api.defineCapability(

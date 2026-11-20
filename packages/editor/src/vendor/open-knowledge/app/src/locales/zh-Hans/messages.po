@@ -2953,6 +2953,9 @@ msgstr "无法连接到智能体服务。请确认 OpenKnowledge 服务器正在
 msgid "Couldn't construct the share URL. Try Done and re-share."
 msgstr "无法构建共享 URL。请点击「完成」后重新共享。"
 
+msgid "Couldn't copy image"
+msgstr "无法复制图片"
+
 msgid "Couldn't copy path"
 msgstr "无法复制路径"
 
@@ -3072,6 +3075,9 @@ msgstr "无法加载你的错误报告。"
 
 msgid "Couldn't mark that comment to send."
 msgstr "无法把那条评论标记为待发送。"
+
+msgid "Couldn't load comments"
+msgstr "无法加载批注"
 
 msgid "Couldn't move {0}: {1}"
 msgstr "无法移动 {0}：{1}"
@@ -8970,6 +8976,9 @@ msgstr "正在恢复对话"
 
 msgid "Retrieving…"
 msgstr "正在检索…"
+
+msgid "Retry"
+msgstr "重试"
 
 msgid "Retry push"
 msgstr "重试推送"

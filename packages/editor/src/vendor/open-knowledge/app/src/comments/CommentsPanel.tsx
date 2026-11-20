@@ -1,9 +1,11 @@
 import { Trans } from '@lingui/react/macro';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { PanelError } from '@/components/ui/panel';
 import { ProfilerBoundary } from '@/lib/perf';
 import { CommentListPanel } from './CommentListPanel';
-import { refresh, useCommentThreads } from './store';
+import { refresh, useCommentSurface, useCommentThreadSnapshot } from './store';
 
 function CommentsPanelInner({
   docName,
@@ -14,16 +16,33 @@ function CommentsPanelInner({
   scopeSwitch?: ReactNode;
   onDestinationComplete?: (target: HTMLElement) => void;
 }) {
-  const threads = useCommentThreads(docName);
+  const { threads, load } = useCommentThreadSnapshot(docName);
+  const surface = useCommentSurface();
 
   useEffect(() => {
-    void refresh(docName).catch(() => undefined);
-  }, [docName]);
+    void refresh(docName, surface).catch(() => undefined);
+  }, [docName, surface]);
+
+  function retry(): void {
+    void refresh(docName, surface).catch(() => undefined);
+  }
 
   return (
     <CommentListPanel
       threads={threads}
-      empty={<Trans>No comments yet. Select text in the document to add one.</Trans>}
+      empty={load === 'ready' && <Trans>No comments yet. Select text in the document to add one.</Trans>}
+      loadStatus={
+        <>
+          <PanelError role="status" data-testid="comment-doc-load-status">
+            {load === 'failed' && <Trans>Couldn't load comments</Trans>}
+          </PanelError>
+          {load === 'failed' && (
+            <Button type="button" size="sm" variant="outline" className="self-start" onClick={retry}>
+              <Trans>Retry</Trans>
+            </Button>
+          )}
+        </>
+      }
       testIdPrefix="comment-doc"
       scopeSwitch={scopeSwitch}
       onDestinationComplete={onDestinationComplete}
@@ -43,6 +62,7 @@ export function CommentsPanel({
   return (
     <ProfilerBoundary name="comments-panel">
       <CommentsPanelInner
+        key={docName}
         docName={docName}
         scopeSwitch={scopeSwitch}
         onDestinationComplete={onDestinationComplete}

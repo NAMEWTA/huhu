@@ -1,11 +1,27 @@
 import type { VaultReadRangeOutput } from "@huhu/contracts";
-import { OkRoot, RichMarkdownEditor, coreRoutes, requestFileTreeReveal, uploadRoutes, type EditorAssetActions, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
-import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
+import {
+  OkRoot,
+  RichMarkdownEditor,
+  coreRoutes,
+  markdownSemanticallyUnchanged,
+  registerCommentSelectionSource,
+  requestFileTreeReveal,
+  useCommentsReadOnlySync,
+  uploadRoutes,
+  type EditorAssetActions,
+  type EditorViewMode,
+  type HostRoutes,
+  type ReferenceCandidate,
+  type RichEditorPort,
+} from "@huhu/editor/rich";
+import { useCapability, useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
+import { documentSessions } from "./useDocumentSession.js";
+import type { MarkdownEquivalence } from "./DocumentSession.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -17,14 +33,18 @@ export interface SurfaceNoteRef {
 export interface NoteEditorSurfaceProps {
   path: string;
   value: string;
-  onChange(text: string): void;
+  onChange(text: string, equivalentMarkdown: MarkdownEquivalence): void;
+  readOnly: boolean;
+  retainSession(): () => void;
   mode: EditorViewMode;
+  propertiesTarget: HTMLElement | null;
   onRevealSource(): void;
   notes: readonly SurfaceNoteRef[];
   /** 编辑器内点击 wiki-link / 内部链接：交给笔记模块打开 */
   onOpen(path: string): void;
   onPort(port: RichEditorPort | null): void;
   fontSize?: number;
+  linkPreviewsEnabled: boolean;
   /** 正文可读宽度 px；null = 不限制 */
   contentWidth?: number | null;
   /** 批注创建前把编辑落盘（引擎在已保存文本上解析引用文字） */
@@ -41,6 +61,21 @@ const docNameOf = (path: string): string => path.replace(MD, "");
 export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const engine = useEngine();
   const locale = useKnowledgeLocale();
+  const host = (globalThis as { huhuHost?: { externalLinkPreview?(url: string): Promise<unknown> } }).huhuHost;
+  const requestLinkPreview = host?.externalLinkPreview;
+  const config = requestLinkPreview && props.linkPreviewsEnabled ? { linkPreviewsEnabled: true, requestLinkPreview } : undefined;
+  const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
+  useCommentsReadOnlySync(vault.data?.readOnly !== false);
+  useLayoutEffect(() => {
+    return registerCommentSelectionSource(
+      docNameOf(props.path),
+      () => {
+        const session = documentSessions.get(engine.vaultId, props.path);
+        if (session) return { ...session.id, revision: session.getSnapshot().dirtyRevision };
+      },
+      engine.vaultId,
+    );
+  }, [engine.vaultId, props.path]);
   // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
   const refs = useReferenceIndex();
   const notes = useRef(props.notes);
@@ -57,6 +92,15 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
     const pathForDocName = (docName: string) => notes.current.find((entry) => docNameOf(entry.path) === docName)?.path;
     return {
       ...commentRoutes,
+      "POST /api/create-page": async ({ body }) => {
+        const file = (body as { path?: unknown } | null)?.path;
+        if (typeof file !== "string" || !MD.test(file) || hasProtectedSegment(file)) throw new Error("无效的笔记路径");
+        const slash = file.lastIndexOf("/");
+        const name = file.slice(slash + 1).replace(MD, "");
+        const folder = slash < 0 ? "" : file.slice(0, slash);
+        const result = await engine.call<{ path: string }>("notes.create", { name, folder }, { write: true });
+        return { docName: docNameOf(result.path) };
+      },
       // 粘贴 / 拖入图片与文件：落在当前笔记旁的 attachments/（notes.attach：原子写 + OperationLog，同内容去重）
       ...uploadRoutes(async ({ file, name, notePath: parent }) => attachFile(engine, { file, name, notePath: parent ?? notePath.current })),
       ...coreRoutes({
@@ -158,13 +202,16 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
 
   return (
-    <OkRoot acceptSidebarDrop locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} commentScope={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}
         value={props.value}
-        onChange={props.onChange}
+        onChange={(text) => props.onChange(text, markdownSemanticallyUnchanged)}
+        readOnly={props.readOnly}
+        retainSession={props.retainSession}
         mode={props.mode}
+        propertiesTarget={props.propertiesTarget}
         assetActions={assetActions}
         onPort={props.onPort}
         onRevealSource={props.onRevealSource}

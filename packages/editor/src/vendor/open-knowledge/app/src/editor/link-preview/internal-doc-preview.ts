@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   stripFrontmatter,
   unwrapFrontmatterFences,
@@ -47,25 +48,44 @@ export function deriveContentFields(
 
 export const CONTENT_CACHE_MAX_ENTRIES = 128;
 
-const contentCache = new Map<string, string>();
-const backlinkCountCache = new Map<string, number>();
-const inflightContent = new Map<string, Promise<string | null>>();
-const inflightBacklink = new Map<string, Promise<number | null>>();
+function newCache() {
+  return {
+    contentCache: new Map<string, string>(),
+    backlinkCountCache: new Map<string, number>(),
+    inflightContent: new Map<string, Promise<string | null>>(),
+    inflightBacklink: new Map<string, Promise<number | null>>(),
+  };
+}
+let scopes = new WeakMap<typeof okFetch, ReturnType<typeof newCache>>();
 
-async function fetchDocContent(docName: string): Promise<string> {
-  const res = await fetch(`/api/document?docName=${encodeURIComponent(docName)}`);
+function cacheFor(request: typeof fetch) {
+  let scope = scopes.get(request);
+  if (!scope) {
+    scope = newCache();
+    scopes.set(request, scope);
+  }
+  return scope;
+}
+
+export function resetInternalDocPreviewCache(): void {
+  scopes = new WeakMap();
+}
+
+async function fetchDocContent(docName: string, request: typeof fetch): Promise<string> {
+  const res = await request(`/api/document?docName=${encodeURIComponent(docName)}`);
   if (!res.ok) throw new Error(`document read failed: ${res.status}`);
   return DocumentReadSuccessSchema.parse(await res.json()).content;
 }
 
-async function fetchBacklinkCount(docName: string): Promise<number> {
-  const res = await fetch(`/api/backlink-counts?docNames=${encodeURIComponent(docName)}`);
+async function fetchBacklinkCount(docName: string, request: typeof fetch): Promise<number> {
+  const res = await request(`/api/backlink-counts?docNames=${encodeURIComponent(docName)}`);
   if (!res.ok) throw new Error(`backlink-counts failed: ${res.status}`);
   const { counts } = BacklinkCountsSuccessSchema.parse(await res.json());
   return counts[docName] ?? 0;
 }
 
-export function loadDocContent(docName: string): Promise<string | null> {
+export function loadDocContent(docName: string, request = okFetch): Promise<string | null> {
+  const { contentCache, inflightContent } = cacheFor(request);
   const cached = contentCache.get(docName);
   if (cached !== undefined) {
     contentCache.delete(docName);
@@ -74,9 +94,11 @@ export function loadDocContent(docName: string): Promise<string | null> {
   }
   const existing = inflightContent.get(docName);
   if (existing) return existing;
+  const currentScopes = scopes;
   const promise = (async () => {
     try {
-      const content = await fetchDocContent(docName);
+      const content = await fetchDocContent(docName, request);
+      if (currentScopes !== scopes) return null;
       contentCache.set(docName, content);
       while (contentCache.size > CONTENT_CACHE_MAX_ENTRIES) {
         const oldest = contentCache.keys().next().value;
@@ -100,7 +122,8 @@ export function loadDocContent(docName: string): Promise<string | null> {
   return promise;
 }
 
-export function loadBacklinkCount(docName: string): Promise<number | null> {
+export function loadBacklinkCount(docName: string, request = okFetch): Promise<number | null> {
+  const { backlinkCountCache, inflightBacklink } = cacheFor(request);
   const cached = backlinkCountCache.get(docName);
   if (cached !== undefined) {
     backlinkCountCache.delete(docName);
@@ -109,9 +132,11 @@ export function loadBacklinkCount(docName: string): Promise<number | null> {
   }
   const existing = inflightBacklink.get(docName);
   if (existing) return existing;
+  const currentScopes = scopes;
   const promise = (async () => {
     try {
-      const count = await fetchBacklinkCount(docName);
+      const count = await fetchBacklinkCount(docName, request);
+      if (currentScopes !== scopes) return null;
       backlinkCountCache.set(docName, count);
       while (backlinkCountCache.size > CONTENT_CACHE_MAX_ENTRIES) {
         const oldest = backlinkCountCache.keys().next().value;

@@ -1,0 +1,29 @@
+✔ rejects an OK selector outside its root: :where(:root) (743.016734ms)
+✔ rejects an OK selector outside its root: .ok-root + .host (716.051139ms)
+✔ rejects an OK selector outside its root: :is(html, .ok-root) (706.948896ms)
+✔ rejects an OK selector outside its root: .host:not(.ok-root) (717.279612ms)
+✔ rejects an OK selector outside its root: .host:has(.ok-root) (685.564404ms)
+✔ rejects an OK selector outside its root: .host, .ok-root (608.276382ms)
+✔ rejects an OK selector outside its root: .ok-root .leaf + .host, .ok-root ~ .host (593.960753ms)
+✔ rejects an OK selector outside its root: .host (567.635094ms)
+✔ checks OK fallback property declarations even without a scope marker (561.792237ms)
+✔ rejects nested selectors that can leave the root (581.637684ms)
+✔ rejects a backdrop declaration outside the defaults: color: red (574.458396ms)
+✔ rejects a backdrop declaration outside the defaults: --custom: red (596.502749ms)
+✔ rejects a backdrop declaration outside the defaults: --tw-unregistered: 0 (608.91305ms)
+✔ rejects a backdrop declaration outside the defaults: --tw-translate-x: 1px (582.188542ms)
+✔ rejects a backdrop declaration outside the defaults: --tw-translate-x: 0 !important (563.053517ms)
+✔ allows known backdrop defaults and selectors that stay within the root (571.061791ms)
+✔ rejects scoped A/B intersections (599.804717ms)
+✔ Huhu token mapping does not supply Tailwind classes but is scoped (1206.348669ms)
+✔ checks UI layers, all host CSS rules and class tokens in TSX and HTML (265.442864ms)
+✔ emits a backdrop selector that also matches a dialog which is itself an OK root (4.827397ms)
+✔ ignores host CSS even in a chunk named rich (581.858821ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12757.297769

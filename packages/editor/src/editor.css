@@ -50,27 +50,6 @@
 }
 
 @layer modules {
-  /* OK 编辑器的文档容器：滚动容器是 RichMarkdownEditor 里包着 Tiptap chrome 的那层（data-testid=editor-scroll-container）；正文栅格由 OK 的 .tiptap-editor 提供。
-     OK 自己的 App 壳负责这层布局；这里只给 Huhu 的宿主壳补上同等职责（design §3.3 / ui-design）。 */
-  .editor-ok-surface {
-    height: 100%;
-    min-height: 0;
-    min-width: 0;
-  }
-  /* 笔记设置里的字号 / 可读宽度（宿主经 style 设置这两个变量；缺省沿用 OK 的默认值） */
-  .editor-ok-surface .tiptap-editor {
-    --content-max-width: var(--editor-ok-measure, 1024px);
-  }
-  .editor-ok-surface .ProseMirror {
-    font-size: var(--editor-ok-font-size, inherit);
-  }
-  .editor-ok-compact .tiptap-editor {
-    --margin-width: var(--space-2, 8px);
-    --content-max-width: 100%;
-  }
-}
-
-@layer modules {
   /* `@` 引用候选菜单（rich/at-reference.ts）：挂在 .ok-root 里，固定定位到光标下方 */
   .editor-ref-menu {
     position: fixed;
@@ -95,7 +74,7 @@
     font-size: 13px;
     cursor: pointer;
   }
-  .editor-ref-item.is-active {
+  .editor-ref-item-active {
     background: var(--muted-bg);
   }
   .editor-ref-kind {
@@ -109,5 +88,38 @@
     width: 100%;
     padding: 4px 0 8px;
     border-bottom: 1px solid var(--line);
+  }
+}
+
+@layer modules {
+  .editor-comments-panel,
+  .editor-comments-composer {
+    display: flex;
+    flex-direction: column;
+  }
+  .editor-comments-panel {
+    height: 100%;
+    min-height: 0;
+  }
+  .editor-comments-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .editor-comments-composer,
+  .editor-comments-readonly {
+    border-top: 1px solid var(--line);
+    padding: var(--space-2);
+  }
+  .editor-comments-composer {
+    gap: calc(var(--space-3) / 2);
+  }
+  .editor-comments-submit {
+    align-self: flex-end;
+  }
+  .editor-comments-readonly {
+    color: var(--huhu-ok-muted-text);
+    font-size: 0.75rem;
+    line-height: calc(1 / 0.75);
   }
 }

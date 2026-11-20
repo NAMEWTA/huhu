@@ -21,11 +21,11 @@ const put = (root: string, rel: string, body = "x") => {
 describe("vault.list 的目录列举（A01 / A05 / A09 / A10）", () => {
   test("A01：笔记、Tasks、JSON、TXT、PDF、HTML、未知扩展名、点目录、空目录全部返回", () => {
     const v = tmp();
-    for (const f of ["a.md", "Tasks/t.md", "Comments/c.md", "d.json", "e.txt", "f.pdf", "g.html", "h.weird", ".obsidian/x.json"]) put(v, f);
+    for (const f of ["a.md", "Tasks/t.md", "Comments/c.md", "d.json", "e.txt", "f.pdf", "g.html", "h.weird", ".DS_Store", "Thumbs.db", ".obsidian/x.json"]) put(v, f);
     mkdirSync(path.join(v, "empty"));
     const r = listDir(v, "");
     const names = r.entries.map((e) => e.name);
-    for (const n of ["a.md", "Tasks", "Comments", "d.json", "e.txt", "f.pdf", "g.html", "h.weird", ".obsidian", "empty"]) expect(names, n).toContain(n);
+    for (const n of ["a.md", "Tasks", "Comments", "d.json", "e.txt", "f.pdf", "g.html", "h.weird", ".DS_Store", "Thumbs.db", ".obsidian", "empty"]) expect(names, n).toContain(n);
     expect(r.entries.find((e) => e.name === "empty")?.kind).toBe("dir");
     expect(listDir(v, "empty").entries).toEqual([]);
   });
@@ -80,6 +80,7 @@ describe("vault.list 的目录列举（A01 / A05 / A09 / A10）", () => {
     put(v, "file.md");
     try {
       symlinkSync(path.join(v, "real"), path.join(v, "link-in-dir"), "dir");
+      symlinkSync(v, path.join(v, "real", "parent"), "dir");
       symlinkSync(path.join(v, "file.md"), path.join(v, "link-in-file"));
       symlinkSync(outside, path.join(v, "link-out"), "dir");
       symlinkSync(path.join(v, "missing"), path.join(v, "link-broken"));
@@ -92,6 +93,8 @@ describe("vault.list 的目录列举（A01 / A05 / A09 / A10）", () => {
     expect(by["link-out"]).toMatchObject({ kind: "symlink", linkTarget: { inside: false } });
     expect(by["link-broken"]).toMatchObject({ kind: "symlink", linkTarget: { inside: false } });
     expect(() => listDir(v, "link-out")).toThrowError(/路径越界/);
+    expect(listDir(v, "real").entries.find((e) => e.name === "parent")).toMatchObject({ kind: "symlink", linkTarget: { inside: true, cycle: true } });
+    expect(() => listDir(v, "link-in-dir/parent/real")).toThrowError(/循环/);
   });
 
   test("越界与不存在的目录被拒绝", () => {

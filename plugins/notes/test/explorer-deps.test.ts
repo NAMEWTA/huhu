@@ -120,3 +120,35 @@ describe("A04 / A09：分页与计数输入", () => {
     expect(r.truncated).toBe(false);
   });
 });
+
+test("A08：编辑在结算前暂停，路径重新定位后恢复", async () => {
+  const timeline: string[] = [];
+  const entered = Promise.withResolvers<void>();
+  const reply = Promise.withResolvers<{ moved: Record<string, string> }>();
+  const { engine } = fakeEngine({
+    "notes.move": () => {
+      timeline.push("move");
+      entered.resolve();
+      return reply.promise;
+    },
+  });
+  const files = createFilesDeps(
+    opts(engine, {
+      beforeMutate: async () => (timeline.push("flush"), true),
+      holdOpenPaths: async (_path, move) => {
+        timeline.push("pause");
+        try {
+          return await move();
+        } finally {
+          timeline.push("resume");
+        }
+      },
+      onMoved: () => void timeline.push("remap"),
+    }),
+  );
+  const moving = files.rename({ kind: "file", fromPath: "a/x.md", toPath: "b/x.md" });
+  await entered.promise;
+  reply.resolve({ moved: { "a/x.md": "b/x.md" } });
+  await moving;
+  expect(timeline).toEqual(["pause", "flush", "move", "remap", "resume"]);
+});

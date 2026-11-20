@@ -20,6 +20,8 @@ export function classifyImageTargetExistence(
 export function useImageTargetExistence(src: string | undefined): ImageTargetExistence {
   const pageList = useOptionalPageList();
   if (src === undefined || src === '') return 'missing';
+  // The desktop media protocol can serve vault attachments absent from the note index.
+  if (globalThis.location?.protocol === 'huhu-app:') return 'unknown';
   if (pageList === null) return 'unknown';
   if (pageList.loading) return 'unknown';
   return classifyImageTargetExistence(src, '', pageList.assetPaths, pageList.filePaths);

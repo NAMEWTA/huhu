@@ -1,9 +1,11 @@
 // oxlint-disable ok/no-raw-error-toast -- pre-rule backlog: toasts here show raw error text; delete this line once the file maps each failure to written copy. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-raw-error-toast
 import { t } from '@lingui/core/macro';
-import { useSyncExternalStore } from 'react';
+import { createContext, createElement, type ReactNode, use, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { requestDocPanelTab } from '@/components/doc-panel-events';
+import { getVisibleEditorForDoc } from '@/editor/active-editor';
 import { subscribeToDocumentsChanged } from '@/lib/documents-events';
+import { okFetch, useOkFetch } from '@/lib/ok-fetch';
 import type { DispatchPayload } from './comments-client';
 import * as api from './comments-client';
 import { revealComments } from './reveal-queue';
@@ -12,29 +14,84 @@ import type { CommentThread } from './types';
 const EMPTY: readonly CommentThread[] = Object.freeze([]);
 const EMPTY_QUEUE: readonly string[] = Object.freeze([]);
 
-const threadsByDoc = new Map<string, CommentThread[]>();
-let allThreads: CommentThread[] = [];
+type LoadStatus = 'idle' | 'pending' | 'ready' | 'failed';
+type ThreadSnapshot = Readonly<{ load: LoadStatus; threads: readonly CommentThread[] }>;
+
+interface CommentReadStore {
+  snapshot: ThreadSnapshot;
+  byDoc: Map<string, ThreadSnapshot>;
+  request?: Promise<void>;
+  invalidateScheduled: boolean;
+  listeners: Set<() => void>;
+  queue?: readonly string[];
+  selected?: readonly string[];
+  deselected: Set<string>;
+  dispatching: boolean;
+  selectionSources: Map<string, () => api.CommentSelectionRevision | undefined>;
+}
+
+export interface CommentSurface {
+  reads: CommentReadStore;
+  fetch?: typeof okFetch;
+}
+
+const EMPTY_SNAPSHOT = { load: 'idle', threads: EMPTY } as const;
+
+function createReadStore(): CommentReadStore {
+  return { snapshot: EMPTY_SNAPSHOT, byDoc: new Map(), invalidateScheduled: false, listeners: new Set(), deselected: new Set(), dispatching: false, selectionSources: new Map() };
+}
+
+const defaultSurface: CommentSurface = { reads: createReadStore() };
+const CommentScopeContext = createContext<CommentSurface | null>(null);
+const vaultStores = new Map<string, CommentReadStore>();
+const rootStores = new WeakMap<typeof okFetch, CommentReadStore>();
+const mountedScopes = new Map<string, Set<CommentSurface>>();
 const listeners = new Set<() => void>();
-const loadedDocs = new Set<string>();
-let allLoaded = false;
 
-let deselected = new Set<string>();
+export function CommentScopeProvider({ scope, children }: { scope?: string; children: ReactNode }) {
+  const fetch = useOkFetch();
+  const surface = useMemo(() => getCommentSurface(scope, fetch), [scope, fetch]);
+  useEffect(() => {
+    if (scope === undefined) return;
+    const available = mountedScopes.get(scope) ?? new Set<CommentSurface>();
+    available.add(surface);
+    mountedScopes.set(scope, available);
+    return () => {
+      available.delete(surface);
+      if (available.size > 0) return;
+      mountedScopes.delete(scope);
+      queueMicrotask(() => {
+        if (!mountedScopes.has(scope) && vaultStores.get(scope) === surface.reads) vaultStores.delete(scope);
+      });
+    };
+  }, [scope, surface]);
+  return createElement(CommentScopeContext, { value: surface }, children);
+}
 
-let version = 0;
-let selectionVersion = 0;
+function getCommentSurface(scope: string | undefined, fetch: typeof okFetch): CommentSurface {
+  if (scope === undefined) {
+    if (fetch === okFetch) return defaultSurface;
+    const reads = rootStores.get(fetch) ?? createReadStore();
+    rootStores.set(fetch, reads);
+    return { reads, fetch };
+  }
+  return { reads: vaultReadStore(scope), fetch };
+}
+
+function vaultReadStore(scope: string): CommentReadStore {
+  const reads = vaultStores.get(scope) ?? createReadStore();
+  vaultStores.set(scope, reads);
+  return reads;
+}
+
+export function useCommentSurface(): CommentSurface {
+  const surface = use(CommentScopeContext);
+  const fetch = useOkFetch();
+  return useMemo(() => surface ?? getCommentSurface(undefined, fetch), [surface, fetch]);
+}
 
 function notify(): void {
   for (const listener of listeners) listener();
-}
-
-function bump(): void {
-  version += 1;
-  notify();
-}
-
-function bumpSelection(): void {
-  selectionVersion += 1;
-  notify();
 }
 
 function toThread(meta: api.CommentThreadMeta): CommentThread {
@@ -51,6 +108,7 @@ function toThread(meta: api.CommentThreadMeta): CommentThread {
             suffix: meta.anchor.suffix,
             start: meta.anchor.start,
             end: meta.anchor.end,
+            ...(meta.scope === 'body' ? { requireUnique: true } : {}),
           },
     status: meta.state === 'anchored' ? 'open' : meta.state,
     body: meta.latestComment,
@@ -63,24 +121,61 @@ function toThread(meta: api.CommentThreadMeta): CommentThread {
   };
 }
 
-async function fetchThreads(): Promise<CommentThread[]> {
-  const metas = await api.listThreads();
-  return metas.map(toThread).sort((a, b) => b.createdAt - a.createdAt);
+function updateSnapshot(reads: CommentReadStore, snapshot: ThreadSnapshot): void {
+  if (reads.snapshot.threads !== snapshot.threads) {
+    delete reads.queue;
+    delete reads.selected;
+  }
+  reads.snapshot = snapshot;
+  reads.byDoc.clear();
+  notifyReads(reads);
 }
 
-export async function refresh(docName?: string): Promise<void> {
-  if (docName !== undefined) loadedDocs.add(docName);
-  const nextAll = await fetchThreads();
-  allThreads = nextAll;
-  allLoaded = true;
-  for (const doc of loadedDocs) {
-    threadsByDoc.set(
-      doc,
-      nextAll.filter((t) => t.docName === doc),
-    );
+function notifyReads(reads: CommentReadStore): void {
+  for (const listener of reads.listeners) listener();
+  if (reads === defaultSurface.reads) notify();
+}
+
+function fetchArgs(surface: CommentSurface): [] | [typeof okFetch] {
+  return surface.fetch === undefined ? [] : [surface.fetch];
+}
+
+function readDoc(reads: CommentReadStore, docName: string): ThreadSnapshot {
+  let snapshot = reads.byDoc.get(docName);
+  if (snapshot === undefined) {
+    snapshot = {
+      load: reads.snapshot.load,
+      threads: reads.snapshot.threads.filter((thread) => thread.docName === docName),
+    };
+    reads.byDoc.set(docName, snapshot);
   }
-  bump();
-  standDownIfGone(nextAll);
+  return snapshot;
+}
+
+export function refresh(_docName?: string, surface = defaultSurface, supersede = false): Promise<void> {
+  ensureCc1Subscription();
+  const reads = surface.reads;
+  if (reads.request !== undefined && !supersede) return reads.request;
+  const request = Promise.resolve().then(async () => {
+    if (reads.request !== request) return;
+    updateSnapshot(reads, { ...reads.snapshot, load: 'pending' });
+    try {
+      const metas = await (surface.fetch === undefined ? api.listThreads() : api.listThreads(undefined, surface.fetch));
+      if (reads.request !== request) return;
+      const threads = metas.map(toThread).sort((a, b) => b.createdAt - a.createdAt);
+      delete reads.request;
+      const ownedOpenThread = reads === defaultSurface.reads || reads.snapshot.threads.some((thread) => thread.id === openThreadId);
+      updateSnapshot(reads, { load: 'ready', threads });
+      if (ownedOpenThread) standDownIfGone(threads);
+    } catch (error) {
+      if (reads.request !== request) return;
+      delete reads.request;
+      updateSnapshot(reads, { ...reads.snapshot, load: 'failed' });
+      throw error;
+    }
+  });
+  reads.request = request;
+  return request;
 }
 
 function standDownIfGone(threads: readonly CommentThread[]): void {
@@ -89,37 +184,37 @@ function standDownIfGone(threads: readonly CommentThread[]): void {
   emitOpenThread(null);
 }
 
+function invalidate(surface: CommentSurface): void {
+  if (surface.reads.invalidateScheduled) return;
+  surface.reads.invalidateScheduled = true;
+  void refresh(undefined, surface, true).catch(() => undefined);
+  queueMicrotask(() => {
+    surface.reads.invalidateScheduled = false;
+  });
+}
+
+export function invalidateCommentScope(scope: string): void {
+  const surface = mountedScopes.get(scope)?.values().next().value;
+  if (surface !== undefined) invalidate(surface);
+}
+
 let cc1Installed = false;
 function ensureCc1Subscription(): void {
   if (cc1Installed || typeof window === 'undefined') return;
   cc1Installed = true;
   subscribeToDocumentsChanged((channels) => {
-    if (!channels.includes('comments')) return;
-    void refresh().catch(() => undefined);
+    if (channels.includes('comments')) invalidate(defaultSurface);
   });
 }
 
-function ensureLoaded(docName: string): void {
-  ensureCc1Subscription();
-  if (loadedDocs.has(docName)) return;
-  loadedDocs.add(docName);
-  void refresh(docName).catch(() => {
-    loadedDocs.delete(docName);
-  });
+function ensureLoaded(surface: CommentSurface): void {
+  if (surface.reads.snapshot.load !== 'idle') return;
+  void refresh(undefined, surface).catch(() => undefined);
 }
 
-function ensureAllLoaded(): void {
-  ensureCc1Subscription();
-  if (allLoaded) return;
-  allLoaded = true;
-  void refresh().catch(() => {
-    allLoaded = false;
-  });
-}
-
-export function getThreads(docName: string): readonly CommentThread[] {
-  ensureLoaded(docName);
-  return threadsByDoc.get(docName) ?? EMPTY;
+export function getThreads(docName: string, surface = defaultSurface): readonly CommentThread[] {
+  ensureLoaded(surface);
+  return readDoc(surface.reads, docName).threads;
 }
 
 export function subscribe(listener: () => void): () => void {
@@ -129,29 +224,65 @@ export function subscribe(listener: () => void): () => void {
   };
 }
 
-export function useCommentThreads(docName: string): readonly CommentThread[] {
+export function subscribeCommentReads(surface: CommentSurface, listener: () => void): () => void {
+  surface.reads.listeners.add(listener);
+  return () => {
+    surface.reads.listeners.delete(listener);
+  };
+}
+
+export function useCommentThreadSnapshot(docName: string): ThreadSnapshot {
+  const surface = useCommentSurface();
+  const subscribeToSurface = useMemo(() => (listener: () => void) => subscribeCommentReads(surface, listener), [surface]);
+  useEffect(() => ensureLoaded(surface), [surface]);
   return useSyncExternalStore(
-    subscribe,
-    () => getThreads(docName),
-    () => EMPTY,
+    subscribeToSurface,
+    () => readDoc(surface.reads, docName),
+    () => EMPTY_SNAPSHOT,
   );
 }
 
+export function useCommentThreads(docName: string): readonly CommentThread[] {
+  return useCommentThreadSnapshot(docName).threads;
+}
+
 export function getAllThreads(): readonly CommentThread[] {
-  ensureAllLoaded();
-  return allThreads;
+  ensureLoaded(defaultSurface);
+  return defaultSurface.reads.snapshot.threads;
 }
 
 export function useAllThreads(): readonly CommentThread[] {
-  return useSyncExternalStore(subscribe, getAllThreads, () => EMPTY);
+  const surface = useCommentSurface();
+  const subscribeToSurface = useMemo(() => (listener: () => void) => subscribeCommentReads(surface, listener), [surface]);
+  useEffect(() => ensureLoaded(surface), [surface]);
+  return useSyncExternalStore(subscribeToSurface, () => surface.reads.snapshot.threads, () => EMPTY);
 }
 
-export function getThreadById(threadId: string): CommentThread | null {
-  for (const threads of threadsByDoc.values()) {
-    const found = threads.find((t) => t.id === threadId);
-    if (found) return found;
-  }
-  return allThreads.find((t) => t.id === threadId) ?? null;
+export function getThreadById(threadId: string, surface = defaultSurface): CommentThread | null {
+  return surface.reads.snapshot.threads.find((thread) => thread.id === threadId) ?? null;
+}
+
+export function registerCommentSelectionSource(docName: string, read: () => api.CommentSelectionRevision | undefined, scope?: string): () => void {
+  const { selectionSources } = scope === undefined ? defaultSurface.reads : vaultReadStore(scope);
+  selectionSources.set(docName, read);
+  return () => {
+    if (selectionSources.get(docName) === read) selectionSources.delete(docName);
+  };
+}
+
+export function captureCommentSelectionRevision(docName: string, surface = defaultSurface): api.CommentSelectionRevision | undefined {
+  return surface.reads.selectionSources.get(docName)?.();
+}
+
+let navigationRevision = 0;
+export function invalidateCommentNavigation(): void {
+  navigationRevision++;
+  bus.dispatchEvent(new Event(NAVIGATION_INVALIDATED_EVENT));
+}
+
+export function subscribeCommentNavigationInvalidated(listener: () => void): () => void {
+  bus.addEventListener(NAVIGATION_INVALIDATED_EVENT, listener);
+  return () => bus.removeEventListener(NAVIGATION_INVALIDATED_EVENT, listener);
 }
 
 export function createThread(args: {
@@ -160,8 +291,12 @@ export function createThread(args: {
   body: string;
   prefix?: string;
   suffix?: string;
+  selection?: api.CommentSelectionRevision;
+  canReveal?: () => boolean;
   onCreated?: (threadId: string) => void;
-}): void {
+}, surface = defaultSurface): void {
+  if (hostReadOnly) return;
+  const revision = navigationRevision;
   void api
     .createThread({
       docName: args.docName,
@@ -169,14 +304,16 @@ export function createThread(args: {
       prefix: args.prefix,
       suffix: args.suffix,
       body: args.body,
+      selection: args.selection,
       queue: true,
-    })
+    }, ...fetchArgs(surface))
     .then((meta) => {
-      void refresh(args.docName).catch(() => undefined);
+      invalidate(surface);
       if (args.onCreated !== undefined) {
         args.onCreated(meta.threadId);
         return;
       }
+      if (revision !== navigationRevision || args.canReveal?.() === false) return;
       revealComments('doc', args.docName);
       emitCommentPosted();
     })
@@ -205,13 +342,16 @@ export function useCommentsReadOnly(): boolean {
 }
 
 // HUHU(P-S4-03)：整篇笔记批注、回复、解决
-export function createFileThread(args: { docName: string; body: string; onCreated?: (threadId: string) => void }): void {
+export function createFileThread(args: { docName: string; body: string; onCreated?: (threadId: string) => void }, surface = defaultSurface): void {
+  if (hostReadOnly) return;
+  const revision = navigationRevision;
+  const editor = getVisibleEditorForDoc(args.docName);
   void api
-    .createThread({ docName: args.docName, wholeFile: true, body: args.body })
+    .createThread({ docName: args.docName, wholeFile: true, body: args.body }, ...fetchArgs(surface))
     .then((meta) => {
-      void refresh(args.docName).catch(() => undefined);
+      invalidate(surface);
       args.onCreated?.(meta.threadId);
-      emitCommentPosted();
+      if (revision === navigationRevision && getVisibleEditorForDoc(args.docName) === editor) emitCommentPosted();
     })
     .catch((err: unknown) => {
       toast.error(
@@ -222,14 +362,12 @@ export function createFileThread(args: { docName: string; body: string; onCreate
     });
 }
 
-export function replyToThread(threadId: string, body: string): void {
-  const docName = getThreadById(threadId)?.docName;
-  settle(api.replyThread(threadId, body), docName, t`Couldn't send that reply.`);
+export function replyToThread(threadId: string, body: string, surface = defaultSurface): void {
+  settle(api.replyThread(threadId, body, ...fetchArgs(surface)), surface, t`Couldn't send that reply.`);
 }
 
-export function resolveThread(threadId: string): void {
-  const docName = getThreadById(threadId)?.docName;
-  settle(api.resolveThread(threadId), docName, t`Couldn't resolve that comment.`);
+export function resolveThread(threadId: string, surface = defaultSurface): void {
+  settle(api.resolveThread(threadId, ...fetchArgs(surface)), surface, t`Couldn't resolve that comment.`);
 }
 
 export function createPropertyThread(args: {
@@ -238,7 +376,10 @@ export function createPropertyThread(args: {
   propertyPath?: (string | number)[];
   quote?: string;
   body: string;
-}): void {
+}, surface = defaultSurface): void {
+  if (hostReadOnly) return;
+  const revision = navigationRevision;
+  const editor = getVisibleEditorForDoc(args.docName);
   void api
     .createThread({
       docName: args.docName,
@@ -247,9 +388,10 @@ export function createPropertyThread(args: {
       quote: args.quote,
       body: args.body,
       queue: true,
-    })
+    }, ...fetchArgs(surface))
     .then(() => {
-      void refresh(args.docName).catch(() => undefined);
+      invalidate(surface);
+      if (revision !== navigationRevision || getVisibleEditorForDoc(args.docName) !== editor) return;
       revealComments('doc', args.docName);
       emitCommentPosted();
     })
@@ -262,129 +404,115 @@ export function createPropertyThread(args: {
     });
 }
 
-function settle(promise: Promise<unknown>, docName: string | undefined, failed: string): void {
+function settle(promise: Promise<unknown>, surface: CommentSurface, failed: string): void {
   void promise.then(
     () => {
-      void refresh(docName).catch(() => undefined);
+      invalidate(surface);
     },
     (err: unknown) => {
       toast.error(err instanceof Error && err.message ? `${failed} ${err.message}` : failed);
-      void refresh(docName).catch(() => undefined);
+      invalidate(surface);
     },
   );
 }
 
-export function editComment(threadId: string, body: string): void {
-  const docName = getThreadById(threadId)?.docName;
-  settle(api.editComment(threadId, body), docName, t`Couldn't save that edit.`);
+export function editComment(threadId: string, body: string, surface = defaultSurface): void {
+  settle(api.editComment(threadId, body, ...fetchArgs(surface)), surface, t`Couldn't save that edit.`);
 }
 
-export function reopenThread(threadId: string): void {
-  const docName = getThreadById(threadId)?.docName;
-  clearDeselection(threadId);
-  settle(api.reopenThread(threadId), docName, t`Couldn't reopen that comment.`);
+export function reopenThread(threadId: string, surface = defaultSurface): void {
+  clearDeselection(threadId, surface);
+  settle(api.reopenThread(threadId, ...fetchArgs(surface)), surface, t`Couldn't reopen that comment.`);
 }
 
-export function deleteThread(threadId: string): void {
-  const docName = getThreadById(threadId)?.docName;
-  settle(api.deleteThread(threadId), docName, t`Couldn't delete that comment.`);
+export function deleteThread(threadId: string, surface = defaultSurface): void {
+  settle(api.deleteThread(threadId, ...fetchArgs(surface)), surface, t`Couldn't delete that comment.`);
 }
 
 export function replaceOrphan(
   threadId: string,
   quote: string,
-  context?: { prefix: string; suffix: string },
+  context?: { prefix: string; suffix: string; selection?: api.CommentSelectionRevision },
+  surface = defaultSurface,
 ): void {
-  const docName = getThreadById(threadId)?.docName;
   settle(
-    api.replaceAnchor(threadId, { quote, prefix: context?.prefix, suffix: context?.suffix }),
-    docName,
+    api.replaceAnchor(threadId, { quote, ...context }, ...fetchArgs(surface)),
+    surface,
     t`Couldn't re-place that comment.`,
   );
 }
 
-let queueSnapshot: readonly string[] = EMPTY_QUEUE;
-let queueSnapshotVersion = -1;
-let selectedSnapshot: readonly string[] = EMPTY_QUEUE;
-let selectedSnapshotVersion = -1;
-let selectedSnapshotSelectionVersion = -1;
-
-export function getQueue(): readonly string[] {
-  ensureAllLoaded();
-  if (queueSnapshotVersion !== version) {
-    const ids = allThreads
+export function getQueue(surface = defaultSurface): readonly string[] {
+  ensureLoaded(surface);
+  const reads = surface.reads;
+  if (reads.queue === undefined) {
+    const ids = reads.snapshot.threads
       .filter((t) => t.queued && t.status !== 'resolved')
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((t) => t.id);
-    queueSnapshot = ids.length === 0 ? EMPTY_QUEUE : ids;
-    queueSnapshotVersion = version;
+    reads.queue = ids.length === 0 ? EMPTY_QUEUE : ids;
   }
-  return queueSnapshot;
+  return reads.queue;
 }
 
-export function getSelectedQueue(): readonly string[] {
-  const queued = getQueue();
-  if (
-    selectedSnapshotVersion !== version ||
-    selectedSnapshotSelectionVersion !== selectionVersion
-  ) {
-    const ids = queued.filter((id) => !deselected.has(id));
-    selectedSnapshot = ids.length === 0 ? EMPTY_QUEUE : ids;
-    selectedSnapshotVersion = version;
-    selectedSnapshotSelectionVersion = selectionVersion;
+export function getSelectedQueue(surface = defaultSurface): readonly string[] {
+  const queued = getQueue(surface);
+  const reads = surface.reads;
+  if (reads.selected === undefined) {
+    const ids = queued.filter((id) => !reads.deselected.has(id));
+    reads.selected = ids.length === 0 ? EMPTY_QUEUE : ids;
   }
-  return selectedSnapshot;
+  return reads.selected;
 }
 
 export function useQueueSelection(): readonly string[] {
-  return useSyncExternalStore(subscribe, getSelectedQueue, () => EMPTY_QUEUE);
+  const surface = useCommentSurface();
+  const subscribeToSurface = useMemo(() => (listener: () => void) => subscribeCommentReads(surface, listener), [surface]);
+  return useSyncExternalStore(subscribeToSurface, () => getSelectedQueue(surface), () => EMPTY_QUEUE);
 }
 
-export function getSelectedQueueForDoc(docName: string): readonly string[] {
-  return getSelectedQueue().filter((id) => getThreadById(id)?.docName === docName);
+export function getSelectedQueueForDoc(docName: string, surface = defaultSurface): readonly string[] {
+  return getSelectedQueue(surface).filter((id) => getThreadById(id, surface)?.docName === docName);
 }
 
-function clearDeselection(threadId: string): void {
-  if (!deselected.has(threadId)) return;
-  const next = new Set(deselected);
-  next.delete(threadId);
-  deselected = next;
-  bumpSelection();
+function selectionChanged(reads: CommentReadStore): void {
+  delete reads.selected;
+  notifyReads(reads);
 }
 
-function addToQueue(threadId: string): void {
-  const docName = getThreadById(threadId)?.docName;
-  clearDeselection(threadId);
-  settle(api.queueThread(threadId), docName, t`Couldn't mark that comment to send.`);
+function clearDeselection(threadId: string, surface: CommentSurface): void {
+  if (surface.reads.deselected.delete(threadId)) selectionChanged(surface.reads);
 }
 
-export function removeFromQueue(threadId: string): void {
-  const docName = getThreadById(threadId)?.docName;
+function addToQueue(threadId: string, surface: CommentSurface): void {
+  clearDeselection(threadId, surface);
+  settle(api.queueThread(threadId, ...fetchArgs(surface)), surface, t`Couldn't mark that comment to send.`);
+}
+
+export function removeFromQueue(threadId: string, surface = defaultSurface): void {
   settle(
-    api.unqueueThread(threadId),
-    docName,
+    api.unqueueThread(threadId, ...fetchArgs(surface)),
+    surface,
     t`Couldn't unmark that comment — it's still waiting to send.`,
   );
 }
 
-export function toggleSending(threadId: string): void {
-  if (getSelectedQueue().includes(threadId)) removeFromQueue(threadId);
-  else addToQueue(threadId);
+export function toggleSending(threadId: string, surface = defaultSurface): void {
+  if (getSelectedQueue(surface).includes(threadId)) removeFromQueue(threadId, surface);
+  else addToQueue(threadId, surface);
 }
 
-export function setSendingAll(threadIds: readonly string[], sending: boolean): void {
-  const wanted = new Set(getSelectedQueue());
+export function setSendingAll(threadIds: readonly string[], sending: boolean, surface = defaultSurface): void {
+  const wanted = new Set(getSelectedQueue(surface));
   const ids = threadIds.filter((id) => wanted.has(id) !== sending);
   if (ids.length === 0) return;
-  if (sending && deselected.size > 0) {
-    const next = new Set(deselected);
-    for (const id of ids) next.delete(id);
-    deselected = next;
-    bumpSelection();
+  if (sending && surface.reads.deselected.size > 0) {
+    for (const id of ids) surface.reads.deselected.delete(id);
+    selectionChanged(surface.reads);
   }
   void Promise.all(
     ids.map((id) =>
-      (sending ? api.queueThread(id) : api.unqueueThread(id)).then(
+      (sending ? api.queueThread(id, ...fetchArgs(surface)) : api.unqueueThread(id, ...fetchArgs(surface))).then(
         () => true,
         () => false,
       ),
@@ -394,16 +522,14 @@ export function setSendingAll(threadIds: readonly string[], sending: boolean): v
     if (failed > 0) {
       toast.error(t`${failed} of ${ids.length} comments could not be updated.`);
     }
-    void refresh().catch(() => undefined);
+    invalidate(surface);
   });
 }
 
-export function toggleQueueSelection(threadId: string): void {
-  const next = new Set(deselected);
-  if (next.has(threadId)) next.delete(threadId);
-  else next.add(threadId);
-  deselected = next;
-  bumpSelection();
+export function toggleQueueSelection(threadId: string, surface = defaultSurface): void {
+  const reads = surface.reads;
+  if (!reads.deselected.delete(threadId)) reads.deselected.add(threadId);
+  selectionChanged(reads);
 }
 
 export type ComposeDispatch = (items: readonly BatchPreparedItem[]) => Promise<boolean>;
@@ -413,8 +539,6 @@ export interface BatchPreparedItem {
   payload: DispatchPayload;
 }
 
-let dispatchInFlight = false;
-
 export async function dispatchComments({
   compose,
   threadIds,
@@ -423,15 +547,15 @@ export async function dispatchComments({
   compose: ComposeDispatch;
   threadIds?: readonly string[];
   resolve?: boolean;
-}): Promise<string[]> {
-  const ids = threadIds ?? getSelectedQueue();
+}, surface = defaultSurface): Promise<string[]> {
+  const ids = threadIds ?? getSelectedQueue(surface);
   if (ids.length === 0) return [];
-  if (dispatchInFlight) return [];
-  dispatchInFlight = true;
+  if (surface.reads.dispatching) return [];
+  surface.reads.dispatching = true;
   try {
-    return await runDispatch(ids, compose, resolve);
+    return await runDispatch(ids, compose, resolve, surface);
   } finally {
-    dispatchInFlight = false;
+    surface.reads.dispatching = false;
   }
 }
 
@@ -439,10 +563,11 @@ async function runDispatch(
   ids: readonly string[],
   compose: ComposeDispatch,
   resolve: boolean,
+  surface: CommentSurface,
 ): Promise<string[]> {
   let prepared: Awaited<ReturnType<typeof api.prepareDispatchBatch>>;
   try {
-    prepared = await api.prepareDispatchBatch(ids);
+    prepared = await api.prepareDispatchBatch(ids, ...fetchArgs(surface));
   } catch (err) {
     toast.error(
       err instanceof Error && err.message
@@ -451,12 +576,12 @@ async function runDispatch(
     );
     return [];
   }
-  bump();
+  notifyReads(surface.reads);
   const items = prepared.results.flatMap((item) =>
     item.ok ? [{ threadId: item.threadId, payload: item.payload }] : [],
   );
   if (items.length === 0) {
-    await refresh().catch(() => undefined);
+    await refresh(undefined, surface, true).catch(() => undefined);
     return [];
   }
   let delivered = false;
@@ -468,18 +593,19 @@ async function runDispatch(
   }
   const shipped = delivered ? items.map((item) => item.threadId) : [];
   if (shipped.length > 0 && resolve) {
-    await api.completeDispatchBatch(shipped).catch(() => {
+    await api.completeDispatchBatch(shipped, ...fetchArgs(surface)).catch(() => {
       toast.error(
         t`Sent, but the comments could not be marked done — they're still waiting to send.`,
       );
     });
   }
-  await refresh().catch(() => undefined);
+  await refresh(undefined, surface, true).catch(() => undefined);
   return shipped;
 }
 
 const FOCUS_EVENT = 'open-knowledge:comment-focus-thread';
 const OPEN_THREAD_EVENT = 'open-knowledge:comment-open-thread';
+const NAVIGATION_INVALIDATED_EVENT = 'open-knowledge:comment-navigation-invalidated';
 const START_EVENT = 'open-knowledge:comment-start';
 const POSTED_EVENT = 'open-knowledge:comment-posted';
 

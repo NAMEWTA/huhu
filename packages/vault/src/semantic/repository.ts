@@ -35,6 +35,8 @@ const ID_PREFIX: Record<KindName, IdPrefix> = {
   comment: "cmt",
 };
 
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
 export class SemanticRepository {
   private problems = new Map<KindName, Problem[]>();
   /** 仓储自己写盘后通知（引擎用它刷新 Vault 索引：监听器会过滤自写回声，不通知就要等重启才看得到新文件）。 */
@@ -131,7 +133,15 @@ export class SemanticRepository {
     const cur = this.read(kind, id);
     if (cur.readOnly) throw errors.invalidInput("该文件由更新版本的 HUHU 创建，只读");
     if (cur.version !== expectedVersion) throw errors.versionConflict(cur.version);
-    const text = this.files.read(cur.path)?.bytes.toString("utf8") ?? "";
+    const file = this.files.read(cur.path);
+    if (!file) throw errors.notFound(`文件不存在：${cur.path}`);
+    if (file.version !== expectedVersion) throw errors.versionConflict(file.version);
+    let text: string;
+    try {
+      text = utf8.decode(file.bytes);
+    } catch {
+      throw errors.invalidInput("文件无法无损解码为 UTF-8。请先转换为 UTF-8 再编辑。");
+    }
     let next = patchFrontmatter(text, changes);
     if (body !== undefined) next = replaceBody(next, body);
     const merged = { ...parseFrontmatter(next).data };

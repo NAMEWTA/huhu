@@ -18,8 +18,14 @@ const scopeSelectors = selectorParser((selectors) => {
     const target = selector.nodes.slice(selector.nodes.findLastIndex((node) => node.type === "combinator") + 1);
     if (target.some((node) => node.type === "class" && node.value === "ok-root")) continue;
     const pseudoElement = target.find((node) => node.type === "pseudo" && (node.value.startsWith("::") || LEGACY_PSEUDO_ELEMENT.test(node.value)));
-    if (pseudoElement) selector.insertBefore(pseudoElement, OK_TARGET.clone());
-    else selector.append(OK_TARGET.clone());
+    const scope = OK_TARGET.clone();
+    if (pseudoElement) {
+      scope.spaces.before = pseudoElement.spaces.before;
+      pseudoElement.spaces.before = "";
+      selector.insertBefore(pseudoElement, scope);
+    } else {
+      selector.append(scope);
+    }
   }
 });
 
@@ -38,8 +44,9 @@ export default function okScopePlugin() {
       const wrap = new AtRule({ name: "layer", params: "vendor.ok-rules" });
       root.each((node) => {
         if (node.type === "atrule" && node.name === "layer" && node.nodes) {
-          // Keep each layer in its original top-level cascade position.
-          if (!node.params.startsWith("vendor.ok-")) node.params += ".huhu-ok";
+          if (node.params === "base" || node.params === "components") node.params = `vendor.ok-${node.params}`;
+          // Tailwind emits its custom property defaults in a separate layer.
+          else if (node.params === "properties") node.params = "properties.huhu-ok";
         } else if (node.type === "rule" || (node.type === "atrule" && node.nodes && !node.name.endsWith("keyframes") && node.name !== "property")) {
           wrap.append(node);
         }

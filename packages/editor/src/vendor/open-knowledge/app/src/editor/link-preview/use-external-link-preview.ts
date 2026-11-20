@@ -1,4 +1,5 @@
 import type { LinkPreviewMetadata } from '@inkeep/open-knowledge-core/schemas/api';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { useEffect, useState } from 'react';
 import { loadLinkPreview } from './external-link-preview.ts';
 
@@ -11,19 +12,20 @@ export function useExternalLinkPreview({
   url,
   enabled,
 }: UseExternalLinkPreviewParams): LinkPreviewMetadata | null {
-  const [entry, setEntry] = useState<{ url: string; metadata: LinkPreviewMetadata } | null>(null);
+  const request = useOkFetch();
+  const [entry, setEntry] = useState<{ request: typeof fetch; url: string; metadata: LinkPreviewMetadata } | null>(null);
 
   useEffect(() => {
     if (!enabled || !url) return;
 
     const controller = new AbortController();
-    void loadLinkPreview(url, controller.signal).then((result) => {
+    void loadLinkPreview(url, controller.signal, request).then((result) => {
       if (controller.signal.aborted || !result) return;
-      setEntry({ url, metadata: result });
+      setEntry({ request, url, metadata: result });
     });
     return () => controller.abort();
-  }, [url, enabled]);
+  }, [url, enabled, request]);
 
   if (!enabled || !url) return null;
-  return entry?.url === url ? entry.metadata : null;
+  return entry?.request === request && entry.url === url ? entry.metadata : null;
 }

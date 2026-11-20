@@ -94,23 +94,31 @@ test("粘贴 / 拖入图片：落在笔记旁 attachments/，引用写进笔记�
   }
 });
 
-test("不支持的类型 / 空文件被拒绝：不落盘，笔记不被改", async () => {
-  const { page, vault, close } = await openApp();
-  try {
-    const note = path.join(vault, "n.md");
-    writeFileSync(note, "# n\n\n正文\n");
-    await gotoNotes(page);
-    await treeItem(page, "n.md").click();
-    await expect(prose(page)).toContainText("正文", { timeout: 30_000 });
-    await prose(page).click();
-    await sendFile(page, "paste", { name: "evil.exe", type: "application/x-msdownload", b64: PNG_B64 });
-    await page.waitForTimeout(2500);
-    expect(existsSync(path.join(vault, "attachments"))).toBe(false);
-    expect(readFileSync(note, "utf8")).toBe("# n\n\n正文\n");
-  } finally {
-    await close();
-  }
-});
+const rejectedUploads = [
+  { name: "unsupported.exe", type: "application/x-msdownload", b64: PNG_B64, feedback: "不支持的附件类型：unsupported.exe" },
+  { name: "empty.png", type: "image/png", b64: "", feedback: "附件是空文件" },
+];
+
+for (const { feedback, ...file } of rejectedUploads) {
+  test(`H04 上传拒绝显示提示：${file.name}`, async () => {
+    const { page, vault, close } = await openApp();
+    try {
+      const note = path.join(vault, "n.md");
+      writeFileSync(note, "# n\n\n正文\n");
+      await gotoNotes(page);
+      await treeItem(page, "n.md").click();
+      await expect(prose(page)).toContainText("正文", { timeout: 30_000 });
+      await prose(page).click();
+      await sendFile(page, "paste", file);
+      await expect(page.getByText(feedback, { exact: true })).toBeVisible();
+      await expect(prose(page).locator("img")).toHaveCount(0);
+      expect(existsSync(path.join(vault, "attachments"))).toBe(false);
+      expect(readFileSync(note, "utf8")).toBe("# n\n\n正文\n");
+    } finally {
+      await close();
+    }
+  });
+}
 
 test("文件树拖入外部文件：落在被拖到的目录；类型不支持则拒绝", async () => {
   const { page, vault, close } = await openApp();

@@ -1,9 +1,12 @@
+import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
+import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
+import { confirmExternalLink, externalHttpUrl } from "./external-link.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
@@ -143,7 +146,11 @@ function createWindow(): BrowserWindow {
     if (!isTrustedUrl(url)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
+  hardenWindowForPreview(
+    win.webContents,
+    (nonce) => preview?.blocked(nonce),
+    (nonce) => preview?.grants.get(nonce) !== undefined,
+  );
   // 只有主框架加载失败才显示错误页：HTML 预览 iframe 里被拦截的导航（ERR_BLOCKED_BY_CSP / ERR_BLOCKED_BY_CLIENT 等）不能把整个工作台换成错误页
   win.webContents.on("did-fail-load", (_e, code, desc, _url, isMainFrame) => {
     if (!isMainFrame) return;
@@ -222,6 +229,33 @@ if (!gotLock) {
       if (!r.ok) startupError = r.message;
     });
     const demoRoot = (): string => (app.isPackaged ? path.join(process.resourcesPath, "demo-vault") : path.join(app.getAppPath(), "resources", "demo-vault"));
+    ipcMain.handle("huhu:openExternal", async (event, value: unknown) => {
+      const frame = event.senderFrame;
+      assertTrusted(frame?.url);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!frame || frame.parent || !win) return false;
+      const documentUrl = frame.url;
+      const webUrl = externalHttpUrl(value);
+      if (webUrl) return confirmExternalLink(win, webUrl, () => !frame.isDestroyed() && frame.url === documentUrl);
+      const url = typeof value === "string" ? URL.parse(value) : null;
+      if (!url || !["mailto:", "tel:"].includes(url.protocol)) throw new Error("unsupported external URL");
+      await shell.openExternal(url.href);
+      return true;
+    });
+
+    ipcMain.handle("huhu:externalLinkPreview", async (event, url: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const vault = current;
+      if (!vault) return { ok: false, reason: "disabled" };
+      try {
+        const settings = JSON.parse(await readFile(path.join(vault.path, ".huhu", "settings.json"), "utf8")) as { editor?: { linkPreviews?: unknown } };
+        if (current !== vault || settings?.editor?.linkPreviews !== true) return { ok: false, reason: "disabled" };
+        return await fetchExternalLinkPreview(url);
+      } catch (error) {
+        const missing = (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
+        return { ok: false, reason: missing ? "disabled" : "unavailable" };
+      }
+    });
     ipcMain.handle("huhu:vault:state", async (event): Promise<VaultState> => {
       assertTrusted(event.senderFrame?.url);
       await startup; // 命令行 / 测试指定的 Vault 先打开完，界面再判断是否显示启动页

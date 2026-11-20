@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { CreatePageSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { t } from '@lingui/core/macro';
 import { emitDocumentsChanged } from '@/lib/documents-events';
@@ -8,12 +9,12 @@ export async function createPageRequest(args: {
   path: string;
   template?: string;
   kind: 'file' | 'folder';
-}): Promise<{ ok: true; docName: string } | { ok: false; error: string }> {
+}, request = okFetch): Promise<{ ok: true; docName: string } | { ok: false; error: string }> {
   const requestBody: { path: string; template?: string } = { path: args.path };
   if (args.template !== undefined) requestBody.template = args.template;
 
   try {
-    const res = await fetch('/api/create-page', {
+    const res = await request('/api/create-page', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),

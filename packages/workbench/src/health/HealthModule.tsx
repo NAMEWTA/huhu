@@ -165,7 +165,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                 (notices.data ?? []).map((n) => (
                   <div className={`hu-health-notification ${n.read ? "" : "shell-unread"}`} key={n.id}>
                     <Bell size={18} aria-hidden />
-                    <div className="grow">
+                    <div className="hu-flex-fill">
                       <h3>{n.title}</h3>
                       <p>{fmt(n.at)}</p>
                     </div>
@@ -228,7 +228,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                         <span className="shell-health-check-icon">
                           <HeartPulse size={20} aria-hidden />
                         </span>
-                        <div className="grow">
+                        <div className="hu-flex-fill">
                           <h3>{title}</h3>
                           <p>尚未检查</p>
                         </div>
@@ -239,7 +239,7 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                 {(result?.checks ?? []).map((c) => (
                   <div className="hu-health-check" key={c.id} data-testid="health-check" data-status={c.status}>
                     <span className={`shell-health-check-icon ${c.status === "ok" ? "success" : STATE[c.status]}`}>{c.status === "ok" ? <CheckCircle2 size={20} aria-hidden /> : <AlertTriangle size={20} aria-hidden />}</span>
-                    <div className="grow">
+                    <div className="hu-flex-fill">
                       <h3>{c.title}</h3>
                       <p>{c.detail}</p>
                     </div>

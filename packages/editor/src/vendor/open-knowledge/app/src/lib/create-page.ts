@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { CreatePageSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { emitDocumentsChanged } from './documents-events';
 import { parseServerResponse, parseSuccessOrWarn } from './parse-server-response';
@@ -19,8 +20,8 @@ export function createPagePathFromSeed(seed: CreatePageSeed): string {
   return dir ? `${dir}/${fileName}` : fileName;
 }
 
-async function createPageFromPath(path: string): Promise<{ docName: string }> {
-  const res = await fetch('/api/create-page', {
+async function createPageFromPath(path: string, request: typeof fetch): Promise<{ docName: string }> {
+  const res = await request('/api/create-page', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -38,18 +39,15 @@ async function createPageFromPath(path: string): Promise<{ docName: string }> {
   return { docName: success.docName };
 }
 
-async function createPageFromSeed(seed: CreatePageSeed): Promise<{ docName: string }> {
-  return createPageFromPath(createPagePathFromSeed(seed));
-}
-
 export async function createPageFromSeedAndUpdate(
   seed: CreatePageSeed,
   options: {
     addPage: (docName: string) => void;
     onCreated?: (docName: string) => void;
+    request?: typeof fetch;
   },
 ): Promise<{ docName: string }> {
-  const { docName } = await createPageFromSeed(seed);
+  const { docName } = await createPageFromPath(createPagePathFromSeed(seed), options.request ?? okFetch);
   options.addPage(docName);
   emitDocumentsChanged(['files', 'backlinks', 'graph']);
   options.onCreated?.(docName);

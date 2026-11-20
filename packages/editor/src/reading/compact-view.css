@@ -1,0 +1,66 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer vendor {
+  @layer ok-theme, ok-base, ok-utilities, ok-rules, ok-host;
+}
+
+/* One reading layout for the lightweight projection and the OK compact view.
+   OK still supplies all styles for marks and nodes outside plain paragraphs. */
+@layer vendor.ok-host {
+  [class~="ok-root"].editor-ok-compact-view {
+    background: var(--sidebar);
+    font-family: "Inter Variable", sans-serif;
+  }
+
+  [class~="ok-root"] .editor-ok-compact-scroll {
+    height: 100%;
+    overflow: auto;
+  }
+
+  [class~="ok-root"].editor-ok-compact-view :is(.editor-ok-compact-grid, .tiptap-editor) {
+    --margin-width: var(--space-2, 8px);
+    --content-max-width: 100%;
+    display: grid;
+    width: 100%;
+    height: 100%;
+    grid-template-columns:
+      [full-start] minmax(var(--margin-left-width, var(--margin-width)), 1fr)
+      [content-start] minmax(0, min(var(--content-max-width), 100%))
+      [content-end] minmax(var(--margin-right-width, var(--margin-width)), 1fr)
+      [full-end];
+  }
+
+  [class~="ok-root"].editor-ok-compact-view :is(.editor-ok-compact-column, [class~="tiptap-editor-portal-content"]) {
+    position: relative;
+    grid-area: 1 / content;
+    height: 100%;
+  }
+
+  [class~="ok-root"].editor-ok-compact-view :is(.editor-ok-compact-paragraphs, .ProseMirror) {
+    position: relative;
+    height: 100%;
+    min-height: 200px;
+    margin-left: -2.5rem;
+    margin-right: -2.5rem;
+    padding: 1rem 2.5rem 0;
+    color: var(--text);
+    font-weight: 400;
+    line-height: 1.7;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0;
+    white-space: break-spaces;
+    overflow-wrap: break-word;
+    unicode-bidi: plaintext;
+  }
+
+  [class~="ok-root"].editor-ok-compact-view :is(.editor-ok-compact-paragraphs, .ProseMirror) > p {
+    margin: 0;
+    unicode-bidi: plaintext;
+  }
+
+  @media (width < 40rem) and (pointer: coarse) {
+    [class~="ok-root"].editor-ok-compact-view :is(.editor-ok-compact-paragraphs, .ProseMirror) {
+      margin-inline: -1rem;
+      padding-inline: 1rem;
+    }
+  }
+}

@@ -7,6 +7,7 @@ export type EngineCall = <T>(capability: string, input?: unknown, opts?: { write
 const passage = (r: PassageInput): Record<string, unknown> => ({
   ...(r.start !== undefined ? { start: r.start } : {}),
   ...(r.end !== undefined ? { end: r.end } : {}),
+  ...(r.expectedSourceVersion !== undefined ? { expectedSourceVersion: r.expectedSourceVersion } : {}),
   ...(r.quote !== undefined ? { quote: r.quote } : {}),
   ...(r.prefix !== undefined ? { prefix: r.prefix } : {}),
   ...(r.suffix !== undefined ? { suffix: r.suffix } : {}),

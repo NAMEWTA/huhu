@@ -25,9 +25,11 @@ import { ViewInSourceBubbleButton } from './ViewInSourceBubbleButton';
 export function BubbleMenuBar({
   editor,
   shortcutEnabled = true,
+  commentsEnabled = true,
 }: {
   editor: Editor;
   shortcutEnabled?: boolean;
+  commentsEnabled?: boolean;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [tooltipKey, setTooltipKey] = useState(0);
@@ -118,7 +120,7 @@ export function BubbleMenuBar({
         size: sizeOptions,
         hide: clipOptions,
       }}
-      className="ok-root z-50 flex flex-wrap items-center gap-0.5 rounded-lg border bg-background p-1 shadow-md"
+      className="ok-root editor-ok-portal editor-ok-bubble z-50 flex flex-wrap items-center gap-0.5 rounded-lg border bg-background p-1 shadow-md"
     >
       {isImageMode ? (
         <ImageAlignButtons key={`${tooltipKey}-img-align`} editor={editor} />
@@ -137,7 +139,7 @@ export function BubbleMenuBar({
           />
           <FootnoteBubbleButton key={`${tooltipKey}-footnote`} editor={editor} />
           <ViewInSourceBubbleButton key={`${tooltipKey}-view-source`} editor={editor} />
-          <CommentBubbleButton key={`${tooltipKey}-comment`} />
+          {commentsEnabled && <CommentBubbleButton key={`${tooltipKey}-comment`} />}
         </>
       )}
     </BubbleMenu>

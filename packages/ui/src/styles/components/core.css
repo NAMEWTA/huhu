@@ -119,18 +119,19 @@ h4,
 p {
   margin: 0;
 }
-h1 {
+/* The OK editor and its portals supply their own typography. */
+h1:where(:not([class~="ok-root"] *)) {
   font-size: 20px;
   letter-spacing: -0.5px;
   font-weight: 650;
   line-height: 1.4;
 }
-h2 {
+h2:where(:not([class~="ok-root"] *)) {
   font-size: 16px;
   letter-spacing: -0.2px;
   font-weight: 600;
 }
-h3 {
+h3:where(:not([class~="ok-root"] *)) {
   font-size: 14px;
   font-weight: 600;
 }
@@ -1381,6 +1382,8 @@ input,
 select,
 textarea {
   border-radius: var(--radius-control);
+}
+:is(input, select, textarea):where(:not([class~="ok-root"] *)) {
   font-size: var(--fs-list);
   line-height: 1.5;
 }
@@ -1670,7 +1673,7 @@ select[aria-invalid="true"]:focus-visible {
     outline-offset: -2px;
   }
 }
-.hu-page-head .grow > p,
+.hu-page-head .hu-flex-fill > p,
 .hu-field-description {
   display: none;
 }

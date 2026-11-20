@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import type { SyncMode } from '@inkeep/open-knowledge-core/config/auto-sync-mode';
 import type {
   PushPermissionWire as GitPushPermission,
@@ -64,7 +65,7 @@ interface FetchSyncStatusResult {
 
 async function fetchSyncStatus(): Promise<FetchSyncStatusResult> {
   try {
-    const res = await fetch('/api/sync/status');
+    const res = await okFetch('/api/sync/status');
     if (!res.ok) return { status: null, error: 'server' };
     return { status: (await res.json()) as GitSyncStatus };
   } catch {

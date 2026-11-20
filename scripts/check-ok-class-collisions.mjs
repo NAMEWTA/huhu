@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // OK（Tailwind）样式与 Huhu 样式的碰撞守护（design §12，三类检查）：
-//  A. OK 产出 CSS 的类名 ∩ Huhu 自有 CSS 的类名（两边都有规则 → 互相污染）
+//  A. OK 产出 CSS 的类名 ∩ Huhu components / shell / modules 层的类名（两边都有规则 → 互相污染）
 //  B. OK 产出 CSS 的类名 ∩ Huhu TSX / HTML 里“没有任何 CSS 规则”的类 token（如 hidden / truncate：
 //     Huhu 依赖浏览器默认或别处，OK 的 Tailwind 工具类一出现就会改变它们）
 //  C. OK 的选择器目标必须位于 .ok-root 或其后代
 // 用法：node scripts/check-ok-class-collisions.mjs <built-ok.css> 或 --desktop [assets-dir]
-// 退出码 1 = 有未登记的 A/B 交集或作用域违规
+// 退出码 1 = 有待决的 A/B 交集或作用域违规
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import postcss from "postcss";
 import selectorParser from "postcss-selector-parser";
+import ts from "typescript";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const builtPath = process.argv[2];
@@ -18,31 +19,6 @@ if (!builtPath) {
   console.error("用法：node scripts/check-ok-class-collisions.mjs <built-ok.css> 或 --desktop [assets-dir]");
   process.exit(2);
 }
-
-const classIntersections = new Map([
-  ["ProseMirror", "Huhu 的 editor.css 定制 OK 正文，双方规则均限定到编辑器"],
-  ["cm-content", "OK 源码/代码块与 Huhu PlainTextEditor 都使用 CodeMirror，OK 规则受根限制"],
-  ["cm-editor", "共享 CodeMirror 类，OK 规则仅影响其自己的根"],
-  ["cm-searchMatch", "共享 CodeMirror 搜索标记，OK 规则仅影响其自己的根"],
-  ["cm-searchMatch-selected", "共享 CodeMirror 当前搜索命中，OK 规则仅影响其自己的根"],
-  ["cm-selectionLayer", "共享 CodeMirror 选区层，OK 规则仅影响其自己的根"],
-  ["cm-selectionMatch", "共享 CodeMirror 选区命中，OK 规则仅影响其自己的根"],
-  ["grow", "宿主用组件层的 flex 简写，OK 的 flex-grow 工具仅在 OK 根内生效"],
-  ["is-active", "宿主引用菜单和 OK 表格控件各自搭配专用类"],
-  ["tiptap-editor", "Huhu 的 editor.css 定制根内 OK 编辑器的容器"],
-  ["border-t", "宿主批注输入和只读提示刻意使用根内工具"],
-  ["flex", "宿主批注面板刻意使用根内工具"],
-  ["flex-1", "宿主批注列表刻意使用根内工具"],
-  ["flex-col", "宿主批注面板刻意使用根内工具"],
-  ["h-full", "宿主批注面板刻意使用根内工具"],
-  ["min-h-0", "宿主批注面板与列表刻意使用根内工具"],
-  ["ok-root", "OK 的宿主根和 portal 局部样式需要共享该作用域标记"],
-  ["overflow-y-auto", "宿主批注列表刻意使用根内工具"],
-  ["p-2", "宿主批注输入和只读提示刻意使用根内工具"],
-  ["text-link", "宿主启动页按钮在 OK 根外，OK 的颜色工具仅在根内生效"],
-  ["text-muted-foreground", "宿主只读批注提示刻意使用根内工具"],
-  ["text-xs", "宿主只读批注提示刻意使用根内工具"],
-]);
 
 // Tailwind's @property fallback may initialize these values on a bare backdrop.
 const backdropDefaults = new Set(
@@ -138,16 +114,15 @@ function isKeyframe(rule) {
   return rule.parent?.type === "atrule" && rule.parent.name.endsWith("keyframes");
 }
 
-function addClasses(selector, out) {
-  selector.walkClasses((node) => out.add(node.value));
-}
-
-function classesIn(root) {
-  const out = new Set();
-  root.walkRules((rule) => {
-    if (!isKeyframe(rule)) addClasses(selectorParser().astSync(rule.selector), out);
+function addClasses(selector, out, hostUi = false) {
+  selector.walk((node) => {
+    // The OK boundary is also used to keep host element rules outside the editor.
+    if (hostUi && node.type === "attribute" && isScopeAttribute(node) && node.parent?.parent?.value === ":not") return;
+    if (node.type === "class") out.add(node.value);
+    if (node.type === "attribute" && node.attribute === "class" && ["=", "~="].includes(node.operator)) {
+      for (const token of node.value.split(/\s+/)) out.add(token);
+    }
   });
-  return out;
 }
 
 function walk(dir, exts, acc = []) {
@@ -171,15 +146,14 @@ const inputs = desktop
   : [resolve(builtPath)];
 // The PostCSS plugin marks OK output with explicit layer names. Every asset is
 // scanned because the bundler can extract these layers into any chunk.
-function isOkLayer(node) {
-  return node.type === "atrule" && node.name === "layer" && /^(?:vendor\.ok-[\w-]+|[\w.-]+\.huhu-ok)$/.test(node.params);
+function isOkLayer(name) {
+  return /^(?:vendor\.ok-[\w-]+|properties\.huhu-ok)$/.test(name);
 }
 
-function belongsToOk(rule) {
+function okLayerName(rule) {
   for (let ancestor = rule.parent; ancestor; ancestor = ancestor.parent) {
-    if (isOkLayer(ancestor)) return true;
+    if (ancestor.type === "atrule" && ancestor.name === "layer" && isOkLayer(ancestor.params)) return ancestor.params;
   }
-  return false;
 }
 
 function isScopeAttribute(node) {
@@ -218,22 +192,97 @@ function isRegisteredBackdrop(selector, rule) {
   );
 }
 
-// A / B
-const huhuCssFiles = [...walk(join(ROOT, "packages"), [".css"]), ...walk(join(ROOT, "plugins"), [".css"]), ...walk(join(ROOT, "apps"), [".css"])].filter((f) => !f.includes("/vendor/") && !f.includes("/ok/"));
-const huhuClasses = new Set();
-for (const f of huhuCssFiles) {
-  try {
-    for (const c of classesIn(postcss.parse(readFileSync(f, "utf8")))) huhuClasses.add(c);
-  } catch {}
+// A cares about the host's three UI layers, including files imported into them.
+const sources = ["packages", "plugins", "apps"].flatMap((dir) => walk(join(ROOT, dir), [".css", ".tsx", ".html"]));
+const hostCss = new Map(sources.filter((file) => file.endsWith(".css") && !file.includes("/ok/")).map((file) => [file, parseCss(file)]));
+const uiLayers = /^(components|shell|modules)(?:\.|$)/;
+const uiImports = new Set();
+for (const [file, css] of hostCss) {
+  css.walkAtRules("import", (rule) => {
+    const match = /^(?:"([^"]+)"|'([^']+)')\s+layer\(([^)]+)\)/.exec(rule.params);
+    if (match && uiLayers.test(match[3])) {
+      uiImports.add(resolve(dirname(file), match[1] ?? match[2]));
+    }
+  });
 }
 
-const tokenRe = /class(?:Name)?\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
-const tokens = new Set();
-for (const f of [...walk(join(ROOT, "packages"), [".tsx"]), ...walk(join(ROOT, "plugins"), [".tsx"]), ...walk(join(ROOT, "apps"), [".tsx", ".html"])]) {
-  if (f.includes("/vendor/")) continue;
-  const src = readFileSync(f, "utf8");
-  for (const m of src.matchAll(tokenRe)) for (const t of (m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "").split(/\s+/)) if (/^[a-z][\w-]*$/.test(t)) tokens.add(t);
+function isUiRule(rule, imported) {
+  if (imported) return true;
+  let outerLayer;
+  for (let node = rule.parent; node; node = node.parent) {
+    if (node.type === "atrule" && node.name === "layer") outerLayer = node.params;
+  }
+  return uiLayers.test(outerLayer ?? "");
 }
+
+const hostClasses = new Set();
+const hostUiClasses = new Set();
+for (const [file, css] of hostCss) {
+  css.walkRules((rule) => {
+    if (isKeyframe(rule)) return;
+    const selector = selectorParser().astSync(rule.selector);
+    addClasses(selector, hostClasses);
+    if (isUiRule(rule, uiImports.has(file))) addClasses(selector, hostUiClasses, true);
+  });
+}
+
+const tokens = new Set();
+function addTokens(value) {
+  for (const token of value.split(/\s+/)) if (token) tokens.add(token);
+}
+
+const classHelpers = new Set(["cn", "clsx", "classNames", "cx"]);
+function collectExpression(node) {
+  if (ts.isStringLiteralLike(node)) addTokens(node.text);
+  else if (ts.isJsxExpression(node) && node.expression) collectExpression(node.expression);
+  else if (ts.isParenthesizedExpression(node)) collectExpression(node.expression);
+  else if (ts.isTemplateExpression(node)) {
+    const spans = node.templateSpans;
+    // An interpolation touching a literal can be part of the same class.
+    const parts = [node.head.text, ...spans.map((span) => span.literal.text)];
+    for (const [i, part] of parts.entries()) {
+      addTokens(part.replace(i > 0 ? /^\S+/ : /^$/, "").replace(i < spans.length ? /\S+$/ : /^$/, ""));
+    }
+    for (const [i, span] of spans.entries()) {
+      if (((i === 0 && !parts[i]) || /\s$/.test(parts[i])) && ((i === spans.length - 1 && !parts[i + 1]) || /^\s/.test(parts[i + 1]))) {
+        collectExpression(span.expression);
+      }
+    }
+  } else if (ts.isConditionalExpression(node)) {
+    collectExpression(node.whenTrue);
+    collectExpression(node.whenFalse);
+  } else if (ts.isBinaryExpression(node)) {
+    if ([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) collectExpression(node.left);
+    if ([ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.AmpersandAmpersandToken].includes(node.operatorToken.kind)) collectExpression(node.right);
+  } else if (ts.isArrayLiteralExpression(node)) node.elements.forEach(collectExpression);
+  else if (ts.isObjectLiteralExpression(node)) {
+    for (const property of node.properties) {
+      if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))) addTokens(property.name.text);
+    }
+  } else if (ts.isCallExpression(node)) {
+    const callee = ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression;
+    if (ts.isIdentifier(callee) && classHelpers.has(callee.text)) node.arguments.forEach(collectExpression);
+  }
+}
+
+for (const file of sources) {
+  if (file.endsWith(".tsx")) {
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const visit = (node) => {
+      if (ts.isJsxAttribute(node) && ["className", "class"].includes(node.name.getText()) && node.initializer) collectExpression(node.initializer);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  } else if (file.endsWith(".html")) {
+    const source = readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+    for (const [, attributes] of source.matchAll(/<[a-z][\w:-]*(?=[\s/>])((?:[^<>"']|"[^"]*"|'[^']*')*)>/gi)) {
+      for (const match of attributes.matchAll(/([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=`<>]+)))?/g)) {
+        if (match[1].toLowerCase() === "class") addTokens(match[2] ?? match[3] ?? match[4] ?? "");
+      }
+    }
+  }
+}
+
 let foundOk = false;
 for (const file of inputs) {
   const root = parseCss(file);
@@ -241,9 +290,10 @@ for (const file of inputs) {
   const violations = [];
   let foundOkRules = false;
   root.walkRules((rule) => {
-    if (isKeyframe(rule) || !belongsToOk(rule)) return;
-    foundOkRules = true;
+    const layer = okLayerName(rule);
+    if (isKeyframe(rule) || !layer) return;
     const selectors = selectorParser().astSync(rule.selector);
+    foundOkRules = true;
     addClasses(selectors, okClasses);
     for (const selector of selectors.nodes) {
       if (scopeOf(selector) === OUTSIDE && !isRegisteredBackdrop(selector, rule)) {
@@ -251,13 +301,13 @@ for (const file of inputs) {
       }
     }
   });
-  if (!foundOkRules) {
+  if (!foundOkRules && !violations.length) {
     if (!desktop) console.log(`${file}：无 OK 来源层规则`);
     continue;
   }
-  foundOk = true;
-  const A = [...okClasses].filter((c) => huhuClasses.has(c)).sort();
-  const B = [...tokens].filter((t) => okClasses.has(t) && !huhuClasses.has(t)).sort();
+  foundOk ||= foundOkRules;
+  const A = [...okClasses].filter((c) => hostUiClasses.has(c)).sort();
+  const B = [...tokens].filter((t) => okClasses.has(t) && !hostClasses.has(t)).sort();
   console.log(file);
   for (const [category, collisions] of [
     ["A", A],
@@ -265,12 +315,8 @@ for (const file of inputs) {
   ]) {
     console.log(`${category} ${collisions.length}：${collisions.join(" ")}`);
     for (const className of collisions) {
-      const reason = classIntersections.get(className);
-      if (reason) console.log(`  已登记 ${className}：${reason}`);
-      else {
-        console.log(`  未登记 ${category}：${className}`);
-        process.exitCode = 1;
-      }
+      console.log(`  待决 ${category}：${className}`);
+      process.exitCode = 1;
     }
   }
   console.log(`C ${violations.length}`);

@@ -90,6 +90,51 @@ describe("路由", () => {
     expect(sent).toEqual({ path: "笔记/一.md", target: "body", quote: "一套能力", prefix: "这里有", suffix: "，值得", text: "这里要展开" });
     expect("start" in sent).toBe(false);
   });
+  test("正文批注 flush 在途时 revision 改变，要求重新选择且不创建线程", async () => {
+    const { port } = fakePort();
+    const { promise: flushing, resolve: started } = Promise.withResolvers<void>();
+    const { promise: pending, resolve: finish } = Promise.withResolvers<void>();
+    const selection = { vaultId: "vault", path: "a.md", epoch: 4, revision: 7 };
+    let revision = selection.revision;
+    const deps = {
+      port,
+      pathOf: () => "a.md",
+      docNameOf,
+      selectionRevision: () => ({ ...selection, revision, sourceVersion: "saved" }),
+      flush: async () => {
+        started();
+        await pending;
+      },
+    };
+    const result = call(commentRoutes(deps), "POST", "/api/comments", { docName: "a", quote: "同句", selection, body: "评论" });
+    await flushing;
+    revision++;
+    finish();
+    const response = await result;
+    expect(response.status).toBe(500);
+    expect(response.json.title).toContain("重新选择");
+    expect(port.create).not.toHaveBeenCalled();
+  });
+  test("同一会话 revision 以 flush 回执版本落盘，换同名会话则拒绝", async () => {
+    const { port } = fakePort();
+    const selection = { vaultId: "vault", path: "a.md", epoch: 4, revision: 7 };
+    let sourceVersion = "before";
+    const routes = commentRoutes({
+      port,
+      pathOf: () => "a.md",
+      docNameOf,
+      selectionRevision: () => ({ ...selection, sourceVersion }),
+      flush: async () => {
+        sourceVersion = "after";
+      },
+    });
+    const body = { docName: "a", quote: "同句", selection, body: "评论" };
+    expect((await call(routes, "POST", "/api/comments", body)).status).toBe(200);
+    expect(port.create).toHaveBeenCalledWith({ path: "a.md", target: "body", quote: "同句", text: "评论", expectedSourceVersion: "after" });
+    const oldSession = await call(routes, "POST", "/api/comments", { ...body, selection: { ...selection, epoch: 3 } });
+    expect(oldSession.status).toBe(500);
+    expect(port.create).toHaveBeenCalledTimes(1);
+  });
   test("属性批注创建：target=property，带属性键", async () => {
     const { routes, calls } = mk();
     await call(routes, "POST", "/api/comments", { docName: "a", propertyKey: "status", propertyPath: [], body: "改一下" });
@@ -127,4 +172,21 @@ describe("路由", () => {
     expect(r.status).toBe(500);
     expect(r.json.title).toBe("引用的文字不在文档里（可能已修改，请重新选择）");
   });
+});
+
+test.each([
+  { method: "GET", path: "/api/comments", operation: "list", payload: undefined },
+  { method: "POST", path: "/api/comments", operation: "create", payload: { docName: "笔记/一", body: "测试" } },
+  { method: "POST", path: "/api/comment", operation: "reply", payload: { action: "reply", id: "c1", body: "测试" } },
+  { method: "DELETE", path: "/api/comment?id=c1", operation: "delete", payload: undefined },
+])("H04 $method $path propagates the comments error code and readable reason", async ({ method, path, operation, payload }) => {
+  const { port } = fakePort({
+    [operation]: async () => {
+      throw new Error("批注暂时无法保存或读取");
+    },
+  });
+  const routes = commentRoutes({ port, pathOf: (doc) => doc + ".md", docNameOf, flush: async () => {} });
+  const failure = await call(routes, method, path, payload);
+  expect(failure.status).toBe(500);
+  expect(failure.json).toMatchObject({ code: "HOST_ERROR", title: "批注暂时无法保存或读取", detail: "批注暂时无法保存或读取" });
 });

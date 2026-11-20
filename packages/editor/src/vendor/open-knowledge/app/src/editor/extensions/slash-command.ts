@@ -172,7 +172,7 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
               doPosition?.();
             },
 
-            onKeyDown({ event }: SuggestionKeyDownProps) {
+            onKeyDown({ event, view }: SuggestionKeyDownProps) {
               if (!currentProps || currentProps.items.length === 0) return false;
               const items = currentProps.items;
 
@@ -187,6 +187,7 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
                 return true;
               }
               if (event.key === 'Enter' || event.key === 'Tab') {
+                if (view.composing || event.isComposing || event.keyCode === 229) return false;
                 const item = items[selectedIndex];
                 if (item) currentProps.command(item);
                 return true;

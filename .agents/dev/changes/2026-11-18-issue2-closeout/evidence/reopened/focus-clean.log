@@ -1,0 +1,18 @@
+$ playwright test tests/e2e/knowledge/editor-selection-focus.spec.ts --retries=0 --workers=1 --reporter=list,json --output=/tmp/huhu-b06.DkdtYL/focus-clean-results
+
+Running 10 tests using 1 worker
+
+(node:1192393) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/e2e/knowledge/editor-selection-focus.spec.ts:168:1 › B06：聚焦后 Home 保留折叠段首，接着 Shift+End 选中整段 (3.5s)
+  ✓   2 tests/e2e/knowledge/editor-selection-focus.spec.ts:195:3 › B06：Shift+Tab 重新聚焦后，Home 与聚焦回调同时发生时保留文档起点 (3.3s)
+  ✓   3 tests/e2e/knowledge/editor-selection-focus.spec.ts:195:3 › B06：Shift+Tab 重新聚焦后，Ctrl+Home 与聚焦回调同时发生时保留文档起点 (3.2s)
+  ✓   4 tests/e2e/knowledge/editor-selection-focus.spec.ts:195:3 › B06：Shift+Tab 重新聚焦后，聚焦回调结束后，观察器保留 Ctrl+Home 到达的文档起点 (3.4s)
+  ✓   5 tests/e2e/knowledge/editor-selection-focus.spec.ts:195:3 › B06：Shift+Tab 重新聚焦后，无导航时，观察器把浏览器复位的光标恢复到首段末尾 (3.2s)
+  ✓   6 tests/e2e/knowledge/editor-selection-focus.spec.ts:265:1 › B06：重新聚焦时，旧按键记录不影响原光标恢复 (3.2s)
+  ✓   7 tests/e2e/knowledge/editor-selection-focus.spec.ts:298:1 › B06：IME 组合期间，聚焦回调不强制读取光标 (3.3s)
+  ✓   8 tests/e2e/knowledge/editor-selection-focus.spec.ts:325:1 › B06：视图销毁后，暂存的聚焦回调可安全结束 (3.2s)
+  ✓   9 tests/e2e/knowledge/editor-selection-focus.spec.ts:345:3 › B06：初次聚焦后键盘扩选保留完整选区并显示气泡 (3.5s)
+  ✓  10 tests/e2e/knowledge/editor-selection-focus.spec.ts:345:3 › B06：初次聚焦后快速拖选保留完整选区并显示气泡 (3.5s)
+
+  10 passed (34.0s)

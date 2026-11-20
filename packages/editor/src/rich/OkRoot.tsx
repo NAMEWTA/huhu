@@ -4,22 +4,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@lingui/react";
 import { t } from "@lingui/core/macro";
 import { ThemeProvider } from "next-themes";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "../ok/ok-globals.css";
 import "../editor.css";
+import { CommentScopeProvider } from "@/comments/store";
 import { PageListProvider } from "@/components/PageListContext";
 import { PropertyProvider } from "@/components/PropertyContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { resetInternalDocPreviewCache } from "@/editor/link-preview/internal-doc-preview";
 import { linkLabel } from "@/editor/registry/block-labels";
 import { dynamicActivate, getRequestedLocale } from "@/lib/activate-locale";
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "@/lib/doc-hash";
 import { setHostLintAvailable } from "@/lib/host-features";
 import { i18n } from "@/lib/i18n";
+import { OkFetchContext } from "@/lib/ok-fetch";
 import { hasSidebarDragType, navigationForSidebarDragPayload, parseSidebarDragPayload } from "@/lib/sidebar-drag";
-import { HostConfigProvider, type HostEditorConfig } from "../host/config-provider";
+import { HostConfigProvider, linkPreviewRoutes, type HostEditorConfig } from "../host/config-provider";
 import { installDesktopBridge } from "../host/desktop-bridge";
 import { DocumentProvider, type DocumentHostCallbacks } from "../host/document-context";
-import { installHostFetch, registerHostRoutes, type HostRoutes } from "../host/host-fetch";
+import { createHostFetch, type HostRoutes } from "../host/host-fetch";
 import { DEFAULT_FEATURES, type OkHost } from "../host/ok-host";
 import { resetProviderPool } from "../host/provider-pool";
 
@@ -33,6 +36,7 @@ export interface OkRootProps {
   config?: HostEditorConfig;
   /** 变化（如切换 Vault）时销毁全部编辑表示与 editor-cache */
   poolKey?: string;
+  commentScope?: string;
   /** 打开文档 / 目标的宿主回调（wiki-link、内部链接点击） */
   documentHost?: DocumentHostCallbacks;
   acceptSidebarDrop?: boolean;
@@ -40,9 +44,17 @@ export interface OkRootProps {
   style?: React.CSSProperties;
 }
 
-let lastPoolKey: string | undefined;
+function desktopOpenExternal(): OkHost["openExternal"] | undefined {
+  const host = (globalThis as { huhuHost?: { openExternal?(url: string): Promise<boolean> } }).huhuHost;
+  return host?.openExternal ? openDesktopExternal : undefined;
+}
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } });
+async function openDesktopExternal(url: string): Promise<void> {
+  const host = (globalThis as { huhuHost?: { openExternal?(url: string): Promise<boolean> } }).huhuHost;
+  await host?.openExternal?.(url);
+}
+
+let lastPoolKey: string | undefined;
 
 /** Huhu 用 html[data-mode="dark|light"] 表示明暗；OK 的 dark 变体是 `.dark *`，这里把两者接起来。 */
 function useHuhuDarkClass(): boolean {
@@ -56,20 +68,25 @@ function useHuhuDarkClass(): boolean {
   return dark;
 }
 
-export function OkRoot({ children, locale, host, routes, config, poolKey, documentHost, acceptSidebarDrop, className, style }: OkRootProps) {
+/** Class names for an OK root, including portals outside its DOM subtree. */
+export function okRootClassName(dark: boolean, className?: string): string {
+  return `ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`;
+}
+
+export function OkRoot({ children, locale, host, routes, config, poolKey, commentScope, documentHost, acceptSidebarDrop, className, style }: OkRootProps) {
   const dark = useHuhuDarkClass();
   const [ready, setReady] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const features = useMemo(() => ({ ...DEFAULT_FEATURES, ...host?.features }), [host?.features]);
-  const openExternal = host?.openExternal;
+  const openExternal = host?.openExternal ?? desktopOpenExternal();
   useEffect(() => {
-    const restoreFetch = installHostFetch();
-    void restoreFetch;
     setHostLintAvailable(features.lint);
     const off = openExternal ? installDesktopBridge({ features, openExternal }) : () => {};
     return off;
   }, [features, openExternal]);
-  useEffect(() => (routes ? registerHostRoutes(routes) : undefined), [routes]);
+  const requestLinkPreview = config?.linkPreviewsEnabled ? config.requestLinkPreview : undefined;
+  const request = useMemo(() => createHostFetch(routes ?? {}, requestLinkPreview ? linkPreviewRoutes(requestLinkPreview) : {}), [routes, requestLinkPreview]);
+  const queryClient = useMemo(() => new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } }), [poolKey]);
   // OK 的内部链接用 URL hash 表示导航（window.location.assign(#…)）；Huhu 没有 OK 的路由，这里把 hash 翻译成宿主回调后清掉它
   useEffect(() => {
     if (!documentHost) return;
@@ -87,10 +104,13 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
     return () => window.removeEventListener("hashchange", onHash);
   }, [documentHost]);
   // 池跨 OkRoot 实例存活（每篇笔记一个 OkRoot）：只有 poolKey（Vault）变了才销毁
-  useEffect(() => {
+  useLayoutEffect(() => {
     // 没有 poolKey 的 OkRoot（如详情栏的批注页）不参与池的所有权：否则它挂载就会把另一处正在编辑的编辑器销毁
     if (poolKey === undefined) return;
-    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) resetProviderPool();
+    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) {
+      resetInternalDocPreviewCache();
+      resetProviderPool();
+    }
     lastPoolKey = poolKey;
   }, [poolKey]);
   useEffect(() => {
@@ -110,7 +130,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
   return (
     <div
       ref={root}
-      className={`ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`}
+      className={okRootClassName(dark, className)}
       style={style}
       data-ok-root
       lang={locale ?? getRequestedLocale()}
@@ -134,9 +154,13 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
             <TooltipProvider>
               <HostConfigProvider config={config ?? {}}>
                 <DocumentProvider {...(documentHost ? { host: documentHost } : {})}>
-                  <PageListProvider>
-                    <PropertyProvider>{children}</PropertyProvider>
-                  </PageListProvider>
+                  <OkFetchContext value={request}>
+                    <PageListProvider>
+                      <PropertyProvider>
+                        <CommentScopeProvider scope={commentScope}>{children}</CommentScopeProvider>
+                      </PropertyProvider>
+                    </PageListProvider>
+                  </OkFetchContext>
                 </DocumentProvider>
               </HostConfigProvider>
             </TooltipProvider>

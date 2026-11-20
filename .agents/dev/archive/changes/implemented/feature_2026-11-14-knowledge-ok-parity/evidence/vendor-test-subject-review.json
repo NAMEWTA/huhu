@@ -1,0 +1,451 @@
+{
+  "packages/app/src/components/skills-dock-height.test.ts": {
+    "testedModule": "packages/app/src/components/skills-dock-expanded-store.ts",
+    "reason": "skillsDockMaxHeight 的高度计算"
+  },
+  "packages/app/src/components/terminal-alt-buffer.test.ts": {
+    "testedModule": null,
+    "reason": "终端 xterm alternate buffer 与后台终端缩放"
+  },
+  "packages/app/src/components/ui/kit-focus.browser.test.tsx": {
+    "testedModule": "packages/app/src/components/ui/button.tsx",
+    "reason": "共享 UI kit 的键盘焦点，涵盖已交付的按钮、复选框和菜单"
+  },
+  "packages/app/src/components/wiki-link-ordering-contract.test.ts": {
+    "testedModule": "packages/app/src/components/navigation-targets.ts",
+    "reason": "裸名称的 wiki 导航解析排序"
+  },
+  "packages/app/src/editor/extensions/link-resolution-uniformity.test.ts": {
+    "testedModule": "packages/app/src/editor/extensions/link-resolution.ts",
+    "reason": "编辑器和核心链接分类的一致性"
+  },
+  "packages/app/src/editor/frontmatter-binding-promotion.test.ts": {
+    "testedModule": "packages/app/src/editor/preview-tab-promotion.ts",
+    "reason": "预览标签晋升时的 frontmatter 绑定"
+  },
+  "packages/app/src/editor/heading-enumeration-alignment.test.ts": {
+    "testedModule": "packages/app/src/editor/source-heading-lines.ts",
+    "reason": "源码标题枚举，需将对照端改为宿主"
+  },
+  "packages/app/src/editor/no-runtime-import-cycle.test.ts": {
+    "testedModule": "packages/app/src/editor/extensions/shared.ts",
+    "reason": "扫描已交付编辑器模块的运行时依赖环"
+  },
+  "packages/app/src/editor/observer-sync.test.ts": {
+    "testedModule": "packages/app/src/editor/observers.ts",
+    "reason": "编辑器 Observer 同步及减少闪动"
+  },
+  "packages/app/src/editor/pattern-d-schema-identity.test.ts": {
+    "testedModule": "packages/app/src/editor/TiptapEditor.tsx",
+    "reason": "挂载后增量更新的 ProseMirror schema 身份"
+  },
+  "packages/app/src/editor/pattern-d-walk-currency.test.ts": {
+    "testedModule": "packages/app/src/editor/editor-cache.ts",
+    "reason": "编辑器构建到挂载间的增量遍历时序"
+  },
+  "packages/app/src/editor/registry/descriptor-icons.test.ts": {
+    "testedModule": "packages/app/src/editor/registry/icons.ts",
+    "reason": "编辑器 descriptor 的图标注册"
+  },
+  "packages/app/src/editor/skill-preview-tab-reuse.test.ts": {
+    "testedModule": null,
+    "reason": "ORCA/OK 式本地 Skill 预览标签路由，Huhu 紧凑编辑器关闭本地 Skill 入口"
+  },
+  "packages/app/src/editor/slash-command/cell-context-filter.test.ts": {
+    "testedModule": "packages/app/src/editor/extensions/slash-command.ts",
+    "reason": "表格单元格内的斜杠命令过滤"
+  },
+  "packages/app/src/editor/source-lint/local-target-parity.test.ts": {
+    "testedModule": "packages/app/src/editor/source-lint/local-target-diagnostics.ts",
+    "reason": "源码和所见即所得的链接诊断一致性"
+  },
+  "packages/app/src/lib/activate-locale-ordering.test.ts": {
+    "testedModule": "packages/app/src/lib/activate-locale.ts",
+    "reason": "重叠语言切换调用的顺序处理"
+  },
+  "packages/app/src/lib/command-menu-parity.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立应用命令面板、原生共享菜单动作整表，Huhu 使用自己的命令面板"
+  },
+  "packages/app/src/lib/helper-string-catalog-parity.test.ts": {
+    "testedModule": "packages/app/src/editor/utils/editor-strings.ts",
+    "reason": "混合集合中的编辑器文案仍交付，其它 helper（分享、交接）需按 Huhu 闭包裁减"
+  },
+  "packages/app/src/lib/i18n-value-escape.test.ts": {
+    "testedModule": "packages/app/src/lib/i18n.ts",
+    "reason": "Lingui escape 解码依赖及运行时翻译"
+  },
+  "packages/app/src/lib/menu-label-parity.test.ts": {
+    "testedModule": null,
+    "reason": "OK 原生菜单与 OK 命令面板之间的菜单标签协议"
+  },
+  "packages/app/src/lib/ok-syntax-parity.test.ts": {
+    "testedModule": "packages/app/src/editor/extensions/cm-theme.ts",
+    "reason": "CodeMirror 与 Shiki 语法高亮映射"
+  },
+  "packages/app/src/lib/perf/mark-bundled-tracks.test.ts": {
+    "testedModule": null,
+    "reason": "OK 性能诊断 bundle 的 track 收集与落盘"
+  },
+  "packages/server/src/api-github-reference.test.ts": {
+    "testedModule": null,
+    "reason": "OK GitHub 引用 API、独立服务路由及 loopback 夹具"
+  },
+  "packages/server/src/api-link-preview.test.ts": {
+    "testedModule": "packages/server/src/link-preview/guarded-fetch.ts",
+    "reason": "混合 OK HTTP 入口的防代理门禁与已交付的限时限量外链抓取"
+  },
+  "packages/server/src/api-ok-reserved-guard.test.ts": {
+    "testedModule": null,
+    "reason": "OK /api/create-page 服务侧的隐藏保留目录识别与服务文件索引"
+  },
+  "packages/server/src/api-rollback-actor-identity.test.ts": {
+    "testedModule": null,
+    "reason": "OK handleRollback 作者身份和 contributor tracker"
+  },
+  "packages/server/src/api-rollback-rename-history.test.ts": {
+    "testedModule": null,
+    "reason": "OK handleRollback 的 rename history 与私有影子历史"
+  },
+  "packages/server/src/api-saved-themes.test.ts": {
+    "testedModule": null,
+    "reason": "OK saved-themes REST 服务和 saved-themes-store"
+  },
+  "packages/server/src/api-test-rescan-files.test.ts": {
+    "testedModule": null,
+    "reason": "OK test-rescan-files 私有测试 HTTP 端点和文件观察器"
+  },
+  "packages/server/src/api-write-advisory-deadline.test.ts": {
+    "testedModule": null,
+    "reason": "OK agent 写请求经独立 HTTP server 等候派生文档索引的 advisory gate"
+  },
+  "packages/server/src/bridge-no-wallclock.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "扫描桥观察者禁止 wallclock 定时"
+  },
+  "packages/server/src/bridge-race-rig.test.ts": {
+    "testedModule": null,
+    "reason": "只自证 OK 的 bridge-race 测试夹具，未验证生产调用路径"
+  },
+  "packages/server/src/checkpoint-restore-floor.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 Git checkpoint restore floor 与改名日志"
+  },
+  "packages/server/src/checkpoint-retention-tie.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 Git checkpoint 保留策略的时间戳 tie"
+  },
+  "packages/server/src/config-file-watcher-readiness.test.ts": {
+    "testedModule": null,
+    "reason": "OK 叉进程 watcher 对服务配置文件就绪的握手"
+  },
+  "packages/server/src/console-discipline.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立 server 包 console 扫描与专属 logger/path-utils 规则"
+  },
+  "packages/server/src/content-assets-composition.test.ts": {
+    "testedModule": null,
+    "reason": "OK 启动 HTTP listener 后的内容资产合成与流转"
+  },
+  "packages/server/src/content/generate-index-conformance.test.ts": {
+    "testedModule": null,
+    "reason": "OK 服务自动生成索引与 backlink-index 合成"
+  },
+  "packages/server/src/content/generate-index-literal-metadata.test.ts": {
+    "testedModule": null,
+    "reason": "OK 服务自动重建索引落 literal metadata 及 generated-artifact"
+  },
+  "packages/server/src/content/skills-write-containment.test.ts": {
+    "testedModule": null,
+    "reason": "OK 原生 Skill 写路径的宿主目录边界"
+  },
+  "packages/server/src/derive-defer-floor.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 checkpoint floor 的 derive defer 恢复编排"
+  },
+  "packages/server/src/derive-fixed-point-backstop.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 checkpoint 的 fixed-point backstop、timeline 查询和恢复"
+  },
+  "packages/server/src/derive-fixed-point-comparand.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "A→B drain 的原始字节固定点"
+  },
+  "packages/server/src/derive-pre-drain.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "混合测试，桥 pre-drain paired-vector 臂在闭包内，影子历史夹具需替换"
+  },
+  "packages/server/src/derive-timing-exhaustion.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子存储在 derive guard 耗尽后的 checkpoint 恢复"
+  },
+  "packages/server/src/derive-timing-guard.test.ts": {
+    "testedModule": "packages/server/src/bridge-loss-detector.ts",
+    "reason": "桥 derive timing guard 的拒绝与恢复断言"
+  },
+  "packages/server/src/document-list.test.ts": {
+    "testedModule": null,
+    "reason": "OK 自建文件索引经 api-extension 列举文件"
+  },
+  "packages/server/src/error-log-discipline.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立 server、CLI 和原生应用 main 的错误日志源文本规则"
+  },
+  "packages/server/src/expect-stable.test.ts": {
+    "testedModule": null,
+    "reason": "只验证 OK expect-stable 测试 helper"
+  },
+  "packages/server/src/filesystem-identity.test.ts": {
+    "testedModule": null,
+    "reason": "OK asset-walk 与独立 server 文件身份"
+  },
+  "packages/server/src/git-checkout-symlink-check-failure.test.ts": {
+    "testedModule": null,
+    "reason": "OK 共享链接 Git checkout 的 incoming symlink 守卫"
+  },
+  "packages/server/src/git-pathspec-name-invariance.test.ts": {
+    "testedModule": null,
+    "reason": "OK 同步引擎 stageContentFiles 的 Git pathspec"
+  },
+  "packages/server/src/http-server-teardown.test.ts": {
+    "testedModule": null,
+    "reason": "仅验证 OK HTTP loopback 测试夹具 teardown"
+  },
+  "packages/server/src/http/admit-request-surface.test.ts": {
+    "testedModule": null,
+    "reason": "OK allowExternal 原生 HTTP 路由分流及 ingress-policy"
+  },
+  "packages/server/src/http/asset-stream-composition.test.ts": {
+    "testedModule": null,
+    "reason": "OK native asset stream 所有权与 /api 组合 HTTP server"
+  },
+  "packages/server/src/http/handler-equivalence.test.ts": {
+    "testedModule": null,
+    "reason": "只自证 OK handler-equivalence 测试 helper"
+  },
+  "packages/server/src/http/local-op-auth-shutdown-errors.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立服务本机授权子进程启动/终止及 local-op-routes"
+  },
+  "packages/server/src/http/test-reset-home-isolation.test.ts": {
+    "testedModule": null,
+    "reason": "OK 服务测试 reset 的独立 config home"
+  },
+  "packages/server/src/http/test-reset-watcher-settle.test.ts": {
+    "testedModule": null,
+    "reason": "OK 服务测试 reset 与 parcel watcher 的握手"
+  },
+  "packages/server/src/incident-replay.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 Git maintenance coordinator/event bucket"
+  },
+  "packages/server/src/keepalive-presence-bootstrap.test.ts": {
+    "testedModule": null,
+    "reason": "OK WebSocket keepalive 与 agent 身份和 MCP 挂载"
+  },
+  "packages/server/src/keepalive-presence-cleanup.test.ts": {
+    "testedModule": null,
+    "reason": "OK WebSocket keepalive 关闭后 presence grace 与清除调度"
+  },
+  "packages/server/src/lock-process-start-unrecorded.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立 server 进程锁启动记录与影子锁"
+  },
+  "packages/server/src/loopback-bind-discipline.test.ts": {
+    "testedModule": null,
+    "reason": "只扫描 OK 服务测试源码的 loopback 绑定规则"
+  },
+  "packages/server/src/maintenance-consolidation.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 Git auto-consolidation 调度与历史维护"
+  },
+  "packages/server/src/managed-artifact-watcher-readiness.test.ts": {
+    "testedModule": null,
+    "reason": "OK managed artifact watcher 就绪握手"
+  },
+  "packages/server/src/managed-rename-resolution.test.ts": {
+    "testedModule": null,
+    "reason": "OK apply-managed-rename 跨工作区重写与 link-syntax"
+  },
+  "packages/server/src/managed-rename.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "mixed MANAGED_RENAME_ORIGIN paired-write，桥观察者在闭包内，OK api-extension 夹具未交付"
+  },
+  "packages/server/src/map-driven-observer-a.test.ts": {
+    "testedModule": "packages/server/src/map-driven-splice.ts",
+    "reason": "桥 Observer A 的映射式 splice 路径"
+  },
+  "packages/server/src/mcp-lint-http-preservation.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立 MCP lint 工具经 composed HTTP server 写回"
+  },
+  "packages/server/src/mermaid-version-alignment.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "OK app/server 两个包的 Mermaid semver 源文件对比"
+  },
+  "packages/server/src/nested-project-authority.test.ts": {
+    "testedModule": null,
+    "reason": "OK nested project authority registry 及其离线索引删除对账"
+  },
+  "packages/server/src/normalize-write-sink-gate.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "扫描 OK 独立服务文件持久化 normalize 写 sink"
+  },
+  "packages/server/src/observer-a-verbatim-fallback-respell.test.ts": {
+    "testedModule": "packages/server/src/md-manager.ts",
+    "reason": "退化 MDX 嵌套块保留 Y.Text 源缩进"
+  },
+  "packages/server/src/observer-bridge-spans.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "桥 intake、序列化和 observer 的 span 结果"
+  },
+  "packages/server/src/on-agent-write.test.ts": {
+    "testedModule": null,
+    "reason": "OK 服务器 API agent 写请求的会话入口回调"
+  },
+  "packages/server/src/package-exports.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立 server predev hook 与 dist package exports"
+  },
+  "packages/server/src/paired-intake-detection-wiring.test.ts": {
+    "testedModule": "packages/server/src/bridge-loss-detector.ts",
+    "reason": "混合 paired-intake 检测器及 registry 的接线，服务持久化需替换"
+  },
+  "packages/server/src/paired-write-enforcement.test.ts": {
+    "testedModule": "packages/server/src/bridge-intake.ts",
+    "reason": "扫描混合 paired-write 规则在 bridge 文件的写路径"
+  },
+  "packages/server/src/parcel-drop-notice.test.ts": {
+    "testedModule": null,
+    "reason": "OK 原生 parcel watcher 去除路径通知与磁盘事件留存"
+  },
+  "packages/server/src/parse-worker-bundle.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "OK server/CLI tsdown 打包 parse worker 入口"
+  },
+  "packages/server/src/path-identity.test.ts": {
+    "testedModule": null,
+    "reason": "OK 文件观察器、asset-walk、服务 composition 的目录身份，bridge-intake 仅为夹具"
+  },
+  "packages/server/src/prd-6654-e2e-repro.test.ts": {
+    "testedModule": "packages/server/src/bridge-intake.ts",
+    "reason": "混合 OK agent patch 服务夹具和交付桥接收的交错富文本修改"
+  },
+  "packages/server/src/pre-drain-converged-gate.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "pre-drain 已收敛的短路逻辑"
+  },
+  "packages/server/src/producer-origin-gate.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "扫描混合 producer origin 在已交付桥接路径的写标记",
+    "testedTarget": "packages/editor/src/vendor/open-knowledge/server-bridge/observer-origin.ts"
+  },
+  "packages/server/src/project-skill-router-contract.test.ts": {
+    "testedModule": null,
+    "reason": "OK 项目 Skill router 的工具注册和安全防护"
+  },
+  "packages/server/src/qa-degradation-matrix.test.ts": {
+    "testedModule": "packages/server/src/bridge-loss-detector.ts",
+    "reason": "混合桥损失检测/观察者机制逐项关闭后的降级"
+  },
+  "packages/server/src/qa-duplication-lens.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "桥 paired update 的重复文本检测"
+  },
+  "packages/server/src/qa-gc-budget-isolation.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 Git checkpoint GC 按类别配额"
+  },
+  "packages/server/src/qa-sweep-lens.test.ts": {
+    "testedModule": null,
+    "reason": "OK 影子 Git 扫描/回放上的无来源内容检查"
+  },
+  "packages/server/src/qa-watcher-intake-lens.test.ts": {
+    "testedModule": "packages/server/src/bridge-loss-detector.ts",
+    "reason": "混合盘上内容经 OK applyExternalChange 输入和已交付损失检测"
+  },
+  "packages/server/src/reconcile-intake-loss.test.ts": {
+    "testedModule": "packages/server/src/bridge-loss-detector.ts",
+    "reason": "混合 paired-intake 损失检测和 OK 服务写入前 reconcile"
+  },
+  "packages/server/src/reconcile-own-flush-window.test.ts": {
+    "testedModule": null,
+    "reason": "OK reconcileDiskBeforeAgentWrite 对自发持久化 flush 与外部冲突分类"
+  },
+  "packages/server/src/removal-guard-watcher-update.test.ts": {
+    "testedModule": null,
+    "reason": "OK file-watcher 与 server-factory 的目录移除门禁"
+  },
+  "packages/server/src/resolve-upstream-author.test.ts": {
+    "testedModule": null,
+    "reason": "OK server-factory 的 Git 上游操作贡献者解析"
+  },
+  "packages/server/src/rig-loopback-exclusivity.test.ts": {
+    "testedModule": null,
+    "reason": "只自证 OK loopback 测试夹具独占"
+  },
+  "packages/server/src/rollback-write-order.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "混合 OK rollback 路由与交付桥观察者的 paired-write 顺序"
+  },
+  "packages/server/src/server-factory-local-op-shutdown.test.ts": {
+    "testedModule": null,
+    "reason": "OK 独立 HTTP server 终止 local-op 授权子进程的错误汇报"
+  },
+  "packages/server/src/server-observers-divergent-fallback.test.ts": {
+    "testedModule": "packages/server/src/bridge-watchdog.ts",
+    "reason": "拒绝与正文分歧的 MDX fallback 多余覆盖"
+  },
+  "packages/server/src/server-observers-duplication-gate.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "findRaceDuplicatedSpans 的重复检测"
+  },
+  "packages/server/src/server-observers-paired-write-baseline.test.ts": {
+    "testedModule": "packages/server/src/server-observers.ts",
+    "reason": "Observer A paired-write 用原始 Y.Text 作为基线"
+  },
+  "packages/server/src/skills-list-admission.test.ts": {
+    "testedModule": null,
+    "reason": "OK service 启动后列举 symlink Skill 名称与 canonical doc"
+  },
+  "packages/server/src/stale-external-write-gate.test.ts": {
+    "testedModule": null,
+    "reason": "OK 服务写入前 reconcileDiskBeforeAgentWrite 的 stale external write 门禁"
+  },
+  "packages/server/src/summary-e2e.test.ts": {
+    "testedModule": null,
+    "reason": "OK shadow commit 汇总与 timeline 查询端到端"
+  },
+  "packages/server/src/symlink-leaf-guard-enforcement.test.ts": {
+    "testedModule": null,
+    "reason": "OK frontmatter.yml 相关服务持久化的 symlink 叶节点规则"
+  },
+  "packages/server/src/test-helper-caller-typecheck-coverage.test.ts": {
+    "testedModule": null,
+    "reason": "仅扫描 OK 测试 helper 的 TypeScript project 纳入范围"
+  },
+  "packages/server/src/tsdown-bundle-coverage.test.ts": {
+    "testedModule": null,
+    "reason": "OK server tsdown alwaysBundle 对 logger 外部依赖的约束"
+  },
+  "packages/server/src/ui-surface-agreement.test.ts": {
+    "testedModule": null,
+    "reason": "OK MCP preview URL、服务器锁与 UI redirect 端口协议"
+  },
+  "packages/server/src/upstream-attribution.integration.test.ts": {
+    "testedModule": null,
+    "reason": "OK Git merge reconcile 对上游作者的归属与 timeline"
+  },
+  "packages/server/src/validation-coverage-contract.uncached.test.ts": {
+    "testedModule": null,
+    "reason": "OK validation-audit、MCP audit/lint 注册之间的源契约"
+  },
+  "packages/server/src/wait-within-test-budget.test.ts": {
+    "testedModule": null,
+    "reason": "只自证 OK waitWithinTestBudget 测试 helper"
+  },
+  "packages/server/src/wiki-grammar-parity.test.ts": {
+    "testedModule": "packages/core/src/extensions/wiki-link-embed.ts",
+    "reason": "核心、编辑器和服务 wiki 语法一致性，服务对照路径需适配"
+  }
+}

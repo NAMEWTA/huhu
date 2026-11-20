@@ -229,7 +229,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
         {list.map((it) => (
           <button key={it.id} type="button" className={`safe-secret-row ${it.id === selectedId ? "active" : ""}`} data-testid="safe-item" onClick={() => setSelectedId(it.id)}>
             <KeyRound size={18} aria-hidden />
-            <span className="grow">
+            <span className="hu-flex-fill">
               <strong>{it.name}</strong>
               <small>
                 {it.type} · {it.account || "个人"}
@@ -293,7 +293,7 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
               ) : null}
               <Field label="凭据引用">
                 <div className="row">
-                  <code className="grow">{formatSecretRef(current.id)}</code>
+                  <code className="hu-flex-fill">{formatSecretRef(current.id)}</code>
                   <IconButton icon={Copy} label={t.copyRef} onClick={() => void navigator.clipboard.writeText(formatSecretRef(current.id))} />
                 </div>
               </Field>
