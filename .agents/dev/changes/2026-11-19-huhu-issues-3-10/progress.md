@@ -53,6 +53,7 @@
 - [Windows 阶段安装包](windows-stage-combined-3bd2e24.md)新增同包证据。该构建通过三项包内冒烟、真实 Electron UtilityProcess 的 23 项凭据检查，以及实际 Edge 中两份邀请和三个会话。
 - `c839daf` 完成 Windows 全仓类型检查。#5 的问题投影、回执持久化和 #8 的首封原文缓存通过独立复跑。#4 真实 Windows Codex 的受控新会话保持同一 Core 绑定，借助本机合成模型端只发布一次原任务正文。原生接收两阶段回放合入 `79b495a`，固定 Core 与合成 App Server 在生产 Tasks 收件箱内观察到同一会话、一次输入、两份持久 ACK 及一条结果评论，重开后结果和 ACK 身份不变。
 - #5 [原生问题回答](../2026-11-19-issue-5-task-automation/tasks/T3.2-reply.md)合入 Tasks 侧持久受理。Windows Engine 测试验证写评论前中断后的一次补写、并发回答只保存一条，以及接受确认丢失后查询原回复。现场 Codex 对同一原生请求的作答另验。
+- [组合阶段候选 3290af1](windows-stage-combined-3290af1.md)保全安装包及七个关键文件的逐字节证据。实际包内以真实 Windows Codex、固定 Core 和本机合成模型完成一次派遣及结果，Edge 两份邀请与三会话和两种外部工具网关授权回归通过。此提交已快进到本地 `feature/issue-fix`。
 
 ## Windows Safe 与 IMAP 增量
 
