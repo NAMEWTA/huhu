@@ -145,7 +145,7 @@ const inputs = desktop
 // The PostCSS plugin marks OK output with explicit layer names. Every asset is
 // scanned because the bundler can extract these layers into any chunk.
 function isOkLayer(name) {
-  return /^(?:vendor\.ok-[\w-]+|(?:base|components|properties)\.huhu-ok)$/.test(name);
+  return /^(?:vendor\.ok-[\w-]+|properties\.huhu-ok)$/.test(name);
 }
 
 function okLayerName(rule) {

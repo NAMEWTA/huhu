@@ -59,8 +59,8 @@
 
 | ID | HUHU 功能 | 来源文件 / 符号 | 来源如何实现 | 方式 | HUHU 目标 | 适配与不迁移 |
 | --- | --- | --- | --- | --- | --- | --- |
-| R-21 | 实时预览 | PROTO `vendor/atomic/{inline-preview,wiki-links,atomic-theme,read-only,tree-progress,huhu-composition,highlight}.ts`、`vendor/atomic/styles/`（上游 kenforthewin/atomic-editor `b6ed65f01bde4510031bc7a495520bc1a7688c66`，MIT） | CM6 装饰：非活动行隐藏标记、活动行显示源码；组合输入保护 | 复制 | `packages/editor/src/codemirror/live-preview/` | 适配 @codemirror/state 6.7 / view 6.43 后重跑编辑器测试 |
-| R-22 | 编辑器装配 | PROTO `editor.jsx`（`MarkdownEditor`：模式、行号、留白、查找替换、工具栏命令） | 单 EditorView，模式切换只换扩展 | 模式 | `packages/editor/src/MarkdownEditor.tsx` | 用 TypeScript 重写；CodeMirror 包用 npm 版本，不再 vendor commands/search |
+| R-21 | 实时预览 | PROTO `vendor/atomic/{inline-preview,wiki-links,atomic-theme,read-only,tree-progress,huhu-composition,highlight}.ts`、`vendor/atomic/styles/`（上游 kenforthewin/atomic-editor `b6ed65f01bde4510031bc7a495520bc1a7688c66`，MIT） | CM6 装饰：非活动行隐藏标记、活动行显示源码；组合输入保护 | 复制 | `packages/editor/src/codemirror/live-preview/` | 适配 @codemirror/state 6.7 / view 6.43 后重跑编辑器测试。知识库实时预览复用方案由[后继决定](../../../../notes/decisions/2026-11-15-knowledge-editor-ok.md)替代。 |
+| R-22 | 编辑器装配 | PROTO `editor.jsx`（`MarkdownEditor`：模式、行号、留白、查找替换、工具栏命令） | 单 EditorView，模式切换只换扩展 | 模式 | `packages/editor/src/MarkdownEditor.tsx` | 用 TypeScript 重写；CodeMirror 包用 npm 版本，不再 vendor commands/search。知识库装配方案由[后继决定](../../../../notes/decisions/2026-11-15-knowledge-editor-ok.md)替代。 |
 | R-23 | 外部修改三方合并 | OK `packages/core/src/bridge/{merge-three-way,diff-lines,line-endings}.ts` | 行级三方合并，标出冲突区 | 复制 | `packages/editor/src/merge/` | 只用于“磁盘已改且本地有未保存修改”的合并 |
 | R-24 | 批注锚点 | OK `packages/server/src/comments/anchor.ts`（`createAnchor`、`refind`）、`packages/core/src/comments/passage-match.ts` | exact + 上下文打分重定位 | 复制 | `plugins/notes/src/engine/comments/anchor.ts` | — |
 | R-25 | 批注界面 | OK `packages/app/src/comments/{CommentsPanel,CommentListPanel,CommentBubbleButton,CommentSelectionAffordance,anchor-decorations}.tsx`、`packages/app/src/comments/scroll-to-anchor.ts` | 侧栏线程、选区气泡、锚点装饰 | 改造 | `plugins/notes/src/ui/comments/` | 装饰改为 CodeMirror Decoration；不迁移发送到 Agent 的队列 |

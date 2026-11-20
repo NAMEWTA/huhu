@@ -85,6 +85,22 @@ function suggestionRoutes(deps: CoreRouteDeps, suggestions: NonNullable<CoreRout
       });
       return { docName, forwardLinks };
     },
+    "GET /api/document": async ({ url }) => {
+      const docName = url.searchParams.get("docName");
+      if (!docName) return PASS_HOST_ROUTE;
+      const content = await suggestions.readDocument(docName);
+      return content === null ? PASS_HOST_ROUTE : { docName, content, lifecycle: null };
+    },
+    "GET /api/backlink-counts": async ({ url }) => {
+      const names = new Set(
+        (url.searchParams.get("docNames") ?? "")
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean),
+      );
+      const counts = await Promise.all([...names].map(async (name) => [name, (await suggestions.listBacklinks(name)).length] as const));
+      return { counts: Object.fromEntries(counts) };
+    },
     "GET /api/backlinks": async ({ url }) => {
       const docName = url.searchParams.get("docName") ?? "";
       return { docName, backlinks: (await suggestions.listBacklinks(docName)).map((link) => ({ ...link, anchor: null, snippet: null })) };

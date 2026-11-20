@@ -11,7 +11,8 @@ import { gzipSync, gunzipSync } from "node:zlib";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const V = join(ROOT, "packages/editor/src/vendor/open-knowledge");
-const man = JSON.parse(readFileSync(join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json"), "utf8"));
+const ARCHIVE = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
+const man = JSON.parse(readFileSync(join(ARCHIVE, "closure-manifest.json"), "utf8"));
 // 上游测试 / 助手 / fixtures（迁入 vendor、与被测源码同目录）：路径 → 上游 SHA-256；不在闭包清单里，单独一份清单。
 // 重新生成：OK_SRC=<上游工作副本> node scripts/ok-patches.mjs --write-tests-manifest（只收录与上游同路径的文件）
 const TESTS_MANIFEST = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/tests-manifest.json");
@@ -35,8 +36,8 @@ function filePaths(root, dir = root) {
   });
 }
 
-function upstreamObjects(upstream) {
-  const gitTree = execFileSync("git", ["-C", upstream, "ls-tree", "-rz", PIN], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+function upstreamObjects(upstream, pin) {
+  const gitTree = execFileSync("git", ["-C", upstream, "ls-tree", "-rz", pin], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
   return new Map(
     gitTree
       .split("\0")
@@ -49,6 +50,7 @@ function upstreamObjects(upstream) {
 }
 
 function upstreamPathFor(target, objects) {
+  if (target === "server-bridge/link-preview/ip-classifier.ts") return "packages/core/src/util/ip-classifier.ts";
   if (objects.has(`packages/${target}`)) return `packages/${target}`;
   if (target === "LICENSE" && objects.has(target)) return target;
   if (!target.startsWith("server-bridge/")) return null;
@@ -59,9 +61,9 @@ function upstreamPathFor(target, objects) {
   return named.length === 1 ? named[0] : null;
 }
 
-function projectUpstream(upstream, rows, target) {
+function projectUpstream(upstream, pin, rows, target) {
   const items = rows.filter((row) => row.upstream);
-  const input = items.map((row) => `${PIN}:${row.upstream}\n`).join("");
+  const input = items.map((row) => `${pin}:${row.upstream}\n`).join("");
   const batch = spawnSync("git", ["-C", upstream, "cat-file", "--batch"], { input, maxBuffer: 256 * 1024 * 1024 });
   if (batch.error || batch.status !== 0) throw batch.error ?? new Error(String(batch.stderr));
   let offset = 0;
@@ -83,22 +85,22 @@ function listDifference(expected, actual) {
   return [...files].filter((path) => expected.get(path) !== actual.get(path));
 }
 
-function replayVendor(refresh) {
-  const upstream = process.env.OK_SRC;
-  if (!upstream) throw new Error("需要 OK_SRC=<固定上游 Git 工作副本>");
-  const objects = upstreamObjects(upstream);
+function replayVendor({ root, pin, env, manifest, patch, sourcePath }, refresh) {
+  const upstream = process.env[env];
+  if (!upstream) throw new Error(`需要 ${env}=<固定上游 Git 工作副本>`);
+  const objects = upstreamObjects(upstream, pin);
   const scratch = mkdtempSync(join(tmpdir(), "huhu-ok-replay-"));
   const git = (args, options = {}) => execFileSync("git", ["-c", "core.autocrlf=false", "-c", "core.fileMode=false", "-C", scratch, ...args], options);
   try {
-    const actualFiles = filePaths(V).sort();
-    const actual = new Map(actualFiles.map((path) => [path, sha(join(V, path))]));
+    const actualFiles = filePaths(root).sort();
+    const actual = new Map(actualFiles.map((path) => [path, sha(join(root, path))]));
     if (refresh) {
-      const notes = readFileSync(join(V, "PATCHES.md"), "utf8").split("\n");
+      const notes = readFileSync(join(root, "PATCHES.md"), "utf8").split("\n");
       const rows = actualFiles.map((target) => {
-        const source = upstreamPathFor(target, objects);
+        const source = sourcePath(target, objects);
         return { target, upstream: source, blob: source ? objects.get(source) : null, sha256: actual.get(target) };
       });
-      projectUpstream(upstream, rows, scratch);
+      projectUpstream(upstream, pin, rows, scratch);
       for (const row of rows) {
         const unchanged = row.upstream && sha(join(scratch, row.target)) === row.sha256;
         row.method = unchanged ? "copy" : row.upstream ? "patch" : "local";
@@ -112,22 +114,22 @@ function replayVendor(refresh) {
       const base = git(["write-tree"], { encoding: "utf8" }).trim();
       for (const path of actualFiles) {
         mkdirSync(dirname(join(scratch, path)), { recursive: true });
-        cpSync(join(V, path), join(scratch, path));
+        cpSync(join(root, path), join(scratch, path));
       }
       git(["add", "-f", "."]);
       const delta = git(["diff", "--cached", "--no-ext-diff", "--binary", "--full-index", base, "--"], { maxBuffer: 64 * 1024 * 1024 });
-      writeFileSync(REPLAY_MANIFEST, JSON.stringify({ upstreamCommit: PIN, files: rows }, null, 2) + "\n");
-      writeFileSync(REPLAY_PATCH, gzipSync(delta, { level: 9 }));
+      writeFileSync(manifest, JSON.stringify({ upstreamCommit: pin, files: rows }, null, 2) + "\n");
+      writeFileSync(patch, gzipSync(delta, { level: 9 }));
       console.log(`已登记 ${rows.length} 项来源，差异补丁 ${delta.length} 字节`);
       return;
     }
-    const ledger = JSON.parse(readFileSync(REPLAY_MANIFEST, "utf8"));
-    if (ledger.upstreamCommit !== PIN) throw new Error("重放清单的上游提交不匹配");
+    const ledger = JSON.parse(readFileSync(manifest, "utf8"));
+    if (ledger.upstreamCommit !== pin) throw new Error("重放清单的上游提交不匹配");
     const expected = new Map(ledger.files.map((row) => [row.target, row.sha256]));
     const staleFiles = listDifference(expected, actual);
     if (staleFiles.length) throw new Error(`闭包清单与 vendor 不符：\n${staleFiles.join("\n")}`);
-    projectUpstream(upstream, ledger.files, scratch);
-    git(["apply", "--binary", "--whitespace=nowarn", "-"], { input: gunzipSync(readFileSync(REPLAY_PATCH)) });
+    projectUpstream(upstream, pin, ledger.files, scratch);
+    git(["apply", "--binary", "--whitespace=nowarn", "-"], { input: gunzipSync(readFileSync(patch)) });
     const replayed = new Map(filePaths(scratch).map((path) => [path, sha(join(scratch, path))]));
     const diffs = listDifference(actual, replayed);
     if (diffs.length) throw new Error(`重放不一致：\n${diffs.join("\n")}`);
@@ -137,8 +139,131 @@ function replayVendor(refresh) {
   }
 }
 
+const OK = { root: V, pin: PIN, env: "OK_SRC", manifest: REPLAY_MANIFEST, patch: REPLAY_PATCH, sourcePath: upstreamPathFor };
+const orcaEditor = "src/renderer/src/components/editor";
+const ORCA = {
+  root: join(ROOT, "plugins/notes/src/vendor/orca/pdf"),
+  pin: "7041ea022826ec19d627cd3a129b665822e7bf0a",
+  env: "ORCA_SRC",
+  manifest: join(ARCHIVE, "orca-replay.json"),
+  patch: join(ARCHIVE, "orca-replay.patch.gz"),
+  sourcePath(target, objects) {
+    const path =
+      {
+        LICENSE: "LICENSE",
+        "pdf-range-transport.ts": `${orcaEditor}/pdf-orca-media-range-transport.ts`,
+        "zoom-wheel.ts": `${orcaEditor}/image-viewer-zoom.ts`,
+        "scroll-cache.ts": "src/renderer/src/lib/scroll-cache.ts",
+      }[target] ?? `${orcaEditor}/${target}`;
+    return objects.has(path) ? path : null;
+  },
+};
+
+const ORCA_RELATED = new Map([
+  ["config/patches/pdfjs-dist@6.3.289.patch", ["patches/pdfjs-dist@6.3.289.patch", "R-44 PDF.js 局部渲染补丁"]],
+  ["config/build-plugins/pdfjs-viewer-assets.ts", ["apps/desktop/scripts/pdfjs-viewer-assets.ts", "R-44 调整依赖解析根"]],
+  [`${orcaEditor}/file-view-preference-storage.ts`, ["plugins/notes/src/vendor/orca/pdf/pdf-scale-preference-storage.ts", "P-S7-04 合并偏好存储逻辑"]],
+  [`${orcaEditor}/pdf-orca-media-range-transport.test.ts`, ["plugins/notes/test/orca-pdf-range-transport.test.ts", "范围读适配"]],
+  [`${orcaEditor}/pdf-scale-preference.test.ts`, ["plugins/notes/test/orca-pdf-scale-preference.test.ts", "本地缩放偏好适配"]],
+  [`${orcaEditor}/pdf-view-position.test.ts`, ["plugins/notes/test/orca-pdf-view-position.test.ts", "本地查看位置适配"]],
+]);
+
+const ORCA_OMISSIONS = new Map([
+  [`${orcaEditor}/PdfViewer.tsx`, "OP-D09 查看外壳由 Huhu PdfView.tsx 重写，待确认复制范围"],
+  [`${orcaEditor}/PdfFind.tsx`, "OP-D09 查找外壳由 Huhu PdfView.tsx 重写，待确认复制范围"],
+  [`${orcaEditor}/use-pdf-viewer-find-shortcut.ts`, "OP-D09 ORCA 键盘路由未迁入，行为差异待确认"],
+  [`${orcaEditor}/use-viewer-zoom-commands.ts`, "OP-D09 缩放由 Huhu 查看器本地键盘处理"],
+  [`${orcaEditor}/viewer-zoom-request.ts`, "OP-D09 明确不复制，依赖 ORCA store"],
+  [`${orcaEditor}/pdf-export-error-copy.ts`, "Huhu PDF 闭包不含导出"],
+  ["src/main/browser/document-preview/doc-preview-protocol.ts", "R-45 仅参考协议，Huhu 自行实现"],
+]);
+
+function checkReplayCatalog(origin, ledger, objects = null) {
+  if (ledger.upstreamCommit !== origin.pin) throw new Error(`清单固定点不一致：${origin.manifest}`);
+  const rows = new Map(ledger.files.map((row) => [row.target, row.sha256]));
+  if (rows.size !== ledger.files.length) throw new Error(`清单目标重复：${origin.manifest}`);
+  const actual = new Map(filePaths(origin.root).map((path) => [path, sha(join(origin.root, path))]));
+  const differences = listDifference(rows, actual);
+  if (differences.length)
+    throw new Error(`目录与来源清单不符：
+${differences.join("\n")}`);
+  for (const row of ledger.files) {
+    if (row.upstream && objects && objects.get(row.upstream) !== row.blob) throw new Error(`固定来源不符：${row.upstream}`);
+  }
+}
+
+function sourceCatalog(refresh) {
+  const output = [];
+  for (const origin of [OK, ORCA]) {
+    const path = process.env[origin.env];
+    if (!path) throw new Error(`需要 ${origin.env}=<固定上游 Git 工作副本>`);
+    const objects = upstreamObjects(path, origin.pin);
+    const ledger = JSON.parse(readFileSync(origin.manifest, "utf8"));
+    checkReplayCatalog(origin, ledger, objects);
+    const sources = new Map();
+    for (const row of ledger.files) {
+      if (!row.upstream) continue;
+      const target = relative(ROOT, join(origin.root, row.target)).replaceAll("\\", "/");
+      sources.set(row.upstream, {
+        target,
+        action: row.method,
+        reason: row.description ?? "固定上游 Git blob 原样复制",
+      });
+    }
+    if (origin === ORCA) {
+      for (const [upstream, [target, reason]] of ORCA_RELATED) {
+        if (!objects.has(upstream)) throw new Error(`ORCA 固定点缺少 ${upstream}`);
+        const bytes = readFileSync(join(ROOT, target));
+        const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+        sources.set(upstream, { target, action: blob === objects.get(upstream) ? "copy" : "patch", reason });
+      }
+    } else {
+      const upstream = "packages/app/src/globals.css";
+      const row = sources.get(upstream);
+      if (!row) throw new Error("OK 台账必须保留 globals.css 的生成来源");
+      sources.set(upstream, { ...row, derived: "packages/editor/src/ok/ok-globals.css", reason: `${row.reason}；P-WP6-01 生成隔离样式` });
+      for (const file of filePaths(join(ROOT, "patches"))) {
+        const target = `patches/${file}`;
+        if (!objects.has(target)) continue;
+        const bytes = readFileSync(join(ROOT, target));
+        const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+        sources.set(target, { target, action: blob === objects.get(target) ? "copy" : "patch", reason: "R-51 pnpm patchedDependencies" });
+      }
+    }
+    const archived = new Set(origin === OK ? man.files.map(({ upstream }) => upstream) : []);
+    const files = [...objects].map(([upstream, blob]) => {
+      const selected = sources.get(upstream);
+      if (selected) return { upstream, blob, ...selected };
+      const reason =
+        origin === OK
+          ? archived.has(upstream)
+            ? "历史闭包后删去；按 PATCHES.md 的同路径登记复核"
+            : "固定点文件未选入本地编辑闭包；测试适用性另见 vendor-test-catalog"
+          : (ORCA_OMISSIONS.get(upstream) ?? "不属于 OP-D09 的 PDF 最小依赖闭包或 R-44 的构建资源");
+      return { upstream, blob, target: null, action: "omit", reason };
+    });
+    output.push({ upstreamCommit: origin.pin, source: origin.env === "OK_SRC" ? "open-knowledge" : "orca", files });
+    console.log(`${origin.env}：固定点 ${files.length} 个文件，${sources.size} 条目标映射`);
+  }
+  const bytes = gzipSync(output.map((origin) => JSON.stringify(origin)).join("\n") + "\n", { level: 9 });
+  const file = join(ARCHIVE, "source-file-catalog.jsonl.gz");
+  if (refresh) writeFileSync(file, bytes);
+  else if (!gunzipSync(readFileSync(file)).equals(gunzipSync(bytes))) throw new Error("上游逐文件清单过期");
+}
+
+if (process.argv.includes("--refresh-catalog") || process.argv.includes("--check-catalog")) {
+  sourceCatalog(process.argv.includes("--refresh-catalog"));
+  process.exit(0);
+}
+
+if (process.argv.includes("--check-vendor-directories")) {
+  for (const origin of [OK, ORCA]) checkReplayCatalog(origin, JSON.parse(readFileSync(origin.manifest, "utf8")));
+  console.log("OK 与 ORCA 的目录和字节均有来源登记");
+  process.exit(0);
+}
+
 if (process.argv.includes("--refresh-replay") || process.argv.includes("--replay")) {
-  replayVendor(process.argv.includes("--refresh-replay"));
+  replayVendor(process.argv.includes("--orca") ? ORCA : OK, process.argv.includes("--refresh-replay"));
   process.exit(0);
 }
 

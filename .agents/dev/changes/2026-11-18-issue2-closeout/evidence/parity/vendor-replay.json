@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "fd23ad9c49614df4417a5faf3d3394b40f789e107a7ca83e858a574930f3f730",
+      "sha256": "afc4f17eebb168b907019a21113cb9c6788cc37afd61193897a21e804595e0ae",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -4171,7 +4171,7 @@
       "target": "app/src/editor/link-preview/internal-doc-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/internal-doc-preview.ts",
       "blob": "480d80209a56977fe4a988db5a630425d1e21d86",
-      "sha256": "bee85304c066cdef903848b9f3286b720e4857a0ef0a28a41eceea7d2a063476",
+      "sha256": "61753fa667ecebb5c007a8816ac461ed6f6d9531fd682d12dcb8d88464d3599d",
       "method": "patch",
       "description": "PATCHES.md:341 - `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -4916,7 +4916,7 @@
       "blob": "500f40d9ead4aab2a02bc3e9842c02688bd1358f",
       "sha256": "75fedac52f32c18f6fd2904abaddd10fae1af4483432f2b46a81744efb5c4bae",
       "method": "patch",
-      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
+      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
     },
     {
       "target": "app/src/fontsource.d.ts",
@@ -4931,7 +4931,7 @@
       "blob": "8324f5ef9b5b1e31de4ae5ac6e654fbd828c5d64",
       "sha256": "1510272c39137c2c3aa8bc162bbf0853dfff10d17342533be67b36733f793f1f",
       "method": "patch",
-      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
+      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
     },
     {
       "target": "app/src/hooks/use-conflicts.tsx",
@@ -9547,7 +9547,7 @@
       "target": "server-bridge/link-preview/guarded-fetch.ts",
       "upstream": "packages/server/src/link-preview/guarded-fetch.ts",
       "blob": "7f7e7660e3b81226fbaba89fd78f4bf5b572fb7b",
-      "sha256": "1c290a1931fda9ef9583b39288d58dde4a5686fde51a8cf24ac5cfdc68e12078",
+      "sha256": "6bb9994632812a6e070efb34ee250d211bffe2793f8c391e096ad1cdc8ecadb6",
       "method": "patch",
       "description": "PATCHES.md:362 - `server-bridge/link-preview/guarded-fetch.ts`：复用固定 OK 版本的主进程外链预览模块。"
     },
@@ -9560,11 +9560,10 @@
     },
     {
       "target": "server-bridge/link-preview/ip-classifier.ts",
-      "upstream": "packages/server/src/link-preview/ip-classifier.ts",
-      "blob": "0413e488acf651516ded8793cc4a5d67ba4787e3",
+      "upstream": "packages/core/src/util/ip-classifier.ts",
+      "blob": "448f63d39bfefe355a7330d640eb31cf54c6a48a",
       "sha256": "597a47e58e293f8d0db8afcbb090499f001bbc0375b99e802e612c278949abbf",
-      "method": "patch",
-      "description": "PATCHES.md:364 - `server-bridge/link-preview/ip-classifier.ts`：复用固定 OK 版本的主进程外链预览模块。"
+      "method": "copy"
     },
     {
       "target": "server-bridge/logger.ts",
