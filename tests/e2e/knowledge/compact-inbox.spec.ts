@@ -115,7 +115,7 @@ async function compose(page: Page, editor: Locator, save: Locator, read: () => s
   // A pointer click moves focus first, which can commit composition. Invoke
   // the real save action without blurring to exercise the in-composition guard.
   const write = page
-    .waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/v1/call") && ["inbox.update", "inbox.convert", "tasks.create"].includes(request.postDataJSON()?.capability), { timeout: 600 })
+    .waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/v1/call") && ["inbox.update", "inbox.convert", "tasks.create", "tasks.update"].includes(request.postDataJSON()?.capability), { timeout: 600 })
     .catch(() => null);
   await save.evaluate((button: HTMLButtonElement) => button.click());
   expect(await write).toBeNull();
@@ -226,3 +226,45 @@ for (const convert of [false, true]) {
     }
   });
 }
+
+test("H05 已有任务经 TaskEditor 输入、撤销、再次组合、保存与重开", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    await engineReady(page);
+    const title = "修改已有任务";
+    const initial = "已有描述";
+    await call(page, "tasks.create", { title, type: "human", body: initial });
+    const openTask = async () => {
+      await page.getByRole("button", { name: "任务", exact: true }).first().click();
+      await page.getByRole("button", { name: `打开任务 ${title}` }).click();
+      await page.getByTestId("detail-edit").click();
+    };
+    await openTask();
+    const dialog = page.getByTestId("task-editor");
+    const editor = dialog.getByTestId("task-body").locator(".ProseMirror");
+    const save = dialog.getByTestId("task-save");
+    const folder = path.join(vault, "Tasks");
+    const filename = readdirSync(folder).find((entry) => entry.endsWith(".md"))!;
+    const read = () => readFileSync(path.join(folder, filename), "utf8");
+    await expect(editor).toHaveText(initial);
+    await editor.click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("将被撤销");
+    await expect(editor).toHaveText(initial + "将被撤销");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(editor).toHaveText(initial);
+    await page.keyboard.press("End");
+    await compose(page, editor, save, read);
+    await expect(editor).toHaveText(initial + "你好");
+    await save.click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(read).toContain(initial + "你好");
+    expect(read()).not.toMatch(/将被撤销|nihao|quxiao/);
+    await page.reload();
+    await engineReady(page);
+    await openTask();
+    await expect(editor).toHaveText(initial + "你好");
+  } finally {
+    await close();
+  }
+});

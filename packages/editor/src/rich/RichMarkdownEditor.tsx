@@ -3,7 +3,7 @@
 // 编辑 → Y.Text 变化 → 防抖 300 ms → `onChange(全文)` 交给会话；会话把外部版本（载入 / 合并 / 恢复草稿）经 `value` 带回，
 // 只有与“最近交给会话的文本”不同的 `value` 才会被当作外部变化，用 replaceRawBody 写回（不进撤销栈）。
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
-import { applyMarkdownFileDelta, hasMixedMarkdownLineEndings, markdownFileBody, restoreMarkdownFileEnvelope } from "../host/markdown-file-envelope";
+import { hasMixedMarkdownLineEndings, markdownFileBody, observeMarkdownFileHistory, restoreMarkdownFileEnvelope } from "../host/markdown-file-envelope";
 import type { EditorPort } from "@huhu/contracts";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -263,9 +263,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       const currentFile = valueRef.current;
       mixedEnvelope.current = hasMixedMarkdownLineEndings(currentFile) && markdownFileBody(currentFile) === lastEmitted.current ? currentFile : null;
       lastDeliveredFile.current = undefined;
-      const observer = (event: Y.YTextEvent, tr: Y.Transaction) => {
+      const stopFileHistory = observeMarkdownFileHistory(yt, mixedEnvelope, () => documentHistory(p.document));
+      const observer = (_event: Y.YTextEvent, tr: Y.Transaction) => {
         if (tr.origin === FILE_LOAD_ORIGIN) return;
-        if (mixedEnvelope.current !== null) mixedEnvelope.current = applyMarkdownFileDelta(mixedEnvelope.current, event.delta);
         // 同一事务批内合并为一次交付（微任务）：会话的文本始终与编辑器保持同步，退出前 flush 不依赖定时器
         if (composing.current) {
           deferredWhileComposing.current = true;
@@ -279,7 +279,10 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         });
       };
       yt.observe(observer);
-      disposeObserve = () => yt.unobserve(observer);
+      disposeObserve = () => {
+        stopFileHistory();
+        yt.unobserve(observer);
+      };
       setProvider(p);
     };
     const cancelSync = pooled.whenSynced(onSynced);
