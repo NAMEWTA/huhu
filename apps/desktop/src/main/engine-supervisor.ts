@@ -1,4 +1,4 @@
-import { utilityProcess, type UtilityProcess } from "electron";
+import { app, utilityProcess, type UtilityProcess } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -73,6 +73,7 @@ export class EngineSupervisor {
         ...process.env,
         HUHU_EXAMPLES_DIR: examplesDir(),
         HUHU_WEB_ASSETS_DIR: path.join(import.meta.dirname, "../renderer"),
+        HUHU_DESKTOP_USER_DATA: app.getPath("userData"),
         HUHU_NODE_BIN: process.execPath /* 主程序可执行文件：Engine 里启动监督进程要用它（utilityProcess 的 execPath 在 macOS 可能是 Helper） */,
         ...(process.env["HUHU_HERDR_BIN"]
           ? {}

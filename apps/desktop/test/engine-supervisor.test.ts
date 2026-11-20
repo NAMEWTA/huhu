@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { EngineSupervisor } from "../src/main/engine-supervisor.js";
 
 const { fork } = vi.hoisted(() => ({ fork: vi.fn() }));
-vi.mock("electron", () => ({ utilityProcess: { fork } }));
+vi.mock("electron", () => ({ app: { getPath: () => "fixture-user-data" }, utilityProcess: { fork } }));
 
 class Child extends EventEmitter {
   postMessage = vi.fn();

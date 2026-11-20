@@ -52,6 +52,7 @@ import * as ssh from "@huhu/plugin-ssh/engine";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
+import { createModuleCredentialHost, type ModuleCredentialHost } from "./module-credential-host.js";
 
 export interface EndpointDescriptor {
   pid: number;
@@ -69,6 +70,8 @@ export interface BootOptions {
   port?: number;
   /** 由桌面宿主传入的已构建工作台资源目录。 */
   webAssetsDir?: string;
+  /** 桌面宿主提供的当前用户应用数据目录。 */
+  desktopUserData?: string;
   /** 无界面模式：最后一个客户端离开后空闲这么久自行退出（毫秒，0 = 不自动退出）。 */
   idleExitMs?: number;
 }
@@ -85,6 +88,8 @@ export interface RunningEngine {
   dispatcher: Dispatcher;
   registry: CapabilityRegistry;
   events: EventBus;
+  /** 仅供 Engine 进程内受信模块和验证入口使用。 */
+  moduleCredentialHost?: ModuleCredentialHost;
   /** 按顺序关闭：拒绝新写 → 通知客户端 → 停服务 → 释放锁 → 删除端点描述。 */
   shutdown(): Promise<void>;
 }
@@ -113,6 +118,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
+  const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
   const runtime = vault.runtimeDir;
   mkdirSync(runtime, { recursive: true });
 
@@ -461,5 +467,5 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       }
     })());
 
-  return { vault, port: server.port, rendererToken, cliToken, mcpToken, descriptorPath, server, index, dispatcher: real, registry, events, shutdown };
+  return { vault, port: server.port, rendererToken, cliToken, mcpToken, descriptorPath, server, index, dispatcher: real, registry, events, ...(moduleCredentialHost ? { moduleCredentialHost } : {}), shutdown };
 }

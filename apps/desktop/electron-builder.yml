@@ -5,6 +5,8 @@ directories:
 icon: ../../assets/brand/huhu-icon-1024.png
 beforePack: scripts/before-pack.cjs
 npmRebuild: false # 没有需要针对 Electron ABI 编译的模块（@parcel/watcher 用预编译包；ssh2 的原生加速可选）
+asarUnpack:
+  - "**/keyring.win32-x64-msvc.node"
 files:
   - out/**
   - package.json

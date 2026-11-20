@@ -26,6 +26,7 @@
     "@huhu/ui": "workspace:*",
     "@huhu/vault": "workspace:*",
     "@huhu/workbench": "workspace:*",
+    "@napi-rs/keyring": "2.1.2",
     "@parcel/watcher": "^2.6.0",
     "lucide-react": "^1.70.0",
     "ssh2": "^1.17.0"

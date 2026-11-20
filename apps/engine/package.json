@@ -22,6 +22,7 @@
     "@huhu/plugin-tasks": "workspace:*",
     "@huhu/plugin-versioning": "workspace:*",
     "@huhu/vault": "workspace:*",
+    "@napi-rs/keyring": "2.1.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
