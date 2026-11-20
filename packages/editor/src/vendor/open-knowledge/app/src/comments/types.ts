@@ -6,6 +6,7 @@ interface CommentAnchor {
   suffix: string;
   start: number;
   end: number;
+  requireUnique?: boolean;
 }
 
 type CommentTarget =

@@ -1,9 +1,7 @@
 import { lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { errors, type VaultListEntry, type VaultListOutput, VAULT_LIST_DEFAULT_LIMIT } from "@huhu/contracts";
-import { protectedKindOf, resolveInVault } from "./paths.js";
-
-const NOISE_FILES = new Set([".DS_Store", "Thumbs.db"]);
+import { normalizeRelPath, protectedKindOf, resolveInVault } from "./paths.js";
 
 export interface ListDirOptions {
   cursor?: string | undefined;
@@ -17,18 +15,15 @@ const sortKey = (e: VaultListEntry) => `${rank(e)}:${e.name}`;
 /**
  * 列举一个目录的直接子项（读真实文件系统：点目录、未知扩展名、空目录照常返回；
  * 与监听忽略表（snapshot IGNORED_DIRS）、内容索引范围互相独立）。
- * 路径守卫 + 符号链接 realpath：越界 / 失效 / 循环的链接返回 `kind:'symlink'` 且 `linkTarget.inside=false`，不跟随。
+ * 路径守卫 + 符号链接 realpath：越界 / 失效链接及指向祖先的链接保留为不可展开的 symlink。
  * 排序：目录在前，其后按名称码点序；游标 = 上一页最后一项的排序键，目录变化时仍稳定。
  */
 export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {}): VaultListOutput {
   const limit = opts.limit ?? VAULT_LIST_DEFAULT_LIMIT;
   const includeProtected = opts.includeProtected ?? false;
-  const rel = dir
-    .split("/")
-    .filter((p) => p !== "" && p !== ".")
-    .join("/");
+  const rel = /^(?:\.(?:\/+|$))*$/.test(dir) ? "" : normalizeRelPath(dir);
   const root = realpathSync(vaultRoot);
-  const abs = rel === "" ? root : resolveInVault(vaultRoot, rel);
+  const abs = rel === "" ? root : resolveInVault(root, rel);
   let st;
   try {
     st = statSync(abs);
@@ -37,12 +32,22 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
   }
   if (!st.isDirectory()) throw errors.invalidInput(`不是目录：${rel}`);
   const rootSep = root.endsWith(path.sep) ? root : root + path.sep;
-  const dirProtected = protectedKindOf(rel) ?? protectedKindOf(path.relative(root, realpathSync(abs)).split(path.sep).join("/"));
+  const realDir = realpathSync(abs);
+  const ancestors = new Set([root]);
+  let parent = root;
+  let previousReal = root;
+  for (const part of rel ? rel.split("/") : []) {
+    parent = path.join(parent, part);
+    const real = realpathSync(parent);
+    if (ancestors.has(real) || previousReal.startsWith(real + path.sep)) throw errors.invalidInput(`目录符号链接形成循环：${rel}`);
+    ancestors.add(real);
+    previousReal = real;
+  }
+  const dirProtected = protectedKindOf(rel) ?? protectedKindOf(path.relative(root, realDir).split(path.sep).join("/"));
   if (dirProtected && !includeProtected) throw errors.invalidInput(`受保护目录：${rel}`);
 
   const all: VaultListEntry[] = [];
   for (const ent of readdirSync(abs, { withFileTypes: true })) {
-    if (NOISE_FILES.has(ent.name)) continue;
     const childRel = rel === "" ? ent.name : `${rel}/${ent.name}`;
     let prot = dirProtected ?? protectedKindOf(childRel);
     if (prot && !includeProtected) continue;
@@ -52,6 +57,7 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
       const l = lstatSync(p);
       if (l.isSymbolicLink()) {
         let inside = false;
+        let cycle = false;
         let kind: "file" | "dir" | null = null;
         let size: number | undefined;
         let mtimeMs: number | undefined;
@@ -62,6 +68,7 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
             prot ??= protectedKindOf(path.relative(root, real).split(path.sep).join("/"));
             const s = statSync(real);
             kind = s.isDirectory() ? "dir" : s.isFile() ? "file" : null;
+            cycle = kind === "dir" && (ancestors.has(real) || realDir.startsWith(real + path.sep));
             if (kind === "file") {
               size = s.size;
               mtimeMs = s.mtimeMs;
@@ -71,7 +78,14 @@ export function listDir(vaultRoot: string, dir: string, opts: ListDirOptions = {
           inside = false; // 失效或循环
         }
         // 目标在 Vault 内：按目标类型展示（仍带 linkTarget 标明是链接）；否则保持 symlink，不跟随
-        entry = { name: ent.name, path: childRel, kind: inside && kind ? kind : "symlink", linkTarget: { inside }, ...(size !== undefined ? { size } : {}), ...(mtimeMs !== undefined ? { mtimeMs } : {}) };
+        entry = {
+          name: ent.name,
+          path: childRel,
+          kind: inside && kind && !cycle ? kind : "symlink",
+          linkTarget: { inside, ...(cycle ? { cycle: true } : {}) },
+          ...(size !== undefined ? { size } : {}),
+          ...(mtimeMs !== undefined ? { mtimeMs } : {}),
+        };
       } else if (l.isDirectory()) {
         entry = { name: ent.name, path: childRel, kind: "dir", mtimeMs: l.mtimeMs };
       } else if (l.isFile()) {

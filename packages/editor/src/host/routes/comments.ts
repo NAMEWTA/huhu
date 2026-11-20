@@ -24,6 +24,7 @@ export interface PassageInput {
   suffix?: string;
   start?: number;
   end?: number;
+  expectedSourceVersion?: string;
 }
 
 export interface CommentsPort {
@@ -36,6 +37,13 @@ export interface CommentsPort {
   delete(id: string): Promise<void>;
 }
 
+export interface CommentSelectionRevision {
+  vaultId: string;
+  path: string;
+  epoch: number;
+  revision: number;
+}
+
 export interface CommentRouteDeps {
   port: CommentsPort;
   /** OK 的 docName（不带扩展名）→ Huhu 笔记路径 */
@@ -43,7 +51,8 @@ export interface CommentRouteDeps {
   /** Huhu 路径 → docName */
   docNameOf(path: string): string;
   /** 创建 / 重新定位之前把该文档的编辑落盘：引擎在已保存文本上解析引用文字（D05） */
-  flush(docName: string): Promise<void>;
+  flush(docName: string, selectionPath?: string): Promise<void>;
+  selectionRevision?(path: string): (CommentSelectionRevision & { sourceVersion: string }) | undefined;
 }
 
 /** OK 线程元数据（`CommentThreadMetaSchema`）+ Huhu 扩展字段（P-S4-01：messages / resolved 状态在 state 里） */
@@ -93,6 +102,7 @@ interface CreateBody extends PassageInput {
   /** Huhu 扩展：true = 整篇笔记批注 */
   wholeFile?: boolean;
   body: string;
+  selection?: CommentSelectionRevision;
 }
 
 interface MutateBody {
@@ -102,6 +112,7 @@ interface MutateBody {
   quote?: string;
   prefix?: string;
   suffix?: string;
+  selection?: CommentSelectionRevision;
 }
 
 const notAvailable = (what: string): never => {
@@ -113,6 +124,18 @@ const UNSUPPORTED = new Set(["queue", "unqueue", "dispatch-prepare-batch", "disp
 
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes {
   const meta = (c: HuhuComment) => toThreadMeta(c, deps.docNameOf);
+  const flushSelection = async (docName: string, selection: CommentSelectionRevision): Promise<string> => {
+    const verify = () => {
+      const live = deps.selectionRevision?.(selection.path);
+      if (!live || live.vaultId !== selection.vaultId || live.path !== selection.path || live.epoch !== selection.epoch || live.revision !== selection.revision || deps.docNameOf(live.path) !== docName) {
+        throw new Error("文档或选区自发起批注后已改变，请重新选择");
+      }
+      return live.sourceVersion;
+    };
+    verify();
+    await deps.flush(docName, selection.path);
+    return verify();
+  };
   return {
     "GET /api/comments": async ({ url }) => {
       const doc = url.searchParams.get("doc");
@@ -121,8 +144,9 @@ export function commentRoutes(deps: CommentRouteDeps): HostRoutes {
     },
     "POST /api/comments": async ({ body }) => {
       const b = body as CreateBody;
-      const path = deps.pathOf(b.docName);
-      await deps.flush(b.docName);
+      const path = b.selection?.path ?? deps.pathOf(b.docName);
+      const sourceVersion = b.selection ? await flushSelection(b.docName, b.selection) : undefined;
+      if (!b.selection) await deps.flush(b.docName);
       const propertyKey = b.propertyKey;
       const created = await deps.port.create({
         path,
@@ -133,6 +157,7 @@ export function commentRoutes(deps: CommentRouteDeps): HostRoutes {
         ...(b.suffix !== undefined ? { suffix: b.suffix } : {}),
         ...(b.start !== undefined ? { start: b.start } : {}),
         ...(b.end !== undefined ? { end: b.end } : {}),
+        ...(sourceVersion !== undefined ? { expectedSourceVersion: sourceVersion } : {}),
         text: b.body,
       });
       return meta(created);
@@ -150,12 +175,15 @@ export function commentRoutes(deps: CommentRouteDeps): HostRoutes {
         case "replace": {
           // 重新选择位置：先把编辑落盘，再按引用文字在已保存文本里解析
           const current = (await deps.port.list()).find((c) => c.id === b.id);
-          if (current) await deps.flush(deps.docNameOf(current.documentPath));
+          if (b.selection && current?.documentPath !== b.selection.path) throw new Error("文档已改变，请重新选择");
+          const sourceVersion = current && b.selection ? await flushSelection(deps.docNameOf(current.documentPath), b.selection) : undefined;
+          if (current && !b.selection) await deps.flush(deps.docNameOf(current.documentPath));
           return meta(
             await deps.port.relocate(b.id, {
               ...(b.quote !== undefined ? { quote: b.quote } : {}),
               ...(b.prefix !== undefined ? { prefix: b.prefix } : {}),
               ...(b.suffix !== undefined ? { suffix: b.suffix } : {}),
+              ...(sourceVersion !== undefined ? { expectedSourceVersion: sourceVersion } : {}),
             }),
           );
         }

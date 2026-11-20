@@ -16,6 +16,7 @@ interface TextIndex {
 export interface AnchorContext {
   prefix?: string;
   suffix?: string;
+  requireUnique?: boolean;
 }
 
 export function buildTextIndex(
@@ -132,6 +133,7 @@ export function findRangeInIndex(
     ) >= floor;
   if (hits.length === 1) {
     if (!evidence(hits[0])) {
+      if (context?.requireUnique) return null;
       const recovered = findBetweenBrackets(index.text, quote, context);
       return recovered === null ? null : toRange(index, recovered);
     }
@@ -154,6 +156,7 @@ export function findRangeInIndex(
       best.push(hit);
     }
   }
+  if (context?.requireUnique && (best.length !== 1 || !evidence(best[0]))) return null;
   if (!evidence(best[0])) {
     const recovered = findBetweenBrackets(index.text, quote, context);
     return recovered === null ? null : toRange(index, recovered);

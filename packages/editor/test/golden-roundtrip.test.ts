@@ -7,7 +7,7 @@ import type { Schema } from "@tiptap/pm/model";
 import { ySyncPluginKey, yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { createServer, type ViteDevServer } from "vite";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { okAliases } from "../build/aliases.mjs";
 
 const fixtureRoots = [new URL("../src/vendor/open-knowledge/core/src/markdown/fixtures/", import.meta.url), new URL("./fixtures/golden/huhu/", import.meta.url)];
@@ -30,6 +30,8 @@ for (const fixtureDir of fixtureRoots) {
   }
 }
 
+const largeSamples = samples.filter(({ bytes }) => bytes.toString("utf8").length > largeThreshold);
+
 let server: ViteDevServer;
 let host: typeof import("../src/host/doc-source");
 interface Provider {
@@ -42,7 +44,7 @@ interface Provider {
   destroy(): void;
 }
 
-let providerModule: { LocalDocProvider: new (config: { name: string; lazyRich: boolean }) => Provider };
+let providerModule: { LocalDocProvider: new (config: { name: string; lazyRich: boolean; document?: Y.Doc }) => Provider };
 interface MarkdownRuntime {
   schema: Schema;
   mdManager: { serialize(content: JSONContent): string };
@@ -54,6 +56,10 @@ let core: {
   splitFmBoundarySlot(frontmatter: string, body: string): { slot: string };
   composeWithDerivedBody(frontmatter: string, body: string): { md: string };
   isParseEquivalentBridge(original: string, serialized: string, canonicalize: (body: string) => string): boolean;
+};
+let normalization: {
+  normalizeBridge(markdown: string): string;
+  addsBlankLines(original: string, serialized: string): boolean;
 };
 let createDocCanonicalizer: (manager: MarkdownRuntime["mdManager"], options: object) => (body: string) => string;
 let documentHistory: (doc: Y.Doc) => Y.UndoManager;
@@ -75,6 +81,7 @@ beforeAll(async () => {
   core = (await server.ssrLoadModule("/src/host/core-barrel.ts")) as typeof core;
   const watchdog = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/bridge-watchdog.ts")) as { createDocCanonicalizer: typeof createDocCanonicalizer };
   createDocCanonicalizer = watchdog.createDocCanonicalizer;
+  normalization = (await server.ssrLoadModule("/src/vendor/open-knowledge/core/src/bridge/normalize.ts")) as typeof normalization;
   bridge = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/bridge-intake.ts")) as typeof bridge;
 }, 120_000);
 
@@ -93,10 +100,96 @@ async function withProvider(name: string, text: string, verify: (provider: Provi
     await verify(provider);
   } finally {
     provider.destroy();
-    provider.document.destroy();
     host.setDocSource(null);
   }
 }
+
+test("H06 销毁 provider 时自建 Y.Doc 恰好销毁一次", async () => {
+  await withProvider("owned", "本地正文", (provider) => {
+    let destructionCount = 0;
+    provider.document.on("destroy", () => destructionCount++);
+    provider.destroy();
+    provider.destroy();
+    expect(destructionCount).toBe(1);
+    expect(provider.document.isDestroyed).toBe(true);
+  });
+});
+
+test("H06 借入的 Y.Doc 仍由调用者管理", () => {
+  const document = new Y.Doc();
+  try {
+    const provider = new providerModule.LocalDocProvider({ name: "borrowed", document, lazyRich: true });
+    provider.destroy();
+    expect(document.isDestroyed).toBe(false);
+    document.getText("source").insert(0, "仍可编辑");
+    expect(document.getText("source").toString()).toBe("仍可编辑");
+  } finally {
+    document.destroy();
+  }
+});
+
+test.each(samples)(
+  "H01 保留源缓冲字节 $name",
+  async ({ name, bytes }) => {
+    await withProvider(name, bytes.toString("utf8"), (provider) => {
+      expect(Buffer.from(provider.document.getText("source").toString()).equals(bytes)).toBe(true);
+      if (bytes.toString("utf8").length > largeThreshold) {
+        expect(provider.richReady).toBe(false);
+        expect(provider.document.getXmlFragment("default").length).toBe(0);
+      }
+    });
+  },
+  90_000,
+);
+
+/** 同 OK persistence 的普通保存分支，使用 vendor 的规范化与空白行检查。 */
+function markdownSemanticallyUnchanged(original: string, serialized: string): boolean {
+  const { normalizeBridge, addsBlankLines } = normalization;
+  return normalizeBridge(original) === normalizeBridge(serialized) && !addsBlankLines(original, serialized);
+}
+
+test("H01 语义等价接受换行格式，拒绝相同正文的标记或链接目标变化", () => {
+  expect(markdownSemanticallyUnchanged("**正文**\n", "**正文**\r\n")).toBe(true);
+  expect(markdownSemanticallyUnchanged("**正文**\n", "正文\n")).toBe(false);
+  expect(markdownSemanticallyUnchanged("[正文](one.md)\n", "[正文](two.md)\n")).toBe(false);
+});
+
+test("OP-D03 生产保存门禁保留属性字节、链接目标和显式插入的空行", async () => {
+  const { markdownSemanticallyUnchanged: unchanged } = (await server.ssrLoadModule("/src/rich/markdownSemanticallyUnchanged.ts")) as { markdownSemanticallyUnchanged(before: string, after: string): boolean };
+  expect(unchanged("正文\r\n", "正文\n")).toBe(true);
+  expect(unchanged("正文\n", "正文\n\n")).toBe(false);
+  expect(unchanged("---\nzip: 007\n---\n\n正文\n", '---\nzip: "007"\n---\n\n正文\n')).toBe(false);
+  expect(unchanged("[正文](one.md)\n", "[正文](two.md)\n")).toBe(false);
+});
+
+test.each(largeSamples)(
+  "H01 大样本构建富文本、序列化并回读 $name",
+  async ({ name, bytes }) => {
+    const original = bytes.toString("utf8");
+    const inspectRich = async (provider: Provider) => {
+      await provider.ensureRich();
+      expect(provider.richReady).toBe(true);
+      const fragment = provider.document.getXmlFragment("default");
+      expect(fragment.length).toBeGreaterThan(0);
+      const rich = yXmlFragmentToProseMirrorRootNode(fragment, markdown.schema);
+      return { serialized: markdown.mdManager.serialize(rich.toJSON()), text: rich.textContent, blocks: rich.childCount };
+    };
+    let initial!: Awaited<ReturnType<typeof inspectRich>>;
+    await withProvider(name, original, async (provider) => {
+      initial = await inspectRich(provider);
+      expect(provider.document.getText("source").toString() === original).toBe(true);
+      expect(initial.serialized.length).toBeGreaterThan(0);
+    });
+    if (initial.serialized !== original) expect(markdownSemanticallyUnchanged(original, initial.serialized), name).toBe(true);
+    await withProvider(name, initial.serialized, async (provider) => {
+      const result = await inspectRich(provider);
+      expect(result.blocks).toBe(initial.blocks);
+      expect(result.text === initial.text).toBe(true);
+      expect(result.serialized === initial.serialized).toBe(true);
+    });
+  },
+  360_000,
+);
 
 // Each byte difference is tied to the observed source and raw serialized digests.
 const serializationDifferences = new Map<string, { source: string; output: string; reason: string; equivalent: boolean }>([

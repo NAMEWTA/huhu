@@ -1,5 +1,9 @@
 // S3 / spec C02：frontmatter 编解码对“看起来像数字的文本”与类型化值的保真（P-S3-04）。
 import { describe, expect, test } from "vitest";
+import { Doc } from "yjs";
+import { parseFrontmatter } from "../../vault/src/semantic/frontmatter";
+import { bindFrontmatterDoc } from "../src/vendor/open-knowledge/core/src/bridge/bind-frontmatter-doc";
+import { readFmMap } from "../src/vendor/open-knowledge/core/src/bridge/frontmatter-region";
 import { applyPatchToDocument, parseFrontmatterYaml } from "../src/vendor/open-knowledge/core/src/frontmatter/yaml-codec";
 
 function patch(yaml: string, p: Record<string, unknown>): string {
@@ -36,4 +40,41 @@ describe("frontmatter 保真", () => {
     expect(out).toContain("zzz: 1");
     expect(out).toContain("title: U");
   });
+});
+
+test("Vault 与属性绑定将 zip: 007 读为文本", () => {
+  const source = "---\nzip: 007\n---\n";
+  expect(parseFrontmatter(source).data).toEqual({ zip: "007" });
+  expect(readFmMap(source)).toEqual({ zip: "007" });
+});
+
+test.each([
+  ["BOM", "\uFEFF", "\n"],
+  ["CRLF", "", "\r\n"],
+  ["BOM + CRLF", "\uFEFF", "\r\n"],
+])("属性绑定改值保留 %s 和其余文本", (_name, bom, eol) => {
+  const original = bom + ["---", "title: Old", "when: 2026-11", "---", "", "Body", ""].join(eol);
+  const doc = new Doc();
+  try {
+    const source = doc.getText("source");
+    source.insert(0, original);
+    const binding = bindFrontmatterDoc({ document: doc, on() {}, off() {} });
+    try {
+      expect(binding.current().map).toEqual({ title: "Old", when: "2026-11" });
+      expect(binding.patch({ title: "New" }).ok).toBe(true);
+      expect(source.toString()).toBe(original.replace("title: Old", "title: New"));
+      expect(binding.current().map.when).toBe("2026-11");
+    } finally {
+      binding.dispose();
+    }
+  } finally {
+    doc.destroy();
+  }
+});
+
+test("Vault 与属性绑定保留 YAML 多行文本的结尾换行", () => {
+  const source = "---\ntitle: Old\nmemo: |+\n  line\n\n---\n";
+  const expected = { title: "Old", memo: "line\n\n" };
+  expect(parseFrontmatter(source).data).toEqual(expected);
+  expect(readFmMap(source)).toEqual(expected);
 });

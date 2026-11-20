@@ -175,6 +175,10 @@ function condense(text: string, from: number, to: number, syntax: boolean): stri
   return out;
 }
 
+export function markdownPassageText(text: string): string {
+  return condense(text, 0, text.length, true);
+}
+
 function commonSuffixLen(a: string, b: string): number {
   const n = Math.min(a.length, b.length);
   let i = 0;

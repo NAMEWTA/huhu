@@ -14,6 +14,7 @@ export interface HostFsEntry {
   mtimeMs?: number;
   protected?: string;
   linkOutside?: boolean;
+  linkCycle?: boolean;
 }
 
 export interface ListedDirState {
@@ -27,6 +28,7 @@ export interface FilesDepsOptions {
   getShowHidden(): boolean;
   /** A08：移动 / 重命名 / 复制 / 删除之前，把打开着的相关文档落盘；返回 false 表示失败（不继续、不丢草稿）。 */
   beforeMutate(paths: string[]): Promise<boolean>;
+  holdOpenPaths?<T>(from: string, move: () => Promise<T>): Promise<T>;
   /** 内部改名 / 移动完成：标签、选中项、展开状态据此重定位。 */
   onMoved(moved: Record<string, string>): void;
   /** 移到回收站完成（用于“撤销”横幅）。 */
@@ -64,6 +66,7 @@ const toFs = (e: VaultListEntry): HostFsEntry => ({
   ...(e.mtimeMs !== undefined ? { mtimeMs: e.mtimeMs } : {}),
   ...(e.protected ? { protected: e.protected } : {}),
   ...(e.linkTarget && !e.linkTarget.inside ? { linkOutside: true } : {}),
+  ...(e.linkTarget?.cycle ? { linkCycle: true } : {}),
 });
 
 export function createFilesDeps(o: FilesDepsOptions) {
@@ -93,21 +96,27 @@ export function createFilesDeps(o: FilesDepsOptions) {
     showHidden: () => o.getShowHidden(),
     async rename(i: { kind: "file" | "folder" | "asset"; fromPath: string; toPath: string }) {
       await ensureFlushed([i.fromPath]);
-      let moved: Record<string, string> = {};
-      let cur = i.fromPath;
-      if (dirOf(i.fromPath) !== dirOf(i.toPath)) {
-        const r = await o.engine.call<{ moved: Record<string, string> }>("notes.move", { path: cur, targetDir: dirOf(i.toPath) }, { write: true });
-        moved = r.moved;
-        cur = join(dirOf(i.toPath), baseOf(i.fromPath));
-      }
-      if (baseOf(cur) !== baseOf(i.toPath)) {
-        const r = await o.engine.call<{ moved: Record<string, string> }>("notes.rename", { path: cur, newName: baseOf(i.toPath) }, { write: true });
-        moved = composeMoves(moved, r.moved);
-      }
-      o.onMoved(moved);
-      return { moved };
+      const rename = async () => {
+        let moved: Record<string, string> = {};
+        let cur = i.fromPath;
+        try {
+          if (dirOf(i.fromPath) !== dirOf(i.toPath)) {
+            const r = await o.engine.call<{ moved: Record<string, string> }>("notes.move", { path: cur, targetDir: dirOf(i.toPath) }, { write: true });
+            moved = r.moved;
+            cur = join(dirOf(i.toPath), baseOf(i.fromPath));
+          }
+          if (baseOf(cur) !== baseOf(i.toPath)) {
+            const r = await o.engine.call<{ moved: Record<string, string> }>("notes.rename", { path: cur, newName: baseOf(i.toPath) }, { write: true });
+            moved = composeMoves(moved, r.moved);
+          }
+          return { moved };
+        } finally {
+          if (Object.keys(moved).length) o.onMoved(moved);
+        }
+      };
+      return o.holdOpenPaths ? o.holdOpenPaths(i.fromPath, rename) : rename();
     },
-    async duplicate(i: { kind: "file" | "folder"; path: string }) {
+    async duplicate(i: { kind: "file" | "folder" | "asset"; path: string }) {
       await ensureFlushed([i.path]);
       const r = await o.engine.call<{ path: string; paths?: string[] }>("notes.duplicate", { path: i.path }, { write: true });
       return { path: r.path, paths: r.paths ?? [r.path] };

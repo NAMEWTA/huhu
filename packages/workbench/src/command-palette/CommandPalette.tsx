@@ -1,5 +1,5 @@
-import { IconButton } from "@huhu/ui";
-import { ArrowUpRight, Command, FileText, Search, X } from "lucide-react";
+import { FileIcon, IconButton } from "@huhu/ui";
+import { ArrowUpRight, Command, Search, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
@@ -106,7 +106,15 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
           if (!isLatest()) return;
           const mapped = r.hits.map((h) => ({
             rank: groupOf(h.archive ? "archive" : h.kind).rank,
-            item: { id: `res:${h.path}`, group: "result" as const, groupLabel: groupOf(h.archive ? "archive" : h.kind).label, title: h.title || h.path, hint: h.path, icon: <FileText size={18} aria-hidden />, run: () => onOpenResult?.(h) },
+            item: {
+              id: `res:${h.path}`,
+              group: "result" as const,
+              groupLabel: groupOf(h.archive ? "archive" : h.kind).label,
+              title: h.title || h.path,
+              hint: h.path,
+              icon: <FileIcon name={h.path} dir={h.kind === "dir"} size={18} />,
+              run: () => onOpenResult?.(h),
+            },
           }));
           setResults(mapped.sort((a, b) => a.rank - b.rank).map((m) => m.item)); // 稳定排序：同组内保持相关度顺序
         })

@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
-import { confirmExternalLink } from "./external-link.js";
+import { confirmExternalLink, externalHttpUrl } from "./external-link.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
@@ -229,13 +229,18 @@ if (!gotLock) {
       if (!r.ok) startupError = r.message;
     });
     const demoRoot = (): string => (app.isPackaged ? path.join(process.resourcesPath, "demo-vault") : path.join(app.getAppPath(), "resources", "demo-vault"));
-    ipcMain.handle("huhu:openExternal", (event, url: unknown) => {
+    ipcMain.handle("huhu:openExternal", async (event, value: unknown) => {
       const frame = event.senderFrame;
       assertTrusted(frame?.url);
       const win = BrowserWindow.fromWebContents(event.sender);
       if (!frame || frame.parent || !win) return false;
       const documentUrl = frame.url;
-      return confirmExternalLink(win, url, () => !frame.isDestroyed() && frame.url === documentUrl);
+      const webUrl = externalHttpUrl(value);
+      if (webUrl) return confirmExternalLink(win, webUrl, () => !frame.isDestroyed() && frame.url === documentUrl);
+      const url = typeof value === "string" ? URL.parse(value) : null;
+      if (!url || !["mailto:", "tel:"].includes(url.protocol)) throw new Error("unsupported external URL");
+      await shell.openExternal(url.href);
+      return true;
     });
 
     ipcMain.handle("huhu:externalLinkPreview", async (event, url: unknown) => {

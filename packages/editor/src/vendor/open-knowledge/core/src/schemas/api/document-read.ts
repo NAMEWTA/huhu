@@ -36,6 +36,9 @@ export const DocumentListEntrySchema = z
       .optional(),
     referencedBy: z.array(z.string().min(1)).optional(),
     hasChildren: z.boolean().optional(),
+    protected: z.string().optional(),
+    linkOutside: z.boolean().optional(),
+    linkCycle: z.literal(true).optional(),
   })
   .loose()
   .refine(

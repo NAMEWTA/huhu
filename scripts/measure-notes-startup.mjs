@@ -7,18 +7,20 @@ import { performance } from "node:perf_hooks";
 import { parseArgs } from "node:util";
 
 const { values, positionals } = parseArgs({
-  options: { aa: { type: "boolean" }, pairs: { type: "string" }, "trace-modules": { type: "boolean" }, "nav-only": { type: "boolean" }, "frame-click": { type: "boolean" } },
+  options: { aa: { type: "boolean" }, pairs: { type: "string" }, "trace-modules": { type: "boolean" }, "nav-only": { type: "boolean" }, "frame-click": { type: "boolean" }, "rich-inbox": { type: "boolean" } },
   allowPositionals: true,
 });
 const aa = values.aa;
 const [baselineRoot, count] = aa ? [null, positionals[0]] : positionals;
 if ((!aa && !baselineRoot) || positionals.length > (aa ? 1 : 2) || (count !== undefined && values.pairs !== undefined)) {
-  throw new Error("用法：node scripts/measure-notes-startup.mjs (<rc.4 worktree> | --aa) [每侧次数 | --pairs N] [--trace-modules | --nav-only] [--frame-click]");
+  throw new Error("用法：node scripts/measure-notes-startup.mjs (<rc.4 worktree> | --aa) [每侧次数 | --pairs N] [--trace-modules | --nav-only] [--frame-click] [--rich-inbox]");
 }
 const pairsRequested = Number(values.pairs ?? count ?? 20);
 const traceModules = values["trace-modules"];
 const navOnly = values["nav-only"];
 const frameClick = values["frame-click"];
+// --rich-inbox：收件正文带行内格式，走完整 Markdown 阅读路径；可见文本与普通样本相同。
+const richInbox = values["rich-inbox"];
 if (navOnly && traceModules) throw new Error("--nav-only 不包含编辑器加载场景，不能与 --trace-modules 一起使用");
 if (!Number.isSafeInteger(pairsRequested) || pairsRequested < 1) throw new Error("采样对数必须为正整数");
 const fixtureText = "这是一篇用于测量初次打开时间的笔记";
@@ -78,7 +80,7 @@ const earlyNavigation = [
       status: "pending",
       createdAt: fixtureDate,
     },
-    body: `${inboxBody}\n`,
+    body: richInbox ? "**用于测量**收件箱冷启动。\n" : `${inboxBody}\n`,
     bodyProbe: {
       selector: '[data-testid="inbox-module"] .inbox-knowledge-inbox-note',
       text: new RegExp(`^${inboxBody}$`),

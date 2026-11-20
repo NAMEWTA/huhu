@@ -1,8 +1,9 @@
 // 评论宿主入口（S4）：把 vendor 的 OK 评论 UI（面板、线程卡；选区入口 / 高亮 / 边距轨已在 TiptapEditor 内）接到 Huhu 的 `comments.*`。
 // 能力经 CommentsPort 注入（packages/editor 不依赖业务模块）；路由见 host/routes/comments.ts。
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useLayoutEffect, useState } from "react";
+import { CommentExternalLinkContext } from "@/comments/CommentMarkdown";
 import { CommentsPanel } from "@/comments/CommentsPanel";
-import { createFileThread, emitOpenThread, emitStartComment, getOpenThread, setCommentsReadOnly, subscribeCommentPosted, subscribeOpenThread } from "@/comments/store";
+import { createFileThread, emitOpenThread, emitStartComment, getOpenThread, invalidateCommentNavigation, registerCommentSelectionSource, setCommentsReadOnly, subscribeCommentPosted, subscribeOpenThread } from "@/comments/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { emitDocumentsChanged } from "@/lib/documents-events";
@@ -29,6 +30,7 @@ export function onCommentThreadOpened(handler: () => void): () => void {
 }
 
 export function dismissOpenCommentThread(): void {
+  invalidateCommentNavigation();
   if (getOpenThread() !== null) emitOpenThread(null);
 }
 
@@ -37,11 +39,20 @@ export function notifyCommentsChanged(): void {
   emitDocumentsChanged(["comments"]);
 }
 
-/** 文档只读 / 冲突中：批注可看可定位，写操作入口隐藏。 */
+export { registerCommentSelectionSource };
+
+let readOnlyOwners = 0;
+
+/** 文档只读时，批注可看可定位。编辑面与面板可独立挂载。 */
 export function useCommentsReadOnlySync(readOnly: boolean): void {
-  useEffect(() => {
-    setCommentsReadOnly(readOnly);
-    return () => setCommentsReadOnly(false);
+  useLayoutEffect(() => {
+    if (!readOnly) return;
+    readOnlyOwners++;
+    setCommentsReadOnly(true);
+    return () => {
+      readOnlyOwners--;
+      setCommentsReadOnly(readOnlyOwners > 0);
+    };
   }, [readOnly]);
 }
 
@@ -72,6 +83,7 @@ function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: s
 export interface CommentsPanelHostProps {
   docName: string;
   routes: HostRoutes;
+  openExternal?(url: string): Promise<void>;
   locale?: string;
   readOnly?: boolean;
   /** 只读时显示在面板底部的原因 */
@@ -80,13 +92,15 @@ export interface CommentsPanelHostProps {
 }
 
 /** 详情栏“批注”页：OK 的评论列表 + 整篇笔记批注输入（Huhu 的 `target:"file"`）。 */
-export function CommentsPanelHost({ docName, routes, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
+export function CommentsPanelHost({ docName, routes, openExternal, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
   return (
     <OkRoot routes={routes} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
       <CommentsReadOnly readOnly={readOnly} />
       <div className="editor-comments-panel" data-testid="comments-panel">
         <div className="editor-comments-list">
-          <CommentsPanel docName={docName} />
+          <CommentExternalLinkContext.Provider value={openExternal}>
+            <CommentsPanel docName={docName} />
+          </CommentExternalLinkContext.Provider>
         </div>
         {readOnly ? (
           <p className="editor-comments-readonly" data-testid="comments-readonly-reason">

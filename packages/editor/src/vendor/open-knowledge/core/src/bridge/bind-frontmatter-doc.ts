@@ -230,7 +230,7 @@ function snapshotFromRaw(raw: string): FrontmatterSnapshot {
 }
 
 function detectOpenFencePrefix(raw: string): boolean {
-  return raw.startsWith('---');
+  return /^\uFEFF?---/.test(raw);
 }
 
 export function bindFrontmatterDoc(provider: FrontmatterDocProvider): FrontmatterBinding {
@@ -256,13 +256,10 @@ export function bindFrontmatterDoc(provider: FrontmatterDocProvider): Frontmatte
       console.warn('[bindFrontmatterDoc] readSnapshotFromYText threw:', e);
       return;
     }
-    if (!force && snapshotsEqual(lastSnapshot, next)) {
-      hasOpenFencePrefix = detectOpenFencePrefix(raw);
-      return;
-    }
-    lastSnapshot = next;
     lastFenced = detectFmRegion(raw).fenced;
     hasOpenFencePrefix = detectOpenFencePrefix(raw);
+    if (!force && snapshotsEqual(lastSnapshot, next)) return;
+    lastSnapshot = next;
     for (const listener of listeners) {
       try {
         listener(next);
@@ -289,17 +286,19 @@ export function bindFrontmatterDoc(provider: FrontmatterDocProvider): Frontmatte
     let outcome: FmEditResult | undefined;
     ydoc.transact(() => {
       const currentFull = ytext.toString();
-      const { fenced: currentFenced } = detectFmRegion(currentFull);
+      // Keep the BOM outside the edit so adding or removing a fence cannot move it.
+      const start = currentFull.startsWith('\uFEFF') ? 1 : 0;
+      const { fenced: currentFenced, body } = detectFmRegion(currentFull.slice(start));
       outcome = op(currentFenced);
       if (!outcome.ok) return;
       if (outcome.nextFenced === currentFenced) return;
-      const nextFenced = composeWithDerivedFrontmatter(
-        outcome.nextFenced,
-        currentFull.slice(currentFenced.length),
-      ).frontmatter;
-      ytext.delete(0, currentFenced.length);
+      const requested = currentFenced === '' && body.includes('\r\n')
+        ? outcome.nextFenced.replace(/\n/g, '\r\n')
+        : outcome.nextFenced;
+      const nextFenced = composeWithDerivedFrontmatter(requested, body).frontmatter;
+      ytext.delete(start, currentFenced.length);
       if (nextFenced !== '') {
-        ytext.insert(0, nextFenced);
+        ytext.insert(start, nextFenced);
       }
     }, FORM_WRITE_ORIGIN);
     return (

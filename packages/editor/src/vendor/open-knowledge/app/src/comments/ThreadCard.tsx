@@ -16,9 +16,11 @@ import { getEditorView } from '@/editor/utils/get-editor-view';
 import { cn } from '@/lib/utils';
 import { captureSelectionContext, findQuoteRange } from './anchor-search';
 import { propertyAddress, revealThread } from './comment-chips';
+import { CommentMarkdown } from './CommentMarkdown';
 import { revealPropertyValueRange } from './property-row-rect';
 import { scrollAnchorIntoView } from './scroll-to-anchor';
 import {
+  captureCommentSelectionRevision,
   clearActiveThread,
   deleteThread,
   editComment,
@@ -181,7 +183,11 @@ export function ThreadCard({
     if (empty) return;
     const quote = editor.state.doc.textBetween(from, to, ' ').trim();
     if (quote.length > 0) {
-      replaceOrphan(thread.id, quote, captureSelectionContext(editor.state.doc, from, to));
+      const selection = captureCommentSelectionRevision(thread.docName);
+      replaceOrphan(thread.id, quote, {
+        ...captureSelectionContext(editor.state.doc, from, to),
+        ...(selection ? { selection } : {}),
+      });
     }
   }
 
@@ -192,6 +198,7 @@ export function ThreadCard({
     <article
       ref={cardRef}
       data-testid="comment-thread"
+      data-comment-id={thread.id}
       data-state={isResolved ? 'resolved' : isOrphaned ? 'orphaned' : 'anchored'}
       onPointerEnter={() => setActiveThread(thread.id)}
       onPointerLeave={() => clearActiveThread(thread.id)}
@@ -393,35 +400,38 @@ export function ThreadCard({
           </div>
         </div>
       ) : (
-        <p
+        <div
           data-testid="thread-comment-body"
           className={cn('text-sm text-foreground/90', isResolved && 'line-through')}
         >
-          {thread.body}
-        </p>
+          <CommentMarkdown text={thread.body} />
+        </div>
       )}
 
       {/* HUHU(P-S4-05)：回复（Huhu 的线程是消息列表）、删除确认 */}
       {(thread.messages ?? []).slice(1).map((m) => (
-        <p
+        <div
           key={`${m.at}-${m.author}`}
           data-testid="thread-reply"
           className="border-l-2 pl-2 text-sm text-foreground/90"
         >
-          <strong className="font-medium">{m.author}</strong> · {editedAt(Date.parse(m.at), renderedAt)}
-          <br />
-          {m.text}
-        </p>
+          <p>
+            <strong className="font-medium">{m.author}</strong> · {editedAt(Date.parse(m.at), renderedAt)}
+          </p>
+          <CommentMarkdown text={m.text} />
+        </div>
       ))}
       {!isResolved && !hostReadOnly && (
-        <input
+        <textarea
+          rows={2}
           aria-label={t`Reply`}
           placeholder={t`Reply…`}
           data-testid="thread-reply-input"
           value={replyDraft}
           onChange={(event) => setReplyDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
             const text = replyDraft.trim();
             if (text.length === 0) return;
             replyToThread(thread.id, text);
@@ -430,7 +440,7 @@ export function ThreadCard({
           className="rounded-md border bg-background px-2 py-1 text-sm"
         />
       )}
-      {confirmDelete && (
+      {confirmDelete && !hostReadOnly && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Trans>Delete this thread? The document text is unchanged.</Trans>
           <Button
@@ -452,16 +462,18 @@ export function ThreadCard({
           <p className="text-xs text-muted-foreground" data-testid="comment-orphaned">
             <Trans>The original text was deleted.</Trans>
           </p>
-          <Button
-            type="button"
-            size="sm"
-            variant="link"
-            className="h-auto gap-1 p-0 text-xs font-normal"
-            onClick={rePlaceOnSelection}
-          >
-            <MapPin className="size-3" />
-            <Trans>Re-place on selected text</Trans>
-          </Button>
+          {!hostReadOnly && (
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              className="h-auto gap-1 p-0 text-xs font-normal"
+              onClick={rePlaceOnSelection}
+            >
+              <MapPin className="size-3" />
+              <Trans>Re-place on selected text</Trans>
+            </Button>
+          )}
         </div>
       )}
     </article>

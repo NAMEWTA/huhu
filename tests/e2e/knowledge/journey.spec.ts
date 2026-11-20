@@ -1,8 +1,8 @@
 /* oxlint-disable typescript/no-explicit-any */
-import { expect, test, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { _electron as electron, expect, test, type Page } from "@playwright/test";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { openApp } from "../helpers/launch.js";
+import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeRows, treeSettled } from "../helpers/tree.js";
 
 // 知识库 OK 对等：用户完整路径（spec §1 / plan §5）。真实 Electron，一条连续路径，每一步断言磁盘或界面的真实结果：
@@ -86,6 +86,9 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
   try {
     // ── 样本：真实文件系统里的各种文件 ──
     mkdirSync(path.join(vault, "资料"));
+    for (const dir of ["Tasks", "Comments", "常规/Tasks", ".obsidian", "空目录"]) mkdirSync(path.join(vault, dir), { recursive: true });
+    writeFileSync(path.join(vault, "常规/Tasks/嵌套.md"), "嵌套任务");
+    writeFileSync(path.join(vault, "未知.weird"), "未知扩展名");
     writeFileSync(path.join(vault, "资料", "机密笔记.md"), "# 机密笔记\n\n仅供引用。\n");
     writeFileSync(path.join(vault, "日志.md"), "---\ntitle: 旅程\nzip: 007\n---\n\n# 日志\n\n第一段正文，用于批注与选择。\n");
     writeFileSync(path.join(vault, "冷笔记.md"), "# 冷笔记\n\n不会被编辑。\n");
@@ -109,10 +112,17 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     for (const name of ["日志", "冷笔记", "说明", "数据", "手册", "页面"]) await expect(treeItem(page, name)).toHaveCount(1);
     await expect(treeFolder(page, "资料")).toHaveCount(1);
 
+    for (const dir of ["Tasks", "Comments", ".obsidian", "空目录"]) await expect(treeFolder(page, dir)).toBeVisible();
+    await expect(treeItem(page, "未知")).toBeVisible();
+    await treeFolder(page, "常规").click();
+    await page.locator('[data-testid="notes-resource-tree"] [data-item-path="常规/Tasks/"]').click();
+    await expect(treeItem(page, "嵌套")).toBeVisible();
+    await treeFolder(page, "常规").click();
+
     // ── 2 隐藏目录 → 树里消失、写入偏好文件；但 `@` 仍能引用其中的文件 ──
     await treeMenu(page, treeFolder(page, "资料"), /隐藏/);
     await expect(treeFolder(page, "资料")).toHaveCount(0);
-    await expect.poll(() => (existsSync(path.join(vault, ".huhu/notes/hidden-paths.json")) ? readFileSync(path.join(vault, ".huhu/notes/hidden-paths.json"), "utf8") : "")).toContain("资料");
+    await expect.poll(() => (existsSync(path.join(vault, ".huhu/notes/ui-preferences.json")) ? readFileSync(path.join(vault, ".huhu/notes/ui-preferences.json"), "utf8") : "")).toContain("资料");
     expect(existsSync(path.join(vault, "资料", "机密笔记.md"))).toBe(true); // 隐藏只是视图：磁盘不动
     await treeItem(page, "冷笔记").click(); // 先看冷笔记，记 mtime 以验证“只读不写盘”
     await expect(prose(page)).toContainText("不会被编辑", { timeout: 30_000 });
@@ -242,5 +252,71 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     expect(errors).toEqual([]);
   } finally {
     await close();
+  }
+});
+
+test("A02/A03/OP-D11：隐藏后原标签、双链和搜索仍可访问，重启后从管理恢复", async () => {
+  const { app, page, vault } = await openApp();
+  const initialProcess = app.process();
+  const dir = path.join(vault, "隐藏目录");
+  const target = "隐藏目录/隐蔽目标.md";
+  const preference = path.join(vault, ".huhu/notes/ui-preferences.json");
+  mkdirSync(dir);
+  writeFileSync(path.join(vault, target), "# 隐蔽目标\n\n可编辑正文\n");
+  writeFileSync(path.join(vault, "入口.md"), `# 入口\n\n[[${target}]]\n`);
+  const navigate = async (p: Page) => {
+    await expect(p.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await p.getByRole("button", { name: "知识库", exact: true }).first().click();
+  };
+  try {
+    await navigate(page);
+    await treeFolder(page, "隐藏目录").click();
+    await treeItem(page, "隐蔽目标.md").click();
+    await expect(prose(page)).toContainText("可编辑正文");
+    const tab = page.getByTestId("document-tab").filter({ hasText: "隐蔽目标" });
+    await treeMenu(page, treeFolder(page, "隐藏目录"), /隐藏/);
+    await expect(treeFolder(page, "隐藏目录")).toHaveCount(0);
+    await tab.click();
+    await prose(page).click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("原标签可保存");
+    await expect.poll(() => readFileSync(path.join(vault, target), "utf8")).toContain("原标签可保存");
+    await treeItem(page, "入口.md").click();
+    await prose(page).locator(`[data-wiki-link][data-target="${target}"]`).press("Enter");
+    await expect(prose(page)).toContainText("原标签可保存");
+    await expect(tab).toHaveAttribute("aria-current", "true");
+    await tab.focus();
+    await page.keyboard.press("ControlOrMeta+k");
+    const search = page.getByTestId("command-palette");
+    await search.getByRole("combobox").fill("隐蔽目标");
+    await search.getByTestId("palette-item").filter({ hasText: target }).click();
+    await expect(prose(page)).toContainText("原标签可保存");
+    expect(JSON.parse(readFileSync(preference, "utf8"))).toEqual({ hiddenPaths: ["隐藏目录"] });
+
+    await app.close();
+    const reopened = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault } });
+    try {
+      const p = await reopened.firstWindow();
+      await navigate(p);
+      await expect(p.getByTestId("notes-hidden-manage")).toBeVisible();
+      await expect(treeFolder(p, "隐藏目录")).toHaveCount(0);
+      // 外部改名保留旧规则，新路径仍可见；改回时旧规则继续匹配。
+      const external = path.join(vault, "外部改名");
+      renameSync(dir, external);
+      await expect(treeFolder(p, "外部改名")).toBeVisible({ timeout: 15_000 });
+      expect(JSON.parse(readFileSync(preference, "utf8"))).toEqual({ hiddenPaths: ["隐藏目录"] });
+      renameSync(external, dir);
+      await p.getByTestId("notes-hidden-manage").click();
+      await expect(p.getByTestId("notes-hidden-list")).toContainText("隐藏目录");
+      await p.getByTestId("notes-hidden-restore").click();
+      await treeFolder(p, "隐藏目录").click();
+      await expect(treeItem(p, "隐蔽目标.md")).toBeVisible();
+      expect(JSON.parse(readFileSync(preference, "utf8"))).toEqual({ hiddenPaths: [] });
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    if (initialProcess.exitCode === null && initialProcess.signalCode === null) await app.close();
+    rmTree(vault);
   }
 });

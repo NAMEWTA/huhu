@@ -1,11 +1,27 @@
 import type { VaultReadRangeOutput } from "@huhu/contracts";
-import { OkRoot, RichMarkdownEditor, coreRoutes, requestFileTreeReveal, uploadRoutes, type EditorAssetActions, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
-import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
+import {
+  OkRoot,
+  RichMarkdownEditor,
+  coreRoutes,
+  markdownSemanticallyUnchanged,
+  registerCommentSelectionSource,
+  requestFileTreeReveal,
+  useCommentsReadOnlySync,
+  uploadRoutes,
+  type EditorAssetActions,
+  type EditorViewMode,
+  type HostRoutes,
+  type ReferenceCandidate,
+  type RichEditorPort,
+} from "@huhu/editor/rich";
+import { useCapability, useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
+import { documentSessions } from "./useDocumentSession.js";
+import type { MarkdownEquivalence } from "./DocumentSession.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -17,8 +33,11 @@ export interface SurfaceNoteRef {
 export interface NoteEditorSurfaceProps {
   path: string;
   value: string;
-  onChange(text: string): void;
+  onChange(text: string, equivalentMarkdown: MarkdownEquivalence): void;
+  readOnly: boolean;
+  retainSession(): () => void;
   mode: EditorViewMode;
+  propertiesTarget: HTMLElement | null;
   onRevealSource(): void;
   notes: readonly SurfaceNoteRef[];
   /** 编辑器内点击 wiki-link / 内部链接：交给笔记模块打开 */
@@ -45,6 +64,14 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const host = (globalThis as { huhuHost?: { externalLinkPreview?(url: string): Promise<unknown> } }).huhuHost;
   const requestLinkPreview = host?.externalLinkPreview;
   const config = requestLinkPreview && props.linkPreviewsEnabled ? { linkPreviewsEnabled: true, requestLinkPreview } : undefined;
+  const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
+  useCommentsReadOnlySync(vault.data?.readOnly !== false);
+  useLayoutEffect(() => {
+    return registerCommentSelectionSource(docNameOf(props.path), () => {
+      const session = documentSessions.get(engine.vaultId, props.path);
+      if (session) return { ...session.id, revision: session.getSnapshot().dirtyRevision };
+    });
+  }, [engine.vaultId, props.path]);
   // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
   const refs = useReferenceIndex();
   const notes = useRef(props.notes);
@@ -167,8 +194,11 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}
         value={props.value}
-        onChange={props.onChange}
+        onChange={(text) => props.onChange(text, markdownSemanticallyUnchanged)}
+        readOnly={props.readOnly}
+        retainSession={props.retainSession}
         mode={props.mode}
+        propertiesTarget={props.propertiesTarget}
         assetActions={assetActions}
         onPort={props.onPort}
         onRevealSource={props.onRevealSource}

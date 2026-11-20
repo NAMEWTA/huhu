@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree } from "../helpers/launch.js";
-import { treeItem } from "../helpers/tree.js";
+import { treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
 import { call, engineReady, holdBridgeTimers } from "./session-slow-bridge.js";
 
 const name = "退出交付.md";
@@ -41,6 +41,243 @@ async function manualSave(page: Page): Promise<void> {
   const autosave = page.getByRole("switch", { name: "自动保存" });
   await autosave.click();
   await expect(autosave).not.toBeChecked();
+}
+
+test("B09：等待富文本和源码写入回执才切模式，三种视图共用属性和正文", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, name);
+  const baseline = "---\ntitle: 原题\n---\n\n" + original;
+  let reached = false;
+  const release = Promise.withResolvers<void>();
+  try {
+    writeFileSync(file, baseline);
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await inputWithPendingBridge(page);
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (request.capability === "notes.save" && request.input?.path === name) {
+        reached = true;
+        await release.promise;
+      }
+      await route.continue();
+    });
+    const mode = (label: string) => page.getByRole("tab", { name: label, exact: true });
+    await mode("源码").click();
+    await expect.poll(() => reached, { timeout: 3000 }).toBe(true);
+    await expect(mode("实时预览")).toHaveAttribute("aria-selected", "true");
+    expect(readFileSync(file, "utf8")).toBe(baseline);
+    release.resolve();
+
+    const source = page.getByTestId("markdown-editor").locator(".cm-content");
+    await expect(source).toContainText(last);
+    expect(readFileSync(file, "utf8")).toBe("---\ntitle: 原题\n---\n\n" + written);
+    const updated = "---\ntitle: 新题\n---\n\n" + written.replace(last, "源码改写");
+    await source.click();
+    await source.press("ControlOrMeta+a");
+    await page.keyboard.insertText(updated);
+    await mode("阅读").click();
+    await expect(page.getByTestId("notes-reading-pane")).toBeVisible();
+    await expect(prose(page)).toContainText("源码改写");
+    expect(readFileSync(file, "utf8")).toBe(updated);
+    await mode("实时预览").click();
+    await expect(page.getByTestId("editor-properties")).toBeVisible();
+    await expect(prose(page)).toContainText("源码改写");
+    await mode("阅读").click();
+    await mode("源码").click();
+    await expect(source).toContainText("title: 新题");
+  } finally {
+    release.resolve();
+    await close();
+  }
+});
+
+test("B09 / F10：关闭载入中的文件后，迟到回执不能改写另一篇或重开的同路径文档", async () => {
+  const { page, vault, close } = await openApp();
+  const slow = path.join(vault, "等待读取.md");
+  const released = Promise.withResolvers<void>();
+  let captured = false;
+  let delivered = false;
+  try {
+    writeFileSync(slow, "# 等待读取\n\n第一次读取\n");
+    writeFileSync(path.join(vault, "正在编辑.md"), "# 正在编辑\n\n第二篇\n");
+    await engineReady(page);
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await treeSettled(page);
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (captured || request.capability !== "notes.read" || request.input?.path !== "等待读取.md") return route.continue();
+      const response = await route.fetch();
+      captured = true;
+      await released.promise;
+      await route.fulfill({ response });
+      delivered = true;
+    });
+    await treeItem(page, "等待读取.md").click();
+    await expect.poll(() => captured).toBe(true);
+    await page.getByRole("button", { name: "关闭 等待读取", exact: true }).click();
+    await treeItem(page, "正在编辑.md").click();
+    await expect(prose(page)).toContainText("第二篇");
+    await expect(prose(page)).not.toContainText("第一次读取");
+    writeFileSync(slow, "# 等待读取\n\n第二次读取\n");
+    await treeItem(page, "等待读取.md").click();
+    await expect(prose(page)).toContainText("第二次读取");
+    await prose(page).click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("当前编辑");
+    released.resolve();
+    await expect.poll(() => delivered).toBe(true);
+    await expect(prose(page)).toContainText("第二次读取当前编辑");
+    await expect(prose(page)).not.toContainText("第一次读取");
+    await expect(prose(page)).toBeFocused();
+    await expect.poll(() => readFileSync(slow, "utf8")).toContain("第二次读取当前编辑");
+  } finally {
+    released.resolve();
+    await close();
+  }
+});
+
+test("B09：工具栏切换富文本、源码与阅读时保留当前章节", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, name);
+  const text = Array.from({ length: 90 }, (_, i) => `## 章节 ${i + 1}\n\n正文段落 ${i + 1}。\n\n`).join("");
+  try {
+    writeFileSync(file, text);
+    await engineReady(page);
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await treeItem(page, name).click();
+    const scroller = page.getByTestId("editor-scroll-container");
+    const chapter = "章节 60";
+    const heading = prose(page).getByRole("heading", { name: chapter, exact: true });
+    await heading.evaluate((element) => element.scrollIntoView({ block: "start" }));
+    const mode = (label: string) => page.getByRole("tab", { name: label, exact: true });
+    await mode("源码").click();
+    await expect(mode("源码")).toHaveAttribute("aria-selected", "true");
+    const source = scroller.getByText(`## ${chapter}`, { exact: true });
+    await expect(source).toBeInViewport();
+    await mode("阅读").click();
+    await expect(page.getByTestId("notes-reading-pane")).toBeVisible();
+    await expect(heading).toBeInViewport();
+    await mode("实时预览").click();
+    await expect(heading).toBeInViewport();
+    expect(readFileSync(file, "utf8")).toBe(text);
+  } finally {
+    await close();
+  }
+});
+
+test("A08：移父目录前结算活动 TXT，后台 Markdown 与 JSON 草稿迁至新路径", async () => {
+  const { page, vault, close } = await openApp();
+  const before = "待移动";
+  const after = `目的地/${before}`;
+  const files = { "后台.md": original, "后台.json": '{"start":true}\n', "活动.txt": "原始文本" };
+  let failSave = true;
+  try {
+    mkdirSync(path.join(vault, before));
+    for (const [filename, text] of Object.entries(files)) writeFileSync(path.join(vault, before, filename), text);
+    await engineReady(page);
+    await call(page, "folders.create", { path: "目的地" });
+    await manualSave(page);
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await treeFolder(page, before).click();
+    await treeSettled(page);
+    const type = async (locator: ReturnType<Page["locator"]>, text: string) => {
+      await locator.click();
+      await locator.press("ControlOrMeta+End");
+      await page.keyboard.insertText(text);
+    };
+    await treeItem(page, "后台.md").click();
+    await type(prose(page), "Markdown末字");
+    await treeItem(page, "后台.json").click();
+    const plain = page.locator(".cm-content");
+    await type(plain, "JSON末字");
+    await treeItem(page, "活动.txt").click();
+    await type(plain, "TXT末字");
+    const draft = async (folder: string, filename: string) => (await call<{ text: string } | null>(page, "notes.draft.get", { path: `${folder}/${filename}` }))?.text;
+    await expect.poll(() => draft(before, "后台.md")).toContain("Markdown末字");
+    await expect.poll(() => draft(before, "后台.json")).toBe(files["后台.json"] + "JSON末字");
+    await page.route("**/api/v1/call", (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (!failSave || request.capability !== "notes.save" || request.input?.path !== `${before}/活动.txt`) return route.continue();
+      return route.fulfill({ json: { ok: false, error: { code: "INTERNAL", message: "测试：TXT 磁盘写入失败" } } });
+    });
+    await treeMenu(page, treeFolder(page, before), "移动到…");
+    await page.getByLabel("文件夹", { exact: true }).selectOption("目的地");
+    const move = page.getByRole("button", { name: "移动", exact: true });
+    await move.click();
+    await expect(page.getByRole("dialog", { name: "移动文件" }).getByRole("alert")).toContainText("打开的文档有未保存的修改且无法落盘");
+    expect(existsSync(path.join(vault, after))).toBe(false);
+    expect(readFileSync(path.join(vault, before, "活动.txt"), "utf8")).toBe(files["活动.txt"]);
+    failSave = false;
+    await move.click();
+    await expect.poll(() => existsSync(path.join(vault, after, "活动.txt"))).toBe(true);
+    expect(readFileSync(path.join(vault, after, "活动.txt"), "utf8")).toBe(files["活动.txt"] + "TXT末字");
+    expect(readFileSync(path.join(vault, after, "后台.md"), "utf8")).toBe(files["后台.md"]);
+    expect(readFileSync(path.join(vault, after, "后台.json"), "utf8")).toBe(files["后台.json"]);
+    expect(await draft(before, "后台.md")).toBeUndefined();
+    expect(await draft(before, "后台.json")).toBeUndefined();
+    expect(await draft(after, "后台.json")).toBe(files["后台.json"] + "JSON末字");
+    const tabs = page.getByTestId("document-tabs");
+    await tabs.getByTitle(`${after}/后台.md`, { exact: true }).click();
+    await page.getByTestId("note-draft-restore").click();
+    await expect(prose(page)).toContainText("Markdown末字");
+    await tabs.getByTitle(`${after}/后台.json`, { exact: true }).click();
+    await page.getByTestId("note-draft-restore").click();
+    await expect(plain).toContainText("JSON末字");
+    expect(readFileSync(path.join(vault, after, "后台.json"), "utf8")).toBe(files["后台.json"]);
+  } finally {
+    await close();
+  }
+});
+
+for (const removal of ["移动", "删除"] as const) {
+  test(`C06：正文写入失败可重试；外部${removal}后保留脏稿并可恢复`, async () => {
+    const { page, vault, close } = await openApp();
+    const file = path.join(vault, name);
+    const moved = path.join(vault, "移走后的文件.md");
+    let failSave = true;
+    try {
+      writeFileSync(file, original);
+      await engineReady(page);
+      await manualSave(page);
+      await openNote(page);
+      await inputWithPendingBridge(page);
+      await page.route("**/api/v1/call", (route) => {
+        const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+        if (!failSave || request.capability !== "notes.save" || request.input?.path !== name) return route.continue();
+        return route.fulfill({ json: { ok: false, error: { code: "INTERNAL", message: "测试：正文 EIO" } } });
+      });
+      await page.getByTestId("note-save").click();
+      await expect(page.getByText("保存失败：测试：正文 EIO")).toBeVisible();
+      await expect(prose(page)).toContainText(last);
+      expect(readFileSync(file, "utf8")).toBe(original);
+      failSave = false;
+      await page.getByTestId("note-save").click();
+      await expect.poll(() => readFileSync(file, "utf8")).toBe(written);
+
+      await prose(page).click();
+      await page.keyboard.press("ControlOrMeta+End");
+      await page.keyboard.insertText("外移前的脏稿");
+      if (removal === "移动") renameSync(file, moved);
+      else rmSync(file);
+      await expect(page.getByText(`文件已移走或删除：${name}`, { exact: true })).toBeVisible();
+      await expect.poll(async () => (await call<{ text: string } | null>(page, "notes.draft.get", { path: name }))?.text).toBe(written.replace(last, last + "外移前的脏稿"));
+      expect(existsSync(file)).toBe(false);
+      if (removal === "移动") expect(readFileSync(moved, "utf8")).toBe(written);
+      await expect(page.getByRole("button", { name: "关闭 退出交付", exact: true })).toHaveCount(0);
+      await call(page, "notes.create", { name: name.slice(0, -3) });
+      const { version } = await call<{ version: string }>(page, "notes.read", { path: name });
+      await call(page, "notes.save", { path: name, text: written, expectedVersion: version });
+      await treeSettled(page);
+      await openNote(page);
+      await page.getByTestId("note-draft-restore").click();
+      await expect(prose(page)).toContainText("外移前的脏稿");
+      expect(readFileSync(file, "utf8")).toBe(written);
+    } finally {
+      await close();
+    }
+  });
 }
 
 for (const autosave of [true, false]) {

@@ -6,12 +6,21 @@ import type { CSSProperties, ReactElement, ReactNode } from "react";
 export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
 
+export interface OutlineHeading {
+  level: number;
+  title: string;
+  line: number;
+}
+
 export interface RichEditorPort extends EditorPort {
+  prepareModeChange?(next: EditorViewMode): void;
   gotoLine(line: number): void;
+  getOutline(source: string): OutlineHeading[];
   undo(): void;
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  isComposing(): boolean;
 }
 
 export interface EditorAssetActions {
@@ -26,12 +35,15 @@ export interface RichMarkdownEditorProps {
   docName: string;
   value: string;
   onChange(text: string): void;
+  retainSession?: () => () => void;
   mode?: EditorViewMode;
   onRevealSource?(): void;
   assetActions?: EditorAssetActions;
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
+  propertiesTarget?: HTMLElement | null;
+  ariaLabel?: string;
   fontSize?: number;
   contentWidth?: number | null;
   referenceSearch?: (query: string) => readonly { path: string; kind: "file" | "folder" }[];
@@ -40,6 +52,7 @@ export interface RichMarkdownEditorProps {
   className?: string;
 }
 export function RichMarkdownEditor(props: RichMarkdownEditorProps): ReactElement;
+export function markdownSemanticallyUnchanged(baseline: string, current: string): boolean;
 export function ReadonlyMarkdown(props: Omit<RichMarkdownEditorProps, "mode" | "readOnly" | "onChange">): ReactElement;
 export function SourceMarkdownEditor(props: Omit<RichMarkdownEditorProps, "mode">): ReactElement;
 
@@ -126,7 +139,7 @@ interface CompactBase {
 }
 export function CompactMarkdownView(props: CompactBase & { value: string }): ReactElement;
 export function CompactMarkdownInput(
-  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; ariaLabel?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
 ): ReactElement;
 
 // S4 评论宿主
@@ -148,6 +161,7 @@ export interface PassageInput {
   suffix?: string;
   start?: number;
   end?: number;
+  expectedSourceVersion?: string;
 }
 export interface CommentsPort {
   list(path?: string): Promise<HuhuComment[]>;
@@ -158,21 +172,31 @@ export interface CommentsPort {
   relocate(id: string, range: PassageInput): Promise<HuhuComment>;
   delete(id: string): Promise<void>;
 }
+interface CommentSelectionRevision {
+  vaultId: string;
+  path: string;
+  epoch: number;
+  revision: number;
+}
 export interface CommentRouteDeps {
   port: CommentsPort;
   pathOf(docName: string): string;
   docNameOf(path: string): string;
-  flush(docName: string): Promise<void>;
+  flush(docName: string, selectionPath?: string): Promise<void>;
+  selectionRevision?(path: string): (CommentSelectionRevision & { sourceVersion: string }) | undefined;
 }
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes;
 export function notifyCommentsChanged(): void;
 export function startComment(): void;
+export function registerCommentSelectionSource(docName: string, read: () => CommentSelectionRevision | undefined): () => void;
+export function useCommentsReadOnlySync(readOnly: boolean): void;
 export function onCommentPosted(handler: () => void): () => void;
 export function onCommentThreadOpened(handler: () => void): () => void;
 export function dismissOpenCommentThread(): void;
 export interface CommentsPanelHostProps {
   docName: string;
   routes: HostRoutes;
+  openExternal?(url: string): Promise<void>;
   locale?: string;
   readOnly?: boolean;
   readOnlyReason?: string;

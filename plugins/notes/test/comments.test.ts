@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { OperationLog, SemanticRepository, VaultFiles, VaultIndex } from "@huhu/vault";
+import { OperationLog, patchFrontmatter, SemanticRepository, VaultFiles, VaultIndex } from "@huhu/vault";
 import { afterEach, describe, expect, test } from "vitest";
 import { createAnchor, refind } from "../src/engine/comments/anchor.js";
 import { CommentsService, parseMessages } from "../src/engine/comments/service.js";
@@ -60,6 +60,27 @@ describe("锚点（R-24）", () => {
     const next = body.replace("第二句：一套能力。", "");
     expect(refind(next, a)).toEqual({ status: "orphaned" });
   });
+  test("删除第一段后，同偏移上的同文属于另一段", () => {
+    const original = "甲：同句。\n乙：同句。";
+    expect(refind("乙：同句。", createAnchor(original, 2, 4))).toEqual({ status: "orphaned" });
+  });
+  test("上下文同分时不能按距离选择", () => {
+    const original = "甲：同句。";
+    const next = "新增\n甲：同句。\n甲：同句。";
+    expect(refind(next, createAnchor(original, 2, 4))).toEqual({ status: "orphaned" });
+  });
+  test.each([
+    ["前缀：**同句**与下文。", "前缀：同句与下文。", "同句**与", "同句与"],
+    ["表头 | 描述\n--- | ---\n甲 | 同句和说明 |", "| 表头 | 描述 |\n| --- | --- |\n| 甲 | 同句**和**说明 |", "同句和说明", "同句**和**说明"],
+    ["之前：[同句](old)和说明。", "之前：[同句](new)和说明。", "同句](old)和", "同句](new)和"],
+  ])("格式改写后重新定位已有锚点 %s", async (original, next, quote, expected) => {
+    const { svc, write, version } = await setup(original);
+    const created = await svc.create({ path: "笔记.md", target: "body", ...at(original, quote), text: "已存线程", author: "我" });
+    write(next);
+    await svc.refind("笔记.md", next, version());
+    const thread = svc.list("笔记.md").find((row) => row.id === created.id);
+    expect(thread).toMatchObject({ state: "anchored", anchor: { ...at(next, expected), exact: expected, sourceVersion: version() } });
+  });
   test("emoji 与跨行选区", () => {
     const sel = at(body, "🎉 的一句");
     const a = createAnchor(body, sel.start, sel.end);
@@ -85,6 +106,13 @@ describe("CommentsService", () => {
     expect(c.path.startsWith("Comments/note-1--")).toBe(true);
     expect(readFileSync(path.join(root, c.path), "utf8")).toContain("### 2026-11-11T08:00:00Z · 我");
     expect(svc.list("笔记.md")).toHaveLength(1);
+  });
+  test("引擎拒绝 flush 后磁盘再次变化的选区", async () => {
+    const { svc, write, version } = await setup(DOC);
+    const expectedSourceVersion = version();
+    write("另一段：一套能力。");
+    await expect(svc.create({ path: "笔记.md", target: "body", quote: "一套能力", expectedSourceVersion, text: "过期选区", author: "我" })).rejects.toMatchObject({ code: "INVALID_INPUT", message: "文档已改变，请重新选择" });
+    expect(svc.list("笔记.md")).toEqual([]);
   });
   test("文件级与属性批注没有锚点；属性批注必须有属性名", async () => {
     const { svc } = await setup(DOC);
@@ -175,6 +203,24 @@ describe("引用文字锚点（S4：富文本不使用 PM 坐标，D04 / D05）"
     const a = await svc.create({ path: "笔记.md", target: "body", quote: "一套能力", text: "x", author: "我" });
     expect(a.anchor?.start).toBeGreaterThan(doc.indexOf("---\n\n"));
     expect(a.anchor?.exact).toBe("一套**能力");
+  });
+  test("正文锚点的上下文从可见正文开始，偏移仍指向完整文件", async () => {
+    const body = "---\nstatus: open\n---\n\n第一处。\n\n已有锚点。\n";
+    const { svc } = await setup(body);
+    const c = await svc.create({ path: "笔记.md", target: "body", quote: "已有锚点", text: "属性之下", author: "我" });
+    expect(c.anchor).toMatchObject({ ...at(body, "已有锚点"), prefix: "\n第一处。\n\n", suffix: "。\n" });
+  });
+  test("读取旧评论时为当前源版本去掉 YAML 上下文，磁盘评论保持原样", async () => {
+    const body = "---\nstatus: open\n---\n\n第一处。\n\n已有锚点。\n";
+    const { svc, root } = await setup(body);
+    const c = await svc.create({ path: "笔记.md", target: "body", quote: "已有锚点", text: "旧记录", author: "我" });
+    const legacy = { ...c.anchor!, prefix: body.slice(0, c.anchor!.start) };
+    const file = path.join(root, c.path);
+    const disk = patchFrontmatter(readFileSync(file, "utf8"), { anchor: legacy });
+    writeFileSync(file, disk);
+    expect(svc.list("笔记.md")[0]?.anchor).toEqual(c.anchor);
+    expect(svc.list()[0]?.anchor).toEqual(c.anchor);
+    expect(readFileSync(file, "utf8")).toBe(disk);
   });
   test("重复段落：prefix / suffix 判优；仍并列则报错而不是吸附", async () => {
     const doc = "甲：同一句话。\n\n乙：同一句话。\n";

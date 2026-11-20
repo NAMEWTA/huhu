@@ -67,6 +67,11 @@ function useHuhuDarkClass(): boolean {
   return dark;
 }
 
+/** Class names for an OK root, including portals outside its DOM subtree. */
+export function okRootClassName(dark: boolean, className?: string): string {
+  return `ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`;
+}
+
 export function OkRoot({ children, locale, host, routes, config, poolKey, documentHost, acceptSidebarDrop, className, style }: OkRootProps) {
   const dark = useHuhuDarkClass();
   const [ready, setReady] = useState(false);
@@ -125,7 +130,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
   return (
     <div
       ref={root}
-      className={`ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`}
+      className={okRootClassName(dark, className)}
       style={style}
       data-ok-root
       lang={locale ?? getRequestedLocale()}

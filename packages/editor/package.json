@@ -5,6 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./reading": {
+      "types": "./src/reading/reading.d.ts",
+      "default": "./src/reading/index.tsx"
+    },
     "./rich": {
       "types": "./src/rich/rich.d.ts",
       "default": "./src/rich/index.ts"
@@ -53,6 +57,8 @@
     "@hocuspocus/provider": "4.0.0-rc.1",
     "@hocuspocus/server": "4.0.0-rc.1",
     "@huhu/contracts": "workspace:*",
+    "@huhu/ui": "workspace:*",
+    "@huhu/vault": "workspace:*",
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.8.1",
     "@lingui/core": "6.5.0",

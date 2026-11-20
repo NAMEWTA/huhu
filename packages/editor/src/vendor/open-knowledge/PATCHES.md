@@ -8,7 +8,7 @@
 - P-S2a-03 `app/src/lib/config-provider.tsx`：上游 346 行（经协作配置文档同步）→ 只保留 `useConfigContext` 再导出；提供者见 `host/config-provider.tsx`。
 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。
 
-- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。
+- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。H06：LRU 驱逐只释放 Tiptap / CodeMirror 视图与撤销资源，provider 与 Y.Doc 由宿主池释放。
 
 ## S4 评论（P-S4-xx）
 
@@ -21,6 +21,10 @@
 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。
 - P-S4-08 上游 app 非 dom 测试迁入（22 个，原样复制自上游 app 的 comments 目录，与被测源码同目录；`test:vendor` 经 `vitest.vendor.config.ts` 的 Lingui 宏管线与 `test/vendor-setup.ts`（激活 en）运行）：（逐文件清单见 evidence/tests-manifest.json，与上游 SHA-256 逐一相同）、、、、、、、、、、、、、、、、、、、、、。
 - P-S4-09 `app/src/comments/CommentMarginRail.tsx`：宿主中将评论边缘按钮挂到编辑器的 `.ok-root`。窄屏详情浮层遮住右侧留白时使用左侧留白，保留上游的引用定位与线程打开行为。
+- P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。
+- P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。
+- P-S4-12 `app/src/comments/comments-client.ts`、`app/src/comments/store.ts`：创建/重定位请求携带会话身份和 revision，文档详情切换后抑制迟到的自动揭示。
+- P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。
 
 ## 删除
 
@@ -58,6 +62,11 @@
 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。
 - 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
+
+- P-S5-06 `app/src/components/FileTree.tsx`：树空白处打开根目录操作，使用已有内联创建及模板流程。文件和目录共享同一个受限原因，并保护多选、输入法组字及拖放目标。普通非 Markdown 文件经宿主复制能力创建副本。
+- P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。
+- P-S5-08 `app/src/components/file-tree-operations.ts`：复制普通文件后用原资产条目更新树。
+- P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。
 
 ## S3（编辑行为对等与性能 F09）补丁
 
@@ -568,3 +577,19 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/lib/validation-store.test.ts`：固定上游测试原样迁入。
 - `app/src/lib/workspace-hash-writes.test.ts`：固定上游测试原样迁入。
 - `app/src/lib/workspace-paths.test.ts`：固定上游测试原样迁入。
+
+## C01–C03 / OP-D17 属性视图与 YAML
+
+- `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：委托 Vault 的浏览器可用 YAML codec。保留 OK 的字段校验、重复键策略与删除语义，标量改值保留邻接源码。
+- `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。
+- `app/src/components/ReadonlyPropertyPanel.tsx`、`app/src/components/PropertyDisplayRow.tsx`：迁入固定上游的阅读属性视图及行组件。
+
+## H06 编辑资源释放
+
+- P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。
+
+## D02 评论 Markdown 与引用
+
+- `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
+- `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。
+- `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。

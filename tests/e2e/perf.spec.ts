@@ -5,8 +5,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScaleVault } from "../perf/scale-vault.js";
-import { root, USER_DATA_ARG } from "./helpers/launch.js";
+import { rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
+
+import { journeyMachine, journeyPercentiles, launchJourney, measureNoteJourney, noteScenarios, prepareNotes, seedComments } from "./perf-note-journey.js";
 
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 
@@ -341,3 +343,47 @@ test("scale-vault（10,000 篇笔记 / 1,000 任务 / 1,000 档案）：打开�
     rmSync(vault, { recursive: true, force: true });
   }
 });
+
+// HUHU_NOTE_PERF=1 HUHU_NOTE_PERF_SAMPLES=20 pnpm e2e tests/e2e/perf.spec.ts -g "F09 笔记旅程" --workers=1 --retries=0
+// 每样本独立启动 Renderer + Engine，OS 文件缓存不清除。冷开为首次打开目标，热切换为该目标从后台回到前台。
+for (const scenario of noteScenarios) {
+  test(`F09 笔记旅程 · ${scenario}`, async () => {
+    test.skip(process.env["HUHU_NOTE_PERF"] !== "1", "按需运行三种笔记性能夹具");
+    const count = Number(process.env["HUHU_NOTE_PERF_SAMPLES"] ?? 20);
+    expect(Number.isSafeInteger(count) && count > 0).toBe(true);
+    test.setTimeout(120_000 + count * 120_000);
+    const workdir = mkdtempSync(path.join(tmpdir(), "huhu-note-journey-"));
+    const vault = path.join(workdir, "vault");
+    mkdirSync(vault);
+    try {
+      const fixture = prepareNotes(vault, scenario);
+      if (fixture.threads) {
+        const { app, page } = await launchJourney(vault, path.join(workdir, "seed-profile"));
+        try {
+          await seedComments(page, fixture.original);
+        } finally {
+          await app.close();
+        }
+      }
+      const samples = [];
+      for (let i = 0; i < count; i++) {
+        const { app, page } = await launchJourney(vault, path.join(workdir, `profile-${i}`));
+        try {
+          const machine = await journeyMachine(app);
+          samples.push({ machine, metrics: await measureNoteJourney(app, page, vault, fixture) });
+        } finally {
+          await app.close();
+        }
+        writeFileSync(fixture.file, fixture.original);
+      }
+      const { files, bytes, threads, repliesPerThread } = fixture;
+      const evidence = { scenario, fixture: { files, bytes, threads, repliesPerThread }, sampleCount: count, samples, percentiles: journeyPercentiles(samples.map(({ metrics }) => metrics)) };
+      const report = test.info().outputPath("note-journey.json");
+      writeFileSync(report, JSON.stringify(evidence, null, 2));
+      await test.info().attach("note-journey.json", { path: report, contentType: "application/json" });
+      note(scenario, JSON.stringify({ sampleCount: count, ...evidence.percentiles }));
+    } finally {
+      rmTree(workdir);
+    }
+  });
+}

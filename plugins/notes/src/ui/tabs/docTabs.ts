@@ -1,4 +1,5 @@
 import type { DocTab } from "@huhu/contracts";
+import { archiveNoteRoute } from "../archives/route.js";
 
 /**
  * 标签模型（design §7，OP-D12）：`DocTab` 联合标签 + 纯 reducer。只落模型，不改 UI（S6 接 UI）。
@@ -18,9 +19,9 @@ export type DocTabsAction =
   | { type: "close"; key: string }
   | { type: "restore"; vaultId: string; tabs: readonly DocTab[]; activeKey: string | null }
   | { type: "switchVault"; vaultId: string }
-  /** 改名 / 移动：文件标签路径（含目录前缀）跟着变；档案记录标签的 name 不变（档案由 index.md 路径派生，见 archive-record）。 */
+  /** 改名 / 移动：文件与档案记录标签按同一文件路径重定位。 */
   | { type: "remap"; from: string; to: string }
-  /** 文件已不存在（回收 / 删除）：对应标签消失；`alive` 是仍存在的路径集合，档案标签不受影响。 */
+  /** 文件已不存在（回收 / 删除）：对应标签消失；档案首页与类型视图没有文件路径。 */
   | { type: "prune"; alive: ReadonlySet<string> };
 
 export function createDocTabsState(vaultId: string): DocTabsState {
@@ -54,6 +55,20 @@ export function tabFilePath(tab: DocTab): string | null {
 }
 
 const remapPath = (s: string, from: string, to: string): string => (s === from ? to : s.startsWith(`${from}/`) ? `${to}${s.slice(from.length)}` : s);
+
+function remapTab(t: DocTab, from: string, to: string): DocTab {
+  const oldPath = tabFilePath(t);
+  if (oldPath === null) return t;
+  const path = remapPath(oldPath, from, to);
+  if (path === oldPath) return t;
+  if (t.kind === "file") return { ...t, path };
+  const route = archiveNoteRoute(path);
+  if (route?.kind === "archive") {
+    const [, type, name] = route.path.split("/");
+    if (type && name) return { kind: "archive-record", vaultId: t.vaultId, type, name };
+  }
+  return { kind: "file", vaultId: t.vaultId, path, view: "rich" };
+}
 
 function neighbour(tabs: readonly DocTab[], index: number): string | null {
   const next = tabs[index + 1] ?? tabs[index - 1];
@@ -92,16 +107,21 @@ export function docTabsReducer(state: DocTabsState, action: DocTabsAction): DocT
       if (action.vaultId === state.vaultId) return state;
       return { vaultId: action.vaultId, tabs: [], activeKey: null, epoch: state.epoch + 1 };
     case "remap": {
-      const activeTab = state.tabs.find((t) => tabKey(t) === state.activeKey);
-      const tabs = state.tabs.map((t) => (t.kind === "file" ? { ...t, path: remapPath(t.path, action.from, action.to) } : t));
-      // 重映射后可能与已有标签同路径：去重（保留第一个）
-      const seen = new Set<string>();
-      const deduped = tabs.filter((t) => (seen.has(tabKey(t)) ? false : (seen.add(tabKey(t)), true)));
-      const nextActive = activeTab ? (activeTab.kind === "file" ? tabKey({ ...activeTab, path: remapPath(activeTab.path, action.from, action.to) }) : state.activeKey) : null;
-      return { ...state, tabs: deduped, activeKey: nextActive && deduped.some((t) => tabKey(t) === nextActive) ? nextActive : deduped[0] ? tabKey(deduped[0]) : null };
+      const tabs = new Map<string, DocTab>();
+      let activeKey = state.activeKey;
+      for (const t of state.tabs) {
+        const next = remapTab(t, action.from, action.to);
+        const key = tabKey(next);
+        if (!tabs.has(key)) tabs.set(key, next);
+        if (tabKey(t) === state.activeKey) activeKey = key;
+      }
+      return { ...state, tabs: [...tabs.values()], activeKey };
     }
     case "prune": {
-      const tabs = state.tabs.filter((t) => (t.kind === "file" ? action.alive.has(t.path) : true));
+      const tabs = state.tabs.filter((t) => {
+        const path = tabFilePath(t);
+        return path === null || action.alive.has(path) || (t.kind === "file" && t.view === "viewer");
+      });
       if (tabs.length === state.tabs.length) return state;
       const activeKey = state.activeKey && tabs.some((t) => tabKey(t) === state.activeKey) ? state.activeKey : tabs[0] ? tabKey(tabs[0]) : null;
       return { ...state, tabs, activeKey };

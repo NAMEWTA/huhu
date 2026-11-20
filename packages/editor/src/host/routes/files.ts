@@ -14,6 +14,7 @@ export interface HostFsEntry {
   protected?: string;
   /** symlink 且目标越界 / 失效 */
   linkOutside?: boolean;
+  linkCycle?: boolean;
 }
 
 export interface HostListResult {
@@ -32,7 +33,7 @@ export interface FilesRouteDeps {
   /** “显示已隐藏项目”开关。 */
   showHidden(): boolean;
   rename(input: { kind: "file" | "folder" | "asset"; fromPath: string; toPath: string }): Promise<{ moved: Record<string, string> }>;
-  duplicate(input: { kind: "file" | "folder"; path: string }): Promise<{ path: string; paths: string[] }>;
+  duplicate(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ path: string; paths: string[] }>;
   /** 移入回收站（可恢复）。 */
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
@@ -84,7 +85,12 @@ export function isHidden(path: string, rules: readonly string[]): boolean {
 /** vault.list 条目 → OK 的 DocumentListEntry（见上游 DocumentListEntrySchema 的 refine 约束）。 */
 export function toDocumentEntry(e: HostFsEntry): Record<string, unknown> {
   const isSymlink = e.kind === "symlink";
-  if (e.kind === "dir" || (isSymlink && e.linkOutside !== true && !/\.[^/.]+$/.test(e.name))) {
+  const metadata = {
+    ...(e.protected ? { protected: e.protected } : {}),
+    ...(e.linkOutside ? { linkOutside: true } : {}),
+    ...(e.linkCycle ? { linkCycle: true } : {}),
+  };
+  if (e.kind === "dir") {
     return {
       kind: "folder",
       path: e.path,
@@ -92,10 +98,10 @@ export function toDocumentEntry(e: HostFsEntry): Record<string, unknown> {
       modified: iso(e.mtimeMs),
       hasChildren: true,
       isSymlink,
-      ...(e.protected ? { protected: e.protected } : {}),
+      ...metadata,
     };
   }
-  if (MD_EXT.test(e.name)) {
+  if (!isSymlink && MD_EXT.test(e.name)) {
     return {
       kind: "document",
       docName: docNameOf(e.path),
@@ -103,6 +109,7 @@ export function toDocumentEntry(e: HostFsEntry): Record<string, unknown> {
       size: e.size ?? 0,
       modified: iso(e.mtimeMs),
       isSymlink,
+      ...metadata,
     };
   }
   return {
@@ -112,6 +119,7 @@ export function toDocumentEntry(e: HostFsEntry): Record<string, unknown> {
     size: e.size ?? 0,
     modified: iso(e.mtimeMs),
     isSymlink,
+    ...metadata,
   };
 }
 
@@ -166,9 +174,9 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
       return { renamed, renamedAssets };
     },
     "POST /api/duplicate-path": async ({ body }) => {
-      const kind = ((body as { kind?: "file" | "folder" }).kind ?? "file") as "file" | "folder";
+      const kind = (body as { kind?: "file" | "folder" | "asset" }).kind ?? "file";
       const r = await deps.duplicate({ kind, path: realFile(kind, pathFromBody(body, "path")) });
-      return { kind, path: r.path, duplicatedDocNames: r.paths.filter((p) => MD_EXT.test(p)).map(docNameOf) };
+      return { kind: kind === "asset" ? "file" : kind, path: r.path, duplicatedDocNames: r.paths.filter((p) => MD_EXT.test(p)).map(docNameOf) };
     },
     "POST /api/delete-path": async ({ body }) => {
       const kind = ((body as { kind?: "file" | "folder" | "asset" }).kind ?? "file") as "file" | "folder" | "asset";
