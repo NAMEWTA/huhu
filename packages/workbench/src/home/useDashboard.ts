@@ -1,9 +1,10 @@
-import type { DashboardBoard, DashboardRecoveryIntent, DashboardRecoveryPreview, DashboardRecoveryResult, DashboardView } from "@huhu/contracts";
+import { DashboardBoardSchema, type DashboardBoard, type DashboardRecoveryIntent, type DashboardRecoveryPreview, type DashboardRecoveryResult, type DashboardView } from "@huhu/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import { CapabilityError, createRequestId } from "../engine-client/client.js";
 import { queryKey } from "../engine-client/query.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
+import { host } from "../settings/host.js";
 import { registerExitParticipant, type ExitRequest } from "../state/exit-participants.js";
 import { registerModuleLeaveGuard, type UiState } from "../state/ui-store.js";
 
@@ -221,6 +222,52 @@ export function useDashboard(ui: StoreApi<UiState>) {
     }
   }
 
+  async function previewBackup(file: File) {
+    if (file.size > 8 * 1024 * 1024) {
+      setNotice({ text: "布局备份超过 8 MiB。", error: true });
+      return;
+    }
+    let backup: DashboardBoard;
+    try {
+      backup = DashboardBoardSchema.parse(JSON.parse(await file.text()));
+    } catch {
+      if (alive.current) setNotice({ text: "所选文件不是可读取的当前格式布局备份。", error: true });
+      return;
+    }
+    if (alive.current) await previewRecovery({ action: "restore", backup });
+  }
+
+  async function saveBackup() {
+    if (busy || inFlight.current || unverified.current) return;
+    setBusy(true);
+    try {
+      const committed = await engine.call<DashboardView>(capability);
+      if (!alive.current || committed.vaultId !== engine.vaultId) return;
+      if (committed.source !== "stored") {
+        setNotice({ text: "当前没有可备份的已保存布局。", error: true });
+        return;
+      }
+      const name = "HUHU-布局.json";
+      const body = JSON.stringify(committed.board) + "\n";
+      const desktop = host();
+      if (desktop?.saveTextFile) {
+        if (!(await desktop.saveTextFile(name, body))) return;
+      } else {
+        const link = document.createElement("a");
+        link.download = name;
+        const url = URL.createObjectURL(new Blob([body], { type: "application/json" }));
+        link.href = url;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+      if (alive.current) setNotice({ text: "已导出保存的布局。" });
+    } catch {
+      if (alive.current) setNotice({ text: "无法导出布局备份。", error: true });
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
   function closeRecovery() {
     if (!inFlight.current) setRecovery(undefined);
   }
@@ -282,6 +329,8 @@ export function useDashboard(ui: StoreApi<UiState>) {
     resolveCompare,
     closeCompare: () => setLatest(undefined),
     previewRecovery,
+    previewBackup,
+    saveBackup,
     closeRecovery,
     confirmRecovery,
     chooseLeave,

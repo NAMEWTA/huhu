@@ -1,7 +1,7 @@
 import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetType, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
 import { Button, Dialog, IconButton } from "@huhu/ui";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, MoveDiagonal2, Plus, RotateCcw, X } from "lucide-react";
-import { useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { createRequestId } from "../engine-client/client.js";
 import { appendPlacement, movePlacement, orderPlacements, packPlacements, reorderPlacement, type Placement } from "./dashboard-layout.js";
 import type { useDashboard } from "./useDashboard.js";
@@ -42,6 +42,8 @@ interface DashboardProps {
 export function Dashboard({ state, definitions, definitionsReady, allowed, renderWidget, configureWidget }: DashboardProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const backupPicker = useId();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [feedback, setFeedback] = useState("");
@@ -52,6 +54,7 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
   const editing = state.draft !== undefined;
   const locked = state.busy || state.notice?.action === "verify";
   const board = state.draft?.board ?? view?.board;
+  const restoring = state.recovery?.intent.action === "restore";
   const byId = new Map(board?.instances.map((item) => [item.instanceId, item]));
   const layout = orderPlacements(board?.layout ?? []);
   const items = (preview?.layout ?? layout).filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
@@ -202,6 +205,20 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
           {view.source === "invalid" ? (
             <Button onClick={() => void state.previewRecovery({ action: "repair" })} disabled={locked || editing}>
               预览布局修复
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {view && (view.source === "stored" || view.source === "invalid" || view.writable) ? (
+        <div className="row hu-dashboard-toolbar">
+          {view.source === "stored" ? (
+            <Button onClick={() => void state.saveBackup()} disabled={locked}>
+              备份布局
+            </Button>
+          ) : null}
+          {view.writable || view.source === "invalid" ? (
+            <Button onClick={() => setBackupOpen(true)} disabled={locked || editing}>
+              恢复布局备份
             </Button>
           ) : null}
         </div>
@@ -400,10 +417,24 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
           <p>没有符合条件的卡片。</p>
         )}
       </Dialog>
+      <Dialog open={backupOpen && !editing} title="选择布局备份" onClose={() => setBackupOpen(false)}>
+        <label htmlFor={backupPicker}>布局备份文件（JSON）</label>
+        <input
+          id={backupPicker}
+          type="file"
+          accept="application/json,.json"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (!file) return;
+            setBackupOpen(false);
+            void state.previewBackup(file);
+          }}
+        />
+      </Dialog>
       <Dialog
         open={state.recovery !== undefined}
         wide
-        title="预览布局修复"
+        title={restoring ? "预览备份布局" : "预览布局修复"}
         onClose={state.closeRecovery}
         actions={
           <>
@@ -411,23 +442,25 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
               保留原样
             </Button>
             <Button variant="primary" loading={state.busy} disabled={!state.recovery?.preview.writable} onClick={state.confirmRecovery}>
-              确认修复
+              {restoring ? "确认恢复" : "确认修复"}
             </Button>
           </>
         }
       >
         {state.recovery ? (
           <>
-            <p>{state.recovery.preview.writable ? "确认后将另存布局原件，再保存以下调整。" : "当前 Vault 为只读，可以查看建议的调整。"}</p>
-            <ul>
-              {state.recovery.preview.changes.map((change) => (
-                <li key={change.instanceId}>
-                  <strong>{change.instanceId}</strong> · {change.reasons.map((reason) => repairReasons[reason]).join("、")}
-                  {change.after ? `（第 ${change.after.x + 1} 列，第 ${change.after.y + 1} 行 · ${change.after.w} × ${change.after.h}）` : null}
-                </li>
-              ))}
-            </ul>
-            <h3>修复后的布局</h3>
+            <p>{state.recovery.preview.writable ? (restoring ? "确认后会将这份布局保存到当前 Vault。" : "确认后将另存布局原件，再保存以下调整。") : "当前 Vault 为只读，可以查看预计布局。"}</p>
+            {state.recovery.preview.changes.length ? (
+              <ul>
+                {state.recovery.preview.changes.map((change) => (
+                  <li key={change.instanceId}>
+                    <strong>{change.instanceId}</strong> · {change.reasons.map((reason) => repairReasons[reason]).join("、")}
+                    {change.after ? `（第 ${change.after.x + 1} 列，第 ${change.after.y + 1} 行 · ${change.after.w} × ${change.after.h}）` : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <h3>{restoring ? "备份中的布局" : "修复后的布局"}</h3>
             {list(state.recovery.preview.board)}
           </>
         ) : null}

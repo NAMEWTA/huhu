@@ -556,6 +556,57 @@ test("首页看板：默认布局只替换草稿，保存后重开保留启用�
   }
 });
 
+test("首页看板：只备份已提交布局并在确认后恢复", async () => {
+  const { app, page, close, vault } = await openApp();
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-layout-backup-"));
+  const backupPath = path.join(directory, "layout.json");
+  const file = path.join(vault, ".huhu/home/widgets.json");
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const defaults = (await call("home.dashboard.get")).data.board;
+    expect((await call("home.dashboard.update", { baseRevision: defaults.revision, instances: defaults.instances, layout: defaults.layout })).ok).toBe(true);
+    const committed = readFileSync(file, "utf8");
+    await app.evaluate(({ dialog }, output) => {
+      dialog.showSaveDialog = (async () => ({ canceled: false, filePath: output })) as typeof dialog.showSaveDialog;
+    }, backupPath);
+    await page.reload();
+    const dashboard = page.getByTestId("home-dashboard");
+    await page.getByTestId("home-customize").click();
+    const focus = dashboard.locator('[data-instance-id="default-focus"]');
+    await focus.getByRole("checkbox", { name: "隐藏" }).check();
+    await dashboard.getByRole("button", { name: "备份布局", exact: true }).click();
+    await expect(dashboard.getByRole("status")).toContainText("已导出保存的布局");
+    expect(JSON.parse(readFileSync(backupPath, "utf8"))).toEqual(JSON.parse(committed));
+    expect(readFileSync(file, "utf8")).toBe(committed);
+    await dashboard.getByTestId("home-dashboard-save").click();
+    await expect(dashboard.getByRole("status")).toContainText("布局已保存");
+    const hidden = readFileSync(file, "utf8");
+    expect(JSON.parse(hidden).instances).toContainEqual(expect.objectContaining({ instanceId: "default-focus", hidden: true }));
+
+    const selectBackup = async () => {
+      await dashboard.getByRole("button", { name: "恢复布局备份" }).click();
+      await page.getByRole("dialog", { name: "选择布局备份" }).getByLabel("布局备份文件（JSON）").setInputFiles(backupPath);
+    };
+    await selectBackup();
+    const preview = page.getByRole("dialog", { name: "预览备份布局" });
+    await expect(preview.getByText("专注", { exact: false })).toBeVisible();
+    await preview.getByRole("button", { name: "保留原样" }).click();
+    expect(readFileSync(file, "utf8")).toBe(hidden);
+    await selectBackup();
+    await preview.getByRole("button", { name: "确认恢复" }).click();
+    await expect(dashboard.getByRole("status")).toContainText("布局已恢复");
+    const restored = JSON.parse(readFileSync(file, "utf8"));
+    expect(restored.instances).toEqual(JSON.parse(committed).instances);
+    expect(restored.layout).toEqual(JSON.parse(committed).layout);
+    await page.reload();
+    await expect(focus).toBeVisible();
+  } finally {
+    await close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("首页看板：预览已知格式的布局修复，核对版本并保全原件", async () => {
   const { page, close, vault } = await openApp();
   try {
