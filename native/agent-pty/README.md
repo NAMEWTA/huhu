@@ -1,6 +1,6 @@
 # Windows Agent PTY
 
-Windows x64 上的 Console 子系统程序 `huhu-agent-pty.exe` 包含单次交付的 broker 和安装在 Core 外层终端中的 host。Engine 保有 broker 的进程及私有 stdin。host 校验对端后，用独立 ConPTY、经确认的工作目录和完整批准环境启动内层命令。两端的参数、JSON、状态和构建产物见 [接线协议](PROTOCOL.md)。
+Windows x64 上的 Console 子系统程序 `huhu-agent-pty.exe` 包含单次交付的 broker 和安装在 Core 外层终端中的 host。Engine 保有 broker 的进程及私有 stdin 和 stdout。host 校验对端后，用独立 ConPTY、经确认的工作目录和完整批准环境启动内层命令。broker 经私有通道分别报告授权已消费和内层已运行。两端的参数、JSON、状态和构建产物见 [接线协议](PROTOCOL.md)。
 
 ## 构建
 

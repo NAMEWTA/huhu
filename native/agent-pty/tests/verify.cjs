@@ -192,6 +192,12 @@ async function scenario(c, name) {
     launch.argv[0] = target;
     fs.writeFileSync(target, "replacement fixture");
   }
+  if (name === "create-failed") {
+    const target = path.join(innerDirectory, "not-a-pe.exe");
+    fs.writeFileSync(target, "approved fixture with no executable image");
+    launch.image = pinned(target);
+    launch.argv[0] = target;
+  }
   if (name === "pin-held") {
     const target = path.join(innerDirectory, "held.cjs");
     fs.copyFileSync(entry, target);
@@ -270,6 +276,7 @@ async function scenario(c, name) {
     const observed = {};
     let descendant;
     stage = name + ":interactive";
+    if (positive) await until(() => /^HUHU_PTY RUNNING\r?$/m.test(issued), "private running receipt");
     if (name === "pi") {
       await textMatch(/startup help|Pi Coding Agent|pi v1\.5\.2|ctrl\+/i, "Pi startup", 22_000);
       attach.write(Buffer.from("/session\r"));
@@ -302,11 +309,15 @@ async function scenario(c, name) {
     await Promise.race([wireClosed, sleep(1000)]);
     const rendered = await publicText();
     const brokerCode = await closed;
-    const received = issued.includes("HUHU_PTY ISSUED_ONCE");
-    assert.equal(received, positive);
+    const receipts = issued.split(/\r?\n/).filter((line) => /^HUHU_PTY (ISSUED_ONCE|RUNNING|START_FAILED|START_UNKNOWN)\b/.test(line));
+    const received = receipts.includes("HUHU_PTY ISSUED_ONCE");
+    const running = receipts.includes("HUHU_PTY RUNNING");
+    const startupFailed = name === "create-failed";
+    assert.deepEqual(receipts, positive ? ["HUHU_PTY ISSUED_ONCE", "HUHU_PTY RUNNING"] : startupFailed ? ["HUHU_PTY ISSUED_ONCE", "HUHU_PTY START_FAILED 70"] : []);
     observed.brokerCode = brokerCode;
     observed.coreExit = finished.exit_code;
     observed.consumed = received;
+    observed.running = running;
     observed.pipeGone = await pipeGone(id);
     assert.ok(observed.pipeGone);
     if (name === "pin-held") {
@@ -337,6 +348,11 @@ async function scenario(c, name) {
         assert.ok(wire().includes("[REDACTED]") && (await screen()).includes("[REDACTED]") && !rendered.includes("INTERLEAVED_PUBLIC_EVENT"));
         observed.interleavedRedaction = true;
       }
+    } else if (startupFailed) {
+      assert.equal(brokerCode, 70);
+      assert.equal(finished.exit_code, 70);
+      assert.ok(!exitMarker && !rendered.includes("ENTRY exact=") && !rendered.includes("HUHU_PTY RUNNING"));
+      observed.startupFailedAfterConsumption = true;
     } else {
       assert.ok(!exitMarker && !rendered.includes("UNAPPROVED_EXECUTED") && !rendered.includes("ENTRY exact="));
       assert.ok([73, 74, 75].includes(brokerCode) && [73, 74, 75].includes(finished.exit_code), "wrapper refused with the expected statuses");
@@ -376,6 +392,7 @@ async function main() {
       "wrong-installation",
       "changed-entry",
       "changed-image",
+      "create-failed",
       "changed-directory",
       "changed-ancestor",
       "bad-argv",

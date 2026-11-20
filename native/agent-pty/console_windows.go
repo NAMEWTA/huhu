@@ -123,14 +123,31 @@ func (c *pseudoConsole) followSize(out windows.Handle, size windows.Coord, stop 
 	}
 }
 
-func host(id string, issuer processID, self *pinnedFile, deadline time.Time) (int, error) {
+func host(id string, issuer processID, self *pinnedFile, deadline time.Time) (status int, err error) {
 	approval, err := consume(id, issuer, self, deadline)
 	if err != nil {
 		return 0, err
 	}
 	defer approval.locks.close()
 	defer clear(approval.block)
-	code, err := runInner(approval.spec, approval.image, approval.block, approval.protected)
+	defer approval.receipt.close()
+	started := false
+	defer func() {
+		if !started {
+			code := byte(hostFailure)
+			if errors.Is(err, errPin) {
+				code = pinDenied
+			}
+			_ = approval.receipt.writeAll([]byte{failedByte, code})
+		}
+	}()
+	code, err := runInner(approval.spec, approval.image, approval.block, approval.protected, func() {
+		started = true
+		// Losing the private reply does not undo a successful resume. The
+		// Engine can still reconcile its original request.
+		_ = approval.receipt.writeAll([]byte{runningByte, 0})
+		approval.receipt.close()
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -138,7 +155,7 @@ func host(id string, issuer processID, self *pinnedFile, deadline time.Time) (in
 	return int(code), nil
 }
 
-func runInner(spec launchSpec, image *pinnedFile, block []uint16, protected []string) (code uint32, err error) {
+func runInner(spec launchSpec, image *pinnedFile, block []uint16, protected []string, onRunning func()) (code uint32, err error) {
 	in := windows.Handle(os.Stdin.Fd())
 	out := windows.Handle(os.Stdout.Fd())
 	var oldIn, oldOut uint32
@@ -224,10 +241,15 @@ func runInner(spec launchSpec, image *pinnedFile, block []uint16, protected []st
 	if err := windows.DuplicateHandle(current, child.Process, current, &waitHandle, windows.SYNCHRONIZE, false, 0); err != nil {
 		return 0, err
 	}
-	if _, err := windows.ResumeThread(child.Thread); err != nil {
+	previous, err := windows.ResumeThread(child.Thread)
+	if err != nil || previous != 1 {
 		windows.CloseHandle(waitHandle)
+		if err == nil {
+			err = errors.New("unexpected child suspend count")
+		}
 		return 0, err
 	}
+	onRunning()
 	stopResize := make(chan struct{})
 	resizeDone := make(chan struct{})
 	go c.followSize(out, size, stopResize, resizeDone)

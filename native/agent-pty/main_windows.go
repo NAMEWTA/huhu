@@ -40,6 +40,7 @@ func safeMain(args []string) (status int) {
 		}
 	}()
 	code, err := run(args)
+	var failed startupFailure
 	switch {
 	case err == nil:
 		return code
@@ -55,6 +56,8 @@ func safeMain(args []string) (status int) {
 	case errors.Is(err, errTimeout):
 		fmt.Fprintln(os.Stderr, "HUHU_PTY TIMEOUT")
 		return timedOut
+	case errors.As(err, &failed):
+		return int(failed.code)
 	default:
 		fmt.Fprintln(os.Stderr, "HUHU_PTY FAILED")
 		return hostFailure

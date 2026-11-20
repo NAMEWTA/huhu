@@ -27,6 +27,8 @@ const (
 	protocol         = 1
 	maxAuthorization = 1024 * 1024
 	acceptedByte     = byte('A')
+	runningByte      = byte('R')
+	failedByte       = byte('F')
 )
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
@@ -234,22 +236,52 @@ func broker(id string, self *pinnedFile, deadline time.Time) error {
 	if err := p.writeAll(raw); err != nil {
 		return err
 	}
-	var ack [1]byte
-	if _, err := io.ReadFull(p, ack[:]); err != nil {
+	// Only the verified pipe can advance the broker's private Engine receipt.
+	return relayReceipts(p, func() error { return p.writeAll([]byte{acceptedByte}) }, os.Stdout)
+}
+
+type startupFailure struct{ code byte }
+
+func (startupFailure) Error() string { return "verified child startup failed" }
+
+func relayReceipts(pipe io.Reader, acknowledge func() error, output io.Writer) error {
+	var consumed [1]byte
+	if _, err := io.ReadFull(pipe, consumed[:]); err != nil {
 		if errors.Is(err, io.EOF) {
 			return errPeer
 		}
 		return err
 	}
-	if ack[0] != acceptedByte {
+	if consumed[0] != acceptedByte {
 		return errPeer
 	}
-	p.close()
-	fmt.Println("HUHU_PTY ISSUED_ONCE")
-	return nil
+	if _, err := fmt.Fprintln(output, "HUHU_PTY ISSUED_ONCE"); err != nil {
+		return err
+	}
+	var outcome [2]byte
+	err := acknowledge()
+	if err == nil {
+		_, err = io.ReadFull(pipe, outcome[:])
+	}
+	if err == nil {
+		switch outcome {
+		case [2]byte{runningByte, 0}:
+			_, err = fmt.Fprintln(output, "HUHU_PTY RUNNING")
+			return err
+		case [2]byte{failedByte, hostFailure}, [2]byte{failedByte, pinDenied}:
+			if _, err := fmt.Fprintf(output, "HUHU_PTY START_FAILED %d\n", outcome[1]); err != nil {
+				return err
+			}
+			return startupFailure{outcome[1]}
+		}
+		err = errors.New("invalid startup receipt")
+	}
+	fmt.Fprintln(output, "HUHU_PTY START_UNKNOWN")
+	return err
 }
 
 type launchApproval struct {
+	receipt   *channel
 	locks     *pins
 	spec      launchSpec
 	image     *pinnedFile
@@ -262,7 +294,12 @@ func consume(id string, issuer processID, self *pinnedFile, deadline time.Time) 
 	if err != nil {
 		return nil, err
 	}
-	defer p.close()
+	approved := false
+	defer func() {
+		if !approved {
+			p.close()
+		}
+	}()
 	var pid uint32
 	if windows.GetNamedPipeServerProcessId(p.handle, &pid) != nil {
 		return nil, errPeer
@@ -315,11 +352,9 @@ func consume(id string, issuer processID, self *pinnedFile, deadline time.Time) 
 		err = p.writeAll([]byte{acceptedByte})
 	}
 	if err == nil {
-		var extra [1]byte
-		if n, end := p.Read(extra[:]); n != 0 || end == nil {
+		var ack [1]byte
+		if _, err = io.ReadFull(p, ack[:]); err == nil && ack[0] != acceptedByte {
 			err = errPeer
-		} else if !errors.Is(end, io.EOF) {
-			err = end
 		}
 	}
 	if err != nil {
@@ -328,7 +363,8 @@ func consume(id string, issuer processID, self *pinnedFile, deadline time.Time) 
 		return nil, err
 	}
 	auth.Launch.Environment = nil
-	return &launchApproval{locks, auth.Launch, image, block, protected}, nil
+	approved = true
+	return &launchApproval{p, locks, auth.Launch, image, block, protected}, nil
 }
 
 type channel struct {

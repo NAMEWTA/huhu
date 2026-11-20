@@ -1,15 +1,50 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestRelayReceipts(t *testing.T) {
+	const consumed = "HUHU_PTY ISSUED_ONCE\n"
+	tests := []struct {
+		name, input, output string
+		ackError            error
+		failureCode         byte
+		wantError           bool
+	}{
+		{name: "running", input: "AR\x00", output: consumed + "HUHU_PTY RUNNING\n"},
+		{name: "startup failure", input: "AF" + string(byte(hostFailure)), output: consumed + "HUHU_PTY START_FAILED 70\n", failureCode: hostFailure, wantError: true},
+		{name: "lost reply", input: "A", output: consumed + "HUHU_PTY START_UNKNOWN\n", wantError: true},
+		{name: "unconfirmed consumption", input: "A", output: consumed + "HUHU_PTY START_UNKNOWN\n", ackError: io.ErrClosedPipe, wantError: true},
+		{name: "untrusted status", input: "AF\xff", output: consumed + "HUHU_PTY START_UNKNOWN\n", wantError: true},
+		{name: "no consumption", input: "R\x00", wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			err := relayReceipts(strings.NewReader(test.input), func() error {
+				if output.String() != consumed {
+					t.Fatal("broker acknowledged before reporting consumption")
+				}
+				return test.ackError
+			}, &output)
+			var failure startupFailure
+			if output.String() != test.output || (err != nil) != test.wantError ||
+				errors.As(err, &failure) != (test.failureCode != 0) || failure.code != test.failureCode {
+				t.Fatalf("unexpected receipt result: %q, %v", output.String(), err)
+			}
+		})
+	}
+}
 
 func TestApprovedEnvironment(t *testing.T) {
 	spec := launchSpec{
