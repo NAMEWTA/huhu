@@ -2,6 +2,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import { createContext, use, useEffect, useState } from 'react';
 import * as Y from 'yjs';
 import { useCollabUrl } from '@/lib/use-collab-url';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { isConfigDoc, isSystemDoc } from '../is-system-doc';
 
 interface LiveDocSubscriber {
@@ -149,13 +150,59 @@ function refusedLiveDocTextStatus(
   }
 }
 
+export interface LocalReferenceHost {
+  subscribe(docName: string, refresh: () => void): () => void;
+  readPdf(path: string, signal: AbortSignal): Promise<Blob>;
+}
+export const LocalReferenceContext = createContext<LocalReferenceHost | null>(null);
+
+export function useLocalReferenceText(docName: string | null, retryToken = 0): LiveDocTextStatus | null {
+  const host = use(LocalReferenceContext);
+  const request = useOkFetch();
+  const [result, setResult] = useState<{ host: LocalReferenceHost; docName: string; status: LiveDocTextStatus } | null>(null);
+  useEffect(() => {
+    if (!host || !docName) return;
+    let active: AbortController | undefined;
+    const deliver = (status: LiveDocTextStatus) => setResult({ host, docName, status });
+    const refresh = () => {
+      active?.abort();
+      const controller = new AbortController();
+      active = controller;
+      const query = new URLSearchParams({ doc: docName });
+      void (async () => {
+        try {
+          const response = await request(`/api/reference-text?${query}`, {
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(LIVE_DOC_SYNC_WATCHDOG_MS)]),
+          });
+          if (!response.ok) throw new Error('Reference is unavailable');
+          const { text } = await response.json() as { text: string };
+          if (!controller.signal.aborted) deliver(text ? { kind: 'ready', text } : { kind: 'empty' });
+        } catch {
+          if (!controller.signal.aborted) deliver({ kind: 'unreachable' });
+        }
+      })();
+    };
+    const unsubscribe = host.subscribe(docName, refresh);
+    refresh();
+    return () => {
+      unsubscribe();
+      active?.abort();
+    };
+  }, [host, docName, retryToken, request]);
+  if (!host) return null;
+  if (!docName) return { kind: 'unreachable' };
+  return result?.host === host && result.docName === docName ? result.status : { kind: 'loading' };
+}
+
 export function useLiveDocText(docName: string | null, retryToken = 0): LiveDocTextStatus {
-  const { collabUrl } = useCollabUrl();
+  const local = useLocalReferenceText(docName, retryToken);
+  const isLocal = local !== null;
+  const { collabUrl } = useCollabUrl(!isLocal);
   const acquireLiveDoc = useLiveDocAcquirer();
   const [status, setStatus] = useState<LiveDocTextStatus>({ kind: 'loading' });
 
   useEffect(() => {
-    void retryToken;
+    if (isLocal) return;
     if (!docName) {
       setStatus({ kind: 'unreachable' });
       return;
@@ -226,7 +273,7 @@ export function useLiveDocText(docName: string | null, retryToken = 0): LiveDocT
       clearTimeout(watchdog);
       releaseOnce();
     };
-  }, [collabUrl, docName, retryToken, acquireLiveDoc]);
+  }, [collabUrl, docName, retryToken, acquireLiveDoc, isLocal]);
 
-  return status;
+  return local ?? status;
 }

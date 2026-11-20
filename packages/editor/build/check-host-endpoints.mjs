@@ -10,7 +10,7 @@ const normalized = (path) => relative(root, path).replaceAll("\\", "/");
 const api = new Map();
 const desktop = new Map();
 const routes = new Map();
-const routeMethods = new Map();
+
 
 function record(map, key, entry) {
   if (!map.has(key)) map.set(key, []);
@@ -27,8 +27,7 @@ for (const file of hostRouteFiles) {
   for (const [line, source] of readFileSync(file, "utf8").split("\n").entries()) {
     const route = /"(([A-Z]+) (\/api\/[\w./-]+))"\s*:/.exec(source);
     if (route) {
-      record(routes, route[1], `${route[1]} → ${normalized(file)}:${line + 1}`);
-      record(routeMethods, route[3], route[2]);
+      record(routes, route[1], { file: normalized(file), line: line + 1 });
     }
   }
 }
@@ -37,45 +36,74 @@ function memberChain(node) {
   return ts.isPropertyAccessExpression(node) ? [...memberChain(node.expression), node.name.text] : ts.isIdentifier(node) ? [node.text] : [];
 }
 
-// A literal URL in a query builder may not be a fetch call. Only assign a
-// method when it is the direct URL argument and its RequestInit is inspectable.
-function requestMethod(argument, parent) {
-  if (!ts.isCallExpression(parent) || parent.arguments[0] !== argument) return null;
-  const init = parent.arguments[1];
-  if (!init) return parent.arguments.length === 1 ? "GET" : null;
-  if (!ts.isObjectLiteralExpression(init)) return null;
-  const method = init.properties.find((p) => ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && p.name.text === "method");
-  if (!method) return init.properties.some(ts.isSpreadAssignment) ? null : "GET";
-  return ts.isStringLiteral(method.initializer) ? method.initializer.text.toUpperCase() : null;
+const chunks = readdirSync(assets).filter((entry) => entry.endsWith(".js")).map((entry) => join(assets, entry));
+const program = ts.createProgram(chunks, { allowJs: true, noResolve: true, noLib: true, types: [] });
+const checker = program.getTypeChecker();
+const apiPath = (node) => /^\/api\/[\w./-]+/.exec(node.text)?.[0];
+
+function initializer(node) {
+  if (!ts.isIdentifier(node)) return undefined;
+  const declaration = checker.getSymbolAtLocation(node)?.valueDeclaration;
+  return declaration && ts.isVariableDeclaration(declaration) && declaration.parent.flags & ts.NodeFlags.Const ? declaration.initializer : undefined;
 }
 
-for (const entry of readdirSync(assets)) {
-  if (!entry.endsWith(".js")) continue;
-  const file = join(assets, entry);
-  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
-  function inspect(node, parent, grandparent) {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || node.kind === ts.SyntaxKind.TemplateHead) {
-      const path = /^\/api\/[\w./-]+/.exec(node.text)?.[0];
-      if (path) {
-        const argument = node.kind === ts.SyntaxKind.TemplateHead ? parent : node;
-        const call = argument === node ? parent : grandparent;
-        const method = call ? requestMethod(argument, call) : null;
-        record(api, path, { chunk: entry, offset: node.getStart(source), kind: method ? "call-argument" : "literal", method });
-      }
+function urlParts(node, resolved = new Set()) {
+  if (resolved.has(node)) return [];
+  resolved.add(node);
+  if (ts.isStringLiteralLike(node) || node.kind === ts.SyntaxKind.TemplateHead) return apiPath(node) ? [node] : [];
+  if (ts.isTemplateExpression(node)) return urlParts(node.head, resolved);
+  if (ts.isConditionalExpression(node)) return [...urlParts(node.whenTrue, resolved), ...urlParts(node.whenFalse, resolved)];
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) return urlParts(node.left, resolved);
+  const value = initializer(node);
+  return value ? urlParts(value, resolved) : [];
+}
+
+function requestMethod(init) {
+  if (!init || (ts.isIdentifier(init) && init.text === "undefined") || ts.isVoidExpression(init)) return "GET";
+  const object = ts.isObjectLiteralExpression(init) ? init : initializer(init);
+  if (!object || !ts.isObjectLiteralExpression(object)) return null;
+  for (const prop of object.properties.toReversed()) {
+    if (ts.isSpreadAssignment(prop)) return null;
+    if (ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) && prop.name.text === "method") {
+      return ts.isStringLiteral(prop.initializer) ? prop.initializer.text.toUpperCase() : null;
     }
-    if (ts.isPropertyAccessExpression(node) && !(ts.isPropertyAccessExpression(parent) && parent.expression === node)) {
+  }
+  return "GET";
+}
+
+for (const file of chunks) {
+  const entry = relative(assets, file);
+  const source = program.getSourceFile(file);
+  const literalNodes = new Set();
+  const usedLiterals = new Set();
+  function inspect(node) {
+    if ((ts.isStringLiteralLike(node) || node.kind === ts.SyntaxKind.TemplateHead) && apiPath(node)) literalNodes.add(node);
+    if (ts.isCallExpression(node) && node.arguments[0]) {
+      const parts = urlParts(node.arguments[0]);
+      const method = requestMethod(node.arguments[1]);
+      const callee = node.expression.getText(source);
+      const paths = new Set();
+      for (const part of parts) {
+        usedLiterals.add(part);
+        paths.add(apiPath(part));
+      }
+      for (const path of paths) record(api, path, { chunk: entry, offset: node.getStart(source), kind: "call", callee, method });
+    }
+    if (ts.isPropertyAccessExpression(node) && !(ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node)) {
       const chain = memberChain(node).join(".");
       if (chain.startsWith("window.okDesktop.")) record(desktop, chain.slice("window.okDesktop.".length), { chunk: entry, offset: node.getStart(source) });
     }
-    ts.forEachChild(node, (child) => inspect(child, node, parent));
+    ts.forEachChild(node, inspect);
   }
-  ts.forEachChild(source, (node) => inspect(node, source));
+  ts.forEachChild(source, inspect);
+  for (const literal of literalNodes) {
+    if (!usedLiterals.has(literal)) record(api, apiPath(literal), { chunk: entry, offset: literal.getStart(source), kind: "literal" });
+  }
 }
 
 const excludedApi = new Map([
   ["/api/v1/call", "Engine HTTP transport, outside OK hostFetch"],
   ["/api/agent-integrations/apply", "Q2 上游 Agent 集成"],
-  ["/api/config", "上游协作和单文件配置入口（Q2/Q10）。Huhu 提供 HostConfigProvider，工作台未挂上游 SingleFileModeProvider"],
   ["/api/audit", "Q2 服务端审计"],
   ["/api/handoff", "Q2 上游 Agent handoff"],
   ["/api/install-skill", "Q2 上游 Agent 安装"],
@@ -104,17 +132,23 @@ if (["preload/index.cjs", "main/index.js"].every((entry) => readFileSync(join(de
 }
 const rows = [];
 for (const [path, calls] of [...api].sort(([a], [b]) => a.localeCompare(b))) {
-  const knownMethods = new Set(routeMethods.get(path));
-  const methods = [...new Set(calls.flatMap((call) => (call.method ? [call.method] : [])))].sort();
-  const unmatchedMethods = methods.filter((method) => !knownMethods.has(method));
-  const matches = [...knownMethods].flatMap((method) => routes.get(`${method} ${path}`) ?? []);
   if (path === "/api/local-emoji" && offlineEmojiAssetPaths.every((asset) => existsSync(join(assets, "..", asset.slice(1))))) {
     rows.push({ kind: "api", path, state: "static-assets", evidence: offlineEmojiAssetPaths, calls });
     continue;
   }
   const reason = excludedApi.get(path);
-  const state = reason ? "excluded" : !matches.length || unmatchedMethods.length ? "unresolved" : methods.length ? "handler-method" : "handler-path";
-  rows.push({ kind: "api", path, methods, unmatchedMethods: reason ? [] : unmatchedMethods, state, evidence: reason ?? (matches.length ? matches : null), calls });
+  const resolved = calls.map((call) => {
+    if (call.kind !== "call") return call;
+    const signature = call.method ? `${call.method} ${path}` : null;
+    const handlers = signature ? routes.get(signature) ?? [] : [];
+    return { ...call, signature, handlers };
+  });
+  const executable = resolved.filter((call) => call.kind === "call");
+  const methods = [...new Set(executable.flatMap((call) => (call.method ? [call.method] : [])))].sort();
+  const unknown = executable.filter((call) => !call.handlers.length);
+  const state = reason ? "excluded" : unknown.length ? "unresolved" : methods.length ? "handler-method" : "literal-only";
+  rows.push({ kind: "api", path, methods, state, ...(reason ? { evidence: reason } : {}), calls: resolved });
+
 }
 for (const [path, calls] of [...desktop].sort(([a], [b]) => a.localeCompare(b))) {
   const reason = bridge.get(path);
@@ -123,6 +157,6 @@ for (const [path, calls] of [...desktop].sort(([a], [b]) => a.localeCompare(b)))
 if (!api.size || !desktop.size) throw new Error("桌面产物未包含 OK 宿主调用");
 const evidence = join(root, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/desktop-host-endpoints.json");
 writeFileSync(evidence, JSON.stringify({ renderer: "Electron production", rows }, null, 2) + "\n");
-const unresolved = rows.filter(({ state }) => state === "unresolved").map(({ path, unmatchedMethods }) => (unmatchedMethods?.length ? `${unmatchedMethods.join("/")} ${path}` : path));
+const unresolved = rows.filter(({ state }) => state === "unresolved").map(({ path }) => path);
 console.log(`${rows.length} 个宿主签名，${unresolved.length} 个待处理：${unresolved.join(", ")}`);
 if (process.argv.includes("--assert") && unresolved.length) process.exitCode = 1;

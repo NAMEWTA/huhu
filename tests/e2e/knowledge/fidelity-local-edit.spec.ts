@@ -92,3 +92,44 @@ test("H07：首次与后续富文本单字替换只改变目标字节，关闭�
     await close();
   }
 });
+
+test("H07：源码删除混合换行后保存，撤销和重做逐字节往返", async () => {
+  const name = "混合换行.md";
+  const originalBytes = Buffer.from("A\r\nB\nC\r\n");
+  const editedBytes = Buffer.from("A\r\nBC\r\n");
+  const { page, vault, close } = await openApp({}, (dir) => writeFileSync(path.join(dir, name), originalBytes));
+  const file = path.join(vault, name);
+  const disk = () => readFileSync(file).toString("hex");
+  const mode = () => page.getByRole("tab", { name: "源码", exact: true });
+  const source = page.getByTestId("markdown-editor").locator(".cm-content").first();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "知识库" }).first().click();
+    await treeItem(page, name).click();
+    await mode().click();
+    await source.getByText("B", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Delete");
+    await expect(source.locator(".cm-line").nth(1)).toHaveText("BC");
+    await expect.poll(disk).toBe(editedBytes.toString("hex"));
+    for (const [chord, expected, row] of [
+      ["ControlOrMeta+z", originalBytes, "B"],
+      ["ControlOrMeta+Shift+z", editedBytes, "BC"],
+      ["ControlOrMeta+z", originalBytes, "B"],
+    ] as const) {
+      await page.keyboard.press(chord);
+      await expect(source.locator(".cm-line").nth(1)).toHaveText(row);
+      await expect.poll(disk).toBe(expected.toString("hex"));
+      expect(readFileSync(file)).toEqual(expected);
+    }
+    await page.getByRole("button", { name: "关闭 混合换行", exact: true }).click();
+    await expect(source).toHaveCount(0);
+    await treeItem(page, name).click();
+    await mode().click();
+    await expect(source.locator(".cm-line").nth(1)).toHaveText("B");
+    await expect(source.locator(".cm-line").nth(2)).toHaveText("C");
+    expect(readFileSync(file)).toEqual(originalBytes);
+  } finally {
+    await close();
+  }
+});

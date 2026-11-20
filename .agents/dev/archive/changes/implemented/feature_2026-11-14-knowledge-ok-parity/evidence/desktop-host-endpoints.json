@@ -7,15 +7,17 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游 Agent 集成",
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 463887,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 463879,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": "POST",
+          "signature": "POST /api/agent-integrations/apply",
+          "handlers": []
         }
       ]
     },
@@ -23,15 +25,17 @@
       "kind": "api",
       "path": "/api/audit",
       "methods": [],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 服务端审计",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2134227,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2148649,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": null,
+          "signature": null,
+          "handlers": []
         }
       ]
     },
@@ -41,17 +45,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/backlink-counts → packages/editor/src/host/routes/core.ts:95"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 275155,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1373149,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/backlink-counts",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 95
+            }
+          ]
         }
       ]
     },
@@ -61,17 +69,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/backlinks → packages/editor/src/host/routes/core.ts:105"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2670268,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2684690,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/backlinks",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 105
+            }
+          ]
         }
       ]
     },
@@ -82,24 +94,35 @@
         "DELETE",
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/comment → packages/editor/src/host/routes/comments.ts:165",
-        "DELETE /api/comment → packages/editor/src/host/routes/comments.ts:194"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 239824,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 239887,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/comment",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 165
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 242007,
-          "kind": "call-argument",
-          "method": "DELETE"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 242070,
+          "kind": "call",
+          "callee": "request",
+          "method": "DELETE",
+          "signature": "DELETE /api/comment",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 194
+            }
+          ]
         }
       ]
     },
@@ -107,32 +130,38 @@
       "kind": "api",
       "path": "/api/comments",
       "methods": [
+        "GET",
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/comments → packages/editor/src/host/routes/comments.ts:140",
-        "POST /api/comments → packages/editor/src/host/routes/comments.ts:145"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 240711,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 240753,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/comments",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 140
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 240729,
-          "kind": "literal",
-          "method": null
-        },
-        {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 240886,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 240949,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/comments",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 145
+            }
+          ]
         }
       ]
     },
@@ -142,15 +171,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
-      "state": "excluded",
-      "evidence": "上游协作和单文件配置入口（Q2/Q10）。Huhu 提供 HostConfigProvider，工作台未挂上游 SingleFileModeProvider",
+      "state": "handler-method",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 1751570,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1353339,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/config",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 14
+            }
+          ]
         }
       ]
     },
@@ -160,17 +195,21 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/create-folder → packages/editor/src/host/routes/files.ts:226"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 662617,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 662609,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-folder",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 226
+            }
+          ]
         }
       ]
     },
@@ -180,30 +219,61 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/create-page → packages/editor/src/host/routes/files.ts:219",
-        "POST /api/create-page → plugins/notes/src/ui/documents/NoteEditorSurface.tsx:95"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 528631,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 528623,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-page",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 219
+            },
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 139
+            }
+          ]
         },
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 661237,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 661229,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-page",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 219
+            },
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 139
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2137065,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2151487,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-page",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 219
+            },
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 139
+            }
+          ]
         }
       ]
     },
@@ -213,23 +283,35 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/delete-path → packages/editor/src/host/routes/files.ts:181"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 642985,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 642977,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/delete-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 181
+            }
+          ]
         },
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 680784,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 680776,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/delete-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 181
+            }
+          ]
         }
       ]
     },
@@ -239,17 +321,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/document → packages/editor/src/host/routes/core.ts:89"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 274878,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1372872,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/document",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 89
+            }
+          ]
         }
       ]
     },
@@ -259,37 +345,44 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/documents → packages/editor/src/host/host-fetch.ts:15",
-        "GET /api/documents → packages/editor/src/host/routes/core.ts:117",
-        "GET /api/documents → packages/editor/src/host/routes/files.ts:146"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
+          "chunk": "explorer-B88WGGzZ.js",
           "offset": 591209,
-          "kind": "literal",
-          "method": null
+          "kind": "literal"
         },
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 685319,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 685311,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/documents",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 16
+            },
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 117
+            },
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 146
+            }
+          ]
         },
         {
-          "chunk": "host-fetch-DYDl36s-.js",
+          "chunk": "host-fetch-slN9AXHl.js",
           "offset": 693121,
-          "kind": "literal",
-          "method": null
+          "kind": "literal"
         },
         {
-          "chunk": "host-fetch-DYDl36s-.js",
+          "chunk": "host-fetch-slN9AXHl.js",
           "offset": 693267,
-          "kind": "literal",
-          "method": null
+          "kind": "literal"
         }
       ]
     },
@@ -299,17 +392,21 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/duplicate-path → packages/editor/src/host/routes/files.ts:176"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 639305,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 639297,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/duplicate-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 176
+            }
+          ]
         }
       ]
     },
@@ -319,17 +416,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/folder-config → packages/editor/src/host/routes/files.ts:190"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 527332,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 527324,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/folder-config",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 190
+            }
+          ]
         }
       ]
     },
@@ -339,17 +440,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/forward-links → packages/editor/src/host/routes/core.ts:75"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2669677,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2684099,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/forward-links",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 75
+            }
+          ]
         }
       ]
     },
@@ -359,15 +464,17 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游 Agent handoff",
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 2280045,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 2280333,
+          "kind": "call",
+          "callee": "fetchImpl",
+          "method": "POST",
+          "signature": "POST /api/handoff",
+          "handlers": []
         }
       ]
     },
@@ -377,15 +484,17 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 OpenWithAi 路由",
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 570376,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 570365,
+          "kind": "call",
+          "callee": "deps.fetch",
+          "method": "GET",
+          "signature": "GET /api/installed-agents",
+          "handlers": []
         }
       ]
     },
@@ -395,17 +504,21 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/link-preview → packages/editor/src/host/config-provider.tsx:18"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 3982121,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 3988441,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/link-preview",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/config-provider.tsx",
+              "line": 18
+            }
+          ]
         }
       ]
     },
@@ -415,15 +528,17 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游 lint",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 1789411,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1803833,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": "GET",
+          "signature": "GET /api/lint/config",
+          "handlers": []
         }
       ]
     },
@@ -439,10 +554,9 @@
       ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 1474914,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1490389,
+          "kind": "literal"
         }
       ]
     },
@@ -452,23 +566,26 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/page-headings → packages/editor/src/host/routes/core.ts:63"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2668927,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2683349,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/page-headings",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 63
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2669293,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2683723,
+          "kind": "literal"
         }
       ]
     },
@@ -478,36 +595,77 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/pages → packages/editor/src/host/host-fetch.ts:14",
-        "GET /api/pages → packages/editor/src/host/routes/core.ts:115"
-      ],
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 692693,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 692685,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/pages",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 15
+            },
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 115
+            }
+          ]
         },
         {
-          "chunk": "host-fetch-DYDl36s-.js",
+          "chunk": "host-fetch-slN9AXHl.js",
           "offset": 692812,
-          "kind": "literal",
-          "method": null
+          "kind": "literal"
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2666696,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2681118,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/pages",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 15
+            },
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 115
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2667007,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2681437,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/reference-text",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1362233,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/reference-text",
+          "handlers": [
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 123
+            }
+          ]
         }
       ]
     },
@@ -517,23 +675,35 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/rename-path → packages/editor/src/host/routes/files.ts:163"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 651818,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 651810,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/rename-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 163
+            }
+          ]
         },
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 655654,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 655646,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/rename-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 163
+            }
+          ]
         }
       ]
     },
@@ -541,15 +711,13 @@
       "kind": "api",
       "path": "/api/share/construct-url",
       "methods": [],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游分享",
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
+          "chunk": "explorer-B88WGGzZ.js",
           "offset": 565841,
-          "kind": "literal",
-          "method": null
+          "kind": "literal"
         }
       ]
     },
@@ -557,15 +725,13 @@
       "kind": "api",
       "path": "/api/skill/install-state",
       "methods": [],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游 Agent 安装",
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 2276749,
-          "kind": "literal",
-          "method": null
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 2277047,
+          "kind": "literal"
         }
       ]
     },
@@ -573,21 +739,17 @@
       "kind": "api",
       "path": "/api/skills",
       "methods": [],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游 Agent skill",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2741139,
-          "kind": "literal",
-          "method": null
-        },
-        {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2741170,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2755553,
+          "kind": "call",
+          "callee": "getJson",
+          "method": null,
+          "signature": null,
+          "handlers": []
         }
       ]
     },
@@ -595,15 +757,17 @@
       "kind": "api",
       "path": "/api/skills/resolve-ref",
       "methods": [],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 上游 Agent skill",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2741532,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2755954,
+          "kind": "call",
+          "callee": "getJson",
+          "method": null,
+          "signature": null,
+          "handlers": []
         }
       ]
     },
@@ -613,15 +777,17 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "excluded",
       "evidence": "Q2 云同步",
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 561392,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 561384,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": "GET",
+          "signature": "GET /api/sync/status",
+          "handlers": []
         }
       ]
     },
@@ -631,17 +797,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/tag-documents → packages/editor/src/host/routes/core.ts:49"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 1480702,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1496169,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/tag-documents",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 49
+            }
+          ]
         }
       ]
     },
@@ -651,23 +821,26 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/tags → packages/editor/src/host/routes/core.ts:41"
-      ],
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 4155055,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 4161375,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/tags",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 41
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 4155097,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 4161425,
+          "kind": "literal"
         }
       ]
     },
@@ -677,17 +850,21 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/template/import → packages/editor/src/host/routes/files.ts:208"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 563959,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 563951,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/template/import",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 208
+            }
+          ]
         }
       ]
     },
@@ -697,17 +874,21 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/trash/cleanup → packages/editor/src/host/routes/files.ts:187"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 682835,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 682827,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/trash/cleanup",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 187
+            }
+          ]
         }
       ]
     },
@@ -717,30 +898,48 @@
       "methods": [
         "POST"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "POST /api/upload → packages/editor/src/host/routes/files.ts:225",
-        "POST /api/upload → packages/editor/src/host/routes/upload.ts:40"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 657725,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 657717,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/upload",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 225
+            },
+            {
+              "file": "packages/editor/src/host/routes/upload.ts",
+              "line": 40
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 1749257,
-          "kind": "literal",
-          "method": null
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 3277338,
+          "kind": "call",
+          "callee": "editorFetch(editor)",
+          "method": "POST",
+          "signature": "POST /api/upload",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 225
+            },
+            {
+              "file": "packages/editor/src/host/routes/upload.ts",
+              "line": 40
+            }
+          ]
         },
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 3271030,
-          "kind": "call-argument",
-          "method": "POST"
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1764732,
+          "kind": "literal"
         }
       ]
     },
@@ -750,17 +949,21 @@
       "methods": [
         "GET"
       ],
-      "unmatchedMethods": [],
       "state": "handler-method",
-      "evidence": [
-        "GET /api/workspace → packages/editor/src/host/routes/files.ts:159"
-      ],
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
-          "offset": 645051,
-          "kind": "call-argument",
-          "method": "GET"
+          "chunk": "explorer-B88WGGzZ.js",
+          "offset": 645043,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/workspace",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 159
+            }
+          ]
         }
       ]
     },
@@ -771,8 +974,8 @@
       "evidence": "上游 cowork 安装记录（Q2），读取失败回退 unknown",
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 2279102
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 2279400
         }
       ]
     },
@@ -783,7 +986,7 @@
       "evidence": "desktop-bridge.ts，Q2 不提供上游 CLI 命令",
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
+          "chunk": "explorer-B88WGGzZ.js",
           "offset": 547777
         }
       ]
@@ -795,8 +998,8 @@
       "evidence": "app/src/lib/copy-image.ts 使用 navigator.clipboard.write 回退",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 2695565
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 2709995
         }
       ]
     },
@@ -807,8 +1010,8 @@
       "evidence": "Q10 不启用 OK 独立笔记窗口，undefined 与默认工作台模式对齐",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 238556
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 238627
         }
       ]
     },
@@ -819,7 +1022,7 @@
       "evidence": "desktop-bridge.ts，Q2 不提供上游 MCP 服务名",
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
+          "chunk": "host-fetch-slN9AXHl.js",
           "offset": 321062
         }
       ]
@@ -831,8 +1034,8 @@
       "evidence": "Q2/Q10 不启用 OK 独立笔记窗口",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 238855
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 238926
         }
       ]
     },
@@ -843,15 +1046,15 @@
       "evidence": "desktop-bridge.ts 根据宿主 navigator.platform 映射",
       "calls": [
         {
-          "chunk": "explorer-D3w9okaH.js",
+          "chunk": "explorer-B88WGGzZ.js",
           "offset": 552558
         },
         {
-          "chunk": "explorer-D3w9okaH.js",
+          "chunk": "explorer-B88WGGzZ.js",
           "offset": 684021
         },
         {
-          "chunk": "explorer-D3w9okaH.js",
+          "chunk": "explorer-B88WGGzZ.js",
           "offset": 701888
         }
       ]
@@ -863,8 +1066,8 @@
       "evidence": "desktop-bridge.ts → window.huhuHost.openExternal → 构建中已接线的主进程 HTTP(S) 确认",
       "calls": [
         {
-          "chunk": "rich-Br6f_fJw.js",
-          "offset": 1683818
+          "chunk": "rich-DoAFLUnR.js",
+          "offset": 1699293
         }
       ]
     },
@@ -875,8 +1078,8 @@
       "evidence": "Q2 上游 Agent skill",
       "calls": [
         {
-          "chunk": "host-fetch-DYDl36s-.js",
-          "offset": 2276392
+          "chunk": "host-fetch-slN9AXHl.js",
+          "offset": 2276690
         }
       ]
     }
