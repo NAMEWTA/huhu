@@ -123,6 +123,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
   registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
+  registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
@@ -212,6 +213,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         notify: (n) => void notifications.create(n),
         ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
         ...(moduleCredentialHost && {
+          credentialHost: { ...moduleCredentialHost, vault },
           codexDispatch: {
             root: path.join(path.dirname(moduleCredentialHost.localRoot), "agent-cli", "codex-dispatch", moduleCredentialHost.localVaultInstanceId),
             helper: process.env["HUHU_CODEX_DISPATCH_HELPER"],

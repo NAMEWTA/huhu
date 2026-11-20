@@ -83,3 +83,67 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Windows 模
     }
   }
 });
+
+test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启动环境的受保护变量随本机保存，ZIP 只保留配置", async () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-agent-environment-"));
+  const vaultPath = path.join(fixture, "vault");
+  const desktopUserData = path.join(fixture, "app-data");
+  const archive = path.join(fixture, "profiles.zip");
+  const restoredPath = path.join(fixture, "restored");
+  const protectedValue = `synthetic-agent-value-${randomUUID()}`;
+  const variable = "FIXTURE_PROTECTED";
+  const publicFields = { name: "测试环境", provider: "codex", ordinary: [{ name: "FIXTURE_ORDINARY", value: "portable-fixture" }], protectedNames: [variable] };
+  const prefix = "agent.launch.environments";
+  const identity = z.object({ id: z.uuidv4(), revision: z.uuidv4() });
+  let source: RunningEngine | undefined;
+  let restored: RunningEngine | undefined;
+  const call = (engine: RunningEngine, capability: string, input: unknown = {}, caller: Parameters<RunningEngine["dispatcher"]["call"]>[0] = "desktop") =>
+    engine.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+  const data = async (...args: Parameters<typeof call>) => {
+    const outcome = await call(...args);
+    assert(outcome.ok);
+    return outcome.data;
+  };
+  try {
+    mkdirSync(vaultPath);
+    mkdirSync(desktopUserData);
+    source = await boot({ vaultPath, desktopUserData, create: true });
+    const input = { ...publicFields, expectedRevision: null, changes: [{ name: variable, action: "replace", value: protectedValue }] };
+    expect(await call(source, `${prefix}.save`, input, "cli")).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    expect(await call(source, `${prefix}.save`, input, "web:fixture")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    const record = await data(source, `${prefix}.save`, input);
+    const { id, revision } = identity.parse(record);
+    expect(record).toMatchObject({ ...publicFields, states: { [variable]: "configured" } });
+    expect(JSON.stringify(record).includes(protectedValue)).toBe(false);
+    await data(source, "safe.setup", { password: "fixture-only-agent-safe" });
+    await data(source, "safe.lock");
+    expect(await data(source, `${prefix}.list`)).toMatchObject({ profiles: [record] });
+    await data(source, "plugins.setEnabled", { id: "safe", enabled: false });
+    expect(await data(source, `${prefix}.list`)).toMatchObject({ profiles: [record] });
+
+    await exportPackage(vaultPath, archive);
+    const restoredEntries = Object.entries(unzipSync(readFileSync(archive)));
+    const bytes = restoredEntries.map(([, entry]) => entry);
+    expect(bytes.some((entry) => Buffer.from(entry).includes(protectedValue))).toBe(false);
+    expect(restoredEntries.some(([entryPath, entry]) => entryPath.startsWith(".huhu/module-credentials/") && Buffer.from(entry).includes("portable-fixture"))).toBe(true);
+    importPackage(archive, restoredPath, { regenerateId: true });
+    restored = await boot({ vaultPath: restoredPath, desktopUserData });
+    expect(await data(restored, `${prefix}.list`)).toMatchObject({ profiles: [{ id, revision, ...publicFields, states: { [variable]: "needs-reconfiguration" } }] });
+
+    const clear = { ...publicFields, id, expectedRevision: revision, protectedNames: [] };
+    expect(await call(source, `${prefix}.save`, { ...clear, changes: [] })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const cleared = await data(source, `${prefix}.save`, { ...clear, changes: [{ name: variable, action: "clear" }] });
+    expect(cleared).toMatchObject({ id, protectedNames: [], states: {} });
+    expect(await call(source, `${prefix}.save`, { ...clear, changes: [{ name: variable, action: "clear" }] })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  } finally {
+    try {
+      if (source) {
+        const list = z.object({ profiles: z.array(identity) }).parse(await data(source, `${prefix}.list`));
+        for (const { id, revision } of list.profiles) await data(source, `${prefix}.remove`, { id, expectedRevision: revision });
+      }
+    } finally {
+      await Promise.all([restored?.shutdown(), source?.shutdown()]);
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+    }
+  }
+});

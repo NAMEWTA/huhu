@@ -24,6 +24,7 @@ import { InputOwnership } from "./input-ownership.js";
 import type { AgentId } from "../shared/catalog.js";
 import { CodexDispatch, type CodexDispatchOptions } from "./codex-dispatch.js";
 import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.js";
+import { registerAgentEnvironments, type AgentCredentialHost } from "./launch-environment.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -35,6 +36,7 @@ export { SpaceStore } from "./spaces.js";
 export { AgentDispatchTargetInfoSchema, AgentDispatchResponseSchema } from "./dispatch-capabilities.js";
 export { DispatchInput as AgentDispatchInputSchema, DispatchTarget as AgentDispatchTargetSchema } from "./dispatch-store.js";
 export { NativeStop as AgentNativeStopInputSchema, NativeStopStatus as AgentNativeStopStatusSchema } from "./native-stop.js";
+export { agentEnvironmentDescriptors } from "./launch-environment.js";
 
 const SpaceDto = z.object({ id: z.string(), name: z.string(), root: z.string(), machineId: z.string(), createdAt: z.string(), revision: z.number() });
 
@@ -50,10 +52,12 @@ export interface AgentCliOptions {
   /** Engine-owned provider protocols. Omit a provider that cannot prove input acceptance. */
   dispatchProviders?: Partial<Record<AgentId, DispatchProvider>>;
   codexDispatch?: CodexDispatchOptions | undefined;
+  credentialHost?: AgentCredentialHost;
   receiptCheckMs?: number;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
+  registerAgentEnvironments(api, opts.credentialHost);
   const root = api.vault.files.root;
   const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId());
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
