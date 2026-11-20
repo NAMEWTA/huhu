@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import parcelWatcher from "@parcel/watcher";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { ReceiptLog, VaultFiles, VaultWatcher, type FileChange } from "../src/index.js";
 
 const dirs: string[] = [];
@@ -27,6 +28,30 @@ async function until(cond: () => boolean, ms = process.platform === "win32" ? 10
 }
 
 describe("目录变化（A05）", () => {
+  test("目录删除事件补报该目录内仍在快照中的文件删除", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
+    dirs.push(root);
+    const folder = path.join(root, "记录");
+    mkdirSync(folder);
+    writeFileSync(path.join(folder, "index.md"), "正文");
+    const received: FileChange[] = [];
+    const dirChanges: string[] = [];
+    const backend = vi.spyOn(parcelWatcher, "subscribe");
+    backend.mockResolvedValueOnce({ unsubscribe: async () => {} });
+    try {
+      const w = new VaultWatcher({ root, receipts: new ReceiptLog(), batchMs: 5, onChanges: (changes) => received.push(...changes), onDirChanges: (paths) => dirChanges.push(...paths) });
+      watchers.push(w);
+      await w.start();
+      const removed = realpathSync(folder);
+      rmSync(folder, { recursive: true });
+      backend.mock.calls[0]![1](null, [{ path: removed, type: "delete" }]);
+      await until(() => dirChanges.includes("记录"));
+      expect(dirChanges).toContain("记录");
+      expect(received).toEqual([{ path: "记录/index.md", change: "deleted" }]);
+    } finally {
+      backend.mockRestore();
+    }
+  });
   test("外部创建 / 删除空目录触发 onDirChanges，且不产生文件事件", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-wt-"));
     dirs.push(root);

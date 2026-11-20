@@ -520,6 +520,7 @@ test("F06：树、标签、引用、搜索与详情使用同一组本地图形",
     ];
     for (const { name, data } of fixtures) writeFileSync(path.join(vault, name), data);
     mkdirSync(path.join(vault, "图标目录"));
+    writeFileSync(path.join(vault, "图标目录", "成员.txt"), "让目录进入引用索引");
     await openKnowledge(page);
     const tree = page.getByTestId("notes-resource-tree");
     for (const { name, kind } of fixtures) {
@@ -553,9 +554,11 @@ test("F06：树、标签、引用、搜索与详情使用同一组本地图形",
     await page.keyboard.press("Enter");
     await page.keyboard.type("@图标");
     const options = page.getByTestId("editor-ref-menu").getByRole("option");
-    for (const { name, kind } of [...fixtures, { name: "图标目录/", kind: "folder" }]) {
+    for (const { name, kind } of fixtures) {
       await expect(options.filter({ hasText: name }).locator("[data-file-icon]")).toHaveAttribute("data-file-icon", kind);
     }
+    const folderOption = page.getByTestId("editor-ref-menu").getByRole("option", { name: "图标目录/ 文件夹", exact: true });
+    await expect(folderOption.locator("[data-file-icon]")).toHaveAttribute("data-file-icon", "folder");
     expect(requests).toEqual([]);
   } finally {
     await close();

@@ -107,7 +107,7 @@ export class VaultWatcher {
 
   private flush(immediate = false): void {
     if ((this.pending.size === 0 && this.heldCreated.length === 0) || this.closed) return;
-    const paths = [...this.pending];
+    const paths = new Set(this.pending);
     this.pending.clear();
     const now = Date.now();
     const created: { path: string; info: FileInfo }[] = [];
@@ -124,6 +124,11 @@ export class VaultWatcher {
           if (statSync(path.join(this.o.root, p)).isDirectory()) dirs.push(p);
         } catch {
           dirs.push(p);
+          // Some native backends report a removed directory without its file descendants.
+          const prefix = `${p}/`;
+          for (const tracked of this.snapshot.keys()) {
+            if (tracked.startsWith(prefix)) paths.add(tracked);
+          }
         }
         continue;
       }
