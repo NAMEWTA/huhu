@@ -21,7 +21,7 @@ export function VaultMenu({ vaultName, onSwitch }: { vaultName: string; onSwitch
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button type="button" className="hu-window-center shell-vault-title-button" data-testid="vault-name" aria-label="切换 Vault" aria-haspopup="menu" aria-expanded={open}>
+        <button type="button" className="shell-vault-title-button" data-testid="vault-name" aria-label="切换 Vault" aria-haspopup="menu" aria-expanded={open}>
           <Folder size={13} aria-hidden />
           <span>{vaultName}</span>
           <ChevronDown size={12} aria-hidden />

@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopDraftAttachmentHost } from "@huhu/plugin-mail/desktop-attachments";
 import type { AppMenuAction, AppMenuHost, WindowChromeHost, WindowChromeState } from "@huhu/workbench";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
-import { WINDOW_CHROME_CHANGED, WINDOW_CHROME_COLORS, WINDOW_CHROME_HEIGHT, WINDOW_CHROME_STATE } from "../window-chrome-ipc.js";
+import { WINDOW_CHROME_CHANGED, WINDOW_CHROME_COLORS, WINDOW_CHROME_HEIGHT, WINDOW_CHROME_STATE, windowChromeFallback } from "../window-chrome-ipc.js";
 
 export interface AppInfo {
   name: string;
@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("huhuHost", {
         windowChrome: {
           platform: process.platform,
           height: WINDOW_CHROME_HEIGHT,
+          fallback: windowChromeFallback(process.platform),
           state: () => ipcRenderer.invoke(WINDOW_CHROME_STATE),
           setColors: (colors) => ipcRenderer.invoke(WINDOW_CHROME_COLORS, colors),
           onChange(callback) {

@@ -1,11 +1,15 @@
 import { BrowserWindow, ipcMain, nativeTheme, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from "electron";
 import type { WindowChromeColors, WindowChromeState } from "@huhu/workbench";
+import { DEFAULT_THEME, THEMES, type ThemeDefinition } from "../../../../packages/ui/src/themes/index.js";
 import { WINDOW_CHROME_CHANGED, WINDOW_CHROME_COLORS, WINDOW_CHROME_HEIGHT, WINDOW_CHROME_STATE } from "../window-chrome-ipc.js";
 
 // Platform and overlay structure adapted from Open Knowledge (GPL-3.0),
 // b2af296a73049ddd47f6d679b36774ecbdd3d19b, packages/desktop/src/main/window-chrome.ts.
 const canSetOverlay = process.platform === "win32" || process.platform === "linux";
-const colorsForSystem = (): WindowChromeColors => (nativeTheme.shouldUseDarkColors ? { background: "#1f1e1b", foreground: "#faf9f5", canvas: "#181715" } : { background: "#f5f0e8", foreground: "#141413", canvas: "#faf9f5" });
+const paletteColors = ({ core }: ThemeDefinition["modes"]["light"]): WindowChromeColors => ({ background: core.sidebar, foreground: core.text, canvas: core.bg });
+const colorsForSystem = () => paletteColors(THEMES[DEFAULT_THEME].modes[nativeTheme.shouldUseDarkColors ? "dark" : "light"]);
+const fields = ["background", "foreground", "canvas"] as const;
+const allowed = Object.values(THEMES).flatMap(({ modes }) => [paletteColors(modes.light), paletteColors(modes.dark)]);
 
 function overlay({ background, foreground }: WindowChromeColors) {
   return { color: background, symbolColor: foreground, height: WINDOW_CHROME_HEIGHT };
@@ -24,7 +28,7 @@ export function nativeTitleOptions(): BrowserWindowConstructorOptions {
 function validColors(value: unknown): value is WindowChromeColors {
   if (typeof value !== "object" || value === null || Object.keys(value).length !== 3) return false;
   const colors = value as Record<string, unknown>;
-  return ["background", "foreground", "canvas"].every((key) => Object.hasOwn(colors, key) && typeof colors[key] === "string" && /^#[a-f\d]{6}$/i.test(colors[key]));
+  return allowed.some((entry) => fields.every((key) => Object.hasOwn(colors, key) && colors[key] === entry[key]));
 }
 
 function snapshot(win: BrowserWindow): WindowChromeState {
@@ -73,7 +77,7 @@ export function installWindowChrome(rendererAddress: string) {
       win.setTitle(title);
       win.on("page-title-updated", (event) => event.preventDefault());
       const publish = () => {
-        if (!win.isDestroyed() && !win.webContents.isDestroyed() && trustedDocument(win.webContents.mainFrame.url)) {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed() && !win.webContents.isCrashed() && trustedDocument(win.webContents.mainFrame?.url)) {
           win.webContents.send(WINDOW_CHROME_CHANGED, snapshot(win));
         }
       };

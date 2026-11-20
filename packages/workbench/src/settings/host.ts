@@ -13,6 +13,7 @@ export type WindowChromeColors = { background: string; foreground: string; canva
 export interface WindowChromeHost {
   platform: NodeJS.Platform;
   height: number;
+  fallback: { left: number; right: number };
   state(): Promise<WindowChromeState>;
   onChange(callback: (state: WindowChromeState) => void): () => void;
   setColors(colors: WindowChromeColors): Promise<void>;

@@ -12,6 +12,7 @@ import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 import { installWindowChrome, nativeTitleOptions } from "./window-chrome.js";
+import { windowErrorPage } from "./window-error-page.js";
 
 let supervisor: EngineSupervisor | null = null;
 
@@ -40,12 +41,8 @@ protocol.registerSchemesAsPrivileged([{ scheme: "huhu-app", privileges: { standa
 /** HTML 预览的主进程控制器（whenReady 之后创建）；窗口创建时用它做硬化与拦截计数。 */
 let preview: PreviewController | null = null;
 
-/** 渲染器加载失败时显示的内置错误页，包含日志路径。 */
-function errorPage(detail: string): string {
-  const logs = app.getPath("logs");
-  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-  return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><title>HUHU</title><body style="font-family:sans-serif;padding:2rem"><h1>HUHU 无法加载界面</h1><p>${esc(detail)}</p><p>日志目录：${esc(logs)}</p></body>`)}`;
-}
+const recoveryPages = new WeakMap<BrowserWindow, string>();
+const showingRecovery = (win: BrowserWindow) => !win.isDestroyed() && recoveryPages.get(win) === win.webContents.getURL();
 
 /** 完整来源匹配：`huhu-app://workbench` 本身或其路径，开发服务器同理（不接受仅前缀相同的其他主机/端口）。 */
 function isTrustedUrl(url: string | undefined): boolean {
@@ -129,7 +126,8 @@ function requestWindowExit(win: BrowserWindow) {
     sender.once("render-process-gone", onRendererGone);
     sender.once("destroyed", release);
     try {
-      sender.send("huhu:flush", requestId);
+      if (showingRecovery(win)) finish("unavailable");
+      else sender.send("huhu:flush", requestId);
     } catch {
       onRendererGone();
     }
@@ -141,18 +139,20 @@ function rendererAddress(): string {
   return process.env["ELECTRON_RENDERER_URL"] ?? `${APP_ORIGIN}/index.html`;
 }
 
-async function recoverUnresponsiveWindow(win: BrowserWindow): Promise<void> {
-  if (win.isDestroyed()) return;
+async function recoverUnresponsiveWindow(win: BrowserWindow): Promise<boolean> {
+  if (win.isDestroyed()) return false;
+  const recovery = showingRecovery(win);
   const answer = await dialog.showMessageBox(win, {
     type: "warning",
     title: "无法确认退出",
     message: "工作台没有响应关闭请求",
-    detail: "可以保留窗口，或重新加载工作台后再检查未处理的内容。",
-    buttons: ["保留窗口", "重新加载工作台"],
+    detail: recovery ? "可重新加载以检查可恢复内容，或在无法确认保存结果的情况下关闭。" : "可以保留窗口，或重新加载工作台后再检查未处理的内容。",
+    buttons: recovery ? ["保留窗口", "重新加载工作台", "未确认保存，仍关闭"] : ["保留窗口", "重新加载工作台"],
     defaultId: 0,
     cancelId: 0,
   });
   if (answer.response === 1 && !win.isDestroyed()) await win.loadURL(rendererAddress());
+  return recovery && answer.response === 2 && showingRecovery(win);
 }
 
 const exitDecisions = new WeakMap<BrowserWindow, WindowExit>();
@@ -163,8 +163,7 @@ function canCloseWindow(win: BrowserWindow): WindowExit {
   const decision = (async () => {
     const result = await request.result;
     if (result === "unavailable") {
-      await recoverUnresponsiveWindow(win);
-      return false;
+      return recoverUnresponsiveWindow(win);
     }
     if (request.signal.aborted || result === "stay") return false;
     if (result === "timeout") console.warn("退出前保存未在 3 秒内回执");
@@ -238,10 +237,23 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWi
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
+  let workbenchDocument = false;
+  win.webContents.on("did-navigate", (_event, url) => {
+    workbenchDocument = chrome.trustedDocument(url);
+  });
+  const showRecovery = (detail: string) => {
+    if (win.isDestroyed() || quitting || flushedForQuit) return;
+    const address = windowErrorPage(detail, app.getPath("logs"), rendererAddress(), chrome.colors(win));
+    recoveryPages.set(win, address);
+    void win.loadURL(address).catch(() => undefined);
+  };
   // 只为工作台主框架的实际失败显示错误页。新导航取消旧加载时会报告 ERR_ABORTED。
   win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3 || !isTrustedUrl(url)) return;
-    void win.loadURL(errorPage(`${desc} (${code})`)).catch(() => undefined);
+    showRecovery(`${desc} (${code})`);
+  });
+  win.webContents.on("render-process-gone", (_event, { reason }) => {
+    if (reason !== "clean-exit" && workbenchDocument) setImmediate(() => showRecovery(`工作台进程已退出（${reason}）`));
   });
   void win.loadURL(rendererAddress()).catch(() => undefined);
   return win;
