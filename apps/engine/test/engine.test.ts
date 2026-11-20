@@ -4,8 +4,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, test } from "vitest";
-import { z } from "zod";
-import { defineDashboardUpdate } from "../../../packages/kernel/src/capabilities/home-dashboard.js";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
 interface Reply {
@@ -39,16 +37,13 @@ describe("首页布局读取", () => {
   const withCard = { ...board, instances: [focus], layout: [{ instanceId: focus.instanceId, x: 0, y: 0, w: 3, h: 2 }] };
   const getBoard = (e: RunningEngine) => post(e, e.rendererToken, { capability: "home.dashboard.get", input: {}, requestId: "dashboard" });
 
-  test("W02-02 测试装配经 HTTP 提交整板，重启 Engine 后保留 revision、实例与几何", async () => {
+  test("W02-02 正常启动的 Engine 经 HTTP 提交整板，重启后保留 revision、实例与几何", async () => {
     const root = tmp();
     const engine = await boot({ vaultPath: root, create: true });
     engines.push(engine);
-    const rules = new Map([[focus.widgetType, { minSize: { w: 2, h: 2 }, maxSize: { w: 4, h: 4 }, maxInstances: 1, configSchema: z.strictObject({}) }]]);
-    const off = engine.registry.register(defineDashboardUpdate(engine.vault, rules, () => new Date("2026-11-20T00:00:00Z")));
     const input = { baseRevision: "0", instances: withCard.instances, layout: withCard.layout };
     const saved = await post(engine, engine.rendererToken, { capability: "home.dashboard.update", input, requestId: "submit-board", idempotencyKey: "submit-board" });
-    expect(saved).toMatchObject({ ok: true, data: { source: "stored", board: { revision: expect.any(String), updatedAt: "2026-11-20T00:00:00.000Z", instances: input.instances, layout: input.layout } } });
-    off();
+    expect(saved).toMatchObject({ ok: true, data: { source: "stored", board: { revision: expect.any(String), updatedAt: expect.any(String), instances: input.instances, layout: input.layout } } });
     await engine.shutdown();
     engines.pop();
     const reopened = await boot({ vaultPath: root });
@@ -62,7 +57,7 @@ describe("首页布局读取", () => {
     const home = path.join(e.vault.root, ".huhu", "home");
     const file = path.join(home, "widgets.json");
     const first = await getBoard(e);
-    expect(first).toMatchObject({ ok: true, data: { source: "default", writable: true, vaultId: e.vault.id, board: { revision: "0", instances: [{ instanceId: "default-focus" }] } } });
+    expect(first).toMatchObject({ ok: true, data: { source: "default", writable: true, vaultId: e.vault.id, board: { revision: "0", instances: ["metrics", "tasks", "notes", "focus"].map((id) => ({ instanceId: `default-${id}` })) } } });
     expect(await getBoard(e)).toEqual(first);
     expect(existsSync(file)).toBe(false);
 
@@ -76,7 +71,7 @@ describe("首页布局读取", () => {
       expect(readFileSync(file, "utf8")).toBe(bytes);
     }
     const oldWrite = await post(e, e.rendererToken, { capability: "home.widgets.update", input: { hidden: [] }, requestId: "old-dashboard", idempotencyKey: "old-dashboard" });
-    expect(oldWrite).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(oldWrite).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_FOUND" } });
     expect(readFileSync(file, "utf8")).toBe(JSON.stringify(withCard));
 
     const samples = [

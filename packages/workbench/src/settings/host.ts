@@ -1,5 +1,16 @@
+export type AppMenuAction = { kind: "vault" | "palette" | "focus" } | { kind: "save" | "close-document"; document: string };
+
+export interface AppMenuHost {
+  button: boolean;
+  open(x: number, y: number): Promise<void>;
+  update(workspace: boolean, documentVisible: boolean, writable: boolean): Promise<void>;
+  document(id: string | null): Promise<void>;
+  onAction(callback: (action: AppMenuAction) => void): () => void;
+}
+
 /** Electron 主进程经 preload 暴露的宿主能力（浏览器里单独运行界面时不存在）。 */
 export interface HostApi {
+  appMenu?: AppMenuHost;
   appInfo(): Promise<{ name: string; version: string; commit?: string; builtAt?: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
   revealVault(): Promise<void>;
   /** 用系统应用打开 Vault 里的文件（主进程校验路径在 Vault 内并按扩展名白名单放行；其余只在文件夹中显示）。 */

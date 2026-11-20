@@ -3,6 +3,7 @@ type EngineState = "starting" | "ready" | "stopped" | "crashed";
 declare global {
   interface Window {
     huhuHost: {
+      appMenu: import("@huhu/workbench").AppMenuHost;
       appInfo(): Promise<{ name: string; version: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
       revealVault(): Promise<void>;
       openVaultFile(rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;

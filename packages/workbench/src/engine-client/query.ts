@@ -11,6 +11,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   capture: ["inbox."],
   comment: ["comments."],
   "ssh-host": ["ssh.hosts."],
+  "home-dashboard": ["home.dashboard.get"],
 };
 
 /** 事件到达时让相关查询失效。 */

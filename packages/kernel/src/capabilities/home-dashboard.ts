@@ -2,7 +2,19 @@ import { isUtf8 } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { DASHBOARD_COLUMNS, DASHBOARD_SCHEMA_VERSION, DashboardBoardSchema, DashboardUpdateSchema, DashboardViewSchema, errors, HuhuError, type DashboardBoard, type DashboardUpdate, type DashboardView } from "@huhu/contracts";
+import {
+  DASHBOARD_COLUMNS,
+  DASHBOARD_SCHEMA_VERSION,
+  DashboardBoardSchema,
+  DashboardUpdateSchema,
+  DashboardViewSchema,
+  defaultDashboardBoard,
+  errors,
+  HuhuError,
+  type DashboardBoard,
+  type DashboardUpdate,
+  type DashboardView,
+} from "@huhu/contracts";
 import { HUHU_DIR, versionOf, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability } from "./define.js";
@@ -10,18 +22,7 @@ import { dashboardRepairChangeSchema, placementsOverlap, planDashboardRepair, ty
 
 const DASHBOARD_PATH = `${HUHU_DIR}/home/widgets.json`;
 
-function defaultBoard(): DashboardBoard {
-  return {
-    schemaVersion: DASHBOARD_SCHEMA_VERSION,
-    boardId: "home",
-    revision: "0",
-    updatedAt: null,
-    instances: [{ instanceId: "default-focus", widgetType: "widget:kernel:focus", config: {}, hidden: false }],
-    layout: [{ instanceId: "default-focus", x: 0, y: 0, w: 3, h: 2 }],
-  };
-}
-
-export function hasDashboardVersion(value: unknown): value is Record<string, unknown> & { schemaVersion: unknown } {
+function hasDashboardVersion(value: unknown): value is Record<string, unknown> & { schemaVersion: unknown } {
   return typeof value === "object" && value !== null && "schemaVersion" in value;
 }
 
@@ -47,7 +48,7 @@ interface DashboardSnapshot {
 function readDashboardSnapshot(vault: Vault): DashboardSnapshot {
   const fallback = (source: Exclude<DashboardView["source"], "stored">) => ({
     fileVersion: null,
-    view: { vaultId: vault.id, board: defaultBoard(), writable: source === "default" && !vault.readOnly, source },
+    view: { vaultId: vault.id, board: defaultDashboardBoard(), writable: source === "default" && !vault.readOnly, source },
   });
   let bytes: Buffer;
   try {
@@ -95,8 +96,8 @@ interface DashboardWidgetRule {
   readonly configSchema: z.ZodType<DashboardBoard["instances"][number]["config"]>;
 }
 
-/** 由 W06 为每个 Vault 登记一次，使用内置 Widget 的服务端规则。 */
-export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetRule>, now: () => Date) {
+/** 由 Engine 为每个 Vault 登记一次，使用内置 Widget 的服务端规则。 */
+export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetRule>, now: () => Date, changed?: () => void) {
   async function commit(input: DashboardUpdate): Promise<DashboardView> {
     vault.assertWritable();
     const { view: current, fileVersion } = readDashboardSnapshot(vault);
@@ -131,7 +132,9 @@ export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string,
       return { ...instance, config: config.data };
     });
 
-    return writeDashboard(vault, board, fileVersion);
+    const saved = await writeDashboard(vault, board, fileVersion);
+    changed?.();
+    return saved;
   }
 
   return defineCapability({
@@ -191,8 +194,7 @@ async function preserveDashboard(vault: Vault, original: Buffer, fileDigest: str
   throw new HuhuError("INTERNAL", "无法保全损坏的看板原件", { details: { reason: "preservation-failed" } });
 }
 
-/** W06 接线前仅供 Engine 测试装配。 */
-export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetSizeRule>, now: () => Date) {
+export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetSizeRule>, now: () => Date, changed?: () => void) {
   const capability = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
 
   function plan(intent: RecoveryIntent, target: ReturnType<typeof readRecoveryTarget>) {
@@ -242,6 +244,7 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
           const board = { ...candidate.board, revision: randomUUID(), updatedAt: now().toISOString() };
           const preservedPath = target.original && target.fileDigest && (target.source === "invalid" || intent.action === "repair") ? await preserveDashboard(vault, target.original.bytes, target.fileDigest) : null;
           const view = await writeDashboard(vault, board, target.original ? versionOf(target.original.bytes) : null);
+          changed?.();
           return { view, preservedPath };
         }),
     }),

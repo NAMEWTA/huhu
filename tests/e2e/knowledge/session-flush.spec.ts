@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root } from "../helpers/launch.js";
@@ -42,6 +42,87 @@ async function manualSave(page: Page): Promise<void> {
   await autosave.click();
   await expect(autosave).not.toBeChecked();
 }
+
+test("应用菜单保存当前文档，关窗先处理看板草稿再结算文档", async () => {
+  test.skip(process.platform !== "win32", "Windows 自动化覆盖菜单按钮与 F10");
+  const { app, page, vault, close } = await openApp();
+  const file = path.join(vault, name);
+  const layout = path.join(vault, ".huhu/home/widgets.json");
+  try {
+    writeFileSync(file, original + "\n独立段落\n".repeat(405));
+    await engineReady(page);
+    await openNote(page);
+    await app.evaluate(({ Menu }) => {
+      Menu.prototype.popup = function (options) {
+        if (options?.window) Reflect.set(options.window, "__huhuTestMenu", this);
+        options?.callback?.();
+      };
+    });
+    await prose(page).click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("菜单保存");
+    await app.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "F10" });
+      win.webContents.sendInputEvent({ type: "keyUp", keyCode: "F10" });
+    });
+    const inspectMenu = () =>
+      app.evaluate(({ BrowserWindow }) => {
+        const win = BrowserWindow.getAllWindows()[0]!;
+        const menu = Reflect.get(win, "__huhuTestMenu");
+        const file = menu?.items.find((item: { label: string }) => item.label === "文件");
+        return file?.submenu?.items.map((item: { id: string; label: string; enabled: boolean }) => ({ id: item.id || "", label: item.label, enabled: item.enabled })) ?? [];
+      });
+    await expect.poll(inspectMenu).toContainEqual({ id: "huhu-document-save", label: "保存当前文档", enabled: true });
+    await app.evaluate(({ BrowserWindow }) => Reflect.deleteProperty(BrowserWindow.getAllWindows()[0]!, "__huhuTestMenu"));
+    await page.getByTestId("app-menu-button").click();
+    await expect.poll(inspectMenu).toContainEqual({ id: "huhu-document-save", label: "保存当前文档", enabled: true });
+    await app.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      const file = Reflect.get(win, "__huhuTestMenu").items.find((item: { label: string }) => item.label === "文件");
+      file.submenu.getMenuItemById("huhu-document-save").click();
+    });
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("菜单保存");
+
+    await prose(page).click();
+    await page.keyboard.press("ControlOrMeta+End");
+    const source = await holdBridgeTimers(prose(page));
+    await page.keyboard.insertText(last);
+    await expect(prose(page)).toContainText(last);
+    expect(await source()).not.toContain(last);
+    await page.getByRole("button", { name: "huhu workbench 首页" }).click();
+    await page.getByTestId("home-customize").click();
+    await page.locator('[data-instance-id="default-focus"]').getByRole("checkbox", { name: "隐藏" }).check();
+    const requestClose = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
+    await requestClose();
+    const decision = page.getByRole("dialog", { name: "关闭窗口前处理看板草稿" });
+    await expect(decision).toBeVisible();
+    expect(existsSync(layout)).toBe(false);
+    expect(readFileSync(file, "utf8")).not.toContain(last);
+    await decision.getByRole("button", { name: "继续编辑" }).click();
+    await expect(decision).toHaveCount(0);
+    expect(existsSync(layout)).toBe(false);
+    await requestClose();
+    await expect(decision).toBeVisible();
+    const closed = page.waitForEvent("close");
+    await decision.getByTestId("home-dashboard-save-leave").click();
+    await closed;
+    expect(JSON.parse(readFileSync(layout, "utf8")).instances).toContainEqual(expect.objectContaining({ instanceId: "default-focus", hidden: true }));
+    expect(readFileSync(file, "utf8")).toContain(last);
+  } finally {
+    if (!page.isClosed()) {
+      await page
+        .getByRole("button", { name: "继续编辑", exact: true })
+        .click({ timeout: 500 })
+        .catch(() => undefined);
+      await page
+        .getByRole("button", { name: "取消编辑", exact: true })
+        .click({ timeout: 500 })
+        .catch(() => undefined);
+    }
+    await close();
+  }
+});
 
 for (const autosave of [true, false]) {
   test(`C06 结算待定时退出并重启（${autosave ? "自动保存" : "恢复草稿"}）`, async () => {

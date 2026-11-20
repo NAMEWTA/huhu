@@ -11,7 +11,7 @@
   "contributes": {
     "modules": ["versioning"],
     "settingsPages": ["versioning"],
-    "homeWidgets": [],
+    "homeWidgets": ["git"],
     "commands": [],
     "capabilities": [
       "git.commit",

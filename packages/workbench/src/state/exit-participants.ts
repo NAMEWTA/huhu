@@ -1,5 +1,6 @@
 export interface ExitRequest {
   signal: AbortSignal;
+  reason?: "window" | "navigation" | "vault";
   /** 在等待用户处理已显示的提示时，通知宿主延长检查。 */
   waitForUser<T>(decision: Promise<T>): Promise<T>;
 }
@@ -7,6 +8,10 @@ export interface ExitRequest {
 export type ExitParticipant = (request: ExitRequest) => boolean | Promise<boolean>;
 
 const participants = new Set<ExitParticipant>();
+
+export function localExitRequest(reason: "navigation" | "vault"): ExitRequest {
+  return { reason, signal: new AbortController().signal, waitForUser: (decision) => decision };
+}
 
 /** 看板等持有页面草稿的模块登记在此，文档保存仍由 flusher 负责。 */
 export function registerExitParticipant(participant: ExitParticipant): () => void {

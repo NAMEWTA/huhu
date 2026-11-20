@@ -1,0 +1,352 @@
+import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetType, type DashboardBoard, type HomeWidgetDefinition } from "@huhu/contracts";
+import { Button, Dialog, IconButton } from "@huhu/ui";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, Plus, RotateCcw, X } from "lucide-react";
+import { useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { createRequestId } from "../engine-client/client.js";
+import { appendPlacement, movePlacement, orderPlacements, packPlacements, reorderPlacement, type Placement } from "./dashboard-layout.js";
+import type { useDashboard } from "./useDashboard.js";
+import "./dashboard.css";
+
+type Instance = DashboardBoard["instances"][number];
+type Controller = ReturnType<typeof useDashboard>;
+
+interface DashboardProps {
+  state: Controller;
+  definitions: ReadonlyMap<string, HomeWidgetDefinition>;
+  allowed(type: string): boolean;
+  renderWidget(instance: Instance): ReactNode;
+  configureWidget?(instance: Instance, onChange: (config: Instance["config"]) => void, disabled: boolean): ReactNode;
+}
+
+export function Dashboard({ state, definitions, allowed, renderWidget, configureWidget }: DashboardProps) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const [feedback, setFeedback] = useState("");
+  const [drag, setDrag] = useState<{ placement: Placement; x: number; y: number }>();
+  const grid = useRef<HTMLDivElement>(null);
+  const view = state.snapshot.data;
+  const editing = state.draft !== undefined;
+  const locked = state.busy || state.notice?.action === "verify";
+  const board = state.draft?.board ?? view?.board;
+  const byId = new Map(board?.instances.map((item) => [item.instanceId, item]));
+  const layout = orderPlacements(board?.layout ?? []);
+  const items = layout.filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
+  const label = (instance: Instance) => instance.title || definitions.get(instance.widgetType)?.title || instance.widgetType;
+  const changeLayout = (next: Placement[] | undefined) => {
+    if (!board || !next) {
+      setFeedback("该位置超出看板的边界。");
+      return;
+    }
+    setFeedback("");
+    state.update({ ...board, layout: next });
+  };
+  const changeInstance = (id: string, patch: Partial<Instance>) => {
+    if (!board) return;
+    state.update({ ...board, instances: board.instances.map((item) => (item.instanceId === id ? { ...item, ...patch } : item)) });
+  };
+  const candidates = [...definitions.values()].filter(
+    (definition) => (category === "all" || (category === "system") === (definition.owner === "kernel")) && `${definition.title} ${definition.description} ${definition.owner}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+  );
+  const count = (type: string) => board?.instances.filter((item) => item.widgetType === type).length ?? 0;
+  function insert(instance: Instance, size: { w: number; h: number }) {
+    if (!board || locked) return;
+    const placement = appendPlacement(board.layout, { instanceId: instance.instanceId, w: size.w, h: size.h });
+    state.update({ ...board, instances: [...board.instances, instance], layout: [...board.layout, placement] });
+    setAddOpen(false);
+  }
+  function add(definition: HomeWidgetDefinition) {
+    const widgetType = homeWidgetType(definition.owner, definition.id);
+    if (!allowed(widgetType)) return;
+    const instanceId = createRequestId();
+    insert({ instanceId, widgetType, config: definition.defaultConfig, hidden: false }, definition.defaultSize);
+  }
+  function openCatalog() {
+    if (!editing) state.start();
+    setSearch("");
+    setCategory("all");
+    setAddOpen(true);
+  }
+  function drop(event: DragEvent<HTMLDivElement>) {
+    if (!drag || !board || locked) return;
+    event.preventDefault();
+    const column = event.currentTarget.getBoundingClientRect().width / DASHBOARD_COLUMNS;
+    changeLayout(
+      movePlacement(board.layout, {
+        ...drag.placement,
+        x: drag.placement.x + Math.round((event.clientX - drag.x) / column),
+        y: drag.placement.y + Math.round((event.clientY - drag.y) / 112),
+      }),
+    );
+    setDrag(undefined);
+  }
+  const list = (current: DashboardBoard) => {
+    const instances = new Map(current.instances.map((item) => [item.instanceId, item]));
+    return (
+      <ul>
+        {orderPlacements(current.layout).map((item) => (
+          <li key={item.instanceId}>
+            {label(instances.get(item.instanceId)!)} · 第 {item.x + 1} 列，第 {item.y + 1} 行 · {item.w} × {item.h}
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
+  return (
+    <div className="hu-dashboard" data-testid="home-dashboard">
+      <div className="hu-dashboard-feedback" role="status">
+        {state.notice?.text ?? feedback}
+        {state.notice?.action ? (
+          <Button disabled={state.busy} onClick={() => void state.checkLatest()}>
+            {state.notice.action === "compare" ? "对照最新版本" : "核对已提交布局"}
+          </Button>
+        ) : null}
+      </div>
+      {state.snapshot.isError ? (
+        <p role="alert">
+          无法读取首页布局。<Button onClick={() => void state.snapshot.refetch()}>重试</Button>
+        </p>
+      ) : null}
+      {view && !view.writable ? <p className="hu-hint-text">{view.source === "stored" || view.source === "default" ? "当前 Vault 为只读。" : "无法读取现有布局，正在显示默认布局。布局原件已保留。"}</p> : null}
+      {editing ? (
+        <div className="row hu-dashboard-toolbar">
+          <Button icon={Plus} onClick={openCatalog} disabled={locked}>
+            添加卡片
+          </Button>
+          <Button onClick={() => board && state.update({ ...board, ...defaultDashboardBoard(), revision: board.revision, updatedAt: board.updatedAt })} disabled={locked}>
+            恢复默认布局
+          </Button>
+          <span className="grow" />
+          <Button onClick={state.cancel} disabled={locked}>
+            取消编辑
+          </Button>
+          <Button variant="primary" data-testid="home-dashboard-save" onClick={() => void state.save()} disabled={locked || !state.dirty}>
+            保存布局
+          </Button>
+        </div>
+      ) : null}
+      <div
+        ref={grid}
+        className="hu-dashboard-grid"
+        onDragOver={(event) => {
+          if (drag) event.preventDefault();
+        }}
+        onDrop={drop}
+      >
+        {board
+          ? items.map((p) => {
+              const instance = byId.get(p.instanceId)!;
+              const definition = definitions.get(instance.widgetType);
+              const name = label(instance);
+              const move = (x: number, y: number) => changeLayout(movePlacement(board.layout, { ...p, x: p.x + x, y: p.y + y }));
+              const resize = (dimension: "w" | "h", value: number) => {
+                const candidate = { ...p, [dimension]: value };
+                const narrow = (grid.current?.getBoundingClientRect().width ?? Infinity) <= 620;
+                changeLayout(narrow ? packPlacements(layout.map((item) => (item.instanceId === candidate.instanceId ? candidate : item))) : movePlacement(board.layout, candidate));
+              };
+              const controls = editing ? (
+                <div className="hu-dashboard-card-controls">
+                  <div className="row">
+                    <button
+                      type="button"
+                      className="hu-dashboard-drag hu-btn"
+                      draggable={!locked}
+                      disabled={locked}
+                      aria-label={`移动 ${name}`}
+                      onDragStart={(event) => {
+                        setDrag({ placement: p, x: event.clientX, y: event.clientY });
+                        event.dataTransfer.setData("text/plain", p.instanceId);
+                        event.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => setDrag(undefined)}
+                    >
+                      <Grip size={16} aria-hidden />
+                    </button>
+                    <strong>{name}</strong>
+                    <label className="row">
+                      <input type="checkbox" checked={instance.hidden} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { hidden: event.target.checked })} />
+                      隐藏
+                    </label>
+                    <IconButton
+                      icon={X}
+                      disabled={locked}
+                      label={`移除 ${name}`}
+                      onClick={() => state.update({ ...board, instances: board.instances.filter((item) => item.instanceId !== p.instanceId), layout: board.layout.filter((item) => item.instanceId !== p.instanceId) })}
+                    />
+                  </div>
+                  <label className="row">
+                    标题
+                    <input aria-label={`${name}标题`} placeholder={definition?.title ?? "卡片标题"} value={instance.title ?? ""} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { title: event.target.value })} />
+                  </label>
+                  <div className="row">
+                    <div className="row hu-dashboard-coordinate">
+                      <IconButton icon={ArrowLeft} disabled={locked || p.x === 0} label={`向左移动 ${name}`} onClick={() => move(-1, 0)} />
+                      <IconButton icon={ArrowRight} disabled={locked || p.x + p.w === DASHBOARD_COLUMNS} label={`向右移动 ${name}`} onClick={() => move(1, 0)} />
+                      <IconButton icon={ArrowUp} disabled={locked || p.y === 0} label={`向上移动 ${name}`} onClick={() => move(0, -1)} />
+                      <IconButton icon={ArrowDown} disabled={locked} label={`向下移动 ${name}`} onClick={() => move(0, 1)} />
+                    </div>
+                    <div className="row hu-dashboard-order">
+                      <IconButton icon={ArrowUp} disabled={locked || layout[0]?.instanceId === p.instanceId} label={`前移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, -1))} />
+                      <IconButton icon={ArrowDown} disabled={locked || layout.at(-1)?.instanceId === p.instanceId} label={`后移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, 1))} />
+                    </div>
+                    {definition
+                      ? (["w", "h"] as const).map((dimension) => {
+                          const title = dimension === "w" ? "宽度" : "高度";
+                          const min = definition.minSize[dimension];
+                          const max = definition.maxSize[dimension];
+                          return (
+                            <label key={dimension} className="row">
+                              {title}
+                              <select aria-label={`${name} ${title}`} disabled={locked} value={p[dimension]} onChange={(event) => resize(dimension, Number(event.target.value))}>
+                                {Array.from({ length: max - min + 1 }, (_, index) => (
+                                  <option key={index + min}>{index + min}</option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        })
+                      : null}
+                    {definition ? (
+                      <IconButton
+                        icon={RotateCcw}
+                        disabled={locked}
+                        label={`恢复 ${name} 推荐尺寸`}
+                        onClick={() => changeLayout(movePlacement(board.layout, { ...p, ...definition.defaultSize, x: Math.min(p.x, DASHBOARD_COLUMNS - definition.defaultSize.w) }))}
+                      />
+                    ) : null}
+                    {definition?.maxInstances === null && allowed(instance.widgetType) ? (
+                      <IconButton icon={Copy} disabled={locked} label={`复制 ${name}`} onClick={() => insert({ ...instance, instanceId: createRequestId(), config: structuredClone(instance.config) }, p)} />
+                    ) : null}
+                  </div>
+                  {instance.widgetType === "widget:kernel:tasks" ? (
+                    <label className="row">
+                      显示任务
+                      <select aria-label={`${name}任务范围`} disabled={locked} value={instance.config["filter"] === "today" ? "today" : "all"} onChange={(event) => changeInstance(p.instanceId, { config: { filter: event.target.value } })}>
+                        <option value="all">全部待办</option>
+                        <option value="today">今日</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  {configureWidget?.(instance, (config) => changeInstance(p.instanceId, { config }), locked)}
+                </div>
+              ) : null;
+              return (
+                <div key={p.instanceId} className="hu-dashboard-tile" data-instance-id={p.instanceId} style={{ gridColumn: `${p.x + 1} / span ${p.w}`, gridRow: `${p.y + 1} / span ${p.h}` } satisfies CSSProperties}>
+                  {controls}
+                  {!instance.hidden ? (
+                    <div className="hu-dashboard-widget" inert={editing}>
+                      {renderWidget(instance) ?? (
+                        <section className="hu-card-alt">
+                          <h2>{name}</h2>
+                          <p>卡片暂不可用</p>
+                        </section>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          : null}
+      </div>
+      {view && items.length === 0 ? (
+        <div className="row">
+          <p className="hu-hint-text">首页尚未显示任何卡片。</p>
+          {view.writable && !editing ? <Button onClick={openCatalog}>添加首个小组件</Button> : null}
+        </div>
+      ) : null}
+      <Dialog open={addOpen && editing} title="添加卡片" onClose={() => setAddOpen(false)}>
+        <div className="row">
+          <input aria-label="搜索卡片" placeholder="搜索卡片" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <select aria-label="卡片来源" value={category} onChange={(event) => setCategory(event.target.value)}>
+            <option value="all">全部来源</option>
+            <option value="system">工作台</option>
+            <option value="plugin">插件</option>
+          </select>
+        </div>
+        {candidates.length ? (
+          candidates.map((definition) => {
+            const type = homeWidgetType(definition.owner, definition.id);
+            const existing = board?.instances.find((item) => item.widgetType === type);
+            const canAdd = definition.maxInstances === null || count(type) < definition.maxInstances;
+            return (
+              <div key={type} className="row">
+                <div className="grow">
+                  <strong>{definition.title}</strong>
+                  <p>
+                    {definition.description} · {definition.defaultSize.w} × {definition.defaultSize.h}
+                  </p>
+                </div>
+                {allowed(type) && existing?.hidden && !canAdd ? (
+                  <Button
+                    onClick={() => {
+                      changeInstance(existing.instanceId, { hidden: false });
+                      setAddOpen(false);
+                    }}
+                  >
+                    显示已隐藏卡片
+                  </Button>
+                ) : (
+                  <Button aria-label={`添加 ${definition.title}`} disabled={!allowed(type) || !canAdd} onClick={() => add(definition)}>
+                    {!allowed(type) ? "当前不可用" : canAdd ? "添加" : "已添加"}
+                  </Button>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <p>没有符合条件的卡片。</p>
+        )}
+      </Dialog>
+      <Dialog
+        open={Boolean(state.latest && state.draft)}
+        wide
+        title="对照最新布局"
+        description="保留草稿后，下一次保存会提交当前草稿的完整布局。"
+        onClose={state.closeCompare}
+        actions={
+          <>
+            <Button onClick={state.closeCompare}>返回草稿</Button>
+            <Button onClick={() => state.resolveCompare(true)}>采用最新布局</Button>
+            <Button variant="primary" disabled={!state.latest?.writable} onClick={() => state.resolveCompare(false)}>
+              以此版本为基准保留草稿
+            </Button>
+          </>
+        }
+      >
+        {state.latest && state.draft ? (
+          <div className="hu-dashboard-compare">
+            <section>
+              <h3>最新布局</h3>
+              {list(state.latest.board)}
+            </section>
+            <section>
+              <h3>当前草稿</h3>
+              {list(state.draft.board)}
+            </section>
+          </div>
+        ) : null}
+      </Dialog>
+      <Dialog
+        open={Boolean(state.leaving)}
+        title={state.leaving?.request.reason === "window" ? "关闭窗口前处理看板草稿" : "离开前处理看板草稿"}
+        onClose={() => void state.chooseLeave("stay")}
+        actions={
+          <>
+            <Button disabled={state.busy} onClick={() => void state.chooseLeave("stay")}>
+              继续编辑
+            </Button>
+            <Button disabled={state.busy} onClick={() => void state.chooseLeave("discard")}>
+              放弃并离开
+            </Button>
+            <Button variant="primary" disabled={state.busy} data-testid="home-dashboard-save-leave" onClick={() => void state.chooseLeave("save")}>
+              保存并离开
+            </Button>
+          </>
+        }
+      >
+        <p>{state.busy ? "正在保存布局…" : "当前 Vault 的布局还未保存。"}</p>
+      </Dialog>
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 import type { EditorViewMode, RichEditorPort } from "@huhu/editor/rich";
 import { Banner, Button, Dialog, IconButton, ReviewDiff, Segmented } from "@huhu/ui";
-import { useCapability } from "@huhu/workbench";
+import { createRequestId, host, useCapability } from "@huhu/workbench";
 import { ChevronRight, MessageSquarePlus, Download, MoreHorizontal, PanelRight, Redo2, Save, Star, Undo2 } from "lucide-react";
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DocumentSession } from "./documents/DocumentSession.js";
@@ -30,6 +30,7 @@ export interface NoteDocumentProps {
   onToggleInspector(): void;
   onToggleFavorite(): void;
   onOpen(path: string): void;
+  onClose(): void;
   onMenu(anchor: HTMLElement, actions: readonly NoteMenuAction[]): void;
   onText(text: string): void;
   /** 父级用它在改名 / 移动 / 移入回收站之前先把未保存的编辑落盘。 */
@@ -122,6 +123,23 @@ export function NoteDocument(props: NoteDocumentProps) {
   );
   useEffect(() => () => registerEditor(null), [registerEditor]);
   const save = flush;
+  const [menuDocument] = useState(createRequestId);
+  const closeDocument = useRef(props.onClose);
+  closeDocument.current = props.onClose;
+  useEffect(() => {
+    const menu = host()?.appMenu;
+    if (!menu || !snap.loaded) return;
+    const dispose = menu.onAction((action) => {
+      if (!("document" in action) || action.document !== menuDocument) return;
+      if (action.kind === "close-document") closeDocument.current();
+      else void save();
+    });
+    void menu.document(menuDocument);
+    return () => {
+      dispose();
+      void menu.document(null);
+    };
+  }, [menuDocument, save, snap.loaded]);
   const load = useCallback(async () => {
     await session?.load();
   }, [session]);

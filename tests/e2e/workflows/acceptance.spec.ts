@@ -434,23 +434,61 @@ test("ACC-SH-04 远程连接：编辑主机、从已有主机里按顺序选跳�
   }
 });
 
-test("首页自定义：卡片可在同一列内上移 / 下移，顺序持久化并立即生效", async () => {
+test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重开使用同一布局", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const board = page.getByTestId("home-dashboard");
+    const order = () => board.locator("[data-instance-id]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-instance-id")));
+    const expected = ["default-metrics", "default-notes", "default-tasks", "default-focus"];
+    await expect.poll(order).toEqual(["default-metrics", "default-tasks", "default-notes", "default-focus"]);
+    const file = path.join(vault, ".huhu/home/widgets.json");
+    await page.setViewportSize({ width: 700, height: 768 });
+    await page.getByTestId("home-customize").click();
+    await board.getByRole("button", { name: "前移 最近笔记" }).click();
+    await expect.poll(order).toEqual(expected);
+    expect(existsSync(file)).toBe(false);
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status")).toContainText("布局已保存");
+    const bytes = readFileSync(file, "utf8");
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.reload();
+    await expect.poll(order).toEqual(expected);
+    expect(readFileSync(file, "utf8")).toBe(bytes);
+  } finally {
+    await close();
+  }
+});
+
+test("首页看板：其他会话先保存后，保留草稿并显式采用新版本为基准", async () => {
   const { page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    const order = () =>
-      page
-        .getByTestId("home-main-column")
-        .locator("> section")
-        .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    await expect.poll(order).toEqual(["card-tasks", "card-recent", "card-activity"]);
+    const call = await caller(page);
+    const board = page.getByTestId("home-dashboard");
+    const focus = board.locator('[data-instance-id="default-focus"]');
     await page.getByTestId("home-customize").click();
-    const panel = page.getByTestId("home-customize-panel");
-    await panel.getByRole("button", { name: "下移 我的任务" }).click();
-    await expect.poll(order).toEqual(["card-recent", "card-tasks", "card-activity"]);
-    await panel.getByRole("button", { name: "上移 最近活动" }).click();
-    await expect.poll(order).toEqual(["card-recent", "card-activity", "card-tasks"]);
-    await expect(panel.getByRole("button", { name: "上移 最近笔记" })).toBeDisabled(); // 已经是第一个
+    await focus.getByRole("checkbox", { name: "隐藏" }).check();
+    const original = (await call("home.dashboard.get", {})).data.board;
+    const changed = {
+      baseRevision: original.revision,
+      instances: original.instances,
+      layout: original.layout.map((item: { instanceId: string }) => (item.instanceId === "default-focus" ? { ...item, x: 1 } : item)),
+    };
+    const first = await call("home.dashboard.update", changed);
+    expect(first.ok).toBe(true);
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status")).toContainText("其他会话已保存新版本");
+    await expect(focus.getByRole("checkbox", { name: "隐藏" })).toBeChecked();
+    expect((await call("home.dashboard.get", {})).data.board.revision).toBe(first.data.board.revision);
+    await board.getByRole("button", { name: "对照最新版本" }).click();
+    const comparison = page.getByRole("dialog", { name: "对照最新布局" });
+    await expect(comparison.getByText("最新布局", { exact: true })).toBeVisible();
+    await expect(comparison.getByText("当前草稿", { exact: true })).toBeVisible();
+    await comparison.getByRole("button", { name: "以此版本为基准保留草稿" }).click();
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status")).toContainText("布局已保存");
+    expect((await call("home.dashboard.get", {})).data.board.instances).toContainEqual(expect.objectContaining({ instanceId: "default-focus", hidden: true }));
   } finally {
     await close();
   }
@@ -1206,29 +1244,29 @@ test("DataTable：网关“调用记录”显示外部调用；超过 200 行时
   }
 });
 
-test("首页卡片可由插件贡献：SSH 主机与版本与同步卡片出现在首页，可在“自定义”里隐藏/调序并持久化，插件停用后消失", async () => {
+test("首页看板通过可信目录添加 Git 和 SSH 卡片，停用后保留 SSH 实例", async () => {
   const { page, close, vault } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
+    await page.getByTestId("home-customize").click();
+    for (const title of ["版本与同步", "SSH 主机"]) {
+      await page.getByRole("button", { name: "添加卡片", exact: true }).click();
+      await page.getByRole("button", { name: `添加 ${title}`, exact: true }).click();
+    }
+    await page.getByTestId("home-dashboard-save").click();
     await expect(page.getByTestId("card-versioning-git")).toBeVisible();
     await expect(page.getByTestId("card-ssh-hosts")).toBeVisible();
-    const contributed = () =>
-      page
-        .getByTestId("home-side-column")
-        .locator("> section.home-widget")
-        .evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    await expect.poll(contributed).toEqual(["card-versioning-git", "card-ssh-hosts"]);
-    await page.getByTestId("home-customize").click();
-    const panel = page.getByTestId("home-customize-panel");
-    await panel.getByRole("button", { name: "上移 SSH 主机" }).click();
-    await expect.poll(contributed).toEqual(["card-ssh-hosts", "card-versioning-git"]);
-    await panel.getByRole("checkbox", { name: "版本与同步" }).click();
-    await expect(page.getByTestId("card-versioning-git")).toHaveCount(0);
-    await expect.poll(() => (existsSync(path.join(vault, ".huhu/home/widgets.json")) ? readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8") : "")).toContain("widget:versioning:git");
-    await page.keyboard.press("Escape");
+    const file = path.join(vault, ".huhu/home/widgets.json");
+    const before = readFileSync(file, "utf8");
+    expect(before).toContain("widget:versioning:git");
+    expect(before).toContain("widget:ssh:hosts");
     await call("plugins.setEnabled", { id: "ssh", enabled: false });
     await expect(page.getByTestId("card-ssh-hosts")).toHaveCount(0);
+    expect(readFileSync(file, "utf8")).toBe(before);
+    await call("plugins.setEnabled", { id: "ssh", enabled: true });
+    await expect(page.getByTestId("card-ssh-hosts")).toBeVisible();
+    expect(readFileSync(file, "utf8")).toBe(before);
   } finally {
     await close();
   }

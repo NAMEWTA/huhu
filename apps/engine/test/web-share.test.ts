@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityResult } from "@huhu/contracts";
+import type { CapabilityResult, DashboardView } from "@huhu/contracts";
 import { expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { boot } from "../src/boot.js";
@@ -30,11 +30,11 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
   writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>已打包工作台</title>");
   const e = await boot({ vaultPath, webAssetsDir, create: true });
   const control = `http://127.0.0.1:${e.port}`;
-  const call = (base: string, capability: string, input: unknown = {}, headers: Record<string, string> = {}) =>
+  const call = (base: string, capability: string, input: unknown = {}, headers: Record<string, string> = {}, idempotencyKey = "web-share-test-intent") =>
     fetch(`${base}/api/v1/call`, {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
-      body: JSON.stringify({ capability, input, requestId: "web-share-test", idempotencyKey: "web-share-test-intent", caller: "desktop" }),
+      body: JSON.stringify({ capability, input, requestId: "web-share-test", idempotencyKey, caller: "desktop" }),
     });
   const desktop = async <T = unknown>(capability: string, input: unknown = {}): Promise<CapabilityResult<T>> => {
     const response = await call(control, capability, input, { authorization: `Bearer ${e.rendererToken}` });
@@ -94,6 +94,19 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
     expect(await desktop("tasks.read", { id: create.data.id })).toMatchObject({ ok: true, data: { title: "Web 任务" } });
     await expect.poll(() => [...streams, desktopStream].map(({ messages }) => messages.some((frame) => (frame as { type?: string }).type === "entity.changed"))).toEqual([true, true, true, true]);
 
+    const readBoard = async (index: number) => (await (await call(origin, "home.dashboard.get", {}, user(index))).json()) as CapabilityResult<DashboardView>;
+    const startingBoard = await readBoard(0);
+    if (!startingBoard.ok) throw new Error(startingBoard.error.message);
+    expect(await readBoard(1)).toEqual(startingBoard);
+    const { revision, layout, instances } = startingBoard.data.board;
+    const input = { baseRevision: revision, instances, layout: layout.map((placement) => (placement.instanceId === "default-focus" ? { ...placement, x: 2 } : placement)) };
+    const saved = await (await call(origin, "home.dashboard.update", input, user(0), "dashboard-save")).json();
+    expect(saved).toMatchObject({ ok: true, data: { source: "stored", board: { layout: input.layout } } });
+    expect(await (await call(origin, "home.dashboard.update", { ...input, layout }, user(1), "stale-dashboard-save")).json()).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect(await readBoard(2)).toEqual(saved);
+    expect(await desktop("home.dashboard.get")).toEqual(saved);
+    await expect.poll(() => [...streams, desktopStream].map(({ messages }) => messages.some((frame) => (frame as { payload?: { kind?: string } }).payload?.kind === "home-dashboard"))).toEqual([true, true, true, true]);
+
     expect(await desktop("web.invitations.revoke", { id: a.id })).toMatchObject({ ok: true, data: { revoked: true } });
     await Promise.all([streams[0]!.closed, streams[1]!.closed]);
     expect(streams[2]!.ws.readyState).toBe(WebSocket.OPEN);
@@ -103,6 +116,7 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
     expect((await call(origin, "vault.info", {}, user(0))).status).toBe(401);
     expect((await call(origin, "vault.info", {}, user(1))).status).toBe(401);
     expect(await (await call(origin, "vault.info", {}, user(2))).json()).toMatchObject({ ok: true, data: { id: e.vault.id } });
+    expect(await readBoard(2)).toEqual(saved);
 
     expect(await desktop("web.share.stop")).toEqual({ ok: true, data: { state: "stopped" } });
     await streams[2]!.closed;

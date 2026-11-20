@@ -542,6 +542,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               onToggleInspector={() => setInspector((v) => !v)}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
+              onClose={() => closeTab(tabKey(tab))}
               onMenu={(el, actions) => {
                 const r = el.getBoundingClientRect();
                 if (current) setMenu({ note: current, x: r.right, y: r.bottom, actions });

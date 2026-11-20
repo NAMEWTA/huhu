@@ -70,8 +70,6 @@ function post(engine: RunningEngine, capability: string, input: unknown = {}, id
 
 function recovery(engine: RunningEngine) {
   const { preview, commit } = defineDashboardRecovery(engine.vault, new Map([[known.widgetType, sshHostsWidget]]), () => now);
-  engine.registry.register(preview);
-  engine.registry.register(commit);
   return {
     preview: (intent: unknown) => post(engine, preview.name, intent),
     async prepare(intent: unknown) {
@@ -121,14 +119,14 @@ test("在空 Vault 恢复真实 Engine 返回的当前格式备份并重开", as
   const target = await open();
   const checkUnrelated = unrelatedFiles(target);
   const file = target.vault.files.abs(boardPath);
-  expect(await post(target, "home.dashboard.recovery.preview", { action: "repair" })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_FOUND" } });
+  expect(await post(target, "home.dashboard.recovery.preview", { action: "repair" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   const api = recovery(target);
   const intent = { action: "restore", backup: downloaded };
   const preview = await api.prepare(intent);
   expect(preview).toMatchObject({ confirmation: { vaultId: target.vault.id, revision: "0", fileDigest: null }, board: downloaded, changes: [], writable: true });
   expect(existsSync(file)).toBe(false);
   const save = await api.commit(intent, preview.confirmation);
-  expect(save).toMatchObject({ ok: true, data: { preservedPath: null, view: { board: { instances: backup.instances, layout: backup.layout, updatedAt: now.toISOString() } } } });
+  expect(save).toMatchObject({ ok: true, data: { preservedPath: null, view: { board: { instances: backup.instances, layout: backup.layout, updatedAt: expect.any(String) } } } });
   const committed = DashboardBoardSchema.parse(JSON.parse(readFileSync(file, "utf8")));
   expect(committed.revision).not.toBe(downloaded.revision);
   checkUnrelated();

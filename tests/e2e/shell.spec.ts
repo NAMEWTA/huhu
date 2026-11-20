@@ -1354,6 +1354,10 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/home/focus.json"), "utf8")).running).toBe(false);
 
     // 习惯：添加、勾选，重启后保持
+    await page.getByTestId("home-customize").click();
+    await page.getByRole("button", { name: "添加卡片", exact: true }).click();
+    await page.getByRole("button", { name: "添加 习惯", exact: true }).click();
+    await page.getByTestId("home-dashboard-save").click();
     await page.getByLabel("新习惯").fill("喝水");
     await page.getByRole("button", { name: "添加", exact: true }).click();
     await expect(page.getByTestId("habit-row")).toHaveCount(1);
@@ -1367,10 +1371,11 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
 
     // 自定义：隐藏专注卡片，重启后仍隐藏
     await page.getByTestId("home-customize").click();
-    await page.getByTestId("home-customize-panel").getByRole("checkbox", { name: "专注计时" }).click();
+    await page.locator('[data-instance-id="default-focus"]').getByRole("checkbox", { name: "隐藏" }).click();
     await expect(page.getByTestId("card-focus")).toHaveCount(0);
-    await page.keyboard.press("Escape"); // 关闭自定义对话框
-    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8")).hidden).toEqual(["focus"]);
+    await page.getByTestId("home-dashboard-save").click();
+    await expect(page.getByTestId("home-dashboard").getByRole("status")).toContainText("布局已保存");
+    expect(JSON.parse(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8")).instances).toContainEqual(expect.objectContaining({ instanceId: "default-focus", hidden: true }));
 
     // ACC-WB-08：停用任务插件，任务卡片隐藏
     await expect(page.getByTestId("card-open")).toBeVisible();

@@ -1,4 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { localExitRequest, type ExitParticipant } from "./exit-participants.js";
 
 export interface UiState {
   activeModule: string | null;
@@ -26,12 +27,33 @@ export const SIDEBAR_DEFAULT = 220;
 
 export type UiPersisted = Pick<UiState, "activeModule" | "openTabs" | "sidebarCollapsed" | "sidebarWidth">;
 
+const leaveGuards = new WeakMap<StoreApi<UiState>, Map<string, ExitParticipant>>();
+
+export function registerModuleLeaveGuard(store: StoreApi<UiState>, module: string, guard: ExitParticipant): () => void {
+  const guards = leaveGuards.get(store) ?? new Map<string, ExitParticipant>();
+  leaveGuards.set(store, guards);
+  guards.set(module, guard);
+  return () => {
+    if (guards.get(module) === guard) guards.delete(module);
+  };
+}
+
 /**
  * 界面状态，按 vaultId 分片（每个 Vault 一个 store）。
  * 点击当前已选模块切换侧栏折叠；每个模块最多一个标签。
  */
 export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s: UiPersisted) => void): StoreApi<UiState> {
-  const store = createStore<UiState>((set, get) => ({
+  const leave = (from: string | null, action: () => void) => {
+    const result = from ? leaveGuards.get(store)?.get(from)?.(localExitRequest("navigation")) : undefined;
+    if (result instanceof Promise) {
+      void result.then((allowed) => {
+        if (allowed && store.getState().activeModule === from) action();
+      });
+    } else if (result !== false) {
+      action();
+    }
+  };
+  const store: StoreApi<UiState> = createStore<UiState>((set, get) => ({
     activeModule: initial.activeModule ?? null,
     openTabs: initial.openTabs ?? [],
     sidebarCollapsed: initial.sidebarCollapsed ?? false,
@@ -44,13 +66,19 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
     openModule: (id) => {
       const s = get();
       if (s.activeModule === id) return set({ sidebarCollapsed: !s.sidebarCollapsed });
-      set({ activeModule: id, openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id], detailOpen: false });
+      leave(s.activeModule, () => {
+        const { openTabs } = get();
+        set({ activeModule: id, openTabs: openTabs.includes(id) ? openTabs : [...openTabs, id], detailOpen: false });
+      });
     },
     closeTab: (id) => {
       const s = get();
-      const tabs = s.openTabs.filter((t) => t !== id);
-      const active = s.activeModule === id ? (tabs[tabs.length - 1] ?? null) : s.activeModule;
-      set({ openTabs: tabs, activeModule: active });
+      leave(s.activeModule === id ? id : null, () => {
+        const current = get();
+        const tabs = current.openTabs.filter((t) => t !== id);
+        const active = current.activeModule === id ? (tabs[tabs.length - 1] ?? null) : current.activeModule;
+        set({ openTabs: tabs, activeModule: active });
+      });
     },
     toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
     setSidebarWidth: (w) => set({ sidebarWidth: clampWidth(w) }),

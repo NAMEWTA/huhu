@@ -17,7 +17,15 @@ const rule = { minSize: { w: 2, h: 2 }, maxSize: { w: 4, h: 4 }, maxInstances: 1
 function dispatch(vault: Vault) {
   const registry = new CapabilityRegistry();
   registry.register(defineDashboardUpdate(vault, new Map([[focus, rule]]), () => new Date("2026-11-20T00:00:00.000Z")));
-  const dispatcher = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: {} }), grantedPermissions: () => [], pluginOrigin: () => "builtin" });
+  const dispatcher = new Dispatcher({
+    registry,
+    audit: new GatewayAudit(),
+    idempotency: new IdempotencyStore(),
+    isPluginEnabled: () => true,
+    toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+    grantedPermissions: () => [],
+    pluginOrigin: () => "builtin",
+  });
   let attempt = 0;
   return (input: unknown, idempotencyKey = `dashboard-attempt-${++attempt}`) => dispatcher.call("desktop", { capability: "home.dashboard.update", requestId: idempotencyKey, idempotencyKey, input });
 }
@@ -28,7 +36,9 @@ async function fixture() {
   const vault = await Vault.open(root, { create: true });
   opened.add(vault);
   const fresh = readDashboard(vault).board;
-  const input = { baseRevision: fresh.revision, instances: fresh.instances, layout: fresh.layout };
+  const instance = fresh.instances.find((item) => item.widgetType === focus)!;
+  const placement = fresh.layout.find((item) => item.instanceId === instance.instanceId)!;
+  const input = { baseRevision: fresh.revision, instances: [instance], layout: [placement] };
   return { vault, input, save: dispatch(vault) };
 }
 

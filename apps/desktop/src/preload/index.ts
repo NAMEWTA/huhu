@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { AppMenuAction, AppMenuHost } from "@huhu/workbench";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
 
 export interface AppInfo {
@@ -14,6 +15,17 @@ export interface AppInfo {
 type EngineState = "starting" | "ready" | "stopped" | "crashed";
 
 contextBridge.exposeInMainWorld("huhuHost", {
+  appMenu: {
+    button: process.platform !== "darwin",
+    open: (x, y) => ipcRenderer.invoke("huhu:app-menu-open", x, y),
+    update: (workspace, documentVisible, writable) => ipcRenderer.invoke("huhu:app-menu-context", workspace, documentVisible, writable),
+    document: (id) => ipcRenderer.invoke("huhu:app-menu-document", id),
+    onAction(callback) {
+      const listener = (_event: unknown, action: AppMenuAction) => callback(action);
+      ipcRenderer.on("huhu:app-menu-action", listener);
+      return () => ipcRenderer.off("huhu:app-menu-action", listener);
+    },
+  } satisfies AppMenuHost,
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke("huhu:appInfo"),
   engine: (): Promise<{ baseUrl: string; token: string; vaultId: string }> => ipcRenderer.invoke("huhu:engine"),
   engineState: (): Promise<EngineState> => ipcRenderer.invoke("huhu:engineState"),

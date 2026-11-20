@@ -1,14 +1,17 @@
-import type { TaskDto } from "@huhu/contracts";
-import { Badge, Button, Dialog, EmptyState, IconButton, PageHead, Segmented } from "@huhu/ui";
-import { Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, CheckCircle2, ChevronRight, Clock, FileText, Inbox, LayoutGrid, ListTodo, Plus, RefreshCw, Sparkles, Target } from "lucide-react";
-import { Fragment, useMemo, useState, useSyncExternalStore } from "react";
+import { homeWidgetType, kernelHomeWidgets, type DashboardBoard, type TaskDto } from "@huhu/contracts";
+import { Badge, Button, EmptyState, IconButton, PageHead, Segmented } from "@huhu/ui";
+import { Activity, ArrowRight, ArrowUpRight, CheckCircle2, ChevronRight, Clock, FileText, Inbox, LayoutGrid, ListTodo, Plus, RefreshCw, Sparkles, Target } from "lucide-react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry, ModuleProps } from "../contributions.js";
-import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
+import { useCapability, useDiscoveredCapabilities, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import type { UiState } from "../state/ui-store.js";
+import { requestOpenPath } from "../state/open-request.js";
 import { FocusCard } from "./FocusCard.js";
 import { HabitsCard } from "./HabitsCard.js";
+import { Dashboard } from "./Dashboard.js";
+import { useDashboard } from "./useDashboard.js";
 
 interface Summary {
   vault: { id: string; name: string };
@@ -32,14 +35,6 @@ interface EventRow {
   message: string;
   tone: "success" | "error" | "neutral";
 }
-/** 卡片 id：内置卡片，或插件贡献的 `widget:<插件>:<卡片>`。 */
-type Card = string;
-/** 首页的两列：同一列里的卡片可以调整先后。 */
-const CORE_COLUMNS: Card[][] = [
-  ["tasks", "recent", "activity"],
-  ["focus", "inbox"],
-];
-const CORE_CARDS: Card[] = ["focus", "habits", "tasks", "inbox", "recent", "activity"];
 const NO_WIDGETS: ReturnType<ContributionRegistry["getSnapshot"]> = { modules: [], commands: [], homeWidgets: [], settingsPages: [] };
 const noop = () => () => undefined;
 type Section = "overview" | "today" | "activity";
@@ -52,11 +47,13 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const engine = useEngine();
   const qc = useQueryClient();
   const contributed = useSyncExternalStore(registry ? registry.subscribe : noop, registry ? registry.getSnapshot : () => NO_WIDGETS).homeWidgets;
-  const widgetIds = contributed.map((w) => `widget:${w.plugin}:${w.id}`);
-  const HOME_COLUMNS: Card[][] = [CORE_COLUMNS[0] as Card[], [...(CORE_COLUMNS[1] as Card[]), ...widgetIds]];
-  const CARDS: Card[] = [...CORE_CARDS, ...widgetIds];
+  const dashboard = useDashboard(ui);
+  const available = useDiscoveredCapabilities();
+  const capabilities = new Set(available.data?.map(({ name }) => name));
+  const allDefinitions = [...Object.values(kernelHomeWidgets), ...contributed.flatMap((widget) => widget.definition ?? [])];
+  const definitions = new Map(allDefinitions.map((widget) => [homeWidgetType(widget.owner, widget.id), widget]));
+  const allowed = (type: string) => definitions.get(type as ReturnType<typeof homeWidgetType>)?.capabilities.every((cap) => !cap.required || capabilities.has(cap.name)) ?? false;
   const s = useCapability<Summary>("home.summary", {});
-  const widgets = useCapability<{ hidden: string[]; order: string[] }>("home.widgets.get", {});
   const tasks = useCapability<TaskDto[]>("tasks.list", { status: ["not_started", "in_progress"] });
   const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" });
   const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
@@ -64,44 +61,11 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const [localSection, setLocalSection] = useState<Section>("overview");
   const section: Section = sectionProp === "today" || sectionProp === "activity" || sectionProp === "overview" ? sectionProp : onSection ? "overview" : localSection;
   const setSection = (x: Section) => (onSection ? onSection(x) : setLocalSection(x));
-  const [filter, setFilter] = useState<"all" | "today">("all");
-  const [editing, setEditing] = useState(false);
+  const [filters, setFilters] = useState<Record<string, "all" | "today">>({});
   const [error, setError] = useState<string | null>(null);
-  const hidden = new Set(widgets.data?.hidden ?? []);
-  const show = (c: Card) => !hidden.has(c);
   const nav = (id: string) => ui.getState().openModule(id);
   const d = s.data;
 
-  /** 在同一列内上移 / 下移一张卡片（顺序写进 widgets.json 的 order）。 */
-  async function moveCard(c: Card, dir: -1 | 1) {
-    setError(null);
-    const col = HOME_COLUMNS.find((x) => x.includes(c)) ?? [c];
-    const cur = orderedCards(col);
-    const i = cur.indexOf(c);
-    const j = i + dir;
-    if (j < 0 || j >= cur.length) return;
-    const next = [...cur];
-    [next[i], next[j]] = [next[j] as Card, next[i] as Card];
-    // 其他列的顺序保持不变：order 只重写本列的相对顺序，并保留其他卡片已有的位置
-    const rest = (widgets.data?.order ?? []).filter((x) => !col.includes(x));
-    try {
-      await engine.call("home.widgets.update", { hidden: [...hidden], order: [...rest, ...next] }, { write: true });
-      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function toggleCard(c: Card) {
-    setError(null);
-    try {
-      const next = hidden.has(c) ? [...hidden].filter((x) => x !== c) : [...hidden, c];
-      await engine.call("home.widgets.update", { hidden: next, order: widgets.data?.order ?? [] }, { write: true });
-      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
   async function complete(t: TaskDto) {
     setError(null);
     try {
@@ -112,11 +76,9 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
     }
   }
 
-  const cardLabel = (c: Card): string => tHome.customize.cards[c] ?? contributed.find((w) => `widget:${w.plugin}:${w.id}` === c)?.title ?? c;
   const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date()); // “今天”按设置的时区，不是 UTC
   const pending = useMemo(() => (tasks.data ?? []).filter((t) => t.status !== "completed"), [tasks.data]);
-  const taskRows = pending.filter((t) => (section !== "today" && filter === "all") || (d && t.due === today)).slice(0, 5);
   if (!d) return <div className="hu-module-layout home-layout" data-testid="home-module" />;
 
   const metric = (id: string, testId: string, icon: React.ReactNode, tone: string, [label, unit]: readonly [string, string], value: number, target: string) => (
@@ -133,23 +95,23 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
     </button>
   );
 
-  const order = (widgets.data?.order ?? []).filter((c) => CARDS.includes(c));
-  /** 同一列里的卡片按用户排的顺序显示；没排过的保持默认顺序（排在已排的后面）。 */
-  const orderedCards = (col: Card[]): Card[] => [...col].sort((x, y) => (order.indexOf(x) < 0 ? 99 : order.indexOf(x)) - (order.indexOf(y) < 0 ? 99 : order.indexOf(y)) || col.indexOf(x) - col.indexOf(y));
-  const mainNodes: Record<string, React.ReactNode> = {
-    tasks:
-      show("tasks") && d.enabled.tasks ? (
-        <section className="hu-card-alt hu-home-task-card" data-testid="card-tasks">
-          <div className="shell-card-head">
-            <h2>
-              <Target size={17} aria-hidden /> {tHome.tasksCard.title} <Badge>{pending.length}</Badge>
-            </h2>
-            <div className="row">
+  const renderTasks = (instance: DashboardBoard["instances"][number]) => {
+    const stored = instance.config["filter"];
+    const activeFilter = section === "today" || stored === "today" ? "today" : (filters[instance.instanceId] ?? "all");
+    const taskRows = pending.filter((task) => activeFilter === "all" || task.due === today).slice(0, 5);
+    return d.enabled.tasks ? (
+      <section className="hu-card-alt hu-home-task-card" data-testid="card-tasks">
+        <div className="shell-card-head">
+          <h2>
+            <Target size={17} aria-hidden /> {instance.title || tHome.tasksCard.title} <Badge>{pending.length}</Badge>
+          </h2>
+          <div className="row">
+            {instance.config["filter"] !== "today" ? (
               <Segmented<"all" | "today">
                 label={tHome.tasksCard.title}
-                value={section === "today" ? "today" : filter}
+                value={activeFilter}
                 onChange={(v) => {
-                  setFilter(v);
+                  setFilters((previous) => ({ ...previous, [instance.instanceId]: v }));
                   if (section === "today" && v === "all") setSection("overview");
                 }}
                 options={[
@@ -157,63 +119,73 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
                   { value: "today", label: tHome.tasksCard.today },
                 ]}
               />
-              <IconButton icon={Plus} label={tHome.tasksCard.add} onClick={() => nav("tasks")} />
+            ) : null}
+            <IconButton icon={Plus} label={tHome.tasksCard.add} onClick={() => nav("tasks")} />
+          </div>
+        </div>
+        <div className="home-task-list">
+          {taskRows.map((t) => (
+            <div className="hu-home-task-row" key={t.id}>
+              <button type="button" className="shell-task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
+              <button type="button" className="grow shell-task-open" onClick={() => nav("tasks")}>
+                <strong>{t.title}</strong>
+                <span>
+                  {t.project ?? tHome.tasksCard.personal}
+                  {t.due ? ` · ${t.due}` : ""}
+                </span>
+              </button>
+              <Badge>{t.type === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
             </div>
-          </div>
-          <div className="home-task-list">
-            {taskRows.map((t) => (
-              <div className="hu-home-task-row" key={t.id}>
-                <button type="button" className="shell-task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
-                <button type="button" className="grow shell-task-open" onClick={() => nav("tasks")}>
-                  <strong>{t.title}</strong>
-                  <span>
-                    {t.project ?? tHome.tasksCard.personal}
-                    {t.due ? ` · ${t.due}` : ""}
-                  </span>
-                </button>
-                <Badge>{t.type === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
-              </div>
-            ))}
-            {pending.length === 0 ? <EmptyState icon={CheckCircle2} title={tHome.tasksCard.allDone} hint={tHome.tasksCard.rest} /> : null}
-          </div>
-          <button type="button" className="hu-card-footer-link" onClick={() => nav("tasks")}>
-            {tHome.tasksCard.viewAll} <ArrowRight size={14} aria-hidden />
+          ))}
+          {pending.length === 0 ? <EmptyState icon={CheckCircle2} title={tHome.tasksCard.allDone} hint={tHome.tasksCard.rest} /> : null}
+        </div>
+        <button type="button" className="hu-card-footer-link" onClick={() => nav("tasks")}>
+          {tHome.tasksCard.viewAll} <ArrowRight size={14} aria-hidden />
+        </button>
+      </section>
+    ) : null;
+  };
+  const mainNodes: Record<string, React.ReactNode> = {
+    notes: d.enabled.notes ? (
+      <section className="hu-card-alt" data-testid="card-recent">
+        <div className="shell-card-head">
+          <h2>
+            <Clock size={17} aria-hidden /> {tHome.recentCard.title}
+          </h2>
+          <button type="button" className="shell-link-button" onClick={() => nav("notes")}>
+            {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
           </button>
-        </section>
-      ) : null,
-    recent:
-      show("recent") && d.enabled.notes ? (
-        <section className="hu-card-alt" data-testid="card-recent">
-          <div className="shell-card-head">
-            <h2>
-              <Clock size={17} aria-hidden /> {tHome.recentCard.title}
-            </h2>
-            <button type="button" className="shell-link-button" onClick={() => nav("notes")}>
-              {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
-            </button>
+        </div>
+        {d.recentNotes.length === 0 ? (
+          <EmptyState title={tHome.noRecent} />
+        ) : (
+          <div className="shell-recent-note-grid">
+            {d.recentNotes.map((n, i) => (
+              <button
+                type="button"
+                className="shell-recent-note"
+                key={n.path}
+                onClick={() => {
+                  requestOpenPath(n.path, true);
+                  nav("notes");
+                }}
+              >
+                <div className={`shell-note-symbol hu-note-symbol-${i % 3}`}>
+                  <FileText size={18} aria-hidden />
+                </div>
+                <strong>{n.title}</strong>
+                <p>{n.snippet}</p>
+                <div>
+                  <span>{n.folder}</span>
+                  <span>{fmtDate(n.updatedAt, zone)}</span>
+                </div>
+              </button>
+            ))}
           </div>
-          {d.recentNotes.length === 0 ? (
-            <EmptyState title={tHome.noRecent} />
-          ) : (
-            <div className="shell-recent-note-grid">
-              {d.recentNotes.map((n, i) => (
-                <button type="button" className="shell-recent-note" key={n.path} onClick={() => nav("notes")}>
-                  <div className={`shell-note-symbol hu-note-symbol-${i % 3}`}>
-                    <FileText size={18} aria-hidden />
-                  </div>
-                  <strong>{n.title}</strong>
-                  <p>{n.snippet}</p>
-                  <div>
-                    <span>{n.folder}</span>
-                    <span>{fmtDate(n.updatedAt, zone)}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null,
-    activity: show("activity") ? (
+        )}
+      </section>
+    ) : null,
+    activity: (
       <section className="hu-card-alt" data-testid="card-activity">
         <div className="shell-card-head">
           <h2>
@@ -225,48 +197,83 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
         </div>
         <ActivityFeed compact zone={zone} />
       </section>
+    ),
+    focus: <FocusCard />,
+    habits: (
+      <section className="hu-card-alt">
+        <HabitsCard />
+      </section>
+    ),
+    inbox: d.enabled.inbox ? (
+      <section className="hu-card-alt shell-home-inbox" data-testid="card-inbox-list">
+        <div className="shell-card-head">
+          <h2>
+            <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
+          </h2>
+          <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
+        </div>
+        {(inbox.data ?? []).slice(0, 3).map((i) => (
+          <button type="button" className="shell-inbox-preview" key={i.id} onClick={() => nav("inbox")}>
+            <span className="shell-inbox-bullet" />
+            <span>
+              <strong>{i.title}</strong>
+              <small>{i.source}</small>
+            </span>
+            <ChevronRight size={13} aria-hidden />
+          </button>
+        ))}
+        {(inbox.data ?? []).length === 0 ? <div className="hu-mini-empty">{tHome.inboxCard.empty}</div> : null}
+        <button type="button" className="hu-card-footer-link" onClick={() => nav("inbox")}>
+          {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
+        </button>
+      </section>
     ) : null,
   };
-  const sideNodes: Record<string, React.ReactNode> = {
-    focus: show("focus") ? <FocusCard>{show("habits") ? <HabitsCard /> : null}</FocusCard> : null,
-    inbox:
-      show("inbox") && d.enabled.inbox ? (
-        <section className="hu-card-alt shell-home-inbox" data-testid="card-inbox-list">
-          <div className="shell-card-head">
-            <h2>
-              <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
-            </h2>
-            <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
-          </div>
-          {(inbox.data ?? []).slice(0, 3).map((i) => (
-            <button type="button" className="shell-inbox-preview" key={i.id} onClick={() => nav("inbox")}>
-              <span className="shell-inbox-bullet" />
-              <span>
-                <strong>{i.title}</strong>
-                <small>{i.source}</small>
-              </span>
-              <ChevronRight size={13} aria-hidden />
-            </button>
-          ))}
-          {(inbox.data ?? []).length === 0 ? <div className="hu-mini-empty">{tHome.inboxCard.empty}</div> : null}
-          <button type="button" className="hu-card-footer-link" onClick={() => nav("inbox")}>
-            {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
-          </button>
-        </section>
-      ) : null,
-  };
-  for (const w of contributed) {
-    const id = `widget:${w.plugin}:${w.id}`;
-    const W = w.component;
-    sideNodes[id] = show(id) ? (
-      <section className="hu-card-alt home-widget" data-testid={`card-${w.plugin}-${w.id}`}>
-        <div className="shell-card-head">
-          <h2>{w.title}</h2>
+  const renderWidget = (instance: DashboardBoard["instances"][number]) => {
+    if (!allowed(instance.widgetType)) return null;
+    if (instance.widgetType === "widget:kernel:tasks") return renderTasks(instance);
+    if (instance.widgetType === "widget:kernel:metrics") {
+      return (
+        <div className="shell-overview-metrics">
+          {d.enabled.tasks ? metric("tasks", "card-open", <ListTodo size={19} aria-hidden />, "amber", tHome.metrics.tasks, d.tasksOpen, "tasks") : null}
+          {d.enabled.notes ? metric("notes", "card-notes", <FileText size={19} aria-hidden />, "violet", tHome.metrics.notes, d.notes, "notes") : null}
+          {d.enabled.inbox ? metric("inbox", "card-inbox", <Inbox size={19} aria-hidden />, "blue", tHome.metrics.inbox, d.inboxPending, "inbox") : null}
+          {d.enabled.automations ? metric("rules", "card-rules", <RefreshCw size={19} aria-hidden />, "green", tHome.metrics.rules, d.rulesEnabled, "automations") : null}
         </div>
-        <W onNavigate={nav} />
+      );
+    }
+    if (instance.widgetType === "widget:kernel:agent") {
+      return d.enabled.agentCli ? (
+        <button type="button" className="shell-agent-invitation" onClick={() => nav("agent-cli")}>
+          <div className="shell-agent-invitation-top">
+            <Sparkles size={21} aria-hidden />
+            <ArrowUpRight size={18} aria-hidden />
+          </div>
+          <h3>{tHome.agentCard.title}</h3>
+          <p>
+            {tHome.agentCard.body[0]}
+            <br />
+            {tHome.agentCard.body[1]}
+          </p>
+          <span>
+            {tHome.agentCard.action} <ArrowRight size={14} aria-hidden />
+          </span>
+        </button>
+      ) : null;
+    }
+    if (instance.widgetType.startsWith("widget:kernel:")) return mainNodes[instance.widgetType.slice("widget:kernel:".length)];
+    const widget = contributed.find((item) => homeWidgetType(item.plugin, item.id) === instance.widgetType);
+    if (!widget) return null;
+    const Widget = widget.component;
+    return (
+      <section className="hu-card-alt home-widget" data-testid={`card-${widget.plugin}-${widget.id}`}>
+        <div className="shell-card-head">
+          <h2>{instance.title || widget.title}</h2>
+        </div>
+        <Widget onNavigate={nav} config={instance.config} />
       </section>
-    ) : null;
-  }
+    );
+  };
 
   return (
     <div className="hu-module-layout home-layout" data-testid="home-module">
@@ -277,7 +284,16 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
           description={tHome.description}
           actions={
             <>
-              <Button icon={LayoutGrid} aria-expanded={editing} data-testid="home-customize" onClick={() => setEditing(true)}>
+              <Button
+                icon={LayoutGrid}
+                aria-pressed={Boolean(dashboard.draft)}
+                disabled={!dashboard.snapshot.data?.writable || Boolean(dashboard.draft)}
+                data-testid="home-customize"
+                onClick={() => {
+                  if (section === "activity") setSection("overview");
+                  dashboard.start();
+                }}
+              >
                 {tHome.customize.open}
               </Button>
               <Button variant="primary" icon={Plus} onClick={() => nav("notes")}>
@@ -292,71 +308,24 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
           </div>
         ) : null}
         <div className="shell-home-scroll hu-scroll">
-          {section === "activity" ? (
+          {section === "activity" && !dashboard.draft ? (
             <ActivityFeed zone={zone} />
           ) : (
-            <>
-              <div className="shell-overview-metrics">
-                {d.enabled.tasks ? metric("tasks", "card-open", <ListTodo size={19} aria-hidden />, "amber", tHome.metrics.tasks, d.tasksOpen, "tasks") : null}
-                {d.enabled.notes ? metric("notes", "card-notes", <FileText size={19} aria-hidden />, "violet", tHome.metrics.notes, d.notes, "notes") : null}
-                {d.enabled.inbox ? metric("inbox", "card-inbox", <Inbox size={19} aria-hidden />, "blue", tHome.metrics.inbox, d.inboxPending, "inbox") : null}
-                {d.enabled.automations ? metric("rules", "card-rules", <RefreshCw size={19} aria-hidden />, "green", tHome.metrics.rules, d.rulesEnabled, "automations") : null}
-              </div>
-              <div className="shell-home-grid">
-                <div className="shell-home-main-column" data-testid="home-main-column">
-                  {orderedCards(HOME_COLUMNS[0] as Card[]).map((c) => (
-                    <Fragment key={c}>{mainNodes[c]}</Fragment>
-                  ))}
-                </div>
-                <div className="shell-home-side-column" data-testid="home-side-column">
-                  {orderedCards(HOME_COLUMNS[1] as Card[]).map((c) => (
-                    <Fragment key={c}>{sideNodes[c]}</Fragment>
-                  ))}
-                  {d.enabled.agentCli ? (
-                    <button type="button" className="shell-agent-invitation" onClick={() => nav("agent-cli")}>
-                      <div className="shell-agent-invitation-top">
-                        <Sparkles size={21} aria-hidden />
-                        <ArrowUpRight size={18} aria-hidden />
-                      </div>
-                      <h3>{tHome.agentCard.title}</h3>
-                      <p>
-                        {tHome.agentCard.body[0]}
-                        <br />
-                        {tHome.agentCard.body[1]}
-                      </p>
-                      <span>
-                        {tHome.agentCard.action} <ArrowRight size={14} aria-hidden />
-                      </span>
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </>
+            <Dashboard
+              state={dashboard}
+              definitions={definitions}
+              allowed={allowed}
+              renderWidget={renderWidget}
+              configureWidget={(instance, onChange, disabled) => {
+                if (!allowed(instance.widgetType)) return null;
+                const Configure = contributed.find((widget) => homeWidgetType(widget.plugin, widget.id) === instance.widgetType)?.configure;
+                return Configure ? <Configure config={instance.config} onChange={onChange} disabled={disabled} /> : null;
+              }}
+            />
           )}
           <div className="shell-home-footnote">{tHome.footnote}</div>
         </div>
       </div>
-      <Dialog open={editing} title={tHome.customize.title} description={tHome.customize.description} onClose={() => setEditing(false)} testId="home-customize-panel">
-        <div className="hu-form-body">
-          {CARDS.map((c) => {
-            const col = HOME_COLUMNS.find((x) => x.includes(c));
-            const pos = col ? orderedCards(col).indexOf(c) : -1;
-            return (
-              <div key={c} className="row" data-testid="home-card-row">
-                <label className="checkbox-row grow">
-                  <input type="checkbox" checked={show(c)} aria-label={cardLabel(c)} onChange={() => void toggleCard(c)} /> {cardLabel(c)}
-                </label>
-                {col ? (
-                  <>
-                    <IconButton icon={ArrowUp} label={`上移 ${cardLabel(c)}`} disabled={pos <= 0} onClick={() => void moveCard(c, -1)} />
-                    <IconButton icon={ArrowDown} label={`下移 ${cardLabel(c)}`} disabled={pos < 0 || pos >= col.length - 1} onClick={() => void moveCard(c, 1)} />
-                  </>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </Dialog>
     </div>
   );
 }

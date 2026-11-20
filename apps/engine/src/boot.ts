@@ -53,6 +53,8 @@ import * as inbox from "@huhu/plugin-inbox/engine";
 import * as mail from "@huhu/plugin-mail/engine";
 import * as notes from "@huhu/plugin-notes/engine";
 import * as ssh from "@huhu/plugin-ssh/engine";
+import { sshHostsWidget } from "@huhu/plugin-ssh/shared";
+import { gitHomeWidget } from "@huhu/plugin-versioning/shared";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
@@ -318,7 +320,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
-  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }), vault);
+  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }), vault, [sshHostsWidget, gitHomeWidget], () => {
+    events.publish("entity.changed", { kind: "home-dashboard", id: "home", op: "updated" });
+  });
   registerSystemCapabilities(
     registry,
     plugins,

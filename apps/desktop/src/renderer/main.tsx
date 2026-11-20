@@ -315,6 +315,7 @@ function connectWindowExit(): () => void {
     report("checking");
     const leave = await checkExitParticipants({
       signal,
+      reason: "window",
       async waitForUser(decision) {
         signal.throwIfAborted();
         report("waiting");

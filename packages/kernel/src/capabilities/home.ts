@@ -10,15 +10,17 @@ import {
   HabitsActionSchema,
   HabitsStateSchema,
   HabitsViewSchema,
-  WidgetsStateSchema,
   errors,
-  isKnownCard,
+  homeWidgetConfigSchema,
+  homeWidgetType,
+  kernelHomeWidgets,
+  type HomeWidgetDefinition,
 } from "@huhu/contracts";
 import type { Vault } from "@huhu/vault";
-import type { FocusState, FocusView, HabitsState, HabitsView, WidgetsState } from "@huhu/contracts";
+import type { FocusState, FocusView, HabitsState, HabitsView } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
-import { hasDashboardVersion, readDashboard } from "./home-dashboard.js";
+import { defineDashboardRecovery, defineDashboardUpdate, readDashboard } from "./home-dashboard.js";
 
 export interface HomeDeps {
   /** `.huhu/home/`。 */
@@ -32,13 +34,7 @@ export interface HomeDeps {
 const MAX_HABITS = 20;
 const MAX_TITLE = 60;
 
-/** 更新入参：hidden / order 接受任意字符串，由 setWidgets 逐项过滤（WidgetsStateSchema 对非法项会整体回退为空）。 */
-const WidgetsUpdateSchema = z.object({ hidden: z.array(z.string()), order: z.array(z.string()).optional() });
-
-/** 只留下认识的卡片 id 并去重。 */
-const knownCards = (xs: unknown): string[] => (Array.isArray(xs) ? [...new Set(xs.filter(isKnownCard))] : []);
-
-/** 首页的专注计时、习惯、卡片显示：状态存 `.huhu/home/*.json`（原子写），跨日重置按设置的时区。 */
+/** 首页的专注计时与习惯状态，跨日重置按设置的时区。 */
 export class HomeStore {
   constructor(private readonly d: HomeDeps) {}
 
@@ -141,36 +137,24 @@ export class HomeStore {
     this.write("habits.json", s);
     return this.habitsView(s);
   }
-
-  // ---- 卡片 ----
-
-  widgets(): WidgetsState {
-    return this.read("widgets.json", (v) => {
-      // 逐项过滤：个别不认识的卡片 id 不会让整份 hidden / order 作废（不放进 schema：带 transform 的 schema 无法生成能力目录用的 JSON Schema）
-      const raw = (v ?? {}) as { hidden?: unknown; order?: unknown };
-      return WidgetsStateSchema.parse({ hidden: knownCards(raw.hidden), ...(raw.order !== undefined ? { order: knownCards(raw.order) } : {}) });
-    });
-  }
-  setWidgets(w: z.infer<typeof WidgetsUpdateSchema>): WidgetsState {
-    if (this.read("widgets.json", hasDashboardVersion)) throw errors.invalidInput("旧版首页设置不能修改看板布局");
-    const next = WidgetsStateSchema.parse({ hidden: knownCards(w.hidden), order: knownCards(w.order ?? []) });
-    this.write("widgets.json", next);
-    return next;
-  }
 }
 
-/** home.focus.* / home.habits.* / home.widgets.*（kernel 能力，仅桌面可用）。 */
-export function registerHomeCapabilities(registry: CapabilityRegistry, store: HomeStore, vault: Vault): () => void {
+/** 首页业务状态与布局由各自的能力维护，不开放给 MCP 或 CLI。 */
+export function registerHomeCapabilities(registry: CapabilityRegistry, store: HomeStore, vault: Vault, pluginWidgets: readonly HomeWidgetDefinition[], changed: () => void): () => void {
   const desktop = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
   const none = z.object({});
+  const widgets = new Map([...Object.values(kernelHomeWidgets), ...pluginWidgets].map((widget) => [homeWidgetType(widget.owner, widget.id), { ...widget, configSchema: homeWidgetConfigSchema(widget) }] as const));
+  const now = () => new Date();
+  const recovery = defineDashboardRecovery(vault, widgets, now, changed);
   const offs = [
     registry.register(defineCapability({ name: "home.focus.get", ...desktop, scope: "read", input: none, output: FocusViewSchema, handler: () => store.focus() })),
     registry.register(defineCapability({ name: "home.focus.update", ...desktop, scope: "write", input: FocusActionSchema, output: FocusViewSchema, handler: (_c, i) => store.focusAction(i.action) })),
     registry.register(defineCapability({ name: "home.habits.get", ...desktop, scope: "read", input: none, output: HabitsViewSchema, handler: () => store.habits() })),
     registry.register(defineCapability({ name: "home.habits.update", ...desktop, scope: "write", input: HabitsActionSchema, output: HabitsViewSchema, handler: (_c, i) => store.habitsAction(i) })),
-    registry.register(defineCapability({ name: "home.widgets.get", ...desktop, scope: "read", input: none, output: WidgetsStateSchema, handler: () => store.widgets() })),
-    registry.register(defineCapability({ name: "home.widgets.update", ...desktop, scope: "write", input: WidgetsUpdateSchema, output: WidgetsStateSchema, handler: (_c, i) => store.setWidgets(i) })),
     registry.register(defineCapability({ name: "home.dashboard.get", ...desktop, scope: "read", input: none, output: DashboardViewSchema, handler: () => readDashboard(vault) })),
+    registry.register(defineDashboardUpdate(vault, widgets, now, changed)),
+    registry.register(recovery.preview),
+    registry.register(recovery.commit),
     registry.register(
       defineCapability({
         name: "home.dashboard.backup",

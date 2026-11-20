@@ -1,15 +1,17 @@
 import { Badge, Banner, ControlsProvider, Hint, IconButton, MotionProvider, Segmented } from "@huhu/ui";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Folder, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from "lucide-react";
-import { Component, Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { ModuleIconsContext, SettingsPagesContext, type ContributionRegistry, type ModuleContribution } from "../contributions.js";
 import { host } from "../settings/host.js";
 import { useRegionCycle } from "./region-cycle.js";
 import { BrandMark } from "./BrandMark.js";
+import { AppMenuButton } from "./AppMenuButton.js";
 import { VaultMenu } from "./VaultMenu.js";
 import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
+import { checkExitParticipants, localExitRequest } from "../state/exit-participants.js";
 
 class ModuleBoundary extends Component<{ children: ReactNode; moduleId: string }, { error: Error | null }> {
   override state = { error: null as Error | null };
@@ -62,6 +64,47 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
   const [switchOpen, setSwitchOpen] = useState(false);
   useRegionCycle();
   const [switchTarget, setSwitchTarget] = useState<{ path: string; name: string } | undefined>(undefined);
+  const [vaultWritable, setVaultWritable] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    void host()
+      ?.vault.state()
+      .then(
+        (state) => {
+          if (mounted) setVaultWritable(state.path !== null && !state.readOnly);
+        },
+        () => undefined,
+      );
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  useEffect(() => {
+    void host()?.appMenu?.update(engineState === "ready", s.activeModule === "notes", vaultWritable);
+  }, [engineState, s.activeModule, vaultWritable]);
+  const requestVaultSwitch = useCallback((target?: { path: string; name: string }) => {
+    void checkExitParticipants(localExitRequest("vault")).then((allowed) => {
+      if (!allowed) return;
+      setSwitchTarget(target);
+      setSwitchOpen(true);
+    });
+  }, []);
+  useEffect(
+    () =>
+      host()?.appMenu?.onAction((action) => {
+        if (action.kind === "vault") {
+          void host()
+            ?.pickOpenPath("directory")
+            .then((path) => {
+              if (path) requestVaultSwitch({ path, name: path.split(/[\\/]/).filter(Boolean).at(-1) ?? path });
+            });
+        } else if (engineState === "ready") {
+          if (action.kind === "palette") ui.getState().setPaletteOpen(true);
+          if (action.kind === "focus") ui.getState().setFocusMode(!ui.getState().focusMode);
+        }
+      }),
+    [engineState, requestVaultSwitch, ui],
+  );
   const moduleIcons = useMemo(() => {
     const map: Record<string, ReactNode> = {};
     for (const m of modules) map[m.plugin] ??= m.icon; // 一个插件有多个模块时取第一个
@@ -95,14 +138,14 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
     if (s.activeModule !== id) s.openModule(id);
   };
   const setSection = (id: string) => active && s.setSection(active.id, id);
-  // Entering Settings from an open note keeps its editor and inspector mounted.
+  // Settings and Home can share an open editor. The exit transaction then sees both the board and the note.
   const showNotes = active?.id === "notes";
   const notesVisited = useRef(false);
-  const inSettings = active?.id === "settings";
+  const alongsideNotes = active?.id === "settings" || active?.id === "home";
   useEffect(() => {
-    if (!inSettings) notesVisited.current = showNotes;
-  }, [inSettings, showNotes]);
-  const retainNotes = showNotes || (inSettings && notesVisited.current);
+    if (!alongsideNotes) notesVisited.current = showNotes;
+  }, [alongsideNotes, showNotes]);
+  const retainNotes = showNotes || (alongsideNotes && notesVisited.current);
   const Notes = retainNotes && s.openTabs.includes("notes") ? modules.find((module) => module.id === "notes")?.component : undefined;
   const shellNav = active?.nav === "shell" && sections.length > 0;
   const startResize = (e: ReactPointerEvent) => {
@@ -138,20 +181,17 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
           <SettingsPagesContext.Provider value={settingsPages}>
             <div className={`hu-app${s.focusMode ? " hu-focus-mode" : ""}`}>
               <header className="hu-window-bar">
-                <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="huhu workbench 首页">
-                  <BrandMark className="shell-brand-mark" />
-                  <span>
-                    huhu<span className="shell-brand-suffix">workbench</span>
-                  </span>
-                </button>
+                <div className="row">
+                  <AppMenuButton />
+                  <button className="brand" type="button" onClick={() => home && s.openModule(home.id)} aria-label="huhu workbench 首页">
+                    <BrandMark className="shell-brand-mark" />
+                    <span>
+                      huhu<span className="shell-brand-suffix">workbench</span>
+                    </span>
+                  </button>
+                </div>
                 {host()?.vault ? (
-                  <VaultMenu
-                    vaultName={vaultName}
-                    onSwitch={(target) => {
-                      setSwitchTarget(target);
-                      setSwitchOpen(true);
-                    }}
-                  />
+                  <VaultMenu vaultName={vaultName} onSwitch={requestVaultSwitch} />
                 ) : (
                   <div className="hu-window-center shell-vault-title-button" data-testid="vault-name">
                     <Folder size={13} aria-hidden />
@@ -282,7 +322,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                       {Notes && engineState === "ready" ? (
                         <div style={{ display: showNotes ? "contents" : "none" }}>
                           <ModuleBoundary moduleId="notes">
-                            <Notes active={showNotes} section={s.sections.notes ?? ""} onSection={(id) => s.setSection("notes", id)} onNavigate={navigate} />
+                            <Notes active={showNotes || active?.id === "home"} section={s.sections.notes ?? ""} onSection={(id) => s.setSection("notes", id)} onNavigate={navigate} />
                           </ModuleBoundary>
                         </div>
                       ) : null}

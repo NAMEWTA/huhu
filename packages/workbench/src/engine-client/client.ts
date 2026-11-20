@@ -42,6 +42,14 @@ export class EngineClient {
     return this.endpoint.vaultId;
   }
 
+  async capabilities(signal: AbortSignal): Promise<{ name: string }[]> {
+    const headers = new Headers();
+    if (this.endpoint.token) headers.set("authorization", `Bearer ${this.endpoint.token}`);
+    const response = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/capabilities`, { headers, signal });
+    if (!response.ok) throw new Error("无法读取当前会话的能力目录");
+    return (await response.json()) as { name: string }[];
+  }
+
   async call<T>(capability: string, input: unknown = {}, opts: CallOptions = {}): Promise<T> {
     const idempotencyKey = opts.idempotencyKey ?? (opts.write ? createRequestId() : undefined);
     const body = { capability, input, requestId: createRequestId(), idempotencyKey };

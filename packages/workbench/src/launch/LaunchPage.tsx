@@ -1,7 +1,8 @@
 import { Badge, Button, IconButton } from "@huhu/ui";
 import { AlertCircle, BookOpen, ChevronRight, FileText, Folder, FolderOpen, HardDrive, Plus, Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrandLogo, BrandMark } from "../shell/BrandMark.js";
+import { AppMenuButton } from "../shell/AppMenuButton.js";
 import { host, type VaultHostState, type VaultOpenResult } from "../settings/host.js";
 
 /**
@@ -12,6 +13,12 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
   const h = host();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; code: string; target: string } | null>(state.error ? { message: state.error, code: "INTERNAL", target: "" } : null);
+  useEffect(() =>
+    h?.appMenu?.onAction((action) => {
+      if (busy || action.kind !== "vault") return;
+      void openFolder();
+    }),
+  );
   if (!h) return <p>需要在桌面应用里使用。</p>;
 
   async function run(label: string, target: string | null, go: (t: string) => Promise<VaultOpenResult>): Promise<void> {
@@ -50,11 +57,14 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
   return (
     <div className="shell-vault-launch" data-testid="vault-launch">
       <header className="shell-vault-launch-bar">
-        <div className="brand">
-          <BrandMark className="shell-brand-mark" />
-          <span>
-            huhu<span className="shell-brand-suffix">workbench</span>
-          </span>
+        <div className="row">
+          <AppMenuButton />
+          <div className="brand">
+            <BrandMark className="shell-brand-mark" />
+            <span>
+              huhu<span className="shell-brand-suffix">workbench</span>
+            </span>
+          </div>
         </div>
         <Badge>Electron</Badge>
       </header>

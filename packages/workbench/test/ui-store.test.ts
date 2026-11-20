@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ContributionRegistry, SIDEBAR_MAX, SIDEBAR_MIN, createUiStore, openSettings, type ModuleContribution } from "../src/index.js";
+import { ContributionRegistry, SIDEBAR_MAX, SIDEBAR_MIN, createUiStore, openSettings, registerModuleLeaveGuard, type ModuleContribution } from "../src/index.js";
 
 describe("openSettings", () => {
   test("打开设置并定位到某一页；已在设置时不切换侧栏折叠", () => {
@@ -28,6 +28,28 @@ describe("ui-store", () => {
     expect(s.getState()).toMatchObject({ activeModule: "a", openTabs: ["a"] });
     s.getState().closeTab("a");
     expect(s.getState().activeModule).toBeNull();
+  });
+  test("离场许可控制真实模块导航和首页标签的关闭", async () => {
+    const store = createUiStore({ activeModule: "home", openTabs: ["home", "notes"] });
+    let resolve!: (allowed: boolean) => void;
+    let decision = new Promise<boolean>((done) => {
+      resolve = done;
+    });
+    const unregister = registerModuleLeaveGuard(store, "home", () => decision);
+    store.getState().closeTab("home");
+    expect(store.getState().activeModule).toBe("home");
+    resolve(false);
+    await decision;
+    expect(store.getState().openTabs).toEqual(["home", "notes"]);
+    decision = new Promise<boolean>((done) => {
+      resolve = done;
+    });
+    store.getState().openModule("notes");
+    expect(store.getState().activeModule).toBe("home");
+    resolve(true);
+    await decision;
+    expect(store.getState().activeModule).toBe("notes");
+    unregister();
   });
   test("侧栏宽度钳制到 200–360 并持久化", () => {
     const saved: unknown[] = [];

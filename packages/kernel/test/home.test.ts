@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -131,32 +131,5 @@ describe("损坏的数据", () => {
     writeFileSync(path.join(dir, "habits.json"), "{坏的");
     store.habitsAction({ action: "add", title: "读书" });
     expect(readdirSync(dir).filter((f) => f.startsWith("habits.json.corrupt-"))).toHaveLength(1);
-  });
-});
-
-describe("首页卡片", () => {
-  test("隐藏列表持久化；非法条目回退；文件缺失为空", () => {
-    const { dir, store } = setup();
-    expect(store.widgets()).toEqual({ hidden: [] });
-    expect(store.setWidgets({ hidden: ["focus", "focus", "recent"] })).toEqual({ hidden: ["focus", "recent"], order: [] });
-    expect(existsSync(path.join(dir, "widgets.json"))).toBe(true);
-    expect(store.widgets().hidden).toEqual(["focus", "recent"]);
-    writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: "bad" }));
-    expect(store.widgets()).toEqual({ hidden: [] });
-  });
-
-  test("卡片顺序持久化（W18.1 显示/排序）：去重；非法条目回退为空", () => {
-    const { dir, store } = setup();
-    expect(store.setWidgets({ hidden: [], order: ["activity", "tasks", "activity"] }).order).toEqual(["activity", "tasks"]);
-    expect(store.widgets().order).toEqual(["activity", "tasks"]);
-    // 写入路径：未知 id 同样只丢掉它自己
-    expect(store.setWidgets({ hidden: [], order: ["activity", "nope", "tasks"] }).order).toEqual(["activity", "tasks"]);
-    // hidden 同样逐项过滤
-    expect(store.setWidgets({ hidden: ["focus", "nope", "recent"] }).hidden).toEqual(["focus", "recent"]);
-    writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: [], order: ["nope"] }));
-    expect(store.widgets().order ?? []).toEqual([]);
-    // 个别不认识的 id 只丢掉它自己，其余顺序保留
-    writeFileSync(path.join(dir, "widgets.json"), JSON.stringify({ hidden: [], order: ["activity", "nope", "tasks"] }));
-    expect(store.widgets().order).toEqual(["activity", "tasks"]);
   });
 });

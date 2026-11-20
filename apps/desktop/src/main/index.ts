@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import type { ExitPhase } from "../exit-ipc.js";
+import { installAppMenu } from "./app-menu.js";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
@@ -194,6 +195,7 @@ function canCloseWindow(win: BrowserWindow): WindowExit {
 }
 let flushedForQuit = false;
 let quitting = false;
+let attachAppMenu: ((win: BrowserWindow) => void) | undefined;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -212,6 +214,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   });
+  attachAppMenu?.(win);
   // 点窗口 X：窗口销毁后 before-quit 已经没有可通知的界面了，所以在这里先落盘再关
   let closing = false;
   win.on("close", (event) => {
@@ -255,6 +258,7 @@ if (!gotLock) {
   });
 
   void app.whenReady().then(() => {
+    attachAppMenu = installAppMenu(isTrustedUrl, readBuildInfo);
     // macOS 开发模式没有 .app 包，Dock 图标需要手动设置；打包后由 icns 提供
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(iconPath);
     const root = path.join(import.meta.dirname, "../renderer");

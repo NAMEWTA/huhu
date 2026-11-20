@@ -3,11 +3,8 @@ import type { PluginManifest } from "./plugin-manifest.js";
 
 /** 专注计时默认时长（秒）。 */
 export const FOCUS_SECONDS = 25 * 60;
-export const HOME_CARDS = ["focus", "habits", "tasks", "inbox", "recent", "activity"] as const;
-export type HomeCard = (typeof HOME_CARDS)[number];
 /** 插件贡献的首页卡片 id：`widget:<插件 id>:<卡片 id>`。 */
 export const WIDGET_ID = /^widget:[a-z0-9-]+:[a-z0-9-]+$/;
-export const isKnownCard = (x: unknown): x is string => typeof x === "string" && ((HOME_CARDS as readonly string[]).includes(x) || WIDGET_ID.test(x));
 
 /** `.huhu/home/focus.json`：运行中时 remainingSec 是 startedAt 那一刻的剩余秒数。 */
 export const FocusStateSchema = z.object({
@@ -61,16 +58,6 @@ export const HabitsActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("toggle"), id: z.string() }),
 ]);
 
-/** `.huhu/home/widgets.json`：隐藏的卡片（未列出的都显示）与用户排的卡片顺序（未列出的按默认顺序排在后面）。 */
-export const WidgetsStateSchema = z.object({
-  hidden: z.array(z.string().refine(isKnownCard)).catch(() => []),
-  order: z
-    .array(z.string().refine(isKnownCard))
-    .catch(() => [])
-    .optional(),
-});
-export type WidgetsState = z.infer<typeof WidgetsStateSchema>;
-
 export const DASHBOARD_SCHEMA_VERSION = 1;
 export const DASHBOARD_COLUMNS = 6;
 
@@ -116,7 +103,7 @@ export const HomeWidgetDefinitionSchema = z
 export type HomeWidgetDefinition = z.infer<typeof HomeWidgetDefinitionSchema>;
 
 // 只有工厂生成的定义能证明目录描述来自运行期 Zod schema。
-const definedHomeWidgets = new WeakSet<HomeWidgetDefinition>();
+const definedHomeWidgets = new WeakMap<HomeWidgetDefinition, z.ZodObject>();
 
 function freezeWidgetJson(value: unknown): void {
   if (value === null || typeof value !== "object") return;
@@ -131,8 +118,14 @@ export function defineHomeWidget(input: Omit<HomeWidgetDefinition, "configSchema
   configSchema.parse(definition.defaultConfig);
   freezeWidgetJson(definition.configSchema);
   freezeWidgetJson(definition.defaultConfig);
-  definedHomeWidgets.add(definition);
+  definedHomeWidgets.set(definition, configSchema);
   return definition;
+}
+
+export function homeWidgetConfigSchema(definition: HomeWidgetDefinition): z.ZodType<DashboardBoard["instances"][number]["config"]> {
+  const schema = definedHomeWidgets.get(definition);
+  if (!schema) throw new Error(`Unregistered home widget ${definition.owner}:${definition.id}`);
+  return schema as z.ZodType<DashboardBoard["instances"][number]["config"]>;
 }
 
 /** source 由宿主静态传入。插件使用内置清单，kernel 提供自己的声明列表。 */
@@ -212,3 +205,55 @@ export const DashboardViewSchema = z.strictObject({
   source: z.enum(["stored", "default", "unreadable", "unrecognized", "invalid"]),
 });
 export type DashboardView = z.infer<typeof DashboardViewSchema>;
+
+const emptyWidgetConfig = z.strictObject({});
+const tasksWidgetConfig = z.strictObject({ filter: z.enum(["all", "today"]).optional() });
+
+function kernelWidget(id: string, title: string, description: string, w: number, h: number, options: { minW?: number; multiple?: boolean; config?: z.ZodObject; capabilities?: HomeWidgetDefinition["capabilities"] } = {}) {
+  return defineHomeWidget({
+    owner: "kernel",
+    id,
+    title,
+    description,
+    defaultSize: { w, h },
+    minSize: { w: options.minW ?? 2, h: 2 },
+    maxSize: { w: DASHBOARD_COLUMNS, h: 6 },
+    maxInstances: options.multiple ? null : 1,
+    defaultConfig: {},
+    configSchema: options.config ?? emptyWidgetConfig,
+    capabilities: options.capabilities ?? [],
+  });
+}
+
+export const kernelHomeWidgets = {
+  metrics: kernelWidget("metrics", "概览", "查看待办、笔记、捕获与启用规则。", 6, 2, { minW: 3 }),
+  tasks: kernelWidget("tasks", "我的任务", "查看全部待办或今日安排。", 3, 3, { multiple: true, config: tasksWidgetConfig, capabilities: [{ name: "tasks.list", required: true }] }),
+  notes: kernelWidget("notes", "最近笔记", "继续编辑最近打开的笔记。", 3, 3, { capabilities: [{ name: "notes.list", required: true }] }),
+  focus: kernelWidget("focus", "专注", "开始专注并跟踪计时。", 3, 2),
+  habits: kernelWidget("habits", "习惯", "查看和记录今天的习惯。", 3, 2),
+  inbox: kernelWidget("inbox", "收件箱", "查看等待整理的捕获。", 3, 3, { capabilities: [{ name: "inbox.list", required: true }] }),
+  activity: kernelWidget("activity", "最近活动", "查看工作区最近的活动。", 3, 3),
+  agent: kernelWidget("agent", "Agent CLI", "打开工作区的 Agent 会话。", 3, 2, { capabilities: [{ name: "agent.core.status", required: true }] }),
+} as const;
+
+export function defaultDashboardBoard(): DashboardBoard {
+  const defaults = [
+    { definition: kernelHomeWidgets.metrics, x: 0, y: 0 },
+    { definition: kernelHomeWidgets.tasks, x: 0, y: 2 },
+    { definition: kernelHomeWidgets.notes, x: 3, y: 2 },
+    { definition: kernelHomeWidgets.focus, x: 0, y: 5 },
+  ];
+  return {
+    schemaVersion: DASHBOARD_SCHEMA_VERSION,
+    boardId: "home",
+    revision: "0",
+    updatedAt: null,
+    instances: defaults.map(({ definition }) => ({
+      instanceId: `default-${definition.id}`,
+      widgetType: homeWidgetType(definition.owner, definition.id),
+      config: definition.defaultConfig,
+      hidden: false,
+    })),
+    layout: defaults.map(({ definition, x, y }) => ({ instanceId: `default-${definition.id}`, x, y, ...definition.defaultSize })),
+  };
+}

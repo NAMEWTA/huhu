@@ -78,6 +78,11 @@ export function useCapability<T>(capability: string, input: unknown = {}) {
   return useQuery({ queryKey: queryKey(client.vaultId, capability, input), queryFn: () => client.call<T>(capability, input) });
 }
 
+export function useDiscoveredCapabilities() {
+  const engine = useEngine();
+  return useQuery({ queryKey: queryKey(engine.vaultId, "capabilities.discovered"), queryFn: ({ signal }) => engine.capabilities(signal) });
+}
+
 export function useCapabilityMutation<T, V>(capability: (v: V) => { name: string; input: unknown }, opts: Omit<UseMutationOptions<T, Error, V>, "mutationFn"> = {}) {
   const client = useEngine();
   return useMutation<T, Error, V>({

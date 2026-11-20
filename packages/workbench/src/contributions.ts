@@ -1,4 +1,4 @@
-import { assertHomeWidgetDefinitions, homeWidgetType, projectHomeWidget, type HomeWidgetDefinition, type HomeWidgetSource, type HomeWidgetType } from "@huhu/contracts";
+import { assertHomeWidgetDefinitions, homeWidgetType, projectHomeWidget, type DashboardBoard, type HomeWidgetDefinition, type HomeWidgetSource, type HomeWidgetType } from "@huhu/contracts";
 import type { LucideIcon } from "lucide-react";
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
 
@@ -44,13 +44,14 @@ export interface HomeWidgetContribution {
   title: string;
   /** 默认顺序，越小越靠前。 */
   order: number;
-  component: ComponentType<{ onNavigate(moduleId: string): void }>;
+  component: ComponentType<{ onNavigate(moduleId: string): void; config: DashboardBoard["instances"][number]["config"] }>;
+  configure?: ComponentType<{ config: DashboardBoard["instances"][number]["config"]; onChange(config: DashboardBoard["instances"][number]["config"]): void; disabled: boolean }>;
   /** 看板元数据。旧首页贡献可暂不提供。 */
   definition?: HomeWidgetDefinition;
 }
 
-export function defineHomeWidgetContribution(definition: HomeWidgetDefinition, order: number, component: HomeWidgetContribution["component"]): HomeWidgetContribution {
-  return { id: definition.id, plugin: definition.owner, title: definition.title, order, component, definition };
+export function defineHomeWidgetContribution(definition: HomeWidgetDefinition, order: number, component: HomeWidgetContribution["component"], configure?: HomeWidgetContribution["configure"]): HomeWidgetContribution {
+  return { id: definition.id, plugin: definition.owner, title: definition.title, order, component, definition, ...(configure ? { configure } : {}) };
 }
 
 /**

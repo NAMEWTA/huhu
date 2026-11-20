@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DashboardBoardSchema, DashboardViewSchema, type DashboardUpdate } from "@huhu/contracts";
 import { expect, test } from "vitest";
-import { z } from "zod";
-import { defineDashboardUpdate } from "../../../packages/kernel/src/capabilities/home-dashboard.js";
 import { boot, type RunningEngine } from "../src/boot.js";
 
 function call(port: number, token: string, capability: string, input: unknown, key: string = randomUUID()): Promise<{ ok: boolean; data?: unknown; error?: { code: string } }> {
@@ -38,9 +36,7 @@ test("W02-03/04 断开前后的整板重读、原意图回放和已提交备份"
   try {
     const e = await boot({ vaultPath: root, create: true });
     engine = e;
-    const widgetType = "widget:kernel:focus";
-    const rules = new Map([[widgetType, { minSize: { w: 2, h: 2 }, maxSize: { w: 6, h: 6 }, maxInstances: 2, configSchema: z.strictObject({}) }]]);
-    e.registry.register(defineDashboardUpdate(e.vault, rules, () => new Date()));
+    const widgetType = "widget:kernel:tasks";
     const get = async () => DashboardViewSchema.parse((await call(e.port, e.rendererToken, "home.dashboard.get", {})).data);
     const backup = () => call(e.port, e.rendererToken, "home.dashboard.backup", {});
     const update = (draft: DashboardUpdate, key: string, port = e.port) => call(port, e.rendererToken, "home.dashboard.update", draft, key);
@@ -66,7 +62,7 @@ test("W02-03/04 断开前后的整板重读、原意图回放和已提交备份"
     const first: DashboardUpdate = {
       baseRevision: base.revision,
       instances: [...base.instances, { instanceId: "second", widgetType, config: {}, hidden: true }],
-      layout: [...base.layout, { instanceId: "second", x: 3, y: 0, w: 3, h: 2 }],
+      layout: [...base.layout, { instanceId: "second", x: 3, y: 5, w: 3, h: 2 }],
     };
     const key = randomUUID();
     await expect(update(first, key, relay)).rejects.toMatchObject({ code: "ECONNRESET" });
