@@ -10,6 +10,7 @@ import type { ResolvedLaunch, ResolveInput } from "./launch.js";
 import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
 import type { InputOwnership } from "./input-ownership.js";
+import type { CodexDispatch } from "./codex-dispatch.js";
 
 export interface SessionRecord {
   id: string;
@@ -22,6 +23,7 @@ export interface SessionRecord {
   exitedAt?: string;
   requestId: string;
   launchReceipt?: LaunchReceipt;
+  controlled?: "codex";
   terminalId: string | null;
   name: string;
   cwd: string;
@@ -39,7 +41,7 @@ export interface SessionRecord {
   error?: string;
 }
 
-export function publicSession({ launchReceipt: _launchReceipt, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt"> {
+export function publicSession({ launchReceipt: _launchReceipt, controlled: _controlled, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "controlled"> {
   return session;
 }
 
@@ -120,6 +122,7 @@ export interface LaunchInput {
   env?: Record<string, string> | undefined;
   envRefs?: Record<string, string> | undefined;
   expectedConfigurationId?: string;
+  controlled?: "codex";
 }
 
 type TerminalSnapshot = { kind: "available"; client: HerdrClient; core: Awaited<ReturnType<typeof identifyCore>>; terminals: Terminal[] } | { kind: "absent" | "unavailable" };
@@ -137,6 +140,7 @@ export interface SessionsDeps {
   resolve(input: ResolveInput): Promise<ResolvedLaunch>;
   now(): Date;
   inputOwnership?: InputOwnership;
+  codex?: CodexDispatch | undefined;
   signal?: AbortSignal;
 }
 
@@ -347,7 +351,12 @@ export class SessionsService {
     if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
     let argv: string[] | undefined;
     let env: Record<string, string> | undefined;
-    if (input.command !== undefined) {
+    let controlled: Awaited<ReturnType<CodexDispatch["prepare"]>> | undefined;
+    if (input.controlled) {
+      if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.command !== undefined || input.env !== undefined || input.envRefs !== undefined)
+        throw errors.invalidInput("受控 Codex 仅支持新会话");
+      controlled = await this.d.codex.prepare(input);
+    } else if (input.command !== undefined) {
       if (input.provider !== "shell") throw errors.invalidInput("command 只能与终端（shell）一起用");
       argv = shellCommand(input.shell ?? "default", input.command);
       if (input.env && Object.keys(input.env).length > 0) env = input.env;
@@ -356,7 +365,7 @@ export class SessionsService {
       argv = [r.command, ...r.argv];
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
     }
-    return { space, cwd, argv, env };
+    return { space, cwd, argv, env, controlled };
   }
 
   /** 已保存配置的会话预览。Core 默认 shell 由 Core 配置选择。 */
@@ -381,6 +390,7 @@ export class SessionsService {
       machineId: prepared.space.machineId,
       cwd: prepared.cwd,
       argv: prepared.argv,
+      controlled: prepared.controlled,
       envNames: Object.keys(prepared.env ?? {}).sort(),
     });
   }
@@ -410,7 +420,8 @@ export class SessionsService {
     }
     if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
 
-    const { space, cwd, argv, env } = prepared;
+    const { space, cwd, env, controlled } = prepared;
+    let { argv } = prepared;
     const receipt: LaunchReceipt = priorReceipt ?? {
       vaultId: this.d.vaultId,
       machineId: space.machineId,
@@ -433,6 +444,7 @@ export class SessionsService {
       cwd,
       createdAt: this.d.now().toISOString(),
       ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
+      ...(input.controlled ? { controlled: input.controlled } : {}),
       launchReceipt: receipt,
     };
     this.recordLaunchRequest(session, receipt);
@@ -455,14 +467,18 @@ export class SessionsService {
     const current = this.currentLaunch(session, intent, executionHash);
     if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
     const attempt = { id: randomUUID(), core };
-    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, attempt } };
+    if (controlled) {
+      argv = this.d.codex!.start(controlled, { vaultId: receipt.vaultId, machineId: receipt.machineId, sessionId: session.id, attempt: attempt.id, coreId: core.id });
+    }
+    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, ...(controlled && { argvHash: launchHash(argv) }), attempt } };
     delete pending.error;
     this.save(pending);
     if (env) this.secrets.set(session.id, Object.values(env));
     let terminal: Terminal | undefined;
     let rejectedBeforeCreation = false;
     try {
-      terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
+      const terminalEnv = controlled ? { ELECTRON_RUN_AS_NODE: "1" } : env;
+      terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(terminalEnv ? { env: terminalEnv } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
     } catch (error) {
       // JSON-RPC parameter rejection happens before terminal.run. spawn_failed also covers holder timeouts.
       rejectedBeforeCreation = error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params";
@@ -618,45 +634,86 @@ export class SessionsService {
 
   async executionSession(id: string): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string } | null> {
     const session = this.list().find((item) => item.id === id);
-    const attempt = session?.launchReceipt?.attempt;
-    if (!session?.terminalId || session.provider === "shell" || !attempt?.binding) return null;
+    if (!session?.terminalId || session.provider === "shell") return null;
+    const owner = this.executionOwner(session);
+    if (!owner) return null;
     const verified = await this.verifiedTerminal(session).catch(() => null);
     if (!verified) return null;
+    const machineId = this.d.spaces.machineId;
+    const nativeSessionId = session.controlled && this.d.codex?.thread(this.d.vaultId, machineId, owner);
+    if (session.controlled && !nativeSessionId) return null;
     return {
       spaceId: session.spaceId,
       finished: verified.terminal.state === "finished" || verified.terminal.finished_ms != null,
       binding: {
-        machineId: this.d.spaces.machineId,
+        machineId,
         sessionId: session.id,
-        coreId: attempt.core.id,
-        coreAddress: attempt.binding.address,
-        processGeneration: launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding }),
+        coreId: owner.coreId,
+        coreAddress: owner.address,
+        processGeneration: owner.generation,
         provider: session.provider,
-        nativeSessionId: null,
+        nativeSessionId: nativeSessionId ?? null,
       },
     };
   }
 
-  async writeExecutionInput({ sessionBinding: binding, vaultId }: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {
+  private executionOwner(session: SessionRecord) {
+    const attempt = session.launchReceipt?.attempt;
+    if (!attempt?.binding) return null;
+    return {
+      id: session.id,
+      coreId: attempt.core.id,
+      attempt: attempt.id,
+      ...attempt.binding,
+      generation: launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding }),
+    };
+  }
+
+  private matchesExecution(owner: NonNullable<ReturnType<SessionsService["executionOwner"]>>, { vaultId, sessionBinding: binding }: ExecutionBinding): boolean {
+    return vaultId === this.d.vaultId && binding.machineId === this.d.spaces.machineId && owner.generation === binding.processGeneration && owner.address === binding.coreAddress && owner.coreId === binding.coreId;
+  }
+
+  nativeEvidence(execution: ExecutionBinding) {
+    const session = this.list().find(({ id }) => id === execution.sessionBinding.sessionId);
+    if (!session?.controlled || this.recordedLaunch(session.requestId)?.id !== session.id) return null;
+    const owner = this.executionOwner(session);
+    if (!owner || !this.matchesExecution(owner, execution)) return null;
+    return this.d.codex?.evidence(execution, owner) ?? null;
+  }
+
+  async writeExecutionInput(execution: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {
     signal.throwIfAborted();
+    const { sessionBinding: binding } = execution;
     const previous = this.list().find(({ id }) => id === binding.sessionId);
     if (!previous) return "not_sent";
-    const verified = await this.verifiedTerminal(previous).catch(() => null);
-    signal.throwIfAborted();
-    if (!verified || verified.terminal.state === "finished" || verified.terminal.finished_ms != null) return "not_sent";
-    const session = this.list().find(({ id }) => id === binding.sessionId);
-    const attempt = session?.launchReceipt?.attempt;
-    if (session?.state !== "running" || !attempt?.binding) return "not_sent";
-    const generation = launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding });
-    if (vaultId !== this.d.vaultId || binding.machineId !== this.d.spaces.machineId || binding.nativeSessionId !== null) return "not_sent";
-    if (generation !== binding.processGeneration || session.terminalId !== binding.coreAddress || attempt.core.id !== binding.coreId || session.provider !== binding.provider) return "not_sent";
-    // Claim and submit in one synchronous turn on the connection used for verification.
-    if (!claim()) return "busy";
+    const priorOwner = this.executionOwner(previous);
+    if (!priorOwner || !this.matchesExecution(priorOwner, execution) || !!previous.controlled !== !!binding.nativeSessionId) return "not_sent";
+    const channel = previous.controlled && (await this.d.codex?.connect(execution, priorOwner, signal));
+    if (previous.controlled && !channel) return "not_sent";
+    let nativeSubmitted = false;
     try {
-      await verified.client.call("terminal.send", { terminal: binding.coreAddress, text });
-      return "core_written";
-    } catch {
-      return "unknown";
+      const verified = await this.verifiedTerminal(previous).catch(() => null);
+      signal.throwIfAborted();
+      if (!verified || verified.terminal.state === "finished" || verified.terminal.finished_ms != null) return "not_sent";
+      const session = this.list().find(({ id }) => id === binding.sessionId);
+      if (session?.state !== "running" || session.provider !== binding.provider || session.controlled !== previous.controlled || session.terminalId !== binding.coreAddress) return "not_sent";
+      const owner = this.executionOwner(session);
+      if (!owner || !this.matchesExecution(owner, execution)) return "not_sent";
+      // Claim and submit in one synchronous turn after verifying the original process.
+      if (!claim()) return "busy";
+      try {
+        if (channel) {
+          channel.submit(text);
+          nativeSubmitted = true;
+          return "unknown";
+        }
+        await verified.client.call("terminal.send", { terminal: binding.coreAddress, text });
+        return "core_written";
+      } catch {
+        return "unknown";
+      }
+    } finally {
+      if (channel && !nativeSubmitted) channel.close();
     }
   }
 
@@ -832,6 +889,7 @@ export class SessionsService {
   /** 把意见整理成一段文本写入会话输入（terminal.send，会自动回车提交）；dryRun 只返回将要发送的文本。成功后才标记已发送。 */
   async sendComments(id: string, ids?: string[], dryRun = false): Promise<{ sent: number; text: string }> {
     const s = this.get(id);
+    if (!dryRun && s.controlled) throw errors.invalidInput("受控 Codex 会话只支持任务原生输入");
     if (!dryRun && (s.state !== "running" || !s.terminalId)) throw errors.invalidInput("会话没有在运行：恢复会话后再发送");
     if (this.sending.has(id)) throw errors.invalidInput("正在发送上一批意见，请稍候");
     const all = s.reviewComments ?? [];

@@ -14,6 +14,8 @@ files:
   - "!**/{__tests__,__fixtures__,test-utils,test-results,test,tests}/**"
   - "!**/open-knowledge/**/{test,tests,fixtures}/**"
 extraResources:
+  - from: ../../plugins/agent-cli/src/engine/codex-dispatch-helper.cjs
+    to: codex-dispatch/helper.cjs
   - from: resources/bin
     to: bin
   - from: ../cli/dist/cli.mjs

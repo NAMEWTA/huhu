@@ -25,6 +25,7 @@ export const AgentDispatchResponseSchema = z.object({
   execution: ExecutionBindingSchema.nullable(),
   ownerActive: z.boolean(),
   coreWrite: z.enum(["not_sent", "core_written", "unknown"]),
+  nativeWrite: z.enum(["not_sent", "unknown", "provider_accepted"]).optional(),
   providerAcceptance: ProviderAcceptance.nullable(),
 });
 

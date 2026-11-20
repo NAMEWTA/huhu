@@ -22,8 +22,8 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     if (!s?.terminalId) return false;
     const holder = controllers.get(sessionId);
     const taken = holder !== undefined && holder.readyState === holder.OPEN;
-    const release = !requested.observe && !taken ? d.ownership?.take(sessionId, "manual") : undefined;
-    const opts = { ...requested, observe: requested.observe || taken || (d.ownership !== undefined && !release) };
+    const release = !s.controlled && !requested.observe && !taken ? d.ownership?.take(sessionId, "manual") : undefined;
+    const opts = { ...requested, observe: !!s.controlled || requested.observe || taken || (d.ownership !== undefined && !release) };
     if (!opts.observe) controllers.set(sessionId, ws);
     else if (!requested.observe && ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: "mode", mode: "observe" })); // 告诉客户端它被降级为观察者

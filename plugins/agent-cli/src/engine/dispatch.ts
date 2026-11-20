@@ -9,12 +9,15 @@ import type { SpaceStore } from "./spaces.js";
 import type { z } from "zod";
 
 /** A trusted Engine adapter must obtain readiness and acceptance from the bound provider protocol. */
-export interface DispatchProvider {
+type ProviderIdentity = {
   readonly id: string;
   readonly modes: readonly ("new" | "existing")[];
-  ready(binding: ExecutionBinding["sessionBinding"], signal: AbortSignal): Promise<boolean>;
-  acceptance(execution: ExecutionBinding, inputSha256: string, signal: AbortSignal): Promise<ProviderAcceptance | null>;
-}
+};
+export type DispatchProvider = ProviderIdentity &
+  (
+    | { transport?: "pty"; ready(binding: ExecutionBinding["sessionBinding"], signal: AbortSignal): Promise<boolean>; acceptance(execution: ExecutionBinding, inputSha256: string, signal: AbortSignal): Promise<ProviderAcceptance | null> }
+    | { transport: "native" }
+  );
 
 type Status = "accepted" | "busy" | "unsupported" | "unknown" | "not_sent";
 const dispatchKey = ({ vaultId, machineId, taskId, runId, attempt, dispatchId }: DispatchLookup): DispatchLookup => ({ vaultId, machineId, taskId, runId, attempt, dispatchId });
@@ -24,7 +27,10 @@ const receipt = (record: StoredDispatch | null, status: Status, reason: string |
   acceptedAt: record?.acceptedAt ?? null,
   execution: record?.execution ?? null,
   ownerActive: record?.ownerActive ?? false,
-  coreWrite: record?.write === "sending" ? ("unknown" as const) : (record?.write ?? "not_sent"),
+  coreWrite: record?.transport === "native" ? ("not_sent" as const) : record?.write === "sending" ? ("unknown" as const) : (record?.write ?? "not_sent"),
+  ...(record?.transport === "native" && {
+    nativeWrite: record.providerAcceptance ? ("provider_accepted" as const) : record.write === "not_sent" ? ("not_sent" as const) : ("unknown" as const),
+  }),
   providerAcceptance: record?.providerAcceptance ?? null,
 });
 type DispatchResponse = ReturnType<typeof receipt>;
@@ -58,9 +64,9 @@ export class AgentDispatch {
         let configurationId: string | null = null;
         if (!reason) {
           try {
-            configurationId = await this.d.sessions.freezeLaunch({ ...input.options, spaceId: space.id, spaceRevision: space.revision, provider });
+            configurationId = await this.d.sessions.freezeLaunch({ ...input.options, spaceId: space.id, spaceRevision: space.revision, provider, ...(adapter?.transport === "native" && { controlled: "codex" as const }) });
           } catch (error) {
-            reason = error instanceof HuhuError ? error.code : "configuration_unavailable";
+            reason = error instanceof HuhuError ? (error.code === "HEADLESS_UNSUPPORTED" ? "provider_acceptance_unavailable" : error.code) : "configuration_unavailable";
           }
         }
         return { mode: "new" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId, binding: null, available: reason === null, reason };
@@ -162,6 +168,7 @@ export class AgentDispatch {
       fingerprint,
       inputSha256: createHash("sha256").update(input.input).digest("hex"),
       adapterId: adapter.id,
+      ...(adapter.transport === "native" && { transport: "native" }),
       acceptedAt: new Date().toISOString(),
       execution: null,
       ownerActive: false,
@@ -169,7 +176,15 @@ export class AgentDispatch {
       providerAcceptance: null,
     };
     if (!prior) this.d.store.save(record);
-    const id = record.execution?.sessionBinding.sessionId ?? (target.mode === "existing" ? target.binding.sessionId : await this.launchNew(target, record, signal));
+    let id = record.execution?.sessionBinding.sessionId ?? (target.mode === "existing" ? target.binding.sessionId : null);
+    if (!id && target.mode === "new") {
+      try {
+        id = await this.launchNew(target, record, signal);
+      } catch (error) {
+        if (error instanceof HuhuError && error.code === "HEADLESS_UNSUPPORTED") return receipt(record, "unsupported", "provider_acceptance_unavailable");
+        throw error;
+      }
+    }
     signal.throwIfAborted();
     if (!id) return receipt(record, "not_sent", "launch_unverified");
     const current = await this.d.sessions.executionSession(id);
@@ -182,7 +197,7 @@ export class AgentDispatch {
     if (current.finished) return this.observe(record, signal);
 
     if (!this.d.ownership.availableForTask(id, input.dispatchId)) return receipt(record, "busy", "input_owned");
-    const ready = await adapter.ready(current.binding, signal).catch(() => false);
+    const ready = adapter.transport === "native" ? current.binding.nativeSessionId !== null : await adapter.ready(current.binding, signal).catch(() => false);
     signal.throwIfAborted();
     if (!ready) return receipt(record, "not_sent", "provider_not_ready");
     const { machineId: _machineId, ...key } = record.key;
@@ -210,7 +225,8 @@ export class AgentDispatch {
   private async launchNew(target: Extract<DispatchInput["target"], { mode: "new" }>, record: StoredDispatch, signal: AbortSignal): Promise<string | null> {
     const { mode: _mode, configurationId, ...launch } = target;
     try {
-      return (await this.d.sessions.launch({ ...launch, expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)).id;
+      const controlled = record.transport === "native" ? { controlled: "codex" as const } : {};
+      return (await this.d.sessions.launch({ ...launch, ...controlled, expectedConfigurationId: configurationId, requestId: "dispatch-" + launchHash(record.key) }, signal)).id;
     } catch (error) {
       if (error instanceof HuhuError && (error.code === "RUN_UNKNOWN" || error.code === "HERDR_UNAVAILABLE")) return null;
       throw error;
@@ -220,6 +236,7 @@ export class AgentDispatch {
   private async observe(record: StoredDispatch, signal: AbortSignal): Promise<DispatchResponse> {
     signal.throwIfAborted();
     if (!record.execution) return receipt(record, "not_sent");
+    if (record.transport === "native") return this.observeNative(record, record.execution);
     const sessionId = record.execution.sessionBinding.sessionId;
     let current = await this.d.sessions.executionSession(sessionId);
     signal.throwIfAborted();
@@ -232,7 +249,7 @@ export class AgentDispatch {
     if (!current || launchHash(current.binding) !== launchHash(record.execution.sessionBinding)) return receipt(record, "unknown", "binding_changed");
     let next = record.write === "sending" ? { ...record, write: "unknown" as const } : record;
     const adapter = this.d.providers[current.binding.provider as AgentId];
-    if (!next.providerAcceptance && next.write !== "not_sent" && adapter?.id === next.adapterId) {
+    if (!next.providerAcceptance && next.write !== "not_sent" && adapter?.id === next.adapterId && adapter.transport !== "native") {
       const proof = ProviderAcceptance.safeParse(await adapter.acceptance(record.execution, record.inputSha256, signal).catch(() => null));
       signal.throwIfAborted();
       if (proof.success && proof.data.inputSha256 === record.inputSha256 && launchHash(proof.data.execution) === launchHash(record.execution)) {
@@ -248,5 +265,21 @@ export class AgentDispatch {
     if (next.write === "core_written") return receipt(next, "unknown", "provider_acceptance_unconfirmed");
     if (next.write === "unknown") return receipt(next, "unknown", "core_write_unconfirmed");
     return receipt(next, "not_sent");
+  }
+
+  private observeNative(record: StoredDispatch, execution: ExecutionBinding): DispatchResponse {
+    let next = record.write === "sending" ? { ...record, write: "unknown" as const } : record;
+    const evidence = this.d.sessions.nativeEvidence(execution);
+    if (evidence?.proof.inputSha256 === record.inputSha256) {
+      const providerAcceptance = next.providerAcceptance ?? evidence.proof;
+      const ownerActive = next.ownerActive && !evidence.finished;
+      if (providerAcceptance !== next.providerAcceptance || ownerActive !== next.ownerActive) next = { ...next, providerAcceptance, ownerActive };
+    }
+    if (next !== record && !this.d.readOnly) {
+      this.assertCurrent(record);
+      this.d.store.save(next);
+    }
+    if (next.providerAcceptance) return receipt(next, "accepted");
+    return receipt(next, "unknown", "native_acceptance_unconfirmed");
   }
 }

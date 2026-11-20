@@ -200,7 +200,20 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(agentCliManifest),
-    apply: (ctx, api) => void agentCli.apply(ctx, api, { notify: (n) => void notifications.create(n), ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}) }),
+    apply: (ctx, api) =>
+      void agentCli.apply(ctx, api, {
+        notify: (n) => void notifications.create(n),
+        ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
+        ...(moduleCredentialHost && {
+          codexDispatch: {
+            root: path.join(path.dirname(moduleCredentialHost.localRoot), "agent-cli", "codex-dispatch", moduleCredentialHost.localVaultInstanceId),
+            helper: process.env["HUHU_CODEX_DISPATCH_HELPER"],
+            nodeBin: process.env["HUHU_NODE_BIN"],
+            binary: process.env["HUHU_CODEX_DISPATCH_BIN"],
+            home: process.env["HUHU_CODEX_DISPATCH_HOME"],
+          },
+        }),
+      }),
   });
   const notifications = new NotificationStore(
     path.join(vault.stateDir, "notifications.ndjson"),

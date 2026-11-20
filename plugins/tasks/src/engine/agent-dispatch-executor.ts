@@ -25,9 +25,11 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
   const keyOf = ({ snapshot, dispatchId, runId, attempt }: TaskDispatchWork) => ({ ...scope, taskId: snapshot.taskId, dispatchId, runId, attempt });
 
   const outcome = (receipt: z.infer<typeof AgentDispatchResponseSchema>, work: TaskDispatchWork): Exclude<TaskDispatchResult, "unsupported"> => {
-    if (receipt.status === "not_sent" && receipt.coreWrite === "not_sent" && !receipt.providerAcceptance) return "not_sent";
+    if (receipt.status === "not_sent" && definitelyUnsent(receipt)) return "not_sent";
     const { execution, providerAcceptance } = receipt;
-    if (receipt.status !== "accepted" || receipt.coreWrite === "not_sent" || !execution || !providerAcceptance || !work.agentTarget) return "unknown";
+    if (receipt.status !== "accepted" || !execution || !providerAcceptance || !work.agentTarget) return "unknown";
+    const confirmed = receipt.nativeWrite === undefined ? receipt.coreWrite !== "not_sent" : receipt.nativeWrite === "provider_accepted" && providerAcceptance.nativeTurnId && execution.sessionBinding.nativeSessionId;
+    if (!confirmed) return "unknown";
     const { sessionBinding, ...identity } = execution;
     const { machineId, ...expectedIdentity } = keyOf(work);
     if (sessionBinding.machineId !== machineId || fingerprint(identity) !== fingerprint(expectedIdentity)) return "unknown";
@@ -87,7 +89,7 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
         const value = await api.call("agent.runs.dispatch", input.data, { idempotencyKey: work.dispatchId, signal });
         signal.throwIfAborted();
         const receipt = AgentDispatchResponseSchema.parse(value);
-        if (receipt.coreWrite === "not_sent" && !receipt.providerAcceptance) {
+        if (definitelyUnsent(receipt)) {
           if (receipt.status === "unsupported") return "unsupported";
           if (receipt.status === "busy") return "not_sent";
         }
@@ -107,4 +109,8 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
       return outcome(AgentDispatchResponseSchema.parse(value), work);
     },
   };
+}
+
+function definitelyUnsent(receipt: z.infer<typeof AgentDispatchResponseSchema>): boolean {
+  return receipt.coreWrite === "not_sent" && (receipt.nativeWrite === undefined || receipt.nativeWrite === "not_sent") && !receipt.providerAcceptance;
 }

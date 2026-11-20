@@ -22,6 +22,7 @@ import { AgentDispatchStore } from "./dispatch-store.js";
 import { registerDispatch } from "./dispatch-capabilities.js";
 import { InputOwnership } from "./input-ownership.js";
 import type { AgentId } from "../shared/catalog.js";
+import { CodexDispatch, type CodexDispatchOptions } from "./codex-dispatch.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -46,6 +47,7 @@ export interface AgentCliOptions {
   waitingBackoffMs?: { min: number; max: number };
   /** Engine-owned provider protocols. Omit a provider that cannot prove input acceptance. */
   dispatchProviders?: Partial<Record<AgentId, DispatchProvider>>;
+  codexDispatch?: CodexDispatchOptions | undefined;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
@@ -53,6 +55,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId());
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
   const settingsStore = new AgentSettingsStore(path.join(api.vault.stateDir, "agent-cli", "agents.json"));
+  const codex = opts.codexDispatch && new CodexDispatch(opts.codexDispatch, () => settingsStore.get());
   const detector = new AgentDetector({ settings: () => settingsStore.get() });
   const resolve = async (input: Parameters<typeof resolveAgentLaunch>[1]) => {
     const settings = settingsStore.get();
@@ -89,8 +92,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     now: () => new Date(),
     signal: lifetime.signal,
     inputOwnership: ownership,
+    codex,
   });
-  registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers: opts.dispatchProviders ?? {}, signal: lifetime.signal }));
+  const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new"], transport: "native" };
+  const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
+  registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers, signal: lifetime.signal }));
 
   // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
   const waiting = new WaitingWatcher({

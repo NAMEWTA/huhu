@@ -55,6 +55,7 @@ export const ProviderAcceptance = z.strictObject({
   id: Id,
   execution: ExecutionBindingSchema,
   inputSha256: Fingerprint,
+  nativeTurnId: Id.optional(),
 });
 export type ProviderAcceptance = z.infer<typeof ProviderAcceptance>;
 const StoredDispatch = z
@@ -64,17 +65,20 @@ const StoredDispatch = z
     fingerprint: Fingerprint,
     inputSha256: Fingerprint,
     adapterId: Id,
+    transport: z.literal("native").optional(),
     acceptedAt: z.iso.datetime(),
     execution: ExecutionBindingSchema.nullable(),
     ownerActive: z.boolean(),
     write: z.enum(["not_sent", "sending", "core_written", "unknown"]),
     providerAcceptance: ProviderAcceptance.nullable(),
   })
-  .refine(({ key, execution, write, ownerActive, providerAcceptance, inputSha256 }) => {
+  .refine(({ key, execution, write, ownerActive, providerAcceptance, inputSha256, transport }) => {
+    if (transport === "native" && write === "core_written") return false;
     if (!execution) return write === "not_sent" && !ownerActive && !providerAcceptance;
     const { machineId, ...expected } = key;
     const { sessionBinding, ...actual } = execution;
     if (sessionBinding.machineId !== machineId || launchHash(expected) !== launchHash(actual)) return false;
+    if (transport === "native" && (sessionBinding.provider !== "codex" || !sessionBinding.nativeSessionId || (providerAcceptance && !providerAcceptance.nativeTurnId))) return false;
     if (write === "not_sent" && (ownerActive || providerAcceptance)) return false;
     return !providerAcceptance || (providerAcceptance.inputSha256 === inputSha256 && launchHash(providerAcceptance.execution) === launchHash(execution));
   }, "The dispatch facts must refer to the same execution");
