@@ -28,7 +28,6 @@ export const mailAccountsListDescriptor = defineCapabilityDescriptor({
 
 export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner): Promise<void> {
   const lifetime = new AbortController();
-  ctx.effect(() => () => lifetime.abort());
   const accounts = owner ? openMailAccounts(owner) : undefined;
   if (accounts && owner && !owner.vault.readOnly) await accounts.recover();
   api.defineCapability(
@@ -38,5 +37,9 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
     }),
   );
   registerMessageCache(api, accounts, lifetime.signal);
-  registerDrafts(api, accounts, lifetime.signal);
+  const drainDrafts = registerDrafts(api, accounts, lifetime.signal);
+  ctx.effect(() => async () => {
+    lifetime.abort();
+    await drainDrafts();
+  });
 }
