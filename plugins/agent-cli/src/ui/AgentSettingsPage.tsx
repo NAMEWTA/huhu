@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, ExternalLink, RefreshCw, X } from "lucide-re
 import { useEffect, useState } from "react";
 import { AGENT_CATALOG, entryOf, isEnabled, renderCommandLine, type AgentCatalogEntry, type AgentSettingsEntry, type AgentSettingsFile } from "../shared/index.js";
 import { AgentIcon } from "./AgentIcon.js";
+import { AgentEnvironmentSettings } from "./AgentEnvironmentSettings.js";
 
 interface Detected {
   id: string;
@@ -167,6 +168,7 @@ export function AgentSettingsPage() {
           ))}
         </div>
       </section>
+      <AgentEnvironmentSettings />
     </div>
   );
 }

@@ -159,7 +159,7 @@ class WorkspaceLayoutService {
   close(input: z.infer<typeof closeInput>, signal: AbortSignal): Promise<WorkspaceView> {
     return this.operate(signal, async (active) => {
       const { spaceId, baseVersion, tab, leaf, sessionId, terminate } = input;
-      const current = await this.current(spaceId);
+      let current = await this.current(spaceId);
       this.checkVersion(current.view, baseVersion);
       const owner = current.view.layout.tabs.find(({ id }) => id === tab);
       const target = owner && leaves(owner.pane).find(({ id }) => id === leaf);
@@ -174,6 +174,12 @@ class WorkspaceLayoutService {
           await this.deps.sessions.reconcile();
           await wait(250, undefined, { signal: active });
         }
+        const latest = await this.current(spaceId);
+        this.checkVersion(latest.view, baseVersion);
+        const bound = latest.view.layout.tabs.find(({ id }) => id === tab);
+        const leafNow = bound && leaves(bound.pane).find(({ id }) => id === leaf);
+        if (leafNow?.sessionId !== sessionId) throw errors.versionConflict(String(latest.view.version));
+        current = latest;
       }
       const next: SpaceLayout = {
         tabs: current.view.layout.tabs.flatMap((entry) => {

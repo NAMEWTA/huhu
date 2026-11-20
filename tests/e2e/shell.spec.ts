@@ -1730,6 +1730,36 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
   }
 });
 
+test("Agent 启动环境在桌面写入保护值，重开编辑时只显示状态", async () => {
+  test.skip(process.platform !== "win32", "本机保护由 Windows Credential Manager 提供");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    await page.getByTestId("settings-nav-agent-cli").click();
+    const section = page.getByTestId("agent-environment-settings");
+    await section.getByRole("button", { name: "新建启动环境" }).click();
+    const dialog = page.getByRole("dialog", { name: "新建启动环境" });
+    await dialog.getByLabel("环境名称").fill("回归启动环境");
+    await dialog.getByRole("button", { name: "添加保护变量" }).click();
+    await dialog.getByLabel("变量名").fill("HUHU_E2E_AGENT_PROFILE");
+    await dialog.getByLabel("替换保护值").fill("fixture-agent-profile-private");
+    await dialog.getByRole("button", { name: "保存启动环境" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(section).toContainText("HUHU_E2E_AGENT_PROFILE · 已配置");
+    await section.getByRole("button", { name: "编辑启动环境 回归启动环境" }).click();
+    await expect(page.getByRole("dialog", { name: "编辑启动环境" }).getByLabel("替换保护值")).toHaveValue("");
+    await page.keyboard.press("Escape");
+    const location = path.join(vault, ".huhu", "module-credentials");
+    for (const file of readdirSync(location)) expect(readFileSync(path.join(location, file), "utf8")).not.toContain("fixture-agent-profile-private");
+  } finally {
+    await app.close();
+    rmTree(vault);
+  }
+});
+
 test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收起的会话在重开后保留", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   test.setTimeout(120_000);

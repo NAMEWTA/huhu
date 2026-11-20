@@ -169,7 +169,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
       setRequestedSession(null);
       return;
     }
-    if (space?.id !== requestedSession.spaceId || sessions.isFetching || !sessions.isFetched || workspace.isFetching || (!workspace.isFetched && !workspace.isError)) return;
+    if (space?.id !== requestedSession.spaceId || sessions.isFetching || workspace.isFetching || !sessions.isSuccess || !workspace.isSuccess) return;
     const session = sessions.data?.find(({ id }) => id === requestedSession.sessionId);
     if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
     else {
@@ -182,7 +182,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
       }
     }
     setRequestedSession(null);
-  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, view, workspace.isFetched, workspace.isFetching, workspace.isError]);
+  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isSuccess, sessions.isFetching, view, workspace.isSuccess, workspace.isFetching]);
 
   function beginWrite() {
     let settle!: (confirmed: boolean) => void;
@@ -309,7 +309,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   type Destination = { tab: string; leaf: PaneLeaf };
 
   async function commitWorkspace(operation: () => Promise<WorkspaceView>, onSaved?: (view: WorkspaceView) => Destination | null) {
-    if (writeReceipt.current) return;
+    if (writeReceipt.current) return false;
     const generation = navigation.current;
     const finish = beginWrite();
     let confirmed = false;
@@ -324,8 +324,10 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
         setSelections((previous) => ({ ...previous, [view.spaceId]: focus ? { tab: focus.tab, leaf: focus.leaf.id, zoom: null } : null }));
         setFocusTarget(focus?.leaf.id ?? null);
       }
+      return true;
     } catch (e) {
       if (navigation.current === generation) setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       finish(confirmed);
       setClosing(null);
@@ -370,7 +372,14 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     }
     const next = movePane(view.layout, { tab: moving.tab, leaf: moving.leaf.id }, { tab: tab.id, leaf }, direction, createRequestId());
     if (next === view.layout) return;
-    void edit(view, next, { tab: tab.id, leaf: moving.leaf }).finally(() => setMoveSource(null));
+    const generation = navigation.current;
+    void edit(view, next, { tab: tab.id, leaf: moving.leaf }).then((saved) => {
+      if (!saved && navigation.current === generation) {
+        tabFocus(moving.tab, moving.leaf.id, moving.leaf.sessionId);
+        setFocusTarget(moving.leaf.id);
+      }
+      setMoveSource(null);
+    });
   }
 
   function reorderTab(by: -1 | 1) {
@@ -543,7 +552,13 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
         {workspace.isError ? (
           <div role="alert" className="hu-callout danger">
             <p>{workspace.error?.message ?? "工作区布局当前无法读取"}</p>
-            <Button onClick={() => void workspace.refetch()}>重试</Button>
+            <Button onClick={() => void Promise.all([workspace.refetch(), sessions.refetch()])}>重试</Button>
+          </div>
+        ) : null}
+        {requestedSession && sessions.isError && !workspace.isError ? (
+          <div role="alert" className="hu-callout danger">
+            <p>暂时无法核对原会话。</p>
+            <Button onClick={() => void Promise.all([workspace.refetch(), sessions.refetch()])}>重试定位</Button>
           </div>
         ) : null}
         {preview ? (
@@ -590,7 +605,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             showReview={showReview && active === currentLeaf?.sessionId}
             status={stateBadge}
             onFocus={(leafId, sessionId) => {
-              if (writeReceipt.current && leafId !== currentLeaf?.id) ++navigation.current;
+              if (writeReceipt.current) ++navigation.current;
               tabFocus(tab.id, leafId, sessionId, zoom);
             }}
             onRequest={(event, leaf, direction) => {

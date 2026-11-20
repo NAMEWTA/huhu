@@ -152,6 +152,44 @@ test.skipIf(process.platform !== "win32" || !coreBinary)(
       expect(await call("agent.workspace.close", { ...close, terminate: true })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
       expect(await data<WorkspaceLaunchView>("agent.workspace.launch", intended)).toEqual({ sessionId: start.sessionId, workspace: parked, placement: null });
       expect(await data<unknown[]>("agent.sessions.list", { spaceId: space.id })).toMatchObject([{ id: start.sessionId, state: "running" }]);
+      const otherDir = path.join(fixture, "second-space");
+      mkdirSync(otherDir);
+      const other = await data<{ id: string }>("agent.spaces.save", { name: "第二工作区", root: otherDir });
+      const second = await data<WorkspaceLaunchView>("agent.workspace.launch", { ...intended, baseVersion: 3, requestId: randomUUID() });
+      assert(second.placement);
+      const client = await core.ensure();
+      const actual = HerdrClient.prototype.call;
+      let changed = false;
+      const injected = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown) {
+        if (method === "terminal.kill" && !changed) {
+          changed = true;
+          const document = (await actual.call(client, "doc.get", { name: WORKSPACE_DOCUMENT })) as {
+            version: number;
+            value: { format: 1; spaces: Record<string, WorkspaceView["layout"]>; revisions: Record<string, number> };
+          };
+          const value = {
+            ...document.value,
+            spaces: { ...document.value.spaces, [other.id]: { tabs: [] } },
+            revisions: { ...document.value.revisions, [other.id]: 1 },
+          };
+          await actual.call(client, "doc.set", { name: WORKSPACE_DOCUMENT, version: document.version, value });
+        }
+        return (await actual.call(this, method, params)) as T;
+      });
+      try {
+        const closed = await data<WorkspaceView>("agent.workspace.close", {
+          spaceId: space.id,
+          baseVersion: 4,
+          ...second.placement,
+          sessionId: second.sessionId,
+          terminate: true,
+        });
+        expect(changed).toBe(true);
+        expect(closed).toMatchObject({ version: 5, layout: { tabs: [] } });
+        expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: other.id })).toMatchObject({ version: 1, layout: { tabs: [] } });
+      } finally {
+        injected.mockRestore();
+      }
       await data("agent.sessions.kill", { id: start.sessionId });
     } finally {
       await engine?.shutdown();

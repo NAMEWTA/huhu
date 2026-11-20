@@ -34,6 +34,7 @@ const patch = z.discriminatedUnion("action", [
 const saveInput = Definition.omit({ format: true }).extend({ id: z.uuidv4().optional(), expectedRevision: revision.nullable(), changes: z.array(patch).max(128) });
 const state = z.enum(["unconfigured", "configured", "temporarily-unavailable", "needs-reconfiguration", "corrupt"]);
 const view = Definition.omit({ format: true }).extend({ id: z.uuidv4(), revision, states: z.record(key, state) });
+export type AgentEnvironmentProfile = z.infer<typeof view>;
 const base = { plugin: "agent-cli", desktopOnly: true, exposable: false, defaultExposed: false } as const;
 
 export const agentEnvironmentDescriptors = {
