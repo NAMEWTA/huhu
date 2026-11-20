@@ -2,15 +2,15 @@ import { randomUUID } from "node:crypto";
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { errors, HuhuError } from "@huhu/contracts";
-import type { FileDirectory, FileEntry, FileSession } from "../shared/files.js";
+import type { FileAttributes, FileDirectory, FileEntry, FileSession } from "../shared/files.js";
 import type { SshManager, SftpSource } from "./manager.js";
-import { documentPath, openDocument, saveDocument, searchNames } from "./sftp.js";
+import { changeProperties, createEntry, documentPath, moveEntry, openDocument, properties, saveDocument, searchNames } from "./sftp.js";
 
 type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController };
 
 export class FileSessions {
   private readonly bindings = new Map<string, Binding>();
-  private readonly documentWrites = new Map<string, Promise<unknown>>();
+  private readonly entryWrites = new Map<string, Promise<unknown>>();
   private disposed = false;
 
   constructor(private readonly manager: SshManager) {}
@@ -89,6 +89,28 @@ export class FileSessions {
     return true;
   }
 
+  properties(id: string, path: string, signal: AbortSignal) {
+    return this.manager.withSftp(this.source({ fileSessionId: id }), "properties", path, (channel) => properties(channel, path), { signal });
+  }
+
+  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal) {
+    const { session } = this.lookup(id);
+    return this.manager.withSftp(this.source({ fileSessionId: id }), "attributes", path, async (channel, active) => {
+      const abs = await documentPath(channel, path);
+      return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active));
+    }, { signal });
+  }
+
+  async createEntry(id: string, path: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {
+    await this.manager.withSftp(this.source({ fileSessionId: id }), "create", path, (channel, active) => createEntry(channel, path, entry, active), { signal });
+    return { ok: true as const };
+  }
+
+  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal) {
+    await this.manager.withSftp(this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active), { signal });
+    return { ok: true as const };
+  }
+
   readDocument(id: string, file: string, signal: AbortSignal) {
     return this.manager.withSftp(this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal });
   }
@@ -101,22 +123,24 @@ export class FileSessions {
       file,
       async (channel, active) => {
         const abs = await documentPath(channel, file);
-        const key = JSON.stringify([session.host.toLowerCase(), session.port, abs]);
-        const writing = (this.documentWrites.get(key) ?? Promise.resolve())
-          .catch(() => undefined)
-          .then(() => {
-            active.throwIfAborted();
-            return saveDocument(channel, abs, text, version, active);
-          });
-        this.documentWrites.set(key, writing);
-        try {
-          return await writing;
-        } finally {
-          if (this.documentWrites.get(key) === writing) this.documentWrites.delete(key);
-        }
+        return this.writeEntry(session, abs, () => {
+          active.throwIfAborted();
+          return saveDocument(channel, abs, text, version, active);
+        });
       },
       { signal },
     );
+  }
+
+  private async writeEntry<T>(session: FileSession, abs: string, update: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify([session.host.toLowerCase(), session.port, abs]);
+    const writing = (this.entryWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(update);
+    this.entryWrites.set(key, writing);
+    try {
+      return await writing;
+    } finally {
+      if (this.entryWrites.get(key) === writing) this.entryWrites.delete(key);
+    }
   }
 
   async localList(id: string, parts: string[], root?: string): Promise<FileDirectory> {

@@ -6,6 +6,8 @@ import type { TransferRequest } from "../shared/transfers.js";
 import { FileTable } from "./FileTable.js";
 import { RemoteTextEditor } from "./RemoteTextEditor.js";
 import { RemoteCopyDialog } from "./RemoteCopyDialog.js";
+import { FilePropertiesDialog } from "./FilePropertiesDialog.js";
+import { CreateFileEntryDialog } from "./CreateFileEntryDialog.js";
 import { useFileBatch } from "./FileBatch.js";
 import { ArchiveTools } from "./ArchiveTools.js";
 import { t } from "./i18n.js";
@@ -34,6 +36,8 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
   const [document, setDocument] = useState<FileDocument>();
   const [copyEntry, setCopyEntry] = useState<{ name: string; path: string }>();
+  const [propertyPath, setPropertyPath] = useState<string>();
+  const [creating, setCreating] = useState<{ kind: "file" | "link"; directory: string }>();
   const [folder, setFolder] = useState("");
   const [upFrom, setUpFrom] = useState("");
   const [field, setField] = useState("");
@@ -45,8 +49,10 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [searching, setSearching] = useState(false);
   const [matches, setMatches] = useState<FileSearch>();
   const [located, setLocated] = useState<string>();
+  const [sftpUnavailable, setSftpUnavailable] = useState(false);
   const request = useRef<AbortController>(null);
-  const ready = session.state === "ready";
+  const connected = session.state === "ready";
+  const ready = connected && !sftpUnavailable;
   const shown = shownFileEntries(entries ?? [], filter, preferences);
   const hits = matches?.hits.filter(({ entry, folder }) => preferences.showDotFiles || (!entry.name.startsWith(".") && !folder.split("/").some((part) => part.startsWith(".") && part !== "." && part !== ".."))) ?? [];
   const batch = useFileBatch("remote", cwd, shown, !ready);
@@ -56,7 +62,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const queuedTransfers = !!bridge().pickOpenPath || !!bridge().pickSavePath;
   const load = useCallback(
     async (dir: string) => {
-      if (!ready) return undefined;
+      if (!connected) return undefined;
       request.current?.abort();
       const active = new AbortController();
       request.current = active;
@@ -64,15 +70,19 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
       try {
         const r = await engine.call<FileDirectory>("ssh.sftp.list", { fileSessionId, path: dir }, { write: true, signal: active.signal });
         if (active.signal.aborted) return undefined;
+        setSftpUnavailable(false);
         setCwd(r.path);
         setEntries(r.entries);
         return r.path;
       } catch (e) {
-        if (!active.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        if (!active.signal.aborted) {
+          if (e instanceof CapabilityError && e.details?.reason === "sftp-unavailable") setSftpUnavailable(true);
+          setError(e instanceof Error ? e.message : String(e));
+        }
         return undefined;
       }
     },
-    [engine, fileSessionId, ready],
+    [engine, fileSessionId, connected],
   );
   useEffect(() => {
     void load("");
@@ -198,9 +208,11 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
         <Button disabled={!ready || cwd === "/" || !cwd} onClick={() => void navigate(up)} data-testid="files-up">
           {t.files.up}
         </Button>
-        <Button disabled={!ready} onClick={() => void load(cwd)}>
+        <Button disabled={!connected} onClick={() => void load(cwd)}>
           {t.files.refresh}
         </Button>
+        <Button disabled={!ready || !cwd} onClick={() => setCreating({ kind: "file", directory: cwd })}>新建文件</Button>
+        <Button disabled={!ready || !cwd} onClick={() => setCreating({ kind: "link", directory: cwd })}>新建符号链接</Button>
         <Button disabled={!ready || !cwd || bookmarks.includes(cwd)} onClick={() => setBookmarks([...bookmarks, cwd])}>
           收藏远端目录
         </Button>
@@ -210,6 +222,12 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
         </code>
       </div>
       {session.state === "disconnected" && <p role="status">原连接已断开</p>}
+      <details>
+        <summary>文件后端</summary>
+        <p>文件操作使用当前 SSH 账户的 SFTP 权限。SCP 回退和独立的文件 sudo 后端当前不可用。</p>
+      </details>
+      {propertyPath && <FilePropertiesDialog session={session} path={propertyPath} onClose={() => setPropertyPath(undefined)} onSaved={() => void load(cwd)} />}
+      {creating && <CreateFileEntryDialog session={session} {...creating} onClose={() => setCreating(undefined)} onSaved={() => { setCreating(undefined); void load(cwd); }} />}
       {bookmarks.length > 0 && (
         <div className="ssh-workspace-controls" aria-label="远端书签">
           {bookmarks.map((dir) => (
@@ -361,7 +379,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
         </form>
       ) : null}
 
-      {entries === null ? (
+      {sftpUnavailable ? null : entries === null ? (
         <p>…</p>
       ) : shown.length === 0 ? (
         <EmptyState title={t.files.empty} />
@@ -375,6 +393,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
           onOpen={(entry) => void openEntry(entry)}
           actions={(e) => (
             <>
+              <Button disabled={!ready} aria-label={`属性 ${e.name}`} onClick={() => setPropertyPath(join(cwd, e.name))}>属性</Button>
               {queuedTransfers && e.type === "file" && (
                 <Button
                   disabled={!ready}

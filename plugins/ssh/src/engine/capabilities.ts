@@ -5,7 +5,7 @@ import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostView,
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
-import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
+import { EDIT_MAX_BYTES, FileAttributes, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileProperties, FileSearch, FileSession, FileSessionId, RemoteFilePath } from "../shared/files.js";
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
@@ -633,6 +633,46 @@ export const sshCapabilityDescriptors = {
     risk: "high",
     input: FileSessionId.extend({ path: z.string(), text: z.string().max(EDIT_MAX_BYTES), expectedVersion: FileDocumentVersion }),
     output: FileDocumentRevision,
+  }),
+  fileSessionsProperties: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.properties",
+    title: "读取绑定会话的文件属性",
+    description: "通过 SFTP 读取选定项目的属性及符号链接目标。",
+    scope: "read",
+    risk: "normal",
+    input: FileSessionId.extend({ path: RemoteFilePath }),
+    output: FileProperties,
+  }),
+  fileSessionsChangeProperties: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.changeProperties",
+    title: "修改绑定会话的文件权限和属主",
+    description: "核对所选项目修订后在单独的 SFTP 句柄上更新。",
+    scope: "execute",
+    risk: "high",
+    input: FileSessionId.extend({ path: RemoteFilePath, expectedRevision: FileProperties.shape.revision, change: FileAttributes }),
+    output: FileProperties,
+  }),
+  fileSessionsCreateEntry: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.createEntry",
+    title: "新建远端空文件或符号链接",
+    description: "在绑定会话中新建选定项目，同名时保留原文件。",
+    scope: "execute",
+    risk: "normal",
+    input: FileSessionId.extend({ path: RemoteFilePath, entry: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("file") }), z.strictObject({ kind: z.literal("link"), target: z.string().min(1).max(4096) })]) }),
+    output: Ok,
+  }),
+  fileSessionsMoveEntry: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.moveEntry",
+    title: "移动绑定会话中的远端项目",
+    description: "按修订移动文件、目录或链接，目标存在时停止。",
+    scope: "execute",
+    risk: "high",
+    input: FileSessionId.extend({ path: RemoteFilePath, expectedRevision: FileProperties.shape.revision, destination: RemoteFilePath }),
+    output: Ok,
   }),
   sftpList: defineCapabilityDescriptor({
     ...ssh,

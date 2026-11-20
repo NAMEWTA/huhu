@@ -12,6 +12,7 @@ export interface FakeFs {
   links: Map<string, string>;
   permissions: Map<string, number>;
   timestamps: Map<string, number>;
+  owners: Map<string, { uid: number; gid: number }>;
 }
 
 export interface FakeSshOptions {
@@ -30,6 +31,7 @@ export interface FakeSshOptions {
   failRename?: (from: string, to: string) => boolean;
   waitReadFile?: (file: string) => Promise<void> | undefined;
   dropRenameReply?: (from: string, to: string) => boolean;
+  denySetAttributes?: (file: string) => boolean;
   remoteForwarding?: boolean;
   waitRemoteBind?: (port: number) => Promise<void> | undefined;
   denyRemoteStop?: () => boolean;
@@ -54,7 +56,7 @@ export function genHostKey(): string {
 export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: number; fingerprint: string; close(): Promise<void>; conns: Connection[]; closed(): number; fs: FakeFs }> {
   const publicKey = o.publicKey === undefined ? undefined : utils.parseKey(o.publicKey);
   if (publicKey instanceof Error) throw new Error("测试公钥无法解析");
-  const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map(), permissions: new Map(), timestamps: new Map() };
+  const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map(), permissions: new Map(), timestamps: new Map(), owners: new Map() };
   let writes = 0;
   const conns: Connection[] = [];
   let closed = 0;
@@ -184,6 +186,7 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
             o.failRename,
             o.waitReadFile,
             o.dropRenameReply,
+            o.denySetAttributes,
           );
         });
         session.on("exec", (acceptExec, _rej, info) => {
@@ -272,6 +275,7 @@ function serveSftp(
   failRename?: (from: string, to: string) => boolean,
   waitReadFile?: (file: string) => Promise<void> | undefined,
   dropRenameReply?: (from: string, to: string) => boolean,
+  denySetAttributes?: (path: string) => boolean,
 ): void {
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
@@ -291,7 +295,7 @@ function serveSftp(
   const attrsOf = (p: string) => {
     const isDir = fs.dirs.has(p);
     const f = fs.files.get(p);
-    return { mode: isDir ? 0o040755 : fs.links.has(p) ? 0o120777 : 0o100000 | (fs.permissions.get(p) ?? 0o644), size: f?.length ?? 0, uid: 1000, gid: 1000, atime: 1_700_000_000, mtime: fs.timestamps.get(p) ?? 1_700_000_000 };
+    return { mode: (isDir ? 0o040000 : fs.links.has(p) ? 0o120000 : 0o100000) | (fs.permissions.get(p) ?? (isDir ? 0o755 : fs.links.has(p) ? 0o777 : 0o644)), size: f?.length ?? 0, ...(fs.owners.get(p) ?? { uid: 1000, gid: 1000 }), atime: 1_700_000_000, mtime: fs.timestamps.get(p) ?? 1_700_000_000 };
   };
   const exists = (p: string) => fs.dirs.has(p) || fs.files.has(p) || fs.links.has(p);
   const st = (id: number, code: number) => sftp.status(id, code);
@@ -307,11 +311,34 @@ function serveSftp(
   };
   sftp.on("STAT", stat);
   sftp.on("LSTAT", stat);
-  sftp.on("SETSTAT", (id, p, attrs) => {
+  const setAttributes = (id: number, p: string, attrs: import("ssh2").Attributes) => {
     const n = norm(p);
     if (!fs.files.has(n) && !fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    if (denySetAttributes?.(n)) return st(id, STATUS_CODE.PERMISSION_DENIED);
     if (typeof attrs.mode === "number") fs.permissions.set(n, attrs.mode & 0o7777);
     if (typeof attrs.mtime === "number") fs.timestamps.set(n, attrs.mtime);
+    if (typeof attrs.uid === "number" && typeof attrs.gid === "number") fs.owners.set(n, { uid: attrs.uid, gid: attrs.gid });
+    st(id, STATUS_CODE.OK);
+  };
+  sftp.on("SETSTAT", setAttributes);
+  sftp.on("FSTAT", (id, h) => {
+    const entry = get(h);
+    return entry ? stat(id, entry.path) : st(id, STATUS_CODE.FAILURE);
+  });
+  sftp.on("FSETSTAT", (id, h, attrs) => {
+    const entry = get(h);
+    return entry ? setAttributes(id, entry.path, attrs) : st(id, STATUS_CODE.FAILURE);
+  });
+  sftp.on("READLINK", (id, p) => {
+    const target = fs.links.get(norm(p));
+    if (target === undefined) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    sftp.name(id, [{ filename: target, longname: target, attrs: {} as never }]);
+  });
+  // ssh2's standard wire-order server event puts the link path first.
+  sftp.on("SYMLINK", (id, link, target) => {
+    const n = norm(link);
+    if (exists(n) || !fs.dirs.has(parent(n))) return st(id, STATUS_CODE.FAILURE);
+    fs.links.set(n, target);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("OPENDIR", (id, p) => {
@@ -335,14 +362,15 @@ function serveSftp(
       }),
     );
   });
-  sftp.on("OPEN", (id, p, flags) => {
+  sftp.on("OPEN", (id, p, flags, attrs) => {
     const n = norm(p);
-    if (fs.dirs.has(n)) return st(id, STATUS_CODE.FAILURE);
+    if (fs.dirs.has(n) || fs.links.has(n)) return st(id, STATUS_CODE.FAILURE);
     const creating = (flags & OPEN_MODE.CREAT) !== 0;
     if (!fs.files.has(n)) {
       if (!creating) return st(id, STATUS_CODE.NO_SUCH_FILE);
       if (!fs.dirs.has(parent(n))) return st(id, STATUS_CODE.NO_SUCH_FILE);
       fs.files.set(n, Buffer.alloc(0));
+      if (typeof attrs.mode === "number") fs.permissions.set(n, attrs.mode & 0o7777);
     } else if (creating && (flags & OPEN_MODE.EXCL) !== 0) return st(id, STATUS_CODE.FAILURE);
     if ((flags & OPEN_MODE.TRUNC) !== 0) fs.files.set(n, Buffer.alloc(0));
     sftp.handle(id, newHandle({ kind: "file", path: n, flags }));
@@ -392,6 +420,7 @@ function serveSftp(
     if (!fs.files.delete(n) && !fs.links.delete(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     fs.permissions.delete(n);
     fs.timestamps.delete(n);
+    fs.owners.delete(n);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("MKDIR", (id, p) => {
@@ -408,6 +437,7 @@ function serveSftp(
     fs.dirs.delete(n);
     fs.permissions.delete(n);
     fs.timestamps.delete(n);
+    fs.owners.delete(n);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("RENAME", (id, from, to) => {
@@ -426,6 +456,9 @@ function serveSftp(
       const mtime = fs.timestamps.get(a);
       if (mtime !== undefined) fs.timestamps.set(b, mtime);
       fs.timestamps.delete(a);
+      const owner = fs.owners.get(a);
+      if (owner !== undefined) fs.owners.set(b, owner);
+      fs.owners.delete(a);
     } else if (fs.dirs.has(a)) {
       const below = (key: string) => key === a || key.startsWith(`${a}/`);
       const moved = (key: string) => b + key.slice(a.length);
@@ -443,6 +476,13 @@ function serveSftp(
       moveContents(fs.links);
       moveContents(fs.permissions);
       moveContents(fs.timestamps);
+      moveContents(fs.owners);
+    } else {
+      const target = fs.links.get(a);
+      if (target !== undefined) {
+        fs.links.delete(a);
+        fs.links.set(b, target);
+      }
     }
     if (dropRenameReply?.(a, b)) {
       sftp.end();

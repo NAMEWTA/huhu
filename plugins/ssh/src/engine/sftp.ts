@@ -4,8 +4,8 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 import { HuhuError, errors } from "@huhu/contracts";
-import type { SFTPWrapper } from "ssh2";
-import { EDIT_MAX_BYTES, type FileDocument, type FileSearch } from "../shared/files.js";
+import type { InputAttributes, SFTPWrapper, Stats } from "ssh2";
+import { EDIT_MAX_BYTES, type FileAttributes, type FileDocument, type FileProperties, type FileSearch } from "../shared/files.js";
 
 /** 文本预览上限（规格：< 2 MiB）。 */
 export const SFTP_PREVIEW_MAX = 2 * 1024 * 1024;
@@ -20,7 +20,7 @@ export interface SftpEntry {
   mode: string;
 }
 
-const SSH_FX = { EOF: 1, NO_SUCH_FILE: 2, PERMISSION_DENIED: 3 } as const;
+const SSH_FX = { EOF: 1, NO_SUCH_FILE: 2, PERMISSION_DENIED: 3, OP_UNSUPPORTED: 8 } as const;
 
 /** 把 ssh2 的 SFTP 状态错误变成明确的错误码。 */
 export function mapSftpError(e: unknown, what: string): HuhuError {
@@ -28,7 +28,8 @@ export function mapSftpError(e: unknown, what: string): HuhuError {
   const err = e as { code?: number | string; message?: string };
   if (err.code === SSH_FX.NO_SUCH_FILE) return errors.notFound(`远端不存在：${what}`);
   if (err.code === SSH_FX.PERMISSION_DENIED) return new HuhuError("PERMISSION_DENIED", `远端没有权限：${what}`);
-  if (/Unable to start subsystem|subsystem request failed/i.test(err.message ?? "")) return new HuhuError("INTERNAL", "该服务器没有开启 SFTP 子系统", { retryable: false });
+  if (err.code === SSH_FX.OP_UNSUPPORTED) return errors.invalidInput("此 SFTP 服务端不支持该操作");
+  if (/Unable to start subsystem|subsystem request failed/i.test(err.message ?? "")) return new HuhuError("INTERNAL", "该服务器没有开启 SFTP 子系统。当前没有可用的 SCP 后端。", { retryable: false, details: { reason: "sftp-unavailable" } });
   if (/not connected|No response from server|channel|ECONNRESET|socket/i.test(err.message ?? "")) return new HuhuError("SSH_DISCONNECTED", `连接已中断：${err.message ?? ""}`);
   return new HuhuError("INTERNAL", `SFTP 操作失败（${what}）：${err.message ?? String(e)}`, { retryable: false });
 }
@@ -49,6 +50,78 @@ const typeOf = (mode: number): SftpEntry["type"] => {
   return t === 0o040000 ? "dir" : t === 0o100000 ? "file" : t === 0o120000 ? "link" : "other";
 };
 const modeStr = (mode: number): string => (mode & 0o777).toString(8).padStart(3, "0");
+
+async function canonicalEntry(s: SFTPWrapper, input: string) {
+  const abs = normalizeRemote(input).replace(/\/$/, "");
+  if (!abs.startsWith("/") || abs === "/") throw errors.invalidInput("请选择目录中的远端项目");
+  const parent = path.posix.dirname(abs);
+  if ((await realpath(s, parent)) !== parent) throw errors.invalidInput("父目录已变化或经过符号链接");
+  return abs;
+}
+
+function attributesView(abs: string, st: Stats, linkTarget: string | null): FileProperties {
+  const revision = createHash("sha256").update(JSON.stringify([abs, st.mode, st.size, st.mtime, st.uid, st.gid, linkTarget])).digest("hex");
+  return {
+    path: abs, name: path.posix.basename(abs), type: typeOf(st.mode), mode: modeStr(st.mode), size: st.size ?? 0,
+    mtime: (st.mtime ?? 0) * 1000, atime: st.atime === undefined ? null : st.atime * 1000,
+    uid: st.uid ?? null, gid: st.gid ?? null, linkTarget, revision,
+  };
+}
+
+export async function properties(s: SFTPWrapper, input: string): Promise<FileProperties> {
+  const abs = await canonicalEntry(s, input);
+  const st = await call<Stats>((cb) => s.lstat(abs, cb));
+  const target = typeOf(st.mode) === "link" ? await call<string>((cb) => s.readlink(abs, cb)) : null;
+  return attributesView(abs, st, target);
+}
+
+export async function changeProperties(s: SFTPWrapper, input: string, revision: string, change: FileAttributes, signal: AbortSignal): Promise<FileProperties> {
+  const selected = await properties(s, input);
+  if (selected.revision !== revision) throw errors.versionConflict(selected.revision);
+  if (selected.type !== "file" && selected.type !== "dir") throw errors.invalidInput("仅能修改普通文件或真实目录的权限和属主");
+  const handle = selected.type === "file"
+    ? await call<Buffer>((cb) => s.open(selected.path, "r", cb))
+    : await call<Buffer>((cb) => s.opendir(selected.path, cb));
+  try {
+    const st = await call<Stats>((cb) => s.fstat(handle, cb));
+    const fromHandle = attributesView(selected.path, st, null);
+    const current = await properties(s, selected.path);
+    if (current.revision !== revision || fromHandle.revision !== revision) throw errors.versionConflict(current.revision);
+    const attrs: InputAttributes = { ...change.owner };
+    if (change.mode !== undefined) {
+      if (change.owner && (st.mode & 0o6000)) throw errors.invalidInput("特殊权限项目须分别修改权限和属主");
+      attrs.mode = (st.mode & 0o7000) | Number.parseInt(change.mode, 8);
+    }
+    signal.throwIfAborted();
+    await callv((cb) => s.fsetstat(handle, attrs, cb));
+    return attributesView(selected.path, await call<Stats>((cb) => s.fstat(handle, cb)), null);
+  } finally {
+    await callv((cb) => s.close(handle, cb)).catch(() => undefined);
+  }
+}
+
+export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {
+  const abs = await canonicalEntry(s, input);
+  if (await statOrNull(s, abs)) throw errors.nameConflict(abs);
+  signal.throwIfAborted();
+  if (entry.kind === "link") {
+    const { target } = entry;
+    if (!target || target.includes("\0")) throw errors.invalidInput("请输入有效的链接目标");
+    await callv((cb) => s.symlink(target, abs, cb));
+  } else {
+    const handle = await call<Buffer>((cb) => s.open(abs, "wx", { mode: 0o600 }, cb));
+    await callv((cb) => s.close(handle, cb));
+  }
+}
+
+export async function moveEntry(s: SFTPWrapper, input: string, revision: string, destination: string, signal: AbortSignal) {
+  const to = await canonicalEntry(s, destination);
+  if (await statOrNull(s, to)) throw errors.nameConflict(to);
+  const from = await properties(s, input);
+  if (from.revision !== revision) throw errors.versionConflict(from.revision);
+  signal.throwIfAborted();
+  await callv((cb) => s.rename(from.path, to, cb));
+}
 
 export async function realpath(s: SFTPWrapper, p: string): Promise<string> {
   return call<string>((cb) => s.realpath(p, cb));

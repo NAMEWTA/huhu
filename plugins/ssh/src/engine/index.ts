@@ -215,6 +215,10 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (_c, i) => ({ cancelled: files.cancelSearch(i.fileSessionId) })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, ({ signal }, i) => files.readDocument(i.fileSessionId, i.path, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, ({ signal }, i) => files.writeDocument(i.fileSessionId, i.path, i.text, i.expectedVersion, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsProperties, ({ signal }, i) => files.properties(i.fileSessionId, i.path, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsChangeProperties, ({ signal }, i) => files.changeProperties(i.fileSessionId, i.path, i.expectedRevision, i.change, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCreateEntry, ({ signal }, i) => files.createEntry(i.fileSessionId, i.path, i.entry, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsMoveEntry, ({ signal }, i) => files.moveEntry(i.fileSessionId, i.path, i.expectedRevision, i.destination, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpList, ({ signal }, i) => manager.sftpList(files.source(i), i.path, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRead, (_c, i) => manager.sftpRead(files.source(i), i.path)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpWrite, (_c, i) => manager.sftpWrite(files.source(i), i.path, i.text, i.overwrite)));
