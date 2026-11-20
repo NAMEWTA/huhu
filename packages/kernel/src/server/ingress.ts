@@ -4,11 +4,15 @@ export const MAX_CONCURRENT_PER_TOKEN = 32;
 
 const FORWARDING_HEADERS = ["x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "forwarded", "x-real-ip", "x-client-ip", "cf-connecting-ip", "true-client-ip"];
 
+export function hasForwardingHeaders(readHeader: (name: string) => unknown): boolean {
+  return FORWARDING_HEADERS.some((name) => readHeader(name) !== undefined);
+}
+
 export type IngressVerdict = { ok: true } | { ok: false; status: 400 | 403; reason: string };
 
 /** 来源策略：拒绝转发头、非回环 Host、非 Renderer 的 Origin。 */
 export function checkIngress(headers: Record<string, string | string[] | undefined>, port: number): IngressVerdict {
-  for (const h of FORWARDING_HEADERS) if (headers[h] !== undefined) return { ok: false, status: 403, reason: "不接受代理转发的请求" };
+  if (hasForwardingHeaders((name) => headers[name])) return { ok: false, status: 403, reason: "不接受代理转发的请求" };
   const host = String(headers["host"] ?? "").toLowerCase();
   const allowedHosts = [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`];
   if (!allowedHosts.includes(host)) return { ok: false, status: 403, reason: "Host 不被允许" };
