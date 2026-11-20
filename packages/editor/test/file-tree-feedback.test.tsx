@@ -6,6 +6,8 @@ import { createRef } from "react";
 import { Toaster } from "sonner";
 import { expect, test, vi } from "vitest";
 import { HostConfigProvider } from "../src/host/config-provider";
+import { installDesktopBridge } from "../src/host/desktop-bridge";
+import { DEFAULT_FEATURES } from "../src/host/ok-host";
 import { DocumentProvider } from "../src/host/document-context";
 import { hostFetch, registerHostRoutes } from "../src/host/host-fetch";
 import { filesRoutes, type HostFsEntry } from "../src/host/routes/files";
@@ -99,6 +101,7 @@ test.each([
       return response;
     });
     const query = new QueryClient();
+    const removeBridge = confirm ? installDesktopBridge({ features: DEFAULT_FEATURES, openExternal: () => {} }) : undefined;
     try {
       render(
         <QueryClientProvider client={query}>
@@ -155,8 +158,8 @@ test.each([
         fireEvent.keyDown(input, { key: "Enter" });
       }
       if (confirm) {
-        const dialog = await screen.findByRole("alertdialog");
-        fireEvent.click(within(dialog).getByRole("button", { name: /delete|move to/i }));
+        const dialog = await screen.findByRole("alertdialog", { name: /delete "source"/i });
+        fireEvent.click(within(dialog).getByRole("button", { name: "Move to Trash" }));
       }
       await waitFor(() => expect(responses.map(({ status }) => status)).toContain(failed ? 500 : 200));
       if (failed) {
@@ -185,6 +188,7 @@ test.each([
     } finally {
       cleanup();
       query.clear();
+      removeBridge?.();
       stop();
       dispose();
       window.location.hash = "";

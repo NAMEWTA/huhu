@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "134ae251a6c0089a537a0bcfea0fee3bba2326ed0ef398efdd7070f3fc0239b2",
+      "sha256": "e1abd538707f7f35a8efe4c9bacaef442664e5d18fa64d4adae76d24592d904a",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -537,6 +537,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/AddPropertyRow.add-property-focus.dom.test.tsx",
+      "upstream": "packages/app/src/components/AddPropertyRow.add-property-focus.dom.test.tsx",
+      "blob": "e64dbc32464ce4c07c78def0ea9bd5e9ab61a9f3",
+      "sha256": "59ab0552dbbda587b7529ac8fcfbd16d0c7d34893417d591a8cd586c32e2b031",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/AgentIconCluster.tsx",
       "upstream": "packages/app/src/components/AgentIconCluster.tsx",
       "blob": "a90d2bc04d4c04fb00ef53b4afa590f87b7c2900",
@@ -597,7 +604,7 @@
       "target": "app/src/components/FileTree.tsx",
       "upstream": "packages/app/src/components/FileTree.tsx",
       "blob": "49eda5b8d8f398d63804162d3eaf850080b797b2",
-      "sha256": "a6ab0590dc5e2a82cee0f988c1746e0cd674bbeb8f513d4559605b570fcdf814",
+      "sha256": "905727c75689a1026111b50db1cba0f758f0e4602bfd15f9c3ba4cdd6c9cf68d",
       "method": "patch",
       "description": "PATCHES.md:59 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
@@ -620,6 +627,13 @@
       "upstream": "packages/app/src/components/FrontmatterBindingContext.tsx",
       "blob": "7161cbaa661d5c8fc93c756b065be205de7683fc",
       "sha256": "684838a69fcb4a996ea70eb6c18585e9edaab52099e8f30ca4f33b518d4d34f1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/FrontmatterRow.enum.dom.test.tsx",
+      "upstream": "packages/app/src/components/FrontmatterRow.enum.dom.test.tsx",
+      "blob": "6c977d2444060498823f21b8dc1d847e39143785",
+      "sha256": "803059c953b2822ef23c00e7f0553f384e2df5e316af2ab6bce2f295554ab476",
       "method": "copy"
     },
     {
@@ -782,6 +796,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/PropertyDisplayRow.dom.test.tsx",
+      "upstream": "packages/app/src/components/PropertyDisplayRow.dom.test.tsx",
+      "blob": "4f0962c60f7fda3309e48a2e32b287c0c628673b",
+      "sha256": "1b55fe7682d48725af6b959942db3514c7fe8b50e33ed171db1c1a010c45d75a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/PropertyDisplayRow.tsx",
       "upstream": "packages/app/src/components/PropertyDisplayRow.tsx",
       "blob": "3a55f98350d3413945c2d92d1d3387ab2bd68486",
@@ -837,6 +858,13 @@
       "sha256": "ad97f036c9f1fe6af2d0d240e67393d0089f5c433810055fab5c855c584609f0",
       "method": "patch",
       "description": "PATCHES.md:264 - `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。"
+    },
+    {
+      "target": "app/src/components/ReadonlyPropertyPanel.dom.test.tsx",
+      "upstream": "packages/app/src/components/ReadonlyPropertyPanel.dom.test.tsx",
+      "blob": "17f508fe7bf838f7de5b8cb84b1ede10fcdd5c2e",
+      "sha256": "d1794a68cd4142f4e12680dbf6927a923124cb2a699e3d48d2ba609225b48fc0",
+      "method": "copy"
     },
     {
       "target": "app/src/components/ReadonlyPropertyPanel.tsx",
@@ -1118,10 +1146,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/file-tree-problem-indicators.dom.test.tsx",
+      "upstream": "packages/app/src/components/file-tree-problem-indicators.dom.test.tsx",
+      "blob": "d12bea967521e32af6aece9ba376d9ec9a7e58dc",
+      "sha256": "34bbf1800a27640e80c47f4555a9bb0ea93817b013bf9e26ca4835aa9f8ff83d",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/file-tree-problem-indicators.ts",
       "upstream": "packages/app/src/components/file-tree-problem-indicators.ts",
       "blob": "5a62338900c701f647eeda043a3ca229a5f2570c",
       "sha256": "398a6b6acb7b192d82eda82761b72b35e27d2e26391f972890e08a05eb073bad",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-tree-refresh.dom.test.tsx",
+      "upstream": "packages/app/src/components/file-tree-refresh.dom.test.tsx",
+      "blob": "3b750c20fa93bfdd9c4aeb3fffb9a1a6b1e20e6e",
+      "sha256": "09b061ddc0a49cd309271dfa5b15a7089f81808ff96da3a5a9ce539f8d9b4af7",
       "method": "copy"
     },
     {
@@ -2943,6 +2985,13 @@
       "description": "PATCHES.md:261 - `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。"
     },
     {
+      "target": "app/src/editor/components/ExcalidrawEmbed.dom.test.tsx",
+      "upstream": "packages/app/src/editor/components/ExcalidrawEmbed.dom.test.tsx",
+      "blob": "6d97843a9e71392d6b5d2b2d14561daae5439927",
+      "sha256": "db4b4a4bdaf1acf05138e363311f51baa6fcd18f8a14d13d2dac94a04853cd1f",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/components/ExcalidrawEmbed.tsx",
       "upstream": "packages/app/src/editor/components/ExcalidrawEmbed.tsx",
       "blob": "1b327ceff1fbbd2ffa85ac312add5fa73a2b55f1",
@@ -3428,6 +3477,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/editor-cache-visible-scroll-container.test.ts",
+      "upstream": "packages/app/src/editor/editor-cache-visible-scroll-container.test.ts",
+      "blob": "ee29b02e7175a2684d47fb5b061db9a1bd05fb5e",
+      "sha256": "82e312726ee83a121f8080f9f6d4d47a6b512f9dd83466ffa31dfe7a2f1ce2d1",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/editor-cache.ts",
       "upstream": "packages/app/src/editor/editor-cache.ts",
       "blob": "daf2231fa470fa4e6af51e571d6435add8426229",
@@ -3543,6 +3599,13 @@
       "upstream": "packages/app/src/editor/extensions/InternalLinkPropPanel.tsx",
       "blob": "6d360443840d447f4df5a400b628d5673d08ca6e",
       "sha256": "3fa7b5089dc7a3d9dd7a880fefd85a2bf44a01f5816e72f40980da1a878aa5c2",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx",
+      "upstream": "packages/app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx",
+      "blob": "d04b2dd7dcce089fc80f3fd93e8f15a3bc48fe19",
+      "sha256": "be172eae4cc5f6a4c4786712892a3ced4586d81a0bce87e85e6c0b931af96cf9",
       "method": "copy"
     },
     {
@@ -4765,6 +4828,13 @@
       "description": "PATCHES.md:328 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
     {
+      "target": "app/src/editor/link-preview/ExternalLinkPreviewCard.dom.test.tsx",
+      "upstream": "packages/app/src/editor/link-preview/ExternalLinkPreviewCard.dom.test.tsx",
+      "blob": "c089906c9723168a2150294c63944272fac3b2a4",
+      "sha256": "f7322ec52f86a8bbe2e0c786bcf0a8b7e3c52e244473d872243e1258fafec99a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/link-preview/ExternalLinkPreviewCard.tsx",
       "upstream": "packages/app/src/editor/link-preview/ExternalLinkPreviewCard.tsx",
       "blob": "fb2f858a685c24d9b2cb854d365577ce9bfa5913",
@@ -4933,6 +5003,13 @@
       "upstream": "packages/app/src/editor/mount-promise.ts",
       "blob": "1dd9311aa49c63f8c44aa76458a22f3bc6959713",
       "sha256": "25a9e74e86d5a03279a1c365768ff9501e4778d20f20d086d0560b02a3f39a4d",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/observer-sync.test.ts",
+      "upstream": "packages/app/src/editor/observer-sync.test.ts",
+      "blob": "51e6b163c52dccc3155785024eb90379c1be7342",
+      "sha256": "19b4f3b4b76d99dd17b1c94ce20074e7631acd1d84d6af9ae54a760e54218af2",
       "method": "copy"
     },
     {
@@ -5291,6 +5368,13 @@
       "description": "PATCHES.md:353 - `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。"
     },
     {
+      "target": "app/src/editor/slash-command/auto-open-flag.test.ts",
+      "upstream": "packages/app/src/editor/slash-command/auto-open-flag.test.ts",
+      "blob": "ec4b61cfdf6be6f1f3e1da233166c462c9b6d370",
+      "sha256": "d2bf67c6867d64fb9894d1e7d8978ba0684c422482d2daebd1c7580fd6e39e7a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/slash-command/component-items.tsx",
       "upstream": "packages/app/src/editor/slash-command/component-items.tsx",
       "blob": "033deba8e7f0d9be047027583419ce832e2f2f91",
@@ -5314,6 +5398,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/slash-command/focus-inserted-component.test.ts",
+      "upstream": "packages/app/src/editor/slash-command/focus-inserted-component.test.ts",
+      "blob": "da0ed1053e21caaa0ded9e8ff5374c90a9b1ffe2",
+      "sha256": "1b115cacf1452220f4810ef95ef5fc5de65747ba29a1ff3ff523b3a7356f725e",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/slash-command/items.test.ts",
       "upstream": "packages/app/src/editor/slash-command/items.test.ts",
       "blob": "621b37deb038442cbd04569d291775c6f38214e3",
@@ -5325,6 +5416,13 @@
       "upstream": "packages/app/src/editor/slash-command/items.tsx",
       "blob": "1db9529058641ca571298166fce6b734c81a2db2",
       "sha256": "954b075f2f087610d2f0c386c3240a96e5c06adb71f4ee3087b52dbc93612cb7",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/slash-command/mirror-source-insert.dom.test.tsx",
+      "upstream": "packages/app/src/editor/slash-command/mirror-source-insert.dom.test.tsx",
+      "blob": "df498f03acbede2a32eb05b87986aefbced712eb",
+      "sha256": "740859027cf26d18e95e1cd033da566c185b324c8d5046b087e4c4759638babe",
       "method": "copy"
     },
     {

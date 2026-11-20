@@ -593,3 +593,21 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。
 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。
+
+## B01 复刻矩阵补证
+
+- `app/src/components/FileTree.tsx`：只有桌面桥提供系统回收方法时才调用系统回收。Huhu 的部分桌面桥通过宿主文件路由使用 Vault 回收站。
+- `app/src/components/AddPropertyRow.add-property-focus.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/FrontmatterRow.enum.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/PropertyDisplayRow.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/ReadonlyPropertyPanel.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/file-tree-problem-indicators.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/file-tree-refresh.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/editor-cache-visible-scroll-container.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/link-preview/ExternalLinkPreviewCard.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/observer-sync.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/auto-open-flag.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/focus-inserted-component.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/mirror-source-insert.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。

@@ -2868,7 +2868,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
 
     const bridge = typeof window !== 'undefined' ? window.okDesktop : undefined;
     try {
-      if (bridge && workspace) {
+      if (typeof bridge?.shell?.trashItem === 'function' && workspace) {
         const { trashed, failed } = await trashTargetsViaShell(deleteTargets, bridge, workspace);
         if (trashed.length > 0) {
           const cleanup = await postTrashCleanup(trashed);
