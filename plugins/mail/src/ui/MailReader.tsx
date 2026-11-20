@@ -5,7 +5,7 @@ import type { ReplySeed } from "../engine/prepare-reply.js";
 import type { ForwardSeed, NewTopicSeed } from "../engine/prepare-forward.js";
 import { prepareMailHtml } from "./mail-html.js";
 
-export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; readState?: "unread" | "local" | "synced" };
+export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; readState?: "unread" | "local" | "synced" | undefined };
 export type RelatedDraft = { kind: "reply"; seed: ReplySeed } | { kind: "forward"; seed: ForwardSeed } | { kind: "new-topic"; seed: NewTopicSeed };
 const composeActions = [
   { id: "reply", title: "引用回复" },

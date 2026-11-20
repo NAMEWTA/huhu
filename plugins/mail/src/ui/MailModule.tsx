@@ -1,13 +1,14 @@
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
+import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage } from "../engine/conversations.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailComposer } from "./MailComposer.js";
-import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
+import { MailReader, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
 
@@ -19,6 +20,7 @@ const tabs = [
 const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
 type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount } | { kind: "remove"; target: RemovalTarget };
+type ConversationSelection = { id: string; offset: number };
 
 function relatedDraft({ kind, seed }: RelatedDraft, original: string): DraftContent {
   const empty: DraftContent = { accountId: seed.accountId, to: [], cc: [], bcc: [], subject: "", body: { type: "doc", content: [{ type: "paragraph" }] } };
@@ -61,10 +63,12 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const composeTrigger = useRef<HTMLElement | null>(null);
   const accountActionTrigger = useRef<HTMLButtonElement | null>(null);
   const accountList = useRef<HTMLElement>(null);
+  const rememberedConversations = useRef(new Map<string, ConversationSelection>());
   const backAccounts = useRef<HTMLButtonElement>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const rows = accounts.data?.accounts ?? emptyAccounts;
   const account = rows.find((row) => row.accountId === accountId);
+  const conversationScope = account?.accountId ?? "";
   const groups = new Map<MailProvider, MailAccount[]>();
   for (const row of rows) {
     const { provider } = row.definition.settings;
@@ -124,7 +128,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     setAccountView("accounts");
     const id = accountId;
     requestAnimationFrame(() => {
-      if (id) accountList.current?.querySelector<HTMLElement>(`[data-mail-account="${CSS.escape(id)}"]`)?.focus();
+      const selector = id ? `[data-mail-account="${CSS.escape(id)}"]` : "[data-mail-all-accounts]";
+      accountList.current?.querySelector<HTMLElement>(selector)?.focus();
     });
   }
 
@@ -219,14 +224,19 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       )}
       {currentQuery.isPending && <p>正在读取邮件工作区…</p>}
       {tab === "mail" && !currentQuery.isPending && (
-        <div className="hu-mail-columns hu-mail-account-columns" data-account-view={account ? accountView : "accounts"}>
+        <div className="hu-mail-columns hu-mail-account-columns" data-account-view={rows.length ? accountView : "accounts"}>
           <aside ref={accountList} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
             <Button
               data-mail-all-accounts=""
               aria-pressed={!account}
               onClick={() => {
                 setAccountId(null);
-                setAccountView("accounts");
+                if (rows.length) {
+                  setAccountView("mailbox");
+                  requestAnimationFrame(() => {
+                    if (backAccounts.current?.getClientRects().length) backAccounts.current.focus();
+                  });
+                }
               }}
             >
               全部账号
@@ -263,36 +273,38 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 </Button>
               ))}
           </aside>
-          {account ? (
+          {rows.length ? (
             <Mailbox
-              key={account.accountId}
+              key={conversationScope}
               account={account}
+              accounts={rows}
               readOnly={readOnly}
               onCompose={composeFromMessage}
               onReading={setReadingMessage}
+              remembered={rememberedConversations.current.get(conversationScope)}
+              onConversation={(selection) => rememberedConversations.current.set(conversationScope, selection)}
               backAccounts={backAccounts}
               onBack={returnToAccounts}
-              {...(accountSetupAvailable && {
-                onAccountAction: (kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement) => {
-                  accountActionTrigger.current = trigger;
-                  if (kind === "remove") setDialog({ kind, target: { accountId: account.accountId, expectedRevision: account.revision, label: accountTitle(account) } });
-                  else setDialog({ kind, account });
-                },
-              })}
+              {...(account &&
+                accountSetupAvailable && {
+                  onAccountAction: (kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement) => {
+                    accountActionTrigger.current = trigger;
+                    if (kind === "remove") setDialog({ kind, target: { accountId: account.accountId, expectedRevision: account.revision, label: accountTitle(account) } });
+                    else setDialog({ kind, account });
+                  },
+                })}
             />
           ) : (
             <article className="hu-mail-detail hu-mail-account-overview">
-              <h2>{rows.length ? "全部账号" : "添加第一个邮箱"}</h2>
+              <h2>添加第一个邮箱</h2>
               <p>
-                {rows.length
-                  ? "选择邮箱查看已配置的目录。"
-                  : !desktop
-                    ? "请在桌面端添加邮箱，再回到这里查看账号和草稿。"
-                    : access.data?.readOnly
-                      ? "此 Vault 为只读。"
-                      : accounts.data?.available === false
-                        ? "此主机的本机邮箱凭据存储不可用。"
-                        : "添加邮箱并测试 IMAP 连接后，即可选择要同步的目录。"}
+                {!desktop
+                  ? "请在桌面端添加邮箱，再回到这里查看账号和草稿。"
+                  : access.data?.readOnly
+                    ? "此 Vault 为只读。"
+                    : accounts.data?.available === false
+                      ? "此主机的本机邮箱凭据存储不可用。"
+                      : "添加邮箱并测试 IMAP 连接后，即可选择要同步的目录。"}
               </p>
             </article>
           )}
@@ -413,7 +425,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
         <MailComposer
           draft={composer.draft}
           {...(composer.seed && { seed: composer.seed })}
-          inline={tab === "mail" && !!original && original.accountId === accountId && original.localMessageId === readingMessage}
+          inline={tab === "mail" && !!original && original.localMessageId === readingMessage}
           accounts={rows}
           initialAccountId={account?.definition.settings.smtpEnabled ? account.accountId : null}
           readOnly={readOnly}
@@ -438,39 +450,50 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
 
 function Mailbox({
   account,
+  accounts,
   readOnly,
   backAccounts,
   onBack,
   onReading,
+  remembered,
+  onConversation,
   onCompose,
   onAccountAction,
 }: {
-  account: MailAccount;
+  account: MailAccount | undefined;
+  accounts: MailAccount[];
   readOnly: boolean;
   backAccounts: Ref<HTMLButtonElement>;
   onBack(): void;
   onReading(id: string | null): void;
+  remembered?: ConversationSelection | undefined;
+  onConversation(selection: ConversationSelection): void;
   onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
   onAccountAction?(kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement): void;
 }) {
   const engine = useEngine();
+  const query = useQueryClient();
   const [selected, setSelected] = useState("INBOX");
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [opened, setOpened] = useState<string | null>(null);
+  const [opened, setOpened] = useState<ConversationMessage | null>(null);
+  const [offset, setOffset] = useState(remembered?.offset ?? 0);
+  const [conversationId, setConversationId] = useState(remembered?.id ?? "");
   const request = useRef<AbortController | null>(null);
   const messageTrigger = useRef<HTMLButtonElement | null>(null);
   const backMessages = useRef<HTMLButtonElement>(null);
-  const folder = account.definition.folders.some(({ path }) => path === selected) ? selected : "INBOX";
-  const input = { accountId: account.accountId, folder };
-  const latest = useCapability<{ message: MessageSummary | null }>("mail.messages.latest", input);
-  const { message } = latest.data ?? {};
-  const reading = !!message && opened === message.localMessageId;
+  const contactsHeading = useRef<HTMLHeadingElement>(null);
+  const folder = account?.definition.folders.some(({ path }) => path === selected) ? selected : "INBOX";
+  const list = useCapability<ConversationsPage>("mail.conversations.list", { ...(account && { accountId: account.accountId }), offset });
+  const conversations = list.data?.conversations ?? [];
+  const conversation = conversations.find((row) => row.conversationId === conversationId) ?? conversations[0];
+  const activeMessage = conversation?.conversationId === conversationId ? opened : null;
+  const reading = activeMessage !== null;
 
   useEffect(() => {
-    onReading(reading ? opened : null);
+    onReading(activeMessage?.source === "imap" ? activeMessage.localMessageId : null);
     return () => onReading(null);
-  }, [onReading, opened, reading]);
+  }, [onReading, activeMessage]);
 
   useEffect(() => {
     setError("");
@@ -479,25 +502,33 @@ function Mailbox({
       request.current?.abort();
       request.current = null;
     };
-  }, [engine, account.revision]);
+  }, [engine, account?.revision]);
 
-  async function refresh() {
-    if (request.current) return;
+  async function refresh(sourceFolder = folder, sourceAccount = account?.accountId) {
+    if (request.current || !sourceAccount) return;
     const controller = new AbortController();
     request.current = controller;
     setRefreshing(true);
     setError("");
     try {
-      const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", input, { write: true, signal: controller.signal });
+      const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", { accountId: sourceAccount, folder: sourceFolder }, { write: true, signal: controller.signal });
       if (controller.signal.aborted) return;
-      await latest.refetch();
-      if (!controller.signal.aborted && result.mailboxChanged) setOpened(null);
+      await query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && String(entry.queryKey[1]).startsWith("mail.conversations.") });
+      if (!controller.signal.aborted && result.mailboxChanged) setOpened((current) => (current?.source === "imap" && current.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
     } catch (err) {
       if (!controller.signal.aborted) setError(err instanceof CapabilityError ? err.message : "无法刷新此目录。");
     } finally {
       if (request.current === controller) request.current = null;
       if (!controller.signal.aborted) setRefreshing(false);
     }
+  }
+
+  function changePage(nextOffset: number) {
+    setOpened(null);
+    setConversationId("");
+    setOffset(nextOffset);
+    onConversation({ id: "", offset: nextOffset });
+    contactsHeading.current?.focus();
   }
 
   return (
@@ -515,7 +546,10 @@ function Mailbox({
             ref={backMessages}
             onClick={() => {
               setOpened(null);
-              requestAnimationFrame(() => messageTrigger.current?.focus());
+              requestAnimationFrame(() => {
+                if (messageTrigger.current?.getClientRects().length) messageTrigger.current.focus();
+                else contactsHeading.current?.focus();
+              });
             }}
           >
             返回邮件列表
@@ -523,33 +557,37 @@ function Mailbox({
         </div>
       )}
       <div className="hu-mail-detail hu-mail-mailbox-toolbar">
-        <h2>{accountTitle(account)}</h2>
-        <p>
-          {account.definition.settings.email}
-          {account.definition.settings.smtpEnabled ? "" : " · 只接收"}
-        </p>
-        <div className="hu-mail-row">
-          <label>
-            目录{" "}
-            <select
-              value={folder}
-              onChange={(e) => {
-                setSelected(e.target.value);
-                setError("");
-                setOpened(null);
-              }}
-              disabled={refreshing}
-            >
-              {account.definition.folders.map(({ path }) => (
-                <option key={path}>{path}</option>
-              ))}
-            </select>
-          </label>
-          <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
-            同步目录
-          </Button>
-        </div>
-        {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
+        <h2>{account ? accountTitle(account) : "全部账号"}</h2>
+        {account && (
+          <>
+            <p>
+              {account.definition.settings.email}
+              {account.definition.settings.smtpEnabled ? "" : " · 只接收"}
+            </p>
+            <div className="hu-mail-row">
+              <label>
+                目录{" "}
+                <select
+                  value={folder}
+                  onChange={(e) => {
+                    setSelected(e.target.value);
+                    setError("");
+                    setOpened(null);
+                  }}
+                  disabled={refreshing}
+                >
+                  {account.definition.folders.map(({ path }) => (
+                    <option key={path}>{path}</option>
+                  ))}
+                </select>
+              </label>
+              <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
+                同步目录
+              </Button>
+            </div>
+            {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
+          </>
+        )}
         {onAccountAction && (
           <div className="hu-mail-row">
             <Button onClick={(event) => onAccountAction("repair", event.currentTarget)}>修复认证</Button>
@@ -562,36 +600,203 @@ function Mailbox({
           </div>
         )}
         {error && <Banner tone="danger">{error}</Banner>}
-        {latest.isError && (
-          <Banner tone="danger" action={<Button onClick={() => void latest.refetch()}>重试读取</Button>}>
+        {list.isError && (
+          <Banner tone="danger" action={<Button onClick={() => void list.refetch()}>重试读取</Button>}>
             无法读取本机邮件缓存。
           </Banner>
         )}
       </div>
-      {latest.data &&
-        (message ? (
-          <div className="hu-mail-detail">
-            <div className="hu-mail-row hu-mail-mailbox-nav">
-              <Button
-                aria-expanded={reading}
-                onClick={(event) => {
-                  messageTrigger.current = event.currentTarget;
-                  setOpened(reading ? null : message.localMessageId);
-                  if (!reading)
-                    requestAnimationFrame(() => {
-                      if (backMessages.current?.getClientRects().length) backMessages.current.focus();
-                    });
-                }}
-              >
+      <div className="hu-mail-contact-columns">
+        <aside className="hu-mail-list hu-mail-mailbox-nav" aria-label="联系人对话">
+          <h3 ref={contactsHeading} tabIndex={-1}>
+            联系人
+          </h3>
+          <p className="hu-mail-help">已选可见目录和本机已发的缓存</p>
+          {list.isPending && <p role="status">正在读取联系人。</p>}
+          {conversations.map((row) => (
+            <Button
+              key={row.conversationId}
+              aria-pressed={row.conversationId === conversation?.conversationId}
+              onClick={() => {
+                setOpened(null);
+                setConversationId(row.conversationId);
+                onConversation({ id: row.conversationId, offset });
+              }}
+            >
+              <span className="hu-mail-contact-label">
+                <strong>
+                  {row.participants.join("、")}
+                  {row.unread ? ` · ${row.unread} 封未读` : ""}
+                </strong>
+                <span className="hu-mail-help">
+                  {row.latest.subject || "无主题"}
+                  {row.latest.date ? ` · ${new Date(row.latest.date).toLocaleDateString()}` : ""}
+                </span>
+              </span>
+            </Button>
+          ))}
+          {list.data && !conversations.length && <p>此邮箱暂无已缓存的公开对话。</p>}
+          {list.data && (offset > 0 || list.data.nextOffset !== null) && (
+            <nav className="hu-mail-row" aria-label="联系人分页">
+              <Button disabled={!offset} onClick={() => changePage(Math.max(0, offset - 20))}>
+                上页
+              </Button>
+              <Button disabled={list.data.nextOffset === null} onClick={() => changePage(list.data!.nextOffset!)}>
+                下页
+              </Button>
+            </nav>
+          )}
+        </aside>
+        {conversation && (
+          <ConversationTimeline
+            key={conversation.conversationId}
+            conversation={conversation}
+            accountId={account?.accountId}
+            accounts={accounts}
+            opened={activeMessage}
+            readOnly={readOnly}
+            onCompose={onCompose}
+            onRefresh={refresh}
+            onChanged={list.refetch}
+            onOpen={(message, trigger) => {
+              setConversationId(conversation.conversationId);
+              onConversation({ id: conversation.conversationId, offset });
+              messageTrigger.current = trigger;
+              setOpened(message);
+              if (message)
+                requestAnimationFrame(() => {
+                  if (backMessages.current?.getClientRects().length) backMessages.current.focus();
+                });
+            }}
+          />
+        )}
+      </div>
+    </article>
+  );
+}
+
+function conversationMessageKey(message: ConversationMessage) {
+  return message.source === "imap" ? message.localMessageId : message.operationId;
+}
+
+function ConversationTimeline({
+  conversation,
+  accountId,
+  accounts,
+  opened,
+  readOnly,
+  onCompose,
+  onRefresh,
+  onChanged,
+  onOpen,
+}: {
+  conversation: ConversationSummary;
+  accountId: string | undefined;
+  accounts: MailAccount[];
+  opened: ConversationMessage | null;
+  readOnly: boolean;
+  onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
+  onRefresh(folder: string, accountId: string): Promise<void>;
+  onChanged(): Promise<unknown>;
+  onOpen(message: ConversationMessage | null, trigger: HTMLButtonElement): void;
+}) {
+  const [offset, setOffset] = useState(0);
+  const [copyStatus, setCopyStatus] = useState("");
+  const heading = useRef<HTMLHeadingElement>(null);
+  const page = useCapability<ConversationMessagesPage>("mail.conversations.messages", { ...(accountId && { accountId }), conversationId: conversation.conversationId, offset });
+  const current = opened && conversationMessageKey(opened);
+  const reader = current ? (page.data?.messages.find((message) => conversationMessageKey(message) === current) ?? opened) : null;
+
+  async function copy(address: string) {
+    try {
+      const desktop = host();
+      if (desktop?.copyText) await desktop.copyText(address);
+      else await navigator.clipboard.writeText(address);
+      setCopyStatus(`已复制 ${address}`);
+    } catch {
+      setCopyStatus("无法复制地址。");
+    }
+  }
+
+  function movePage(next: number, trigger: HTMLButtonElement) {
+    onOpen(null, trigger);
+    setOffset(next);
+    heading.current?.focus();
+  }
+
+  return (
+    <section className="hu-mail-detail" aria-label="缓存邮件往来">
+      <div className="hu-mail-mailbox-nav hu-mail-detail">
+        <h3 tabIndex={-1} ref={heading}>
+          往来 · {conversation.count} 封邮件
+        </h3>
+        {(host()?.copyText || navigator.clipboard) && (
+          <div className="hu-mail-row" aria-label="公开参与者" role="group">
+            {conversation.participants.map((address) => (
+              <Button key={address} type="button" variant="ghost" aria-label={`复制 ${address}`} onClick={() => void copy(address)}>
+                {address}
+              </Button>
+            ))}
+          </div>
+        )}
+        {copyStatus && <p role="status">{copyStatus}</p>}
+        {page.isPending && <p role="status">正在读取缓存邮件。</p>}
+        {page.isError && (
+          <Banner tone="danger" action={<Button onClick={() => void page.refetch()}>重试读取</Button>}>
+            无法读取此对话。
+          </Banner>
+        )}
+        {page.data?.messages.map((message) => {
+          const key = conversationMessageKey(message);
+          const selected = key === current;
+          return (
+            <div className="hu-mail-row" key={key}>
+              <Button aria-expanded={selected} onClick={(event) => onOpen(selected ? null : message, event.currentTarget)}>
                 {message.subject || "无主题"}
               </Button>
-              {message.readState === "unread" && <span>未读</span>}
+              {!accountId && <span className="hu-mail-help">{accounts.find((account) => account.accountId === message.accountId)?.definition.settings.email}</span>}
+              <span className="hu-mail-help">{message.source === "imap" ? message.folder : "本机已发"}</span>
+              {message.source === "imap" && message.readState === "unread" && <span>未读</span>}
             </div>
-            {opened === message.localMessageId && <MailReader key={message.localMessageId} message={message} readOnly={readOnly} onRead={latest.refetch} onRefresh={refresh} onCompose={onCompose} />}
-          </div>
-        ) : (
-          <p>此目录暂无已缓存的邮件。</p>
-        ))}
-    </article>
+          );
+        })}
+        {page.data && (offset > 0 || page.data.nextOffset !== null) && (
+          <nav className="hu-mail-row" aria-label="往来分页">
+            <Button disabled={!offset} onClick={(event) => movePage(Math.max(0, offset - 20), event.currentTarget)}>
+              上页
+            </Button>
+            <Button disabled={page.data.nextOffset === null} onClick={(event) => movePage(page.data!.nextOffset!, event.currentTarget)}>
+              下页
+            </Button>
+          </nav>
+        )}
+      </div>
+      {reader?.source === "imap" && (
+        <MailReader
+          key={reader.localMessageId}
+          message={reader}
+          readOnly={readOnly}
+          onRead={async () => {
+            void onChanged();
+            return page.refetch();
+          }}
+          onRefresh={() => onRefresh(reader.folder, reader.accountId)}
+          onCompose={onCompose}
+        />
+      )}
+      {reader?.source === "sent" && <SentConversationMessage key={reader.operationId} message={reader} />}
+    </section>
+  );
+}
+
+function SentConversationMessage({ message }: { message: Extract<ConversationMessage, { source: "sent" }> }) {
+  const body = useCapability<{ text: string }>("mail.conversations.sentBody", { accountId: message.accountId, operationId: message.operationId });
+  return (
+    <section className="hu-mail-reader" aria-label="本机已发正文">
+      <h3>{message.subject || "无主题"}</h3>
+      {body.isPending && <p>正在读取本机已发正文…</p>}
+      {body.isError && <Banner>此邮件已不在公开对话中。</Banner>}
+      {body.data && <p className="hu-mail-plain">{body.data.text || "没有可显示的正文。"}</p>}
+    </section>
   );
 }

@@ -12,12 +12,13 @@ import { MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
 import { messageBody, parseMessageBody } from "./message-body.js";
 import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDigest } from "./prepare-forward.js";
 import { prepareReply, replyMode, replySeed } from "./prepare-reply.js";
+import { publicMail, readPublicMail } from "./public-mail.js";
 import { sourceMessage } from "./reply-context.js";
 
 const mailbox = sourceMessage.omit({ localMessageId: true });
 const uidValidity = z.string().regex(/^[1-9][0-9]*$/);
 const readState = z.enum(["unread", "local", "synced"]);
-const summary = mailbox.extend({
+export const cachedSummary = mailbox.extend({
   localMessageId: sourceMessage.shape.localMessageId,
   uidValidity,
   uid: z.int().positive(),
@@ -25,14 +26,29 @@ const summary = mailbox.extend({
   transport: z.literal("imap"),
   readState: readState.optional(),
 });
+const summary = cachedSummary;
+const cacheEntry = z.strictObject({
+  summary,
+  source: z.base64().max(Math.ceil(MAX_IMAP_SOURCE_BYTES / 3) * 4),
+  publicMail: publicMail.optional(),
+  cachedAt: z.iso.datetime().optional(),
+  deleted: z.literal(true).optional(),
+});
 const messageKey = sourceMessage;
+const maxCachedMessages = 200;
+const maxCacheSourceChars = 24 * 1024 * 1024;
 const cacheSnapshot = z.strictObject({
   format: z.literal(1),
   uidValidity,
-  message: z.strictObject({ summary, source: z.base64().max(Math.ceil(MAX_IMAP_SOURCE_BYTES / 3) * 4) }).nullable(),
+  message: cacheEntry.nullable(),
+  history: z
+    .array(cacheEntry)
+    .max(maxCachedMessages - 1)
+    .optional(),
 });
 type Mailbox = z.infer<typeof mailbox>;
 type Snapshot = z.infer<typeof cacheSnapshot>;
+type CacheEntry = z.infer<typeof cacheEntry>;
 type Files = HuhuApi["vault"]["files"];
 
 const internal = { plugin: "mail", risk: "normal", exposable: false, defaultExposed: false } as const;
@@ -74,8 +90,11 @@ function readSnapshot(files: Files, input: Mailbox): { snapshot: Snapshot | null
   if (!current) return { snapshot: null, version: null };
   try {
     const snapshot = cacheSnapshot.parse(JSON.parse(current.bytes.toString("utf8")));
-    const item = snapshot.message?.summary;
-    if (!item || (item.accountId === input.accountId && item.folder === input.folder && item.uidValidity === snapshot.uidValidity && item.localMessageId === messageId(input, item.uidValidity, item.uid))) {
+    const entries = cachedEntries(snapshot);
+    if (
+      entries.every(({ summary: item }) => item.accountId === input.accountId && item.folder === input.folder && item.uidValidity === snapshot.uidValidity && item.localMessageId === messageId(input, item.uidValidity, item.uid)) &&
+      new Set(entries.map(({ summary }) => summary.uid)).size === entries.length
+    ) {
       return { snapshot, version: current.version };
     }
   } catch {
@@ -84,9 +103,36 @@ function readSnapshot(files: Files, input: Mailbox): { snapshot: Snapshot | null
   return { snapshot: null, version: current.version };
 }
 
+function cachedEntries(snapshot: Snapshot | null): CacheEntry[] {
+  if (!snapshot) return [];
+  return [...(snapshot.message ? [snapshot.message] : []), ...(snapshot.history ?? [])];
+}
+
+export function cachedMailboxMessages(files: Files, input: Mailbox) {
+  return cachedEntries(readSnapshot(files, input).snapshot).filter(({ deleted }) => !deleted);
+}
+
+function findCachedMessage(snapshot: Snapshot | null, localMessageId: string) {
+  return cachedEntries(snapshot).find(({ summary, deleted }) => !deleted && summary.localMessageId === localMessageId);
+}
+
+function retainHistory(before: Snapshot | null, latest: CacheEntry, validity: string) {
+  if (before?.uidValidity !== validity) return [];
+  const retained: CacheEntry[] = [];
+  let size = latest.source.length;
+  for (const entry of cachedEntries(before)
+    .filter(({ summary }) => summary.uid < latest.summary.uid)
+    .sort((a, b) => b.summary.uid - a.summary.uid)) {
+    if (retained.length === maxCachedMessages - 1 || size + entry.source.length > maxCacheSourceChars) break;
+    size += entry.source.length;
+    retained.push(entry);
+  }
+  return retained;
+}
+
 export function requireCachedMessage(files: Files, input: z.infer<typeof sourceMessage>) {
-  const message = readSnapshot(files, input).snapshot?.message;
-  if (!message || message.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
+  const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+  if (!message) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
   return message;
 }
 
@@ -153,8 +199,9 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         cancelled.throwIfAborted();
         const { uidValidity: validity, message } = result;
         const localId = message ? messageId(input, validity, message.uid) : undefined;
-        const previous = before.snapshot?.message?.summary;
-        const locallyRead = previous?.localMessageId === localId && (previous?.readState === "local" || previous?.readState === "synced");
+        const previous = localId && findCachedMessage(before.snapshot, localId);
+        const locallyRead = previous && (previous.summary.readState === "local" || previous.summary.readState === "synced");
+        const projection = message && (await readPublicMail(message.source).catch(() => undefined));
         const next: Snapshot = {
           format: 1,
           uidValidity: validity,
@@ -162,25 +209,33 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
             ? {
                 summary: { ...input, localMessageId: localId!, uidValidity: validity, uid: message.uid, subject: message.subject, transport: "imap", readState: message.seen ? "synced" : locallyRead ? "local" : "unread" },
                 source: message.source.toString("base64"),
+                ...(projection && { publicMail: projection }),
+                cachedAt: (previous && previous.cachedAt) || new Date().toISOString(),
+                ...(message.deleted && { deleted: true }),
               }
             : null,
         };
+        if (next.message) {
+          const history = retainHistory(before.snapshot, next.message, validity);
+          if (history.length) next.history = history;
+        }
         await write(input, next, before.version, cancelled);
-        return { message: next.message?.summary ?? null, mailboxChanged: before.snapshot !== null && before.snapshot.uidValidity !== validity };
+        return { message: next.message && !next.message.deleted ? next.message.summary : null, mailboxChanged: before.snapshot !== null && before.snapshot.uidValidity !== validity };
       });
     }),
   );
   api.defineCapability(
     bindCapability(mailLatestMessageDescriptor, ({ caller }, input) => {
       authorize(caller, mailLatestMessageDescriptor.name);
-      return { message: removals.read(input.accountId) ? null : (readSnapshot(files, input).snapshot?.message?.summary ?? null) };
+      const message = removals.read(input.accountId) ? null : readSnapshot(files, input).snapshot?.message;
+      return { message: message && !message.deleted ? message.summary : null };
     }),
   );
   api.defineCapability(
     bindCapability(mailMessageSourceDescriptor, ({ caller }, input) => {
       authorize(caller, mailMessageSourceDescriptor.name);
-      const message = removals.read(input.accountId) ? undefined : readSnapshot(files, input).snapshot?.message;
-      return message && message.summary.localMessageId === input.localMessageId ? { state: "ready" as const, message: message.summary, source: message.source } : { state: "needs-refresh" as const };
+      const message = removals.read(input.accountId) ? undefined : findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+      return message ? { state: "ready" as const, message: message.summary, source: message.source } : { state: "needs-refresh" as const };
     }),
   );
   api.defineCapability(
@@ -241,8 +296,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         if (removals.read(input.accountId)) return { state: "needs-refresh" as const };
         const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
         cancelled.throwIfAborted();
-        const message = readSnapshot(files, input).snapshot?.message;
-        if (!message || message.summary.localMessageId !== input.localMessageId) return { state: "needs-refresh" as const };
+        const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+        if (!message) return { state: "needs-refresh" as const };
         const bytes = Buffer.from(message.source, "base64");
         let body: Awaited<ReturnType<typeof parseMessageBody>>;
         try {
@@ -251,8 +306,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           throw new HuhuError("INVALID_INPUT", "无法解析邮件正文。仍可查看原文。", { details: { reason: "mime" } });
         }
         cancelled.throwIfAborted();
-        const current = readSnapshot(files, input).snapshot?.message;
-        if (current?.summary.localMessageId !== input.localMessageId || current.source !== message.source) return { state: "needs-refresh" as const };
+        const current = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+        if (current?.source !== message.source) return { state: "needs-refresh" as const };
         return { state: "ready" as const, body, sourceDigest: sourceDigest(bytes) };
       },
     }),
@@ -274,8 +329,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         return serialize(input, async () => {
           cancelled.throwIfAborted();
           const { snapshot, version } = readSnapshot(files, input);
-          const message = snapshot?.message;
-          if (!snapshot || !message || message.summary.localMessageId !== input.localMessageId) return { state: "needs-refresh" as const };
+          const message = findCachedMessage(snapshot, input.localMessageId);
+          if (!snapshot || !message) return { state: "needs-refresh" as const };
           if (message.summary.readState === "synced") return { state: "synced" as const };
           let expectedVersion = version;
           if (message.summary.readState !== "local") {

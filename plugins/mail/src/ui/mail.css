@@ -79,6 +79,21 @@
     border-color: var(--accent);
   }
 
+  .hu-mail-contact-columns,
+  .hu-mail-contact-label {
+    display: grid;
+    min-width: 0;
+  }
+
+  .hu-mail-contact-columns {
+    gap: 12px;
+  }
+
+  .hu-mail-contact-label {
+    gap: 4px;
+    overflow-wrap: anywhere;
+  }
+
   .hu-mail-narrow-back {
     display: none;
   }
@@ -262,6 +277,13 @@
 
     .hu-mail-narrow-back {
       display: block;
+    }
+  }
+
+  @container (min-width: 940px) {
+    .hu-mail-contact-columns {
+      grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+      align-items: start;
     }
   }
 

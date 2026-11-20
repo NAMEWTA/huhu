@@ -19,7 +19,7 @@ export function fetchLatestImapMessage(request: MailDiscoveryRequest, folder: st
       const body = await client.fetchOne(String(latest.uid), { uid: true, source: { start: 0, maxLength: MAX_IMAP_SOURCE_BYTES + 1 } }, { uid: true });
       if (!client.mailbox || client.mailbox.uidValidity.toString() !== uidValidity) throw new MailAccountError("mailbox-changed");
       if (!body || body.uid !== latest.uid || !body.source || body.source.byteLength !== latest.size) throw new MailAccountError("message-read");
-      return { uidValidity, message: { uid: latest.uid, subject: latest.envelope?.subject ?? "", source: body.source, seen: latest.flags?.has("\\Seen") ?? false } };
+      return { uidValidity, message: { uid: latest.uid, subject: latest.envelope?.subject ?? "", source: body.source, seen: latest.flags?.has("\\Seen") ?? false, deleted: latest.flags?.has("\\Deleted") ?? false } };
     } finally {
       lock.release();
     }

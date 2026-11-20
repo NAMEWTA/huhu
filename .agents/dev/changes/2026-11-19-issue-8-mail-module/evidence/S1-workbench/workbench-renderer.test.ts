@@ -420,7 +420,11 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     await groupA.press("Enter");
     await accountA.press("Enter");
     await browserExpect(backAccounts).toBeFocused();
+    const contacts = shell.getByRole("complementary", { name: "联系人对话", exact: true });
+    await contacts.getByRole("button", { name: /author@example\.invalid.*reply-target/s }).click();
     const openedMessage = shell.getByRole("button", { name: subject, exact: true });
+    await browserExpect(openedMessage).toBeVisible();
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-contacts-390.png"), animations: "disabled" });
     await openedMessage.press("Enter");
     const backMessages = shell.getByRole("button", { name: "返回邮件列表", exact: true });
     await browserExpect(backMessages).toBeFocused();
@@ -510,7 +514,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     await browserExpect(shell.getByRole("heading", { name: "另一回环邮箱" })).toBeVisible();
     await browserExpect(repair).toBeHidden();
     await shell.getByRole("button", { name: "同步目录", exact: true }).click();
-    const otherMessage = shell.getByRole("button", { name: "Other mailbox fixture" });
+    const otherMessage = shell.getByRole("button", { name: "Other mailbox fixture", exact: true });
     await browserExpect(otherMessage).toBeVisible();
     await browserExpect(openedMessage).toBeHidden();
     await otherMessage.click();
@@ -523,6 +527,20 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     await backMessages.click();
 
     await backAccounts.click();
+    const beforeCachingView = smtp.counts.data;
+    const allAccounts = shell.getByRole("button", { name: "全部账号", exact: true });
+    await allAccounts.press("Enter");
+    await browserExpect(backAccounts).toBeFocused();
+    const allContacts = shell.getByRole("complementary", { name: "联系人对话", exact: true });
+    await browserExpect(allContacts.getByRole("button", { name: /Other mailbox fixture/ })).toBeVisible();
+    await allContacts.getByRole("button", { name: /Other mailbox fixture/ }).click();
+    await otherMessage.press("Enter");
+    await browserExpect(mailReader).toContainText("Other account");
+    await backMessages.press("Enter");
+    await browserExpect(otherMessage).toBeFocused();
+    await backAccounts.press("Enter");
+    await browserExpect(allAccounts).toBeFocused();
+    expect(smtp.counts.data).toBe(beforeCachingView);
     await accountA.click();
     await repairButton.click();
     await newPassword.fill(replacement);

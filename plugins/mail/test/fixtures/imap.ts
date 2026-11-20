@@ -1,6 +1,8 @@
 import { createServer, type Socket } from "node:net";
 import { createInterface } from "node:readline";
 
+export type FixtureImapMessage = { uidValidity: number; uid?: number; subject: string; source: string; seen?: boolean; deleted?: boolean; refuseRead?: boolean; ignoreRead?: boolean };
+
 /** Folder discovery adaptation of the S0.2 synthetic IMAP endpoint. */
 export async function openImapFixture(
   options: {
@@ -11,7 +13,9 @@ export async function openImapFixture(
     disconnectDuringList?: boolean;
     namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
     beforeSource?: () => Promise<void>;
-    message?: { uidValidity: number; subject: string; source: string; seen?: boolean; refuseRead?: boolean; ignoreRead?: boolean };
+    message?: FixtureImapMessage;
+    mailboxes?: Record<string, FixtureImapMessage>;
+    folders?: { path: string; flags: string[] }[];
   } = {},
 ) {
   const commands: string[] = [];
@@ -22,6 +26,9 @@ export async function openImapFixture(
   const listed = Promise.withResolvers<void>();
   const disconnected = Promise.withResolvers<void>();
   const server = createServer((socket) => {
+    let selected = "INBOX";
+    const current = () => (options.mailboxes ? options.mailboxes[selected] : options.message);
+    const flags = (message: FixtureImapMessage) => [message.seen && "\\Seen", message.deleted && "\\Deleted"].filter(Boolean).join(" ");
     sockets.add(socket);
     socket.on("error", () => socket.destroy());
     socket.once("close", () => {
@@ -59,42 +66,50 @@ export async function openImapFixture(
             const response = inboxFlags ? `* LIST (${inboxFlags}) "." "inbox"\r\n` : "";
             return socket.write(`${response}${tag} OK LIST\r\n`);
           }
-          return socket.write(['* LIST (\\HasNoChildren) "/" "inbox"', '* LIST (\\Noselect \\HasChildren) "/" "Container"', '* LIST (\\HasNoChildren) "/" "Container/Projects"', `${tag} OK LIST`, ""].join("\r\n"));
+          const folders = options.folders?.map(({ path, flags }) => `* LIST (${flags.join(" ")}) "/" "${path}"`) ?? [
+            '* LIST (\\HasNoChildren) "/" "inbox"',
+            '* LIST (\\Noselect \\HasChildren) "/" "Container"',
+            '* LIST (\\HasNoChildren) "/" "Container/Projects"',
+          ];
+          return socket.write([...folders, `${tag} OK LIST`, ""].join("\r\n"));
         }
         case "LSUB":
           return socket.write(`${tag} OK LSUB\r\n`);
         case "EXAMINE":
         case "SELECT": {
-          const message = options.message;
+          selected = line.slice(`${tag} ${verb} `.length).trim().replace(/^"|"$/g, "");
+          const message = current();
           if (!message) return socket.write(`${tag} BAD mailbox not configured\r\n`);
           const mode = command === "SELECT" ? "READ-WRITE" : "READ-ONLY";
-          return socket.write(`* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${message.uidValidity}] stable\r\n* OK [UIDNEXT 43] next\r\n${tag} OK [${mode}] mailbox selected\r\n`);
+          return socket.write(`* FLAGS (\\Seen \\Deleted)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${message.uidValidity}] stable\r\n* OK [UIDNEXT ${(message.uid ?? 42) + 1}] next\r\n${tag} OK [${mode}] mailbox selected\r\n`);
         }
         case "FETCH": {
-          const message = options.message;
+          const message = current();
           if (!message) return socket.write(`${tag} BAD message not configured\r\n`);
           fetchRequests.push(line);
           const size = Buffer.byteLength(message.source);
-          return socket.write(`* 1 FETCH (UID 42 FLAGS (${message.seen ? "\\Seen" : ""}) RFC822.SIZE ${size} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n${tag} OK FETCH\r\n`);
+          return socket.write(`* 1 FETCH (UID ${message.uid ?? 42} FLAGS (${flags(message)}) RFC822.SIZE ${size} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n${tag} OK FETCH\r\n`);
         }
         case "UID": {
-          const message = options.message;
+          const message = current();
           if (!message) return socket.write(`${tag} BAD unsupported UID command\r\n`);
-          if (/UID STORE 42 \+FLAGS(?:\.SILENT)? \(\\Seen\)/i.test(line)) {
+          const uid = message.uid ?? 42;
+          if (line.toUpperCase().includes(`UID STORE ${uid} `) && /\+FLAGS(?:\.SILENT)? \(\\Seen\)/i.test(line)) {
             storeRequests.push(line);
             if (message.refuseRead) return socket.write(`${tag} NO read update denied\r\n`);
             if (!message.ignoreRead) message.seen = true;
             return socket.write(`${tag} OK STORE\r\n`);
           }
-          if (/UID FETCH 42 .*\bFLAGS\b/i.test(line) && !/BODY\.PEEK/i.test(line)) {
+          const matchingFetch = line.toUpperCase().includes(`UID FETCH ${uid} `);
+          if (matchingFetch && /\bFLAGS\b/i.test(line) && !/BODY\.PEEK/i.test(line)) {
             fetchRequests.push(line);
-            return socket.write(`* 1 FETCH (UID 42 FLAGS (${message.seen ? "\\Seen" : ""}))\r\n${tag} OK FLAGS\r\n`);
+            return socket.write(`* 1 FETCH (UID ${uid} FLAGS (${flags(message)}))\r\n${tag} OK FLAGS\r\n`);
           }
-          if (!/UID FETCH 42 .*BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
+          if (!matchingFetch || !/BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
           fetchRequests.push(line);
           const send = () => {
             if (socket.destroyed) return;
-            socket.write(`* 1 FETCH (UID 42 BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
+            socket.write(`* 1 FETCH (UID ${uid} BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
             socket.write(message.source);
             socket.write(`)\r\n${tag} OK UID FETCH\r\n`);
           };

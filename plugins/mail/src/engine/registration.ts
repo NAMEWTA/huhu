@@ -5,6 +5,7 @@ import { mailAccountDefinitionSchema } from "./account-definition.js";
 import { AccountRemovals, pendingRemoval, registerAccountRemoval } from "./account-removals.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
 import { registerAccountSetup } from "./account-setup.js";
+import { registerConversations } from "./conversations.js";
 import { registerDrafts } from "./drafts.js";
 import { registerMessageCache } from "./message-cache.js";
 import type { MailSmtpTransport } from "./smtp.js";
@@ -45,6 +46,7 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   const drainSetup = registerAccountSetup(api, accounts, lifetime.signal);
   const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals);
   const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts);
+  registerConversations(api, accounts, removals, lifetime.signal);
   registerAccountRemoval(api, accounts, removals, drafts, outbox, messages, lifetime.signal);
   ctx.effect(() => async () => {
     lifetime.abort();
