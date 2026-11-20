@@ -48,7 +48,6 @@ export default defineConfig({
   preload: { build: { outDir: "out/preload", rollupOptions: { input: { index: "src/preload/index.ts" }, output: { format: "cjs", entryFileNames: "[name].cjs" } } } },
   renderer: {
     root: "src/renderer",
-    base: "/",
     // OK 编辑器 vendor（decisions OP-D05 / D06）：Lingui 宏（babel）、.po 目录、Tailwind v4。
     // Tailwind 只处理含 tailwind 指令的 CSS（packages/editor/src/ok/ok-globals.css），其余 Huhu CSS 不受影响；
     // okScopePlugin 把该文件的产出限定到 .ok-root 并放进 vendor.ok-* 子层。
