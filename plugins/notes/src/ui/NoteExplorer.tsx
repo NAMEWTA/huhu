@@ -45,6 +45,7 @@ export interface ExplorerProps {
   onNewNote(folder?: string): void;
   /** A08：树里的移动 / 重命名 / 复制 / 删除之前，先落盘打开着的相关文档；false = 取消。 */
   beforeMutate(paths: string[]): Promise<boolean>;
+  holdOpenPaths<T>(from: string, move: () => Promise<T>): Promise<T>;
   /** 树里的内部改名 / 移动完成：标签、选中项重定位。 */
   onMoved(moved: Record<string, string>): void;
   onTrashed?: ((path: string, trashId: string) => void) | undefined;
@@ -165,6 +166,7 @@ export function NoteExplorer(p: ExplorerProps) {
               onOpenFile={p.onOpen}
               onOpenFolder={(path) => p.onFolderClick?.(path)}
               beforeMutate={p.beforeMutate}
+              holdOpenPaths={p.holdOpenPaths}
               onMoved={p.onMoved}
               onTrashed={p.onTrashed}
               onMenuAction={p.onMenuAction}

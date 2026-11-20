@@ -3,6 +3,7 @@ import {
   OkRoot,
   RichMarkdownEditor,
   coreRoutes,
+  markdownSemanticallyUnchanged,
   registerCommentSelectionSource,
   requestFileTreeReveal,
   useCommentsReadOnlySync,
@@ -20,6 +21,7 @@ import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
 import { documentSessions } from "./useDocumentSession.js";
+import type { MarkdownEquivalence } from "./DocumentSession.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -31,7 +33,9 @@ export interface SurfaceNoteRef {
 export interface NoteEditorSurfaceProps {
   path: string;
   value: string;
-  onChange(text: string): void;
+  onChange(text: string, equivalentMarkdown: MarkdownEquivalence): void;
+  readOnly: boolean;
+  retainSession(): () => void;
   mode: EditorViewMode;
   propertiesTarget: HTMLElement | null;
   onRevealSource(): void;
@@ -186,7 +190,9 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}
         value={props.value}
-        onChange={props.onChange}
+        onChange={(text) => props.onChange(text, markdownSemanticallyUnchanged)}
+        readOnly={props.readOnly}
+        retainSession={props.retainSession}
         mode={props.mode}
         propertiesTarget={props.propertiesTarget}
         assetActions={assetActions}

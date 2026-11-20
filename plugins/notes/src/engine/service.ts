@@ -16,6 +16,7 @@ export interface NotesDeps {
   trash: Trash;
   now(): Date;
   zone(): string;
+  draftMoveSteps?(from: string, to: string): OpStep[];
 }
 
 const IDENTITIES = ".huhu/notes/identities.json";
@@ -389,6 +390,7 @@ export class NotesService {
 
   /** 移动或改名到完整的目标路径（双链改写与笔记 id 迁移都在这里完成）；档案层先算好不重名的目标。 */
   async moveEntry(from: string, to: string): Promise<MoveResult> {
+    this.d.files.assertWritable();
     from = normalizeRelPath(from);
     to = normalizeRelPath(to);
     if (from === to) return { moved: {}, rewrittenFiles: [], ambiguous: [] };
@@ -440,11 +442,13 @@ export class NotesService {
         steps.push({ action: "delete", path: p });
       } else if (changed) steps.push({ action: "write", path: p, bytes });
     }
-    for (const [o, n] of moves)
+    for (const [o, n] of moves) {
+      steps.push(...(this.d.draftMoveSteps?.(o, n) ?? []));
       if (ids[o]) {
         ids[n] = ids[o] as string;
         delete ids[o];
       }
+    }
     const folderList = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
     steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folderList));
     const hiddenStep = this.hiddenStepFor(from, to);
@@ -465,11 +469,11 @@ export class NotesService {
     if (isDir) {
       for (const p of all) if (p.startsWith(`${from}/`)) moves.set(p, `${to}${p.slice(from.length)}`);
     } else moves.set(from, to);
+    const steps = [...moves].flatMap(([o, n]) => this.d.draftMoveSteps?.(o, n) ?? []);
     const folderMoves = isDir ? new Map([[from, to]]) : undefined;
     const tmp = `${from}.huhu-case-tmp`;
     renameSync(this.d.files.abs(from), this.d.files.abs(tmp));
     renameSync(this.d.files.abs(tmp), this.d.files.abs(to));
-    const steps: OpStep[] = [];
     const rewritten: string[] = [];
     const ambiguous = new Set<string>();
     for (const p of all) {

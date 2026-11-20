@@ -8,7 +8,7 @@
 - P-S2a-03 `app/src/lib/config-provider.tsx`：上游 346 行（经协作配置文档同步）→ 只保留 `useConfigContext` 再导出；提供者见 `host/config-provider.tsx`。
 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。
 
-- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。
+- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。H06：LRU 驱逐只释放 Tiptap / CodeMirror 视图与撤销资源，provider 与 Y.Doc 由宿主池释放。
 
 ## S4 评论（P-S4-xx）
 
@@ -334,3 +334,7 @@
 - `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：委托 Vault 的浏览器可用 YAML codec。保留 OK 的字段校验、重复键策略与删除语义，标量改值保留邻接源码。
 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。
 - `app/src/components/ReadonlyPropertyPanel.tsx`、`app/src/components/PropertyDisplayRow.tsx`：迁入固定上游的阅读属性视图及行组件。
+
+## H06 编辑资源释放
+
+- P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。

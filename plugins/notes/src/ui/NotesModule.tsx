@@ -1,6 +1,6 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
@@ -15,6 +15,7 @@ import type { DocumentSession } from "./documents/DocumentSession.js";
 import { useKnowledgeLocale } from "./useKnowledgeLocale.js";
 import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
+import { docNameOf } from "./comments/commentAdapter.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
@@ -61,6 +62,19 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const notesRoot = useRef<HTMLDivElement>(null);
   const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
+  useEngineEvents((event) => {
+    if (event.type !== "vault.fileChanged") return;
+    const { path, change, from } = event.payload as { path: string; change: string; from?: string };
+    const removed = change === "deleted" ? path : change === "renamed" ? from : undefined;
+    if (removed) {
+      const session = documentSessions.get(vaultId, removed);
+      if (session) {
+        session.notifyExternalChange("deleted");
+        if (selected === removed) setError(`文件已移走或删除：${removed}`);
+      }
+    }
+    if (change !== "deleted") documentSessions.get(vaultId, path)?.notifyExternalChange(change);
+  });
   const locale = useKnowledgeLocale();
   const parkedDocument = useRef<{ session: DocumentSession; locale: typeof locale; checkpoint: Promise<boolean> } | null>(null);
   useEffect(() => {
@@ -123,8 +137,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       return null;
     }
   }
-  /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
-  const beforeMove = async (note: NoteRef): Promise<boolean> => ((note.path === selected || (note.folder === true && selected?.startsWith(`${note.path}/`))) && flushRef.current ? flushRef.current() : true);
+  const beforeMove = async (note: NoteRef): Promise<boolean> => {
+    const flushed = await documentSessions.flushPaths(vaultId, [note.path]);
+    if (!flushed) setError("打开的文档有未保存的修改且无法落盘，已取消操作（草稿未丢失）");
+    return flushed;
+  };
 
   /** 工具栏“添加批注”：触发 OK 的选区入口（选区 / 取消 / 上下文冻结都在编辑器里；引用文字在已保存文本上由引擎解析）。 */
   const addComment = () => {
@@ -188,9 +205,22 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
   const listsReady = every.data !== undefined && indexEntries.data !== undefined;
   const aliveKey = listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null;
+  const pathsBeingMoved = useRef(new Set<string[]>());
+  async function holdOpenPaths<T>(from: string, move: () => Promise<T>): Promise<T> {
+    const held = shell.tabs.tabs.map(tabFilePath).filter((path): path is string => path !== null && (path === from || path.startsWith(`${from}/`)));
+    pathsBeingMoved.current.add(held);
+    try {
+      return await move();
+    } finally {
+      pathsBeingMoved.current.delete(held);
+    }
+  }
   useEffect(() => {
     if (aliveKey === null) return;
-    dispatch({ type: "prune", alive: new Set(aliveKey ? aliveKey.split("\n") : []) });
+    const alive = new Set(aliveKey ? aliveKey.split("\n") : []);
+    // 索引可能先看到旧路径消失。保留正在移动的标签，直到操作回执把它们重定位。
+    for (const held of pathsBeingMoved.current) for (const path of held) alive.add(path);
+    dispatch({ type: "prune", alive });
   }, [aliveKey]);
   // 标签随 Vault 记录；切 Vault 时重新读取该库的标签
   const restoredVault = useRef(vaultId);
@@ -202,6 +232,26 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   }, [vaultId]);
   useEffect(() => {
     if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
+  }, [shell.tabs, vaultId]);
+  // 从已提交的标签集合判断文件生命周期。切到后台仍保留标签，同一文件的档案视图也占一个标签。
+  const openDocuments = useRef<{ vaultId: string; names: Set<string> } | null>(null);
+  useEffect(() => {
+    if (shell.tabs.vaultId !== vaultId) return;
+    const previous = openDocuments.current;
+    const names = new Set<string>();
+    for (const tab of shell.tabs.tabs) {
+      const file = tabFilePath(tab);
+      if (file && /\.(md|mdx)$/i.test(file)) names.add(docNameOf(file));
+    }
+    openDocuments.current = { vaultId, names };
+    if (previous?.vaultId !== vaultId) return;
+    const closed = [...previous.names].filter((name) => !names.has(name));
+    if (closed.length === 0) return;
+    void import("@huhu/editor/rich").then(({ dropProvider }) => {
+      const current = openDocuments.current;
+      if (vaultRef.current !== vaultId || current?.vaultId !== vaultId) return;
+      for (const name of closed) if (!current.names.has(name)) dropProvider(name);
+    });
   }, [shell.tabs, vaultId]);
   const pendingArchive = useRef<{ key: string } | null>(null);
   useEffect(
@@ -391,7 +441,8 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         }}
         notes={notes}
         allCount={(every.data ?? []).length}
-        beforeMutate={async (paths) => (selected && paths.some((x) => selected === x || selected.startsWith(`${x}/`)) && flushRef.current ? flushRef.current() : true)}
+        beforeMutate={(paths) => documentSessions.flushPaths(vaultId, paths)}
+        holdOpenPaths={holdOpenPaths}
         onMoved={(moved) => {
           // 内部改名 / 移动：标签与选中项按映射重定位（文件夹按前缀）
           for (const [from, to] of Object.entries(moved)) remapSelected(from, to);
@@ -640,15 +691,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           submit={n.renameTitle}
           error={error}
           onClose={() => setDialog(null)}
-          onSubmit={async (name) => {
-            if (!(await beforeMove(dialog.note))) return;
-            const r = await run("notes.rename", { path: dialog.note.path, newName: name });
-            if (r) {
-              const dir = dialog.note.path.includes("/") ? dialog.note.path.slice(0, dialog.note.path.lastIndexOf("/") + 1) : "";
-              remapSelected(dialog.note.path, `${dir}${dialog.note.folder || name.endsWith(".md") ? name : `${name}.md`}`);
-              setDialog(null);
-            }
-          }}
+          onSubmit={(name) =>
+            holdOpenPaths(dialog.note.path, async () => {
+              if (!(await beforeMove(dialog.note))) return;
+              const r = await run<{ moved: Record<string, string> }>("notes.rename", { path: dialog.note.path, newName: name });
+              if (r) {
+                for (const [from, to] of Object.entries(r.moved)) remapSelected(from, to);
+                setDialog(null);
+              }
+            })
+          }
         />
       ) : null}
       {dialog?.kind === "version" ? (
@@ -672,14 +724,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           folders={folderOptions}
           error={error}
           onClose={() => setDialog(null)}
-          onMove={async (dir) => {
-            if (!(await beforeMove(dialog.note))) return;
-            const r = await run("notes.move", { path: dialog.note.path, targetDir: dir });
-            if (r) {
-              remapSelected(dialog.note.path, `${dir ? `${dir}/` : ""}${dialog.note.path.split("/").at(-1)}`);
-              setDialog(null);
-            }
-          }}
+          onMove={(dir) =>
+            holdOpenPaths(dialog.note.path, async () => {
+              if (!(await beforeMove(dialog.note))) return;
+              const r = await run<{ moved: Record<string, string> }>("notes.move", { path: dialog.note.path, targetDir: dir });
+              if (r) {
+                for (const [from, to] of Object.entries(r.moved)) remapSelected(from, to);
+                setDialog(null);
+              }
+            })
+          }
         />
       ) : null}
       {dialog?.kind === "trash" ? (

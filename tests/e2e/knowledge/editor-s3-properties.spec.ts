@@ -100,6 +100,37 @@ test("C04：正文仍待慢桥交付时改属性，末字和属性一同写入",
   }
 });
 
+test("C04：先编辑未保存的属性，再写正文，一次保存包含两项修改", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, "逆序属性.md");
+  const original = "---\ntitle: 原题\nzip: 007\n---\n\n正文\n";
+  try {
+    writeFileSync(file, original);
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    const autosave = page.getByRole("switch", { name: "自动保存" });
+    await autosave.click();
+    await expect(autosave).not.toBeChecked();
+    await gotoNotes(page);
+    await treeItem(page, "逆序属性.md").click();
+    const editor = prose(page);
+    await expect(editor).toContainText("正文");
+    const title = page.getByTestId("editor-properties").locator("textarea, input[type=text], input:not([type])").first();
+    await title.fill("新题");
+    await editor.click(); // blur 交付属性，立即继续编辑正文
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("末字");
+    await expect(editor).toContainText("正文末字");
+    expect(readFileSync(file, "utf8")).toBe(original);
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
+    expect(readFileSync(file, "utf8")).toBe(original.replace("原题", "新题").replace("正文", "正文末字"));
+  } finally {
+    await close();
+  }
+});
+
 test("S3：坏 YAML 不被清空——面板给出诊断，源码里的原文保留", async () => {
   const { page, vault, close } = await openApp();
   try {
