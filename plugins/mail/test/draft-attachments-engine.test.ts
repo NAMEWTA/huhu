@@ -6,7 +6,7 @@ import { CapabilityResultSchema } from "@huhu/contracts";
 import { importPackage } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
-import { MAIL_DRAFT_ATTACHMENTS_SERVICE, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
+import { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
 
 const shared = vi.hoisted(() => ({ services: new Map<string, MailDraftAttachments>() }));
 vi.mock("@huhu/plugin-mail/engine", async (original) => {
@@ -89,6 +89,118 @@ function source(name: string, bytes: Buffer): MailAttachmentSource {
     },
   };
 }
+
+testWindows(
+  "发布对象后取消或 CAS 拒写，排队的数据包只选择已提交引用",
+  async () => {
+    await fixture(async (_root, _vaultPath, open) => {
+      const engine = await open({ create: true });
+      const managed = service(engine);
+      const initial = await newDraft(engine);
+      const sibling = await newDraft(engine);
+      const sharedBytes = Buffer.from("shared committed attachment");
+      const sharedPath = `${objects}/${hash(sharedBytes)}`;
+      const committed = await managed.addAttachment({ draftId: initial.draftId, expectedRevision: initial.revision }, source("shared.bin", sharedBytes));
+      const other = await managed.addAttachment({ draftId: sibling.draftId, expectedRevision: sibling.revision }, source("same-bytes.bin", sharedBytes));
+      const input = { draftId: initial.draftId, expectedRevision: committed.draft.revision };
+      const interrupted = Buffer.from("cancelled after object publication");
+      const interruptedPath = `${objects}/${hash(interrupted)}`;
+      const conflicted = Buffer.from("draft CAS lost after object publication");
+      const conflictedPath = `${objects}/${hash(conflicted)}`;
+      const gates = new Map([interruptedPath, conflictedPath].map((rel) => [rel, { published: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() }]));
+      const abort = new AbortController();
+      const files = engine.vault.files;
+      const write = files.write.bind(files);
+      let rejectedWrite: unknown;
+      const pause = vi.spyOn(files, "write").mockImplementation(async (...args) => {
+        try {
+          const result = await write(...args);
+          const gate = gates.get(args[0]);
+          if (gate) {
+            gate.published.resolve();
+            await gate.release.promise;
+          }
+          return result;
+        } catch (error) {
+          if (args[0] === draftsFile) rejectedWrite = error;
+          throw error;
+        }
+      });
+      try {
+        const cancelled = managed.addAttachment(input, source("cancel.bin", interrupted), abort.signal).catch((error: unknown) => error);
+        const cancelGate = gates.get(interruptedPath)!;
+        await cancelGate.published.promise;
+        expect(files.read(interruptedPath)?.bytes).toEqual(interrupted);
+        abort.abort();
+        cancelGate.release.resolve();
+        expect(await cancelled).toMatchObject({ details: { reason: "attachment-import-interrupted" } });
+
+        const competing = managed.addAttachment(input, source("conflict.bin", conflicted)).catch((error: unknown) => error);
+        const conflictGate = gates.get(conflictedPath)!;
+        await conflictGate.published.promise;
+        expect(files.read(conflictedPath)?.bytes).toEqual(conflicted);
+        const before = files.read(draftsFile)!;
+        const winner = JSON.parse(before.bytes.toString("utf8"));
+        winner.drafts[sibling.draftId].revision = randomUUID();
+        winner.drafts[sibling.draftId].draft.subject = "separately committed sibling";
+        await write(draftsFile, Buffer.from(JSON.stringify(winner) + "\n"), { expectedVersion: before.version });
+
+        let started = false;
+        const exportPaths = managed.withSnapshot(async () => {
+          started = true;
+          return mailAttachmentPackagePaths(files);
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(started).toBe(false);
+        conflictGate.release.resolve();
+        expect(await competing).toMatchObject({ details: { reason: "draft-write-failed" } });
+        expect(rejectedWrite).toMatchObject({ code: "VERSION_CONFLICT" });
+        expect(await call(engine, "mail.drafts.get", { draftId: initial.draftId })).toEqual({ ok: true, data: { draft: committed.draft } });
+        expect(await call(engine, "mail.drafts.get", { draftId: sibling.draftId })).toMatchObject({
+          ok: true,
+          data: { draft: { revision: winner.drafts[sibling.draftId].revision, subject: "separately committed sibling", attachments: other.draft.attachments } },
+        });
+        expect(await exportPaths).toEqual(new Set([sharedPath]));
+        expect(files.read(sharedPath)?.bytes).toEqual(sharedBytes);
+        expect(files.read(interruptedPath)?.bytes).toEqual(interrupted);
+        expect(files.read(conflictedPath)?.bytes).toEqual(conflicted);
+      } finally {
+        for (const { release } of gates.values()) release.resolve();
+        pause.mockRestore();
+      }
+      expect(await call(engine, "plugins.setEnabled", { id: "mail", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
+      expect(await call(engine, "mail.drafts.list", {})).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      expect(mailAttachmentPackagePaths(files)).toEqual(new Set([sharedPath]));
+      await engine.shutdown();
+      const reader = await open({ readOnly: true });
+      expect(reader.vault.files.readOnly).toBe(true);
+      expect(mailAttachmentPackagePaths(reader.vault.files)).toEqual(new Set([sharedPath]));
+    });
+  },
+  120_000,
+);
+
+testWindows(
+  "数据包引用读取拒绝未知草稿格式和损坏的发件记录",
+  async () => {
+    await fixture(async (_root, _vaultPath, open) => {
+      const engine = await open({ create: true });
+      const files = engine.vault.files;
+      const orphan = Buffer.from("unreferenced bytes");
+      await files.write(`${objects}/${hash(orphan)}`, orphan);
+      expect(mailAttachmentPackagePaths(files)).toEqual(new Set());
+
+      await files.write(draftsFile, Buffer.from(JSON.stringify({ format: 2, drafts: {} })));
+      expect(() => mailAttachmentPackagePaths(files)).toThrow(expect.objectContaining({ code: "INTERNAL", details: { reason: "draft-read-failed" } }));
+
+      await files.write(draftsFile, Buffer.from(JSON.stringify({ format: 1, drafts: {} })));
+      await files.write(`.huhu/mail/outbox/${"a".repeat(64)}.json`, Buffer.from("{"));
+      expect(() => mailAttachmentPackagePaths(files)).toThrow(expect.objectContaining({ code: "INTERNAL", details: { reason: "outbox-read-failed" } }));
+      expect(files.read(`${objects}/${hash(orphan)}`)?.bytes).toEqual(orphan);
+    });
+  },
+  120_000,
+);
 
 testWindows(
   "Windows Engine 重开与 ZIP 恢复后按摘要读回独立受管字节，回收遵守共享引用与导出队列",
@@ -285,9 +397,11 @@ testWindows(
 
       rmSync(blob);
       expect(managed.readAttachment({ draftId: initial.draftId, digest })).toMatchObject({ state: "missing" });
+      expect(mailAttachmentPackagePaths(engine.vault.files)).toEqual(new Set([`${objects}/${digest}`]));
       expect(await call(engine, "mail.drafts.get", { draftId: initial.draftId })).toMatchObject({ ok: true, data: { draft: { revision: input.expectedRevision, attachments: [{ digest, state: "missing" }] } } });
       writeFileSync(blob, Buffer.alloc(good.length, 1));
       expect(managed.readAttachment({ draftId: initial.draftId, digest })).toMatchObject({ state: "corrupt" });
+      expect(mailAttachmentPackagePaths(engine.vault.files)).toEqual(new Set([`${objects}/${digest}`]));
       expect(await call(engine, "mail.drafts.get", { draftId: initial.draftId })).toMatchObject({ ok: true, data: { draft: { revision: input.expectedRevision, attachments: [{ digest, state: "corrupt" }] } } });
       expect(await managed.addAttachment(input, source("repair.bin", good))).toEqual({ deduped: true, draft: attached.draft });
       assertUnchanged();

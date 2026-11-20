@@ -8,7 +8,7 @@ import { exportPackage, importPackage } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
-import { openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
+import { mailAttachmentPackagePaths, openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
 import { outboxReceipt } from "../src/engine/outbox.js";
 import { replySeed, type ReplySeed } from "../src/engine/prepare-reply.js";
 import { openImapFixture } from "./fixtures/imap.js";
@@ -907,6 +907,9 @@ testWindows(
       await expect(services(readonly).outbox.deleteLocal(secondKey)).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
 
       const removed = await attachments.removeAttachment({ ...corrected, digest });
+      const attachmentPath = `.huhu/mail/attachments/${digest}`;
+      expect(removed.attachments).toBeUndefined();
+      expect(mailAttachmentPackagePaths(engine.vault.files)).toEqual(new Set([attachmentPath]));
       const childFile = path.join(engine.vault.root, outboxDir, `${one.operationId}.json`);
       const fullRecord = readFileSync(childFile);
       const rename = fs.rename;
@@ -943,6 +946,8 @@ testWindows(
       expect(await outbox.deleteLocal(firstKey)).toEqual({ ...firstKey, deleted: true });
       expect(outbox.status(firstKey)).toBeNull();
       expect(outbox.list()).toEqual([]);
+      expect(engine.vault.files.exists(attachmentPath)).toBe(true);
+      expect(mailAttachmentPackagePaths(engine.vault.files)).toEqual(new Set());
       expect(await attachments.sweepUnreferenced()).toEqual({ removed: [digest], failed: [] });
       expect(await outbox.submit(original)).toEqual(first);
       expect(await outbox.retry(retry)).toEqual(one);

@@ -4,9 +4,10 @@ import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
-import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
+import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, attachmentObjectPath, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
 import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
 import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outboxStatusInput, outboxSubmitInput, outboxSummary, outboxView, type MailOutboxService } from "./outbox.js";
+import { OutboxStorage } from "./outbox-storage.js";
 import type { MailSmtpTransport } from "./smtp.js";
 
 const draftKey = z.strictObject({ draftId: uuid });
@@ -56,6 +57,28 @@ function saveFailure(): HuhuError {
   return new HuhuError("INTERNAL", "保存邮件草稿失败", { details: { reason: "draft-write-failed" } });
 }
 
+function readDraftSnapshot(files: VaultFiles): { snapshot: Snapshot; version: string | null } {
+  try {
+    const file = files.read(draftsPath);
+    if (!file) return { snapshot: { format: 1, drafts: {} }, version: null };
+    return { snapshot: snapshotSchema.parse(JSON.parse(file.bytes.toString("utf8"))), version: file.version };
+  } catch (error) {
+    if (error instanceof HuhuError) throw error;
+    throw new HuhuError("INTERNAL", "无法读取邮件草稿", { retryable: false, details: { reason: "draft-read-failed" } });
+  }
+}
+
+function draftAttachmentDigests(snapshot: Snapshot): string[] {
+  return Object.values(snapshot.drafts).flatMap(({ draft }) => draft?.attachments?.map(({ digest }) => digest) ?? []);
+}
+
+/** Resolve committed references even with Mail disabled. Hold the active Mail snapshot through the ZIP's last read. */
+export function mailAttachmentPackagePaths(files: VaultFiles): ReadonlySet<string> {
+  const { snapshot } = readDraftSnapshot(files);
+  const outbox = new OutboxStorage(files);
+  return new Set([...draftAttachmentDigests(snapshot), ...outbox.attachmentDigests()].map(attachmentObjectPath));
+}
+
 export class MailDrafts {
   private tail = Promise.resolve();
   private readonly objects: DraftAttachmentObjects;
@@ -70,12 +93,12 @@ export class MailDrafts {
   }
 
   get(draftId: string): Draft | null {
-    const record = this.read().snapshot.drafts[draftId];
+    const record = readDraftSnapshot(this.files).snapshot.drafts[draftId];
     return record?.draft && (!record.draft.accountId || !this.removals.read(record.draft.accountId)) ? this.details(draftId, record) : null;
   }
 
   list() {
-    return Object.entries(this.read().snapshot.drafts)
+    return Object.entries(readDraftSnapshot(this.files).snapshot.drafts)
       .flatMap(([draftId, record]) =>
         record.draft && (!record.draft.accountId || !this.removals.read(record.draft.accountId)) ? [{ draftId, revision: record.revision, updatedAt: record.updatedAt, accountId: record.draft.accountId, subject: record.draft.subject }] : [],
       )
@@ -83,18 +106,18 @@ export class MailDrafts {
   }
 
   accountRecords(accountId: string) {
-    return Object.entries(this.read().snapshot.drafts)
+    return Object.entries(readDraftSnapshot(this.files).snapshot.drafts)
       .sort(([a], [b]) => a.localeCompare(b))
       .flatMap(([draftId, { draft, revision }]) => (draft?.accountId === accountId ? [{ draftId, revision, attachments: draft.attachments?.map(({ digest }) => digest) ?? [] }] : []));
   }
 
   otherAttachmentDigests(accountId: string) {
-    return Object.values(this.read().snapshot.drafts).flatMap(({ draft }) => (draft && draft.accountId !== accountId ? (draft.attachments?.map(({ digest }) => digest) ?? []) : []));
+    return Object.values(readDraftSnapshot(this.files).snapshot.drafts).flatMap(({ draft }) => (draft && draft.accountId !== accountId ? (draft.attachments?.map(({ digest }) => digest) ?? []) : []));
   }
 
   /** Caller holds the shared draft/outbox writer. Keep draft IDs reserved against delayed creates. */
   async retireAccount(accountId: string) {
-    const { snapshot, version } = this.read();
+    const { snapshot, version } = readDraftSnapshot(this.files);
     let changed = false;
     for (const [draftId, record] of Object.entries(snapshot.drafts)) {
       if (record.draft?.accountId !== accountId) continue;
@@ -170,13 +193,13 @@ export class MailDrafts {
   readAttachment(input: z.infer<typeof attachmentKey>) {
     this.lifetime.throwIfAborted();
     const { draftId, digest } = attachmentKey.parse(input);
-    const draft = this.requireDraft(this.read().snapshot.drafts[draftId]?.draft);
+    const draft = this.requireDraft(readDraftSnapshot(this.files).snapshot.drafts[draftId]?.draft);
     const ref = this.requireAttachment(draft, digest);
     return { ...ref, ...this.objects.read(ref) };
   }
 
   freezeForSend(draftId: string, expectedRevision: string) {
-    const record = this.read().snapshot.drafts[draftId];
+    const record = readDraftSnapshot(this.files).snapshot.drafts[draftId];
     if (record && record.revision !== expectedRevision) throw errors.versionConflict(record.revision);
     const draft = this.requireDraft(record?.draft);
     const attachments = (draft.attachments ?? []).map((ref) => {
@@ -202,10 +225,10 @@ export class MailDrafts {
   sweepUnreferenced(outboxReferences: () => string[], requestSignal?: AbortSignal, candidates?: ReadonlySet<string>) {
     this.files.assertWritable();
     return this.withSnapshot(async () => {
-      const { snapshot, version } = this.read();
+      const { snapshot, version } = readDraftSnapshot(this.files);
       // A missing draft index cannot establish that existing objects are unreferenced.
       if (version === null) return { removed: [], failed: [] };
-      const referenced = new Set(Object.values(snapshot.drafts).flatMap(({ draft }) => draft?.attachments?.map(({ digest }) => digest) ?? []));
+      const referenced = new Set(draftAttachmentDigests(snapshot));
       for (const digest of outboxReferences()) referenced.add(digest);
       return this.objects.sweep(referenced, candidates);
     }, requestSignal);
@@ -238,23 +261,12 @@ export class MailDrafts {
     };
   }
 
-  private read(): { snapshot: Snapshot; version: string | null } {
-    try {
-      const file = this.files.read(draftsPath);
-      if (!file) return { snapshot: { format: 1, drafts: {} }, version: null };
-      return { snapshot: snapshotSchema.parse(JSON.parse(file.bytes.toString("utf8"))), version: file.version };
-    } catch (error) {
-      if (error instanceof HuhuError) throw error;
-      throw new HuhuError("INTERNAL", "无法读取邮件草稿", { retryable: false, details: { reason: "draft-read-failed" } });
-    }
-  }
-
   private change(draftId: string, expectedRevision: string | null, assertActive: () => void, edit: (previous: StoredDraftContent | undefined) => StoredDraftContent | null | Promise<StoredDraftContent | null>): Promise<StoredDraft> {
     this.files.assertWritable();
     // Keep business CAS and replacement together. VaultFiles also checks the snapshot bytes at the atomic write.
     return this.serialize(async () => {
       assertActive();
-      const { snapshot, version } = this.read();
+      const { snapshot, version } = readDraftSnapshot(this.files);
       const previous = snapshot.drafts[draftId];
       this.removals.assertActive(previous?.draft?.accountId);
       if (previous && previous.revision !== expectedRevision) throw errors.versionConflict(previous.revision);
@@ -277,7 +289,7 @@ export class MailDrafts {
       } catch (error) {
         if (error instanceof HuhuError) {
           if (error.code !== "VERSION_CONFLICT" && error.code !== "NAME_CONFLICT" && error.code !== "NOT_FOUND") throw error;
-          const current = this.read().snapshot.drafts[draftId];
+          const current = readDraftSnapshot(this.files).snapshot.drafts[draftId];
           if (current && current.revision !== expectedRevision) throw errors.versionConflict(current.revision);
           if (!current && expectedRevision !== null) throw errors.notFound("邮件草稿不存在");
         }

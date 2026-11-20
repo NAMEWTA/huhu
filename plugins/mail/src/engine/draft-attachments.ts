@@ -33,7 +33,7 @@ export interface MailAttachmentSource {
   read(signal: AbortSignal): AsyncIterable<Uint8Array>;
 }
 
-const objectPath = (digest: string) => `${objectsDir}/${digest}`;
+export const attachmentObjectPath = (digest: string) => `${objectsDir}/${digest}`;
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const missing = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 
@@ -87,7 +87,7 @@ export class DraftAttachmentObjects {
 
   read({ size, digest }: Attachment): AttachmentRead {
     try {
-      const descriptor = openSync(this.files.abs(objectPath(digest)), "r");
+      const descriptor = openSync(this.files.abs(attachmentObjectPath(digest)), "r");
       try {
         const stat = fstatSync(descriptor);
         if (!stat.isFile() || stat.size !== size) return { state: "corrupt" };
@@ -111,7 +111,7 @@ export class DraftAttachmentObjects {
   async publish(ref: Attachment, bytes: Buffer): Promise<void> {
     if (this.read(ref).state === "ready") return;
     try {
-      await this.files.write(objectPath(ref.digest), bytes);
+      await this.files.write(attachmentObjectPath(ref.digest), bytes);
     } catch {
       throw new HuhuError("INTERNAL", "无法保存附件字节", { details: { reason: "attachment-write-failed", digest: ref.digest } });
     }
@@ -124,7 +124,7 @@ export class DraftAttachmentObjects {
       for (const entry of readdirSync(this.files.abs(objectsDir), { withFileTypes: true })) {
         if (!entry.isFile() || !attachmentDigest.safeParse(entry.name).success || referenced.has(entry.name) || (candidates && !candidates.has(entry.name))) continue;
         try {
-          unlinkSync(this.files.abs(objectPath(entry.name)));
+          unlinkSync(this.files.abs(attachmentObjectPath(entry.name)));
           removed.push(entry.name);
         } catch (error) {
           if (!missing(error)) failed.push(entry.name);

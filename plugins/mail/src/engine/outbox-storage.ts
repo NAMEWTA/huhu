@@ -72,6 +72,15 @@ export function deleteDetails({ format, operationId, draftId, revision, messageI
 export class OutboxStorage {
   constructor(private readonly files: HuhuApi["vault"]["files"]) {}
 
+  attachmentDigests(excludeAccountId?: string): string[] {
+    const digests = new Set<string>();
+    for (const record of this.records()) {
+      if ("deleted" in record || (excludeAccountId && record.draft.accountId === excludeAccountId)) continue;
+      for (const { digest } of record.draft.attachments ?? []) digests.add(digest);
+    }
+    return [...digests];
+  }
+
   *records(): IterableIterator<OutboxRecord> {
     let names: string[];
     try {

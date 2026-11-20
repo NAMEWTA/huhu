@@ -5,6 +5,6 @@ export { mailPreset, mailProviderSchema, type MailProvider } from "./presets.js"
 export { apply, mailAccountsListDescriptor } from "./registration.js";
 export { mailLatestMessageDescriptor, mailMessageSourceDescriptor, mailRefreshDescriptor } from "./message-cache.js";
 export { MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource } from "./draft-attachments.js";
-export { MAIL_DRAFT_ATTACHMENTS_SERVICE, type MailDraftAttachments } from "./drafts.js";
+export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, type MailDraftAttachments } from "./drafts.js";
 export { MAIL_OUTBOX_SERVICE, type MailOutboxService } from "./outbox.js";
 export { createMailSmtpTransport, type MailSmtpTransport } from "./smtp.js";
