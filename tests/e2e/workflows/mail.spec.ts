@@ -62,6 +62,39 @@ test("桌面邮箱授权经主进程浏览器入口，取消后释放原回调",
   }
 });
 
+test("桌面邮箱授权的浏览器回执迟到仍保留原监听，明确拒绝则停止", async () => {
+  const { app, page, close } = await openApp({ HUHU_MAIL_GOOGLE_CLIENT_ID: "synthetic-late-ack", HUHU_MAIL_MICROSOFT_CLIENT_ID: "" });
+  try {
+    const call = await desktopMailCalls(page);
+    type Probe = typeof globalThis & { mailBrowserProbe?: { url: string; finished: boolean } };
+    await app.evaluate(({ shell }) => {
+      shell.openExternal = async (url) => {
+        const probe = { url, finished: false };
+        (globalThis as Probe).mailBrowserProbe = probe;
+        await new Promise((resolve) => setTimeout(resolve, 5500));
+        probe.finished = true;
+      };
+    });
+    const first = await call<{ sessionId: string; phase: string }>("mail.oauth.begin", { provider: "gmail", email: "late@example.test" });
+    expect(first.phase).toBe("waiting");
+    await expect.poll(() => app.evaluate(() => (globalThis as Probe).mailBrowserProbe?.finished), { timeout: 10_000 }).toBe(true);
+    const authorization = await app.evaluate(() => (globalThis as Probe).mailBrowserProbe?.url);
+    const listener = new URL(authorization!).searchParams.get("redirect_uri")!;
+    expect(await call("mail.oauth.status", { sessionId: first.sessionId })).toMatchObject({ phase: "waiting" });
+    expect((await fetch(listener)).status).toBe(400);
+    expect(await call("mail.oauth.cancel", { sessionId: first.sessionId })).toMatchObject({ phase: "cancelled" });
+    await app.evaluate(({ shell }) => {
+      shell.openExternal = async () => {
+        throw new Error("synthetic browser refusal");
+      };
+    });
+    const second = await call<{ sessionId: string }>("mail.oauth.begin", { provider: "gmail", email: "refused@example.test" });
+    await expect.poll(() => call("mail.oauth.status", { sessionId: second.sessionId })).toMatchObject({ phase: "failed", reason: "browser-unavailable" });
+  } finally {
+    await close();
+  }
+});
+
 test("新邮件通知从桌面铃铛定位到原账号的邮件并交接焦点", async () => {
   const message = (uid: number, subject: string): FixtureImapMessage => ({
     uid,

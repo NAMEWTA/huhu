@@ -42,7 +42,8 @@ export type MailOAuthIssuer = Client & {
 };
 export type MailOAuthRuntime = {
   issuers: Partial<Record<OAuthProvider, MailOAuthIssuer>>;
-  openBrowser: (url: string) => Promise<void>;
+  /** A transport timeout may leave the browser open. A rejection means the host declined to open it. */
+  openBrowser: (url: string) => Promise<void | "unconfirmed">;
   hostLabel: string;
   now?: () => number;
   ttlMs?: number;

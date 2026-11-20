@@ -35,20 +35,21 @@ function mailOAuthWithBrowser(port: ParentPort) {
       {
         hostLabel: hostname(),
         openBrowser: (url) =>
-          new Promise<void>((resolve, reject) => {
+          new Promise<void | "unconfirmed">((resolve, reject) => {
             const id = randomUUID();
-            const finish = (opened: boolean) => {
+            const finish = (opened: boolean | null) => {
               clearTimeout(deadline);
               pending.delete(id);
-              if (opened) resolve();
+              if (opened === null) resolve("unconfirmed");
+              else if (opened) resolve();
               else reject(new Error("System browser unavailable"));
             };
-            const deadline = setTimeout(() => finish(false), 5_000);
+            const deadline = setTimeout(() => finish(null), 5_000);
             pending.set(id, finish);
             try {
               port.postMessage({ type: "mail-oauth:open", id, url });
             } catch {
-              finish(false);
+              finish(null);
             }
           }),
       },
