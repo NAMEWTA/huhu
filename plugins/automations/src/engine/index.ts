@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
-import { machineId } from "@huhu/vault";
+import { machineId, VaultFiles } from "@huhu/vault";
 import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
@@ -9,6 +9,7 @@ import { HoldStore } from "./holds.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
 import { hasRunDir, killRound, roundActive } from "./supervised.js";
+import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { processWorker, roundDir, type ResolveLaunch } from "./worker.js";
 
 export { AutomationsService } from "./service.js";
@@ -46,10 +47,12 @@ export interface AutomationsOptions {
   /** 扫描前刷新 CLI 可用性（见 AutomationsDeps.refreshClis）。 */
   refreshClis?: () => Promise<void>;
   schedule?: boolean;
+  now?: () => Date;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {}): { service: AutomationsService; scheduler: Scheduler } {
   const mid = machineId();
+  const now = opts.now ?? (() => new Date());
   const cliAvailable = opts.cliAvailable ?? (() => false);
   const runsDir = path.join(api.vault.stateDir, "runtime", mid, "runs");
   const resolveLaunch: ResolveLaunch = opts.resolveLaunch ?? ((i) => api.call("agent.launch.resolve", i) as ReturnType<ResolveLaunch>);
@@ -80,17 +83,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     call: (capability, input, idempotencyKey) => api.call(capability, input, idempotencyKey ? { idempotencyKey } : undefined),
     notify: opts.notify ?? (() => undefined),
     publish: (t, p) => api.events.publish(t, p),
-    now: () => new Date(),
+    now,
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
     machineId: mid,
   });
+
+  const scans = new TaskScanOccurrences(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly), api.vault.vaultId, svc, () => api.service("taskDispatch"), now);
+  api.provide("taskScanOccurrences", scans);
+  ctx.effect(() => () => scans.close());
 
   const scheduler = new Scheduler({
     activate: async (ruleId, at, trigger) => {
       await svc.activate(ruleId, trigger, at);
     },
     lastActivatedFor: (id) => svc.lastActivatedFor(id),
-    now: () => new Date(),
+    now,
   });
   const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes, updatedAt: r.data.updatedAt })));
   // 能力在启动对账完成后才开始服务；对账失败（例如 Vault 已关闭）只记录，不产生未处理拒绝

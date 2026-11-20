@@ -132,6 +132,18 @@ const resumePrompt = (qs: { id: string; text: string; answer: string | null }[])
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 type RuleData = AutomationRuleFrontmatter;
 type TaskScanInput = Extract<Extract<RuleData["action"], { kind: "agent" }>["input"], { source: "tasks" }>;
+export type TaskScanRule = {
+  id: string;
+  version: string;
+  body: string;
+  data: Omit<RuleData, "action"> & { action: { kind: "agent"; input: TaskScanInput } };
+};
+
+export function isTaskScanRule(rule: { data: RuleData }): rule is TaskScanRule {
+  return rule.data.action.kind === "agent" && rule.data.action.input.source === "tasks";
+}
+
+export const TASK_SCAN_INSTRUCTIONS_LIMIT = 20_000;
 
 function taskScanFilter(input: TaskScanInput, zone: string, now: Date): ScanFilter {
   return {
@@ -225,6 +237,9 @@ export class AutomationsService {
 
   async create(input: { title: string; trigger: RuleData["trigger"]; action: RuleData["action"]; body?: string; missedRunGraceMinutes?: number }) {
     validateSchedule(input.trigger.cron, input.trigger.zone);
+    if (input.action.kind === "agent" && input.action.input.source === "tasks" && (input.body?.length ?? 0) > TASK_SCAN_INSTRUCTIONS_LIMIT) {
+      throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
+    }
     const now = iso(this.d.now());
     const e = await this.d.repo.create(
       "automation-rule",
@@ -243,11 +258,10 @@ export class AutomationsService {
     if (action?.kind === "agent" && action.input.source === "tasks" && currentAction.kind === "agent" && currentAction.input.source === "tasks") {
       patch = { ...patch, action: { ...action, input: { ...currentAction.input, ...action.input } } };
     }
-    // 正文只有“agent + 提示词”的规则才有意义（它就是提示词）：其他动作不接受非空正文；改成别的动作时清空，避免旧提示词留在文件里被误用
-    const hasPrompt = (a: RuleData["action"]) => a.kind === "agent" && a.input.source === "prompt";
     const next = patch.action ?? cur.data.action;
-    if (body !== undefined && body.trim() !== "" && !hasPrompt(next)) throw errors.invalidInput("只有“让 Agent 执行一条提示词”的规则才有提示词");
-    if (body === undefined && hasPrompt(cur.data.action) && !hasPrompt(next)) body = "";
+    if (body !== undefined && body.trim() !== "" && next.kind !== "agent") throw errors.invalidInput("只有 Agent 规则可保存提示词或扫描补充指令");
+    if (next.kind === "agent" && next.input.source === "tasks" && (body?.length ?? 0) > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
+    if (body === undefined && currentAction.kind === "agent" && (next.kind !== "agent" || currentAction.input.source !== next.input.source)) body = "";
     await this.d.repo.patch("automation-rule", id, { ...patch, updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
     this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
     return this.rule(id);
@@ -306,20 +320,26 @@ export class AutomationsService {
     const r = this.rule(ruleId);
     const now = this.d.now();
     const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
-    const a = r.data.action;
-    if (a.kind !== "agent" || a.input.source !== "tasks") return { next, tasksDisabled: false, candidates: [], skipped: [] };
-    if (!this.d.taskQuery()) return { next, tasksDisabled: true, candidates: [], skipped: [] };
-    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), taskScanFilter(a.input, r.data.trigger.zone, now));
+    if (!isTaskScanRule(r)) return { next, tasksDisabled: false, candidates: [], skipped: [] };
+    const { tasksDisabled, candidates, skipped } = this.classifyTaskScan(r, now);
     return {
       next,
-      tasksDisabled: false,
+      tasksDisabled,
       candidates: candidates.map((c) => ({ taskId: c.task.id, title: c.task.title, inputRevision: c.task.inputRevision, processingKey: c.processingKey })),
       skipped: skipped.map((s) => ({ taskId: s.task.id, title: s.task.title, reason: s.reason, ...(s.detail ? { detail: s.detail } : {}) })),
     };
   }
 
-  private allTasks(): SnapshotTask[] {
-    return (this.d.taskQuery()?.listAll() ?? []).map((task) => this.snapshotOf(task));
+  classifyTaskScan(rule: TaskScanRule, now: Date, queueBusySpaces = false) {
+    const query = this.d.taskQuery();
+    return {
+      tasksDisabled: !query,
+      ...classify(this.allTasks(query), this.scanEnv(), { ...taskScanFilter(rule.data.action.input, rule.data.trigger.zone, now), queueBusySpaces }),
+    };
+  }
+
+  private allTasks(query: TaskQueryLike | undefined) {
+    return (query?.listAll() ?? []).map((task) => this.snapshotOf(task));
   }
 
   // ---- 激活 ----
@@ -532,7 +552,7 @@ export class AutomationsService {
   private async scan(ruleId: string, maxConcurrent: number, filter: ScanFilter, instruction: string): Promise<{ processed: number; skipped: number } | { state: string }> {
     if (!this.d.taskQuery()) return { state: "tasks-disabled" }; // ACC-AU-10：任务插件已停用，跳过
     await this.d.refreshClis?.().catch(() => undefined);
-    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), filter);
+    const { candidates, skipped } = classify(this.allTasks(this.d.taskQuery()), this.scanEnv(), filter);
     let next = 0;
     let processed = 0;
     const worker = async () => {
@@ -546,9 +566,10 @@ export class AutomationsService {
     return { processed, skipped: skipped.length };
   }
 
-  private snapshotOf(t: TaskDto): SnapshotTask {
+  private snapshotOf(t: TaskDto): SnapshotTask & { version: string } {
     return {
       id: t.id,
+      version: t.version,
       title: t.title,
       type: t.type,
       status: t.status,

@@ -55,12 +55,12 @@ export interface ScanEnv {
   cliAvailable(provider: string): boolean;
 }
 
-export interface Candidate {
-  task: SnapshotTask;
+export interface Candidate<T extends SnapshotTask = SnapshotTask> {
+  task: T;
   processingKey: string;
 }
-export interface Skipped {
-  task: SnapshotTask;
+export interface Skipped<T extends SnapshotTask = SnapshotTask> {
+  task: T;
   reason: SkipReason;
   detail?: string;
 }
@@ -71,6 +71,7 @@ export interface ScanFilter {
   window?: { start: number; end: number };
   includeOverdue?: boolean;
   includeUnscheduled?: boolean;
+  queueBusySpaces?: boolean;
 }
 
 export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "inputHash">): string => `${t.id}:${t.inputRevision}:${t.inputHash}`;
@@ -79,9 +80,9 @@ export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "
  * 只读分类：候选与跳过原因。预览和真实扫描共用，保证两者一致。
  * 只有 type=agent、status=not_started 且符合标签筛选的任务才可能成为候选。
  */
-export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: ScanFilter = {}): { candidates: Candidate[]; skipped: Skipped[] } {
-  const candidates: Candidate[] = [];
-  const skipped: Skipped[] = [];
+export function classify<T extends SnapshotTask>(tasks: T[], env: ScanEnv, filter: ScanFilter = {}): { candidates: Candidate<T>[]; skipped: Skipped<T>[] } {
+  const candidates: Candidate<T>[] = [];
+  const skipped: Skipped<T>[] = [];
   const usedSpaces = new Set<string>(); // 一次扫描里同一 Space 只选一个候选
   const now = filter.now ?? new Date();
   for (const task of tasks) {
@@ -143,11 +144,11 @@ export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: ScanFilter
       skip("cli-missing");
       continue;
     }
-    if (env.spaceBusy(spaceId) || usedSpaces.has(spaceId)) {
+    if (!filter.queueBusySpaces && (env.spaceBusy(spaceId) || usedSpaces.has(spaceId))) {
       skip("space-busy");
       continue;
     }
-    usedSpaces.add(spaceId);
+    if (!filter.queueBusySpaces) usedSpaces.add(spaceId);
     candidates.push({ task, processingKey: key });
   }
   return { candidates, skipped };
