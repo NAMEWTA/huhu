@@ -60,9 +60,20 @@ if (process.argv.includes("--version")) {
       if (message.params.threadId !== threadId) throw new Error("Expected the original provider thread");
       log("existing-turn-input");
       send({ id: message.id, result: { turn: { id: nextTurn } } });
-      finishTurn(threadId, turnId, "failed");
-      send({ method: "item/completed", params: { threadId, turnId: nextTurn, item: { id: "next-result", type: "agentMessage", phase: "final_answer", text: "Synthetic result from the existing thread." } } });
-      finishTurn(threadId, nextTurn, "completed");
+      waitFor("allow-existing-turn-end", () => {
+        finishTurn(threadId, turnId, "failed");
+        send({ method: "item/completed", params: { threadId, turnId: nextTurn, item: { id: "next-result", type: "agentMessage", phase: "final_answer", text: "Synthetic result from the existing thread." } } });
+        finishTurn(threadId, nextTurn, "completed");
+      });
+    } else if (message.method === "turn/start" && message.params.input[0].text === "Continue after the ordinary question.") {
+      const replyTurn = turnId + "-reply";
+      if (message.params.threadId !== threadId) throw new Error("Expected the original provider thread");
+      log("ordinary-reply-input");
+      send({ id: message.id, result: { turn: { id: replyTurn } } });
+      waitFor("allow-ordinary-reply-end", () => {
+        send({ method: "item/completed", params: { threadId, turnId: replyTurn, item: { id: "reply-result", type: "agentMessage", phase: "final_answer", text: "Synthetic result from the ordinary reply." } } });
+        finishTurn(threadId, replyTurn, "completed");
+      });
     } else if (message.method === "turn/start") {
       log("turn-input");
       const question = {

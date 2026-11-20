@@ -347,7 +347,26 @@ test.skipIf(process.platform !== "win32" || !bin)(
         execution: { spaceId: space!.id, provider: "codex", target: { mode: "existing", sessionId } },
       });
       const nextInput = { taskId: next.id, dispatchId: "fixture-w63-existing", expectedVersion: next.version, inputRevision: next.inputRevision, inputHash: next.inputHash };
-      const nextRun = await call<{ runId: string }>(engine, "tasks.dispatch", nextInput);
+      const nextRun = await call<{ runId: string; attempt: number }>(engine, "tasks.dispatch", nextInput);
+      await expect.poll(() => call(engine!, "tasks.dispatch.read", { taskId: next.id, dispatchId: nextInput.dispatchId }), { timeout: 15_000 }).toMatchObject({ state: "running" });
+      const normalInput = { taskId: next.id, runId: nextRun.runId, sessionId, requestId: "fixture-ordinary-question", requestVersion: 1, replyId: "fixture-ordinary-reply" };
+      const nextExecution = { vaultId: engine.vault.id, taskId: next.id, runId: nextRun.runId, attempt: nextRun.attempt, dispatchId: nextInput.dispatchId, sessionBinding: bindings[0]!.sessionBinding };
+      const normal = await engine.dispatcher.call(
+        "plugin:agent-cli",
+        request(TASKS_RECEIPTS_CONSUME, {
+          version: 1,
+          receiptId: "fixture-ordinary-question-receipt",
+          kind: "question",
+          execution: nextExecution,
+          payload: { mode: "normal", requestId: normalInput.requestId, requestVersion: normalInput.requestVersion, text: "Can you clarify?", options: [] },
+        }),
+      );
+      expect(normal).toMatchObject({ ok: true, data: { stage: "tasks_consumed" } });
+      const child = await call<{ followUpRunId: string }>(engine, "tasks.reply", { ...normalInput, answer: "Continue after the ordinary question." });
+      expect(child).toMatchObject({ status: "pending" });
+      expect(events()).not.toContain("ordinary-reply-input");
+
+      writeFileSync(path.join(sandbox, "allow-existing-turn-end"), "");
       await expect
         .poll(async () => (await call<TaskDto>(engine!, "tasks.read", { id: next.id })).comments.filter(({ event }) => event === "result"), { timeout: 20_000 })
         .toMatchObject([{ event: "result", run: nextRun.runId, session: sessionId, body: "Synthetic result from the existing thread." }]);
@@ -356,9 +375,18 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(nextAck?.receipt.execution.sessionBinding).toEqual(bindings[0]!.sessionBinding);
       expect(await call(engine, "tasks.dispatch", nextInput)).toMatchObject({ runId: nextRun.runId });
       expect(events().filter((event) => event === "existing-turn-input")).toHaveLength(1);
+      await expect.poll(() => call(engine!, "tasks.reply.read", normalInput), { timeout: 20_000 }).toMatchObject({ status: "accepted", followUpRunId: child.followUpRunId });
+      expect(events().filter((event) => event === "ordinary-reply-input")).toHaveLength(1);
+      writeFileSync(path.join(sandbox, "allow-ordinary-reply-end"), "");
+      await expect
+        .poll(async () => (await call<TaskDto>(engine!, "tasks.read", { id: next.id })).comments.filter(({ event }) => event === "result"), { timeout: 15_000 })
+        .toMatchObject([{ run: nextRun.runId }, { run: child.followUpRunId, session: sessionId, body: "Synthetic result from the ordinary reply." }]);
+      await expect.poll(acks).toHaveLength(4);
+      expect(acks().find(({ receipt }) => receipt.execution.runId === child.followUpRunId)?.receipt.execution.sessionBinding).toEqual(bindings[0]!.sessionBinding);
+      expect(await call(engine, "tasks.runs", { id: next.id })).toEqual(expect.arrayContaining([expect.objectContaining({ id: child.followUpRunId, parentRunId: nextRun.runId, state: "succeeded" })]));
       expect(await timeline()).toEqual(originalTimeline);
       expect(acks()).toEqual(expect.arrayContaining(originalAcks));
-      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 2, answerCount: 1, timelineComments: originalTimeline.length, durableAcks: acks().length }));
+      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 3, nativeAnswerCount: 1, ordinaryAnswerCount: 1, timelineComments: originalTimeline.length, durableAcks: acks().length }));
     } finally {
       try {
         await engine?.shutdown();
