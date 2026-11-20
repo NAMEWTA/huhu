@@ -434,6 +434,53 @@ test("ACC-SH-04 远程连接：编辑主机、从已有主机里按顺序选跳�
   }
 });
 
+test("首页看板：宽屏拖动与缩放预览保持草稿，退出拖动恢复原位置", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await page.setViewportSize({ width: 1430, height: 1000 });
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByTestId("home-customize").click();
+    const board = page.getByTestId("home-dashboard");
+    const focus = board.locator('[data-instance-id="default-focus"]');
+    const move = focus.getByRole("button", { name: "移动 专注", exact: true });
+    const resize = focus.getByRole("button", { name: "拖动调整 专注 尺寸", exact: true });
+    const stride = await board.locator(".hu-dashboard-grid").evaluate((grid) => (grid.getBoundingClientRect().width + Number.parseFloat(getComputedStyle(grid).columnGap)) / 6);
+    const begin = async (handle: typeof move) => {
+      await handle.scrollIntoViewIfNeeded();
+      const bounds = (await handle.boundingBox())!;
+      const x = bounds.x + bounds.width / 2;
+      const y = bounds.y + bounds.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + stride, y, { steps: 5 });
+      await expect(focus).toHaveAttribute("data-placement-preview", "true");
+    };
+    await begin(move);
+    await expect(focus).toHaveCSS("grid-column-start", "2");
+    await page.mouse.up();
+    await begin(resize);
+    await expect(focus).toHaveCSS("grid-column-end", "span 4");
+    await page.mouse.up();
+    await begin(move);
+    await expect(focus).toHaveCSS("grid-column-start", "3");
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(focus).toHaveCSS("grid-column-start", "2");
+    const file = path.join(vault, ".huhu/home/widgets.json");
+    expect(existsSync(file)).toBe(false);
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status")).toContainText("布局已保存");
+    expect(JSON.parse(readFileSync(file, "utf8")).layout).toContainEqual({ instanceId: "default-focus", x: 1, y: 5, w: 4, h: 2 });
+  } finally {
+    if (!page.isClosed())
+      await page
+        .getByRole("button", { name: "取消编辑", exact: true })
+        .click({ timeout: 500 })
+        .catch(() => undefined);
+    await close();
+  }
+});
+
 test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重开使用同一布局", async () => {
   const { page, close, vault } = await openApp();
   try {

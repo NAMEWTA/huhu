@@ -54,6 +54,17 @@
 
   .hu-dashboard-drag {
     cursor: grab;
+    touch-action: none;
+  }
+
+  .hu-dashboard-size-handle {
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+
+  .hu-dashboard-tile[data-placement-preview="true"] {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
 
   .hu-dashboard-card-controls .hu-dashboard-order {
@@ -73,7 +84,8 @@
     }
 
     .hu-dashboard-card-controls .hu-dashboard-coordinate,
-    .hu-dashboard-card-controls .hu-dashboard-drag {
+    .hu-dashboard-card-controls .hu-dashboard-drag,
+    .hu-dashboard-card-controls .hu-dashboard-size-handle {
       display: none;
     }
 

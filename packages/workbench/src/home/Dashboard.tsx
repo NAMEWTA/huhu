@@ -1,7 +1,7 @@
 import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetType, type DashboardBoard, type HomeWidgetDefinition } from "@huhu/contracts";
 import { Button, Dialog, IconButton } from "@huhu/ui";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, Plus, RotateCcw, X } from "lucide-react";
-import { useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, MoveDiagonal2, Plus, RotateCcw, X } from "lucide-react";
+import { useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { createRequestId } from "../engine-client/client.js";
 import { appendPlacement, movePlacement, orderPlacements, packPlacements, reorderPlacement, type Placement } from "./dashboard-layout.js";
 import type { useDashboard } from "./useDashboard.js";
@@ -9,6 +9,18 @@ import "./dashboard.css";
 
 type Instance = DashboardBoard["instances"][number];
 type Controller = ReturnType<typeof useDashboard>;
+
+interface Gesture {
+  pointerId: number;
+  placement: Placement;
+  kind: "move" | "resize";
+  originX: number;
+  originY: number;
+  column: number;
+  row: number;
+  min: { w: number; h: number };
+  max: { w: number; h: number };
+}
 
 interface DashboardProps {
   state: Controller;
@@ -23,7 +35,8 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [feedback, setFeedback] = useState("");
-  const [drag, setDrag] = useState<{ placement: Placement; x: number; y: number }>();
+  const [preview, setPreview] = useState<{ id: string; layout: Placement[] }>();
+  const gesture = useRef<Gesture | undefined>(undefined);
   const grid = useRef<HTMLDivElement>(null);
   const view = state.snapshot.data;
   const editing = state.draft !== undefined;
@@ -31,7 +44,7 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
   const board = state.draft?.board ?? view?.board;
   const byId = new Map(board?.instances.map((item) => [item.instanceId, item]));
   const layout = orderPlacements(board?.layout ?? []);
-  const items = layout.filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
+  const items = (preview?.layout ?? layout).filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
   const label = (instance: Instance) => instance.title || definitions.get(instance.widgetType)?.title || instance.widgetType;
   const changeLayout = (next: Placement[] | undefined) => {
     if (!board || !next) {
@@ -67,18 +80,68 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
     setCategory("all");
     setAddOpen(true);
   }
-  function drop(event: DragEvent<HTMLDivElement>) {
-    if (!drag || !board || locked) return;
+  function beginGesture(event: PointerEvent<HTMLButtonElement>, placement: Placement, kind: Gesture["kind"], definition?: HomeWidgetDefinition) {
+    const target = grid.current;
+    if (!target || gesture.current || locked || event.button !== 0 || (kind === "resize" && !definition)) return;
+    const style = getComputedStyle(target);
+    if (style.display !== "grid") return;
+    const bounds = target.getBoundingClientRect();
     event.preventDefault();
-    const column = event.currentTarget.getBoundingClientRect().width / DASHBOARD_COLUMNS;
-    changeLayout(
-      movePlacement(board.layout, {
-        ...drag.placement,
-        x: drag.placement.x + Math.round((event.clientX - drag.x) / column),
-        y: drag.placement.y + Math.round((event.clientY - drag.y) / 112),
-      }),
-    );
-    setDrag(undefined);
+    event.currentTarget.focus({ preventScroll: true });
+    target.setPointerCapture(event.pointerId);
+    gesture.current = {
+      pointerId: event.pointerId,
+      placement,
+      kind,
+      originX: event.clientX - bounds.left,
+      originY: event.clientY - bounds.top,
+      column: (bounds.width + Number.parseFloat(style.columnGap)) / DASHBOARD_COLUMNS,
+      row: Number.parseFloat(style.gridAutoRows) + Number.parseFloat(style.rowGap),
+      min: definition?.minSize ?? placement,
+      max: definition?.maxSize ?? placement,
+    };
+  }
+
+  function gesturePlacement(event: PointerEvent<HTMLDivElement>, current: Gesture): Placement {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const dx = Math.round((event.clientX - bounds.left - current.originX) / current.column);
+    const dy = Math.round((event.clientY - bounds.top - current.originY) / current.row);
+    const p = current.placement;
+    if (current.kind === "move") return { ...p, x: p.x + dx, y: p.y + dy };
+    return {
+      ...p,
+      w: Math.max(current.min.w, Math.min(current.max.w, DASHBOARD_COLUMNS - p.x, p.w + dx)),
+      h: Math.max(current.min.h, Math.min(current.max.h, p.h + dy)),
+    };
+  }
+
+  function moveGesture(event: PointerEvent<HTMLDivElement>) {
+    const current = gesture.current;
+    if (!current || current.pointerId !== event.pointerId || !board) return;
+    const candidate = gesturePlacement(event, current);
+    const displayed = preview?.layout.find((item) => item.instanceId === candidate.instanceId) ?? current.placement;
+    if (candidate.x === displayed.x && candidate.y === displayed.y && candidate.w === displayed.w && candidate.h === displayed.h) return;
+    const next = movePlacement(board.layout, candidate);
+    setPreview(next ? { id: candidate.instanceId, layout: next } : undefined);
+  }
+
+  function endGesture() {
+    gesture.current = undefined;
+    setPreview(undefined);
+  }
+
+  function commitGesture(event: PointerEvent<HTMLDivElement>) {
+    const current = gesture.current;
+    if (!current || current.pointerId !== event.pointerId || !board) return;
+    endGesture();
+    if (locked || getComputedStyle(event.currentTarget).display !== "grid") return;
+    const candidate = gesturePlacement(event, current);
+    const p = current.placement;
+    if (candidate.x !== p.x || candidate.y !== p.y || candidate.w !== p.w || candidate.h !== p.h) {
+      const next = movePlacement(board.layout, candidate);
+      changeLayout(next);
+      if (next) setFeedback(`第 ${candidate.x + 1} 列，第 ${candidate.y + 1} 行，${candidate.w} × ${candidate.h}。`);
+    }
   }
   const list = (current: DashboardBoard) => {
     const instances = new Map(current.instances.map((item) => [item.instanceId, item]));
@@ -129,10 +192,16 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
       <div
         ref={grid}
         className="hu-dashboard-grid"
-        onDragOver={(event) => {
-          if (drag) event.preventDefault();
+        onPointerMove={moveGesture}
+        onPointerUp={commitGesture}
+        onLostPointerCapture={endGesture}
+        onPointerCancel={endGesture}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !gesture.current) return;
+          event.preventDefault();
+          if (event.currentTarget.hasPointerCapture(gesture.current.pointerId)) event.currentTarget.releasePointerCapture(gesture.current.pointerId);
+          endGesture();
         }}
-        onDrop={drop}
       >
         {board
           ? items.map((p) => {
@@ -148,19 +217,7 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
               const controls = editing ? (
                 <div className="hu-dashboard-card-controls">
                   <div className="row">
-                    <button
-                      type="button"
-                      className="hu-dashboard-drag hu-btn"
-                      draggable={!locked}
-                      disabled={locked}
-                      aria-label={`移动 ${name}`}
-                      onDragStart={(event) => {
-                        setDrag({ placement: p, x: event.clientX, y: event.clientY });
-                        event.dataTransfer.setData("text/plain", p.instanceId);
-                        event.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragEnd={() => setDrag(undefined)}
-                    >
+                    <button type="button" className="hu-dashboard-drag hu-btn" disabled={locked} aria-label={`移动 ${name}`} onPointerDown={(event) => beginGesture(event, p, "move")}>
                       <Grip size={16} aria-hidden />
                     </button>
                     <strong>{name}</strong>
@@ -180,6 +237,11 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
                     <input aria-label={`${name}标题`} placeholder={definition?.title ?? "卡片标题"} value={instance.title ?? ""} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { title: event.target.value })} />
                   </label>
                   <div className="row">
+                    {definition ? (
+                      <button type="button" className="hu-dashboard-size-handle hu-btn" disabled={locked} aria-label={`拖动调整 ${name} 尺寸`} onPointerDown={(event) => beginGesture(event, p, "resize", definition)}>
+                        <MoveDiagonal2 size={16} aria-hidden />
+                      </button>
+                    ) : null}
                     <div className="row hu-dashboard-coordinate">
                       <IconButton icon={ArrowLeft} disabled={locked || p.x === 0} label={`向左移动 ${name}`} onClick={() => move(-1, 0)} />
                       <IconButton icon={ArrowRight} disabled={locked || p.x + p.w === DASHBOARD_COLUMNS} label={`向右移动 ${name}`} onClick={() => move(1, 0)} />
@@ -232,7 +294,13 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
                 </div>
               ) : null;
               return (
-                <div key={p.instanceId} className="hu-dashboard-tile" data-instance-id={p.instanceId} style={{ gridColumn: `${p.x + 1} / span ${p.w}`, gridRow: `${p.y + 1} / span ${p.h}` } satisfies CSSProperties}>
+                <div
+                  key={p.instanceId}
+                  className="hu-dashboard-tile"
+                  data-instance-id={p.instanceId}
+                  data-placement-preview={preview?.id === p.instanceId ? "true" : undefined}
+                  style={{ gridColumn: `${p.x + 1} / span ${p.w}`, gridRow: `${p.y + 1} / span ${p.h}` } satisfies CSSProperties}
+                >
                   {controls}
                   {!instance.hidden ? (
                     <div className="hu-dashboard-widget" inert={editing}>

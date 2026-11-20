@@ -10,6 +10,8 @@
 
 原工作区日志位于 `temp/issue-baseline/dashboard-shell-all-e2e.log`、`dashboard-shell-production-rerun.log`、`dashboard-shell-build.log`。恢复测试使用普通 Engine 装配，API 拒绝覆盖旧格式及无法识别的原件。
 
+宽屏的移动和缩放把手已补齐实际指针预览。Windows `pnpm` 自动化在拖动和缩放时检查网格坐标，按 Escape 取消下一次移动，确认显式保存前 Vault 没有布局文件，保存后读到原实例的新尺寸和坐标。此次看板测试四项通过，日志为 `temp/issue-baseline/dashboard-geometry-e2e.log`。 [指针与保存回归](../../../../tests/e2e/workflows/acceptance.spec.ts)
+
 ## 后续验收
 
 Linux 和 macOS 的系统菜单、系统快捷键与原生控件仍待对应平台验收。Windows 原生菜单的方向键、Escape 焦点返回与系统菜单互不干扰仍需实机证据。看板恢复能力已有 Engine 验证，恢复操作界面和其余未确认体验按各自的原型范围处理。八项共同候选包、同包联验和最终远端落地仍按批次计划验收。
