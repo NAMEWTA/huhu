@@ -25,13 +25,15 @@ interface Gesture {
 interface DashboardProps {
   state: Controller;
   definitions: ReadonlyMap<string, HomeWidgetDefinition>;
+  definitionsReady: boolean;
   allowed(type: string): boolean;
   renderWidget(instance: Instance): ReactNode;
   configureWidget?(instance: Instance, onChange: (config: Instance["config"]) => void, disabled: boolean): ReactNode;
 }
 
-export function Dashboard({ state, definitions, allowed, renderWidget, configureWidget }: DashboardProps) {
+export function Dashboard({ state, definitions, definitionsReady, allowed, renderWidget, configureWidget }: DashboardProps) {
   const [addOpen, setAddOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [feedback, setFeedback] = useState("");
@@ -79,6 +81,15 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
     setSearch("");
     setCategory("all");
     setAddOpen(true);
+  }
+  function resetDraft() {
+    if (!state.draft || locked || !definitionsReady) return;
+    const defaults = defaultDashboardBoard();
+    const instances = defaults.instances.filter((item) => allowed(item.widgetType));
+    const ids = new Set(instances.map((item) => item.instanceId));
+    state.update({ ...state.draft.board, instances, layout: defaults.layout.filter((item) => ids.has(item.instanceId)) });
+    setFeedback("草稿已恢复为默认布局。");
+    setResetOpen(false);
   }
   function beginGesture(event: PointerEvent<HTMLButtonElement>, placement: Placement, kind: Gesture["kind"], definition?: HomeWidgetDefinition) {
     const target = grid.current;
@@ -177,7 +188,7 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
           <Button icon={Plus} onClick={openCatalog} disabled={locked}>
             添加卡片
           </Button>
-          <Button onClick={() => board && state.update({ ...board, ...defaultDashboardBoard(), revision: board.revision, updatedAt: board.updatedAt })} disabled={locked}>
+          <Button onClick={() => setResetOpen(true)} disabled={locked || !definitionsReady}>
             恢复默认布局
           </Button>
           <span className="grow" />
@@ -365,6 +376,23 @@ export function Dashboard({ state, definitions, allowed, renderWidget, configure
         ) : (
           <p>没有符合条件的卡片。</p>
         )}
+      </Dialog>
+      <Dialog
+        open={resetOpen && editing}
+        title="恢复默认布局"
+        onClose={() => setResetOpen(false)}
+        actions={
+          <>
+            <Button autoFocus onClick={() => setResetOpen(false)}>
+              返回草稿
+            </Button>
+            <Button variant="primary" onClick={resetDraft} disabled={locked || !definitionsReady}>
+              恢复草稿默认布局
+            </Button>
+          </>
+        }
+      >
+        <p>当前草稿中的自定义卡片和布局将被替换。保存布局后才会提交变更。</p>
       </Dialog>
       <Dialog
         open={Boolean(state.latest && state.draft)}

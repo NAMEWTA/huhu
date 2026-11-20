@@ -507,6 +507,55 @@ test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重�
   }
 });
 
+test("首页看板：默认布局只替换草稿，保存后重开保留启用的卡片", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const original = (await call("home.dashboard.get")).data.board;
+    const custom = await call("home.dashboard.update", {
+      baseRevision: original.revision,
+      instances: [{ instanceId: "custom-focus", widgetType: "widget:kernel:focus", title: "午后专注", hidden: false, config: {} }],
+      layout: [{ instanceId: "custom-focus", x: 2, y: 0, w: 3, h: 2 }],
+    });
+    expect(custom.ok).toBe(true);
+    expect((await call("plugins.setEnabled", { id: "tasks", enabled: false })).ok).toBe(true);
+    const file = path.join(vault, ".huhu/home/widgets.json");
+    const originalBytes = readFileSync(file);
+    await page.reload();
+    const dashboard = page.getByTestId("home-dashboard");
+    await page.getByTestId("home-customize").click();
+    const trigger = dashboard.getByRole("button", { name: "恢复默认布局", exact: true });
+    const dialog = dashboard.getByRole("dialog", { name: "恢复默认布局" });
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    await expect(dashboard.locator('[data-instance-id="custom-focus"]')).toBeVisible();
+    await trigger.click();
+    await dialog.getByRole("button", { name: "恢复草稿默认布局" }).click();
+    await expect(dashboard.locator('[data-instance-id="default-focus"]')).toBeVisible();
+    await expect(dashboard.locator('[data-instance-id="default-tasks"]')).toHaveCount(0);
+    expect(readFileSync(file)).toEqual(originalBytes);
+    await dashboard.getByRole("button", { name: "取消编辑" }).click();
+    await expect(dashboard.locator('[data-instance-id="custom-focus"]')).toBeVisible();
+    expect(readFileSync(file)).toEqual(originalBytes);
+
+    await page.getByTestId("home-customize").click();
+    await trigger.click();
+    await dialog.getByRole("button", { name: "恢复草稿默认布局" }).click();
+    await dashboard.getByTestId("home-dashboard-save").click();
+    await expect(dashboard.getByRole("status")).toContainText("布局已保存");
+    await page.reload();
+    await expect(dashboard.locator('[data-instance-id="default-focus"]')).toBeVisible();
+    const committed = JSON.parse(readFileSync(file, "utf8"));
+    expect(committed.revision).not.toBe(custom.data.board.revision);
+    expect(committed.instances.map((item: { instanceId: string }) => item.instanceId)).toEqual(["default-metrics", "default-notes", "default-focus"]);
+  } finally {
+    await close();
+  }
+});
+
 test("首页看板：其他会话先保存后，保留草稿并显式采用新版本为基准", async () => {
   const { page, close } = await openApp();
   try {

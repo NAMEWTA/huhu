@@ -314,6 +314,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
             <Dashboard
               state={dashboard}
               definitions={definitions}
+              definitionsReady={available.isSuccess}
               allowed={allowed}
               renderWidget={renderWidget}
               configureWidget={(instance, onChange, disabled) => {
