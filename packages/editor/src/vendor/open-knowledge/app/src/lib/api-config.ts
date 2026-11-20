@@ -11,10 +11,10 @@ export type FetchApiConfigResult =
   | { status: 'absent' }
   | { status: 'error'; code: number | 'network' | 'invalid-body' };
 
-export async function fetchApiConfig(signal?: AbortSignal, request = okFetch): Promise<FetchApiConfigResult> {
+export async function fetchApiConfig(signal?: AbortSignal): Promise<FetchApiConfigResult> {
   let res: Response;
   try {
-    res = await request('/api/config', {
+    res = await okFetch('/api/config', {
       signal,
       headers: { Accept: 'application/json' },
     });

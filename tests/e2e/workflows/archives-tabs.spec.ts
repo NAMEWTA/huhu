@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { treeFolder, treeItem, treeRename } from "../helpers/tree.js";
 import { openApp } from "../helpers/launch.js";
@@ -399,45 +399,6 @@ test("D06 从档案视图重开同一笔记仍读取原评论线程", async () =
     await inspector.getByRole("tab", { name: "批注" }).click();
     await expect(page.getByTestId("comment-thread")).toContainText("档案同一线程");
     expect(stored()).toEqual(initial);
-  } finally {
-    await close();
-  }
-});
-
-test("E03/E04：旧编码档案和类型保留正常列表，并从档案视图转换", async () => {
-  const { page, vault, close } = await openApp();
-  const legacy = Buffer.from([0xc4, 0xe3, 0xba, 0xc3, 0x0a]);
-  const typePath = "Archives/旧模板/index.md";
-  const recordPath = "Archives/通讯录/张三/index.md";
-  try {
-    await seed(page);
-    mkdirSync(path.join(vault, "Archives", "旧模板", "正常记录"), { recursive: true });
-    writeFileSync(path.join(vault, "Archives", "旧模板", "正常记录", "index.md"), "正常正文");
-    writeFileSync(path.join(vault, typePath), legacy);
-    writeFileSync(path.join(vault, recordPath), legacy);
-    await page.getByTestId("notes-open-archives").click();
-    await expect(page.getByTestId("archive-category-card").filter({ hasText: "通讯录" })).toBeVisible();
-    await page.getByTestId("archive-category-card").filter({ hasText: "旧模板" }).click();
-    await expect(page.getByTestId("archive-category-view")).toContainText(typePath);
-    await expect(page.getByTestId("archive-row").filter({ hasText: "正常记录" })).toBeVisible();
-    const convert = async (file: string) => {
-      await page.getByLabel("原文件编码").selectOption("gb18030");
-      await page.getByRole("button", { name: "预览解码" }).click();
-      await expect(page.getByTestId("file-encoding-preview")).toContainText("你好");
-      expect(readFileSync(path.join(vault, file))).toEqual(legacy);
-      await page.getByRole("button", { name: "转换并保存为 UTF-8" }).click();
-      await expect.poll(() => readFileSync(path.join(vault, file))).toEqual(Buffer.from("你好\n"));
-    };
-    await convert(typePath);
-    await expect(page.getByTestId("file-encoding-unsupported")).toHaveCount(0);
-    await page.getByTestId("notes-open-archives").click();
-    await page.getByTestId("archive-category-card").filter({ hasText: "通讯录" }).click();
-    await expect(page.getByTestId("archive-row").filter({ hasText: "李四" })).toBeVisible();
-    await page.getByTestId("archive-row").filter({ hasText: "张三" }).click();
-    await expect(page.getByTestId("archive-view")).toContainText(recordPath);
-    await convert(recordPath);
-    await expect(page.getByTestId("file-encoding-unsupported")).toHaveCount(0);
-    await expect(page.getByTestId("archive-view")).toContainText("你好");
   } finally {
     await close();
   }

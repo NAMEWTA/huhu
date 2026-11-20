@@ -45,7 +45,7 @@ async function diskContains(file: string, value: string | RegExp): Promise<void>
   else await disk.toMatch(value);
 }
 
-async function slash({ editor, page, capture, file, side }: Surface): Promise<void> {
+async function slash({ editor, page, capture, file }: Surface): Promise<void> {
   const menu = page.getByRole("listbox", { name: /Slash commands|斜杠命令/ });
   const options = menu.getByRole("option");
   const lastBlock = editor.locator(":scope > :last-child");
@@ -152,89 +152,11 @@ async function slash({ editor, page, capture, file, side }: Surface): Promise<vo
     return { menuRect, caret, viewport: viewportSize, fits: !!menuRect && menuRect.y >= 0 && menuRect.x >= 0 && menuRect.y + menuRect.height <= viewportSize.height && menuRect.x + menuRect.width <= viewportSize.width };
   });
   await clean();
-  const row = editor.getByText("Filler 14", { exact: true }).first();
-  await capture("prefix-and-wrap", async () => {
-    await row.evaluate((node) => node.scrollIntoView({ block: "center" }));
-    await row.click();
-    await page.keyboard.press("End");
-    await page.keyboard.type("/h2");
-    await expect(menu).toBeHidden();
-    await page.keyboard.press("Backspace");
-    await page.keyboard.press("Backspace");
-    await page.keyboard.press("Backspace");
-    await page.keyboard.insertText("　/");
-    await expect(menu).toBeVisible();
-    await expect(options.first()).toHaveAttribute("aria-selected", "true");
-    await page.keyboard.press("ArrowUp");
-    const wrapsUp = (await options.last().getAttribute("aria-selected")) === "true";
-    await page.keyboard.press("ArrowDown");
-    const wrapsDown = (await options.first().getAttribute("aria-selected")) === "true";
-    return { invalidPrefixHidden: true, fullwidthSpaceOpens: true, wrapsUp, wrapsDown };
-  });
-
-  const liveRow = editor.locator("p").filter({ hasText: /^Filler 14/ }).first();
-  await capture("scroll-while-expanded", async () => {
-    await expect(menu).toBeVisible();
-    const before = (await menu.boundingBox())!;
-    const scroll = await liveRow.evaluate((node) => {
-      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
-        if (parent.scrollHeight <= parent.clientHeight || !/auto|scroll/.test(getComputedStyle(parent).overflowY)) continue;
-        parent.dataset["parityScroll"] = "true";
-        const old = parent.scrollTop;
-        parent.scrollBy(0, 70);
-        return parent.scrollTop - old;
-      }
-      return 0;
-    });
-    expect(scroll).toBeGreaterThan(0);
-    await expect(menu).toBeVisible();
-    await expect.poll(async () => Math.abs((await menu.boundingBox())!.y - before.y)).toBeGreaterThan(20);
-    await expect(editor).toBeFocused();
-    const pointerOwner = await options.first().evaluate((node) => {
-      const box = node.getBoundingClientRect();
-      return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
-    });
-    expect(pointerOwner).toBe(true);
-    return { scroll, moved: true, keyboardOwner: "editor", pointerOwner: "slash option" };
-  });
-
-  await capture("right-edge", async () => {
-    await page.keyboard.press("Escape");
-    await expect(menu).toBeHidden();
-    const scroller = page.locator("[data-parity-scroll]");
-    const paneRight = await scroller.evaluate((node) => node.getBoundingClientRect().right);
-    await liveRow.evaluate((node, paneRight) => {
-      const value = node.getBoundingClientRect();
-      if (!(node instanceof HTMLElement)) throw new Error("Missing editable paragraph");
-      Object.assign(node.style, { position: "relative", left: `${paneRight - value.right - 24}px`, textAlign: "right" });
-    }, paneRight);
-    await liveRow.click();
-    await page.keyboard.press("End");
-    await page.keyboard.insertText("　/");
-    await expect(menu).toBeVisible();
-    const caretRight = await editor.evaluate(() => getSelection()?.getRangeAt(0).getBoundingClientRect().right ?? 0);
-    await expect.poll(async () => {
-      const box = (await menu.boundingBox())!;
-      return box.x + box.width;
-    }).toBeLessThanOrEqual(paneRight + 2);
-    expect(caretRight).toBeGreaterThan(paneRight - 45);
-    return { caretRight, paneRight, fits: true };
-  });
-
-  await capture("switch-cleans-overlay", async () => {
-    await expect(menu).toBeVisible();
-    await (side === "huhu" ? treeItem(page, slashNeighbor) : page.getByRole("treeitem", { name: slashNeighbor, exact: true })).click();
-    await expect(editor).toContainText("Slash switch target");
-    await expect(menu).toBeHidden();
-    await expect(page.locator(".ok-suggestion-preview:visible")).toHaveCount(0);
-    return { cleared: true };
-  });
   await diskContains(file, /^# Slash parity\n\nSlash anchor$/m);
   await diskContains(file, /\nFiller 35\s*$/);
 }
 
 const neighborName = "parity-tab-neighbor.md";
-const slashNeighbor = "parity-slash-neighbor.md";
 
 async function tabs({ side, page, capture }: Surface): Promise<void> {
   const huhu = side === "huhu";
@@ -393,7 +315,6 @@ async function comments({ editor, page, side, capture }: Surface): Promise<void>
     return { available: true, activeThreadCount: await thread.count() };
   });
   await capture("filter-resolved", async () => {
-    if (!huhu && process.env["PARITY_OK_RESOLVED_FIXTURE"] === "1") return { available: false };
     if (!(await resolvedToggle.count())) return { available: false };
     await resolvedToggle.click();
     await expect(thread).toBeVisible();
@@ -419,26 +340,6 @@ async function comments({ editor, page, side, capture }: Surface): Promise<void>
     await expect(editor.locator("[data-comment-thread]")).toHaveCount(0);
     return { threadCount: await thread.count(), highlightCount: await editor.locator("[data-comment-thread]").count() };
   });
-  if (!huhu && process.env["PARITY_OK_RESOLVED_FIXTURE"] === "1") {
-    await capture("pre-resolved-filter-and-reopen", async () => {
-      const seeded = body.filter({ hasText: "Pre-resolved parity fixture" });
-      await expect(seeded).toHaveCount(0);
-      const toggle = page.getByTestId("comment-doc-resolved-toggle").or(page.getByTestId("comment-queue-resolved-toggle"));
-      await expect(toggle).toBeVisible();
-      await toggle.click();
-      await expect(seeded).toBeVisible();
-      const card = seeded.locator("xpath=ancestor::*[.//button[@aria-label='Reopen' or @aria-label='重新打开']][1]");
-      const reopen = card.getByRole("button", { name: /^(Reopen|重新打开)$/ });
-      await expect(reopen).toHaveCount(1);
-      const changed = page.waitForResponse((response) => response.url().endsWith("/api/comment") && response.request().method() === "POST");
-      await reopen.press("Enter");
-      expect((await changed).ok()).toBe(true);
-      await expect(reopen).toHaveCount(0);
-      await expect(seeded).toBeVisible();
-      return { initiallyHidden: true, shownWithFilter: true, reopened: true };
-    });
-  }
-
 }
 
 const actions: Record<Feature, (surface: Surface) => Promise<void>> = { tabs, slash, comments, "block-type": blockType, footnote, table, link };
@@ -475,7 +376,6 @@ for (const feature of Object.keys(fixtures) as Feature[]) {
         if (!base || !okContent) throw new Error("Set PARITY_OK_URL and PARITY_OK_CONTENT");
         const file = path.join(okContent, filename);
         writeFileSync(file, fixtures[feature]);
-        if (feature === "slash") writeFileSync(path.join(path.dirname(file), slashNeighbor), "# Slash switch target\n");
         if (feature === "tabs") writeFileSync(path.join(path.dirname(file), neighborName), "# Tab neighbor\n");
         const browser = await chromium.launch();
         try {
@@ -496,8 +396,7 @@ for (const feature of Object.keys(fixtures) as Feature[]) {
         const file = path.join(vault, filename);
         try {
           writeFileSync(file, fixtures[feature]);
-          if (feature === "slash") writeFileSync(path.join(path.dirname(file), slashNeighbor), "# Slash switch target\n");
-        if (feature === "tabs") writeFileSync(path.join(path.dirname(file), neighborName), "# Tab neighbor\n");
+          if (feature === "tabs") writeFileSync(path.join(path.dirname(file), neighborName), "# Tab neighbor\n");
           await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height), viewport);
           await withEvidence(side, feature, file, page, async (capture) => {
             await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });

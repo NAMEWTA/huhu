@@ -169,7 +169,7 @@ function PdfDocumentView({ vaultId, path, externalChange, ownsCommands, onReload
   // 快捷键只在本查看器内生效（焦点在它里面时），不抢全局输入框的按键
   const onKeyDown = (e: React.KeyboardEvent) => {
     const mod = e.ctrlKey || e.metaKey;
-    if (!ownsCommands || !mod || e.nativeEvent.isComposing || e.defaultPrevented) return;
+    if (!mod) return;
     const act = e.key === "+" || e.key === "=" ? () => stepZoom("in") : e.key === "-" || e.key === "_" ? () => stepZoom("out") : e.key === "0" ? zoomReset : null;
     if (!act) return;
     e.preventDefault();

@@ -79,7 +79,7 @@ export interface CoreRouteDeps {
     listBacklinks(docName: string): Promise<{ source: string; title: string }[]>;
   };
 }
-export type HostRoutes = Record<string, (req: { url: URL; method: string; body: unknown; signal: AbortSignal | undefined }) => Promise<unknown> | unknown>;
+export type HostRoutes = Record<string, (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown>;
 export function coreRoutes(deps: CoreRouteDeps): HostRoutes;
 export interface UploadRequest {
   file: File;
@@ -113,10 +113,6 @@ export interface OkRootProps {
   poolKey?: string;
   commentScope?: string;
   acceptSidebarDrop?: boolean;
-  localReferences?: {
-    subscribe(docName: string, refresh: () => void): () => void;
-    readPdf(path: string, signal: AbortSignal): Promise<Blob>;
-  };
   documentHost?: {
     readAsset?(path: string): Promise<Blob>;
     openDocument?(docName: string): void;

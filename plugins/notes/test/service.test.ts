@@ -29,6 +29,21 @@ async function setup(files: Record<string, string> = {}, draftMoveSteps?: Constr
 }
 const rd = (root: string, p: string) => readFileSync(path.join(root, p), "utf8");
 
+test("改名提交撞名后保留两份笔记及原有双链", async () => {
+  const { root, svc, vf, ops } = await setup({ "source.md": "source", "links.md": "[[source]]" });
+  const exists = vf.exists.bind(vf);
+  vi.spyOn(vf, "exists").mockImplementation((rel) => {
+    const found = exists(rel);
+    if (rel === "target.md" && !found) writeFileSync(path.join(root, rel), "external", { flag: "wx" });
+    return found;
+  });
+  await expect(svc.rename("source.md", "target")).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+  expect(rd(root, "source.md")).toBe("source");
+  expect(rd(root, "target.md")).toBe("external");
+  expect(rd(root, "links.md")).toBe("[[source]]");
+  expect(ops.list().map(({ state }) => state)).toEqual(["rolled_back"]);
+});
+
 describe("新建与校验", () => {
   test("模板、嵌套文件夹、分配 id", async () => {
     const { svc, root } = await setup();

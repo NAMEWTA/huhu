@@ -5,7 +5,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { type FetchApiConfigResult, fetchApiConfig } from '@/lib/api-config';
 import { defaultCollabWsUrl } from '@/lib/cc1';
-import { useOkFetch } from '@/lib/ok-fetch';
 import '@/lib/desktop-bridge-types';
 import type { OkDesktopBridge, OkDesktopConfig } from '@/lib/desktop-bridge-types';
 
@@ -171,8 +170,7 @@ interface LoopState {
   token: number;
 }
 
-export function useCollabUrl(enabled = true): UseCollabUrlState {
-  const request = useOkFetch();
+export function useCollabUrl(): UseCollabUrlState {
   const [state, setState] = useState<
     Pick<UseCollabUrlState, 'collabUrl' | 'attempts' | 'terminal' | 'lastError'>
   >(() =>
@@ -184,7 +182,6 @@ export function useCollabUrl(enabled = true): UseCollabUrlState {
   const [retrySignal, setRetrySignal] = useState(0);
 
   useEffect(() => {
-    if (!enabled) return;
     void retrySignal;
     const token = ++retryTokenRef.current.token;
 
@@ -201,7 +198,7 @@ export function useCollabUrl(enabled = true): UseCollabUrlState {
     }
 
     const handle = runCollabUrlPoll({
-      fetchConfig: (signal) => fetchApiConfig(signal, request),
+      fetchConfig: fetchApiConfig,
       fallbackUrl: defaultCollabWsUrl,
       now: Date.now,
       setTimeout: (cb, ms) => globalThis.setTimeout(cb, ms),
@@ -215,7 +212,7 @@ export function useCollabUrl(enabled = true): UseCollabUrlState {
     return () => {
       handle.cancel();
     };
-  }, [enabled, request, retrySignal]);
+  }, [retrySignal]);
 
   const retry = () => {
     retryTokenRef.current.token += 1;

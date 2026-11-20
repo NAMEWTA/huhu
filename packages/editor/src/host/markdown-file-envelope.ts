@@ -43,7 +43,7 @@ export function hasMixedMarkdownLineEndings(source: string): boolean {
   return endings.some((ending) => ending !== endings[0]);
 }
 
-type TextDelta = readonly { retain?: number; delete?: number; insert?: unknown }[];
+type TextDelta = readonly { retain?: number | undefined; delete?: number | undefined; insert?: unknown }[];
 
 /** Apply editing offsets to the original mixed separators before coalescing edits. */
 export function applyMarkdownFileDelta(source: string, changes: TextDelta): string | null {

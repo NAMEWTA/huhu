@@ -31,11 +31,9 @@ export function boardDocNameFromSrc(
   try {
     const baseUrl = new URL(base);
     const url = new URL(src, baseUrl);
-    const huhuApp = baseUrl.protocol === 'huhu-app:' && baseUrl.host === 'workbench' &&
-      url.protocol === baseUrl.protocol && url.host === baseUrl.host;
-    if (!huhuApp && !BOARD_SRC_PROTOCOLS.has(url.protocol)) return null;
+    if (!BOARD_SRC_PROTOCOLS.has(url.protocol)) return null;
     const sameOrigin =
-      huhuApp || (url.protocol === 'file:' ? baseUrl.protocol === 'file:' : url.origin === baseUrl.origin);
+      url.protocol === 'file:' ? baseUrl.protocol === 'file:' : url.origin === baseUrl.origin;
     if (!sameOrigin) return null;
     const segments = url.pathname
       .split('/')

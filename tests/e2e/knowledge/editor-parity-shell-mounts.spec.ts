@@ -145,11 +145,9 @@ test("富文本选区的源码入口保留定位与磁盘内容", async () => {
         )
         .toBe(line);
     };
-    await expect(page.locator(".cm-content .ok-landing-flash")).toContainText("目标片段", { timeout: 3000 });
     await expectSourceLanding("**目标片段**");
 
     await page.getByRole("tab", { name: "实时预览" }).click();
-    await expect(editor(page).locator(".ok-landing-flash")).toContainText("目标片段", { timeout: 3000 });
     await editor(page).getByText("前一段", { exact: true }).click();
     await page.keyboard.press("Control+Alt+e");
     await expectSourceLanding("前一段");

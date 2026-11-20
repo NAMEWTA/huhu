@@ -171,15 +171,19 @@ describe("多文件操作", () => {
     const files = new VaultFiles(root);
     const log = new OperationLog(files, ops);
     const destination = caseOnly ? "A.md" : "new.md";
+    const aliasesSource = caseOnly && existsSync(path.join(root, destination));
     const exists = files.exists.bind(files);
     vi.spyOn(files, "exists").mockImplementation((rel) => {
       const found = exists(rel);
       if (rel === destination && !found) writeFileSync(path.join(root, rel), "rival", { flag: "wx" });
       return found;
     });
-    await expect(log.run("late-collision", "rename", [{ action: "rename", from: "a.md", path: destination, ...(caseOnly ? { caseOnly: true } : {}) }])).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+    await expect(log.run("late-collision", "rename", [{ action: "rename", from: "a.md", path: destination, ...(caseOnly ? { caseOnly: true } : {}) }])).rejects.toMatchObject(
+      aliasesSource ? { code: "WRITE_PARTIAL", details: { state: "needs_attention" } } : { code: "NAME_CONFLICT" },
+    );
     expect(read(root, destination)).toBe("rival");
-    expect(read(root, "a.md")).toBe("A-old");
+    const original = aliasesSource ? log.load("late-collision")?.steps[0]?.renameStage : "a.md";
+    expect(original && read(root, original)).toBe("A-old");
   });
 
   test("大小写改名在第一跳后检测到目标冲突时恢复原路径", async () => {

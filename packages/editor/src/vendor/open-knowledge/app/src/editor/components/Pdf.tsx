@@ -2,8 +2,7 @@ import { toDesktopAssetHref } from '@inkeep/open-knowledge-core/utils/asset-href
 import { parsePdfAnchor } from '@inkeep/open-knowledge-core/utils/pdf-anchor';
 import { Trans, useLingui } from '@lingui/react/macro';
 import { Check, ChevronDown, PanelLeft, ZoomIn, ZoomOut } from 'lucide-react';
-import { use, useEffect, useRef, useState } from 'react';
-import { LocalReferenceContext } from './live-doc-pool.ts';
+import { useEffect, useRef, useState } from 'react';
 import { computeBaseScale, type PdfLayoutMode } from './pdf-layout.ts';
 
 interface PdfProps {
@@ -81,23 +80,18 @@ export function Pdf(props: PdfProps) {
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const { t } = useLingui();
-  const local = use(LocalReferenceContext);
 
   const totalPages = pages.length;
 
   useEffect(() => {
     if (!props.src) {
-      setPages([]);
-      setError(null);
       setLoading(false);
       return;
     }
-    const src = props.src;
-    const controller = new AbortController();
-    const { signal } = controller;
+    const docUrl = toDesktopAssetHref(props.src);
+    let cancelled = false;
     let loadingTask: PdfLoadingTask | null = null;
     setLoading(true);
-    setPages([]);
     setError(null);
 
     (async () => {
@@ -108,40 +102,38 @@ export function Pdf(props: PdfProps) {
          * compilation path and its `isEvalSupported` opt-out are both gone, so
          * there is no eval left here to harden.
          */
-        // Huhu-authored asset paths are Vault-relative. Preserve external PDF URLs.
-        const input = local && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(src)
-          ? { data: new Uint8Array(await (await local.readPdf(decodeURIComponent(src.replace(/^\//, '').split(/[?#]/, 1)[0] ?? ''), signal)).arrayBuffer()) }
-          : { url: toDesktopAssetHref(src) };
-        signal.throwIfAborted();
-        const task = pdfjs.getDocument(input);
+        const task = pdfjs.getDocument({ url: docUrl });
         loadingTask = task;
         const doc = await task.promise;
-        if (signal.aborted) return;
+        if (cancelled) {
+          await task.destroy();
+          return;
+        }
         docRef.current = doc;
 
         const meta: PageInfo[] = [];
         for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-          if (signal.aborted) return;
+          if (cancelled) return;
           const page = await doc.getPage(pageNumber);
           const v = page.getViewport({ scale: 1 });
           meta.push({ pageNumber, naturalWidth: v.width, naturalHeight: v.height });
         }
-        if (signal.aborted) return;
+        if (cancelled) return;
         setPages(meta);
       } catch (err) {
-        if (signal.aborted) return;
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : t`Failed to load PDF`);
         setLoading(false);
       }
     })();
 
     return () => {
-      controller.abort();
+      cancelled = true;
       void loadingTask?.destroy().catch(() => {});
       loadingTask = null;
       docRef.current = null;
     };
-  }, [props.src, t, local]);
+  }, [props.src, t]);
 
   useEffect(() => {
     const el = containerRef.current;

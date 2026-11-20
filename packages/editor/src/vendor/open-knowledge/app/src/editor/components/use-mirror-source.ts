@@ -16,7 +16,6 @@ import {
   LIVE_DOC_SYNC_WATCHDOG_MS,
   releaseLiveDocProvider,
   useLiveDocAcquirer,
-  useLocalReferenceText,
 } from './live-doc-pool.ts';
 
 interface MdxJsxAttrLike {
@@ -107,40 +106,14 @@ function refusedMirrorStatus(
   }
 }
 
-function renderMirrorSource(markdown: string, src: string, currentName: string): MirrorSourceStatus {
-  let tree: MdastRootLike;
-  try {
-    // biome-ignore lint/suspicious/noExplicitAny: structural type match across the core boundary
-    tree = getSharedMarkdownManager().parseToMdast(markdown) as any;
-  } catch (err) {
-    console.warn('[Mirror] parseToMdast failed', { src, name: currentName, err });
-    return { kind: 'source-removed' };
-  }
-  const node = findMirrorSource(tree, currentName);
-  if (!node) {
-    return { kind: 'name-not-found' };
-  }
-  let html: string;
-  try {
-    html = renderMirrorSubtree(node);
-  } catch (err) {
-    console.warn('[Mirror] renderMirrorSubtree failed', { src, name: currentName, err });
-    return { kind: 'name-not-found' };
-  }
-  return { kind: 'ready', html };
-}
-
 export function useMirrorSource(src: string, name: string): MirrorSourceStatus {
-  const local = useLocalReferenceText(src || null);
-  const isLocal = local !== null;
-  const { collabUrl } = useCollabUrl(!isLocal);
+  const { collabUrl } = useCollabUrl();
   const acquireLiveDoc = useLiveDocAcquirer();
   const [status, setStatus] = useState<MirrorSourceStatus>({ kind: 'loading' });
   const nameRef = useRef(name);
   const recomputeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (isLocal) return;
     if (!src) {
       setStatus({ kind: 'empty-props' });
       return;
@@ -168,11 +141,34 @@ export function useMirrorSource(src: string, name: string): MirrorSourceStatus {
         return;
       }
       const markdown = entry.ySource.toString();
-      const next = markdown
-        ? renderMirrorSource(markdown, src, currentName)
-        : entry.synced ? { kind: 'source-removed' } as const : { kind: 'loading' } as const;
+      if (!markdown) {
+        setStatus(entry.synced ? { kind: 'source-removed' } : { kind: 'loading' });
+        return;
+      }
+      let tree: MdastRootLike;
+      try {
+        // biome-ignore lint/suspicious/noExplicitAny: structural type match across the core boundary
+        tree = getSharedMarkdownManager().parseToMdast(markdown) as any;
+      } catch (err) {
+        console.warn('[Mirror] parseToMdast failed', { src, name: currentName, err });
+        setStatus({ kind: 'source-removed' });
+        return;
+      }
+      const node = findMirrorSource(tree, currentName);
+      if (!node) {
+        setStatus({ kind: 'name-not-found' });
+        return;
+      }
+      let html: string;
+      try {
+        html = renderMirrorSubtree(node);
+      } catch (err) {
+        console.warn('[Mirror] renderMirrorSubtree failed', { src, name: currentName, err });
+        setStatus({ kind: 'name-not-found' });
+        return;
+      }
       setStatus((prev) =>
-        prev.kind === 'ready' && next.kind === 'ready' && prev.html === next.html ? prev : next,
+        prev.kind === 'ready' && prev.html === html ? prev : { kind: 'ready', html },
       );
     };
 
@@ -212,15 +208,12 @@ export function useMirrorSource(src: string, name: string): MirrorSourceStatus {
       recomputeRef.current = null;
       releaseLiveDocProvider(collabUrl, src);
     };
-  }, [collabUrl, src, acquireLiveDoc, isLocal]);
+  }, [collabUrl, src, acquireLiveDoc]);
 
   useEffect(() => {
     nameRef.current = name;
     recomputeRef.current?.();
   }, [name]);
 
-  if (!local) return status;
-  if (!src || !name) return { kind: 'empty-props' };
-  if (local.kind === 'ready') return renderMirrorSource(local.text, src, name);
-  return local.kind === 'loading' ? local : { kind: 'source-removed' };
+  return status;
 }

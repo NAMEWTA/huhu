@@ -351,7 +351,7 @@ test("逐项测试先将焦点移到顶层段落，离开代码块或引用后�
 });
 
 test("代码块设置弹层和预览编辑对话框响应键盘，预览修改保存重开", async () => {
-  const { app, page, vault, close } = await openApp();
+  const { page, vault, close } = await openApp();
   const file = path.join(vault, "弹层原语.md");
   const before = "<strong>弹层预览甲</strong>";
   const after = "<strong>弹层预览乙</strong>";
@@ -384,13 +384,6 @@ test("代码块设置弹层和预览编辑对话框响应键盘，预览修改�
 
     await reopenSavedNote(page, file, original.replace(before, after));
     await expect(block.locator("iframe").contentFrame().getByText("弹层预览乙", { exact: true })).toBeVisible();
-    await editor(page).getByText("导言", { exact: true }).click();
-    await page.keyboard.press("ControlOrMeta+a");
-    await page.keyboard.press("ControlOrMeta+c");
-    const exported = await app.evaluate(({ clipboard }) => ({ html: clipboard.readHTML(), text: clipboard.readText() }));
-    expect(exported.text).toContain(after);
-    expect(exported.html).toContain("弹层预览乙");
-    expect(exported.html).not.toMatch(/<iframe|ok-codeblock-preview|ok-resize-handle/);
     await block.hover();
     const hidePreview = block.getByRole("button", { name: "隐藏 HTML 预览", exact: true });
     await expect(hidePreview).toHaveAttribute("aria-pressed", "true");

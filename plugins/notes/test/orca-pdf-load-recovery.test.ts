@@ -6,29 +6,29 @@ import { createPdfViewerSession } from "../src/vendor/orca/pdf/pdf-viewer-sessio
 import { pdfViewPositionCache } from "../src/vendor/orca/pdf/scroll-cache.js";
 
 const { pdf, FakeBus } = vi.hoisted(() => {
-class FakeBus {
-  listeners = new Map<string, Set<(event: never) => void>>();
-  on(name: string, listener: (event: never) => void) {
-    const group = this.listeners.get(name) ?? new Set();
-    group.add(listener);
-    this.listeners.set(name, group);
+  class FakeBus {
+    listeners = new Map<string, Set<(event: never) => void>>();
+    on(name: string, listener: (event: never) => void) {
+      const group = this.listeners.get(name) ?? new Set();
+      group.add(listener);
+      this.listeners.set(name, group);
+    }
+    off(name: string, listener: (event: never) => void) {
+      this.listeners.get(name)?.delete(listener);
+    }
+    dispatch(name: string, event: unknown = {}) {
+      for (const listener of this.listeners.get(name) ?? []) listener(event as never);
+    }
+    count() {
+      return [...this.listeners.values()].reduce((n, listeners) => n + listeners.size, 0);
+    }
   }
-  off(name: string, listener: (event: never) => void) {
-    this.listeners.get(name)?.delete(listener);
-  }
-  dispatch(name: string, event: unknown = {}) {
-    for (const listener of this.listeners.get(name) ?? []) listener(event as never);
-  }
-  count() {
-    return [...this.listeners.values()].reduce((n, listeners) => n + listeners.size, 0);
-  }
-}
-const pdf = {
-  getDocument: vi.fn(),
-  viewers: [] as { signal: AbortSignal; disposeLocalization: ReturnType<typeof vi.fn>; bus: FakeBus; detach: ReturnType<typeof vi.fn> }[],
-  order: [] as string[],
-};
-return { pdf, FakeBus };
+  const pdf = {
+    getDocument: vi.fn(),
+    viewers: [] as { signal: AbortSignal; disposeLocalization: ReturnType<typeof vi.fn>; bus: FakeBus; detach: ReturnType<typeof vi.fn> }[],
+    order: [] as string[],
+  };
+  return { pdf, FakeBus };
 });
 
 vi.mock("pdfjs-dist", () => ({
@@ -58,7 +58,7 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
       pdf.order.push(doc ? "display" : "detach");
     });
     l10n = { destroy: vi.fn(async () => {}) };
-    constructor({ abortSignal, eventBus }: { abortSignal: AbortSignal; eventBus: FakeBus }) {
+    constructor({ abortSignal, eventBus }: { abortSignal: AbortSignal; eventBus: InstanceType<typeof FakeBus> }) {
       pdf.viewers.push({ signal: abortSignal, bus: eventBus, disposeLocalization: this.l10n.destroy, detach: this.setDocument });
     }
   },
@@ -82,10 +82,13 @@ beforeEach(() => {
   pdf.viewers.length = 0;
   pdf.order.length = 0;
   pdfViewPositionCache.clear();
-  vi.stubGlobal("ResizeObserver", class {
-    observe() {}
-    disconnect() {}
-  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
 });
 
 function setupSession(options: { scale?: number } = {}) {
@@ -147,7 +150,7 @@ test("replacement releases the old viewer and worker before loading and restores
   first.resolve(documentFor("old"));
   await first.promise;
   const old = sessions[0]!;
-  old.eventBus.dispatch("pagesinit");
+  old.eventBus.dispatch("pagesinit", {});
   old.eventBus.dispatch("updateviewarea", { location: { pageNumber: 5, top: 310, left: 24 } });
   loader.load(fixture);
   expect(pdf.order).toEqual(["display", "detach", "destroy", "load replacement"]);
@@ -159,8 +162,8 @@ test("replacement releases the old viewer and worker before loading and restores
   second.resolve(documentFor("new"));
   await second.promise;
   const replacement = sessions[1]!;
-  replacement.eventBus.dispatch("pagesinit");
-  replacement.eventBus.dispatch("pagesloaded");
+  replacement.eventBus.dispatch("pagesinit", {});
+  replacement.eventBus.dispatch("pagesloaded", {});
   expect(replacement.viewer.currentScale).toBe(1.6);
   expect(replacement.viewer.scrollPageIntoView).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 5 }));
   expect(replacement.viewer.update).toHaveBeenCalledOnce();

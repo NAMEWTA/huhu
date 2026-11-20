@@ -11,7 +11,6 @@ import { CommentScopeProvider } from "@/comments/store";
 import { PageListProvider } from "@/components/PageListContext";
 import { PropertyProvider } from "@/components/PropertyContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { LocalReferenceContext, type LocalReferenceHost } from "@/editor/components/live-doc-pool";
 import { resetInternalDocPreviewCache } from "@/editor/link-preview/internal-doc-preview";
 import { linkLabel } from "@/editor/registry/block-labels";
 import { dynamicActivate, getRequestedLocale } from "@/lib/activate-locale";
@@ -40,7 +39,6 @@ export interface OkRootProps {
   commentScope?: string;
   /** 打开文档 / 目标的宿主回调（wiki-link、内部链接点击） */
   documentHost?: DocumentHostCallbacks;
-  localReferences?: LocalReferenceHost;
   acceptSidebarDrop?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -75,7 +73,7 @@ export function okRootClassName(dark: boolean, className?: string): string {
   return `ok-root${dark ? " dark" : ""}${className ? ` ${className}` : ""}`;
 }
 
-export function OkRoot({ children, locale, host, routes, config, poolKey, commentScope, documentHost, localReferences, acceptSidebarDrop, className, style }: OkRootProps) {
+export function OkRoot({ children, locale, host, routes, config, poolKey, commentScope, documentHost, acceptSidebarDrop, className, style }: OkRootProps) {
   const dark = useHuhuDarkClass();
   const [ready, setReady] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -159,9 +157,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, commen
                   <OkFetchContext value={request}>
                     <PageListProvider>
                       <PropertyProvider>
-                        <CommentScopeProvider scope={commentScope}>
-                          <LocalReferenceContext value={localReferences ?? null}>{children}</LocalReferenceContext>
-                        </CommentScopeProvider>
+                        <CommentScopeProvider scope={commentScope}>{children}</CommentScopeProvider>
                       </PropertyProvider>
                     </PageListProvider>
                   </OkFetchContext>
