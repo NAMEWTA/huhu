@@ -12,6 +12,7 @@ import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
 import type { TaskDispatchExecutor } from "../src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord, RuleSource } from "../src/engine/dispatch-store.js";
 import type { TaskRuleDispatch } from "../src/engine/index.js";
+import { TasksService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
@@ -477,6 +478,77 @@ test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeou
     data: expect.arrayContaining([expect.objectContaining({ requestId: "normal", status: "awaiting" }), expect.objectContaining({ requestId: "native", status: "closed" })]),
   });
   expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 1 })] });
+});
+
+test("原生回答先落盘，竞争只保存一个回答，确认丢失后只对账", { timeout: 60_000 }, async () => {
+  const { root, fake, engine, task, run, execution } = await startBoundRun();
+  const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockRejectedValue(new Error("合成确认丢失"));
+  const inspect = vi.fn<NonNullable<TaskDispatchExecutor["inspectAnswer"]>>().mockResolvedValue({ status: "unknown" });
+  fake.answer = answer;
+  fake.inspectAnswer = inspect;
+  const question = {
+    version: 1,
+    receiptId: "reply-question",
+    kind: "question",
+    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } },
+    payload: { mode: "native_deferred", requestId: "ask-a", requestVersion: 2, text: "请选一个", options: ["一", "二"], nativeRequestId: "private-route" },
+  } as const satisfies ExecutionReceipt;
+  expect(await call(engine, "plugins.setEnabled", { id: "automations", enabled: false })).toMatchObject({ ok: true });
+  expect(await submitReceipt(engine, question)).toMatchObject({ ok: true });
+  expect(await submitReceipt(engine, { ...question, receiptId: "later-question", payload: { ...question.payload, requestId: "ask-b", nativeRequestId: "other-private-route" } })).toMatchObject({ ok: true });
+
+  const base = { taskId: task.id, runId: run.runId, sessionId: execution.sessionBinding.sessionId, requestId: "ask-a", requestVersion: 2 };
+  const first = { ...base, replyId: "reply-a", answer: "一" };
+  const second = { ...base, replyId: "reply-b", answer: "二" };
+  const answerComments = async (running: RunningEngine) => (await call<TaskDto>(running, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "answer");
+  expect(await call(engine, "tasks.reply", first, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  expect(await call(engine, "tasks.reply", { ...first, answer: "未列出的选项" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(await call(engine, "tasks.reply", { ...first, requestVersion: 1 })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  const addComment = TasksService.prototype.addComment;
+  const blocked = vi.spyOn(TasksService.prototype, "addComment").mockImplementation(function (this: TasksService, id, comment) {
+    if (comment.event === "answer") throw new Error("合成评论写入中断");
+    return addComment.call(this, id, comment);
+  });
+  let winner = first;
+  let saved: unknown;
+  try {
+    const responses = await Promise.all([call(engine, "tasks.reply", first), call(engine, "tasks.reply", second)]);
+    expect(responses.filter(({ ok }) => ok)).toHaveLength(1);
+    const winningIndex = responses.findIndex(({ ok }) => ok);
+    winner = winningIndex === 0 ? first : second;
+    saved = responses[winningIndex]!.data;
+    expect(saved).toMatchObject({ replyId: winner.replyId, status: "pending" });
+    expect(JSON.stringify(saved)).not.toMatch(/nativeRequestId|"answer":/);
+    expect(responses[1 - winningIndex]).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect((await call(engine, "tasks.reply", winner)).data).toEqual(saved);
+    expect(await call(engine, "tasks.reply", { ...winner, answer: winner === first ? second.answer : first.answer })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    expect(await answerComments(engine)).toEqual([]);
+    expect(answer).not.toHaveBeenCalled();
+    await stop(engine);
+  } finally {
+    blocked.mockRestore();
+  }
+
+  const { answer: acceptedText, ...lookup } = winner;
+  const restarted = await start(root);
+  await vi.waitFor(async () => expect(await call(restarted, "tasks.reply.read", lookup)).toMatchObject({ ok: true, data: { status: "unknown" } }));
+  const sent = { execution, requestId: "ask-a", requestVersion: 2, nativeRequestId: "private-route", replyId: winner.replyId, answer: acceptedText };
+  expect(answer).toHaveBeenCalledExactlyOnceWith(sent, expect.any(AbortSignal));
+  expect(await call(restarted, "tasks.questions.list", { taskId: task.id })).toMatchObject({
+    ok: true,
+    data: expect.arrayContaining([expect.objectContaining({ requestId: "ask-a", reply: expect.objectContaining({ status: "unknown" }) }), expect.objectContaining({ requestId: "ask-b", status: "awaiting" })]),
+  });
+  await stop(restarted);
+
+  inspect.mockClear();
+  inspect.mockResolvedValue({ status: "accepted" });
+  const recovered = await start(root);
+  await vi.waitFor(async () => expect(await call(recovered, "tasks.reply.read", lookup)).toMatchObject({ ok: true, data: { status: "accepted" } }));
+  expect(inspect).toHaveBeenCalledExactlyOnceWith(sent, expect.any(AbortSignal));
+  expect(answer).toHaveBeenCalledTimes(1);
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect(await answerComments(recovered)).toMatchObject([{ run: run.runId, ask: "ask-a", event: "answer", body: acceptedText }]);
+  expect(await call(recovered, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 1 })] });
 });
 
 test("Automations 停用后，人工受理、两规则竞争及任务正文快照在重开后沿用一个 run", { timeout: 60_000 }, async () => {

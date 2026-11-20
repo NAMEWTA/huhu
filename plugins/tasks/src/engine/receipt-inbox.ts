@@ -27,6 +27,7 @@ export const TaskQuestionView = z.strictObject({
   at: z.iso.datetime(),
 });
 type QuestionView = z.infer<typeof TaskQuestionView>;
+type StoredQuestion = { view: QuestionView; receipt: Extract<ExecutionReceipt, { kind: "question" }>; payloadHash: string };
 
 function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
@@ -98,8 +99,18 @@ export class TaskReceiptInbox {
     }
   }
 
-  questions(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void): QuestionView[] {
-    const questions = new Map<string, { view: QuestionView; payloadHash: string }>();
+  questions(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError: (error: unknown) => void = () => {}): QuestionView[] {
+    return this.currentQuestions(taskId, bound, onError)
+      .map(({ view }) => view)
+      .sort((a, b) => a.at.localeCompare(b.at) || a.runId.localeCompare(b.runId) || a.requestId.localeCompare(b.requestId));
+  }
+
+  question(taskId: string, runId: string, requestId: string, bound: (execution: ExecutionBinding) => boolean): StoredQuestion | undefined {
+    return this.currentQuestions(taskId, bound).find(({ view }) => view.runId === runId && view.requestId === requestId);
+  }
+
+  private currentQuestions(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void): StoredQuestion[] {
+    const questions = new Map<string, StoredQuestion>();
     const finished = new Set<string>();
     for (const file of this.filesInInbox()) {
       try {
@@ -117,18 +128,21 @@ export class TaskReceiptInbox {
         const previous = questions.get(key);
         const view: QuestionView = { runId: execution.runId, sessionId: execution.sessionBinding.sessionId, requestId, requestVersion, mode, text, options, at, status: "awaiting" };
         const payloadHash = fingerprint(receipt.payload);
-        if (!previous || requestVersion > previous.view.requestVersion) questions.set(key, { view, payloadHash });
+        if (!previous || requestVersion > previous.view.requestVersion) questions.set(key, { view, receipt, payloadHash });
         else if (requestVersion === previous.view.requestVersion && payloadHash !== previous.payloadHash) {
           // Counterparts supplied the same version with conflicting content. This question cannot be answered.
           questions.set(key, { ...previous, view: { ...previous.view, status: "closed" } });
         }
       } catch (error) {
-        onError?.(error);
+        if (!onError) throw error;
+        onError(error);
       }
     }
-    return [...questions.values()]
-      .map(({ view }) => (view.mode === "native_deferred" && finished.has(view.runId) ? { ...view, status: "closed" as const } : view))
-      .sort((a, b) => a.at.localeCompare(b.at) || a.runId.localeCompare(b.runId) || a.requestId.localeCompare(b.requestId));
+    return [...questions.values()].map((question) => {
+      const { view } = question;
+      if (view.mode === "native_deferred" && finished.has(view.runId)) return { ...question, view: { ...view, status: "closed" } };
+      return question;
+    });
   }
 
   async replay(tasks: TasksService, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {

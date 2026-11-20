@@ -16,7 +16,9 @@ import {
 } from "./dispatch-store.js";
 import type { TasksService } from "./service.js";
 import type { TaskReceiptInbox } from "./receipt-inbox.js";
+import { type AgentReplyInput, type AgentReplyResult, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup } from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
+import type { z } from "zod";
 
 export type TaskDispatchWork = Readonly<{
   eventId: string;
@@ -38,6 +40,8 @@ export interface TaskDispatchExecutor {
   dispatch(work: TaskDispatchWork, signal: AbortSignal): Promise<TaskDispatchResult>;
   /** not_sent 必须是可证明未送达；空列表或离线只能返回 unknown。 */
   inspect(work: TaskDispatchWork, signal: AbortSignal): Promise<Exclude<TaskDispatchResult, "unsupported">>;
+  answer?(input: AgentReplyInput, signal: AbortSignal): Promise<AgentReplyResult>;
+  inspectAnswer?(input: AgentReplyInput, signal: AbortSignal): Promise<AgentReplyResult>;
 }
 
 type Rejection = NonNullable<DispatchReceipt["reason"]> | "stale_input" | "not_due" | "expired" | ReturnType<DispatchStore["ownerIssue"]>;
@@ -56,6 +60,7 @@ export class TaskDispatch {
     private readonly tasks: TasksService,
     private readonly store: DispatchStore,
     private readonly receipts: TaskReceiptInbox,
+    private readonly replies: TaskNativeReplies,
     private readonly now: () => Date,
     private readonly machineId: string,
     private readonly executor?: TaskDispatchExecutor,
@@ -69,10 +74,20 @@ export class TaskDispatch {
 
   consumeReceipt(receipt: ExecutionReceipt, signal: AbortSignal) {
     const stopped = AbortSignal.any([signal, this.abort.signal]);
-    stopped.throwIfAborted();
-    const expected = this.boundExecution(receipt.execution);
-    if (!expected) throw new HuhuError("RUN_UNKNOWN", "任务仍在等待已确认的执行绑定", { retryable: true });
-    return this.receipts.consume(receipt, expected, stopped);
+    return this.tasks.withTaskWrite(receipt.execution.taskId, () => {
+      stopped.throwIfAborted();
+      const expected = this.boundExecution(receipt.execution);
+      if (!expected) throw new HuhuError("RUN_UNKNOWN", "任务仍在等待已确认的执行绑定", { retryable: true });
+      return this.receipts.consume(receipt, expected, stopped);
+    });
+  }
+
+  reply(input: z.infer<typeof TaskReplyInput>, signal: AbortSignal) {
+    return this.replies.accept(input, this.matchesExecution, AbortSignal.any([signal, this.abort.signal]));
+  }
+
+  readReply(input: z.infer<typeof TaskReplyLookup>) {
+    return this.replies.readReply(input, this.matchesExecution);
   }
 
   private boundExecution({ dispatchId, taskId }: ExecutionBinding): ExecutionBinding | undefined {
@@ -88,7 +103,11 @@ export class TaskDispatch {
 
   questions(taskId: string) {
     this.tasks.read(taskId);
-    return this.receipts.questions(taskId, this.matchesExecution, this.onError);
+    const replies = this.replies.list(taskId, this.matchesExecution);
+    return this.receipts.questions(taskId, this.matchesExecution, this.onError).map((question) => {
+      const reply = replies.find((reply) => reply.runId === question.runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion);
+      return { ...question, ...(reply && { reply }) };
+    });
   }
 
   hasHold(taskId: string): boolean {
@@ -100,7 +119,7 @@ export class TaskDispatch {
   }
 
   runs(taskId: string): ReturnType<TasksService["runs"]> {
-    const questions = this.receipts.questions(taskId, this.matchesExecution, this.onError).filter(({ status }) => status === "awaiting");
+    const questions = this.questions(taskId).filter(({ status, reply }) => status === "awaiting" && !reply);
     return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt }) => {
       if (receipt.taskId !== taskId || !claim) return [];
       let state = "queued";
@@ -206,6 +225,7 @@ export class TaskDispatch {
         }
       }
       await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
+      await this.replies.replay(this.matchesExecution, this.abort.signal, this.onError);
     } catch (error) {
       this.onError?.(error);
     } finally {

@@ -4,6 +4,7 @@ import { AgentDispatchInputSchema, AgentDispatchResponseSchema, AgentDispatchTar
 import { z } from "zod";
 import type { TaskDispatchExecutor, TaskDispatchResult, TaskDispatchWork } from "./dispatch.js";
 import { fingerprint } from "./dispatch-store.js";
+import { AgentReplyResult } from "./native-replies.js";
 
 const Targets = z.array(AgentDispatchTargetInfoSchema);
 const InputText = AgentDispatchInputSchema.shape.input;
@@ -107,6 +108,14 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
       const value = await api.call("agent.runs.inspect", keyOf(work), { signal });
       signal.throwIfAborted();
       return outcome(AgentDispatchResponseSchema.parse(value), work);
+    },
+
+    async answer(input, signal) {
+      return AgentReplyResult.parse(await api.call("agent.runs.answer", input, { idempotencyKey: input.replyId, signal }));
+    },
+
+    async inspectAnswer(input, signal) {
+      return AgentReplyResult.parse(await api.call("agent.runs.answer.inspect", input, { signal }));
     },
   };
 }

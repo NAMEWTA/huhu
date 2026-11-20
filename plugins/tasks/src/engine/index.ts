@@ -22,6 +22,7 @@ import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore } from "./dispatch-store.js";
+import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { TasksService } from "./service.js";
 
@@ -96,7 +97,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   const files = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
   const store = new DispatchStore(files, api.vault.vaultId, machine);
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
-  const dispatch: TaskDispatch = new TaskDispatch(svc, store, new TaskReceiptInbox(files, now), now, machine, executor ?? undefined, opts.onError);
+  const inbox = new TaskReceiptInbox(files, now);
+  const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined);
+  const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError);
 
   api.defineCapability(
     def({
@@ -122,10 +125,43 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       exposable: false,
       defaultExposed: false,
       input: z.strictObject({ taskId: z.string() }),
-      output: z.array(TaskQuestionView),
+      output: z.array(TaskQuestionView.extend({ reply: TaskReplyView.optional() })),
       handler: ({ caller }, { taskId }) => {
         if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务请求");
         return dispatch.questions(taskId);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.reply",
+      plugin: "tasks",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      idempotency: "handler",
+      input: TaskReplyInput,
+      output: TaskReplyView,
+      handler: async ({ caller, signal }, input) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("回答任务请求");
+        const reply = await dispatch.reply(input, signal);
+        void dispatch.check();
+        return reply;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.reply.read",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: TaskReplyLookup,
+      output: TaskReplyView,
+      handler: ({ caller }, input) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务回答");
+        return dispatch.readReply(input);
       },
     }),
   );
