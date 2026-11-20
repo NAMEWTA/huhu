@@ -64,10 +64,7 @@ describe("VaultFiles", () => {
     const f = new VaultFiles(root);
     const parallel = new VaultFiles(root);
     const expectedVersion = f.currentVersion("a.md");
-    const [first, second] = await Promise.allSettled([
-      f.write("a.md", Buffer.from("accepted"), { expectedVersion }),
-      parallel.write("a.md", Buffer.from("stale"), { expectedVersion }),
-    ]);
+    const [first, second] = await Promise.allSettled([f.write("a.md", Buffer.from("accepted"), { expectedVersion }), parallel.write("a.md", Buffer.from("stale"), { expectedVersion })]);
     const committed = versionOf(Buffer.from("accepted"));
     expect(first).toEqual({ status: "fulfilled", value: { version: committed } });
     expect(second).toMatchObject({ status: "rejected", reason: { code: "VERSION_CONFLICT", details: { currentVersion: committed } } });

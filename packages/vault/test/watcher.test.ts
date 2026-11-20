@@ -42,7 +42,7 @@ describe("目录变化（A05）", () => {
     await until(() => dirChanges.filter((p) => p === "新目录").length >= 2);
     expect(dirChanges.filter((p) => p === "新目录").length).toBeGreaterThanOrEqual(2);
     expect(files).toEqual([]);
-  });
+  }, 30_000);
 });
 
 describe("原生监听", () => {

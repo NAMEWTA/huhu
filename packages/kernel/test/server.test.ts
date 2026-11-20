@@ -56,7 +56,9 @@ describe("独立 Web 监听器", () => {
   test("默认关闭，使用本机自动端口，停止后断开分享并保留 Engine 控制端", async () => {
     const { base, port, tokens } = await boot();
     let requestArrived!: () => void;
-    const received = new Promise<void>((resolve) => { requestArrived = resolve; });
+    const received = new Promise<void>((resolve) => {
+      requestArrived = resolve;
+    });
     const web = new WebListener((req, res) => {
       if (req.url === "/hold") {
         requestArrived();
@@ -82,7 +84,10 @@ describe("独立 Web 监听器", () => {
       expect(await web.start(config)).toEqual(first);
       expect(await (await fetch(url)).text()).toBe("desktop share");
 
-      const held = fetch(`${url}/hold`).then(() => "completed", () => "disconnected");
+      const held = fetch(`${url}/hold`).then(
+        () => "completed",
+        () => "disconnected",
+      );
       await received;
       expect(await web.stop()).toEqual({ state: "stopped" });
       expect(await held).toBe("disconnected");
@@ -103,7 +108,10 @@ describe("独立 Web 监听器", () => {
       { address: "2001:db8::20", family: "IPv6", internal: false, netmask: "ffff:ffff:ffff:ffff::", mac: "00:00:00:00:00:00", cidr: "2001:db8::20/64", scopeid: 0 },
       { address: "fe80::30", family: "IPv6", internal: false, netmask: "ffff:ffff:ffff:ffff::", mac: "00:00:00:00:00:00", cidr: "fe80::30/64", scopeid: 1 },
     ];
-    const web = new WebListener((_req, res) => res.end("LAN share"), () => ({ Ethernet: entries }));
+    const web = new WebListener(
+      (_req, res) => res.end("LAN share"),
+      () => ({ Ethernet: entries }),
+    );
     try {
       const local = await web.start({ mode: "local", port: 0 });
       expect(local).toMatchObject({ state: "running", addresses: [{ interfaceName: null }] });

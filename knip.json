@@ -21,14 +21,21 @@
       "ignoreDependencies": ["tsx"]
     },
     "apps/desktop": {
-      "ignoreDependencies": ["@parcel/watcher", "ssh2"],
+      "ignoreDependencies": ["@napi-rs/keyring", "@parcel/watcher", "imapflow", "nodemailer", "ssh2"],
       "entry": ["scripts/before-pack.cjs", "src/index.ts"]
     },
     "apps/cli": {
-      "entry": ["src/bin.ts"]
+      "entry": ["src/bin.ts"],
+      "ignoreDependencies": ["tsx"]
+    },
+    "plugins/agent-cli": {
+      "entry": ["src/engine/codex-dispatch-helper.cjs"]
     },
     "plugins/tasks": {
       "ignoreDependencies": ["tsx"]
+    },
+    "plugins/versioning": {
+      "ignoreBinaries": ["taskkill.exe"]
     },
     "packages/editor": {
       "ignoreDependencies": [
@@ -39,8 +46,6 @@
         "mdast-util-to-hast",
         "micromark-util-sanitize-uri",
         "node-diff3",
-        "rehype-parse",
-        "rehype-remark",
         "rehype-stringify",
         "remark-rehype",
         "vite-tsconfig-paths",
