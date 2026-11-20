@@ -15,7 +15,7 @@ const intentSchema = identity.extend({
   retry: lineage.optional(),
   claimedAt: z.iso.datetime(),
   from: z.email(),
-  auth: z.enum(["password", "app-password"]),
+  auth: z.enum(["password", "app-password", "oauth2"]),
   smtp: z.strictObject({ host: z.string().min(1), port: z.number().int().min(1).max(65_535), security: z.enum(["tls", "starttls", "none"]) }),
   draft: storedDraftContent,
   text: z.string().max(2 * 1024 * 1024),

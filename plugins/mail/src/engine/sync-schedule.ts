@@ -2,6 +2,7 @@ import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
+import { MailAccountError } from "./discovery.js";
 import type { MailNotificationSink, registerMessageCache } from "./message-cache.js";
 
 const settingsFile = ".huhu/mail/sync-settings.json";
@@ -91,24 +92,38 @@ export function registerMailSyncSchedule(api: HuhuApi, accounts: ReturnType<type
       stopWatcher(accountId);
       states.set(accountId, { accountId, phase: "refreshing", at: new Date(now()).toISOString() });
       changed();
+      let revision = account.revision;
       try {
+        if (definition.oauth) {
+          await accounts!.ensureOAuthAccess(accountId, stopped);
+          const current = accounts!.readDefinition(accountId);
+          if (!current || JSON.stringify(current.definition) !== JSON.stringify(definition)) continue;
+          revision = current.revision;
+        }
         let more = false;
         let idle: Awaited<ReturnType<typeof messages.refresh>>["idle"];
         for (const folder of definition.folders) {
           stopped.throwIfAborted();
-          if (accounts!.readDefinition(accountId)?.revision !== account.revision) break;
+          if (accounts!.readDefinition(accountId)?.revision !== revision) break;
           const result = await messages.refresh({ accountId, folder: folder.path }, stopped);
           more ||= result.more;
           idle ??= result.idle;
         }
         if (stopped.aborted) return;
-        if (!read().minutes || accounts!.readDefinition(accountId)?.revision !== account.revision) continue;
+        if (!read().minutes || accounts!.readDefinition(accountId)?.revision !== revision) continue;
         failures.set(accountId, { count: 0, next: now() + (more ? 1000 : minutes * 60_000) });
         states.set(accountId, { accountId, phase: "ready", at: new Date(now()).toISOString() });
-        if (idle && !more) watchInbox(accountId, account.revision, idle);
-      } catch {
+        if (idle && !more) watchInbox(accountId, revision, idle);
+      } catch (error) {
         if (stopped.aborted) return;
-        if (accounts!.readDefinition(accountId)?.revision !== account.revision) continue;
+        if (accounts!.readDefinition(accountId)?.revision !== revision) continue;
+        if (error instanceof MailAccountError && error.code === "oauth-reauthorize") {
+          failures.delete(accountId);
+          states.delete(accountId);
+          api.events.publish("entity.changed", { kind: "mail-account", id: accountId, op: "updated" });
+          changed();
+          continue;
+        }
         const count = Math.min((failure?.count ?? 0) + 1, 10);
         const next = now() + Math.min(minutes * 60_000, 5000 * 2 ** (count - 1));
         failures.set(accountId, { count, next });

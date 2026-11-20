@@ -6,7 +6,7 @@ export type SmtpMode = "accept" | "reject-data" | "lose-reply" | "reject-rcpt" |
 type Data = { sender: string; recipients: string[]; wire: string };
 
 // Adapted from the S0.2 loopback-only protocol probe. Only mail commands and DATA are recorded.
-export async function loopbackSmtp(password: string) {
+export async function loopbackSmtp(password: string, acceptOAuth?: (email: string, token: string) => boolean) {
   const sockets = new Set<Socket>();
   const messages: Data[] = [];
   const counts = { connections: 0, authenticated: 0, data: 0 };
@@ -48,7 +48,15 @@ export async function loopbackSmtp(password: string) {
             () => socket.destroy(),
           );
         } else if (line.startsWith("EHLO ")) {
-          reply("250-localhost\r\n250 AUTH PLAIN");
+          reply(`250-localhost\r\n250 AUTH ${acceptOAuth ? "XOAUTH2" : "PLAIN"}`);
+        } else if (line.startsWith("AUTH XOAUTH2 ")) {
+          const decoded = Buffer.from(line.slice("AUTH XOAUTH2 ".length), "base64").toString("utf8");
+          const [user, authorization, tail] = decoded.split("\x01", 3);
+          if (!user?.startsWith("user=") || !authorization?.startsWith("auth=Bearer ") || tail !== "" || !decoded.endsWith("\x01\x01") || !acceptOAuth?.(user.slice(5), authorization.slice(12))) reply("535 invalid fixture credentials");
+          else {
+            counts.authenticated++;
+            reply("235 authentication successful");
+          }
         } else if (line.startsWith("AUTH PLAIN ")) {
           const auth = Buffer.from(line.slice("AUTH PLAIN ".length), "base64").toString("utf8").split("\0");
           if (auth[2] !== password || !auth[1]?.endsWith("@example.invalid")) reply("535 invalid fixture credentials");

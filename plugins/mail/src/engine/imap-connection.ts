@@ -11,7 +11,7 @@ function imapFailure(error: unknown, failure: MailAccountErrorCode): MailAccount
 }
 
 export async function withImapConnection<T>(
-  { endpoint, email, password, signal }: MailDiscoveryRequest,
+  { endpoint, email, password, oauth, signal }: MailDiscoveryRequest,
   cancellation: "discovery-stale" | "cancelled",
   failure: "folder-list" | "message-read",
   operation: (client: ImapFlow) => Promise<T>,
@@ -24,7 +24,7 @@ export async function withImapConnection<T>(
     secure: endpoint.security === "tls",
     doSTARTTLS: endpoint.security === "starttls",
     tls: { rejectUnauthorized: true },
-    auth: { user: email, pass: password },
+    auth: oauth ? { user: email, accessToken: password } : { user: email, pass: password },
     logger: false,
     disableAutoIdle: true,
   });

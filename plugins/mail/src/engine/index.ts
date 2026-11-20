@@ -10,3 +10,4 @@ export { MAIL_OUTBOX_SERVICE, type MailOutboxService } from "./outbox.js";
 export { createMailSmtpTransport, type MailSmtpTransport } from "./smtp.js";
 export type { MailLocationTarget } from "./conversations.js";
 export type { MailSyncOptions } from "./sync-schedule.js";
+export { createMailOAuth, type MailOAuthClients, type MailOAuthRuntime } from "./oauth-provider.js";

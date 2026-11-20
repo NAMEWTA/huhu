@@ -688,7 +688,16 @@ function Mailbox({
         setOrdinary((current) => (current?.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
       }
     } catch (err) {
-      if (!controller.signal.aborted) setError(err instanceof CapabilityError ? err.message : "无法刷新此目录。");
+      if (!controller.signal.aborted)
+        setError(
+          err instanceof CapabilityError && err.details?.reason === "oauth-reauthorize"
+            ? "服务已拒绝当前授权，请重新授权。"
+            : err instanceof CapabilityError && err.details?.reason === "oauth-not-configured"
+              ? "当前 Engine 主机没有此邮箱的授权客户端配置。"
+              : err instanceof CapabilityError
+                ? err.message
+                : "无法刷新此目录。",
+        );
     } finally {
       if (request.current === controller) request.current = null;
       if (!controller.signal.aborted) setRefreshing(false);
@@ -749,6 +758,7 @@ function Mailbox({
           <>
             <p>
               {account.definition.settings.email}
+              {account.definition.oauth && " · OAuth / IMAP"}
               {account.definition.settings.smtpEnabled ? "" : " · 只接收"}
             </p>
             <div className="hu-mail-row">
@@ -790,7 +800,7 @@ function Mailbox({
         )}
         {onAccountAction && (
           <div className="hu-mail-row">
-            <Button onClick={(event) => onAccountAction("repair", event.currentTarget)}>修复认证</Button>
+            <Button onClick={(event) => onAccountAction("repair", event.currentTarget)}>{account?.definition.oauth ? "重新授权" : "修复认证"}</Button>
             <Button variant="ghost" onClick={(event) => onAccountAction("rename", event.currentTarget)}>
               更改名称
             </Button>

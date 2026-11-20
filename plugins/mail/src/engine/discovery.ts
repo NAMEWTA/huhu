@@ -20,6 +20,8 @@ export type MailAccountErrorCode =
   | "message-read"
   | "message-too-large"
   | "mailbox-changed"
+  | "oauth-reauthorize"
+  | "oauth-not-configured"
   | "cancelled";
 
 export class MailAccountError extends Error {
@@ -30,6 +32,7 @@ export class MailAccountError extends Error {
 }
 
 export interface MailDiscoveryRequest {
+  readonly oauth?: true;
   readonly endpoint: Readonly<MailEndpoint>;
   readonly email: string;
   readonly password: string;

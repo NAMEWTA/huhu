@@ -161,6 +161,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
 
   async function syncMailbox(input: Mailbox, signal: AbortSignal) {
     signal.throwIfAborted();
+    await accounts!.ensureOAuthAccess(input.accountId, signal);
     const generation = accounts!.readDefinition(input.accountId);
     if (!generation?.definition.folders.some(({ path }) => path === input.folder)) throw new MailAccountError("invalid-selection");
     const assertCurrent = () => {
@@ -306,6 +307,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         const { message, mailboxChanged } = await refresh(input, signal);
         return { message, mailboxChanged };
       } catch (error) {
+        if (!lifetime.aborted && error instanceof MailAccountError && error.code === "oauth-reauthorize") api.events.publish("entity.changed", { kind: "mail-account", id: input.accountId, op: "updated" });
         if (error instanceof MailAccountError || error instanceof CredentialError) throw new HuhuError("INVALID_INPUT", "无法刷新邮箱目录", { details: { reason: error.code } });
         throw error;
       }
@@ -466,7 +468,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           try {
             if (accounts) state = await accounts.markRead(input.accountId, input.folder, snapshot.uidValidity, message.summary.uid, cancelled);
           } catch (error) {
-            if (!(error instanceof CredentialError)) throw error;
+            if (!(error instanceof CredentialError || error instanceof MailAccountError)) throw error;
           }
           cancelled.throwIfAborted();
           if (state === "synced") {

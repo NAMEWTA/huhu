@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import XOAuth2 from "nodemailer/lib/xoauth2";
 import { z } from "zod";
 import type { MailEndpoint } from "./presets.js";
 
@@ -27,7 +28,7 @@ export type MailSmtpMessage = {
   date: string;
   attachments: MessageAttachment[];
 };
-export type MailSmtpTransport = (endpoint: MailEndpoint, password: string, message: MailSmtpMessage, signal: AbortSignal) => Promise<MailSmtpResult>;
+export type MailSmtpTransport = (endpoint: MailEndpoint, password: string, message: MailSmtpMessage, signal: AbortSignal, auth?: "oauth2") => Promise<MailSmtpResult>;
 
 type SmtpError = Error & { command?: string | undefined; responseCode?: number | undefined; rejectedErrors?: { recipient?: string | undefined; responseCode?: number | undefined }[] | undefined };
 type SmtpInfo = { accepted: string[]; rejected: string[]; rejectedErrors?: SmtpError["rejectedErrors"]; response: string };
@@ -37,7 +38,7 @@ export interface NodemailerSmtpModules {
   SMTPConnection: new (options: MailEndpointOptions) => {
     on(event: "error", listener: (error: Error) => void): void;
     connect(callback: (error?: SmtpError) => void): void;
-    login(auth: { user: string; pass: string }, callback: (error: SmtpError | null) => void): void;
+    login(auth: { user: string; pass: string } | { user: string; method: "XOAUTH2"; oauth2: XOAuth2 }, callback: (error: SmtpError | null) => void): void;
     send(envelope: { from: string; to: string[]; size: number }, message: Readable, callback: (error: SmtpError | null, info: SmtpInfo) => void): void;
     close(): void;
   };
@@ -60,7 +61,7 @@ export function uniformOutcome(addresses: string[], stage: MailSmtpResult["stage
 }
 
 export function createMailSmtpTransport({ SMTPConnection, MailComposer }: NodemailerSmtpModules): MailSmtpTransport {
-  return async (endpoint, password, message, signal) => {
+  return async (endpoint, password, message, signal, auth) => {
     const { bcc, ...publicMessage } = message;
     const addresses = [...message.to, ...message.cc, ...bcc];
     let wire: Buffer;
@@ -95,7 +96,8 @@ export function createMailSmtpTransport({ SMTPConnection, MailComposer }: Nodema
       await Promise.race([failed, new Promise<void>((resolve, reject) => connection.connect((error) => (error ? reject(error) : resolve())))]);
       signal.throwIfAborted();
       stage = "auth";
-      await Promise.race([failed, new Promise<void>((resolve, reject) => connection.login({ user: message.from, pass: password }, (error) => (error ? reject(error) : resolve())))]);
+      const login = auth === "oauth2" ? { user: message.from, method: "XOAUTH2" as const, oauth2: new XOAuth2({ user: message.from, accessToken: password }) } : { user: message.from, pass: password };
+      await Promise.race([failed, new Promise<void>((resolve, reject) => connection.login(login, (error) => (error ? reject(error) : resolve())))]);
       signal.throwIfAborted();
       stage = "envelope";
       const stream = Readable.from(

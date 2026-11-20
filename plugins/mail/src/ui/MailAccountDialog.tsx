@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import type { MailAccountSettings, MailFolder } from "../engine/account-definition.js";
 import { mailPreset, mailProviderSchema, type MailEndpoint, type MailProvider } from "../engine/presets.js";
 import type { MailAccount } from "./mail-types.js";
+import { MailOAuthControls } from "./MailOAuthControls.js";
 
 type Connection = { setupId: string; folders: (MailFolder & { selectable: boolean; selected: boolean })[] };
 type EndpointFields = Omit<MailEndpoint, "port"> & { port: string };
@@ -260,7 +261,7 @@ export function MailAccountDialog({ repair, onClose, onSaved }: { repair?: MailA
               control={(id) => <input key={`${form.provider}:${form.auth}`} id={id} name="password" required type="password" autoComplete="current-password" maxLength={4096} onChange={invalidate} />}
             />
           )}
-          {!repair && (
+          {!repair && form.auth !== "oauth2" && (
             <details ref={serverDetails} open>
               <summary>收发服务器</summary>
               <ServerFields label="IMAP" endpoint={form.imap} onChange={(imap) => change({ ...form, imap })} />
@@ -292,8 +293,19 @@ export function MailAccountDialog({ repair, onClose, onSaved }: { repair?: MailA
             )}
             <div role="status">{guideFeedback}</div>
           </div>
-          {form.auth === "oauth2" ? (
-            <p>此认证方式需要 OAuth，当前可选择服务商提供的其他认证方式（如有）。</p>
+          {form.auth === "oauth2" && (form.provider === "gmail" || form.provider === "outlook") ? (
+            <>
+              <label className="hu-mail-check">
+                <input type="checkbox" checked={form.smtpEnabled} onChange={(event) => change({ ...form, smtpEnabled: event.currentTarget.checked })} />
+                授权包含发送权限时启用 SMTP
+              </label>
+              <MailOAuthControls
+                key={JSON.stringify([form.provider, form.email, form.label, form.smtpEnabled, repair?.revision])}
+                input={{ provider: form.provider, email: form.email, label: form.label, smtp: form.smtpEnabled, ...(repair && { repair: { accountId: repair.accountId, expectedRevision: repair.revision } }) }}
+                valid={() => formRef.current?.reportValidity() ?? false}
+                onSaved={onSaved}
+              />
+            </>
           ) : (
             <div>
               <Button type={connection ? "button" : "submit"} onClick={connection ? () => void testConnection() : undefined} loading={busy === "test"}>

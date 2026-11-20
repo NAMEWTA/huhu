@@ -19,6 +19,7 @@ import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { discoverImapFolders } from "./imap-discovery.js";
 import { fetchImapMessages, markImapMessageRead, waitForImapActivity, type ImapSyncCursor } from "./imap-message.js";
 import type { MailEndpoint } from "./presets.js";
+import { MailOAuthError, oauthMailEndpoints, oauthProvider, requestOAuthToken, sealedOAuthToken, type MailOAuthRuntime, type OAuthProvider, type SealedOAuthToken } from "./oauth-provider.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 type DraftInput = Readonly<{ settings: MailAccountSettings; password: string | undefined }>;
@@ -38,12 +39,12 @@ function mailAccount({ entityId, revision, authState }: CredentialSummary, defin
 }
 
 /** The Engine supplies the trusted Vault owner. Keep this service in-process. */
-export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDiscovery = discoverImapFolders, removals = new AccountRemovals(owner.vault.files)) {
+export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDiscovery = discoverImapFolders, removals = new AccountRemovals(owner.vault.files), oauth?: MailOAuthRuntime, lifetime = new AbortController().signal) {
   const credentials = new ModuleCredentials({
     ...owner,
     pluginId: "mail",
     definition: mailAccountDefinitionSchema,
-    targets: ({ settings }) => accountTargets(settings),
+    targets: ({ settings, oauth: identity }) => accountTargets(settings, identity),
   });
   const readDefinition = (id: string) => ModuleCredentials.readPortableDefinition(owner.vault.files, "mail", mailAccountDefinitionSchema, id);
   function current({ accountId, expectedRevision }: MailAccountVersion): RepairAccount {
@@ -53,14 +54,133 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     if (found.revision !== expectedRevision) throw new HuhuError("VERSION_CONFLICT", "邮箱配置已更新，请关闭后重新打开该账号。", { details: { currentVersion: found.revision } });
     return { accountId, revision: found.revision, definition: found.definition };
   }
+  const renewals = new Map<string, Promise<void>>();
+  const rejectedRevisions = new Map<string, string>();
+  const now = oauth?.now ?? Date.now;
+  function providerEndpoints(provider: OAuthProvider, email: string, personal: boolean) {
+    return oauth?.issuers[provider]?.protocol ?? oauthMailEndpoints(provider, email, personal);
+  }
+  function transportIssuer(definition: MailAccountDefinition) {
+    const provider = oauthProvider.safeParse(definition.settings.provider);
+    const issuer = provider.success ? oauth?.issuers[provider.data] : undefined;
+    if (!provider.success || !issuer || definition.oauth?.clientId !== issuer.clientId) throw new MailAccountError("oauth-not-configured");
+    const { imap, smtp } = providerEndpoints(provider.data, definition.settings.email, definition.oauth?.personal === true);
+    const same = (a: MailEndpoint, b: MailEndpoint) => a.host === b.host && a.port === b.port && a.security === b.security;
+    if (!same(imap, definition.settings.imap) || !same(smtp, definition.settings.smtp)) throw new MailAccountError("oauth-reauthorize");
+    return { provider: provider.data, issuer };
+  }
+  async function renew(accountId: string) {
+    const signal = AbortSignal.any([lifetime, removals.signal(accountId)]);
+    const { definition, revision, token } = await credentials.use(accountId, [accountPasswordPurpose], async (definition, values, revision) => ({
+      definition,
+      revision,
+      token: sealedOAuthToken.parse(JSON.parse(values.get(accountPasswordPurpose)!)),
+    }));
+    const { issuer, provider } = transportIssuer(definition);
+    if (rejectedRevisions.get(accountId) === revision) throw new MailAccountError("oauth-reauthorize");
+    if (token.until > now() + 60_000) return;
+    try {
+      const { bundle } = await requestOAuthToken(issuer, provider, { grant_type: "refresh_token", refresh_token: token.refresh }, signal, now(), token);
+      signal.throwIfAborted();
+      await removals.serialize(accountId, async () => {
+        removals.assertActive(accountId);
+        await credentials.save({ entityId: accountId, expectedRevision: revision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: JSON.stringify(bundle) }], signal });
+      });
+    } catch (error) {
+      if (error instanceof MailOAuthError) {
+        if (error.reason === "reauthorize" || error.reason === "permission-missing" || error.reason === "wrong-resource" || error.reason === "graph-metadata-only") {
+          rejectedRevisions.set(accountId, revision);
+          throw new MailAccountError("oauth-reauthorize");
+        }
+        throw new MailAccountError("network");
+      }
+      throw error;
+    }
+  }
+  async function ensureOAuthAccess(accountId: string, signal: AbortSignal) {
+    signal.throwIfAborted();
+    if (readDefinition(accountId)?.definition.settings.auth !== "oauth2") return;
+    let pending = renewals.get(accountId);
+    if (!pending) {
+      pending = renew(accountId).finally(() => renewals.delete(accountId));
+      renewals.set(accountId, pending);
+    }
+    await pending;
+    signal.throwIfAborted();
+  }
+  async function useTransport<R>(accountId: string, signal: AbortSignal, operation: (definition: MailAccountDefinition, material: string, smtp: boolean) => Promise<R>) {
+    await ensureOAuthAccess(accountId, signal);
+    const result = await credentials.use(accountId, [accountPasswordPurpose], async (definition, values) => {
+      try {
+        signal.throwIfAborted();
+        removals.assertActive(accountId);
+        const value = values.get(accountPasswordPurpose)!;
+        if (definition.settings.auth !== "oauth2") return { data: await operation(definition, value, true) } as const;
+        transportIssuer(definition);
+        const token = sealedOAuthToken.parse(JSON.parse(value));
+        if (token.until <= now()) throw new MailAccountError("oauth-reauthorize");
+        return { data: await operation(definition, token.access, token.smtp) } as const;
+      } catch (error) {
+        return { error } as const;
+      }
+    });
+    if ("error" in result) throw result.error;
+    return result.data;
+  }
   return {
-    list: async () => (await credentials.list()).filter((entry) => !removals.read(entry.entityId)).map((entry) => mailAccount(entry, entry.definition)),
+    list: async () =>
+      (await credentials.list())
+        .filter((entry) => !removals.read(entry.entityId))
+        .map((entry) => {
+          const account = mailAccount(entry, entry.definition);
+          if (entry.definition.oauth) {
+            try {
+              transportIssuer(entry.definition);
+              if (rejectedRevisions.get(entry.entityId) === entry.revision) throw new MailAccountError("oauth-reauthorize");
+            } catch {
+              return { ...account, authState: { ...account.authState, [accountPasswordPurpose]: "needs-reconfiguration" as const } };
+            }
+          }
+          return account;
+        }),
     readDefinition,
+    ensureOAuthAccess,
+    drainOAuth: () => Promise.allSettled(renewals.values()),
+    async saveOAuth(
+      target: { accountId: string; expectedRevision: string | null; provider: OAuthProvider; email: string; label: string; smtp: boolean },
+      identity: { subject: string; personal: boolean },
+      token: SealedOAuthToken,
+      signal: AbortSignal,
+    ) {
+      const { accountId, provider, email, label, expectedRevision } = target;
+      const issuer = oauth?.issuers[provider];
+      if (!issuer) throw new MailOAuthError("not-configured");
+      const repair = expectedRevision === null ? undefined : current({ accountId, expectedRevision });
+      if (repair && (repair.definition.settings.provider !== provider || repair.definition.settings.email.toLowerCase() !== email.toLowerCase() || repair.definition.oauth?.subject !== identity.subject))
+        throw new MailOAuthError("account-changed");
+      const { imap, smtp } = providerEndpoints(provider, email, identity.personal);
+      const settings = { provider, email, label, auth: "oauth2" as const, imap, smtp, smtpEnabled: target.smtp && token.smtp };
+      const found = await discover({ endpoint: imap, email, password: token.access, oauth: true, signal }).catch(() => {
+        throw new MailOAuthError("protocol-unavailable");
+      });
+      const paths = repair?.definition.folders.map(({ path }) => path) ?? ["INBOX"];
+      const folders = paths.map((path) => found.find((row) => row.path === path && isSelectable(row)));
+      if (!folders.every((row) => row !== undefined)) throw new MailOAuthError("protocol-unavailable");
+      const definition = mailAccountDefinitionSchema.parse({ format: 1, settings, folders, oauth: { clientId: issuer.clientId, subject: identity.subject, route: "imap", ...(identity.personal && { personal: true }) } });
+      return removals.serialize(accountId, async () => {
+        signal.throwIfAborted();
+        removals.assertActive(accountId);
+        const saved = await credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: JSON.stringify(token), reconfigure: true }], signal });
+        rejectedRevisions.delete(accountId);
+        return mailAccount(saved, definition);
+      });
+    },
     assertActive: (id: string | null) => removals.assertActive(id),
     signal: (id: string) => removals.signal(id),
     recover: () => credentials.recover(),
     async removeDefinition({ accountId, expectedRevision }: MailAccountVersion, signal: AbortSignal) {
       if (readDefinition(accountId)) await credentials.delete(accountId, expectedRevision, signal);
+      rejectedRevisions.delete(accountId);
     },
     begin: (settings: MailAccountSettings, password?: string) => new MailAccountDraft(credentials, discover, settings, password),
     beginRepair(target: MailAccountVersion, password: string) {
@@ -81,21 +201,18 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
         return { accountId, revision: saved.revision };
       });
     },
-    withSmtpCredentials<R>(accountId: string, send: (settings: MailAccountDefinition["settings"], password: string) => Promise<R>) {
+    withSmtpCredentials<R>(accountId: string, send: (settings: MailAccountDefinition["settings"], password: string) => Promise<R>, signal = lifetime) {
       removals.assertActive(accountId);
-      return credentials.use(accountId, [accountPasswordPurpose], ({ settings }, values) => {
-        const password = values.get(accountPasswordPurpose);
-        if (!password) throw new MailAccountError("credential-required");
+      return useTransport(accountId, signal, ({ settings }, password, smtp) => {
+        if (!smtp) throw new MailAccountError("oauth-reauthorize");
         return send(settings, password);
       });
     },
     async fetchMessages(accountId: string, folder: string, cursor: ImapSyncCursor | undefined, reset: (validity: string) => Promise<void>, signal: AbortSignal) {
-      const result = await credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
+      const result = await useTransport(accountId, signal, async ({ settings, folders }, password) => {
         if (!folders.some(({ path }) => path === folder)) return { error: new MailAccountError("invalid-selection") };
-        const password = values.get(accountPasswordPurpose);
-        if (!password) return { error: new MailAccountError("credential-required") };
         try {
-          return { data: await fetchImapMessages({ endpoint: settings.imap, email: settings.email, password, signal }, folder, cursor, reset) };
+          return { data: await fetchImapMessages({ endpoint: settings.imap, email: settings.email, password, signal, ...(settings.auth === "oauth2" && { oauth: true }) }, folder, cursor, reset) };
         } catch (error) {
           return { error: error instanceof MailAccountError ? error : new MailAccountError("message-read") };
         }
@@ -104,12 +221,10 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       return result.data;
     },
     async markRead(accountId: string, folder: string, validity: string, uid: number, signal: AbortSignal) {
-      return credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
+      return useTransport(accountId, signal, async ({ settings, folders }, password) => {
         if (!folders.some(({ path }) => path === folder)) return "needs-refresh" as const;
-        const password = values.get(accountPasswordPurpose);
-        if (!password) return "local" as const;
         try {
-          return await markImapMessageRead({ endpoint: settings.imap, email: settings.email, password, signal }, folder, validity, uid);
+          return await markImapMessageRead({ endpoint: settings.imap, email: settings.email, password, signal, ...(settings.auth === "oauth2" && { oauth: true }) }, folder, validity, uid);
         } catch (error) {
           if (signal.aborted) throw error;
           return "local" as const;
@@ -117,10 +232,9 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       });
     },
     async waitForInbox(accountId: string, folder: string, cursor: { uidValidity: string; through: number }, wake: () => void, signal: AbortSignal) {
-      await credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
-        const password = values.get(accountPasswordPurpose);
-        if (!password || signal.aborted || !folders.some(({ path }) => path === folder)) return;
-        await waitForImapActivity({ endpoint: settings.imap, email: settings.email, password, signal }, folder, cursor, wake);
+      await useTransport(accountId, signal, async ({ settings, folders }, password) => {
+        if (signal.aborted || !folders.some(({ path }) => path === folder)) return;
+        await waitForImapActivity({ endpoint: settings.imap, email: settings.email, password, signal, ...(settings.auth === "oauth2" && { oauth: true }) }, folder, cursor, wake);
       });
     },
   };

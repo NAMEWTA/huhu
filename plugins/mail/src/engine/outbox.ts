@@ -312,31 +312,35 @@ export class MailOutbox {
     const addresses = recipientsOf(intent.draft);
     let outcome: MailSmtpResult;
     try {
-      outcome = await accounts.withSmtpCredentials(accountId, async (settings, password) => {
-        if (!sameSender(intent, settings) || signal.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
-        const { to, cc, bcc, subject, reply: replyContext } = intent.draft;
-        try {
-          const message = {
-            from: intent.from,
-            to: [...to],
-            cc: [...cc],
-            bcc: [...bcc],
-            subject,
-            text: intent.text,
-            messageId: intent.messageId,
-            date: intent.claimedAt,
-            attachments,
-            ...(replyContext?.inReplyTo && { inReplyTo: replyContext.inReplyTo }),
-            ...(replyContext?.references.length && { references: [...replyContext.references] }),
-          };
-          const reply = await transport({ ...intent.smtp }, password, message, signal);
-          const checked = smtpResultSchema.parse(reply);
-          if (hasSameRecipients(checked, addresses)) return checked;
-        } catch {
-          // The transport may already have sent DATA.
-        }
-        return uniformOutcome(addresses, "data", "unknown");
-      });
+      outcome = await accounts.withSmtpCredentials(
+        accountId,
+        async (settings, password) => {
+          if (!sameSender(intent, settings) || signal.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
+          const { to, cc, bcc, subject, reply: replyContext } = intent.draft;
+          try {
+            const message = {
+              from: intent.from,
+              to: [...to],
+              cc: [...cc],
+              bcc: [...bcc],
+              subject,
+              text: intent.text,
+              messageId: intent.messageId,
+              date: intent.claimedAt,
+              attachments,
+              ...(replyContext?.inReplyTo && { inReplyTo: replyContext.inReplyTo }),
+              ...(replyContext?.references.length && { references: [...replyContext.references] }),
+            };
+            const reply = await transport({ ...intent.smtp }, password, message, signal, intent.auth === "oauth2" ? "oauth2" : undefined);
+            const checked = smtpResultSchema.parse(reply);
+            if (hasSameRecipients(checked, addresses)) return checked;
+          } catch {
+            // The transport may already have sent DATA.
+          }
+          return uniformOutcome(addresses, "data", "unknown");
+        },
+        signal,
+      );
     } catch {
       outcome = uniformOutcome(addresses, "credential", "not-delivered");
     }

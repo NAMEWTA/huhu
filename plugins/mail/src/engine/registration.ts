@@ -8,6 +8,8 @@ import { registerAccountSetup } from "./account-setup.js";
 import { registerConversations } from "./conversations.js";
 import { registerDrafts } from "./drafts.js";
 import { registerMessageCache } from "./message-cache.js";
+import type { MailOAuthRuntime } from "./oauth-provider.js";
+import { registerMailOAuth } from "./oauth-sessions.js";
 import type { MailSmtpTransport } from "./smtp.js";
 import { registerMailSyncSchedule, type MailSyncOptions } from "./sync-schedule.js";
 
@@ -31,10 +33,10 @@ export const mailAccountsListDescriptor = defineCapabilityDescriptor({
   output: z.strictObject({ available: z.boolean(), accounts: z.array(accountSummary), pendingRemovals: z.array(pendingRemoval).optional() }),
 });
 
-export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner, transport?: MailSmtpTransport, syncOptions: MailSyncOptions = {}): Promise<void> {
+export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner, transport?: MailSmtpTransport, syncOptions: MailSyncOptions = {}, oauthRuntime?: MailOAuthRuntime): Promise<void> {
   const lifetime = new AbortController();
   const removals = new AccountRemovals(api.vault.files);
-  const accounts = owner ? openMailAccounts(owner, undefined, removals) : undefined;
+  const accounts = owner ? openMailAccounts(owner, undefined, removals, oauthRuntime, lifetime.signal) : undefined;
   if (accounts && owner && !owner.vault.readOnly) await accounts.recover();
   api.defineCapability(
     bindCapability(mailAccountsListDescriptor, async ({ caller }) => {
@@ -45,6 +47,7 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
     }),
   );
   const drainSetup = registerAccountSetup(api, accounts, lifetime.signal);
+  const drainOAuth = registerMailOAuth(api, accounts, oauthRuntime, lifetime.signal);
   const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals);
   const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts, syncOptions.notify);
   const drainSync = registerMailSyncSchedule(api, accounts, messages, lifetime.signal, syncOptions);
@@ -52,6 +55,6 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   registerAccountRemoval(api, accounts, removals, drafts, outbox, messages, lifetime.signal);
   ctx.effect(() => async () => {
     lifetime.abort();
-    await Promise.all([drainSetup(), drainDrafts(), messages.drain(), removals.drain(), drainSync()]);
+    await Promise.all([drainSetup(), drainDrafts(), messages.drain(), removals.drain(), drainSync(), drainOAuth(), accounts?.drainOAuth()]);
   });
 }

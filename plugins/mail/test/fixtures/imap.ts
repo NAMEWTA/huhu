@@ -9,6 +9,7 @@ export async function openImapFixture(
     stallList?: boolean;
     rejectLogin?: boolean;
     acceptPassword?: (value: string) => boolean;
+    acceptOAuth?: (email: string, token: string) => boolean;
     rejectList?: boolean;
     disconnectDuringList?: boolean;
     namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
@@ -59,7 +60,7 @@ export async function openImapFixture(
       sockets.delete(socket);
       if (sockets.size === 0) disconnected.resolve();
     });
-    const capabilities = () => `IMAP4rev1 NAMESPACE${options.allowIdle ? " IDLE" : ""}`;
+    const capabilities = () => `IMAP4rev1 NAMESPACE${options.allowIdle ? " IDLE" : ""}${options.acceptOAuth ? " AUTH=XOAUTH2 SASL-IR" : ""}`;
     socket.write(`* OK [CAPABILITY ${capabilities()}] loopback fixture\r\n`);
     createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
       const [tag, verb] = line.split(" ", 2);
@@ -77,6 +78,13 @@ export async function openImapFixture(
           const supplied = line.match(/(?:"([a-z0-9-]+)"|([a-z0-9-]+))$/i);
           const rejected = options.rejectLogin || (options.acceptPassword && !options.acceptPassword(supplied?.[1] ?? supplied?.[2] ?? ""));
           return socket.write(rejected ? `${tag} NO [AUTHENTICATIONFAILED] denied\r\n` : `${tag} OK LOGIN\r\n`);
+        }
+        case "AUTHENTICATE": {
+          const [, , method, encoded] = line.split(" ");
+          const decoded = Buffer.from(encoded ?? "", "base64").toString("utf8");
+          const [user, authorization, tail] = decoded.split("\x01", 3);
+          const accepted = method === "XOAUTH2" && user?.startsWith("user=") && authorization?.startsWith("auth=Bearer ") && tail === "" && decoded.endsWith("\x01\x01") && options.acceptOAuth?.(user.slice(5), authorization.slice(12));
+          return socket.write(accepted ? `${tag} OK AUTHENTICATE\r\n` : `${tag} NO [AUTHENTICATIONFAILED] denied\r\n`);
         }
         case "NAMESPACE":
           if (options.namespacedInbox) return socket.write(`* NAMESPACE (("INBOX." ".")) NIL NIL\r\n${tag} OK NAMESPACE\r\n`);
