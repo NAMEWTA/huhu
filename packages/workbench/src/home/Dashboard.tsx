@@ -1,4 +1,4 @@
-import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetType, type DashboardBoard, type HomeWidgetDefinition } from "@huhu/contracts";
+import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetType, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
 import { Button, Dialog, IconButton } from "@huhu/ui";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, MoveDiagonal2, Plus, RotateCcw, X } from "lucide-react";
 import { useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
@@ -9,6 +9,14 @@ import "./dashboard.css";
 
 type Instance = DashboardBoard["instances"][number];
 type Controller = ReturnType<typeof useDashboard>;
+
+const repairReasons: Record<DashboardRepairChange["reasons"][number], string> = {
+  orphan: "移除未关联卡片的位置记录",
+  missing: "为卡片补上位置",
+  "size-reset": "恢复推荐尺寸",
+  "position-clamped": "移回看板范围",
+  collision: "避开其他卡片",
+};
 
 interface Gesture {
   pointerId: number;
@@ -182,7 +190,22 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
           无法读取首页布局。<Button onClick={() => void state.snapshot.refetch()}>重试</Button>
         </p>
       ) : null}
-      {view && !view.writable ? <p className="hu-hint-text">{view.source === "stored" || view.source === "default" ? "当前 Vault 为只读。" : "无法读取现有布局，正在显示默认布局。布局原件已保留。"}</p> : null}
+      {view && !view.writable ? (
+        <div className="row">
+          <p className="hu-hint-text">
+            {view.source === "stored" || view.source === "default"
+              ? "当前 Vault 为只读。"
+              : view.source === "unrecognized"
+                ? "当前版本无法识别布局格式。正在显示默认布局，布局原件已保留。"
+                : "无法读取现有布局，正在显示默认布局。布局原件已保留。"}
+          </p>
+          {view.source === "invalid" ? (
+            <Button onClick={() => void state.previewRecovery({ action: "repair" })} disabled={locked || editing}>
+              预览布局修复
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       {editing ? (
         <div className="row hu-dashboard-toolbar">
           <Button icon={Plus} onClick={openCatalog} disabled={locked}>
@@ -376,6 +399,38 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
         ) : (
           <p>没有符合条件的卡片。</p>
         )}
+      </Dialog>
+      <Dialog
+        open={state.recovery !== undefined}
+        wide
+        title="预览布局修复"
+        onClose={state.closeRecovery}
+        actions={
+          <>
+            <Button autoFocus disabled={state.busy} onClick={state.closeRecovery}>
+              保留原样
+            </Button>
+            <Button variant="primary" loading={state.busy} disabled={!state.recovery?.preview.writable} onClick={state.confirmRecovery}>
+              确认修复
+            </Button>
+          </>
+        }
+      >
+        {state.recovery ? (
+          <>
+            <p>{state.recovery.preview.writable ? "确认后将另存布局原件，再保存以下调整。" : "当前 Vault 为只读，可以查看建议的调整。"}</p>
+            <ul>
+              {state.recovery.preview.changes.map((change) => (
+                <li key={change.instanceId}>
+                  <strong>{change.instanceId}</strong> · {change.reasons.map((reason) => repairReasons[reason]).join("、")}
+                  {change.after ? `（第 ${change.after.x + 1} 列，第 ${change.after.y + 1} 行 · ${change.after.w} × ${change.after.h}）` : null}
+                </li>
+              ))}
+            </ul>
+            <h3>修复后的布局</h3>
+            {list(state.recovery.preview.board)}
+          </>
+        ) : null}
       </Dialog>
       <Dialog
         open={resetOpen && editing}

@@ -1,4 +1,4 @@
-import { DASHBOARD_COLUMNS, DashboardBoardSchema, errors, type DashboardBoard, type HomeWidgetDefinition } from "@huhu/contracts";
+import { DASHBOARD_COLUMNS, DashboardBoardSchema, errors, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
 import { z } from "zod";
 
 export type DashboardWidgetSizeRule = Pick<HomeWidgetDefinition, "minSize" | "defaultSize" | "maxSize">;
@@ -6,15 +6,7 @@ type Placement = DashboardBoard["layout"][number];
 type Size = Pick<Placement, "w" | "h">;
 
 const placementSchema = DashboardBoardSchema.shape.layout.element;
-const geometrySchema = z.strictObject({ x: z.number().nullable(), y: z.number().nullable(), w: z.number().nullable(), h: z.number().nullable() });
-
-export const dashboardRepairChangeSchema = z.strictObject({
-  instanceId: placementSchema.shape.instanceId,
-  reasons: z.array(z.enum(["orphan", "missing", "size-reset", "position-clamped", "collision"])),
-  before: geometrySchema.nullable(),
-  after: placementSchema.nullable(),
-});
-type Change = z.infer<typeof dashboardRepairChangeSchema>;
+type Change = DashboardRepairChange;
 
 export function placementsOverlap(a: Placement, b: Placement): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -63,7 +55,7 @@ export function planDashboardRepair(value: unknown, widgets: ReadonlyMap<string,
   if (!parsed.success) throw errors.invalidInput("看板结构或实例关联键损坏", [{ reason: "invalid-structure" }]);
   const { instances, layout, ...metadata } = parsed.data;
   const ids = new Set(instances.map(({ instanceId }) => instanceId));
-  const geometries = new Map<string, z.infer<typeof geometrySchema>>();
+  const geometries = new Map<string, NonNullable<DashboardRepairChange["before"]>>();
   for (const { instanceId, x, y, w, h } of layout) {
     if (geometries.has(instanceId)) throw errors.invalidInput("看板几何关联键重复", [{ reason: "duplicate-placement", instanceId }]);
     geometries.set(instanceId, { x: finiteCoordinate(x), y: finiteCoordinate(y), w: finiteCoordinate(w), h: finiteCoordinate(h) });

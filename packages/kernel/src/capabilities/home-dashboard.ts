@@ -6,19 +6,25 @@ import {
   DASHBOARD_COLUMNS,
   DASHBOARD_SCHEMA_VERSION,
   DashboardBoardSchema,
+  DashboardRecoveryConfirmationSchema,
+  DashboardRecoveryIntentSchema,
+  DashboardRecoveryPreviewSchema,
+  DashboardRecoveryResultSchema,
   DashboardUpdateSchema,
   DashboardViewSchema,
   defaultDashboardBoard,
   errors,
   HuhuError,
   type DashboardBoard,
+  type DashboardRecoveryConfirmation,
+  type DashboardRecoveryIntent,
   type DashboardUpdate,
   type DashboardView,
 } from "@huhu/contracts";
 import { HUHU_DIR, versionOf, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability } from "./define.js";
-import { dashboardRepairChangeSchema, placementsOverlap, planDashboardRepair, type DashboardWidgetSizeRule } from "./home-dashboard-recovery.js";
+import { placementsOverlap, planDashboardRepair, type DashboardWidgetSizeRule } from "./home-dashboard-recovery.js";
 
 const DASHBOARD_PATH = `${HUHU_DIR}/home/widgets.json`;
 
@@ -149,23 +155,6 @@ export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string,
   });
 }
 
-const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const recoveryConfirmationSchema = z.strictObject({
-  vaultId: z.string(),
-  revision: DashboardBoardSchema.shape.revision.nullable(),
-  fileDigest: digestSchema.nullable(),
-  candidateDigest: digestSchema,
-});
-const recoveryIntentSchema = z.discriminatedUnion("action", [z.strictObject({ action: z.literal("restore"), backup: DashboardBoardSchema }), z.strictObject({ action: z.literal("repair") })]);
-const recoveryPreviewSchema = z.strictObject({
-  confirmation: recoveryConfirmationSchema,
-  board: DashboardBoardSchema,
-  changes: z.array(dashboardRepairChangeSchema),
-  writable: z.boolean(),
-});
-type RecoveryConfirmation = z.infer<typeof recoveryConfirmationSchema>;
-type RecoveryIntent = z.infer<typeof recoveryIntentSchema>;
-
 function digest(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -197,7 +186,7 @@ async function preserveDashboard(vault: Vault, original: Buffer, fileDigest: str
 export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetSizeRule>, now: () => Date, changed?: () => void) {
   const capability = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
 
-  function plan(intent: RecoveryIntent, target: ReturnType<typeof readRecoveryTarget>) {
+  function plan(intent: DashboardRecoveryIntent, target: ReturnType<typeof readRecoveryTarget>) {
     if (intent.action === "restore") {
       if (!hasValidLayout(intent.backup)) throw errors.invalidInput("备份的看板布局无效", [{ reason: "invalid-backup-layout" }]);
       return { board: intent.backup, changes: [] };
@@ -208,7 +197,7 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
     return candidate;
   }
 
-  function candidateDigest(intent: RecoveryIntent, candidate: ReturnType<typeof plan>): string {
+  function candidateDigest(intent: DashboardRecoveryIntent, candidate: ReturnType<typeof plan>): string {
     return digest(JSON.stringify({ action: intent.action, ...candidate }));
   }
 
@@ -217,8 +206,8 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
       ...capability,
       name: "home.dashboard.recovery.preview",
       scope: "read",
-      input: recoveryIntentSchema,
-      output: recoveryPreviewSchema,
+      input: DashboardRecoveryIntentSchema,
+      output: DashboardRecoveryPreviewSchema,
       handler: (_ctx, intent) => {
         const target = readRecoveryTarget(vault);
         const candidate = plan(intent, target);
@@ -230,9 +219,9 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
       ...capability,
       name: "home.dashboard.recovery.commit",
       scope: "write",
-      input: z.strictObject({ intent: recoveryIntentSchema, confirmation: recoveryConfirmationSchema }),
-      output: z.strictObject({ view: DashboardViewSchema, preservedPath: z.string().nullable() }),
-      handler: (_ctx, { intent, confirmation }: { intent: RecoveryIntent; confirmation: RecoveryConfirmation }) =>
+      input: z.strictObject({ intent: DashboardRecoveryIntentSchema, confirmation: DashboardRecoveryConfirmationSchema }),
+      output: DashboardRecoveryResultSchema,
+      handler: (_ctx, { intent, confirmation }: { intent: DashboardRecoveryIntent; confirmation: DashboardRecoveryConfirmation }) =>
         queueDashboardWrite(vault, async () => {
           vault.assertWritable();
           if (confirmation.vaultId !== vault.id) throw errors.invalidInput("恢复预览属于另一个 Vault", [{ reason: "wrong-vault" }]);

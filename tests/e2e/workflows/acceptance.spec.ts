@@ -556,6 +556,61 @@ test("首页看板：默认布局只替换草稿，保存后重开保留启用�
   }
 });
 
+test("首页看板：预览已知格式的布局修复，核对版本并保全原件", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const original = (await call("home.dashboard.get")).data.board;
+    const file = path.join(vault, ".huhu/home/widgets.json");
+    mkdirSync(path.dirname(file), { recursive: true });
+    const damaged = {
+      ...original,
+      revision: "invalid-geometry-1",
+      layout: [...original.layout.map((item: { instanceId: string }) => (item.instanceId === "default-focus" ? { ...item, x: 9, y: -1 } : item)), { instanceId: "orphan-position", x: 0, y: 2, w: 3, h: 2 }],
+    };
+    writeFileSync(file, JSON.stringify(damaged));
+    await page.reload();
+    const dashboard = page.getByTestId("home-dashboard");
+    await expect(dashboard.getByText("布局原件已保留", { exact: false })).toBeVisible();
+    await expect(page.getByTestId("home-customize")).toBeDisabled();
+    const preview = dashboard.getByRole("button", { name: "预览布局修复" });
+    const dialog = dashboard.getByRole("dialog", { name: "预览布局修复" });
+    await preview.click();
+    await expect(dialog.getByText("移除未关联卡片的位置记录", { exact: false })).toBeVisible();
+    await expect(dialog.getByText("移回看板范围、避开其他卡片", { exact: false })).toBeVisible();
+    const firstPreview = await dialog.getByRole("list").first().innerText();
+    await page.keyboard.press("Escape");
+    expect(readFileSync(file, "utf8")).toBe(JSON.stringify(damaged));
+    expect(readdirSync(path.dirname(file))).toEqual(["widgets.json"]);
+
+    await preview.click();
+    expect(await dialog.getByRole("list").first().innerText()).toBe(firstPreview);
+    const revisedBytes = JSON.stringify({ ...damaged, revision: "invalid-geometry-2" });
+    writeFileSync(file, revisedBytes);
+    await dialog.getByRole("button", { name: "确认修复" }).click();
+    await expect(dashboard.getByRole("status")).toContainText("布局已变化");
+    expect(readFileSync(file, "utf8")).toBe(revisedBytes);
+    expect(readdirSync(path.dirname(file))).toEqual(["widgets.json"]);
+
+    await preview.click();
+    await dialog.getByRole("button", { name: "确认修复" }).click();
+    await expect(dashboard.getByRole("status")).toContainText("布局已恢复");
+    const savedOriginal = readdirSync(path.dirname(file)).find((name) => name.startsWith("widgets.json.corrupt-"));
+    expect(savedOriginal).toBeDefined();
+    expect(readFileSync(path.join(path.dirname(file), savedOriginal!), "utf8")).toBe(revisedBytes);
+    const repaired = JSON.parse(readFileSync(file, "utf8"));
+    expect(repaired.revision).not.toBe("invalid-geometry-2");
+    expect(repaired.instances).toEqual(original.instances);
+    expect(repaired.layout).toContainEqual({ instanceId: "default-focus", x: 0, y: 5, w: 3, h: 2 });
+    await page.reload();
+    await expect(page.getByTestId("home-customize")).toBeVisible();
+    await expect(dashboard.locator('[data-instance-id="default-focus"]')).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
 test("首页看板：其他会话先保存后，保留草稿并显式采用新版本为基准", async () => {
   const { page, close } = await openApp();
   try {

@@ -1,4 +1,4 @@
-import type { DashboardBoard, DashboardView } from "@huhu/contracts";
+import type { DashboardBoard, DashboardRecoveryIntent, DashboardRecoveryPreview, DashboardRecoveryResult, DashboardView } from "@huhu/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import { CapabilityError, createRequestId } from "../engine-client/client.js";
@@ -28,6 +28,11 @@ interface Notice {
   error?: boolean;
 }
 
+interface Recovery {
+  intent: DashboardRecoveryIntent;
+  preview: DashboardRecoveryPreview;
+}
+
 export function useDashboard(ui: StoreApi<UiState>) {
   const engine = useEngine();
   const qc = useQueryClient();
@@ -35,6 +40,7 @@ export function useDashboard(ui: StoreApi<UiState>) {
   const [draft, setDraft] = useState<Draft>();
   const [notice, setNotice] = useState<Notice>();
   const [latest, setLatest] = useState<DashboardView>();
+  const [recovery, setRecovery] = useState<Recovery>();
   const [leaving, setLeaving] = useState<LeaveChoice>();
   const [busy, setBusy] = useState(false);
   const pending = useRef<LeaveChoice | undefined>(undefined);
@@ -120,14 +126,14 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setLatest(undefined);
   }
 
-  function wrote(view: DashboardView) {
+  function wrote(view: DashboardView, text = "布局已保存。") {
     unverified.current = false;
     const key = queryKey(engine.vaultId, capability);
     void qc.cancelQueries({ queryKey: key, exact: true }, { revert: false });
     qc.setQueryData(key, view);
     changeDraft(undefined);
     setLatest(undefined);
-    setNotice({ text: "布局已保存。" });
+    setNotice({ text });
   }
 
   function save(): Promise<boolean> {
@@ -201,6 +207,56 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setNotice(undefined);
   }
 
+  async function previewRecovery(intent: DashboardRecoveryIntent) {
+    if (busy || liveDraft.current || inFlight.current) return;
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const preview = await engine.call<DashboardRecoveryPreview>("home.dashboard.recovery.preview", intent);
+      if (alive.current && preview.confirmation.vaultId === engine.vaultId) setRecovery({ intent, preview });
+    } catch (error) {
+      if (alive.current) setNotice({ text: error instanceof CapabilityError ? error.message : "无法读取布局恢复预览。", error: true });
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  function closeRecovery() {
+    if (!inFlight.current) setRecovery(undefined);
+  }
+
+  function confirmRecovery() {
+    if (!recovery?.preview.writable || inFlight.current || liveDraft.current) return;
+    const { intent, preview } = recovery;
+    setBusy(true);
+    const operation = engine
+      .call<DashboardRecoveryResult>("home.dashboard.recovery.commit", { intent, confirmation: preview.confirmation }, { write: true })
+      .then(({ view, preservedPath }) => {
+        if (alive.current && view.vaultId === engine.vaultId) wrote(view, preservedPath ? `布局已恢复。原件保存在 ${preservedPath}。` : "布局已恢复。");
+        return true;
+      })
+      .catch(async (error: unknown) => {
+        if (!alive.current) return false;
+        if (error instanceof CapabilityError && error.code === "VERSION_CONFLICT") {
+          setNotice({ text: "布局已变化。请重新预览后再恢复。", error: true });
+        } else if (error instanceof CapabilityError && error.code !== "INTERNAL") {
+          setNotice({ text: error.message, error: true });
+        } else {
+          setNotice({ text: "无法确认恢复结果。请查看重新加载的布局。", error: true });
+        }
+        await snapshot.refetch();
+        return false;
+      })
+      .finally(() => {
+        inFlight.current = undefined;
+        if (alive.current) {
+          setRecovery(undefined);
+          setBusy(false);
+        }
+      });
+    inFlight.current = operation;
+  }
+
   async function chooseLeave(choice: "stay" | "discard" | "save") {
     const decision = pending.current;
     if (!decision || busy) return;
@@ -209,5 +265,25 @@ export function useDashboard(ui: StoreApi<UiState>) {
     decision.finish(allowed && !decision.request.signal.aborted);
   }
 
-  return { snapshot, draft, dirty, notice, latest, leaving, busy, start, update, cancel, save, checkLatest, resolveCompare, closeCompare: () => setLatest(undefined), chooseLeave };
+  return {
+    snapshot,
+    draft,
+    dirty,
+    notice,
+    latest,
+    recovery,
+    leaving,
+    busy,
+    start,
+    update,
+    cancel,
+    save,
+    checkLatest,
+    resolveCompare,
+    closeCompare: () => setLatest(undefined),
+    previewRecovery,
+    closeRecovery,
+    confirmRecovery,
+    chooseLeave,
+  };
 }

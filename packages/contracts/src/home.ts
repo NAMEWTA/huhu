@@ -206,6 +206,34 @@ export const DashboardViewSchema = z.strictObject({
 });
 export type DashboardView = z.infer<typeof DashboardViewSchema>;
 
+const dashboardPlacementSchema = DashboardBoardSchema.shape.layout.element;
+const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const DashboardRepairChangeSchema = z.strictObject({
+  instanceId: dashboardPlacementSchema.shape.instanceId,
+  reasons: z.array(z.enum(["orphan", "missing", "size-reset", "position-clamped", "collision"])),
+  before: z.strictObject({ x: z.number().nullable(), y: z.number().nullable(), w: z.number().nullable(), h: z.number().nullable() }).nullable(),
+  after: dashboardPlacementSchema.nullable(),
+});
+export type DashboardRepairChange = z.infer<typeof DashboardRepairChangeSchema>;
+export const DashboardRecoveryConfirmationSchema = z.strictObject({
+  vaultId: z.string(),
+  revision: DashboardBoardSchema.shape.revision.nullable(),
+  fileDigest: digestSchema.nullable(),
+  candidateDigest: digestSchema,
+});
+export type DashboardRecoveryConfirmation = z.infer<typeof DashboardRecoveryConfirmationSchema>;
+export const DashboardRecoveryIntentSchema = z.discriminatedUnion("action", [z.strictObject({ action: z.literal("restore"), backup: DashboardBoardSchema }), z.strictObject({ action: z.literal("repair") })]);
+export type DashboardRecoveryIntent = z.infer<typeof DashboardRecoveryIntentSchema>;
+export const DashboardRecoveryPreviewSchema = z.strictObject({
+  confirmation: DashboardRecoveryConfirmationSchema,
+  board: DashboardBoardSchema,
+  changes: z.array(DashboardRepairChangeSchema),
+  writable: z.boolean(),
+});
+export type DashboardRecoveryPreview = z.infer<typeof DashboardRecoveryPreviewSchema>;
+export const DashboardRecoveryResultSchema = z.strictObject({ view: DashboardViewSchema, preservedPath: z.string().nullable() });
+export type DashboardRecoveryResult = z.infer<typeof DashboardRecoveryResultSchema>;
+
 const emptyWidgetConfig = z.strictObject({});
 const tasksWidgetConfig = z.strictObject({ filter: z.enum(["all", "today"]).optional() });
 
