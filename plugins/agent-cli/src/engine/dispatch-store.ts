@@ -27,6 +27,16 @@ export const DispatchTarget = z.discriminatedUnion("mode", [
   z.strictObject({ mode: z.literal("existing"), spaceId: Id, binding: ExecutionSessionBindingSchema }),
   z.strictObject({ mode: z.literal("resume"), spaceId: Id, provider, nativeSessionId: Id }),
 ]);
+
+function isInputText(text: string): boolean {
+  if (!/\S/.test(text)) return false;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if ((code < 0x20 && code !== 0x09 && code !== 0x0a) || (code >= 0x7f && code <= 0x9f)) return false;
+  }
+  return true;
+}
+
 export const DispatchInput = DispatchLookup.extend({
   eventIds: z
     .array(Id)
@@ -35,11 +45,7 @@ export const DispatchInput = DispatchLookup.extend({
     .refine((ids) => new Set(ids).size === ids.length),
   inputSnapshotRef: Id,
   inputSnapshotHash: Fingerprint,
-  input: z
-    .string()
-    .min(1)
-    .max(64_000)
-    .refine((s) => /\S/.test(s) && !/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(s)),
+  input: z.string().min(1).max(64_000).refine(isInputText),
   target: DispatchTarget,
 });
 export type DispatchLookup = z.infer<typeof DispatchLookup>;
