@@ -183,7 +183,17 @@ export function SshModule() {
     </>
   );
   if (workspaces) return withFileWorkspace(<WorkspaceLibrary onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
-  if (forwarding) return withFileWorkspace(<ForwardingPanel hosts={hosts.data ?? []} onBack={() => setForwarding(false)} />);
+  if (forwarding)
+    return withFileWorkspace(
+      <ForwardingPanel
+        hosts={hosts.data ?? []}
+        onBack={() => setForwarding(false)}
+        onReview={(prompt) => {
+          setForwarding(false);
+          openReview(prompt);
+        }}
+      />,
+    );
   return withFileWorkspace(
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>

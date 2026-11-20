@@ -46,6 +46,7 @@ type Attempt = {
   hostId: string;
   signal: AbortSignal;
   requirePromptId: boolean;
+  report?: (status: ConnectionStatus) => void;
   expectedTarget?: string;
   routeTarget?: string;
   pending?: { prompt: HostKeyPrompt; answer(accept: boolean, remember: boolean): void } | undefined;
@@ -53,6 +54,22 @@ type Attempt = {
 };
 type DialResult = { attemptId: string; connection: Conn };
 export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal };
+type ForwardOwner = (status: ConnectionStatus) => void;
+type ForwardDial = {
+  id: string;
+  abort: AbortController;
+  owners: Set<ForwardOwner>;
+  status?: ConnectionStatus;
+  ready: Promise<Client>;
+};
+export type ForwardLease = {
+  id: string;
+  client: Client;
+  kind: "borrowed" | "dedicated";
+  holders(): number;
+  validate(): Promise<void>;
+  release(): void;
+};
 
 function connectionIdentity(chain: readonly HostRecord[]): string {
   return JSON.stringify(chain.map((host) => ("revision" in host ? [host.id, host.revision] : [host.id, host.host, host.port, host.user, host.auth, host.connectTimeoutSec])));
@@ -94,6 +111,8 @@ export class SshManager {
   private fileOrigins = new WeakMap<Conn, z.infer<typeof FileOrigin>>();
   private shellConnections = new WeakMap<ShellRec, Conn>();
   private attempts = new Map<string, Attempt>();
+  private forwardDials = new Map<string, ForwardDial>();
+  private borrowedForwards = new WeakMap<Conn, Set<ForwardOwner>>();
   private statuses = new Map<string, ConnectionStatus>();
   private execs = new Map<string, ExecRun>();
   /** 正在传输（上传/下载）的主机：同一主机同时只传一个文件。 */
@@ -228,25 +247,11 @@ export class SshManager {
         return { attemptId: "existing", connection: existing };
       }
       this.drop(hostId);
-      let sock: unknown;
-      for (const [hop, h] of chain.entries()) {
-        stage = { hop, server: describeHost(h) };
-        const client = new Client();
-        opened.push(client);
-        if ("revision" in h) {
-          if (!this.d.withManagedAuth) throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用");
-          await this.d.withManagedAuth(h, (auth) => this.connectHop(client, h, target, hop, attempt, auth, sock));
-        } else {
-          await this.connectHop(client, h, target, hop, attempt, this.legacyAuth(h), sock);
-        }
-        client.setNoDelay(true); // SFTP/交互 shell 都是小包往返，Nagle + 延迟确认会让每次往返多出几十毫秒
-        if (hop < chain.length - 1) {
-          const next = chain[hop + 1] as SshHost;
-          sock = await new Promise((resolve, reject) => client.forwardOut("127.0.0.1", 0, next.host, next.port, (e, s) => (e ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${e.message}`)) : resolve(s))));
-        }
-      }
+      const client = await this.dialChain(chain, attempt, opened, (hop, host) => {
+        stage = { hop, server: describeHost(host) };
+      });
       if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
-      const connection = { hostId, attemptId, routeIdentity, clients: opened, target: opened[opened.length - 1]! };
+      const connection = { hostId, attemptId, routeIdentity, clients: opened, target: client };
       this.conns.set(hostId, connection);
       this.fileOrigins.set(connection, { connectionId: newId("cap"), hostId, name: target.name, host: target.host, user: target.user, port: target.port });
       connection.target.on("close", () => {
@@ -266,6 +271,123 @@ export class SshManager {
     } finally {
       signal.removeEventListener("abort", closeOpened);
     }
+  }
+
+  private async dialChain(chain: HostRecord[], attempt: Attempt, opened: Client[], onHop?: (hop: number, host: HostRecord) => void): Promise<Client> {
+    const target = chain[chain.length - 1]!;
+    let socket: unknown;
+    for (const [hop, host] of chain.entries()) {
+      attempt.signal.throwIfAborted();
+      onHop?.(hop, host);
+      const client = new Client();
+      opened.push(client);
+      const authenticate = (auth: ConnectionAuth) => this.connectHop(client, host, target, hop, attempt, auth, socket);
+      if ("revision" in host) {
+        if (!this.d.withManagedAuth) throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用");
+        await this.d.withManagedAuth(host, authenticate);
+      } else {
+        await authenticate(this.legacyAuth(host));
+      }
+      client.setNoDelay(true);
+      const next = chain[hop + 1];
+      if (next) {
+        socket = await new Promise((resolve, reject) =>
+          client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
+        );
+      }
+    }
+    return opened[opened.length - 1]!;
+  }
+
+  async acquireForward(hostId: string, boundTarget: string, signal: AbortSignal, notify: ForwardOwner): Promise<ForwardLease> {
+    const chain = this.route(hostId, await this.d.hosts.list());
+    const stale = () => new HuhuError("VERSION_CONFLICT", "转发规则所绑定的主机、账户或跳板配置已变更");
+    if (workspaceTarget(chain) !== boundTarget) throw stale();
+    const identity = connectionIdentity(chain);
+    const validate = async () => {
+      if (connectionIdentity(this.route(hostId, await this.d.hosts.list())) !== identity) throw stale();
+      signal.throwIfAborted();
+    };
+    signal.throwIfAborted();
+    const borrowed = this.conns.get(hostId);
+    if (borrowed?.routeIdentity === identity) {
+      const owners = this.borrowedForwards.get(borrowed) ?? new Set<ForwardOwner>();
+      owners.add(notify);
+      this.borrowedForwards.set(borrowed, owners);
+      return {
+        id: this.fileOrigins.get(borrowed)!.connectionId,
+        client: borrowed.target,
+        kind: "borrowed",
+        holders: () => owners.size,
+        validate,
+        release: () => {
+          owners.delete(notify);
+        },
+      };
+    }
+
+    const dial = this.forwardDials.get(identity) ?? this.openForwardDial(identity, chain, hostId);
+    dial.owners.add(notify);
+    const release = () => {
+      if (dial.owners.delete(notify) && dial.owners.size === 0) dial.abort.abort();
+    };
+    let detach = () => {};
+    const cancelled = new Promise<never>((_, reject) => {
+      const stop = () => reject(signal.reason);
+      signal.addEventListener("abort", stop, { once: true });
+      detach = () => signal.removeEventListener("abort", stop);
+    });
+    if (dial.status) notify(dial.status);
+    try {
+      const client = await Promise.race([dial.ready, cancelled]);
+      await validate();
+      if (dial.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 转发连接已结束");
+      return { id: dial.id, client, kind: "dedicated", holders: () => dial.owners.size, validate, release };
+    } catch (error) {
+      release();
+      throw error;
+    } finally {
+      detach();
+    }
+  }
+
+  private openForwardDial(identity: string, chain: HostRecord[], hostId: string): ForwardDial {
+    const abort = new AbortController();
+    const signal = abort.signal;
+    const opened: Client[] = [];
+    const owners = new Set<ForwardOwner>();
+    const cleanup = () => {
+      if (this.forwardDials.get(identity) === dial) this.forwardDials.delete(identity);
+      for (const client of [...opened].reverse()) client.end();
+    };
+    const attempt: Attempt = {
+      id: newId("cap").replace("cap", "att"),
+      hostId,
+      signal,
+      requirePromptId: true,
+      report: (status) => {
+        dial.status = status;
+        for (const owner of owners) owner(status);
+      },
+    };
+    const ready = Promise.resolve()
+      .then(() => this.dialChain(chain, attempt, opened))
+      .then((client) => {
+        signal.throwIfAborted();
+        for (const hop of opened) hop.once("close", () => abort.abort());
+        return client;
+      })
+      .catch((error: unknown) => {
+        if (attempt.changed) attempt.report?.({ hostId, attemptId: attempt.id, state: "key-changed", prompt: attempt.changed });
+        abort.abort();
+        throw error;
+      })
+      .finally(() => this.attempts.delete(attempt.id));
+    const dial: ForwardDial = { id: newId("cap"), abort, owners, ready };
+    signal.addEventListener("abort", cleanup, { once: true });
+    this.forwardDials.set(identity, dial);
+    this.attempts.set(attempt.id, attempt);
+    return dial;
   }
 
   private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown): Promise<void> {
@@ -355,7 +477,9 @@ export class SshManager {
                   verify(false);
                   return;
                 }
-                this.update({ hostId, attemptId, state: "connecting" });
+                const status = { hostId, attemptId, state: "connecting" } as const;
+                if (attempt.report) attempt.report(status);
+                else this.update(status);
                 void this.known
                   .approve(h.host, h.port, keyType, key, remember, signal)
                   .then((result) => {
@@ -371,7 +495,9 @@ export class SshManager {
                   });
               },
             };
-            this.update({ hostId, attemptId, state: "waiting", prompt, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) });
+            const status = { hostId, attemptId, state: "waiting", prompt, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) } as const;
+            if (attempt.report) attempt.report(status);
+            else this.update(status);
             publishKey(prompt, "first");
           },
         } as never);
@@ -521,6 +647,7 @@ export class SshManager {
 
   disposeAll(): void {
     for (const { abort } of this.connecting.values()) abort.abort();
+    for (const { abort } of this.forwardDials.values()) abort.abort();
     for (const id of Array.from(this.conns.keys())) this.drop(id);
   }
 

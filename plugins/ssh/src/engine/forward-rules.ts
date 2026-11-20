@@ -42,7 +42,11 @@ export class ForwardRules {
     if (references.length) throw errors.invalidInput(`该主机仍被转发规则引用：${references.map(({ name }) => name).join("、")}`);
   }
 
-  save(input: SaveForward, signal: AbortSignal) {
+  require(input: ForwardRevision) {
+    return this.match(this.list(), input);
+  }
+
+  save(input: SaveForward, signal: AbortSignal, beforeChange: (rule: ForwardRule) => Promise<unknown>) {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { rules, fileVersion } = this.read();
@@ -54,16 +58,20 @@ export class ForwardRules {
       const boundTarget = existing?.hostId === draft.hostId && !rebind ? existing.boundTarget : workspaceTarget(chain);
       const saved = { ...draft, id: existing?.id ?? randomUUID(), revision: randomUUID(), boundTarget };
       signal.throwIfAborted();
-      await this.write([...rules.filter(({ id }) => id !== saved.id), saved], fileVersion);
+      if (existing) await beforeChange(existing);
+      signal.throwIfAborted();
+      await this.write(existing ? rules.map((rule) => (rule.id === existing.id ? saved : rule)) : [...rules, saved], fileVersion);
       return saved;
     });
   }
 
-  delete(input: ForwardRevision, signal: AbortSignal) {
+  delete(input: ForwardRevision, signal: AbortSignal, beforeChange: (rule: ForwardRule) => Promise<unknown>) {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { rules, fileVersion } = this.read();
-      this.match(rules, input);
+      const existing = this.match(rules, input);
+      signal.throwIfAborted();
+      await beforeChange(existing);
       signal.throwIfAborted();
       await this.write(
         rules.filter(({ id }) => id !== input.id),

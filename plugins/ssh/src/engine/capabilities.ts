@@ -10,7 +10,7 @@ import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, Transf
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
-import { ForwardRevision, ForwardRule, SaveForward } from "../shared/forwarding.js";
+import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
@@ -53,6 +53,50 @@ export const sshCapabilityDescriptors = {
     risk: "normal",
     input: ForwardRevision,
     output: Ok,
+  }),
+  forwardRunsList: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.runs.list",
+    title: "查看 SSH 转发运行状态",
+    description: "读取真实监听、SSH 连接归属和流量计数。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(ForwardRun),
+  }),
+  forwardRunsStart: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.runs.start",
+    title: "启动 SSH 回环转发",
+    description: "按当前规则版本显式启动回环 TCP 转发。",
+    scope: "execute",
+    risk: "high",
+    input: ForwardRevision,
+    output: ForwardRun,
+  }),
+  forwardRunsResume: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.runs.resume",
+    title: "恢复 SSH 回环转发",
+    description: "显式恢复被断线中断且允许恢复的规则。",
+    scope: "execute",
+    risk: "high",
+    input: ForwardRevision,
+    output: ForwardRun,
+  }),
+  forwardRunsStop: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.forwarding.runs.stop",
+    title: "停止 SSH 回环转发",
+    description: "释放指定转发实例的监听及连接持有权。",
+    scope: "execute",
+    risk: "normal",
+    input: ForwardRevision,
+    output: ForwardRun.nullable(),
   }),
   archiveSupport: defineCapabilityDescriptor({
     ...ssh,

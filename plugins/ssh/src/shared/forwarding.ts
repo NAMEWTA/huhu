@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HostKeyPrompt } from "./trust.js";
 
 export const FORWARD_BIND = "127.0.0.1";
 export const ForwardMode = z.enum(["local", "remote", "socks5", "http-connect"]);
@@ -35,3 +36,20 @@ export const ForwardRule = rule(identity);
 export type ForwardRule = z.infer<typeof ForwardRule>;
 
 export const forwardLabels: Record<ForwardMode, string> = { local: "Local", remote: "Remote", socks5: "SOCKS5", "http-connect": "HTTP CONNECT" };
+
+export const ForwardRun = z.object({
+  id: z.uuid(),
+  ruleId: z.uuid(),
+  revision: z.uuid(),
+  state: z.enum(["starting", "waiting", "running", "stopping", "stop-failed", "failed", "interrupted", "stopped"]),
+  listener: z.object({ device: z.enum(["local", "remote"]), host: z.literal(FORWARD_BIND), port: ForwardPort }).optional(),
+  connection: z.object({ id: z.string(), kind: z.enum(["borrowed", "dedicated"]), holders: z.number().int().nonnegative() }).optional(),
+  prompt: HostKeyPrompt.optional(),
+  message: z.string().optional(),
+  lastError: z.string().optional(),
+  active: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  uploaded: z.number().int().nonnegative(),
+  downloaded: z.number().int().nonnegative(),
+});
+export type ForwardRun = z.infer<typeof ForwardRun>;

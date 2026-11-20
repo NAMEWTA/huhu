@@ -14,6 +14,7 @@ import { FileSessions } from "./file-sessions.js";
 import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
 import { ForwardRules } from "./forward-rules.js";
+import { ForwardRuns } from "./forward-runs.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -50,7 +51,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(files, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
+  const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   ctx.effect(() => () => {
+    forwarding.dispose();
     transfers.dispose();
     files.dispose();
     runs.dispose();
@@ -61,18 +64,22 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, () => forwardRules.list()));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.forwardRulesSave, async ({ signal }, input) => {
-      const result = await forwardRules.save(input, signal);
+      const result = await forwarding.save(input, signal);
       api.events.publish("entity.changed", { kind: "ssh-forward", id: result.id, op: input.previous ? "updated" : "created" });
       return result;
     }),
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.forwardRulesDelete, async ({ signal }, input) => {
-      const result = await forwardRules.delete(input, signal);
+      const result = await forwarding.delete(input, signal);
       api.events.publish("entity.changed", { kind: "ssh-forward", id: input.id, op: "deleted" });
       return result;
     }),
   );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsList, () => forwarding.list()));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStart, ({ signal }, input) => forwarding.start(input, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsResume, ({ signal }, input) => forwarding.start(input, signal, true)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStop, ({ signal }, input) => forwarding.stop(input, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, () => templates.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, ({ signal }, i) => templates.save(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, ({ signal }, i) => templates.delete(i, signal)));

@@ -30,6 +30,10 @@ export interface FakeSshOptions {
   failRename?: (from: string, to: string) => boolean;
   waitReadFile?: (file: string) => Promise<void> | undefined;
   dropRenameReply?: (from: string, to: string) => boolean;
+  remoteForwarding?: boolean;
+  waitRemoteBind?: (port: number) => Promise<void> | undefined;
+  denyRemoteStop?: () => boolean;
+  denyDirectTcp?: () => boolean;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -75,12 +79,74 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
     client.on("error", () => undefined);
     client.on("ready", () => {
       client.on("tcpip", (accept, reject, info) => {
+        if (o.denyDirectTcp?.()) return reject();
         const upstream = net.connect(info.destPort, info.destIP, () => {
           const ch = accept();
           ch.pipe(upstream).pipe(ch);
+          ch.on("close", () => upstream.destroy());
         });
         upstream.on("error", () => reject());
       });
+      if (o.remoteForwarding) {
+        const listeners = new Map<number, net.Server>();
+        const sockets = new Set<net.Socket>();
+        let connected = true;
+        client.once("close", () => {
+          connected = false;
+          for (const socket of sockets) socket.destroy();
+          for (const listener of listeners.values()) listener.close();
+        });
+        client.on("request", (accept, reject, name, info) => {
+          if ((name !== "tcpip-forward" && name !== "cancel-tcpip-forward") || info.bindAddr !== "127.0.0.1" || info.bindPort < 1024) return reject?.();
+          const port = info.bindPort;
+          if (name === "cancel-tcpip-forward") {
+            const listener = listeners.get(port);
+            if (!listener || o.denyRemoteStop?.()) return reject?.();
+            listeners.delete(port);
+            listener.close(() => accept?.());
+            return;
+          }
+          if (listeners.has(port)) return reject?.();
+          const listener = net.createServer((socket) => {
+            sockets.add(socket);
+            socket.on("error", () => socket.destroy());
+            socket.once("close", () => sockets.delete(socket));
+            client.forwardOut("127.0.0.1", port, "127.0.0.1", socket.remotePort ?? 0, (error, channel) => {
+              if (error || !channel || socket.destroyed) {
+                channel?.destroy();
+                socket.destroy();
+                return;
+              }
+              channel.on("error", () => channel.destroy());
+              channel.once("close", () => socket.destroy());
+              socket.once("close", () => channel.destroy());
+              socket.pipe(channel).pipe(socket);
+            });
+          });
+          listeners.set(port, listener);
+          listener.once("error", () => {
+            listeners.delete(port);
+            if (connected) reject?.();
+          });
+          listener.listen(port, "127.0.0.1", () => {
+            if (!connected) {
+              listener.close();
+              return;
+            }
+            const wait = o.waitRemoteBind?.(port);
+            if (wait)
+              void wait.then(
+                () => {
+                  if (connected) accept?.();
+                },
+                () => {
+                  if (connected) reject?.();
+                },
+              );
+            else accept?.();
+          });
+        });
+      }
       client.on("session", (accept) => {
         const session = accept();
         session.on("pty", (acceptPty) => acceptPty?.());
