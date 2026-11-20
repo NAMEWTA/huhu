@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { USER_DATA_ARG } from "../helpers/launch.js";
 
 /**
  * 打包后的 E2E 子集（release.md §5）：对安装/解包后的可执行文件运行。
@@ -18,7 +19,7 @@ async function start(): Promise<{ app: ElectronApplication; page: Page; vault: s
   // 不传 HUHU_HERDR_BIN：必须用随包的 Herdr Core，而不是源码树里的那份
   const env = { ...process.env, HUHU_VAULT: vault } as Record<string, string>;
   delete env["HUHU_HERDR_BIN"];
-  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox"], env });
+  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox", USER_DATA_ARG], env });
   const page = await app.firstWindow();
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
   const ep = await page.evaluate(() => window.huhuHost.engine());
@@ -167,7 +168,7 @@ test("打包后：Agent 规则经监督进程运行（fake provider），运行�
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
   const env = { ...process.env, HUHU_VAULT: vault, PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` } as Record<string, string>;
   delete env["HUHU_HERDR_BIN"];
-  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox"], env });
+  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox", USER_DATA_ARG], env });
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
