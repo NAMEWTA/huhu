@@ -1,7 +1,7 @@
 import { errors } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
-import { defineCapability as def } from "@huhu/kernel";
+import { bindCapability, defineCapability as def, defineCapabilityDescriptor } from "@huhu/kernel";
 import { OperationLog } from "@huhu/vault";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -35,6 +35,19 @@ const NoteRef = z.object({ path: z.string(), id: z.string().nullable(), title: z
 const Moved = z.object({ moved: z.record(z.string(), z.string()), rewrittenFiles: z.array(z.string()), ambiguous: z.array(z.string()) });
 const Filter = z.union([z.enum(["all", "favorites", "daily", "trash"]), z.object({ tag: z.string() })]);
 
+export const notesReadDescriptor = defineCapabilityDescriptor({
+  name: "notes.read",
+  plugin: "notes",
+  title: "读取笔记",
+  description: "读取指定 Vault 相对路径的笔记，返回正文和文件版本。",
+  scope: "read",
+  risk: "normal",
+  exposable: true,
+  defaultExposed: true,
+  input: Path,
+  output: z.object({ path: z.string(), text: z.string(), version: z.string() }),
+});
+
 export interface NotesOptions {
   zone?: () => string;
   now?: () => Date;
@@ -64,9 +77,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(
     def({ name: "notes.list", plugin: "notes", scope: "read", exposable: true, defaultExposed: true, input: z.object({ filter: Filter.default("all") }), output: z.array(NoteRef), handler: (_c, i) => svc.list(i.filter) }),
   );
-  api.defineCapability(
-    def({ name: "notes.read", plugin: "notes", scope: "read", exposable: true, defaultExposed: true, input: Path, output: z.object({ path: z.string(), text: z.string(), version: z.string() }), handler: (_c, i) => svc.read(i.path) }),
-  );
+  api.defineCapability(bindCapability(notesReadDescriptor, (_c, i) => svc.read(i.path)));
   api.defineCapability(
     def({
       name: "notes.create",

@@ -104,11 +104,14 @@ export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir">): EndpointDesc
 }
 
 export async function boot(opts: BootOptions): Promise<RunningEngine> {
+  const registry = new CapabilityRegistry();
+  registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
+  registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
+
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
   const runtime = vault.runtimeDir;
   mkdirSync(runtime, { recursive: true });
 
-  const registry = new CapabilityRegistry();
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
   registerPackageCapabilities(registry, vault);
@@ -381,7 +384,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     tokens,
     events,
-    visibleTo: (caller, name) => caller === "desktop" || (registry.get(name)?.exposable === true && (exposure.override(name) ?? registry.get(name)?.defaultExposed === true)),
+    visibleTo: (caller, name) => {
+      const cap = registry.get(name);
+      return !!cap && plugins.isEnabled(cap.plugin) && (caller === "desktop" || (cap.exposable && (exposure.override(name) ?? cap.defaultExposed)));
+    },
     ...(opts.port !== undefined ? { port: opts.port } : {}),
   });
 

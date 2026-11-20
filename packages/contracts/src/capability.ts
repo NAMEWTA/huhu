@@ -6,6 +6,26 @@ export const CALLER_KINDS = ["desktop", "cli", "mcp", "http"] as const;
 export type Caller = (typeof CALLER_KINDS)[number] | `plugin:${string}`;
 export const CAPABILITY_SCOPES = ["read", "write", "execute", "admin"] as const;
 export type CapabilityScope = (typeof CAPABILITY_SCOPES)[number];
+export const CAPABILITY_RISKS = ["normal", "high"] as const;
+export type CapabilityRisk = (typeof CAPABILITY_RISKS)[number];
+export const CAPABILITY_AVAILABILITIES = ["active", "plugin-disabled", "plugin-failed", "handler-missing"] as const;
+export type CapabilityAvailability = (typeof CAPABILITY_AVAILABILITIES)[number];
+
+/** 管理目录条目。尚未迁移静态描述的停用项只保留清单身份。 */
+export const CapabilityCatalogEntrySchema = z.object({
+  name: z.string(),
+  plugin: z.string(),
+  scope: z.enum(CAPABILITY_SCOPES).nullable(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  risk: z.enum(CAPABILITY_RISKS).optional(),
+  input: z.unknown(),
+  output: z.unknown(),
+  exposable: z.boolean(),
+  exposed: z.boolean(),
+  availability: z.enum(CAPABILITY_AVAILABILITIES),
+});
+export type CapabilityCatalogEntry = z.infer<typeof CapabilityCatalogEntrySchema>;
 
 export const CapabilityRequestSchema = z.object({
   capability: z.string().min(1),

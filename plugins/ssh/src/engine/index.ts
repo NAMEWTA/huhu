@@ -1,28 +1,13 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
-import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
-import { z } from "zod";
+import { bindCapability, type HuhuApi } from "@huhu/kernel";
+import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostStore } from "./hosts.js";
 import { SshManager } from "./manager.js";
 
+export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
 export { SshManager } from "./manager.js";
-
-const Auth = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("key"),
-    secretRef: z.string().regex(/^safe:\/\//),
-    passphraseRef: z
-      .string()
-      .regex(/^safe:\/\//)
-      .optional(),
-  }),
-  z.object({ kind: z.literal("password"), secretRef: z.string().regex(/^safe:\/\//) }),
-  z.object({ kind: z.literal("agent") }),
-]);
-const Host = z.object({ id: z.string(), name: z.string(), host: z.string(), port: z.number(), user: z.string(), auth: Auth, jumpHostIds: z.array(z.string()), tags: z.array(z.string()), connectTimeoutSec: z.number() });
-const Ok = z.object({ ok: z.literal(true) });
-const desktop = { exposable: false, defaultExposed: false } as const;
 
 export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
@@ -42,171 +27,36 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
   });
   ctx.effect(() => () => manager.disposeAll()); // 插件停用 / Vault 关闭：断开全部连接
 
-  api.defineCapability(def({ name: "ssh.hosts.list", plugin: "ssh", scope: "read", ...desktop, input: z.object({}), output: z.array(Host), handler: () => hosts.list() }));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsList, () => hosts.list()));
   api.defineCapability(
-    def({
-      name: "ssh.hosts.save",
-      plugin: "ssh",
-      scope: "write",
-      ...desktop,
-      input: z.object({
-        id: z.string().optional(),
-        name: z.string(),
-        host: z.string(),
-        port: z.number().int().default(22),
-        user: z.string(),
-        auth: Auth,
-        jumpHostIds: z.array(z.string()).default([]),
-        tags: z.array(z.string()).default([]),
-        connectTimeoutSec: z.number().default(20),
-      }),
-      output: Host,
-      handler: async (_c, i) => {
-        const saved = await hosts.save(i as never);
-        api.events.publish("entity.changed", { kind: "ssh-host", id: saved.id, op: i.id ? "updated" : "created" }); // 带外（CLI / MCP）改主机，界面也能刷新
-        return saved;
-      },
+    bindCapability(sshCapabilityDescriptors.hostsSave, async (_c, i) => {
+      const saved = await hosts.save(i as never);
+      api.events.publish("entity.changed", { kind: "ssh-host", id: saved.id, op: i.id ? "updated" : "created" }); // 带外（CLI / MCP）改主机，界面也能刷新
+      return saved;
     }),
   );
   api.defineCapability(
-    def({
-      name: "ssh.hosts.delete",
-      plugin: "ssh",
-      scope: "write",
-      ...desktop,
-      input: z.object({ id: z.string() }),
-      output: Ok,
-      handler: (_c, i) => (manager.disconnect(i.id), hosts.delete(i.id), api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" }), { ok: true as const }),
-    }),
+    bindCapability(sshCapabilityDescriptors.hostsDelete, (_c, i) => (manager.disconnect(i.id), hosts.delete(i.id), api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" }), { ok: true as const })),
   );
-  api.defineCapability(
-    def({ name: "ssh.connect", plugin: "ssh", scope: "execute", ...desktop, timeoutMs: 5 * 60_000, input: z.object({ hostId: z.string() }), output: z.object({ attemptId: z.string() }), handler: (_c, i) => manager.connect(i.hostId) }),
-  );
-  api.defineCapability(def({ name: "ssh.disconnect", plugin: "ssh", scope: "execute", ...desktop, input: z.object({ hostId: z.string() }), output: Ok, handler: (_c, i) => (manager.disconnect(i.hostId), { ok: true as const }) }));
-  api.defineCapability(
-    def({
-      name: "ssh.hostKey.decide",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      input: z.object({ attemptId: z.string(), hop: z.number().int(), accept: z.boolean() }),
-      output: z.object({ applied: z.boolean() }),
-      handler: (_c, i) => ({ applied: manager.decide(i.attemptId, i.hop, i.accept) }),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "ssh.exec.run",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      timeoutMs: 60 * 60_000,
-      input: z.object({ hostId: z.string(), command: z.string(), timeoutSec: z.number().int().min(1).max(3600).optional(), execId: z.string().optional() }),
-      output: z.object({ execId: z.string(), stdout: z.string(), stderr: z.string(), exitCode: z.number().nullable(), ms: z.number(), interrupted: z.boolean() }),
-      handler: (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) }),
-    }),
-  );
-  api.defineCapability(
-    def({ name: "ssh.exec.cancel", plugin: "ssh", scope: "execute", ...desktop, input: z.object({ execId: z.string() }), output: z.object({ cancelled: z.boolean() }), handler: (_c, i) => ({ cancelled: manager.cancel(i.execId) }) }),
-  );
-  api.defineCapability(
-    def({
-      name: "ssh.audit.list",
-      plugin: "ssh",
-      scope: "read",
-      ...desktop,
-      input: z.object({ hostId: z.string().optional(), limit: z.number().int().min(1).max(1000).default(200) }),
-      output: z.array(z.object({ at: z.string(), hostId: z.string(), action: z.string(), result: z.string(), detail: z.string() })),
-      handler: (_c, i) => manager.auditList(i.hostId, i.limit),
-    }),
-  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.connect, (_c, i) => manager.connect(i.hostId)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.disconnect, (_c, i) => (manager.disconnect(i.hostId), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => ({ applied: manager.decide(i.attemptId, i.hop, i.accept) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.execCancel, (_c, i) => ({ cancelled: manager.cancel(i.execId) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.auditList, (_c, i) => manager.auditList(i.hostId, i.limit)));
   // SFTP（仅桌面；复用已建立的连接）。覆盖需要 overwrite=true（界面先让用户确认）；上传先写临时文件再改名
-  const HostId = z.object({ hostId: z.string() });
-  const Entry = z.object({ name: z.string(), type: z.enum(["file", "dir", "link", "other"]), size: z.number(), mtime: z.number(), mode: z.string() });
-  const Size = z.object({ size: z.number() });
-  api.defineCapability(
-    def({
-      name: "ssh.sftp.list",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      input: HostId.extend({ path: z.string().default("") }),
-      output: z.object({ path: z.string(), entries: z.array(Entry) }),
-      handler: (_c, i) => manager.sftpList(i.hostId, i.path),
-    }),
-  );
-  api.defineCapability(
-    def({ name: "ssh.sftp.read", plugin: "ssh", scope: "execute", ...desktop, input: HostId.extend({ path: z.string() }), output: z.object({ text: z.string(), size: z.number() }), handler: (_c, i) => manager.sftpRead(i.hostId, i.path) }),
-  );
-  api.defineCapability(
-    def({
-      name: "ssh.sftp.write",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      input: HostId.extend({ path: z.string(), text: z.string().max(2 * 1024 * 1024), overwrite: z.boolean().default(false) }),
-      output: Size,
-      handler: (_c, i) => manager.sftpWrite(i.hostId, i.path, i.text, i.overwrite),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "ssh.sftp.upload",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      timeoutMs: 30 * 60_000,
-      input: HostId.extend({ localPath: z.string(), remotePath: z.string(), overwrite: z.boolean().default(false) }),
-      output: Size,
-      handler: (c, i) => manager.sftpUpload(i.hostId, i.localPath, i.remotePath, i.overwrite, c.signal),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "ssh.sftp.download",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      timeoutMs: 30 * 60_000,
-      input: HostId.extend({ remotePath: z.string(), localPath: z.string(), overwrite: z.boolean().default(false) }),
-      output: Size,
-      handler: (c, i) => manager.sftpDownload(i.hostId, i.remotePath, i.localPath, i.overwrite, c.signal),
-    }),
-  );
-  api.defineCapability(def({ name: "ssh.sftp.cancel", plugin: "ssh", scope: "execute", ...desktop, input: HostId, output: z.object({ cancelled: z.boolean() }), handler: (_c, i) => ({ cancelled: manager.sftpCancel(i.hostId) }) }));
-  api.defineCapability(
-    def({ name: "ssh.sftp.mkdir", plugin: "ssh", scope: "execute", ...desktop, input: HostId.extend({ path: z.string() }), output: Ok, handler: async (_c, i) => (await manager.sftpMkdir(i.hostId, i.path), { ok: true as const }) }),
-  );
-  api.defineCapability(
-    def({
-      name: "ssh.sftp.rename",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      input: HostId.extend({ from: z.string(), to: z.string(), overwrite: z.boolean().default(false) }),
-      output: Ok,
-      handler: async (_c, i) => (await manager.sftpRename(i.hostId, i.from, i.to, i.overwrite), { ok: true as const }),
-    }),
-  );
-  api.defineCapability(
-    def({ name: "ssh.sftp.delete", plugin: "ssh", scope: "execute", ...desktop, input: HostId.extend({ path: z.string() }), output: Ok, handler: async (_c, i) => (await manager.sftpDelete(i.hostId, i.path), { ok: true as const }) }),
-  );
-  const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
-  api.defineCapability(
-    def({
-      name: "ssh.shells.open",
-      plugin: "ssh",
-      scope: "execute",
-      ...desktop,
-      input: z.object({ hostId: z.string(), cols: z.number().int().min(1).max(500).default(80), rows: z.number().int().min(1).max(500).default(24) }),
-      output: Shell,
-      handler: (_c, i) => manager.openShell(i.hostId, { cols: i.cols, rows: i.rows }),
-    }),
-  );
-  api.defineCapability(def({ name: "ssh.shells.list", plugin: "ssh", scope: "read", ...desktop, input: z.object({ hostId: z.string().optional() }), output: z.array(Shell), handler: (_c, i) => manager.listShells(i.hostId) }));
-  api.defineCapability(
-    def({ name: "ssh.shells.close", plugin: "ssh", scope: "execute", ...desktop, input: z.object({ id: z.string() }), output: z.object({ closed: z.boolean() }), handler: (_c, i) => ({ closed: manager.closeShell(i.id) }) }),
-  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpList, (_c, i) => manager.sftpList(i.hostId, i.path)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRead, (_c, i) => manager.sftpRead(i.hostId, i.path)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpWrite, (_c, i) => manager.sftpWrite(i.hostId, i.path, i.text, i.overwrite)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpUpload, (c, i) => manager.sftpUpload(i.hostId, i.localPath, i.remotePath, i.overwrite, c.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDownload, (c, i) => manager.sftpDownload(i.hostId, i.remotePath, i.localPath, i.overwrite, c.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpCancel, (_c, i) => ({ cancelled: manager.sftpCancel(i.hostId) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpMkdir, async (_c, i) => (await manager.sftpMkdir(i.hostId, i.path), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRename, async (_c, i) => (await manager.sftpRename(i.hostId, i.from, i.to, i.overwrite), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDelete, async (_c, i) => (await manager.sftpDelete(i.hostId, i.path), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsOpen, (_c, i) => manager.openShell(i.hostId, { cols: i.cols, rows: i.rows })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsList, (_c, i) => manager.listShells(i.hostId)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsClose, (_c, i) => ({ closed: manager.closeShell(i.id) })));
   // /ws/terminal/ssh-<id>：与 Agent 会话共用同一条终端路由
   const demoted = new Map<string, import("ws").WebSocket[]>();
   const controllers = new Map<string, import("ws").WebSocket>(); // 同一个 shell 只有一个视图可输入（ACC-AG-09）

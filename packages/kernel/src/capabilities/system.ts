@@ -1,4 +1,4 @@
-import { errors, toJsonSchema } from "@huhu/contracts";
+import { CAPABILITY_AVAILABILITIES, CAPABILITY_SCOPES, CapabilityCatalogEntrySchema, errors, toJsonSchema, type CapabilityAvailability, type CapabilityCatalogEntry } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
 import type { PluginManager } from "../plugin-manager.js";
@@ -16,6 +16,13 @@ const PluginInfo = z.object({
   contributes: z.object({ modules: z.array(z.string()), settingsPages: z.array(z.string()), capabilities: z.array(z.string()) }),
 });
 
+const unavailableReasons = {
+  "not-found": "能力不存在或插件未安装",
+  "plugin-disabled": "所属插件已停用",
+  "plugin-failed": "所属插件启动或运行失败",
+  "handler-missing": "所属插件已启用，处理函数尚未注册",
+};
+
 /** 注册内核的插件与能力目录能力（interfaces.md §2：plugins.*、capabilities.list）。 */
 export function registerSystemCapabilities(
   registry: CapabilityRegistry,
@@ -32,6 +39,14 @@ export function registerSystemCapabilities(
     };
   },
 ): () => void {
+  const availabilityOf = (owner: string | undefined, handlerBound: boolean): CapabilityAvailability | "not-found" => {
+    const state = owner === "kernel" ? "active" : owner && plugins.state(owner);
+    if (!state) return "not-found";
+    if (state === "disabled") return "plugin-disabled";
+    if (state === "failed") return "plugin-failed";
+    return handlerBound ? "active" : "handler-missing";
+  };
+
   const offs = [
     registry.register(
       defineCapability({
@@ -197,17 +212,30 @@ export function registerSystemCapabilities(
         exposable: false,
         defaultExposed: false,
         input: z.object({ capability: z.string() }),
-        output: z.object({ found: z.boolean(), scope: z.string().nullable(), identities: z.array(z.object({ identity: z.enum(["cli", "mcp", "http"]), allowed: z.boolean(), reason: z.string() })) }),
+        output: z.object({
+          found: z.boolean(),
+          scope: z.enum(CAPABILITY_SCOPES).nullable(),
+          availability: z.enum([...CAPABILITY_AVAILABILITIES, "not-found"]),
+          identities: z.array(z.object({ identity: z.enum(["cli", "mcp", "http"]), allowed: z.boolean(), reason: z.string() })),
+        }),
         handler: (_c, i) => {
           const cap = registry.get(i.capability);
+          const descriptor = registry.getDescriptor(i.capability);
+          const availability = availabilityOf(registry.knownPlugin(i.capability), !!cap);
           const verdict = (): { allowed: boolean; reason: string } => {
-            if (!cap) return { allowed: false, reason: "能力不存在，或所属插件未启用" };
+            if (availability !== "active") return { allowed: false, reason: unavailableReasons[availability] };
+            if (!cap) return { allowed: false, reason: unavailableReasons["handler-missing"] };
             if (!cap.exposable) return { allowed: false, reason: "该能力永不对外开放" };
             if (!exposure.isExposed(cap.name)) return { allowed: false, reason: "尚未开放：先在上面打开它的开关" };
             return { allowed: true, reason: cap.scope === "read" ? "允许调用" : "允许调用（写/执行类调用需要幂等键）" };
           };
           const v = verdict();
-          return { found: !!cap, scope: cap?.scope ?? null, identities: (["cli", "mcp", "http"] as const).map((identity) => ({ identity, ...v })) };
+          return {
+            found: availability !== "not-found",
+            scope: availability === "not-found" ? null : (descriptor?.scope ?? cap?.scope ?? null),
+            availability,
+            identities: (["cli", "mcp", "http"] as const).map((identity) => ({ identity, ...v })),
+          };
         },
       }),
     ),
@@ -220,18 +248,33 @@ export function registerSystemCapabilities(
         defaultExposed: true,
         // includeInactive：同时返回曾注册 / 在清单中声明、但现在不可用（插件已停用）的能力名，供 stdio MCP 把已缓存工具的调用交给 Dispatcher 得到 PLUGIN_DISABLED
         input: z.object({ includeInactive: z.boolean().optional() }),
-        output: z.array(z.object({ name: z.string(), plugin: z.string(), scope: z.string(), exposable: z.boolean(), exposed: z.boolean(), input: z.unknown(), output: z.unknown() })),
-        handler: (_c, i) => {
-          const active = registry
-            .list()
-            .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, exposable: c.exposable, exposed: c.exposable && exposure.isExposed(c.name), input: toJsonSchema(c.input), output: toJsonSchema(c.output, "output") }));
-          if (!i.includeInactive) return active;
-          const have = new Set(active.map((c) => c.name));
-          const inactive = registry
-            .knownNames()
-            .filter((n) => !have.has(n))
-            .map((n) => ({ name: n, plugin: registry.knownPlugin(n) ?? "", scope: "read", exposable: false, exposed: false, input: null, output: null }));
-          return [...active, ...inactive];
+        output: z.array(CapabilityCatalogEntrySchema),
+        handler: (c, i) => {
+          const names = i.includeInactive ? registry.knownNames().sort((a, b) => a.localeCompare(b)) : registry.list().map((cap) => cap.name);
+          const entries: CapabilityCatalogEntry[] = [];
+          for (const name of names) {
+            const plugin = registry.knownPlugin(name);
+            if (!plugin) continue;
+            const active = registry.get(name);
+            const availability = availabilityOf(plugin, !!active);
+            if (availability === "not-found" || (!i.includeInactive && availability !== "active")) continue;
+            // 外部 stdio 发现需要已停用的名称来解释旧调用；停用项的完整描述供桌面管理。
+            const canDescribe = availability === "active" || c.caller === "desktop";
+            const descriptor = canDescribe ? registry.getDescriptor(name) : undefined;
+            const definition = descriptor ?? (availability === "active" ? active : undefined);
+            entries.push({
+              name,
+              plugin,
+              availability,
+              scope: definition?.scope ?? null,
+              ...(descriptor && { title: descriptor.title, description: descriptor.description, risk: descriptor.risk }),
+              exposable: definition?.exposable ?? false,
+              exposed: availability === "active" && definition?.exposable === true && exposure.isExposed(name),
+              input: definition ? toJsonSchema(definition.input) : null,
+              output: definition ? toJsonSchema(definition.output, "output") : null,
+            });
+          }
+          return entries;
         },
       }),
     ),
