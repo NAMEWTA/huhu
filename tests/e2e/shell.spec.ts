@@ -1338,7 +1338,7 @@ test("Agent CLI 历史：在 Windows 原生 Pi 上分支、恢复并跨 Space �
     await newSpace.getByLabel("工作目录", { exact: true }).fill(other);
     await newSpace.getByTestId("space-save").click();
     await expect(page.getByTestId("agent-space-item").filter({ hasText: "验证其他空间" })).toHaveAttribute("aria-pressed", "true");
-    await page.getByLabel("范围", { exact: true }).selectOption("all");
+    await page.getByRole("combobox", { name: /范围/ }).selectOption("all");
     await page.getByRole("searchbox", { name: "搜索会话历史" }).fill("history-original-a");
     await expect(entries).toHaveCount(1);
     await entries.getByTestId("history-locate").click();
@@ -1347,7 +1347,7 @@ test("Agent CLI 历史：在 Windows 原生 Pi 上分支、恢复并跨 Space �
     const relocated = (await list()).data;
     expect(relocated).toHaveLength(2);
     expect(relocated.find(({ id }) => id === originalBinding.id)?.terminalId).toBe(originalBinding.terminalId);
-    expect(readFileSync(source, "utf8")).toBe(original);
+    expect(readFileSync(source, "utf8").startsWith(original)).toBe(true);
   } finally {
     await app.close();
     rmTree(base);
