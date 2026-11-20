@@ -3,6 +3,7 @@ import { CapabilityError, host, useCapability, useEngine, useEngineEvents, useQu
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
+import type { MailFolderSyncStatus } from "../engine/message-cache.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
 import { mailDayWindow, type MailPeriod } from "../mail-calendar.js";
 import { isPublicMailFolder } from "../mail-folder-visibility.js";
@@ -24,6 +25,23 @@ const tabs = [
   { id: "outbox", label: "发件箱" },
 ] as const;
 const emptyAccounts: MailAccount[] = [];
+const isMailboxQuery = (name: unknown) => name === "mail.messages.latest" || name === "mail.sync.status" || String(name).startsWith("mail.conversations.");
+const refreshErrors: Record<string, string> = {
+  "oauth-reauthorize": "服务已拒绝当前授权，请重新授权。",
+  "oauth-not-configured": "当前 Engine 主机没有此邮箱的授权客户端配置。",
+  "gmail-api-account": "Gmail 返回的账号与当前邮箱不一致。",
+  "gmail-api-unavailable": "Gmail API 暂时不可用，已同步邮件仍可查看，请稍后重试。",
+};
+
+function syncLabel(sync: MailFolderSyncStatus | null | undefined, exchange: boolean) {
+  if (!sync) return "等待首次同步";
+  if (sync.transport === "gmail") {
+    const recovery = sync.recovery === "history-expired" ? " · 历史游标失效，已重新扫描" : sync.recovery === "history-window" ? " · 待同步变更较多，已重新扫描" : "";
+    return `Gmail API · 收件箱 · 最近最多 ${sync.limit} 封${recovery}`;
+  }
+  const fallback = sync.fallback === "gmail-api-permission" ? " · Gmail API 权限不足或未启用" : sync.fallback === "gmail-api-auth" ? " · Gmail API 未接受当前授权" : "";
+  return `${exchange ? "Exchange IMAP" : "IMAP"} · 所选目录 · 最近最多 ${sync.limit} 封${fallback}`;
+}
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
 type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount } | { kind: "remove"; target: RemovalTarget };
 type ConversationSelection = { id: string; offset: number };
@@ -118,7 +136,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       setNavigation(({ revision }) => ({ revision, location: null }));
     }
     if (event.payload.kind === "mail-message" || event.payload.kind === "mail-mailbox") {
-      void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && (entry.queryKey[1] === "mail.messages.latest" || String(entry.queryKey[1]).startsWith("mail.conversations.")) });
+      void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]) });
     }
   });
   useEffect(() => {
@@ -623,7 +641,7 @@ function Mailbox({
 }) {
   const engine = useEngine();
   const query = useQueryClient();
-  const [selected, setSelected] = useState(location?.message.source === "imap" ? location.message.folder : "INBOX");
+  const [selected, setSelected] = useState(location && location.message.source !== "sent" ? location.message.folder : "INBOX");
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<ConversationMessage | null>(location?.message ?? null);
@@ -636,6 +654,7 @@ function Mailbox({
   const contactsHeading = useRef<HTMLHeadingElement>(null);
   const mailbox = useRef<HTMLElement>(null);
   const folder = account?.definition.folders.some(({ path }) => path === selected) ? selected : "INBOX";
+  const sync = useCapability<MailFolderSyncStatus | null>("mail.sync.status", { accountId: account?.accountId, folder }, { enabled: !!account });
   const list = useCapability<ConversationsPage>("mail.conversations.list", { ...(account && { accountId: account.accountId }), ...(time && { time }), offset, limit: conversationPageSize });
   const conversations = list.data?.conversations ?? [];
   const conversation = conversations.find((row) => row.conversationId === conversationId) ?? conversations[0];
@@ -660,7 +679,7 @@ function Mailbox({
   }, [ordinary, ordinaryMessage]);
 
   useEffect(() => {
-    onReading(ordinaryMessage?.localMessageId ?? (activeMessage?.source === "imap" ? activeMessage.localMessageId : null));
+    onReading(ordinaryMessage?.localMessageId ?? (activeMessage && activeMessage.source !== "sent" ? activeMessage.localMessageId : null));
     return () => onReading(null);
   }, [onReading, activeMessage, ordinaryMessage]);
 
@@ -682,22 +701,13 @@ function Mailbox({
     try {
       const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", { accountId: sourceAccount, folder: sourceFolder }, { write: true, signal: controller.signal });
       if (controller.signal.aborted) return;
-      await query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && (entry.queryKey[1] === "mail.messages.latest" || String(entry.queryKey[1]).startsWith("mail.conversations.")) });
+      await query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]) });
       if (!controller.signal.aborted && result.mailboxChanged) {
-        setOpened((current) => (current?.source === "imap" && current.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
+        setOpened((current) => (current && current.source !== "sent" && current.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
         setOrdinary((current) => (current?.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
       }
     } catch (err) {
-      if (!controller.signal.aborted)
-        setError(
-          err instanceof CapabilityError && err.details?.reason === "oauth-reauthorize"
-            ? "服务已拒绝当前授权，请重新授权。"
-            : err instanceof CapabilityError && err.details?.reason === "oauth-not-configured"
-              ? "当前 Engine 主机没有此邮箱的授权客户端配置。"
-              : err instanceof CapabilityError
-                ? err.message
-                : "无法刷新此目录。",
-        );
+      if (!controller.signal.aborted) setError(err instanceof CapabilityError ? (refreshErrors[String(err.details?.reason)] ?? err.message) : "无法刷新此目录。");
     } finally {
       if (request.current === controller) request.current = null;
       if (!controller.signal.aborted) setRefreshing(false);
@@ -758,7 +768,7 @@ function Mailbox({
           <>
             <p>
               {account.definition.settings.email}
-              {account.definition.oauth && " · OAuth / IMAP"}
+              {account.definition.oauth && " · OAuth"}
               {account.definition.settings.smtpEnabled ? "" : " · 只接收"}
             </p>
             <div className="hu-mail-row">
@@ -795,6 +805,7 @@ function Mailbox({
                 }}
               />
             </div>
+            <p role="status">{sync.isError ? "无法读取目录同步状态" : syncLabel(sync.data, account.definition.settings.provider === "outlook" && !!account.definition.oauth)}</p>
             {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
           </>
         )}
@@ -866,6 +877,7 @@ function Mailbox({
             readOnly={readOnly}
             onCompose={onCompose}
             onRefresh={refresh}
+            onRevoked={() => setOrdinary(null)}
             onRead={async () => {
               const latest = await engine.call<{ message: MessageSummary | null }>("mail.messages.latest", { accountId: ordinaryMessage.accountId, folder: ordinaryMessage.folder });
               setOrdinary((current) => (current?.localMessageId === latest.message?.localMessageId ? latest.message : current));
@@ -920,7 +932,7 @@ function FolderLatestButton({ accountId, folder, onOpen }: { accountId: string; 
 }
 
 function conversationMessageKey(message: ConversationMessage) {
-  return message.source === "imap" ? message.localMessageId : message.operationId;
+  return message.source === "sent" ? message.operationId : message.localMessageId;
 }
 
 function ConversationTimeline({
@@ -1028,8 +1040,8 @@ function ConversationTimeline({
                 {message.subject || "无主题"}
               </Button>
               {!accountId && <span className="hu-mail-help">{accounts.find((account) => account.accountId === message.accountId)?.definition.settings.email}</span>}
-              <span className="hu-mail-help">{message.source === "imap" ? message.folder : "本机已发"}</span>
-              {message.source === "imap" && message.readState === "unread" && <span>未读</span>}
+              <span className="hu-mail-help">{message.source === "sent" ? "本机已发" : `${message.folder} · ${message.source === "gmail" ? "Gmail API" : "IMAP"}`}</span>
+              {message.source !== "sent" && message.readState === "unread" && <span>未读</span>}
             </div>
           );
         })}
@@ -1046,8 +1058,8 @@ function ConversationTimeline({
       </div>
       {reader && (
         <div ref={targetReader} {...(isTarget && { tabIndex: -1, role: "group", "aria-label": "已定位邮件", "data-mail-highlighted": highlighted })}>
-          {isTarget && reader.source === "imap" && <h3>{reader.subject || "无主题"}</h3>}
-          {reader.source === "imap" ? (
+          {isTarget && reader.source !== "sent" && <h3>{reader.subject || "无主题"}</h3>}
+          {reader.source !== "sent" ? (
             <MailReader
               key={reader.localMessageId}
               view="conversation"

@@ -6,7 +6,10 @@ import { rfcMessageId } from "./reply-context.js";
 export const publicMail = z.strictObject({ participants: z.array(draftRecipient), senderNames: z.array(z.string().min(1).max(200)).max(10).optional(), internetId: rfcMessageId.optional(), date: z.iso.datetime().optional() });
 
 export async function readPublicMail(source: Buffer) {
-  const headers = await rootHeaders(source);
+  return publicMailHeaders(await rootHeaders(source));
+}
+
+export function publicMailHeaders(headers: Awaited<ReturnType<typeof rootHeaders>>) {
   const from = mailboxes(headers, "From");
   const participants = [...new Set([...from.map(({ address }) => address), ...addresses(headers, "To"), ...addresses(headers, "Cc")])];
   const senderNames = [...new Set(from.flatMap(({ name }) => (name ? [name.slice(0, 200)] : [])))].slice(0, 10);

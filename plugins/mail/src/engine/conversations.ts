@@ -9,12 +9,12 @@ import { isInbox } from "./account-definition.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { draftRecipient } from "./draft-content.js";
-import { cachedMailboxMessages, cachedSummary } from "./message-cache.js";
+import { cachedMailboxMessages, gmailSummary, imapSummary, receivedLocation, receivedTarget } from "./message-cache.js";
 import { operationIdSchema, OutboxStorage, type OutboxIntent, type OutboxRecord } from "./outbox-storage.js";
 import { readPublicMail } from "./public-mail.js";
 import { makeMailSearchText, searchWords } from "./search-text.js";
 
-const accountId = cachedSummary.shape.accountId;
+const accountId = imapSummary.shape.accountId;
 const conversationId = z.hash("sha256", { enc: "hex" });
 const dateWindow = z.strictObject({ zone: z.string().min(1).max(100), from: z.iso.date(), through: z.iso.date() }).refine(({ zone, from, through }) => {
   try {
@@ -26,13 +26,14 @@ const dateWindow = z.strictObject({ zone: z.string().min(1).max(100), from: z.is
 });
 const pageInput = z.strictObject({ accountId: accountId.optional(), time: dateWindow.optional(), offset: z.int().nonnegative().default(0), limit: z.int().min(1).max(100).default(20) });
 const pageOutput = z.strictObject({ total: z.int().nonnegative(), nextOffset: z.int().nonnegative().nullable() });
-const imapRow = cachedSummary.extend({ source: z.literal("imap"), date: z.iso.datetime().nullable() });
+const imapRow = imapSummary.extend({ source: z.literal("imap"), date: z.iso.datetime().nullable() });
+const gmailRow = gmailSummary.extend({ source: z.literal("gmail"), date: z.iso.datetime().nullable() });
 const sentRow = z.strictObject({ source: z.literal("sent"), accountId, operationId: operationIdSchema, subject: z.string(), date: z.iso.datetime() });
-const conversationMessage = z.discriminatedUnion("source", [imapRow, sentRow]);
+const conversationMessage = z.discriminatedUnion("source", [imapRow, gmailRow, sentRow]);
 const conversationSummary = z.strictObject({ conversationId, accountId, participants: z.array(draftRecipient).min(1), count: z.int().positive(), unread: z.int().nonnegative(), latest: conversationMessage });
 const listOutput = pageOutput.extend({ conversations: z.array(conversationSummary) });
 const messagesOutput = pageOutput.extend({ messages: z.array(conversationMessage) });
-const locationTarget = z.discriminatedUnion("source", [imapRow.pick({ source: true, accountId: true, folder: true, localMessageId: true, uidValidity: true, uid: true }), sentRow.pick({ source: true, accountId: true, operationId: true })]);
+const locationTarget = z.discriminatedUnion("source", [...receivedTarget.options, sentRow.pick({ source: true, accountId: true, operationId: true })]);
 const locatedMessage = z.strictObject({ conversationId, contactOffset: z.int().nonnegative(), messageOffset: z.int().nonnegative(), message: conversationMessage });
 const searchHit = z.strictObject({ target: locationTarget, subject: z.string(), senderNames: z.array(z.string()), participants: z.array(draftRecipient), date: z.iso.datetime().nullable(), excerpt: z.string() });
 const searchOutput = pageOutput.extend({ hits: z.array(searchHit), cachedMessages: z.int().nonnegative() });
@@ -49,7 +50,7 @@ type SearchBody = { matches: boolean; excerpt: string };
 type Candidate = { message: ConversationMessage; addresses: string[]; senderNames?: string[]; internetId?: string; rank: number; body?: SearchBody };
 type VisibleMessage = Pick<Candidate, "message" | "body"> & { publicAddresses: Set<string>; senderNames: string[] };
 type ConversationGroups = Map<string, { participants: string[]; entries: VisibleMessage[] }>;
-const messageKey = (message: ConversationMessage) => (message.source === "imap" ? message.localMessageId : message.operationId);
+const messageKey = (message: ConversationMessage) => (message.source === "sent" ? message.operationId : message.localMessageId);
 
 function compareMessages(a: ConversationMessage, b: ConversationMessage) {
   return (b.date ?? "").localeCompare(a.date ?? "") || a.source.localeCompare(b.source) || (a.source === "imap" && b.source === "imap" ? b.uid - a.uid : 0) || messageKey(a).localeCompare(messageKey(b));
@@ -114,7 +115,7 @@ function summarize(groups: ConversationGroups) {
         participants,
         latest,
         count: entries.length,
-        unread: entries.filter(({ message }) => message.source === "imap" && message.readState === "unread").length,
+        unread: entries.filter(({ message }) => message.source !== "sent" && message.readState === "unread").length,
       };
     })
     .sort((a, b) => compareMessages(a.latest, b.latest) || a.conversationId.localeCompare(b.conversationId));
@@ -122,14 +123,15 @@ function summarize(groups: ConversationGroups) {
 
 function targetOf(message: ConversationMessage): MailLocationTarget {
   if (message.source === "sent") return { source: "sent", accountId: message.accountId, operationId: message.operationId };
-  const { accountId, folder, localMessageId, uidValidity, uid } = message;
-  return { source: "imap", accountId, folder, localMessageId, uidValidity, uid };
+  return receivedLocation(message);
 }
 
 function sameTarget(message: ConversationMessage, target: MailLocationTarget) {
   if (message.accountId !== target.accountId) return false;
   if (target.source === "sent") return message.source === "sent" && message.operationId === target.operationId;
-  return message.source === "imap" && message.localMessageId === target.localMessageId && message.folder === target.folder && message.uidValidity === target.uidValidity && message.uid === target.uid;
+  if (message.source === "sent" || message.localMessageId !== target.localMessageId || message.folder !== target.folder) return false;
+  if (target.source === "gmail") return message.source === "gmail" && message.nativeId === target.nativeId;
+  return message.source === "imap" && message.uidValidity === target.uidValidity && message.uid === target.uid;
 }
 
 export function registerConversations(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, removals: AccountRemovals, lifetime: AbortSignal) {
@@ -157,7 +159,8 @@ export function registerConversations(api: HuhuApi, accounts: ReturnType<typeof 
           const existing = entry.publicMail;
           const info = existing && (!text || existing.senderNames) ? existing : ((await readPublicMail(Buffer.from(entry.source, "base64")).catch(() => undefined)) ?? existing);
           if (!info) continue;
-          const message: ConversationMessage = { ...entry.summary, source: "imap", date: info.date ?? entry.cachedAt ?? null };
+          const date = entry.receivedAt ?? info.date ?? entry.cachedAt ?? null;
+          const message: ConversationMessage = entry.summary.transport === "gmail" ? { ...entry.summary, source: "gmail", date } : { ...entry.summary, source: "imap", date };
           if (text && ++indexed % 16 === 0) await setImmediate(undefined, { signal });
           signal.throwIfAborted();
           const body = text ? bodyMatch(await searchText(entry.source), text) : undefined;

@@ -1,11 +1,11 @@
 import { Banner, Button, Dialog } from "@huhu/ui";
-import { CapabilityError, host, useEngine } from "@huhu/workbench";
+import { CapabilityError, host, useEngine, useEngineEvents } from "@huhu/workbench";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReplySeed } from "../engine/prepare-reply.js";
 import type { ForwardSeed, NewTopicSeed } from "../engine/prepare-forward.js";
 import { prepareMailHtml } from "./mail-html.js";
 
-export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; readState?: "unread" | "local" | "synced" | undefined };
+export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; transport?: "imap" | "gmail"; readState?: "unread" | "local" | "synced" | undefined };
 export type RelatedDraft = { kind: "reply"; seed: ReplySeed } | { kind: "forward"; seed: ForwardSeed } | { kind: "new-topic"; seed: NewTopicSeed };
 const composeActions = [
   { id: "reply", title: "引用回复" },
@@ -83,6 +83,11 @@ export function MailReader({
   revoke.current = onRevoked;
   const contentId = useId();
 
+  useEngineEvents((event) => {
+    if (event.type === "entity.changed" && "kind" in event.payload && "id" in event.payload && event.payload.id === accountId && (event.payload.kind === "mail-message" || event.payload.kind === "mail-mailbox"))
+      setAttempt((value) => value + 1);
+  });
+
   useEffect(() => {
     const controller = new AbortController();
     const capability = view === "conversation" ? "mail.conversations.loadBody" : "mail.messages.loadBody";
@@ -95,7 +100,8 @@ export function MailReader({
         } else {
           setBody(null);
           setStale(true);
-          if (view === "conversation") revoke.current?.();
+          setSource(null);
+          revoke.current?.();
         }
       },
       (error: unknown) => {
@@ -252,7 +258,8 @@ export function MailReader({
   }
   let status = readLabels[state ?? "unknown"];
   if (changed) status = readLabels["needs-refresh"];
-  else if (marking) status = "正在同步已读状态…";
+  else if (marking) status = message.transport === "gmail" ? "正在记录本机已读状态…" : "正在同步已读状态…";
+  else if (state === "local" && message.transport === "gmail") status = "仅在本机标为已读";
   else if (readOnly && state !== "local" && state !== "synced") status = "只读 · 不更新已读状态";
 
   return (
@@ -267,7 +274,7 @@ export function MailReader({
     >
       <div className="hu-mail-row">
         <p role="status">{status}</p>
-        {!readOnly && !changed && state !== "synced" && (state === "local" || markError) && (
+        {!readOnly && !changed && state !== "synced" && ((state === "local" && message.transport !== "gmail") || markError) && (
           <Button loading={marking} onClick={() => void markRead()}>
             重试同步已读
           </Button>

@@ -16,10 +16,11 @@ import {
 } from "./account-definition.js";
 import { AccountRemovals } from "./account-removals.js";
 import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
+import { GmailHistoryError, readGmailHistory, type GmailHistoryInput } from "./gmail-history.js";
 import { discoverImapFolders } from "./imap-discovery.js";
 import { fetchImapMessages, markImapMessageRead, waitForImapActivity, type ImapSyncCursor } from "./imap-message.js";
+import { MailOAuthError, mailPermission, oauthMailEndpoints, oauthProvider, requestOAuthToken, sealedOAuthToken, type MailOAuthRuntime, type OAuthProvider, type SealedOAuthToken } from "./oauth-provider.js";
 import type { MailEndpoint } from "./presets.js";
-import { MailOAuthError, oauthMailEndpoints, oauthProvider, requestOAuthToken, sealedOAuthToken, type MailOAuthRuntime, type OAuthProvider, type SealedOAuthToken } from "./oauth-provider.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 type DraftInput = Readonly<{ settings: MailAccountSettings; password: string | undefined }>;
@@ -108,7 +109,7 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     await pending;
     signal.throwIfAborted();
   }
-  async function useTransport<R>(accountId: string, signal: AbortSignal, operation: (definition: MailAccountDefinition, material: string, smtp: boolean) => Promise<R>) {
+  async function useTransport<R>(accountId: string, signal: AbortSignal, operation: (definition: MailAccountDefinition, material: string, smtp: boolean, scopes?: string) => Promise<R>) {
     await ensureOAuthAccess(accountId, signal);
     const result = await credentials.use(accountId, [accountPasswordPurpose], async (definition, values) => {
       try {
@@ -119,7 +120,7 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
         transportIssuer(definition);
         const token = sealedOAuthToken.parse(JSON.parse(value));
         if (token.until <= now()) throw new MailAccountError("oauth-reauthorize");
-        return { data: await operation(definition, token.access, token.smtp) } as const;
+        return { data: await operation(definition, token.access, token.smtp, token.scopes) } as const;
       } catch (error) {
         return { error } as const;
       }
@@ -206,6 +207,17 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       return useTransport(accountId, signal, ({ settings }, password, smtp) => {
         if (!smtp) throw new MailAccountError("oauth-reauthorize");
         return send(settings, password);
+      });
+    },
+    fetchGmailHistory(accountId: string, folder: string, previous: GmailHistoryInput | undefined, signal: AbortSignal) {
+      const endpoint = oauth?.issuers.gmail?.gmailApi;
+      if (!endpoint || !isInbox(folder)) return;
+      const current = readDefinition(accountId)?.definition;
+      if (current?.settings.provider !== "gmail" || !current.oauth) return;
+      return useTransport(accountId, signal, async ({ settings, oauth: binding, folders }, token, _smtp, scopes) => {
+        if (settings.provider !== "gmail" || !binding || !folders.some(({ path }) => path === folder)) throw new MailAccountError("invalid-selection");
+        if (!scopes || !mailPermission("gmail", scopes).imap) throw new GmailHistoryError("gmail-api-permission");
+        return readGmailHistory(endpoint, token, settings.email, previous, signal);
       });
     },
     async fetchMessages(accountId: string, folder: string, cursor: ImapSyncCursor | undefined, reset: (validity: string) => Promise<void>, signal: AbortSignal) {

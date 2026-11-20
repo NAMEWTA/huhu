@@ -3,17 +3,22 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { NotificationStore } from "@huhu/kernel";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { openMailAccounts, type MailAccount } from "../src/engine/accounts.js";
+import type { MailLocationTarget, MailSearchPage } from "../src/engine/conversations.js";
+import type { ReplySeed } from "../src/engine/prepare-reply.js";
 import { createMailOAuth, oauthMailEndpoints, type MailOAuthIssuer, type MailOAuthRuntime, type OAuthProvider } from "../src/engine/oauth-provider.js";
+import type { MailSyncOptions } from "../src/engine/sync-schedule.js";
+import { gmailFixture } from "./fixtures/gmail.js";
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-const injection = vi.hoisted(() => ({ runtime: undefined as MailOAuthRuntime | undefined }));
+const injection = vi.hoisted(() => ({ runtime: undefined as MailOAuthRuntime | undefined, options: undefined as MailSyncOptions | undefined }));
 vi.mock("../src/engine/registration.js", async (original) => {
   const module = await original<typeof import("../src/engine/registration.js")>();
-  return { ...module, apply: (...[ctx, api, owner, transport, options]: Parameters<typeof module.apply>) => module.apply(ctx, api, owner, transport, options, injection.runtime) };
+  return { ...module, apply: (...[ctx, api, owner, transport, options]: Parameters<typeof module.apply>) => module.apply(ctx, api, owner, transport, injection.options ?? options, injection.runtime) };
 });
 
 type Status = { sessionId: string; host: string; phase: string; reason?: string; accountId?: string; route?: string; smtp?: boolean };
@@ -22,6 +27,184 @@ const google = "oauth-google@example.invalid";
 const outlook = "oauth-outlook@example.invalid";
 const microsoftScopes = "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send";
 const googleScopes = "https://mail.google.com/";
+
+type Call = <T = unknown>(capability: string, input?: unknown) => Promise<T>;
+
+async function sendFixtureReply(call: Call, source: { accountId: string; folder: string; localMessageId: string }) {
+  const seed = await call<ReplySeed>("mail.messages.prepareReply", { ...source, mode: "reply-all" });
+  expect(seed.accountId).toBe(source.accountId);
+  const draftId = randomUUID();
+  const draft = { ...seed, bcc: [], body: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Fixture reply" }] }] } };
+  const { revision } = await call<{ revision: string }>("mail.drafts.save", { draftId, expectedRevision: null, draft });
+  const { operationId } = await call<{ operationId: string }>("mail.outbox.submit", { draftId, expectedRevision: revision });
+  await expect.poll(() => call("mail.outbox.status", { operationId })).toMatchObject({ state: "accepted" });
+  return seed;
+}
+
+async function verifyGmailHistory(
+  api: ReturnType<typeof gmailFixture>,
+  accountId: string,
+  call: Call,
+  restart: () => Promise<void>,
+  notices: NotificationStore,
+  loseNoticeAcknowledgement: () => void,
+  imap: Awaited<ReturnType<typeof openImapFixture>>,
+) {
+  const mailbox = { accountId, folder: "INBOX" };
+  const refresh = () => call("mail.sync.refresh", mailbox);
+  const syncStatus = () => call("mail.sync.status", mailbox);
+  const search = (text: string) => call<MailSearchPage>("mail.conversations.search", { text, accountId });
+  const messageKey = (target: MailLocationTarget) => {
+    assert(target.source === "gmail");
+    return { ...mailbox, localMessageId: target.localMessageId };
+  };
+  const first = "42-native-A";
+  const second = "42-native-B";
+  const added = "42-new";
+  const archived = "42-archive";
+  const anchor = api.state.profileCursor;
+  const recovered = "90071992547410100";
+  const resumed = "90071992547410200";
+  const terminal = "90071992547410000";
+  const beforeImap = imap.fetchRequests.length;
+  for (let i = 0; i < 205; i++) api.add(i === 203 ? first : i === 204 ? second : i === 202 ? archived : `old-${i}`, i);
+  const padded = api.messages.get(second)!;
+  const bytes = Buffer.from(padded.raw, "base64url");
+  padded.raw = (bytes.length % 3 === 0 ? Buffer.concat([bytes, Buffer.from("\r\n")]) : bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+  expect(padded.raw.endsWith("=")).toBe(true);
+  api.add("42-private", 300, ["SENT", "UNREAD"]);
+  api.state.email = "wrong-profile@example.invalid";
+  await expect(refresh()).rejects.toThrow("gmail-api-account");
+  expect(api.requests.map(({ path }) => path)).toEqual(["profile"]);
+  expect(imap.fetchRequests).toHaveLength(beforeImap);
+  api.state.email = google;
+  api.requests.length = 0;
+  expect(await refresh()).toMatchObject({ message: { transport: "gmail", nativeId: second }, mailboxChanged: true, sync: { transport: "gmail", range: "inbox", limit: 200 } });
+  expect(await syncStatus()).toEqual({ transport: "gmail", range: "inbox", limit: 200 });
+  expect(api.requests[0]?.path).toBe("profile");
+  expect(api.requests.filter(({ path }) => path === "messages")).toHaveLength(8);
+  expect(api.requests.filter(({ format }) => format === "raw")).toHaveLength(200);
+  expect(api.requests.some(({ path }) => path === "messages/old-4" || path === "messages/42-private")).toBe(false);
+  expect(await search("mail-body-old-5!")).toMatchObject({ total: 1, cachedMessages: 201 });
+  expect((await search("mail-body-old-4!")).total).toBe(0);
+  expect(imap.fetchRequests).toHaveLength(beforeImap);
+  expect(notices.list()).toHaveLength(0);
+
+  const [a, b, archive] = await Promise.all([first, second, archived].map(async (id) => (await search(`mail-body-${id}!`)).hits[0]!.target));
+  assert(a && b && archive);
+  expect(a).toMatchObject({ source: "gmail", nativeId: first });
+  expect(b).toMatchObject({ source: "gmail", nativeId: second });
+  expect(messageKey(a).localMessageId).not.toBe(messageKey(b).localMessageId);
+  expect(await call("mail.conversations.loadBody", messageKey(a))).toMatchObject({ state: "ready", body: { text: expect.stringContaining(`mail-body-${first}!`) } });
+  expect(await call("mail.conversations.loadBody", messageKey(b))).toMatchObject({ state: "ready", body: { text: expect.stringContaining(`mail-body-${second}!`) } });
+  expect((await search("blind@example.invalid")).total).toBe(0);
+  expect(await call("mail.messages.markRead", messageKey(a))).toEqual({ state: "local", remoteSynced: false });
+  expect(await call("mail.conversations.findMessage", { target: a })).toMatchObject({ message: { readState: "local" } });
+
+  api.add(added, 400);
+  api.add("42-junk", 500, ["SPAM", "UNREAD"]);
+  api.messages.delete(second);
+  api.messages.get(archived)!.labelIds = ["UNREAD"];
+  api.pages.set(anchor, {
+    historyId: terminal,
+    nextPageToken: "second",
+    history: [{ id: "90071992547409933", messagesAdded: [{ message: { id: added } }, { message: { id: "42-private" } }, { message: { id: "42-junk", labelIds: ["SPAM"] } }] }],
+  });
+  api.pages.set(`${anchor}/second`, {
+    historyId: terminal,
+    history: [{ id: terminal, messagesDeleted: [{ message: { id: second } }], labelsRemoved: [{ message: { id: archived }, labelIds: ["INBOX"] }], labelsAdded: [{ message: { id: first }, labelIds: ["UNREAD"] }] }],
+  });
+  api.state.failPage = "second";
+  const start = api.requests.length;
+  await expect(refresh()).rejects.toThrow("gmail-api-unavailable");
+  expect(api.requests.slice(start)).toEqual([
+    { path: "history", cursor: anchor, page: null, format: null },
+    { path: "history", cursor: anchor, page: "second", format: null },
+  ]);
+  expect(await call("mail.messages.latest", mailbox)).toMatchObject({ message: { nativeId: second } });
+  expect(notices.list()).toHaveLength(0);
+
+  await restart();
+  api.state.failPage = "";
+  loseNoticeAcknowledgement();
+  const retry = api.requests.length;
+  expect(await refresh()).toMatchObject({ message: { nativeId: added }, sync: { transport: "gmail" } });
+  const retryRequests = api.requests.slice(retry);
+  expect(retryRequests.filter(({ path }) => path === "history").map(({ cursor, page }) => [cursor, page])).toEqual([
+    [anchor, null],
+    [anchor, "second"],
+  ]);
+  expect(retryRequests.filter(({ format }) => format === "raw").map(({ path }) => path)).toEqual([`messages/${added}`]);
+  expect(retryRequests.filter(({ format }) => format === "minimal")).toHaveLength(4);
+  expect(retryRequests.some(({ path, format }) => path === "messages/42-private" && format === "minimal")).toBe(true);
+  expect(retryRequests.some(({ path }) => path === "messages/42-junk")).toBe(false);
+  expect(await call("mail.conversations.loadBody", messageKey(b))).toEqual({ state: "needs-refresh" });
+  expect(await call("mail.messages.loadSource", messageKey(archive))).toEqual({ state: "needs-refresh" });
+  expect(await call("mail.conversations.findMessage", { target: a })).toMatchObject({ message: { readState: "local" } });
+  const [notice] = notices.list();
+  assert(notice);
+  expect(notice).toMatchObject({ module: "mail", title: "收到新邮件" });
+  const target = await call<MailLocationTarget>("mail.notifications.target", { id: notice.id });
+  expect(target).toMatchObject({ source: "gmail", nativeId: added });
+  expect(await call("mail.conversations.findMessage", { target })).toMatchObject({ message: { source: "gmail", nativeId: added } });
+  api.pages.set(terminal, { historyId: terminal });
+  await restart();
+  await refresh();
+  expect(api.requests.at(-1)?.cursor).toBe(terminal);
+  expect(notices.list().map(({ id }) => id)).toEqual([notice.id]);
+
+  if (target.source !== "gmail") throw new Error("The notice should retain its Gmail source");
+  const reply = await sendFixtureReply(call, messageKey(target));
+  expect(reply).toMatchObject({ accountId, to: ["reader@example.invalid"], cc: [], reply: { inReplyTo: `<${added}@example.invalid>` } });
+  expect(JSON.stringify(reply)).not.toContain("blind@example.invalid");
+
+  api.pages.delete(terminal);
+  api.state.profileCursor = recovered;
+  for (const id of api.messages.keys()) if (id !== first && id !== added) api.messages.delete(id);
+  api.add("42-gap", 600);
+  const rescan = api.requests.length;
+  expect(await refresh()).toMatchObject({ message: { nativeId: "42-gap" }, mailboxChanged: true, sync: { transport: "gmail", recovery: "history-expired" } });
+  expect(api.requests.slice(rescan, rescan + 3).map(({ path }) => path)).toEqual(["history", "profile", "messages"]);
+  expect(api.requests.slice(rescan).filter(({ format }) => format === "raw")).toHaveLength(3);
+  expect(await call("mail.conversations.findMessage", { target: a })).toMatchObject({ message: { readState: "local" } });
+  expect(notices.list()).toHaveLength(1);
+
+  api.state.denied = true;
+  expect(await refresh()).toMatchObject({ message: { transport: "imap", uid: 42 }, mailboxChanged: true, sync: { transport: "imap", fallback: "gmail-api-permission", limit: 200 } });
+  expect(imap.fetchRequests.length).toBeGreaterThan(beforeImap);
+  expect(await syncStatus()).toEqual({ transport: "imap", range: "folder", fallback: "gmail-api-permission", limit: 200 });
+  expect(await call("mail.conversations.findMessage", { target })).toBeNull();
+
+  await restart();
+  api.state.denied = false;
+  api.pages.set(recovered, { historyId: resumed });
+  const reconnect = api.requests.length;
+  expect(await refresh()).toMatchObject({ message: { nativeId: "42-gap" }, mailboxChanged: true, sync: { transport: "gmail" } });
+  expect(api.requests.slice(reconnect)).toEqual([{ path: "history", cursor: recovered, page: null, format: null }]);
+  expect(await call("mail.conversations.findMessage", { target: a })).toMatchObject({ message: { readState: "local" } });
+  expect(notices.list()).toHaveLength(1);
+  const gapStart = api.requests.length;
+  for (let i = 0; i < 20; i++) api.pages.set(i === 0 ? resumed : `${resumed}/budget-${i}`, { historyId: resumed, nextPageToken: `budget-${i + 1}` });
+  api.state.profileCursor = "90071992547410300";
+  expect(await refresh()).toMatchObject({ sync: { transport: "gmail", recovery: "history-window" } });
+  expect(api.requests.slice(gapStart).filter(({ path }) => path === "history")).toHaveLength(20);
+  expect(api.requests.slice(gapStart).filter(({ format }) => format === "raw")).toHaveLength(3);
+  expect(notices.list()).toHaveLength(1);
+  console.info(
+    JSON.stringify({
+      scenario: "gmail-history",
+      initialListPages: 8,
+      initialRaw: 200,
+      failedPageRequests: 2,
+      retryMetadata: retryRequests.filter(({ format }) => format === "minimal").length,
+      retryRaw: 1,
+      recoveryRaw: 3,
+      resumedHistoryRequests: 1,
+      historyBudgetPages: 20,
+      notices: notices.list().length,
+    }),
+  );
+}
 
 test("production OAuth service addresses distinguish personal Outlook and Exchange Online", () => {
   expect(oauthMailEndpoints("outlook", outlook, true)).toEqual({ imap: { host: "outlook.office365.com", port: 993, security: "tls" }, smtp: { host: "smtp-mail.outlook.com", port: 587, security: "starttls" } });
@@ -45,6 +228,20 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
     let blockEntered: (() => void) | undefined;
     const credentials = new Map<string, { access: string; refresh: string; provider: OAuthProvider }>();
     const materials: string[] = [];
+    const gmail = gmailFixture(google, () => credentials.get(google)?.access);
+    const notices = new NotificationStore(path.join(root, "mail-notices.ndjson"));
+    let lostNoticeAcknowledgement = false;
+    const delivered: string[] = [];
+    injection.options = {
+      notify({ id, ...notice }) {
+        delivered.push(id);
+        notices.create(notice, id);
+        if (lostNoticeAcknowledgement) {
+          lostNoticeAcknowledgement = false;
+          throw new Error("fixture notice acknowledgement lost");
+        }
+      },
+    };
     const authMatches = (email: string, value: string) => email !== "protocol-disabled@example.invalid" && credentials.get(email)?.access === value;
     const imap = await openImapFixture({ acceptOAuth: authMatches, message: { uidValidity: 99, subject: "OAuth fixture", source: "Subject: OAuth fixture\r\n\r\nFixture body\r\n" } });
     const smtp = await loopbackSmtp("unused", authMatches);
@@ -61,6 +258,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       return { access_token: access, refresh_token: refresh, token_type: "Bearer", expires_in: 120 };
     };
     const issuer = createServer(async (req, res) => {
+      if (gmail.handle(req, res)) return;
       const json = (status: number, data: unknown) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
       if (req.url === "/keys") return json(200, { keys: [jwk] });
       const provider = req.url === "/token/gmail" ? "gmail" : req.url === "/token/outlook" ? "outlook" : undefined;
@@ -128,6 +326,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
           issuer: `${base}/issuer/${provider}`,
           protocol: { imap: { host: "127.0.0.1", port: imap.port, security: "none" }, smtp: { host: "127.0.0.1", port: smtp.port, security: "none" } },
         };
+      delete issuers.gmail.gmailApi;
       const opened: URL[] = [];
       const runtime: MailOAuthRuntime = {
         issuers,
@@ -181,7 +380,9 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(exchangeCount).toBe(0);
       expect(await request("mail.oauth.status", { sessionId: googleSession.slot.sessionId }, "web:other")).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
       expect((await callback(googleSession.url, { code: googleCode })).status).toBe(200);
-      await expect.poll(() => status(googleSession.slot)).toMatchObject({ phase: "configured", route: "imap", smtp: true });
+      await expect.poll(async () => (await status(googleSession.slot)).phase).not.toMatch(/^(waiting|finishing)$/);
+      const configured = await status(googleSession.slot);
+      expect(configured, JSON.stringify(configured)).toMatchObject({ phase: "configured", route: "imap", smtp: true });
       expect(
         await callback(googleSession.url, { code: googleCode }).then(
           (reply) => reply.status,
@@ -290,6 +491,24 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         await expect.poll(() => call("mail.outbox.status", { operationId: sent.operationId })).toMatchObject({ state: "accepted" });
       }
       expect(smtp.counts).toMatchObject({ authenticated: 2, data: 2 });
+      issuers.gmail.gmailApi = `${base}${gmail.basePath}`;
+      await verifyGmailHistory(
+        gmail,
+        googleAccount.accountId,
+        call,
+        async () => {
+          await engine?.shutdown();
+          engine = await boot({ vaultPath, desktopUserData });
+        },
+        notices,
+        () => {
+          lostNoticeAcknowledgement = true;
+        },
+        imap,
+      );
+      expect(delivered).toEqual([notices.list()[0]?.id, notices.list()[0]?.id]);
+      expect(smtp.counts).toMatchObject({ authenticated: 3, data: 3 });
+      expect(smtp.messages[2]).toMatchObject({ sender: google, recipients: ["reader@example.invalid"], wire: expect.stringContaining("In-Reply-To: <42-new@example.invalid>") });
       rejectRefresh = true;
       now += 100_000;
       expect(await request("mail.sync.refresh", mbox)).toMatchObject({ ok: false, error: { details: { reason: "oauth-reauthorize" } } });
@@ -301,6 +520,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(materials.some((value) => publicData.includes(value) || persisted.some((content) => content.includes(value)))).toBe(false);
     } finally {
       injection.runtime = undefined;
+      injection.options = undefined;
       await engine?.shutdown();
       await imap.close();
       await smtp.close();

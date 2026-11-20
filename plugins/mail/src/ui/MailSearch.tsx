@@ -169,7 +169,7 @@ export function MailSearch({
         <ul id={`${id}-results`} role="listbox" aria-label="邮件搜索结果" className="hu-mail-search-results" hidden={!hits.length}>
           {hits.map((hit, index) => {
             const owner = accounts.find(({ accountId }) => accountId === hit.target.accountId);
-            const identity = hit.target.source === "imap" ? hit.target.localMessageId : hit.target.operationId;
+            const identity = hit.target.source === "sent" ? hit.target.operationId : hit.target.localMessageId;
             return (
               <li id={`${id}-hit-${index}`} key={identity} role="option" aria-selected={index === selection} onClick={() => void choose(hit.target)}>
                 <strong>{highlight(hit.subject || "无主题", match)}</strong>

@@ -35,6 +35,7 @@ export type MailOAuthIssuer = Client & {
   issuer: string;
   callbackHost: "127.0.0.1" | "localhost";
   scopes: readonly string[];
+  gmailApi?: string;
   /** Trusted, in-process protocol endpoints for an isolated issuer fixture. */
   protocol?: { imap: MailEndpoint; smtp: MailEndpoint };
 };
@@ -64,6 +65,7 @@ export function createMailOAuth(clients: MailOAuthClients, host: Pick<MailOAuthR
       issuer: "https://accounts.google.com",
       callbackHost: "127.0.0.1",
       scopes: ["openid", "email", googleMail],
+      gmailApi: "https://gmail.googleapis.com/gmail/v1/users/me",
     };
   if (clients.microsoft?.clientId.trim())
     issuers.outlook = {

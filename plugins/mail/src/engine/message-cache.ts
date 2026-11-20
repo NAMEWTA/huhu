@@ -9,51 +9,86 @@ import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
 import type { MailDrafts } from "./drafts.js";
 import { forwardContext } from "./forward-context.js";
-import { MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
+import { gmailFallback, gmailHistoryId, GmailHistoryError, gmailNativeId, gmailRecovery, type GmailPage } from "./gmail-history.js";
+import { IMAP_WINDOW, MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
 import { messageBody, parseMessageBody } from "./message-body.js";
 import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDigest } from "./prepare-forward.js";
-import { prepareReply, replyMode, replySeed } from "./prepare-reply.js";
-import { publicMail, readPublicMail } from "./public-mail.js";
+import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply.js";
+import { publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
 import { sourceMessage } from "./reply-context.js";
 
 const mailbox = sourceMessage.omit({ localMessageId: true });
 const uidValidity = z.string().regex(/^[1-9][0-9]*$/);
 const readState = z.enum(["unread", "local", "synced"]);
-export const cachedSummary = mailbox.extend({
+const messageSummary = mailbox.extend({
   localMessageId: sourceMessage.shape.localMessageId,
-  uidValidity,
-  uid: z.int().positive(),
   subject: z.string(),
-  transport: z.literal("imap"),
   readState: readState.optional(),
 });
-const summary = cachedSummary;
+export const imapSummary = messageSummary.extend({ transport: z.literal("imap"), uidValidity, uid: z.int().positive() });
+export const gmailSummary = messageSummary.extend({ transport: z.literal("gmail"), nativeId: gmailNativeId });
+export const cachedSummary = z.discriminatedUnion("transport", [imapSummary, gmailSummary]);
+const messageTarget = sourceMessage.extend({ source: z.literal("gmail"), nativeId: gmailNativeId });
+const imapTarget = sourceMessage.extend({ source: z.literal("imap"), uidValidity, uid: z.int().positive() });
+export const receivedTarget = z.discriminatedUnion("source", [imapTarget, messageTarget]);
+export function receivedLocation(item: z.infer<typeof cachedSummary>): z.infer<typeof receivedTarget> {
+  const { accountId, folder, localMessageId } = item;
+  return item.transport === "imap" ? { source: "imap", accountId, folder, localMessageId, uidValidity: item.uidValidity, uid: item.uid } : { source: "gmail", accountId, folder, localMessageId, nativeId: item.nativeId };
+}
 const cacheEntry = z.strictObject({
-  summary,
+  summary: cachedSummary,
   source: z.base64().max(Math.ceil(MAX_IMAP_SOURCE_BYTES / 3) * 4),
   publicMail: publicMail.optional(),
   cachedAt: z.iso.datetime().optional(),
+  receivedAt: z.iso.datetime().optional(),
   localRead: z.literal(true).optional(),
   deleted: z.literal(true).optional(),
 });
 const messageKey = sourceMessage;
-const maxCachedMessages = 200;
+const maxCachedMessages = IMAP_WINDOW;
 const maxCacheSourceChars = 24 * 1024 * 1024;
-const cacheSnapshot = z.strictObject({
+const imapEntry = cacheEntry.omit({ receivedAt: true }).extend({ summary: imapSummary });
+const gmailEntry = cacheEntry.extend({ summary: gmailSummary, receivedAt: z.iso.datetime() });
+const noticeKeys = z.array(sourceMessage.shape.localMessageId).max(maxCachedMessages).optional();
+const imapSnapshot = z.strictObject({
   format: z.literal(1),
   uidValidity,
   through: z.int().nonnegative().optional(),
-  pendingNotices: z.array(sourceMessage.shape.localMessageId).max(maxCachedMessages).optional(),
-  message: cacheEntry.nullable(),
+  pendingNotices: noticeKeys,
+  message: imapEntry.nullable(),
   history: z
-    .array(cacheEntry)
+    .array(imapEntry)
     .max(maxCachedMessages - 1)
     .optional(),
 });
+const gmailSnapshot = z.strictObject({
+  cursor: gmailHistoryId,
+  binding: z.hash("sha256", { enc: "hex" }),
+  recovery: gmailRecovery.optional(),
+  pendingNotices: noticeKeys,
+  message: gmailEntry.nullable(),
+  history: z
+    .array(gmailEntry)
+    .max(maxCachedMessages - 1)
+    .optional(),
+});
+const gmailMailbox = z.strictObject({ format: z.literal(2), active: z.literal("gmail"), gmail: gmailSnapshot, imap: imapSnapshot.optional() });
+const imapMailbox = z.strictObject({ format: z.literal(2), active: z.literal("imap"), imap: imapSnapshot, gmail: gmailSnapshot.optional(), fallback: gmailFallback });
+const cacheRecord = z.union([imapSnapshot, gmailMailbox, imapMailbox]);
+const syncStatus = z.discriminatedUnion("transport", [
+  z.strictObject({ transport: z.literal("imap"), range: z.literal("folder"), limit: z.literal(maxCachedMessages), fallback: gmailFallback.optional() }),
+  z.strictObject({ transport: z.literal("gmail"), range: z.literal("inbox"), limit: z.literal(maxCachedMessages), recovery: gmailRecovery.optional() }),
+]);
+
 type Mailbox = z.infer<typeof mailbox>;
-type Snapshot = z.infer<typeof cacheSnapshot>;
+type CacheRecord = z.infer<typeof cacheRecord>;
+type ImapSnapshot = z.infer<typeof imapSnapshot>;
+type GmailSnapshot = z.infer<typeof gmailSnapshot>;
+type Snapshot = ImapSnapshot | GmailSnapshot;
 type CacheEntry = z.infer<typeof cacheEntry>;
+type GmailEntry = z.infer<typeof gmailEntry>;
 type Files = HuhuApi["vault"]["files"];
+export type MailFolderSyncStatus = z.infer<typeof syncStatus>;
 
 const internal = { plugin: "mail", risk: "normal", exposable: false, defaultExposed: false } as const;
 
@@ -61,11 +96,11 @@ export const mailRefreshDescriptor = defineCapabilityDescriptor({
   ...internal,
   name: "mail.sync.refresh",
   title: "刷新邮箱目录",
-  description: "分批刷新已选 IMAP 目录的邮件和已读状态。",
+  description: "分批刷新已选目录的邮件和已读状态。",
   timeoutMs: 90_000,
   scope: "write",
   input: mailbox,
-  output: z.strictObject({ message: summary.nullable(), mailboxChanged: z.boolean() }),
+  output: z.strictObject({ message: cachedSummary.nullable(), mailboxChanged: z.boolean(), sync: syncStatus }),
 });
 export const mailLatestMessageDescriptor = defineCapabilityDescriptor({
   ...internal,
@@ -74,7 +109,7 @@ export const mailLatestMessageDescriptor = defineCapabilityDescriptor({
   description: "从此 Vault 读取所选目录已缓存的最新邮件摘要。",
   scope: "read",
   input: mailbox,
-  output: z.strictObject({ message: summary.nullable() }),
+  output: z.strictObject({ message: cachedSummary.nullable() }),
 });
 export const mailMessageSourceDescriptor = defineCapabilityDescriptor({
   ...internal,
@@ -83,42 +118,61 @@ export const mailMessageSourceDescriptor = defineCapabilityDescriptor({
   description: "读取同一账号、目录和消息代的本机邮件原文。",
   scope: "read",
   input: messageKey,
-  output: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), message: summary, source: z.base64() }), z.strictObject({ state: z.literal("needs-refresh") })]),
+  output: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), message: cachedSummary, source: z.base64() }), z.strictObject({ state: z.literal("needs-refresh") })]),
 });
 
 const digest = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const cachePath = ({ accountId, folder }: Mailbox) => `.huhu/cache/mail/${digest([accountId, folder])}.json`;
 const messageId = ({ accountId, folder }: Mailbox, validity: string, uid: number) => digest([accountId, folder, validity, uid]);
+const gmailMessageId = ({ accountId, folder }: Mailbox, binding: string, id: string) => digest([accountId, folder, "gmail", binding, id]);
 
-function readSnapshot(files: Files, input: Mailbox): { snapshot: Snapshot | null; version: string | null } {
+function activeSnapshot(record: CacheRecord): Snapshot {
+  if (record.format === 1) return record;
+  return record.active === "gmail" ? record.gmail : record.imap;
+}
+
+function snapshotStatus(record: CacheRecord): MailFolderSyncStatus {
+  if (record.format === 2 && record.active === "gmail") return { transport: "gmail", range: "inbox", limit: maxCachedMessages, ...(record.gmail.recovery && { recovery: record.gmail.recovery }) };
+  return { transport: "imap", range: "folder", limit: maxCachedMessages, ...(record.format === 2 && { fallback: record.fallback }) };
+}
+
+function readSnapshot(files: Files, input: Mailbox): { record: CacheRecord | null; snapshot: Snapshot | null; version: string | null } {
   const current = files.read(cachePath(input));
-  if (!current) return { snapshot: null, version: null };
+  if (!current) return { record: null, snapshot: null, version: null };
   try {
-    const snapshot = cacheSnapshot.parse(JSON.parse(current.bytes.toString("utf8")));
-    const entries = cachedEntries(snapshot);
-    if (
-      entries.every(({ summary: item }) => item.accountId === input.accountId && item.folder === input.folder && item.uidValidity === snapshot.uidValidity && item.localMessageId === messageId(input, item.uidValidity, item.uid)) &&
-      new Set(entries.map(({ summary }) => summary.uid)).size === entries.length
-    ) {
-      return { snapshot, version: current.version };
+    const record = cacheRecord.parse(JSON.parse(current.bytes.toString("utf8")));
+    const snapshots = record.format === 1 ? [record] : [record.imap, record.gmail];
+    for (const snapshot of snapshots) {
+      if (!snapshot) continue;
+      const entries = cachedEntries<CacheEntry>(snapshot);
+      if (new Set(entries.map(({ summary }) => summary.localMessageId)).size !== entries.length) throw new Error();
+      for (const { summary } of entries) {
+        if (summary.accountId !== input.accountId || summary.folder !== input.folder) throw new Error();
+        const valid =
+          "binding" in snapshot
+            ? summary.transport === "gmail" && summary.localMessageId === gmailMessageId(input, snapshot.binding, summary.nativeId)
+            : summary.transport === "imap" && summary.uidValidity === snapshot.uidValidity && summary.localMessageId === messageId(input, summary.uidValidity, summary.uid);
+        if (!valid) throw new Error();
+      }
     }
+    return { record, snapshot: activeSnapshot(record), version: current.version };
   } catch {
     // A subsequent refresh can replace this rebuildable record.
   }
-  return { snapshot: null, version: current.version };
+  return { record: null, snapshot: null, version: current.version };
 }
 
-function cachedEntries(snapshot: Snapshot | null): CacheEntry[] {
+function cachedEntries<T>(snapshot: { message: T | null; history?: T[] | undefined } | null): T[] {
   if (!snapshot) return [];
   return [...(snapshot.message ? [snapshot.message] : []), ...(snapshot.history ?? [])];
 }
 
 export function cachedMailboxMessages(files: Files, input: Mailbox) {
-  return cachedEntries(readSnapshot(files, input).snapshot).filter(({ deleted }) => !deleted);
+  return cachedEntries<CacheEntry>(readSnapshot(files, input).snapshot).filter(({ deleted }) => !deleted);
 }
 
 function findCachedMessage(snapshot: Snapshot | null, localMessageId: string) {
-  return cachedEntries(snapshot).find(({ summary, deleted }) => !deleted && summary.localMessageId === localMessageId);
+  return cachedEntries<CacheEntry>(snapshot).find(({ summary, deleted }) => !deleted && summary.localMessageId === localMessageId);
 }
 
 export function requireCachedMessage(files: Files, input: z.infer<typeof sourceMessage>) {
@@ -143,7 +197,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       if (writes.get(key)?.task === task) writes.delete(key);
     });
   }
-  function write(input: Mailbox, snapshot: Snapshot, expectedVersion: string | null, signal: AbortSignal, validate?: () => void) {
+  function write(input: Mailbox, snapshot: CacheRecord, expectedVersion: string | null, signal: AbortSignal, validate?: () => void) {
     return writer.serialize(() => {
       signal.throwIfAborted();
       removals.assertActive(input.accountId);
@@ -159,6 +213,73 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
   const jobs = new Map<string, { controller: AbortController; waiters: number; task: ReturnType<typeof syncMailbox> }>();
   const accountTails = new Map<string, Promise<unknown>>();
 
+  async function publishSync(input: Mailbox, next: CacheRecord, before: CacheRecord | null, version: string | null, signal: AbortSignal, assertCurrent: () => void, changed: boolean) {
+    if (JSON.stringify(before) !== JSON.stringify(next)) {
+      ({ version } = await write(input, next, version, signal, assertCurrent));
+      assertCurrent();
+      api.events.publish("entity.changed", { kind: changed ? "mail-mailbox" : "mail-message", id: input.accountId, op: "updated" });
+    }
+    const snapshot = activeSnapshot(next);
+    const pending = snapshot.pendingNotices;
+    if (notify && pending?.length) {
+      const failed = [];
+      for (const localMessageId of pending) {
+        assertCurrent();
+        try {
+          notify({ id: noticeId(localMessageId), module: "mail", title: "收到新邮件" });
+        } catch {
+          failed.push(localMessageId);
+        }
+      }
+      if (failed.length !== pending.length) {
+        delete snapshot.pendingNotices;
+        if (failed.length) snapshot.pendingNotices = failed;
+        await write(input, next, version, signal, assertCurrent);
+      }
+    }
+  }
+
+  async function gmailEntries(input: Mailbox, result: GmailPage, binding: string, previous: GmailSnapshot | undefined) {
+    const old = new Map(cachedEntries(previous ?? null).map((entry) => [entry.summary.nativeId, entry]));
+    const rows = result.initial ? new Map<string, GmailEntry>() : new Map(old);
+    for (const row of result.rows) {
+      if ("removed" in row) {
+        rows.delete(row.id);
+        continue;
+      }
+      const existing = old.get(row.id);
+      const localRead = existing?.localRead || existing?.summary.readState === "local";
+      const state = row.seen ? "synced" : localRead ? "local" : "unread";
+      if (row.bytes && row.receivedAt) {
+        const headers = await rootHeaders(row.bytes).catch(() => undefined);
+        rows.set(row.id, {
+          summary: {
+            ...input,
+            transport: "gmail",
+            nativeId: row.id,
+            localMessageId: gmailMessageId(input, binding, row.id),
+            subject: headers?.getDecoded("Subject")[0]?.value ?? "",
+            readState: state,
+          },
+          source: row.bytes.toString("base64"),
+          ...(headers && { publicMail: publicMailHeaders(headers) }),
+          ...(localRead && { localRead: true }),
+          receivedAt: row.receivedAt,
+          cachedAt: existing?.cachedAt ?? new Date().toISOString(),
+        });
+      } else if (existing) rows.set(row.id, { ...existing, summary: { ...existing.summary, readState: state } });
+    }
+    let size = 0;
+    return [...rows.values()]
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || a.summary.nativeId.localeCompare(b.summary.nativeId))
+      .slice(0, maxCachedMessages)
+      .filter((entry) => {
+        if (size + entry.source.length > maxCacheSourceChars) return false;
+        size += entry.source.length;
+        return true;
+      });
+  }
+
   async function syncMailbox(input: Mailbox, signal: AbortSignal) {
     signal.throwIfAborted();
     await accounts!.ensureOAuthAccess(input.accountId, signal);
@@ -170,29 +291,64 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       if (accounts!.readDefinition(input.accountId)?.revision !== generation.revision) throw new MailAccountError("mailbox-changed");
     };
     const before = readSnapshot(files, input);
+    const oldImap = before.record?.format === 2 ? before.record.imap : (before.record ?? undefined);
+    const cachedGmail = before.record?.format === 2 ? before.record.gmail : undefined;
+    const activeGmail = before.record?.format === 2 && before.record.active === "gmail";
+    let fallback: z.infer<typeof gmailFallback> | undefined;
+    const identity = generation.definition.oauth;
+    if (identity && generation.definition.settings.provider === "gmail") {
+      const binding = digest([identity.clientId, identity.subject, generation.definition.settings.email.toLowerCase()]);
+      const previous = cachedGmail?.binding === binding ? cachedGmail : undefined;
+      const cached = new Set(cachedEntries(previous ?? null).map(({ summary }) => summary.nativeId));
+      const fetch = accounts!.fetchGmailHistory(input.accountId, input.folder, previous && { cursor: previous.cursor, cached }, signal);
+      const gmail = await fetch?.catch((error: unknown) => {
+        if (!(error instanceof GmailHistoryError)) throw error;
+        if (error.reason === "gmail-api-account" || error.reason === "gmail-api-unavailable") throw new HuhuError("INVALID_INPUT", "无法刷新 Gmail 收件箱", { details: { reason: error.reason } });
+        fallback = error.reason;
+      });
+      if (gmail) {
+        const entries = await gmailEntries(input, gmail, binding, previous);
+        assertCurrent();
+        const carried = new Set(previous?.pendingNotices);
+        const arrivals = new Set(gmail.rows.filter((row) => !("removed" in row) && row.added).map(({ id }) => id));
+        const pending = entries
+          .filter(
+            ({ summary, publicMail }) => publicMail && (carried.has(summary.localMessageId) || (notify && activeGmail && !gmail.initial && arrivals.has(summary.nativeId) && !cached.has(summary.nativeId) && summary.readState === "unread")),
+          )
+          .map(({ summary }) => summary.localMessageId);
+        const snapshot: GmailSnapshot = { cursor: gmail.cursor, binding, message: entries[0] ?? null, history: entries.slice(1), ...(gmail.recovery && { recovery: gmail.recovery }), ...(pending.length && { pendingNotices: pending }) };
+        const next: CacheRecord = { format: 2, active: "gmail", gmail: snapshot, ...(oldImap && { imap: oldImap }) };
+        const mailboxChanged = Boolean(before.snapshot && (!activeGmail || !previous || gmail.initial));
+        await publishSync(input, next, before.record, before.version, signal, assertCurrent, mailboxChanged);
+        return { message: snapshot.message?.summary ?? null, mailboxChanged, sync: snapshotStatus(next), more: false, idle: undefined };
+      }
+    }
+    const makeRecord = (snapshot: ImapSnapshot): CacheRecord => (fallback ? { format: 2, active: "imap", imap: snapshot, ...(cachedGmail && { gmail: cachedGmail }), fallback } : snapshot);
     let version = before.version;
     let mailboxChanged = false;
     const result = await accounts!.fetchMessages(
       input.accountId,
       input.folder,
-      before.snapshot
+      oldImap
         ? {
-            uidValidity: before.snapshot.uidValidity,
-            ...(before.snapshot.through !== undefined && { through: before.snapshot.through }),
-            cached: cachedEntries(before.snapshot).map(({ summary, source }) => ({ uid: summary.uid, size: Buffer.byteLength(source, "base64") })),
+            uidValidity: oldImap.uidValidity,
+            ...(oldImap.through !== undefined && { through: oldImap.through }),
+            cached: cachedEntries(oldImap).map(({ summary, source }) => ({ uid: summary.uid, size: Buffer.byteLength(source, "base64") })),
           }
         : undefined,
       async (validity) => {
         assertCurrent();
-        ({ version } = await write(input, { format: 1, uidValidity: validity, message: null }, version, signal, assertCurrent));
         mailboxChanged = true;
-        api.events.publish("entity.changed", { kind: "mail-mailbox", id: input.accountId, op: "updated" });
+        if (!activeGmail) {
+          ({ version } = await write(input, makeRecord({ format: 1, uidValidity: validity, message: null }), version, signal, assertCurrent));
+          api.events.publish("entity.changed", { kind: "mail-mailbox", id: input.accountId, op: "updated" });
+        }
       },
       signal,
     );
     assertCurrent();
-    const previous = new Map(mailboxChanged ? [] : cachedEntries(before.snapshot).map((entry) => [entry.summary.uid, entry]));
-    const entries: CacheEntry[] = [];
+    const previous = new Map(mailboxChanged ? [] : cachedEntries(oldImap ?? null).map((entry) => [entry.summary.uid, entry]));
+    const entries: z.infer<typeof imapEntry>[] = [];
     let size = 0;
     for (const row of result.messages.sort((a, b) => b.uid - a.uid)) {
       const existing = previous.get(row.uid);
@@ -212,38 +368,19 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       size += source.length;
     }
     assertCurrent();
-    const unacknowledged = new Set(mailboxChanged ? [] : before.snapshot?.pendingNotices);
+    const unacknowledged = new Set(mailboxChanged ? [] : oldImap?.pendingNotices);
     const pending = entries
       .filter(({ summary, publicMail }) => {
         if (!publicMail) return false;
         if (unacknowledged.has(summary.localMessageId)) return true;
-        return notify && !result.initial && input.folder.toLowerCase() === "inbox" && summary.uid > (before.snapshot?.through ?? 0) && summary.readState === "unread";
+        return notify && !activeGmail && !result.initial && input.folder.toLowerCase() === "inbox" && summary.uid > (oldImap?.through ?? 0) && summary.readState === "unread";
       })
       .map(({ summary }) => summary.localMessageId);
-    const next: Snapshot = { format: 1, uidValidity: result.uidValidity, through: result.through, message: entries[0] ?? null, history: entries.slice(1), ...(pending.length && { pendingNotices: pending }) };
-    if (JSON.stringify(before.snapshot) !== JSON.stringify(next)) {
-      ({ version } = await write(input, next, version, signal, assertCurrent));
-      assertCurrent();
-      api.events.publish("entity.changed", { kind: "mail-message", id: input.accountId, op: "updated" });
-    }
-    if (notify && pending.length) {
-      const failed = [];
-      for (const localMessageId of pending) {
-        assertCurrent();
-        try {
-          notify({ id: noticeId(localMessageId), module: "mail", title: "收到新邮件" });
-        } catch {
-          failed.push(localMessageId);
-        }
-      }
-      if (failed.length !== pending.length) {
-        delete next.pendingNotices;
-        if (failed.length) next.pendingNotices = failed;
-        await write(input, next, version, signal, assertCurrent);
-      }
-    }
+    const snapshot: ImapSnapshot = { format: 1, uidValidity: result.uidValidity, through: result.through, message: entries[0] ?? null, history: entries.slice(1), ...(pending.length && { pendingNotices: pending }) };
+    const next = makeRecord(snapshot);
+    await publishSync(input, next, before.record, version, signal, assertCurrent, activeGmail);
     const idle = result.canIdle && !result.more && input.folder.toLowerCase() === "inbox" ? { folder: input.folder, uidValidity: result.uidValidity, through: result.through } : undefined;
-    return { message: next.message?.summary ?? null, mailboxChanged, more: result.more, idle };
+    return { message: snapshot.message?.summary ?? null, mailboxChanged: mailboxChanged || activeGmail, sync: snapshotStatus(next), more: result.more, idle };
   }
 
   function refresh(input: Mailbox, signal: AbortSignal) {
@@ -304,8 +441,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
     bindCapability(mailRefreshDescriptor, async ({ caller, signal }, input) => {
       authorize(caller, mailRefreshDescriptor.name);
       try {
-        const { message, mailboxChanged } = await refresh(input, signal);
-        return { message, mailboxChanged };
+        const { message, mailboxChanged, sync } = await refresh(input, signal);
+        return { message, mailboxChanged, sync };
       } catch (error) {
         if (!lifetime.aborted && error instanceof MailAccountError && error.code === "oauth-reauthorize") api.events.publish("entity.changed", { kind: "mail-account", id: input.accountId, op: "updated" });
         if (error instanceof MailAccountError || error instanceof CredentialError) throw new HuhuError("INVALID_INPUT", "无法刷新邮箱目录", { details: { reason: error.code } });
@@ -316,13 +453,25 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
   api.defineCapability(
     defineCapability({
       ...internal,
+      name: "mail.sync.status",
+      scope: "read",
+      input: mailbox,
+      output: syncStatus.nullable(),
+      handler({ caller }, input) {
+        authorize(caller, "mail.sync.status");
+        if (!accounts?.readDefinition(input.accountId)?.definition.folders.some(({ path }) => path === input.folder)) return null;
+        const record = readSnapshot(files, input).record;
+        return record ? snapshotStatus(record) : null;
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...internal,
       name: "mail.notifications.target",
       scope: "read",
       input: z.strictObject({ id: z.string().regex(/^ntf-mail-[0-9a-f]{64}$/) }),
-      output: cachedSummary
-        .pick({ accountId: true, folder: true, localMessageId: true, uidValidity: true, uid: true })
-        .extend({ source: z.literal("imap") })
-        .nullable(),
+      output: receivedTarget.nullable(),
       async handler({ caller, signal }, { id }) {
         authorize(caller, "mail.notifications.target");
         const rows = (await accounts?.list()) ?? [];
@@ -333,10 +482,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           for (const folder of account.definition.folders) {
             if (folder.path.toLowerCase() !== "inbox" || !isPublicMailFolder(folder)) continue;
             const entry = cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path }).find(({ summary }) => noticeId(summary.localMessageId) === id);
-            if (entry?.publicMail) {
-              const { accountId, folder, localMessageId, uidValidity, uid } = entry.summary;
-              return { source: "imap" as const, accountId, folder, localMessageId, uidValidity, uid };
-            }
+            if (entry?.publicMail) return receivedLocation(entry.summary);
           }
         }
         return null;
@@ -446,36 +592,36 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       scope: "write",
       idempotency: "handler",
       input: messageKey,
-      output: z.strictObject({ state: z.enum(["local", "synced", "needs-refresh"]) }),
+      output: z.strictObject({ state: z.enum(["local", "synced", "needs-refresh"]), remoteSynced: z.boolean() }),
       handler: ({ caller, signal }, input) => {
         authorize(caller, "mail.messages.markRead");
         files.assertWritable();
         const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
         return serialize(input, async () => {
           cancelled.throwIfAborted();
-          const { snapshot, version } = readSnapshot(files, input);
+          const { record, snapshot, version } = readSnapshot(files, input);
           const message = findCachedMessage(snapshot, input.localMessageId);
-          if (!snapshot || !message) return { state: "needs-refresh" as const };
-          if (message.summary.readState === "synced") return { state: "synced" as const };
+          if (!record || !message || !accounts?.readDefinition(input.accountId)?.definition.folders.some(({ path }) => path === input.folder)) return { state: "needs-refresh" as const, remoteSynced: false };
+          if (message.summary.readState === "synced") return { state: "synced" as const, remoteSynced: message.summary.transport === "imap" };
           let expectedVersion = version;
           if (message.summary.readState !== "local") {
             message.summary.readState = "local";
             message.localRead = true;
-            expectedVersion = (await write(input, snapshot, version, cancelled)).version;
+            expectedVersion = (await write(input, record, version, cancelled)).version;
           }
           cancelled.throwIfAborted();
           let state: "local" | "synced" | "needs-refresh" = "local";
           try {
-            if (accounts) state = await accounts.markRead(input.accountId, input.folder, snapshot.uidValidity, message.summary.uid, cancelled);
+            if (message.summary.transport === "imap") state = await accounts.markRead(input.accountId, input.folder, message.summary.uidValidity, message.summary.uid, cancelled);
           } catch (error) {
             if (!(error instanceof CredentialError || error instanceof MailAccountError)) throw error;
           }
           cancelled.throwIfAborted();
           if (state === "synced") {
             message.summary.readState = state;
-            await write(input, snapshot, expectedVersion, cancelled);
+            await write(input, record, expectedVersion, cancelled);
           }
-          return { state };
+          return { state, remoteSynced: state === "synced" };
         });
       },
     }),
