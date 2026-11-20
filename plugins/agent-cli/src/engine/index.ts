@@ -30,6 +30,8 @@ export { AgentDetector } from "./detect.js";
 export { resolveAgentLaunch } from "./launch.js";
 export { AgentSettingsStore } from "./settings.js";
 export { SpaceStore } from "./spaces.js";
+export { AgentDispatchTargetInfoSchema, AgentDispatchResponseSchema } from "./dispatch-capabilities.js";
+export { DispatchInput as AgentDispatchInputSchema, DispatchTarget as AgentDispatchTargetSchema } from "./dispatch-store.js";
 
 const SpaceDto = z.object({ id: z.string(), name: z.string(), root: z.string(), machineId: z.string(), createdAt: z.string(), revision: z.number() });
 

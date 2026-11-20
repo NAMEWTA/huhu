@@ -33,7 +33,7 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
         {
           ...opts,
           now: () => fixture.now ?? new Date(),
-          ...(fixture.executor ? { dispatchExecutor: fixture.executor } : {}),
+          dispatchExecutor: fixture.executor ?? null,
           dispatchCheckMs: fixture.checkMs ?? 50,
           onError: (error) => fixture.errors.push(error),
         },

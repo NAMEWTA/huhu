@@ -6,6 +6,7 @@ import { machineId, VaultFiles } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
 import { statSync } from "node:fs";
 import { z } from "zod";
+import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore } from "./dispatch-store.js";
 import { TasksService } from "./service.js";
@@ -49,7 +50,7 @@ export interface TasksOptions {
   now?: () => Date;
   reminderCheckMs?: number;
   dispatchCheckMs?: number;
-  dispatchExecutor?: TaskDispatchExecutor;
+  dispatchExecutor?: TaskDispatchExecutor | null;
   /** 站内通知：提醒到点时调用（通知中心属于 kernel）。 */
   notify?: (n: { title: string; module: string; body?: string }) => void;
   onError?: (e: unknown) => void;
@@ -79,7 +80,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   });
   const machine = machineId();
   const store = new DispatchStore(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly), api.vault.vaultId, machine);
-  const dispatch: TaskDispatch = new TaskDispatch(svc, store, now, machine, opts.dispatchExecutor, opts.onError);
+  const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
+  const dispatch: TaskDispatch = new TaskDispatch(svc, store, now, machine, executor ?? undefined, opts.onError);
 
   api.defineCapability(
     def({

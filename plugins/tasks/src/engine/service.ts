@@ -98,6 +98,7 @@ export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): 
       if (!d.execution.spaceId) dispatchBlockers.push("没有选择工作目录（Space）");
       if (d.execution.target?.mode === "existing") dispatchBlockers.push("复用已有会话需要 Agent CLI 支持绑定派遣");
       else if (!d.execution.provider) dispatchBlockers.push("没有选择 CLI");
+      if (d.execution.target?.mode === "resume") dispatchBlockers.push("原生恢复需要 Agent CLI 支持绑定派遣");
     }
     if (!body.trim()) dispatchBlockers.push("任务内容为空");
     for (const ref of references.filter((x) => /(^|\/)\.\.(\/|$)/.test(x.path) || x.path.startsWith("/"))) dispatchBlockers.push(`引用越界：${ref.path}`);

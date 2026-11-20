@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { AgentDispatch } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, LaunchOptions, ProviderAcceptance } from "./dispatch-store.js";
 
-const TargetInfo = z.object({
+export const AgentDispatchTargetInfoSchema = z.object({
   mode: z.enum(["new", "existing", "resume"]),
   provider: z.string(),
   spaceId: z.string(),
@@ -18,7 +18,7 @@ const TargetInfo = z.object({
   structuredResult: z.boolean(),
   cancel: z.boolean(),
 });
-const DispatchResponse = z.object({
+export const AgentDispatchResponseSchema = z.object({
   status: z.enum(["accepted", "busy", "unsupported", "unknown", "not_sent"]),
   reason: z.string().nullable(),
   acceptedAt: z.iso.datetime().nullable(),
@@ -39,10 +39,10 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       name: "agent.targets.list",
       scope: "read",
       input: DispatchLookup.pick({ vaultId: true, machineId: true }).extend({ spaceId: z.string().min(1), options: LaunchOptions.optional() }),
-      output: z.array(TargetInfo),
-      handler: ({ caller }, input) => {
+      output: z.array(AgentDispatchTargetInfoSchema),
+      handler: ({ caller, signal }, input) => {
         trust(caller);
-        return dispatch.targets(input);
+        return dispatch.targets(input, signal);
       },
     }),
   );
@@ -51,8 +51,9 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       ...internal,
       name: "agent.runs.dispatch",
       scope: "execute",
+      idempotency: "handler",
       input: DispatchInput,
-      output: DispatchResponse,
+      output: AgentDispatchResponseSchema,
       handler: ({ caller, signal }, input) => {
         trust(caller);
         return dispatch.dispatch(input, signal);
@@ -65,7 +66,7 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       name: "agent.runs.inspect",
       scope: "read",
       input: DispatchLookup,
-      output: DispatchResponse,
+      output: AgentDispatchResponseSchema,
       handler: ({ caller, signal }, input) => {
         trust(caller);
         return dispatch.inspect(input, signal);

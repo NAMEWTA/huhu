@@ -24,7 +24,7 @@ export const LaunchOptions = z.strictObject({
 });
 export const DispatchTarget = z.discriminatedUnion("mode", [
   LaunchOptions.extend({ mode: z.literal("new"), spaceId: Id, spaceRevision: z.number().int().positive(), provider, configurationId: Fingerprint }),
-  z.strictObject({ mode: z.literal("existing"), spaceId: Id, binding: ExecutionSessionBindingSchema }),
+  z.strictObject({ mode: z.literal("existing"), spaceId: Id, spaceRevision: z.number().int().positive().optional(), binding: ExecutionSessionBindingSchema }),
   z.strictObject({ mode: z.literal("resume"), spaceId: Id, provider, nativeSessionId: Id }),
 ]);
 

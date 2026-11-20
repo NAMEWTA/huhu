@@ -17,22 +17,26 @@ import {
 import type { TasksService } from "./service.js";
 import { WriteQueue } from "./write-queue.js";
 
-type Work = Readonly<{
+export type TaskDispatchWork = Readonly<{
   eventId: string;
   dispatchId: string;
   runId: string;
   attempt: number;
   snapshot: DispatchSnapshot;
   snapshotHash: string;
+  agentTarget?: NonNullable<DispatchRecord["agentTarget"]>;
 }>;
+
+export type TaskDispatchReadiness = "ready" | "busy" | "unavailable" | "unsupported" | { state: "ready" | "busy"; target: NonNullable<DispatchRecord["agentTarget"]> };
+export type TaskDispatchResult = "accepted" | "not_sent" | "unknown" | "unsupported";
 
 export interface TaskDispatchExecutor {
   /** 只读目标/资源预检。实际输入所有权仍须由执行者在派遣时核验。 */
-  ready(work: Work, signal: AbortSignal): Promise<"ready" | "busy" | "unavailable">;
+  ready(work: TaskDispatchWork, signal: AbortSignal): Promise<TaskDispatchReadiness>;
   /** accepted 表示目标实例已接收本轮输入；仅保存启动意图仍须对账。 */
-  dispatch(work: Work, signal: AbortSignal): Promise<"accepted" | "not_sent" | "unknown">;
+  dispatch(work: TaskDispatchWork, signal: AbortSignal): Promise<TaskDispatchResult>;
   /** not_sent 必须是可证明未送达；空列表或离线只能返回 unknown。 */
-  inspect(work: Work, signal: AbortSignal): Promise<"accepted" | "not_sent" | "unknown">;
+  inspect(work: TaskDispatchWork, signal: AbortSignal): Promise<Exclude<TaskDispatchResult, "unsupported">>;
 }
 
 type Rejection = NonNullable<DispatchReceipt["reason"]> | "stale_input" | "not_due" | "expired" | ReturnType<DispatchStore["ownerIssue"]>;
@@ -171,7 +175,7 @@ export class TaskDispatch {
         try {
           await this.advance(event);
         } catch (error) {
-          this.onError?.(error);
+          if (!this.abort.signal.aborted) this.onError?.(error);
         }
       }
     } catch (error) {
@@ -215,14 +219,14 @@ export class TaskDispatch {
     const current = this.current(event);
     if (!current) return;
     const { record } = current;
-    const { receipt, snapshot, snapshotHash } = record;
+    const { receipt, snapshot, snapshotHash, agentTarget } = record;
     const signal = this.abort.signal;
     const executor = this.executor;
     if (receipt.state === "running") {
       await this.linkTask(record);
       return;
     }
-    const work = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash };
+    const work: TaskDispatchWork = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash, ...(agentTarget && { agentTarget }) };
     if (receipt.state === "pending" || receipt.state === "claimed") {
       // 重开后先检查原快照有效性，过期或已关闭的任务不做目标预检。
       if (!(await this.prepare(record, "check")) || !executor) return;
@@ -232,13 +236,14 @@ export class TaskDispatch {
       if (!(await this.prepare(record, ready))) return;
       // claimed 独立落盘。进程在此中断时，可以证明尚未开始派遣。
       if (!(await this.beginSending(record))) return;
-      await this.finishSending(record, () => executor.dispatch(work, signal));
+      const prepared = !work.agentTarget && typeof ready === "object" ? { ...work, agentTarget: ready.target } : work;
+      await this.finishSending(record, () => executor.dispatch(prepared, signal));
       return;
     }
     if (executor && (receipt.state === "sending" || receipt.state === "unknown")) await this.finishSending(record, () => executor.inspect(work, signal));
   }
 
-  private async prepare(event: OwnedRecord, readiness: "check" | "ready" | "busy" | "unavailable"): Promise<boolean> {
+  private async prepare(event: OwnedRecord, readiness: "check" | TaskDispatchReadiness): Promise<boolean> {
     const { taskId } = event.receipt;
     return this.tasks.withTaskWrite(taskId, async () => {
       if (this.abort.signal.aborted) return false;
@@ -252,21 +257,26 @@ export class TaskDispatch {
       const source = snapshot.source;
       const next = { ...receipt };
       let claim = record.claim;
+      let agentTarget = record.agentTarget;
+      const state = typeof readiness === "object" ? readiness.state : readiness;
       if (receipt.cancelRequested) Object.assign(next, { state: "cancelled", reason: null });
       else if (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime()) Object.assign(next, { state: "expired", reason: null });
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
       else if (task && !sameInput(task, snapshot)) Object.assign(next, { state: "stale_input", reason: null });
       else if (!task || !this.dispatchable(task)) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
       else if (this.tasks.hasLegacyRun(taskId)) next.reason = "task_occupied";
-      else if (readiness === "busy") next.reason = "waiting_resource";
-      else if (readiness === "unavailable") Object.assign(next, { state: "blocked", reason: "target_unavailable" });
-      else if (readiness === "ready") {
-        next.state = "claimed";
-        next.reason = null;
-        claim ??= { machineId: this.machineId, at: now.toISOString() };
+      else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
+      else if (state === "busy" || state === "ready") {
+        if (typeof readiness === "object") agentTarget ??= readiness.target;
+        if (state === "busy") next.reason = "waiting_resource";
+        else {
+          next.state = "claimed";
+          next.reason = null;
+          claim ??= { machineId: this.machineId, at: now.toISOString() };
+        }
       } else return true;
-      const changed = next.reason !== receipt.reason || next.state !== receipt.state;
-      if (changed) await this.store.write({ ...record, receipt: next, claim, finishedAt: holdsTask(next) ? null : now.toISOString() }, version);
+      const changed = next.reason !== receipt.reason || next.state !== receipt.state || agentTarget !== record.agentTarget;
+      if (changed) await this.store.write({ ...record, receipt: next, claim, ...(agentTarget && { agentTarget }), finishedAt: holdsTask(next) ? null : now.toISOString() }, version);
       return next.state === "claimed" && next.reason === null;
     });
   }
@@ -289,11 +299,11 @@ export class TaskDispatch {
     });
   }
 
-  private async finishSending(event: OwnedRecord, send: () => Promise<"accepted" | "not_sent" | "unknown">): Promise<void> {
+  private async finishSending(event: OwnedRecord, send: () => Promise<TaskDispatchResult>): Promise<void> {
     if (this.abort.signal.aborted) return;
     const state = this.current(event)?.record.receipt.state;
     if (state !== "sending" && state !== "unknown") return;
-    let result: "accepted" | "not_sent" | "unknown";
+    let result: TaskDispatchResult;
     try {
       result = await send();
     } catch {
@@ -312,9 +322,9 @@ export class TaskDispatch {
         receipt.reason = null;
         return this.store.write({ ...record, receipt, startedAt: now }, version);
       }
-      if (result === "not_sent" && receipt.cancelRequested) {
-        receipt.state = "cancelled";
-        receipt.reason = null;
+      if (result === "unsupported" || (result === "not_sent" && receipt.cancelRequested)) {
+        receipt.state = receipt.cancelRequested ? "cancelled" : "blocked";
+        receipt.reason = receipt.cancelRequested ? null : "target_unsupported";
         return this.store.write({ ...record, receipt, finishedAt: now }, version);
       }
       receipt.state = result === "not_sent" ? "claimed" : "unknown";

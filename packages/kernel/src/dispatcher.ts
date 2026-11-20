@@ -90,6 +90,7 @@ export class Dispatcher {
     if (req.idempotencyKey === undefined) return this.fail(errors.invalidInput("写入与执行类能力必须提供 idempotencyKey"));
     const key = req.idempotencyKey;
 
+    if (def.idempotency === "handler") return this.execute(def, caller, req, parsed.data, signal);
     const hit = this.d.idempotency.lookup(caller, def.name, key, req.input);
     if (hit.hit) return hit.mismatch ? this.fail(errors.idempotencyMismatch()) : hit.result;
 

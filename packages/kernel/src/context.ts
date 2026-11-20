@@ -51,7 +51,7 @@ export interface HuhuApi {
   service<T>(name: string): T | undefined;
   defineCapability<I, O>(def: CapabilityDefinition<I, O>): void;
   events: Pick<EventBus, "publish" | "subscribe">;
-  call(capability: string, input: unknown, opts?: { idempotencyKey?: string }): Promise<unknown>;
+  call(capability: string, input: unknown, opts?: { idempotencyKey?: string; signal?: AbortSignal }): Promise<unknown>;
 }
 
 declare module "@huhu/cordis" {
@@ -64,7 +64,7 @@ export interface RootDeps {
   registry: CapabilityRegistry;
   events: EventBus;
   vault: VaultServices;
-  call: (caller: `plugin:${string}`, capability: string, input: unknown, idempotencyKey?: string) => Promise<unknown>;
+  call: (caller: `plugin:${string}`, capability: string, input: unknown, idempotencyKey?: string, signal?: AbortSignal) => Promise<unknown>;
 }
 
 /** 创建绑定了 HUHU 门面的根上下文；`forPlugin` 为每个插件生成带其身份的门面。 */
@@ -100,7 +100,8 @@ export function createHuhuContext(deps: RootDeps): { root: Context; facade: (plu
       ctx.effect(() => deps.registry.register(def));
     },
     call: async (capability, input, opts) => {
-      const r = await deps.call(`plugin:${pluginId}`, capability, input, opts?.idempotencyKey);
+      opts?.signal?.throwIfAborted();
+      const r = await deps.call(`plugin:${pluginId}`, capability, input, opts?.idempotencyKey, opts?.signal);
       return r;
     },
   });

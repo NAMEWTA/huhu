@@ -145,8 +145,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     events,
     vault: { repo, files: vault.files, index, trash, vaultId: vault.id, stateDir: vault.stateDir },
-    call: async (caller, capability, input, idempotencyKey) => {
-      const r = await dispatcherRef.current!.call(caller, { capability, input, requestId: `${caller}-${Date.now()}`, ...(idempotencyKey ? { idempotencyKey } : {}) });
+    call: async (caller, capability, input, idempotencyKey, signal) => {
+      const r = await dispatcherRef.current!.call(caller, { capability, input, requestId: `${caller}-${Date.now()}`, ...(idempotencyKey ? { idempotencyKey } : {}) }, signal);
       if (!r.ok) throw Object.assign(new Error(r.error.message), { code: r.error.code });
       return r.data;
     },
@@ -349,6 +349,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   registerExternalPluginCapabilities(registry, external);
   plugins.shouldEnable = (id) => (external.has(id) ? external.shouldEnable(id) : exposure.pluginEnabled(id));
+  const real = new Dispatcher({
+    registry,
+    audit: gatewayAudit,
+    idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
+    isPluginEnabled: (id) => plugins.isEnabled(id),
+    toolAccess: () => exposure.snapshot(),
+    grantedPermissions: (id) => plugins.permissionsOf(id),
+    pluginOrigin: (id) => plugins.originOf(id),
+  });
+  dispatcherRef.current = real;
   await plugins.enableAll();
   await guideRef.current?.maintain().catch(() => undefined); // 所有插件启用之后再补写 / 升级指南：能力表取决于完整的注册表
   let lastSync = "";
@@ -384,17 +394,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
   const mcpToken = tokens.issue("mcp");
-  const real = new Dispatcher({
-    registry,
-    audit: gatewayAudit,
-    idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
-    isPluginEnabled: (id) => plugins.isEnabled(id),
-    toolAccess: () => exposure.snapshot(),
-    grantedPermissions: (id) => plugins.permissionsOf(id),
-    pluginOrigin: (id) => plugins.originOf(id),
-  });
-
-  dispatcherRef.current = real;
   const terminal: NonNullable<Parameters<typeof startEngineServer>[0]["terminal"]> = (id, ws, options) => {
     const bridge = getService<(i: string, w: typeof ws, x: typeof options) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
     return bridge ? bridge(id, ws, options) : false;

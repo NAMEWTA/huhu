@@ -18,6 +18,7 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
   "tasks.comment.system": ["tasks.comments.add"],
   /** 合成并启动 Agent CLI 的命令行。 */
   "agent.run": ["agent.launch.resolve"],
+  "agent.task-input": ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect"],
   /** 查询任务是否有活动运行。 */
   "automations.runs.internal": ["automations.runs.activeFor"],
   /** 终端命令：启动命令会话、读取输出、结束会话（automations 的 terminal 动作）。 */
@@ -31,7 +32,7 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** 只有内置插件可以声明和使用的权限组。 */
-export const BUILTIN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set(["tasks.dispatch", "tasks.comment.system", "agent.run", "automations.runs.internal", "agent.terminal"]);
+export const BUILTIN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set(["tasks.dispatch", "tasks.comment.system", "agent.run", "agent.task-input", "automations.runs.internal", "agent.terminal"]);
 
 export function isGrantable(scope: CapabilityScope): boolean {
   return scope === "read" || scope === "write";

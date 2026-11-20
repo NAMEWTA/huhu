@@ -35,6 +35,8 @@ const descriptorSnapshots = new WeakMap<object, CapabilityDescriptor>();
 const descriptorBindings = new WeakMap<object, CapabilityDescriptor>();
 
 export interface CapabilityDefinition<I = unknown, O = unknown> extends CapabilityContract<I, O> {
+  /** The handler durably deduplicates requests and returns the current outcome on replay. */
+  idempotency?: "handler";
   handler: (ctx: CapabilityContext, input: I) => Promise<O> | O;
 }
 

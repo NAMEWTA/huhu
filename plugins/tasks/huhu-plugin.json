@@ -6,7 +6,7 @@
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["agent-cli", "automations"],
-  "permissions": [],
+  "permissions": ["agent.task-input"],
   "activation": "vault-open",
   "contributes": {
     "modules": ["tasks"],

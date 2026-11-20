@@ -4,17 +4,16 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setTimeout as pause } from "node:timers/promises";
 import { HerdrClient } from "@huhu/herdr-client";
 import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PERMISSION_TABLE, PluginManager, createHuhuContext, type VaultServices } from "@huhu/kernel";
 import { Vault, machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { PluginManifestSchema, type ExecutionBinding } from "@huhu/contracts";
 import { apply } from "../src/engine/index.js";
-import type { DispatchProvider } from "../src/engine/dispatch.js";
 import type { DispatchInput, DispatchLookup } from "../src/engine/dispatch-store.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import type { TerminalBridge } from "../src/engine/terminal-bridge.js";
+import { createDispatchProviderFixture, createFixtureGate, readFixtureJson as read } from "./fixtures/dispatch-provider.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const caps = ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect"];
@@ -36,35 +35,6 @@ class FixtureViewer extends EventEmitter {
 
 type Target = { mode: string; provider: string; available: boolean; reason: string | null; configurationId: string | null; binding: ExecutionBinding["sessionBinding"] | null };
 type Result = { status: string; reason: string | null; acceptedAt: string | null; execution: ExecutionBinding | null; coreWrite: string; providerAcceptance: unknown; ownerActive: boolean };
-type Reading = { pid: number; dispatchId: string; sha256: string; proof: boolean };
-function read<T>(file: string): T | null {
-  try {
-    return JSON.parse(readFileSync(file, "utf8")) as T;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-function gate() {
-  let enter!: () => void;
-  let resume!: () => void;
-  const entered = new Promise<void>((resolve) => {
-    enter = resolve;
-  });
-  const blocked = new Promise<void>((resolve) => {
-    resume = resolve;
-  });
-  return {
-    entered,
-    resume,
-    wait: () => {
-      enter();
-      return blocked;
-    },
-  };
-}
-
 test.skipIf(process.platform !== "win32" || !bin)(
   "locked Windows Core keeps durable task ownership and independent provider evidence",
   async () => {
@@ -82,85 +52,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
     };
     for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
     const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
-    const proofDir = path.join(sandbox, "proof");
-    mkdirSync(proofDir);
-    const script = path.join(sandbox, "synthetic.mjs");
-    writeFileSync(
-      script,
-      `
-    import { createHash } from "node:crypto";
-    import { appendFileSync, writeFileSync } from "node:fs";
-    import { createInterface } from "node:readline";
-    import path from "node:path";
-    const dir = process.argv[2];
-    const address = process.env.HC_TERMINAL_ID;
-    const line = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    writeFileSync(path.join(dir, address + ".ready.json"), JSON.stringify({ pid: process.pid }));
-    for await (const text of line) {
-      let message;
-      try { message = JSON.parse(text); } catch { continue; }
-      if (message.kind !== "fixture-task") continue;
-      appendFileSync(path.join(dir, address + ".jsonl"), JSON.stringify({
-        pid: process.pid, dispatchId: message.dispatchId, sha256: createHash("sha256").update(text).digest("hex"), proof: !message.exitWithoutProof
-      }) + "\\n");
-      if (message.exitWithoutProof) process.exit(0);
-    }
-  `,
-    );
-    const readers = (address: string): Reading[] => {
-      try {
-        return readFileSync(path.join(proofDir, address + ".jsonl"), "utf8")
-          .trim()
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as Reading);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-        throw error;
-      }
-    };
-    const pidOf = (address: string): number | undefined => {
-      const result = cli("get", address);
-      return result.status === 0 ? (JSON.parse(result.stdout) as { pid?: number }).pid : undefined;
-    };
-    let allowProof = true;
-    let allowReady = true;
-    let blockReady: (() => Promise<void>) | undefined;
-    let readySignal: AbortSignal | undefined;
-    let afterReady: (() => void) | undefined;
-    const adapter: DispatchProvider = {
-      id: "isolated-node-line-protocol-v1",
-      modes: ["new", "existing"],
-      async ready(binding, signal) {
-        const gate = blockReady;
-        blockReady = undefined;
-        if (gate) readySignal = signal;
-        await gate?.();
-        if (!allowReady) return false;
-        const pid = pidOf(binding.coreAddress);
-        if (!pid) return false;
-        for (let i = 0; i < 60; i++) {
-          if (read<{ pid: number }>(path.join(proofDir, binding.coreAddress + ".ready.json"))?.pid === pid) {
-            afterReady?.();
-            afterReady = undefined;
-            return true;
-          }
-          await pause(40, undefined, { signal });
-        }
-        return false;
-      },
-      async acceptance(execution, inputSha256, signal) {
-        if (!allowProof) return null;
-        const address = execution.sessionBinding.coreAddress;
-        const pid = pidOf(address);
-        for (let i = 0; i < 30; i++) {
-          const match = readers(address).find((entry) => entry.proof && entry.pid === pid && entry.dispatchId === execution.dispatchId && entry.sha256 === inputSha256);
-          if (match) return { id: execution.dispatchId + "-received", execution, inputSha256 };
-          await pause(25, undefined, { signal });
-        }
-        return null;
-      },
-    };
+    const { adapter, controls, proofDir, script, readers, pidOf } = createDispatchProviderFixture(sandbox, cli);
     const permission = "test.agent.dispatch";
     const permissions = PERMISSION_TABLE as Record<string, readonly string[]>;
     const openViewers: FixtureViewer[] = [];
@@ -260,16 +152,17 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(cli("server", "status").status).toBe(5);
       const target = { mode: "new", provider: "claude", configurationId: configured!.configurationId!, spaceId: space!.id, spaceRevision: space!.revision } as const;
       const launchOnly = work("launch-only", target);
-      allowReady = false;
-      expect(await call<Result>("agent.runs.dispatch", launchOnly)).toMatchObject({ status: "not_sent", reason: "provider_not_ready", coreWrite: "not_sent" });
+      const launchOnlyKey = crypto.randomUUID();
+      controls.allowReady = false;
+      expect(await request("agent.runs.dispatch", launchOnly, "plugin:tasks", launchOnlyKey)).toMatchObject({ ok: true, data: { status: "not_sent", reason: "provider_not_ready", coreWrite: "not_sent" } });
       const [launchOnlySession] = await call<{ id: string; terminalId: string }[]>("agent.sessions.list", {}, "desktop");
       const sessionFile = path.join(vault.stateDir, "agent-cli", "sessions", launchOnlySession!.id + ".json");
       const sessionBytes = readFileSync(sessionFile);
       const launchOnlyPid = pidOf(launchOnlySession!.terminalId);
       try {
         writeFileSync(sessionFile, '{"id":');
-        allowReady = true;
-        expect(await call<Result>("agent.runs.dispatch", launchOnly)).toMatchObject({ status: "not_sent", reason: "launch_unverified", coreWrite: "not_sent" });
+        controls.allowReady = true;
+        expect(await request("agent.runs.dispatch", launchOnly, "plugin:tasks", launchOnlyKey)).toMatchObject({ ok: true, data: { status: "not_sent", reason: "launch_unverified", coreWrite: "not_sent" } });
         expect(JSON.parse(cli("ls", "--all").stdout).terminals).toHaveLength(1);
         expect(pidOf(launchOnlySession!.terminalId)).toBe(launchOnlyPid);
         expect(readers(launchOnlySession!.terminalId)).toEqual([]);
@@ -277,7 +170,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
         writeFileSync(sessionFile, sessionBytes);
       }
       const first = work("first", target);
-      allowProof = false;
+      controls.allowProof = false;
       const written = await call<Result>("agent.runs.dispatch", first);
       expect(written).toMatchObject({ status: "unknown", reason: "provider_acceptance_unconfirmed", acceptedAt: expect.any(String), coreWrite: "core_written", providerAcceptance: null, ownerActive: true });
       const firstAddress = written.execution!.sessionBinding.coreAddress;
@@ -286,7 +179,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(await request("agent.runs.dispatch", { ...first, input: body("changed") })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
       expect(await request("agent.runs.dispatch", { ...first, vaultId: "foreign" })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(await request("agent.runs.inspect", { ...key("first"), attempt: 2 })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
-      allowProof = true;
+      controls.allowProof = true;
       expect(await call<Result>("agent.runs.inspect", key("first"))).toMatchObject({ status: "accepted", coreWrite: "core_written", providerAcceptance: { id: "first-received" } });
       expect(readers(firstAddress).map(({ dispatchId }) => dispatchId)).toEqual(["first"]);
       const firstRecord = readFileSync(recordFile("first"));
@@ -301,7 +194,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       }
 
       const lost = work("lost", target);
-      allowProof = false;
+      controls.allowProof = false;
       const originalCall = HerdrClient.prototype.call;
       const fault = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
         const result = (await originalCall.call(this, method, params)) as T;
@@ -326,7 +219,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       writeFileSync(recordFile("lost"), JSON.stringify({ ...read<object>(recordFile("lost")), write: "sending" }));
       vault = await Vault.open(rootPath);
       await engine(true);
-      allowProof = true;
+      controls.allowProof = true;
       const recovered = await call<Result>("agent.runs.dispatch", lost);
       expect(recovered).toMatchObject({ status: "accepted", coreWrite: "unknown", providerAcceptance: { id: "lost-received" }, execution: lostReceipt.execution });
       expect(readers(recovered.execution!.sessionBinding.coreAddress).map(({ dispatchId }) => dispatchId)).toEqual(["lost"]);
@@ -373,9 +266,9 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(readers(exitAddress)).toHaveLength(1);
 
       const gated = work("disabled-during-ready", target);
-      const readiness = gate();
+      const readiness = createFixtureGate();
       const transportKey = crypto.randomUUID();
-      blockReady = readiness.wait;
+      controls.blockReady = readiness.wait;
       const pending = request("agent.runs.dispatch", gated, "plugin:tasks", transportKey);
       try {
         expect(await Promise.race([readiness.entered.then(() => "paused"), pending.then(() => "finished")])).toBe("paused");
@@ -390,9 +283,9 @@ test.skipIf(process.platform !== "win32" || !bin)(
           .filter((file) => file.endsWith(".jsonl"))
           .flatMap((file) => readers(file.slice(0, -6)))
           .filter((line) => line.dispatchId === dispatchId).length;
-      console.info(JSON.stringify({ phase: "disabled-during-ready", disabledReply, inputCount: inputCount(gated.dispatchId), cancelled: readySignal?.aborted, endpoint: core.endpoint }));
+      console.info(JSON.stringify({ phase: "disabled-during-ready", disabledReply, inputCount: inputCount(gated.dispatchId), cancelled: controls.readySignal?.aborted, endpoint: core.endpoint }));
       expect(inputCount(gated.dispatchId)).toBe(0);
-      expect(readySignal?.aborted).toBe(true);
+      expect(controls.readySignal?.aborted).toBe(true);
       expect(disabledReply).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED", retryable: true } });
       expect(read(recordFile(gated.dispatchId))).toMatchObject({ write: "not_sent", execution: null, ownerActive: false });
       expect(await manager.enable("agent-cli")).toBe("active");
@@ -406,9 +299,9 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const oldBridge = bridge!;
       const existingTarget = { mode: "existing", spaceId: space!.id, binding: current!.binding! } as const;
       const checking = work("disabled-during-final-check", existingTarget);
-      const finalCheck = gate();
+      const finalCheck = createFixtureGate();
       let checkNextList = false;
-      afterReady = () => {
+      controls.afterReady = () => {
         checkNextList = true;
       };
       const delayedList = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
@@ -442,7 +335,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       console.info(JSON.stringify({ phase: "disabled-during-final-check", inputCount: inputCount(checking.dispatchId), oldViewerClosed: oldViewer.readyState === 3 }));
 
       const crossed = work("disabled-after-send", existingTarget);
-      const lateSend = gate();
+      const lateSend = createFixtureGate();
       const delayedSend = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
         const reply = (await originalCall.call(this, method, params)) as T;
         if (method === "terminal.send" && (params as { text?: string }).text === crossed.input) {
@@ -451,7 +344,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
         }
         return reply;
       });
-      allowProof = false;
+      controls.allowProof = false;
       const crossing = request("agent.runs.dispatch", crossed);
       try {
         expect(await Promise.race([lateSend.entered.then(() => "paused"), crossing.then(() => "finished")])).toBe("paused");
@@ -467,7 +360,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
         expect(switchedViewer.messages).toContain(JSON.stringify({ type: "mode", mode: "observe" }));
         await call("agent.review.comment.add", { sessionId: manual.id, path: "synthetic.md", side: "new", line: 1, text: "switch review" }, "desktop");
         expect(await request("agent.review.send", { sessionId: manual.id }, "desktop")).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-        allowProof = true;
+        controls.allowProof = true;
         expect(await call<Result>("agent.runs.inspect", key(crossed.dispatchId))).toMatchObject({ status: "accepted", coreWrite: "unknown", providerAcceptance: { id: crossed.dispatchId + "-received" } });
       } finally {
         lateSend.resume();

@@ -45,8 +45,10 @@ export class AgentDispatch {
     },
   ) {}
 
-  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined }) {
+  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined }, requestSignal: AbortSignal) {
     this.assertScope(input);
+    const signal = AbortSignal.any([this.d.signal, requestSignal]);
+    signal.throwIfAborted();
     const space = this.d.spaces.get(input.spaceId);
     const unavailable = this.d.readOnly ? "read_only_vault" : null;
     const newTargets = await Promise.all(
@@ -64,6 +66,7 @@ export class AgentDispatch {
         return { mode: "new" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId, binding: null, available: reason === null, reason };
       }),
     );
+    signal.throwIfAborted();
     const existing = await Promise.all(
       this.d.sessions
         .list(space.id)
@@ -78,6 +81,7 @@ export class AgentDispatch {
           return { mode: "existing" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId: null, sessionId: session.id, binding: current?.binding ?? null, available: reason === null, reason };
         }),
     );
+    signal.throwIfAborted();
     const resume = AGENT_CATALOG.map(({ id: provider }) => ({
       mode: "resume" as const,
       provider,
@@ -186,6 +190,7 @@ export class AgentDispatch {
     const sending: StoredDispatch = { ...record, execution, ownerActive: true, write: "sending" };
     const write = await this.d.sessions.writeExecutionInput(execution, input.input, signal, () => {
       this.assertCurrent(record);
+      if (target.spaceRevision !== undefined) this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
       if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
       this.d.store.save(sending);
       return true;

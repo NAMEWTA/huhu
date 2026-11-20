@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
 import { HuhuError, isHuhuError, isId, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
+import { AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { canonicalJson } from "../shared/input.js";
@@ -35,7 +36,7 @@ export const DispatchReceipt = DispatchLookup.extend({
   attempt: TaskRunAttemptSchema,
   acceptedAt: Instant,
   state: z.enum(["pending", "claimed", "sending", "running", "unknown", "cancelled", "stale_input", "expired", "blocked"]),
-  reason: z.enum(["waiting_resource", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "foreign_machine", "awaiting_confirmation"]).nullable(),
+  reason: z.enum(["waiting_resource", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "target_unsupported", "foreign_machine", "awaiting_confirmation"]).nullable(),
   cancelRequested: z.boolean(),
 });
 const RecordFields = z.object({
@@ -43,6 +44,7 @@ const RecordFields = z.object({
   requestHash: z.string(),
   snapshot: Snapshot,
   snapshotHash: z.string(),
+  agentTarget: AgentDispatchTargetSchema.optional(),
   claim: z.object({ machineId: z.string(), at: Instant }).nullable(),
   startedAt: Instant.nullable(),
   finishedAt: Instant.nullable(),
