@@ -10,6 +10,6 @@ export const DateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 /** ISO 时间字符串（含时区或 Z）。 */
 export const IsoTime = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
 /** YAML 会把未加引号的日期/时间解析为 Date，这里统一转回字符串再校验。 */
-export const dateLike = (inner: z.ZodString) => z.preprocess((v) => (v instanceof Date ? (inner === DateOnly ? v.toISOString().slice(0, 10) : v.toISOString()) : v), inner);
+export const dateLike = (inner: z.ZodType<string>) => z.preprocess((v) => (v instanceof Date ? (inner === DateOnly ? v.toISOString().slice(0, 10) : v.toISOString()) : v), inner);
 
 export const RunState = z.enum(["queued", "running", "waiting_input", "succeeded", "failed", "cancelled", "unknown"]);
