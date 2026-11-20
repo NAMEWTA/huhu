@@ -7,9 +7,13 @@ const schema = z.object({
   restoreWorkspace: z.boolean(),
   fontSize: z.number().int().min(9).max(28),
   font: z.enum(["theme", "jetbrains", "system"]),
+  showDotFiles: z.boolean(),
+  fileSort: z.enum(["name", "modified", "size"]),
+  remoteOnLeft: z.boolean(),
+  showPaneFiles: z.boolean(),
 });
 export type DevicePreferences = z.infer<typeof schema>;
-export const deviceDefaults: DevicePreferences = { tabs: "top", paneTools: "top", restoreWorkspace: false, fontSize: 13, font: "theme" };
+export const deviceDefaults: DevicePreferences = { tabs: "top", paneTools: "top", restoreWorkspace: false, fontSize: 13, font: "theme", showDotFiles: true, fileSort: "name", remoteOnLeft: false, showPaneFiles: false };
 
 const KEY = "huhu.ssh.device-preferences.v1";
 const EVENT = "huhu:ssh-device-preferences";
@@ -49,6 +53,7 @@ export function saveDevicePreferences(patch: Partial<DevicePreferences>) {
   const next = schema.parse({ ...read(), ...patch });
   window.localStorage.setItem(KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(EVENT));
+  return next;
 }
 
 export function lastWorkspace(vaultId: string) {

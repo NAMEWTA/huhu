@@ -1,4 +1,5 @@
 import { SshHostProfile, type SshHostProfile as Profile } from "../auth-profile.js";
+import { defaultVaultPreferences } from "../../shared/preferences.js";
 import { badFile, decodeHostInput, MAX_BYTES, MAX_RECORDS, optionalGroup, printable, type HostImportFormat, type ImportIssue, type ImportLocation, type ParsedHosts, type RawHost } from "./input.js";
 import { parseOpenSsh } from "./openssh.js";
 import { parseElecterm, parseNetcatty, parseWindTerm } from "./structured-formats.js";
@@ -63,7 +64,8 @@ function toProfile(row: RawHost): Profile | ImportIssue["code"] {
     host,
     user,
     port: ports.data,
-    ...(row.timeout !== undefined && { connectTimeoutSec: row.timeout }),
+    // Keep the same effective timeout in the preview and saved import across Vaults.
+    connectTimeoutSec: row.timeout ?? defaultVaultPreferences.connection.connectTimeoutSec,
     ...(row.interval !== undefined && { keepaliveIntervalSec: row.interval }),
     ...(row.keepaliveCount !== undefined && { keepaliveCountMax: row.keepaliveCount }),
   });

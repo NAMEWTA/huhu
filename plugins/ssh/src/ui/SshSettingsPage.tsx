@@ -4,28 +4,37 @@ import { useState, type FormEvent } from "react";
 import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type DevicePreferences } from "./device-preferences.js";
 import { canScaleTerminal } from "./SshTerminal.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
+import { SshVaultSettings } from "./SshVaultSettings.js";
 
-type Category = "layout" | "terminal";
-const labels = { layout: "通用与布局", terminal: "终端" } satisfies Record<Category, string>;
+const labels = { layout: "通用与布局", terminal: "终端", files: "文件与传输", connection: "连接" };
+type Category = keyof typeof labels;
+type DeviceCategory = Exclude<Category, "connection">;
 const fields = {
   tabs: "工作区标签方向",
   paneTools: "分栏工具栏位置",
   restoreWorkspace: "打开工作区时恢复上次视图",
   fontSize: "终端字号",
   font: "终端字体",
+  showDotFiles: "显示以点开头的文件",
+  fileSort: "文件排序方式",
+  remoteOnLeft: "双栏默认将远端放在左侧",
+  showPaneFiles: "进入工作区时展开分栏文件",
 } satisfies Record<keyof DevicePreferences, string>;
 const keys = {
   layout: ["tabs", "paneTools", "restoreWorkspace"],
   terminal: ["fontSize", "font"],
-} as const satisfies Record<Category, readonly (keyof DevicePreferences)[]>;
+  files: ["showDotFiles", "fileSort", "remoteOnLeft", "showPaneFiles"],
+} as const satisfies Record<DeviceCategory, readonly (keyof DevicePreferences)[]>;
+const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时 保活间隔 保活最大次数 已知主机" };
 
-function DeviceForm({ category, filter }: { category: Category; filter: string }) {
+function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
   const saved = useDevicePreferences();
+  const [base, setBase] = useState(saved);
   const [draft, setDraft] = useState(saved);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const shown = (field: keyof DevicePreferences) => keys[category].some((key) => key === field) && (!filter || labels[category].includes(filter) || fields[field].includes(filter));
-  const changed = keys[category].some((key) => draft[key] !== saved[key]);
+  const changed = keys[category].some((key) => draft[key] !== base[key]);
   function set<Key extends keyof DevicePreferences>(key: Key, value: DevicePreferences[Key]) {
     setNotice("");
     setError("");
@@ -33,9 +42,11 @@ function DeviceForm({ category, filter }: { category: Category; filter: string }
   }
   function submit(event: FormEvent) {
     event.preventDefault();
-    const patch = Object.fromEntries(keys[category].filter((key) => draft[key] !== saved[key]).map((key) => [key, draft[key]]));
+    const patch = Object.fromEntries(keys[category].filter((key) => draft[key] !== base[key]).map((key) => [key, draft[key]]));
     try {
-      saveDevicePreferences(patch);
+      const next = saveDevicePreferences(patch);
+      setBase(next);
+      setDraft(next);
       setNotice("已保存到本机。");
       setError("");
     } catch {
@@ -44,8 +55,8 @@ function DeviceForm({ category, filter }: { category: Category; filter: string }
   }
   return (
     <form className="hu-settings-section hu-card-alt" onSubmit={submit}>
-      <h2>{labels[category]}</h2>
-      <p>本机设置。标签、工具栏和终端显示在保存后更新。</p>
+      <h2>{category === "files" ? "本机文件视图" : labels[category]}</h2>
+      <p>保存后应用到本机。</p>
       {shown("tabs") && (
         <label className="hu-setting-row">
           {fields.tabs}
@@ -90,13 +101,43 @@ function DeviceForm({ category, filter }: { category: Category; filter: string }
         </label>
       )}
       {category === "terminal" && !filter && <p>配色跟随 Huhu 外观。共用终端目前固定保留 5000 行回滚，未提供按 SSH 配置的行距、光标、选中即复制、本机 Shell 或录制选项。</p>}
+      {shown("showDotFiles") && (
+        <label className="hu-setting-row">
+          {fields.showDotFiles}
+          <input type="checkbox" checked={draft.showDotFiles} onChange={(event) => set("showDotFiles", event.target.checked)} />
+        </label>
+      )}
+      {shown("fileSort") && (
+        <label className="hu-setting-row">
+          {fields.fileSort}
+          <select value={draft.fileSort} onChange={(event) => set("fileSort", event.target.value === "size" ? "size" : event.target.value === "modified" ? "modified" : "name")}>
+            <option value="name">名称</option>
+            <option value="modified">最近修改</option>
+            <option value="size">大小（降序）</option>
+          </select>
+        </label>
+      )}
+      {shown("remoteOnLeft") && (
+        <label className="hu-setting-row">
+          {fields.remoteOnLeft}
+          <input type="checkbox" checked={draft.remoteOnLeft} onChange={(event) => set("remoteOnLeft", event.target.checked)} />
+        </label>
+      )}
+      {shown("showPaneFiles") && (
+        <label className="hu-setting-row">
+          {fields.showPaneFiles}
+          <input type="checkbox" checked={draft.showPaneFiles} onChange={(event) => set("showPaneFiles", event.target.checked)} />
+        </label>
+      )}
+      {shown("showPaneFiles") && <p>打开工作区时，工具栏可见的已连接分栏会展开文件视图。独立双栏在工作台内打开。</p>}
       <div className="ssh-workspace-controls">
         <Button variant="primary" type="submit" disabled={!changed}>
-          保存设置
+          {category === "files" ? "保存本机文件设置" : "保存设置"}
         </Button>
         <Button
           disabled={!changed}
           onClick={() => {
+            setBase(saved);
             setDraft(saved);
             setNotice("");
             setError("");
@@ -124,7 +165,9 @@ export function SshSettingsPage() {
   const [category, select] = useState<Category>("layout");
   const [query, search] = useState("");
   const filter = query.trim().toLowerCase();
-  const categories = (Object.keys(labels) as Category[]).filter((key) => !filter || labels[key].includes(filter) || keys[key].some((field) => fields[field].includes(filter)));
+  const matchesDevice = (key: DeviceCategory) => keys[key].some((field) => fields[field].includes(filter));
+  const matchesVault = (key: keyof typeof vaultSearch) => vaultSearch[key].toLowerCase().includes(filter);
+  const categories = (Object.keys(labels) as Category[]).filter((key) => labels[key].includes(filter) || (key !== "connection" && matchesDevice(key)) || ((key === "connection" || key === "files") && matchesVault(key)));
   const selected = categories.includes(category) ? category : categories[0];
   return (
     <section data-testid="ssh-settings" aria-label="SSH 设置" className="hu-stack">
@@ -136,7 +179,10 @@ export function SshSettingsPage() {
           </Button>
         ))}
       </div>
-      {selected ? <DeviceForm key={selected} category={selected} filter={filter} /> : <EmptyState title="没有匹配的 SSH 设置" />}
+      {!selected && <EmptyState title="没有匹配的 SSH 设置" />}
+      {selected && selected !== "connection" && (labels[selected].includes(filter) || matchesDevice(selected)) && <DeviceForm key={selected} category={selected} filter={filter} />}
+      {selected === "connection" && <SshVaultSettings section="connection" />}
+      {selected === "files" && (labels.files.includes(filter) || matchesVault("files")) && <SshVaultSettings section="transfer" />}
       {!filter && selected === "layout" && (
         <details className="hu-card-alt">
           <summary>凭据、已知主机与日志</summary>

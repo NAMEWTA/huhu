@@ -5,6 +5,7 @@ import { errors, HuhuError } from "@huhu/contracts";
 import type { z } from "zod";
 import path from "node:path";
 import type { TransferBatch, TransferBatchRequest, TransferChoice, TransferEndpoint, TransferJob, TransferOrigin, TransferQueue, TransferRequest } from "../shared/transfers.js";
+import { defaultVaultPreferences } from "../shared/preferences.js";
 import type { FileSessions } from "./file-sessions.js";
 import type { SshManager } from "./manager.js";
 import { digest, fingerprint, localTransferFile, remoteTransferFile, removeTemp, sameSnapshot, transferChanged, type Snapshot, type TransferFile } from "./transfer-io.js";
@@ -12,7 +13,6 @@ import { localTree, remoteTree, sameDirectory, scanTree, type TransferTree, type
 
 const LIVE_LIMIT = 32;
 const HISTORY_LIMIT = 64;
-const PARALLEL = 2;
 const terminal = new Set<TransferJob["state"]>(["completed", "failed", "cancelled", "skipped"]);
 type Plan = { source: Snapshot; target: Snapshot | null };
 type Publication = {
@@ -56,7 +56,12 @@ export class Transfers {
     private readonly sessions: FileSessions,
     private readonly manager: SshManager,
     private readonly changed: (id: string) => void,
+    private readonly maxParallel: () => number = () => defaultVaultPreferences.transfer.parallel,
   ) {}
+
+  preferencesChanged() {
+    this.pump();
+  }
 
   list(): TransferQueue {
     for (const rec of this.records.values()) {
@@ -68,7 +73,7 @@ export class Transfers {
       jobs: [...this.records.values()].map(({ job }) => ({ ...job })).reverse(),
       batches: [...this.batches.values()].map((batch) => this.batchView(batch)).reverse(),
       liveLimit: LIVE_LIMIT,
-      parallel: PARALLEL,
+      parallel: this.maxParallel(),
       canQueue: this.liveCount() < LIVE_LIMIT,
     };
   }
@@ -219,7 +224,7 @@ export class Transfers {
   async recheck(id: string, signal: AbortSignal): Promise<TransferJob> {
     const rec = this.lookup(id);
     if (rec.job.state !== "uncertain" || this.active.has(rec)) return { ...rec.job };
-    if (this.active.size >= PARALLEL || [...this.active].some(({ locks }) => locks.some((lock) => rec.locks.includes(lock)))) {
+    if (this.active.size >= this.maxParallel() || [...this.active].some(({ locks }) => locks.some((lock) => rec.locks.includes(lock)))) {
       throw errors.invalidInput("原端点正在传输，请稍后重查提交结果");
     }
     rec.controller = new AbortController();
@@ -315,9 +320,10 @@ export class Transfers {
 
   private pump(): void {
     if (this.disposed) return;
+    const limit = this.maxParallel();
     const occupied = new Set([...this.active].flatMap(({ locks }) => locks));
     for (const rec of this.records.values()) {
-      if (this.active.size >= PARALLEL) break;
+      if (this.active.size >= limit) break;
       if (rec.job.state !== "queued" || this.active.has(rec) || rec.locks.some((lock) => occupied.has(lock))) continue;
       if (rec.parentId) {
         const parent = this.records.get(rec.parentId)?.job.state;

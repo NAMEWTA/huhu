@@ -30,10 +30,10 @@ export function WorkspaceRunView({
   onOpenFiles: (session: FileSession) => void;
 }) {
   const { endpoint } = useEngine();
-  const { paneTools } = useDevicePreferences();
+  const { paneTools, showPaneFiles } = useDevicePreferences();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
   const [active, setActive] = useState(0);
-  const [showFiles, setShowFiles] = useState(false);
+  const [showFiles, setShowFiles] = useState(showPaneFiles && paneTools !== "hidden");
   const [showMonitor, setShowMonitor] = useState(false);
   const [dock, setDock] = useState<"left" | "right">("right");
   const activePane = run.panes[active];

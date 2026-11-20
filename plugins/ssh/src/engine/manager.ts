@@ -10,6 +10,7 @@ import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { FileOrigin } from "../shared/files.js";
+import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
 import type { z } from "zod";
 
 export interface AuditEntry {
@@ -28,6 +29,7 @@ export interface SshDeps {
   withManagedAuth: (host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>) => Promise<void>;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
+  connectionPreferences?(): ConnectionPreferences;
   decisionTimeoutMs?: number;
 }
 
@@ -270,13 +272,19 @@ export class SshManager {
 
   private async dialChain(chain: ManagedHost[], attempt: Attempt, opened: Client[], onHop?: (hop: number, host: ManagedHost) => void): Promise<Client> {
     const target = chain[chain.length - 1]!;
+    const defaults = this.d.connectionPreferences?.() ?? defaultVaultPreferences.connection;
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
       attempt.signal.throwIfAborted();
       onHop?.(hop, host);
       const client = new Client();
       opened.push(client);
-      const authenticate = (auth: ConnectionAuth) => this.connectHop(client, host, target, hop, attempt, auth, socket);
+      const authenticate = (auth: ConnectionAuth) =>
+        this.connectHop(client, host, target, hop, attempt, auth, socket, {
+          connectTimeoutSec: host.connectTimeoutSec ?? defaults.connectTimeoutSec,
+          keepaliveIntervalSec: host.keepaliveIntervalSec ?? defaults.keepaliveIntervalSec,
+          keepaliveCountMax: host.keepaliveCountMax ?? defaults.keepaliveCountMax,
+        });
       await this.d.withManagedAuth(host, authenticate);
       client.setNoDelay(true);
       const next = chain[hop + 1];
@@ -414,7 +422,7 @@ export class SshManager {
     return dial;
   }
 
-  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown): Promise<void> {
+  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: ConnectionPreferences): Promise<void> {
     const { id: attemptId, hostId, signal } = attempt;
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
@@ -436,7 +444,7 @@ export class SshManager {
         timer = setTimeout(() => {
           finish(new HuhuError("SSH_TIMEOUT", `连接超时（第 ${hop + 1} 跳）`, { details: { hop } }));
           client.end();
-        }, h.connectTimeoutSec * 1000);
+        }, preferences.connectTimeoutSec * 1000);
       };
       const publishKey = (prompt: HostKeyPrompt, reason: "first" | "changed") => {
         this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: prompt.fingerprint, keyType: prompt.keyType, reason });
@@ -462,8 +470,8 @@ export class SshManager {
           username: h.user,
           // 网络和认证的计时在等待用户核对指纹期间暂停。
           readyTimeout: 0,
-          ...(h.keepaliveIntervalSec !== undefined ? { keepaliveInterval: h.keepaliveIntervalSec * 1000 } : {}),
-          ...(h.keepaliveCountMax !== undefined ? { keepaliveCountMax: h.keepaliveCountMax } : {}),
+          ...(preferences.keepaliveIntervalSec !== null ? { keepaliveInterval: preferences.keepaliveIntervalSec * 1000 } : {}),
+          ...(preferences.keepaliveCountMax !== null ? { keepaliveCountMax: preferences.keepaliveCountMax } : {}),
           ...auth,
           hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
             if (done) return verify(false);

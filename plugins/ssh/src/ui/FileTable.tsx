@@ -1,5 +1,6 @@
 import { useId, useState, type DragEvent, type ReactNode } from "react";
 import type { FileEntry } from "../shared/files.js";
+import { useDevicePreferences } from "./device-preferences.js";
 import { t } from "./i18n.js";
 
 const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
@@ -29,7 +30,9 @@ export function FileTable({
   selection?: { names: string[]; disabled: boolean; canDrag: boolean; toggle: (name: string) => void; start: (name: string, event: DragEvent) => void; end: () => void } | undefined;
 }) {
   const captionId = useId();
-  const [sort, setSort] = useState<{ key: Column; desc: boolean }>({ key: "name", desc: false });
+  const { fileSort } = useDevicePreferences();
+  const [override, setSort] = useState<{ key: Column; desc: boolean }>();
+  const sort = override ?? { key: fileSort === "modified" ? "mtime" : fileSort, desc: fileSort !== "name" };
   const sorted = [...entries].sort((left, right) => {
     const { key, desc } = sort;
     const result = key === "name" || key === "mode" ? left[key].localeCompare(right[key]) : left[key] - right[key];

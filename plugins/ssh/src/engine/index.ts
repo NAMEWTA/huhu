@@ -18,6 +18,7 @@ import { ForwardRuns } from "./forward-runs.js";
 import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
+import { SshPreferences } from "./preferences.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -32,6 +33,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const templates = new WorkspaceTemplates(api.vault.files, hosts);
   const forwardRules = new ForwardRules(api.vault.files, hosts);
   const monitorPanels = new MonitorPanels(api.vault.files, hosts);
+  const preferences = new SshPreferences(api.vault.files);
   const assertHostUnused = (id: string) => {
     templates.assertUnused(id);
     forwardRules.assertUnused(id);
@@ -44,11 +46,17 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     withManagedAuth: (host, connect) => hosts.withAuthentication(host, connect),
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
+    connectionPreferences: () => preferences.runtime().connection,
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
-  const transfers = new Transfers(files, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
+  const transfers = new Transfers(
+    files,
+    manager,
+    (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }),
+    () => preferences.runtime().transfer.parallel,
+  );
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const monitors = new Monitors(monitorPanels, manager);
   ctx.effect(() => () => {
@@ -60,6 +68,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     manager.disposeAll();
   });
 
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.settingsGet, () => preferences.get()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.settingsUpdate, async ({ signal }, input) => {
+      const saved = await preferences.update(input, signal);
+      if (input.change.section === "transfer") transfers.preferencesChanged();
+      return saved;
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));

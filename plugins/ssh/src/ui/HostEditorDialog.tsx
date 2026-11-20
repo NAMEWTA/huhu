@@ -69,6 +69,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
     const tags = String(data.get("tags") ?? "");
     const interval = text("keepaliveIntervalSec");
     const count = text("keepaliveCountMax");
+    const timeout = text("connectTimeoutSec");
     const credentials: ConfigureHost["credentials"] = [];
     for (const purpose of purposes[authKind]) {
       const value = purpose === "identityFile" ? values[purpose]?.trim() : values[purpose];
@@ -95,7 +96,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                   .filter(Boolean),
               ),
             ],
-      connectTimeoutSec: Number(text("connectTimeoutSec")),
+      ...(timeout && { connectTimeoutSec: Number(timeout) }),
       ...(interval && { keepaliveIntervalSec: Number(interval) }),
       ...(count && { keepaliveCountMax: Number(count) }),
       jumpHostIds: jump ? [jump] : [],
@@ -189,9 +190,9 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
           >
             <summary>高级连接设置</summary>
             <div className="hu-field-grid">
-              <EditorField label="连接超时（秒）">{(id) => <input id={id} name="connectTimeoutSec" type="number" min={1} max={300} step="any" required defaultValue={editing?.connectTimeoutSec ?? 20} />}</EditorField>
-              <EditorField label="协议保活间隔（秒）">{(id) => <input id={id} name="keepaliveIntervalSec" type="number" min={0} max={3600} defaultValue={editing?.keepaliveIntervalSec} />}</EditorField>
-              <EditorField label="协议保活最大次数">{(id) => <input id={id} name="keepaliveCountMax" type="number" min={0} max={1000} defaultValue={editing?.keepaliveCountMax} />}</EditorField>
+              <EditorField label="连接超时（秒）">{(id) => <input id={id} name="connectTimeoutSec" type="number" min={1} max={300} step="any" placeholder="使用库内默认值" defaultValue={editing?.connectTimeoutSec} />}</EditorField>
+              <EditorField label="协议保活间隔（秒）">{(id) => <input id={id} name="keepaliveIntervalSec" type="number" min={0} max={3600} placeholder="使用库内默认值" defaultValue={editing?.keepaliveIntervalSec} />}</EditorField>
+              <EditorField label="协议保活最大次数">{(id) => <input id={id} name="keepaliveCountMax" type="number" min={0} max={1000} placeholder="使用库内默认值" defaultValue={editing?.keepaliveCountMax} />}</EditorField>
             </div>
           </details>
         </fieldset>

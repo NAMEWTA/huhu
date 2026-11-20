@@ -7,6 +7,8 @@ import { FileTable } from "./FileTable.js";
 import { TransferCenter } from "./TransferCenter.js";
 import { FileBatchProvider, useFileBatch } from "./FileBatch.js";
 import { ArchiveTools } from "./ArchiveTools.js";
+import { useDevicePreferences } from "./device-preferences.js";
+import { shownFileEntries } from "./file-preferences.js";
 import "./files.css";
 
 interface LocalBridge {
@@ -91,6 +93,7 @@ export function AttachedFiles({ hostId, shellId, onOpen, title }: { hostId: stri
 
 function LocalFiles({ id }: { id: string }) {
   const engine = useEngine();
+  const preferences = useDevicePreferences();
   const [parts, setParts] = useState<string[]>([]);
   const [where, setWhere] = useState<FileDirectory>();
   const [bookmarks, setBookmarks] = useState<{ path: string; parts: string[] }[]>([]);
@@ -98,7 +101,7 @@ function LocalFiles({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const picker = localPicker();
-  const shown = where?.entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
+  const shown = shownFileEntries(where?.entries ?? [], filter, preferences);
   const batch = useFileBatch("local", where?.path ?? "", shown, loading);
   async function navigate(next: string[], root?: string) {
     setLoading(true);
@@ -182,6 +185,7 @@ function LocalFiles({ id }: { id: string }) {
 
 export function FileWorkspace({ active, selectedId, seed, select, onBack }: { active: boolean; selectedId: string; seed: FileSession | null; select: (id: string) => void; onBack: () => void }) {
   const engine = useEngine();
+  const { remoteOnLeft } = useDevicePreferences();
   const qc = useQueryClient();
   const sessions = useCapability<FileSession[]>("ssh.fileSessions.list", {});
   const [error, setError] = useState("");
@@ -258,7 +262,8 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
             {!transfers && !current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
             {sessions.data?.map((session) => {
               const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} focus={fileFocus?.id === session.fileSessionId ? fileFocus : undefined} />];
-              if (reversed[session.fileSessionId]) panes.reverse();
+              const remoteFirst = reversed[session.fileSessionId] ?? remoteOnLeft;
+              if (remoteFirst) panes.reverse();
               return (
                 <section
                   key={session.fileSessionId}
@@ -278,7 +283,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                     </p>
                   )}
                   <div className="ssh-workspace-controls">
-                    <Button onClick={() => setReversed({ ...reversed, [session.fileSessionId]: !reversed[session.fileSessionId] })}>交换左右位置</Button>
+                    <Button onClick={() => setReversed((current) => ({ ...current, [session.fileSessionId]: !remoteFirst }))}>交换左右位置</Button>
                     <Button onClick={() => void close(session.fileSessionId)}>关闭独立文件视图</Button>
                   </div>
                   {localPicker() ? (

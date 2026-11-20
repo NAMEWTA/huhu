@@ -8,6 +8,7 @@ import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
+import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
@@ -35,6 +36,24 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  settingsGet: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.settings.get",
+    title: "读取 SSH 库内设置",
+    description: "读取当前库的 SSH 连接及传输默认值。",
+    scope: "read",
+    input: z.strictObject({}),
+    output: VaultPreferencesSnapshot,
+  }),
+  settingsUpdate: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.settings.update",
+    title: "保存 SSH 库内设置",
+    description: "按当前修订保存一类 SSH 默认值。",
+    scope: "write",
+    input: UpdateVaultPreferences,
+    output: VaultPreferencesSnapshot,
+  }),
   monitorToolsRead: defineCapabilityDescriptor({
     ...monitor,
     name: "ssh.monitor.tools.read",

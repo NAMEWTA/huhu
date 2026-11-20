@@ -9,6 +9,8 @@ import { RemoteCopyDialog } from "./RemoteCopyDialog.js";
 import { useFileBatch } from "./FileBatch.js";
 import { ArchiveTools } from "./ArchiveTools.js";
 import { t } from "./i18n.js";
+import { useDevicePreferences } from "./device-preferences.js";
+import { shownFileEntries } from "./file-preferences.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
 
@@ -23,6 +25,7 @@ const join = (dir: string, name: string) => (dir.endsWith("/") ? `${dir}${name}`
 /** SSH → 文件（SFTP）：浏览、文本预览、上传、下载、新建文件夹、重命名、删除；覆盖与删除都要先确认。 */
 export function FilesPanel({ session, toolbar, title = t.files.title, search = false, focus }: { session: FileSession; toolbar?: ReactNode; title?: string | undefined; search?: boolean; focus?: { path: string } | undefined }) {
   const engine = useEngine();
+  const preferences = useDevicePreferences();
   const [cwd, setCwd] = useState("");
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +47,9 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [located, setLocated] = useState<string>();
   const request = useRef<AbortController>(null);
   const ready = session.state === "ready";
-  const batch = useFileBatch("remote", cwd, entries?.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase())) ?? [], !ready);
+  const shown = shownFileEntries(entries ?? [], filter, preferences);
+  const hits = matches?.hits.filter(({ entry, folder }) => preferences.showDotFiles || (!entry.name.startsWith(".") && !folder.split("/").some((part) => part.startsWith(".") && part !== "." && part !== ".."))) ?? [];
+  const batch = useFileBatch("remote", cwd, shown, !ready);
   const { fileSessionId } = session;
 
   const call = useCallback(<T,>(cap: string, input: Record<string, unknown>) => engine.call<T>(cap, { fileSessionId, ...input }, { write: true }), [engine, fileSessionId]);
@@ -234,11 +239,11 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
           {matches && (
             <section aria-label="文件名搜索结果">
               <p role="status">
-                {matches.hits.length} 项{matches.limited ? "，已达到搜索上限" : ""}
+                {hits.length} 项{matches.limited ? "，已达到搜索上限" : ""}
                 {matches.skipped ? `，跳过 ${matches.skipped} 个目录` : ""}
               </p>
               <ul>
-                {matches.hits.map(({ folder, entry }) => (
+                {hits.map(({ folder, entry }) => (
                   <li key={join(folder, entry.name)}>
                     <Button disabled={!ready} onClick={() => void navigate(folder, entry.name)}>
                       {join(folder, entry.name)}
@@ -358,13 +363,13 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
 
       {entries === null ? (
         <p>…</p>
-      ) : entries.length === 0 ? (
+      ) : shown.length === 0 ? (
         <EmptyState title={t.files.empty} />
       ) : (
         <FileTable
           caption="远端目录项目"
           selection={batch.selection}
-          entries={entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase()))}
+          entries={shown}
           disabled={!ready}
           current={located ?? null}
           onOpen={(entry) => void openEntry(entry)}

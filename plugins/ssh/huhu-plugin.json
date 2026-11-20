@@ -57,6 +57,8 @@
       "ssh.monitor.session.get",
       "ssh.monitor.session.open",
       "ssh.monitor.tools.read",
+      "ssh.settings.get",
+      "ssh.settings.update",
       "ssh.sftp.cancel",
       "ssh.sftp.delete",
       "ssh.sftp.download",
