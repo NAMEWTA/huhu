@@ -1,6 +1,7 @@
 import { assertHomeWidgetDefinitions, homeWidgetType, projectHomeWidget, type DashboardBoard, type HomeWidgetDefinition, type HomeWidgetSource, type HomeWidgetType } from "@huhu/contracts";
 import type { LucideIcon } from "lucide-react";
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
+import type { ExitParticipant } from "./state/exit-participants.js";
 
 export type RailGroup = "primary" | "execution" | "system";
 
@@ -15,6 +16,8 @@ export interface ModuleProps {
   onSection(id: string): void;
   /** 跳转到另一个模块（例如从笔记属性页打开版本历史）。 */
   onNavigate?(moduleId: string, section?: string): void;
+  /** 登记当前模块的离场检查。 */
+  registerLeaveGuard?(participant: ExitParticipant): () => void;
 }
 
 export interface ModuleContribution {

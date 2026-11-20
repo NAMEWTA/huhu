@@ -1,5 +1,5 @@
 import { Banner, Button, Dialog } from "@huhu/ui";
-import { CapabilityError, createRequestId, registerExitParticipant, useEngine } from "@huhu/workbench";
+import { CapabilityError, createRequestId, registerExitParticipant, useEngine, type ModuleProps } from "@huhu/workbench";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -35,6 +35,7 @@ export function MailComposer({
   initialAccountId,
   readOnly,
   previousDelivery,
+  registerLeaveGuard,
   onChanged,
   onClose,
   onSent,
@@ -44,6 +45,7 @@ export function MailComposer({
   initialAccountId: string | null;
   readOnly: boolean;
   previousDelivery: boolean;
+  registerLeaveGuard?: ModuleProps["registerLeaveGuard"];
   onChanged(message: string): void;
   onClose(): void;
   onSent(operationId: string): void;
@@ -169,13 +171,19 @@ export function MailComposer({
     }
   }
 
-  useEffect(() =>
-    registerExitParticipant(async () => {
+  useEffect(() => {
+    const check = async () => {
       if (busyRef.current) return false;
       if (!dirtyRef.current) return true;
       return run("save");
-    }),
-  );
+    };
+    const exit = registerExitParticipant(check);
+    const leave = registerLeaveGuard?.(check);
+    return () => {
+      leave?.();
+      exit();
+    };
+  });
 
   function close() {
     if (busyRef.current) return;

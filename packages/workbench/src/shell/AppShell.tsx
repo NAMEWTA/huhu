@@ -10,7 +10,7 @@ import { BrandMark } from "./BrandMark.js";
 import { AppMenuButton } from "./AppMenuButton.js";
 import { VaultMenu } from "./VaultMenu.js";
 import { VaultSwitchDialog } from "./VaultSwitchDialog.js";
-import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
+import { registerModuleLeaveGuard, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, type UiState } from "../state/ui-store.js";
 import { checkExitParticipants, localExitRequest } from "../state/exit-participants.js";
 
 class ModuleBoundary extends Component<{ children: ReactNode; moduleId: string }, { error: Error | null }> {
@@ -329,7 +329,7 @@ export function AppShell({ registry, ui, vaultName, engineState, onRestartEngine
                       {!showNotes &&
                         (Active && active && engineState === "ready" ? (
                           <ModuleBoundary moduleId={active.id}>
-                            <Active section={section} onSection={setSection} onNavigate={navigate} />
+                            <Active section={section} onSection={setSection} onNavigate={navigate} registerLeaveGuard={(guard) => registerModuleLeaveGuard(ui, active.id, guard)} />
                           </ModuleBoundary>
                         ) : (
                           <div className="hu-empty-main">选择左侧的模块开始</div>

@@ -1,5 +1,5 @@
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useRef, useState } from "react";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailComposer } from "./MailComposer.js";
@@ -14,12 +14,12 @@ const tabs = [
 const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
 
-export function MailModule() {
+export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
   const engine = useEngine();
-  return <MailWorkspace key={engine.vaultId} />;
+  return <MailWorkspace key={engine.vaultId} {...(registerLeaveGuard && { registerLeaveGuard })} />;
 }
 
-function MailWorkspace() {
+function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
   const engine = useEngine();
   const query = useQueryClient();
   const access = useCapability<{ readOnly: boolean }>("vault.info");
@@ -249,6 +249,7 @@ function MailWorkspace() {
           initialAccountId={account?.definition.settings.smtpEnabled ? account.accountId : null}
           readOnly={readOnly}
           previousDelivery={!!composer.draft && !!deliveries.data?.operations.some((record) => record.draftId === composer.draft?.draftId)}
+          {...(registerLeaveGuard && { registerLeaveGuard })}
           onChanged={changed}
           onClose={closeComposer}
           onSent={(id) => {
