@@ -1,8 +1,9 @@
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { CapabilityResultSchema } from "@huhu/contracts";
 import { NotificationStore } from "@huhu/kernel";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -29,6 +30,44 @@ const microsoftScopes = "https://outlook.office.com/IMAP.AccessAsUser.All https:
 const googleScopes = "https://mail.google.com/";
 
 type Call = <T = unknown>(capability: string, input?: unknown) => Promise<T>;
+
+function oauthHttp(port: number, token: string, capability: string, input: unknown, key: string = randomUUID(), claimedSubject?: string) {
+  return fetch(`http://127.0.0.1:${port}/api/v1/call`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: key, ...(claimedSubject && { subject: claimedSubject }) }),
+  });
+}
+
+async function dropBeginAcknowledgement(engine: RunningEngine, token: string, input: unknown, key: string) {
+  const upstreamResponse = Promise.withResolvers<number | undefined>();
+  const proxy = createServer((incoming, downstream) => {
+    const target = `http://127.0.0.1:${engine.port}/api/v1/call`;
+    const upstream = httpRequest(target, { method: "POST", headers: { ...incoming.headers, host: new URL(target).host } }, (response) => {
+      upstreamResponse.resolve(response.statusCode);
+      response.resume();
+      downstream.destroy();
+    });
+    upstream.on("error", (error) => {
+      upstreamResponse.reject(error);
+      downstream.destroy();
+    });
+    incoming.pipe(upstream);
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      proxy.once("error", reject);
+      proxy.listen(0, "127.0.0.1", resolve);
+    });
+    const address = proxy.address();
+    assert(address && typeof address !== "string");
+    await expect(oauthHttp(address.port, token, "mail.oauth.begin", input, key)).rejects.toThrow();
+    expect(await upstreamResponse.promise).toBe(200);
+  } finally {
+    proxy.closeAllConnections();
+    await new Promise<void>((resolve) => proxy.close(() => resolve()));
+  }
+}
 
 async function sendFixtureReply(call: Call, source: { accountId: string; folder: string; localMessageId: string }) {
   const seed = await call<ReplySeed>("mail.messages.prepareReply", { ...source, mode: "reply-all" });
@@ -357,9 +396,9 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
           await browserAck;
         },
       };
-      const request = (capability: string, input: unknown = {}, caller: "desktop" | "web:other" | "cli" = "desktop") => {
+      const request = (capability: string, input: unknown = {}, caller: "desktop" | "web:other" | "cli" = "desktop", idempotencyKey: string = randomUUID()) => {
         assert(engine);
-        return engine.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+        return engine.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey });
       };
       const call = async <T>(capability: string, input: unknown = {}) => {
         const result = await request(capability, input);
@@ -581,7 +620,9 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       const codeCount = exchangeCount;
       browserAck = ack.promise;
       blockEntered = exchangeEntered.resolve;
-      const start = call<Status>("mail.oauth.begin", { provider: "gmail", email: callbackFirst });
+      const completionKey = randomUUID();
+      const completionInput = { provider: "gmail", email: callbackFirst };
+      const start = request("mail.oauth.begin", completionInput, "desktop", completionKey);
       await expect.poll(() => opened.length).toBe(startCount + 1);
       const target = opened.at(-1)!;
       const tokenCode = `fixture-code-${randomUUID()}`;
@@ -590,12 +631,15 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         expect((await callback(target, { code: tokenCode })).status).toBe(200);
         await exchangeEntered.promise;
         ack.reject(new Error("fixture lost the browser acknowledgement"));
-        const slot = await start;
+        const openedSession = await start;
+        assert(openedSession.ok);
+        const slot = openedSession.data as Status;
         expect(await status(slot)).toMatchObject({ phase: "finishing" });
         expect(await request("mail.oauth.begin", { provider: "gmail", email: callbackFirst })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
         expect(opened).toHaveLength(startCount + 1);
         finishExchange.resolve();
         await expect.poll(() => status(slot)).toMatchObject({ phase: "configured" });
+        expect(await request("mail.oauth.begin", completionInput, "desktop", completionKey)).toMatchObject({ ok: true, data: { phase: "configured", sessionId: slot.sessionId } });
         expect((await list()).accounts.filter(({ definition }) => definition.settings.email === callbackFirst)).toHaveLength(1);
         expect(exchangeCount - codeCount).toBe(1);
       } finally {
@@ -619,6 +663,81 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(late).not.toBe(200);
       expect(exchangeCount - codeCount).toBe(1);
       browserAck = undefined;
+
+      const http = async (token: string, capability: string, input: unknown, key?: string, claimedSubject?: string) => {
+        assert(engine);
+        const reply = await oauthHttp(engine.port, token, capability, input, key, claimedSubject);
+        expect(reply.status).toBe(200);
+        return CapabilityResultSchema.parse(await reply.json());
+      };
+      const statusOf = async (...args: Parameters<typeof http>) => {
+        const result = await http(...args);
+        assert(result.ok, JSON.stringify(result));
+        return result.data as Status;
+      };
+      for (const capability of ["mail.oauth.begin", "mail.oauth.status", "mail.oauth.cancel"]) await call("gateway.update", { capability, exposed: true });
+      const a = await call<{ id: string; token: string }>("gateway.tokens.create", { name: "Mail test A" });
+      const b = await call<{ id: string; token: string }>("gateway.tokens.create", { name: "Mail test B" });
+      const sharedKey = randomUUID();
+      const inputA = { provider: "gmail", email: "lost-reply@example.invalid" };
+      const inputB = { provider: "gmail", email: "second-token@example.invalid" };
+      const beforeReplay = opened.length;
+      const pendingBrowser = Promise.withResolvers<void>();
+      browserAck = pendingBrowser.promise;
+      assert(engine);
+      await dropBeginAcknowledgement(engine, a.token, inputA, sharedKey);
+      const startA = await statusOf(a.token, "mail.oauth.begin", inputA, sharedKey);
+      expect(startA).toMatchObject({ phase: "waiting" });
+      expect(opened).toHaveLength(beforeReplay + 1);
+      expect(await http(a.token, "mail.oauth.begin", inputB, sharedKey)).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      const sessionA = { sessionId: startA.sessionId };
+      expect(await http(b.token, "mail.oauth.status", sessionA, undefined, a.id)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      const cancelKey = randomUUID();
+      expect(await http(b.token, "mail.oauth.cancel", sessionA, cancelKey, a.id)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(await status(startA)).toMatchObject({ phase: "waiting" });
+      const targetA = opened.at(-1)!;
+      pendingBrowser.resolve();
+      browserAck = undefined;
+      const startB = await statusOf(b.token, "mail.oauth.begin", inputB, sharedKey);
+      const sessionB = { sessionId: startB.sessionId };
+      expect(startB.sessionId).not.toBe(startA.sessionId);
+      expect(opened).toHaveLength(beforeReplay + 2);
+      expect(await status(startB)).toMatchObject({ phase: "waiting" });
+      expect(await call("mail.oauth.cancel", sessionB)).toMatchObject({ phase: "cancelled" });
+
+      const cancelEntered = Promise.withResolvers<void>();
+      const cancelledExchange = Promise.withResolvers<void>();
+      blockEntered = cancelEntered.resolve;
+      const codeA = `fixture-code-${randomUUID()}`;
+      codes.set(codeA, { url: targetA, provider: "gmail", email: inputA.email, scopes: googleScopes, hold: cancelledExchange.promise });
+      try {
+        expect((await callback(targetA, { code: codeA })).status).toBe(200);
+        await cancelEntered.promise;
+        expect(await statusOf(a.token, "mail.oauth.begin", inputA, sharedKey)).toMatchObject({ phase: "finishing", sessionId: startA.sessionId });
+        expect(await statusOf(a.token, "mail.oauth.cancel", sessionA, cancelKey)).toMatchObject({ phase: "finishing" });
+        await expect.poll(() => status(startA)).toMatchObject({ phase: "cancelled" });
+        expect(await statusOf(a.token, "mail.oauth.cancel", sessionA, cancelKey)).toMatchObject({ phase: "cancelled" });
+        expect(await statusOf(a.token, "mail.oauth.begin", inputA, sharedKey)).toMatchObject({ phase: "cancelled" });
+        expect(await http(a.token, "mail.oauth.cancel", sessionB, cancelKey)).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      } finally {
+        cancelledExchange.resolve();
+        blockEntered = undefined;
+      }
+      const privateIntents = readFileSync(path.join(engine.vault.runtimeDir, "mail-oauth-intents.ndjson"), "utf8");
+      expect(privateIntents).toContain(startA.sessionId);
+      expect([sharedKey, codeA, inputA.email, a.id, a.token, targetA.searchParams.get("state"), targetA.searchParams.get("nonce")].some((value) => value && privateIntents.includes(value))).toBe(false);
+      expect((await list()).accounts.some(({ definition }) => definition.settings.email === inputA.email)).toBe(false);
+
+      await engine.shutdown();
+      engine = await boot({ vaultPath: other, desktopUserData });
+      expect(await request("mail.oauth.status", sessionA)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect((await oauthHttp(engine.port, a.token, "mail.oauth.begin", inputA, sharedKey)).status).toBe(401);
+      await engine.shutdown();
+      engine = await boot({ vaultPath, desktopUserData });
+      expect(await statusOf(a.token, "mail.oauth.begin", inputA, sharedKey)).toMatchObject({ ...sessionA, phase: "expired", reason: "expired" });
+      expect(await statusOf(a.token, "mail.oauth.cancel", sessionA, cancelKey)).toMatchObject({ ...sessionA, phase: "expired", reason: "expired" });
+      expect(await statusOf(b.token, "mail.oauth.begin", inputB, sharedKey)).toMatchObject({ ...sessionB, phase: "expired", reason: "expired" });
+      expect(opened).toHaveLength(beforeReplay + 2);
 
       rejectRefresh = true;
       now += 100_000;

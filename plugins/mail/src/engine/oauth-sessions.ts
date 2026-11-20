@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { errors, HuhuError } from "@huhu/contracts";
-import { CredentialError, defineCapability, type HuhuApi } from "@huhu/kernel";
+import { CredentialError, defineCapability, type CapabilityContext, type HuhuApi, type OperationReceipts } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
 import { MailOAuthError, oauthProvider, requestOAuthToken, verifyOAuthIdentity, type MailOAuthRuntime, type OAuthIssue } from "./oauth-provider.js";
@@ -21,6 +21,8 @@ const sessionOutput = z.strictObject({ sessionId: id, host: z.string(), phase, r
 type Status = z.infer<typeof sessionOutput>;
 
 type Session = { status: Status; actor: string; key: string; controller: AbortController; close: () => void; stop?: "cancelled" | "expired" };
+type IntentStore = { ledger: OperationReceipts; vaultInstance: string };
+type Intent = { owner: string; capability: "mail.oauth.begin" | "mail.oauth.cancel"; key: string };
 const random = () => randomBytes(32).toString("base64url");
 const live = (s: Session) => s.status.phase === "waiting" || s.status.phase === "finishing";
 function equalState(expected: string, supplied: string | null) {
@@ -34,7 +36,7 @@ function reasonOf(error: unknown): OAuthIssue {
 }
 
 /** Session secrets and callback listeners are scoped to this one Vault/plugin lifetime. */
-export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, runtime: MailOAuthRuntime | undefined, lifetime: AbortSignal) {
+export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, runtime: MailOAuthRuntime | undefined, lifetime: AbortSignal, intents: IntentStore | undefined) {
   const sessions = new Map<string, Session>();
   const pending = new Set<Promise<void>>();
   const now = runtime?.now ?? Date.now;
@@ -53,10 +55,37 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
     if (session.status.phase === "waiting") end(session, reason, reason);
   }
 
-  function get(actor: string, sessionId: string) {
+  function actorOf({ caller, subject }: CapabilityContext) {
+    if (!subject || (caller === "http" && subject === caller)) throw errors.permissionDenied("mail.oauth");
+    return createHash("sha256")
+      .update(JSON.stringify([intents?.vaultInstance, caller, subject]))
+      .digest("hex");
+  }
+
+  function get(context: CapabilityContext, sessionId: string) {
     const session = sessions.get(sessionId);
-    if (!session || (session.actor !== actor && actor !== "desktop")) throw errors.notFound("授权会话已不存在。");
+    if (!session || (session.actor !== actorOf(context) && context.caller !== "desktop")) throw errors.notFound("授权会话已不存在。");
     return session;
+  }
+
+  function intentOf(context: CapabilityContext, capability: Intent["capability"]): Intent {
+    if (!context.idempotencyKey) throw errors.invalidInput("邮件授权操作需要幂等键。");
+    return { owner: actorOf(context), capability, key: context.idempotencyKey };
+  }
+
+  function claim(intent: Intent, input: unknown) {
+    if (!intents) throw errors.invalidInput("此 Vault 的本机授权操作存储不可用。");
+    const { entry, mismatch } = intents.ledger.claim(intent.owner, intent.capability, intent.key, input);
+    if (mismatch) throw errors.idempotencyMismatch();
+    return entry.operationId;
+  }
+
+  function replay(intent: Intent, input: unknown) {
+    if (intents?.ledger.lookup(intent.owner, { capability: intent.capability, intentKey: intent.key })) return claim(intent, input);
+  }
+
+  function resumedStatus(sessionId: string): Status {
+    return sessions.get(sessionId)?.status ?? { sessionId, host: runtime?.hostLabel ?? "当前 Engine 主机", phase: "expired", reason: "expired" };
   }
 
   api.defineCapability(
@@ -74,12 +103,17 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       ...base,
       name: "mail.oauth.begin",
       scope: "write",
+      idempotency: "handler",
       input: beginInput,
       output: sessionOutput,
-      async handler({ caller, signal }, input) {
+      async handler(context, input) {
+        const { signal } = context;
         api.vault.files.assertWritable();
         signal.throwIfAborted();
         lifetime.throwIfAborted();
+        const intent = intentOf(context, "mail.oauth.begin");
+        const prior = replay(intent, input);
+        if (prior) return resumedStatus(prior);
         const issuer = runtime?.issuers[input.provider];
         if (!runtime || !issuer || !accounts) throw new HuhuError("INVALID_INPUT", "当前 Engine 主机尚未配置此邮件授权客户端。", { details: { reason: "not-configured" } });
         const previous = input.repair ? accounts.readDefinition(input.repair.accountId) : undefined;
@@ -94,14 +128,17 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
           throw new HuhuError("VERSION_CONFLICT", "邮箱账号已变化，请重新打开授权。", { details: { reason: "account-changed" } });
         }
         const current = (await accounts.list()).find(({ definition }) => definition.settings.provider === input.provider && definition.settings.email.toLowerCase() === input.email.toLowerCase());
-        if (!input.repair && current) throw new HuhuError("VERSION_CONFLICT", "该邮箱已存在，请使用重新授权。", { details: { reason: "account-changed" } });
         signal.throwIfAborted();
         lifetime.throwIfAborted();
+        const concurrent = replay(intent, input);
+        if (concurrent) return resumedStatus(concurrent);
+        if (!input.repair && current) throw new HuhuError("VERSION_CONFLICT", "该邮箱已存在，请使用重新授权。", { details: { reason: "account-changed" } });
         const key = `${input.provider}:${input.email.toLowerCase()}`;
         if ([...sessions.values()].some((session) => session.key === key && live(session))) throw errors.invalidInput("此邮箱已有在途授权。");
         for (const [key, session] of sessions) if (sessions.size >= 32 && !live(session)) sessions.delete(key);
         if (sessions.size >= 32) throw errors.invalidInput("在途邮箱授权过多。");
-        const sessionId = randomUUID();
+        // The persisted claim ID identifies the session. Only live process state holds its authorization material.
+        const sessionId = claim(intent, input);
         const accountId = input.repair?.accountId ?? randomUUID();
         const controller = new AbortController();
         const active = AbortSignal.any([lifetime, controller.signal, ...(input.repair ? [accounts.signal(input.repair.accountId)] : [])]);
@@ -170,7 +207,7 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
           server.closeIdleConnections();
         };
         const aborted = () => stop(session, "cancelled");
-        const session: Session = { status: { sessionId, host: runtime.hostLabel, phase: "waiting" }, actor: caller, key, controller, close };
+        const session: Session = { status: { sessionId, host: runtime.hostLabel, phase: "waiting" }, actor: intent.owner, key, controller, close };
         sessions.set(sessionId, session);
         active.addEventListener("abort", aborted, { once: true });
         try {
@@ -220,16 +257,24 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       },
     }),
   );
-  api.defineCapability(defineCapability({ ...base, name: "mail.oauth.status", scope: "read", input: sessionKey, output: sessionOutput, handler: ({ caller }, { sessionId }) => get(caller, sessionId).status }));
+  api.defineCapability(defineCapability({ ...base, name: "mail.oauth.status", scope: "read", input: sessionKey, output: sessionOutput, handler: (context, { sessionId }) => get(context, sessionId).status }));
   api.defineCapability(
     defineCapability({
       ...base,
       name: "mail.oauth.cancel",
       scope: "write",
+      idempotency: "handler",
       input: sessionKey,
       output: sessionOutput,
-      handler: ({ caller }, { sessionId }) => {
-        const session = get(caller, sessionId);
+      handler: (context, input) => {
+        api.vault.files.assertWritable();
+        context.signal.throwIfAborted();
+        lifetime.throwIfAborted();
+        const intent = intentOf(context, "mail.oauth.cancel");
+        const { sessionId } = input;
+        if (replay(intent, input)) return resumedStatus(sessionId);
+        const session = get(context, sessionId);
+        claim(intent, input);
         stop(session, "cancelled");
         return session.status;
       },
