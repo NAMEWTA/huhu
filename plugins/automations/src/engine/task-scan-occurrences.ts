@@ -76,7 +76,7 @@ export class TaskScanOccurrences {
     private readonly rules: Pick<AutomationsService, "rule" | "preview" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
-    private readonly onActivated?: (activation: ActivationRecord) => void,
+    private readonly onChanged?: (activation: ActivationRecord) => void,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const directory = filesystemIdentity(stat);
@@ -223,7 +223,7 @@ export class TaskScanOccurrences {
       if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
       const occurrence = isTaskScanRule(rule) ? this.freeze(id, rule, trigger.at, now, this.owner) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
       stored = await this.persist(occurrence, null);
-      this.onActivated?.(this.activation(stored.occurrence));
+      this.onChanged?.(this.activation(stored.occurrence));
     }
     if (!stored) throw new HuhuError("WRITE_PARTIAL", "扫描发生记录在读取期间消失", { details: { id } });
     // A restored scan is history. Only its original machine and directory may finish acceptance.
@@ -244,7 +244,9 @@ export class TaskScanOccurrences {
       stored = await this.persist(row, stored.version);
     }
     signal.throwIfAborted();
-    return (await this.persist({ ...row, finishedAt: this.now().toISOString() }, stored.version)).occurrence;
+    const completed = (await this.persist({ ...row, finishedAt: this.now().toISOString() }, stored.version)).occurrence;
+    this.onChanged?.(this.activation(completed));
+    return completed;
   }
 
   private freeze(id: string, rule: TaskScanRule, at: string | null, now: Date, owner: string): Occurrence {

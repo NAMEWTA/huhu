@@ -49,7 +49,7 @@ export class ReminderDeliveries {
     private readonly taskPath: (taskId: string) => string | undefined,
     private readonly notifications: ReminderNotifications,
     private readonly now: () => Date,
-    private readonly onActivated: (activation: ActivationRecord) => void,
+    private readonly onChanged: (activation: ActivationRecord) => void,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(stat);
@@ -156,7 +156,7 @@ export class ReminderDeliveries {
         },
         null,
       );
-      this.onActivated(this.view(row.data));
+      this.onChanged(this.view(row.data));
     }
     if (!row || row.data.finishedAt || row.data.owner !== this.owner || row.data.vaultId !== this.vaultId) return row?.data ?? null;
     this.files.assertWritable();
@@ -188,7 +188,9 @@ export class ReminderDeliveries {
       }
       row = await this.save({ ...row.data, task }, row.version);
     }
-    return (await this.save({ ...row.data, finishedAt: this.now().toISOString() }, row.version)).data;
+    const completed = (await this.save({ ...row.data, finishedAt: this.now().toISOString() }, row.version)).data;
+    this.onChanged(this.view(completed));
+    return completed;
   }
 
   private view(data: ReminderRecord): ActivationRecord {

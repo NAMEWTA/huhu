@@ -729,7 +729,8 @@ test("工作流 W-A：收件箱想法进入 Agent 任务后，自动化在任务
       .first()
       .click();
     await expect(page.getByTestId("activation-row")).toHaveCount(1);
-    expect((await call("automations.activations")).data).toMatchObject([{ activationId: expect.stringMatching(/^inv-/), summary: { processed: 1 } }]);
+    await expect.poll(async () => (await call("automations.activations")).data).toMatchObject([{ activationId: expect.stringMatching(/^inv-/), summary: { processed: 1 } }]);
+    await expect(page.getByTestId("activation-row")).toContainText("处理 1");
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByRole("button", { name: "打开任务 整理研究资料" }).click();
     const row = page.getByTestId("managed-task-run");

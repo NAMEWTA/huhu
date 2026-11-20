@@ -96,7 +96,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
 
   const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
-  const publishActivation = ({ ruleId, activationId, trigger }: ActivationRecord) => api.events.publish("automation.activated", { ruleId, activationId, trigger });
+  const publishActivation = ({ ruleId, activationId, trigger, finishedAt }: ActivationRecord) => {
+    if (finishedAt) api.events.publish("entity.changed", { kind: "automation-activation", id: activationId, op: "updated" });
+    else api.events.publish("automation.activated", { ruleId, activationId, trigger });
+  };
   const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now, publishActivation);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());

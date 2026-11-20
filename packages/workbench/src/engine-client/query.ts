@@ -13,6 +13,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "ssh-host": ["ssh.hosts."],
   "home-dashboard": ["home.dashboard.get"],
   "tool-access": ["gateway.get", "capabilities.list"],
+  "automation-activation": ["automations.activations"],
 };
 
 /** 事件到达时让相关查询失效。 */
