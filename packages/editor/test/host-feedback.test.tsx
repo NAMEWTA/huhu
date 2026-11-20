@@ -522,6 +522,8 @@ test.each(["missing", "rejected"] as const)("H04 image clipboard fallback report
     vi.unstubAllGlobals();
     if (original) Object.defineProperty(navigator, "clipboard", original);
     else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
 
 test("B01 批注上下文取当前文档，边界隔离批注渲染故障并保留正文", () => {
   function Comment({ fail }: { fail: boolean }) {
