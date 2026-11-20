@@ -81,6 +81,10 @@ export class AccountRemovals {
     });
   }
 
+  serializeAddress<T>(email: string, run: () => Promise<T>): Promise<T> {
+    return this.serialize(`email:${email.trim().toLowerCase()}`, run);
+  }
+
   async write(record: RemovalRecord, expectedVersion: string | null) {
     await this.files.write(pathFor(record.accountId), Buffer.from(JSON.stringify(record) + "\n"), { expectedVersion });
     this.controllers.get(record.accountId)?.abort();

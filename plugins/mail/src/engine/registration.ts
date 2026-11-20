@@ -14,6 +14,7 @@ import { registerMailOAuth } from "./oauth-sessions.js";
 import type { MailSmtpTransport } from "./smtp.js";
 import { registerMailSyncSchedule, type MailSyncOptions } from "./sync-schedule.js";
 import { makeMailSearchText } from "./search-text.js";
+import { registerMailSubset } from "./subset-data.js";
 
 const accountSummary = z.strictObject({
   accountId: z.string(),
@@ -40,6 +41,7 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   const removals = new AccountRemovals(api.vault.files);
   const accounts = owner ? openMailAccounts(owner, undefined, removals, oauthRuntime, lifetime.signal) : undefined;
   if (accounts && owner && !owner.vault.readOnly) await accounts.recover();
+  const drainSubset = await registerMailSubset(api, accounts, owner, removals, lifetime.signal);
   api.defineCapability(
     bindCapability(mailAccountsListDescriptor, async ({ caller }) => {
       if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(mailAccountsListDescriptor.name);
@@ -48,7 +50,7 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
       return { available: accounts !== undefined, accounts: rows, ...(pending.length && { pendingRemovals: pending }) };
     }),
   );
-  const drainSetup = registerAccountSetup(api, accounts, lifetime.signal);
+  const drainSetup = registerAccountSetup(api, accounts, removals.serializeAddress.bind(removals), lifetime.signal);
   const intents = owner && !owner.vault.readOnly ? { ledger: new OperationReceipts(path.join(owner.vault.runtimeDir, "mail-oauth-intents.ndjson")), vaultInstance: owner.localVaultInstanceId } : undefined;
   const drainOAuth = registerMailOAuth(api, accounts, oauthRuntime, lifetime.signal, intents);
   const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals);
@@ -59,6 +61,6 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   registerAccountRemoval(api, accounts, removals, drafts, outbox, messages, lifetime.signal);
   ctx.effect(() => async () => {
     lifetime.abort();
-    await Promise.all([drainSetup(), drainDrafts(), messages.drain(), removals.drain(), drainSync(), drainOAuth(), accounts?.drainOAuth()]);
+    await Promise.all([drainSetup(), drainDrafts(), messages.drain(), removals.drain(), drainSync(), drainOAuth(), drainSubset(), accounts?.drainOAuth()]);
   });
 }

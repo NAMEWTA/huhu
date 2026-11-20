@@ -16,6 +16,7 @@ import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
 import { MailSearch } from "./MailSearch.js";
 import { MailSyncSettings } from "./MailSyncSettings.js";
+import { MailSubsetSettings } from "./MailSubsetSettings.js";
 import { onMailNotificationRequest } from "./mail-notification-command.js";
 import { onMailSearchRequest } from "./mail-search-command.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
@@ -327,6 +328,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       />
       <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
       <MailCacheSettings readOnly={readOnly} />
+      <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
       <nav className="hu-mail-row" aria-label="邮件工作区">
         {tabs.map(({ id, label }) => (
           <Button

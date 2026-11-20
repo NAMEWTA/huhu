@@ -22,7 +22,7 @@ const saveInput = draftKey.extend({ expectedRevision: uuid.nullable(), draft: dr
 const discardInput = draftKey.extend({ expectedRevision: uuid });
 const attachmentKey = draftKey.extend({ digest: attachmentDigest });
 const removeInput = discardInput.extend({ digest: attachmentDigest });
-const storedDraft = draftMetadata.omit({ draftId: true }).extend({ draft: storedDraftContent.nullable() });
+export const storedDraft = draftMetadata.omit({ draftId: true }).extend({ draft: storedDraftContent.nullable() });
 const snapshotSchema = z.strictObject({ format: z.literal(1), drafts: z.record(uuid, storedDraft) });
 
 export type Draft = z.infer<typeof draftDetails>;
@@ -32,7 +32,7 @@ type VaultFiles = HuhuApi["vault"]["files"];
 type MailAccounts = ReturnType<typeof openMailAccounts>;
 
 // This is Vault content. Read-only opens must read the original Vault, even with a scratch stateDir.
-const draftsPath = ".huhu/mail/drafts.json";
+export const draftsPath = ".huhu/mail/drafts.json";
 const workbenchDraft = { plugin: "mail", exposable: false, defaultExposed: false } as const;
 export const MAIL_DRAFT_ATTACHMENTS_SERVICE = "mail.draftAttachments";
 export type MailDraftAttachments = Pick<MailDrafts, "addAttachment" | "removeAttachment" | "readAttachment" | "withSnapshot"> & {
@@ -60,7 +60,7 @@ function saveFailure(): HuhuError {
   return new HuhuError("INTERNAL", "保存邮件草稿失败", { details: { reason: "draft-write-failed" } });
 }
 
-function readDraftSnapshot(files: VaultFiles): { snapshot: Snapshot; version: string | null } {
+export function readDraftSnapshot(files: VaultFiles): { snapshot: Snapshot; version: string | null } {
   try {
     const file = files.read(draftsPath);
     if (!file) return { snapshot: { format: 1, drafts: {} }, version: null };

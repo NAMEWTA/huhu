@@ -47,6 +47,7 @@ export const mailAccountDefinitionSchema = z
     settings: accountSettingsSchema,
     folders: z.array(mailFolderSchema).refine((folders) => folders.every(isSelectable) && folders.some(({ path }) => path === "INBOX") && new Set(folders.map(({ path }) => (isInbox(path) ? "INBOX" : path))).size === folders.length),
     oauth: z.strictObject({ clientId: z.string().min(1), subject: z.string().min(1), route: z.literal("imap"), personal: z.literal(true).optional() }).optional(),
+    restoredFrom: z.hash("sha256", { enc: "hex" }).optional(),
   })
   .refine(({ settings, oauth }) => (settings.auth === "oauth2") === Boolean(oauth));
 export type MailAccountDefinition = z.infer<typeof mailAccountDefinitionSchema>;

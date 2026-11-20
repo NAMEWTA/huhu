@@ -7,6 +7,7 @@ import { storedDraftContent, uuid, type StoredDraftContent } from "./draft-conte
 import { smtpResultSchema, type MailSmtpResult } from "./smtp.js";
 
 const outboxDirectory = ".huhu/mail/outbox";
+export const outboxRecordPath = (operationId: string) => `${outboxDirectory}/${operationId}.json`;
 export const operationIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const messageId = z.string().regex(/^<[0-9a-f-]{36}@huhu\.local>$/);
 const identity = z.strictObject({ format: z.literal(1), operationId: operationIdSchema, draftId: uuid, revision: uuid, messageId });
@@ -31,9 +32,9 @@ const deletedSchema = identity.extend({
     })
     .optional(),
 });
-const recordSchema = z.union([deletedSchema, intentSchema]);
+export const outboxRecordSchema = z.union([deletedSchema, intentSchema]);
 export type OutboxIntent = z.infer<typeof intentSchema>;
-export type OutboxRecord = z.infer<typeof recordSchema>;
+export type OutboxRecord = z.infer<typeof outboxRecordSchema>;
 
 const hash = (fields: string[]) => createHash("sha256").update(fields.join("\0")).digest("hex");
 // Vault-relative storage scopes the claim. Restoring a Vault preserves its existing operations.
@@ -55,6 +56,15 @@ export function selectedRecipientKeys(record: OutboxRecord): string[] {
   if ("deleted" in record) return record.retry.recipientKeys;
   const { parentOperationId } = record.retry;
   return recipientsOf(record.draft).map((address) => retryRecipientKey(parentOperationId, address));
+}
+
+export function parseOutboxRecord(value: unknown, operationId?: string): OutboxRecord {
+  const record = outboxRecordSchema.parse(value);
+  const { draftId, revision, retry } = record;
+  const expected = retry ? retryOperationIdFor(retry.parentOperationId, draftId, revision, selectedRecipientKeys(record)) : operationIdFor(draftId, revision);
+  if (record.operationId !== expected || (operationId && record.operationId !== operationId)) throw new Error("outbox identity mismatch");
+  if (!("deleted" in record) && record.result && !hasSameRecipients(record.result, recipientsOf(record.draft))) throw new Error("outbox recipients mismatch");
+  return record;
 }
 
 export function deleteDetails({ format, operationId, draftId, revision, messageId, retry, ...details }: OutboxIntent): z.infer<typeof deletedSchema> {
@@ -100,13 +110,9 @@ export class OutboxStorage {
 
   read(operationId: string): { record: OutboxRecord; version: string } | null {
     try {
-      const file = this.files.read(`${outboxDirectory}/${operationId}.json`);
+      const file = this.files.read(outboxRecordPath(operationId));
       if (!file) return null;
-      const record = recordSchema.parse(JSON.parse(file.bytes.toString("utf8")));
-      const { draftId, revision, retry } = record;
-      const expected = retry ? retryOperationIdFor(retry.parentOperationId, draftId, revision, selectedRecipientKeys(record)) : operationIdFor(draftId, revision);
-      if (record.operationId !== operationId || expected !== operationId) throw new Error("outbox identity mismatch");
-      if (!("deleted" in record) && record.result && !hasSameRecipients(record.result, recipientsOf(record.draft))) throw new Error("outbox recipients mismatch");
+      const record = parseOutboxRecord(JSON.parse(file.bytes.toString("utf8")), operationId);
       return { record, version: file.version };
     } catch {
       throw this.readFailure();
@@ -115,7 +121,7 @@ export class OutboxStorage {
 
   async write(record: OutboxRecord, expectedVersion: string | null): Promise<{ version: string }> {
     try {
-      return await this.files.write(`${outboxDirectory}/${record.operationId}.json`, Buffer.from(JSON.stringify(record) + "\n"), { expectedVersion });
+      return await this.files.write(outboxRecordPath(record.operationId), Buffer.from(JSON.stringify(record) + "\n"), { expectedVersion });
     } catch {
       throw new HuhuError("INTERNAL", "无法保存邮件投递记录", { details: { reason: "outbox-write-failed" } });
     }

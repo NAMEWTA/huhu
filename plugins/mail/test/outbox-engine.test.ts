@@ -238,6 +238,154 @@ testWindows(
 );
 
 testWindows(
+  "Mail ZIP 预检拒绝覆盖，确认后恢复选中的持久数据并可重开重试",
+  async () => {
+    await fixture(async ({ root, smtp, password, open }) => {
+      const source = await open({ create: true });
+      const first = await account(source, smtp.port, password);
+      const definition = (await credentials(source).list()).find((entry) => entry.entityId === first.accountId)?.definition;
+      assert(definition);
+      async function add(engine: RunningEngine, email: string) {
+        const accountId = randomUUID();
+        await credentials(engine).save({
+          entityId: accountId,
+          expectedRevision: null,
+          definition: { ...definition!, settings: { ...definition!.settings, email } },
+          actions: [{ purpose: "account-password", action: "clear" }],
+        });
+        return accountId;
+      }
+      const second = await add(source, "other@example.invalid");
+      const draft = await save(source, first.accountId);
+      await save(source, second);
+      const bytes = Buffer.from("portable-mail-attachment");
+      await services(source).attachments.addAttachment(
+        draft,
+        {
+          name: "portable.txt",
+          size: bytes.length,
+          async *read() {
+            yield bytes;
+          },
+        },
+        new AbortController().signal,
+      );
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      const attachmentPath = `.huhu/mail/attachments/${digest}`;
+      const readPath = `.huhu/mail/read-overrides/${first.accountId}.json`;
+      const originalRead = Buffer.from(JSON.stringify({ format: 1, messages: ["a".repeat(64)] }) + "\n");
+      await source.vault.files.write(readPath, originalRead);
+      smtp.configure("lose-reply");
+      const unknown = await services(source).outbox.submit(await save(source, first.accountId));
+      await expect.poll(() => call(source, "mail.outbox.status", { operationId: unknown.operationId })).toMatchObject({ ok: true, data: { state: "unknown" } });
+
+      const archive = await call(source, "mail.subset.create", { accountIds: [first.accountId, second] });
+      assert(archive.ok);
+      const archiveContent = (archive.data as { content: string }).content;
+      const archiveBytes = Buffer.from(archiveContent, "base64");
+      const file = path.join(root, "subset.zip");
+      const unpack = path.join(root, "unpacked");
+      fs.writeFileSync(file, archiveBytes);
+      expect(importPackage(file, unpack)).toMatchObject({ files: 2 });
+      const payload = readFileSync(path.join(unpack, ".huhu/mail/subset.json"), "utf8");
+      expect(payload).toContain(digest);
+      expect(payload).not.toContain(password);
+      const whole = path.join(root, "whole.zip");
+      await exportPackage(source.vault.root, whole);
+
+      const targetPath = path.join(root, "target");
+      mkdirSync(targetPath);
+      let target = await open({ vaultPath: targetPath, create: true });
+      const conflict = await add(target, "Other@Example.invalid");
+      await add(target, "untouched@example.invalid");
+      const accounts = () => call(target, "mail.accounts.list", {});
+      const drafts = () => call(target, "mail.drafts.get", { draftId: draft.draftId });
+      const baseline = await accounts();
+      const withoutDraft = await drafts();
+      const preflight = (content = archiveContent) => call(target, "mail.subset.preview", { content });
+      const submit = (previewId: string, accountIds: string[], confirm = true) => call(target, "mail.subset.restore", { previewId, accountIds, confirm });
+
+      const bad = Buffer.from(archiveBytes);
+      bad[0] = 0;
+      expect(await preflight(bad.toString("base64"))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      const oversized = Buffer.from(archiveBytes);
+      const central = oversized.readUInt32LE(oversized.length - 6);
+      oversized.writeUInt32LE(128 * 1024 * 1024, central + 24);
+      expect(await preflight(oversized.toString("base64"))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(await preflight(readFileSync(whole).toString("base64"))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+
+      const review = await preflight();
+      assert(review.ok);
+      expect(review.data).toMatchObject({
+        accounts: expect.arrayContaining([
+          expect.objectContaining({ accountId: first.accountId, state: "ready" }),
+          expect.objectContaining({ accountId: second, state: "conflict", existing: expect.objectContaining({ accountId: conflict }) }),
+        ]),
+      });
+      const { previewId } = review.data as { previewId: string };
+      expect(await submit(previewId, [first.accountId], false)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(await call(target, "mail.subset.cancel", { previewId })).toMatchObject({ ok: true, data: { cancelled: true } });
+      expect(await submit(previewId, [first.accountId])).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(await accounts()).toEqual(baseline);
+      expect(await drafts()).toEqual(withoutDraft);
+
+      const again = await preflight();
+      assert(again.ok);
+      const selected = (again.data as { previewId: string }).previewId;
+      expect(await submit(selected, [first.accountId, second])).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      const write = target.vault.files.write.bind(target.vault.files);
+      const writing = Promise.withResolvers<void>();
+      const failWrite = Promise.withResolvers<void>();
+      const injected = vi.spyOn(target.vault.files, "write").mockImplementation(async (...args) => {
+        if (args[0] === ".huhu/mail/drafts.json") {
+          writing.resolve();
+          await failWrite.promise;
+          throw new Error("synthetic draft write failure");
+        }
+        return write(...args);
+      });
+      const interrupted = submit(selected, [first.accountId]);
+      try {
+        await writing.promise;
+        expect(await call(target, "mail.subset.cancel", { previewId: selected })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      } finally {
+        failWrite.resolve();
+      }
+      expect(await interrupted).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL" } });
+      injected.mockRestore();
+      expect(target.vault.files.exists(attachmentPath)).toBe(false);
+      expect(await accounts()).toEqual(baseline);
+      expect(await drafts()).toEqual(withoutDraft);
+
+      const receipt = vi.spyOn(target.vault.files, "write").mockImplementation(async (...args) => {
+        if (args[0].includes("/mail-subset-confirmed/")) throw new Error("synthetic receipt write failure");
+        return write(...args);
+      });
+      const restored = await submit(selected, [first.accountId]);
+      receipt.mockRestore();
+      expect(restored).toMatchObject({ ok: true, data: { accounts: [{ accountId: first.accountId, state: "restored" }] } });
+      expect(await submit(selected, [first.accountId])).toEqual(restored);
+      const oldRows = (baseline as { data: { accounts: unknown[] } }).data.accounts;
+      expect(await accounts()).toMatchObject({ ok: true, data: { accounts: expect.arrayContaining([...oldRows, expect.objectContaining({ accountId: first.accountId, authState: { "account-password": "unconfigured" } })]) } });
+      expect(await drafts()).toMatchObject({ ok: true, data: { draft: { attachments: [{ name: "portable.txt", state: "ready" }] } } });
+      expect(Buffer.from(target.vault.files.read(attachmentPath)!.bytes)).toEqual(bytes);
+      expect(Buffer.from(target.vault.files.read(readPath)!.bytes)).toEqual(originalRead);
+      const status = () => call(target, "mail.outbox.status", { operationId: unknown.operationId });
+      expect(await status()).toMatchObject({ ok: true, data: { state: "unknown" } });
+      await target.shutdown();
+      target = await open({ vaultPath: targetPath });
+      expect(readdirSync(path.join(target.vault.runtimeDir, "mail-subset-confirmed"))).toHaveLength(1);
+      const reopened = await preflight();
+      assert(reopened.ok);
+      expect(await submit((reopened.data as { previewId: string }).previewId, [first.accountId])).toEqual(restored);
+      expect(await status()).toMatchObject({ ok: true, data: { state: "unknown" } });
+      expect(smtp.counts.data).toBe(1);
+    });
+  },
+  90_000,
+);
+
+testWindows(
   "本地删除邮箱按 ID 和预览修订执行，停止在途 IMAP/SMTP 并可重启续清理",
   async () => {
     await fixture(async ({ root, smtp, password, open }) => {

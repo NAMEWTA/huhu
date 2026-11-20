@@ -190,6 +190,16 @@ export function cachedMailboxMessages(files: Files, input: Mailbox) {
   return cachedEntries<CacheEntry>(readSnapshot(files, input).snapshot).filter(({ deleted }) => !deleted);
 }
 
+function localReadIds(record: CacheRecord) {
+  const snapshots = record.format === 1 ? [record] : [record.imap, record.gmail];
+  return snapshots.flatMap((snapshot) => cachedEntries<CacheEntry>(snapshot ?? null)).flatMap((item) => (item.localRead || item.summary.readState === "local" ? [item.summary.localMessageId] : []));
+}
+
+export function cachedReadOverrides(files: Files, input: Mailbox) {
+  const { record } = readSnapshot(files, input);
+  return record ? localReadIds(record) : [];
+}
+
 function findCachedMessage(snapshot: Snapshot | null, localMessageId: string) {
   return cachedEntries<CacheEntry>(snapshot).find(({ summary, deleted }) => !deleted && summary.localMessageId === localMessageId);
 }
@@ -486,7 +496,7 @@ export function registerMessageCache(
           const summary = entries[0]?.summary;
           if (!summary || cachePath(summary) !== relative || !readSnapshot(files, summary).record || removals.read(summary.accountId)) continue;
           const ids = marked.get(summary.accountId) ?? new Set<string>();
-          for (const item of entries) if (item.localRead || item.summary.readState === "local") ids.add(item.summary.localMessageId);
+          for (const id of localReadIds(parsed)) ids.add(id);
           if (ids.size) marked.set(summary.accountId, ids);
         }
         for (const [accountId, ids] of marked) await preserveReadOverrides(files, accountId, ids);

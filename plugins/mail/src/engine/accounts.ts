@@ -158,6 +158,15 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
         return undefined;
       }
     },
+    // The restore transaction already holds this account's removal lock.
+    async restoreDefinition(accountId: string, definition: MailAccountDefinition, signal: AbortSignal) {
+      return removals.serializeAddress(definition.settings.email, async () => {
+        removals.assertActive(accountId);
+        const existing = (await credentials.list()).find(({ entityId, definition: row }) => entityId === accountId || row.settings.email.toLowerCase() === definition.settings.email.toLowerCase());
+        if (existing) throw errors.versionConflict(existing.revision);
+        return credentials.save({ entityId: accountId, expectedRevision: null, definition, actions: [{ purpose: accountPasswordPurpose, action: "clear" }], signal });
+      });
+    },
     async saveOAuth(
       target: { sessionId: string; accountId: string; expectedRevision: string | null; provider: OAuthProvider; email: string; label: string; smtp: boolean },
       identity: { subject: string; personal: boolean },
@@ -178,13 +187,20 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       const paths = repair?.definition.folders.map(({ path }) => path) ?? ["INBOX"];
       const folders = paths.map((path) => found.find((row) => row.path === path && isSelectable(row)));
       if (!folders.every((row) => row !== undefined)) throw new MailOAuthError("protocol-unavailable");
-      const definition = mailAccountDefinitionSchema.parse({ format: 1, settings, folders, oauth: { clientId: issuer.clientId, subject: identity.subject, route: "imap", ...(identity.personal && { personal: true }) } });
+      const definition = mailAccountDefinitionSchema.parse({
+        format: 1,
+        settings,
+        folders,
+        oauth: { clientId: issuer.clientId, subject: identity.subject, route: "imap", ...(identity.personal && { personal: true }) },
+        ...(repair?.definition.restoredFrom && { restoredFrom: repair.definition.restoredFrom }),
+      });
       return removals.serialize(accountId, async () => {
         signal.throwIfAborted();
         removals.assertActive(accountId);
         // The witness belongs to the very same protected generation as the new token.
         const value = JSON.stringify({ ...token, commit: { sessionId: target.sessionId, smtp: settings.smtpEnabled } });
-        const saved = await credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value, reconfigure: true }], signal });
+        const save = () => credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value, reconfigure: true }], signal });
+        const saved = repair ? await save() : await removals.serializeAddress(email, save);
         rejectedRevisions.delete(accountId);
         return mailAccount(saved, definition);
       });

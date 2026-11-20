@@ -51,7 +51,7 @@ type Setup = {
   detachAccount?: () => void;
 };
 
-export function registerAccountSetup(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal) {
+export function registerAccountSetup(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, serializeAddress: <T>(address: string, run: () => Promise<T>) => Promise<T>, lifetime: AbortSignal) {
   const pending = new Map<string, Setup>();
   const savingAddresses = new Set<string>();
 
@@ -154,11 +154,13 @@ export function registerAccountSetup(api: HuhuApi, accounts: ReturnType<typeof o
               if (savingAddresses.has(address)) throw new HuhuError("INVALID_INPUT", "此邮箱正在保存，请稍后查看邮箱列表。");
               savingAddresses.add(address);
               try {
-                if ((await owner.list()).some(({ definition }) => definition.settings.email.toLowerCase() === address)) {
-                  throw new HuhuError("NAME_CONFLICT", "该邮箱已存在于此 Vault。");
-                }
-                cancelled.throwIfAborted();
-                return await setup.draft.save(cancelled);
+                return await serializeAddress(address, async () => {
+                  if ((await owner.list()).some(({ definition }) => definition.settings.email.toLowerCase() === address)) {
+                    throw new HuhuError("NAME_CONFLICT", "该邮箱已存在于此 Vault。");
+                  }
+                  cancelled.throwIfAborted();
+                  return setup.draft.save(cancelled);
+                });
               } finally {
                 savingAddresses.delete(address);
               }
