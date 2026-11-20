@@ -8,7 +8,8 @@ import { assert, expect, test } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
-import type { ConversationMessagesPage, ConversationsPage } from "../src/engine/conversations.js";
+import type { ConversationMessagesPage, ConversationsPage, LocatedMessage, MailSearchPage } from "../src/engine/conversations.js";
+import { mailDayWindow } from "../src/mail-calendar.js";
 import { operationIdFor, OutboxStorage } from "../src/engine/outbox-storage.js";
 import { openImapFixture, type FixtureImapMessage } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
@@ -48,7 +49,9 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
     };
     const folders = Object.keys(mailboxes).map((path) => ({ path, flags: ["\\HasNoChildren", ...(path === "Waste" ? ["\\Trash"] : path === "Sent" ? ["\\Sent"] : path === "Confidential" ? ["\\Hidden"] : [])] }));
     const imapA = await openImapFixture({ mailboxes, folders });
-    const imapB = await openImapFixture({ message: fixtureMail("B canonical", 42, 3, [`From: ${alice}`, `To: ${bEmail}`, `Cc: ${bob}`], sharedId) });
+    const bSource = fixtureMail("B canonical", 42, 3, [`From: Beta Sender <${alice}>`, `To: ${bEmail}`, `Cc: ${bob}`, "Content-Type: text/html; charset=utf-8"], sharedId);
+    bSource.source = bSource.source.replace("Body for B canonical", '<p>Body for B canonical, blue folder &amp; text.</p><script>blocked-search-script</script><img src="https://never-fetch.invalid/pixel">');
+    const imapB = await openImapFixture({ message: bSource });
     const smtp = await loopbackSmtp(password);
     let engine: RunningEngine | undefined;
 
@@ -79,6 +82,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       }
       const a = await add(aEmail, imapA.port, Object.keys(mailboxes));
       const b = await add(bEmail, imapB.port, ["INBOX"]);
+      expect(await call<MailSearchPage>("mail.conversations.search", { text: "alice" })).toEqual({ hits: [], total: 0, nextOffset: null, cachedMessages: 0 });
       type Location = { accountId: string; folder: string; uid: number; localMessageId: string };
       const refresh = (accountId: string, folder = "INBOX") => call<{ message: Location | null; mailboxChanged: boolean }>("mail.sync.refresh", { accountId, folder });
       const first = (await refresh(a)).message;
@@ -156,7 +160,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(await page(0, b)).toEqual({ messages: [], total: 0, nextOffset: null });
       const key = ({ accountId, folder, localMessageId }: Location) => ({ accountId, folder, localMessageId });
       expect(await call("mail.messages.loadBody", key(first))).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Body for A canonical") } });
-      expect(await call("mail.messages.loadBody", key(sibling))).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Body for B canonical") } });
+      expect(await call("mail.messages.loadBody", key(sibling))).toMatchObject({ state: "ready", body: { untrustedHtml: expect.stringContaining("Body for B canonical") } });
       expect(await call("mail.messages.loadBody", { ...key(first), accountId: b })).toEqual({ state: "needs-refresh" });
       const sent = items.find((item) => item.subject === "Mirrored sent body");
       assert(sent?.source === "imap");
@@ -172,6 +176,29 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       await expect(call("mail.conversations.sentBody", { accountId: a, operationId: privateOnly })).rejects.toThrow("NOT_FOUND");
       expect(JSON.stringify([all, items])).not.toMatch(/private@|hidden-copy@|Unsent draft|Deleted latest|Hidden duplicate|Remote draft|Remote junk|Hidden flagged folder/);
       expect(await call("mail.outbox.status", { operationId: privateOnly })).toMatchObject({ recipients: [{ address: blind, state: "accepted" }] });
+      const search = (text: string, offset = 0) => call<MailSearchPage>("mail.conversations.search", { text, offset, limit: 1 });
+      const anchor = new Date("2026-11-03T23:30:00.000Z");
+      const asia = { accountId: b, time: mailDayWindow("yesterday", "Asia/Taipei", anchor), text: "blue folder & text" };
+      const pacific = { ...asia, time: mailDayWindow("yesterday", "America/Los_Angeles", anchor) };
+      const found = await call<MailSearchPage>("mail.conversations.search", asia);
+      expect(found).toMatchObject({ total: 1, hits: [{ target: { source: "imap", ...key(sibling), uid: 42, uidValidity: "12" }, excerpt: expect.stringContaining("blue folder & text") }] });
+      expect(await call("mail.conversations.search", pacific)).toMatchObject({ total: 1 });
+      expect(await call("mail.conversations.search", { ...pacific, time: mailDayWindow("today", "America/Los_Angeles", anchor) })).toMatchObject({ total: 0 });
+      expect(await call("mail.conversations.search", { ...asia, accountId: a })).toMatchObject({ total: 0 });
+      expect(await search("ALICE")).toMatchObject({ total: 6, nextOffset: 1, hits: [{ subject: "Only local sent" }] });
+      expect(await search("alice", 1)).toMatchObject({ total: 6, nextOffset: 2, hits: [{ subject: "Mirrored sent body" }] });
+      expect(await search("canonical", 1)).toMatchObject({ total: 2, nextOffset: null, hits: [{ target: { source: "imap", ...key(first), uid: 42, uidValidity: "12" } }] });
+      expect(await search("beta sender")).toMatchObject({ total: 1, hits: [{ subject: "B canonical", senderNames: ["Beta Sender"] }] });
+      for (const term of [blind, "blocked-search-script", "never-fetch.invalid", "Hidden duplicate", "does not exist"]) {
+        expect(await search(term)).toMatchObject({ total: 0, cachedMessages: 7, hits: [] });
+      }
+      const target = found.hits[0]!.target;
+      const location = await call<LocatedMessage>("mail.conversations.findMessage", { target, limit: 1 });
+      expect(location).toMatchObject({ contactOffset: 0, messageOffset: 0, message: sibling });
+      expect(await call("mail.conversations.findMessage", { target: { ...target, uidValidity: "99" } })).toBeNull();
+      expect(await call("mail.conversations.findMessage", { target: { ...target, accountId: a } })).toBeNull();
+      const oldest = (await search("A canonical")).hits[0]!.target;
+      expect(await call("mail.conversations.findMessage", { target: oldest, limit: 2 })).toMatchObject({ messageOffset: 4, message: first });
       expect([imapA.commands.length, imapB.commands.length]).toEqual(before);
       expect(smtp.counts).toEqual({ connections: 0, authenticated: 0, data: 0 });
 
@@ -181,6 +208,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       mailboxes.INBOX = { ...fixtureMail("New generation", 42, 14, [`From: ${carla}`, `To: ${aEmail}`]), uidValidity: 13 };
       expect(await refresh(a)).toMatchObject({ mailboxChanged: true });
       expect(await call("mail.messages.loadBody", key(first))).toEqual({ state: "needs-refresh" });
+      expect(await call("mail.conversations.findMessage", { target: oldest })).toBeNull();
       expect(await call("mail.messages.loadBody", key(sibling))).toMatchObject({ state: "ready" });
       expect(smtp.counts.data).toBe(0);
     } finally {

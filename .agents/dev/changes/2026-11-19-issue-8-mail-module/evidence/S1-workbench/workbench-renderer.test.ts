@@ -43,11 +43,12 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
   const bundleEntry = [
     'import { createRoot } from "react-dom/client";',
     'import "@huhu/ui/styles.css";',
-    'import { EngineProvider, checkExitParticipants } from "@huhu/workbench";',
+    'import { CommandPalette, ContributionRegistry, createUiStore, EngineProvider, checkExitParticipants } from "@huhu/workbench";',
     "import { contributions } from " + JSON.stringify(absolute("plugins/mail/src/ui/index.tsx")) + ";",
     "const Mail = contributions.modules[0].component;",
+    'const registry = new ContributionRegistry(); registry.register(contributions); const ui = createUiStore({ activeModule: "mail", openTabs: ["mail"] });',
     'window.checkMailProofExit = () => checkExitParticipants({ reason: "window", signal: new AbortController().signal, waitForUser: (decision) => decision });',
-    'createRoot(document.getElementById("root")).render(<EngineProvider endpoint={window.testEndpoint}><div className="hu-app" data-theme="claude" data-mode="light" style={{display:"flex", height:"100dvh"}}><Mail /></div></EngineProvider>);',
+    'createRoot(document.getElementById("root")).render(<EngineProvider endpoint={window.testEndpoint}><div className="hu-app" data-theme="claude" data-mode="light" style={{display:"flex", height:"100dvh"}}><Mail /><CommandPalette registry={registry} ui={ui} /></div></EngineProvider>);',
   ].join("\n");
   const vite = await import(pathToFileURL(path.join(desktop, "node_modules/vite/dist/node/index.js")).href);
   const renderer = await vite.build({
@@ -63,7 +64,8 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
         },
         load(id: string) {
           if (id === entry) return bundleEntry;
-          if (id === bridge) return 'export * from "./engine-client/react.tsx"; export * from "./engine-client/client.ts"; export * from "./state/exit-participants.ts"; export * from "./settings/host.ts";';
+          if (id === bridge)
+            return 'export * from "./engine-client/react.tsx"; export * from "./engine-client/client.ts"; export * from "./state/exit-participants.ts"; export * from "./settings/host.ts"; export * from "./contributions.ts"; export * from "./command-palette/CommandPalette.tsx"; export * from "./state/ui-store.ts";';
         },
       },
     ],
@@ -164,10 +166,10 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     acceptPassword: (value) => value === acceptedPassword,
   });
   const otherPassword = randomUUID();
-  const other = await openImapFixture({
-    acceptPassword: (value) => value === otherPassword || value === password,
-    message: { uidValidity: 12, subject: "Other mailbox fixture", source: `From: author@example.invalid\r\nCc: ${participant}, ${replyRoute}\r\nSubject: Other mailbox fixture\r\n\r\nOther account\r\n` },
-  });
+  const otherFolders = {
+    INBOX: { uidValidity: 12, uid: 42, seen: false, subject: "Other mailbox fixture", source: `From: author@example.invalid\r\nCc: ${participant}, ${replyRoute}\r\nSubject: Other mailbox fixture\r\n\r\nOther account\r\n` },
+  };
+  const other = await openImapFixture({ acceptPassword: (value) => value === otherPassword || value === password, mailboxes: otherFolders });
   const smtp = await loopbackSmtp(password);
   const engine = await boot({ vaultPath, desktopUserData, create: true });
   const managed = attachmentServices.get(engine.vault.root);
@@ -204,6 +206,11 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
   const publicReplyReady = Promise.withResolvers<void>();
   const deliverPublicReply = Promise.withResolvers<void>();
   const publicReplyDelivered = Promise.withResolvers<void>();
+  const searchCalls: { text: string; offset: number; started: number }[] = [];
+  let holdSearchPage = false;
+  const searchPageReady = Promise.withResolvers<void>();
+  const deliverSearchPage = Promise.withResolvers<void>();
+  const searchPageDelivered = Promise.withResolvers<void>();
   const externalRequests: string[] = [];
   const repairReplyReady = Promise.withResolvers<void>();
   const deliverRepairReply = Promise.withResolvers<void>();
@@ -289,6 +296,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
         const payload = request.postData();
         const envelope = payload ? JSON.parse(payload) : undefined;
         const capability = envelope?.capability;
+        if (capability === "mail.conversations.search") searchCalls.push({ ...envelope.input, started: performance.now() });
         if (capability === "mail.messages.markRead") markCalls++;
         if (capability === "mail.messages.loadSource") rawCalls++;
         if (failBodyRead && capability === "mail.conversations.loadBody") {
@@ -305,6 +313,19 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
           body: payload,
         });
         const body = await response.text();
+        if (capability === "mail.conversations.search" && holdSearchPage && envelope?.input?.offset === 8) {
+          holdSearchPage = false;
+          searchPageReady.resolve();
+          await deliverSearchPage.promise;
+          try {
+            await route.fulfill({ status: response.status, contentType: "application/json", body });
+          } catch {
+            // A new search can cancel a result page that has already reached the proxy.
+          } finally {
+            searchPageDelivered.resolve();
+          }
+          return;
+        }
         if (capability === "mail.conversations.loadBody" && holdPublicAccount && envelope?.input?.accountId === holdPublicAccount) {
           holdPublicAccount = undefined;
           expect(JSON.parse(body)).toMatchObject({ ok: true, data: { state: "ready" } });
@@ -332,6 +353,15 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       return route.fulfill({ contentType: url.pathname.endsWith(".css") ? "text/css" : "text/javascript", body: String(asset) });
     });
     await shell.goto(origin);
+    const searchButton = shell.getByRole("button", { name: "搜索邮件", exact: true });
+    const searchDialog = shell.getByRole("dialog", { name: "搜索已缓存邮件", exact: true });
+    const searchInput = searchDialog.getByRole("combobox", { name: "主题、联系人或正文" });
+    await searchButton.click();
+    await searchInput.fill("cache-missing");
+    await browserExpect(searchDialog.getByText("还没有可搜索的邮件缓存。")).toBeVisible();
+    await searchInput.press("Escape");
+    await browserExpect(searchDialog).toBeHidden();
+    await browserExpect(searchButton).toBeFocused();
     const add = shell.getByRole("button", { name: "添加邮箱" });
     await add.click();
     const dialog = shell.getByRole("dialog");
@@ -656,6 +686,98 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     await backAccounts.click();
     acceptedPassword = replacement;
     await accountA.click();
+    const periodFilter = shell.getByRole("combobox", { name: /^时间/ });
+    await browserExpect(periodFilter).toHaveValue("today");
+    const searchB = mailAccounts.accounts.find((item: { definition: { settings: { email: string } } }) => item.definition.settings.email === "second@example.invalid");
+    assert(searchB);
+    const yesterday = new Date(Date.now() - 86_400_000);
+    const historyKeyword = "blue signed archive";
+    const destination = "Cached B history 10";
+    for (let index = 0; index < 10; index++) {
+      const subject = `Cached B history ${index + 1}`;
+      const date = new Date(yesterday.getTime() - index * 86_400_000);
+      otherFolders.INBOX = {
+        uidValidity: 12,
+        uid: 43 + index,
+        seen: true,
+        subject,
+        source: [`Subject: ${subject}`, "From: archivist@example.invalid", "To: second@example.invalid", `Date: ${date.toUTCString()}`, "", `${historyKeyword} · ${index === 9 ? "B only original content" : "cached message"}`, ""].join(
+          "\r\n",
+        ),
+      };
+      await direct("mail.sync.refresh", { accountId: searchB.accountId, folder: "INBOX" });
+    }
+    const searchNetwork = [imap.commands.length, other.commands.length, smtp.counts.data, markCalls];
+    await searchButton.press("Enter");
+    await browserExpect(searchInput).toBeFocused();
+    const beforeTyping = searchCalls.length;
+    await searchInput.fill("transient-uncommitted");
+    const typed = performance.now();
+    await searchInput.fill(historyKeyword);
+    await browserExpect(searchDialog.getByText("找到 10 封邮件")).toBeVisible();
+    expect(searchCalls.slice(beforeTyping).map(({ text, offset }) => ({ text, offset }))).toEqual([{ text: historyKeyword, offset: 0 }]);
+    expect(searchCalls.at(-1)!.started - typed).toBeGreaterThanOrEqual(225);
+    await browserExpect(searchDialog.getByRole("option")).toHaveCount(8);
+    await browserExpect(searchDialog.locator("mark").first()).toHaveText(historyKeyword);
+    holdSearchPage = true;
+    await searchDialog.getByRole("button", { name: "下一页" }).click();
+    await searchPageReady.promise;
+    await searchInput.fill("no cache matches");
+    await browserExpect(searchDialog.getByText("本地缓存中没有匹配邮件。")).toBeVisible();
+    deliverSearchPage.resolve();
+    await searchPageDelivered.promise;
+    await browserExpect(searchDialog.getByRole("option")).toHaveCount(0);
+    await searchInput.press("Escape");
+    await browserExpect(searchButton).toBeFocused();
+
+    await searchButton.press("Control+k");
+    const palette = shell.getByRole("dialog", { name: "命令面板" });
+    await palette.getByRole("combobox").fill("搜索已缓存邮件");
+    await palette.getByText("搜索已缓存邮件", { exact: true }).click();
+    await browserExpect(palette).toBeHidden();
+    await browserExpect(searchInput).toBeFocused();
+    await searchInput.press("Control+k");
+    await browserExpect(palette).toBeHidden();
+    await searchInput.fill(historyKeyword);
+    await searchDialog.getByRole("button", { name: "下一页" }).click();
+    await browserExpect(searchDialog.getByRole("option")).toHaveCount(2);
+    await browserExpect(searchDialog.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+    await searchInput.press("ArrowDown");
+    await browserExpect(searchDialog.getByRole("option").nth(1)).toHaveAttribute("aria-selected", "true");
+    await searchInput.press("ArrowUp");
+    await browserExpect(searchDialog.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+    await searchInput.press("ArrowDown");
+    await browserExpect(searchDialog.getByRole("option").nth(1)).toContainText(destination);
+    await browserExpect(searchDialog.getByRole("option").nth(1)).toContainText("另一回环邮箱");
+    await searchInput.dispatchEvent("keydown", { key: "Enter", isComposing: true });
+    await browserExpect(searchDialog).toBeVisible();
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-search-results-390.png"), animations: "disabled" });
+    await searchInput.press("Enter");
+    const locatedGroup = shell.getByRole("group", { name: "已定位邮件", exact: true });
+    await browserExpect(locatedGroup).toBeFocused();
+    await browserExpect(locatedGroup).toHaveAttribute("data-mail-highlighted", "true");
+    await browserExpect(locatedGroup).toContainText("B only original content");
+    await browserExpect(searchDialog).toBeHidden();
+    await browserExpect(locatedGroup.getByRole("button", { name: "查看原文" })).toHaveCount(0);
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-search-located-390.png"), animations: "disabled" });
+    await backMessages.press("Enter");
+    const destinationItem = shell.getByRole("button", { name: destination, exact: true });
+    await browserExpect(destinationItem).toBeFocused();
+    await browserExpect(periodFilter).toHaveValue("all");
+    await browserExpect(shell.getByRole("heading", { name: "另一回环邮箱" })).toBeVisible();
+    await periodFilter.selectOption("yesterday");
+    await browserExpect(contacts.getByRole("button", { name: /archivist@example\.invalid/ })).toBeVisible();
+    await browserExpect(shell.getByRole("button", { name: "Cached B history 1", exact: true })).toBeVisible();
+    await browserExpect(shell.getByRole("button", { name: "Cached B history 2", exact: true })).toHaveCount(0);
+    await periodFilter.selectOption("last3");
+    await contacts.getByRole("button", { name: /archivist@example\.invalid/ }).click();
+    await browserExpect(shell.getByRole("button", { name: "Cached B history 2", exact: true })).toBeVisible();
+    await browserExpect(destinationItem).toHaveCount(0);
+    await periodFilter.selectOption("today");
+    await browserExpect(contacts.getByRole("button", { name: /archivist@example\.invalid/ })).toHaveCount(0);
+    expect([imap.commands.length, other.commands.length, smtp.counts.data, markCalls]).toEqual(searchNetwork);
+    await backAccounts.click();
+    await accountA.click();
     await contacts.getByRole("button", { name: /author@example\.invalid.*reply-target/s }).click();
     await repairButton.click();
     await newPassword.fill(replacement);
@@ -938,6 +1060,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     deliverSelection.resolve();
     deliverRepairReply.resolve();
     deliverPublicReply.resolve();
+    deliverSearchPage.resolve();
     await browser.close();
     try {
       assert(engine.moduleCredentialHost);
@@ -948,4 +1071,4 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
     }
   }
-}, 120_000);
+}, 150_000);

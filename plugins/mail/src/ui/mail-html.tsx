@@ -1,5 +1,6 @@
 import { createElement, Fragment, type ReactNode } from "react";
-import { parseFragment, type DefaultTreeAdapterTypes } from "parse5";
+import { parseFragment } from "parse5";
+import { isMailBodyElement, mailTextBreaks, type MailHtmlNode } from "../mail-html-tree.js";
 
 const containers = new Set([
   "a",
@@ -39,10 +40,6 @@ const containers = new Set([
   "u",
   "ul",
 ]);
-const excluded = new Set(["applet", "audio", "canvas", "embed", "form", "iframe", "math", "noscript", "object", "script", "style", "svg", "template", "video"]);
-const textBreaks = new Set(["blockquote", "br", "div", "dd", "dt", "li", "p", "pre", "tr"]);
-type Node = DefaultTreeAdapterTypes.ChildNode;
-
 function externalLink(value: string | undefined) {
   if (!value) return undefined;
   try {
@@ -59,13 +56,13 @@ export function prepareMailHtml(html: string, link: (href: string, children: Rea
   const text: string[] = [];
   let blockedImages = false;
   let count = 0;
-  function render(node: Node, key: number, depth: number): ReactNode {
+  function render(node: MailHtmlNode, key: number, depth: number): ReactNode {
     if (++count > 12_000 || depth > 64) return null;
     if ("value" in node) {
       text.push(node.value);
       return node.value;
     }
-    if (!("tagName" in node) || node.namespaceURI !== "http://www.w3.org/1999/xhtml" || excluded.has(node.tagName)) return null;
+    if (!isMailBodyElement(node)) return null;
     if (node.tagName === "img") {
       blockedImages ||= node.attrs.some(({ name }) => name === "src" || name === "srcset");
       const alt = node.attrs.find(({ name }) => name === "alt")?.value;
@@ -73,7 +70,7 @@ export function prepareMailHtml(html: string, link: (href: string, children: Rea
       return alt ?? null;
     }
     const children = node.childNodes.map((child, index) => render(child, index, depth + 1));
-    if (textBreaks.has(node.tagName)) text.push("\n");
+    if (mailTextBreaks.has(node.tagName)) text.push("\n");
     if (node.tagName === "a") {
       const href = externalLink(node.attrs.find(({ name }) => name === "href")?.value);
       return createElement(Fragment, { key }, href ? link(href, children) : children);

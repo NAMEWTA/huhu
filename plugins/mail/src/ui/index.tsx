@@ -1,8 +1,14 @@
 import "./mail.css";
-import type { ModuleContribution } from "@huhu/workbench";
+import type { CommandContribution, ModuleContribution } from "@huhu/workbench";
 import { Mail } from "lucide-react";
 import { MailModule } from "./MailModule.js";
+import { requestMailSearch } from "./mail-search-command.js";
 
-export const contributions = {
-  modules: [{ id: "mail", plugin: "mail", title: "邮件", group: "primary", order: 60, icon: <Mail size={18} aria-hidden />, component: MailModule }] satisfies ModuleContribution[],
-};
+export function createMailContributions(openMail?: () => void) {
+  return {
+    modules: [{ id: "mail", plugin: "mail", title: "邮件", group: "primary", order: 60, icon: <Mail size={18} aria-hidden />, component: MailModule }] satisfies ModuleContribution[],
+    commands: [{ id: "mail.search", plugin: "mail", title: "搜索已缓存邮件", run: () => requestMailSearch(openMail) }] satisfies CommandContribution[],
+  };
+}
+
+export const contributions = createMailContributions();

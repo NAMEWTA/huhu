@@ -9,7 +9,7 @@
     "modules": ["mail"],
     "settingsPages": [],
     "homeWidgets": [],
-    "commands": [],
+    "commands": ["mail.search"],
     "capabilities": [
       "mail.accounts.list",
       "mail.accounts.testConnection",
@@ -29,6 +29,8 @@
       "mail.conversations.list",
       "mail.conversations.messages",
       "mail.conversations.loadBody",
+      "mail.conversations.search",
+      "mail.conversations.findMessage",
       "mail.conversations.sentBody",
       "mail.drafts.list",
       "mail.drafts.get",

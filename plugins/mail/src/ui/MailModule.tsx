@@ -1,9 +1,10 @@
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
 import { CapabilityError, host, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
-import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage } from "../engine/conversations.js";
+import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
+import { mailDayWindow, type MailPeriod } from "../mail-calendar.js";
 import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
@@ -11,6 +12,8 @@ import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemov
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
+import { MailSearch } from "./MailSearch.js";
+import { onMailSearchRequest } from "./mail-search-command.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
 
 const tabs = [
@@ -22,6 +25,8 @@ const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
 type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount } | { kind: "remove"; target: RemovalTarget };
 type ConversationSelection = { id: string; offset: number };
+type MailTimeWindow = ReturnType<typeof mailDayWindow>;
+const conversationPageSize = 20;
 
 function relatedDraft({ kind, seed }: RelatedDraft, original: string): DraftContent {
   const empty: DraftContent = { accountId: seed.accountId, to: [], cc: [], bcc: [], subject: "", body: { type: "doc", content: [{ type: "paragraph" }] } };
@@ -47,6 +52,13 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const accounts = useCapability<{ available: boolean; accounts: MailAccount[]; pendingRemovals?: RemovalTarget[] }>("mail.accounts.list");
   const drafts = useCapability<{ drafts: DraftSummary[] }>("mail.drafts.list");
   const deliveries = useCapability<{ operations: DeliverySummary[] }>("mail.outbox.list");
+  const settings = useCapability<{ dateTime: { zone: string } }>("settings.get");
+  const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [clock, setClock] = useState(() => new Date());
+  const [period, setPeriod] = useState<MailPeriod>("today");
+  const time = useMemo(() => mailDayWindow(period, zone, clock), [period, zone, clock]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [navigation, setNavigation] = useState<{ revision: number; location: LocatedMessage | null }>({ revision: 0, location: null });
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("mail");
   const [accountId, setAccountId] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -63,6 +75,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [error, setError] = useState("");
   const composeTrigger = useRef<HTMLElement | null>(null);
   const accountActionTrigger = useRef<HTMLButtonElement | null>(null);
+  const searchTrigger = useRef<HTMLButtonElement>(null);
+  const periodControl = useRef<HTMLSelectElement>(null);
   const accountList = useRef<HTMLElement>(null);
   const rememberedConversations = useRef(new Map<string, ConversationSelection>());
   const backAccounts = useRef<HTMLButtonElement>(null);
@@ -71,6 +85,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const accountVersions = JSON.stringify(rows.map(({ accountId, revision }) => [accountId, revision]).sort());
   const account = rows.find((row) => row.accountId === accountId);
   const conversationScope = account?.accountId ?? "";
+  const selectionKey = JSON.stringify([conversationScope, time]);
+  const location = navigation.location?.message.accountId === accountId && period === "all" ? navigation.location : null;
   const groups = new Map<MailProvider, MailAccount[]>();
   for (const row of rows) {
     const { provider } = row.definition.settings;
@@ -96,6 +112,11 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   useEffect(() => {
     void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && String(entry.queryKey[1]).startsWith("mail.conversations.") });
   }, [accountVersions, engine, query]);
+  useEffect(() => onMailSearchRequest(() => setSearchOpen(true)), []);
+  useEffect(() => {
+    const timer = setInterval(() => setClock(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const changed = useCallback(
     (message: string, kind: "success" | "info" = "success") => {
@@ -129,13 +150,31 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     setCollapsed((current) => (current.has(provider) ? new Set([...current].filter((entry) => entry !== provider)) : current));
   }
 
-  function chooseAccount(row: MailAccount) {
+  function chooseAccount(row: MailAccount, focus = true) {
     expandProvider(row.definition.settings.provider);
     setAccountId(row.accountId);
     setAccountView("mailbox");
-    requestAnimationFrame(() => {
-      if (backAccounts.current?.getClientRects().length) backAccounts.current.focus();
-    });
+    if (focus)
+      requestAnimationFrame(() => {
+        if (backAccounts.current?.getClientRects().length) backAccounts.current.focus();
+      });
+  }
+
+  async function locate(target: MailLocationTarget, signal: AbortSignal) {
+    const result = await engine.call<LocatedMessage | null>("mail.conversations.findMessage", { target, limit: conversationPageSize }, { signal });
+    const owner = rows.find(({ accountId }) => accountId === target.accountId);
+    if (!result || !owner || signal.aborted) return false;
+    rememberedConversations.current.set(JSON.stringify([target.accountId, undefined]), { id: result.conversationId, offset: result.contactOffset });
+    chooseAccount(owner, false);
+    setError("");
+    setTab("mail");
+    setPeriod("all");
+    setNavigation(({ revision }) => ({ revision: revision + 1, location: result }));
+    return true;
+  }
+
+  function clearLocation() {
+    if (navigation.location) setNavigation(({ revision }) => ({ revision, location: null }));
   }
 
   function returnToAccounts() {
@@ -189,11 +228,19 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const original = (composer?.draft ?? composer?.seed)?.reply;
 
   return (
-    <div className="hu-mail-workspace">
+    <div
+      className="hu-mail-workspace"
+      onKeyDown={(event) => {
+        if (searchOpen && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") event.preventDefault();
+      }}
+    >
       <PageHead
         title="邮件"
         actions={
           <>
+            <button type="button" className="hu-btn" ref={searchTrigger} onClick={() => setSearchOpen(true)}>
+              搜索邮件
+            </button>
             <Button disabled={readOnly} onClick={() => showComposer(null)}>
               写信
             </Button>
@@ -218,6 +265,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
             aria-current={tab === id ? "page" : undefined}
             onClick={() => {
               setTab(id);
+              if (id !== tab) clearLocation();
               setError("");
             }}
           >
@@ -225,6 +273,19 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </Button>
         ))}
       </nav>
+      <MailSearch
+        open={searchOpen}
+        zone={zone}
+        accounts={rows}
+        onClose={(located) => {
+          setSearchOpen(false);
+          if (!located)
+            requestAnimationFrame(() => {
+              if (document.activeElement === document.body) searchTrigger.current?.focus();
+            });
+        }}
+        onLocate={locate}
+      />
       <WorkbenchToaster scope={feedbackScope} />
       {error && <Banner tone="danger">{error}</Banner>}
       {currentQuery.isError && (
@@ -246,6 +307,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               aria-pressed={!account}
               onClick={() => {
                 setAccountId(null);
+                clearLocation();
                 if (rows.length) {
                   setAccountView("mailbox");
                   requestAnimationFrame(() => {
@@ -267,7 +329,15 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 </Button>
                 <div className="hu-mail-provider-accounts" hidden={collapsed.has(provider)}>
                   {members.map((row) => (
-                    <Button key={row.accountId} data-mail-account={row.accountId} aria-pressed={row.accountId === account?.accountId} onClick={() => chooseAccount(row)}>
+                    <Button
+                      key={row.accountId}
+                      data-mail-account={row.accountId}
+                      aria-pressed={row.accountId === account?.accountId}
+                      onClick={() => {
+                        if (row.accountId !== accountId) clearLocation();
+                        chooseAccount(row);
+                      }}
+                    >
                       {accountTitle(row)}
                       {row.authState["account-password"] !== "configured" && <span className="hu-mail-help"> · 凭据待检查</span>}
                     </Button>
@@ -290,14 +360,24 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </aside>
           {rows.length ? (
             <Mailbox
-              key={conversationScope}
+              key={`${selectionKey}:${navigation.revision}`}
               account={account}
               accounts={rows}
+              zone={zone}
+              period={period}
+              time={time}
+              location={location}
+              periodControl={periodControl}
+              onPeriod={(next) => {
+                clearLocation();
+                setPeriod(next);
+                requestAnimationFrame(() => periodControl.current?.focus());
+              }}
               readOnly={readOnly}
               onCompose={composeFromMessage}
               onReading={setReadingMessage}
-              remembered={rememberedConversations.current.get(conversationScope)}
-              onConversation={(selection) => rememberedConversations.current.set(conversationScope, selection)}
+              remembered={rememberedConversations.current.get(selectionKey)}
+              onConversation={(selection) => rememberedConversations.current.set(selectionKey, selection)}
               backAccounts={backAccounts}
               onBack={returnToAccounts}
               {...(account &&
@@ -466,6 +546,12 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
 function Mailbox({
   account,
   accounts,
+  zone,
+  period,
+  time,
+  location,
+  periodControl,
+  onPeriod,
   readOnly,
   backAccounts,
   onBack,
@@ -477,6 +563,12 @@ function Mailbox({
 }: {
   account: MailAccount | undefined;
   accounts: MailAccount[];
+  zone: string;
+  period: MailPeriod;
+  time: MailTimeWindow;
+  location: LocatedMessage | null;
+  periodControl: Ref<HTMLSelectElement>;
+  onPeriod(period: MailPeriod): void;
   readOnly: boolean;
   backAccounts: Ref<HTMLButtonElement>;
   onBack(): void;
@@ -488,19 +580,20 @@ function Mailbox({
 }) {
   const engine = useEngine();
   const query = useQueryClient();
-  const [selected, setSelected] = useState("INBOX");
+  const [selected, setSelected] = useState(location?.message.source === "imap" ? location.message.folder : "INBOX");
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [opened, setOpened] = useState<ConversationMessage | null>(null);
+  const [opened, setOpened] = useState<ConversationMessage | null>(location?.message ?? null);
   const [ordinary, setOrdinary] = useState<MessageSummary | null>(null);
-  const [offset, setOffset] = useState(remembered?.offset ?? 0);
-  const [conversationId, setConversationId] = useState(remembered?.id ?? "");
+  const [offset, setOffset] = useState(location?.contactOffset ?? remembered?.offset ?? 0);
+  const [conversationId, setConversationId] = useState(location?.conversationId ?? remembered?.id ?? "");
   const request = useRef<AbortController | null>(null);
   const messageTrigger = useRef<HTMLButtonElement | null>(null);
   const backMessages = useRef<HTMLButtonElement>(null);
   const contactsHeading = useRef<HTMLHeadingElement>(null);
+  const mailbox = useRef<HTMLElement>(null);
   const folder = account?.definition.folders.some(({ path }) => path === selected) ? selected : "INBOX";
-  const list = useCapability<ConversationsPage>("mail.conversations.list", { ...(account && { accountId: account.accountId }), offset });
+  const list = useCapability<ConversationsPage>("mail.conversations.list", { ...(account && { accountId: account.accountId }), ...(time && { time }), offset, limit: conversationPageSize });
   const conversations = list.data?.conversations ?? [];
   const conversation = conversations.find((row) => row.conversationId === conversationId) ?? conversations[0];
   const owner = opened && accounts.find((row) => row.accountId === opened.accountId);
@@ -568,7 +661,7 @@ function Mailbox({
   }
 
   return (
-    <article className="hu-mail-detail hu-mail-account-detail" data-reading={reading}>
+    <article ref={mailbox} className="hu-mail-detail hu-mail-account-detail" data-reading={reading}>
       <div className="hu-mail-narrow-back hu-mail-mailbox-nav">
         <button type="button" className="hu-btn" ref={backAccounts} onClick={onBack}>
           返回账号
@@ -581,10 +674,13 @@ function Mailbox({
             className="hu-btn"
             ref={backMessages}
             onClick={() => {
+              const message = activeMessage && conversationMessageKey(activeMessage);
+              const target = message && mailbox.current?.querySelector<HTMLButtonElement>(`[data-mail-timeline-message="${CSS.escape(message)}"]`);
               setOpened(null);
               setOrdinary(null);
               requestAnimationFrame(() => {
-                if (messageTrigger.current?.getClientRects().length) messageTrigger.current.focus();
+                const trigger = target || messageTrigger.current;
+                if (trigger?.getClientRects().length) trigger.focus();
                 else contactsHeading.current?.focus();
               });
             }}
@@ -595,6 +691,17 @@ function Mailbox({
       )}
       <div className="hu-mail-detail hu-mail-mailbox-toolbar">
         <h2>{account ? accountTitle(account) : "全部账号"}</h2>
+        <div className="hu-mail-row">
+          <label>
+            时间{" "}
+            <select ref={periodControl} value={period} onChange={(event) => onPeriod(event.target.value as MailPeriod)}>
+              <option value="all">全部时间</option>
+              <option value="today">今天</option>
+              <option value="yesterday">昨天</option>
+              <option value="last3">近三天</option>
+            </select>
+          </label>
+        </div>
         {account && (
           <>
             <p>
@@ -681,15 +788,15 @@ function Mailbox({
                 </strong>
                 <span className="hu-mail-help">
                   {row.latest.subject || "无主题"}
-                  {row.latest.date ? ` · ${new Date(row.latest.date).toLocaleDateString()}` : ""}
+                  {row.latest.date ? ` · ${new Date(row.latest.date).toLocaleDateString(undefined, { timeZone: zone })}` : ""}
                 </span>
               </span>
             </Button>
           ))}
-          {list.data && !conversations.length && <p>此邮箱暂无已缓存的公开对话。</p>}
+          {list.data && !conversations.length && <p>{period === "all" ? "此邮箱暂无已缓存的公开对话。" : "所选时间没有缓存对话，可切换到全部时间。"}</p>}
           {list.data && (offset > 0 || list.data.nextOffset !== null) && (
             <nav className="hu-mail-row" aria-label="联系人分页">
-              <Button disabled={!offset} onClick={() => changePage(Math.max(0, offset - 20))}>
+              <Button disabled={!offset} onClick={() => changePage(Math.max(0, offset - conversationPageSize))}>
                 上页
               </Button>
               <Button disabled={list.data.nextOffset === null} onClick={() => changePage(list.data!.nextOffset!)}>
@@ -719,6 +826,8 @@ function Mailbox({
               conversation={conversation}
               accountId={account?.accountId}
               accounts={accounts}
+              time={time}
+              location={location?.conversationId === conversation.conversationId ? location : null}
               opened={activeMessage}
               readOnly={readOnly}
               onCompose={onCompose}
@@ -765,6 +874,8 @@ function ConversationTimeline({
   conversation,
   accountId,
   accounts,
+  time,
+  location,
   opened,
   readOnly,
   onCompose,
@@ -776,6 +887,8 @@ function ConversationTimeline({
   conversation: ConversationSummary;
   accountId: string | undefined;
   accounts: MailAccount[];
+  time: MailTimeWindow;
+  location: LocatedMessage | null;
   opened: ConversationMessage | null;
   readOnly: boolean;
   onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
@@ -784,16 +897,35 @@ function ConversationTimeline({
   onOpen(message: ConversationMessage | null, trigger: HTMLButtonElement): void;
   onRevoked(): void;
 }) {
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffset] = useState(location?.messageOffset ?? 0);
   const [copyStatus, setCopyStatus] = useState("");
+  const [highlighted, setHighlighted] = useState(false);
+  const targetReader = useRef<HTMLDivElement>(null);
+  const hasFocused = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  const page = useCapability<ConversationMessagesPage>("mail.conversations.messages", { ...(accountId && { accountId }), conversationId: conversation.conversationId, offset });
+  const page = useCapability<ConversationMessagesPage>("mail.conversations.messages", { ...(accountId && { accountId }), ...(time && { time }), conversationId: conversation.conversationId, offset, limit: conversationPageSize });
   const current = opened && conversationMessageKey(opened);
   const reader = current ? page.data?.messages.find((message) => conversationMessageKey(message) === current) : null;
+  const isTarget = !!reader && !!location && current === conversationMessageKey(location.message);
 
   useEffect(() => {
     if (current && page.isSuccess && !page.isFetching && !reader) onRevoked();
   }, [current, onRevoked, page.isFetching, page.isSuccess, reader]);
+
+  useLayoutEffect(() => {
+    if (!isTarget || hasFocused.current) return;
+    const frame = requestAnimationFrame(() => {
+      targetReader.current?.scrollIntoView({ block: "center" });
+      targetReader.current?.focus({ preventScroll: true });
+      hasFocused.current = true;
+      setHighlighted(true);
+    });
+    const timer = setTimeout(() => setHighlighted(false), 4300);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [isTarget]);
 
   async function copy(address: string) {
     try {
@@ -839,7 +971,7 @@ function ConversationTimeline({
           const selected = key === current;
           return (
             <div className="hu-mail-row" key={key}>
-              <Button aria-expanded={selected} onClick={(event) => onOpen(selected ? null : message, event.currentTarget)}>
+              <Button data-mail-timeline-message={key} aria-expanded={selected} onClick={(event) => onOpen(selected ? null : message, event.currentTarget)}>
                 {message.subject || "无主题"}
               </Button>
               {!accountId && <span className="hu-mail-help">{accounts.find((account) => account.accountId === message.accountId)?.definition.settings.email}</span>}
@@ -850,7 +982,7 @@ function ConversationTimeline({
         })}
         {page.data && (offset > 0 || page.data.nextOffset !== null) && (
           <nav className="hu-mail-row" aria-label="往来分页">
-            <Button disabled={!offset} onClick={(event) => movePage(Math.max(0, offset - 20), event.currentTarget)}>
+            <Button disabled={!offset} onClick={(event) => movePage(Math.max(0, offset - conversationPageSize), event.currentTarget)}>
               上页
             </Button>
             <Button disabled={page.data.nextOffset === null} onClick={(event) => movePage(page.data!.nextOffset!, event.currentTarget)}>
@@ -859,22 +991,28 @@ function ConversationTimeline({
           </nav>
         )}
       </div>
-      {reader?.source === "imap" && (
-        <MailReader
-          key={reader.localMessageId}
-          view="conversation"
-          message={reader}
-          onRevoked={onRevoked}
-          readOnly={readOnly}
-          onRead={async () => {
-            void onChanged();
-            return page.refetch();
-          }}
-          onRefresh={() => onRefresh(reader.folder, reader.accountId)}
-          onCompose={onCompose}
-        />
+      {reader && (
+        <div ref={targetReader} {...(isTarget && { tabIndex: -1, role: "group", "aria-label": "已定位邮件", "data-mail-highlighted": highlighted })}>
+          {isTarget && reader.source === "imap" && <h3>{reader.subject || "无主题"}</h3>}
+          {reader.source === "imap" ? (
+            <MailReader
+              key={reader.localMessageId}
+              view="conversation"
+              message={reader}
+              onRevoked={onRevoked}
+              readOnly={readOnly}
+              onRead={async () => {
+                void onChanged();
+                return page.refetch();
+              }}
+              onRefresh={() => onRefresh(reader.folder, reader.accountId)}
+              onCompose={onCompose}
+            />
+          ) : (
+            <SentConversationMessage key={reader.operationId} message={reader} />
+          )}
+        </div>
       )}
-      {reader?.source === "sent" && <SentConversationMessage key={reader.operationId} message={reader} />}
     </section>
   );
 }

@@ -24,13 +24,17 @@ export async function rootHeaders(source: Buffer) {
   throw new Error("Missing mail headers");
 }
 
-export function addresses(headers: Headers, field: string) {
+export function mailboxes(headers: Headers, field: string) {
   return headers.getDecoded(field).flatMap(({ value }) =>
-    addressParser(value, { flatten: true }).flatMap(({ address }) => {
+    addressParser(value, { flatten: true }).flatMap(({ address, name }) => {
       const checked = draftRecipient.safeParse(address);
-      return checked.success ? [checked.data] : [];
+      return checked.success ? [{ address: checked.data, name: name?.trim() ?? "" }] : [];
     }),
   );
+}
+
+export function addresses(headers: Headers, field: string) {
+  return mailboxes(headers, field).map(({ address }) => address);
 }
 
 function messageIds(header: string): string[] {

@@ -8,3 +8,4 @@ export { MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource } from "./draft-a
 export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, withMailSnapshot, type MailDraftAttachments } from "./drafts.js";
 export { MAIL_OUTBOX_SERVICE, type MailOutboxService } from "./outbox.js";
 export { createMailSmtpTransport, type MailSmtpTransport } from "./smtp.js";
+export type { MailLocationTarget } from "./conversations.js";
