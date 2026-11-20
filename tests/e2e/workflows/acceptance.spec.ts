@@ -481,6 +481,51 @@ test("首页看板：宽屏拖动与缩放预览保持草稿，退出拖动恢�
   }
 });
 
+test("首页看板：概览读取失败由卡片重试，近期笔记、专注和规则摘要仍可用", async () => {
+  const { page, close, vault } = await openApp();
+  let failSummary = true;
+  try {
+    await page.route("**/api/v1/call", async (route) => {
+      if (failSummary && route.request().postDataJSON()?.capability === "home.summary") {
+        await route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, json: { ok: false, error: { code: "INTERNAL", message: "fixture: summary unavailable" } } });
+      } else await route.continue();
+    });
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const rule = await call("automations.create", {
+      title: "看板独立规则",
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: "看板验收", taskId: null },
+    });
+    expect(rule.ok, JSON.stringify(rule.error)).toBe(true);
+    const rules = (await call("automations.list")).data as { data: { enabled: boolean } }[];
+    const before = (await call("automations.runs.list")).data;
+    const metrics = page.getByTestId("home-dashboard").locator('[data-instance-id="default-metrics"]');
+    await expect(metrics.getByRole("alert")).toHaveText("无法读取卡片数据");
+    await expect(page.getByTestId("card-focus")).toBeVisible();
+    await expect(page.getByTestId("card-recent")).toBeVisible();
+    await page.getByTestId("home-customize").click();
+    await page.getByRole("button", { name: "添加卡片", exact: true }).click();
+    await page.getByRole("button", { name: "添加 自动化摘要", exact: true }).click();
+    await page.getByTestId("home-dashboard-save").click();
+    const summary = page.getByTestId("card-automations-summary");
+    await expect(summary.getByTestId("automation-widget-rule-count")).toHaveText(`已启用 ${rules.filter(({ data }) => data.enabled).length} 条规则`);
+    await expect(summary.getByText("暂无运行记录")).toBeVisible();
+    const board = path.join(vault, ".huhu", "home", "widgets.json");
+    const saved = readFileSync(board);
+    failSummary = false;
+    await metrics.getByRole("button", { name: "重试" }).click();
+    await expect(metrics.getByTestId("card-notes")).toBeVisible();
+    expect(readFileSync(board)).toEqual(saved);
+    expect((await call("automations.runs.list")).data).toEqual(before);
+    await summary.getByRole("button", { name: "打开自动化" }).click();
+    await expect(page.getByTestId("automations-module")).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
 test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重开使用同一布局", async () => {
   const { page, close, vault } = await openApp();
   try {

@@ -3,6 +3,7 @@ import { Flame, Pause, Play, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
+import { WidgetReadStatus } from "./WidgetReadStatus.js";
 
 interface FocusView {
   remainingSec: number;
@@ -50,7 +51,7 @@ export function FocusCard({ children }: { children?: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v?.running, remaining]);
 
-  if (!v)
+  if (!v || focus.isError)
     return (
       <section className="hu-card-alt hu-focus-card" data-testid="card-focus">
         <div className="shell-card-head">
@@ -58,6 +59,7 @@ export function FocusCard({ children }: { children?: ReactNode }) {
             <Flame size={17} aria-hidden /> {tHome.focusCard.title}
           </h2>
         </div>
+        <WidgetReadStatus failed={focus.isError} retry={() => void focus.refetch()} />
       </section>
     );
   return (

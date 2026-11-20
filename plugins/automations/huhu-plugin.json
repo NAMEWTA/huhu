@@ -11,7 +11,7 @@
   "contributes": {
     "modules": ["automations"],
     "settingsPages": [],
-    "homeWidgets": [],
+    "homeWidgets": ["summary"],
     "commands": [],
     "capabilities": [
       "automations.activations",

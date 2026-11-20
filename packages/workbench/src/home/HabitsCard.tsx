@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
+import { WidgetReadStatus } from "./WidgetReadStatus.js";
 
 interface HabitsView {
   habits: { id: string; title: string; done: boolean }[];
@@ -28,7 +29,8 @@ export function HabitsCard() {
     }
   }
 
-  const list = habits.data?.habits ?? [];
+  if (!habits.data || habits.isError) return <WidgetReadStatus title={tHome.habits.title} failed={habits.isError} retry={() => void habits.refetch()} />;
+  const list = habits.data.habits;
   return (
     <div data-testid="card-habits" aria-label={tHome.habits.title}>
       <div className="shell-habit-divider" />

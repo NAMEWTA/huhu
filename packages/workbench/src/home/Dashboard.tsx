@@ -1,7 +1,7 @@
-import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetType, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
+import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetConfigSchema, homeWidgetType, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
 import { Button, Dialog, IconButton } from "@huhu/ui";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, MoveDiagonal2, Plus, RotateCcw, X } from "lucide-react";
-import { useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { Component, useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { createRequestId } from "../engine-client/client.js";
 import { appendPlacement, movePlacement, orderPlacements, packPlacements, reorderPlacement, type Placement } from "./dashboard-layout.js";
 import type { useDashboard } from "./useDashboard.js";
@@ -9,6 +9,45 @@ import "./dashboard.css";
 
 type Instance = DashboardBoard["instances"][number];
 type Controller = ReturnType<typeof useDashboard>;
+
+function WidgetPlaceholder({ name, message, retry }: { name: string; message: string; retry?: () => void }) {
+  return (
+    <section className="hu-card-alt">
+      <h2>{name}</h2>
+      <p {...(retry && { role: "alert" })}>{message}</p>
+      {retry && <Button onClick={retry}>重新加载卡片</Button>}
+    </section>
+  );
+}
+
+class WidgetBoundary extends Component<{ name: string; children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override render() {
+    return this.state.failed ? <WidgetPlaceholder name={this.props.name} message="卡片显示失败" retry={() => this.setState({ failed: false })} /> : this.props.children;
+  }
+}
+
+function WidgetContent({
+  instance,
+  name,
+  definition,
+  renderWidget,
+  unavailableReason,
+}: {
+  instance: Instance;
+  name: string;
+  definition: HomeWidgetDefinition | undefined;
+  renderWidget: DashboardProps["renderWidget"];
+  unavailableReason: DashboardProps["unavailableReason"];
+}) {
+  if (definition && !homeWidgetConfigSchema(definition).safeParse(instance.config).success) {
+    return <WidgetPlaceholder name={name} message="卡片配置待修复" />;
+  }
+  return renderWidget(instance) ?? <WidgetPlaceholder name={name} message={unavailableReason(instance.widgetType)} />;
+}
 
 const repairReasons: Record<DashboardRepairChange["reasons"][number], string> = {
   orphan: "移除未关联卡片的位置记录",
@@ -35,11 +74,12 @@ interface DashboardProps {
   definitions: ReadonlyMap<string, HomeWidgetDefinition>;
   definitionsReady: boolean;
   allowed(type: string): boolean;
+  unavailableReason(type: string): string;
   renderWidget(instance: Instance): ReactNode;
   configureWidget?(instance: Instance, onChange: (config: Instance["config"]) => void, disabled: boolean): ReactNode;
 }
 
-export function Dashboard({ state, definitions, definitionsReady, allowed, renderWidget, configureWidget }: DashboardProps) {
+export function Dashboard({ state, definitions, definitionsReady, allowed, unavailableReason, renderWidget, configureWidget }: DashboardProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
@@ -355,12 +395,9 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, rende
                   {controls}
                   {!instance.hidden ? (
                     <div className="hu-dashboard-widget" inert={editing}>
-                      {renderWidget(instance) ?? (
-                        <section className="hu-card-alt">
-                          <h2>{name}</h2>
-                          <p>卡片暂不可用</p>
-                        </section>
-                      )}
+                      <WidgetBoundary key={instance.widgetType} name={name}>
+                        <WidgetContent instance={instance} name={name} definition={definition} renderWidget={renderWidget} unavailableReason={unavailableReason} />
+                      </WidgetBoundary>
                     </div>
                   ) : null}
                 </div>

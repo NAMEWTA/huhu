@@ -45,7 +45,7 @@ import agentCliManifest from "@huhu/plugin-agent-cli/manifest" with { type: "jso
 import automationsManifest from "@huhu/plugin-automations/manifest" with { type: "json" };
 import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "json" };
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
-import { PluginManifestSchema } from "@huhu/contracts";
+import { HuhuError, PluginManifestSchema } from "@huhu/contracts";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 import { directoryInstance, endpointRootBinding, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
@@ -56,6 +56,7 @@ import * as mail from "@huhu/plugin-mail/engine";
 import * as notes from "@huhu/plugin-notes/engine";
 import * as ssh from "@huhu/plugin-ssh/engine";
 import { sshHostsWidget } from "@huhu/plugin-ssh/shared";
+import { automationSummaryWidget } from "@huhu/plugin-automations/shared";
 import { gitHomeWidget } from "@huhu/plugin-versioning/shared";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
@@ -253,6 +254,48 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     () => new Date(),
     (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }),
   );
+  const RecentNote = z.object({ path: z.string(), title: z.string(), folder: z.string(), updatedAt: z.string(), snippet: z.string() });
+  const recentNotes = async (notes: { path: string; title: string }[], readText: (relative: string) => Promise<string>) => {
+    const mtimes = new Map(index.entries("").map((entry) => [entry.path, entry.mtimeMs]));
+    const updated = (relative: string) => mtimes.get(relative) ?? 0;
+    const recent = [...notes].sort((left, right) => updated(right.path) - updated(left.path)).slice(0, 4);
+    return Promise.all(
+      recent.map(async ({ path: relative, title }) => ({
+        path: relative,
+        title,
+        folder: relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : "根目录",
+        updatedAt: new Date(updated(relative)).toISOString(),
+        snippet: (await readText(relative))
+          .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+          .replace(/[#*`>[\]]/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 62),
+      })),
+    );
+  };
+  registry.register(
+    defineCapability({
+      name: "home.notes.recent",
+      plugin: "kernel",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.object({}),
+      output: z.array(RecentNote),
+      handler: async (hc) => {
+        const dispatcher = dispatcherRef.current;
+        if (!dispatcher) throw new HuhuError("INTERNAL", "笔记读取暂不可用");
+        const call = (capability: string, input: object) => dispatcher.call(hc.caller as never, { capability, input, requestId: hc.requestId });
+        const notes = await call("notes.list", { filter: "all" });
+        if (!notes.ok) throw new HuhuError(notes.error.code, notes.error.message);
+        return recentNotes(notes.data as { path: string; title: string }[], async (relative) => {
+          const result = await call("notes.read", { path: relative });
+          return result.ok ? (result.data as { text: string }).text : "";
+        });
+      },
+    }),
+  );
   registry.register(
     defineCapability({
       name: "home.summary",
@@ -268,7 +311,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         inboxPending: z.number(),
         notes: z.number(),
         rulesEnabled: z.number(),
-        recentNotes: z.array(z.object({ path: z.string(), title: z.string(), folder: z.string(), updatedAt: z.string(), snippet: z.string() })),
+        recentNotes: z.array(RecentNote),
         enabled: z.object({ tasks: z.boolean(), inbox: z.boolean(), notes: z.boolean(), automations: z.boolean(), agentCli: z.boolean() }),
       }),
       handler: async (hc) => {
@@ -282,21 +325,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         const inbox = await ask<{ id: string }[]>("inbox.list", { status: "pending" }, []);
         const notesList = await ask<{ path: string; title: string }[]>("notes.list", { filter: "all" }, []);
         const rules = await ask<{ data: { enabled: boolean } }[]>("automations.list", {}, []);
-        const mtimes = new Map(index.entries("").map((e) => [e.path, e.mtimeMs]));
-        const recent = [...notesList].sort((a, b) => (mtimes.get(b.path) ?? 0) - (mtimes.get(a.path) ?? 0)).slice(0, 4);
-        const snippetOf = async (rel: string): Promise<string> => {
-          try {
-            const { text } = await ask("notes.read", { path: rel }, { text: "" });
-            return text
-              .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
-              .replace(/[#*`>[\]]/g, "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 62);
-          } catch {
-            return "";
-          }
-        };
         return {
           vault: { id: vault.id, name: vault.info.name },
           tasksToday: today.length,
@@ -304,15 +332,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
           inboxPending: inbox.length,
           notes: notesList.length,
           rulesEnabled: rules.filter((r) => r.data.enabled).length,
-          recentNotes: await Promise.all(
-            recent.map(async (n) => ({
-              path: n.path,
-              title: n.title,
-              folder: n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "根目录",
-              updatedAt: new Date(mtimes.get(n.path) ?? 0).toISOString(),
-              snippet: await snippetOf(n.path),
-            })),
-          ),
+          recentNotes: await recentNotes(notesList, async (relative) => (await ask("notes.read", { path: relative }, { text: "" })).text),
           enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes"), automations: plugins.isEnabled("automations"), agentCli: plugins.isEnabled("agent-cli") },
         };
       },
@@ -346,9 +366,15 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
-  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }), vault, [sshHostsWidget, gitHomeWidget], () => {
-    events.publish("entity.changed", { kind: "home-dashboard", id: "home", op: "updated" });
-  });
+  registerHomeCapabilities(
+    registry,
+    new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }),
+    vault,
+    [sshHostsWidget, gitHomeWidget, automationSummaryWidget],
+    () => {
+      events.publish("entity.changed", { kind: "home-dashboard", id: "home", op: "updated" });
+    },
+  );
   registerSystemCapabilities(
     registry,
     plugins,

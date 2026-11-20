@@ -11,6 +11,7 @@ import { requestOpenPath } from "../state/open-request.js";
 import { FocusCard } from "./FocusCard.js";
 import { HabitsCard } from "./HabitsCard.js";
 import { Dashboard } from "./Dashboard.js";
+import { WidgetReadStatus } from "./WidgetReadStatus.js";
 import { useDashboard } from "./useDashboard.js";
 
 interface Summary {
@@ -49,13 +50,28 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const contributed = useSyncExternalStore(registry ? registry.subscribe : noop, registry ? registry.getSnapshot : () => NO_WIDGETS).homeWidgets;
   const dashboard = useDashboard(ui);
   const available = useDiscoveredCapabilities();
+  const plugins = useCapability<{ id: string; state: string }[]>("plugins.list", {});
   const capabilities = new Set(available.data?.map(({ name }) => name));
   const allDefinitions = [...Object.values(kernelHomeWidgets), ...contributed.flatMap((widget) => widget.definition ?? [])];
   const definitions = new Map(allDefinitions.map((widget) => [homeWidgetType(widget.owner, widget.id), widget]));
   const allowed = (type: string) => definitions.get(type as ReturnType<typeof homeWidgetType>)?.capabilities.every((cap) => !cap.required || capabilities.has(cap.name)) ?? false;
+  const unavailableReason = (type: string) => {
+    const definition = definitions.get(type as ReturnType<typeof homeWidgetType>);
+    const owner = type.split(":")[1];
+    const unavailablePlugin = plugins.data?.find(
+      (plugin) => (plugin.state === "disabled" || plugin.state === "failed") && (plugin.id === owner || definition?.capabilities.some((cap) => cap.required && cap.name.startsWith(`${plugin.id}.`))),
+    );
+    if (unavailablePlugin?.state === "disabled") return "卡片所需的插件已停用";
+    if (unavailablePlugin?.state === "failed") return "卡片所需的插件启动失败";
+    if (!definition) return plugins.isPending ? "正在读取卡片目录…" : "缺少此卡片的定义";
+    if (available.isPending) return "正在检查卡片权限…";
+    if (available.isError) return "暂时无法读取可用能力";
+    return "当前连接没有卡片所需的读取权限";
+  };
   const s = useCapability<Summary>("home.summary", {});
-  const tasks = useCapability<TaskDto[]>("tasks.list", { status: ["not_started", "in_progress"] });
-  const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" });
+  const recent = useCapability<Summary["recentNotes"]>("home.notes.recent", {}, { enabled: capabilities.has("notes.list") });
+  const tasks = useCapability<TaskDto[]>("tasks.list", { status: ["not_started", "in_progress"] }, { enabled: capabilities.has("tasks.list") });
+  const inbox = useCapability<Capture[]>("inbox.list", { status: "pending" }, { enabled: capabilities.has("inbox.list") });
   const settings = useCapability<{ dateTime: { zone: string } }>("settings.get", {});
   // 分区由外壳的模块页签（原型：标题上方的“总览 / 今日安排 / 最近活动”）提供；没有外壳时用本地状态
   const [localSection, setLocalSection] = useState<Section>("overview");
@@ -79,7 +95,6 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date()); // “今天”按设置的时区，不是 UTC
   const pending = useMemo(() => (tasks.data ?? []).filter((t) => t.status !== "completed"), [tasks.data]);
-  if (!d) return <div className="hu-module-layout home-layout" data-testid="home-module" />;
 
   const metric = (id: string, testId: string, icon: React.ReactNode, tone: string, [label, unit]: readonly [string, string], value: number, target: string) => (
     <button key={id} type="button" data-testid={testId} onClick={() => nav(target)}>
@@ -98,12 +113,14 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
   const renderTasks = (instance: DashboardBoard["instances"][number]) => {
     const stored = instance.config["filter"];
     const activeFilter = section === "today" || stored === "today" ? "today" : (filters[instance.instanceId] ?? "all");
-    const taskRows = pending.filter((task) => activeFilter === "all" || task.due === today).slice(0, 5);
-    return d.enabled.tasks ? (
+    const matching = pending.filter((task) => activeFilter === "all" || task.due === today);
+    const title = instance.title || tHome.tasksCard.title;
+    if (tasks.isError || !tasks.data) return <WidgetReadStatus title={title} failed={tasks.isError} retry={() => void tasks.refetch()} />;
+    return (
       <section className="hu-card-alt hu-home-task-card" data-testid="card-tasks">
         <div className="shell-card-head">
           <h2>
-            <Target size={17} aria-hidden /> {instance.title || tHome.tasksCard.title} <Badge>{pending.length}</Badge>
+            <Target size={17} aria-hidden /> {title} <Badge>{matching.length}</Badge>
           </h2>
           <div className="row">
             {instance.config["filter"] !== "today" ? (
@@ -124,7 +141,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
           </div>
         </div>
         <div className="home-task-list">
-          {taskRows.map((t) => (
+          {matching.slice(0, 5).map((t) => (
             <div className="hu-home-task-row" key={t.id}>
               <button type="button" className="shell-task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
               <button type="button" className="grow shell-task-open" onClick={() => nav("tasks")}>
@@ -137,54 +154,57 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
               <Badge>{t.type === "agent" ? tHome.tasksCard.agent : tHome.tasksCard.manual}</Badge>
             </div>
           ))}
-          {pending.length === 0 ? <EmptyState icon={CheckCircle2} title={tHome.tasksCard.allDone} hint={tHome.tasksCard.rest} /> : null}
+          {matching.length === 0 ? <EmptyState icon={CheckCircle2} title={activeFilter === "today" ? "今天没有待办任务" : tHome.tasksCard.allDone} hint={activeFilter === "all" ? tHome.tasksCard.rest : undefined} /> : null}
         </div>
         <button type="button" className="hu-card-footer-link" onClick={() => nav("tasks")}>
           {tHome.tasksCard.viewAll} <ArrowRight size={14} aria-hidden />
         </button>
       </section>
-    ) : null;
+    );
   };
   const mainNodes: Record<string, React.ReactNode> = {
-    notes: d.enabled.notes ? (
-      <section className="hu-card-alt" data-testid="card-recent">
-        <div className="shell-card-head">
-          <h2>
-            <Clock size={17} aria-hidden /> {tHome.recentCard.title}
-          </h2>
-          <button type="button" className="shell-link-button" onClick={() => nav("notes")}>
-            {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
-          </button>
-        </div>
-        {d.recentNotes.length === 0 ? (
-          <EmptyState title={tHome.noRecent} />
-        ) : (
-          <div className="shell-recent-note-grid">
-            {d.recentNotes.map((n, i) => (
-              <button
-                type="button"
-                className="shell-recent-note"
-                key={n.path}
-                onClick={() => {
-                  requestOpenPath(n.path, true);
-                  nav("notes");
-                }}
-              >
-                <div className={`shell-note-symbol hu-note-symbol-${i % 3}`}>
-                  <FileText size={18} aria-hidden />
-                </div>
-                <strong>{n.title}</strong>
-                <p>{n.snippet}</p>
-                <div>
-                  <span>{n.folder}</span>
-                  <span>{fmtDate(n.updatedAt, zone)}</span>
-                </div>
-              </button>
-            ))}
+    notes:
+      recent.data && !recent.isError ? (
+        <section className="hu-card-alt" data-testid="card-recent">
+          <div className="shell-card-head">
+            <h2>
+              <Clock size={17} aria-hidden /> {tHome.recentCard.title}
+            </h2>
+            <button type="button" className="shell-link-button" onClick={() => nav("notes")}>
+              {tHome.recentCard.all} <ArrowUpRight size={13} aria-hidden />
+            </button>
           </div>
-        )}
-      </section>
-    ) : null,
+          {recent.data.length === 0 ? (
+            <EmptyState title={tHome.noRecent} />
+          ) : (
+            <div className="shell-recent-note-grid">
+              {recent.data.map((n, i) => (
+                <button
+                  type="button"
+                  className="shell-recent-note"
+                  key={n.path}
+                  onClick={() => {
+                    requestOpenPath(n.path, true);
+                    nav("notes");
+                  }}
+                >
+                  <div className={`shell-note-symbol hu-note-symbol-${i % 3}`}>
+                    <FileText size={18} aria-hidden />
+                  </div>
+                  <strong>{n.title}</strong>
+                  <p>{n.snippet}</p>
+                  <div>
+                    <span>{n.folder}</span>
+                    <span>{fmtDate(n.updatedAt, zone)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <WidgetReadStatus title={tHome.recentCard.title} failed={recent.isError} retry={() => void recent.refetch()} />
+      ),
     activity: (
       <section className="hu-card-alt" data-testid="card-activity">
         <div className="shell-card-head">
@@ -204,35 +224,39 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
         <HabitsCard />
       </section>
     ),
-    inbox: d.enabled.inbox ? (
-      <section className="hu-card-alt shell-home-inbox" data-testid="card-inbox-list">
-        <div className="shell-card-head">
-          <h2>
-            <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
-          </h2>
-          <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
-        </div>
-        {(inbox.data ?? []).slice(0, 3).map((i) => (
-          <button type="button" className="shell-inbox-preview" key={i.id} onClick={() => nav("inbox")}>
-            <span className="shell-inbox-bullet" />
-            <span>
-              <strong>{i.title}</strong>
-              <small>{i.source}</small>
-            </span>
-            <ChevronRight size={13} aria-hidden />
+    inbox:
+      inbox.data && !inbox.isError ? (
+        <section className="hu-card-alt shell-home-inbox" data-testid="card-inbox-list">
+          <div className="shell-card-head">
+            <h2>
+              <Inbox size={17} aria-hidden /> {tHome.inboxCard.title}
+            </h2>
+            <IconButton icon={Plus} label={tHome.inboxCard.add} onClick={() => nav("inbox")} />
+          </div>
+          {(inbox.data ?? []).slice(0, 3).map((i) => (
+            <button type="button" className="shell-inbox-preview" key={i.id} onClick={() => nav("inbox")}>
+              <span className="shell-inbox-bullet" />
+              <span>
+                <strong>{i.title}</strong>
+                <small>{i.source}</small>
+              </span>
+              <ChevronRight size={13} aria-hidden />
+            </button>
+          ))}
+          {(inbox.data ?? []).length === 0 ? <div className="hu-mini-empty">{tHome.inboxCard.empty}</div> : null}
+          <button type="button" className="hu-card-footer-link" onClick={() => nav("inbox")}>
+            {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
           </button>
-        ))}
-        {(inbox.data ?? []).length === 0 ? <div className="hu-mini-empty">{tHome.inboxCard.empty}</div> : null}
-        <button type="button" className="hu-card-footer-link" onClick={() => nav("inbox")}>
-          {tHome.inboxCard.organize} <ArrowRight size={14} aria-hidden />
-        </button>
-      </section>
-    ) : null,
+        </section>
+      ) : (
+        <WidgetReadStatus title={tHome.inboxCard.title} failed={inbox.isError} retry={() => void inbox.refetch()} />
+      ),
   };
   const renderWidget = (instance: DashboardBoard["instances"][number]) => {
     if (!allowed(instance.widgetType)) return null;
     if (instance.widgetType === "widget:kernel:tasks") return renderTasks(instance);
     if (instance.widgetType === "widget:kernel:metrics") {
+      if (!d || s.isError) return <WidgetReadStatus title={instance.title || "概览"} failed={s.isError} retry={() => void s.refetch()} />;
       return (
         <div className="shell-overview-metrics">
           {d.enabled.tasks ? metric("tasks", "card-open", <ListTodo size={19} aria-hidden />, "amber", tHome.metrics.tasks, d.tasksOpen, "tasks") : null}
@@ -243,7 +267,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
       );
     }
     if (instance.widgetType === "widget:kernel:agent") {
-      return d.enabled.agentCli ? (
+      return (
         <button type="button" className="shell-agent-invitation" onClick={() => nav("agent-cli")}>
           <div className="shell-agent-invitation-top">
             <Sparkles size={21} aria-hidden />
@@ -259,7 +283,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
             {tHome.agentCard.action} <ArrowRight size={14} aria-hidden />
           </span>
         </button>
-      ) : null;
+      );
     }
     if (instance.widgetType.startsWith("widget:kernel:")) return mainNodes[instance.widgetType.slice("widget:kernel:".length)];
     const widget = contributed.find((item) => homeWidgetType(item.plugin, item.id) === instance.widgetType);
@@ -316,6 +340,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
               definitions={definitions}
               definitionsReady={available.isSuccess}
               allowed={allowed}
+              unavailableReason={unavailableReason}
               renderWidget={renderWidget}
               configureWidget={(instance, onChange, disabled) => {
                 if (!allowed(instance.widgetType)) return null;
@@ -336,6 +361,7 @@ function ActivityFeed({ compact = false, zone }: { compact?: boolean; zone: stri
   const [module, setModule] = useState("");
   const ev = useCapability<{ events: EventRow[]; modules: string[] }>("health.events", { limit: compact ? 4 : 100, ...(module ? { module } : {}) });
   const rows = ev.data?.events ?? [];
+  if (ev.isError || !ev.data) return <WidgetReadStatus failed={ev.isError} retry={() => void ev.refetch()} />;
   return (
     <div className={`shell-activity-feed${compact ? " compact" : ""}`}>
       {!compact && (ev.data?.modules.length ?? 0) > 0 ? (
