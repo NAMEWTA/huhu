@@ -34,6 +34,7 @@ export interface FakeSshOptions {
   waitRemoteBind?: (port: number) => Promise<void> | undefined;
   denyRemoteStop?: () => boolean;
   denyDirectTcp?: () => boolean;
+  onExec?: (command: string) => { stdout?: string; stderr?: string; code?: number } | undefined;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -188,7 +189,13 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
         session.on("exec", (acceptExec, _rej, info) => {
           const ch = acceptExec();
           const cmd = info.command;
-          if (cmd.startsWith("echo ")) {
+          const response = o.onExec?.(cmd);
+          if (response) {
+            if (response.stdout) ch.write(response.stdout);
+            if (response.stderr) ch.stderr.write(response.stderr);
+            ch.exit(response.code ?? 0);
+            ch.end();
+          } else if (cmd.startsWith("echo ")) {
             ch.write(cmd.slice(5) + "\n");
             ch.exit(0);
             ch.end();

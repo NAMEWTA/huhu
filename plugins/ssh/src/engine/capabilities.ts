@@ -11,9 +11,11 @@ import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archive
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
+import { MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorSession, MonitorSessionChange, MonitorSessionId, MonitorSessionOpen, SaveMonitorPanel } from "../shared/monitoring.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
+const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
 const fileTarget = <T extends z.ZodRawShape>(shape: T) => z.union([FileSessionId.extend(shape), LegacySftpHost.extend(shape)]);
@@ -21,6 +23,46 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  monitorSessionOpen: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.session.open", title: "打开分栏监控", description: "采样当前分栏的原 SSH 连接。", scope: "execute", input: MonitorSessionOpen, output: MonitorSession }),
+  monitorSessionGet: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.session.get", title: "查看分栏监控", description: "读取分栏样本与当前连接状态。", scope: "read", input: MonitorSessionId, output: MonitorSession }),
+  monitorSessionChange: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.monitor.session.change",
+    title: "控制分栏监控",
+    description: "暂停、继续、重试、调整周期或关闭订阅。",
+    scope: "execute",
+    input: MonitorSessionChange,
+    output: MonitorSession.nullable(),
+  }),
+  monitorPanelsList: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.monitor.panels.list",
+    title: "列出多主机监控面板",
+    description: "查看已保存的主机顺序、采样周期和历史保留范围。",
+    scope: "read",
+    input: z.strictObject({}),
+    output: z.array(MonitorPanel),
+  }),
+  monitorPanelsSave: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.panels.save", title: "保存多主机监控面板", description: "按版本保存面板配置。", scope: "write", input: SaveMonitorPanel, output: MonitorPanel }),
+  monitorPanelsDelete: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.panels.delete", title: "删除多主机监控面板", description: "按版本删除面板并释放订阅。", scope: "write", input: MonitorPanelRevision, output: Ok }),
+  monitorPanelsRun: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.monitor.panels.run",
+    title: "查看多主机监控样本",
+    description: "按源连接读取当前运行和有界历史。",
+    scope: "read",
+    input: MonitorSessionId,
+    output: MonitorPanelRun.nullable(),
+  }),
+  monitorPanelsChange: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.monitor.panels.change",
+    title: "控制多主机监控",
+    description: "手动开始、暂停、继续、停止或重试指定主机。",
+    scope: "execute",
+    input: MonitorPanelChange,
+    output: MonitorPanelRun.nullable(),
+  }),
   forwardRulesList: defineCapabilityDescriptor({
     ...ssh,
     desktopOnly: true,

@@ -15,6 +15,7 @@ import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
 import { ForwardingPanel } from "./ForwardingPanel.js";
+import { MonitorDashboard } from "./MonitorDashboard.js";
 import { t } from "./i18n.js";
 
 interface Shell {
@@ -72,6 +73,7 @@ export function SshModule() {
   const [query, setQuery] = useState("");
   const [workspaces, setWorkspaces] = useState(false);
   const [forwarding, setForwarding] = useState(false);
+  const [monitoring, setMonitoring] = useState(false);
   const [fileView, showFileView] = useState(false);
   const [selectedFile, selectFile] = useState("");
   const [fileSeed, setFileSeed] = useState<FileSession | null>(null);
@@ -182,7 +184,18 @@ export function SshModule() {
       <FileWorkspace active={fileView} selectedId={selectedFile} seed={fileSeed} select={selectFile} onBack={() => showFileView(false)} />
     </>
   );
-  if (workspaces) return withFileWorkspace(<WorkspaceLibrary onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={!fileView} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  if (monitoring)
+    return withFileWorkspace(
+      <MonitorDashboard
+        directory={directory.data}
+        onBack={() => setMonitoring(false)}
+        onReview={(prompt) => {
+          setMonitoring(false);
+          openReview(prompt);
+        }}
+      />,
+    );
   if (forwarding)
     return withFileWorkspace(
       <ForwardingPanel
@@ -207,6 +220,11 @@ export function SshModule() {
           {desktop && (
             <Button variant="ghost" onClick={() => setForwarding(true)}>
               端口转发
+            </Button>
+          )}
+          {desktop && (
+            <Button variant="ghost" onClick={() => setMonitoring(true)}>
+              监控
             </Button>
           )}
           <div className="row">

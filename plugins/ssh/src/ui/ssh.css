@@ -976,6 +976,39 @@
     overflow-wrap: anywhere;
   }
 
+  .ssh-monitor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
+    grid-template-areas: "terminal monitoring";
+    gap: 8px;
+  }
+
+  .ssh-monitor-grid[data-dock="left"] {
+    grid-template-columns: minmax(16rem, 24rem) minmax(0, 1fr);
+    grid-template-areas: "monitoring terminal";
+  }
+
+  .ssh-monitor-terminal {
+    grid-area: terminal;
+    min-inline-size: 0;
+  }
+
+  .ssh-monitor-side {
+    grid-area: monitoring;
+    min-inline-size: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px;
+  }
+
+  @media (max-width: 900px) {
+    .ssh-monitor-grid,
+    .ssh-monitor-grid[data-dock="left"] {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "terminal" "monitoring";
+    }
+  }
+
   .ssh-workspace-terminal {
     height: 240px;
     min-inline-size: 0;

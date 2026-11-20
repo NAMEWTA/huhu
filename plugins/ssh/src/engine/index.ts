@@ -15,6 +15,8 @@ import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
 import { ForwardRules } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
+import { MonitorPanels } from "./monitor-panels.js";
+import { Monitors } from "./monitors.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -28,6 +30,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const directory = new HostDirectory(hosts, api.vault.files);
   const templates = new WorkspaceTemplates(api.vault.files, hosts);
   const forwardRules = new ForwardRules(api.vault.files, hosts);
+  const monitorPanels = new MonitorPanels(api.vault.files, hosts);
   const assertHostUnused = (id: string) => {
     templates.assertUnused(id);
     forwardRules.assertUnused(id);
@@ -46,7 +49,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const archives = new Archives(files, manager);
   const transfers = new Transfers(files, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
+  const monitors = new Monitors(monitorPanels, manager);
   ctx.effect(() => () => {
+    monitors.dispose();
     forwarding.dispose();
     transfers.dispose();
     files.dispose();
@@ -55,6 +60,26 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionChange, (_c, i) => monitors.session(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsList, () => monitorPanels.list()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsSave, async ({ signal }, i) => {
+      const saved = await monitors.save(i, signal);
+      api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: saved.id, op: i.previous ? "updated" : "created" });
+      return saved;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsDelete, async ({ signal }, i) => {
+      const result = await monitors.delete(i, signal);
+      api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: i.id, op: "deleted" });
+      return result;
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsRun, (_c, i) => monitors.dashboard(i.id)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsChange, ({ signal }, i) => monitors.change(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, () => forwardRules.list()));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.forwardRulesSave, async ({ signal }, input) => {

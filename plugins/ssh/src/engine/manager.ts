@@ -67,6 +67,7 @@ export type ForwardLease = {
   validate(): Promise<void>;
   release(): void;
 };
+export type MonitorConnection = Pick<ForwardLease, "id" | "client" | "release"> & { onClose(notify: () => void): () => void };
 
 function connectionIdentity(chain: readonly ManagedHost[]): string {
   return JSON.stringify(chain.map(({ id, revision }) => [id, revision]));
@@ -289,9 +290,41 @@ export class SshManager {
   }
 
   async acquireForward(hostId: string, boundTarget: string, signal: AbortSignal, notify: ForwardOwner): Promise<ForwardLease> {
+    return this.acquireTransport("forward", hostId, signal, notify, boundTarget);
+  }
+
+  async acquireMonitor(hostId: string, signal: AbortSignal, notify: ForwardOwner): Promise<MonitorConnection> {
+    const lease = await this.acquireTransport("monitor", hostId, signal, notify);
+    return {
+      id: lease.id,
+      client: lease.client,
+      release: lease.release,
+      onClose: (closed) => {
+        lease.client.once("close", closed);
+        return () => lease.client.off("close", closed);
+      },
+    };
+  }
+
+  monitorPane(hostId: string, shellId: string): MonitorConnection {
+    const conn = this.conns.get(hostId);
+    const shell = this.shells.get(shellId);
+    if (!conn || !shell || shell.state !== "running" || this.shellConnections.get(shell) !== conn) throw new HuhuError("SSH_DISCONNECTED", "此分栏的原 SSH 连接已关闭");
+    return {
+      id: this.fileOrigins.get(conn)!.connectionId,
+      client: conn.target,
+      release: () => undefined,
+      onClose: (closed) => {
+        shell.closers.add(closed);
+        return () => shell.closers.delete(closed);
+      },
+    };
+  }
+
+  private async acquireTransport(scope: "forward" | "monitor", hostId: string, signal: AbortSignal, notify: ForwardOwner, boundTarget?: string): Promise<ForwardLease> {
     const chain = this.route(hostId, await this.d.hosts.list());
-    const stale = () => new HuhuError("VERSION_CONFLICT", "转发规则所绑定的主机、账户或跳板配置已变更");
-    if (workspaceTarget(chain) !== boundTarget) throw stale();
+    const stale = () => new HuhuError("VERSION_CONFLICT", scope === "forward" ? "转发规则所绑定的主机、账户或跳板配置已变更" : "监控的主机、账户或跳板配置已变更");
+    if (boundTarget && workspaceTarget(chain) !== boundTarget) throw stale();
     const identity = connectionIdentity(chain);
     const validate = async () => {
       if (connectionIdentity(this.route(hostId, await this.d.hosts.list())) !== identity) throw stale();
@@ -300,6 +333,7 @@ export class SshManager {
     signal.throwIfAborted();
     const borrowed = this.conns.get(hostId);
     if (borrowed?.routeIdentity === identity) {
+      if (scope === "monitor") return { id: this.fileOrigins.get(borrowed)!.connectionId, client: borrowed.target, kind: "borrowed", holders: () => 0, validate, release: () => undefined };
       const owners = this.borrowedForwards.get(borrowed) ?? new Set<ForwardOwner>();
       owners.add(notify);
       this.borrowedForwards.set(borrowed, owners);
@@ -315,7 +349,8 @@ export class SshManager {
       };
     }
 
-    const dial = this.forwardDials.get(identity) ?? this.openForwardDial(identity, chain, hostId);
+    const poolKey = `${scope}:${identity}`;
+    const dial = this.forwardDials.get(poolKey) ?? this.openForwardDial(poolKey, chain, hostId);
     dial.owners.add(notify);
     const release = () => {
       if (dial.owners.delete(notify) && dial.owners.size === 0) dial.abort.abort();
@@ -330,7 +365,7 @@ export class SshManager {
     try {
       const client = await Promise.race([dial.ready, cancelled]);
       await validate();
-      if (dial.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 转发连接已结束");
+      if (dial.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 专用连接已结束");
       return { id: dial.id, client, kind: "dedicated", holders: () => dial.owners.size, validate, release };
     } catch (error) {
       release();

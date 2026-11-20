@@ -72,7 +72,7 @@ function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layo
   );
 }
 
-export function WorkspaceLibrary({ onHosts, onFiles }: { onHosts: () => void; onFiles: (session?: FileSession) => void }) {
+export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => void; onFiles: (session?: FileSession) => void; shown: boolean }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const directory = useCapability<{ hosts: WorkspaceHost[] }>("ssh.hosts.directory", {});
@@ -304,7 +304,7 @@ export function WorkspaceLibrary({ onHosts, onFiles }: { onHosts: () => void; on
                   关闭运行
                 </Button>
               </div>
-              <WorkspaceRunView key={run.id} run={run} onTrust={trust} onOpenFiles={onFiles} />
+              <WorkspaceRunView key={run.id} run={run} shown={shown} onTrust={trust} onOpenFiles={onFiles} />
             </>
           )}
           {current && (
