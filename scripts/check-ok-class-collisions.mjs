@@ -7,7 +7,7 @@
 // 用法：node scripts/check-ok-class-collisions.mjs <built-ok.css> 或 --desktop [assets-dir]
 // 退出码 1 = 有未登记的 A/B 交集或作用域违规
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import postcss from "postcss";
 import selectorParser from "postcss-selector-parser";
 
@@ -219,7 +219,7 @@ function isRegisteredBackdrop(selector, rule) {
 }
 
 // A / B
-const huhuCssFiles = [...walk(join(ROOT, "packages"), [".css"]), ...walk(join(ROOT, "plugins"), [".css"]), ...walk(join(ROOT, "apps"), [".css"])].filter((f) => !f.includes("/vendor/") && !f.includes("/ok/"));
+const huhuCssFiles = [...walk(join(ROOT, "packages"), [".css"]), ...walk(join(ROOT, "plugins"), [".css"]), ...walk(join(ROOT, "apps"), [".css"])].filter((f) => !relative(ROOT, f).split(sep).includes("ok"));
 const huhuClasses = new Set();
 for (const f of huhuCssFiles) {
   try {
@@ -230,7 +230,6 @@ for (const f of huhuCssFiles) {
 const tokenRe = /class(?:Name)?\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
 const tokens = new Set();
 for (const f of [...walk(join(ROOT, "packages"), [".tsx"]), ...walk(join(ROOT, "plugins"), [".tsx"]), ...walk(join(ROOT, "apps"), [".tsx", ".html"])]) {
-  if (f.includes("/vendor/")) continue;
   const src = readFileSync(f, "utf8");
   for (const m of src.matchAll(tokenRe)) for (const t of (m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "").split(/\s+/)) if (/^[a-z][\w-]*$/.test(t)) tokens.add(t);
 }
