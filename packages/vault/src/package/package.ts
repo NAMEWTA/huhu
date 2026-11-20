@@ -24,7 +24,7 @@ export type PackageManifest = z.infer<typeof ManifestSchema>;
 const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history"]);
 const IGNORED_ROOT = new Set([".git", "node_modules", ".agents"]);
 
-function collect(root: string, includeAttachments: boolean): string[] {
+function collect(root: string, includeAttachments: boolean, includeFile?: (relative: string) => boolean): string[] {
   const out: string[] = [];
   const walk = (rel: string) => {
     for (const ent of readdirSync(path.join(root, rel), { withFileTypes: true })) {
@@ -39,6 +39,7 @@ function collect(root: string, includeAttachments: boolean): string[] {
         if (ent.name === ".DS_Store" || ent.name === "Thumbs.db" || childRel === `${HUHU_DIR}/writer.lock`) continue;
         const isText = /\.(md|txt|json|ndjson|yaml|yml)$/i.test(ent.name) || childRel.startsWith(`${HUHU_DIR}/`);
         if (!isText && !includeAttachments) continue;
+        if (includeFile && !includeFile(childRel)) continue;
         out.push(childRel);
       }
     }
@@ -51,9 +52,9 @@ function collect(root: string, includeAttachments: boolean): string[] {
  * 导出受管数据包（zip）：逐个文件读取、压缩并写出，内存里只有当前文件；文件之间让出事件循环，
  * 所以大 Vault 导出不会让 Engine 长时间无响应。`signal` 触发时不留下半成品。
  */
-export async function exportPackage(root: string, dest: string, opts: { includeAttachments?: boolean; signal?: AbortSignal } = {}): Promise<PackageManifest> {
+export async function exportPackage(root: string, dest: string, opts: { includeAttachments?: boolean; signal?: AbortSignal; includeFile?: (relative: string) => boolean } = {}): Promise<PackageManifest> {
   const vault = VaultJsonSchema.parse(JSON.parse(readFileSync(path.join(root, HUHU_DIR, "vault.json"), "utf8")));
-  const files = collect(root, opts.includeAttachments ?? true);
+  const files = collect(root, opts.includeAttachments ?? true, opts.includeFile);
   const entries: PackageManifest["files"] = [];
   const cancelled = () => {
     if (opts.signal?.aborted) throw errors.invalidInput("导出已取消");

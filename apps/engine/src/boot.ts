@@ -161,7 +161,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   registerPackageCapabilities(registry, vault, (read, signal) => {
     const attachments = getService<mail.MailDraftAttachments>(mail.MAIL_DRAFT_ATTACHMENTS_SERVICE);
-    return attachments ? attachments.withSnapshot(read, signal) : read(signal);
+    const exportSnapshot = (active: AbortSignal) => {
+      const retained = mail.mailAttachmentPackagePaths(vault.files);
+      return read(active, (relative) => {
+        const normalized = relative.toLowerCase();
+        return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
+      });
+    };
+    return attachments ? attachments.withSnapshot(exportSnapshot, signal) : exportSnapshot(signal);
   });
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();

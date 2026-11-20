@@ -23,6 +23,8 @@ Main 在系统选择前后核对主 frame 来源和当前 Engine 实例，把本
 
 Windows Electron 44.9.1 的 Playwright 通过实际 Mail、preload、Main 和 Engine，仅替换系统对话框的返回值。取消时无附件对象，带路径的渲染请求被拒绝。第二次选择后移走合成源文件，重开草稿仍可看到并删除附件，最后一个引用移除后对象回收。真实操作系统选择对话框界面由 Electron 提供，本次自动化记录的是进程间链路。 [桌面测试](../../../../../tests/e2e/workflows/mail.spec.ts) · [日志](/D:/Document/code/huhu/temp/issue-baseline/mail-desktop-attachments.log)
 
+切换 Vault 停止 Engine 时立即撤销同一代的附件端口，Engine 进入关闭流程时同步取消读取。独立探针在等待结果时开始停止，旧端口随即关闭，新一代引擎未收到选择。真实导出测试在对象已写但草稿取消或写入冲突的窗口发起 ZIP 导出，恢复后的 Vault 只有已提交的共享附件。停用 Mail 后重新导出同样只保留已提交引用。 [端口回归](/D:/Document/code/huhu/temp/issue-baseline/mail-attachment-endpoint-stop.log) · [ZIP 恢复回归](/D:/Document/code/huhu/temp/issue-baseline/mail-attachment-package-privacy.log)
+
 ## 重跑
 
 用现有 Windows 固定 pnpm 12.10.1 运行 Mail 工区测试。Edge 探针只在测试页面安装可撤销的 `huhuHost` 选择桥。选择源由测试侧限定为隔离临时目录的合成文件，真文件字节进入现有 Engine 附件服务，HTTP 移除调用进入真实分发器。 [复跑方式](S1-workbench.md#重跑) · [Edge 探针](S1-workbench/workbench-renderer.test.ts) · [Engine 回归](../../../../../plugins/mail/test/draft-attachments-engine.test.ts)

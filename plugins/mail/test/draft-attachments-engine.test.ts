@@ -93,7 +93,7 @@ function source(name: string, bytes: Buffer): MailAttachmentSource {
 testWindows(
   "发布对象后取消或 CAS 拒写，排队的数据包只选择已提交引用",
   async () => {
-    await fixture(async (_root, _vaultPath, open) => {
+    await fixture(async (root, _vaultPath, open) => {
       const engine = await open({ create: true });
       const managed = service(engine);
       const initial = await newDraft(engine);
@@ -107,6 +107,15 @@ testWindows(
       const interruptedPath = `${objects}/${hash(interrupted)}`;
       const conflicted = Buffer.from("draft CAS lost after object publication");
       const conflictedPath = `${objects}/${hash(conflicted)}`;
+      const exportAndVerify = async (suffix: string) => {
+        const dest = path.join(root, `attachments-${suffix}.zip`);
+        expect(await call(engine, "vault.exportPackage", { dest, includeAttachments: true })).toMatchObject({ ok: true });
+        const restored = path.join(root, `restored-${suffix}`);
+        importPackage(dest, restored);
+        expect(readFileSync(path.join(restored, sharedPath))).toEqual(sharedBytes);
+        expect(existsSync(path.join(restored, interruptedPath))).toBe(false);
+        expect(existsSync(path.join(restored, conflictedPath))).toBe(false);
+      };
       const gates = new Map([interruptedPath, conflictedPath].map((rel) => [rel, { published: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() }]));
       const abort = new AbortController();
       const files = engine.vault.files;
@@ -150,6 +159,7 @@ testWindows(
           started = true;
           return mailAttachmentPackagePaths(files);
         });
+        const exportWhileQueued = exportAndVerify("enabled");
         await new Promise((resolve) => setImmediate(resolve));
         expect(started).toBe(false);
         conflictGate.release.resolve();
@@ -161,6 +171,7 @@ testWindows(
           data: { draft: { revision: winner.drafts[sibling.draftId].revision, subject: "separately committed sibling", attachments: other.draft.attachments } },
         });
         expect(await exportPaths).toEqual(new Set([sharedPath]));
+        await exportWhileQueued;
         expect(files.read(sharedPath)?.bytes).toEqual(sharedBytes);
         expect(files.read(interruptedPath)?.bytes).toEqual(interrupted);
         expect(files.read(conflictedPath)?.bytes).toEqual(conflicted);
@@ -171,6 +182,7 @@ testWindows(
       expect(await call(engine, "plugins.setEnabled", { id: "mail", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
       expect(await call(engine, "mail.drafts.list", {})).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
       expect(mailAttachmentPackagePaths(files)).toEqual(new Set([sharedPath]));
+      await exportAndVerify("disabled");
       await engine.shutdown();
       const reader = await open({ readOnly: true });
       expect(reader.vault.files.readOnly).toBe(true);

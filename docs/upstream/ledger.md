@@ -26,6 +26,7 @@
 | R-57 | Motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/workbench/known_hosts.go`、`internal/workbench/known_hosts_test.go` | SSH 工作台的首次信任、指纹变化和已知主机界面 | 参考独立核对、移除和重新询问的流程，用现有 SSH 信任事务、版本校验及工作台对话框实现。 |
 | R-58 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src/components/account/account-list.tsx`、`src/components/account/account-form-types.ts` | `plugins/mail/src/ui/{MailModule,MailAccountDialog,MailAccountNameDialog}.tsx` | 参考提供商分组、折叠、选择和认证类型，用 Huhu 现有工作台组件、版本化账号能力及模块凭据实现。 |
 | R-59 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src/components/conversations/conversation-workspace/conversation-pane.tsx`、`src-tauri/src/commands/data/conversations.rs`、`src-tauri/src/mail/smtp.rs` | `plugins/mail/src/{ui/MailReader.tsx,ui/MailComposer.tsx,engine/prepare-reply.ts,engine/outbox.ts,engine/smtp.ts}` | 参考回复入口、参与者和线程头，用 Huhu 的原信身份、草稿及 outbox 实现。地址解析调用已锁定的 `nodemailer/lib/addressparser`（10.6.0，MIT-0）。 |
+| R-60 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src/components/account/remove-account-dialog.tsx` | `plugins/mail/src/ui/MailAccountRemovalDialog.tsx`、`plugins/mail/src/engine/account-removals.ts` | 参考账号删除入口和确认操作。用 Huhu 的版本化影响预览、账号清理记录、模块凭据及可核对投递结果实现。 |
 
 ## 安装包依赖
 
