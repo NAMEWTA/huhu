@@ -89,7 +89,7 @@ function canCloseWindow(win: BrowserWindow): Promise<boolean> {
   const decision = (async () => {
     const result = await requestFlush(win);
     if (result === "timeout") console.warn("退出前保存未在 3 秒内回执");
-    if (result !== "failed" || win.isDestroyed()) return true;
+    if (result === "saved" || win.isDestroyed()) return true;
     const answer = await dialog.showMessageBox(win, {
       type: "warning",
       title: "退出前保存失败",
