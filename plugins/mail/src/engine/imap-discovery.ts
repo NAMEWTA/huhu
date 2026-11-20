@@ -34,7 +34,8 @@ export const discoverImapFolders: MailFolderDiscovery = async ({ endpoint, email
   try {
     await client.connect();
     listing = true;
-    const folders = await client.list({ listOnly: true });
+    // ImapFlow's full listing probes INBOX separately when the namespace listing omits it.
+    const folders = await client.list({ listOnly: !client.namespace?.prefix });
     return folders.map(({ path, name, delimiter, specialUse, flags }) => ({ path, name, delimiter: delimiter || null, specialUse: specialUse ?? null, flags: [...flags] }));
   } catch (error) {
     if (signal.aborted) throw new MailAccountError("discovery-stale");

@@ -162,6 +162,121 @@ test("preserves enabled SMTP overrides and binds the password to those settings"
   expect(discover).toHaveBeenCalledTimes(1);
 });
 
+test.each(["selectable", "missing", "noselect", "nonexistent"] as const)("probes INBOX independently of a NAMESPACE prefix (%s)", async (namespacedInbox) => {
+  const fixture = await openImapFixture({ namespacedInbox });
+  cleanup.push(fixture.close);
+  const { accounts, protection } = await setup();
+  const draft = accounts.begin(settings(fixture.port), password);
+  const discovery = draft.testConnection();
+  if (namespacedInbox === "selectable") {
+    await expect(discovery).resolves.toMatchObject([
+      { path: "INBOX", delimiter: ".", selectable: true, selected: true, flags: ["\\HasChildren"] },
+      { path: "INBOX.Projects", name: "Projects", delimiter: ".", selectable: true, selected: false },
+    ]);
+    draft.selectFolders(["INBOX", "INBOX.Projects"]);
+    const saved = await draft.save();
+    expect(saved.definition.folders.map(({ path, delimiter }) => [path, delimiter])).toEqual([
+      ["INBOX", "."],
+      ["INBOX.Projects", "."],
+    ]);
+    expect(await accounts.list()).toEqual([saved]);
+  } else {
+    await expect(discovery).rejects.toMatchObject({ code: "inbox-required" });
+    await expect(draft.save()).rejects.toMatchObject({ code: "discovery-required" });
+    expect(draft.snapshot().folders).toEqual([]);
+    expect(await accounts.list()).toEqual([]);
+    expect(protection.keys()).toEqual([]);
+  }
+  await fixture.disconnected;
+  expect(fixture.listRequests).toEqual(['"INBOX." "*"', '"" "INBOX"']);
+});
+
+test("discards previous folders when a synchronous abort callback starts a retest during update", async () => {
+  const late = Promise.withResolvers<readonly MailFolder[]>();
+  const previousFolder = { ...inbox, path: "Previous/Only", name: "Only" };
+  const currentFolder = { ...inbox, path: "Current/Only", name: "Only" };
+  const newPassword = "new-synthetic-password";
+  const discover = vi.fn<MailFolderDiscovery>(async ({ email }) => [inbox, email === "other@example.invalid" ? currentFolder : previousFolder]);
+  const { accounts, owner, protection } = await setup(discover);
+  const original = settings();
+  const changed = { ...original, email: "other@example.invalid", imap: { ...original.imap, port: 3143 } };
+  const draft = accounts.begin(original, password);
+  let reentrant: Promise<unknown> | undefined;
+  discover.mockImplementationOnce(({ signal }) => {
+    signal.addEventListener(
+      "abort",
+      () => {
+        reentrant = draft.testConnection().catch((error: unknown) => error);
+      },
+      { once: true },
+    );
+    return late.promise;
+  });
+  const pending = draft.testConnection();
+  const rejected = expect(pending).rejects.toMatchObject({ code: "discovery-stale" });
+
+  draft.update(changed, newPassword);
+  expect(reentrant).toBeDefined();
+  const reentrantResult = await reentrant;
+  await expect(draft.save()).rejects.toMatchObject({ code: "discovery-required" });
+  expect(reentrantResult).toMatchObject({ code: "discovery-stale" });
+  expect(draft.snapshot()).toEqual({ settings: changed, folders: [] });
+  expect(await accounts.list()).toEqual([]);
+  expect(protection.keys()).toEqual([]);
+  await expect(draft.testConnection()).resolves.toMatchObject([{ path: "INBOX" }, { path: "Current/Only" }]);
+  late.resolve([inbox, previousFolder]);
+  await rejected;
+  draft.selectFolders(["INBOX", "Current/Only"]);
+  const saved = await draft.save();
+  expect(saved.definition).toMatchObject({ settings: changed, folders: [{ path: "INBOX" }, { path: "Current/Only" }] });
+  expect(discover).toHaveBeenCalledTimes(2);
+  expect(discover).toHaveBeenLastCalledWith(expect.objectContaining({ endpoint: changed.imap, email: changed.email, password: newPassword }));
+  expect(await accounts.list()).toEqual([saved]);
+  expect(protection.keys()).toHaveLength(1);
+  const credentials = new ModuleCredentials({
+    ...owner,
+    pluginId: "mail",
+    definition: mailAccountDefinitionSchema,
+    targets: ({ settings }) => accountTargets(settings),
+  });
+  expect(await credentials.use(saved.accountId, [accountPasswordPurpose], async (_, values) => values.get(accountPasswordPurpose))).toBe(newPassword);
+});
+
+test.each(["update", "close"] as const)("does not start a retest superseded by a synchronous abort callback (%s)", async (action) => {
+  const late = Promise.withResolvers<readonly MailFolder[]>();
+  const discover = vi.fn<MailFolderDiscovery>().mockResolvedValue([inbox]);
+  const { accounts, protection } = await setup(discover);
+  const draft = accounts.begin(settings(), password);
+  const changed = { ...settings(), label: "Updated during cancellation" };
+  discover.mockImplementationOnce(({ signal }) => {
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (action === "update") draft.update(changed);
+        else draft.close();
+      },
+      { once: true },
+    );
+    return late.promise;
+  });
+  const pending = draft.testConnection();
+  const rejected = expect(pending).rejects.toMatchObject({ code: "discovery-stale" });
+
+  await expect(draft.testConnection()).rejects.toMatchObject({ code: "discovery-stale" });
+  late.resolve([inbox]);
+  await rejected;
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(draft.snapshot().folders).toEqual([]);
+  await expect(draft.save()).rejects.toMatchObject({ code: action === "update" ? "discovery-required" : "draft-closed" });
+  expect(await accounts.list()).toEqual([]);
+  expect(protection.keys()).toEqual([]);
+  if (action === "update") {
+    expect(draft.snapshot().settings).toEqual(changed);
+    await draft.testConnection();
+    expect((await draft.save()).definition.settings).toEqual(changed);
+  }
+});
+
 test.each(["address", "authentication", "port"] as const)("invalidates a late response after changing %s", async (field) => {
   const late = Promise.withResolvers<readonly MailFolder[]>();
   let firstSignal: AbortSignal | undefined;

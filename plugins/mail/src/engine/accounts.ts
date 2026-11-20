@@ -18,6 +18,13 @@ import { discoverImapFolders } from "./imap-discovery.js";
 import type { MailEndpoint } from "./presets.js";
 
 type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
+type DraftInput = Readonly<{ settings: MailAccountSettings; password: string | undefined }>;
+type FolderDiscovery = {
+  readonly input: DraftInput;
+  readonly settings: MailAccountDefinition["settings"];
+  readonly password: string;
+  controller: AbortController | undefined;
+};
 
 export type MailAccount = Omit<CredentialSummary, "entityId"> & { accountId: string; definition: MailAccountDefinition };
 
@@ -42,9 +49,9 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
 
 export class MailAccountDraft {
   readonly #id = randomUUID();
-  #settings: MailAccountSettings;
-  #password: string | undefined;
-  #attempt: AbortController | undefined;
+  #input: DraftInput;
+  #discovery: FolderDiscovery | undefined;
+  #cancellingDiscovery = false;
   #folders = new Map<string, MailFolder>();
   #selected = new Set<string>();
   #saving = false;
@@ -56,12 +63,11 @@ export class MailAccountDraft {
     settings: MailAccountSettings,
     password?: string,
   ) {
-    this.#settings = structuredClone(settings);
-    this.#password = password;
+    this.#input = { settings: structuredClone(settings), password };
   }
 
   snapshot() {
-    const { provider, email, label, auth, imap, smtpEnabled, smtp } = this.#settings;
+    const { provider, email, label, auth, imap, smtpEnabled, smtp } = this.#input.settings;
     const endpoint = ({ host, port, security }: MailEndpoint): MailEndpoint => ({ host, port, security });
     return {
       settings: { provider, email, label, auth, imap: endpoint(imap), smtpEnabled, smtp: endpoint(smtp) },
@@ -76,21 +82,24 @@ export class MailAccountDraft {
   /** A changed IMAP identity requires the caller to explicitly supply a password again. */
   update(settings: MailAccountSettings, password?: string) {
     this.#assertEditable();
-    this.#invalidateDiscovery();
-    if (imapTarget(this.#settings) !== imapTarget(settings)) this.#password = undefined;
-    this.#settings = structuredClone(settings);
-    if (password !== undefined) this.#password = password;
+    const nextSettings = structuredClone(settings);
+    const previousPassword = imapTarget(this.#input.settings) === imapTarget(nextSettings) ? this.#input.password : undefined;
+    this.#input = { settings: nextSettings, password: password === undefined ? previousPassword : password };
+    this.#replaceDiscovery();
   }
 
   async testConnection() {
     this.#assertEditable();
-    this.#invalidateDiscovery();
-    const { settings, password } = this.#validatedInput();
-    const attempt = new AbortController();
-    this.#attempt = attempt;
+    if (this.#cancellingDiscovery) throw new MailAccountError("discovery-stale");
+    const input = this.#input;
+    const { settings, password } = this.#validatedInput(input);
+    const controller = new AbortController();
+    const discovery: FolderDiscovery = { input, settings, password, controller };
+    this.#replaceDiscovery(discovery);
     try {
-      const results = await this.discover({ endpoint: settings.imap, email: settings.email, password, signal: attempt.signal });
-      if (this.#attempt !== attempt) throw new MailAccountError("discovery-stale");
+      this.#assertCurrentDiscovery(discovery);
+      const results = await this.discover({ endpoint: { ...settings.imap }, email: settings.email, password, signal: controller.signal });
+      this.#assertCurrentDiscovery(discovery);
       const folders = new Map<string, MailFolder>();
       for (const result of results) {
         const parsed = mailFolderSchema.safeParse(result);
@@ -102,14 +111,15 @@ export class MailAccountDraft {
       }
       const inbox = folders.get("INBOX");
       if (!inbox || !isSelectable(inbox)) throw new MailAccountError("inbox-required");
+      this.#assertCurrentDiscovery(discovery);
+      discovery.controller = undefined;
       this.#folders = folders;
       this.#selected.add("INBOX");
       return this.snapshot().folders;
     } catch (error) {
-      if (this.#attempt !== attempt) throw new MailAccountError("discovery-stale");
+      this.#assertCurrentDiscovery(discovery);
+      this.#discovery = undefined;
       throw error instanceof MailAccountError ? error : new MailAccountError("folder-list");
-    } finally {
-      if (this.#attempt === attempt) this.#attempt = undefined;
     }
   }
 
@@ -127,8 +137,7 @@ export class MailAccountDraft {
 
   async save() {
     this.#assertEditable();
-    this.#assertDiscovered();
-    const { settings, password } = this.#validatedInput();
+    const { settings, password } = this.#assertDiscovered();
     const definition: MailAccountDefinition = {
       format: 1,
       settings,
@@ -143,7 +152,8 @@ export class MailAccountDraft {
         actions: [{ purpose: accountPasswordPurpose, action: "replace", value: password }],
       });
       this.#closed = true;
-      this.#password = undefined;
+      this.#input = { settings: this.#input.settings, password: undefined };
+      this.#discovery = undefined;
       return mailAccount(saved, definition);
     } finally {
       this.#saving = false;
@@ -154,21 +164,27 @@ export class MailAccountDraft {
     if (this.#closed) return;
     this.#assertEditable();
     this.#closed = true;
-    this.#password = undefined;
-    this.#invalidateDiscovery();
+    this.#input = { settings: this.#input.settings, password: undefined };
+    this.#replaceDiscovery();
   }
 
-  #validatedInput() {
-    const parsed = parseAccountSettings(this.#settings);
+  #validatedInput(input: DraftInput) {
+    const parsed = parseAccountSettings(input.settings);
     if (!parsed.success) throw new MailAccountError("invalid-settings");
     if (parsed.data.auth === "oauth2") throw new MailAccountError("oauth-required");
-    const password = parsed.data.auth === "app-password" ? this.#password?.replace(/\s+/g, "") : this.#password;
+    const password = parsed.data.auth === "app-password" ? input.password?.replace(/\s+/g, "") : input.password;
     if (!password) throw new MailAccountError("credential-required");
     return { settings: { ...parsed.data, auth: parsed.data.auth }, password };
   }
 
   #assertDiscovered() {
-    if (!this.#folders.has("INBOX")) throw new MailAccountError("discovery-required");
+    const discovery = this.#discovery;
+    if (!discovery || discovery.input !== this.#input || !this.#folders.has("INBOX")) throw new MailAccountError("discovery-required");
+    return discovery;
+  }
+
+  #assertCurrentDiscovery(discovery: FolderDiscovery) {
+    if (this.#discovery !== discovery || discovery.input !== this.#input) throw new MailAccountError("discovery-stale");
   }
 
   #assertEditable() {
@@ -176,11 +192,20 @@ export class MailAccountDraft {
     if (this.#saving) throw new MailAccountError("draft-busy");
   }
 
-  #invalidateDiscovery() {
-    const attempt = this.#attempt;
-    this.#attempt = undefined;
+  #replaceDiscovery(discovery?: FolderDiscovery) {
+    const previous = this.#discovery?.controller;
+    this.#discovery = discovery;
     this.#folders.clear();
     this.#selected.clear();
-    attempt?.abort();
+    if (!previous) return;
+
+    // Abort listeners run synchronously. A retest can start after cancellation returns.
+    const wasCancelling = this.#cancellingDiscovery;
+    this.#cancellingDiscovery = true;
+    try {
+      previous.abort();
+    } finally {
+      this.#cancellingDiscovery = wasCancelling;
+    }
   }
 }

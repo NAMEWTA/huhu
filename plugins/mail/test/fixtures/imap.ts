@@ -1,9 +1,10 @@
 import { createServer, type Socket } from "node:net";
 import { createInterface } from "node:readline";
 
-/** LIST-only adaptation of the S0.2 synthetic IMAP endpoint. */
-export async function openImapFixture(options: { stallList?: boolean; rejectLogin?: boolean; rejectList?: boolean; disconnectDuringList?: boolean } = {}) {
+/** Folder discovery adaptation of the S0.2 synthetic IMAP endpoint. */
+export async function openImapFixture(options: { stallList?: boolean; rejectLogin?: boolean; rejectList?: boolean; disconnectDuringList?: boolean; namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent" } = {}) {
   const commands: string[] = [];
+  const listRequests: string[] = [];
   const sockets = new Set<Socket>();
   const listed = Promise.withResolvers<void>();
   const disconnected = Promise.withResolvers<void>();
@@ -26,13 +27,26 @@ export async function openImapFixture(options: { stallList?: boolean; rejectLogi
         case "LOGIN":
           return socket.write(options.rejectLogin ? `${tag} NO [AUTHENTICATIONFAILED] denied\r\n` : `${tag} OK LOGIN\r\n`);
         case "NAMESPACE":
+          if (options.namespacedInbox) return socket.write(`* NAMESPACE (("INBOX." ".")) NIL NIL\r\n${tag} OK NAMESPACE\r\n`);
           return socket.write(`* NAMESPACE (("" "/")) NIL NIL\r\n${tag} OK NAMESPACE\r\n`);
-        case "LIST":
+        case "LIST": {
+          const request = line.slice(`${tag} ${verb} `.length);
+          listRequests.push(request);
           listed.resolve();
           if (options.stallList) return;
           if (options.disconnectDuringList) return socket.destroy();
           if (options.rejectList) return socket.write(`${tag} NO listing unavailable\r\n`);
+          if (options.namespacedInbox) {
+            if (request === '"INBOX." "*"') return socket.write(`* LIST (\\HasNoChildren) "." "INBOX.Projects"\r\n${tag} OK LIST\r\n`);
+            if (request !== '"" "INBOX"') return socket.write(`${tag} BAD unexpected LIST request\r\n`);
+            const inboxFlags = { selectable: "\\HasChildren", missing: "", noselect: "\\Noselect", nonexistent: "\\NonExistent" }[options.namespacedInbox];
+            const response = inboxFlags ? `* LIST (${inboxFlags}) "." "inbox"\r\n` : "";
+            return socket.write(`${response}${tag} OK LIST\r\n`);
+          }
           return socket.write(['* LIST (\\HasNoChildren) "/" "inbox"', '* LIST (\\Noselect \\HasChildren) "/" "Container"', '* LIST (\\HasNoChildren) "/" "Container/Projects"', `${tag} OK LIST`, ""].join("\r\n"));
+        }
+        case "LSUB":
+          return socket.write(`${tag} OK LSUB\r\n`);
         default:
           return socket.write(`${tag} BAD unsupported fixture command\r\n`);
       }
@@ -49,6 +63,7 @@ export async function openImapFixture(options: { stallList?: boolean; rejectLogi
   return {
     port,
     commands,
+    listRequests,
     listed: listed.promise,
     disconnected: disconnected.promise,
     close: () =>
