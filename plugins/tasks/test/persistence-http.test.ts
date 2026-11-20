@@ -578,6 +578,8 @@ test("外部调用、只读受理及损坏记录都无法开始执行", { timeou
     expect(response.status).toBe(200);
     return ((await response.json()) as { result: { tools?: { name: string }[]; isError?: boolean } }).result;
   };
+  expect(await mcp("tools/list", {})).toEqual({ tools: [] });
+  expect(await call(engine, "gateway.update", { capability: "tasks.list", exposed: true })).toMatchObject({ ok: true });
   const { tools } = await mcp("tools/list", {});
   expect(tools).toContainEqual(expect.objectContaining({ name: "tasks_list" }));
   for (const [capability, args] of Object.entries(dispatchCapabilities)) {
