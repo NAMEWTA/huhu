@@ -1,15 +1,11 @@
 import { Button, EmptyState } from "@huhu/ui";
 import { CapabilityError, useEngine } from "@huhu/workbench";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { FileDirectory, FileDocument, FileEntry, FileSearch, FileSession } from "../shared/files.js";
+import { FileTable } from "./FileTable.js";
+import { RemoteTextEditor } from "./RemoteTextEditor.js";
 import { t } from "./i18n.js";
 
-interface Entry {
-  name: string;
-  type: "file" | "dir" | "link" | "other";
-  size: number;
-  mtime: number;
-  mode: string;
-}
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
 
 interface HostBridge {
@@ -19,39 +15,79 @@ interface HostBridge {
 const bridge = (): HostBridge => (globalThis as { huhuHost?: HostBridge }).huhuHost ?? {};
 
 const join = (dir: string, name: string) => (dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`);
-const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
 /** SSH → 文件（SFTP）：浏览、文本预览、上传、下载、新建文件夹、重命名、删除；覆盖与删除都要先确认。 */
-export function FilesPanel({ hostId }: { hostId: string }) {
+export function FilesPanel({ session, toolbar, title = t.files.title, search = false }: { session: FileSession; toolbar?: ReactNode; title?: string | undefined; search?: boolean }) {
   const engine = useEngine();
   const [cwd, setCwd] = useState("");
-  const [entries, setEntries] = useState<Entry[] | null>(null);
+  const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
+  const [document, setDocument] = useState<FileDocument>();
   const [folder, setFolder] = useState("");
   const [upFrom, setUpFrom] = useState("");
   const [field, setField] = useState("");
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [filter, setFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<FileSearch>();
+  const [located, setLocated] = useState<string>();
+  const request = useRef<AbortController>(null);
+  const ready = session.state === "ready";
+  const { fileSessionId } = session;
 
-  const call = useCallback(<T,>(cap: string, input: Record<string, unknown>) => engine.call<T>(cap, { hostId, ...input }, { write: true }), [engine, hostId]);
+  const call = useCallback(<T,>(cap: string, input: Record<string, unknown>) => engine.call<T>(cap, { fileSessionId, ...input }, { write: true }), [engine, fileSessionId]);
   const load = useCallback(
     async (dir: string) => {
+      if (!ready) return undefined;
+      request.current?.abort();
+      const active = new AbortController();
+      request.current = active;
       setError(null);
       try {
-        const r = await call<{ path: string; entries: Entry[] }>("ssh.sftp.list", { path: dir });
+        const r = await engine.call<FileDirectory>("ssh.sftp.list", { fileSessionId, path: dir }, { write: true, signal: active.signal });
+        if (active.signal.aborted) return undefined;
         setCwd(r.path);
         setEntries(r.entries);
+        return r.path;
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        if (!active.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        return undefined;
       }
     },
-    [call],
+    [engine, fileSessionId, ready],
   );
   useEffect(() => {
     void load("");
+    return () => request.current?.abort();
   }, [load]);
+
+  async function navigate(dir: string, name?: string) {
+    const next = await load(dir);
+    if (next === undefined) return;
+    if (cwd && next !== cwd) setHistory((past) => [...past, cwd]);
+    setFilter("");
+    setLocated(name);
+  }
+
+  async function find() {
+    if (!ready || searching || !query.trim()) return;
+    setSearching(true);
+    setMatches(undefined);
+    setError(null);
+    try {
+      setMatches(await engine.call<FileSearch>("ssh.fileSessions.search", { fileSessionId, path: cwd, query: query.trim() }, { write: true }));
+    } catch (error) {
+      if (error instanceof Error && !error.message.includes("已取消")) setError(error.message);
+    } finally {
+      setSearching(false);
+    }
+  }
 
   /** 执行一个可能因“已存在”而需要确认覆盖的操作。 */
   async function attempt(what: string, run: (overwrite: boolean) => Promise<unknown>, after?: () => void) {
@@ -76,8 +112,8 @@ export function FilesPanel({ hostId }: { hostId: string }) {
     await go(false);
   }
 
-  const openEntry = async (e: Entry) => {
-    if (e.type === "dir") return void load(join(cwd, e.name));
+  const openEntry = async (e: FileEntry) => {
+    if (e.type === "dir") return void navigate(join(cwd, e.name));
     setError(null);
     setPreview(null);
     try {
@@ -87,21 +123,101 @@ export function FilesPanel({ hostId }: { hostId: string }) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
+  async function editEntry(e: FileEntry) {
+    setError(null);
+    try {
+      setDocument(await engine.call<FileDocument>("ssh.fileSessions.document.open", { fileSessionId, path: join(cwd, e.name) }));
+    } catch (error) {
+      if (error instanceof Error) setError(error.message);
+    }
+  }
   const up = cwd.split("/").slice(0, -1).join("/") || "/";
 
   return (
-    <section data-testid="files-panel" aria-label={t.files.title}>
-      <h2>{t.files.title}</h2>
+    <section data-testid="files-panel" aria-label={title}>
+      <h2>{title}</h2>
       <div className="hu-row">
-        <Button onClick={() => void load("")}>{t.files.home}</Button>
-        <Button disabled={cwd === "/" || !cwd} onClick={() => void load(up)} data-testid="files-up">
+        <Button disabled={!ready} onClick={() => void navigate("")}>
+          {t.files.home}
+        </Button>
+        <Button
+          disabled={!ready || history.length === 0}
+          onClick={() =>
+            void load(history.at(-1)!).then((next) => {
+              if (next !== undefined) {
+                setHistory(history.slice(0, -1));
+                setFilter("");
+                setLocated(undefined);
+              }
+            })
+          }
+        >
+          返回目录
+        </Button>
+        <Button disabled={!ready || cwd === "/" || !cwd} onClick={() => void navigate(up)} data-testid="files-up">
           {t.files.up}
         </Button>
-        <Button onClick={() => void load(cwd)}>{t.files.refresh}</Button>
+        <Button disabled={!ready} onClick={() => void load(cwd)}>
+          {t.files.refresh}
+        </Button>
+        <Button disabled={!ready || !cwd || bookmarks.includes(cwd)} onClick={() => setBookmarks([...bookmarks, cwd])}>
+          收藏远端目录
+        </Button>
+        {toolbar}
         <code data-testid="files-path" aria-label={t.files.path}>
           {cwd || "…"}
         </code>
       </div>
+      {session.state === "disconnected" && <p role="status">原连接已断开</p>}
+      {bookmarks.length > 0 && (
+        <div className="ssh-workspace-controls" aria-label="远端书签">
+          {bookmarks.map((dir) => (
+            <Button disabled={!ready} key={dir} onClick={() => void navigate(dir)}>
+              {dir}
+            </Button>
+          ))}
+        </div>
+      )}
+      {search ? (
+        <>
+          <form
+            className="hu-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void find();
+            }}
+          >
+            <label>
+              递归搜索文件名 <input type="search" maxLength={100} value={query} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+            <Button type="submit" disabled={!ready || !query.trim() || searching}>
+              搜索
+            </Button>
+            {searching && <Button onClick={() => void engine.call("ssh.fileSessions.cancelSearch", { fileSessionId }, { write: true }).catch(() => undefined)}>取消搜索</Button>}
+          </form>
+          {matches && (
+            <section aria-label="文件名搜索结果">
+              <p role="status">
+                {matches.hits.length} 项{matches.limited ? "，已达到搜索上限" : ""}
+                {matches.skipped ? `，跳过 ${matches.skipped} 个目录` : ""}
+              </p>
+              <ul>
+                {matches.hits.map(({ folder, entry }) => (
+                  <li key={join(folder, entry.name)}>
+                    <Button disabled={!ready} onClick={() => void navigate(folder, entry.name)}>
+                      {join(folder, entry.name)}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
+      ) : (
+        <label>
+          筛选远端目录 <input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} />
+        </label>
+      )}
       {busy ? (
         <div className="hu-row" role="status">
           <span>{t.files.working}</span>
@@ -121,7 +237,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
         </div>
       ) : null}
 
-      {pending?.kind === "overwrite" ? (
+      {ready && pending?.kind === "overwrite" ? (
         <div role="alertdialog" aria-label={t.files.overwrite(pending.what)} data-testid="files-overwrite">
           <p>{t.files.overwrite(pending.what)}</p>
           <Button variant="danger" onClick={() => void pending.retry()} data-testid="files-overwrite-yes">
@@ -132,7 +248,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
           </Button>
         </div>
       ) : null}
-      {pending?.kind === "delete" ? (
+      {ready && pending?.kind === "delete" ? (
         <div role="alertdialog" aria-label={t.files.confirmDelete(pending.name)} data-testid="files-delete-dialog">
           <p>{t.files.confirmDelete(pending.name)}</p>
           <Button variant="danger" onClick={() => void attempt(pending.name, () => call("ssh.sftp.delete", { path: pending.path }))} data-testid="files-delete-yes">
@@ -141,7 +257,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
           <Button onClick={() => setPending(null)}>{t.files.cancel}</Button>
         </div>
       ) : null}
-      {pending?.kind === "download" ? (
+      {ready && pending?.kind === "download" ? (
         <form
           className="hu-form"
           onSubmit={(ev) => {
@@ -177,7 +293,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
           </Button>
         </form>
       ) : null}
-      {pending?.kind === "rename" ? (
+      {ready && pending?.kind === "rename" ? (
         <form
           className="hu-form"
           onSubmit={(ev) => {
@@ -205,58 +321,47 @@ export function FilesPanel({ hostId }: { hostId: string }) {
       ) : entries.length === 0 ? (
         <EmptyState title={t.files.empty} />
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">{t.files.name}</th>
-              <th scope="col">{t.files.size}</th>
-              <th scope="col">{t.files.modified}</th>
-              <th scope="col">{t.files.mode}</th>
-              <th scope="col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.name} data-testid="files-row">
-                <td>
-                  <button type="button" className="hu-nav-item" onClick={() => void openEntry(e)} data-testid="files-open">
-                    {e.type === "dir" ? `📁 ${e.name}` : e.name}
-                  </button>
-                </td>
-                <td>{e.type === "dir" ? "—" : fmtSize(e.size)}</td>
-                <td>{e.mtime ? new Date(e.mtime).toLocaleString() : ""}</td>
-                <td>
-                  <code>{e.mode}</code>
-                </td>
-                <td>
-                  {e.type === "file" ? (
-                    <Button
-                      aria-label={`${t.files.download} ${e.name}`}
-                      onClick={() => {
-                        setField("");
-                        setPending({ kind: "download", name: e.name, remote: join(cwd, e.name) });
-                      }}
-                    >
-                      {t.files.download}
-                    </Button>
-                  ) : null}
-                  <Button
-                    aria-label={`${t.files.rename} ${e.name}`}
-                    onClick={() => {
-                      setField(e.name);
-                      setPending({ kind: "rename", name: e.name, from: join(cwd, e.name) });
-                    }}
-                  >
-                    {t.files.rename}
-                  </Button>
-                  <Button variant="danger" aria-label={`${t.files.delete} ${e.name}`} onClick={() => setPending({ kind: "delete", name: e.name, path: join(cwd, e.name) })}>
-                    {t.files.delete}
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <FileTable
+          caption="远端目录项目"
+          entries={entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase()))}
+          disabled={!ready}
+          current={located ?? null}
+          onOpen={(entry) => void openEntry(entry)}
+          actions={(e) => (
+            <>
+              {e.type === "file" && (
+                <Button disabled={!ready} aria-label={`编辑 ${e.name}`} onClick={() => void editEntry(e)}>
+                  编辑
+                </Button>
+              )}
+              {e.type === "file" ? (
+                <Button
+                  aria-label={`${t.files.download} ${e.name}`}
+                  disabled={!ready}
+                  onClick={() => {
+                    setField("");
+                    setPending({ kind: "download", name: e.name, remote: join(cwd, e.name) });
+                  }}
+                >
+                  {t.files.download}
+                </Button>
+              ) : null}
+              <Button
+                aria-label={`${t.files.rename} ${e.name}`}
+                disabled={!ready}
+                onClick={() => {
+                  setField(e.name);
+                  setPending({ kind: "rename", name: e.name, from: join(cwd, e.name) });
+                }}
+              >
+                {t.files.rename}
+              </Button>
+              <Button variant="danger" disabled={!ready} aria-label={`${t.files.delete} ${e.name}`} onClick={() => setPending({ kind: "delete", name: e.name, path: join(cwd, e.name) })}>
+                {t.files.delete}
+              </Button>
+            </>
+          )}
+        />
       )}
       {preview ? (
         <>
@@ -268,6 +373,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
           </pre>
         </>
       ) : null}
+      {document && <RemoteTextEditor key={document.path} initial={document} session={session} onClose={() => setDocument(undefined)} />}
 
       <form
         className="hu-form"
@@ -281,7 +387,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
         }}
       >
         <input className="hu-input" aria-label={t.files.folderName} data-testid="files-folder" placeholder={t.files.folderName} value={folder} onChange={(ev) => setFolder(ev.target.value)} />
-        <Button type="submit" disabled={!folder.trim() || folder.includes("/") || busy}>
+        <Button type="submit" disabled={!ready || !folder.trim() || folder.includes("/") || busy}>
           {t.files.newFolder}
         </Button>
       </form>
@@ -312,7 +418,7 @@ export function FilesPanel({ hostId }: { hostId: string }) {
             {t.files.choose}
           </Button>
         ) : null}
-        <Button type="submit" variant="primary" disabled={!upFrom.trim() || busy} data-testid="files-upload-go">
+        <Button type="submit" variant="primary" disabled={!ready || !upFrom.trim() || busy} data-testid="files-upload-go">
           {t.files.uploadTo}
         </Button>
       </form>

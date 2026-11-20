@@ -3,6 +3,8 @@ import { useEngine } from "@huhu/workbench";
 import { useState } from "react";
 import type { WorkspaceRun, WorkspaceRunPane } from "../shared/workspace.js";
 import { WorkspaceLayout } from "./WorkspaceLayout.js";
+import { AttachedFiles } from "./FileWorkspace.js";
+import type { FileSession } from "../shared/files.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
@@ -13,14 +15,19 @@ const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   ended: "会话已结束",
 };
 
-export function WorkspaceRunView({ run, onTrust }: { run: WorkspaceRun; onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void> }) {
+export function WorkspaceRunView({ run, onTrust, onOpenFiles }: { run: WorkspaceRun; onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void>; onOpenFiles: (session: FileSession) => void }) {
   const { endpoint } = useEngine();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
+  const [active, setActive] = useState(0);
+  const [showFiles, setShowFiles] = useState(false);
+  const activePane = run.panes[active];
   return (
     <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏">
       <p>连接代次 {run.generation}</p>
       <WorkspaceLayout
         layout={run.layout}
+        active={active}
+        onActive={setActive}
         labels={run.panes.map(({ label }) => label)}
         pane={(index) => {
           const pane = run.panes[index]!;
@@ -40,6 +47,16 @@ export function WorkspaceRunView({ run, onTrust }: { run: WorkspaceRun; onTrust:
               <header className="ssh-workspace-controls">
                 <strong>{pane.label}</strong>
                 <span role="status">{PHASES[pane.phase]}</span>
+                {pane.phase === "ready" && (
+                  <Button
+                    onClick={() => {
+                      setActive(index);
+                      setShowFiles(true);
+                    }}
+                  >
+                    分栏文件
+                  </Button>
+                )}
               </header>
               {pane.error && <p role="alert">{pane.error.message}</p>}
               {prompt && (
@@ -69,6 +86,13 @@ export function WorkspaceRunView({ run, onTrust }: { run: WorkspaceRun; onTrust:
           );
         }}
       />
+      {showFiles &&
+        activePane &&
+        (activePane.phase === "ready" && activePane.sessionId ? (
+          <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} />
+        ) : (
+          <p role="status">{activePane.label}的连接尚未就绪</p>
+        ))}
     </section>
   );
 }

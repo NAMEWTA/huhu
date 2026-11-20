@@ -10,6 +10,7 @@ import { hostImportConfirm, hostImportPreview } from "./import/capability.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
 import { WorkspaceRuns } from "./workspace-runs.js";
+import { FileSessions } from "./file-sessions.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -38,7 +39,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     now: () => new Date(),
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
+  const files = new FileSessions(manager);
   ctx.effect(() => () => {
+    files.dispose();
     runs.dispose();
     manager.disposeAll();
   });
@@ -138,15 +141,23 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.execCancel, (_c, i) => ({ cancelled: manager.cancel(i.execId) })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.auditList, (_c, i) => manager.auditList(i.hostId, i.limit)));
   // SFTP（仅桌面；复用已建立的连接）。覆盖需要 overwrite=true（界面先让用户确认）；上传先写临时文件再改名
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpList, (_c, i) => manager.sftpList(i.hostId, i.path)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRead, (_c, i) => manager.sftpRead(i.hostId, i.path)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpWrite, (_c, i) => manager.sftpWrite(i.hostId, i.path, i.text, i.overwrite)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpUpload, (c, i) => manager.sftpUpload(i.hostId, i.localPath, i.remotePath, i.overwrite, c.signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDownload, (c, i) => manager.sftpDownload(i.hostId, i.remotePath, i.localPath, i.overwrite, c.signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpCancel, (_c, i) => ({ cancelled: manager.sftpCancel(i.hostId) })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpMkdir, async (_c, i) => (await manager.sftpMkdir(i.hostId, i.path), { ok: true as const })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRename, async (_c, i) => (await manager.sftpRename(i.hostId, i.from, i.to, i.overwrite), { ok: true as const })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDelete, async (_c, i) => (await manager.sftpDelete(i.hostId, i.path), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (_c, i) => files.open(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsList, () => files.list()));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsClose, (_c, i) => (files.close(i.fileSessionId), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsLocalList, (_c, i) => files.localList(i.fileSessionId, i.parts, i.root)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsSearch, ({ signal }, i) => files.search(i.fileSessionId, i.path, i.query, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (_c, i) => ({ cancelled: files.cancelSearch(i.fileSessionId) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, ({ signal }, i) => files.readDocument(i.fileSessionId, i.path, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, ({ signal }, i) => files.writeDocument(i.fileSessionId, i.path, i.text, i.expectedVersion, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpList, ({ signal }, i) => manager.sftpList(files.source(i), i.path, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRead, (_c, i) => manager.sftpRead(files.source(i), i.path)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpWrite, (_c, i) => manager.sftpWrite(files.source(i), i.path, i.text, i.overwrite)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpUpload, (c, i) => manager.sftpUpload(files.source(i), i.localPath, i.remotePath, i.overwrite, c.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDownload, (c, i) => manager.sftpDownload(files.source(i), i.remotePath, i.localPath, i.overwrite, c.signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpCancel, (_c, i) => ({ cancelled: manager.sftpCancel(files.source(i)) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpMkdir, async (_c, i) => (await manager.sftpMkdir(files.source(i), i.path), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRename, async (_c, i) => (await manager.sftpRename(files.source(i), i.from, i.to, i.overwrite), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDelete, async (_c, i) => (await manager.sftpDelete(files.source(i), i.path), { ok: true as const })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsOpen, (_c, i) => manager.openShell(i.hostId, { cols: i.cols, rows: i.rows })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsList, (_c, i) => manager.listShells(i.hostId)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsClose, (_c, i) => ({ closed: manager.closeShell(i.id) })));

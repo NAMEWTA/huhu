@@ -1,0 +1,256 @@
+import { Button, EmptyState, PageHead } from "@huhu/ui";
+import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { useEffect, useState } from "react";
+import type { FileDirectory, FileSession } from "../shared/files.js";
+import { FilesPanel } from "./FilesPanel.js";
+import { FileTable } from "./FileTable.js";
+import "./files.css";
+
+interface LocalBridge {
+  pickOpenPath?(kind: "directory"): Promise<string | null>;
+}
+
+function localPicker() {
+  return (globalThis as { huhuHost?: LocalBridge }).huhuHost?.pickOpenPath;
+}
+
+function source(session: FileSession) {
+  return `${session.user}@${session.host.includes(":") ? `[${session.host}]` : session.host}:${session.port}`;
+}
+
+export function AttachedFiles({ hostId, shellId, onOpen, title }: { hostId: string; shellId?: string | null; onOpen: (session: FileSession) => void; title?: string }) {
+  const engine = useEngine();
+  const [session, setSession] = useState<FileSession>();
+  const [error, setError] = useState("");
+  const [opening, setOpening] = useState(false);
+  useEffect(() => {
+    let closed = false;
+    let id: string | undefined;
+    const close = (fileSessionId: string) => void engine.call("ssh.fileSessions.close", { fileSessionId }, { write: true }).catch(() => undefined);
+    void engine.call<FileSession>("ssh.fileSessions.open", { hostId, ...(shellId ? { shellId } : {}), attached: true }, { write: true }).then(
+      (value) => {
+        if (closed) close(value.fileSessionId);
+        else {
+          id = value.fileSessionId;
+          setSession(value);
+        }
+      },
+      (error: unknown) => {
+        if (!closed && error instanceof Error) setError(error.message);
+      },
+    );
+    return () => {
+      closed = true;
+      if (id) close(id);
+    };
+  }, [engine, hostId, shellId]);
+
+  useEngineEvents((event) => {
+    if (event.type === "ssh.connectionChanged" && "hostId" in event.payload && event.payload.hostId === hostId && "state" in event.payload && event.payload.state === "disconnected") {
+      setSession((current) => current && { ...current, state: "disconnected" });
+    }
+  });
+
+  async function openIndependent() {
+    if (!session || opening) return;
+    setOpening(true);
+    setError("");
+    try {
+      onOpen(await engine.call<FileSession>("ssh.fileSessions.open", { fromFileSessionId: session.fileSessionId }, { write: true }));
+    } catch (error) {
+      if (error instanceof Error) setError(error.message);
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  return (
+    <>
+      {error && <p role="alert">{error}</p>}
+      {session ? (
+        <FilesPanel
+          key={session.fileSessionId}
+          session={session}
+          title={title}
+          search
+          toolbar={
+            <Button loading={opening} disabled={session.state !== "ready"} onClick={() => void openIndependent()}>
+              打开独立双栏
+            </Button>
+          }
+        />
+      ) : (
+        !error && <p role="status">正在绑定文件会话…</p>
+      )}
+    </>
+  );
+}
+
+function LocalFiles({ id }: { id: string }) {
+  const engine = useEngine();
+  const [parts, setParts] = useState<string[]>([]);
+  const [where, setWhere] = useState<FileDirectory>();
+  const [bookmarks, setBookmarks] = useState<{ path: string; parts: string[] }[]>([]);
+  const [filter, setFilter] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const picker = localPicker();
+  async function navigate(next: string[], root?: string) {
+    setLoading(true);
+    setError("");
+    try {
+      setWhere(await engine.call<FileDirectory>("ssh.fileSessions.localList", { fileSessionId: id, parts: next, ...(root ? { root } : {}) }));
+      setParts(next);
+      setFilter("");
+      if (root) setBookmarks([]);
+    } catch (error) {
+      if (error instanceof Error) setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <section aria-label="本机文件">
+      <h2>本机文件</h2>
+      {picker ? (
+        <>
+          <div className="ssh-workspace-controls">
+            <Button
+              disabled={loading}
+              onClick={() =>
+                void picker("directory")
+                  .then((root) => {
+                    if (root) return navigate([], root);
+                  })
+                  .catch(() => setError("无法打开本机目录选择器"))
+              }
+            >
+              选择本机目录
+            </Button>
+            <Button disabled={loading || parts.length === 0} onClick={() => void navigate(parts.slice(0, -1))}>
+              返回上级
+            </Button>
+            {where && (
+              <Button disabled={loading || bookmarks.some(({ path }) => path === where.path)} onClick={() => setBookmarks([...bookmarks, { path: where.path, parts }])}>
+                收藏本机目录
+              </Button>
+            )}
+          </div>
+          {error && <p role="alert">{error}</p>}
+          {where && (
+            <>
+              <p>
+                <code>{where.path}</code>
+              </p>
+              <label>
+                筛选本机目录 <input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} />
+              </label>
+              {bookmarks.length > 0 && (
+                <div className="ssh-workspace-controls" aria-label="本机书签">
+                  {bookmarks.map(({ path, parts }) => (
+                    <Button disabled={loading} key={path} onClick={() => void navigate(parts)}>
+                      {path}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <FileTable
+                caption="本机目录项目"
+                entries={where.entries.filter(({ name }) => name.toLowerCase().includes(filter.trim().toLowerCase()))}
+                disabled={loading}
+                onOpen={(entry) => {
+                  if (entry.type === "dir") void navigate([...parts, entry.name]);
+                }}
+              />
+            </>
+          )}
+        </>
+      ) : (
+        <p>系统目录选取可在桌面应用中使用。</p>
+      )}
+    </section>
+  );
+}
+
+export function FileWorkspace({ active, selectedId, seed, select, onBack }: { active: boolean; selectedId: string; seed: FileSession | null; select: (id: string) => void; onBack: () => void }) {
+  const engine = useEngine();
+  const qc = useQueryClient();
+  const sessions = useCapability<FileSession[]>("ssh.fileSessions.list", {});
+  const [error, setError] = useState("");
+  const [reversed, setReversed] = useState<Record<string, boolean>>({});
+  const current = sessions.data?.find(({ fileSessionId }) => fileSessionId === selectedId) ?? (sessions.isFetching && seed?.fileSessionId === selectedId ? seed : undefined);
+  useEffect(() => {
+    if (active) void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
+  }, [active, selectedId, qc, engine.vaultId, seed]);
+  useEngineEvents((event) => {
+    if (event.type === "ssh.connectionChanged") void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
+  });
+
+  async function close(id: string) {
+    setError("");
+    try {
+      await engine.call("ssh.fileSessions.close", { fileSessionId: id }, { write: true });
+      select("");
+      await sessions.refetch();
+    } catch (error) {
+      if (error instanceof Error) setError(error.message);
+    }
+  }
+  return (
+    <div className="ssh-file-view" hidden={!active}>
+      <div className="hu-module-layout hu-execution-module" data-testid="ssh-file-workspace">
+        <aside className="hu-resource-pane" aria-label="独立文件会话">
+          <div className="hu-resource-head">
+            <Button variant="ghost" onClick={onBack}>
+              返回 SSH
+            </Button>
+          </div>
+          <div className="hu-resource-list">
+            {sessions.data?.map((session) => (
+              <button key={session.fileSessionId} className="ssh-resource-row" type="button" aria-current={session.fileSessionId === selectedId} onClick={() => select(session.fileSessionId)}>
+                <strong>{session.name}</strong>
+                <span>{session.state === "ready" ? "原连接在线" : "原连接已断开"}</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+        <main className="hu-view-content">
+          <PageHead title="独立文件会话" />
+          <div className="hu-scroll ssh-pad">
+            {(error || sessions.error) && <p role="alert">{error || sessions.error?.message}</p>}
+            {!current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
+            {sessions.data?.map((session) => {
+              const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} />];
+              if (reversed[session.fileSessionId]) panes.reverse();
+              return (
+                <section
+                  key={session.fileSessionId}
+                  hidden={session.fileSessionId !== selectedId}
+                  data-file-session-id={session.fileSessionId}
+                  data-connection-id={session.connectionId}
+                  data-testid="ssh-independent-files"
+                  aria-label={session.name}
+                >
+                  <h2>
+                    {session.name} · <code>{source(session)}</code>
+                  </h2>
+                  <p role="status">{session.state === "ready" ? "原连接在线" : "原连接已断开，远端操作已停用"}</p>
+                  {session.shellId && (
+                    <p>
+                      来源 Shell <code>{session.shellId}</code>
+                    </p>
+                  )}
+                  <div className="ssh-workspace-controls">
+                    <Button onClick={() => setReversed({ ...reversed, [session.fileSessionId]: !reversed[session.fileSessionId] })}>交换左右位置</Button>
+                    <Button onClick={() => void close(session.fileSessionId)}>关闭独立文件视图</Button>
+                  </div>
+                  <div className="ssh-file-columns">{panes}</div>
+                </section>
+              );
+            })}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}

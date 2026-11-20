@@ -1,0 +1,42 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+@layer modules {
+  .ssh-file-view:not([hidden]) {
+    display: contents;
+  }
+
+  .ssh-file-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    align-items: start;
+    gap: 16px;
+  }
+
+  .ssh-file-columns > section {
+    min-inline-size: 0;
+  }
+
+  .ssh-file-table {
+    overflow-x: auto;
+  }
+
+  .ssh-file-table table {
+    inline-size: 100%;
+    min-inline-size: 16rem;
+  }
+
+  .ssh-file-table caption {
+    text-align: start;
+  }
+
+  .ssh-file-table [aria-current="location"] {
+    font-weight: 700;
+    text-decoration: underline;
+  }
+
+  .ssh-file-document {
+    inline-size: 100%;
+    min-block-size: 12rem;
+    resize: vertical;
+    font-family: var(--font-mono);
+  }
+}

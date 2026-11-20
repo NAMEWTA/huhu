@@ -5,14 +5,15 @@ import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
+import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
-const HostId = z.object({ hostId: z.string() });
-const Entry = z.object({ name: z.string(), type: z.enum(["file", "dir", "link", "other"]), size: z.number(), mtime: z.number(), mode: z.string() });
+const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
+const fileTarget = <T extends z.ZodRawShape>(shape: T) => z.union([FileSessionId.extend(shape), LegacySftpHost.extend(shape)]);
 const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
@@ -266,6 +267,87 @@ export const sshCapabilityDescriptors = {
     input: z.object({ hostId: z.string().optional(), limit: z.number().int().min(1).max(1000).default(200) }),
     output: z.array(z.object({ at: z.string(), hostId: z.string(), action: z.string(), result: z.string(), detail: z.string() })),
   }),
+  fileSessionsOpen: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.open",
+    title: "打开 SSH 文件会话",
+    description: "将文件会话绑定到当前 SSH 连接或已绑定的来源会话。",
+    scope: "execute",
+    risk: "normal",
+    input: z.union([z.strictObject({ hostId: z.string(), shellId: z.string().optional(), attached: z.boolean().default(false) }), z.strictObject({ fromFileSessionId: z.uuid() })]),
+    output: FileSession,
+  }),
+  fileSessionsList: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.list",
+    title: "打开的 SSH 文件会话",
+    description: "列出独立文件会话的原始连接和状态。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(FileSession),
+  }),
+  fileSessionsClose: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.close",
+    title: "关闭 SSH 文件会话",
+    description: "取消此文件会话中的工作并移除绑定。",
+    scope: "execute",
+    risk: "normal",
+    input: FileSessionId,
+    output: Ok,
+  }),
+  fileSessionsLocalList: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.fileSessions.localList",
+    title: "浏览本机目录",
+    description: "在指定文件会话中浏览所选本机目录。",
+    scope: "read",
+    risk: "normal",
+    input: FileSessionId.extend({ root: z.string().max(32767).optional(), parts: z.array(z.string().max(255)).max(128) }),
+    output: FileDirectory,
+  }),
+  fileSessionsSearch: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.search",
+    title: "搜索远端文件名称",
+    description: "从绑定会话的当前目录开始有界搜索。",
+    scope: "execute",
+    risk: "normal",
+    input: FileSessionId.extend({ path: z.string(), query: z.string().trim().min(1).max(100) }),
+    output: FileSearch,
+  }),
+  fileSessionsCancelSearch: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.cancelSearch",
+    title: "取消远端搜索",
+    description: "取消该文件会话的递归名称搜索。",
+    scope: "execute",
+    risk: "normal",
+    input: FileSessionId,
+    output: z.object({ cancelled: z.boolean() }),
+  }),
+  fileSessionsDocumentOpen: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.document.open",
+    title: "读取绑定会话的编辑文档",
+    description: "读取 UTF-8 文件、本次编辑版本及权限。",
+    scope: "read",
+    risk: "normal",
+    input: FileSessionId.extend({ path: z.string() }),
+    output: FileDocument,
+  }),
+  fileSessionsDocumentSave: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.fileSessions.document.save",
+    title: "按版本保存绑定会话的文档",
+    description: "核对打开时的版本并以受检查的暂存文件替换原文件。",
+    scope: "execute",
+    risk: "high",
+    input: FileSessionId.extend({ path: z.string(), text: z.string().max(EDIT_MAX_BYTES), expectedVersion: FileDocumentVersion }),
+    output: FileDocumentRevision,
+  }),
   sftpList: defineCapabilityDescriptor({
     ...ssh,
     name: "ssh.sftp.list",
@@ -273,8 +355,8 @@ export const sshCapabilityDescriptors = {
     description: "列出已连接主机上的指定目录，省略路径时列出登录目录。",
     scope: "execute",
     risk: "normal",
-    input: HostId.extend({ path: z.string().default("") }),
-    output: z.object({ path: z.string(), entries: z.array(Entry) }),
+    input: fileTarget({ path: z.string().default("") }),
+    output: FileDirectory,
   }),
   sftpRead: defineCapabilityDescriptor({
     ...ssh,
@@ -283,7 +365,7 @@ export const sshCapabilityDescriptors = {
     description: "读取已连接主机上的文本文件，返回正文和大小。",
     scope: "execute",
     risk: "normal",
-    input: HostId.extend({ path: z.string() }),
+    input: fileTarget({ path: z.string() }),
     output: z.object({ text: z.string(), size: z.number() }),
   }),
   sftpWrite: defineCapabilityDescriptor({
@@ -293,7 +375,7 @@ export const sshCapabilityDescriptors = {
     description: "向已连接主机写入文本。覆盖已有文件需要明确选择。",
     scope: "execute",
     risk: "high",
-    input: HostId.extend({ path: z.string(), text: z.string().max(2 * 1024 * 1024), overwrite: z.boolean().default(false) }),
+    input: fileTarget({ path: z.string(), text: z.string().max(2 * 1024 * 1024), overwrite: z.boolean().default(false) }),
     output: Size,
   }),
   sftpUpload: defineCapabilityDescriptor({
@@ -304,7 +386,7 @@ export const sshCapabilityDescriptors = {
     scope: "execute",
     risk: "high",
     timeoutMs: 30 * 60_000,
-    input: HostId.extend({ localPath: z.string(), remotePath: z.string(), overwrite: z.boolean().default(false) }),
+    input: fileTarget({ localPath: z.string(), remotePath: z.string(), overwrite: z.boolean().default(false) }),
     output: Size,
   }),
   sftpDownload: defineCapabilityDescriptor({
@@ -315,7 +397,7 @@ export const sshCapabilityDescriptors = {
     scope: "execute",
     risk: "high",
     timeoutMs: 30 * 60_000,
-    input: HostId.extend({ remotePath: z.string(), localPath: z.string(), overwrite: z.boolean().default(false) }),
+    input: fileTarget({ remotePath: z.string(), localPath: z.string(), overwrite: z.boolean().default(false) }),
     output: Size,
   }),
   sftpCancel: defineCapabilityDescriptor({
@@ -325,7 +407,7 @@ export const sshCapabilityDescriptors = {
     description: "取消指定主机当前的上传或下载。",
     scope: "execute",
     risk: "high",
-    input: HostId,
+    input: fileTarget({}),
     output: z.object({ cancelled: z.boolean() }),
   }),
   sftpMkdir: defineCapabilityDescriptor({
@@ -335,7 +417,7 @@ export const sshCapabilityDescriptors = {
     description: "在已连接主机上创建目录。",
     scope: "execute",
     risk: "normal",
-    input: HostId.extend({ path: z.string() }),
+    input: fileTarget({ path: z.string() }),
     output: Ok,
   }),
   sftpRename: defineCapabilityDescriptor({
@@ -345,7 +427,7 @@ export const sshCapabilityDescriptors = {
     description: "在已连接主机上重命名或移动文件。覆盖需要明确选择。",
     scope: "execute",
     risk: "high",
-    input: HostId.extend({ from: z.string(), to: z.string(), overwrite: z.boolean().default(false) }),
+    input: fileTarget({ from: z.string(), to: z.string(), overwrite: z.boolean().default(false) }),
     output: Ok,
   }),
   sftpDelete: defineCapabilityDescriptor({
@@ -355,7 +437,7 @@ export const sshCapabilityDescriptors = {
     description: "在已连接主机上删除文件或空目录。",
     scope: "execute",
     risk: "high",
-    input: HostId.extend({ path: z.string() }),
+    input: fileTarget({ path: z.string() }),
     output: Ok,
   }),
   shellsOpen: defineCapabilityDescriptor({

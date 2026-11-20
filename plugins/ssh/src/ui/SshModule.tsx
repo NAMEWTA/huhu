@@ -1,11 +1,12 @@
 import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
 import { CapabilityError, host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
 import type { ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
-import { FilesPanel } from "./FilesPanel.js";
+import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
+import type { FileSession } from "../shared/files.js";
 import { HostEditorDialog } from "./HostEditorDialog.js";
 import { HostImportDialog } from "./HostImportDialog.js";
 import { HostKeyDialog, hostEndpoint } from "./HostKeyDialog.js";
@@ -69,6 +70,9 @@ export function SshModule() {
   const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
   const [workspaces, setWorkspaces] = useState(false);
+  const [fileView, showFileView] = useState(false);
+  const [selectedFile, selectFile] = useState("");
+  const [fileSeed, setFileSeed] = useState<FileSession | null>(null);
   const [importVault, setImportVault] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
@@ -161,13 +165,31 @@ export function SshModule() {
       setConnectError({ hostId: h.id, message: message(e) });
     }
   }
-  if (workspaces) return <WorkspaceLibrary onHosts={() => setWorkspaces(false)} />;
-  return (
+  function openFiles(session?: FileSession) {
+    if (session) {
+      setFileSeed(session);
+      selectFile(session.fileSessionId);
+    }
+    showFileView(true);
+  }
+  const withFileWorkspace = (content: ReactNode) => (
+    <>
+      <div className="ssh-file-view" hidden={fileView}>
+        {content}
+      </div>
+      <FileWorkspace active={fileView} selectedId={selectedFile} seed={fileSeed} select={selectFile} onBack={() => showFileView(false)} />
+    </>
+  );
+  if (workspaces) return withFileWorkspace(<WorkspaceLibrary onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  return withFileWorkspace(
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
         <div className="hu-resource-head ssh-resource-head">
           <Button variant="ghost" onClick={() => setWorkspaces(true)}>
             工作区
+          </Button>
+          <Button variant="ghost" onClick={() => openFiles()}>
+            独立文件会话
           </Button>
           <div className="row">
             <span className="grow ssh-resource-title">{t.hosts}</span>
@@ -524,7 +546,7 @@ export function SshModule() {
         ) : host && tab === "files" ? (
           isConn ? (
             <div className="hu-scroll ssh-pad">
-              <FilesPanel key={host.id} hostId={host.id} />
+              <AttachedFiles key={`${host.id}:${activeShell ?? ""}`} hostId={host.id} shellId={activeShell} onOpen={openFiles} />
             </div>
           ) : (
             <EmptyState icon={Folder} title="先连接主机，再浏览文件" />
@@ -566,6 +588,6 @@ export function SshModule() {
           onRefresh={refresh}
         />
       ) : null}
-    </div>
+    </div>,
   );
 }

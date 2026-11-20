@@ -1,9 +1,10 @@
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
+import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 async function sshCall<T>(page: Page, capability: string, input: unknown = {}): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
@@ -304,5 +305,224 @@ test("H4.2 绑定写入失败零拨号，已删除和身份变更有各自分栏
   } finally {
     await fixture.close();
     await Promise.all([oldTarget.close(), newTarget.close()]);
+  }
+});
+
+test("H6.1 附属文件跟随活动分栏，独立双栏保持原连接和单独目录", async () => {
+  test.setTimeout(90_000);
+  const password = randomUUID();
+  let hold = false;
+  let held = 0;
+  let linkVisits = 0;
+  const remoteA = await startFakeSsh({
+    password,
+    holdReadDirectory: (dir) => {
+      if (dir.includes("loop-link")) linkVisits++;
+      if (!hold) return false;
+      held++;
+      return true;
+    },
+  });
+  const remoteB = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page, vault, app } = fixture;
+    remoteA.fs.dirs.add("/home/test/subdir-a");
+    remoteA.fs.files.set("/home/test/remote-a.txt", Buffer.from("remote a"));
+    remoteA.fs.files.set("/home/test/subdir-a/nested-marker.txt", Buffer.from("nested"));
+    remoteA.fs.links.set("/home/test/loop-link", "/home/test");
+    remoteB.fs.files.set("/home/test/remote-b.txt", Buffer.from("remote b"));
+    const localRoot = path.join(vault, "ssh-local-fixture");
+    mkdirSync(path.join(localRoot, "local-child"), { recursive: true });
+    writeFileSync(path.join(localRoot, "local-marker.txt"), "local");
+    await app.evaluate(({ dialog }, chosen) => {
+      dialog.showOpenDialog = (async (...args: unknown[]) => {
+        const options = args.at(-1) as { properties?: string[] };
+        if (!options.properties?.includes("openDirectory")) throw new Error("Expected native directory picker");
+        return { canceled: false, filePaths: [chosen] };
+      }) as typeof dialog.showOpenDialog;
+    }, localRoot);
+    await openWorkspace(page);
+    const hostA = await configureLoopback(page, "文件源甲", remoteA.port, password);
+    const hostB = await configureLoopback(page, "文件源乙", remoteB.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "双主机文件绑定",
+      layout: { kind: "tabs" },
+      panes: [{ hostId: hostA.hostId }, { hostId: hostB.hostId }],
+    });
+    expect(started.ok).toBe(true);
+    await page.getByRole("button", { name: /双主机文件绑定.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const sourcePane = run.getByTestId("ssh-workspace-run-pane");
+    await sourcePane.getByRole("button", { name: "信任并连接" }).click();
+    await sourcePane.getByRole("button", { name: "分栏文件" }).click();
+    const shellA = (await sourcePane.getAttribute("data-session-id"))!;
+    const attached = run.getByTestId("files-panel");
+    await expect(attached.getByRole("button", { name: "remote-a.txt", exact: true })).toBeVisible();
+    await attached.getByLabel("递归搜索文件名").fill("nested-marker");
+    await attached.getByRole("button", { name: "搜索", exact: true }).click();
+    await attached.getByRole("button", { name: "/home/test/subdir-a/nested-marker.txt", exact: true }).click();
+    await expect(attached.getByRole("button", { name: "nested-marker.txt", exact: true })).toHaveAttribute("aria-current", "location");
+    await expect(attached.getByTestId("files-preview")).toHaveCount(0);
+    await attached.getByRole("button", { name: "返回目录" }).click();
+    await expect(attached.getByRole("button", { name: "remote-a.txt", exact: true })).toBeVisible();
+    expect(linkVisits).toBe(0);
+    hold = true;
+    await attached.getByRole("button", { name: "搜索", exact: true }).click();
+    await expect.poll(() => held).toBeGreaterThan(0);
+    await attached.getByRole("button", { name: "取消搜索" }).click();
+    await expect(attached.getByRole("button", { name: "搜索", exact: true })).toBeEnabled();
+    hold = false;
+    await attached.getByRole("button", { name: "打开独立双栏" }).click();
+    const independent = page.getByTestId("ssh-independent-files").filter({ visible: true });
+    const firstSession = (await independent.getAttribute("data-file-session-id"))!;
+    const oldConnection = (await independent.getAttribute("data-connection-id"))!;
+    const local = independent.getByRole("region", { name: "本机文件", exact: true });
+    const pinned = independent.getByTestId("files-panel");
+    await expect(independent.getByText(shellA, { exact: true })).toBeVisible();
+    await local.getByRole("button", { name: "选择本机目录" }).click();
+    await expect(local.getByText("local-marker.txt", { exact: true })).toBeVisible();
+    await pinned.getByTestId("files-open").filter({ hasText: "subdir-a" }).click();
+    await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
+    await pinned.getByRole("button", { name: "收藏远端目录" }).click();
+    await local.getByRole("button", { name: /local-child/ }).click();
+    await expect(local.locator("code").first()).toContainText("local-child");
+    await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
+    await independent.getByRole("button", { name: "交换左右位置" }).click();
+    await expect(independent.locator(".ssh-file-columns > section").first()).toHaveAttribute("data-testid", "files-panel");
+    await pinned.getByRole("button", { name: "大小", exact: true }).click();
+    await expect(pinned.getByRole("columnheader", { name: "大小" })).toHaveAttribute("aria-sort", "ascending");
+    await pinned.getByLabel("筛选远端目录").fill("no-match");
+    await expect(pinned.getByRole("button", { name: "nested-marker.txt", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await run.getByRole("button", { name: "文件源乙", exact: true }).click();
+    await sourcePane.getByRole("button", { name: "信任并连接" }).click();
+    await expect(attached.getByRole("button", { name: "remote-b.txt", exact: true })).toBeVisible();
+    const shellB = (await sourcePane.getAttribute("data-session-id"))!;
+    await page.getByRole("button", { name: "独立文件会话", exact: true }).click();
+    await expect(independent).toHaveAttribute("data-file-session-id", firstSession);
+    await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
+    await expect(independent.getByText(shellA, { exact: true })).toBeVisible();
+    await sshCall(page, "ssh.disconnect", { hostId: hostA.hostId });
+    await expect(independent.getByText("原连接已断开，远端操作已停用")).toBeVisible();
+    expect((await sshCall(page, "ssh.connect", { hostId: hostA.hostId })).ok).toBe(true);
+    const fresh = await sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId: hostA.hostId, attached: true });
+    expect(fresh.ok).toBe(true);
+    expect(fresh.data.connectionId).not.toBe(oldConnection);
+    expect((await sshCall(page, "ssh.sftp.list", { fileSessionId: firstSession, path: "" })).error?.code).toBe("SSH_DISCONNECTED");
+    await expect(pinned.getByRole("button", { name: "刷新", exact: true })).toBeDisabled();
+    await independent.getByRole("button", { name: "关闭独立文件视图" }).click();
+    await expect(independent).toHaveCount(0);
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await expect(sourcePane).toHaveAttribute("data-session-id", shellB);
+    await expect(attached.getByRole("button", { name: "remote-b.txt", exact: true })).toBeVisible();
+    await attached.getByRole("button", { name: "打开独立双栏" }).click();
+    await expect(independent.getByText(shellB, { exact: true })).toBeVisible();
+    await independent.getByRole("button", { name: "关闭独立文件视图" }).click();
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await expect(sourcePane).toHaveAttribute("data-session-id", shellB);
+    expect((await sshCall<{ id: string; state: string }[]>(page, "ssh.shells.list", { hostId: hostB.hostId })).data).toContainEqual(expect.objectContaining({ id: shellB, state: "running" }));
+  } finally {
+    await fixture.close();
+    await Promise.all([remoteA.close(), remoteB.close()]);
+  }
+});
+
+test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内容", async () => {
+  test.setTimeout(90_000);
+  const password = randomUUID();
+  let duringStage: (() => void) | undefined;
+  const remote = await startFakeSsh({
+    password,
+    onWriteFile: (file) => {
+      if (file.includes(".huhu-upload-")) duringStage?.();
+    },
+  });
+  const fixture = await openApp();
+  const editPath = "/home/test/edit.txt";
+  try {
+    const { page } = fixture;
+    remote.fs.files.set(editPath, Buffer.from("\uFEFFalpha\r\nsecond\r\n"));
+    remote.fs.permissions.set(editPath, 0o640);
+    remote.fs.files.set("/home/test/too-big.txt", Buffer.alloc(1024 * 1024 + 1, 97));
+    remote.fs.files.set("/home/test/not-utf8.txt", Buffer.from([0xc3, 0x28]));
+    await openWorkspace(page);
+    const host = await configureLoopback(page, "编辑夹具", remote.port, password);
+    expect(
+      (
+        await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+          name: "测试远端文本",
+          layout: { kind: "one" },
+          panes: [{ hostId: host.hostId }],
+        })
+      ).ok,
+    ).toBe(true);
+    await page.getByRole("button", { name: /测试远端文本.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    await run.getByRole("button", { name: "打开独立双栏" }).click();
+    const pinned = page.getByTestId("ssh-independent-files").filter({ visible: true }).getByTestId("files-panel");
+    await pinned.getByRole("button", { name: "编辑 too-big.txt", exact: true }).click();
+    await expect(pinned.getByRole("alert")).toContainText("超过 1 MiB");
+    await pinned.getByRole("button", { name: "编辑 not-utf8.txt", exact: true }).click();
+    await expect(pinned.getByRole("alert")).toContainText("不是 UTF-8");
+    await pinned.getByRole("button", { name: "编辑 edit.txt", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "编辑远端文本" });
+    const draft = editor.getByLabel("正文");
+    await expect(draft).toHaveValue("alpha\nsecond\n");
+    await editor.getByLabel("查找", { exact: true }).fill("alpha");
+    await editor.getByRole("button", { name: "下一个匹配" }).click();
+    await editor.getByLabel("替换为").fill("beta");
+    await editor.getByRole("button", { name: "替换当前匹配" }).click();
+    await editor.getByLabel("行号", { exact: true }).fill("2");
+    await editor.getByRole("button", { name: "跳到行" }).click();
+    await expect(editor.getByText("第 2 行，共 3 行")).toBeVisible();
+    await editor.getByRole("button", { name: "缩进选中行" }).click();
+    await expect(draft).toHaveValue("beta\n  second\n");
+    await editor.getByRole("button", { name: "保存远端文件" }).click();
+    await expect(editor.getByRole("status")).toContainText("已保存远端文件");
+    expect(remote.fs.files.get(editPath)?.toString()).toBe("\uFEFFbeta\r\n  second\r\n");
+    expect(remote.fs.permissions.get(editPath)).toBe(0o640);
+
+    const other = await sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId: host.hostId });
+    expect(other.ok).toBe(true);
+    const read = await sshCall<FileDocument>(page, "ssh.fileSessions.document.open", { fileSessionId: other.data.fileSessionId, path: editPath });
+    expect(read.ok).toBe(true);
+    const secondWrite = await sshCall(page, "ssh.fileSessions.document.save", {
+      fileSessionId: other.data.fileSessionId,
+      path: editPath,
+      expectedVersion: read.data.version,
+      text: "另一会话的新内容\n",
+    });
+    expect(secondWrite.ok, secondWrite.error?.message).toBe(true);
+    await draft.fill("待保留的本地草稿\n");
+    await editor.getByRole("button", { name: "保存远端文件" }).click();
+    await expect(editor.getByRole("alert")).toContainText("远端文件已更改");
+    await expect(draft).toHaveValue("待保留的本地草稿\n");
+    await editor.getByRole("button", { name: "读取远端新版本" }).click();
+    await expect(editor.getByLabel("远端新版本")).toHaveValue("另一会话的新内容\n");
+    expect(remote.fs.files.get(editPath)?.toString()).toBe("\uFEFF另一会话的新内容\r\n");
+    expect(remote.fs.permissions.get(editPath)).toBe(0o640);
+    await expect(draft).toHaveValue("待保留的本地草稿\n");
+    await editor.getByRole("button", { name: "关闭编辑" }).click();
+
+    const latest = await sshCall<FileDocument>(page, "ssh.fileSessions.document.open", { fileSessionId: other.data.fileSessionId, path: editPath });
+    duringStage = () => {
+      duringStage = undefined;
+      remote.fs.files.set(editPath, Buffer.from("暂存期间外部改动"));
+    };
+    const raced = await sshCall(page, "ssh.fileSessions.document.save", {
+      fileSessionId: other.data.fileSessionId,
+      path: editPath,
+      expectedVersion: latest.data.version,
+      text: "这次保存必须停止",
+    });
+    expect(raced.error?.code).toBe("VERSION_CONFLICT");
+    expect(remote.fs.files.get(editPath)?.toString()).toBe("暂存期间外部改动");
+    expect([...remote.fs.files.keys()].filter((file) => file.includes(".huhu-"))).toEqual([]);
+  } finally {
+    await fixture.close();
+    await remote.close();
   }
 });

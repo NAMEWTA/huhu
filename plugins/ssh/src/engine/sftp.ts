@@ -1,10 +1,11 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createReadStream as localRead, createWriteStream as localWrite, lstatSync, existsSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 import { HuhuError, errors } from "@huhu/contracts";
 import type { SFTPWrapper } from "ssh2";
+import { EDIT_MAX_BYTES, type FileDocument, type FileSearch } from "../shared/files.js";
 
 /** 文本预览上限（规格：< 2 MiB）。 */
 export const SFTP_PREVIEW_MAX = 2 * 1024 * 1024;
@@ -19,7 +20,7 @@ export interface SftpEntry {
   mode: string;
 }
 
-const SSH_FX = { NO_SUCH_FILE: 2, PERMISSION_DENIED: 3 } as const;
+const SSH_FX = { EOF: 1, NO_SUCH_FILE: 2, PERMISSION_DENIED: 3 } as const;
 
 /** 把 ssh2 的 SFTP 状态错误变成明确的错误码。 */
 export function mapSftpError(e: unknown, what: string): HuhuError {
@@ -61,6 +62,57 @@ export async function list(s: SFTPWrapper, dir: string): Promise<{ path: string;
   return { path: abs, entries };
 }
 
+export async function searchNames(s: SFTPWrapper, dir: string, query: string, signal: AbortSignal): Promise<FileSearch> {
+  const normalized = normalizeRemote(dir);
+  const root = await realpath(s, normalized);
+  if (normalized !== "." && root !== normalized) throw errors.invalidInput("搜索根目录不能经过符号链接");
+  const pending = [{ path: root, depth: 0 }];
+  const needle = query.toLowerCase();
+  const hits: FileSearch["hits"] = [];
+  let visited = 0;
+  let entries = 0;
+  let skipped = 0;
+  let limited = false;
+  for (const folder of pending) {
+    signal.throwIfAborted();
+    if (++visited > 128) return { hits, limited: true, skipped };
+    try {
+      if ((await realpath(s, folder.path)) !== folder.path || typeOf((await statOrNull(s, folder.path))?.mode ?? 0) !== "dir") {
+        skipped++;
+        continue;
+      }
+      const handle = await call<Buffer>((cb) => s.opendir(folder.path, cb));
+      try {
+        for (;;) {
+          signal.throwIfAborted();
+          const batch = await call<import("ssh2").FileEntryWithStats[]>((cb) => s.readdir(handle, (error, items) => ((error as { code?: number } | undefined)?.code === SSH_FX.EOF ? cb(undefined, []) : cb(error, items))));
+          if (!batch.length) break;
+          for (const { filename, attrs } of batch) {
+            if (!filename || filename === "." || filename === ".." || filename.includes("/") || filename.includes("\0")) continue;
+            if (++entries > 2000) return { hits, limited: true, skipped };
+            const entry: SftpEntry = { name: filename, type: typeOf(attrs.mode), size: attrs.size, mtime: attrs.mtime * 1000, mode: modeStr(attrs.mode) };
+            if (filename.toLowerCase().includes(needle)) {
+              hits.push({ folder: folder.path, entry });
+              if (hits.length >= 100) return { hits, limited: true, skipped };
+            }
+            if (entry.type !== "dir") continue;
+            if (folder.depth >= 6) limited = true;
+            else pending.push({ path: path.posix.join(folder.path, filename), depth: folder.depth + 1 });
+          }
+        }
+      } finally {
+        if (!signal.aborted) await callv((cb) => s.close(handle, cb)).catch(() => undefined);
+      }
+    } catch (error) {
+      if (signal.aborted || folder.depth === 0) throw error;
+      const problem = mapSftpError(error, folder.path);
+      if (problem.code !== "NOT_FOUND" && problem.code !== "PERMISSION_DENIED") throw problem;
+      skipped++;
+    }
+  }
+  return { hits, limited, skipped };
+}
+
 async function statOrNull(s: SFTPWrapper, p: string): Promise<{ mode: number; size: number } | null> {
   try {
     return await call((cb) => s.lstat(p, cb));
@@ -75,6 +127,16 @@ export async function readText(s: SFTPWrapper, p: string, signal?: AbortSignal):
   const st = await call<{ mode: number; size: number }>((cb) => s.stat(abs, cb)); // 跟随符号链接预览
   if (typeOf(st.mode) !== "file") throw errors.invalidInput("只能预览普通文件");
   if (st.size > SFTP_PREVIEW_MAX) throw errors.invalidInput(`文件超过 ${SFTP_PREVIEW_MAX / 1024 / 1024} MiB，不能预览，请下载`);
+  const buf = await readBounded(s, abs, SFTP_PREVIEW_MAX, "文件超过预览上限（读取期间变大了），请下载", signal);
+  if (buf.subarray(0, 8000).includes(0)) throw errors.invalidInput("这是二进制文件，不能预览");
+  try {
+    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf), size: buf.length };
+  } catch {
+    throw errors.invalidInput("文件不是 UTF-8 文本，不能预览");
+  }
+}
+
+async function readBounded(s: SFTPWrapper, abs: string, max: number, tooLarge: string, signal?: AbortSignal): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let got = 0;
   await pipeline(
@@ -82,20 +144,77 @@ export async function readText(s: SFTPWrapper, p: string, signal?: AbortSignal):
     new Transform({
       transform(c: Buffer, _e, cb) {
         got += c.length;
-        if (got > SFTP_PREVIEW_MAX) return cb(errors.invalidInput("文件超过预览上限（读取期间变大了），请下载"));
+        if (got > max) return cb(errors.invalidInput(tooLarge));
         chunks.push(c);
         cb();
       },
     }),
     ...(signal ? [{ signal }] : []),
   );
-  const buf = Buffer.concat(chunks);
-  if (buf.subarray(0, 8000).includes(0)) throw errors.invalidInput("这是二进制文件，不能预览");
+  return Buffer.concat(chunks);
+}
+
+const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
+const editTooLarge = "远端文件超过 1 MiB，不能编辑";
+const editConflict = () => new HuhuError("VERSION_CONFLICT", "远端文件已更改，草稿仍保留");
+
+export async function documentPath(s: SFTPWrapper, input: string): Promise<string> {
+  const abs = normalizeRemote(input);
+  if (abs === "." || abs === "/") throw errors.invalidInput("请选择远端文件");
+  return path.posix.join(await realpath(s, path.posix.dirname(abs)), path.posix.basename(abs));
+}
+
+function documentVersion(abs: string, mode: number, bytes: Buffer): string {
+  return createHash("sha256")
+    .update(JSON.stringify([abs, mode]))
+    .update(bytes)
+    .digest("hex");
+}
+
+async function documentSnapshot(s: SFTPWrapper, abs: string, signal: AbortSignal) {
+  const parent = path.posix.dirname(abs);
+  if ((await realpath(s, parent)) !== parent) throw editConflict();
+  const st = await statOrNull(s, abs);
+  if (!st) throw errors.notFound("远端文件已移除");
+  if (typeOf(st.mode) !== "file") throw errors.invalidInput("远端编辑只支持普通文件");
+  if (st.size > EDIT_MAX_BYTES) throw errors.invalidInput(editTooLarge);
+  const bytes = await readBounded(s, abs, EDIT_MAX_BYTES, editTooLarge, signal);
+  const mode = st.mode & 0o7777;
+  const bom = bytes.subarray(0, BOM.length).equals(BOM);
+  return { mode, bytes, bom, version: documentVersion(abs, mode, bytes) };
+}
+
+export async function openDocument(s: SFTPWrapper, input: string, signal: AbortSignal): Promise<FileDocument> {
+  const abs = await documentPath(s, input);
+  const { mode, bytes, bom, version } = await documentSnapshot(s, abs, signal);
+  if (bytes.includes(0)) throw errors.invalidInput("文件含空字符，不能作为 UTF-8 文本编辑");
   try {
-    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf), size: buf.length };
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bom ? bytes.subarray(BOM.length) : bytes);
+    return { path: abs, version, mode: mode.toString(8).padStart(3, "0"), text };
   } catch {
-    throw errors.invalidInput("文件不是 UTF-8 文本，不能预览");
+    throw errors.invalidInput("文件不是 UTF-8 文本，不能编辑");
   }
+}
+
+export async function saveDocument(s: SFTPWrapper, abs: string, text: string, version: string, signal: AbortSignal): Promise<Omit<FileDocument, "text">> {
+  if (text.includes("\0") || Buffer.from(text, "utf8").toString("utf8") !== text) throw errors.invalidInput("需要不含空字符的 UTF-8 文本");
+  async function verify() {
+    try {
+      const current = await documentSnapshot(s, abs, signal);
+      if (current.version !== version) throw editConflict();
+      return current;
+    } catch (error) {
+      if (error instanceof HuhuError && ["NOT_FOUND", "INVALID_INPUT"].includes(error.code)) throw editConflict();
+      throw error;
+    }
+  }
+  const { mode, bytes: current, bom } = await verify();
+  const original = current.toString("utf8");
+  const body = original.includes("\r\n") && !original.replaceAll("\r\n", "").includes("\n") ? text.replace(/\r\n|\n/g, "\r\n") : text;
+  const bytes = Buffer.from((bom ? "\uFEFF" : "") + body, "utf8");
+  if (bytes.length > EDIT_MAX_BYTES) throw errors.invalidInput(editTooLarge);
+  await writeAtomic(s, abs, Readable.from(bytes), { overwrite: true, signal, maxBytes: EDIT_MAX_BYTES, checkedReplace: { mode, verify } });
+  return { path: abs, version: documentVersion(abs, mode, bytes), mode: mode.toString(8).padStart(3, "0") };
 }
 
 /** 先写 `<name>.huhu-upload-<rand>` 再 rename；已存在且未确认覆盖则不动远端；失败/取消/断线都清理临时文件。 */
@@ -118,7 +237,17 @@ async function replaceRemote(s: SFTPWrapper, from: string, to: string): Promise<
   await callv((cb) => s.unlink(backup, cb)).catch(() => undefined);
 }
 
-export async function writeAtomic(s: SFTPWrapper, target: string, source: Readable, opts: { overwrite: boolean; signal?: AbortSignal; maxBytes?: number }): Promise<{ size: number }> {
+export async function writeAtomic(
+  s: SFTPWrapper,
+  target: string,
+  source: Readable,
+  opts: {
+    overwrite: boolean;
+    signal?: AbortSignal;
+    maxBytes?: number;
+    checkedReplace?: { mode: number; verify: () => Promise<unknown> };
+  },
+): Promise<{ size: number }> {
   const abs = normalizeRemote(target);
   if (abs === ".") throw errors.invalidInput("需要完整的远端文件路径");
   const existing = await statOrNull(s, abs);
@@ -141,7 +270,12 @@ export async function writeAtomic(s: SFTPWrapper, target: string, source: Readab
     },
   });
   try {
-    await pipeline(source, counter, s.createWriteStream(tmp, { flags: "wx" }), ...(opts.signal ? [{ signal: opts.signal }] : []));
+    await pipeline(source, counter, s.createWriteStream(tmp, { flags: "wx", ...(opts.checkedReplace ? { mode: 0o600 } : {}) }), ...(opts.signal ? [{ signal: opts.signal }] : []));
+    if (opts.checkedReplace) {
+      await callv((cb) => s.chmod(tmp, opts.checkedReplace!.mode, cb));
+      await opts.checkedReplace.verify();
+      opts.signal?.throwIfAborted();
+    }
     if (existing) {
       await replaceRemote(s, tmp, abs);
     } else {

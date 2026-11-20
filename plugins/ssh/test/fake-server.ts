@@ -10,6 +10,7 @@ export interface FakeFs {
   files: Map<string, Buffer>;
   dirs: Set<string>;
   links: Map<string, string>;
+  permissions: Map<string, number>;
 }
 
 export interface FakeSshOptions {
@@ -22,6 +23,8 @@ export interface FakeSshOptions {
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
   onShellInput?: (text: string) => void;
+  holdReadDirectory?: (dir: string) => boolean;
+  onWriteFile?: (file: string) => void;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -41,7 +44,7 @@ export function genHostKey(): string {
 export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: number; fingerprint: string; close(): Promise<void>; conns: Connection[]; closed(): number; fs: FakeFs }> {
   const publicKey = o.publicKey === undefined ? undefined : utils.parseKey(o.publicKey);
   if (publicKey instanceof Error) throw new Error("测试公钥无法解析");
-  const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map() };
+  const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map(), permissions: new Map() };
   let writes = 0;
   const conns: Connection[] = [];
   let closed = 0;
@@ -93,13 +96,19 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
         });
         session.on("sftp", (acceptSftp, rejectSftp) => {
           if (o.noSftp) return rejectSftp();
-          serveSftp(acceptSftp(), fs, () => {
-            if (o.dropAfterWrites !== undefined && ++writes >= o.dropAfterWrites) {
-              client.end();
-              return true;
-            }
-            return false;
-          });
+          serveSftp(
+            acceptSftp(),
+            fs,
+            (file) => {
+              o.onWriteFile?.(file);
+              if (o.dropAfterWrites !== undefined && ++writes >= o.dropAfterWrites) {
+                client.end();
+                return true;
+              }
+              return false;
+            },
+            o.holdReadDirectory,
+          );
         });
         session.on("exec", (acceptExec, _rej, info) => {
           const ch = acceptExec();
@@ -172,7 +181,7 @@ const norm = (p: string): string => {
 const parent = (p: string): string => norm(p.split("/").slice(0, -1).join("/") || "/");
 
 /** 极简内存 SFTP 服务端（协议 v3 语义：RENAME 目标已存在则失败，没有 posix-rename 扩展）。 */
-function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => boolean): void {
+function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file: string) => boolean, holdReadDirectory?: (dir: string) => boolean): void {
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
   let next = 1;
@@ -187,7 +196,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   const attrsOf = (p: string) => {
     const isDir = fs.dirs.has(p);
     const f = fs.files.get(p);
-    return { mode: isDir ? 0o040755 : fs.links.has(p) ? 0o120777 : 0o100644, size: f?.length ?? 0, uid: 1000, gid: 1000, atime: 1_700_000_000, mtime: 1_700_000_000 };
+    return { mode: isDir ? 0o040755 : fs.links.has(p) ? 0o120777 : 0o100000 | (fs.permissions.get(p) ?? 0o644), size: f?.length ?? 0, uid: 1000, gid: 1000, atime: 1_700_000_000, mtime: 1_700_000_000 };
   };
   const exists = (p: string) => fs.dirs.has(p) || fs.files.has(p) || fs.links.has(p);
   const st = (id: number, code: number) => sftp.status(id, code);
@@ -203,6 +212,12 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   };
   sftp.on("STAT", stat);
   sftp.on("LSTAT", stat);
+  sftp.on("SETSTAT", (id, p, attrs) => {
+    const n = norm(p);
+    if (!fs.files.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    if (typeof attrs.mode === "number") fs.permissions.set(n, attrs.mode & 0o7777);
+    st(id, STATUS_CODE.OK);
+  });
   sftp.on("OPENDIR", (id, p) => {
     const n = norm(p);
     if (!fs.dirs.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
@@ -211,6 +226,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   sftp.on("READDIR", (id, h) => {
     const d = get(h);
     if (!d || d.kind !== "dir" || d.sent) return st(id, STATUS_CODE.EOF);
+    if (holdReadDirectory?.(d.path)) return;
     d.sent = true;
     const prefix = d.path === "/" ? "/" : `${d.path}/`;
     const names = [...fs.dirs, ...fs.files.keys(), ...fs.links.keys()].filter((x) => x !== d.path && x.startsWith(prefix) && !x.slice(prefix.length).includes("/"));
@@ -245,7 +261,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   sftp.on("WRITE", (id, h, offset, data) => {
     const f = get(h);
     if (!f || f.kind !== "file") return st(id, STATUS_CODE.FAILURE);
-    if (onWrite()) return; // 模拟中途断线：不再回复
+    if (onWrite(f.path)) return; // 模拟中途断线：不再回复
     const cur = fs.files.get(f.path) ?? Buffer.alloc(0);
     const out = Buffer.alloc(Math.max(cur.length, offset + data.length));
     cur.copy(out);
@@ -260,6 +276,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
   sftp.on("REMOVE", (id, p) => {
     const n = norm(p);
     if (!fs.files.delete(n) && !fs.links.delete(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
+    fs.permissions.delete(n);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("MKDIR", (id, p) => {
@@ -285,6 +302,9 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: () => 
     if (f) {
       fs.files.delete(a);
       fs.files.set(b, f);
+      const mode = fs.permissions.get(a);
+      if (mode !== undefined) fs.permissions.set(b, mode);
+      fs.permissions.delete(a);
     } else if (fs.dirs.has(a)) {
       fs.dirs.delete(a);
       fs.dirs.add(b);

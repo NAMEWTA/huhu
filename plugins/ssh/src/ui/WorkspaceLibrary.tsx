@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { layoutProblem, MAX_WORKSPACE_PANES, paneCount, splitTree, type SplitTree, type WorkspaceLayout as Layout, type WorkspacePane, type WorkspaceRun, type WorkspaceRunPane, type WorkspaceTemplate } from "../shared/workspace.js";
 import { LAYOUT_LABELS, WorkspaceLayout } from "./WorkspaceLayout.js";
 import { WorkspaceRunView } from "./WorkspaceRunView.js";
+import type { FileSession } from "../shared/files.js";
 
 export interface WorkspaceHost {
   hostId: string;
@@ -71,7 +72,7 @@ function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layo
   );
 }
 
-export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
+export function WorkspaceLibrary({ onHosts, onFiles }: { onHosts: () => void; onFiles: (session?: FileSession) => void }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const directory = useCapability<{ hosts: WorkspaceHost[] }>("ssh.hosts.directory", {});
@@ -226,6 +227,9 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
           <Button variant="ghost" onClick={onHosts}>
             主机
           </Button>
+          <Button variant="ghost" onClick={() => onFiles()}>
+            独立文件会话
+          </Button>
         </div>
         <div className="hu-resource-list">
           {runs.data?.length ? <div className="ssh-list-label">工作区运行</div> : null}
@@ -300,7 +304,7 @@ export function WorkspaceLibrary({ onHosts }: { onHosts: () => void }) {
                   关闭运行
                 </Button>
               </div>
-              <WorkspaceRunView key={run.id} run={run} onTrust={trust} />
+              <WorkspaceRunView key={run.id} run={run} onTrust={trust} onOpenFiles={onFiles} />
             </>
           )}
           {current && (
