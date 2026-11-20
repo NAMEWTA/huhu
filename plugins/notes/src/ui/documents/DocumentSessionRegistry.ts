@@ -37,7 +37,7 @@ export class DocumentSessionRegistry {
           entry.teardown();
         } else {
           await entry.session.flushForExit();
-          await entry.session.reopenDraft();
+          if (entry.refs > 0) await entry.session.reopenDraft();
         }
       } finally {
         entry.settling = null;
@@ -48,7 +48,9 @@ export class DocumentSessionRegistry {
 
   private async release(key: string, entry: Entry): Promise<void> {
     if (--entry.refs > entry.parkedRefs) return;
-    if (entry.settling) await entry.settling;
+    // A parked checkpoint may preserve the draft but fail to reload a removed file.
+    // Re-evaluate the remaining references so the last lease can still finish disposal.
+    if (entry.settling) await entry.settling.catch(() => undefined);
     if (this.map.get(key) === entry && entry.refs <= entry.parkedRefs) {
       await (entry.settling ?? this.settle(key, entry));
     }

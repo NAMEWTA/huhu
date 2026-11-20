@@ -535,6 +535,33 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(reg.get("v", "a.md")).toBeUndefined();
   });
 
+  test("C06：停放时文件已消失，草稿写成后最后引用仍可释放，恢复路径后可读取草稿", async () => {
+    const eng = new FakeEngine({ "a.md": "原稿" });
+    const reg = new DocumentSessionRegistry();
+    const makeManual = (id: ConstructorParameters<typeof DocumentSession>[0]["id"]) => new DocumentSession({ id, engine: eng, autosave: () => false, pollMs: 0 });
+    const a = await reg.acquire("v", "a.md", makeManual);
+    await a.session.load();
+    const evict = reg.retainForPark(a.session);
+    a.session.setText("移除前的脏稿");
+    eng.files.delete("a.md");
+    const held = Promise.withResolvers<void>();
+    eng.readGate = held.promise;
+    const finishing = expect(a.release()).rejects.toThrow();
+    await vi.waitFor(() => expect(eng.calls.filter((call) => call === "notes.read")).toHaveLength(2));
+    const removing = evict();
+    held.resolve();
+    await finishing;
+    await expect(removing).resolves.toBeUndefined();
+    expect(reg.size).toBe(0);
+    expect(eng.drafts.get("a.md")?.text).toBe("移除前的脏稿");
+
+    eng.files.set("a.md", { text: "原稿", version: 1 });
+    const reopened = await reg.acquire("v", "a.md", makeManual);
+    await reopened.session.load();
+    expect(reopened.session.getSnapshot().draft?.text).toBe("移除前的脏稿");
+    await reopened.release();
+  });
+
   test("A08：父目录结算同 Vault 全部相关会话，失败保留文本与操作重试条件", async () => {
     const paths = ["docs/active.json", "docs/nested/parked.md", "docs-extra/other.txt"];
     const makeEngine = () => new FakeEngine(Object.fromEntries(paths.map((path) => [path, "旧"])));

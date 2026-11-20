@@ -218,10 +218,11 @@ test("A08：移父目录前结算活动 TXT，后台 Markdown 与 JSON 草稿迁
     expect(await draft(before, "后台.md")).toBeUndefined();
     expect(await draft(before, "后台.json")).toBeUndefined();
     expect(await draft(after, "后台.json")).toBe(files["后台.json"] + "JSON末字");
-    await page.getByTitle(`${after}/后台.md`, { exact: true }).click();
+    const tabs = page.getByTestId("document-tabs");
+    await tabs.getByTitle(`${after}/后台.md`, { exact: true }).click();
     await page.getByTestId("note-draft-restore").click();
     await expect(prose(page)).toContainText("Markdown末字");
-    await page.getByTitle(`${after}/后台.json`, { exact: true }).click();
+    await tabs.getByTitle(`${after}/后台.json`, { exact: true }).click();
     await page.getByTestId("note-draft-restore").click();
     await expect(plain).toContainText("JSON末字");
     expect(readFileSync(path.join(vault, after, "后台.json"), "utf8")).toBe(files["后台.json"]);
