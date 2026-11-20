@@ -3,6 +3,7 @@ import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import path from "node:path";
 import { z } from "zod";
 import { CreateEntry, CreateEntryReceipt, EntryDetail, EntryIndex, GetEntry, ListEntries, RevealAccount, UpdateAccount, UpdateAccountReceipt, UpdateEntry, UpdateEntryReceipt } from "./personal.js";
+import { CreateTag, CreateTagReceipt, DeleteTag, TagList, TagReceipt, UpdateTag } from "./personal.js";
 import { Safe, type ItemMeta } from "./safe.js";
 
 export { Safe } from "./safe.js";
@@ -24,6 +25,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
   api.provide("secretUse", { resolve: (ref, c) => safe.resolve(ref, c) } satisfies SecretUse);
 
   const desktopOnly = { exposable: false, defaultExposed: false } as const;
+  const privateTags = { ...desktopOnly, desktopOnly: true } as const;
   // Personal edits use the session and revisions for replay protection before touching encrypted data.
   // The shared idempotency store does not hash sensitive inputs or bypass the session check.
   api.defineCapability(def({ name: "safe.entries.create", plugin: "safe", scope: "admin", ...desktopOnly, input: CreateEntry, output: CreateEntryReceipt, handler: (c, i) => safe.createEntry(i, c.signal) }));
@@ -31,6 +33,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
   api.defineCapability(def({ name: "safe.accounts.update", plugin: "safe", scope: "admin", ...desktopOnly, input: UpdateAccount, output: UpdateAccountReceipt, handler: (c, i) => safe.updateAccount(i, c.signal) }));
   api.defineCapability(def({ name: "safe.entries.list", plugin: "safe", scope: "read", ...desktopOnly, input: ListEntries, output: EntryIndex, handler: (c, i) => safe.listEntries(i.session, c.signal) }));
   api.defineCapability(def({ name: "safe.entries.get", plugin: "safe", scope: "read", ...desktopOnly, input: GetEntry, output: EntryDetail, handler: (c, i) => safe.getEntry(i.session, i.entryId, c.signal) }));
+  api.defineCapability(def({ name: "safe.tags.list", plugin: "safe", scope: "read", ...privateTags, input: ListEntries, output: TagList, handler: (c, i) => safe.listTags(i.session, c.signal) }));
+  api.defineCapability(def({ name: "safe.tags.create", plugin: "safe", scope: "admin", ...privateTags, input: CreateTag, output: CreateTagReceipt, handler: (c, i) => safe.createTag(i, c.signal) }));
+  api.defineCapability(def({ name: "safe.tags.update", plugin: "safe", scope: "admin", ...privateTags, input: UpdateTag, output: TagReceipt, handler: (c, i) => safe.updateTag(i, c.signal) }));
+  api.defineCapability(def({ name: "safe.tags.delete", plugin: "safe", scope: "admin", ...privateTags, input: DeleteTag, output: TagReceipt, handler: (c, i) => safe.deleteTag(i, c.signal) }));
   api.defineCapability(
     def({ name: "safe.accounts.reveal", plugin: "safe", scope: "admin", ...desktopOnly, input: RevealAccount, output: z.object({ password: z.string() }), handler: (c, i) => safe.revealAccount(i.session, i.entryId, i.accountId, c.signal) }),
   );

@@ -107,6 +107,69 @@
   .safe-form-pair .hu-field {
     min-inline-size: 0;
   }
+  .safe-workspace-actions,
+  .safe-tag-strip,
+  .safe-tag-manager-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-inline-size: 0;
+  }
+  .safe-workspace-actions {
+    margin-block-end: 12px;
+  }
+  .safe-tag-editor {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 12px;
+    min-inline-size: 0;
+  }
+  .safe-tag-choice {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    min-inline-size: 0;
+  }
+  .safe-tag-filters {
+    padding: 0 12px 12px;
+  }
+  .safe-tag-filters .hu-btn[aria-pressed="true"] {
+    border-color: var(--accent-strong);
+    background: var(--accent-soft);
+  }
+  .safe-tag-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: var(--safe-tag-bg);
+    color: var(--safe-tag-text);
+    overflow-wrap: anywhere;
+    font-size: 12px;
+  }
+  .safe-tag-badge[data-color="blue"] {
+    --safe-tag-bg: var(--tag-5-bg);
+    --safe-tag-text: var(--tag-5-text);
+  }
+  .safe-tag-badge[data-color="green"] {
+    --safe-tag-bg: var(--tag-3-bg);
+    --safe-tag-text: var(--tag-3-text);
+  }
+  .safe-tag-badge[data-color="orange"] {
+    --safe-tag-bg: var(--tag-1-bg);
+    --safe-tag-text: var(--tag-1-text);
+  }
+  .safe-tag-badge[data-color="purple"] {
+    --safe-tag-bg: var(--tag-4-bg);
+    --safe-tag-text: var(--tag-4-text);
+  }
+  .safe-tag-manager-row {
+    justify-content: space-between;
+  }
+  .safe-row-tags {
+    margin-block-start: 4px;
+  }
   .hu-secret-value {
     display: flex;
     align-items: center;

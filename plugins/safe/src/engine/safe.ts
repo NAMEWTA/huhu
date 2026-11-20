@@ -4,7 +4,7 @@ import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { parseSecretRef } from "../shared/secret-ref.js";
 import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
-import type { CreateEntry, EditTarget, SafeSession, StoredEntry, UpdateAccount, UpdateEntry } from "./personal.js";
+import type { CreateEntry, CreateTag, DeleteTag, EditTarget, SafeSession, StoredEntry, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateTag } from "./personal.js";
 import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type EntryPrecondition, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
 export type SecretType = "password" | "ssh-key" | "token" | "env";
@@ -20,7 +20,25 @@ export interface ItemMeta {
 
 export interface AuditEntry {
   at: string;
-  action: "setup" | "unlock" | "unlock-failed" | "lock" | "reveal" | "copy" | "use" | "use-denied" | "update" | "delete" | "change-password" | "create-entry" | "update-entry" | "update-account" | "reveal-account";
+  action:
+    | "setup"
+    | "unlock"
+    | "unlock-failed"
+    | "lock"
+    | "reveal"
+    | "copy"
+    | "use"
+    | "use-denied"
+    | "update"
+    | "delete"
+    | "change-password"
+    | "create-entry"
+    | "update-entry"
+    | "update-account"
+    | "reveal-account"
+    | "create-tag"
+    | "update-tag"
+    | "delete-tag";
   itemId: string | null;
   subject: string;
   result: "ok" | "denied" | "failed";
@@ -368,41 +386,47 @@ export class Safe {
         entryId: randomUUID(),
         name: input.name,
         url: input.url,
-        tagIds: [],
+        tagIds: input.tagIds,
         createdAt: now,
         updatedAt: now,
         accounts: input.accounts.map((fields) => ({ ...fields, accountId: randomUUID(), createdAt: now, updatedAt: now })),
       };
-      const revision = await this.savePersonalEntry(dk, entry, { kind: "create", expectedRevision: input.expectedRevision }, guard);
+      const revision = await this.savePersonalEntry(dk, entry, { kind: "create", expectedRevision: input.expectedRevision }, guard, input.newTags);
       this.auditBestEffort({ action: "create-entry", itemId: entry.entryId, subject: "desktop", result: "ok" });
       return { entryId: entry.entryId, revision, accountIds: entry.accounts.map((account) => account.accountId), status: "saved" as const };
     });
   }
 
-  private async savePersonalEntry(dk: Buffer, entry: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void): Promise<number> {
+  private async savePersonalEntry(dk: Buffer, entry: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void, newTags?: TagFields[]): Promise<number> {
     try {
-      return await this.store.commitEntry(dk, entry, precondition, guard);
+      return await this.store.commitEntry(dk, entry, precondition, guard, newTags);
     } catch (error) {
       if (error instanceof HuhuError) throw error;
       throw new HuhuError("INTERNAL", "保险箱条目写入失败，请重试");
     }
   }
 
-  private editEntry(input: EditTarget, signal: AbortSignal, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account"; itemId: string }) {
+  private editEntry(input: EditTarget, signal: AbortSignal, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account"; itemId: string }, newTags?: TagFields[]) {
     return this.withPersonalSession(input.session, signal, async (store, dk, guard) => {
       const currentRevision = store.manifest.entries[input.entryId];
       if (currentRevision === undefined) throw errors.notFound("条目不存在");
       if (currentRevision !== input.expectedRevision) throw errors.versionConflict(String(currentRevision));
       const now = new Date(this.d.now()).toISOString();
       const edited = { ...update(this.store.readEntry(store, dk, input.entryId), now), updatedAt: now };
-      const revision = await this.savePersonalEntry(dk, edited, { kind: "update", expectedRevision: currentRevision }, guard);
+      const revision = await this.savePersonalEntry(dk, edited, { kind: "update", expectedRevision: currentRevision }, guard, newTags);
       this.auditBestEffort({ ...audit, subject: "desktop", result: "ok" });
       return { ...edited, revision };
     });
   }
 
   async updateEntry(input: UpdateEntry, signal: AbortSignal) {
-    const { entryId, revision } = await this.editEntry(input, signal, (entry) => ({ ...entry, name: input.name ?? entry.name, url: input.url ?? entry.url }), { action: "update-entry", itemId: input.entryId });
+    const { entryId, revision } = await this.editEntry(
+      input,
+      signal,
+      (entry) => ({ ...entry, name: input.name ?? entry.name, url: input.url ?? entry.url, tagIds: input.tagIds ?? entry.tagIds }),
+      { action: "update-entry", itemId: input.entryId },
+      input.newTags,
+    );
     return { entryId, revision };
   }
 
@@ -439,6 +463,67 @@ export class Safe {
       revision: manifest.revision,
       entries: Object.entries(manifest.entries).map(([entryId, revision]) => ({ entryId, revision })),
     }));
+  }
+
+  listTags(session: SafeSession, signal: AbortSignal) {
+    return this.withPersonalSession(session, signal, (store, dk) => ({ revision: store.manifest.revision, tags: this.store.readTags(store, dk) }));
+  }
+
+  createTag(input: CreateTag, signal: AbortSignal) {
+    return this.withTags(input, signal, async (tags, commit) => {
+      const existing = tags.find((tag) => tag.name === input.name);
+      if (existing) return { tagId: existing.tagId, revision: input.expectedRevision, status: "reused" as const };
+      const tag = { tagId: randomUUID(), name: input.name, color: input.color };
+      const revision = await commit([...tags, tag], "create-tag", tag.tagId);
+      return { tagId: tag.tagId, revision, status: "saved" as const };
+    });
+  }
+
+  updateTag(input: UpdateTag, signal: AbortSignal) {
+    return this.withTags(input, signal, async (tags, commit) => {
+      if (!tags.some((tag) => tag.tagId === input.tagId)) throw errors.notFound("标签不存在");
+      if (tags.some((tag) => tag.tagId !== input.tagId && tag.name === input.name)) throw new HuhuError("NAME_CONFLICT", "已有同名标签，请改用其他名称");
+      const updated = tags.map((tag) => (tag.tagId === input.tagId ? { tagId: tag.tagId, name: input.name, color: input.color } : tag));
+      return { tagId: input.tagId, revision: await commit(updated, "update-tag", input.tagId) };
+    });
+  }
+
+  deleteTag(input: DeleteTag, signal: AbortSignal) {
+    return this.withTags(input, signal, async (tags, commit) => {
+      const next = tags.filter((tag) => tag.tagId !== input.tagId);
+      if (next.length === tags.length) throw errors.notFound("标签不存在");
+      return { tagId: input.tagId, revision: await commit(next, "delete-tag", input.tagId) };
+    });
+  }
+
+  private withTags<T>(
+    input: { session: SafeSession; expectedRevision: number },
+    signal: AbortSignal,
+    edit: (tags: Tag[], commit: (next: Tag[], action: "create-tag" | "update-tag" | "delete-tag", tagId: string) => Promise<number>) => Promise<T>,
+  ) {
+    return this.withPersonalSession(input.session, signal, (store, dk, guard) => {
+      if (store.manifest.revision !== input.expectedRevision) throw errors.versionConflict(String(store.manifest.revision));
+      return edit(this.store.readTags(store, dk), async (next, action, tagId) => {
+        const entries: StoredEntry[] = [];
+        if (action === "delete-tag") {
+          const updatedAt = new Date(this.d.now()).toISOString();
+          for (const id of Object.keys(store.manifest.entries)) {
+            guard();
+            const entry = this.store.readEntry(store, dk, id);
+            if (entry.tagIds.includes(tagId)) entries.push({ ...entry, updatedAt, tagIds: entry.tagIds.filter((id) => id !== tagId) });
+          }
+        }
+        let revision: number;
+        try {
+          revision = await this.store.commitTags(dk, store, next, entries, guard);
+        } catch (error) {
+          if (error instanceof HuhuError) throw error;
+          throw new HuhuError("INTERNAL", "保险箱标签写入失败，请重试");
+        }
+        this.auditBestEffort({ action, itemId: tagId, subject: "desktop", result: "ok" });
+        return revision;
+      });
+    });
   }
 
   getEntry(session: SafeSession, entryId: string, signal: AbortSignal) {

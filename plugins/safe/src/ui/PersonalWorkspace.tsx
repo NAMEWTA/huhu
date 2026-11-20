@@ -4,12 +4,18 @@ import { CapabilityError, useEngine, useEngineEvents, type EngineClient } from "
 import { ArrowLeft, ChevronRight, Eye, EyeOff, KeyRound, Plus } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { z } from "zod";
-import type { EntryDetail, EntryIndex, SafeSession } from "../engine/personal.js";
+import type { EntryDetail, EntryIndex, SafeSession, Tag, TagList } from "../engine/personal.js";
 import { EntryEditor, type EditTarget, type SaveReceipt } from "./EntryEditor.js";
+import { TagBadge, TagManager } from "./SafeTags.js";
 
 export type PersonalEntry = z.output<typeof EntryDetail>;
-type Catalog = { revision: number; entries: PersonalEntry[] };
+type Catalog = { revision: number; entries: PersonalEntry[]; tags: Tag[] };
 type Selection = { entryId: string; accountId?: string };
+type TagFilter = string[] | null;
+
+function matchesTags(entry: PersonalEntry, filter: TagFilter): boolean {
+  return filter === null ? entry.tagIds.length === 0 : filter.every((id) => entry.tagIds.includes(id));
+}
 
 function sessionEnded(error: unknown): boolean {
   return error instanceof CapabilityError && ["SAFE_LOCKED", "PLUGIN_DISABLED", "ENGINE_CLOSING", "UNAUTHENTICATED", "PERMISSION_DENIED"].includes(error.code);
@@ -18,15 +24,22 @@ function sessionEnded(error: unknown): boolean {
 async function readCatalog(engine: EngineClient, session: SafeSession, signal: AbortSignal): Promise<Catalog> {
   // The index exposes IDs and revisions only. Fetch details for the unlocked list
   // and keep them in this workspace's memory for search and account switching.
-  const index = await engine.call<z.output<typeof EntryIndex>>("safe.entries.list", { session }, { signal });
-  const entries: PersonalEntry[] = [];
-  // Leave room for the workbench's other calls to the same engine.
-  for (let start = 0; start < index.entries.length; start += 8) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     signal.throwIfAborted();
-    const batch = index.entries.slice(start, start + 8);
-    entries.push(...(await Promise.all(batch.map(({ entryId }) => engine.call<PersonalEntry>("safe.entries.get", { session, entryId }, { signal })))));
+    const [index, directory] = await Promise.all([engine.call<z.output<typeof EntryIndex>>("safe.entries.list", { session }, { signal }), engine.call<z.output<typeof TagList>>("safe.tags.list", { session }, { signal })]);
+    if (directory.revision !== index.revision) continue;
+    const entries: PersonalEntry[] = [];
+    // Leave room for the workbench's other calls to the same engine.
+    for (let start = 0; start < index.entries.length; start += 8) {
+      signal.throwIfAborted();
+      const batch = index.entries.slice(start, start + 8);
+      entries.push(...(await Promise.all(batch.map(({ entryId }) => engine.call<PersonalEntry>("safe.entries.get", { session, entryId }, { signal })))));
+    }
+    if (entries.every((entry, indexPosition) => entry.revision === index.entries[indexPosition]?.revision)) {
+      return { revision: index.revision, entries: entries.reverse(), tags: directory.tags };
+    }
   }
-  return { revision: index.revision, entries: entries.reverse() };
+  throw new Error("Safe changed while reading");
 }
 
 export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLock }: SafeSession & { onSessionEnded(): void; onLock(): void }) {
@@ -37,6 +50,8 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   const [loadError, setLoadError] = useState(false);
   const [saved, setSaved] = useState(false);
   const [query, setQuery] = useState("");
+  const [tagFilter, setTagFilter] = useState<TagFilter>([]);
+  const [managingTags, setManagingTags] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [editor, setEditor] = useState<EditTarget | null>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
@@ -49,6 +64,12 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   function endSession() {
     lifetime.current?.abort();
     onSessionEnded();
+  }
+
+  function handleError(error: unknown) {
+    if (!sessionEnded(error)) return false;
+    endSession();
+    return true;
   }
 
   useEngineEvents((event) => {
@@ -68,6 +89,8 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     const current = await readCatalog(engine, session, signal);
     signal.throwIfAborted();
     setCatalog(current);
+    const available = new Set(current.tags.map((tag) => tag.tagId));
+    setTagFilter((filter) => filter?.filter((id) => available.has(id)) ?? null);
     setLoadError(false);
     return current;
   }
@@ -75,8 +98,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   function load(signal: AbortSignal) {
     void reload(signal).catch((error: unknown) => {
       if (signal.aborted) return;
-      if (sessionEnded(error)) endSession();
-      else setLoadError(true);
+      if (!handleError(error)) setLoadError(true);
     });
   }
 
@@ -85,6 +107,8 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     lifetime.current = controller;
     setCatalog(null);
     setQuery("");
+    setTagFilter([]);
+    setManagingTags(false);
     setSelection(null);
     setEditor(null);
     setSaved(false);
@@ -96,8 +120,14 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     };
   }, [engine, instanceId, generation]);
 
-  const entry = catalog?.entries.find((item) => item.entryId === selection?.entryId);
+  const entry = catalog?.entries.find((item) => item.entryId === selection?.entryId && matchesTags(item, tagFilter));
   const account = entry?.accounts.find((item) => item.accountId === selection?.accountId) ?? entry?.accounts[0];
+  const tags = catalog?.tags ?? [];
+  const tagsById = new Map(tags.map((tag) => [tag.tagId, tag]));
+  const tagCounts = new Map<string, number>();
+  for (const item of catalog?.entries ?? []) {
+    for (const id of item.tagIds) tagCounts.set(id, (tagCounts.get(id) ?? 0) + 1);
+  }
 
   useLayoutEffect(() => {
     if (focusDetail.current && entry) {
@@ -114,9 +144,24 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   const term = query.trim().toLowerCase();
   const matches = (value: string) => value.toLowerCase().includes(term);
   const list = (catalog?.entries ?? []).flatMap((item) => {
-    const hit = term ? item.accounts.find((candidate) => [candidate.account, candidate.phone, candidate.email, candidate.note].some(matches)) : undefined;
-    return matches(item.name) || matches(item.url) || hit ? [{ item, hit }] : [];
+    if (!matchesTags(item, tagFilter)) return [];
+    const hitIndex = term ? item.accounts.findIndex((candidate) => [candidate.account, candidate.phone, candidate.email, candidate.note].some(matches)) : -1;
+    const hit = item.accounts[hitIndex];
+    const tagMatches = item.tagIds.some((id) => matches(tagsById.get(id)?.name ?? ""));
+    return matches(item.name) || matches(item.url) || tagMatches || hit ? [{ item, hit, hitIndex }] : [];
   });
+
+  function filterTags(filter: TagFilter) {
+    if (entry && !matchesTags(entry, filter)) setSelection(null);
+    setTagFilter(filter);
+  }
+
+  function renderTags(item: PersonalEntry) {
+    return item.tagIds.flatMap((id) => {
+      const tag = tagsById.get(id);
+      return tag ? [<TagBadge key={id} tag={tag} />] : [];
+    });
+  }
 
   function select(next: Selection) {
     focusDetail.current = true;
@@ -134,6 +179,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     setEditor(null);
     setSaved(true);
     setQuery("");
+    setTagFilter([]);
     setCatalog(null);
     select({ entryId: receipt.entryId, ...(accountId ? { accountId } : {}) });
     load(signal);
@@ -141,7 +187,12 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
 
   return (
     <>
-      <div role="status">{saved ? "已保存到保险箱" : null}</div>
+      <div className="safe-workspace-actions">
+        <Button disabled={!catalog} onClick={() => setManagingTags(true)}>
+          标签管理
+        </Button>
+        <div role="status">{saved ? "已保存到保险箱" : null}</div>
+      </div>
       <div className="safe-grid" data-view={entry ? "detail" : "list"} data-testid="safe-unlocked">
         <section className="hu-card-alt safe-list">
           <div className="shell-card-head">
@@ -151,8 +202,23 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
             <IconButton icon={Plus} label="新建条目" disabled={!catalog} data-testid="safe-new" onClick={() => catalog && openEditor({ kind: "create", revision: catalog.revision })} />
           </div>
           <div ref={search} className="hu-system-pane-search">
-            <SearchBox value={query} onChange={setQuery} placeholder="搜索名称、账号或备注…" />
+            <SearchBox value={query} onChange={setQuery} placeholder="搜索名称、账号、标签或备注…" />
           </div>
+          {catalog ? (
+            <div className="safe-tag-strip safe-tag-filters" role="group" aria-label="筛选标签">
+              <Button aria-pressed={tagFilter?.length === 0} onClick={() => filterTags([])}>
+                全部
+              </Button>
+              <Button aria-pressed={tagFilter === null} onClick={() => filterTags(tagFilter === null ? [] : null)}>
+                无标签
+              </Button>
+              {tags.map((tag) => (
+                <Button key={tag.tagId} aria-pressed={tagFilter?.includes(tag.tagId) ?? false} onClick={() => filterTags(tagFilter?.includes(tag.tagId) ? tagFilter.filter((id) => id !== tag.tagId) : [...(tagFilter ?? []), tag.tagId])}>
+                  <TagBadge tag={tag} />
+                </Button>
+              ))}
+            </div>
+          ) : null}
           {loadError ? (
             <div className="hu-stack hu-safe-detail-body">
               <p role="alert" className="hu-field-error">
@@ -174,8 +240,8 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
               正在读取条目…
             </p>
           ) : null}
-          {catalog && !list.length ? <EmptyState icon={KeyRound} title={term ? "没有符合条件的条目" : "还没有个人条目"} /> : null}
-          {list.map(({ item, hit }) => (
+          {catalog && !list.length ? <EmptyState icon={KeyRound} title={catalog.entries.length ? "没有符合条件的条目" : "还没有个人条目"} /> : null}
+          {list.map(({ item, hit, hitIndex }) => (
             <button
               key={item.entryId}
               ref={(node) => {
@@ -194,7 +260,12 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                 <small>
                   {item.url || "未填网址"} · {item.accounts.length} 个账号
                 </small>
-                {hit ? <small>命中账号 · {hit.account}</small> : null}
+                {item.tagIds.length ? <span className="safe-tag-strip safe-row-tags">{renderTags(item)}</span> : null}
+                {hit ? (
+                  <small>
+                    命中账号 · {hitIndex + 1}. {hit.account}
+                  </small>
+                ) : null}
               </span>
               <ChevronRight size={14} aria-hidden />
             </button>
@@ -222,6 +293,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
               </div>
               <div className="hu-stack hu-safe-detail-body">
                 <div className="safe-read-value">{entry.url || "未填网址"}</div>
+                {entry.tagIds.length ? <div className="safe-tag-strip">{renderTags(entry)}</div> : null}
                 <div className="hu-field">
                   <label className="hu-field-label" htmlFor={accountSelectId}>
                     账号
@@ -250,7 +322,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                   </Field>
                   <Field label="密码">
                     <PasswordValue
-                      key={`${entry.entryId}:${account.accountId}:${editor !== null}`}
+                      key={`${entry.entryId}:${account.accountId}:${editor !== null || managingTags}`}
                       hasPassword={account.hasPassword}
                       getSessionSignal={() => lifetime.current?.signal}
                       onSessionEnded={endSession}
@@ -265,22 +337,10 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
           )}
         </section>
       </div>
-      {editor && (
-        <EntryEditor
-          target={editor}
-          session={session}
-          getSessionSignal={() => lifetime.current?.signal}
-          reload={reload}
-          onSaved={finishSave}
-          onClose={() => setEditor(null)}
-          onLock={onLock}
-          onError={(error) => {
-            if (!sessionEnded(error)) return false;
-            endSession();
-            return true;
-          }}
-        />
-      )}
+      {managingTags && catalog ? (
+        <TagManager tags={tags} counts={tagCounts} revision={catalog.revision} session={session} getSignal={() => lifetime.current?.signal} reload={reload} onError={handleError} onClose={() => setManagingTags(false)} />
+      ) : null}
+      {editor && <EntryEditor target={editor} tags={tags} session={session} getSessionSignal={() => lifetime.current?.signal} reload={reload} onSaved={finishSave} onClose={() => setEditor(null)} onLock={onLock} onError={handleError} />}
     </>
   );
 }

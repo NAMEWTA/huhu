@@ -30,7 +30,11 @@
       "safe.entries.list",
       "safe.entries.get",
       "safe.accounts.update",
-      "safe.accounts.reveal"
+      "safe.accounts.reveal",
+      "safe.tags.list",
+      "safe.tags.create",
+      "safe.tags.update",
+      "safe.tags.delete"
     ],
     "fileKinds": []
   }

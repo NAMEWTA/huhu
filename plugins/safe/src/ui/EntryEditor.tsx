@@ -1,15 +1,16 @@
 import { Button, Dialog } from "@huhu/ui";
 import { CapabilityError, useEngine, type EngineClient } from "@huhu/workbench";
 import { Lock, Plus } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { z } from "zod";
-import type { CreateEntry, SafeSession, UpdateAccount, UpdateEntry, UpdateEntryReceipt } from "../engine/personal.js";
+import type { CreateEntry, SafeSession, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateEntryReceipt } from "../engine/personal.js";
 import type { PersonalEntry } from "./PersonalWorkspace.js";
+import { emptyTag, FormField, TagBadge, TagFieldsInput } from "./SafeTags.js";
 
 type Account = PersonalEntry["accounts"][number];
 type PasswordMode = UpdateAccount["password"]["kind"];
 type AccountDraft = Pick<Account, "account" | "phone" | "email" | "note"> & { password: string; passwordMode: PasswordMode; key: number };
-type Fields = { name: string; url: string; accounts: AccountDraft[] };
+type Fields = { name: string; url: string; accounts: AccountDraft[]; tagIds: string[]; newTags: TagFields[] };
 type SaveFeedback = "failed" | "conflict" | "uncertain" | "verified" | "reload-failed";
 export type EditTarget = { kind: "create"; revision: number } | { kind: "entry"; entry: PersonalEntry } | { kind: "account"; entry: PersonalEntry; account: Account };
 export type SaveReceipt = z.output<typeof UpdateEntryReceipt>;
@@ -17,11 +18,11 @@ export type SaveReceipt = z.output<typeof UpdateEntryReceipt>;
 const blankAccount = (key: number): AccountDraft => ({ key, account: "", phone: "", email: "", note: "", password: "", passwordMode: "keep" });
 
 function fieldsFor(target: EditTarget): Fields {
-  if (target.kind === "create") return { name: "", url: "", accounts: [blankAccount(0)] };
-  const { name, url } = target.entry;
-  if (target.kind === "entry") return { name, url, accounts: [] };
+  if (target.kind === "create") return { name: "", url: "", accounts: [blankAccount(0)], tagIds: [], newTags: [] };
+  const { name, url, tagIds } = target.entry;
+  if (target.kind === "entry") return { name, url, tagIds, newTags: [], accounts: [] };
   const { account, phone, email, note } = target.account;
-  return { name, url, accounts: [{ ...blankAccount(0), account, phone, email, note }] };
+  return { name, url, tagIds, newTags: [], accounts: [{ ...blankAccount(0), account, phone, email, note }] };
 }
 
 function accountFields({ account, phone, email, note }: AccountDraft) {
@@ -36,13 +37,15 @@ async function write(engine: EngineClient, session: SafeSession, target: EditTar
       expectedRevision: target.revision,
       name: fields.name.trim(),
       url: fields.url.trim(),
+      tagIds: fields.tagIds,
+      newTags: fields.newTags,
       accounts: fields.accounts.map((account) => ({ ...accountFields(account), password: account.password })),
     };
     return engine.call<SaveReceipt>("safe.entries.create", input, options);
   }
   const base = { session, entryId: target.entry.entryId, expectedRevision: target.entry.revision };
   if (target.kind === "entry") {
-    const input: UpdateEntry = { ...base, name: fields.name.trim(), url: fields.url.trim() };
+    const input: UpdateEntry = { ...base, name: fields.name.trim(), url: fields.url.trim(), tagIds: fields.tagIds, newTags: fields.newTags };
     return engine.call<SaveReceipt>("safe.entries.update", input, options);
   }
   const account = fields.accounts[0]!;
@@ -61,6 +64,7 @@ const feedbackText: Record<SaveFeedback, string> = {
 
 export function EntryEditor({
   target,
+  tags,
   session,
   getSessionSignal,
   reload,
@@ -70,9 +74,10 @@ export function EntryEditor({
   onError,
 }: {
   target: EditTarget;
+  tags: Tag[];
   session: SafeSession;
   getSessionSignal(): AbortSignal | undefined;
-  reload(signal: AbortSignal): Promise<{ revision: number; entries: PersonalEntry[] }>;
+  reload(signal: AbortSignal): Promise<{ revision: number; entries: PersonalEntry[]; tags: Tag[] }>;
   onSaved(receipt: SaveReceipt, accountId?: string): void;
   onClose(): void;
   onLock(): void;
@@ -81,6 +86,9 @@ export function EntryEditor({
   const engine = useEngine();
   const [base, setBase] = useState(target);
   const [fields, setFields] = useState(() => fieldsFor(target));
+  const [newTag, setNewTag] = useState<TagFields | null>(null);
+  const inlineTag = useRef<HTMLDivElement>(null);
+  const addTag = useRef<HTMLButtonElement>(null);
   const [dirty, setDirty] = useState(false);
   const [confirm, setConfirm] = useState<"discard" | "reload" | null>(null);
   const [busy, setBusy] = useState<"save" | "reload" | null>(null);
@@ -111,6 +119,10 @@ export function EntryEditor({
     if (feedback) status.current?.focus();
   }, [feedback, confirm]);
 
+  useLayoutEffect(() => {
+    inlineTag.current?.querySelector("input")?.focus();
+  }, [newTag === null]);
+
   function update(next: Fields) {
     setFields(next);
     setDirty(true);
@@ -125,13 +137,28 @@ export function EntryEditor({
   function requestClose() {
     if (active.current) return;
     if (confirm) setConfirm(null);
+    else if (newTag) closeNewTag();
     else if (dirty) setConfirm("discard");
     else close();
   }
 
+  function closeNewTag() {
+    setNewTag(null);
+    addTag.current?.focus();
+  }
+
+  function applyTag(tag: TagFields) {
+    const name = tag.name.trim();
+    if (!name) return;
+    const existing = tags.find((item) => item.name === name);
+    if (existing) update({ ...fields, tagIds: [...new Set([...fields.tagIds, existing.tagId])] });
+    else if (!fields.newTags.some((item) => item.name === name)) update({ ...fields, newTags: [...fields.newTags, { ...tag, name }] });
+    closeNewTag();
+  }
+
   async function save() {
     const signal = getSessionSignal();
-    if (active.current || conflict || !signal || signal.aborted) return;
+    if (active.current || conflict || newTag || !signal || signal.aborted) return;
     active.current = true;
     setBusy("save");
     setFeedback(null);
@@ -174,6 +201,8 @@ export function EntryEditor({
       }
       if (base.kind === "create") {
         setBase({ kind: "create", revision: current.revision });
+        const available = new Set(current.tags.map((tag) => tag.tagId));
+        setFields((draft) => ({ ...draft, tagIds: draft.tagIds.filter((id) => available.has(id)) }));
       } else {
         const entry = current.entries.find((item) => item.entryId === base.entry.entryId);
         if (!entry) throw new Error("Missing entry");
@@ -219,7 +248,7 @@ export function EntryEditor({
             <Button icon={Lock} onClick={onLock}>
               锁定保险箱
             </Button>
-            <Button type="submit" form={formId} variant="primary" disabled={conflict || busy === "reload"} loading={busy === "save"} data-testid="safe-save">
+            <Button type="submit" form={formId} variant="primary" disabled={conflict || busy === "reload" || !!newTag} loading={busy === "save"} data-testid="safe-save">
               {busy === "save" ? "正在保存…" : "保存"}
             </Button>
           </>
@@ -245,6 +274,48 @@ export function EntryEditor({
                   <FormField label="名称（必填）">{(id) => <input id={id} required pattern={String.raw`.*\S.*`} value={fields.name} onChange={(event) => update({ ...fields, name: event.target.value })} />}</FormField>
                   <FormField label="网址">{(id) => <input id={id} type="url" pattern="[Hh][Tt][Tt][Pp][Ss]?://.+" value={fields.url} onChange={(event) => update({ ...fields, url: event.target.value })} />}</FormField>
                 </div>
+              ) : null}
+              {base.kind !== "account" ? (
+                <fieldset className="hu-card-alt safe-tag-editor">
+                  <legend>标签</legend>
+                  <div className="safe-tag-strip">
+                    {tags.map((tag) => (
+                      <label key={tag.tagId} className="safe-tag-choice">
+                        <input
+                          type="checkbox"
+                          checked={fields.tagIds.includes(tag.tagId)}
+                          onChange={(event) =>
+                            update({
+                              ...fields,
+                              tagIds: event.target.checked ? [...fields.tagIds, tag.tagId] : fields.tagIds.filter((id) => id !== tag.tagId),
+                            })
+                          }
+                        />
+                        <TagBadge tag={tag} />
+                      </label>
+                    ))}
+                    {fields.newTags.map((tag) => (
+                      <label key={tag.name} className="safe-tag-choice">
+                        <input type="checkbox" checked onChange={() => update({ ...fields, newTags: fields.newTags.filter((item) => item.name !== tag.name) })} />
+                        <TagBadge tag={tag} />
+                      </label>
+                    ))}
+                    <button ref={addTag} type="button" className="hu-btn" aria-expanded={newTag !== null} onClick={() => (newTag ? closeNewTag() : setNewTag(emptyTag))}>
+                      新增标签
+                    </button>
+                  </div>
+                  {newTag ? (
+                    <div ref={inlineTag} className="hu-stack">
+                      <TagFieldsInput value={newTag} onChange={setNewTag} nested />
+                      <div className="safe-tag-strip">
+                        <Button onClick={closeNewTag}>取消新增标签</Button>
+                        <Button variant="primary" disabled={!newTag.name.trim()} onClick={() => applyTag(newTag)}>
+                          应用标签
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </fieldset>
               ) : null}
               {fields.accounts.map((account, index) => (
                 <fieldset className="hu-card-alt hu-stack safe-account-card" key={account.key} data-account-key={account.key}>
@@ -296,18 +367,6 @@ export function EntryEditor({
         )}
       </div>
     </Dialog>
-  );
-}
-
-function FormField({ label, children }: { label: string; children(id: string): ReactNode }) {
-  const id = useId();
-  return (
-    <div className="hu-field">
-      <label className="hu-field-label" htmlFor={id}>
-        {label}
-      </label>
-      {children(id)}
-    </div>
   );
 }
 

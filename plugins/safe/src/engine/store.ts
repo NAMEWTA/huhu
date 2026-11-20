@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { KDF_PARAMS, isSealedSize, open, seal } from "./crypto.js";
-import { StoredEntry } from "./personal.js";
+import { StoredEntry, TagDirectory, type Tag, type TagFields } from "./personal.js";
 
 export const SAFE_FORMAT = 1;
 const KEYRING = "keyring.json";
@@ -68,6 +68,8 @@ export type LoadedSafe = {
 export type CurrentSafe = LoadedSafe & { manifest: z.infer<typeof StoredManifest> };
 export type EntryPrecondition = { kind: "create" | "update"; expectedRevision: number };
 type SafeState = { kind: "empty" } | { kind: "corrupt"; file: typeof KEYRING | typeof MANIFEST } | ({ kind: "ready" } & LoadedSafe);
+type EntryDraft = Omit<StoredEntry, "revision">;
+type PendingFile = { name: string; destination: string; bytes: Buffer };
 
 export function corruptStore(file: string): HuhuError {
   return new HuhuError("INTERNAL", `${file} 文件缺失或损坏，保险箱不可用`, { retryable: false });
@@ -112,13 +114,26 @@ function entryContext(manifest: CurrentSafe["manifest"], id: string, revision: n
   return `huhu-safe/v${manifest.format}/${manifest.vaultKeyId}/entry:${id}:${revision}`;
 }
 
+function tagsContext(manifest: CurrentSafe["manifest"], revision: number): string {
+  return `huhu-safe/v${manifest.format}/${manifest.vaultKeyId}/tags:${revision}`;
+}
+
+function sealJson(dk: Buffer, payload: object, context: string): Buffer {
+  const cleartext = Buffer.from(JSON.stringify(payload));
+  try {
+    return seal(dk, cleartext, context);
+  } finally {
+    cleartext.fill(0);
+  }
+}
+
 function entryAt(file: string) {
   return lstatSync(file, { throwIfNoEntry: false });
 }
 
 export class SafeStore {
   private readonly relativeDir: string;
-  private pendingEntryWrite: Promise<void> = Promise.resolve();
+  private pendingWrite: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly files: SafeFiles,
@@ -211,72 +226,154 @@ export class SafeStore {
     }
   }
 
-  commitEntry(dk: Buffer, entry: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void): Promise<number> {
-    const committed = this.pendingEntryWrite.then(() => this.publishEntry(dk, entry, precondition, guard));
-    this.pendingEntryWrite = committed.then(
+  readTags(store: CurrentSafe, dk: Buffer): Tag[] {
+    const revision = store.manifest.tags;
+    if (revision === null) return [];
+    try {
+      const file = this.tagsFile(revision);
+      const stored = entryAt(this.files.abs(file))?.isFile() ? this.files.read(file) : null;
+      if (!stored) throw new Error("Missing tag directory");
+      const cleartext = open(dk, stored.bytes, tagsContext(store.manifest, revision));
+      try {
+        const directory = TagDirectory.parse(JSON.parse(cleartext.toString("utf8")) as unknown);
+        const { tags } = directory;
+        if (directory.revision !== revision || new Set(tags.map((tag) => tag.tagId)).size !== tags.length || new Set(tags.map((tag) => tag.name)).size !== tags.length) throw new Error("Invalid tag directory");
+        return tags;
+      } finally {
+        cleartext.fill(0);
+      }
+    } catch {
+      throw corruptStore("标签密文");
+    }
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const committed = this.pendingWrite.then(operation);
+    this.pendingWrite = committed.then(
       () => undefined,
       () => undefined,
     );
     return committed;
   }
 
-  private async publishEntry(dk: Buffer, draft: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void): Promise<number> {
-    guard();
+  private current(): CurrentSafe {
     const store = this.load();
     if (store.kind === "corrupt") throw corruptStore(store.file);
     if (store.kind !== "ready" || !store.manifest) throw corruptStore(MANIFEST);
-    const { entryId } = draft;
-    const currentRevision = store.manifest.entries[entryId];
-    if (precondition.kind === "create") {
-      if (store.manifest.revision !== precondition.expectedRevision) throw errors.versionConflict(String(store.manifest.revision));
-      if (currentRevision !== undefined) throw errors.nameConflict(entryId);
-    } else {
-      if (currentRevision === undefined) throw errors.notFound("条目不存在");
-      if (currentRevision !== precondition.expectedRevision) throw errors.versionConflict(String(currentRevision));
-    }
+    return { ...store, manifest: store.manifest };
+  }
 
-    // A crash between renames can leave an unreferenced version. Keep it immutable and use another slot.
-    let revision = (currentRevision ?? 0) + 1;
-    while (Number.isSafeInteger(revision) && entryAt(this.files.abs(this.entryFile(entryId, revision)))) revision++;
-    if (!Number.isSafeInteger(revision) || !Number.isSafeInteger(store.manifest.revision + 1)) throw errors.invalidInput("保险箱版本已达上限");
-    const { authentication: _auth, checksum: _sum, ...previous } = store.manifest;
-    const next = { ...previous, revision: previous.revision + 1, entries: { ...previous.entries, [entryId]: revision } };
-    const manifest = encodeManifest(next, dk);
-    const cleartext = Buffer.from(JSON.stringify({ ...draft, revision }));
-    let ciphertext: Buffer;
-    try {
-      ciphertext = seal(dk, cleartext, entryContext(store.manifest, entryId, revision));
-    } finally {
-      cleartext.fill(0);
-    }
-    await this.stage(async (dir) => {
-      const stagedEntry = `${dir}/${STAGED_ENTRY}`;
-      const stagedManifest = `${dir}/${MANIFEST}`;
-      await this.files.write(stagedEntry, ciphertext, { expectedVersion: null });
+  commitEntry(dk: Buffer, draft: EntryDraft, precondition: EntryPrecondition, guard: () => void, newTags: TagFields[] = []): Promise<number> {
+    return this.enqueue(async () => {
       guard();
-      await this.files.write(stagedManifest, manifest, { expectedVersion: null });
+      const store = this.current();
+      const currentRevision = store.manifest.entries[draft.entryId];
+      if (precondition.kind === "create") {
+        if (store.manifest.revision !== precondition.expectedRevision) throw errors.versionConflict(String(store.manifest.revision));
+        if (currentRevision !== undefined) throw errors.nameConflict(draft.entryId);
+      } else {
+        if (currentRevision === undefined) throw errors.notFound("条目不存在");
+        if (currentRevision !== precondition.expectedRevision) throw errors.versionConflict(String(currentRevision));
+      }
+      const tagIds = new Set(draft.tagIds);
+      let changedTags: Tag[] | undefined;
+      if (draft.tagIds.length || newTags.length) {
+        const tags = this.readTags(store, dk);
+        const available = new Set(tags.map((tag) => tag.tagId));
+        if (draft.tagIds.some((id) => !available.has(id))) throw errors.notFound("所选标签已被删除");
+        const byName = new Map(tags.map((tag) => [tag.name, tag]));
+        for (const input of newTags) {
+          const existing = byName.get(input.name);
+          if (existing) {
+            tagIds.add(existing.tagId);
+          } else {
+            const tag = { ...input, tagId: randomUUID() };
+            tags.push(tag);
+            byName.set(tag.name, tag);
+            tagIds.add(tag.tagId);
+            changedTags = tags;
+          }
+        }
+      }
+      const published = await this.publish(store, dk, [{ ...draft, tagIds: [...tagIds] }], changedTags, guard);
+      return published.entries[draft.entryId]!;
+    });
+  }
+
+  commitTags(dk: Buffer, store: CurrentSafe, tags: Tag[], entries: EntryDraft[], guard: () => void): Promise<number> {
+    return this.enqueue(async () => {
       guard();
       this.assertVersion(store);
-      if (!this.files.read(stagedEntry)?.bytes.equals(ciphertext) || !this.files.read(stagedManifest)?.bytes.equals(manifest)) throw corruptStore("暂存文件");
+      return (await this.publish(store, dk, entries, tags, guard)).revision;
+    });
+  }
 
-      const destination = this.files.abs(this.entryFile(entryId, revision));
-      const manifestPath = this.files.abs(`${this.relativeDir}/current/${MANIFEST}`);
-      if (entryAt(destination)) throw errors.nameConflict(entryId);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      // The manifest is the visibility boundary. No async work can interleave the two renames.
-      renameSync(this.files.abs(stagedEntry), destination);
+  private async publish(store: CurrentSafe, dk: Buffer, drafts: EntryDraft[], tags: Tag[] | undefined, guard: () => void) {
+    const { authentication: _auth, checksum: _sum, ...previous } = store.manifest;
+    const next = { ...previous, revision: previous.revision + 1, entries: { ...previous.entries } };
+    if (!Number.isSafeInteger(next.revision)) throw errors.invalidInput("保险箱版本已达上限");
+    const pending: PendingFile[] = drafts.map((draft, index) => {
+      const { entryId } = draft;
+      const file = (revision: number) => this.entryFile(entryId, revision);
+      const revision = this.nextRevision(previous.entries[entryId] ?? 0, file);
+      next.entries[entryId] = revision;
+      return { name: index ? `${index}-${STAGED_ENTRY}` : STAGED_ENTRY, destination: file(revision), bytes: sealJson(dk, { ...draft, revision }, entryContext(store.manifest, entryId, revision)) };
+    });
+    if (tags) {
+      const revision = this.nextRevision(previous.tags ?? 0, (version) => this.tagsFile(version));
+      next.tags = revision;
+      pending.push({ name: "tags.bin", destination: this.tagsFile(revision), bytes: sealJson(dk, { revision, tags }, tagsContext(store.manifest, revision)) });
+    }
+    const manifest: PendingFile = { name: MANIFEST, destination: `${this.relativeDir}/current/${MANIFEST}`, bytes: encodeManifest(next, dk) };
+    const files = [...pending, manifest];
+    await this.stage(async (dir) => {
+      for (const file of files) {
+        await this.files.write(`${dir}/${file.name}`, file.bytes, { expectedVersion: null });
+        guard();
+      }
+      this.assertVersion(store);
+      for (const file of files) {
+        if (!this.files.read(`${dir}/${file.name}`)?.bytes.equals(file.bytes)) throw corruptStore("暂存文件");
+      }
+      const installed: string[] = [];
       try {
-        renameSync(this.files.abs(stagedManifest), manifestPath);
+        for (const file of pending) {
+          const destination = this.files.abs(file.destination);
+          if (entryAt(destination)) throw errors.versionConflict(String(previous.revision));
+          mkdirSync(path.dirname(destination), { recursive: true });
+          renameSync(this.files.abs(`${dir}/${file.name}`), destination);
+          installed.push(destination);
+        }
+        // The manifest publishes the tag directory and every entry revision together.
+        renameSync(this.files.abs(`${dir}/${manifest.name}`), this.files.abs(manifest.destination));
       } catch (error) {
-        rmSync(destination, { force: true });
+        for (const file of installed) {
+          try {
+            rmSync(file, { force: true });
+          } catch {
+            // Failed cleanup leaves immutable ciphertext outside the active manifest.
+          }
+        }
         throw error;
       }
     });
+    return next;
+  }
+
+  private nextRevision(previous: number, file: (revision: number) => string): number {
+    // Unpublished ciphertext can remain after an interrupted publish.
+    let revision = previous + 1;
+    while (Number.isSafeInteger(revision) && entryAt(this.files.abs(file(revision)))) revision++;
+    if (!Number.isSafeInteger(revision)) throw errors.invalidInput("保险箱版本已达上限");
     return revision;
   }
 
   private entryFile(id: string, revision: number): string {
     return `${this.relativeDir}/current/entries/${id}-${revision}.bin`;
+  }
+
+  private tagsFile(revision: number): string {
+    return `${this.relativeDir}/current/tags/${revision}.bin`;
   }
 
   assertVersion(previous: LoadedSafe): void {
@@ -298,10 +395,10 @@ export class SafeStore {
       await operation(relative);
     } finally {
       try {
-        rmSync(path.join(local, KEYRING), { force: true });
-        rmSync(path.join(local, MANIFEST), { force: true });
-        rmSync(path.join(local, STAGED_ENTRY), { force: true });
-        if (entryAt(local)) rmdirSync(local);
+        if (entryAt(local)) {
+          for (const file of readdirSync(local)) rmSync(path.join(local, file), { force: true });
+          rmdirSync(local);
+        }
       } catch {
         // Cleanup cannot change the result of an already published operation.
       }

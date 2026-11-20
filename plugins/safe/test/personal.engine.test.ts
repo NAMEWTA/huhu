@@ -12,6 +12,8 @@ type Receipt = { entryId: string; revision: number; accountIds: string[]; status
 type EntryIndex = { revision: number; entries: { entryId: string; revision: number }[] };
 type UpdatedAccount = { entryId: string; accountId: string; revision: number; hasPassword: boolean };
 type Detail = { entryId: string; revision: number; name: string; url: string; accounts: Array<{ accountId: string; account: string; phone: string; email: string; note: string; hasPassword: boolean }> };
+type TaggedDetail = Detail & { tagIds: string[] };
+type TagDirectory = { revision: number; tags: Array<{ tagId: string; name: string; color: string }> };
 const vaults: string[] = [];
 const engines: RunningEngine[] = [];
 
@@ -52,6 +54,133 @@ async function codeOf(pending: Promise<unknown>): Promise<string> {
     throw new Error("Safe test client failed before receiving a capability result");
   }
 }
+
+function blockManifestPublish(engine: RunningEngine, publicationsReady = () => true) {
+  const abs = engine.vault.files.abs.bind(engine.vault.files);
+  const blocked = abs(".huhu/cache/blocked-manifest-target");
+  mkdirSync(blocked, { recursive: true });
+  let redirect = false;
+  let intercepted = false;
+  const mock = vi.spyOn(engine.vault.files, "abs").mockImplementation((file) => {
+    if (file.startsWith(".huhu/cache/safe-write-") && file.endsWith("/manifest.json") && existsSync(abs(file))) redirect = true;
+    if (redirect && file === ".huhu/safe/current/manifest.json" && publicationsReady()) {
+      redirect = false;
+      intercepted = true;
+      return blocked;
+    }
+    return abs(file);
+  });
+  return { mock, intercepted: () => intercepted };
+}
+
+test("条目与内联新增标签只由同一份清单发布，失败后重试可复用标签", async () => {
+  const { client, current, engine, root } = await openEngine();
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const name = `tag-${data.marker}`;
+  const request = { session: scope, expectedRevision: 0, name: data.name, accounts: data.accounts, newTags: [{ name, color: "blue" }] };
+  const write = engine.vault.files.write.bind(engine.vault.files);
+  const mock = vi.spyOn(engine.vault.files, "write").mockImplementation((file, bytes, options) => {
+    if (file.endsWith("/manifest.json")) return Promise.reject(new Error("controlled compound manifest failure"));
+    return write(file, bytes, options);
+  });
+  const manifest = path.join(current, "manifest.json");
+  const before = readFileSync(manifest);
+  try {
+    expect(await codeOf(client.call("safe.entries.create", request))).toBe("INTERNAL");
+    expect(readFileSync(manifest).equals(before)).toBe(true);
+    expect(await client.call("safe.tags.list", { session: scope })).toEqual({ revision: 0, tags: [] });
+  } finally {
+    mock.mockRestore();
+  }
+  const first = await client.call<Receipt>("safe.entries.create", request);
+  const directory = await client.call<TagDirectory>("safe.tags.list", { session: scope });
+  expect(directory.tags).toEqual([{ tagId: expect.any(String), name, color: "blue" }]);
+  const tagId = directory.tags[0]!.tagId;
+  const second = await client.call<Receipt>("safe.entries.create", { ...request, expectedRevision: 1, newTags: [{ name, color: "orange" }] });
+  expect(await client.call("safe.tags.list", { session: scope })).toEqual({ revision: 2, tags: directory.tags });
+  for (const entryId of [first.entryId, second.entryId]) {
+    expect((await client.call<TaggedDetail>("safe.entries.get", { session: scope, entryId })).tagIds).toEqual([tagId]);
+  }
+  expect(containsBytes(root, [name, data.marker])).toBe(false);
+  expect((await client.call<{ hits: unknown[] }>("vault.search", { query: name })).hits).toEqual([]);
+}, 30_000);
+
+test("删除共享标签在锁定和发布失败时保留完整旧代，重开后完整读回新代", async () => {
+  const { client, current, engine, root } = await openEngine();
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const tag = await client.call<{ tagId: string }>("safe.tags.create", { session: scope, expectedRevision: 0, name: data.marker, color: "purple" });
+  const create = (expectedRevision: number) => client.call<Receipt>("safe.entries.create", { session: scope, expectedRevision, name: data.name, tagIds: [tag.tagId], accounts: data.accounts });
+  const first = await create(1);
+  const second = await create(2);
+  const manifest = path.join(current, "manifest.json");
+  const before = readFileSync(manifest);
+  const request = { session: scope, expectedRevision: 3, tagId: tag.tagId };
+  const entered = signal();
+  const resume = signal();
+  const write = engine.vault.files.write.bind(engine.vault.files);
+  const delayed = vi.spyOn(engine.vault.files, "write").mockImplementation(async (file, bytes, options) => {
+    const result = await write(file, bytes, options);
+    if (file.endsWith("/manifest.json")) {
+      entered.resolve();
+      await resume.promise;
+    }
+    return result;
+  });
+  const pending = codeOf(client.call("safe.tags.delete", request));
+  try {
+    expect(await Promise.race([entered.promise.then(() => true), pending.then(() => false)])).toBe(true);
+    await client.call("safe.lock");
+  } finally {
+    resume.resolve();
+  }
+  expect(await pending).toBe("SAFE_LOCKED");
+  delayed.mockRestore();
+  expect(readFileSync(manifest).equals(before)).toBe(true);
+  expect(await codeOf(client.call("safe.tags.list", { session: scope }))).toBe("SAFE_LOCKED");
+  await client.call("safe.unlock", { password: data.password });
+  const next = await session(client);
+  const ids = [first.entryId, second.entryId];
+  const staged = vi.spyOn(engine.vault.files, "write").mockImplementation((file, bytes, options) => {
+    if (file.endsWith("/tags.bin")) return Promise.reject(new Error("controlled tag directory failure"));
+    return write(file, bytes, options);
+  });
+  try {
+    expect(await codeOf(client.call("safe.tags.delete", { ...request, session: next }))).toBe("INTERNAL");
+    expect(readFileSync(manifest).equals(before)).toBe(true);
+    expect((await client.call<TagDirectory>("safe.tags.list", { session: next })).tags).toHaveLength(1);
+    for (const entryId of ids) {
+      expect((await client.call<TaggedDetail>("safe.entries.get", { session: next, entryId })).tagIds).toEqual([tag.tagId]);
+    }
+  } finally {
+    staged.mockRestore();
+  }
+  const blocked = blockManifestPublish(engine, () => ids.every((entryId) => existsSync(path.join(current, "entries", `${entryId}-2.bin`))) && existsSync(path.join(current, "tags", "2.bin")));
+  try {
+    expect(await codeOf(client.call("safe.tags.delete", { ...request, session: next }))).toBe("INTERNAL");
+    expect(blocked.intercepted()).toBe(true);
+    expect(readFileSync(manifest).equals(before)).toBe(true);
+    expect(readdirSync(path.join(current, "entries")).sort()).toEqual(ids.map((entryId) => `${entryId}-1.bin`).sort());
+    expect(readdirSync(path.join(current, "tags"))).toEqual(["1.bin"]);
+  } finally {
+    blocked.mock.mockRestore();
+  }
+  expect(await client.call("safe.tags.delete", { ...request, session: next })).toEqual({ tagId: tag.tagId, revision: 4 });
+  await engine.shutdown();
+  const reopened = await openEngine(root);
+  await reopened.client.call("safe.unlock", { password: data.password });
+  const restored = await session(reopened.client);
+  expect(await reopened.client.call("safe.tags.list", { session: restored })).toEqual({ revision: 4, tags: [] });
+  for (const entryId of ids) {
+    const detail = await reopened.client.call<TaggedDetail>("safe.entries.get", { session: restored, entryId });
+    expect(detail.tagIds).toEqual([]);
+    expect(detail.revision).toBe(2);
+    expect(detail.accounts.map(({ account }) => account)).toEqual(data.accounts.map(({ account }) => account));
+  }
+}, 30_000);
 
 function containsBytes(root: string, values: string[]): boolean {
   const markers = values.map((value) => Buffer.from(value));
@@ -287,27 +416,14 @@ test("校验和两处暂存写失败保留原清单，修正后重试仅提交�
     }
   }
 
-  const abs = engine.vault.files.abs.bind(engine.vault.files);
-  const blocked = abs(".huhu/cache/blocked-manifest-target");
-  mkdirSync(blocked, { recursive: true });
-  let redirect = false;
-  let interceptedPublish = false;
-  const finalRename = vi.spyOn(engine.vault.files, "abs").mockImplementation((file) => {
-    if (file.startsWith(".huhu/cache/safe-write-") && file.endsWith("/manifest.json") && existsSync(abs(file))) redirect = true;
-    if (redirect && file === ".huhu/safe/current/manifest.json") {
-      redirect = false;
-      interceptedPublish = true;
-      return blocked;
-    }
-    return abs(file);
-  });
+  const finalRename = blockManifestPublish(engine);
   try {
     expect(await codeOf(create(base))).toBe("INTERNAL");
-    expect(interceptedPublish).toBe(true);
+    expect(finalRename.intercepted()).toBe(true);
     expect(readFileSync(manifest).equals(before)).toBe(true);
     expect(readdirSync(path.join(current, "entries"))).toEqual([]);
   } finally {
-    finalRename.mockRestore();
+    finalRename.mock.mockRestore();
   }
 
   expect(await codeOf(create({ ...base, url: "", accounts: [{ account: "sample" }] }))).toBe("OK");

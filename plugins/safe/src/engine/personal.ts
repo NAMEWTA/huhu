@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SAFE_TAG_COLORS } from "../shared/tag-colors.js";
 
 const RequiredText = z.string().trim().min(1);
 const OptionalUrl = z.union([z.literal(""), z.url({ protocol: /^https?$/ })]);
@@ -23,17 +24,33 @@ const StoredAccount = AccountFields.extend({ accountId: z.uuid(), createdAt: Tim
 
 export const SafeSession = z.object({ instanceId: z.uuid(), generation: z.int().nonnegative() });
 export const ListEntries = z.object({ session: SafeSession });
+export const TagFields = z.strictObject({ name: RequiredText, color: z.enum(SAFE_TAG_COLORS) });
+export const Tag = TagFields.extend({ tagId: z.uuid() });
+export const TagDirectory = z.object({ revision: Revision, tags: z.array(Tag) });
+export const TagList = z.object({ revision: z.int().nonnegative(), tags: z.array(Tag) });
+const TagRevision = ListEntries.extend({ expectedRevision: z.int().nonnegative() });
+export const CreateTag = TagRevision.extend(TagFields.shape);
+export const UpdateTag = CreateTag.extend({ tagId: z.uuid() });
+export const DeleteTag = TagRevision.extend({ tagId: z.uuid() });
+export const TagReceipt = z.object({ tagId: z.uuid(), revision: z.int().nonnegative() });
+export const CreateTagReceipt = TagReceipt.extend({ status: z.enum(["saved", "reused"]) });
+const TagIds = z.array(z.uuid()).refine((ids) => new Set(ids).size === ids.length, "标签不能重复关联");
+
 export const GetEntry = ListEntries.extend({ entryId: z.uuid() });
 export const RevealAccount = GetEntry.extend({ accountId: z.uuid() });
 export const CreateEntry = ListEntries.extend({
   expectedRevision: z.int().nonnegative(),
   name: RequiredText,
   url: OptionalUrl.default(""),
+  tagIds: TagIds.default([]),
+  newTags: z.array(TagFields).default([]),
   accounts: z.array(AccountInput).min(1),
 });
 
 const EditTarget = GetEntry.extend({ expectedRevision: Revision });
-export const UpdateEntry = z.strictObject({ ...EditTarget.shape, name: RequiredText.optional(), url: OptionalUrl.optional() }).refine(({ name, url }) => name !== undefined || url !== undefined, "提供要更新的条目字段");
+export const UpdateEntry = z
+  .strictObject({ ...EditTarget.shape, name: RequiredText.optional(), url: OptionalUrl.optional(), tagIds: TagIds.optional(), newTags: z.array(TagFields).optional() })
+  .refine(({ name, url, tagIds, newTags }) => name !== undefined || url !== undefined || tagIds !== undefined || !!newTags?.length, "提供要更新的条目字段");
 const PasswordChange = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("keep") }), z.strictObject({ kind: z.literal("set"), value: z.string().min(1) }), z.strictObject({ kind: z.literal("clear") })]);
 export const UpdateAccount = z.strictObject({
   ...EditTarget.shape,
@@ -58,3 +75,8 @@ export type EditTarget = z.infer<typeof EditTarget>;
 export type UpdateEntry = z.infer<typeof UpdateEntry>;
 export type UpdateAccount = z.infer<typeof UpdateAccount>;
 export type StoredEntry = z.infer<typeof StoredEntry>;
+export type Tag = z.infer<typeof Tag>;
+export type TagFields = z.infer<typeof TagFields>;
+export type CreateTag = z.infer<typeof CreateTag>;
+export type UpdateTag = z.infer<typeof UpdateTag>;
+export type DeleteTag = z.infer<typeof DeleteTag>;
