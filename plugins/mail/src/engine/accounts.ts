@@ -17,7 +17,7 @@ import {
 import { AccountRemovals } from "./account-removals.js";
 import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { discoverImapFolders } from "./imap-discovery.js";
-import { fetchLatestImapMessage, markImapMessageRead } from "./imap-message.js";
+import { fetchImapMessages, markImapMessageRead, waitForImapActivity, type ImapSyncCursor } from "./imap-message.js";
 import type { MailEndpoint } from "./presets.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
@@ -89,13 +89,13 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
         return send(settings, password);
       });
     },
-    async fetchLatest(accountId: string, folder: string, signal: AbortSignal) {
+    async fetchMessages(accountId: string, folder: string, cursor: ImapSyncCursor | undefined, reset: (validity: string) => Promise<void>, signal: AbortSignal) {
       const result = await credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
         if (!folders.some(({ path }) => path === folder)) return { error: new MailAccountError("invalid-selection") };
         const password = values.get(accountPasswordPurpose);
         if (!password) return { error: new MailAccountError("credential-required") };
         try {
-          return { data: await fetchLatestImapMessage({ endpoint: settings.imap, email: settings.email, password, signal }, folder) };
+          return { data: await fetchImapMessages({ endpoint: settings.imap, email: settings.email, password, signal }, folder, cursor, reset) };
         } catch (error) {
           return { error: error instanceof MailAccountError ? error : new MailAccountError("message-read") };
         }
@@ -114,6 +114,13 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
           if (signal.aborted) throw error;
           return "local" as const;
         }
+      });
+    },
+    async waitForInbox(accountId: string, folder: string, cursor: { uidValidity: string; through: number }, wake: () => void, signal: AbortSignal) {
+      await credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
+        const password = values.get(accountPasswordPurpose);
+        if (!password || signal.aborted || !folders.some(({ path }) => path === folder)) return;
+        await waitForImapActivity({ endpoint: settings.imap, email: settings.email, password, signal }, folder, cursor, wake);
       });
     },
   };

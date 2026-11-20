@@ -13,6 +13,8 @@ import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
 import { MailSearch } from "./MailSearch.js";
+import { MailSyncSettings } from "./MailSyncSettings.js";
+import { onMailNotificationRequest } from "./mail-notification-command.js";
 import { onMailSearchRequest } from "./mail-search-command.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
 
@@ -59,6 +61,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const time = useMemo(() => mailDayWindow(period, zone, clock), [period, zone, clock]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [navigation, setNavigation] = useState<{ revision: number; location: LocatedMessage | null }>({ revision: 0, location: null });
+  const noticeNavigation = useRef<AbortController | null>(null);
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("mail");
   const [accountId, setAccountId] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -105,11 +108,16 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   useEngineEvents((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
     if (event.payload.kind === "mail-account") {
+      noticeNavigation.current?.abort();
       setAccountEpoch((epoch) => epoch + 1);
       void refetchAccounts();
     }
     if (event.payload.kind === "mail-mailbox") {
+      noticeNavigation.current?.abort();
       setAccountEpoch((epoch) => epoch + 1);
+      setNavigation(({ revision }) => ({ revision, location: null }));
+    }
+    if (event.payload.kind === "mail-message" || event.payload.kind === "mail-mailbox") {
       void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && (entry.queryKey[1] === "mail.messages.latest" || String(entry.queryKey[1]).startsWith("mail.conversations.")) });
     }
   });
@@ -181,6 +189,30 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     setNavigation(({ revision }) => ({ revision: revision + 1, location: result }));
     return true;
   }
+
+  const locateNotice = useRef(locate);
+  locateNotice.current = locate;
+  useEffect(() => {
+    if (!accounts.isSuccess) return;
+    const unregister = onMailNotificationRequest({ vaultId: engine.vaultId, endpoint: engine.endpoint.baseUrl }, (id) => {
+      noticeNavigation.current?.abort();
+      const controller = new AbortController();
+      noticeNavigation.current = controller;
+      void (async () => {
+        try {
+          const target = await engine.call<MailLocationTarget | null>("mail.notifications.target", { id }, { signal: controller.signal });
+          if (target && (await locateNotice.current(target, controller.signal))) return;
+        } catch {
+          // Show one unavailable state for a retired account, folder or message.
+        }
+        if (!controller.signal.aborted) setError("这条邮件通知的目标已不可用。");
+      })();
+    });
+    return () => {
+      unregister();
+      noticeNavigation.current?.abort();
+    };
+  }, [engine, accounts.isSuccess]);
 
   function clearLocation() {
     if (navigation.location) setNavigation(({ revision }) => ({ revision, location: null }));
@@ -266,6 +298,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </>
         }
       />
+      <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
       <nav className="hu-mail-row" aria-label="邮件工作区">
         {tabs.map(({ id, label }) => (
           <Button

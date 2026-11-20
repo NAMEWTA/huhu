@@ -15,6 +15,7 @@ export async function withImapConnection<T>(
   cancellation: "discovery-stale" | "cancelled",
   failure: "folder-list" | "message-read",
   operation: (client: ImapFlow) => Promise<T>,
+  timeoutMs = 15_000,
 ): Promise<T> {
   if (signal.aborted) throw new MailAccountError(cancellation);
   const client = new ImapFlow({
@@ -31,7 +32,7 @@ export async function withImapConnection<T>(
   client.on("error", (error) => {
     lastError = error;
   });
-  const deadline = AbortSignal.timeout(15_000);
+  const deadline = AbortSignal.timeout(timeoutMs);
   const cancelled = AbortSignal.any([signal, deadline]);
   const close = () => client.close();
   cancelled.addEventListener("abort", close, { once: true });

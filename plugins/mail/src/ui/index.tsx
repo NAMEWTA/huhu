@@ -12,3 +12,4 @@ export function createMailContributions(openMail?: () => boolean | void | Promis
 }
 
 export const contributions = createMailContributions();
+export { requestMailNotification, type MailNotificationRequest } from "./mail-notification-command.js";

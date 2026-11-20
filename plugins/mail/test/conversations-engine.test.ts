@@ -48,7 +48,8 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       Confidential: fixtureMail("Hidden flagged folder", 42, 22, [`From: ${hidden}`, `To: ${aEmail}`]),
     };
     const folders = Object.keys(mailboxes).map((path) => ({ path, flags: ["\\HasNoChildren", ...(path === "Waste" ? ["\\Trash"] : path === "Sent" ? ["\\Sent"] : path === "Confidential" ? ["\\Hidden"] : [])] }));
-    const imapA = await openImapFixture({ mailboxes, folders });
+    const inbox = { uidValidity: 12, messages: [mailboxes.INBOX] };
+    const imapA = await openImapFixture({ mailboxes, windows: { INBOX: inbox }, folders });
     const bSource = fixtureMail("B canonical", 42, 3, [`From: Beta Sender <${alice}>`, `To: ${bEmail}`, `Cc: ${bob}`, "Content-Type: text/html; charset=utf-8"], sharedId);
     bSource.source = bSource.source.replace("Body for B canonical", '<p>Body for B canonical, blue folder &amp; text.</p><script>blocked-search-script</script><img src="https://never-fetch.invalid/pixel">');
     const imapB = await openImapFixture({ message: bSource });
@@ -100,13 +101,13 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       } = JSON.parse(cached.bytes.toString("utf8"));
       await engine.vault.files.write(siblingCache, Buffer.from(JSON.stringify({ format: 1, uidValidity, message: { summary, source } })), { expectedVersion: cached.version });
       const distinct = async (entry: FixtureImapMessage) => {
-        mailboxes.INBOX = entry;
+        inbox.messages.push(entry);
         return refresh(a);
       };
       await distinct(fixtureMail("Without ID one", 43, 4, [`From: ${alice}`, `To: ${aEmail}`, `Cc: ${bob}, ${bob.toUpperCase()}`]));
       await distinct(fixtureMail("Without ID two", 44, 5, [`From: ${bob}`, `To: ${aEmail}`, `Cc: ${alice}`, "Message-ID: <invalid@example.invalid> <also@example.invalid>"]));
       await distinct(fixtureMail("Newest contact", 45, 12, [`From: ${carla}`, `To: ${aEmail}`]));
-      expect(await distinct({ ...fixtureMail("Deleted latest", 46, 13, [`From: ${hidden}`, `To: ${aEmail}`]), deleted: true })).toMatchObject({ message: null });
+      expect(await distinct({ ...fixtureMail("Deleted latest", 46, 13, [`From: ${hidden}`, `To: ${aEmail}`]), deleted: true })).toMatchObject({ message: { uid: 45 } });
       for (const name of Object.keys(mailboxes).filter((name) => name !== "INBOX")) await refresh(a, name);
 
       const outbox = new OutboxStorage(engine.vault.files);
@@ -205,7 +206,8 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData });
       expect(await page(4)).toEqual(items3);
-      mailboxes.INBOX = { ...fixtureMail("New generation", 42, 14, [`From: ${carla}`, `To: ${aEmail}`]), uidValidity: 13 };
+      inbox.uidValidity = 13;
+      inbox.messages = [{ ...fixtureMail("New generation", 42, 14, [`From: ${carla}`, `To: ${aEmail}`]), uidValidity: 13 }];
       expect(await refresh(a)).toMatchObject({ mailboxChanged: true });
       expect(await call("mail.messages.loadBody", key(first))).toEqual({ state: "needs-refresh" });
       expect(await call("mail.conversations.findMessage", { target: oldest })).toBeNull();

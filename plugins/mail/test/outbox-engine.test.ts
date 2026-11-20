@@ -151,8 +151,9 @@ testWindows(
       const smtpRelease = Promise.withResolvers<void>();
       let holdFetch = false;
       const fixtureMessage = (subject: string) => ({ uidValidity: 12, subject, source: `Subject: ${subject}\r\n\r\nlocal removal fixture\r\n` });
+      const targetBox = { uidValidity: 12, messages: [{ ...fixtureMessage("target mailbox"), uid: 42 }] };
       const imapA = await openImapFixture({
-        message: fixtureMessage("target mailbox"),
+        windows: { INBOX: targetBox },
         beforeSource: async () => {
           if (holdFetch) await imapRelease.promise;
         },
@@ -252,6 +253,7 @@ testWindows(
         assert(repair.ok);
         const fetches = imapA.fetchRequests.length;
         holdFetch = true;
+        targetBox.messages.push({ ...fixtureMessage("arrival before removal"), uid: 43 });
         const refreshing = call(engine, "mail.sync.refresh", mailbox(target.accountId));
         await expect.poll(() => imapA.fetchRequests.length).toBeGreaterThan(fetches + 1);
         const snapshots = await preview();

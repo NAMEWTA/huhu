@@ -12,9 +12,12 @@ export async function openImapFixture(
     rejectList?: boolean;
     disconnectDuringList?: boolean;
     namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
-    beforeSource?: () => Promise<void>;
+    beforeSource?: (uid: number) => Promise<void>;
     message?: FixtureImapMessage;
     mailboxes?: Record<string, FixtureImapMessage>;
+    windows?: Record<string, { uidValidity: number; messages: FixtureImapMessage[] }>;
+    reverseFetch?: boolean;
+    allowIdle?: boolean;
     folders?: { path: string; flags: string[] }[];
   } = {},
 ) {
@@ -23,19 +26,41 @@ export async function openImapFixture(
   const fetchRequests: string[] = [];
   const storeRequests: string[] = [];
   const sockets = new Set<Socket>();
+  const idleSockets = new Set<Socket>();
   const listed = Promise.withResolvers<void>();
   const disconnected = Promise.withResolvers<void>();
   const server = createServer((socket) => {
     let selected = "INBOX";
-    const current = () => (options.mailboxes ? options.mailboxes[selected] : options.message);
+    const uidOf = (message: FixtureImapMessage) => message.uid ?? 42;
+    const current = () => {
+      const box = options.windows?.[selected];
+      if (box) return { ...box, messages: [...box.messages].sort((a, b) => uidOf(a) - uidOf(b)) };
+      const message = options.mailboxes ? options.mailboxes[selected] : options.message;
+      return message ? { uidValidity: message.uidValidity, messages: [message] } : undefined;
+    };
     const flags = (message: FixtureImapMessage) => [message.seen && "\\Seen", message.deleted && "\\Deleted"].filter(Boolean).join(" ");
+    const inRange = (value: number, range: string, max: number) =>
+      range.split(",").some((part) => {
+        const [start, end = start] = part.split(":").map((item) => (item === "*" ? max : Number(item)));
+        return start !== undefined && end !== undefined && value >= Math.min(start, end) && value <= Math.max(start, end);
+      });
+    function headers(tag: string, messages: FixtureImapMessage[], range: string, byUid: boolean) {
+      const rows = messages.map((message, index) => ({ message, seq: index + 1 })).filter(({ message, seq }) => inRange(byUid ? uidOf(message) : seq, range, byUid && messages.length ? uidOf(messages.at(-1)!) : messages.length));
+      if (options.reverseFetch) rows.reverse();
+      return socket.write(
+        rows.map(({ message, seq }) => `* ${seq} FETCH (UID ${uidOf(message)} FLAGS (${flags(message)}) RFC822.SIZE ${Buffer.byteLength(message.source)} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n`).join("") +
+          `${tag} OK FETCH\r\n`,
+      );
+    }
     sockets.add(socket);
     socket.on("error", () => socket.destroy());
     socket.once("close", () => {
+      idleSockets.delete(socket);
       sockets.delete(socket);
       if (sockets.size === 0) disconnected.resolve();
     });
-    socket.write("* OK [CAPABILITY IMAP4rev1 NAMESPACE] loopback fixture\r\n");
+    const capabilities = () => `IMAP4rev1 NAMESPACE${options.allowIdle ? " IDLE" : ""}`;
+    socket.write(`* OK [CAPABILITY ${capabilities()}] loopback fixture\r\n`);
     createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
       const [tag, verb] = line.split(" ", 2);
       const command = verb?.toUpperCase();
@@ -43,7 +68,11 @@ export async function openImapFixture(
       commands.push(command);
       switch (command) {
         case "CAPABILITY":
-          return socket.write(`* CAPABILITY IMAP4rev1 NAMESPACE\r\n${tag} OK CAPABILITY\r\n`);
+          return socket.write(`* CAPABILITY ${capabilities()}\r\n${tag} OK CAPABILITY\r\n`);
+        case "IDLE":
+          if (!options.allowIdle) return socket.write(`${tag} BAD IDLE unsupported\r\n`);
+          idleSockets.add(socket);
+          return socket.write("+ idling\r\n");
         case "LOGIN": {
           const supplied = line.match(/(?:"([a-z0-9-]+)"|([a-z0-9-]+))$/i);
           const rejected = options.rejectLogin || (options.acceptPassword && !options.acceptPassword(supplied?.[1] ?? supplied?.[2] ?? ""));
@@ -78,22 +107,31 @@ export async function openImapFixture(
         case "EXAMINE":
         case "SELECT": {
           selected = line.slice(`${tag} ${verb} `.length).trim().replace(/^"|"$/g, "");
-          const message = current();
-          if (!message) return socket.write(`${tag} BAD mailbox not configured\r\n`);
+          const box = current();
+          if (!box) return socket.write(`${tag} BAD mailbox not configured\r\n`);
           const mode = command === "SELECT" ? "READ-WRITE" : "READ-ONLY";
-          return socket.write(`* FLAGS (\\Seen \\Deleted)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${message.uidValidity}] stable\r\n* OK [UIDNEXT ${(message.uid ?? 42) + 1}] next\r\n${tag} OK [${mode}] mailbox selected\r\n`);
+          const next = box.messages.at(-1);
+          return socket.write(
+            `* FLAGS (\\Seen \\Deleted)\r\n* ${box.messages.length} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${box.uidValidity}] stable\r\n* OK [UIDNEXT ${next ? uidOf(next) + 1 : 1}] next\r\n${tag} OK [${mode}] mailbox selected\r\n`,
+          );
         }
         case "FETCH": {
-          const message = current();
-          if (!message) return socket.write(`${tag} BAD message not configured\r\n`);
+          const box = current();
+          if (!box) return socket.write(`${tag} BAD message not configured\r\n`);
           fetchRequests.push(line);
-          const size = Buffer.byteLength(message.source);
-          return socket.write(`* 1 FETCH (UID ${message.uid ?? 42} FLAGS (${flags(message)}) RFC822.SIZE ${size} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n${tag} OK FETCH\r\n`);
+          return headers(tag!, box.messages, line.split(" ")[2] ?? "*", false);
         }
         case "UID": {
-          const message = current();
+          const box = current();
+          if (!box) return socket.write(`${tag} BAD unsupported UID command\r\n`);
+          const range = line.split(" ")[3] ?? "";
+          if (/\bUID FETCH\b/i.test(line) && /\bFLAGS\b/i.test(line) && !/BODY\.PEEK/i.test(line)) {
+            fetchRequests.push(line);
+            return headers(tag!, box.messages, range, true);
+          }
+          const message = box.messages.find((item) => uidOf(item) === Number(range));
           if (!message) return socket.write(`${tag} BAD unsupported UID command\r\n`);
-          const uid = message.uid ?? 42;
+          const uid = uidOf(message);
           if (line.toUpperCase().includes(`UID STORE ${uid} `) && /\+FLAGS(?:\.SILENT)? \(\\Seen\)/i.test(line)) {
             storeRequests.push(line);
             if (message.refuseRead) return socket.write(`${tag} NO read update denied\r\n`);
@@ -101,20 +139,16 @@ export async function openImapFixture(
             return socket.write(`${tag} OK STORE\r\n`);
           }
           const matchingFetch = line.toUpperCase().includes(`UID FETCH ${uid} `);
-          if (matchingFetch && /\bFLAGS\b/i.test(line) && !/BODY\.PEEK/i.test(line)) {
-            fetchRequests.push(line);
-            return socket.write(`* 1 FETCH (UID ${uid} FLAGS (${flags(message)}))\r\n${tag} OK FLAGS\r\n`);
-          }
           if (!matchingFetch || !/BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
           fetchRequests.push(line);
           const send = () => {
             if (socket.destroyed) return;
-            socket.write(`* 1 FETCH (UID ${uid} BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
+            socket.write(`* ${box.messages.indexOf(message) + 1} FETCH (UID ${uid} BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
             socket.write(message.source);
             socket.write(`)\r\n${tag} OK UID FETCH\r\n`);
           };
           if (!options.beforeSource) return send();
-          void options.beforeSource().then(send, () => socket.destroy());
+          void options.beforeSource(uid).then(send, () => socket.destroy());
           return;
         }
         default:
@@ -138,6 +172,13 @@ export async function openImapFixture(
     storeRequests,
     listed: listed.promise,
     disconnected: disconnected.promise,
+    idleCount: () => idleSockets.size,
+    announceExists(count: number) {
+      for (const socket of idleSockets) socket.write(`* ${count} EXISTS\r\n`);
+    },
+    disconnectIdle() {
+      for (const socket of idleSockets) socket.destroy();
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
         for (const socket of sockets) socket.destroy();

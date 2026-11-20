@@ -33,6 +33,7 @@ const cacheEntry = z.strictObject({
   source: z.base64().max(Math.ceil(MAX_IMAP_SOURCE_BYTES / 3) * 4),
   publicMail: publicMail.optional(),
   cachedAt: z.iso.datetime().optional(),
+  localRead: z.literal(true).optional(),
   deleted: z.literal(true).optional(),
 });
 const messageKey = sourceMessage;
@@ -41,6 +42,8 @@ const maxCacheSourceChars = 24 * 1024 * 1024;
 const cacheSnapshot = z.strictObject({
   format: z.literal(1),
   uidValidity,
+  through: z.int().nonnegative().optional(),
+  pendingNotices: z.array(sourceMessage.shape.localMessageId).max(maxCachedMessages).optional(),
   message: cacheEntry.nullable(),
   history: z
     .array(cacheEntry)
@@ -58,7 +61,8 @@ export const mailRefreshDescriptor = defineCapabilityDescriptor({
   ...internal,
   name: "mail.sync.refresh",
   title: "刷新邮箱目录",
-  description: "从已选 IMAP 目录保存最新一封邮件的摘要与原文。",
+  description: "分批刷新已选 IMAP 目录的邮件和已读状态。",
+  timeoutMs: 90_000,
   scope: "write",
   input: mailbox,
   output: z.strictObject({ message: summary.nullable(), mailboxChanged: z.boolean() }),
@@ -117,27 +121,15 @@ function findCachedMessage(snapshot: Snapshot | null, localMessageId: string) {
   return cachedEntries(snapshot).find(({ summary, deleted }) => !deleted && summary.localMessageId === localMessageId);
 }
 
-function retainHistory(before: Snapshot | null, latest: CacheEntry, validity: string) {
-  if (before?.uidValidity !== validity) return [];
-  const retained: CacheEntry[] = [];
-  let size = latest.source.length;
-  for (const entry of cachedEntries(before)
-    .filter(({ summary }) => summary.uid < latest.summary.uid)
-    .sort((a, b) => b.summary.uid - a.summary.uid)) {
-    if (retained.length === maxCachedMessages - 1 || size + entry.source.length > maxCacheSourceChars) break;
-    size += entry.source.length;
-    retained.push(entry);
-  }
-  return retained;
-}
-
 export function requireCachedMessage(files: Files, input: z.infer<typeof sourceMessage>) {
   const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
   if (!message) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
   return message;
 }
 
-export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal, removals: AccountRemovals, writer: Pick<MailDrafts, "serialize">) {
+export type MailNotificationSink = (notice: { id: string; module: "mail"; title: string }) => void;
+
+export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal, removals: AccountRemovals, writer: Pick<MailDrafts, "serialize">, notify?: MailNotificationSink) {
   const files = api.vault.files;
   const writes = new Map<string, { accountId: string; task: Promise<unknown> }>();
   const authorize = (caller: string, name: string) => {
@@ -151,11 +143,137 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       if (writes.get(key)?.task === task) writes.delete(key);
     });
   }
-  function write(input: Mailbox, snapshot: Snapshot, expectedVersion: string | null, signal: AbortSignal) {
+  function write(input: Mailbox, snapshot: Snapshot, expectedVersion: string | null, signal: AbortSignal, validate?: () => void) {
     return writer.serialize(() => {
       signal.throwIfAborted();
       removals.assertActive(input.accountId);
+      validate?.();
       return files.write(cachePath(input), Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion });
+    });
+  }
+
+  function noticeId(localMessageId: string) {
+    return `ntf-mail-${digest([api.vault.vaultId, files.root, localMessageId])}`;
+  }
+
+  const jobs = new Map<string, { controller: AbortController; waiters: number; task: ReturnType<typeof syncMailbox> }>();
+  const accountTails = new Map<string, Promise<unknown>>();
+
+  async function syncMailbox(input: Mailbox, signal: AbortSignal) {
+    signal.throwIfAborted();
+    const generation = accounts!.readDefinition(input.accountId);
+    if (!generation?.definition.folders.some(({ path }) => path === input.folder)) throw new MailAccountError("invalid-selection");
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      removals.assertActive(input.accountId);
+      if (accounts!.readDefinition(input.accountId)?.revision !== generation.revision) throw new MailAccountError("mailbox-changed");
+    };
+    const before = readSnapshot(files, input);
+    let version = before.version;
+    let mailboxChanged = false;
+    const result = await accounts!.fetchMessages(
+      input.accountId,
+      input.folder,
+      before.snapshot
+        ? {
+            uidValidity: before.snapshot.uidValidity,
+            ...(before.snapshot.through !== undefined && { through: before.snapshot.through }),
+            cached: cachedEntries(before.snapshot).map(({ summary, source }) => ({ uid: summary.uid, size: Buffer.byteLength(source, "base64") })),
+          }
+        : undefined,
+      async (validity) => {
+        assertCurrent();
+        ({ version } = await write(input, { format: 1, uidValidity: validity, message: null }, version, signal, assertCurrent));
+        mailboxChanged = true;
+        api.events.publish("entity.changed", { kind: "mail-mailbox", id: input.accountId, op: "updated" });
+      },
+      signal,
+    );
+    assertCurrent();
+    const previous = new Map(mailboxChanged ? [] : cachedEntries(before.snapshot).map((entry) => [entry.summary.uid, entry]));
+    const entries: CacheEntry[] = [];
+    let size = 0;
+    for (const row of result.messages.sort((a, b) => b.uid - a.uid)) {
+      const existing = previous.get(row.uid);
+      if (row.deleted || (!existing && !row.source)) continue;
+      const source = row.source?.toString("base64") ?? existing!.source;
+      if (entries.length >= maxCachedMessages || size + source.length > maxCacheSourceChars) continue;
+      const projection = row.source ? await readPublicMail(row.source).catch(() => undefined) : existing?.publicMail;
+      const localRead = existing?.localRead || existing?.summary.readState === "local";
+      const state = row.seen ? "synced" : localRead ? "local" : "unread";
+      entries.push({
+        summary: { ...input, uidValidity: result.uidValidity, uid: row.uid, localMessageId: messageId(input, result.uidValidity, row.uid), subject: row.subject, transport: "imap", readState: state },
+        source,
+        ...(projection && { publicMail: projection }),
+        ...(localRead && { localRead: true }),
+        cachedAt: existing?.cachedAt ?? new Date().toISOString(),
+      });
+      size += source.length;
+    }
+    assertCurrent();
+    const unacknowledged = new Set(mailboxChanged ? [] : before.snapshot?.pendingNotices);
+    const pending = entries
+      .filter(({ summary, publicMail }) => {
+        if (!publicMail) return false;
+        if (unacknowledged.has(summary.localMessageId)) return true;
+        return notify && !result.initial && input.folder.toLowerCase() === "inbox" && summary.uid > (before.snapshot?.through ?? 0) && summary.readState === "unread";
+      })
+      .map(({ summary }) => summary.localMessageId);
+    const next: Snapshot = { format: 1, uidValidity: result.uidValidity, through: result.through, message: entries[0] ?? null, history: entries.slice(1), ...(pending.length && { pendingNotices: pending }) };
+    if (JSON.stringify(before.snapshot) !== JSON.stringify(next)) {
+      ({ version } = await write(input, next, version, signal, assertCurrent));
+      assertCurrent();
+      api.events.publish("entity.changed", { kind: "mail-message", id: input.accountId, op: "updated" });
+    }
+    if (notify && pending.length) {
+      const failed = [];
+      for (const localMessageId of pending) {
+        assertCurrent();
+        try {
+          notify({ id: noticeId(localMessageId), module: "mail", title: "收到新邮件" });
+        } catch {
+          failed.push(localMessageId);
+        }
+      }
+      if (failed.length !== pending.length) {
+        delete next.pendingNotices;
+        if (failed.length) next.pendingNotices = failed;
+        await write(input, next, version, signal, assertCurrent);
+      }
+    }
+    const idle = result.canIdle && !result.more && input.folder.toLowerCase() === "inbox" ? { folder: input.folder, uidValidity: result.uidValidity, through: result.through } : undefined;
+    return { message: next.message?.summary ?? null, mailboxChanged, more: result.more, idle };
+  }
+
+  function refresh(input: Mailbox, signal: AbortSignal) {
+    files.assertWritable();
+    if (!accounts) throw errors.invalidInput("此 Vault 的本机邮箱凭据不可用");
+    signal.throwIfAborted();
+    const key = cachePath(input);
+    let active = jobs.get(key);
+    if (!active || active.controller.signal.aborted) {
+      const controller = new AbortController();
+      const cancelled = AbortSignal.any([controller.signal, lifetime, removals.signal(input.accountId)]);
+      const task = (accountTails.get(input.accountId) ?? Promise.resolve()).catch(() => undefined).then(() => serialize(input, () => syncMailbox(input, cancelled)));
+      active = { controller, task, waiters: 0 };
+      jobs.set(key, active);
+      accountTails.set(input.accountId, task);
+      const clear = () => {
+        if (jobs.get(key)?.task === task) jobs.delete(key);
+        if (accountTails.get(input.accountId) === task) accountTails.delete(input.accountId);
+      };
+      void task.then(clear, clear);
+    }
+    const job = active;
+    job.waiters++;
+    let abort: () => void;
+    return new Promise<Awaited<typeof job.task>>((resolve, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      void job.task.then(resolve, reject);
+    }).finally(() => {
+      signal.removeEventListener("abort", abort);
+      if (--job.waiters === 0 && jobs.get(key) === job) job.controller.abort();
     });
   }
 
@@ -182,49 +300,45 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
     return seed;
   }
   api.defineCapability(
-    bindCapability(mailRefreshDescriptor, ({ caller, signal }, input) => {
+    bindCapability(mailRefreshDescriptor, async ({ caller, signal }, input) => {
       authorize(caller, mailRefreshDescriptor.name);
-      files.assertWritable();
-      if (!accounts) throw errors.invalidInput("此 Vault 的本机邮箱凭据不可用");
-      const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
-      return serialize(input, async () => {
-        cancelled.throwIfAborted();
-        const before = readSnapshot(files, input);
-        let result: Awaited<ReturnType<typeof accounts.fetchLatest>>;
-        try {
-          result = await accounts.fetchLatest(input.accountId, input.folder, cancelled);
-        } catch (error) {
-          if (error instanceof MailAccountError || error instanceof CredentialError) throw new HuhuError("INVALID_INPUT", "无法刷新邮箱目录", { details: { reason: error.code } });
-          throw error;
+      try {
+        const { message, mailboxChanged } = await refresh(input, signal);
+        return { message, mailboxChanged };
+      } catch (error) {
+        if (error instanceof MailAccountError || error instanceof CredentialError) throw new HuhuError("INVALID_INPUT", "无法刷新邮箱目录", { details: { reason: error.code } });
+        throw error;
+      }
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...internal,
+      name: "mail.notifications.target",
+      scope: "read",
+      input: z.strictObject({ id: z.string().regex(/^ntf-mail-[0-9a-f]{64}$/) }),
+      output: cachedSummary
+        .pick({ accountId: true, folder: true, localMessageId: true, uidValidity: true, uid: true })
+        .extend({ source: z.literal("imap") })
+        .nullable(),
+      async handler({ caller, signal }, { id }) {
+        authorize(caller, "mail.notifications.target");
+        const rows = (await accounts?.list()) ?? [];
+        for (const account of rows) {
+          signal.throwIfAborted();
+          lifetime.throwIfAborted();
+          if (removals.read(account.accountId) || accounts?.readDefinition(account.accountId)?.revision !== account.revision) continue;
+          for (const folder of account.definition.folders) {
+            if (folder.path.toLowerCase() !== "inbox" || !isPublicMailFolder(folder)) continue;
+            const entry = cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path }).find(({ summary }) => noticeId(summary.localMessageId) === id);
+            if (entry?.publicMail) {
+              const { accountId, folder, localMessageId, uidValidity, uid } = entry.summary;
+              return { source: "imap" as const, accountId, folder, localMessageId, uidValidity, uid };
+            }
+          }
         }
-        cancelled.throwIfAborted();
-        const { uidValidity: validity, message } = result;
-        const localId = message ? messageId(input, validity, message.uid) : undefined;
-        const previous = localId && findCachedMessage(before.snapshot, localId);
-        const locallyRead = previous && (previous.summary.readState === "local" || previous.summary.readState === "synced");
-        const projection = message && (await readPublicMail(message.source).catch(() => undefined));
-        const next: Snapshot = {
-          format: 1,
-          uidValidity: validity,
-          message: message
-            ? {
-                summary: { ...input, localMessageId: localId!, uidValidity: validity, uid: message.uid, subject: message.subject, transport: "imap", readState: message.seen ? "synced" : locallyRead ? "local" : "unread" },
-                source: message.source.toString("base64"),
-                ...(projection && { publicMail: projection }),
-                cachedAt: (previous && previous.cachedAt) || new Date().toISOString(),
-                ...(message.deleted && { deleted: true }),
-              }
-            : null,
-        };
-        if (next.message) {
-          const history = retainHistory(before.snapshot, next.message, validity);
-          if (history.length) next.history = history;
-        }
-        await write(input, next, before.version, cancelled);
-        const mailboxChanged = before.snapshot !== null && before.snapshot.uidValidity !== validity;
-        if (mailboxChanged) api.events.publish("entity.changed", { kind: "mail-mailbox", id: input.accountId, op: "updated" });
-        return { message: next.message && !next.message.deleted ? next.message.summary : null, mailboxChanged };
-      });
+        return null;
+      },
     }),
   );
   api.defineCapability(
@@ -344,6 +458,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           let expectedVersion = version;
           if (message.summary.readState !== "local") {
             message.summary.readState = "local";
+            message.localRead = true;
             expectedVersion = (await write(input, snapshot, version, cancelled)).version;
           }
           cancelled.throwIfAborted();
@@ -364,9 +479,10 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
     }),
   );
   return {
+    refresh,
     versions: (accountId: string, folders: string[]) => folders.map((folder) => [folder, files.currentVersion(cachePath({ accountId, folder }))] as const),
     async drainAccount(accountId: string) {
-      await Promise.allSettled([...writes.values()].filter((entry) => entry.accountId === accountId).map(({ task }) => task));
+      await Promise.allSettled([accountTails.get(accountId), ...[...writes.values()].filter((entry) => entry.accountId === accountId).map(({ task }) => task)]);
     },
     retireAccount(accountId: string, folders: string[]) {
       files.assertWritable();
@@ -379,7 +495,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       }
     },
     async drain() {
-      await Promise.allSettled([...writes.values()].map(({ task }) => task));
+      await Promise.allSettled([...accountTails.values(), ...[...writes.values()].map(({ task }) => task)]);
     },
   };
 }

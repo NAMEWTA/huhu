@@ -9,3 +9,4 @@ export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, withMailSna
 export { MAIL_OUTBOX_SERVICE, type MailOutboxService } from "./outbox.js";
 export { createMailSmtpTransport, type MailSmtpTransport } from "./smtp.js";
 export type { MailLocationTarget } from "./conversations.js";
+export type { MailSyncOptions } from "./sync-schedule.js";
