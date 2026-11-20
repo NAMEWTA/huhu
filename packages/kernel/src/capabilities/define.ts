@@ -18,6 +18,8 @@ interface CapabilityContract<I, O> {
   exposable: boolean;
   /** 外部入口（MCP/CLI/HTTP）的默认开放状态。 */
   defaultExposed: boolean;
+  /** 该操作属于运行 Engine 的桌面宿主。 */
+  desktopOnly?: boolean;
   /** 覆盖默认 60 秒超时。 */
   timeoutMs?: number;
 }

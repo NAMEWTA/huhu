@@ -123,7 +123,7 @@ export class Dispatcher {
   }
 
   private authorize(caller: Caller, def: CapabilityDefinition, policy?: ToolAccessSnapshot): HuhuError | null {
-    if (isWorkbenchCaller(caller)) return null;
+    if (isWorkbenchCaller(caller)) return def.desktopOnly && caller !== "desktop" ? errors.permissionDenied(def.name) : null;
     if (caller.startsWith("plugin:")) {
       const id = caller.slice("plugin:".length);
       const origin = this.d.pluginOrigin(id);

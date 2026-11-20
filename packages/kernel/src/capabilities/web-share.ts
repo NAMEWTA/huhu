@@ -15,7 +15,7 @@ const Invitation = z.object({ id: z.uuidv4(), links: z.array(z.url()) });
 
 export function registerWebShareCapabilities(registry: CapabilityRegistry, share: WebShareService): void {
   function register<I, O>(name: string, title: string, scope: CapabilityScope, input: z.ZodType<I>, output: z.ZodType<O>, handler: (input: I) => O | Promise<O>) {
-    const descriptor = defineCapabilityDescriptor({ name, title, description: title, scope, input, output, plugin: "kernel", risk: "normal", exposable: false, defaultExposed: false });
+    const descriptor = defineCapabilityDescriptor({ name, title, description: title, scope, input, output, plugin: "kernel", risk: "normal", exposable: false, defaultExposed: false, desktopOnly: true });
     registry.declareDescriptors("kernel", [descriptor]);
     registry.register(
       bindCapability(descriptor, (c, i) => {
