@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type ConflictEntryWire,
   SyncConflictsSuccessSchema,
@@ -49,7 +50,7 @@ const CONFLICTS_REQUEST_TIMEOUT_MS = 5_000;
 
 async function fetchConflicts(): Promise<ConflictsFetchResult> {
   try {
-    const res = await fetch('/api/sync/conflicts', {
+    const res = await okFetch('/api/sync/conflicts', {
       signal: AbortSignal.timeout(CONFLICTS_REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) {

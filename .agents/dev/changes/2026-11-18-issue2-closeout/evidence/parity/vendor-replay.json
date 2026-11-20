@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "1b1b470a017ea55a0754dce5f07a25b358d70e1f6e095f7b8186c742a8b4e2b9",
+      "sha256": "fd23ad9c49614df4417a5faf3d3394b40f789e107a7ca83e858a574930f3f730",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -227,7 +227,7 @@
       "target": "app/src/comments/comments-client.ts",
       "upstream": "packages/app/src/comments/comments-client.ts",
       "blob": "d8a1c77e5f8cb13a13a3b2333b92cde691b09694",
-      "sha256": "58ee047cf8acaa18a576060dfba0adbb21f2a4361ade357f2f5c5c017006cf7f",
+      "sha256": "a9885d80d5297859ce2248e97a6810ad2d0436ba07ea2c335754a35909475285",
       "method": "patch",
       "description": "PATCHES.md:17 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。"
     },
@@ -468,8 +468,9 @@
       "target": "app/src/components/ActivityModeContent.tsx",
       "upstream": "packages/app/src/components/ActivityModeContent.tsx",
       "blob": "05afa75ad90349e97b679572701a54ef2bfa66ce",
-      "sha256": "11655a1302118fcbe890f1fa2d97705571db1fa741a52d25f12ee0e1f27b6902",
-      "method": "copy"
+      "sha256": "48fd31e6d32ec49e3fab00a9d4a4b1f06019779cef4de945c079fbcfe93bfacb",
+      "method": "patch",
+      "description": "PATCHES.md:327 - `app/src/components/ActivityModeContent.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/ActivityPanelBurstRow.tsx",
@@ -560,7 +561,7 @@
       "target": "app/src/components/FileTree.tsx",
       "upstream": "packages/app/src/components/FileTree.tsx",
       "blob": "49eda5b8d8f398d63804162d3eaf850080b797b2",
-      "sha256": "036500c3bc105fc95ffdd9ab41e04e25c71731354dd1f80a31d2b409f8fe0839",
+      "sha256": "727a21f586e36acefefb52374b30e7a6c56f9edd24d326ed0cd91dc2c8d666a5",
       "method": "patch",
       "description": "PATCHES.md:55 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
@@ -603,15 +604,17 @@
       "target": "app/src/components/GraphPanel.tsx",
       "upstream": "packages/app/src/components/GraphPanel.tsx",
       "blob": "bf3086afd3b87a2aab6cd064cc650bf97ec5f569",
-      "sha256": "69fb638068f896b229916b70a45f56c5267da8a055698699442e51ba3dbc27f3",
-      "method": "copy"
+      "sha256": "cb6cc70dc16499fee2e98db795f383fae9bc0c4aa93b7b6b298967ce65ff9867",
+      "method": "patch",
+      "description": "PATCHES.md:328 - `app/src/components/GraphPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/GraphView.tsx",
       "upstream": "packages/app/src/components/GraphView.tsx",
       "blob": "8a6e893ca1d75dbf39d5ed0d423ea1f28b4f5bfc",
-      "sha256": "0425c58c4098a859cb086c68a31515437847dac9fa7f6fd5ac22a74239684031",
-      "method": "copy"
+      "sha256": "ba04ad192f20f84a136880716ec580237b8cd407d916dd8851584e218712888d",
+      "method": "patch",
+      "description": "PATCHES.md:329 - `app/src/components/GraphView.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/InteractionPropPanel.tsx",
@@ -624,8 +627,9 @@
       "target": "app/src/components/LinksPanel.tsx",
       "upstream": "packages/app/src/components/LinksPanel.tsx",
       "blob": "604a80c7c80d5c73f27a0cf472e45c59a5ebe579",
-      "sha256": "ed73125370c321fc1734c5cefe5568c0cf11854f625d024f6a278955cef9847c",
-      "method": "copy"
+      "sha256": "18725fd235e03e45d1aaf7a8158f33e926ed124e1e213bab469aa2bab32e8a35",
+      "method": "patch",
+      "description": "PATCHES.md:330 - `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/NewItemDialog.tsx",
@@ -659,8 +663,9 @@
       "target": "app/src/components/OutlinePanel.tsx",
       "upstream": "packages/app/src/components/OutlinePanel.tsx",
       "blob": "a2520b387ee64cbacd0d8ac074860a3f48b78830",
-      "sha256": "894ac1a4c1bb48d523e303950badd5d2855d0f95327fbc37da55291e1dcfc15c",
-      "method": "copy"
+      "sha256": "7989be7fbcd2541c1449b3f9e06acd07ef1e78c9bebbcf1a82a9a76f87a5c0f5",
+      "method": "patch",
+      "description": "PATCHES.md:331 - `app/src/components/OutlinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/PageHeaderWidgets.tsx",
@@ -673,8 +678,9 @@
       "target": "app/src/components/PageListContext.tsx",
       "upstream": "packages/app/src/components/PageListContext.tsx",
       "blob": "5cd8389b4831ee2f1c5394572bd21d64b4ca1a36",
-      "sha256": "0b936d60ca9e92a0f17a806fe55f259658840a74f696da206a0790832edd5459",
-      "method": "copy"
+      "sha256": "89be04a89d43367388323f835cad8e47165eade6559183d5712fa03fd9401edb",
+      "method": "patch",
+      "description": "PATCHES.md:332 - `app/src/components/PageListContext.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/PanelScopeHeader.tsx",
@@ -758,8 +764,9 @@
       "target": "app/src/components/TimelinePanel.tsx",
       "upstream": "packages/app/src/components/TimelinePanel.tsx",
       "blob": "6d663c4abacfdde342bb8bd055f0f7a019436b7c",
-      "sha256": "d2d3ea44acd6e9b1f25b7e275d98a87f5079f0ba9d3abb8f9e85c9c7c5d9aee7",
-      "method": "copy"
+      "sha256": "1a295cf15d3881d216909bab30fcdf50792b427f0e4c787672d57c7917fa2948",
+      "method": "patch",
+      "description": "PATCHES.md:333 - `app/src/components/TimelinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/TrashFailureModal.dom.test.tsx",
@@ -899,8 +906,9 @@
       "target": "app/src/components/file-tree-listing-transport.ts",
       "upstream": "packages/app/src/components/file-tree-listing-transport.ts",
       "blob": "b20a1dfced75e67415d0824ef17f21e816828c47",
-      "sha256": "102d8e7a31e823a25a99a819b08ef361415fc335c9454f3fb56ebd74c8de5916",
-      "method": "copy"
+      "sha256": "e30cfcf3baa4a69664a3b2865fa3854c0c977e6528be530b7654ee57b63c20c1",
+      "method": "patch",
+      "description": "PATCHES.md:334 - `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/file-tree-merge.ts",
@@ -1123,8 +1131,9 @@
       "target": "app/src/components/handoff/useInstalledAgents.ts",
       "upstream": "packages/app/src/components/handoff/useInstalledAgents.ts",
       "blob": "74cf5151136cff4702e45f7a30d9d91ca50f13cc",
-      "sha256": "bd8f0c01151d9e5f410a8621383b5b2e269cf040783467394a258e6e1dc52048",
-      "method": "copy"
+      "sha256": "ddc9c1894eab292fb79c4ed3ea842ebc0272b7f4f3a9837297f0d3fe5f3b7d9a",
+      "method": "patch",
+      "description": "PATCHES.md:335 - `app/src/components/handoff/useInstalledAgents.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/components/icons/AgentIcon.tsx",
@@ -1797,14 +1806,15 @@
       "target": "app/src/editor/SourceEditor.tsx",
       "upstream": "packages/app/src/editor/SourceEditor.tsx",
       "blob": "215ddcd7c554201341b0ee5533bc9f81b908ecee",
-      "sha256": "68719efbc9bc7e380558dc66b9cf627f51ba58b4970a487bc31e7dcdcc2fddd1",
-      "method": "copy"
+      "sha256": "3c48e5eed0a603cef7341108572de015dbff2edf5330165fff72d90ddbff8885",
+      "method": "patch",
+      "description": "PATCHES.md:336 - `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。"
     },
     {
       "target": "app/src/editor/TiptapEditor.tsx",
       "upstream": "packages/app/src/editor/TiptapEditor.tsx",
       "blob": "dc5884c87bff1042f17c535856abaecb5dd61a1a",
-      "sha256": "3a85f66aee30bc0e3fb3f3495c2223e3f54c33982de2bf5d3afead77a81207ce",
+      "sha256": "e8633da7e90692f35256c67adbc85f0b2a9858366126e1ca340ff47a2832d984",
       "method": "patch",
       "description": "PATCHES.md:311 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。"
     },
@@ -1945,7 +1955,7 @@
       "target": "app/src/editor/bubble-menu/BubbleMenuBar.tsx",
       "upstream": "packages/app/src/editor/bubble-menu/BubbleMenuBar.tsx",
       "blob": "9f6b3d8e2baf23063543be4e48c7d03650ce1027",
-      "sha256": "e3ce91be76ff3a6756b10368ddfd1046afb667c4f02ad996c7774a3ddf69f3e0",
+      "sha256": "a6f64967df19b200cf24d86ee0311d2711ad6526f77ee12d80dfccce5c0dcddc",
       "method": "patch",
       "description": "PATCHES.md:317 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。"
     },
@@ -2748,7 +2758,7 @@
       "target": "app/src/editor/components/TagDialog.tsx",
       "upstream": "packages/app/src/editor/components/TagDialog.tsx",
       "blob": "6e748976cfa677255925f64c1aa4c661f76194d1",
-      "sha256": "bd8035e3612738ee22ef1d43b8fe449d65ca76954bea7521f2d122ed5812ca23",
+      "sha256": "3e1c62435bdba12f2042ee67ad10f70515b14bc83a73a3171938b56330e50906",
       "method": "patch",
       "description": "PATCHES.md:252 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。"
     },
@@ -2944,6 +2954,14 @@
       "blob": "f6a467d2cf128ab167c977e514e1d47c61ff08a8",
       "sha256": "81847e0d1a9bb07ed0e5d11867b81e7510d34bebb81f57126bd663546e9f5eab",
       "method": "copy"
+    },
+    {
+      "target": "app/src/editor/document-history.ts",
+      "upstream": null,
+      "blob": null,
+      "sha256": "3c7878140e309570f47d28dfc3c735a3e6a5a1cc2e946459815b22ef763498a7",
+      "method": "local",
+      "description": "PATCHES.md:360 - `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。"
     },
     {
       "target": "app/src/editor/document-scrollports.dom.test.ts",
@@ -3626,7 +3644,7 @@
       "target": "app/src/editor/extensions/shared.ts",
       "upstream": "packages/app/src/editor/extensions/shared.ts",
       "blob": "71f7c68a57373c7434551067183f5c84a73d2f75",
-      "sha256": "5515660ef628653b5462c0477e28d2ab2391a5ad06fb9f3dda33678e0b87da80",
+      "sha256": "ad6ae98171a570d3621f0c15f15e7cdf89d7e91a886ed9b2e14d363ec1cafc6d",
       "method": "patch",
       "description": "PATCHES.md:87 - `core/src/extensions/footnote-definition.ts`、`app/src/editor/extensions/shared.ts`：由客户端注入脚注返回链接的读屏名称。"
     },
@@ -3805,8 +3823,9 @@
       "target": "app/src/editor/extensions/tag-suggestion.ts",
       "upstream": "packages/app/src/editor/extensions/tag-suggestion.ts",
       "blob": "148db34132f3438fcc148d616d009e35112ff2d7",
-      "sha256": "3dda412693705bc54c4625d9109f012c8397f53c9bb1c877b35cfa0a755f9224",
-      "method": "copy"
+      "sha256": "2b5f680f378c0aa8b25a808904dc745c6e90e77eed2f16cd98ffd0c67f07dcaa",
+      "method": "patch",
+      "description": "PATCHES.md:337 - `app/src/editor/extensions/tag-suggestion.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/extensions/tag-view.ts",
@@ -3870,7 +3889,7 @@
       "target": "app/src/editor/extensions/wiki-link-suggestion.ts",
       "upstream": "packages/app/src/editor/extensions/wiki-link-suggestion.ts",
       "blob": "f877214504cf1419e4ef507ea946f4c3d4cae66b",
-      "sha256": "c940b3b26972ccac991bb6950916e0d402ed2d0bbf8c085c6ba006a515accc3c",
+      "sha256": "bdcfec0fde3f29dc9618b1d61db9498a7581f0586817b25b20a54dac43e57899",
       "method": "patch",
       "description": "PATCHES.md:101 - `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。"
     },
@@ -3994,8 +4013,9 @@
       "target": "app/src/editor/image-upload/index.ts",
       "upstream": "packages/app/src/editor/image-upload/index.ts",
       "blob": "6de6474a56eba56499f119679a757b36207c0ab4",
-      "sha256": "a8d6febe108b335164fa47f6b2464abce591252aeb62606a01ccb53546b307f2",
-      "method": "copy"
+      "sha256": "c790cc2fbd0d7a684fd3cf02bb6d8bbb4b1012cc82900bef1ada8846b825de36",
+      "method": "patch",
+      "description": "PATCHES.md:338 - `app/src/editor/image-upload/index.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/image-upload/pickInsertShape.test.ts",
@@ -4029,8 +4049,9 @@
       "target": "app/src/editor/image-upload/upload-file.ts",
       "upstream": "packages/app/src/editor/image-upload/upload-file.ts",
       "blob": "548c02c55c4733cf4ce5ae45b92d26de03e24fcf",
-      "sha256": "faec9356041274a51849e70c1e43f02ec8c92098d733a72f8f94e99b13919840",
-      "method": "copy"
+      "sha256": "a86b74960cc600bf870532e2b321b34ce603044b538d8b31e41789414e6d565f",
+      "method": "patch",
+      "description": "PATCHES.md:339 - `app/src/editor/image-upload/upload-file.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/inline-link-input-rule.ts",
@@ -4142,15 +4163,17 @@
       "target": "app/src/editor/link-preview/external-link-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/external-link-preview.ts",
       "blob": "106fcc31f82048a5fb0a4b06feed2366f6b72b25",
-      "sha256": "c0f3d92a017085949509bea0ab03b4fd636d3e53521003f81b8f81df446aa000",
-      "method": "copy"
+      "sha256": "d7e21ab054a2c685dc73034b56c05fb70fcf88e2642baabe6c7984bbfc64677f",
+      "method": "patch",
+      "description": "PATCHES.md:340 - `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/link-preview/internal-doc-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/internal-doc-preview.ts",
       "blob": "480d80209a56977fe4a988db5a630425d1e21d86",
-      "sha256": "7f76e4be4b4eec72b06b585fb03c7e76ef7349a9ed4c233852f497a5e8f157ae",
-      "method": "copy"
+      "sha256": "bee85304c066cdef903848b9f3286b720e4857a0ef0a28a41eceea7d2a063476",
+      "method": "patch",
+      "description": "PATCHES.md:341 - `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/editor/link-preview/use-external-link-preview.ts",
@@ -4184,7 +4207,7 @@
       "target": "app/src/editor/lint-config-client.ts",
       "upstream": "packages/app/src/editor/lint-config-client.ts",
       "blob": "66fbc61b93c18943d070b2a4fbaa4c9abd7ddd59",
-      "sha256": "682992a81542d806b0001aeae54e14f970a5c4a077ddb32a9758490a40b72cf6",
+      "sha256": "050a0a865f0c8885b76665922f230ac554664c5d1aaafa56a9f4d807ffa313e5",
       "method": "patch",
       "description": "PATCHES.md:77 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
     },
@@ -4483,8 +4506,9 @@
       "target": "app/src/editor/slash-command/apply-item.ts",
       "upstream": "packages/app/src/editor/slash-command/apply-item.ts",
       "blob": "3a9d8c64a3d070716000bde999d3316cd5422f45",
-      "sha256": "f69e16db0de459c75ffc12ca1d5ec97e9b797300905ea7a476fc5d06e2486d7d",
-      "method": "copy"
+      "sha256": "9629fc082c88094fff737cb0089937f1f0f306e5f9e44c73fbb4973c25692a59",
+      "method": "patch",
+      "description": "PATCHES.md:342 - `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。"
     },
     {
       "target": "app/src/editor/slash-command/component-items.tsx",
@@ -4846,7 +4870,7 @@
       "target": "app/src/editor/validation-audit-client.ts",
       "upstream": "packages/app/src/editor/validation-audit-client.ts",
       "blob": "59e78757fbe58ae71674e44be5088917fafba1fc",
-      "sha256": "f72364e07ca6218a9c7b8822ec11a8e7685fadeda931572f70279161465515e8",
+      "sha256": "52c29c4af3d1f7abf65537733e3a04a0ff40fcbc19500fdd754915e88ec9b1fb",
       "method": "patch",
       "description": "PATCHES.md:77 - P-S3-07 `app/src/editor/validation-audit-client.ts`、`app/src/editor/lint-config-client.ts`、`app/src/lib/host-features.ts`（新增）：服务端 lint / audit 在 Huhu 不可用（Q2），宿主（`OkRoot`）调用 `setHostLintAvailable(features.lint)`，vendor 的 `fetchAudit` / `fetchLintConfig` 在不可用时直接返回 `null`，不再发出 `/api/audit`、`/api/lint/config` 请求再吃 404。上游默认可用，行为不变。"
     },
@@ -4913,22 +4937,25 @@
       "target": "app/src/hooks/use-conflicts.tsx",
       "upstream": "packages/app/src/hooks/use-conflicts.tsx",
       "blob": "521f0bc292e0bfc81860ab31c15717b4ec6eea5b",
-      "sha256": "3eb9b090b3735c4ba8c7d297f860e59a3cafe9aebce05ed0a08402bd1f98a528",
-      "method": "copy"
+      "sha256": "b7263d3ff3e77f3fd628f4d1be74fb18474c0265b5e4e067374a724b898e575b",
+      "method": "patch",
+      "description": "PATCHES.md:343 - `app/src/hooks/use-conflicts.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/hooks/use-folder-config.ts",
       "upstream": "packages/app/src/hooks/use-folder-config.ts",
       "blob": "bf36430e1f1a5cf3a8dd0078b3d71bea71d15d18",
-      "sha256": "6c28ad734487f76dfd576434bb2986e31f1bc93a1e8dd738362048cc809330f8",
-      "method": "copy"
+      "sha256": "89f32c1f50d911b6c6da038443e6671451b2bb985e0018f014f6a6ea0eaa5ece",
+      "method": "patch",
+      "description": "PATCHES.md:344 - `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/hooks/use-git-sync-status.ts",
       "upstream": "packages/app/src/hooks/use-git-sync-status.ts",
       "blob": "62492222a1e9e54ab83172a9609718dc09c422c1",
-      "sha256": "afe40b22ca402875bce9c390073e624766e0b105d031dffda42308cba8703e7c",
-      "method": "copy"
+      "sha256": "8383f571c62dc7e7be70ec7874a3bad366bba0160192974d202f823683b6f213",
+      "method": "patch",
+      "description": "PATCHES.md:345 - `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/hooks/use-is-embedded.ts",
@@ -5040,8 +5067,9 @@
       "target": "app/src/lib/agent-connections.ts",
       "upstream": "packages/app/src/lib/agent-connections.ts",
       "blob": "1ff1279ad7b61b74a827b280caefc7984bec3645",
-      "sha256": "1dd7323466c4eeff11714ed721eefa1e1d21fd3010286703f6a21fa289ca7f84",
-      "method": "copy"
+      "sha256": "1b39be7edda8f9741c805ea2d80a333d70888d6f4f9d269839ae889bd3a0d5e1",
+      "method": "patch",
+      "description": "PATCHES.md:346 - `app/src/lib/agent-connections.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/agent-diff-store.ts",
@@ -5068,8 +5096,9 @@
       "target": "app/src/lib/api-config.ts",
       "upstream": "packages/app/src/lib/api-config.ts",
       "blob": "9bbba03c7690198604b8d93c1bc494c31e5dedca",
-      "sha256": "d4bd0166dfece0ba178aae3dab97397afedd96520a37ad2c8fa17755bbf7b911",
-      "method": "copy"
+      "sha256": "23a680e0b264085c96b5bdd3303fcbad8cd7ebfb7785ca61a52abc3ed9008e06",
+      "method": "patch",
+      "description": "PATCHES.md:347 - `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/bool-pref.ts",
@@ -5146,22 +5175,25 @@
       "target": "app/src/lib/copy-image.ts",
       "upstream": "packages/app/src/lib/copy-image.ts",
       "blob": "03aa28747176f1dc8b465f64465cf6026fe8edc9",
-      "sha256": "7ce6e3f786b561e9d50f7eb82da91ddab49fec8178d61a42670e49fb0a7a3426",
-      "method": "copy"
+      "sha256": "093df6a0a1a013efea660b8c19d44cdc12fbdb36b131d0806e01411a62fe4e06",
+      "method": "patch",
+      "description": "PATCHES.md:348 - `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/create-page-request.ts",
       "upstream": "packages/app/src/lib/create-page-request.ts",
       "blob": "d27849d58f937321ddc3a9814b19784ed2aa0209",
-      "sha256": "43546d1505ceb634fe59ffdcc16fdf2e1add632da0a66112ce37ae465601e06e",
-      "method": "copy"
+      "sha256": "9e464f39587248f68b897eb43f7b5836e305a256d35ca010cf3f4bac63537713",
+      "method": "patch",
+      "description": "PATCHES.md:349 - `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/create-page.ts",
       "upstream": "packages/app/src/lib/create-page.ts",
       "blob": "ac396fce8dc0fc7c0537be75524007a4a9f04b51",
-      "sha256": "02b26fe4680da3193d7042c033b11b0c51f5e5aabc0066d8415b869a442fccc3",
-      "method": "copy"
+      "sha256": "a1fc3dfcbb48b43f27f9e980b47474b03400ce11241a61ed3b510490bbefb8c6",
+      "method": "patch",
+      "description": "PATCHES.md:350 - `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/css-color-to-hex.ts",
@@ -5224,8 +5256,9 @@
       "target": "app/src/lib/documents-fetch.ts",
       "upstream": "packages/app/src/lib/documents-fetch.ts",
       "blob": "f5e84bd84d424714995ffc8cba01dde8fee72d87",
-      "sha256": "f60a28506e370d91af77e28b0c09ffb8acd7331e94a7ec4e8266e07b553156e9",
-      "method": "copy"
+      "sha256": "423e591ff68a750f663f71a574da2688072982c2faf2a89d938647f357afd1fc",
+      "method": "patch",
+      "description": "PATCHES.md:351 - `app/src/lib/documents-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/editor-hidden-focus.ts",
@@ -5280,8 +5313,9 @@
       "target": "app/src/lib/folder-config-api.ts",
       "upstream": "packages/app/src/lib/folder-config-api.ts",
       "blob": "706bb6e7955050c6bae30b8de9f32c9e75027769",
-      "sha256": "fd191eb549f26fa66a325ae9167d95a29c102d665f180977b1cad47efda7efc1",
-      "method": "copy"
+      "sha256": "8e94b6f48f46da3540542095f5f98bd4767a49e7a48aa86b39fac70303ea95a6",
+      "method": "patch",
+      "description": "PATCHES.md:352 - `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/frontmatter-enum-constraints.ts",
@@ -5301,15 +5335,17 @@
       "target": "app/src/lib/handoff/cowork-skill-install.ts",
       "upstream": "packages/app/src/lib/handoff/cowork-skill-install.ts",
       "blob": "adc3e8f20d680147b4f294283b351122972981b4",
-      "sha256": "1115f1eaea0c61f78c3d5163610fc439f74ce8e429bc3cc0638dc1f643185084",
-      "method": "copy"
+      "sha256": "e290b791a8eacd466e095d552feef4d6f8563962e7563d45bebfab971c50fdbc",
+      "method": "patch",
+      "description": "PATCHES.md:353 - `app/src/lib/handoff/cowork-skill-install.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/handoff/dispatch.ts",
       "upstream": "packages/app/src/lib/handoff/dispatch.ts",
       "blob": "6c09f89f28e74eaca00428812d0de9cf0ad0c18c",
-      "sha256": "c37ea8355bdbe713f93eb9e16a9b10952956431d6914fb287600fbd50d12361b",
-      "method": "copy"
+      "sha256": "04909b207941ad29830bccb5b92a2917fa77dce1557d7e69f246261f81200994",
+      "method": "patch",
+      "description": "PATCHES.md:354 - `app/src/lib/handoff/dispatch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/handoff/install-detect.ts",
@@ -5329,8 +5365,9 @@
       "target": "app/src/lib/handoff/skill-installer.ts",
       "upstream": "packages/app/src/lib/handoff/skill-installer.ts",
       "blob": "aef55176441a6b8d379a5ed45a6e675e6016e70f",
-      "sha256": "422639ff0a33aee33ab009a777eff4060cae03c95fba704ecebfd19ad98c458b",
-      "method": "copy"
+      "sha256": "f05cae61b4e0eb42653988bb7198defec19d7566968164031495c9f3fbebd180",
+      "method": "patch",
+      "description": "PATCHES.md:355 - `app/src/lib/handoff/skill-installer.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/handoff/targets.ts",
@@ -5460,6 +5497,14 @@
       "blob": "5a1faa0538f13fc62f1e30ce94271de8f06626ef",
       "sha256": "089f270291536bbb79cf8b90f6b6902039e374ff70cbe02dc7c83c8e1c2eedb9",
       "method": "copy"
+    },
+    {
+      "target": "app/src/lib/ok-fetch.ts",
+      "upstream": null,
+      "blob": null,
+      "sha256": "fbbbbcd5ba3d8dbcfd5ef31a09834ecb6bdc179746de0cccb0b0d9a7377e568f",
+      "method": "local",
+      "description": "PATCHES.md:361 - `app/src/lib/ok-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/ok-portal.ts",
@@ -5648,8 +5693,9 @@
       "target": "app/src/lib/saved-themes-client.ts",
       "upstream": "packages/app/src/lib/saved-themes-client.ts",
       "blob": "7213f06c63b78d20eeced5fca02c800e6cea1265",
-      "sha256": "8abd96a786ecc77acd2e9cb81bcca65e560a3d0febef6e06aead61de58d25bbd",
-      "method": "copy"
+      "sha256": "6a026190bb6cceba63602e0999b4147a2131a3c916a8d264ec38ba703dd76f00",
+      "method": "patch",
+      "description": "PATCHES.md:356 - `app/src/lib/saved-themes-client.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/self-scheduling-poll.ts",
@@ -5739,8 +5785,9 @@
       "target": "app/src/lib/skills-api.ts",
       "upstream": "packages/app/src/lib/skills-api.ts",
       "blob": "b80e9e05b14b4ad65bb81639246e2b862545c987",
-      "sha256": "b71576b85169732a16fcbc477e1bc4817bc6cbdce58b41d6bdb178a1a28b328d",
-      "method": "copy"
+      "sha256": "ea30b511ebc8f5559cac76b607b0349853f8a51f68847aa65322a13ed167714d",
+      "method": "patch",
+      "description": "PATCHES.md:357 - `app/src/lib/skills-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/storage-scope.ts",
@@ -5809,8 +5856,9 @@
       "target": "app/src/lib/use-activity-panel.ts",
       "upstream": "packages/app/src/lib/use-activity-panel.ts",
       "blob": "a2b2ebe12edf2acba4d5ed362a3cad3c13594fa7",
-      "sha256": "a882b52e555635ef2c02bfd7b39d05bc15e776cdad3fe0532cbe1f28bbc8f396",
-      "method": "copy"
+      "sha256": "5d2154597c84bbceb434885f2f0431b3b2ca5cc810e21d404ec37684e4296170",
+      "method": "patch",
+      "description": "PATCHES.md:358 - `app/src/lib/use-activity-panel.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/use-apply-config-color-theme.ts",
@@ -5858,8 +5906,9 @@
       "target": "app/src/lib/use-workspace.ts",
       "upstream": "packages/app/src/lib/use-workspace.ts",
       "blob": "91f015d11520683dba4e7e1cff1006408f85dd62",
-      "sha256": "9e1b1e27f76559899add471314a2124e17ffcb27b1e26d05610ce51a26318765",
-      "method": "copy"
+      "sha256": "7cffedf83f4edc76ff55e78c96c1a1ed721e90e4e26740407d1b203be4e58237",
+      "method": "patch",
+      "description": "PATCHES.md:359 - `app/src/lib/use-workspace.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
       "target": "app/src/lib/utils.ts",
@@ -9493,6 +9542,29 @@
       "sha256": "4236f47ea155134e593edecf902acec0c219763bd7a6152855c06b85b6d6f57d",
       "method": "patch",
       "description": "PATCHES.md:33 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。"
+    },
+    {
+      "target": "server-bridge/link-preview/guarded-fetch.ts",
+      "upstream": "packages/server/src/link-preview/guarded-fetch.ts",
+      "blob": "7f7e7660e3b81226fbaba89fd78f4bf5b572fb7b",
+      "sha256": "1c290a1931fda9ef9583b39288d58dde4a5686fde51a8cf24ac5cfdc68e12078",
+      "method": "patch",
+      "description": "PATCHES.md:362 - `server-bridge/link-preview/guarded-fetch.ts`：复用固定 OK 版本的主进程外链预览模块。"
+    },
+    {
+      "target": "server-bridge/link-preview/html-metadata.ts",
+      "upstream": "packages/server/src/link-preview/html-metadata.ts",
+      "blob": "376c22751ff509b5f5fe7da9fe1f0d0373f62458",
+      "sha256": "839f1e2258bc2618d6cc5f37ad88c65ca65ca194544f6c029c7219536c41872e",
+      "method": "copy"
+    },
+    {
+      "target": "server-bridge/link-preview/ip-classifier.ts",
+      "upstream": "packages/server/src/link-preview/ip-classifier.ts",
+      "blob": "0413e488acf651516ded8793cc4a5d67ba4787e3",
+      "sha256": "597a47e58e293f8d0db8afcbb090499f001bbc0375b99e802e612c278949abbf",
+      "method": "patch",
+      "description": "PATCHES.md:364 - `server-bridge/link-preview/ip-classifier.ts`：复用固定 OK 版本的主进程外链预览模块。"
     },
     {
       "target": "server-bridge/logger.ts",

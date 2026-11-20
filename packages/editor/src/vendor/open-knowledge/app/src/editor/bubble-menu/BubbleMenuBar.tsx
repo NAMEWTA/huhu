@@ -25,9 +25,11 @@ import { ViewInSourceBubbleButton } from './ViewInSourceBubbleButton';
 export function BubbleMenuBar({
   editor,
   shortcutEnabled = true,
+  commentsEnabled = true,
 }: {
   editor: Editor;
   shortcutEnabled?: boolean;
+  commentsEnabled?: boolean;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [tooltipKey, setTooltipKey] = useState(0);
@@ -137,7 +139,7 @@ export function BubbleMenuBar({
           />
           <FootnoteBubbleButton key={`${tooltipKey}-footnote`} editor={editor} />
           <ViewInSourceBubbleButton key={`${tooltipKey}-view-source`} editor={editor} />
-          <CommentBubbleButton key={`${tooltipKey}-comment`} />
+          {commentsEnabled && <CommentBubbleButton key={`${tooltipKey}-comment`} />}
         </>
       )}
     </BubbleMenu>

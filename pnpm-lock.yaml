@@ -300,6 +300,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@huhu/editor':
+        specifier: workspace:*
+        version: link:../../packages/editor
       '@huhu/plugin-agent-cli':
         specifier: workspace:*
         version: link:../../plugins/agent-cli

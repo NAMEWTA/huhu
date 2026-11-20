@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { DocumentListSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { parseServerResponse } from '@/lib/parse-server-response';
 import {
@@ -40,7 +41,7 @@ export async function fetchShowAllDepth1Listing({
   messages,
 }: FileTreeListingRequest): Promise<ShowAllDepth1ListingResult> {
   try {
-    const response = await fetch(showAllDepth1Url(dir, showOk), {
+    const response = await okFetch(showAllDepth1Url(dir, showOk), {
       signal,
       headers: SHOW_ALL_NDJSON_ACCEPT,
     });

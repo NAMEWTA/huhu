@@ -1,5 +1,6 @@
 // oxlint-disable ok/no-raw-error-toast -- pre-rule backlog: toasts here show raw error text; delete this line once the file maps each failure to written copy. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-raw-error-toast
 
+import { okFetch } from '@/lib/ok-fetch';
 import type { OkignoreBinding } from '@inkeep/open-knowledge-core/config/bind-okignore-doc';
 import { isDocumentOverOpenByteLimit } from '@inkeep/open-knowledge-core/constants/document-open';
 import type {
@@ -1322,7 +1323,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
     setError(null);
 
     try {
-      const res = await fetch('/api/duplicate-path', {
+      const res = await okFetch('/api/duplicate-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind: target.kind, path: target.path }),
@@ -1442,7 +1443,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
     setBusyPath(pending.renamePath);
 
     try {
-      const res = await fetch('/api/delete-path', {
+      const res = await okFetch('/api/delete-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind: pending.kind, path: pending.createdPath }),
@@ -1501,7 +1502,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/workspace')
+    okFetch('/api/workspace')
       .then(async (res) => {
         const data = await res.json();
         if (!active) return;
@@ -1736,7 +1737,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
           activeTargetRef.current?.kind === 'asset' ? activeTargetRef.current.assetPath : null,
       };
 
-      const res = await fetch('/api/rename-path', {
+      const res = await okFetch('/api/rename-path', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -1860,7 +1861,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
                     : treeFilePathToDocName(operation.destinationTreePath),
               };
 
-        const res = await fetch('/api/rename-path', {
+        const res = await okFetch('/api/rename-path', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -1934,7 +1935,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       appendSidebarUploadFields(formData, parentDir, file.name || 'upload');
 
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const res = await okFetch('/api/upload', { method: 'POST', body: formData });
         const parsed = await parseServerResponse(res, t`Failed to upload file`);
         if (!parsed.ok) {
           failedCount += 1;
@@ -2059,7 +2060,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
         const createPath = createPagePathFromTreeDestination('file', placeholder.addPath);
         const createBody: { path: string; template?: string } = { path: createPath };
         if (options?.template) createBody.template = options.template;
-        const res = await fetch('/api/create-page', {
+        const res = await okFetch('/api/create-page', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(createBody),
@@ -2101,7 +2102,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
         navigateWithPulse({ kind: 'doc', docName });
       } else {
         const folderPath = treeDirectoryPathToFolderPath(placeholder.addPath);
-        const res = await fetch('/api/create-folder', {
+        const res = await okFetch('/api/create-folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: folderPath }),
@@ -2662,7 +2663,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       for (const target of targets) {
         const kind = target.kind;
         setBusyPath(target.path);
-        const res = await fetch('/api/delete-path', {
+        const res = await okFetch('/api/delete-path', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ kind, path: target.path }),
@@ -2741,7 +2742,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
     for (const target of trashed) {
       const kind = target.kind;
       try {
-        const res = await fetch('/api/trash/cleanup', {
+        const res = await okFetch('/api/trash/cleanup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ kind, path: target.path }),

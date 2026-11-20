@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   stripFrontmatter,
   unwrapFrontmatterFences,
@@ -53,13 +54,13 @@ const inflightContent = new Map<string, Promise<string | null>>();
 const inflightBacklink = new Map<string, Promise<number | null>>();
 
 async function fetchDocContent(docName: string): Promise<string> {
-  const res = await fetch(`/api/document?docName=${encodeURIComponent(docName)}`);
+  const res = await okFetch(`/api/document?docName=${encodeURIComponent(docName)}`);
   if (!res.ok) throw new Error(`document read failed: ${res.status}`);
   return DocumentReadSuccessSchema.parse(await res.json()).content;
 }
 
 async function fetchBacklinkCount(docName: string): Promise<number> {
-  const res = await fetch(`/api/backlink-counts?docNames=${encodeURIComponent(docName)}`);
+  const res = await okFetch(`/api/backlink-counts?docNames=${encodeURIComponent(docName)}`);
   if (!res.ok) throw new Error(`backlink-counts failed: ${res.status}`);
   const { counts } = BacklinkCountsSuccessSchema.parse(await res.json());
   return counts[docName] ?? 0;

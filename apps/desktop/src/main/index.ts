@@ -1,3 +1,5 @@
+import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
+import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -222,6 +224,18 @@ if (!gotLock) {
       if (!r.ok) startupError = r.message;
     });
     const demoRoot = (): string => (app.isPackaged ? path.join(process.resourcesPath, "demo-vault") : path.join(app.getAppPath(), "resources", "demo-vault"));
+    ipcMain.handle("huhu:externalLinkPreview", async (event, url: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const vault = current;
+      if (!vault) return { ok: false, reason: "disabled" };
+      try {
+        const settings = JSON.parse(await readFile(path.join(vault.path, ".huhu", "settings.json"), "utf8")) as { editor?: { linkPreviews?: unknown } };
+        if (current !== vault || settings?.editor?.linkPreviews !== true) return { ok: false, reason: "disabled" };
+        return await fetchExternalLinkPreview(url);
+      } catch {
+        return { ok: false, reason: "unavailable" };
+      }
+    });
     ipcMain.handle("huhu:vault:state", async (event): Promise<VaultState> => {
       assertTrusted(event.senderFrame?.url);
       await startup; // 命令行 / 测试指定的 Vault 先打开完，界面再判断是否显示启动页

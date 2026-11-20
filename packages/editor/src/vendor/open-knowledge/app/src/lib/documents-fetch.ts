@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 export interface DocumentListFetchResult {
   ok: boolean;
   status: number;
@@ -9,7 +10,7 @@ let inflight: Promise<DocumentListFetchResult> | null = null;
 export function fetchDocumentListShared(): Promise<DocumentListFetchResult> {
   if (inflight) return inflight;
   const pending = (async (): Promise<DocumentListFetchResult> => {
-    const res = await fetch('/api/documents');
+    const res = await okFetch('/api/documents');
     const body = (await res.json().catch((err: unknown) => {
       console.warn('[documents-fetch] /api/documents response was not valid JSON:', err);
       return null;

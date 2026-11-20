@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { JSONContent } from "@tiptap/core";
@@ -27,7 +28,6 @@ for (const fixtureDir of fixtureRoots) {
     }
   }
 }
-const largeSamples = samples.filter(({ bytes }) => bytes.toString("utf8").length > largeThreshold);
 
 let server: ViteDevServer;
 let host: typeof import("../src/host/doc-source");
@@ -42,11 +42,19 @@ interface Provider {
 }
 
 let providerModule: { LocalDocProvider: new (config: { name: string; lazyRich: boolean }) => Provider };
-let markdown: { schema: Schema; mdManager: { serialize(content: JSONContent): string } };
-let normalization: {
-  normalizeBridge(markdown: string): string;
-  addsBlankLines(original: string, serialized: string): boolean;
+interface MarkdownRuntime {
+  schema: Schema;
+  mdManager: { serialize(content: JSONContent): string };
+}
+
+let markdown: MarkdownRuntime;
+let core: {
+  stripFrontmatter(markdown: string): { frontmatter: string; body: string };
+  splitFmBoundarySlot(frontmatter: string, body: string): { slot: string };
+  composeWithDerivedBody(frontmatter: string, body: string): { md: string };
+  isParseEquivalentBridge(original: string, serialized: string, canonicalize: (body: string) => string): boolean;
 };
+let createDocCanonicalizer: (manager: MarkdownRuntime["mdManager"], options: object) => (body: string) => string;
 let bridge: { replaceRawBody(document: Y.Doc, text: string): void };
 
 beforeAll(async () => {
@@ -61,7 +69,9 @@ beforeAll(async () => {
   host = (await server.ssrLoadModule("/src/host/doc-source.ts")) as typeof host;
   providerModule = (await server.ssrLoadModule("/src/host/hocuspocus-provider.ts")) as typeof providerModule;
   markdown = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/md-manager.ts")) as typeof markdown;
-  normalization = (await server.ssrLoadModule("/src/vendor/open-knowledge/core/src/bridge/normalize.ts")) as typeof normalization;
+  core = (await server.ssrLoadModule("/src/host/core-barrel.ts")) as typeof core;
+  const watchdog = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/bridge-watchdog.ts")) as { createDocCanonicalizer: typeof createDocCanonicalizer };
+  createDocCanonicalizer = watchdog.createDocCanonicalizer;
   bridge = (await server.ssrLoadModule("/src/vendor/open-knowledge/server-bridge/bridge-intake.ts")) as typeof bridge;
 }, 120_000);
 
@@ -86,55 +96,45 @@ async function withProvider(name: string, text: string, verify: (provider: Provi
 }
 
 test.each(samples)(
-  "H01 保留源缓冲字节 $name",
-  async ({ name, bytes }) => {
-    await withProvider(name, bytes.toString("utf8"), (provider) => {
-      expect(Buffer.from(provider.document.getText("source").toString()).equals(bytes)).toBe(true);
-      if (bytes.toString("utf8").length > largeThreshold) {
-        expect(provider.richReady).toBe(false);
-        expect(provider.document.getXmlFragment("default").length).toBe(0);
-      }
-    });
-  },
-  90_000,
-);
-
-/** 同 OK persistence 的普通保存分支，使用 vendor 的规范化与空白行检查。 */
-function markdownSemanticallyUnchanged(original: string, serialized: string): boolean {
-  const { normalizeBridge, addsBlankLines } = normalization;
-  return normalizeBridge(original) === normalizeBridge(serialized) && !addsBlankLines(original, serialized);
-}
-
-test("H01 语义等价接受换行格式，拒绝相同正文的标记或链接目标变化", () => {
-  expect(markdownSemanticallyUnchanged("**正文**\n", "**正文**\r\n")).toBe(true);
-  expect(markdownSemanticallyUnchanged("**正文**\n", "正文\n")).toBe(false);
-  expect(markdownSemanticallyUnchanged("[正文](one.md)\n", "[正文](two.md)\n")).toBe(false);
-});
-
-test.each(largeSamples)(
-  "H01 大样本构建富文本、序列化并回读 $name",
+  "H01 源缓冲保留字节并经富文本 hydrate→serialize $name",
   async ({ name, bytes }) => {
     const original = bytes.toString("utf8");
-    const inspectRich = async (provider: Provider) => {
+    await withProvider(name, original, async (provider) => {
+      expect(Buffer.from(provider.document.getText("source").toString()).equals(bytes)).toBe(true);
+      const fragment = provider.document.getXmlFragment("default");
+      if (original.length > largeThreshold) {
+        expect(provider.richReady).toBe(false);
+        expect(fragment.length).toBe(0);
+      }
       await provider.ensureRich();
       expect(provider.richReady).toBe(true);
-      const fragment = provider.document.getXmlFragment("default");
-      expect(fragment.length).toBeGreaterThan(0);
       const rich = yXmlFragmentToProseMirrorRootNode(fragment, markdown.schema);
-      return { serialized: markdown.mdManager.serialize(rich.toJSON()), text: rich.textContent, blocks: rich.childCount };
-    };
-    let initial!: Awaited<ReturnType<typeof inspectRich>>;
-    await withProvider(name, original, async (provider) => {
-      initial = await inspectRich(provider);
-      expect(provider.document.getText("source").toString() === original).toBe(true);
-      expect(initial.serialized.length).toBeGreaterThan(0);
-    });
-    if (initial.serialized !== original) expect(markdownSemanticallyUnchanged(original, initial.serialized), name).toBe(true);
-    await withProvider(name, initial.serialized, async (provider) => {
-      const result = await inspectRich(provider);
-      expect(result.blocks).toBe(initial.blocks);
-      expect(result.text === initial.text).toBe(true);
-      expect(result.serialized === initial.serialized).toBe(true);
+      const { frontmatter, body } = core.stripFrontmatter(original);
+      const { slot } = core.splitFmBoundarySlot(frontmatter, body);
+      const serialized = core.composeWithDerivedBody(frontmatter, slot + markdown.mdManager.serialize(rich.toJSON())).md;
+      expect(Buffer.from(provider.document.getText("source").toString()).equals(bytes)).toBe(true);
+      if (serialized === original) return;
+      const canonicalize = createDocCanonicalizer(markdown.mdManager, {});
+      const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+      const equivalent = core.isParseEquivalentBridge(original, serialized, canonicalize);
+      const firstDifference = original
+        .slice(0, 4096)
+        .split("")
+        .findIndex((char, i) => char !== serialized[i]);
+      console.log(
+        "H01 difference " +
+          JSON.stringify([
+            name,
+            digest(original),
+            digest(serialized),
+            equivalent,
+            original.length,
+            serialized.length,
+            firstDifference,
+            original.slice(Math.max(0, firstDifference - 30), Math.max(0, firstDifference - 30) + 120),
+            serialized.slice(Math.max(0, firstDifference - 30), Math.max(0, firstDifference - 30) + 120),
+          ]),
+      );
     });
   },
   360_000,

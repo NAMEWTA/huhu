@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { t } from '@lingui/core/macro';
 import type { OkDesktopBridge } from '@/lib/desktop-bridge-types';
 import { parseApiError } from '../parse-api-error.ts';
@@ -52,7 +53,7 @@ interface HttpSkillInstallerOptions {
 }
 
 export function httpSkillInstaller(opts: HttpSkillInstallerOptions = {}): SkillInstaller {
-  const fetchFn = opts.fetch ?? globalThis.fetch;
+  const fetchFn = opts.fetch ?? okFetch;
   const url = `${opts.apiOrigin ?? ''}/api/install-skill`;
   return {
     async install(callOpts) {

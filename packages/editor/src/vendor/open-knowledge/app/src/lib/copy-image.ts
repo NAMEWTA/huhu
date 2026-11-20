@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import type { CopyImageRequest, CopyImageResult } from '@inkeep/open-knowledge-core/desktop-bridge';
 
 export type CopyImageOutcome =
@@ -73,7 +74,7 @@ function browserCopyImageEnv(): CopyImageEnv {
     desktopCopyImage: desktop ? (request) => desktop.copyImage(request) : null,
     writeClipboard: clipboard?.write ? (items) => clipboard.write(items) : null,
     createClipboardItem: (items) => new ClipboardItem(items),
-    fetch: (input, init) => fetch(input, init),
+    fetch: (input, init) => okFetch(input, init),
   };
 }
 

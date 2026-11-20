@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { t } from '@lingui/core/macro';
 import { Trans } from '@lingui/react/macro';
 import { type RefObject, useEffect, useRef, useState } from 'react';
@@ -29,7 +30,7 @@ type FetchState =
   | { kind: 'error'; message: string };
 
 async function fetchTagDocs(tag: string, docName: string): Promise<TagDocEntry[]> {
-  const res = await fetch(`/api/tag-documents?${new URLSearchParams({ tag, docName })}`);
+  const res = await okFetch(`/api/tag-documents?${new URLSearchParams({ tag, docName })}`);
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as unknown;
     const status = res.status;

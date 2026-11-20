@@ -9,6 +9,7 @@ export interface HostEditorConfig {
   showHiddenFiles?: boolean;
   showOnlyMarkdownFiles?: boolean;
   linkPreviewsEnabled?: boolean;
+  requestLinkPreview?(url: string): Promise<unknown>;
 }
 
 export function HostConfigProvider({ children, config = {} }: { children: ReactNode; config?: HostEditorConfig }) {

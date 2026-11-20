@@ -11,7 +11,7 @@ import { MathInputRule } from '../math-input-rule';
 import { LandingFlash } from '../plugins/landing-flash-wysiwyg';
 import { getComponentItems, getInlineComponentItems } from '../slash-command/component-items';
 import { getEmbedStarterItems } from '../slash-command/embed-starter-items';
-import { getSlashCommandItems } from '../slash-command/items';
+import { getSlashCommandItems, type SlashCommandItem } from '../slash-command/items';
 import { getSkillReferenceItems } from '../slash-command/skill-reference-items';
 
 import { BlockMover } from './block-mover';
@@ -131,11 +131,24 @@ const DOCUMENT_SCOPED_EXTENSION_NAMES: ReadonlySet<string> = new Set([
   'imageReference',
 ]);
 
+function compactSlashItem(item: SlashCommandItem): boolean {
+  return !item.insertsBlockComponent &&
+    item.category !== 'embed' &&
+    item.category !== 'skills' &&
+    item.name !== 'footnote';
+}
+
 export function scopeExtensionsToDocument(
   extensions: readonly AnyExtension[],
   docName: string,
+  compact = false,
 ): AnyExtension[] {
-  return extensions.map((ext) =>
-    DOCUMENT_SCOPED_EXTENSION_NAMES.has(ext.name) ? ext.configure({ docName }) : ext,
-  );
+  return extensions.map((ext) => {
+    if (compact && ext.name === SlashCommand.name) {
+      return ext.configure({
+        itemsSources: [() => SLASH_ITEM_SOURCES.flatMap((source) => source()).filter(compactSlashItem)],
+      });
+    }
+    return DOCUMENT_SCOPED_EXTENSION_NAMES.has(ext.name) ? ext.configure({ docName }) : ext;
+  });
 }

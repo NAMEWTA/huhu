@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   buildClaudeUrl,
   buildCodexUrl,
@@ -56,7 +57,7 @@ export async function dispatchHandoff(
   payload: HandoffPayload,
   deps: DispatchHandoffDeps = {},
 ): Promise<HandoffOutcome> {
-  const fetchImpl = deps.fetch ?? globalThis.fetch.bind(globalThis);
+  const fetchImpl = deps.fetch ?? okFetch;
   switch (payload.target) {
     case 'claude-cowork':
       return postHandoff(

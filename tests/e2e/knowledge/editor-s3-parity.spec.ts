@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
+import { call } from "./session-slow-bridge.js";
 
 // S3 / B06、B07、C05：真实 Electron 里的鼠标选区、上下行光标、IME 组合输入（CDP imeSetComposition，不是真实输入法）、坏 YAML 诊断与修复入口。
 // 预言机是浏览器自己的 caretRangeFromPoint；对照 rc.4 的取证见 evidence/repro/README.md。
@@ -223,6 +224,223 @@ test("C05：坏 YAML——面板逐字给出诊断，修复入口是源码模式
     await page.getByRole("tab", { name: "实时预览" }).click();
     await expect(prose(page)).toContainText("段落", { timeout: 20_000 });
     await expect(page.getByTestId("property-panel-yaml-error")).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
+test("B06 反向跨段、折行保横坐标、表格边界及拖选自动滚动", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, "反向拖选.md");
+  try {
+    const text = Array.from({ length: 34 }, (_, i) => para(i + 1)).join("\n\n");
+    writeFileSync(file, `${text}\n\n| 列甲 | 列乙 |\n| --- | --- |\n| 单元甲 | 单元乙 |\n\n表格外部\n`);
+    await gotoNotes(page);
+    await treeItem(page, "反向拖选.md").click();
+    const editor = prose(page);
+    const scroll = page.getByTestId("editor-scroll-container");
+    const p = (index: number) =>
+      editor
+        .locator("p")
+        .filter({ hasText: `第 ${index} 段` })
+        .first();
+    await p(2).evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await p(2).click({ position: { x: 150, y: 8 } });
+    const point = async (loc: ReturnType<typeof p>) => {
+      const rect = await loc.boundingBox();
+      if (!rect) throw new Error("缺少拖选目标");
+      return { x: rect.x + 175, y: rect.y + 9 };
+    };
+    const selection = () =>
+      page.evaluate(() => {
+        const sel = window.getSelection();
+        if (!sel?.anchorNode || !sel.focusNode) return null;
+        const anchor = document.createRange();
+        anchor.setStart(sel.anchorNode, sel.anchorOffset);
+        anchor.collapse(true);
+        const focus = document.createRange();
+        focus.setStart(sel.focusNode, sel.focusOffset);
+        focus.collapse(true);
+        const rect = focus.getBoundingClientRect();
+        return { direction: anchor.compareBoundaryPoints(Range.START_TO_START, focus), text: sel.toString(), x: rect.x, y: rect.y };
+      });
+
+    const earlier = await point(p(2));
+    const later = await point(p(4));
+    await page.mouse.move(later.x, later.y);
+    await page.mouse.down();
+    await page.mouse.move(earlier.x, earlier.y, { steps: 16 });
+    await page.mouse.up();
+    await expect.poll(selection).toMatchObject({ direction: 1, text: expect.stringContaining("第 3 段") });
+    await page.keyboard.insertText("反向替换");
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("反向替换");
+    expect(readFileSync(file, "utf8")).not.toContain("第 3 段");
+
+    await p(7).evaluate((element) => element.scrollIntoView({ block: "center" }));
+    const first = await point(p(7));
+    await page.mouse.click(first.x, first.y);
+    const before = await selection();
+    if (!before) throw new Error("没有活动光标");
+    await page.keyboard.press("ArrowDown");
+    const next = await selection();
+    expect(next?.y).toBeGreaterThan(before.y);
+    expect(Math.abs((next?.x ?? 0) - before.x)).toBeLessThan(18);
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(selection).toMatchObject({ x: before.x, y: before.y });
+
+    const scroller = await scroll.boundingBox();
+    if (!scroller) throw new Error("找不到滚动容器");
+    const firstScroll = await scroll.evaluate((element) => element.scrollTop);
+    await page.mouse.move(first.x, first.y);
+    await page.mouse.down();
+    try {
+      await page.mouse.move(first.x, scroller.y + scroller.height - 2, { steps: 18 });
+      await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(firstScroll + 30);
+    } finally {
+      await page.mouse.up();
+    }
+    await expect.poll(selection).toMatchObject({ direction: -1, text: expect.stringContaining("第 8 段") });
+
+    const cell = editor.getByRole("cell", { name: "单元乙" });
+    await cell.click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await expect.poll(selection).toMatchObject({ text: "单元乙" });
+    await page.keyboard.insertText("表内替换");
+    await expect(editor.getByRole("cell")).toHaveText(["单元甲", "表内替换"]);
+    await expect(editor.getByText("表格外部", { exact: true })).toBeVisible();
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("| 单元甲 | 表内替换 |");
+  } finally {
+    await close();
+  }
+});
+
+test("B08 保存、评论刷新、后台属性更新和列表更新保留活动实例、焦点与组合输入", async () => {
+  const { page, vault, close } = await openApp();
+  const name = "活动实例.md";
+  const file = path.join(vault, name);
+  try {
+    writeFileSync(file, "---\ntitle: 原标题\n---\n\n评论引文\n\n正文\n");
+    await gotoNotes(page);
+    await treeItem(page, name).click();
+    const editor = prose(page);
+    await expect(editor.getByText("正文", { exact: true })).toBeVisible();
+    type EditorDom = HTMLElement & { editor: { view: { composing: boolean } } };
+    type CapturedEditor = { element: HTMLElement; editor: EditorDom["editor"] };
+    await editor.evaluate((el) => {
+      const dom = el as EditorDom;
+      (window as Window & { activeEditorProbe?: CapturedEditor }).activeEditorProbe = { element: dom, editor: dom.editor };
+    });
+    await editor.getByText("正文", { exact: true }).click();
+    await page.keyboard.press("End");
+    const cdp = await page.context().newCDPSession(page);
+    const persisted = () => readFileSync(file, "utf8");
+    let committed = "正文";
+    const keepComposition = async (pinyin: string, result: string, change: () => Promise<void>) => {
+      await cdp.send("Input.imeSetComposition", { text: pinyin, selectionStart: pinyin.length, selectionEnd: pinyin.length });
+      await expect(editor).toContainText(committed + pinyin);
+      await change();
+      await expect(editor).toBeFocused();
+      expect(
+        await editor.evaluate((el) => {
+          const dom = el as EditorDom;
+          const snapshot = (window as Window & { activeEditorProbe?: CapturedEditor }).activeEditorProbe;
+          const sel = window.getSelection();
+          return { sameDom: snapshot?.element === el, sameEditor: snapshot?.editor === dom.editor, composing: dom.editor.view.composing, selectionIsInside: el.contains(sel?.anchorNode ?? null) };
+        }),
+      ).toEqual({ sameDom: true, sameEditor: true, composing: true, selectionIsInside: true });
+      expect(persisted()).not.toContain(pinyin);
+      await cdp.send("Input.insertText", { text: result });
+      committed += result;
+      await expect(editor).toContainText(committed);
+      await expect.poll(persisted).toContain(committed);
+    };
+
+    await page.keyboard.insertText("先保存");
+    committed += "先保存";
+    await keepComposition("jia", "甲", async () => {
+      await expect.poll(persisted).toContain("正文先保存");
+    });
+
+    await keepComposition("yi", "乙", async () => {
+      const before = persisted();
+      const quote = "评论引文";
+      const start = before.indexOf(quote);
+      await call(page, "comments.create", { path: name, target: "body", start, end: start + quote.length, quote, text: "后台新增批注" });
+      await expect(editor.getByText(quote, { exact: true })).toHaveAttribute("data-comment-thread", /.+/);
+    });
+
+    await keepComposition("bing", "丙", async () => {
+      const { text, version } = await call<{ text: string; version: string }>(page, "notes.read", { path: name });
+      await call(page, "notes.save", { path: name, expectedVersion: version, text: text.replace("原标题", "新标题") });
+      await expect(page.getByTestId("editor-properties").locator("textarea, input[type=text], input:not([type])").first()).toHaveValue("新标题");
+    });
+
+    await keepComposition("ding", "丁", async () => {
+      writeFileSync(path.join(vault, "父级更新.md"), "新增笔记触发笔记清单刷新\n");
+      await expect(treeItem(page, "父级更新.md")).toBeVisible();
+    });
+    expect(persisted()).toContain("title: 新标题");
+  } finally {
+    await close();
+  }
+});
+
+test("B07 键盘操作列表、代码块和表格，并原生拖放正文", async () => {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, "编辑键盘.md");
+  try {
+    writeFileSync(file, "- 外层\n- 移入内层\n\n```js\nlet x = 1;\n```\n\n表格前\n\n| 甲 | 乙 |\n| --- | --- |\n| 一 | 二 |\n\n拖动文字\n\n文字目标\n");
+    await gotoNotes(page);
+    await treeItem(page, "编辑键盘.md").click();
+    const editor = prose(page);
+    const child = editor.getByText("移入内层", { exact: true });
+    await child.click();
+    await page.keyboard.press("Tab");
+    await expect(editor.locator("li > ul li")).toContainText("移入内层");
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await expect(editor.locator("li > ul > li")).toHaveCount(2);
+    await page.keyboard.press("Backspace");
+    await expect(editor.locator("li > ul > li")).toHaveCount(1);
+
+    await editor.locator("pre").getByText("let x = 1;", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.insertText("已从代码块退出");
+    await expect(editor.locator("pre")).toContainText("let x = 1;");
+    await expect(editor.locator("pre")).not.toContainText("已从代码块退出");
+    await expect(editor).toContainText("已从代码块退出");
+
+    await editor.getByRole("cell", { name: "一", exact: true }).click();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("已编辑");
+    await expect(editor.getByRole("cell")).toHaveText(["一", "二已编辑"]);
+    await page.keyboard.press("Enter");
+    await expect(editor.getByRole("row")).toHaveCount(3);
+
+    await editor.getByText("拖动文字", { exact: true }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    const drag = await page.evaluate(() => {
+      const selected = window.getSelection();
+      if (selected?.toString() !== "拖动文字") throw new Error("拖放起始选区不正确");
+      const rect = selected.getRangeAt(0).getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    });
+    const drop = await editor.getByText("文字目标", { exact: true }).evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.right + 3, y: rect.y + rect.height / 2 };
+    });
+    await page.mouse.move(drag.x, drag.y);
+    await page.mouse.down();
+    await page.mouse.move(drop.x, drop.y, { steps: 16 });
+    await page.mouse.up();
+    await expect(editor).toContainText("文字目标拖动文字");
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("文字目标拖动文字");
   } finally {
     await close();
   }

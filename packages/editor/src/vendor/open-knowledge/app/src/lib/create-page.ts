@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { CreatePageSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { emitDocumentsChanged } from './documents-events';
 import { parseServerResponse, parseSuccessOrWarn } from './parse-server-response';
@@ -20,7 +21,7 @@ export function createPagePathFromSeed(seed: CreatePageSeed): string {
 }
 
 async function createPageFromPath(path: string): Promise<{ docName: string }> {
-  const res = await fetch('/api/create-page', {
+  const res = await okFetch('/api/create-page', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),

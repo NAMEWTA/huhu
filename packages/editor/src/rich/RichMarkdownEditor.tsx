@@ -19,6 +19,7 @@ import { isOverlayLayerOpen } from "@/lib/overlay-layers";
 import { FindReplaceController } from "@/editor/find-replace/FindReplaceController";
 import { getMarkdownSourceViewForDoc } from "@/editor/full-page-cm-views";
 import { PropertyPanel } from "@/components/PropertyPanel";
+import { documentHistory } from "@/editor/document-history";
 import { SourceEditor } from "@/editor/SourceEditor";
 import { TiptapEditor } from "@/editor/TiptapEditor";
 import { replaceRawBody } from "../vendor/open-knowledge/server-bridge/bridge-intake";
@@ -440,14 +441,25 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         emitNow();
       },
       undo() {
-        if (mode === "source") return void cm()?.focus();
+        if (isRead()) return;
+        if (mode === "source") {
+          cm()?.focus();
+          documentHistory(provider.document).undo();
+          return;
+        }
         tip()?.commands.undo();
       },
       redo() {
+        if (isRead()) return;
+        if (mode === "source") {
+          cm()?.focus();
+          documentHistory(provider.document).redo();
+          return;
+        }
         tip()?.commands.redo();
       },
-      canUndo: () => tip()?.can().undo() ?? false,
-      canRedo: () => tip()?.can().redo() ?? false,
+      canUndo: () => !isRead() && documentHistory(provider.document).canUndo(),
+      canRedo: () => !isRead() && documentHistory(provider.document).canRedo(),
     };
     onPort(port);
     return () => onPort(null);
@@ -490,7 +502,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
               <div hidden={showSource} data-testid={showSource ? undefined : "editor-scroll-container"} style={{ height: "100%", overflow: "auto" }}>
                 {richReady ? (
                   <DocumentProvider host={activeDocumentHost}>
-                    <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
+                    <TiptapEditor key={`t-${docName}`} provider={provider as never} isSourceMode={showSource} compact={variant === "compact"} portalTarget={portal} {...(placeholder ? { placeholder } : {})} />
                   </DocumentProvider>
                 ) : mode !== "source" ? (
                   <div role="status" className="ok-editor-loading">

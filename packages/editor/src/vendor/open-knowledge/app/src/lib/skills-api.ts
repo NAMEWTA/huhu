@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import type {
   SeedInstallPackSkillSuccess,
   SkillFolderLinkPreview,
@@ -41,7 +42,7 @@ async function getJson<T extends object>(
   signal?: AbortSignal,
 ): Promise<WriteResult<T>> {
   try {
-    const res = await fetch(url, signal ? { signal } : undefined);
+    const res = await okFetch(url, signal ? { signal } : undefined);
     if (!res.ok) return { ok: false, error: await readErrorBody(res) };
     const body = (await res.json()) as T;
     return { ok: true, ...body };
@@ -56,7 +57,7 @@ async function sendJson<T extends object>(
   body?: unknown,
 ): Promise<WriteResult<T>> {
   try {
-    const res = await fetch(url, {
+    const res = await okFetch(url, {
       method,
       ...(body === undefined
         ? {}
@@ -161,7 +162,7 @@ export async function editExternalSkill(input: {
   home: string;
 }): Promise<WriteResult<{ docName: string }>> {
   try {
-    const res = await fetch('/api/skill/edit-external', {
+    const res = await okFetch('/api/skill/edit-external', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -184,7 +185,7 @@ export async function saveSkill(input: {
   body: string;
 }): Promise<WriteResult<{ created: boolean; warnings: string[]; path?: string }>> {
   try {
-    const res = await fetch('/api/skill', {
+    const res = await okFetch('/api/skill', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -225,7 +226,7 @@ export async function importSkill(input: {
   | { ok: false; error: string; skills?: string[] }
 > {
   try {
-    const res = await fetch('/api/skill/import', {
+    const res = await okFetch('/api/skill/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -279,7 +280,7 @@ export async function importSkillsBulk(input: {
   marketplace?: boolean;
 }): Promise<WriteResult<SkillsImportBulkSuccess>> {
   try {
-    const res = await fetch('/api/skills/import-bulk', {
+    const res = await okFetch('/api/skills/import-bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -308,7 +309,7 @@ export async function uploadSkill(
   }>
 > {
   try {
-    const res = await fetch(`/api/skill-upload?scope=${encodeURIComponent(scope)}`, {
+    const res = await okFetch(`/api/skill-upload?scope=${encodeURIComponent(scope)}`, {
       method: 'POST',
       body: formData,
     });
@@ -352,7 +353,7 @@ export async function duplicateSkill(input: {
 }): Promise<WriteResult<{ name: string }>> {
   try {
     const toName = nextCopyName(input.name, input.existingNames);
-    const res = await fetch('/api/skill/duplicate', {
+    const res = await okFetch('/api/skill/duplicate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -499,7 +500,7 @@ export async function moveSkillScope(input: {
   const { name, fromScope, toScope } = input;
   if (fromScope === toScope) return { ok: true, scope: toScope, droppedLocations: [] };
   try {
-    const res = await fetch('/api/skill/move-scope', {
+    const res = await okFetch('/api/skill/move-scope', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name, fromScope, toScope }),
@@ -540,7 +541,7 @@ export async function trackSkillInGit(input: {
   apply?: boolean;
 }): Promise<WriteResult<{ line: string; gitignorePath: string; applied: boolean }>> {
   try {
-    const res = await fetch('/api/skill/track-in-git', {
+    const res = await okFetch('/api/skill/track-in-git', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
@@ -571,7 +572,7 @@ export async function moveSkill(input: {
   body?: string;
 }): Promise<WriteResult<{ committed: boolean; to?: string }>> {
   try {
-    const res = await fetch('/api/skill', {
+    const res = await okFetch('/api/skill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -595,7 +596,7 @@ export async function moveSkill(input: {
 export async function getSkillCurrentPath(scope: SkillScope, name: string): Promise<string | null> {
   try {
     const params = new URLSearchParams({ name, scope });
-    const res = await fetch(`/api/skill?${params.toString()}`);
+    const res = await okFetch(`/api/skill?${params.toString()}`);
     if (!res.ok) return null;
     const detail = (await res.json().catch(() => null)) as { skill?: { path?: string } } | null;
     return typeof detail?.skill?.path === 'string' ? detail.skill.path : null;
@@ -611,7 +612,7 @@ export async function deleteSkill(
 ): Promise<WriteResult<{ existed: boolean; warnings: string[] }>> {
   try {
     const qs = `?name=${encodeURIComponent(name)}&scope=${encodeURIComponent(scope)}${host ? `&host=${encodeURIComponent(host)}` : ''}`;
-    const res = await fetch(`/api/skill${qs}`, { method: 'DELETE' });
+    const res = await okFetch(`/api/skill${qs}`, { method: 'DELETE' });
     if (!res.ok) return { ok: false, error: await readErrorBody(res) };
     const payload = (await res.json().catch(() => null)) as { existed?: boolean } | null;
     emitSkillsChanged();
@@ -654,7 +655,7 @@ export async function writeSkillFile(input: {
   content: string;
 }): Promise<WriteResult<{ path: string }>> {
   try {
-    const res = await fetch('/api/skill-file', {
+    const res = await okFetch('/api/skill-file', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -675,7 +676,7 @@ export async function renameSkillFile(input: {
   to: string;
 }): Promise<WriteResult<{ from: string; to: string; fromDocName?: string; toDocName?: string }>> {
   try {
-    const res = await fetch('/api/skill-file/rename', {
+    const res = await okFetch('/api/skill-file/rename', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -711,7 +712,7 @@ export async function deleteSkillFile(input: {
       name: input.name,
       path: input.path,
     });
-    const res = await fetch(`/api/skill-file?${params.toString()}`, { method: 'DELETE' });
+    const res = await okFetch(`/api/skill-file?${params.toString()}`, { method: 'DELETE' });
     if (!res.ok) return { ok: false, error: await readErrorBody(res) };
     const payload = (await res.json().catch(() => null)) as { existed?: boolean } | null;
     emitSkillsChanged();
@@ -739,7 +740,7 @@ async function getSkillFile(input: {
       path: input.path,
       ...(input.host ? { host: input.host } : {}),
     });
-    const res = await fetch(`/api/skill-file?${params.toString()}`, { signal: input.signal });
+    const res = await okFetch(`/api/skill-file?${params.toString()}`, { signal: input.signal });
     if (!res.ok) {
       return { ok: false, status: res.status, error: await readErrorBody(res) };
     }
@@ -781,7 +782,7 @@ export async function installSkill(input: {
   }>
 > {
   try {
-    const res = await fetch('/api/skill/install', {
+    const res = await okFetch('/api/skill/install', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -813,7 +814,7 @@ export async function placeSkill(input: {
   mode: 'copy' | 'link';
 }): Promise<WriteResult<{ placedAt: string }>> {
   try {
-    const res = await fetch('/api/skill/install', {
+    const res = await okFetch('/api/skill/install', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -886,7 +887,7 @@ export async function putSkillFolderAction(action: {
   preview?: boolean;
 }): Promise<{ ok: true; preview?: SkillFolderLinkPreview } | { ok: false; error: string }> {
   try {
-    const res = await fetch('/api/skill-targets', {
+    const res = await okFetch('/api/skill-targets', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderAction: action }),
@@ -922,7 +923,7 @@ export async function reimportSkill(input: {
   }>
 > {
   try {
-    const res = await fetch('/api/skill/reimport', {
+    const res = await okFetch('/api/skill/reimport', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -956,7 +957,7 @@ export async function reimportSkillsBulk(input: {
   scope: SkillScope;
 }): Promise<WriteResult<SkillsReimportBulkSuccess>> {
   try {
-    const res = await fetch('/api/skills/reimport-bulk', {
+    const res = await okFetch('/api/skills/reimport-bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -977,7 +978,7 @@ export async function revertSkill(input: {
   name: string;
 }): Promise<WriteResult<{ warnings: string[] }>> {
   try {
-    const res = await fetch('/api/skill/revert', {
+    const res = await okFetch('/api/skill/revert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),

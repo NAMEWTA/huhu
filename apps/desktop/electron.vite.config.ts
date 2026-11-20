@@ -19,6 +19,7 @@ export default defineConfig({
       externalizeDeps: {
         exclude: [
           "@huhu/engine",
+          "@huhu/editor",
           "@huhu/plugin-notes",
           "@huhu/plugin-ssh",
           "@huhu/plugin-versioning",

@@ -74,9 +74,8 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
       live = false;
     };
   }, [locale]);
+  useEffect(installHostFetch, []);
   useEffect(() => {
-    const restoreFetch = installHostFetch();
-    void restoreFetch;
     const tracked: FilesRouteDeps = {
       ...deps,
       list: async (dir) => {

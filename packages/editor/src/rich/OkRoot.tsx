@@ -63,12 +63,21 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
   const features = useMemo(() => ({ ...DEFAULT_FEATURES, ...host?.features }), [host?.features]);
   const openExternal = host?.openExternal;
   useEffect(() => {
-    const restoreFetch = installHostFetch();
-    void restoreFetch;
     setHostLintAvailable(features.lint);
     const off = openExternal ? installDesktopBridge({ features, openExternal }) : () => {};
     return off;
   }, [features, openExternal]);
+  useEffect(installHostFetch, []);
+  const requestLinkPreview = config?.linkPreviewsEnabled ? config.requestLinkPreview : undefined;
+  useEffect(() => {
+    if (!requestLinkPreview) return;
+    return registerHostRoutes({
+      "POST /api/link-preview": ({ body }) => {
+        const url = (body as { url?: unknown } | null)?.url;
+        return typeof url === "string" ? requestLinkPreview(url) : { ok: false, reason: "invalid-url" };
+      },
+    });
+  }, [requestLinkPreview]);
   useEffect(() => (routes ? registerHostRoutes(routes) : undefined), [routes]);
   // OK 的内部链接用 URL hash 表示导航（window.location.assign(#…)）；Huhu 没有 OK 的路由，这里把 hash 翻译成宿主回调后清掉它
   useEffect(() => {

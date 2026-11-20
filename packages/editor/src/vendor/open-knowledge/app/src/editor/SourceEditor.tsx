@@ -11,8 +11,8 @@ import {
 import { useLingui } from '@lingui/react/macro';
 import { useTheme } from 'next-themes';
 import { useEffect, useRef, useState } from 'react';
-import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
-import * as Y from 'yjs';
+import { yCollab, ySyncFacet, yUndoManagerKeymap } from 'y-codemirror.next';
+import type * as Y from 'yjs';
 import {
   OUTLINE_NAV_BREADCRUMB,
   OUTLINE_NAV_EVENT,
@@ -34,6 +34,7 @@ import {
   codeMirrorContentAttributes,
   relabelCodeMirrorContent,
 } from './code-mirror-content-attributes';
+import { documentHistory } from './document-history';
 import { type CmCacheEntry, mountCmEditor, parkCmEditor } from './editor-cache';
 import { registerFullPageCmView, unregisterFullPageCmView } from './full-page-cm-views';
 import { useDocLintConfig } from './lint-config-client';
@@ -61,10 +62,6 @@ import { createLocalTargetDiagnosticsExtension } from './source-lint/local-targe
 import { createMarkdownLintExtension } from './source-lint/markdown-lint-source';
 import { sourceModeSetup } from './source-mode-setup';
 import { createSourcePolishExtension } from './source-polish';
-import {
-  createSourceUndoFlipExtension,
-  setSourceViewUndoFlipActive,
-} from './source-undo-mode-flip';
 import { attachTypingBurstDetector } from './typing-burst-detector';
 
 const noScrollEffect = StateEffect.define<null>();
@@ -78,14 +75,11 @@ interface SourceEditorProps {
 }
 
 function cleanupSourceEditorEntry(docName: string, entry: CmCacheEntry): void {
+  documentHistory(entry.ydoc).stopCapturing();
   try {
-    setSourceViewUndoFlipActive(entry.view, false);
+    parkCmEditor(entry);
   } finally {
-    try {
-      parkCmEditor(entry);
-    } finally {
-      unregisterFullPageCmView(docName, entry.view);
-    }
+    unregisterFullPageCmView(docName, entry.view);
   }
 }
 
@@ -201,109 +195,107 @@ export function SourceEditor({
         sizeStats,
         factory: (el) => {
           let selectionStatsTimer: ReturnType<typeof setTimeout> | null = null;
-          const undoManager = new Y.UndoManager(ytext);
-          try {
-            const sourceClipboard = createSourceClipboardExtension({
-              ydoc: provider.document,
-              ytext,
-              docName: resolvedDocName,
-            });
-            const themeCompartment = new Compartment();
-            const wordWrapCompartment = new Compartment();
-            const placeholderCompartment = new Compartment();
-            const lintCompartment = new Compartment();
-            const state = EditorState.create({
-              doc: ytext.toString(),
-              extensions: [
-                codeMirrorContentAttributes(contentLabel),
-                sourceModeSetup,
-                sourceLineDirection,
-                search({
-                  scrollToMatch: (range) =>
-                    claimScrollerForNavigation(resolvedDocName, 'find-match')
-                      ? EditorView.scrollIntoView(range, { y: 'start' })
-                      : noScrollEffect.of(null),
-                }),
-                keymap.of([indentWithTab]),
-                yCollab(ytext, provider.awareness, { undoManager }),
-                keymap.of(yUndoManagerKeymap),
-                createSourceUndoFlipExtension({ docName: resolvedDocName, ytext, undoManager }),
-                ...createNestedCMExtensions({
-                  themeCompartment,
-                  resolvedTheme,
-                  ydoc: provider.document,
-                  wordWrapCompartment,
-                  wordWrap,
-                  currentDocName: resolvedDocName,
-                }),
-                createSourcePolishExtension(),
-                createSkillPathLinksSourceExtension(resolvedDocName),
-                landingFlashSource(),
-                lintCompartment.of(createMarkdownLintExtension(linterConfig, docName)),
-                createLocalTargetDiagnosticsExtension(docName),
-                sourceClipboard,
-                EditorView.updateListener.of((update) => {
-                  if (!isUserIntentCmUpdate(update)) return;
-                  requestPreviewTabPromotion(resolvedDocName);
-                }),
-                EditorView.updateListener.of((update) => {
-                  if (!update.selectionSet && !update.docChanged) return;
-                  if (selectionStatsTimer !== null) clearTimeout(selectionStatsTimer);
-                  selectionStatsTimer = setTimeout(() => {
-                    selectionStatsTimer = null;
-                    publishSelectionStats(
-                      resolvedDocName,
-                      'source',
-                      selectionStatsFromSource(update.view),
-                    );
-                    publishSelectionContext(
-                      resolvedDocName,
-                      'source',
-                      selectionSnapshotFromSource(update.view, resolvedDocName),
-                    );
-                  }, SELECTION_STATS_DEBOUNCE_MS);
-                }),
-                placeholderCompartment.of(cmPlaceholder(placeholder ?? '')),
-                EditorView.theme({
-                  '&': {
-                    height: '100%',
-                  },
-                }),
-                EditorView.scrollMargins.of(() => ({ top: editorToolbarOverlapPx() })),
-              ],
-            });
-            const view = new EditorView({ state, parent: el });
-            publishSelectionStats(resolvedDocName, 'source', selectionStatsFromSource(view));
-            publishSelectionContext(
-              resolvedDocName,
-              'source',
-              selectionSnapshotFromSource(view, resolvedDocName),
-            );
-            const dom = view.contentDOM;
-            dom.addEventListener('keydown', mark);
-            dom.addEventListener('paste', mark);
-            dom.addEventListener('drop', mark);
-            dom.addEventListener('cut', mark);
-            return {
-              view,
-              ydoc: provider.document,
-              ytext,
-              provider,
-              undoManager,
-              themeCompartment,
-              wordWrapCompartment,
-              placeholderCompartment,
-              lintCompartment,
-            };
-          } catch (err) {
-            undoManager.destroy();
-            throw err;
-          }
+          const undoManager = documentHistory(provider.document);
+          const sourceClipboard = createSourceClipboardExtension({
+            ydoc: provider.document,
+            ytext,
+            docName: resolvedDocName,
+          });
+          const themeCompartment = new Compartment();
+          const wordWrapCompartment = new Compartment();
+          const placeholderCompartment = new Compartment();
+          const lintCompartment = new Compartment();
+          const state = EditorState.create({
+            doc: ytext.toString(),
+            extensions: [
+              codeMirrorContentAttributes(contentLabel),
+              sourceModeSetup,
+              sourceLineDirection,
+              search({
+                scrollToMatch: (range) =>
+                  claimScrollerForNavigation(resolvedDocName, 'find-match')
+                    ? EditorView.scrollIntoView(range, { y: 'start' })
+                    : noScrollEffect.of(null),
+              }),
+              keymap.of([indentWithTab]),
+              yCollab(ytext, provider.awareness, { undoManager }),
+              keymap.of(yUndoManagerKeymap),
+              ...createNestedCMExtensions({
+                themeCompartment,
+                resolvedTheme,
+                ydoc: provider.document,
+                wordWrapCompartment,
+                wordWrap,
+                currentDocName: resolvedDocName,
+              }),
+              createSourcePolishExtension(),
+              createSkillPathLinksSourceExtension(resolvedDocName),
+              landingFlashSource(),
+              lintCompartment.of(createMarkdownLintExtension(linterConfig, docName)),
+              createLocalTargetDiagnosticsExtension(docName),
+              sourceClipboard,
+              EditorView.updateListener.of((update) => {
+                if (!isUserIntentCmUpdate(update)) return;
+                requestPreviewTabPromotion(resolvedDocName);
+              }),
+              EditorView.updateListener.of((update) => {
+                if (!update.selectionSet && !update.docChanged) return;
+                if (selectionStatsTimer !== null) clearTimeout(selectionStatsTimer);
+                selectionStatsTimer = setTimeout(() => {
+                  selectionStatsTimer = null;
+                  publishSelectionStats(
+                    resolvedDocName,
+                    'source',
+                    selectionStatsFromSource(update.view),
+                  );
+                  publishSelectionContext(
+                    resolvedDocName,
+                    'source',
+                    selectionSnapshotFromSource(update.view, resolvedDocName),
+                  );
+                }, SELECTION_STATS_DEBOUNCE_MS);
+              }),
+              placeholderCompartment.of(cmPlaceholder(placeholder ?? '')),
+              EditorView.theme({
+                '&': {
+                  height: '100%',
+                },
+              }),
+              EditorView.scrollMargins.of(() => ({ top: editorToolbarOverlapPx() })),
+            ],
+          });
+          // y-codemirror's sync config constructs an unused private manager even when
+          // a manager is provided to yCollab. Detach it before it observes user edits.
+          const sync = state.facet(ySyncFacet);
+          sync.undoManager.destroy();
+          sync.undoManager = undoManager;
+          const view = new EditorView({ state, parent: el });
+          publishSelectionStats(resolvedDocName, 'source', selectionStatsFromSource(view));
+          publishSelectionContext(
+            resolvedDocName,
+            'source',
+            selectionSnapshotFromSource(view, resolvedDocName),
+          );
+          const dom = view.contentDOM;
+          dom.addEventListener('keydown', mark);
+          dom.addEventListener('paste', mark);
+          dom.addEventListener('drop', mark);
+          dom.addEventListener('cut', mark);
+          return {
+            view,
+            ydoc: provider.document,
+            ytext,
+            provider,
+            themeCompartment,
+            wordWrapCompartment,
+            placeholderCompartment,
+            lintCompartment,
+          };
         },
       });
       cmEntryRef.current = entry;
       viewRef.current = entry.view;
-      setSourceViewUndoFlipActive(entry.view, isSourceModeActive);
+      documentHistory(provider.document).stopCapturing();
       registerFullPageCmView(docName, entry.view, 'sourceEditor');
       if (claimNoteWindowInitialFocus()) entry.view.focus();
     } catch (err) {
@@ -324,10 +316,8 @@ export function SourceEditor({
 
   useEffect(() => {
     sourceModeActiveRef.current = isSourceModeActive;
-    const view = viewRef.current;
-    if (!view) return;
-    setSourceViewUndoFlipActive(view, isSourceModeActive);
-  }, [isSourceModeActive]);
+    documentHistory(provider.document).stopCapturing();
+  }, [isSourceModeActive, provider]);
 
   useEffect(() => {
     if (import.meta.env.PROD) return;

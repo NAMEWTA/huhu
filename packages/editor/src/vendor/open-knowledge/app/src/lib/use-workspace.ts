@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { WorkspaceSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { useEffect, useState } from 'react';
 import type { Workspace } from './workspace-paths';
@@ -10,7 +11,7 @@ export function useWorkspace(): Workspace | null {
     if (window.okDesktop) return;
 
     let active = true;
-    fetch('/api/workspace')
+    okFetch('/api/workspace')
       .then(async (res) => {
         const data = await res.json().catch(() => null);
         if (!active) return;

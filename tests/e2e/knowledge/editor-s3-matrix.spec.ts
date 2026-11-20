@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
@@ -8,9 +8,7 @@ import { treeItem, treeSettled } from "../helpers/tree.js";
 //   1. 逐项在独立文档中应用 `/` 菜单选项，验证实际命令效果；
 //   2. 逐项验证 Markdown 构造的“无编辑打开 / 关闭不写盘”（字节不变）；
 //   3. 逐项验证常用快捷键对应的标记 / 块。
-// Markdown 构造检查写入旧矩阵文件。斜杠菜单结果保存到各次测试独立的输出目录。
-
-const OUT = path.resolve(import.meta.dirname, "../../../.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/s3/matrix-run.json");
+// 将每项实际断言的结果保存到各次测试的输出目录。
 
 async function gotoNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
@@ -20,7 +18,7 @@ async function gotoNotes(page: Page): Promise<void> {
 }
 const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror").first();
 
-const SAMPLES: Record<string, string> = {
+const SAMPLES = {
   标题与段落: "# 一级\n\n## 二级\n\n### 三级\n\n正文段落。\n",
   强调与删除线: "**粗** *斜* ~~删~~ `码` 末尾\n",
   无序有序任务列表: "- 甲\n- 乙\n  - 乙一\n\n1. 一\n2. 二\n\n- [ ] 待办\n- [x] 完成\n",
@@ -36,28 +34,83 @@ const SAMPLES: Record<string, string> = {
   Mermaid围栏: "```mermaid\ngraph TD;\nA-->B;\n```\n",
 };
 
-test("矩阵·Markdown 构造：无编辑打开 / 关闭字节不变，且文档可渲染（不崩溃）", async () => {
+const SAMPLE_RESULTS: Record<keyof typeof SAMPLES, { selector: string; text?: string; count?: number }[]> = {
+  标题与段落: [
+    { selector: "h1", text: "一级" },
+    { selector: "h2", text: "二级" },
+    { selector: "h3", text: "三级" },
+    { selector: "p", text: "正文段落。" },
+  ],
+  强调与删除线: [
+    { selector: "strong", text: "粗" },
+    { selector: "em", text: "斜" },
+    { selector: "s", text: "删" },
+    { selector: "code", text: "码" },
+  ],
+  无序有序任务列表: [
+    { selector: "ul li ul li", text: "乙一" },
+    { selector: "ol li", count: 2 },
+    { selector: 'input[type="checkbox"]:checked', count: 1 },
+  ],
+  引用与分隔线: [
+    { selector: "blockquote", text: "引用一" },
+    { selector: "hr", count: 1 },
+  ],
+  围栏代码块: [
+    { selector: "pre", count: 2 },
+    { selector: "pre:first-of-type", text: "const a: number = 1;" },
+  ],
+  表格: [
+    { selector: "th", count: 2 },
+    { selector: "td", count: 4 },
+    { selector: "tr:last-child td:last-child", text: "4" },
+  ],
+  链接与图片: [
+    { selector: 'a[href="https://example.com/a?b=1"]', text: "文字" },
+    { selector: "img[alt='图']", count: 1 },
+    { selector: 'a[href="https://example.com"]', count: 1 },
+  ],
+  双链与标签: [
+    { selector: "[data-wiki-link]", count: 2 },
+    { selector: "[data-tag]", count: 2 },
+  ],
+  数学: [{ selector: ".katex", count: 2 }],
+  脚注: [
+    { selector: ".footnote-backref", count: 1 },
+    { selector: ".footnote-definition, [data-type='footnoteDefinition'], li[id^='fn-']", text: "脚注内容" },
+  ],
+  前置属性: [{ selector: "p", text: "正文" }],
+  混合换行与尾随空格: [{ selector: "p br", count: 2 }],
+  Mermaid围栏: [{ selector: ".mermaid svg", count: 1 }],
+};
+
+test("矩阵·Markdown 构造：按类型与内容逐项断言，无编辑打开关闭字节不变", async () => {
+  test.setTimeout(240_000);
   const { page, vault, close } = await openApp();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
-  const results: Record<string, { bytesUnchanged: boolean; rendered: boolean }> = {};
+  const results: Record<string, { bytesUnchanged: boolean; assertions: (typeof SAMPLE_RESULTS)[keyof typeof SAMPLES] }> = {};
   try {
     for (const [name, md] of Object.entries(SAMPLES)) writeFileSync(path.join(vault, `${name}.md`), md);
     await gotoNotes(page);
-    for (const [name, md] of Object.entries(SAMPLES)) {
+    for (const name of Object.keys(SAMPLES) as (keyof typeof SAMPLES)[]) {
+      const md = SAMPLES[name];
       await treeItem(page, `${name}.md`).click();
       await expect(page.getByTestId("note-document")).toBeVisible({ timeout: 30_000 });
       await prose(page).waitFor({ timeout: 30_000 });
       await page.waitForTimeout(1800); // 超过防抖与自动保存
       const after = readFileSync(path.join(vault, `${name}.md`), "utf8");
-      const text = (await prose(page).innerText()).trim();
-      results[name] = { bytesUnchanged: after === md, rendered: text.length > 0 };
+      const assertions = SAMPLE_RESULTS[name];
+      for (const { selector, count, text } of assertions) {
+        const feature = prose(page).locator(selector);
+        if (count !== undefined) await expect(feature, name).toHaveCount(count);
+        if (text !== undefined) await expect(feature, name).toContainText(text);
+      }
+      if (name === "前置属性") await expect(page.getByTestId("editor-properties")).toContainText("count");
+      results[name] = { bytesUnchanged: after === md, assertions };
     }
-    mkdirSync(path.dirname(OUT), { recursive: true });
-    const prev = existsJson(OUT);
-    writeFileSync(OUT, JSON.stringify({ ...prev, constructs: results, constructErrors: errors }, null, 2));
+    writeFileSync(test.info().outputPath("construct-matrix.json"), JSON.stringify({ constructs: results, constructErrors: errors }, null, 2));
     for (const [name, r] of Object.entries(results)) {
-      expect(r.rendered, `${name} 应渲染出内容`).toBe(true);
       expect(r.bytesUnchanged, `${name} 无编辑打开不得改写文件`).toBe(true);
     }
     expect(errors).toEqual([]);
@@ -66,14 +119,6 @@ test("矩阵·Markdown 构造：无编辑打开 / 关闭字节不变，且文档
   }
 });
 
-function existsJson(p: string): Record<string, unknown> {
-  try {
-    return JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
 const STARTING_TEXT = "斜杠起始段落";
 const SLASH_ITEM_COUNT = 36;
 
@@ -81,12 +126,73 @@ function slashFixtureName(index: number): string {
   return `斜杠-${String(index).padStart(2, "0")}`;
 }
 
-async function documentSnapshot(editor: Locator): Promise<string> {
+interface EditorNode {
+  type: string;
+  attrs?: Record<string, unknown>;
+  text?: string;
+  marks?: EditorNode[];
+  content?: EditorNode[];
+}
+
+async function documentNodes(editor: Locator): Promise<EditorNode[]> {
   return editor.evaluate((element) => {
-    const root = element as HTMLElement & { editor?: { state: { doc: { toJSON(): unknown } } } };
+    const root = element as HTMLElement & { editor?: { state: { doc: { toJSON(): EditorNode } } } };
     if (!root.editor) throw new Error("编辑器尚未挂载");
-    return JSON.stringify(root.editor.state.doc.toJSON());
+    const result: EditorNode[] = [];
+    function visit(node: EditorNode) {
+      result.push(node);
+      node.content?.forEach(visit);
+    }
+    visit(root.editor.state.doc.toJSON());
+    return result;
   });
+}
+
+const slashEffects: Record<string, object> = {
+  heading1: { type: "heading", attrs: expect.objectContaining({ level: 1 }) },
+  heading2: { type: "heading", attrs: expect.objectContaining({ level: 2 }) },
+  heading3: { type: "heading", attrs: expect.objectContaining({ level: 3 }) },
+  bulletList: { type: "bulletList", content: [expect.objectContaining({ type: "listItem" })] },
+  orderedList: { type: "orderedList", attrs: { start: 1 }, content: [expect.objectContaining({ type: "listItem" })] },
+  taskList: { type: "taskList", content: [expect.objectContaining({ type: "taskItem", attrs: expect.objectContaining({ checked: false }) })] },
+  blockquote: { type: "blockquote", content: [expect.objectContaining({ type: "paragraph" })] },
+  codeBlock: { type: "codeBlock", attrs: expect.objectContaining({ language: "js" }) },
+  table: {
+    type: "table",
+    content: Array.from({ length: 3 }, (_, row) =>
+      expect.objectContaining({
+        type: "tableRow",
+        content: Array.from({ length: 3 }, () => expect.objectContaining({ type: row === 0 ? "tableHeader" : "tableCell" })),
+      }),
+    ),
+  },
+  separator: { type: "horizontalRule" },
+  footnote: { type: "footnoteReference", attrs: expect.objectContaining({ identifier: "1" }) },
+  inlineMath: { type: "mathInline" },
+  link: { type: "text", marks: [expect.objectContaining({ type: "link", attrs: expect.objectContaining({ href: "" }) })] },
+  "component-Tag": { type: "tag" },
+};
+
+const htmlStarters: Record<string, RegExp> = {
+  html: /<h1 style=/,
+  chart: /<svg|<table|--chart-/,
+  "stat-cards": /--chart-|<div/,
+  "custom-svg": /<svg/,
+  "interactive-control": /type=["']range["']/,
+};
+
+function slashEffect(command: string): object {
+  const explicit = slashEffects[command];
+  if (explicit) return explicit;
+  if (command.startsWith("embed-starter-")) {
+    const body = htmlStarters[command.slice("embed-starter-".length)];
+    if (!body) throw new Error(`斜杠 HTML 模板缺少断言: ${command}`);
+    return { type: "codeBlock", attrs: { language: "html", meta: "preview" }, content: [expect.objectContaining({ type: "text", text: expect.stringMatching(body) })] };
+  }
+  if (command.startsWith("component-")) {
+    return { type: "jsxComponent", attrs: expect.objectContaining({ componentName: command.slice("component-".length) }) };
+  }
+  throw new Error(`斜杠命令缺少断言: ${command}`);
 }
 
 async function openSlashFixture(page: Page, index: number) {
@@ -116,11 +222,10 @@ async function openSlashFixture(page: Page, index: number) {
       }),
     )
     .toBe(true);
-  const initial = await documentSnapshot(editor);
   await page.keyboard.type("/");
   const listbox = page.getByRole("listbox", { name: /斜杠命令|Slash commands/ });
   await expect(listbox).toBeVisible();
-  return { editor, listbox, initial };
+  return { editor, listbox };
 }
 
 test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证命令效果", async () => {
@@ -144,18 +249,19 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
     const results: Record<string, string> = {};
     for (const [index, label] of labels.entries()) {
       await test.step(label, async () => {
-        const { editor, listbox, initial } = await openSlashFixture(page, index + 1);
+        const { editor, listbox } = await openSlashFixture(page, index + 1);
         const option = listbox.getByRole("option", { name: label, exact: true });
-        const withQuery = await documentSnapshot(editor);
+        const command = await option.getAttribute("data-slash-command");
+        if (!command) throw new Error(`缺少斜杠命令 ID: ${label}`);
 
-        if (label === "文件") {
+        if (command === "component-File") {
           const [chooser] = await Promise.all([page.waitForEvent("filechooser"), option.click()]);
           const contents = Buffer.from("斜杠命令上传的文件\n");
           await chooser.setFiles({ name: "slash-matrix.txt", mimeType: "text/plain", buffer: contents });
           await expect(editor.getByRole("link", { name: /^slash-matrix\.txt/ })).toHaveAttribute("href", /\/attachments\/slash-matrix\.txt$/);
           expect(readFileSync(path.join(vault, "attachments", "slash-matrix.txt"))).toEqual(contents);
           results[label] = "打开文件选择器并插入附件";
-        } else if (label === "表情符号") {
+        } else if (command === "emoji") {
           await option.click();
           const picker = page.getByTestId("emoji-picker-popover");
           await expect(picker).toBeVisible();
@@ -170,16 +276,13 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
           await expect(option).toHaveAttribute("aria-selected", "true");
           await expect(editor).toBeFocused();
           await page.keyboard.press("Enter");
-          await expect
-            .poll(
-              async () => {
-                const after = await documentSnapshot(editor);
-                return after !== initial && after !== withQuery;
-              },
-              { message: `${label} 应修改文档内容或结构` },
-            )
-            .toBe(true);
-          results[label] = "文档已变化";
+          const effect = slashEffect(command);
+          await expect.poll(() => documentNodes(editor), { message: `${command} 的节点类型与属性` }).toEqual(expect.arrayContaining([expect.objectContaining(effect)]));
+          if (command === "heading1") await expect(editor.locator("h1")).toHaveCount(2);
+          if (command === "footnote") {
+            await expect.poll(() => documentNodes(editor)).toEqual(expect.arrayContaining([expect.objectContaining({ type: "footnoteDefinition", attrs: expect.objectContaining({ identifier: "1" }) })]));
+          }
+          results[label] = command;
         }
         await expect(listbox).toBeHidden();
         await page.keyboard.press("Escape");

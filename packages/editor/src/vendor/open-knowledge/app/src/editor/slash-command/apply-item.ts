@@ -1,3 +1,4 @@
+import { yUndoPluginKey } from '@tiptap/y-tiptap';
 import type { Editor, Range } from '@tiptap/react';
 import type { SlashCommandItem } from './items';
 
@@ -10,6 +11,8 @@ interface ApplySlashCommandItemArgs {
 export function applySlashCommandItem({ editor, item, range }: ApplySlashCommandItemArgs): void {
   const deferred: Array<() => void> = [];
   let itemError: unknown;
+  const history = yUndoPluginKey.getState(editor.state)?.undoManager;
+  history?.stopCapturing();
 
   try {
     editor
@@ -36,6 +39,8 @@ export function applySlashCommandItem({ editor, item, range }: ApplySlashCommand
       console.error(`[slash-command] command "${item.name}" threw an error`, itemError);
     }
     return;
+  } finally {
+    history?.stopCapturing();
   }
 
   if (itemError !== undefined) {

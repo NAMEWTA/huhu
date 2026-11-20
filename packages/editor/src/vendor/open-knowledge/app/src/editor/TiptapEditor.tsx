@@ -75,6 +75,7 @@ import {
   createHandlePaste,
 } from './clipboard/index.ts';
 import { useDocumentContext } from './DocumentContext';
+import { documentHistory } from './document-history';
 import { EditorContent } from './EditorContent';
 import { isUserIntentOrigin } from './extensions/autonomous-fragment-edit.ts';
 import { createBareHtmlImageDecoration } from './extensions/bare-html-image-decoration';
@@ -170,6 +171,7 @@ const ANCHOR_SCROLL_FOLLOW_UP_MS = 250;
 const OUTLINE_NAV_SETTLE_MS = 600;
 
 interface TiptapEditorProps {
+  compact?: boolean;
   provider: HocuspocusProvider;
   placeholder?: string;
   isSourceMode: boolean;
@@ -224,6 +226,7 @@ function buildClipboardState() {
 }
 
 interface BuildEditorOptionsArgs {
+  compact?: boolean;
   provider: HocuspocusProvider;
   placeholder?: string;
   clipboard: ClipboardState;
@@ -241,13 +244,15 @@ function buildPrewarmBoundCollaboration(
   provider: HocuspocusProvider,
   prebuiltMapping: ProsemirrorMapping | undefined,
 ): PrewarmBoundCollaboration {
+  const yUndoOptions = { undoManager: documentHistory(provider.document) };
   if (!prebuiltMapping) {
-    return { collaboration: Collaboration.configure({ document: provider.document }), guard: [] };
+    return { collaboration: Collaboration.configure({ document: provider.document, yUndoOptions }), guard: [] };
   }
   return {
     collaboration: Collaboration.configure({
       document: provider.document,
       ySyncOptions: { mapping: prebuiltMapping },
+      yUndoOptions,
     }),
     guard: [
       walkCurrencyExtension({
@@ -301,7 +306,7 @@ export function buildExtensionList(args: BuildEditorOptionsArgs): AnyExtension[]
   const { provider, placeholder, prebuiltMapping, onWedged } = args;
   const { collaboration, guard } = buildPrewarmBoundCollaboration(provider, prebuiltMapping);
   return [
-    ...scopeExtensionsToDocument(sharedExtensions, provider.configuration.name ?? ''),
+    ...scopeExtensionsToDocument(sharedExtensions, provider.configuration.name ?? '', args.compact),
     createBareHtmlImageDecoration(provider.configuration.name ?? ''),
     LocalPlaceholder.configure({
       placeholder: () => placeholder ?? t`Type '/' for commands`,
@@ -462,6 +467,7 @@ function buildEditorOptions(args: BuildEditorOptionsArgs): Partial<EditorOptions
 }
 
 interface BuildPatternDConstructorOptionsArgs {
+  compact?: boolean;
   provider: HocuspocusProvider;
   placeholder?: string;
   clipboard: ClipboardState;
@@ -474,7 +480,7 @@ type PatternDConstructorOptions = Partial<EditorOptions> & { element: null };
 export function buildPatternDConstructorOptions(
   args: BuildPatternDConstructorOptionsArgs,
 ): PatternDConstructorOptions {
-  const { provider, placeholder, clipboard, ctorStart, onWedged } = args;
+  const { provider, placeholder, clipboard, ctorStart, onWedged, compact } = args;
   const fragment = provider.document.getXmlFragment('default');
   const prebuiltMapping: ProsemirrorMapping = new Map();
   const baseOptions = buildEditorOptions({
@@ -483,6 +489,7 @@ export function buildPatternDConstructorOptions(
     clipboard,
     ctorStart,
     prebuiltMapping,
+    ...(compact !== undefined ? { compact } : {}),
     onWedged,
   });
   const baseOnBeforeCreate = baseOptions.onBeforeCreate;
@@ -511,6 +518,7 @@ export const TiptapEditor: FC<TiptapEditorProps> = ({
   placeholder,
   isSourceMode,
   portalTarget,
+  compact,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const flashStateRef = useRef(INITIAL_FLASH_STATE);
@@ -528,6 +536,7 @@ export const TiptapEditor: FC<TiptapEditorProps> = ({
         placeholder,
         clipboard,
         ctorStart,
+        ...(compact !== undefined ? { compact } : {}),
         onWedged: ({ externalSeq, appliedSeq }) => {
           mark('ok/editor/binding-wedge-recycle', { docName, externalSeq, appliedSeq });
           recycleDocument(docName);
@@ -559,6 +568,7 @@ export const TiptapEditor: FC<TiptapEditorProps> = ({
     <TiptapEditorChrome
       provider={provider}
       isSourceMode={isSourceMode}
+      compact={compact === true}
       docName={docName}
       activeDocName={activeDocName}
       identity={identity}
@@ -574,6 +584,7 @@ export const TiptapEditor: FC<TiptapEditorProps> = ({
 interface TiptapEditorChromeProps {
   provider: HocuspocusProvider;
   isSourceMode: boolean;
+  compact: boolean;
   docName: string;
   activeDocName: string | null;
   identity: ReturnType<typeof useIdentity>;
@@ -587,6 +598,7 @@ interface TiptapEditorChromeProps {
 const TiptapEditorChrome: FC<TiptapEditorChromeProps> = ({
   provider,
   isSourceMode,
+  compact,
   docName,
   activeDocName,
   identity,
@@ -1311,14 +1323,14 @@ const TiptapEditorChrome: FC<TiptapEditorChromeProps> = ({
       data-agent-flash-agent-id=""
     >
       {!isSourceMode && editorPaneOnScreen && (
-        <BubbleMenuBar editor={editor} shortcutEnabled={docName === activeDocName} />
+        <BubbleMenuBar editor={editor} shortcutEnabled={docName === activeDocName} commentsEnabled={!compact} />
       )}
-      {!isSourceMode && (
+      {!isSourceMode && !compact && (
         <CommentsBoundary>
           <CommentSelectionAffordance
             editor={editor}
             docName={docName}
-            shortcutEnabled={docName === activeDocName}
+            shortcutEnabled={!compact && docName === activeDocName}
           />
           <CommentAnchorLayer editor={editor} docName={docName} />
           {docName === activeDocName && <CommentMarginRail editor={editor} docName={docName} />}

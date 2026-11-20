@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type CommentThreadMeta,
   CommentThreadMetaSchema,
@@ -16,7 +17,7 @@ export type BatchResult<T> =
   | { threadId: string; ok: false; error: 'not-found' };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await okFetch(url, {
     ...init,
     headers: { 'content-type': 'application/json', ...init?.headers },
   });

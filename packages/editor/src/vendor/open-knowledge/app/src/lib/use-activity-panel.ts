@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import type { FrontmatterDelta } from '@inkeep/open-knowledge-core/frontmatter-diff';
 import {
   type ActivityAgentHeader,
@@ -44,7 +45,7 @@ async function fetchAgentActivity(connectionId: string): Promise<{
   files: ActivityFile[];
 }> {
   const url = `/api/agent-activity?agentId=${encodeURIComponent(connectionId)}`;
-  const res = await fetch(url);
+  const res = await okFetch(url);
   let body: unknown;
   try {
     body = await res.json();
@@ -82,7 +83,7 @@ export async function fetchAgentBurstDiff(
   const url = `/api/agent-burst-diff?agentId=${encodeURIComponent(
     connectionId,
   )}&docName=${encodeURIComponent(docName)}&keptCount=${keptCount}`;
-  const res = await fetch(url);
+  const res = await okFetch(url);
   let body: unknown;
   try {
     body = await res.json();

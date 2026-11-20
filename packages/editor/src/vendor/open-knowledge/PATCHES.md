@@ -319,3 +319,46 @@
 - P-H02-02 `app/src/globals.css` 与 P-H02-01 的八个浮层文件：深色变体和图片遮罩接受宿主 `data-mode="dark"`，保留独立预览的 `.dark`；图片缩放库样式由宿主 CSS 生成器按 OK 作用域导入。浮层追加 `editor-ok-portal` 标记，供宿主映射其 UI 字体，拖拽预览继续沿用正文计算样式。
 
 - P-H02-03 `app/src/lib/ok-portal.ts`、`app/src/editor/bubble-menu/BubbleMenuBar.tsx`：共享 Radix 浮层容器标记为宿主浮层，气泡使用专用类映射宿主的浮层圆角与阴影。快捷键标签的字体映射在宿主 token-map 中通过既有部件标识应用。
+
+## WP5 编辑器核心
+
+OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，并为斜杠执行单独划定撤销边界。OP-D18 在紧凑编辑器过滤文档级命令与批注。Q3 复用 OK 的限时限量抓取及 HTML 元数据提取。
+
+- `app/src/components/ActivityModeContent.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/GraphPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/GraphView.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/OutlinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/PageListContext.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/TimelinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/handoff/useInstalledAgents.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。
+- `app/src/editor/extensions/tag-suggestion.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/image-upload/index.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/image-upload/upload-file.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。
+- `app/src/hooks/use-conflicts.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/agent-connections.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/documents-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/handoff/cowork-skill-install.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/handoff/dispatch.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/handoff/skill-installer.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/saved-themes-client.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/skills-api.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/use-activity-panel.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/use-workspace.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。
+- `app/src/lib/ok-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `server-bridge/link-preview/guarded-fetch.ts`：复用固定 OK 版本的主进程外链预览模块。
+- `server-bridge/link-preview/html-metadata.ts`：复用固定 OK 版本的主进程外链预览模块。
+- `server-bridge/link-preview/ip-classifier.ts`：复用固定 OK 版本的主进程外链预览模块。
