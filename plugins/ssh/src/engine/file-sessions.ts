@@ -35,6 +35,14 @@ export class FileSessions {
     return [...this.bindings.entries()].filter(([, binding]) => binding.detached).map(([id]) => this.get(id));
   }
 
+  restoreTransferOrigin(session: FileSession): FileSession {
+    if (this.disposed) throw errors.notFound("文件会话所属的 Vault 已关闭");
+    const binding = this.bindings.get(session.fileSessionId);
+    if (binding) binding.detached = true;
+    else this.bindings.set(session.fileSessionId, { session, detached: true, controller: new AbortController() });
+    return this.get(session.fileSessionId);
+  }
+
   source(input: { hostId: string } | { fileSessionId: string }): SftpSource {
     if ("hostId" in input) return input.hostId;
     const { session, controller } = this.lookup(input.fileSessionId);

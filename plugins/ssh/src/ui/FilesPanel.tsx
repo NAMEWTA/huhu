@@ -2,6 +2,7 @@ import { Button, EmptyState } from "@huhu/ui";
 import { CapabilityError, useEngine } from "@huhu/workbench";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { FileDirectory, FileDocument, FileEntry, FileSearch, FileSession } from "../shared/files.js";
+import type { TransferRequest } from "../shared/transfers.js";
 import { FileTable } from "./FileTable.js";
 import { RemoteTextEditor } from "./RemoteTextEditor.js";
 import { t } from "./i18n.js";
@@ -42,6 +43,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const { fileSessionId } = session;
 
   const call = useCallback(<T,>(cap: string, input: Record<string, unknown>) => engine.call<T>(cap, { fileSessionId, ...input }, { write: true }), [engine, fileSessionId]);
+  const queuedTransfers = !!bridge().pickOpenPath || !!bridge().pickSavePath;
   const load = useCallback(
     async (dir: string) => {
       if (!ready) return undefined;
@@ -110,6 +112,21 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
       }
     };
     await go(false);
+  }
+
+  async function enqueue(input: TransferRequest, after: () => void) {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await engine.call("ssh.transfers.start", input, { write: true });
+      setNote("已加入传输中心");
+      after();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const openEntry = async (e: FileEntry) => {
@@ -263,6 +280,10 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
           onSubmit={(ev) => {
             ev.preventDefault();
             const p = pending;
+            if (queuedTransfers) {
+              void enqueue({ source: { kind: "remote", path: p.remote, fileSessionId }, target: { kind: "local", path: field.trim() } }, () => setPending(null));
+              return;
+            }
             void attempt(
               p.name,
               (o) => call("ssh.sftp.download", { remotePath: p.remote, localPath: field.trim(), overwrite: o }),
@@ -396,6 +417,10 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
         onSubmit={(ev) => {
           ev.preventDefault();
           const name = upFrom.split(/[\\/]/).pop() ?? "";
+          if (queuedTransfers) {
+            void enqueue({ source: { kind: "local", path: upFrom.trim() }, target: { kind: "remote", path: join(cwd, name), fileSessionId } }, () => setUpFrom(""));
+            return;
+          }
           void attempt(
             name,
             (o) => call("ssh.sftp.upload", { localPath: upFrom.trim(), remotePath: join(cwd, name), overwrite: o }),

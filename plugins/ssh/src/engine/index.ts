@@ -11,6 +11,7 @@ import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
 import { WorkspaceRuns } from "./workspace-runs.js";
 import { FileSessions } from "./file-sessions.js";
+import { Transfers } from "./transfers.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -40,7 +41,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
   const files = new FileSessions(manager);
+  const transfers = new Transfers(files, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   ctx.effect(() => () => {
+    transfers.dispose();
     files.dispose();
     runs.dispose();
     manager.disposeAll();
@@ -142,6 +145,12 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.auditList, (_c, i) => manager.auditList(i.hostId, i.limit)));
   // SFTP（仅桌面；复用已建立的连接）。覆盖需要 overwrite=true（界面先让用户确认）；上传先写临时文件再改名
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (_c, i) => files.open(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStart, (_c, i) => transfers.start(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferList, () => transfers.list()));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferDecide, (_c, i) => transfers.decide(i.transferId, i.choice)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferCancel, (_c, i) => transfers.cancel(i.transferId)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferOrigin, (_c, i) => transfers.openOrigin(i.transferId)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferClear, () => transfers.clear()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsList, () => files.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsClose, (_c, i) => (files.close(i.fileSessionId), { ok: true as const })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsLocalList, (_c, i) => files.localList(i.fileSessionId, i.parts, i.root)));

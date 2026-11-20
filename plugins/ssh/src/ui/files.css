@@ -39,4 +39,18 @@
     resize: vertical;
     font-family: var(--font-mono);
   }
+
+  .ssh-transfer-list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    padding: 0;
+  }
+
+  .ssh-transfer-list > li {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    padding: 8px;
+    overflow-wrap: anywhere;
+  }
 }

@@ -6,6 +6,7 @@ import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-sche
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
+import { TransferChoice, TransferId, TransferJob, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
@@ -18,6 +19,72 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  transferStart: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.start",
+    title: "加入文件传输任务",
+    description: "固定所选文件端点，建立可追踪的传输任务。",
+    scope: "execute",
+    risk: "high",
+    input: TransferRequest,
+    output: TransferJob,
+  }),
+  transferList: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.list",
+    title: "查看传输任务",
+    description: "读取任务进度、原端点及结果。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: TransferQueue,
+  }),
+  transferDecide: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.decide",
+    title: "处理目标冲突",
+    description: "按此任务的原始快照选择覆盖、保留或跳过。",
+    scope: "execute",
+    risk: "high",
+    input: TransferId.extend({ choice: TransferChoice }),
+    output: TransferJob,
+  }),
+  transferCancel: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.cancel",
+    title: "取消文件传输",
+    description: "停止指定任务并清理暂存。",
+    scope: "execute",
+    risk: "normal",
+    input: TransferId,
+    output: TransferJob,
+  }),
+  transferOrigin: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.origin",
+    title: "返回传输来源",
+    description: "返回任务记录的原文件会话。",
+    scope: "execute",
+    risk: "normal",
+    input: TransferId,
+    output: FileSession,
+  }),
+  transferClear: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.clearHistory",
+    title: "清理已结束的传输记录",
+    description: "从传输中心移除终态记录。",
+    scope: "execute",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.object({ removed: z.number() }),
+  }),
   workspaceRunsList: defineCapabilityDescriptor({
     ...ssh,
     name: "ssh.workspace.runs.list",

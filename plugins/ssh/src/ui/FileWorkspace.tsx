@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { FileDirectory, FileSession } from "../shared/files.js";
 import { FilesPanel } from "./FilesPanel.js";
 import { FileTable } from "./FileTable.js";
+import { TransferCenter } from "./TransferCenter.js";
 import "./files.css";
 
 interface LocalBridge {
@@ -178,6 +179,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
   const sessions = useCapability<FileSession[]>("ssh.fileSessions.list", {});
   const [error, setError] = useState("");
   const [reversed, setReversed] = useState<Record<string, boolean>>({});
+  const [transfers, showTransfers] = useState(false);
   const current = sessions.data?.find(({ fileSessionId }) => fileSessionId === selectedId) ?? (sessions.isFetching && seed?.fileSessionId === selectedId ? seed : undefined);
   useEffect(() => {
     if (active) void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
@@ -204,10 +206,24 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
             <Button variant="ghost" onClick={onBack}>
               返回 SSH
             </Button>
+            {localPicker() && (
+              <Button variant="ghost" aria-pressed={transfers} onClick={() => showTransfers(true)}>
+                传输中心
+              </Button>
+            )}
           </div>
           <div className="hu-resource-list">
             {sessions.data?.map((session) => (
-              <button key={session.fileSessionId} className="ssh-resource-row" type="button" aria-current={session.fileSessionId === selectedId} onClick={() => select(session.fileSessionId)}>
+              <button
+                key={session.fileSessionId}
+                className="ssh-resource-row"
+                type="button"
+                aria-current={!transfers && session.fileSessionId === selectedId}
+                onClick={() => {
+                  select(session.fileSessionId);
+                  showTransfers(false);
+                }}
+              >
                 <strong>{session.name}</strong>
                 <span>{session.state === "ready" ? "原连接在线" : "原连接已断开"}</span>
               </button>
@@ -218,14 +234,23 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
           <PageHead title="独立文件会话" />
           <div className="hu-scroll ssh-pad">
             {(error || sessions.error) && <p role="alert">{error || sessions.error?.message}</p>}
-            {!current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
+            {active && transfers && (
+              <TransferCenter
+                onOrigin={(session) => {
+                  select(session.fileSessionId);
+                  showTransfers(false);
+                  void sessions.refetch();
+                }}
+              />
+            )}
+            {!transfers && !current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
             {sessions.data?.map((session) => {
               const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} />];
               if (reversed[session.fileSessionId]) panes.reverse();
               return (
                 <section
                   key={session.fileSessionId}
-                  hidden={session.fileSessionId !== selectedId}
+                  hidden={transfers || session.fileSessionId !== selectedId}
                   data-file-session-id={session.fileSessionId}
                   data-connection-id={session.connectionId}
                   data-testid="ssh-independent-files"

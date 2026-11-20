@@ -5,6 +5,7 @@ import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
 import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
+import type { TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 async function sshCall<T>(page: Page, capability: string, input: unknown = {}): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
@@ -521,6 +522,98 @@ test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内
     expect(raced.error?.code).toBe("VERSION_CONFLICT");
     expect(remote.fs.files.get(editPath)?.toString()).toBe("暂存期间外部改动");
     expect([...remote.fs.files.keys()].filter((file) => file.includes(".huhu-"))).toEqual([]);
+  } finally {
+    await fixture.close();
+    await remote.close();
+  }
+});
+
+test("H7.1/H7.2 传输中心保留任务和来源，拒绝或确认覆盖后核对实际文件", async () => {
+  test.setTimeout(90_000);
+  const password = randomUUID();
+  const remote = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page, vault } = fixture;
+    const bytes = Buffer.from("来自 Windows 的文件\r\n");
+    const local = path.join(vault, "transfer.txt");
+    const destination = "/home/test/transfer.txt";
+    writeFileSync(local, bytes);
+    remote.fs.files.set(destination, Buffer.from("原远端文件"));
+    await openWorkspace(page);
+    const host = await configureLoopback(page, "传输夹具", remote.port, password);
+    expect(
+      (
+        await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+          name: "验证传输工作区",
+          layout: { kind: "one" },
+          panes: [{ hostId: host.hostId }],
+        })
+      ).ok,
+    ).toBe(true);
+    await page.getByRole("button", { name: /验证传输工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    await run.getByRole("button", { name: "打开独立双栏" }).click();
+    const panel = page.getByTestId("ssh-independent-files").filter({ visible: true });
+    const originalFileSession = (await panel.getAttribute("data-file-session-id"))!;
+    const openCenter = () => page.getByRole("button", { name: "传输中心", exact: true }).click();
+    const rows = page.getByTestId("ssh-transfer-row");
+    const modal = page.getByRole("dialog", { name: "已存在同名文件" });
+    async function upload() {
+      await panel.getByTestId("files-upload-from").fill(local);
+      await panel.getByTestId("files-upload-go").click();
+      await expect(panel.getByTestId("files-note")).toHaveText("已加入传输中心");
+      await openCenter();
+      const row = rows.first();
+      await expect(row).toHaveAttribute("data-state", "waiting");
+      return (await row.getAttribute("data-transfer-id"))!;
+    }
+    const rejected = await upload();
+    const job = (id: string) => rows.and(page.locator(`[data-transfer-id="${id}"]`));
+    await job(rejected).getByRole("button", { name: "处理冲突" }).click();
+    await modal.getByRole("button", { name: "保留原文件" }).click();
+    await expect(job(rejected)).toHaveAttribute("data-state", "cancelled");
+    expect(remote.fs.files.get(destination)?.toString()).toBe("原远端文件");
+    await job(rejected).getByRole("button", { name: "返回原文件会话" }).click();
+    await expect(panel).toHaveAttribute("data-file-session-id", originalFileSession);
+
+    const confirmed = await upload();
+    expect(confirmed).not.toBe(rejected);
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await page.getByRole("button", { name: "独立文件会话", exact: true }).click();
+    await expect(job(confirmed)).toHaveAttribute("data-state", "waiting");
+    await job(confirmed).getByRole("button", { name: "处理冲突" }).click();
+    await modal.getByRole("button", { name: "确认覆盖" }).click();
+    await expect(job(confirmed)).toHaveAttribute("data-state", "completed");
+    expect(remote.fs.files.get(destination)).toEqual(bytes);
+    expect(readFileSync(local)).toEqual(bytes);
+    expect([...remote.fs.files.keys()]).toEqual([destination]);
+    await job(confirmed).getByRole("button", { name: "返回原文件会话" }).click();
+
+    const changed = await upload();
+    remote.fs.files.set(destination, Buffer.from("等待确认时改写的目标"));
+    await job(changed).getByRole("button", { name: "处理冲突" }).click();
+    await modal.getByRole("button", { name: "确认覆盖" }).click();
+    await expect(job(changed)).toHaveAttribute("data-state", "failed");
+    await expect(job(changed)).toContainText("目标文件已变更");
+    expect(remote.fs.files.get(destination)?.toString()).toBe("等待确认时改写的目标");
+    await job(changed).getByRole("button", { name: "返回原文件会话" }).click();
+    await panel.getByRole("button", { name: "下载 transfer.txt" }).click();
+    const download = path.join(vault, "download.txt");
+    await panel.getByTestId("files-save-to").fill(download);
+    await panel.getByTestId("files-download-go").click();
+    await expect(panel.getByTestId("files-note")).toHaveText("已加入传输中心");
+    await openCenter();
+    await expect(rows.first()).toHaveAttribute("data-state", "completed");
+    expect(readFileSync(download).toString()).toBe("等待确认时改写的目标");
+    const listed = await sshCall<TransferQueue>(page, "ssh.transfers.list");
+    expect(listed.data.jobs.find(({ transferId }) => transferId === confirmed)?.target).toMatchObject({ fileSessionId: originalFileSession });
+    await page.getByRole("button", { name: "清理已结束记录" }).click();
+    await expect(rows).toHaveCount(0);
+    expect(remote.fs.files.get(destination)?.toString()).toBe("等待确认时改写的目标");
+    expect(readFileSync(download).toString()).toBe("等待确认时改写的目标");
   } finally {
     await fixture.close();
     await remote.close();
