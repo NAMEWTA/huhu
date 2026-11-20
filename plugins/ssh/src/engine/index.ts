@@ -5,7 +5,7 @@ import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostDirectory } from "./directory.js";
 import { HostStore } from "./hosts.js";
 import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
-import { hostImportPreview } from "./import/capability.js";
+import { hostImportConfirm, hostImportPreview } from "./import/capability.js";
 import { SshManager } from "./manager.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
@@ -34,6 +34,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
   api.defineCapability(hostImportPreview(hosts));
+  api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsOrganize, async (_c, i) => {
       const view = await directory.organize(i);

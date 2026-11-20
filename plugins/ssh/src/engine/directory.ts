@@ -224,4 +224,31 @@ export class HostDirectory {
     }
     return view;
   }
+
+  async placeImported(rows: readonly { hostId: string; group: readonly string[] }[], signal: AbortSignal): Promise<boolean> {
+    const placementsToAdd = rows.filter(({ group }) => group.length);
+    if (!placementsToAdd.length) return false;
+    this.files.assertWritable();
+    const liveHosts = new Set((await this.hosts.list()).map(({ id }) => id));
+    if (placementsToAdd.some(({ hostId }) => !liveHosts.has(hostId))) throw errors.notFound("部分导入主机已移除，请重新预览");
+    const { state, fileVersion } = this.readState();
+    const next = { ...state, groups: [...state.groups], placements: [...state.placements] };
+    for (const row of placementsToAdd) {
+      if (next.placements.some(({ hostId }) => hostId === row.hostId)) continue;
+      let parentId: string | null = null;
+      for (const name of row.group) {
+        const matches = next.groups.filter((group) => group.parentId === parentId && group.name.toLowerCase() === name.toLowerCase());
+        if (matches.length > 1) throw errors.invalidInput("目标分组有重名，请先校正分组目录");
+        const group: Group = matches[0] ?? { groupId: randomUUID(), parentId, name };
+        if (!matches.length) next.groups.push(group);
+        parentId = group.groupId;
+      }
+      next.placements.push({ hostId: row.hostId, groupId: parentId, pinned: false });
+    }
+    if (next.placements.length === state.placements.length) return false;
+    signal.throwIfAborted();
+    next.version = randomUUID();
+    await this.files.write(DIRECTORY_FILE, Buffer.from(JSON.stringify(next, null, 2) + "\n"), { expectedVersion: fileVersion });
+    return true;
+  }
 }

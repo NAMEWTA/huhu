@@ -63,16 +63,18 @@ function toProfile(row: RawHost): Profile | ImportIssue["code"] {
     host,
     user,
     port: ports.data,
-    connectTimeoutSec: row.timeout,
-    keepaliveIntervalSec: row.interval,
-    keepaliveCountMax: row.keepaliveCount,
+    ...(row.timeout !== undefined && { connectTimeoutSec: row.timeout }),
+    ...(row.interval !== undefined && { keepaliveIntervalSec: row.interval }),
+    ...(row.keepaliveCount !== undefined && { keepaliveCountMax: row.keepaliveCount }),
   });
   return result.success ? result.data : "invalid-setting";
 }
 
-function identity({ host, port, user }: Profile | ExistingHost): string {
+export function hostEndpoint({ host, port, user }: Pick<Profile, "host" | "port" | "user">): string {
   return JSON.stringify([host.toLowerCase(), port, user]);
 }
+
+export const hostName = (name: string) => name.trim().toLowerCase();
 
 type IdentityIndex = Map<string, Conflict[]>;
 function addIdentity(index: IdentityIndex, key: string, conflict: Conflict): void {
@@ -88,16 +90,16 @@ export function previewHostImport(source: HostImportSource, existing: readonly E
   const endpoints: IdentityIndex = new Map();
   const labels: IdentityIndex = new Map();
   for (const host of existing) {
-    addIdentity(endpoints, identity(host), { kind: "existing", hostId: host.id, field: "endpoint" });
-    addIdentity(labels, host.name.trim().toLowerCase(), { kind: "existing", hostId: host.id, field: "name" });
+    addIdentity(endpoints, hostEndpoint(host), { kind: "existing", hostId: host.id, field: "endpoint" });
+    addIdentity(labels, hostName(host.name), { kind: "existing", hostId: host.id, field: "name" });
   }
   const rows = data.records.map((row, index): HostImportRow => {
     const number = index + 1;
     const base = { index: number, location: row.location, issues: row.issues ?? [] };
     const profile = toProfile(row);
     if (typeof profile === "string") return { ...base, state: "skipped", issues: [...base.issues, { code: profile, location: row.location }] };
-    const endpoint = identity(profile);
-    const name = profile.name.toLowerCase();
+    const endpoint = hostEndpoint(profile);
+    const name = hostName(profile.name);
     const conflicts = [...(endpoints.get(endpoint) ?? []), ...(labels.get(name) ?? [])];
     addIdentity(endpoints, endpoint, { kind: "batch", index: number, field: "endpoint" });
     addIdentity(labels, name, { kind: "batch", index: number, field: "name" });

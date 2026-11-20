@@ -25,6 +25,7 @@
       "ssh.hosts.delete",
       "ssh.hosts.directory",
       "ssh.hosts.import.preview",
+      "ssh.hosts.import.confirm",
       "ssh.hosts.list",
       "ssh.hosts.organize",
       "ssh.hosts.remove",

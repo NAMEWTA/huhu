@@ -2,7 +2,7 @@ import { defineCapabilityDescriptor } from "@huhu/kernel";
 import { z } from "zod";
 import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput, LegacyHostView, ManagedHostView } from "./auth-profile.js";
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
-import { hostImportPreviewDescriptor } from "./import/capability.js";
+import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
@@ -14,6 +14,7 @@ const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), s
 
 export const sshCapabilityDescriptors = {
   hostsImportPreview: hostImportPreviewDescriptor,
+  hostsImportConfirm: hostImportConfirmDescriptor,
   hostsDirectory: defineCapabilityDescriptor({
     ...ssh,
     name: "ssh.hosts.directory",

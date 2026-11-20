@@ -244,3 +244,97 @@ test("首次及后续并发写入只有一个胜者，并沿用静态目录与�
     }
   }
 }, 60_000);
+
+test("导入确认只创建明确选中的主机，分组失败后可按原身份重试", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-ssh-import-"));
+  const vaultPath = path.join(root, "vault");
+  const desktopUserData = path.join(root, "desktop");
+  mkdirSync(vaultPath);
+  mkdirSync(desktopUserData);
+  let engine: RunningEngine | undefined;
+  try {
+    const live = await boot({ vaultPath, desktopUserData, create: true });
+    engine = live;
+    const existing = await saveHost(live, { name: "Mirror", user: "alice", host: "mirror.invalid" });
+    const source = {
+      format: "netcatty",
+      filename: "hosts.csv",
+      contentBase64: Buffer.from(
+        [
+          "Groups,Label,Hostname/IP,Protocol,Port,Username,Password,Startup command",
+          "Workspace/Lab,Ready,ready.invalid,SSH2,2222,fixture,fixture-password,fixture-command",
+          "Workspace/Lab,Mirror,renamed.invalid,SSH2,22,fixture,,",
+          "Workspace,Endpoint,mirror.invalid,SSH2,22,alice,,",
+          "Workspace,Other,other.invalid,SSH2,22,fixture,,",
+        ].join("\n"),
+      ).toString("base64"),
+    };
+    const directoryFile = path.join(vaultPath, ".huhu", "ssh", "host-directory.json");
+    const preview = async () => z.object({ token: z.string(), rows: z.array(z.object({ index: z.number(), state: z.string() }).passthrough()) }).parse(await data(live, "ssh.hosts.import.preview", source));
+    const first = await preview();
+    expect(first.rows.map(({ state }) => state)).toEqual(["ready", "conflict", "conflict", "ready"]);
+    expect(JSON.stringify(first)).not.toMatch(/fixture-password|fixture-command/);
+    expect(hostIds(await directory(live))).toEqual([existing]);
+    expect(existsSync(directoryFile)).toBe(false);
+
+    const confirm = (token: string, selected: Array<{ index: number; renameTo?: string }>, original = source) => ({ source: original, token, selected });
+    const selected = [{ index: 1 }, { index: 2, renameTo: "Mirror copy" }];
+    const write = (input: unknown) => call(live, "ssh.hosts.import.confirm", input);
+    expect(await write(confirm(first.token, selected, { ...source, filename: "substituted.csv" }))).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const concurrent = await saveHost(live, { name: "Concurrent", user: "bob", host: "concurrent.invalid" });
+    expect(await write(confirm(first.token, selected))).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const { token } = await preview();
+    for (const bad of [
+      [{ index: 1 }, { index: 2 }],
+      [{ index: 1 }, { index: 3, renameTo: "Different name" }],
+      [{ index: 1 }, { index: 1 }],
+    ]) {
+      expect(await write(confirm(token, bad))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    }
+    expect(hostIds(await directory(live))).toEqual([concurrent, existing]);
+    const input = confirm(token, selected);
+    expect(await call(live, "ssh.hosts.import.confirm", input, live.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+
+    writeFileSync(directoryFile, "{broken");
+    const pending = await write(input);
+    expect(pending, JSON.stringify(pending)).toMatchObject({ ok: true, data: { groups: { state: "pending" } } });
+    expect(readFileSync(directoryFile, "utf8")).toBe("{broken");
+    expect(JSON.stringify(await data(live, "ssh.hosts.list"))).not.toMatch(/fixture-password|fixture-command/);
+    rmSync(directoryFile);
+    const saved = await write(input);
+    expect(saved).toMatchObject({
+      ok: true,
+      data: {
+        imported: [
+          { index: 1, hostId: expect.stringMatching(/^host-owned-/), name: "Ready" },
+          { index: 2, hostId: expect.stringMatching(/^host-owned-/), name: "Mirror copy" },
+        ],
+        groups: { state: "saved" },
+      },
+    });
+    if (!pending.ok || !saved.ok) throw new Error("import did not complete");
+    expect(saved.data).toMatchObject({ imported: z.object({ imported: z.unknown() }).parse(pending.data).imported });
+    const current = await directory(live);
+    const workspace = current.groups.find(({ name }) => name === "Workspace")!;
+    const lab = current.groups.find(({ name }) => name === "Lab")!;
+    expect(lab.parentId).toBe(workspace.groupId);
+    expect(current.hosts.map(({ name, groupId }) => [name, groupId])).toEqual([
+      ["Concurrent", null],
+      ["Mirror", null],
+      ["Mirror copy", lab.groupId],
+      ["Ready", lab.groupId],
+    ]);
+    expect(existsSync(path.join(vaultPath, ".huhu", "ssh", "known_hosts"))).toBe(false);
+    await live.shutdown();
+    engine = await boot({ vaultPath, desktopUserData });
+    expect(await directory(engine)).toEqual(current);
+    expect(await data(engine, "ssh.hosts.import.confirm", input)).toEqual(saved.data);
+    expect(await directory(engine)).toEqual(current);
+  } finally {
+    try {
+      await engine?.shutdown();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+}, 60_000);

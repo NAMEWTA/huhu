@@ -5,7 +5,7 @@ import { HuhuError, errors } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CredentialAction, type CredentialOwner, type CredentialSummary } from "@huhu/kernel";
 import ssh2, { type ConnectConfig } from "ssh2";
 import type { z } from "zod";
-import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose } from "./auth-profile.js";
+import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose, type SshHostProfile } from "./auth-profile.js";
 import { validateHost, type HostInput, type HostStore, type SshHost } from "./hosts.js";
 
 export type SshCredentialHost = Pick<CredentialOwner<HostDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
@@ -14,6 +14,7 @@ export type HostRecord = SshHost | ManagedHost;
 export type ConnectionAuth = Pick<ConnectConfig, "password" | "privateKey" | "passphrase" | "agent">;
 
 type StoredHost = CredentialSummary & { definition: HostDefinition };
+type ImportRow = { index: number; hostId: string; profile: SshHostProfile; group: string[] };
 
 function authError(reason: string): HuhuError {
   return new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用，请在主机配置中检查凭据", { details: { reason } });
@@ -159,6 +160,23 @@ export class HostConfigurations {
         }
       }
       return summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal }), authKind);
+    });
+  }
+
+  importProfiles(prepare: (hosts: HostRecord[]) => ImportRow[], signal: AbortSignal): Promise<ImportRow[]> {
+    return this.mutate(async () => {
+      const owner = this.credentials();
+      const current = await this.list();
+      const rows = prepare(current);
+      const present = new Set(current.map(({ id }) => id));
+      for (const row of rows) {
+        signal.throwIfAborted();
+        if (present.has(row.hostId)) continue;
+        const profile = validateHost(row.profile, row.hostId, current);
+        const definition = { ...profile, configId: randomUUID(), format: 1 as const, authKind: "agent" as const };
+        await owner.save({ entityId: row.hostId, expectedRevision: null, definition, actions: [], signal });
+      }
+      return rows;
     });
   }
 
