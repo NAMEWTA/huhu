@@ -338,3 +338,9 @@
 ## H06 编辑资源释放
 
 - P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。
+
+## D02 评论 Markdown 与引用
+
+- `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
+- `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。
+- `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。

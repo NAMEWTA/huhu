@@ -16,6 +16,7 @@ import { getEditorView } from '@/editor/utils/get-editor-view';
 import { cn } from '@/lib/utils';
 import { captureSelectionContext, findQuoteRange } from './anchor-search';
 import { propertyAddress, revealThread } from './comment-chips';
+import { CommentMarkdown } from './CommentMarkdown';
 import { revealPropertyValueRange } from './property-row-rect';
 import { scrollAnchorIntoView } from './scroll-to-anchor';
 import {
@@ -399,35 +400,38 @@ export function ThreadCard({
           </div>
         </div>
       ) : (
-        <p
+        <div
           data-testid="thread-comment-body"
           className={cn('text-sm text-foreground/90', isResolved && 'line-through')}
         >
-          {thread.body}
-        </p>
+          <CommentMarkdown text={thread.body} />
+        </div>
       )}
 
       {/* HUHU(P-S4-05)：回复（Huhu 的线程是消息列表）、删除确认 */}
       {(thread.messages ?? []).slice(1).map((m) => (
-        <p
+        <div
           key={`${m.at}-${m.author}`}
           data-testid="thread-reply"
           className="border-l-2 pl-2 text-sm text-foreground/90"
         >
-          <strong className="font-medium">{m.author}</strong> · {editedAt(Date.parse(m.at), renderedAt)}
-          <br />
-          {m.text}
-        </p>
+          <p>
+            <strong className="font-medium">{m.author}</strong> · {editedAt(Date.parse(m.at), renderedAt)}
+          </p>
+          <CommentMarkdown text={m.text} />
+        </div>
       ))}
       {!isResolved && !hostReadOnly && (
-        <input
+        <textarea
+          rows={2}
           aria-label={t`Reply`}
           placeholder={t`Reply…`}
           data-testid="thread-reply-input"
           value={replyDraft}
           onChange={(event) => setReplyDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
             const text = replyDraft.trim();
             if (text.length === 0) return;
             replyToThread(thread.id, text);

@@ -5,6 +5,7 @@ declare global {
     huhuHost: {
       appInfo(): Promise<{ name: string; version: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
       revealVault(): Promise<void>;
+      openExternal(url: string): Promise<void>;
       openVaultFile(rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;
       previewGrant(rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }>;
       previewRevoke(nonce: string): Promise<void>;

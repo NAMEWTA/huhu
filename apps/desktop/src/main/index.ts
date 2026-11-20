@@ -281,6 +281,14 @@ if (!gotLock) {
       assertTrusted(event.senderFrame?.url);
       if (current) shell.showItemInFolder(current.path);
     });
+    ipcMain.handle("huhu:openExternal", async (event, value: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const url = typeof value === "string" ? URL.parse(value) : null;
+      if (!url || !["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) {
+        throw new Error("unsupported external URL");
+      }
+      await shell.openExternal(url.href);
+    });
     // 用系统应用打开 Vault 里的文件：路径必须在当前 Vault 内（真实路径），且只放行文档 / 图片 / 压缩包等类型——
     // 可执行文件、脚本、快捷方式绝不交给系统去运行，只在文件夹里显示它
     const OPENABLE = new Set([

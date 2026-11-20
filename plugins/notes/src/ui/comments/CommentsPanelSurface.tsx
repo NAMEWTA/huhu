@@ -1,4 +1,5 @@
 import { CommentsPanelHost, coreRoutes, type HostRoutes } from "@huhu/editor/rich";
+import { host } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
 import { docNameOf } from "./commentAdapter.js";
 import { useCommentsBridge } from "./useCommentsBridge.js";
@@ -31,5 +32,16 @@ export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
     [commentRoutes],
   );
   const labels = locale === "en" ? { wholeNote: "Whole note", wholeNotePlaceholder: "Write a comment on the whole note…", add: "Add comment" } : props.labels;
-  return <CommentsPanelHost docName={docNameOf(props.path)} routes={routes} locale={locale} readOnly={props.readOnly} readOnlyReason={locale === "en" ? "This note is read-only" : props.readOnlyReason} labels={labels} />;
+  const openExternal = host()?.openExternal;
+  return (
+    <CommentsPanelHost
+      docName={docNameOf(props.path)}
+      routes={routes}
+      {...(openExternal ? { openExternal } : {})}
+      locale={locale}
+      readOnly={props.readOnly}
+      readOnlyReason={locale === "en" ? "This note is read-only" : props.readOnlyReason}
+      labels={labels}
+    />
+  );
 }
