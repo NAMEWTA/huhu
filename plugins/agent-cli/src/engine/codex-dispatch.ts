@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,7 @@ import { NativeStopStatus, stopFingerprint, type NativeStop } from "./native-sto
 import type { LaunchInput } from "./sessions.js";
 
 const Version = "codex-cli 0.171.0";
+const WindowsNativeChoiceSha256 = "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7";
 const Id = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive(), protocol: z.literal(2).optional() });
@@ -41,7 +42,20 @@ export interface CodexDispatchOptions {
   fixtureArgs?: string[] | undefined;
 }
 
-type CodexPlan = { node: string; helper: string; command: string; args: string[]; home: string; model?: string; effort?: string; fast: boolean; binaryStamp: string; helperStamp: string; configStamp: string | null };
+type CodexPlan = {
+  node: string;
+  helper: string;
+  command: string;
+  args: string[];
+  home: string;
+  model?: string;
+  effort?: string;
+  fast: boolean;
+  binaryStamp: string;
+  helperStamp: string;
+  configStamp: string | null;
+  nativeChoiceBridge: boolean;
+};
 type Identity = Omit<z.infer<typeof Launch>, "secret">;
 type Control = Identity & { secret: string; directory: string };
 type BoundSession = { id: string; coreId: string; attempt: string; address: string; pid: number };
@@ -77,7 +91,7 @@ function runArtifact(execution: ExecutionBinding, name: "receipt" | "completed" 
 }
 
 export class CodexDispatch {
-  private versionCheck?: { stamp: string; result: Promise<boolean> };
+  private versionCheck?: { stamp: string; result: Promise<{ nativeChoiceBridge: boolean } | null> };
   readonly answerIntents: NativeAnswerIntents;
 
   constructor(
@@ -126,13 +140,20 @@ export class CodexDispatch {
       const configStamp = statSync(config, { throwIfNoEntry: false }) ? stamp(config) : null;
       if (this.versionCheck?.stamp !== binaryStamp) {
         const result = exec(command, [...fixtureArgs, "--version"], { windowsHide: true, timeout: 4_000, maxBuffer: 4096 }).then(
-          ({ stdout }) => stdout.trim() === Version,
-          () => false,
+          async ({ stdout }) => {
+            if (stdout.trim() !== Version) return null;
+            if (process.arch !== "x64" || fixtureArgs.length !== 0) return { nativeChoiceBridge: false };
+            const hash = createHash("sha256");
+            for await (const chunk of createReadStream(command)) hash.update(chunk);
+            return { nativeChoiceBridge: hash.digest("hex") === WindowsNativeChoiceSha256 && stamp(command) === binaryStamp };
+          },
+          () => null,
         );
         this.versionCheck = { stamp: binaryStamp, result };
       }
-      if (!(await this.versionCheck.result)) throw unavailable();
-      return { node, helper, command, args: fixtureArgs, home, ...(model && { model }), ...(effort && { effort }), fast, binaryStamp, helperStamp, configStamp };
+      const version = await this.versionCheck.result;
+      if (!version) throw unavailable();
+      return { node, helper, command, args: fixtureArgs, home, ...(model && { model }), ...(effort && { effort }), fast, binaryStamp, helperStamp, configStamp, nativeChoiceBridge: version.nativeChoiceBridge };
     } catch {
       throw unavailable();
     }

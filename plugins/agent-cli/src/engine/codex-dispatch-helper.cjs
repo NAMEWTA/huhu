@@ -16,6 +16,7 @@ function createNativeAnswerOutputReader() {
     if (!turnId || params?.threadId !== threadId || params?.turnId !== turnId || !params.item) return null;
     const { item } = params;
     let itemId;
+    let pairedRaw = false;
     if (method === "item/completed" && item.type === "functionCallOutput" && item.name === tool) {
       itemId = item.id;
     } else if (method === "rawResponseItem/completed" && typeof item.call_id === "string") {
@@ -26,13 +27,16 @@ function createNativeAnswerOutputReader() {
         return null;
       }
       // The native Codex raw output can omit name. The earlier call on this turn supplies it.
-      if (item.type === "function_call_output" && prior !== false && (item.name === tool || (item.name == null && prior === true))) itemId = callId;
+      if (item.type === "function_call_output" && prior !== false && (item.name === tool || (item.name == null && prior === true))) {
+        itemId = callId;
+        pairedRaw = prior === true;
+      }
     }
     if (typeof itemId !== "string") return null;
     const output = Array.isArray(item.output) && item.output.length === 1 && item.output[0]?.type === "input_text" ? item.output[0].text : item.output;
     if (!validText(output, 16_000)) return null;
     try {
-      return { itemId, result: JSON.parse(output) };
+      return { itemId, pairedRaw, result: JSON.parse(output) };
     } catch {
       return null;
     }
@@ -75,7 +79,10 @@ function main(file) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => systemKeys.has(name.toUpperCase())));
   env.CODEX_HOME = config.home;
 
-  const app = spawn(config.command, [...config.args, "--config", "mcp_servers={}", "--config", 'web_search="disabled"', "--disable", "shell_tool", "app-server", "--listen", "stdio://"], {
+  const nativeChoiceFeature = "default_mode_request_user_input";
+  const nativeChoiceBridge = config.nativeChoiceBridge === true;
+  const choiceArgs = nativeChoiceBridge ? ["--enable", nativeChoiceFeature] : [];
+  const app = spawn(config.command, [...config.args, ...choiceArgs, "--config", "mcp_servers={}", "--config", 'web_search="disabled"', "--disable", "shell_tool", "app-server", "--listen", "stdio://"], {
     cwd: process.cwd(),
     env,
     windowsHide: true,
@@ -86,6 +93,7 @@ function main(file) {
   const sockets = new Set();
   let server;
   let threadId;
+  let defaultChoices = false;
   let turnId;
   let executionBinding;
   let stopRequest;
@@ -195,17 +203,20 @@ function main(file) {
   function boundQuestion(rpcId, params) {
     if (seenQuestionIds.has(rpcId)) return true;
     if (!submitted || params?.threadId !== threadId || !validId(params.turnId) || !validId(params.itemId) || (turnId ? params.turnId !== turnId : observedTurns.has(params.turnId)) || completed.has(params.turnId)) return false;
-    if (!(Number.isSafeInteger(rpcId) || validId(rpcId)) || params.isBlocking !== true || !Array.isArray(params.questions) || params.questions.length !== 1) return false;
+    if (!(Number.isSafeInteger(rpcId) || validId(rpcId)) || !Array.isArray(params.questions) || params.questions.length !== 1) return false;
     const [question] = params.questions;
     if (!validId(question?.id) || typeof question.header !== "string" || !validText(question.question, 8_000)) return false;
-    if ((question.isSecret !== undefined && question.isSecret !== false) || (question.isOther !== undefined && question.isOther !== false)) return false;
+    const legacyChoice = params.isBlocking === true && (question.isSecret === undefined || question.isSecret === false) && (question.isOther === undefined || question.isOther === false);
+    // This exact Default-mode shape has no automatic resolution. The UI and the reply pipe accept only the listed values.
+    const defaultChoice = defaultChoices && params.isBlocking === false && params.autoResolutionMs === null && question.isSecret === false && question.isOther === true && questions.size === 0;
+    if (!legacyChoice && !defaultChoice) return false;
     if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 8) return false;
     if (!question.options.every((option) => validText(option?.label, 512) && typeof option.description === "string" && option.isOther !== true)) return false;
     if (new Set(question.options.map(({ label }) => label)).size !== question.options.length) return false;
     const itemKey = hash([params.turnId, params.itemId]);
     if (questions.size >= 32 || seenQuestionIds.size >= 128 || seenQuestionItems.has(itemKey)) return false;
     const source = { kind: "question", threadId, turnId: params.turnId, itemId: params.itemId, rpcId, questionId: question.id };
-    questions.set(rpcId, { source, question });
+    questions.set(rpcId, { source, question, defaultChoice });
     seenQuestionIds.add(rpcId);
     seenQuestionItems.add(itemKey);
     publishBoundReports();
@@ -239,7 +250,7 @@ function main(file) {
   function recordAnswerOutput(evidence) {
     if (!evidence) return;
     const answer = [...submittedAnswers.values()].find((entry) => entry.source.itemId === evidence.itemId);
-    if (!answer || JSON.stringify(evidence.result) !== JSON.stringify(answer.result)) return;
+    if (!answer || (answer.defaultChoice && !evidence.pairedRaw) || JSON.stringify(evidence.result) !== JSON.stringify(answer.result)) return;
     answer.consumed = true;
     confirmAnswer(answer);
   }
@@ -253,7 +264,7 @@ function main(file) {
   function nativeAnswer(data) {
     const { execution, requestId, requestVersion, nativeRequestId, replyId, answer, operation } = data;
     if (!turnId || closing || completed.has(turnId) || stopRequest || !sameExecution(execution) || !currentQuestion) return "stale";
-    const { source, question } = currentQuestion;
+    const { source, question, defaultChoice } = currentQuestion;
     const identity = questionIdentity(source);
     if (source.turnId !== turnId || questions.get(source.rpcId) !== currentQuestion || identity.requestId !== requestId || identity.requestVersion !== requestVersion || identity.nativeRequestId !== nativeRequestId) return "stale";
     if (!validText(replyId, 256) || !question.options.some(({ label }) => label === answer)) return "unsupported";
@@ -263,7 +274,7 @@ function main(file) {
     if (operation === "answer.inspect") return "not_sent";
     const result = { answers: { [source.questionId]: { answers: [answer] } } };
     save("answer-write-" + nativeRequestId, { fingerprint });
-    submittedAnswers.set(source.rpcId, { source, fingerprint, result });
+    submittedAnswers.set(source.rpcId, { source, fingerprint, result, defaultChoice });
     send({ id: source.rpcId, result });
     return "unknown";
   }
@@ -403,6 +414,32 @@ function main(file) {
   process.once("SIGTERM", () => stop("session ended"));
   process.once("SIGINT", () => stop("session ended"));
 
+  function listenForControl() {
+    server = createServer(authorize);
+    server.once("error", () => stop("control channel unavailable"));
+    server.listen("\\\\.\\pipe\\huhu-codex-" + sign("socket", 1), () => {
+      try {
+        save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2 });
+        clearTimeout(startup);
+        log("native thread ready");
+      } catch {
+        stop("thread binding could not be saved");
+      }
+    });
+  }
+
+  function prepareDefaultChoices(cursor, remaining) {
+    request("experimentalFeature/list", { threadId, limit: 100, ...(cursor && { cursor }) }, (result) => {
+      const feature = Array.isArray(result?.data) ? result.data.find((row) => row?.name === nativeChoiceFeature) : undefined;
+      if (!feature && remaining > 1 && validText(result?.nextCursor, 256) && result.nextCursor !== cursor) {
+        prepareDefaultChoices(result.nextCursor, remaining - 1);
+        return;
+      }
+      defaultChoices = feature?.enabled === true && feature.stage === "underDevelopment" && feature.defaultEnabled === false;
+      listenForControl();
+    });
+  }
+
   request("initialize", { clientInfo: { name: "huhu", version: "1" }, capabilities: { experimentalApi: true } }, (result) => {
     if (!result) return stop("App Server handshake rejected");
     send({ method: "initialized", params: {} });
@@ -413,6 +450,7 @@ function main(file) {
         ephemeral: true,
         sandbox: "read-only",
         approvalPolicy: "never",
+        ...(nativeChoiceBridge && { experimentalRawEvents: true }),
         ...(config.model ? { model: config.model } : {}),
         ...(config.fast ? { serviceTier: "priority" } : {}),
         ...(config.effort ? { config: { model_reasoning_effort: config.effort } } : {}),
@@ -420,17 +458,8 @@ function main(file) {
       (started) => {
         if (typeof started?.thread?.id !== "string" || !id.test(started.thread.id)) return stop("thread startup is unconfirmed");
         threadId = started.thread.id;
-        server = createServer(authorize);
-        server.once("error", () => stop("control channel unavailable"));
-        server.listen("\\\\.\\pipe\\huhu-codex-" + sign("socket", 1), () => {
-          try {
-            save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2 });
-            clearTimeout(startup);
-            log("native thread ready");
-          } catch {
-            stop("thread binding could not be saved");
-          }
-        });
+        if (nativeChoiceBridge) prepareDefaultChoices(undefined, 4);
+        else listenForControl();
       },
     );
   });

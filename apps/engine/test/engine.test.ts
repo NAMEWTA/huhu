@@ -432,11 +432,12 @@ describe("Engine 启动与关闭", () => {
       const call = (capability: string, input: unknown) => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
       try {
         const status = await call("agent.core.status", {});
-        expect(status.data).toMatchObject({ state: "connected" });
+        expect(status.data).toMatchObject({ state: "idle" });
         const spaces = (await call("agent.spaces.list", {})) as unknown as { data: { id: string; revision: number }[] };
         const sp = spaces.data[0] as { id: string; revision: number };
         const s = await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-http-1234" });
         expect(s.data).toMatchObject({ state: "running" });
+        expect((await call("agent.core.status", {})).data).toMatchObject({ state: "connected" });
         expect((await call("agent.sessions.kill", { id: s.data.id })).ok).toBe(true);
       } finally {
         const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
