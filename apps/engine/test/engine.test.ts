@@ -16,7 +16,7 @@ const dirs: string[] = [];
 const engines: RunningEngine[] = [];
 afterEach(async () => {
   for (const e of engines.splice(0)) await e.shutdown();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 });
 const tmp = () => {
   const d = mkdtempSync(path.join(tmpdir(), "huhu-e-"));
