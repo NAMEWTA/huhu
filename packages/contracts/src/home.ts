@@ -115,37 +115,52 @@ export const HomeWidgetDefinitionSchema = z
   .readonly();
 export type HomeWidgetDefinition = z.infer<typeof HomeWidgetDefinitionSchema>;
 
+// 只有工厂生成的定义能证明目录描述来自运行期 Zod schema。
+const definedHomeWidgets = new WeakSet<HomeWidgetDefinition>();
+
+function freezeWidgetJson(value: unknown): void {
+  if (value === null || typeof value !== "object") return;
+  for (const child of Object.values(value)) freezeWidgetJson(child);
+  Object.freeze(value);
+}
+
 /** 用同一个 Zod 配置 schema 验证默认值并生成供目录使用的 JSON Schema。 */
 export function defineHomeWidget(input: Omit<HomeWidgetDefinition, "configSchema"> & { configSchema: z.ZodObject }): HomeWidgetDefinition {
-  input.configSchema.parse(input.defaultConfig);
-  return HomeWidgetDefinitionSchema.parse({ ...input, configSchema: z.toJSONSchema(input.configSchema, { io: "input" }) });
+  const { configSchema, ...metadata } = input;
+  const definition = HomeWidgetDefinitionSchema.parse({ ...metadata, configSchema: z.toJSONSchema(configSchema, { io: "input" }) });
+  configSchema.parse(definition.defaultConfig);
+  freezeWidgetJson(definition.configSchema);
+  freezeWidgetJson(definition.defaultConfig);
+  definedHomeWidgets.add(definition);
+  return definition;
 }
 
 /** source 由宿主静态传入。插件使用内置清单，kernel 提供自己的声明列表。 */
 export type HomeWidgetSource = (Pick<PluginManifest, "id" | "origin"> & { contributes: { homeWidgets: readonly string[] } }) | { id: "kernel"; origin: "kernel"; contributes: { homeWidgets: readonly string[] } };
 
 export function assertHomeWidgetDefinitions(source: HomeWidgetSource, definitions: readonly HomeWidgetDefinition[]): void {
-  if (source.origin !== (source.id === "kernel" ? "kernel" : "builtin")) {
-    throw new Error(`Untrusted home widget owner ${source.id}`);
+  const { id: owner, origin, contributes } = source;
+  if (origin !== (owner === "kernel" ? "kernel" : "builtin")) {
+    throw new Error(`Untrusted home widget owner ${owner}`);
   }
   const declared = new Set<HomeWidgetType>();
-  for (const id of source.contributes.homeWidgets) {
-    const key = homeWidgetType(source.id, id);
+  for (const id of contributes.homeWidgets) {
+    const key = homeWidgetType(owner, id);
     if (declared.has(key)) throw new Error(`Duplicate home widget declaration ${key}`);
     declared.add(key);
   }
   const implemented = new Set<HomeWidgetType>();
   for (const definition of definitions) {
-    HomeWidgetDefinitionSchema.parse(definition);
+    if (!definedHomeWidgets.has(definition)) throw new Error(`Home widget for ${owner} must be created with defineHomeWidget`);
     const key = homeWidgetType(definition.owner, definition.id);
-    if (definition.owner !== source.id) throw new Error(`Home widget ${key} belongs to a different owner than ${source.id}`);
+    if (definition.owner !== owner) throw new Error(`Home widget ${key} belongs to a different owner than ${owner}`);
     if (implemented.has(key)) throw new Error(`Duplicate home widget definition ${key}`);
     implemented.add(key);
   }
   const missing = [...declared].filter((key) => !implemented.has(key));
   const undeclared = [...implemented].filter((key) => !declared.has(key));
   if (missing.length || undeclared.length) {
-    throw new Error(`Home widget declarations differ for ${source.id} (missing definitions: [${missing.join(", ")}], undeclared definitions: [${undeclared.join(", ")}])`);
+    throw new Error(`Home widget declarations differ for ${owner} (missing definitions: [${missing.join(", ")}], undeclared definitions: [${undeclared.join(", ")}])`);
   }
 }
 

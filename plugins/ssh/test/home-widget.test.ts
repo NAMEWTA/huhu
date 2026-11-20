@@ -1,6 +1,7 @@
 import { HomeWidgetDefinitionSchema, PluginManifestSchema, assertHomeWidgetDefinitions, defineHomeWidget, homeWidgetType, projectHomeWidget } from "@huhu/contracts";
 import { ContributionRegistry, defineHomeWidgetContribution } from "@huhu/workbench";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 import manifestJson from "../huhu-plugin.json" with { type: "json" };
 import { sshHostsWidget, sshHostsWidgetConfigSchema } from "../src/shared/index.js";
 import { SshHomeWidget } from "../src/ui/HomeWidget.js";
@@ -36,6 +37,64 @@ describe("SSH 首页小组件贡献", () => {
     expect(registry.getSnapshot().homeWidgets).toMatchObject([{ id: "hosts", plugin: "ssh", title: "SSH 主机", order: 20, component: SshHomeWidget }]);
   });
 
+  test.each([
+    ["copied metadata", structuredClone(sshHostsWidget)],
+    ["handwritten JSON Schema", { ...sshHostsWidget, configSchema: { type: "object" } }],
+  ] as const)("rejects %s at trusted registration", (_label, definition) => {
+    expect(HomeWidgetDefinitionSchema.safeParse(definition).success).toBe(true);
+    expect(() => assertHomeWidgetDefinitions(manifest, [definition])).toThrow(/defineHomeWidget/);
+
+    const registry = new ContributionRegistry();
+    const homeWidgets = [{ ...contributions.homeWidgets[0]!, definition }];
+    expect(() => registry.register({ ...contributions, homeWidgets })).toThrow(/defineHomeWidget/);
+    expect(registry.getSnapshot().modules).toEqual([]);
+    expect(registry.getSnapshot().homeWidgets).toEqual([]);
+    expect(registry.getHomeWidgetCatalog(authorized)).toEqual([]);
+  });
+
+  test("keeps the nested catalog schema aligned with the save validator", () => {
+    const registry = new ContributionRegistry();
+    registry.register(contributions);
+    registry.setEnabledPlugins(["ssh"]);
+
+    const schema = registry.getHomeWidgetCatalog(authorized)[0]!.definition.configSchema;
+    const { hostId } = schema.properties as { hostId: { minLength: number } };
+    expect(Reflect.set(hostId, "minLength", 2)).toBe(false);
+    expect(registry.getHomeWidgetCatalog(authorized)[0]?.definition.configSchema).toMatchObject({
+      properties: { hostId: { minLength: 1 } },
+    });
+    expect(sshHostsWidgetConfigSchema.safeParse({ hostId: "a" }).success).toBe(true);
+    expect(sshHostsWidgetConfigSchema.safeParse({ hostId: "" }).success).toBe(false);
+  });
+
+  test("captures the validated widget contribution before publishing it", () => {
+    const registry = new ContributionRegistry();
+    const plainDefinition = structuredClone(sshHostsWidget);
+    let reads = 0;
+    const widget = {
+      ...contributions.homeWidgets[0]!,
+      get definition() {
+        return reads++ === 0 ? sshHostsWidget : plainDefinition;
+      },
+    };
+    registry.register({ ...contributions, homeWidgets: [widget] });
+    expect(registry.getHomeWidgetCatalog(authorized)[0]?.definition).toBe(sshHostsWidget);
+  });
+
+  test("owns nested defaults without freezing the caller's data", () => {
+    const defaultConfig = { hosts: [{ hostId: "a" }] };
+    const definition = defineHomeWidget({
+      ...sshHostsWidget,
+      configSchema: z.strictObject({ hosts: z.array(z.strictObject({ hostId: z.string() })) }),
+      defaultConfig,
+    });
+    defaultConfig.hosts[0]!.hostId = "b";
+    const hosts = definition.defaultConfig.hosts as { hostId: string }[];
+    expect(hosts).toEqual([{ hostId: "a" }]);
+    expect(Reflect.set(hosts[0]!, "hostId", "c")).toBe(false);
+    expect(Reflect.set(hosts, "length", 0)).toBe(false);
+  });
+
   test("默认配置、单台主机引用、尺寸和实例数量按契约校验", () => {
     expect(sshHostsWidgetConfigSchema.parse(sshHostsWidget.defaultConfig)).toEqual({});
     expect(sshHostsWidgetConfigSchema.parse({ hostId: "host-sample1" })).toEqual({ hostId: "host-sample1" });
@@ -55,7 +114,8 @@ describe("SSH 首页小组件贡献", () => {
     expect(() => registry.register({ ...contributions, homeWidgetSource: withIds("hosts", "ghost") })).toThrow(/missing definitions: \[widget:ssh:ghost\]/);
     expect(() => registry.register({ ...contributions, homeWidgetSource: withIds("hosts", "hosts") })).toThrow(/Duplicate home widget declaration widget:ssh:hosts/);
     expect(() => registry.register({ homeWidgetSource: manifest })).toThrow(/missing definitions: \[widget:ssh:hosts\]/);
-    expect(() => assertHomeWidgetDefinitions(manifest, [{ ...sshHostsWidget, owner: "versioning" }])).toThrow(/different owner/);
+    const differentOwner = defineHomeWidget({ ...sshHostsWidget, owner: "versioning", configSchema: sshHostsWidgetConfigSchema });
+    expect(() => assertHomeWidgetDefinitions(manifest, [differentOwner])).toThrow(/different owner/);
     expect(() => assertHomeWidgetDefinitions(manifest, [sshHostsWidget, sshHostsWidget])).toThrow(/Duplicate home widget definition widget:ssh:hosts/);
     expect(registry.getSnapshot().modules).toEqual([]);
   });
@@ -104,11 +164,12 @@ describe("SSH 首页小组件贡献", () => {
   });
 
   test("kernel 单独声明；可选动作的撤权不隐藏已授权读取的卡片", () => {
-    const definition = HomeWidgetDefinitionSchema.parse({
+    const definition = defineHomeWidget({
       ...sshHostsWidget,
       owner: "kernel",
       id: "sample",
       maxInstances: 1,
+      configSchema: sshHostsWidgetConfigSchema,
       capabilities: [
         { name: "sample.list", required: true },
         { name: "sample.update", required: false },

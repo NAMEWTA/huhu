@@ -105,20 +105,22 @@ export class ContributionRegistry {
   register(c: Contributions): () => void {
     const widgets = new Map<HomeWidgetType, HomeWidgetContribution>();
     const definitions: HomeWidgetDefinition[] = [];
-    for (const widget of c.homeWidgets ?? []) {
+    const source = c.homeWidgetSource;
+    for (const contribution of c.homeWidgets ?? []) {
+      const widget = Object.freeze({ ...contribution });
       const key = homeWidgetType(widget.plugin, widget.id);
       if (widgets.has(key) || this.widgets.has(key)) throw new Error(`Duplicate home widget registration ${key}`);
       const { definition } = widget;
       if (definition) {
-        if (!c.homeWidgetSource) throw new Error(`Missing home widget source for ${key}`);
+        if (!source) throw new Error(`Missing home widget source for ${key}`);
         if (definition.id !== widget.id || definition.owner !== widget.plugin || definition.title !== widget.title) throw new Error(`Renderer metadata differs for ${key}`);
         definitions.push(definition);
-      } else if (c.homeWidgetSource) {
+      } else if (source) {
         throw new Error(`Missing home widget definition for ${key}`);
       }
-      widgets.set(key, Object.freeze({ ...widget }));
+      widgets.set(key, widget);
     }
-    if (c.homeWidgetSource) assertHomeWidgetDefinitions(c.homeWidgetSource, definitions);
+    if (source) assertHomeWidgetDefinitions(source, definitions);
 
     for (const m of c.modules ?? []) this.modules.set(m.id, m);
     for (const cmd of c.commands ?? []) this.commands.set(cmd.id, cmd);
