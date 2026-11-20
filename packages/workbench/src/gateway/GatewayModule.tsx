@@ -10,6 +10,7 @@ import { tGateway as g } from "../i18n/zh-CN.js";
 import { openSettings, type UiState } from "../state/ui-store.js";
 import { CliSection } from "./CliSection.js";
 import { ToolPolicyCatalog } from "./ToolPolicyCatalog.js";
+import { WebSharePanel } from "./WebSharePanel.js";
 
 interface AuditRow {
   at: string;
@@ -227,6 +228,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
             <CliSection />
           ) : section === "server" ? (
             <>
+              {engine.endpoint.token ? <WebSharePanel /> : null}
               <section className="hu-card-alt hu-gateway-overview">
                 <div className="row">
                   <span className="shell-plugin-large-icon">
