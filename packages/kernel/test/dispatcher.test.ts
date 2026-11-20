@@ -5,14 +5,14 @@ import { HuhuError } from "@huhu/contracts";
 import { getEventListeners } from "node:events";
 import { afterEach, describe, expect, test } from "vitest";
 import { z } from "zod";
-import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, defineCapability } from "../src/index.js";
+import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, OperationReceipts, defineCapability } from "../src/index.js";
 
 const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; granted?: string[]; auditFile?: string; timeoutMs?: number } = {}) {
+function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; granted?: string[]; auditFile?: string; timeoutMs?: number; operations?: { ledger: OperationReceipts; vaultInstance: string }; invalidOutput?: boolean } = {}) {
   const registry = new CapabilityRegistry();
   let calls = 0;
   registry.register(
@@ -24,7 +24,11 @@ function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; grante
       output: z.object({ n: z.number() }),
       exposable: true,
       defaultExposed: false,
-      handler: (_c, i) => ({ n: ++calls + i.title.length }),
+      idempotency: "durable",
+      handler: (_c, i) => {
+        calls++;
+        return { n: opts.invalidOutput ? ("wrong-output-fixture" as unknown as number) : calls + i.title.length };
+      },
     }),
   );
   registry.register(
@@ -100,18 +104,47 @@ function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; grante
     registry,
     audit,
     idempotency: new IdempotencyStore(path.join(dir, "idem.ndjson")),
+    ...(opts.operations && { operations: opts.operations }),
     isPluginEnabled: (p) => (opts.enabled === false ? p !== "tasks" : true),
     toolAccess: () => ({ state: "ready", revision: 0, choices: { "vault.info": opts.exposure === true, "tasks.create": opts.exposure === true } }),
     grantedPermissions: () => opts.granted ?? [],
     pluginOrigin: () => "external",
     log: (...a) => logs.push(a),
   });
-  return { d, audit, logs, dir };
+  return { d, audit, logs, dir, calls: () => calls };
 }
 const req = (capability: string, input: unknown = {}, idempotencyKey?: string) => ({ capability, input, requestId: "r1", ...(idempotencyKey ? { idempotencyKey } : {}) });
 const code = (r: { ok: boolean; error?: { code: string } }) => (r.ok ? "OK" : r.error?.code);
 
 describe("Dispatcher 管线", () => {
+  test("已受理的持久意图重启后只能查询，直到领域能证明结果", async () => {
+    const { dir } = setup();
+    const file = path.join(dir, "durable.jsonl");
+    const vaultInstance = "isolated-vault";
+    const request = { ...req("tasks.create", { title: "合成任务" }), intentKey: "stable-accepted" };
+    const accepted = new OperationReceipts(file).claim(JSON.stringify([vaultInstance, "http", "service-one"]), request.capability, request.intentKey, request.input);
+    const { d, calls } = setup({ operations: { ledger: new OperationReceipts(file), vaultInstance }, exposure: true });
+    const { operationId } = accepted.entry;
+    expect(d.readOperation("http", "service-two", { operationId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(d.readOperation("http", "service-one", { operationId })).toMatchObject({ ok: true, data: { state: "unknown", operationId } });
+    expect(await d.call("http", request, undefined, "service-one")).toMatchObject({ ok: false, error: { retryable: false, details: { operationId, outcome: "unknown" } } });
+    expect(calls()).toBe(0);
+  });
+
+  test("副作用后的坏输出只留待核实回执，提交同一意图不重放", async () => {
+    const { dir } = setup();
+    const file = path.join(dir, "durable.jsonl");
+    const operation = { ledger: new OperationReceipts(file), vaultInstance: "isolated-vault" };
+    const { d, calls } = setup({ operations: operation, exposure: true, invalidOutput: true });
+    const request = { ...req("tasks.create", { title: "合成任务" }), intentKey: "stable-invalid-output" };
+    const first = await d.call("cli", request);
+    expect(first).toMatchObject({ ok: false, error: { retryable: false, details: { operationId: expect.any(String), outcome: "unknown", verification: "invalid-output" } } });
+    expect(await d.call("cli", request)).toEqual(first);
+    expect(d.readOperation("cli", "cli", { capability: request.capability, intentKey: request.intentKey })).toMatchObject({ ok: true, data: { state: "invalid-output" } });
+    expect(calls()).toBe(1);
+    expect(readFileSync(file, "utf8")).not.toContain("wrong-output-fixture");
+  });
+
   test("能力不存在", async () => expect(code((await setup().d.call("desktop", req("nope"))) as never)).toBe("CAPABILITY_NOT_FOUND"));
   test("插件停用", async () => expect(code((await setup({ enabled: false }).d.call("desktop", req("tasks.create", { title: "a" }))) as never)).toBe("PLUGIN_DISABLED"));
   test("桌面可调用不对外的能力", async () => expect((await setup().d.call("desktop", req("safe.reveal"))).ok).toBe(true));

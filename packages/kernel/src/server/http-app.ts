@@ -80,12 +80,12 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     (c) => {
       const verdict = checkIngress(c.env.incoming.headers, port);
       if (!verdict.ok) return c.json({ error: verdict.reason }, verdict.status);
-      const caller = d.tokens.authenticate(bearerFrom(c.req.header("authorization")));
-      if (caller === "mcp" && d.mcpStdioEnabled?.() === false) {
+      const principal = d.tokens.principal(bearerFrom(c.req.header("authorization")));
+      if (principal?.caller === "mcp" && d.mcpStdioEnabled?.() === false) {
         if (c.req.method === "GET" && c.req.path === "/api/v1/capabilities") return c.json([]);
         return c.json({ ok: false, error: errors.permissionDenied("MCP 服务已关闭").toJSON() });
       }
-      return caller ? { caller } : c.json({ error: "未授权" }, 401);
+      return principal ?? c.json({ error: "未授权" }, 401);
     },
     inflight,
     resolveTool,
@@ -100,8 +100,9 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (!d.mcpHttp?.enabled()) return send(404, { error: "MCP over HTTP 未启用" });
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return send(verdict.status, { error: verdict.reason });
-    const caller = d.tokens.authenticate(bearerFrom(req.headers["authorization"]));
-    if (!caller) return send(401, { error: "未授权" });
+    const principal = d.tokens.principal(bearerFrom(req.headers["authorization"]));
+    if (!principal) return send(401, { error: "未授权" });
+    const { caller, subject } = principal;
     if (caller !== "mcp" && caller !== "http") return send(403, { error: "该令牌身份不能使用 MCP 服务" });
     if (req.method !== "POST") return send(405, { error: "仅支持 POST" });
     const n = inflight.get(caller) ?? 0;
@@ -122,15 +123,16 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       return send(400, { error: "请求不是合法 JSON" });
     }
     const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const call = (capability: string, input: unknown) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const call = (capability: string, input: unknown, intentKey?: string) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, undefined, subject);
     const mcp = createMcpServer(
       {
         list: () => discover(caller),
-        callTool: async (name, input) => {
+        callTool: async (name, input, intentKey) => {
           const capability = resolveTool(name);
-          return capability ? call(capability, input) : unknownTool(name);
+          return capability ? call(capability, input, intentKey) : unknownTool(name);
         },
         call,
+        operation: (lookup) => d.dispatcher.readOperation(caller, subject, lookup),
       },
       "0.0.1",
     );

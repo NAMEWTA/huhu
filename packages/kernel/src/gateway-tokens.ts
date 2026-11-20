@@ -20,7 +20,7 @@ export class GatewayTokens {
     private readonly onRevoked?: () => void,
   ) {
     try {
-      for (const t of this.load().tokens ?? []) this.table.addHash(t.hash, "http");
+      for (const t of this.load().tokens ?? []) this.table.addHash(t.hash, "http", t.id);
     } catch {
       // 文件损坏：启动时不加载任何 HTTP 令牌（不会覆盖原文件）
     }
@@ -60,7 +60,7 @@ export class GatewayTokens {
     const hash = TokenTable.hashHex(token);
     const rec: HttpToken = { id: newId("cap").replace("cap", "tok"), name, hash, createdAt: this.now().toISOString() };
     this.write({ ...all, tokens: [...(all.tokens ?? []), rec] });
-    this.table.addHash(hash, "http");
+    this.table.addHash(hash, "http", rec.id);
     return { id: rec.id, token };
   }
 

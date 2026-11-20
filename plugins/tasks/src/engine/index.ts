@@ -378,6 +378,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       scope: "write",
       exposable: true,
       defaultExposed: false,
+      idempotency: "durable",
       input: TaskWritableSchema,
       output: TaskDtoSchema,
       handler: (c, i) => {

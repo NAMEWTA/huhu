@@ -51,6 +51,69 @@ async function setMcp(e: RunningEngine, enabled: boolean, transport: "stdio" | "
 }
 
 describe("CLI", () => {
+  test("受权 CLI 和两种 MCP 复用持久意图，同 Vault 不同身份不能读同一次调用", async () => {
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { createMcpServer } = await import("../src/mcp.js");
+    const vaultPath = tmp();
+    let e = await boot({ vaultPath, create: true });
+    engines.push(e);
+    await allowTools(e, "tasks.create");
+    await setMcp(e, true);
+    await setMcp(e, true, "http");
+    const key = "stable-intent-fixture";
+    const task = { title: "持久调用夹具" };
+    const cli = async (...args: string[]) => {
+      const output = capture();
+      await run([...args, "--vault", vaultPath, "--json"], output.io);
+      return CapabilityResultSchema.parse(JSON.parse(output.out.join("")));
+    };
+    const request = async (route: string, bearer: string, payload?: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${e.port}${route}`, {
+        method: payload === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${bearer}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
+        ...(payload !== undefined && { body: JSON.stringify(payload) }),
+      });
+      return await response.json();
+    };
+    const args = ["call", "tasks.create", "--input-json", JSON.stringify(task), "--intent-key", key];
+    const first = await cli(...args);
+    if (!first.ok || !first.opId) throw new Error("CLI 未返回持久操作 ID");
+    expect(await cli(...args)).toEqual(first);
+    const query = `/api/v1/operations?operationId=${first.opId}`;
+    expect(await request(query, e.cliToken)).toMatchObject({ ok: true, data: { state: "completed", result: first } });
+    expect(await request(query, e.mcpToken)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await cli("operation", "--capability", "tasks.create", "--intent-key", key)).toMatchObject({ ok: true, data: { state: "completed", result: first } });
+    const mismatch = await cli("call", "tasks.create", "--input-json", JSON.stringify({ title: "改写输入" }), "--intent-key", key);
+    expect(mismatch).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+
+    const mcp = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1");
+    const client = new Client({ name: "intent-fixture", version: "1.0" });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([mcp.connect(a), client.connect(b)]);
+      await client.listTools();
+      const params = { name: "tasks_create", arguments: task, _meta: { "huhu.dev/intent-key": key } };
+      const stdio = CallToolResultSchema.parse(await client.callTool(params));
+      const raw = (await request("/mcp", e.mcpToken, { jsonrpc: "2.0", id: 1, method: "tools/call", params })) as { result?: unknown };
+      const http = CallToolResultSchema.parse(raw.result);
+      expect(http.structuredContent).toEqual(stdio.structuredContent);
+      expect(http.structuredContent).toMatchObject({ opId: expect.any(String), data: { title: task.title } });
+      const id = http.structuredContent?.opId;
+      expect(id).not.toBe(first.opId);
+      const resource = await client.readResource({ uri: `huhu://operations/${id}` });
+      expect(resource.contents[0]).toMatchObject({ text: expect.stringContaining('"state":"completed"') });
+    } finally {
+      await client.close();
+      await mcp.close();
+    }
+    await e.shutdown();
+    engines.splice(engines.indexOf(e), 1);
+    e = await boot({ vaultPath });
+    engines.push(e);
+    expect(await cli(...args)).toEqual(first);
+    expect(await cli("operation", first.opId)).toMatchObject({ ok: true, data: { state: "completed", result: first } });
+  }, 30_000);
+
   test("同名 MCP 能力改 schema 后通知刷新，并验证结构化标量与数组", async () => {
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     let mode: "string" | "array" = "string";

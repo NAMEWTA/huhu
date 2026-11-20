@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { type CapabilityResult } from "@huhu/contracts";
+import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, type CapabilityOperationLookup, type CapabilityResult } from "@huhu/contracts";
 import { mcpToolName } from "./capabilities/define.js";
 import { canonicalJson } from "./idempotency.js";
 
@@ -8,12 +8,14 @@ export interface McpBackend {
   /** 对当前调用者可见（已对外开放）的能力。 */
   list(): Promise<McpCapability[]> | McpCapability[];
   /** 解析协议工具名并交给 Dispatcher 复核，包括客户端缓存的旧工具。 */
-  callTool(name: string, input: unknown): Promise<CapabilityResult<unknown>>;
+  callTool(name: string, input: unknown, intentKey?: string): Promise<CapabilityResult<unknown>>;
   /** 资源依赖的 canonical 能力同样经 Dispatcher 授权。 */
   call(capability: string, input: unknown): Promise<CapabilityResult<unknown>>;
+  operation?(lookup: CapabilityOperationLookup): CapabilityResult<unknown> | Promise<CapabilityResult<unknown>>;
 }
 
-type McpCapability = { name: string; plugin: string; scope: string; input: unknown; output: unknown };
+type McpCapability = { name: string; plugin: string; scope: string; input: unknown; output: unknown; durableIntent?: true | undefined };
+const intentField = "huhu.dev/intent-key";
 
 function structuredOutput(schema: unknown) {
   const record = typeof schema === "object" && schema !== null ? (schema as Record<string, unknown>) : {};
@@ -78,10 +80,12 @@ export function createMcpServer(
       description: `${c.name}（${c.plugin} · ${c.scope}）`,
       inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
       outputSchema: structuredOutput(c.output),
+      ...(c.durableIntent && { _meta: { [intentField]: "optional" } }),
     })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const r = await backend.callTool(req.params.name, req.params.arguments ?? {});
+    const key = CapabilityIntentKeySchema.optional().safeParse(req.params._meta?.[intentField]);
+    const r = key.success ? await backend.callTool(req.params.name, req.params.arguments ?? {}, key.data) : { ok: false as const, error: errors.invalidInput("MCP 执行意图不符合要求", key.error.issues).toJSON() };
     if (!r.ok) return { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     const data = r.data ?? null;
     return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: { data, ...(r.opId && { opId: r.opId }) } };
@@ -95,15 +99,22 @@ export function createMcpServer(
     return { resources: resources.filter(({ capability }) => visible.has(capability)).map(({ uri, name, mimeType }) => ({ uri, name, mimeType })) };
   });
   server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-    const visible = new Set((await backend.list()).map((c) => c.name));
-    return {
-      resourceTemplates: visible.has("notes.list") && visible.has("notes.read") ? [{ uriTemplate: "huhu://notes/{id}", name: "笔记正文", description: "按笔记 ID（或相对路径）读取 Markdown 正文", mimeType: "text/markdown" }] : [],
-    };
+    const tools = await backend.list();
+    const visible = new Set(tools.map((c) => c.name));
+    const resourceTemplates = [];
+    if (visible.has("notes.list") && visible.has("notes.read")) resourceTemplates.push({ uriTemplate: "huhu://notes/{id}", name: "笔记正文", description: "按笔记 ID（或相对路径）读取 Markdown 正文", mimeType: "text/markdown" });
+    if (backend.operation && tools.some((tool) => tool.durableIntent)) resourceTemplates.push({ uriTemplate: "huhu://operations/{operationId}", name: "操作回执", description: "查询本入口提交的持久操作", mimeType: "application/json" });
+    return { resourceTemplates };
   });
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     const uri = req.params.uri;
     const json = (data: unknown) => ({ contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data) }] });
     if (uri === SUMMARY) return json(await need(backend.call("vault.info", {})));
+    if (uri.startsWith("huhu://operations/") && backend.operation) {
+      const lookup = CapabilityOperationLookupSchema.safeParse({ operationId: uri.slice("huhu://operations/".length) });
+      if (!lookup.success) throw new Error("无效的操作标识");
+      return json(await backend.operation(lookup.data));
+    }
     if (uri === RECENT) {
       const tree = (await need(backend.call("vault.indexEntries", { prefix: "" }))) as { path: string; type: string; mtimeMs: number }[];
       return json(

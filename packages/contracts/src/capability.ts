@@ -47,18 +47,27 @@ export const CapabilityCatalogEntrySchema = z.object({
 });
 export type CapabilityCatalogEntry = z.infer<typeof CapabilityCatalogEntrySchema>;
 
-export const CapabilityDiscoveryEntrySchema = CapabilityCatalogEntrySchema.pick({ name: true, plugin: true, input: true, output: true }).extend({ scope: z.enum(CAPABILITY_SCOPES) });
+export const CapabilityDiscoveryEntrySchema = CapabilityCatalogEntrySchema.pick({ name: true, plugin: true, input: true, output: true }).extend({ scope: z.enum(CAPABILITY_SCOPES), durableIntent: z.literal(true).optional() });
 export type CapabilityDiscoveryEntry = z.infer<typeof CapabilityDiscoveryEntrySchema>;
+
+export const CapabilityIntentKeySchema = z
+  .string()
+  .min(8)
+  .max(128)
+  .regex(/^[A-Za-z0-9._-]+$/);
+export const CapabilityOperationLookupSchema = z.union([z.strictObject({ operationId: z.uuidv4() }), z.strictObject({ capability: z.string().min(1).max(128), intentKey: CapabilityIntentKeySchema })]);
+export type CapabilityOperationLookup = z.infer<typeof CapabilityOperationLookupSchema>;
 
 export const CapabilityRequestSchema = z.object({
   capability: z.string().min(1),
   input: z.unknown(),
   idempotencyKey: z.string().min(8).optional(),
+  intentKey: CapabilityIntentKeySchema.optional(),
   requestId: z.string().min(1),
 });
 export type CapabilityRequest = z.infer<typeof CapabilityRequestSchema>;
 
-export type CapabilityResult<T> = { ok: true; data: T; opId?: string } | { ok: false; error: z.infer<typeof HuhuErrorSchema> };
+export type CapabilityResult<T> = { ok: true; data: T; opId?: string | undefined } | { ok: false; error: z.infer<typeof HuhuErrorSchema> };
 
 export const CapabilityResultSchema = z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), data: z.unknown(), opId: z.string().optional() }), z.object({ ok: z.literal(false), error: HuhuErrorSchema })]);
 

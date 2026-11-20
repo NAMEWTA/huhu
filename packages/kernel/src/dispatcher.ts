@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { HuhuError, errors, isWorkbenchCaller, type Caller, type CapabilityRequest, type CapabilityResult, type ToolAccessSnapshot } from "@huhu/contracts";
+import { HuhuError, errors, isWorkbenchCaller, type Caller, type CapabilityOperationLookup, type CapabilityRequest, type CapabilityResult, type ToolAccessSnapshot } from "@huhu/contracts";
 import type { CapabilityDefinition, CapabilityRegistry } from "./capabilities/define.js";
 import { toolSelection } from "./exposure.js";
 import type { GatewayAudit } from "./gateway-audit.js";
 import { IdempotencyStore } from "./idempotency.js";
+import type { OperationReceipts } from "./operation-receipts.js";
 import { permissionsAllow } from "./permissions.js";
 
 export interface DispatcherDeps {
@@ -17,6 +18,7 @@ export interface DispatcherDeps {
   /** 插件来源：内置插件与第三方插件的授权规则不同（见 permissionsAllow）。 */
   pluginOrigin(pluginId: string): "builtin" | "external";
   idempotency: IdempotencyStore;
+  operations?: { ledger: OperationReceipts; vaultInstance: string };
   audit: GatewayAudit;
   log?: (level: "error" | "warn", msg: string, extra?: Record<string, unknown>) => void;
   defaultTimeoutMs?: number;
@@ -31,6 +33,7 @@ export class Dispatcher {
   /** 进行中的幂等调用，合并同 key 并发。 */
   private readonly inflight = new Map<string, Promise<CapabilityResult<unknown>>>();
   private readonly inflightHash = new Map<string, string>();
+  private readonly activeOperation = new Map<string, Promise<CapabilityResult<unknown>>>();
 
   constructor(private readonly d: DispatcherDeps) {}
 
@@ -45,9 +48,9 @@ export class Dispatcher {
     return this.d.registry.list().filter((def) => this.d.isPluginEnabled(def.plugin) && (!this.closing || def.scope === "read") && !this.authorize(caller, def, policy));
   }
 
-  async call(caller: Caller, req: CapabilityRequest, signal: AbortSignal = new AbortController().signal): Promise<CapabilityResult<unknown>> {
+  async call(caller: Caller, req: CapabilityRequest, signal: AbortSignal = new AbortController().signal, subject: string = caller): Promise<CapabilityResult<unknown>> {
     const started = (this.d.now ?? Date.now)();
-    const result = await this.run(caller, req, signal);
+    const result = await this.run(caller, req, signal, subject);
     if (!isWorkbenchCaller(caller) && !caller.startsWith("plugin:")) {
       try {
         this.d.audit.add({
@@ -68,7 +71,58 @@ export class Dispatcher {
     return { ok: false, error: e.toJSON() };
   }
 
-  private async run(caller: Caller, req: CapabilityRequest, signal: AbortSignal): Promise<CapabilityResult<unknown>> {
+  private operationOwner(caller: Caller, subject: string): string {
+    return JSON.stringify([this.d.operations?.vaultInstance, caller, subject]);
+  }
+
+  readOperation(caller: Caller, subject: string, lookup: CapabilityOperationLookup): CapabilityResult<unknown> {
+    const entry = this.d.operations?.ledger.lookup(this.operationOwner(caller, subject), lookup);
+    const def = entry && this.d.registry.get(entry.capability);
+    if (!entry || !def || !this.d.isPluginEnabled(def.plugin)) return this.fail(errors.notFound("调用操作"));
+    const denied = this.authorize(caller, def);
+    if (denied) return this.fail(denied);
+    const { operationId, capability } = entry;
+    const state = entry.phase === "accepted" && !this.activeOperation.has(operationId) ? "unknown" : entry.phase;
+    return { ok: true, opId: operationId, data: { operationId, capability, state, ...(entry.phase !== "accepted" && { result: entry.result }) } };
+  }
+
+  private uncertain(operationId: string, extra?: Record<string, unknown>) {
+    return this.fail(new HuhuError("INTERNAL", "调用结果待核实", { retryable: false, details: { ...extra, operationId, outcome: "unknown" } }));
+  }
+
+  private async durable(def: CapabilityDefinition, caller: Caller, subject: string, req: CapabilityRequest, input: unknown, signal: AbortSignal) {
+    const ledger = this.d.operations?.ledger;
+    if (!ledger || def.idempotency !== "durable" || !req.intentKey) return this.fail(errors.invalidInput("此能力未启用通用持久意图，请使用业务入口的操作标识"));
+    if (signal.aborted) return this.fail(errors.invalidInput("调用在受理前已取消"));
+    try {
+      const { entry, mismatch, fresh } = ledger.claim(this.operationOwner(caller, subject), def.name, req.intentKey, input);
+      const { operationId } = entry;
+      if (mismatch) return this.fail(errors.idempotencyMismatch());
+      if (entry.phase !== "accepted") return entry.result;
+      if (!fresh) return this.activeOperation.get(operationId) ?? this.uncertain(operationId);
+      const task = Promise.resolve().then(async () => {
+        if (signal.aborted) return ledger.complete(entry, "failed", this.fail(new HuhuError("INVALID_INPUT", "调用在执行前已取消", { details: { operationId } }))).result;
+        const executed = await this.execute(def, caller, req, input, signal, subject);
+        if (!executed.ok) {
+          const failure = { ...executed.error, details: { ...executed.error.details, operationId } };
+          const known = executed.error.details?.["outcome"] !== "unknown" && failure.code !== "INTERNAL";
+          return ledger.complete(entry, known ? "failed" : "unknown", known ? { ok: false, error: failure } : this.uncertain(operationId, failure.details)).result;
+        }
+        if (!def.output.safeParse(executed.data).success) return ledger.complete(entry, "invalid-output", this.uncertain(operationId, { verification: "invalid-output" })).result;
+        return ledger.complete(entry, "completed", { ...executed, opId: operationId }).result;
+      });
+      this.activeOperation.set(operationId, task);
+      try {
+        return await task;
+      } finally {
+        this.activeOperation.delete(operationId);
+      }
+    } catch (error) {
+      return this.fail(error instanceof HuhuError ? error : new HuhuError("INTERNAL", "无法核实持久操作", { retryable: false, details: { outcome: "unknown" } }));
+    }
+  }
+
+  private async run(caller: Caller, req: CapabilityRequest, signal: AbortSignal, subject: string): Promise<CapabilityResult<unknown>> {
     const def = this.d.registry.get(req.capability);
     if (!def) {
       const owner = this.d.registry.knownPlugin(req.capability);
@@ -85,12 +139,13 @@ export class Dispatcher {
 
     const parsed = def.input.safeParse(req.input);
     if (!parsed.success) return this.fail(errors.invalidInput("输入不符合要求", parsed.error.issues));
+    if (req.intentKey !== undefined) return this.durable(def, caller, subject, req, parsed.data, signal);
 
-    if (!NEEDS_IDEMPOTENCY.has(def.scope)) return this.execute(def, caller, req, parsed.data, signal);
+    if (!NEEDS_IDEMPOTENCY.has(def.scope)) return this.execute(def, caller, req, parsed.data, signal, subject);
     if (req.idempotencyKey === undefined) return this.fail(errors.invalidInput("写入与执行类能力必须提供 idempotencyKey"));
     const key = req.idempotencyKey;
 
-    if (def.idempotency === "handler") return this.execute(def, caller, req, parsed.data, signal);
+    if (def.idempotency === "handler") return this.execute(def, caller, req, parsed.data, signal, subject);
     const hit = this.d.idempotency.lookup(caller, def.name, key, req.input);
     if (hit.hit) return hit.mismatch ? this.fail(errors.idempotencyMismatch()) : hit.result;
 
@@ -102,7 +157,7 @@ export class Dispatcher {
       return sameInput ? again : this.fail(errors.idempotencyMismatch());
     }
     const p = (async () => {
-      const result = await this.execute(def, caller, req, parsed.data, signal);
+      const result = await this.execute(def, caller, req, parsed.data, signal, subject);
       // 可重试的失败不缓存，允许同 key 重试
       if (result.ok || !result.error.retryable) {
         try {
@@ -137,7 +192,7 @@ export class Dispatcher {
     return toolSelection(access, def.name) === true ? null : errors.capabilityNotExposed(def.name);
   }
 
-  private async execute(def: CapabilityDefinition, caller: Caller, req: CapabilityRequest, input: unknown, outer: AbortSignal): Promise<CapabilityResult<unknown>> {
+  private async execute(def: CapabilityDefinition, caller: Caller, req: CapabilityRequest, input: unknown, outer: AbortSignal, subject: string): Promise<CapabilityResult<unknown>> {
     const timeoutMs = def.timeoutMs ?? this.d.defaultTimeoutMs ?? 60_000;
     const ac = new AbortController();
     const onAbort = () => ac.abort(outer.reason);
@@ -161,7 +216,8 @@ export class Dispatcher {
     });
     timeout.catch(() => undefined); // 避免 handler 先完成时的未处理拒绝
     try {
-      const data = await Promise.race([Promise.resolve(def.handler({ signal: ac.signal, caller, requestId: req.requestId }, input)), timeout]);
+      const context = { signal: ac.signal, caller, subject, requestId: req.requestId, ...(req.idempotencyKey !== undefined && { idempotencyKey: req.idempotencyKey }) };
+      const data = await Promise.race([Promise.resolve(def.handler(context, input)), timeout]);
       return { ok: true, data };
     } catch (e) {
       if (e instanceof HuhuError) return this.fail(e);

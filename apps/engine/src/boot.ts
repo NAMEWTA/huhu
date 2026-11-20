@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import MailComposer from "nodemailer/lib/mail-composer";
 import SMTPConnection from "nodemailer/lib/smtp-connection";
@@ -12,6 +12,7 @@ import {
   EventBus,
   GatewayAudit,
   IdempotencyStore,
+  OperationReceipts,
   TokenTable,
   NotificationStore,
   EventLog,
@@ -46,7 +47,7 @@ import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { PluginManifestSchema } from "@huhu/contracts";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
-import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import { filesystemIdentity, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
@@ -135,6 +136,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
   const runtime = vault.runtimeDir;
   mkdirSync(runtime, { recursive: true });
+  const vaultIdentity = statSync(vault.root, { bigint: true });
+  const rootIdentity = filesystemIdentity(vaultIdentity);
 
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
@@ -404,6 +407,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     audit: gatewayAudit,
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
+    ...(!vault.files.readOnly &&
+      rootIdentity &&
+      vaultIdentity.birthtimeNs > 0n && {
+        operations: {
+          ledger: new OperationReceipts(path.join(runtime, "invocation-intents.ndjson")),
+          vaultInstance: JSON.stringify([vault.id, rootIdentity, String(vaultIdentity.birthtimeNs)]),
+        },
+      }),
     isPluginEnabled: (id) => plugins.isEnabled(id),
     toolAccess: () => exposure.snapshot(),
     grantedPermissions: (id) => plugins.permissionsOf(id),

@@ -1,0 +1,77 @@
+import { createHash, randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { CapabilityResultSchema, HuhuError, type CapabilityResult } from "@huhu/contracts";
+import { z } from "zod";
+import { canonicalJson } from "./idempotency.js";
+
+const Hash = z.string().regex(/^[a-f0-9]{64}$/);
+const Identity = z.strictObject({ operationId: z.uuidv4(), key: Hash, input: Hash, owner: z.string(), capability: z.string() });
+const Finished = z.enum(["completed", "failed", "invalid-output", "unknown"]);
+const Entry = z.discriminatedUnion("phase", [Identity.extend({ phase: z.literal("accepted") }), Identity.extend({ phase: Finished, result: CapabilityResultSchema })]);
+type Entry = z.infer<typeof Entry>;
+type Accepted = Extract<Entry, { phase: "accepted" }>;
+type Resolved = Exclude<Entry, Accepted>;
+
+const hash = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+
+export class OperationReceipts {
+  private damaged = false;
+  private readonly byKey = new Map<string, Entry>();
+  private readonly byId = new Map<string, Entry>();
+
+  constructor(private readonly file: string) {
+    if (!existsSync(file)) return;
+    try {
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        if (!line.trim()) continue;
+        const item = Entry.parse(JSON.parse(line));
+        const old = this.byKey.get(item.key);
+        if (item.phase === "accepted" ? old !== undefined : old?.phase !== "accepted" || old.operationId !== item.operationId || old.owner !== item.owner || old.input !== item.input || old.capability !== item.capability) {
+          throw new Error("Invalid operation transition");
+        }
+        this.set(item);
+      }
+    } catch {
+      this.damaged = true;
+    }
+  }
+
+  private set(entry: Entry): void {
+    this.byKey.set(entry.key, entry);
+    this.byId.set(entry.operationId, entry);
+  }
+
+  private append(entry: Entry): void {
+    if (this.damaged) throw new HuhuError("INTERNAL", "操作记录需要修复", { retryable: false, details: { operationId: entry.operationId, outcome: "unknown" } });
+    try {
+      mkdirSync(path.dirname(this.file), { recursive: true });
+      appendFileSync(this.file, JSON.stringify(entry) + "\n", { encoding: "utf8", flush: true });
+      this.set(entry);
+    } catch {
+      this.damaged = true;
+      throw new HuhuError("INTERNAL", "操作记录无法持久保存", { retryable: false, details: { operationId: entry.operationId, outcome: "unknown" } });
+    }
+  }
+
+  claim(owner: string, capability: string, intentKey: string, input: unknown) {
+    const key = hash([owner, capability, intentKey]);
+    const inputDigest = hash(input);
+    const existing = this.byKey.get(key);
+    if (existing) return { entry: existing, mismatch: existing.input !== inputDigest, fresh: false };
+    const accepted: Accepted = { operationId: randomUUID(), key, input: inputDigest, owner, capability, phase: "accepted" };
+    this.append(accepted);
+    return { entry: accepted, mismatch: false, fresh: true };
+  }
+
+  complete(entry: Accepted, phase: z.infer<typeof Finished>, result: CapabilityResult<unknown>): Resolved {
+    const update: Resolved = { ...entry, phase, result };
+    this.append(update);
+    return update;
+  }
+
+  lookup(owner: string, lookup: { operationId: string } | { capability: string; intentKey: string }): Entry | undefined {
+    const entry = "operationId" in lookup ? this.byId.get(lookup.operationId) : this.byKey.get(hash([owner, lookup.capability, lookup.intentKey]));
+    return entry?.owner === owner ? entry : undefined;
+  }
+}

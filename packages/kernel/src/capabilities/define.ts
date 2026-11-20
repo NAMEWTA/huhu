@@ -5,7 +5,10 @@ export interface CapabilityContext {
   /** 客户端断开或用户取消时触发。 */
   signal: AbortSignal;
   caller: string;
+  /** Stable identity chosen by the authenticated transport, scoped to its caller category. */
+  subject?: string;
   requestId: string;
+  idempotencyKey?: string;
 }
 
 interface CapabilityContract<I, O> {
@@ -22,8 +25,8 @@ interface CapabilityContract<I, O> {
   desktopOnly?: boolean;
   /** 覆盖默认 60 秒超时。 */
   timeoutMs?: number;
-  /** 由 handler 持久去重，每次重交重新授权并读取当前结果。 */
-  idempotency?: "handler";
+  /** handler 自己对账，或由 Dispatcher 为可安全保留结果的能力记录显式意图。 */
+  idempotency?: "handler" | "durable";
 }
 
 /** 由领域模块提供，安装后可在插件启用之前登记。 */

@@ -1,7 +1,7 @@
 import { Command, CommanderError, Option } from "commander";
-import { callCapability, discoverCapabilities, readCallFile, render } from "./commands/call.js";
+import { callCapability, discoverCapabilities, readCallFile, readCapabilityOperation, render } from "./commands/call.js";
 import { ConnectError, connect, type Connection } from "./connect.js";
-import type { CapabilityResult } from "@huhu/contracts";
+import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, type CapabilityResult } from "@huhu/contracts";
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
 import { createMcpServer } from "./mcp.js";
 
@@ -29,8 +29,9 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
     .option("--input-json <json>", "输入 JSON", "{}")
     .addOption(new Option("--input-file <path>", "从 UTF-8 文件读取 JSON（与 --input-json 互斥）").conflicts("inputJson"))
     .option("--vault <path>", "Vault 路径")
+    .option("--intent-key <key>", "在支持的能力中用原意图键提交或重试")
     .option("--json", "输出 CapabilityResult JSON")
-    .action(async (capability: string, o: { inputJson: string; inputFile?: string; vault?: string; json?: boolean }) => {
+    .action(async (capability: string, o: { inputJson: string; inputFile?: string; vault?: string; json?: boolean; intentKey?: string }) => {
       let text = o.inputJson;
       if (o.inputFile !== undefined) {
         const file = await readCallFile(o.inputFile);
@@ -49,9 +50,16 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
         code = 2;
         return;
       }
+      const intent = CapabilityIntentKeySchema.optional().safeParse(o.intentKey);
+      if (!intent.success) {
+        const r = render({ ok: false, error: errors.invalidInput("执行意图键不符合要求").toJSON() }, o.json === true);
+        io.out(r.out);
+        code = r.code;
+        return;
+      }
       try {
         const conn = await connect(o.vault);
-        const r = render(await callCapability(conn, capability, input), o.json === true);
+        const r = render(await callCapability(conn, capability, input, undefined, intent.data), o.json === true);
         io.out(r.out);
         code = r.code;
       } catch (e) {
@@ -59,6 +67,27 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
           io.err(e.message);
           code = e.exitCode;
         } else throw e;
+      }
+    });
+
+  program
+    .command("operation [operationId]")
+    .description("查询本入口提交的持久操作")
+    .option("--capability <name>", "原能力名")
+    .option("--intent-key <key>", "原意图键")
+    .option("--vault <path>", "Vault 路径")
+    .option("--json", "输出 CapabilityResult JSON")
+    .action(async (operationId: string | undefined, o: { capability?: string; intentKey?: string; vault?: string; json?: boolean }) => {
+      const lookup = CapabilityOperationLookupSchema.safeParse({ ...(operationId && { operationId }), ...(o.capability && { capability: o.capability }), ...(o.intentKey && { intentKey: o.intentKey }) });
+      try {
+        const result = lookup.success ? await readCapabilityOperation(await connect(o.vault), lookup.data) : { ok: false as const, error: errors.invalidInput("传入操作标识，或一起传入能力名和原意图键").toJSON() };
+        const shown = render(result, o.json === true);
+        io.out(shown.out);
+        code = shown.code;
+      } catch (error) {
+        if (!(error instanceof ConnectError)) throw error;
+        io.err(error.message);
+        code = error.exitCode;
       }
     });
 

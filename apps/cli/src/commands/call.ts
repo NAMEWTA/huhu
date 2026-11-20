@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
-import type { CapabilityDiscoveryEntry, CapabilityResult } from "@huhu/contracts";
+import type { CapabilityDiscoveryEntry, CapabilityOperationLookup, CapabilityResult } from "@huhu/contracts";
 import { MAX_BODY_BYTES } from "@huhu/kernel";
 import { ConnectError, type Connection } from "../connect.js";
 
@@ -51,13 +51,20 @@ async function requestError(res: Response): Promise<CapabilityResult<never>> {
   return { ok: false, error: { code: "INTERNAL", message: body?.error ?? `HTTP ${res.status}`, retryable: false } };
 }
 
-export async function callCapability(conn: Connection, capability: string, input: unknown, nameFormat?: "mcp"): Promise<CapabilityResult<unknown>> {
+export async function callCapability(conn: Connection, capability: string, input: unknown, nameFormat?: "mcp", intentKey?: string): Promise<CapabilityResult<unknown>> {
   const route = nameFormat === "mcp" ? "/api/v1/call?nameFormat=mcp" : "/api/v1/call";
   const res = await request(conn, route, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey !== undefined && { intentKey }) }),
   });
+  if (!res.ok) return requestError(res);
+  return (await res.json()) as CapabilityResult<unknown>;
+}
+
+export async function readCapabilityOperation(conn: Connection, lookup: CapabilityOperationLookup): Promise<CapabilityResult<unknown>> {
+  const query = new URLSearchParams(lookup);
+  const res = await request(conn, "/api/v1/operations?" + query);
   if (!res.ok) return requestError(res);
   return (await res.json()) as CapabilityResult<unknown>;
 }
