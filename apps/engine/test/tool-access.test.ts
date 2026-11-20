@@ -182,6 +182,18 @@ test("两份工具预览只有同一版本的首个提交能整批生效，发�
     expect(await update(second, otherChanges)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT", details: { currentVersion: "1" } } });
     expect(publishes).toEqual([{ kind: "tool-access", id: "policy", op: "updated" }]);
     expect((await names(engine, engine.cliToken)).sort()).toEqual(["notes.list", "notes.read"]);
+    expect(await names(engine, engine.mcpToken)).toEqual([]);
+    expect(await call(engine, "gateway.check", { capability: "notes.read" })).toMatchObject({
+      ok: true,
+      data: {
+        identities: [
+          { identity: "cli", allowed: true },
+          { identity: "mcp", allowed: false, reason: "MCP 服务已关闭" },
+          { identity: "http", allowed: true },
+        ],
+      },
+    });
+    expect(await data(call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" }))).toEqual({ enabled: true, transport: "stdio" });
     expect((await names(engine, engine.mcpToken)).sort()).toEqual(["notes.list", "notes.read"]);
     expect(await call(engine, "gateway.policy.preview", { changes }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
 

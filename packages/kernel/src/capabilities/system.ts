@@ -328,7 +328,10 @@ export function registerSystemCapabilities(
             found: availability !== "not-found",
             scope: availability === "not-found" ? null : (descriptor?.scope ?? cap?.scope ?? null),
             availability,
-            identities: (["cli", "mcp", "http"] as const).map((identity) => ({ identity, ...v })),
+            identities: (["cli", "mcp", "http"] as const).map((identity) => ({
+              identity,
+              ...(identity === "mcp" && v.allowed && gateway?.tokens.mcp().enabled !== true ? { allowed: false, reason: "MCP 服务已关闭" } : v),
+            })),
           };
         },
       }),

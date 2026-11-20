@@ -392,7 +392,9 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   <Badge tone={open ? "success" : "neutral"}>{`可调用工具 ${open}/${eligible}`}</Badge>
                   <ChoiceSwitch checked={mcp.enabled} label={g.mcpEnabled} onChange={(v) => void act("gateway.mcp.update", { enabled: v, transport: mcp.transport })} />
                 </div>
-                <p className="small muted">CLI 和 MCP 的 stdio 客户端使用同一工具策略。MCP over HTTP {mcp.enabled && mcp.transport === "http" ? "端点已启用，连接需要服务端令牌。" : "端点当前关闭。"}</p>
+                <p className="small muted">
+                  CLI 使用工具开放策略。MCP stdio {mcp.enabled ? "已启用" : "已关闭"}。MCP over HTTP {mcp.enabled && mcp.transport === "http" ? "端点已启用，连接需要服务端令牌。" : "端点当前关闭。"}
+                </p>
                 <div className="shell-gateway-meta">
                   <button type="button" data-testid="gateway-mcp-config" onClick={() => setConfigOpen(true)}>
                     <Settings size={14} aria-hidden /> 配置传输
