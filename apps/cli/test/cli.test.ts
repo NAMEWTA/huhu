@@ -436,11 +436,11 @@ describe("CLI", () => {
     const arrayTool = { name: "tasks_list", arguments: {} };
     const array = await client.callTool(arrayTool);
     expect(array.structuredContent).toEqual({ data: [] });
-    const http = await fetch(`http://127.0.0.1:${e.port}/mcp`, {
+    const http = (await fetch(`http://127.0.0.1:${e.port}/mcp`, {
       method: "POST",
       headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: arrayTool }),
-    }).then((response) => response.json());
+    }).then((response) => response.json())) as { result?: unknown };
     expect(CallToolResultSchema.parse(http.result)).toMatchObject({ structuredContent: array.structuredContent });
     const denied = await client.callTool({ name: "tasks_create", arguments: { title: "x" } });
     expect(denied.isError).toBe(true);
