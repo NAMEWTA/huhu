@@ -539,6 +539,53 @@ test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeou
   expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, state: "succeeded", questions: 1 })] });
 });
 
+test("规则空出原生暂停的执行槽，并在原回答恢复时先取得槽", { timeout: 60_000 }, async () => {
+  const fake = executor();
+  fixture.executor = fake;
+  const engine = await start(tempVault(), true);
+  const bindings = new Map<string, ExecutionBinding>();
+  fake.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockImplementation(async ({ snapshot, dispatchId, runId, attempt }) => {
+    const execution: ExecutionBinding = {
+      vaultId: engine.vault.id,
+      taskId: snapshot.taskId,
+      dispatchId,
+      runId,
+      attempt,
+      sessionBinding: { machineId: machineId(), sessionId: `session-${runId}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: `thread-${runId}` },
+    };
+    bindings.set(runId, execution);
+    return { state: "accepted", execution };
+  });
+  const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockResolvedValue({ status: "accepted" });
+  fake.answer = answer;
+  const source = { kind: "automation", ruleId: "fixture-rule", ruleVersion: "v1", occurrenceId: "slot-fixture", maxConcurrent: 1 } as const satisfies RuleSource;
+  const accept = async (title: string) => fixture.rule!.acceptRule(intent(await createDispatchable(engine, title)), source);
+  const first = await accept("等待原生回答");
+  await waitDispatch(engine, first, { state: "running" });
+  const second = await accept("同规则独立会话");
+  await waitDispatch(engine, second, { state: "pending", reason: "waiting_resource" });
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+
+  const execution = bindings.get(first.runId)!;
+  const requestId = "slot-question";
+  expect(
+    await submitReceipt(engine, { version: 1, receiptId: requestId, kind: "question", execution, payload: { mode: "native_deferred", requestId, requestVersion: 1, nativeRequestId: "slot-native", text: "选择", options: ["一"] } }),
+  ).toMatchObject({ ok: true });
+  await waitDispatch(engine, second, { state: "running" });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+
+  const lookup = { taskId: first.taskId, runId: first.runId, sessionId: execution.sessionBinding.sessionId, requestId, requestVersion: 1, replyId: randomUUID() };
+  expect(await call(engine, "tasks.reply", { ...lookup, answer: "一" })).toMatchObject({ ok: true, data: { status: "pending" } });
+  const third = await accept("同规则第三个会话");
+  await waitDispatch(engine, third, { state: "pending", reason: "waiting_resource" });
+  expect(answer).not.toHaveBeenCalled();
+  expect(await submitReceipt(engine, { version: 1, receiptId: "slot-second-finished", kind: "no_update", execution: bindings.get(second.runId)!, payload: {} })).toMatchObject({ ok: true });
+  await vi.waitFor(async () => expect(await call(engine, "tasks.reply.read", lookup)).toMatchObject({ ok: true, data: { status: "accepted" } }));
+  expect(answer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ execution, replyId: lookup.replyId, answer: "一" }), expect.any(AbortSignal));
+  await waitDispatch(engine, third, { state: "pending", reason: "waiting_resource" });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+});
+
 test("原生回答先落盘，竞争只保存一个回答，确认丢失后只对账", { timeout: 60_000 }, async () => {
   const { root, fake, engine, task, run, execution } = await startBoundRun();
   const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockRejectedValue(new Error("合成确认丢失"));

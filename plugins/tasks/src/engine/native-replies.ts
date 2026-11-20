@@ -143,13 +143,19 @@ export class TaskNativeReplies {
     }
   }
 
-  async replay(bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {
+  async replay(
+    bound: (execution: ExecutionBinding) => boolean,
+    availability: (execution: ExecutionBinding) => ReplyAvailability,
+    takeSlot: (execution: ExecutionBinding) => boolean,
+    signal: AbortSignal,
+    onError?: (error: unknown) => void,
+  ): Promise<void> {
     for (const file of this.filesInLedger()) {
       if (signal.aborted) return;
       try {
         for (const entry of this.read(file).entries) {
           if (signal.aborted) return;
-          if (bound(entry.execution) && (entry.status === "pending" || entry.status === "sending" || entry.status === "unknown")) await this.advance(file, entry, bound, availability, signal);
+          if (bound(entry.execution) && (entry.status === "pending" || entry.status === "sending" || entry.status === "unknown")) await this.advance(file, entry, bound, availability, takeSlot, signal);
         }
       } catch (error) {
         if (!signal.aborted) onError?.(error);
@@ -157,7 +163,14 @@ export class TaskNativeReplies {
     }
   }
 
-  private async advance(file: string, entry: Entry, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal): Promise<void> {
+  private async advance(
+    file: string,
+    entry: Entry,
+    bound: (execution: ExecutionBinding) => boolean,
+    availability: (execution: ExecutionBinding) => ReplyAvailability,
+    takeSlot: (execution: ExecutionBinding) => boolean,
+    signal: AbortSignal,
+  ): Promise<void> {
     const { input, execution, nativeRequestId, acceptedAt, status } = entry;
     const { taskId, runId, requestId, requestVersion, sessionId, replyId, answer } = input;
     const pending = status === "pending";
@@ -198,7 +211,8 @@ export class TaskNativeReplies {
           fingerprint(question.receipt.execution) !== fingerprint(execution)
         )
           return "expired";
-        return this.executor?.answer ? "sending" : "unsupported";
+        if (!this.executor?.answer) return "unsupported";
+        return takeSlot(execution) ? "sending" : "pending";
       });
       if (sending !== "sending") return;
     }

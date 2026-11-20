@@ -38,6 +38,7 @@ export type TaskDispatchResult = "accepted" | "not_sent" | "unknown" | "unsuppor
 type NativeStopInput = z.infer<typeof AgentNativeStopInputSchema>;
 type NativeStopStatus = z.infer<typeof AgentNativeStopStatusSchema>;
 type StopRecord = NonNullable<OwnedRecord["stop"]>;
+type RuleSlots = Map<string, Set<string>>;
 
 export interface TaskDispatchExecutor {
   /** 只读目标/资源预检。实际输入所有权仍须由执行者在派遣时核验。 */
@@ -311,25 +312,83 @@ export class TaskDispatch {
     if (this.store.readOnly || this.checking || this.abort.signal.aborted) return;
     this.checking = true;
     try {
+      await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
       const events = this.store
         .list((error) => this.onError?.(error))
         .filter(({ receipt }) => holdsTask(receipt))
         .sort((a, b) => a.receipt.acceptedAt.localeCompare(b.receipt.acceptedAt) || a.receipt.eventId.localeCompare(b.receipt.eventId));
+      const slots: RuleSlots = new Map();
+      for (const event of events) this.updateRuleSlots(slots, event);
+      await this.replies.replay(
+        this.matchesExecution,
+        this.replyAvailability,
+        (execution) => {
+          const stored = this.store.read(eventIdOf(execution.dispatchId));
+          return stored !== null && this.takeRuleSlot(slots, stored.record);
+        },
+        this.abort.signal,
+        this.onError,
+      );
       for (const event of events) {
         if (this.abort.signal.aborted) break;
         try {
-          await this.advance(event);
+          await this.advance(event, slots);
         } catch (error) {
           if (!this.abort.signal.aborted) this.onError?.(error);
+        } finally {
+          if (event.snapshot.source.kind === "automation") {
+            const latest = this.store.read(event.receipt.eventId);
+            if (latest) this.updateRuleSlots(slots, latest.record);
+          }
         }
       }
-      await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
-      await this.replies.replay(this.matchesExecution, this.replyAvailability, this.abort.signal, this.onError);
     } catch (error) {
       this.onError?.(error);
     } finally {
       this.checking = false;
     }
+  }
+
+  private updateRuleSlots(slots: RuleSlots, record: DispatchRecord): void {
+    const { source } = record.snapshot;
+    if (source.kind !== "automation" || !this.store.owns(record)) return;
+    const active = slots.get(source.ruleId) ?? new Set<string>();
+    const { eventId } = record.receipt;
+    let occupied = true;
+    try {
+      occupied = this.usesRuleSlot(record);
+    } catch (error) {
+      this.onError?.(error);
+    }
+    if (occupied) active.add(eventId);
+    else active.delete(eventId);
+    slots.set(source.ruleId, active);
+  }
+
+  private usesRuleSlot({ receipt, stop }: OwnedRecord): boolean {
+    const { state, taskId, runId } = receipt;
+    if (state === "claimed" || state === "sending" || state === "unknown") return true;
+    if (state !== "running" || stop?.status === "stopped" || stop?.status === "completed") return false;
+    const { questions, outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
+    if (outcomes.get(runId)?.finishedAt) return false;
+    if (stop?.status === "unknown") return true;
+    const paused = questions.filter((question) => question.runId === runId && question.mode === "native_deferred" && question.status === "awaiting");
+    if (!paused.length) return true;
+    const replies = this.replies.list(taskId, this.matchesExecution);
+    return paused.some((question) =>
+      replies.some((reply) => reply.runId === runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion && (reply.status === "sending" || reply.status === "unknown" || reply.status === "accepted")),
+    );
+  }
+
+  private takeRuleSlot(slots: RuleSlots, record: DispatchRecord): boolean {
+    const { source } = record.snapshot;
+    if (source.kind !== "automation") return true;
+    const active = slots.get(source.ruleId) ?? new Set<string>();
+    const { eventId } = record.receipt;
+    if (source.maxConcurrent !== undefined && !active.has(eventId) && active.size >= source.maxConcurrent) return false;
+    active.add(eventId);
+    slots.set(source.ruleId, active);
+    return true;
   }
 
   private lookup(input: DispatchLookup) {
@@ -361,7 +420,7 @@ export class TaskDispatch {
     }
   }
 
-  private async advance(event: DispatchRecord): Promise<void> {
+  private async advance(event: DispatchRecord, slots: RuleSlots): Promise<void> {
     if (!this.store.owns(event)) return;
     const current = this.current(event);
     if (!current) return;
@@ -380,6 +439,10 @@ export class TaskDispatch {
       if (!(await this.prepare(record, "check")) || !executor) return;
       const next = this.current(record)?.record.receipt.state;
       if (signal.aborted || (next !== "pending" && next !== "claimed")) return;
+      if (!this.takeRuleSlot(slots, record)) {
+        await this.prepare(record, "busy");
+        return;
+      }
       const ready = await executor.ready(work, signal);
       if (!(await this.prepare(record, ready))) return;
       // claimed 独立落盘。进程在此中断时，可以证明尚未开始派遣。

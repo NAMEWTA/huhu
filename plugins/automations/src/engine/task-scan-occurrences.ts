@@ -29,6 +29,7 @@ const Occurrence = z.object({
   id: Id,
   ruleId: z.string().min(1),
   ruleVersion: z.string().min(1),
+  maxConcurrent: z.int().min(1).max(4).optional(),
   scheduledForUTC: Instant.nullable(),
   startedAt: Instant,
   finishedAt: Instant.nullable(),
@@ -227,6 +228,7 @@ export class TaskScanOccurrences {
       id,
       ruleId: rule.id,
       ruleVersion: rule.version,
+      maxConcurrent: rule.data.action.input.maxConcurrent,
       scheduledForUTC: at,
       startedAt: now.toISOString(),
       finishedAt: null,
@@ -245,7 +247,10 @@ export class TaskScanOccurrences {
     const { taskId, dispatchId, expectedVersion, inputRevision, inputHash } = item;
     let receipt: Acceptance;
     try {
-      receipt = await tasks.acceptRule({ taskId, dispatchId, expectedVersion, inputRevision, inputHash }, { kind: "automation", ruleId: row.ruleId, ruleVersion: row.ruleVersion, occurrenceId: row.id, instructions: row.rule.instructions });
+      receipt = await tasks.acceptRule(
+        { taskId, dispatchId, expectedVersion, inputRevision, inputHash },
+        { kind: "automation", ruleId: row.ruleId, ruleVersion: row.ruleVersion, occurrenceId: row.id, instructions: row.rule.instructions, ...(row.maxConcurrent !== undefined && { maxConcurrent: row.maxConcurrent }) },
+      );
     } catch (error) {
       const skipped = rejection(error);
       if (!skipped) throw error;

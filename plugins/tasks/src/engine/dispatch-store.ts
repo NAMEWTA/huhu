@@ -24,6 +24,7 @@ export const RuleSource = z.strictObject({
   ruleId: Id,
   ruleVersion: Id,
   occurrenceId: Id,
+  maxConcurrent: z.int().min(1).max(4).optional(),
   notBefore: Instant.optional(),
   expiresAt: Instant.optional(),
   instructions: z.string().max(20_000).optional(),
