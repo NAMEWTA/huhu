@@ -593,3 +593,10 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。
 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。
+
+## H04 批注读取及剪贴板回退
+
+- `app/src/comments/CommentsPanel.tsx`：单篇批注读取失败时保留已加载的线程，显示错误和重试入口。未成功读取时隐藏空列表文案。
+- `app/src/comments/CommentListPanel.tsx`：列表正文可显示读取状态，与已有线程同时呈现。
+- `app/src/editor/clipboard/copy-image.ts`：浏览器剪贴板回退失败时经已有通知组件显示错误。
+- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：补齐批注读取、重试和图片复制失败文案。

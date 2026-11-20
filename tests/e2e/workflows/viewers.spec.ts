@@ -765,6 +765,9 @@ test("OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重
     await expect(page.getByTestId("pdf-find-count")).toHaveText("1 / 1");
     await input.press("Escape");
     await expect(page.getByTestId("pdf-view")).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input).toBeFocused();
+    await input.press("Escape");
     await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
     await expect(input).toBeFocused();
 
@@ -823,6 +826,87 @@ test("OP-D08 原生预览链接动作只在确认后转交 HTTP(S) 给宿主", a
     await link.click({ button: "right" });
     await expect.poll(state).toEqual({ menus: 2, confirms: [url, url], opens: [url] });
     expect(frame.url()).toMatch(/^huhu-preview:/);
+  } finally {
+    await close();
+  }
+});
+
+test("G04 ORCA：PDF 查找计数随前后导航和查询词更新", async () => {
+  const { page, vault, close } = await launch();
+  try {
+    writeFileSync(path.join(vault, "查找计数.pdf"), buildPdf(["Alpha needle", "Bravo needle", "Charlie needle"]));
+    await openKnowledge(page);
+    await openFile(page, "查找计数");
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(3);
+    await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
+    const input = page.getByTestId("pdf-find-input");
+    const count = page.getByTestId("pdf-find-count");
+    await input.fill("needle");
+    await expect(count).toHaveText("1 / 3");
+    await input.press("Enter");
+    await expect(count).toHaveText("2 / 3");
+    await input.press("Shift+Enter");
+    await expect(count).toHaveText("1 / 3");
+    await input.fill("Bravo");
+    await expect(count).toHaveText("1 / 1");
+    await input.press("Escape");
+    await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
+    await input.fill("Bravo");
+    await expect(count).toHaveText("1 / 1");
+  } finally {
+    await close();
+  }
+});
+
+test("G04 ORCA：重新打开 PDF 查找能读取缓存，清除查询后隐藏计数", async () => {
+  const { page, vault, close } = await launch();
+  try {
+    writeFileSync(path.join(vault, "查找缓存.pdf"), buildPdf(["Cached match", "Cached match again"]));
+    await openKnowledge(page);
+    await openFile(page, "查找缓存");
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(2);
+    const find = page.getByRole("button", { name: "在 PDF 中查找", exact: true });
+    const input = page.getByTestId("pdf-find-input");
+    const count = page.getByTestId("pdf-find-count");
+    await find.click();
+    await input.fill("Cached");
+    await expect(count).toHaveText("1 / 2");
+    await input.press("Escape");
+    await find.click();
+    await input.fill("Cached");
+    await expect(count).toHaveText("1 / 2");
+    await input.fill("pending");
+    await input.clear();
+    await expect(count).toHaveCount(0);
+    await input.fill("again");
+    await expect(count).toHaveText("1 / 1");
+  } finally {
+    await close();
+  }
+});
+
+test("G04 ORCA：重复加载坏 PDF 后恢复，错误时不会保留旧页", async () => {
+  const { page, vault, close } = await launch();
+  try {
+    const file = path.join(vault, "恢复预览.pdf");
+    writeFileSync(file, buildPdf(["Original PDF content"]));
+    await openKnowledge(page);
+    await openFile(page, "恢复预览");
+    const view = page.getByTestId("pdf-view");
+    const pages = view.locator(".pdfViewer .page");
+    const text = view.locator(".pdfViewer .textLayer").first();
+    await expect(text).toContainText("Original PDF content");
+    for (const corrupt of ["bad PDF first attempt", "bad PDF second attempt"]) {
+      writeFileSync(file, corrupt);
+      await page.getByTestId("pdf-reload").click();
+      await expect(view.getByRole("alert")).toBeVisible();
+      await expect(pages).toHaveCount(0);
+    }
+    writeFileSync(file, buildPdf(["Recovered PDF content"]));
+    await page.getByTestId("pdf-reload").click();
+    await expect(text).toContainText("Recovered PDF content");
+    await expect(text).not.toContainText("Original PDF content");
+    await expect(view.getByRole("alert")).toHaveCount(0);
   } finally {
     await close();
   }

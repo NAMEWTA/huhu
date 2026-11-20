@@ -5,6 +5,8 @@ import { useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { expect, test, vi } from "vitest";
 import { HostConfigProvider, registerLinkPreviewRoute } from "../src/host/config-provider";
+import { installDesktopBridge } from "../src/host/desktop-bridge";
+import { DEFAULT_FEATURES } from "../src/host/ok-host";
 import { DocumentProvider } from "../src/host/document-context";
 import { hostFetch, registerHostRoutes } from "../src/host/host-fetch";
 import { filesRoutes } from "../src/host/routes/files";
@@ -417,5 +419,106 @@ test.each([{ errorPath: null }, { errorPath: "/api/folder-config" }, { errorPath
     stop();
     stopRoutes();
     window.location.hash = "";
+  }
+});
+
+test("H04 comment list shows a load failure until a retry reads the list", async () => {
+  let failed = true;
+  const docName = "comment-list-retry";
+  const dispose = registerHostRoutes({
+    "GET /api/comments": () => {
+      if (failed) throw new Error("测试读取失败");
+      return { threads: [] };
+    },
+  });
+  const stop = attachOkFetch(hostFetch);
+  try {
+    render(
+      <TooltipProvider>
+        <CommentsPanel docName={docName} />
+      </TooltipProvider>,
+    );
+    const status = await screen.findByText("Couldn't load comments");
+    expect(status.getAttribute("role")).toBe("status");
+    expect(screen.queryByText(/No comments yet/)).toBeNull();
+    failed = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText(/No comments yet/);
+    expect(screen.queryByText("Couldn't load comments")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  } finally {
+    cleanup();
+    stop();
+    dispose();
+  }
+});
+
+test.each([
+  ["Win32", "win32"],
+  ["MacIntel", "darwin"],
+  ["Linux x86_64", "linux"],
+])("H04 desktop bridge uses %s platform and only exposes wired members", async (navigationPlatform, platform) => {
+  const navigation = vi.spyOn(navigator, "platform", "get").mockReturnValue(navigationPlatform);
+  const openExternal = vi.fn(async () => {});
+  const dispose = installDesktopBridge({ features: DEFAULT_FEATURES, openExternal });
+  try {
+    const bridge = window.okDesktop;
+    expect(bridge?.platform).toBe(platform);
+    expect(bridge?.config).toEqual({ projectPath: "", singleFile: false });
+    expect(bridge?.clipboard).toBeUndefined();
+    expect(bridge?.cliCommandName).toBeNull();
+    expect(bridge?.mcpServerName).toBeNull();
+    await bridge?.shell.openExternal("https://example.test/");
+    expect(openExternal).toHaveBeenCalledWith("https://example.test/");
+  } finally {
+    dispose();
+    navigation.mockRestore();
+  }
+  expect(window.okDesktop).toBeUndefined();
+});
+
+test.each(["missing", "rejected"] as const)("H04 image clipboard fallback reports a %s Clipboard API", async (failure) => {
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  const write = vi.fn(async () => {
+    throw new DOMException("Clipboard denied", "NotAllowedError");
+  });
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: failure === "missing" ? undefined : { write } });
+  vi.stubGlobal(
+    "ClipboardItem",
+    class {
+      constructor(readonly items: Record<string, Blob>) {}
+    },
+  );
+  const fetchImage = vi.fn(async () => new Response(new Blob(["fixture"], { type: "image/png" })));
+  const stopFetch = attachOkFetch(fetchImage);
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    render(
+      <>
+        <div className="ProseMirror">
+          <img src="/fixtures/image.png" alt="Example" />
+        </div>
+        <Toaster />
+      </>,
+    );
+    const copy = new Event("copy", { bubbles: true, cancelable: true });
+    screen.getByRole("img", { name: "Example" }).dispatchEvent(copy);
+    expect(copy.defaultPrevented).toBe(true);
+    const message = await screen.findByText("Couldn't copy image");
+    expect(message.closest("[data-sonner-toast]")).not.toBeNull();
+    expect(warning).toHaveBeenCalledWith(
+      "[copy-image] browser clipboard write failed",
+      failure === "missing" ? "clipboard-unavailable" : "write-error",
+      failure === "missing" ? "navigator.clipboard.write unavailable" : expect.stringContaining("Clipboard denied"),
+    );
+    expect(fetchImage).toHaveBeenCalledTimes(failure === "missing" ? 0 : 1);
+    expect(write).toHaveBeenCalledTimes(failure === "missing" ? 0 : 1);
+  } finally {
+    cleanup();
+    stopFetch();
+    warning.mockRestore();
+    vi.unstubAllGlobals();
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else Reflect.deleteProperty(navigator, "clipboard");
   }
 });
