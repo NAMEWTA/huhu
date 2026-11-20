@@ -1,7 +1,7 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
 import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
-import { CapabilityError, createRequestId, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { agentById, emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useRef, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
@@ -40,6 +40,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string } | null>(null);
   const [menu, setMenu] = useState(false);
   const [spaceForm, setSpaceForm] = useState<{ id?: string; revision?: number; name: string; folder: string } | null>(null);
   const [spaceDelete, setSpaceDelete] = useState<Space | null>(null);
@@ -70,6 +71,37 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const agentSettings = useCapability<{ settings: AgentSettingsFile }>("agent.settings.get", {});
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
+
+  useEffect(
+    () =>
+      onOpenAgentSessionRequest((request) => {
+        if (request.vaultId !== engine.vaultId) return;
+        setRequestedSession(request);
+        setSpaceId(request.spaceId);
+        setError(null);
+        void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" });
+      }),
+    [engine.vaultId, qc],
+  );
+
+  useEffect(() => {
+    if (!requestedSession || spaces.isFetching || !spaces.data) return;
+    if (!spaces.data.some(({ id }) => id === requestedSession.spaceId)) {
+      setError("原会话的工作区已不可用");
+      setRequestedSession(null);
+      return;
+    }
+    if (space?.id !== requestedSession.spaceId || sessions.isFetching || !sessions.isFetched) return;
+    const session = sessions.data?.find(({ id }) => id === requestedSession.sessionId);
+    if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
+    else {
+      setActive(session.id);
+      if (layout !== 1 && session.state === "running") {
+        setSplit((previous) => reveal(layout, fillCells(layout, previous.picks, sessions.data ?? [], active, previous.hidden), previous, session.id));
+      }
+    }
+    setRequestedSession(null);
+  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, layout, active]);
 
   async function launch(provider: string, o: LaunchOptions = {}) {
     if (!space) return;

@@ -24,6 +24,43 @@ interface Detected {
 
 const newId = (): string => `rem-${createRequestId()}`;
 
+type DispatchTarget = { mode: "new" | "existing" | "resume"; provider: string; sessionId?: string; available: boolean; reason: string | null };
+
+function DispatchTargetSelect({ spaceId, target, onChange }: { spaceId: string; target: TaskDraft["target"]; onChange(target: TaskDraft["target"]): void }) {
+  const query = useCapability<DispatchTarget[]>("tasks.dispatch.targets", { spaceId });
+  const entries = (query.data ?? []).filter((entry) => entry.mode === "existing" && entry.sessionId);
+  const picked = target?.mode === "existing" ? target.sessionId : null;
+  const value = picked ? `session:${picked}` : target?.mode === "resume" ? "resume" : "new";
+  return (
+    <Field label="会话目标">
+      <select aria-label="会话目标" value={value} onChange={(e) => onChange(e.target.value === "new" ? { mode: "new" } : { mode: "existing", sessionId: e.target.value.slice("session:".length) })}>
+        <option value="new">新建会话</option>
+        {target?.mode === "resume" ? (
+          <option value="resume" disabled>
+            原生历史会话 · 当前无法派遣
+          </option>
+        ) : null}
+        {picked && !entries.some(({ sessionId }) => sessionId === picked) ? (
+          <option value={`session:${picked}`} disabled>
+            原会话 · 当前不可用
+          </option>
+        ) : null}
+        {entries.map(({ sessionId, provider, available, reason }) => {
+          const waiting = reason === "input_owned" || reason === "binding_unverified";
+          return (
+            <option key={sessionId} value={`session:${sessionId}`} disabled={!available && !waiting}>
+              {agentById(provider)?.displayName ?? provider} · {sessionId} · {available ? "可用" : waiting ? "等待会话可用" : "当前不可用"}
+            </option>
+          );
+        })}
+      </select>
+      <p role="status" className="tasks-hint">
+        {query.isPending ? "正在读取工作区会话…" : query.error ? "暂时无法读取工作区会话，重连后可再选择。" : entries.length ? "" : "当前工作区没有可复用的受控会话。"}
+      </p>
+    </Field>
+  );
+}
+
 /** 新建 / 编辑任务（原型 TaskEditor）：左栏 名称 / 内容 / 截止日 / 项目 / 关联资料；右栏 执行方式 / 提醒。保存永远不会启动 Agent。 */
 export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task: TaskDto | null; initial?: Partial<TaskDraft>; projects: string[]; onClose(): void; onSaved(saved: TaskDto): void }) {
   const engine = useEngine();
@@ -74,10 +111,14 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
       const same = (spaces.data ?? []).find((s) => s.root === picked);
       const sp = same ?? (await engine.call<Space>("agent.spaces.save", { name: picked.split(/[\\/]/).filter(Boolean).at(-1) ?? picked, root: picked }, { write: true }));
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.spaces") });
-      set("spaceId", sp.id);
+      chooseSpace(sp.id);
     } catch (e) {
       setFailure(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  function chooseSpace(spaceId: string | null) {
+    setDraft((current) => ({ ...current, spaceId, target: current.spaceId === spaceId || current.target?.mode === "new" ? current.target : null }));
   }
 
   async function save() {
@@ -189,7 +230,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                     {spaces.data && spaces.data.length === 0 ? (
                       <p className="tasks-hint">{t.editor.spaceEmpty}</p>
                     ) : (
-                      <select aria-label={t.editor.space} value={draft.spaceId ?? ""} onChange={(e) => set("spaceId", e.target.value || null)}>
+                      <select aria-label={t.editor.space} value={draft.spaceId ?? ""} onChange={(e) => chooseSpace(e.target.value || null)}>
                         <option value="">{t.editor.spaceNone}</option>
                         {(spaces.data ?? []).map((s) => (
                           <option key={s.id} value={s.id}>
@@ -204,44 +245,49 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                       </Button>
                     ) : null}
                   </Field>
-                  <Field label={t.editor.cli} error={err("provider")}>
-                    {providers.data && usable.length === 0 ? (
-                      <p className="tasks-hint">{t.editor.cliEmpty}</p>
-                    ) : (
-                      <select aria-label={t.editor.cliLabel} value={draft.provider ?? ""} onChange={(e) => setDraft((d) => ({ ...d, provider: e.target.value || null, model: null, effort: null }))}>
-                        <option value="">{t.editor.cliNone}</option>
-                        {usable.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.displayName}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </Field>
-                  <Field label={t.editor.model}>
-                    <select aria-label={t.editor.model} value={draft.model ?? ""} disabled={models.length === 0} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value || null, effort: null }))}>
-                      <option value="">{t.editor.modelDefault}</option>
-                      {models.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label={t.editor.effort}>
-                    <select aria-label={t.editor.effort} value={draft.effort ?? ""} disabled={!model || model.efforts.length === 0} onChange={(e) => set("effort", e.target.value || null)}>
-                      <option value="">{t.editor.effortDefault}</option>
-                      {(model?.efforts ?? []).map((x) => (
-                        <option key={x} value={x}>
-                          {x}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  {canFast ? (
-                    <label className="row">
-                      <input type="checkbox" checked={draft.fast} onChange={(e) => set("fast", e.target.checked)} /> {t.editor.fast}
-                    </label>
+                  {draft.spaceId ? <DispatchTargetSelect spaceId={draft.spaceId} target={draft.target} onChange={(target) => set("target", target)} /> : null}
+                  {draft.target?.mode !== "existing" ? (
+                    <>
+                      <Field label={t.editor.cli} error={err("provider")}>
+                        {providers.data && usable.length === 0 ? (
+                          <p className="tasks-hint">{t.editor.cliEmpty}</p>
+                        ) : (
+                          <select aria-label={t.editor.cliLabel} value={draft.provider ?? ""} onChange={(e) => setDraft((d) => ({ ...d, provider: e.target.value || null, model: null, effort: null }))}>
+                            <option value="">{t.editor.cliNone}</option>
+                            {usable.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.displayName}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </Field>
+                      <Field label={t.editor.model}>
+                        <select aria-label={t.editor.model} value={draft.model ?? ""} disabled={models.length === 0} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value || null, effort: null }))}>
+                          <option value="">{t.editor.modelDefault}</option>
+                          {models.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label={t.editor.effort}>
+                        <select aria-label={t.editor.effort} value={draft.effort ?? ""} disabled={!model || model.efforts.length === 0} onChange={(e) => set("effort", e.target.value || null)}>
+                          <option value="">{t.editor.effortDefault}</option>
+                          {(model?.efforts ?? []).map((x) => (
+                            <option key={x} value={x}>
+                              {x}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      {canFast ? (
+                        <label className="row">
+                          <input type="checkbox" checked={draft.fast} onChange={(e) => set("fast", e.target.checked)} /> {t.editor.fast}
+                        </label>
+                      ) : null}
+                    </>
                   ) : null}
                   <p className="tasks-hint">{t.editor.agentHint}</p>
                 </div>

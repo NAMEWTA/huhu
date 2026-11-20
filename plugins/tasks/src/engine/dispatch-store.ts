@@ -69,6 +69,9 @@ export const DispatchReceipt = DispatchLookup.extend({
   overriddenAvailableAt: Instant.optional(),
   parentRunId: Id.optional(),
 });
+export const TaskDispatchView = DispatchReceipt.extend({
+  session: z.strictObject({ id: Id, spaceId: Id }).nullable(),
+});
 const RecordFields = z.object({
   receipt: DispatchReceipt,
   requestHash: z.string(),
@@ -96,6 +99,7 @@ export type RuleSource = z.infer<typeof RuleSource>;
 export type DispatchSource = z.infer<typeof Source>;
 export type DispatchSnapshot = z.infer<typeof Snapshot>;
 export type DispatchReceipt = z.infer<typeof DispatchReceipt>;
+export type TaskDispatchView = z.infer<typeof TaskDispatchView>;
 export type StopLookup = z.infer<typeof StopLookup>;
 export type StopReceipt = z.infer<typeof StopReceipt>;
 export type DispatchRecord = z.infer<typeof DispatchRecord>;

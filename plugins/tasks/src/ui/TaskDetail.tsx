@@ -8,15 +8,9 @@ import { t } from "./i18n.js";
 import { TaskMarkdownInput, TaskMarkdownView } from "./compact.js";
 import { useReferenceIndex } from "./references.js";
 import { StatusSelect } from "./TaskViews.js";
+import type { TaskDispatchView } from "../engine/dispatch-store.js";
+import { TaskDispatchPanel, type RunRow } from "./TaskDispatchPanel.js";
 
-interface Run {
-  id: string;
-  state: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  model: string | null;
-  questions: { id: string; text: string; options: string[]; answer: string | null }[];
-}
 interface Space {
   id: string;
   name: string;
@@ -40,6 +34,7 @@ export function TaskDetail({
   onMessage,
   onChanged,
   onOpenNotes,
+  onOpenAgent,
 }: {
   task: TaskDto;
   pending: boolean;
@@ -51,6 +46,7 @@ export function TaskDetail({
   onMessage(m: string): void;
   onChanged(): void;
   onOpenNotes(): void;
+  onOpenAgent(): void;
 }) {
   const [source, setSource] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -175,7 +171,7 @@ export function TaskDetail({
           </section>
         ) : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
-        {agent ? <RunRecords taskId={task.id} zone={zone} onMessage={onMessage} /> : null}
+        {agent ? <RunRecords task={task} zone={zone} onMessage={onMessage} onOpenAgent={onOpenAgent} /> : null}
         <CommentComposer key={task.id} task={task} refs={refs} onChanged={onChanged} onMessage={onMessage} />
       </div>
       {confirmDelete ? (
@@ -283,21 +279,58 @@ function CommentComposer({ task, refs, onChanged, onMessage }: { task: TaskDto; 
   );
 }
 
-function RunRecords({ taskId, zone, onMessage }: { taskId: string; zone: string | undefined; onMessage(m: string): void }) {
-  const engine = useEngine();
-  const runs = useCapability<Run[]>("tasks.runs", { id: taskId });
+function RunRecords({ task, zone, onMessage, onOpenAgent }: { task: TaskDto; zone: string | undefined; onMessage(m: string): void; onOpenAgent(): void }) {
+  const runs = useCapability<RunRow[]>("tasks.runs", { id: task.id });
+  const managed = useCapability<TaskDispatchView[]>("tasks.dispatch.list", { taskId: task.id });
+  const list = (runs.data ?? []).filter(({ id }) => managed.data && !managed.data.some(({ runId }) => runId === id));
   const [open, setOpen] = useState<string | null>(null);
+  return (
+    <>
+      <TaskDispatchPanel task={task} zone={zone} runs={runs.data ?? []} rows={managed.data} readError={managed.error} onNavigate={onOpenAgent} />
+      {list.length ? (
+        <section className="hu-tw-detail-section" data-testid="task-runs" aria-label={t.detail.runs}>
+          <h3>
+            <History size={14} aria-hidden />
+            {t.detail.runs}
+          </h3>
+          {list.map((run) => (
+            <article key={run.id} className="tasks-task-run" data-testid="task-run">
+              <header>
+                <Badge>{t.detail.runState[run.state] ?? run.state}</Badge>
+                <small>
+                  {t.detail.started} {fmt(run.startedAt, zone)}
+                  {run.model ? ` · ${run.model}` : ""}
+                </small>
+                <button type="button" aria-expanded={open === run.id} onClick={() => setOpen(open === run.id ? null : run.id)}>
+                  {open === run.id ? t.detail.collapse : t.detail.expand}
+                </button>
+              </header>
+              {open === run.id || run.state === "waiting_input" ? <RunBody run={run} showResult={open === run.id} onMessage={onMessage} /> : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+type LegacyQuestion = { id: string; text: string; options: string[]; answer: string | null };
+
+function RunBody({ run, showResult, onMessage }: { run: RunRow; showResult: boolean; onMessage(m: string): void }) {
+  const engine = useEngine();
+  const refs = useReferenceIndex();
+  const d = useCapability<{ body: string; data: { questions?: LegacyQuestion[] } }>("automations.runs.read", { runId: run.id });
+  const questions = d.data?.data.questions ?? [];
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const list = runs.data ?? [];
-  if (list.length === 0) return null;
-  async function submit(run: Run) {
-    const given = run.questions.filter((q) => q.answer === null && (answers[`${run.id}:${q.id}`] ?? "").trim()).map((q) => ({ id: q.id, answer: (answers[`${run.id}:${q.id}`] ?? "").trim() }));
+  async function submit() {
+    const given = questions.filter((q) => q.answer === null && answers[q.id]?.trim()).map((q) => ({ id: q.id, answer: answers[q.id]!.trim() }));
     if (given.length === 0) return;
     setBusy(true);
     try {
       await engine.call("automations.runs.answer", { runId: run.id, answers: given }, { write: true });
       setAnswers({});
+      await d.refetch();
     } catch (e) {
       onMessage(e instanceof Error ? e.message : String(e));
     } finally {
@@ -305,72 +338,42 @@ function RunRecords({ taskId, zone, onMessage }: { taskId: string; zone: string 
     }
   }
   return (
-    <section className="hu-tw-detail-section" data-testid="task-runs" aria-label={t.detail.runs}>
-      <h3>
-        <History size={14} aria-hidden />
-        {t.detail.runs}
-      </h3>
-      <p className="tasks-hint">{t.detail.runsHint}</p>
-      {list.map((run) => (
-        <article key={run.id} className="tasks-task-run" data-testid="task-run">
-          <header>
-            <Badge>{t.detail.runState[run.state] ?? run.state}</Badge>
-            <small>
-              {t.detail.started} {fmt(run.startedAt, zone)}
-              {run.model ? ` · ${run.model}` : ""}
-            </small>
-            <button type="button" aria-expanded={open === run.id} onClick={() => setOpen(open === run.id ? null : run.id)}>
-              {open === run.id ? t.detail.collapse : t.detail.expand}
-            </button>
-          </header>
-          {open === run.id ? <RunBody runId={run.id} /> : null}
-          {run.state === "waiting_input" ? (
-            <div data-testid="run-questions">
-              {run.questions.map((q) => (
-                <div key={q.id} className="hu-field">
-                  <span className="hu-field-label">{q.text}</span>
-                  {q.answer !== null ? (
-                    <span className="hu-hint-text">
-                      {t.detail.answered}：{q.answer}
-                    </span>
-                  ) : (
-                    <>
-                      {q.options.length > 0 ? (
-                        <div className="hu-segmented-alt" role="group" aria-label={q.text}>
-                          {q.options.map((o) => (
-                            <button key={o} type="button" className={answers[`${run.id}:${q.id}`] === o ? "active" : ""} aria-pressed={answers[`${run.id}:${q.id}`] === o} onClick={() => setAnswers({ ...answers, [`${run.id}:${q.id}`]: o })}>
-                              {o}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <input
-                        aria-label={`${t.detail.answer} ${q.id}`}
-                        placeholder={t.detail.answerPlaceholder}
-                        value={answers[`${run.id}:${q.id}`] ?? ""}
-                        onChange={(e) => setAnswers({ ...answers, [`${run.id}:${q.id}`]: e.target.value })}
-                      />
-                    </>
-                  )}
-                </div>
-              ))}
-              <Button variant="primary" loading={busy} onClick={() => void submit(run)}>
-                {t.detail.answer}
-              </Button>
+    <>
+      {showResult ? (
+        <div className="markdown" data-testid="run-result">
+          <TaskMarkdownView id={`run-${run.id}`} value={d.data?.body.trim() || t.detail.none} refs={refs} />
+        </div>
+      ) : null}
+      {run.state === "waiting_input" ? (
+        <div data-testid="run-questions">
+          {questions.map((q) => (
+            <div key={q.id} className="hu-field">
+              <span className="hu-field-label">{q.text}</span>
+              {q.answer !== null ? (
+                <span className="hu-hint-text">
+                  {t.detail.answered}：{q.answer}
+                </span>
+              ) : (
+                <>
+                  {q.options.length > 0 ? (
+                    <div className="hu-segmented-alt" role="group" aria-label={q.text}>
+                      {q.options.map((o) => (
+                        <button key={o} type="button" className={answers[q.id] === o ? "active" : ""} aria-pressed={answers[q.id] === o} onClick={() => setAnswers({ ...answers, [q.id]: o })}>
+                          {o}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <input aria-label={`${t.detail.answer} ${q.id}`} placeholder={t.detail.answerPlaceholder} value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
+                </>
+              )}
             </div>
-          ) : null}
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function RunBody({ runId }: { runId: string }) {
-  const refs = useReferenceIndex();
-  const d = useCapability<{ body: string }>("automations.runs.read", { runId });
-  return (
-    <div className="markdown" data-testid="run-result">
-      <TaskMarkdownView id={`run-${runId}`} value={d.data?.body.trim() || t.detail.none} refs={refs} />
-    </div>
+          ))}
+          <Button variant="primary" loading={busy} disabled={busy || questions.length === 0} onClick={() => void submit()}>
+            {t.detail.answer}
+          </Button>
+        </div>
+      ) : null}
+    </>
   );
 }

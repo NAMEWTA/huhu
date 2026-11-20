@@ -288,7 +288,7 @@ test("Human、缺配 Agent 和显式已有会话在重启后可读，保存或�
   const reminders = [{ id: "fixture-reminder", channel: "in_app", at: "2099-01-01T00:00:00Z", enabled: true, deliveredAt: null }];
   const existing = await call<TaskDto>(engine, "tasks.create", { title: "已有会话", type: "agent", body: "一轮任务", execution: existingConfig, reminders });
   expect(existing).toMatchObject({ ok: true, data: { execution: existingConfig } });
-  expect(existing.data.dispatchBlockers).toContain("复用已有会话需要 Agent CLI 支持绑定派遣");
+  expect(existing.data.dispatchBlockers).toEqual([]);
   expect(await call(engine, "tasks.create", { title: "无会话", type: "agent", execution: { target: { mode: "existing" } } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   expect(await call(engine, "tasks.create", { title: "冲突会话", type: "agent", execution: { target: { mode: "new", sessionId: "fixture-huhu-session" } } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
 
@@ -466,6 +466,10 @@ function submitReceipt(engine: RunningEngine, receipt: ExecutionReceipt) {
 
 test("持久验收原回执后才 ACK，重开补送原评论一次且不重新执行", { timeout: 60_000 }, async () => {
   const { root, fake, engine, task, run, execution } = await startBoundRun();
+  const dispatches = await call(engine, "tasks.dispatch.list", { taskId: task.id });
+  expect(dispatches).toMatchObject({ ok: true, data: [{ runId: run.runId, dispatchId: run.dispatchId, session: { id: execution.sessionBinding.sessionId, spaceId: task.execution?.spaceId } }] });
+  expect(JSON.stringify(dispatches)).not.toContain(execution.sessionBinding.nativeSessionId!);
+  expect(await call(engine, "tasks.dispatch.list", { taskId: task.id }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
   const input = { version: 1, receiptId: "fixture-result", kind: "result", execution, payload: { message: "已完成的合成结果" } } as const satisfies ExecutionReceipt;
   const expected = { ok: true, data: { stage: "tasks_consumed", receipt: executionReceiptIdentity(input) } };
   const consume = (running: RunningEngine, receipt: ExecutionReceipt = input) => submitReceipt(running, receipt);

@@ -26,6 +26,8 @@
       "tasks.runs",
       "tasks.dispatch",
       "tasks.dispatch.read",
+      "tasks.dispatch.list",
+      "tasks.dispatch.targets",
       "tasks.dispatch.cancel",
       "tasks.dispatch.stop",
       "tasks.dispatch.stop.read",

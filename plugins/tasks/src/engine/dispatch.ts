@@ -20,6 +20,7 @@ import {
   type OwnedRecord,
   type StopLookup,
   type StopReceipt,
+  type TaskDispatchView,
 } from "./dispatch-store.js";
 import { agentDispatchBlocker, type TasksService } from "./service.js";
 import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
@@ -574,6 +575,24 @@ export class TaskDispatch {
 
   read(input: DispatchLookup): DispatchReceipt {
     const { record } = this.lookup(input);
+    return this.dispatchView(record);
+  }
+
+  list(taskId: string): TaskDispatchView[] {
+    this.tasks.read(taskId);
+    return this.store
+      .list()
+      .filter(({ receipt }) => receipt.taskId === taskId)
+      .map((record) => {
+        const { boundExecution, snapshot } = record;
+        const spaceId = snapshot.execution.spaceId;
+        const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? { id: boundExecution.sessionBinding.sessionId, spaceId } : null;
+        return { ...this.dispatchView(record), session };
+      })
+      .sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt) || b.runId.localeCompare(a.runId));
+  }
+
+  private dispatchView(record: DispatchRecord): DispatchReceipt {
     if (holdsTask(record.receipt) && record.claim && record.claim.machineId !== this.machineId) return { ...record.receipt, reason: "foreign_machine" };
     return record.receipt;
   }

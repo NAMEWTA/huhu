@@ -72,6 +72,12 @@ describe("编辑表单", () => {
     expect(validateDraft(ok)).toEqual([]);
     expect(draftToWritable(ok).execution).toEqual({ spaceId: "s1", provider: "claude", model: "m", effort: null, fast: false });
   });
+  test("选定已有会话后保存时保留会话身份，可以沿用其提供方", () => {
+    const target = { mode: "existing", sessionId: "sess-1" } as const;
+    const draft = emptyDraft({ title: "同一会话", type: "agent", spaceId: "s1", target });
+    expect(validateDraft(draft)).toEqual([]);
+    expect(draftToWritable(draft).execution).toMatchObject({ spaceId: "s1", provider: null, target });
+  });
   test("任务 ↔ 表单往返不丢字段", () => {
     const task: TaskDto = {
       id: "t",

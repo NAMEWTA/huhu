@@ -232,6 +232,7 @@ export function TasksModule({ onNavigate }: ModuleProps) {
           onStatus={(x, next) => void changeStatus(x, next)}
           onChanged={() => void refresh()}
           onOpenNotes={() => onNavigate?.("notes")}
+          onOpenAgent={() => onNavigate?.("agent-cli")}
           onEdit={() => setEditor({ mode: "edit", task: selected })}
           onDuplicate={() => void run("tasks.duplicate", { id: selected.id }).then((r) => r && setSelectedId(r.id))}
           onDelete={() => void run("tasks.delete", { id: selected.id }).then((r) => r !== null && setSelectedId(null))}

@@ -17,11 +17,12 @@ import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
 import { machineId, VaultFiles } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
+import { AgentDispatchTargetInfoSchema } from "@huhu/plugin-agent-cli/engine";
 import { statSync } from "node:fs";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
-import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, StopLookup, StopReceipt } from "./dispatch-store.js";
+import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, StopLookup, StopReceipt, TaskDispatchView } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { agentDispatchBlocker, TasksService } from "./service.js";
@@ -230,6 +231,37 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: (c, i) => {
         if (c.caller !== "desktop") throw errors.permissionDenied("查看任务派遣");
         return dispatch.read(i);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.targets",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.strictObject({ spaceId: z.string().min(1) }),
+      output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, available: true, reason: true })),
+      handler: async ({ caller, signal }, { spaceId }) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
+        const targets = z.array(AgentDispatchTargetInfoSchema).parse(await api.call("agent.targets.list", { vaultId: api.vault.vaultId, machineId: machineId(), spaceId }, { signal }));
+        return targets.map(({ mode, provider, sessionId, available, reason }) => ({ mode, provider, sessionId, available, reason }));
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.list",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.strictObject({ taskId: z.string() }),
+      output: z.array(TaskDispatchView),
+      handler: ({ caller }, { taskId }) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务派遣");
+        return dispatch.list(taskId);
       },
     }),
   );

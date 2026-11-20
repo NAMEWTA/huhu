@@ -1,4 +1,4 @@
-import type { TaskDto, TaskStatus, TaskType } from "@huhu/contracts";
+import type { TaskDto, TaskExecution, TaskStatus, TaskType } from "@huhu/contracts";
 import { normalizeTags } from "@huhu/contracts";
 
 export interface DraftReminder {
@@ -22,6 +22,7 @@ export interface TaskDraft {
   model: string | null;
   effort: string | null;
   fast: boolean;
+  target: NonNullable<TaskExecution["target"]> | null;
   reminders: DraftReminder[];
 }
 
@@ -37,6 +38,7 @@ export const emptyDraft = (over: Partial<TaskDraft> = {}): TaskDraft => ({
   model: null,
   effort: null,
   fast: false,
+  target: null,
   reminders: [],
   ...over,
 });
@@ -54,6 +56,7 @@ export function draftFromTask(t: TaskDto): TaskDraft {
     model: t.execution?.model ?? null,
     effort: t.execution?.effort ?? null,
     fast: t.execution?.fast ?? false,
+    target: t.execution?.target ?? null,
     reminders: t.reminders.map((r) => ({ id: r.id, at: r.at, enabled: r.enabled, deliveredAt: r.deliveredAt })),
   };
 }
@@ -66,7 +69,7 @@ export function validateDraft(d: TaskDraft): DraftProblem[] {
   if (!d.title.trim()) p.push("title");
   if (d.type === "agent") {
     if (!d.spaceId) p.push("space");
-    if (!d.provider) p.push("provider");
+    if (d.target?.mode !== "existing" && !d.provider) p.push("provider");
   }
   if (d.reminders.some((r) => !r.at)) p.push("reminder");
   return p;
@@ -74,7 +77,7 @@ export function validateDraft(d: TaskDraft): DraftProblem[] {
 
 /** 表单 → tasks.create / tasks.update 的可写字段。调用前先 validateDraft。type=human 时保留执行配置，方便切回 agent。 */
 export function draftToWritable(d: TaskDraft) {
-  const hasExecution = d.type === "agent" || d.spaceId !== null || d.provider !== null;
+  const hasExecution = d.type === "agent" || d.spaceId !== null || d.provider !== null || d.target !== null;
   return {
     title: d.title.trim(),
     type: d.type,
@@ -82,7 +85,7 @@ export function draftToWritable(d: TaskDraft) {
     tags: normalizeTags(d.tags),
     due: d.due,
     project: d.project.trim() || null,
-    execution: hasExecution ? { spaceId: d.spaceId, provider: d.provider, model: d.model, effort: d.effort, fast: d.fast } : null,
+    execution: hasExecution ? { spaceId: d.spaceId, provider: d.provider, model: d.model, effort: d.effort, fast: d.fast, ...(d.target && { target: d.target }) } : null,
     reminders: d.reminders.filter((r): r is DraftReminder & { at: string } => r.at !== null).map((r) => ({ id: r.id, channel: "in_app" as const, at: r.at, enabled: r.enabled, deliveredAt: r.deliveredAt })),
   };
 }

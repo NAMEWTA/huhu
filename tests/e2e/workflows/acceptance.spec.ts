@@ -661,6 +661,48 @@ test("能力网关：逐项和批量选择先预览，旧版本保留草稿并�
   }
 });
 
+test("任务详情：提前派遣先核对原目标，不可用时重开仍显示原派遣", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    await expect.poll(async () => (await call("agent.spaces.list")).data?.length).toBeGreaterThan(0);
+    const [{ id: spaceId }] = (await call("agent.spaces.list")).data as { id: string }[];
+    const created = await call("tasks.create", {
+      title: "先核对原会话",
+      type: "agent",
+      body: "只发给指定会话",
+      availableAt: "2099-11-21T09:00:00Z",
+      execution: { spaceId, target: { mode: "existing", sessionId: "fixture-missing-original-session" } },
+    });
+    expect(created.ok).toBe(true);
+    const taskId = created.data.id as string;
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    const task = page.getByRole("button", { name: "打开任务 先核对原会话" });
+    await task.click();
+    const detail = page.getByTestId("task-detail");
+    const button = detail.getByRole("button", { name: "提前派遣", exact: true });
+    await button.click();
+    const dialog = page.getByRole("dialog", { name: "提前派遣" });
+    await expect(dialog).toContainText("2099");
+    await page.keyboard.press("Escape");
+    await expect(button).toBeFocused();
+    expect((await call("tasks.dispatch.list", { taskId })).data).toEqual([]);
+    await button.click();
+    await dialog.getByRole("button", { name: "确认提前派遣" }).click();
+    const managed = detail.getByTestId("managed-task-run");
+    await expect(managed).toContainText("原会话未连接或已不可用", { timeout: 12_000 });
+    const rows = (await call("tasks.dispatch.list", { taskId })).data as { runId: string; overriddenAvailableAt: string; state: string }[];
+    expect(rows).toMatchObject([{ state: "blocked", overriddenAvailableAt: "2099-11-21T09:00:00.000Z" }]);
+    await detail.getByRole("button", { name: "关闭任务详情", exact: true }).click();
+    await task.click();
+    await expect(detail.getByTestId("managed-task-run")).toHaveAttribute("data-run-id", rows[0]!.runId);
+    expect((await call("agent.sessions.list", { spaceId })).data).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
 test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果；任务进入进行中、不会自动完成，用户可自己关闭", async () => {
   test.skip(process.platform === "win32", "假 Codex 是 POSIX shell 脚本；Windows 需要 .cmd 假程序");
   const fs = await import("node:fs");

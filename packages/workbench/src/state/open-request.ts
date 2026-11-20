@@ -45,3 +45,22 @@ export function onOpenTaskRequest(open: (id: string) => void): () => void {
   }
   return () => taskListeners.delete(open);
 }
+
+type AgentSessionRequest = { vaultId: string; spaceId: string; sessionId: string };
+let pendingAgentSession: AgentSessionRequest | null = null;
+const agentSessionListeners = new Set<(request: AgentSessionRequest) => void>();
+
+export function requestOpenAgentSession(request: AgentSessionRequest): void {
+  if (agentSessionListeners.size === 0) pendingAgentSession = request;
+  else for (const open of agentSessionListeners) open(request);
+}
+
+export function onOpenAgentSessionRequest(open: (request: AgentSessionRequest) => void): () => void {
+  agentSessionListeners.add(open);
+  if (pendingAgentSession) {
+    const request = pendingAgentSession;
+    pendingAgentSession = null;
+    open(request);
+  }
+  return () => agentSessionListeners.delete(open);
+}
