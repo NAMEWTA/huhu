@@ -30,6 +30,7 @@
 | R-61 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src/components/conversations/conversation-workspace/conversation-pane.tsx`、`src/components/mail/mail-composer/index.tsx`、`src-tauri/src/commands/data/compose.rs` | `plugins/mail/src/{engine/prepare-reply.ts,ui/MailReader.tsx,ui/MailComposer.tsx}` | 参考原邮件的转发与新话题入口。复用 Huhu 草稿、原信身份、附件引用及投递状态。 |
 | R-62 | herdr-app `317e673f1f1568b876cbaa0b41dabeb9153ecbea`、herdr-core `c7517808d64f06609e4ecf0db1757005373cc3a3`（Apache-2.0） | `src/mirror_sync.rs`、Core `src/api/doc.rs` 与 `src/events.rs` | `plugins/agent-cli/src/engine/workspace-layout.ts`、`packages/herdr-client/src/client.ts` | 调用固定 Core 的 `doc.get`、`doc.set` 与 `docs` 订阅。参考已读取版本的写入模型，由 Huhu 校验同 Space 会话及丢回包的原版本。 |
 | R-63 | orca `8bc232f5ed8b4b36fec0c5f0f85ab96b4c0ccdf3`（MIT） | `src/shared/workspace-layout/terminal-topology/terminal-pane-tree.ts` | `plugins/agent-cli/src/shared/workspace-layout.ts`、`plugins/agent-cli/src/ui/WorkspaceCanvas.tsx` | 参考递归插入与兄弟节点折叠。Huhu 自行管理稳定叶 ID、最小分栏尺寸和 TerminalView 的连接。 |
+| R-64 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src-tauri/src/commands/data/conversations.rs` | `plugins/mail/src/engine/{conversations,message-cache,public-mail}.ts` | 参考按公开参与者过滤、归组和分页的流程。由 Huhu 校验原目录与账号身份，使用现有缓存及发件结果。 |
 
 ## 安装包依赖
 
