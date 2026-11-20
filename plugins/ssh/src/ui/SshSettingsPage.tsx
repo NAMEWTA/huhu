@@ -5,10 +5,11 @@ import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type Devic
 import { canScaleTerminal } from "./SshTerminal.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { SshVaultSettings } from "./SshVaultSettings.js";
+import { SshSharedTools } from "./SshSharedTools.js";
 
-const labels = { layout: "通用与布局", terminal: "终端", files: "文件与传输", connection: "连接" };
+const labels = { layout: "通用与布局", terminal: "终端", files: "文件与传输", connection: "连接", sharedTools: "MCP 与共享工具权限" };
 type Category = keyof typeof labels;
-type DeviceCategory = Exclude<Category, "connection">;
+type DeviceCategory = Exclude<Category, "connection" | "sharedTools">;
 const fields = {
   tabs: "工作区标签方向",
   paneTools: "分栏工具栏位置",
@@ -167,7 +168,9 @@ export function SshSettingsPage() {
   const filter = query.trim().toLowerCase();
   const matchesDevice = (key: DeviceCategory) => keys[key].some((field) => fields[field].includes(filter));
   const matchesVault = (key: keyof typeof vaultSearch) => vaultSearch[key].toLowerCase().includes(filter);
-  const categories = (Object.keys(labels) as Category[]).filter((key) => labels[key].includes(filter) || (key !== "connection" && matchesDevice(key)) || ((key === "connection" || key === "files") && matchesVault(key)));
+  const matchesCategory = (key: Category) => labels[key].toLowerCase().includes(filter);
+  const isDevice = (key: Category): key is DeviceCategory => Object.hasOwn(keys, key);
+  const categories = (Object.keys(labels) as Category[]).filter((key) => matchesCategory(key) || (isDevice(key) && matchesDevice(key)) || ((key === "connection" || key === "files") && matchesVault(key)));
   const selected = categories.includes(category) ? category : categories[0];
   return (
     <section data-testid="ssh-settings" aria-label="SSH 设置" className="hu-stack">
@@ -180,9 +183,10 @@ export function SshSettingsPage() {
         ))}
       </div>
       {!selected && <EmptyState title="没有匹配的 SSH 设置" />}
-      {selected && selected !== "connection" && (labels[selected].includes(filter) || matchesDevice(selected)) && <DeviceForm key={selected} category={selected} filter={filter} />}
+      {selected && isDevice(selected) && (matchesCategory(selected) || matchesDevice(selected)) && <DeviceForm key={selected} category={selected} filter={filter} />}
       {selected === "connection" && <SshVaultSettings section="connection" />}
       {selected === "files" && (labels.files.includes(filter) || matchesVault("files")) && <SshVaultSettings section="transfer" />}
+      {selected === "sharedTools" && <SshSharedTools />}
       {!filter && selected === "layout" && (
         <details className="hu-card-alt">
           <summary>凭据、已知主机与日志</summary>
