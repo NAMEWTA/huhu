@@ -9,7 +9,7 @@ import { canonicalJson } from "../shared/input.js";
 const Id = z.string().trim().min(1).max(256);
 const Instant = z.iso.datetime();
 const InputIdentity = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
-export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1) }).strict();
+export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional() }).strict();
 export const DispatchLookup = DispatchInput.pick({ taskId: true, dispatchId: true });
 export const RuleSource = z.strictObject({
   kind: z.literal("automation"),
@@ -29,6 +29,7 @@ const Snapshot = InputIdentity.extend({
   execution: TaskExecutionSchema,
   references: z.array(z.string()),
   source: Source,
+  allowEarly: z.boolean().optional(),
 });
 export const DispatchReceipt = DispatchLookup.extend({
   eventId: z.string(),
@@ -36,8 +37,9 @@ export const DispatchReceipt = DispatchLookup.extend({
   attempt: TaskRunAttemptSchema,
   acceptedAt: Instant,
   state: z.enum(["pending", "claimed", "sending", "running", "unknown", "cancelled", "stale_input", "expired", "blocked"]),
-  reason: z.enum(["waiting_resource", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "target_unsupported", "foreign_machine", "awaiting_confirmation"]).nullable(),
+  reason: z.enum(["waiting_resource", "waiting_schedule", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "target_unsupported", "foreign_machine", "awaiting_confirmation"]).nullable(),
   cancelRequested: z.boolean(),
+  overriddenAvailableAt: Instant.optional(),
 });
 const RecordFields = z.object({
   receipt: DispatchReceipt,
@@ -151,8 +153,8 @@ export class DispatchStore {
     try {
       const record = DispatchRecord.parse(JSON.parse(file.bytes.toString("utf8")));
       const { receipt, snapshot, claim, requestHash, snapshotHash } = record;
-      const { taskId, inputHash, inputRevision, expectedVersion, source } = snapshot;
-      const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion };
+      const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly } = snapshot;
+      const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion, ...(allowEarly !== undefined && { allowEarly }) };
       if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run") || receipt.attempt !== 1) throw new Error("派遣身份校验失败");
       if (fingerprint(snapshot) !== snapshotHash || fingerprint({ input, source }) !== requestHash) throw new Error("请求或快照校验失败");
       if ((receipt.state === "pending" && claim) || (["claimed", "sending", "running", "unknown"].includes(receipt.state) && !claim)) throw new Error("领取状态与记录不符");

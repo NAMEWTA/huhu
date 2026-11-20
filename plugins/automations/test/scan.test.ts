@@ -57,6 +57,14 @@ describe("classify（预览与扫描共用）", () => {
     const r = classify([agent("a", { dispatchBlockers: ["引用越界：../x.md", "任务内容为空"] })], env());
     expect(r.skipped[0]).toMatchObject({ reason: "task-blocked", detail: "引用越界：../x.md；任务内容为空" });
   });
+  test("台北明早的任务在最早时刻前不被扫描领取", () => {
+    const availableAt = "2026-11-21T09:00:00+08:00";
+    const task = agent("明早", { availableAt });
+    const result = classify([task], env(), { now: new Date("2026-11-21T00:59:59.999Z") });
+    expect(result.candidates).toEqual([]);
+    expect(result.skipped).toEqual([{ task, reason: "not-due", detail: availableAt }]);
+    expect(classify([task], env(), { now: new Date("2026-11-21T01:00:00Z") }).candidates[0]?.task.id).toBe(task.id);
+  });
   test("同输入已有 claim 跳过（各状态原因不同）；输入变化或重开（inputRevision+1）后再次成为候选", () => {
     const t = agent("a");
     const mk = (state: Claim["state"]): Claim => ({ processingKey: processingKeyOf(t), taskId: "a", runId: "run-1", state, claimedAt: "" });

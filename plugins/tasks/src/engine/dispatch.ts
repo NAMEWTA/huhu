@@ -1,4 +1,4 @@
-import { HuhuError, errors, isHuhuError, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
+import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
 import {
   DispatchInput,
   DispatchLookup,
@@ -49,6 +49,10 @@ type Rejection = NonNullable<DispatchReceipt["reason"]> | "stale_input" | "not_d
 function rejectDispatch(reason: Rejection, message: string, existing?: DispatchReceipt): never {
   const code = reason === "stale_input" ? "VERSION_CONFLICT" : "INVALID_INPUT";
   throw new HuhuError(code, message, { details: { reason, ...(existing ? { dispatchId: existing.dispatchId, eventId: existing.eventId, runId: existing.runId } : {}) } });
+}
+
+function maySend(task: TaskDto, receipt: DispatchReceipt, now: Date): boolean {
+  return isTaskAvailable(task.availableAt, now) || task.availableAt === receipt.overriddenAvailableAt;
 }
 
 export class TaskDispatch {
@@ -152,6 +156,8 @@ export class TaskDispatch {
         if (!sameInput(task, input)) rejectDispatch("stale_input", "任务输入已变化，请重新读取任务");
         const execution = this.dispatchable(task);
         if (!execution) rejectDispatch("task_unavailable", "只有配置齐全且未开始的 Agent 任务可以派遣");
+        const early = !isTaskAvailable(task.availableAt, acceptedAt);
+        if (early && (source.kind !== "desktop" || input.allowEarly !== true)) rejectDispatch("not_due", "尚未到最早派遣时间");
         if (source.kind === "automation") {
           if (source.notBefore && Date.parse(source.notBefore) > acceptedAt.getTime()) rejectDispatch("not_due", "派遣时刻尚未到达");
           if (source.expiresAt && Date.parse(source.expiresAt) <= acceptedAt.getTime()) rejectDispatch("expired", "派遣窗口已结束");
@@ -166,6 +172,7 @@ export class TaskDispatch {
           execution,
           references: task.references.filter((ref) => ref.from === "task").map((ref) => ref.path),
           source,
+          ...(input.allowEarly !== undefined && { allowEarly: input.allowEarly }),
         };
         const receipt: DispatchReceipt = {
           taskId: task.id,
@@ -177,6 +184,7 @@ export class TaskDispatch {
           state: "pending",
           reason: null,
           cancelRequested: false,
+          ...(early && task.availableAt && { overriddenAvailableAt: task.availableAt }),
         };
         // 只要求旧版本的执行输入仍一致。评论或不参与执行的字段可在新文件版本上受理。
         return (await this.store.create({ receipt, requestHash, snapshot, snapshotHash: fingerprint(snapshot), claim: null, startedAt: null, finishedAt: null })).receipt;
@@ -312,6 +320,7 @@ export class TaskDispatch {
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
       else if (task && !sameInput(task, snapshot)) Object.assign(next, { state: "stale_input", reason: null });
       else if (!task || !this.dispatchable(task)) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
+      else if (!maySend(task, receipt, now)) next.reason = "waiting_schedule";
       else if (this.tasks.hasLegacyRun(taskId)) next.reason = "task_occupied";
       else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
       else if (state === "busy" || state === "ready") {
@@ -341,7 +350,8 @@ export class TaskDispatch {
       const task = this.task(taskId);
       if (!task || !sameInput(task, record.snapshot) || !this.dispatchable(task) || this.tasks.hasLegacyRun(taskId)) return false;
       const source = record.snapshot.source;
-      if (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= this.now().getTime()) return false;
+      const now = this.now();
+      if (!maySend(task, record.receipt, now) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
       await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version);
       return !this.abort.signal.aborted;
     });

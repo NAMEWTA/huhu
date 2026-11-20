@@ -287,11 +287,12 @@ export class AutomationsService {
   /** 只读预览：候选、跳过原因、接下来三次激活时间；不写任何文件。 */
   preview(ruleId: string) {
     const r = this.rule(ruleId);
-    const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, this.d.now());
+    const now = this.d.now();
+    const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
     const a = r.data.action;
     if (a.kind !== "agent" || a.input.source !== "tasks") return { next, tasksDisabled: false, candidates: [], skipped: [] };
     if (!this.d.taskQuery()) return { next, tasksDisabled: true, candidates: [], skipped: [] };
-    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), { tags: a.input.tags }); // 含非 agent / 已开始 / 标签不符的跳过项
+    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), { tags: a.input.tags, now }); // 含非 agent / 已开始 / 标签不符的跳过项
     return {
       next,
       tasksDisabled: false,
@@ -301,17 +302,7 @@ export class AutomationsService {
   }
 
   private allTasks(): SnapshotTask[] {
-    return (this.d.taskQuery()?.listAll() ?? []).map((t) => ({
-      id: t.id,
-      title: t.title,
-      type: t.type,
-      status: t.status,
-      tags: t.tags,
-      execution: t.execution ? { spaceId: t.execution.spaceId, provider: t.execution.provider } : null,
-      inputRevision: t.inputRevision,
-      inputHash: t.inputHash,
-      dispatchBlockers: t.dispatchBlockers,
-    }));
+    return (this.d.taskQuery()?.listAll() ?? []).map((task) => this.snapshotOf(task));
   }
 
   // ---- 激活 ----
@@ -521,7 +512,7 @@ export class AutomationsService {
   private async scan(ruleId: string, maxConcurrent: number, tags: string[], instruction: string): Promise<{ processed: number; skipped: number } | { state: string }> {
     if (!this.d.taskQuery()) return { state: "tasks-disabled" }; // ACC-AU-10：任务插件已停用，跳过
     await this.d.refreshClis?.().catch(() => undefined);
-    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), { tags });
+    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), { tags, now: this.d.now() });
     let next = 0;
     let processed = 0;
     const worker = async () => {
@@ -542,6 +533,7 @@ export class AutomationsService {
       type: t.type,
       status: t.status,
       tags: t.tags,
+      availableAt: t.availableAt ?? null,
       execution: t.execution ? { spaceId: t.execution.spaceId, provider: t.execution.provider } : null,
       inputRevision: t.inputRevision,
       inputHash: t.inputHash,
@@ -560,7 +552,7 @@ export class AutomationsService {
       const task = this.d.taskQuery()?.snapshot(snap.id);
       if (!task || task.type !== "agent" || !task.execution?.spaceId || !task.execution.provider) return null;
       if (task.inputHash !== snap.inputHash || task.inputRevision !== snap.inputRevision) return null; // 快照后任务又被编辑：本次不处理
-      if (classify([this.snapshotOf(task)], this.scanEnv()).candidates.length === 0) return null; // 互斥内重新预检：Space 已被占用、已有 claim、任务已不是未开始……
+      if (classify([this.snapshotOf(task)], this.scanEnv(), { now: this.d.now() }).candidates.length === 0) return null; // 互斥内重新预检：Space 已被占用、已有 claim、任务已不是未开始……
       const space = this.d.spaceState(task.execution.spaceId);
       if (space.state !== "ok" || !space.root) return null;
       const snapshotText = this.d.readVaultFile(task.path);

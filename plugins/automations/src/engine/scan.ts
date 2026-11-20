@@ -1,4 +1,4 @@
-import { matchesTags } from "@huhu/contracts";
+import { isTaskAvailable, matchesTags } from "@huhu/contracts";
 
 export interface SnapshotTask {
   id: string;
@@ -6,6 +6,7 @@ export interface SnapshotTask {
   type: "human" | "agent";
   status: "not_started" | "in_progress" | "completed";
   tags: string[];
+  availableAt?: string | null;
   execution: { spaceId: string | null; provider: string | null } | null;
   inputRevision: number;
   inputHash: string;
@@ -13,7 +14,7 @@ export interface SnapshotTask {
   dispatchBlockers: string[];
 }
 
-export type SkipReason = "not-open" | "not-agent" | "tag-mismatch" | "task-blocked" | "missing-space" | "space-inaccessible" | "space-busy" | "cli-missing" | "succeeded" | "retryable" | "running" | "held-after-restore";
+export type SkipReason = "not-open" | "not-agent" | "tag-mismatch" | "not-due" | "task-blocked" | "missing-space" | "space-inaccessible" | "space-busy" | "cli-missing" | "succeeded" | "retryable" | "running" | "held-after-restore";
 
 export interface Claim {
   processingKey: string;
@@ -55,10 +56,11 @@ export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "
  * 只读分类：候选与跳过原因。预览和真实扫描共用，保证两者一致。
  * 只有 type=agent、status=not_started 且符合标签筛选的任务才可能成为候选。
  */
-export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: { tags?: string[] } = {}): { candidates: Candidate[]; skipped: Skipped[] } {
+export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: { tags?: string[]; now?: Date } = {}): { candidates: Candidate[]; skipped: Skipped[] } {
   const candidates: Candidate[] = [];
   const skipped: Skipped[] = [];
   const usedSpaces = new Set<string>(); // 一次扫描里同一 Space 只选一个候选
+  const now = filter.now ?? new Date();
   for (const task of tasks) {
     const skip = (reason: SkipReason, detail?: string) => skipped.push({ task, reason, ...(detail ? { detail } : {}) });
     if (task.type !== "agent") {
@@ -71,6 +73,10 @@ export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: { tags?: s
     }
     if (filter.tags && filter.tags.length > 0 && !matchesTags(task.tags, filter.tags)) {
       skip("tag-mismatch");
+      continue;
+    }
+    if (!isTaskAvailable(task.availableAt, now)) {
+      skip("not-due", task.availableAt ?? undefined);
       continue;
     }
     if (task.dispatchBlockers.length > 0) {

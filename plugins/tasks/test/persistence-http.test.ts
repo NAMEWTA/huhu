@@ -362,6 +362,56 @@ function executor(): TaskDispatchExecutor {
   };
 }
 
+test("最早派遣按显式时区保存，只有工作台可以提前派遣当前时刻", { timeout: 60_000 }, async () => {
+  const root = tempVault();
+  fixture.now = new Date("2026-11-20T02:00:00Z");
+  const fake = executor();
+  const ready = vi.fn<TaskDispatchExecutor["ready"]>().mockResolvedValue("busy");
+  fake.ready = ready;
+  fixture.executor = fake;
+  const first = await start(root, true);
+  const [space] = (await call<{ id: string }[]>(first, "agent.spaces.list", {})).data;
+  const create = (engine: RunningEngine, availableAt: string) =>
+    call<TaskDto>(engine, "tasks.create", { title: "有最早派遣时间", type: "agent", body: "合成任务", due: "2026-11-23", availableAt, execution: { spaceId: space!.id, provider: "codex" } });
+  expect(await create(first, "2026-11-21T09:00:00")).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  const created = await create(first, "2026-11-21T09:00:00+08:00");
+  expect(created).toMatchObject({ ok: true, data: { availableAt: "2026-11-21T01:00:00.000Z", due: "2026-11-23" } });
+  await stop(first);
+
+  const engine = await start(root);
+  const task = (await call<TaskDto>(engine, "tasks.read", { id: created.data.id })).data;
+  expect(task).toMatchObject({ availableAt: "2026-11-21T01:00:00.000Z", due: "2026-11-23" });
+  const request = intent(task);
+  expect(await call(engine, "tasks.dispatch", request)).toMatchObject({ ok: false, error: { details: { reason: "not_due" } } });
+  await expect(fixture.rule!.acceptRule({ ...request, allowEarly: true }, rule("scheduled"))).rejects.toMatchObject({ details: { reason: "not_due" } });
+  expect(await call(engine, "tasks.dispatch.read", { taskId: task.id, dispatchId: request.dispatchId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+
+  const early = await call<DispatchReceipt>(engine, "tasks.dispatch", { ...request, allowEarly: true });
+  expect(early).toMatchObject({ ok: true, data: { overriddenAvailableAt: task.availableAt, state: "pending" } });
+  expect(recordOf(engine, early.data).snapshot.source.kind).toBe("desktop");
+  await waitDispatch(engine, early.data, { state: "pending", reason: "waiting_resource" });
+  const shifted = await call<TaskDto>(engine, "tasks.update", { id: task.id, expectedVersion: task.version, patch: { availableAt: "2026-11-21T18:00:00+08:00" } });
+  expect(shifted).toMatchObject({ ok: true, data: { availableAt: "2026-11-21T10:00:00.000Z", inputHash: task.inputHash, inputRevision: task.inputRevision } });
+  ready.mockResolvedValue("ready");
+  await waitDispatch(engine, early.data, { state: "pending", reason: "waiting_schedule" });
+  expect(fake.dispatch).not.toHaveBeenCalled();
+  fixture.now = new Date("2026-11-21T10:00:00Z");
+  await waitDispatch(engine, early.data, { state: "running", reason: null });
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+
+  const later = await create(engine, "2026-11-23T09:00:00+08:00");
+  const next = await call<DispatchReceipt>(engine, "tasks.dispatch", { ...intent(later.data), allowEarly: true });
+  expect(next).toMatchObject({ ok: true, data: { overriddenAvailableAt: later.data.availableAt } });
+  await waitDispatch(engine, next.data, { state: "running", reason: null });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+
+  const clear = await create(engine, "2026-11-23T10:00:00+08:00");
+  expect(await call(engine, "tasks.update", { id: clear.data.id, expectedVersion: clear.data.version, patch: { availableAt: null } })).toMatchObject({
+    ok: true,
+    data: { availableAt: null, due: "2026-11-23" },
+  });
+});
+
 async function startBoundRun() {
   const root = tempVault();
   const fake = executor();

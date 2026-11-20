@@ -1,6 +1,7 @@
 import {
   errors,
   isHuhuError,
+  isTaskAvailable,
   matchesTags,
   newId,
   normalizeTags,
@@ -42,6 +43,7 @@ type TaskData = {
   completedAt: string | null;
   tags: string[];
   due: string | null;
+  availableAt: string | null;
   project: string | null;
   origin: TaskOrigin;
   execution: TaskDto["execution"];
@@ -109,12 +111,14 @@ export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): 
     type: d.type,
     tags: d.tags ?? [],
     due: d.due ?? null,
+    ...(d.availableAt && { availableAt: d.availableAt }),
     project: d.project ?? null,
     execution: d.execution ?? null,
     reminders: d.reminders,
   };
   return {
     ...editable,
+    availableAt: d.availableAt ?? null,
     id: e.id,
     path: e.path,
     version: e.version,
@@ -206,6 +210,7 @@ export class TasksService {
       completedAt: null,
       tags: input.tags,
       due: input.due,
+      availableAt: input.availableAt ? new Date(input.availableAt).toISOString() : null,
       project: input.project,
       origin,
       execution: executionWithDefault(input.type, input.execution),
@@ -236,6 +241,7 @@ export class TasksService {
       if (patch.type !== undefined) changes["type"] = patch.type;
       if (patch.tags !== undefined) changes["tags"] = normalizeTags(patch.tags);
       if (patch.due !== undefined) changes["due"] = patch.due;
+      if (patch.availableAt !== undefined) changes["availableAt"] = patch.availableAt === null ? null : new Date(patch.availableAt).toISOString();
       if (patch.project !== undefined) changes["project"] = patch.project;
       if (patch.reminders !== undefined) changes["reminders"] = patch.reminders;
       let nextExec = cur.execution;
@@ -324,6 +330,7 @@ export class TasksService {
       const cur = this.dto(entity);
       if (cur.status === "in_progress" && cur.comments.some((c) => c.id === `sys-${runId}-dispatched`)) return cur; // 同一 runId 重复调用
       if (opts.legacy && this.d.hasDispatchHold?.(id)) throw errors.invalidInput("该任务已有待派或活动运行");
+      if (opts.legacy && !isTaskAvailable(cur.availableAt, this.d.now())) throw errors.invalidInput("尚未到最早派遣时间");
       if (cur.type !== "agent" || cur.status !== "not_started") throw errors.invalidInput("只有未开始的 Agent 任务可以派发");
       if (processingKey(cur.id, cur.inputRevision, cur.inputHash) !== processingKey(id, key.inputRevision, key.inputHash)) throw errors.invalidInput("任务内容已变化，不能按旧内容派发");
       const stamp = iso(this.d.now());
@@ -357,6 +364,7 @@ export class TasksService {
         body: cur.body,
         tags: cur.tags,
         due: cur.due,
+        availableAt: cur.availableAt ?? null,
         project: cur.project,
         execution: cur.execution,
         reminders: cur.reminders.map((r) => ({ ...r, deliveredAt: null })),

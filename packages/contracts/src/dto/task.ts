@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TaskExecutionSchema, TaskOriginSchema, TaskReminderSchema, TaskStatusSchema, TaskTypeSchema } from "../kinds/task.js";
+import { TaskAvailableAtSchema, TaskExecutionSchema, TaskOriginSchema, TaskReminderSchema, TaskStatusSchema, TaskTypeSchema } from "../kinds/task.js";
 import { normalizeTags } from "../tags.js";
 
 export const TaskCategorySchema = z.enum(["all", "today", "tomorrow", "week", "ended"]);
@@ -41,6 +41,7 @@ export const TaskDtoSchema = z.object({
   completedAt: z.string().nullable(),
   tags: z.array(z.string()),
   due: z.string().nullable(),
+  availableAt: z.iso.datetime().nullable().optional(),
   project: z.string().nullable(),
   origin: TaskOriginSchema,
   execution: TaskExecutionSchema.nullable(),
@@ -72,6 +73,7 @@ const TaskFields = z.strictObject({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
+  availableAt: TaskAvailableAtSchema.nullable().optional(),
   project: z.string().nullable(),
   execution: TaskExecutionSchema.nullable(),
   reminders: z.array(TaskReminderSchema.omit({ deliveredAt: true }).extend({ deliveredAt: z.string().nullable().default(null) })),

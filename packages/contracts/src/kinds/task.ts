@@ -10,6 +10,12 @@ export const TaskStatusSchema = z.enum(["not_started", "in_progress", "completed
 export type TaskType = z.infer<typeof TaskTypeSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
+export const TaskAvailableAtSchema = z.iso.datetime({ offset: true });
+
+export function isTaskAvailable(availableAt: string | null | undefined, now: Date): boolean {
+  return availableAt == null || Date.parse(availableAt) <= now.getTime();
+}
+
 /** agent 任务的执行配置；没有 `kind`，类型只看任务的 `type`。 */
 export const TaskExecutionSchema = z.object({
   spaceId: z.string().nullable().default(null),
@@ -62,6 +68,7 @@ export const TaskFrontmatterSchema = z.object({
   completedAt: dateLike(IsoTime).nullable().default(null),
   tags: z.preprocess(normalizeTags, z.array(z.string())).default([]),
   due: dateLike(DateOnly).nullable().default(null),
+  availableAt: dateLike(z.iso.datetime()).nullable().default(null),
   project: z.string().nullable().default(null),
   origin: TaskOriginSchema,
   execution: TaskExecutionSchema.nullable().default(null),
