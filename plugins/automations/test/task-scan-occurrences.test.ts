@@ -22,7 +22,6 @@ const fixture = {
   ready: vi.fn<TaskDispatchExecutor["ready"]>(),
   dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>(),
   accept: vi.fn<TaskRuleDispatch["acceptRule"]>(),
-  legacyWorker: vi.fn(),
   refresh: vi.fn<() => Promise<void>>(),
 };
 
@@ -41,7 +40,7 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
             if (name === "automationReminderDeliveries") fixture.reminders = service as ReminderDeliveries;
           },
         },
-        { ...opts, schedule: false, now: () => fixture.now, refreshClis: fixture.refresh, cliAvailable: () => true, worker: fixture.legacyWorker },
+        { ...opts, schedule: false, now: () => fixture.now, refreshClis: fixture.refresh, cliAvailable: () => true },
       )) satisfies typeof automations.apply,
   };
 });
@@ -84,7 +83,6 @@ beforeEach(() => {
   fixture.dispatch.mockReset().mockResolvedValue("accepted");
   fixture.accept.mockReset();
   fixture.refresh.mockReset().mockResolvedValue(undefined);
-  fixture.legacyWorker.mockReset().mockRejectedValue(new Error("旧 worker 不应参加任务扫描"));
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 });
 
@@ -295,7 +293,6 @@ test("真实两规则和工作台争同一任务，重交沿用原版本，运�
   } finally {
     releaseDispatch?.();
   }
-  expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 
 test("已有会话和原生恢复交由 Tasks 对各自目标做预检", async () => {
@@ -327,7 +324,6 @@ test("已有会话和原生恢复交由 Tasks 对各自目标做预检", async (
     ),
   );
   expect(fixture.dispatch).not.toHaveBeenCalled();
-  expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 
 test("刷新未完成时保留扫描资格，冻结完成后重交不再刷新", async () => {
@@ -394,7 +390,6 @@ test("模板派遣在任务文件落盘后中断，恢复使用原任务和模�
   expect(next).toMatchObject({ ruleVersion: changed.version, items: [{ state: "accepted", taskId: next?.template?.taskId }] });
   expect(dispatchRecords(reopened.engine)).toHaveLength(2);
   expect(dispatchRecords(reopened.engine).find(({ receipt }) => receipt.taskId === next?.template?.taskId)?.snapshot.body).toBe("第二版模板正文");
-  expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 
 test("模板预检失败保存原因，且不会创建任务或运行", async () => {
@@ -409,7 +404,6 @@ test("模板预检失败保存原因，且不会创建任务或运行", async ()
   expect(result).toMatchObject({ scheduledForUTC: null, finishedAt: expect.any(String), template: { issue: "missing-space" }, items: [] });
   expect(await invoke<TaskDto[]>(engine, "tasks.list", {})).toEqual([]);
   expect(dispatchRecords(engine)).toEqual([]);
-  expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 
 test.each(["occurrence", "acceptance", "finish"] as const)("%s 写入边界中断后重开，从原名单收尾", async (stage) => {
@@ -480,7 +474,6 @@ test.each(["occurrence", "acceptance", "finish"] as const)("%s 写入边界中�
   }
   for (const record of before) expect(after).toEqual(expect.arrayContaining([expect.objectContaining({ receipt: expect.objectContaining({ eventId: record.receipt.eventId, runId: record.receipt.runId }) })]));
   expect(await reopened.scans.scheduled(rule.id, slot)).toEqual(completed);
-  expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 
 test.each([false, true])("还原的扫描名单双份 Vault ID 策略下都仅作历史 (%s)", async (regenerateId) => {

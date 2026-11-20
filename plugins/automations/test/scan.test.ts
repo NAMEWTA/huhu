@@ -2,9 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { ClaimStore } from "../src/engine/claims.js";
 import { dispatchWindow } from "../src/engine/dispatch-window.js";
-import { classify, processingKeyOf, type Claim, type ScanEnv, type SnapshotTask } from "../src/engine/scan.js";
+import { classify, type ScanEnv, type SnapshotTask } from "../src/engine/scan.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -23,8 +22,8 @@ const agent = (id: string, over: Partial<SnapshotTask> = {}): SnapshotTask => ({
   dispatchBlockers: [],
   ...over,
 });
-function env(over: Partial<ScanEnv> = {}, claims: Claim[] = []): ScanEnv {
-  return { claims: (k) => claims.find((c) => c.processingKey === k) ?? null, holds: () => false, spaceAccessible: () => "ok", spaceBusy: () => false, cliAvailable: () => true, ...over };
+function env(over: Partial<ScanEnv> = {}): ScanEnv {
+  return { holds: () => false, spaceAccessible: () => "ok", cliAvailable: () => true, ...over };
 }
 
 test("窗口使用规则当地日历的半开边界，含周一、跨月和 DST", () => {
@@ -66,13 +65,13 @@ describe("classify（预览与扫描共用）", () => {
   });
   test("标签筛选：全部匹配才通过；规则无标签 = 不筛选", () => {
     const tasks = [agent("a", { tags: ["周报", "接口"] }), agent("b", { tags: ["周报"] }), agent("c")];
-    expect(classify(tasks, env(), { tags: ["周报"] }).candidates.map((c) => c.task.id)).toEqual(["a"]); // a、b 同在 space-1：一次只选一个
+    expect(classify(tasks, env(), { tags: ["周报"] }).candidates.map((c) => c.task.id)).toEqual(["a", "b"]);
     expect(classify(tasks, env(), { tags: ["周报", "接口"] }).candidates.map((c) => c.task.id)).toEqual(["a"]);
     expect(classify(tasks, env(), { tags: ["周报", "接口"] }).skipped.map((s) => [s.task.id, s.reason])).toEqual([
       ["b", "tag-mismatch"],
       ["c", "tag-mismatch"],
     ]);
-    expect(classify(tasks, env(), {}).candidates).toHaveLength(1); // 同一 Space 一次只选一个
+    expect(classify(tasks, env(), {}).candidates).toHaveLength(3);
   });
   test("任务自身原因（引用越界、结构错误等）→ task-blocked，并带详情", () => {
     const r = classify([agent("a", { dispatchBlockers: ["引用越界：../x.md", "任务内容为空"] })], env());
@@ -86,25 +85,6 @@ describe("classify（预览与扫描共用）", () => {
     expect(result.skipped).toEqual([{ task, reason: "not-due", detail: availableAt }]);
     expect(classify([task], env(), { now: new Date("2026-11-21T01:00:00Z") }).candidates[0]?.task.id).toBe(task.id);
   });
-  test("同输入已有 claim 跳过（各状态原因不同）；输入变化或重开（inputRevision+1）后再次成为候选", () => {
-    const t = agent("a");
-    const mk = (state: Claim["state"]): Claim => ({ processingKey: processingKeyOf(t), taskId: "a", runId: "run-1", state, claimedAt: "" });
-    for (const [state, reason] of [
-      ["succeeded", "succeeded"],
-      ["failed", "retryable"],
-      ["cancelled", "retryable"],
-      ["unknown", "running"],
-      ["running", "running"],
-      ["queued", "running"],
-      ["waiting_input", "running"],
-    ] as const) {
-      expect(classify([t], env({}, [mk(state)])).skipped[0]).toMatchObject({ reason });
-    }
-    const done = [mk("succeeded")];
-    expect(classify([agent("a", { inputHash: "changed" })], env({}, done)).candidates).toHaveLength(1);
-    expect(classify([agent("a")], env({}, done)).candidates).toHaveLength(0);
-    expect(classify([agent("a", { inputRevision: 2 })], env({}, done)).candidates).toHaveLength(1);
-  });
   test("恢复后暂停；缺 Space / 目录不可访问 / CLI 未安装", () => {
     expect(classify([agent("a")], env({ holds: (id) => id === "a" })).skipped[0]?.reason).toBe("held-after-restore");
     expect(classify([agent("a", { execution: { spaceId: null, provider: "codex" } })], env()).skipped[0]?.reason).toBe("missing-space");
@@ -112,27 +92,6 @@ describe("classify（预览与扫描共用）", () => {
     expect(classify([agent("a")], env({ spaceAccessible: () => "missing" })).skipped[0]?.reason).toBe("missing-space");
     expect(classify([agent("a")], env({ spaceAccessible: () => "inaccessible" })).skipped[0]?.reason).toBe("space-inaccessible");
     expect(classify([agent("a")], env({ cliAvailable: () => false })).skipped[0]?.reason).toBe("cli-missing");
-  });
-  test("同一 Space 同一时间只跑一个：已有活动运行或本次已选其他候选 → space-busy", () => {
-    expect(classify([agent("a")], env({ spaceBusy: () => true })).skipped[0]?.reason).toBe("space-busy");
-    const r = classify([agent("a"), agent("b"), agent("c", { execution: { spaceId: "space-2", provider: "codex" } })], env());
-    expect(r.candidates.map((c) => c.task.id)).toEqual(["a", "c"]);
-    expect(r.skipped.map((s) => [s.task.id, s.reason])).toEqual([["b", "space-busy"]]);
-  });
-});
-
-describe("ClaimStore", () => {
-  test("原子创建：重复创建返回 false；更新；列表", () => {
-    const d = mkdtempSync(path.join(tmpdir(), "huhu-cl-"));
-    dirs.push(d);
-    const store = new ClaimStore(path.join(d, "claims"));
-    const c: Claim = { processingKey: "task-1:1:abc", taskId: "task-1", runId: "run-1", state: "queued", claimedAt: "t" };
-    expect(store.create(c)).toBe(true);
-    expect(store.create(c)).toBe(false);
-    expect(store.get(c.processingKey)).toEqual(c);
-    expect(store.update(c.processingKey, { state: "running" }).state).toBe("running");
-    expect(store.list()).toHaveLength(1);
-    expect(store.get("nope")).toBeNull();
   });
 });
 

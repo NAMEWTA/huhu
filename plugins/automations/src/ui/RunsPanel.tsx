@@ -8,7 +8,6 @@ import { t } from "./i18n.js";
 
 interface TerminalRunRow {
   id: string;
-  kind: "task-run" | "automation-run";
   state: string;
   title: string;
   startedAt: string | null;
@@ -39,15 +38,13 @@ export function RunsPanel({ onNavigate }: { onNavigate?: Navigate }) {
     state: taskRunLabel(dispatch, run),
     at: dispatch.acceptedAt,
   }));
-  const terminalRows = (terminal.data ?? [])
-    .filter(({ kind }) => kind === "automation-run")
-    .map((row) => ({
-      id: row.id,
-      kind: "terminal" as const,
-      title: row.title,
-      state: t.runs.state[row.state] ?? row.state,
-      at: row.startedAt,
-    }));
+  const terminalRows = (terminal.data ?? []).map((row) => ({
+    id: row.id,
+    kind: "terminal" as const,
+    title: row.title,
+    state: t.runs.state[row.state] ?? row.state,
+    at: row.startedAt,
+  }));
   const rows = [...taskRows, ...terminalRows].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
   const task = tasks.data?.find(({ dispatch }) => dispatch.runId === selection?.id);
   const selected = rows.find(({ id, kind }) => id === selection?.id && kind === selection.kind);

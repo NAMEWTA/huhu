@@ -15,44 +15,11 @@ export interface SnapshotTask {
   dispatchBlockers: string[];
 }
 
-export type SkipReason =
-  | "not-open"
-  | "not-agent"
-  | "tag-mismatch"
-  | "not-due"
-  | "outside-window"
-  | "unscheduled"
-  | "task-blocked"
-  | "missing-space"
-  | "space-inaccessible"
-  | "space-busy"
-  | "cli-missing"
-  | "succeeded"
-  | "retryable"
-  | "running"
-  | "held-after-restore";
-
-export interface Claim {
-  processingKey: string;
-  taskId: string;
-  runId: string;
-  state: "queued" | "running" | "waiting_input" | "succeeded" | "failed" | "cancelled" | "unknown";
-  claimedAt: string;
-  /** 启动这次运行的机器：多机共享 Vault 时，对账只处理本机的 claim。缺省（旧数据）视为任何机器都可对账。 */
-  machineId?: string;
-  attempt?: number;
-  workerPid?: number;
-  supervisorPid?: number;
-}
-
-export const ACTIVE_CLAIM = new Set<Claim["state"]>(["queued", "running", "waiting_input", "unknown"]);
+export type SkipReason = "not-open" | "not-agent" | "tag-mismatch" | "not-due" | "outside-window" | "unscheduled" | "task-blocked" | "missing-space" | "space-inaccessible" | "cli-missing" | "held-after-restore";
 
 export interface ScanEnv {
-  claims(processingKey: string): Claim | null;
   holds(taskId: string, inputHash: string): boolean;
   spaceAccessible(spaceId: string): "ok" | "missing" | "inaccessible";
-  /** 这个 Space 里是否已有活动运行（同一 Space 同一时间只跑一个）。 */
-  spaceBusy(spaceId: string): boolean;
   cliAvailable(provider: string): boolean;
 }
 
@@ -72,7 +39,6 @@ export interface ScanFilter {
   window?: { start: number; end: number };
   includeOverdue?: boolean;
   includeUnscheduled?: boolean;
-  queueBusySpaces?: boolean;
 }
 
 export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "inputHash">): string => `${t.id}:${t.inputRevision}:${t.inputHash}`;
@@ -84,7 +50,6 @@ export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "
 export function classify<T extends SnapshotTask>(tasks: T[], env: ScanEnv, filter: ScanFilter = {}): { candidates: Candidate<T>[]; skipped: Skipped<T>[] } {
   const candidates: Candidate<T>[] = [];
   const skipped: Skipped<T>[] = [];
-  const usedSpaces = new Set<string>(); // 一次扫描里同一 Space 只选一个候选
   const now = filter.now ?? new Date();
   for (const task of tasks) {
     const skip = (reason: SkipReason, detail?: string) => skipped.push({ task, reason, ...(detail ? { detail } : {}) });
@@ -119,14 +84,6 @@ export function classify<T extends SnapshotTask>(tasks: T[], env: ScanEnv, filte
       skip("task-blocked", task.dispatchBlockers.join("；"));
       continue;
     }
-    const key = processingKeyOf(task);
-    const claim = env.claims(key);
-    if (claim) {
-      // 活动运行不重复派发；成功的需要重开才会生成新的 key；失败 / 取消的由用户“重试”（同一个 key，attempt + 1）
-      if (ACTIVE_CLAIM.has(claim.state)) skip("running", claim.state);
-      else skip(claim.state === "succeeded" ? "succeeded" : "retryable", claim.state);
-      continue;
-    }
     if (env.holds(task.id, task.inputHash)) {
       skip("held-after-restore");
       continue;
@@ -145,12 +102,7 @@ export function classify<T extends SnapshotTask>(tasks: T[], env: ScanEnv, filte
       skip("cli-missing");
       continue;
     }
-    if (!filter.queueBusySpaces && (env.spaceBusy(spaceId) || usedSpaces.has(spaceId))) {
-      skip("space-busy");
-      continue;
-    }
-    if (!filter.queueBusySpaces) usedSpaces.add(spaceId);
-    candidates.push({ task, processingKey: key });
+    candidates.push({ task, processingKey: processingKeyOf(task) });
   }
   return { candidates, skipped };
 }

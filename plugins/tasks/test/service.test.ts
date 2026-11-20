@@ -98,15 +98,15 @@ describe("TasksService（schema 2）", () => {
     await expect(svc.setStatus(a.id, "not_started", re.version)).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 
-  test("§4.2 markDispatched：条件写（未开始 + processingKey 一致）；同一 runId 幂等；任务已变化时拒绝", async () => {
+  test("§4.2 recordDispatchAccepted：条件写（未开始 + processingKey 一致）；同一 runId 幂等；任务已变化时拒绝", async () => {
     const { svc } = setup();
     const a = await svc.create(w({ type: "agent", body: "x", execution: agentExec }), desktop);
-    await expect(svc.markDispatched(a.id, { inputRevision: 1, inputHash: "stale" }, "run-1")).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    const d = await svc.markDispatched(a.id, { inputRevision: a.inputRevision, inputHash: a.inputHash }, "run-1");
+    await expect(svc.recordDispatchAccepted(a.id, { inputRevision: 1, inputHash: "stale" }, "run-1")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const d = await svc.recordDispatchAccepted(a.id, { inputRevision: a.inputRevision, inputHash: a.inputHash }, "run-1");
     expect(d.status).toBe("in_progress");
     expect(d.comments.map((c) => c.id)).toEqual(["sys-run-1-dispatched"]);
-    expect((await svc.markDispatched(a.id, { inputRevision: a.inputRevision, inputHash: a.inputHash }, "run-1")).comments).toHaveLength(1); // 重复调用
-    await expect(svc.markDispatched(a.id, { inputRevision: a.inputRevision, inputHash: a.inputHash }, "run-2")).rejects.toMatchObject({ code: "INVALID_INPUT" }); // 已不是未开始
+    expect((await svc.recordDispatchAccepted(a.id, { inputRevision: a.inputRevision, inputHash: a.inputHash }, "run-1")).comments).toHaveLength(1); // 重复调用
+    await expect(svc.recordDispatchAccepted(a.id, { inputRevision: a.inputRevision, inputHash: a.inputHash }, "run-2")).rejects.toMatchObject({ code: "INVALID_INPUT" }); // 已不是未开始
   });
 
   test("A06/B09 只替换 <task> 区段：评论与区段外内容保持；编辑时评论到达，保存不丢评论", async () => {
@@ -232,7 +232,6 @@ describe("TasksService（schema 2）", () => {
       path.join(root, "Task Runs/r--run-aaa111.md"),
       `---\nhuhu: {kind: task-run, id: run-aaa111, schema: 1}\ntaskId: ${t.id}\nruleId: rule-1\nprocessingKey: k\nattempt: 1\nstate: succeeded\nprovider: codex\nspaceId: space-1\ncwd: /x\nmachineId: m\n---\n`,
     );
-    expect(svc.runs(t.id)).toMatchObject([{ id: "run-aaa111", state: "succeeded" }]);
     svc.delete(t.id);
     expect(() => svc.read(t.id)).toThrow();
     expect(readdirSync(path.join(root, "Task Runs"))).toHaveLength(1);

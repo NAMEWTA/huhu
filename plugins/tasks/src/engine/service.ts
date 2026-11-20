@@ -2,7 +2,6 @@ import {
   errors,
   HuhuError,
   isHuhuError,
-  isTaskAvailable,
   matchesTags,
   newId,
   normalizeTags,
@@ -34,8 +33,6 @@ export interface TasksDeps {
   pathKind(rel: string): "file" | "folder" | null;
   /** 任务是否有活动运行（automations 提供；缺省读 task-run 的状态）。 */
   hasActiveRun?(taskId: string): boolean | undefined;
-  hasDispatchHold?(taskId: string): boolean;
-  hasStartedDispatch?(taskId: string): boolean;
 }
 
 export type RuleTemplateTask = { taskId: string; ruleId: string; occurrenceId: string; title: string; body: string; execution: TaskDto["execution"] };
@@ -58,7 +55,6 @@ type TaskData = {
 };
 
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
-const ACTIVE_RUN = new Set(["queued", "running", "waiting_input", "unknown"]);
 const refKey = (target: string) => target.replace(/#.*$/, "").trim();
 
 function executionWithDefault(type: TaskDto["type"], execution: TaskDto["execution"]): TaskDto["execution"] {
@@ -307,19 +303,11 @@ export class TasksService {
     });
   }
 
-  hasLegacyRun(taskId: string): boolean {
-    if (this.d.hasActiveRun?.(taskId)) return true;
-    return this.d.repo.list("task-run").some((r) => {
-      const x = r.data as { taskId?: string; state?: string };
-      return x.taskId === taskId && ACTIVE_RUN.has(x.state ?? "");
-    });
-  }
-
   /**
    * 状态流转（spec §4.1、§4.4）：
    * - 关闭完成：只改 status / completedAt，不批准请求、不终止进程；
    * - 重开：有活动运行 → 进行中；否则 → 未开始并 inputRevision + 1（新的派发意图）；
-   * - agent 任务不能被手动改为进行中（只能经 markDispatched），仍可手动关闭与重开；
+   * - agent 任务在收到执行受理回执后进入进行中，仍可手动关闭与重开；
    * 每次流转追加一条系统评论（id 由事件和时间派生）。
    */
   async setStatus(id: string, status: TaskStatus, expectedVersion: string): Promise<TaskDto> {
@@ -332,7 +320,7 @@ export class TasksService {
     if (cur.status === status) return cur;
     if (cur.type === "agent" && status === "in_progress" && cur.status === "not_started") throw errors.invalidInput("Agent 任务由自动化派发后进入进行中，不能手动开始");
     const now = this.d.now();
-    const active = cur.type === "agent" && status !== "completed" && (this.d.hasStartedDispatch ? this.d.hasStartedDispatch(id) : this.hasLegacyRun(id));
+    const active = cur.type === "agent" && status !== "completed" && this.d.hasActiveRun?.(id);
     let next: TaskStatus = status;
     const changes: Record<string, unknown> = { status: next, updatedAt: iso(now) };
     let event: "start" | "close" | "reopen" | null = null;
@@ -364,17 +352,15 @@ export class TasksService {
   }
 
   /**
-   * 派发联动（内部能力）：条件写——任务仍是未开始，且完整 processingKey（inputRevision + inputHash）与 claim 一致，才改为进行中。
+   * 保存派遣受理状态。当前任务仍未开始且输入版本和哈希匹配时，改为进行中。
    * 不依赖调用方传入的 expectedVersion；追加系统评论 `sys-<runId>-dispatched`（幂等）。
    */
-  async markDispatched(id: string, key: { inputRevision: number; inputHash: string }, runId: string, opts: { legacy?: boolean; signal?: AbortSignal } = {}): Promise<TaskDto> {
+  async recordDispatchAccepted(id: string, key: { inputRevision: number; inputHash: string }, runId: string, signal?: AbortSignal): Promise<TaskDto> {
     return this.withRetriedTaskWrite(id, async () => {
-      opts.signal?.throwIfAborted();
+      signal?.throwIfAborted();
       const entity = this.d.repo.read("task", id);
       const cur = this.dto(entity);
       if (cur.status === "in_progress" && cur.comments.some((c) => c.id === `sys-${runId}-dispatched`)) return cur; // 同一 runId 重复调用
-      if (opts.legacy && this.d.hasDispatchHold?.(id)) throw errors.invalidInput("该任务已有待派或活动运行");
-      if (opts.legacy && !isTaskAvailable(cur.availableAt, this.d.now())) throw errors.invalidInput("尚未到最早派遣时间");
       if (cur.type !== "agent" || cur.status !== "not_started") throw errors.invalidInput("只有未开始的 Agent 任务可以派发");
       if (processingKey(cur.id, cur.inputRevision, cur.inputHash) !== processingKey(id, key.inputRevision, key.inputHash)) throw errors.invalidInput("任务内容已变化，不能按旧内容派发");
       const stamp = iso(this.d.now());
@@ -417,22 +403,11 @@ export class TasksService {
     );
   }
 
-  /** 移入回收站；关联的 task-run 保留。 */
+  /** 移入回收站；关联派遣记录留待恢复。 */
   delete(id: string): void {
     const cur = this.read(id);
     this.d.trash.moveIn(cur.path, cur.id);
     this.d.publish("entity.changed", { kind: "task", id, op: "deleted" });
-  }
-
-  runs(taskId: string): { id: string; state: string; startedAt: string | null; finishedAt: string | null; model: string | null; questions: number }[] {
-    this.read(taskId);
-    return this.d.repo
-      .list("task-run")
-      .filter((r) => (r.data as { taskId?: string }).taskId === taskId)
-      .map((r) => {
-        const d = r.data as { state: string; startedAt: string | null; finishedAt: string | null; model: string | null; questions: unknown[] };
-        return { id: r.id, state: d.state, startedAt: d.startedAt ?? null, finishedAt: d.finishedAt ?? null, model: d.model ?? null, questions: d.questions?.length ?? 0 };
-      });
   }
 
   /** 到点未投递的提醒（调度由插件作用域内的定时器驱动）。 */

@@ -62,7 +62,7 @@ export const TaskDtoSchema = z.object({
 });
 export type TaskDto = z.infer<typeof TaskDtoSchema>;
 
-/** 创建/编辑可写字段。`status` 经 setStatus 或 markDispatched 修改，`origin` 由网关写入。 */
+/** 创建和编辑可写字段。状态由任务操作或已受理派遣更新，来源由网关写入。 */
 const TaskFields = z.strictObject({
   title: z.string().min(1).max(200),
   type: TaskTypeSchema,

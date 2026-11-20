@@ -4,8 +4,7 @@ import path from "node:path";
 import type { TaskDto } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, VaultFiles } from "@huhu/vault";
 import { afterEach, describe, expect, test } from "vitest";
-import { ClaimStore } from "../src/engine/claims.js";
-import { AutomationsService, type AutomationsDeps, type RunOutcome, type WorkerInput } from "../src/engine/service.js";
+import { AutomationsService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -51,11 +50,6 @@ function setup(
   opts: {
     tasks?: TaskDto[];
     tasksEnabled?: boolean;
-    outcome?: (i: WorkerInput) => RunOutcome;
-    adopt?: AutomationsDeps["adopt"];
-    hasRound?: AutomationsDeps["hasRound"];
-    runAlive?: AutomationsDeps["runAlive"];
-    killRound?: AutomationsDeps["killRound"];
     /** 假 agent-cli：按命令返回会话；output 为命令的“输出”。 */
     terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string };
     spaceState?: "ok" | "missing";
@@ -67,33 +61,20 @@ function setup(
   mkdirSync(path.join(root, ".huhu"), { recursive: true });
   const files = new VaultFiles(root);
   const tasks = opts.tasks ?? [];
-  const workerCalls: WorkerInput[] = [];
   const calls: Call[] = [];
   const notes: string[] = [];
   const events: string[] = [];
-  const flags = { failMark: false };
   const sessions = new Map<string, { id: string; state: string; exitCode: number | null; requestId?: string; hasEnv?: boolean }>();
   const svc = new AutomationsService({
     repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
-    claims: new ClaimStore(path.join(d, "claims")),
     activationsDir: path.join(d, "act"),
     taskQuery: () =>
       opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listDispatchable: () => tasks.filter((t) => t.type === "agent" && t.status === "not_started"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto },
-    worker: async (i) => {
-      workerCalls.push(i);
-      return opts.outcome?.(i) ?? { state: "succeeded", message: `完成 ${i.task.title}`, exitCode: 0, nativeSessionId: "sess-1", questions: [] };
-    },
-    ...(opts.adopt ? { adopt: opts.adopt } : {}),
-    ...(opts.hasRound ? { hasRound: opts.hasRound } : {}),
-    ...(opts.runAlive ? { runAlive: opts.runAlive } : {}),
-    ...(opts.killRound ? { killRound: opts.killRound } : {}),
     terminalPollMs: 5,
     spaceState: () => ({ state: opts.spaceState ?? "ok", root: "/work" }),
     cliAvailable: () => true,
     holds: () => false,
     vaultRoot: root,
-    readVaultFile: () => "任务文件快照",
-    // 模拟 tasks 插件：markDispatched 只在任务仍是未开始时生效，并把它置为进行中
     call: async (capability, input, key) => {
       const i = input as Record<string, unknown>;
       calls.push({ capability, input: i, ...(key ? { key } : {}) });
@@ -118,22 +99,15 @@ function setup(
       }
       if (capability === "agent.sessions.release") return { ok: true };
       if (capability === "agent.sessions.output") return { text: opts.terminal?.output ?? "", complete: true };
-      if (capability === "tasks.markDispatched") {
-        const t = tasks.find((x) => x.id === i["id"]);
-        if (flags.failMark || !t || t.status !== "not_started") throw new Error("任务已变化，不能派发");
-        t.status = "in_progress";
-      }
       return {};
     },
     notify: (n) => notes.push(n.title),
     publish: (t) => events.push(t),
     now: () => new Date("2026-11-10T12:00:00Z"),
     zone: () => "UTC",
-    machineId: "m1",
   });
-  return { svc, root, tasks, workerCalls, calls, notes, events, flags, d };
+  return { svc, root, tasks, calls, notes, events, d };
 }
-type Ctx = ReturnType<typeof setup>;
 
 const every5 = { preset: "every5", cron: "*/5 * * * *", zone: "UTC" };
 /** 一条已启用的“让 Agent 处理任务”规则。 */
@@ -142,7 +116,6 @@ async function scanRule(svc: AutomationsService, tags: string[] = [], maxConcurr
   return (await svc.setEnabled(r.id, true)).id;
 }
 const promptAction = { kind: "agent" as const, input: { source: "prompt" as const, spaceId: "space-1", provider: "claude", model: null, effort: null, fast: false } };
-const taskRuns = (ctx: Ctx) => (existsSync(path.join(ctx.root, "Task Runs")) ? readdirSync(path.join(ctx.root, "Task Runs")) : []);
 
 describe("规则正文（agent 动作“提示词”输入）", () => {
   test("update 可以改正文；其他动作不接受非空正文；从“提示词”改成别的动作会清空旧提示词；省略 body 保留原文", async () => {
@@ -199,17 +172,17 @@ describe("agent 动作：任务输入", () => {
     ]);
     expect(p.next).toHaveLength(3);
     expect(readdirSync(d).sort()).toEqual(before);
-    expect(existsSync(path.join(d, "claims"))).toBe(false);
+    expect(existsSync(path.join(d, "act"))).toBe(false);
   });
 
-  test("台北规则的预览与运行一次共享窗口和入选任务，未排期与逾期可独立调整", async () => {
+  test("台北规则按当地时区预览窗口和入选任务，未排期与逾期可独立调整", async () => {
     const tasks = [
       task("yesterday", { availableAt: "2026-11-09T10:00:00Z", execution: exec(1) }),
       task("today", { availableAt: "2026-11-10T01:00:00Z", execution: exec(2) }),
       task("tomorrow", { availableAt: "2026-11-11T01:00:00Z", execution: exec(3) }),
       task("unscheduled", { availableAt: null, execution: exec(4) }),
     ];
-    const { svc, d, workerCalls } = setup({ tasks });
+    const { svc, d } = setup({ tasks });
     const trigger = { ...every5, zone: "Asia/Taipei" };
     const coreInput = { source: "tasks" as const, tags: [], maxConcurrent: 1 };
     const stored = await svc.create({
@@ -228,141 +201,50 @@ describe("agent 动作：任务输入", () => {
       { taskId: "yesterday", reason: "outside-window" },
       { taskId: "tomorrow", reason: "not-due" },
     ]);
-    expect(await svc.activate(rule.id, "manual")).toMatchObject({ summary: { processed: 2, skipped: 2 } });
-    expect(workerCalls.map(({ task }) => task.id)).toEqual(preview.candidates.map(({ taskId }) => taskId));
     expect(svc.preview(rule.id).next).toEqual(preview.next);
     expect(svc.rule(rule.id).version).toBe(rule.version);
     expect(svc.lastActivatedFor(rule.id)).toBeNull();
   });
 
-  test("立即运行：每个候选一个 task-run；先 markDispatched（幂等键 = runId）再启动 worker；再次运行不重复；重开后才再处理", async () => {
-    const ctx = setup({ tasks: four() });
-    const { svc, tasks, workerCalls, calls } = ctx;
-    const id = await scanRule(svc);
-    const a1 = await svc.activate(id, "manual");
-    expect(a1.summary).toEqual({ processed: 2, skipped: 2 });
-    expect(taskRuns(ctx)).toHaveLength(2);
-    expect(workerCalls.map((w) => w.task.id).sort()).toEqual(["a", "b"]);
-    expect(workerCalls[0]?.cwd).toBe("/work");
-    expect(workerCalls[0]?.vaultRoot).toBe(ctx.root);
-    expect(workerCalls[0]?.snapshotText).toBe("任务文件快照");
-    const marks = calls.filter((c) => c.capability === "tasks.markDispatched");
-    expect(marks).toHaveLength(2);
-    for (const m of marks) expect(m.key).toBe(m.input["runId"]);
-    expect(tasks.filter((t) => t.status === "in_progress").map((t) => t.id)).toEqual(["a", "b"]);
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 0, skipped: 4 });
-    expect(taskRuns(ctx)).toHaveLength(2);
-    // 用户重开 a（inputRevision+1）：新的派发意图
-    tasks[0] = { ...tasks[0]!, status: "not_started", inputRevision: 2 };
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 1, skipped: 3 });
-    expect(taskRuns(ctx)).toHaveLength(3);
-    // 只改截止日（不影响 inputHash / inputRevision）：同一输入已有成功运行，不再处理
-    tasks[1] = { ...tasks[1]!, status: "not_started", due: "2026-12-01" };
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 0, skipped: 4 });
-  });
-
   test("标签筛选：只处理带全部标签的任务；其余带 tag-mismatch", async () => {
-    const { svc, workerCalls } = setup({ tasks: [task("a", { tags: ["周报", "接口"] }), task("b", { execution: exec(2), tags: ["周报"] }), task("c", { execution: exec(3) })] });
+    const { svc } = setup({ tasks: [task("a", { tags: ["周报", "接口"] }), task("b", { execution: exec(2), tags: ["周报"] }), task("c", { execution: exec(3) })] });
     const id = await scanRule(svc, ["周报", "接口"]);
     expect(svc.preview(id).skipped.map((s) => [s.taskId, s.reason])).toEqual([
       ["b", "tag-mismatch"],
       ["c", "tag-mismatch"],
     ]);
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 1, skipped: 2 });
-    expect(workerCalls.map((w) => w.task.id)).toEqual(["a"]);
-  });
-
-  test("同一 Space 同一时间只跑一个：同 Space 的第二个任务 space-busy", async () => {
-    const { svc, workerCalls } = setup({ tasks: [task("a"), task("b")] });
-    const id = await scanRule(svc);
-    expect(svc.preview(id).skipped.map((s) => [s.taskId, s.reason])).toEqual([["b", "space-busy"]]);
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 1, skipped: 1 });
-    expect(workerCalls.map((w) => w.task.id)).toEqual(["a"]);
+    expect(svc.preview(id).candidates.map(({ taskId }) => taskId)).toEqual(["a"]);
   });
 
   test("任务自身有阻塞原因（引用越界、结构错误等）→ 不派发，预览显示原因", async () => {
-    const { svc, workerCalls } = setup({ tasks: [task("a", { dispatchBlockers: ["引用越界：../x.md"] })] });
+    const { svc } = setup({ tasks: [task("a", { dispatchBlockers: ["引用越界：../x.md"] })] });
     const id = await scanRule(svc);
     expect(svc.preview(id).skipped[0]).toMatchObject({ taskId: "a", reason: "task-blocked", detail: "引用越界：../x.md" });
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 0, skipped: 1 });
-    expect(workerCalls).toHaveLength(0);
-  });
-
-  test("markDispatched 失败 → 撤回 claim 与 task-run，不启动 worker；下一次触发重新派发", async () => {
-    const ctx = setup({ tasks: [task("a")] });
-    const { svc, workerCalls, flags } = ctx;
-    const id = await scanRule(svc);
-    flags.failMark = true;
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 0, skipped: 0 });
-    expect(workerCalls).toHaveLength(0);
-    expect(taskRuns(ctx)).toEqual([]);
-    expect((svc as unknown as { d: { claims: ClaimStore } }).d.claims.list()).toEqual([]);
-    flags.failMark = false;
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 1, skipped: 0 });
-    expect(taskRuns(ctx)).toHaveLength(1);
-  });
-
-  test("worker 失败 → failed，不自动重试；ask 回执 → waiting_input 带问题；两种情况都给任务追加 agent 评论（id 由运行派生）", async () => {
-    const ctx = setup({
-      tasks: [task("a"), task("b", { execution: exec(2) })],
-      outcome: (i) =>
-        i.task.id === "a"
-          ? { state: "failed", message: "boom", exitCode: 1, nativeSessionId: null, questions: [] }
-          : { state: "waiting_input", message: "要覆盖吗", exitCode: 0, nativeSessionId: "s9", questions: [{ id: "q-1", text: "是否覆盖？", options: ["覆盖", "另存"] }] },
-    });
-    const { svc, root, calls } = ctx;
-    const id = await scanRule(svc);
-    await svc.activate(id, "manual");
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 0, skipped: 2 });
-    const texts = readdirSync(path.join(root, "Task Runs")).map((f) => readFileSync(path.join(root, "Task Runs", f), "utf8"));
-    expect(texts).toHaveLength(2);
-    expect(texts.some((t) => /state: failed/.test(t) && t.includes("boom"))).toBe(true);
-    expect(texts.some((t) => /state: waiting_input/.test(t) && t.includes("是否覆盖？"))).toBe(true);
-    const comments = calls.filter((c) => c.capability === "tasks.comments.add").map((c) => c.input);
-    expect(comments).toContainEqual(expect.objectContaining({ taskId: "a", source: "agent", event: "failed", body: "boom", id: expect.stringMatching(/^run-.*-r1-failed$/) }));
-    expect(comments).toContainEqual(expect.objectContaining({ taskId: "b", source: "agent", ask: "q-1", event: "question", body: "是否覆盖？" }));
+    expect(svc.preview(id).candidates).toEqual([]);
   });
 
   test("tasks 插件停用：扫描跳过（预览标注）；reminder 规则正常通知", async () => {
     const { svc, notes } = setup({ tasksEnabled: false });
     const scanId = await scanRule(svc);
-    expect((await svc.activate(scanId, "manual")).summary).toEqual({ state: "tasks-disabled" });
     expect(svc.preview(scanId).tasksDisabled).toBe(true);
     const n = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "该休息了", taskId: null } });
     await svc.setEnabled(n.id, true);
-    expect((await svc.activate(n.id, "schedule", new Date("2026-11-10T11:55:00Z"))).summary).toEqual({ state: "succeeded" });
+    expect((await svc.activateNonAgent(n.id, "schedule", new Date("2026-11-10T11:55:00Z"))).summary).toEqual({ state: "succeeded" });
     expect(notes).toEqual(["该休息了"]);
   });
 
-  test("Space 缺失的候选被跳过；同一规则不能并发激活", async () => {
+  test("Space 缺失的候选被跳过", async () => {
     const { svc } = setup({ tasks: [task("a")], spaceState: "missing" });
     const id = await scanRule(svc);
     expect(svc.preview(id).skipped[0]?.reason).toBe("missing-space");
-    let release!: () => void;
-    const s2 = setup({ tasks: [task("a")] });
-    const id2 = await scanRule(s2.svc);
-    (s2.svc as unknown as { d: { worker: unknown } }).d.worker = () =>
-      new Promise((r) => {
-        release = () => r({ state: "succeeded", message: "ok", exitCode: 0, nativeSessionId: null, questions: [] });
-      });
-    const first = s2.svc.activate(id2, "manual");
-    for (let i = 0; i < 200 && !release; i++) await new Promise((r) => setTimeout(r, 10));
-    await expect(s2.svc.activate(id2, "manual")).rejects.toThrow(/正在执行/);
-    release();
-    await first;
-  });
-
-  test("activeFor：有活动 claim 的任务为 true", async () => {
-    const { svc } = setup({ tasks: [task("a")], outcome: () => ({ state: "waiting_input", message: "q", exitCode: 0, nativeSessionId: "s", questions: [{ id: "q-1", text: "?", options: [] }] }) });
-    await svc.activate(await scanRule(svc), "manual");
-    expect(svc.activeFor(["a", "zzz"])).toEqual({ a: true, zzz: false });
   });
 
   test("激活记录：start+finish 合并为一条，lastActivatedFor 取最近计划时间", async () => {
     const { svc } = setup();
-    const id = await scanRule(svc);
-    await svc.activate(id, "schedule", new Date("2026-11-10T11:55:00Z"));
-    await svc.activate(id, "manual");
+    const { id } = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "休息", taskId: null } });
+    await svc.setEnabled(id, true);
+    await svc.activateNonAgent(id, "schedule", new Date("2026-11-10T11:55:00Z"));
+    await svc.activateNonAgent(id, "manual");
     const acts = svc.activations();
     expect(acts).toHaveLength(2);
     expect(acts.every((a) => a.finishedAt)).toBe(true);
@@ -371,29 +253,13 @@ describe("agent 动作：任务输入", () => {
 });
 
 describe("agent 动作：提示词输入 / terminal / reminder", () => {
-  test("提示词：规则正文就是提示词，不涉及任务与 claim；结果写 automation-run 并通知", async () => {
-    const ctx = setup();
-    const { svc, workerCalls, calls, notes } = ctx;
-    const r = await svc.create({ title: "晨间整理", trigger: every5, action: promptAction, body: "整理今天的收件箱" });
-    const rec = await svc.activate(r.id, "manual");
-    expect(rec.summary).toEqual({ state: "succeeded" });
-    expect(workerCalls).toHaveLength(1);
-    expect(workerCalls[0]).toMatchObject({ cwd: "/work", provider: "claude", vaultRoot: ctx.root });
-    expect(workerCalls[0]?.task.body).toBe("整理今天的收件箱");
-    expect(calls.filter((c) => c.capability === "tasks.markDispatched")).toEqual([]);
-    expect(taskRuns(ctx)).toEqual([]);
-    const run = svc.runs().find((x) => x.kind === "automation-run")!;
-    expect(svc.runDetail(run.id).body).toContain("完成");
-    expect(notes.some((t) => t.includes("晨间整理") && t.includes("已完成"))).toBe(true);
-  });
-
   test("reminder：通知 / 新建人工任务（引用关联任务）/ 两者都做；建任务失败要提示", async () => {
     const { svc, calls, notes } = setup({ tasks: [task("a")] });
     const mk = async (mode: "notification" | "task" | "both", taskId: string | null) => (await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode, text: "复盘周报", taskId } })).id;
-    expect((await svc.activate(await mk("notification", null), "manual")).summary).toEqual({ state: "succeeded" });
+    expect((await svc.activateNonAgent(await mk("notification", null), "manual")).summary).toEqual({ state: "succeeded" });
     expect(notes).toEqual(["复盘周报"]);
     expect(calls).toEqual([]);
-    expect((await svc.activate(await mk("both", "a"), "manual")).summary).toEqual({ state: "succeeded" });
+    expect((await svc.activateNonAgent(await mk("both", "a"), "manual")).summary).toEqual({ state: "succeeded" });
     const create = calls.find((c) => c.capability === "tasks.create")!;
     expect(create.input).toMatchObject({ title: "复盘周报", type: "human" });
     expect(String(create.input["body"])).toContain("[[Tasks/a.md]]");
@@ -402,7 +268,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     (svc as unknown as { d: { call: unknown } }).d.call = async () => {
       throw new Error("tasks 未启用");
     };
-    expect((await svc.activate(await mk("task", null), "manual")).summary).toEqual({ state: "failed" });
+    expect((await svc.activateNonAgent(await mk("task", null), "manual")).summary).toEqual({ state: "failed" });
     expect(notes.at(-1)).toContain("创建任务失败");
   });
 
@@ -410,7 +276,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const ctx = setup({ terminal: { exitCode: 0, output: "hello-terminal" } });
     const { svc, calls } = ctx;
     const ok = await svc.create({ title: "打招呼", trigger: every5, action: { kind: "terminal", command: "echo hello-terminal", shell: "sh", spaceId: null, envRefs: {} } });
-    expect((await svc.activate(ok.id, "manual")).summary).toEqual({ state: "succeeded" });
+    expect((await svc.activateNonAgent(ok.id, "manual")).summary).toEqual({ state: "succeeded" });
     const launch = calls.find((c) => c.capability === "agent.sessions.launch")!;
     expect(launch.input).toMatchObject({ provider: "shell", command: "echo hello-terminal", shell: "sh", spaceId: "space-1" });
     expect(launch.input).not.toHaveProperty("envRefs");
@@ -421,20 +287,20 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     // 非零退出码 → failed
     const bad = setup({ terminal: { exitCode: 3 } });
     const r2 = await bad.svc.create({ title: "失败", trigger: every5, action: { kind: "terminal", command: "exit 3", shell: "default", spaceId: null, envRefs: {} } });
-    expect((await bad.svc.activate(r2.id, "manual")).summary).toEqual({ state: "failed" });
+    expect((await bad.svc.activateNonAgent(r2.id, "manual")).summary).toEqual({ state: "failed" });
   });
 
   test("terminal：环境变量引用原样交给 agent-cli（automations 不接触秘密值）；启动失败（保险箱锁定等）→ 失败并通知，不留下 running", async () => {
     const { svc, calls } = setup({ terminal: { exitCode: 0, output: "token=***" } });
     const r = await svc.create({ title: "带密钥", trigger: every5, action: { kind: "terminal", command: 'echo "token=$MY_TOKEN"', shell: "default", spaceId: null, envRefs: { MY_TOKEN: "vault:token" } } });
-    expect((await svc.activate(r.id, "manual")).summary).toEqual({ state: "succeeded" });
+    expect((await svc.activateNonAgent(r.id, "manual")).summary).toEqual({ state: "succeeded" });
     const launch = calls.find((c) => c.capability === "agent.sessions.launch")!;
     expect(launch.input["envRefs"]).toEqual({ MY_TOKEN: "vault:token" });
     expect(calls.find((c) => c.capability === "agent.sessions.output")!.input).not.toHaveProperty("usedEnv"); // 是否带过环境变量以 agent-cli 的会话记录为准，不由调用方声明
     expect(calls.some((c) => c.capability === "agent.sessions.release")).toBe(true); // 带密钥的命令读完输出后移除终端
     const locked = setup({ terminal: { launchError: "SAFE_LOCKED：保险箱已锁定" } });
     const r2 = await locked.svc.create({ title: "锁定", trigger: every5, action: { kind: "terminal", command: "echo x", shell: "default", spaceId: null, envRefs: { A: "vault:x" } } });
-    expect((await locked.svc.activate(r2.id, "manual")).summary).toEqual({ state: "failed" });
+    expect((await locked.svc.activateNonAgent(r2.id, "manual")).summary).toEqual({ state: "failed" });
     expect(locked.notes.some((t) => t.includes("SAFE_LOCKED"))).toBe(true);
     const run = locked.svc.runs().find((x) => x.kind === "automation-run")!;
     expect(locked.svc.runDetail(run.id).data["state"]).toBe("failed");
@@ -444,7 +310,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const ctx = setup({ terminal: { stayRunning: true, output: "partial" } });
     const { svc, calls } = ctx;
     const r = await svc.create({ title: "长任务", trigger: every5, action: { kind: "terminal", command: "sleep 100", shell: "default", spaceId: null, envRefs: {} } });
-    const p = svc.activate(r.id, "manual");
+    const p = svc.activateNonAgent(r.id, "manual");
     for (let i = 0; i < 100 && !calls.some((c) => c.capability === "agent.sessions.launch"); i++) await new Promise((x) => setTimeout(x, 5));
     svc.cancel(r.id);
     await p;
@@ -455,9 +321,9 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const rec = setup({ terminal: { exitCode: 0, output: "done-after-restart" } });
     const rule = await rec.svc.create({ title: "重启对账", trigger: every5, action: { kind: "terminal", command: "echo", shell: "default", spaceId: null, envRefs: {} } });
     const d = rec.svc as unknown as { d: { repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    await rec.svc.activate(rule.id, "manual"); // 先产生一个 session（sess-1，已结束）
+    await rec.svc.activateNonAgent(rule.id, "manual"); // 先产生一个 session（sess-1，已结束）
     const stuck = await d.d.repo.create("automation-run", { ruleId: rule.id, actionKind: "terminal", trigger: "manual", state: "running", startedAt: "2026-11-10T11:00:00Z", sessionId: "sess-1" }, "");
-    await rec.svc.reconcile();
+    await rec.svc.reconcileTerminals();
     await rec.svc.idle();
     expect(rec.svc.runDetail(stuck.id).data).toMatchObject({ state: "succeeded", exitCode: 0 });
     expect(rec.svc.runDetail(stuck.id).body).toContain("done-after-restart");
@@ -467,12 +333,12 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const ctx = setup({ terminal: { exitCode: 0, output: "token=***" } });
     const { svc, calls } = ctx;
     const rule = await svc.create({ title: "带密钥", trigger: every5, action: { kind: "terminal", command: "echo", shell: "default", spaceId: null, envRefs: { T: "vault:t" } } });
-    await svc.activate(rule.id, "manual");
+    await svc.activateNonAgent(rule.id, "manual");
     calls.length = 0;
     await svc.delete(rule.id); // 规则没了：对账不能再靠规则推断是否带过密钥
     const repo = (svc as unknown as { d: { repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } }).d.repo;
     const stuck = await repo.create("automation-run", { ruleId: rule.id, actionKind: "terminal", trigger: "manual", state: "running", startedAt: "2026-11-10T11:00:00Z", sessionId: "sess-1" }, "");
-    await svc.reconcile();
+    await svc.reconcileTerminals();
     await svc.idle();
     expect(svc.runDetail(stuck.id).data["state"]).toBe("succeeded");
     expect(calls.some((c) => c.capability === "agent.sessions.release")).toBe(true);
@@ -480,233 +346,18 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const lost = await repo.create("automation-run", { ruleId: "rule-gone", actionKind: "terminal", trigger: "manual", state: "running", startedAt: "2026-11-10T11:00:00Z" }, "");
     (ctx.svc as unknown as { d: { call: (c: string, i: unknown, k?: string) => Promise<unknown> } }).d.call = async (c) =>
       c === "agent.sessions.list" ? [{ id: "sess-9", requestId: `autorun-${lost.id}`, state: "exited", exitCode: 0, hasEnv: false }] : c === "agent.sessions.output" ? { text: "recovered", complete: true } : {};
-    await svc.reconcile();
+    await svc.reconcileTerminals();
     await svc.idle();
     expect(svc.runDetail(lost.id).data).toMatchObject({ state: "succeeded", sessionId: "sess-9" });
     expect(svc.runDetail(lost.id).body).toContain("recovered");
   });
 });
 
-describe("审计回归", () => {
-  test("定时触发不执行已暂停的规则；手动仍可运行", async () => {
-    const { svc, workerCalls } = setup({ tasks: [task("a")] });
-    const id = await scanRule(svc);
-    await svc.setEnabled(id, false);
-    expect((await svc.activate(id, "schedule", new Date())).summary).toEqual({ state: "paused" });
-    expect(workerCalls).toHaveLength(0);
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 1, skipped: 0 });
-  });
-  test("启动对账把 queued/running 的 claim 置 unknown（无法接管时），之后扫描不再处理该输入", async () => {
-    const { svc, workerCalls } = setup({ tasks: [task("a")] });
-    const id = await scanRule(svc);
-    const claims = (svc as unknown as { d: { claims: { create(c: unknown): boolean; get(k: string): { state: string } | null } } }).d.claims;
-    claims.create({ processingKey: "a:1:h-a", taskId: "a", runId: "run-gone", state: "running", claimedAt: "t" });
-    expect(await svc.reconcile()).toBe(1);
-    expect(claims.get("a:1:h-a")?.state).toBe("unknown");
-    expect((await svc.activate(id, "manual")).summary).toEqual({ processed: 0, skipped: 1 });
-    expect(workerCalls).toHaveLength(0);
-  });
-});
-
-describe("问答续跑、取消与重试（ACC-AU-08）", () => {
-  const ask = (n: string): RunOutcome => ({
-    state: "waiting_input",
-    message: `第 ${n} 次提问`,
-    exitCode: 0,
-    nativeSessionId: "sess-9",
-    questions: [
-      { id: "q-1", text: "是否覆盖？", options: ["覆盖", "另存"] },
-      { id: "q-2", text: "文件名？", options: [] },
-    ],
-  });
-  const done: RunOutcome = { state: "succeeded", message: "续跑完成", exitCode: 0, nativeSessionId: "sess-9", questions: [] };
-
-  async function waiting() {
-    let n = 0;
-    const ctx = setup({ tasks: [task("a")], outcome: (i) => (i.resume ? done : ask(String(++n))) });
-    await ctx.svc.activate(await scanRule(ctx.svc), "manual");
-    const run = ctx.svc.runs().find((r) => r.kind === "task-run")!;
-    return { ...ctx, runId: run.id };
-  }
-
-  test("回答全部问题后以原生会话 id 续跑，同一个 task-run 追加第 2 轮结果，attempt 不变", async () => {
-    const { svc, runId, workerCalls, notes } = await waiting();
-    expect(svc.runDetail(runId).data["state"]).toBe("waiting_input");
-    expect(
-      await svc.answerRun(runId, [
-        { id: "q-1", answer: "覆盖" },
-        { id: "q-2", answer: "out.md" },
-      ]),
-    ).toEqual({ resumed: true });
-    await svc.idle();
-    const call = workerCalls.at(-1)!;
-    expect(call.resume?.nativeSessionId).toBe("sess-9");
-    expect(call.round).toBe(2);
-    expect(call.resume?.prompt).toContain("覆盖");
-    expect(call.resume?.prompt).toContain("out.md");
-    const d = svc.runDetail(runId);
-    expect(d.data).toMatchObject({ state: "succeeded", attempt: 1, round: 2 });
-    expect(d.body).toContain("第 1 轮结果");
-    expect(d.body).toContain("第 2 轮结果");
-    expect((d.data["questions"] as { answer: string }[]).map((q) => q.answer)).toEqual(["覆盖", "out.md"]);
-    expect(notes.some((t) => t.includes("已完成"))).toBe(true);
-  });
-
-  test("只答一部分仍保持等待；同一问题不能答两次；不在等待的运行不能回答；同时两次回答只有一次生效", async () => {
-    const { svc, runId, workerCalls } = await waiting();
-    expect(await svc.answerRun(runId, [{ id: "q-1", answer: "覆盖" }])).toEqual({ resumed: false });
-    expect(svc.runDetail(runId).data["state"]).toBe("waiting_input");
-    await expect(svc.answerRun(runId, [{ id: "q-1", answer: "另存" }])).rejects.toThrow(/已经回答/);
-    await expect(svc.answerRun(runId, [{ id: "nope", answer: "x" }])).rejects.toThrow(/没有这个问题/);
-    const before = workerCalls.length;
-    const r = await Promise.allSettled([svc.answerRun(runId, [{ id: "q-2", answer: "a.md" }]), svc.answerRun(runId, [{ id: "q-2", answer: "b.md" }])]);
-    await svc.idle();
-    expect(r.filter((x) => x.status === "fulfilled")).toHaveLength(1);
-    expect(workerCalls.length).toBe(before + 1);
-    await expect(svc.answerRun(runId, [{ id: "q-2", answer: "c" }])).rejects.toThrow(/不在等待/);
-    await expect(svc.answerRun("../x", [{ id: "q-1", answer: "x" }])).rejects.toThrow(/非法/);
-  });
-
-  test("等待回答时取消 → cancelled；失败的运行可以重试（attempt+1，同一 processingKey，claim 指向新运行），超过 10 次拒绝", async () => {
-    const { svc, runId } = await waiting();
-    expect(await svc.cancelRunById(runId)).toEqual({ cancelled: true });
-    expect(svc.runDetail(runId).data["state"]).toBe("cancelled");
-    expect(svc.runDetail(runId).canRetry).toBe(true);
-    const { runId: next } = await svc.retryRun(runId);
-    await svc.idle();
-    expect(svc.runDetail(next).data).toMatchObject({ attempt: 2, round: 1 });
-    await expect(svc.retryRun(runId)).rejects.toThrow(/取代/); // 旧运行已被新尝试取代
-    await expect(svc.retryRun(next)).rejects.toThrow(/只有失败/); // 新运行正在等待回答
-  });
-
-  test("ACC-AU-06/07：重启对账——结果已落盘的运行完成（不再启动 worker），无法确认的置 unknown，别的机器的 claim 不动", async () => {
-    const t1 = task("a");
-    const t2 = task("b");
-    const adopt: AutomationsDeps["adopt"] = async (i) => (i.runId === "run-ok" ? { ...done, message: "后台跑完了" } : { state: "unknown", message: "监督进程已不存在，结果无法确认", exitCode: null, nativeSessionId: null, questions: [] });
-    const { svc, workerCalls, d } = setup({ tasks: [t1, t2], adopt });
-    const dd = svc as unknown as { d: { claims: { create(c: unknown): boolean; get(k: string): { state: string } | null }; repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    const mk = async (task: TaskDto) =>
-      (
-        await dd.d.repo.create(
-          "task-run",
-          { taskId: task.id, ruleId: "r", processingKey: `${task.id}:1:h-${task.id}`, attempt: 1, round: 1, state: "running", provider: "claude", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", questions: [] },
-          "",
-        )
-      ).id;
-    const okId = await mk(t1);
-    expect(okId).toBeTruthy();
-    // adopt 按 runId 区分：把 id 对上
-    (svc as unknown as { d: { adopt: unknown } }).d.adopt = async (i: { runId: string }) =>
-      i.runId === okId ? { ...done, message: "后台跑完了" } : { state: "unknown", message: "无法确认", exitCode: null, nativeSessionId: null, questions: [] };
-    const badId = await mk(t2);
-    dd.d.claims.create({ processingKey: "a:1:h-a", taskId: "a", runId: okId, state: "running", claimedAt: "t", machineId: "m1" });
-    dd.d.claims.create({ processingKey: "b:1:h-b", taskId: "b", runId: badId, state: "running", claimedAt: "t", machineId: "m1" });
-    dd.d.claims.create({ processingKey: "z:1:h-z", taskId: "z", runId: "elsewhere", state: "running", claimedAt: "t", machineId: "other-machine" });
-    expect(await svc.reconcile()).toBe(2);
-    await svc.idle();
-    expect(svc.runDetail(okId).data["state"]).toBe("succeeded");
-    expect(svc.runDetail(okId).body).toContain("后台跑完了");
-    expect(svc.runDetail(badId).data["state"]).toBe("unknown");
-    expect(dd.d.claims.get("b:1:h-b")?.state).toBe("unknown");
-    expect(dd.d.claims.get("z:1:h-z")?.state).toBe("running");
-    expect(workerCalls).toHaveLength(0);
-    void d;
-  });
-
-  test("第二轮提问复用 q-1：改名成 r2-q-1，仍可作答，已回答的第一轮问题保留", async () => {
-    let n = 0;
-    const one: RunOutcome = { state: "waiting_input", message: "提问", exitCode: 0, nativeSessionId: "sess-9", questions: [{ id: "q-1", text: "第一问？", options: [] }] };
-    const two: RunOutcome = { state: "waiting_input", message: "再问", exitCode: 0, nativeSessionId: "sess-9", questions: [{ id: "q-1", text: "第二问？", options: [] }] };
-    const ctx = setup({ tasks: [task("a")], outcome: () => (++n === 1 ? one : two) });
-    await ctx.svc.activate(await scanRule(ctx.svc), "manual");
-    const runId = ctx.svc.runs().find((r) => r.kind === "task-run")!.id;
-    await ctx.svc.answerRun(runId, [{ id: "q-1", answer: "甲" }]);
-    await ctx.svc.idle();
-    const qs = ctx.svc.runDetail(runId).data["questions"] as { id: string; answer: string | null; text: string }[];
-    expect(qs.map((q) => [q.id, q.answer])).toEqual([
-      ["q-1", "甲"],
-      ["r2-q-1", null],
-    ]);
-    expect(await ctx.svc.answerRun(runId, [{ id: "r2-q-1", answer: "乙" }])).toEqual({ resumed: true });
-    await ctx.svc.idle();
-  });
-
-  test("对账：运行目录不存在（CLI 从未启动）→ 正常继续启动，不是 unknown", async () => {
-    const t1 = task("a");
-    const { svc, workerCalls } = setup({ tasks: [t1], adopt: async () => null, hasRound: () => false });
-    const dd = svc as unknown as { d: { claims: { create(c: unknown): boolean; get(k: string): { state: string } | null }; repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    const runId = (
-      await dd.d.repo.create("task-run", { taskId: "a", ruleId: "r", processingKey: "a:1:h-a", attempt: 1, round: 1, state: "queued", provider: "codex", model: null, spaceId: "space-1", cwd: "/work", machineId: "m1", questions: [] }, "")
-    ).id;
-    dd.d.claims.create({ processingKey: "a:1:h-a", taskId: "a", runId, state: "queued", claimedAt: "t", machineId: "m1" });
-    await svc.reconcile();
-    await svc.idle();
-    expect(workerCalls).toHaveLength(1);
-    expect(svc.runDetail(runId).data["state"]).toBe("succeeded");
-  });
-
-  test("重试拒绝：别的机器启动的运行", async () => {
-    const { svc } = await waiting();
-    const runId = svc.runs().find((r) => r.kind === "task-run")!.id;
-    await svc.cancelRunById(runId);
-    const dd = svc as unknown as { d: { claims: { update(k: string, p: unknown): unknown } } };
-    dd.d.claims.update(svc.runDetail(runId).data["processingKey"] as string, { machineId: "other" });
-    await expect(svc.retryRun(runId)).rejects.toThrow(/另一台机器/);
-  });
-
-  test("对账：第 2 轮续跑在启动前中断 → 带着回答 --resume 重新启动，而不是当成全新运行", async () => {
-    const { svc, workerCalls } = setup({ tasks: [task("a")], adopt: async () => null, hasRound: (_id, round) => round === 1 });
-    const dd = svc as unknown as { d: { claims: { create(c: unknown): boolean }; repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    const runId = (
-      await dd.d.repo.create(
-        "task-run",
-        {
-          taskId: "a",
-          ruleId: "r",
-          processingKey: "a:1:h-a",
-          attempt: 1,
-          round: 2,
-          state: "running",
-          provider: "claude",
-          model: null,
-          spaceId: "space-1",
-          cwd: "/work",
-          machineId: "m1",
-          nativeSessionId: "sess-9",
-          questions: [{ id: "q-1", text: "覆盖吗？", options: [], answer: "覆盖", answeredAt: "2026-11-10T12:00:00Z" }],
-        },
-        "",
-      )
-    ).id;
-    dd.d.claims.create({ processingKey: "a:1:h-a", taskId: "a", runId, state: "running", claimedAt: "t", machineId: "m1" });
-    await svc.reconcile();
-    await svc.idle();
-    expect(workerCalls).toHaveLength(1);
-    expect(workerCalls[0]?.resume).toMatchObject({ nativeSessionId: "sess-9" });
-    expect(workerCalls[0]?.resume?.prompt).toContain("覆盖");
-    expect(workerCalls[0]?.round).toBe(2);
-  });
-
-  test("失去监督的孤儿 CLI：详情显示 live，可以取消（结束进程并标记已取消），之后才能重试", async () => {
-    let alive = true;
-    const killed: string[] = [];
-    const { svc } = setup({
-      tasks: [task("a")],
-      outcome: () => ({ state: "unknown", message: "无法确认", exitCode: null, nativeSessionId: null, questions: [] }),
-      runAlive: () => alive,
-      killRound: (id) => {
-        killed.push(id);
-        alive = false;
-      },
-    });
-    await svc.activate(await scanRule(svc), "manual");
-    const runId = svc.runs().find((r) => r.kind === "task-run")!.id;
-    expect(svc.runDetail(runId)).toMatchObject({ live: true, canRetry: true });
-    await expect(svc.retryRun(runId)).rejects.toThrow(/还在运行/);
-    expect(await svc.cancelRunById(runId)).toEqual({ cancelled: true });
-    expect(killed).toEqual([runId]);
-    expect(svc.runDetail(runId).data["state"]).toBe("cancelled");
-    expect((await svc.retryRun(runId)).runId).toBeTruthy();
-    await svc.idle();
-  });
+test("暂停的终端规则可以手动运行，定时经过时不会创建会话", async () => {
+  const { svc, calls } = setup({ terminal: { exitCode: 0 } });
+  const rule = await svc.create({ title: "暂停的终端规则", trigger: every5, action: { kind: "terminal", command: "echo local", shell: "default", spaceId: null, envRefs: {} } });
+  expect((await svc.activateNonAgent(rule.id, "schedule", new Date("2026-11-10T11:00:00Z"))).summary).toEqual({ state: "paused" });
+  expect(calls).toEqual([]);
+  expect((await svc.activateNonAgent(rule.id, "manual")).summary).toEqual({ state: "succeeded" });
+  expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
 });

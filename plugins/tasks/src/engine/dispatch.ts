@@ -428,14 +428,6 @@ export class TaskDispatch {
     return { ...history, questions };
   }
 
-  hasHold(taskId: string): boolean {
-    const candidates = this.store.list().filter(({ receipt }) => receipt.taskId === taskId && holdsTask(receipt));
-    if (!candidates.length) return false;
-    const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
-    const task = this.task(taskId);
-    return candidates.some((record) => holdsRun(record, outcomes, task));
-  }
-
   hasActiveRun(taskId: string): boolean {
     const running = this.store.list().filter((record) => record.receipt.taskId === taskId && record.receipt.state === "running" && this.store.owns(record));
     if (!running.length) return false;
@@ -952,6 +944,6 @@ export class TaskDispatch {
     if (!record || record.receipt.state !== "running") return;
     const { receipt, snapshot } = record;
     const task = this.task(receipt.taskId);
-    if (task && sameInput(task, snapshot) && task.status === "not_started") await this.tasks.markDispatched(task.id, snapshot, receipt.runId, { signal: this.abort.signal });
+    if (task && sameInput(task, snapshot) && task.status === "not_started") await this.tasks.recordDispatchAccepted(task.id, snapshot, receipt.runId, this.abort.signal);
   }
 }

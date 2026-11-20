@@ -5,13 +5,12 @@ import { machineId, VaultFiles } from "@huhu/vault";
 import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
 import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
-import { ClaimStore } from "./claims.js";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, type ActivationRecord, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
+import { AutomationsService, type ActivationRecord, type TaskQueryLike } from "./service.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
@@ -39,10 +38,6 @@ const Rule = z.object({
 
 export interface AutomationsOptions {
   zone?: () => string;
-  /** 旧执行器测试用替身。生产 Agent 规则统一交 Tasks。 */
-  worker?: (i: WorkerInput) => Promise<RunOutcome | null>;
-  /** 注入接管函数（测试用替身）。 */
-  adopt?: AutomationsDeps["adopt"];
   notify?: (n: { title: string; module: string }) => void;
   reminderNotifications?: ReminderNotifications;
   credentialHost?: AutomationCredentialHost;
@@ -63,23 +58,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const holdStore = new HoldStore(path.join(api.vault.stateDir, "automations", "holds.json"));
   const svc = new AutomationsService({
     repo: api.vault.repo,
-    claims: new ClaimStore(path.join(api.vault.stateDir, "automations", "claims")),
     activationsDir: path.join(api.vault.stateDir, "automations", "activations"),
     taskQuery: () => api.service<TaskQueryLike>("taskQuery"),
-    worker: opts.worker ?? (() => Promise.reject(errors.invalidInput("Agent 规则由 Tasks 接受派遣"))),
-    ...(opts.adopt ? { adopt: opts.adopt } : {}),
     spaceState: opts.spaceState ?? (() => ({ state: "missing" })),
     cliAvailable,
     ...(opts.refreshClis ? { refreshClis: opts.refreshClis } : {}),
     holds: (t, h) => holdStore.isHeld(t, h),
     vaultRoot: api.vault.files.root,
-    readVaultFile: (rel) => {
-      try {
-        return api.vault.files.read(rel)?.bytes.toString("utf8") ?? null;
-      } catch {
-        return null;
-      }
-    },
     call: (capability, input, idempotencyKey) => api.call(capability, input, idempotencyKey ? { idempotencyKey } : undefined),
     launchTerminal: (ruleId, action, input, signal) =>
       terminalEnvironments.use(ruleId, action, input, async (env) => {
@@ -93,7 +78,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     publish: (t, p) => api.events.publish(t, p),
     now,
     zone,
-    machineId: mid,
   });
   const terminalEnvironments = registerTerminalEnvironments(api, svc, opts.credentialHost);
 
@@ -395,12 +379,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   );
   const RunRow = z.object({
     id: z.string(),
-    kind: z.enum(["task-run", "automation-run"]),
+    kind: z.literal("automation-run"),
     state: z.string(),
     title: z.string(),
     startedAt: z.string().nullable(),
     finishedAt: z.string().nullable(),
-    attempt: z.number().nullable(),
     live: z.boolean(),
   });
   api.defineCapability(
@@ -414,7 +397,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.array(RunRow),
       handler: async (_c, i) => {
         await ready;
-        return svc.runs(i.limit, true);
+        return svc.runs(i.limit);
       },
     }),
   );
@@ -426,10 +409,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       exposable: false,
       defaultExposed: false,
       input: z.object({ runId: z.string() }),
-      output: z.object({ id: z.string(), kind: z.enum(["task-run", "automation-run"]), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean(), canRetry: z.boolean() }),
+      output: z.object({ id: z.string(), kind: z.literal("automation-run"), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean() }),
       handler: async (_c, i) => {
         await ready;
-        return svc.runDetail(i.runId, true);
+        return svc.runDetail(i.runId);
       },
     }),
   );
@@ -444,7 +427,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.object({ cancelled: z.boolean() }),
       handler: async (_c, i) => {
         await ready;
-        svc.runDetail(i.runId, true);
+        svc.runDetail(i.runId);
         return { cancelled: svc.cancelRun(i.runId) };
       },
     }),

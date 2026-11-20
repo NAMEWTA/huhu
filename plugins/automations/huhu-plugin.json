@@ -30,6 +30,6 @@
       "automations.terminal.environment.save",
       "automations.update"
     ],
-    "fileKinds": ["automation-rule", "automation-run", "task-run"]
+    "fileKinds": ["automation-rule", "automation-run"]
   }
 }

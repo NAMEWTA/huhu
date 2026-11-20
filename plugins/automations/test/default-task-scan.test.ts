@@ -12,7 +12,7 @@ import { Scheduler } from "../src/engine/scheduler.js";
 
 const markerPath = "automations/default-task-scan.json";
 const at = (clock: string) => new Date(`2030-02-02T${clock}Z`);
-const fixture = { now: at("01:00:00"), defaults: undefined as DefaultTaskScanService | undefined, worker: vi.fn() };
+const fixture = { now: at("01:00:00"), defaults: undefined as DefaultTaskScanService | undefined };
 const engines: RunningEngine[] = [];
 const dirs: string[] = [];
 
@@ -30,14 +30,13 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
             if (name === DEFAULT_TASK_SCAN_SERVICE) fixture.defaults = service as DefaultTaskScanService;
           },
         },
-        { ...opts, now: () => fixture.now, schedule: false, worker: fixture.worker },
+        { ...opts, now: () => fixture.now, schedule: false },
       )) satisfies typeof automations.apply,
   };
 });
 
 beforeEach(() => {
   fixture.now = at("01:00:00");
-  fixture.worker.mockReset().mockRejectedValue(new Error("数据初始化不应启动旧 worker"));
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 });
 
@@ -164,7 +163,6 @@ test("首次显式启用只创建一条默认规则，重开尊重设置、编�
     { ruleId, state: "existing" },
   ]);
   expect(await list(fourth.engine)).toMatchObject([{ id: ruleId, body: "", data: { enabled: true, trigger: { cron: "*/15 * * * *", zone: "Europe/Paris" }, updatedAt: fixture.now.toISOString() } }]);
-  expect(fixture.worker).not.toHaveBeenCalled();
 }, 30_000);
 
 test.each(["marker-only", "rule-written", "delete-before-finalization"] as const)(

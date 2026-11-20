@@ -99,7 +99,7 @@ export class TaskScanOccurrences {
     signal.throwIfAborted();
     await this.rules.refreshTaskScanTargets();
     signal.throwIfAborted();
-    return this.rules.preview(ruleId, true);
+    return this.rules.preview(ruleId);
   }
 
   read(id: string): Occurrence | null {
@@ -251,7 +251,7 @@ export class TaskScanOccurrences {
 
   private freeze(id: string, rule: TaskScanRule, at: string | null, now: Date, owner: string): Occurrence {
     if (rule.body.length > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
-    const { tasksDisabled, candidates, skipped } = this.rules.classifyTaskScan(rule, now, true);
+    const { tasksDisabled, candidates, skipped } = this.rules.classifyTaskScan(rule, now);
     const identity = (task: (typeof candidates)[number]["task"]) => ({
       taskId: task.id,
       title: task.title,

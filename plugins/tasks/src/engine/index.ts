@@ -86,8 +86,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     publish: (t, p) => api.events.publish(t, p),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
     now,
-    hasDispatchHold: (id) => dispatch.hasHold(id),
-    hasStartedDispatch: (id) => dispatch.hasActiveRun(id),
+    hasActiveRun: (id) => dispatch.hasActiveRun(id),
     pathKind: (rel) => {
       if (!rel || rel.startsWith("/") || rel.split("/").includes("..")) return null;
       try {
