@@ -595,10 +595,10 @@ export class TaskDispatch {
   }
 
   private viewWithSession(record: DispatchRecord): TaskDispatchView {
-    const { boundExecution, snapshot } = record;
+    const { boundExecution, snapshot, stop } = record;
     const spaceId = snapshot.execution.spaceId;
     const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? { id: boundExecution.sessionBinding.sessionId, spaceId } : null;
-    return { ...this.dispatchView(record), session };
+    return { ...this.dispatchView(record), session, ...(stop && { stop }) };
   }
 
   private dispatchView(record: DispatchRecord): DispatchReceipt {

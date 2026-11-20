@@ -71,6 +71,7 @@ export const DispatchReceipt = DispatchLookup.extend({
 });
 export const TaskDispatchView = DispatchReceipt.extend({
   session: z.strictObject({ id: Id, spaceId: Id }).nullable(),
+  stop: StopRecord.optional(),
 });
 export const TaskRunSummary = z.object({
   id: z.string(),

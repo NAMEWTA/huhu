@@ -883,6 +883,7 @@ test("原轮停止先保存意图，重开只核实同一次停止", { timeout: 
   expect(recordOf(engine, run).stop).toMatchObject({ stopId: input.stopId, acceptedAt: expect.any(String) });
   expect(await requestStop(engine, { ...input, stopId: "different-stop" })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
   await vi.waitFor(async () => expect(await readStop(engine)).toMatchObject({ ok: true, data: { status: "unknown" } }));
+  expect(await call(engine, "tasks.dispatch.list", { taskId: task.id })).toMatchObject({ ok: true, data: [{ runId: run.runId, stop: { stopId: input.stopId, status: "unknown" } }] });
   expect(await call(engine, "tasks.reply", choice)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
   expect((await requestStop(engine)).data).toEqual((await readStop(engine)).data);
   expect(interrupt).toHaveBeenCalledExactlyOnceWith({ execution, stopId: input.stopId }, expect.any(AbortSignal));
@@ -892,6 +893,7 @@ test("原轮停止先保存意图，重开只核实同一次停止", { timeout: 
   inspect.mockResolvedValue("stopped");
   const reopened = await start(root);
   await vi.waitFor(async () => expect(await readStop(reopened)).toMatchObject({ ok: true, data: { ...input, status: "stopped" } }));
+  expect(await call(reopened, "tasks.dispatch.recent", { limit: 10 })).toMatchObject({ ok: true, data: [{ dispatch: { runId: run.runId, stop: { stopId: input.stopId, status: "stopped" } }, run: { state: "cancelled" } }] });
   expect(inspect).toHaveBeenCalledExactlyOnceWith({ execution, stopId: input.stopId }, expect.any(AbortSignal));
   expect(interrupt).toHaveBeenCalledTimes(1);
   expect(fake.dispatch).toHaveBeenCalledTimes(1);

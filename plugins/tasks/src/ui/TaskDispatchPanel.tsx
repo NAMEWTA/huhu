@@ -1,10 +1,10 @@
 import { isTaskAvailable, type TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, Field } from "@huhu/ui";
-import { CapabilityError, createRequestId, requestOpenAgentSession, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, requestOpenAgentSession, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { History } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { z } from "zod";
-import type { DispatchInput, DispatchReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
+import type { DispatchInput, DispatchReceipt, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
 import type { TaskQuestionView } from "../engine/receipt-inbox.js";
 import { TaskMarkdownView } from "./compact.js";
@@ -45,6 +45,16 @@ const inputState: Record<Reply["status"], string> = {
   expired: "原请求已失效",
   not_sent: "未发送",
   unsupported: "原会话不支持此操作",
+};
+const stopStates: Record<StopReceipt["status"], string> = {
+  pending: "停止请求已受理",
+  sending: "正在确认原轮停止",
+  stopped: "本轮已停止",
+  completed: "原轮已结束",
+  not_sent: "停止请求未发送",
+  unknown: "停止结果待核实",
+  stale: "原轮的执行绑定已失效",
+  unsupported: "原会话不支持停止本轮",
 };
 
 export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null | undefined) {
@@ -208,6 +218,7 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
           定位原会话
         </Button>
       ) : null}
+      <StopRun task={task} row={row} canStop={!!session && row.state === "running" && !run?.finishedAt} refresh={refresh} />
       {questions.error ? (
         <p role="alert" className="hu-field-error">
           {questions.error.message}
@@ -224,6 +235,66 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
           {messages.length ? messages.map((message) => <TaskMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />) : <p>结果正文尚未写入，或本轮没有正文。</p>}
         </div>
       ) : null}
+    </>
+  );
+}
+
+function StopRun({ task, row, canStop, refresh }: { task: TaskDto; row: TaskDispatchView; canStop: boolean; refresh(): Promise<void> }) {
+  const engine = useEngine();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [stopId, setStopId] = useState<string | null>(null);
+  const [local, setLocal] = useState<StopReceipt | null>(null);
+  const [error, setError] = useState("");
+  const receipt = row.stop ?? local;
+  const mayRequest = !!host() && !task.readOnly && (canStop || !!stopId) && !receipt;
+  if (!mayRequest && !receipt) return null;
+
+  async function submit() {
+    const id = stopId ?? createRequestId();
+    setStopId(id);
+    setOpen(false);
+    setError("");
+    setBusy(true);
+    try {
+      const input = { taskId: task.id, dispatchId: row.dispatchId, runId: row.runId, stopId: id };
+      setLocal(await engine.call<StopReceipt>("tasks.dispatch.stop", input, { write: true, idempotencyKey: id }));
+      await refresh();
+    } catch (failure) {
+      if (failure instanceof CapabilityError && failure.code !== "INTERNAL" && failure.code !== "UNAUTHENTICATED") setError(failure.message);
+      else setError("未收到停止确认，请核对原停止请求。");
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {mayRequest ? (
+        <Button variant="danger" loading={busy} onClick={() => (stopId ? void submit() : setOpen(true))}>
+          {stopId ? "核对原停止请求" : "停止本轮"}
+        </Button>
+      ) : null}
+      {receipt ? <p role="status">{stopStates[receipt.status]}</p> : null}
+      {error && !receipt ? <p role="alert">{error}</p> : null}
+      <Dialog
+        open={open}
+        title="停止本轮"
+        onClose={() => setOpen(false)}
+        actions={
+          <>
+            <Button autoFocus onClick={() => setOpen(false)}>
+              返回
+            </Button>
+            <Button variant="danger" disabled={!mayRequest} onClick={() => void submit()}>
+              确认停止本轮
+            </Button>
+          </>
+        }
+      >
+        <p>向「{task.title}」的原会话发送停止请求。任务仍可继续处理。</p>
+      </Dialog>
     </>
   );
 }
