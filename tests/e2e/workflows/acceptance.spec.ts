@@ -377,9 +377,19 @@ test("Agent CLI 历史固定：固定后置顶、重新进入后仍在；取消�
     await page.getByTestId("space-save").click();
     const titles = page.getByTestId("history-title");
     await expect(titles).toHaveText(["较新的提问", "较旧的提问"]);
+    const call = await caller(page);
+    const spaces = (await call("agent.spaces.list")).data as { id: string; name: string }[];
+    const spaceId = spaces.find((space) => space.name === "项目")!.id;
+    const entries = (await call("agent.history.list", { spaceId })).data.entries as { historyId: string; nativeSessionId: string }[];
+    const selected = entries.find((item) => item.nativeSessionId === "old")!;
     await page.getByRole("button", { name: "固定 较旧的提问" }).click();
     await expect(titles).toHaveText(["较旧的提问", "较新的提问"]); // 固定项置顶
-    expect(readFileSync(path.join(vault, ".huhu/agent-cli/pins.json"), "utf8")).toContain("claude:old");
+    expect(JSON.parse(readFileSync(path.join(vault, ".huhu/agent-cli/pins.json"), "utf8"))).toEqual({ [spaceId]: [selected.historyId] });
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page.getByTestId("agent-space-item").filter({ hasText: "项目" }).click();
+    await expect(titles).toHaveText(["较旧的提问", "较新的提问"]);
     await page.getByRole("button", { name: "取消固定 较旧的提问" }).click();
     await expect(titles).toHaveText(["较新的提问", "较旧的提问"]);
     await page.getByRole("button", { name: "查看记录 较旧的提问" }).click();
@@ -505,6 +515,11 @@ test("首页看板：概览读取失败由卡片重试，近期笔记、专注�
     await expect(metrics.getByRole("alert")).toHaveText("无法读取卡片数据");
     await expect(page.getByTestId("card-focus")).toBeVisible();
     await expect(page.getByTestId("card-recent")).toBeVisible();
+    const beforeRetry = (await call("home.dashboard.get")).data.board;
+    failSummary = false;
+    await metrics.getByRole("button", { name: "重试" }).click();
+    await expect(metrics.getByTestId("card-notes")).toBeVisible();
+    expect((await call("home.dashboard.get")).data.board).toEqual(beforeRetry);
     await page.getByTestId("home-customize").click();
     await page.getByRole("button", { name: "添加卡片", exact: true }).click();
     await page.getByRole("button", { name: "添加 自动化摘要", exact: true }).click();
@@ -514,14 +529,16 @@ test("首页看板：概览读取失败由卡片重试，近期笔记、专注�
     await expect(summary.getByText("暂无运行记录")).toBeVisible();
     const board = path.join(vault, ".huhu", "home", "widgets.json");
     const saved = readFileSync(board);
-    failSummary = false;
-    await metrics.getByRole("button", { name: "重试" }).click();
-    await expect(metrics.getByTestId("card-notes")).toBeVisible();
-    expect(readFileSync(board)).toEqual(saved);
     expect((await call("automations.runs.list")).data).toEqual(before);
     await summary.getByRole("button", { name: "打开自动化" }).click();
     await expect(page.getByTestId("automations-module")).toBeVisible();
+    expect(readFileSync(board)).toEqual(saved);
   } finally {
+    if (!page.isClosed()) {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+      const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
+      if (await cancel.isVisible()) await cancel.click();
+    }
     await close();
   }
 });
