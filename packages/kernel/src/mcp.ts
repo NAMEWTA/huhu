@@ -5,9 +5,9 @@ import { type CapabilityResult } from "@huhu/contracts";
 export interface McpBackend {
   /** 对当前调用者可见（已对外开放）的能力。 */
   list(): Promise<{ name: string; plugin: string; scope: string; input: unknown }[]> | { name: string; plugin: string; scope: string; input: unknown }[];
-  /** 全部已注册能力名（含当前不可见的）：客户端缓存了旧工具表时，调用交给 Dispatcher 得到 PLUGIN_DISABLED / CAPABILITY_NOT_EXPOSED，而不是含糊的“不存在”。 */
-  known?(): Promise<string[]> | string[];
-  /** 经 Dispatcher 调用（授权在那里判定，MCP 层不做第二套权限）。 */
+  /** 解析协议工具名并交给 Dispatcher 复核，包括客户端缓存的旧工具。 */
+  callTool(name: string, input: unknown): Promise<CapabilityResult<unknown>>;
+  /** 资源依赖的 canonical 能力同样经 Dispatcher 授权。 */
   call(capability: string, input: unknown): Promise<CapabilityResult<unknown>>;
 }
 
@@ -19,6 +19,11 @@ async function need<T>(p: Promise<CapabilityResult<T>>): Promise<T> {
   return r.data;
 }
 const toolName = (cap: string) => cap.replace(/\./g, "_");
+
+export function resolveMcpToolName(known: readonly string[], name: string): string | undefined {
+  const matches = known.filter((cap) => toolName(cap) === name);
+  return matches.length === 1 ? matches[0] : undefined;
+}
 
 /** 把对外开放的能力映射为 MCP 工具，并提供资源（概览、最近笔记）、模板（`huhu://notes/{id}`）与提示词（daily-review、knowledge-synthesis）。stdio 与 HTTP 共用。 */
 export function createMcpServer(
@@ -60,22 +65,24 @@ export function createMcpServer(
     tools: (await backend.list()).map((c) => ({ name: toolName(c.name), description: `${c.name}（${c.plugin} · ${c.scope}）`, inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" } })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const cap = (await backend.list()).find((c) => toolName(c.name) === req.params.name);
-    const hidden = cap ? undefined : ((await backend.known?.()) ?? []).find((n) => toolName(n) === req.params.name);
-    if (!cap && !hidden) return { isError: true, content: [{ type: "text", text: `能力不存在或未对外开放：${req.params.name}` }] };
-    const r = await backend.call((cap?.name ?? hidden)!, req.params.arguments ?? {});
+    const r = await backend.callTool(req.params.name, req.params.arguments ?? {});
     if (!r.ok) return { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
     return { content: [{ type: "text", text: JSON.stringify(r.data) }] };
   });
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-    resources: [
-      { uri: SUMMARY, name: "Vault 概览", mimeType: "application/json" },
-      { uri: RECENT, name: "最近修改的笔记", mimeType: "application/json" },
-    ],
-  }));
-  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-    resourceTemplates: [{ uriTemplate: "huhu://notes/{id}", name: "笔记正文", description: "按笔记 ID（或相对路径）读取 Markdown 正文", mimeType: "text/markdown" }],
-  }));
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const visible = new Set((await backend.list()).map((c) => c.name));
+    const resources = [
+      { capability: "vault.info", uri: SUMMARY, name: "Vault 概览", mimeType: "application/json" },
+      { capability: "vault.indexEntries", uri: RECENT, name: "最近修改的笔记", mimeType: "application/json" },
+    ];
+    return { resources: resources.filter(({ capability }) => visible.has(capability)).map(({ uri, name, mimeType }) => ({ uri, name, mimeType })) };
+  });
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    const visible = new Set((await backend.list()).map((c) => c.name));
+    return {
+      resourceTemplates: visible.has("notes.list") && visible.has("notes.read") ? [{ uriTemplate: "huhu://notes/{id}", name: "笔记正文", description: "按笔记 ID（或相对路径）读取 Markdown 正文", mimeType: "text/markdown" }] : [],
+    };
+  });
   server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     const uri = req.params.uri;
     const json = (data: unknown) => ({ contents: [{ uri, mimeType: "application/json", text: JSON.stringify(data) }] });

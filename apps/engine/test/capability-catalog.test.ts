@@ -53,6 +53,7 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
     const noteInput = { path: "目录样例.md" };
     const fromDesktop = await call(engine, "notes.read", noteInput);
     expect(fromDesktop).toMatchObject({ ok: true, data: { path: noteInput.path, text: note, version: expect.any(String) } });
+    expect(await call(engine, "gateway.update", { capability: "notes.read", exposed: true })).toMatchObject({ ok: true });
     expect(await call(engine, "notes.read", noteInput, engine.cliToken)).toEqual(fromDesktop);
     expect(readFileSync(notePath, "utf8")).toBe(note);
 
@@ -77,17 +78,7 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
     expect((await directory(engine, true)).filter((entry) => entry.plugin === "ssh")).toEqual(inactive);
     expect((await directory(engine, false)).some((entry) => entry.plugin === "ssh")).toBe(false);
     expect(await discoveredNames(engine)).not.toContain("ssh.hosts.list");
-    const cliDirectory = await directory(engine, true, engine.cliToken);
-    expect(cliDirectory.find((entry) => entry.name === "ssh.hosts.list")).toEqual({
-      name: "ssh.hosts.list",
-      plugin: "ssh",
-      availability: "plugin-disabled",
-      exposed: false,
-      exposable: false,
-      scope: null,
-      input: null,
-      output: null,
-    });
+    expect(await call(engine, "capabilities.list", { includeInactive: true }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     expect(await call(engine, "gateway.check", { capability: "ssh.hosts.list" })).toMatchObject({
       ok: true,
       data: { found: true, availability: "plugin-disabled", scope: "read", identities: expect.arrayContaining([expect.objectContaining({ identity: "cli", allowed: false })]) },

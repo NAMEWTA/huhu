@@ -101,7 +101,7 @@ function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; grante
     audit,
     idempotency: new IdempotencyStore(path.join(dir, "idem.ndjson")),
     isPluginEnabled: (p) => (opts.enabled === false ? p !== "tasks" : true),
-    exposureOverride: () => opts.exposure,
+    toolAccess: () => ({ state: "ready", revision: 0, choices: { "vault.info": opts.exposure === true, "tasks.create": opts.exposure === true } }),
     grantedPermissions: () => opts.granted ?? [],
     pluginOrigin: () => "external",
     log: (...a) => logs.push(a),
@@ -118,7 +118,8 @@ describe("Dispatcher 管线", () => {
   test("外部入口：不可暴露/默认关闭/开放后可用", async () => {
     expect(code((await setup().d.call("cli", req("safe.reveal"))) as never)).toBe("CAPABILITY_NOT_EXPOSED");
     expect(code((await setup().d.call("cli", req("tasks.create", { title: "a" }, "key-12345"))) as never)).toBe("CAPABILITY_NOT_EXPOSED");
-    expect((await setup().d.call("cli", req("vault.info"))).ok).toBe(true);
+    expect(code((await setup().d.call("cli", req("vault.info"))) as never)).toBe("CAPABILITY_NOT_EXPOSED");
+    expect((await setup({ exposure: true }).d.call("cli", req("vault.info"))).ok).toBe(true);
     expect((await setup({ exposure: true }).d.call("mcp", req("tasks.create", { title: "a" }, "key-12345"))).ok).toBe(true);
     expect(code((await setup({ exposure: false }).d.call("cli", req("vault.info"))) as never)).toBe("CAPABILITY_NOT_EXPOSED");
   });
@@ -192,7 +193,15 @@ describe("Dispatcher 管线", () => {
     );
     const dir = mkdtempSync(path.join(tmpdir(), "huhu-k-"));
     dirs.push(dir);
-    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
+    const d = new Dispatcher({
+      registry,
+      audit: new GatewayAudit(),
+      idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      grantedPermissions: () => [],
+      pluginOrigin: () => "external",
+    });
     const a = await d.call("desktop", req("x.w", {}, "key-slow1"));
     const b = await d.call("desktop", req("x.w", {}, "key-slow1"));
     expect(a).toEqual(b);
@@ -219,7 +228,7 @@ describe("Dispatcher 管线", () => {
     expect((await d.call("desktop", req("vault.info"))).ok).toBe(true);
   });
   test("审计：只记外部入口，不含输入", async () => {
-    const s = setup();
+    const s = setup({ exposure: true });
     await s.d.call("cli", req("vault.info", { secret: 1 }));
     await s.d.call("desktop", req("vault.info"));
     const rec = s.audit.list();

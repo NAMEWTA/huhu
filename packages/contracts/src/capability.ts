@@ -11,6 +11,19 @@ export type CapabilityRisk = (typeof CAPABILITY_RISKS)[number];
 export const CAPABILITY_AVAILABILITIES = ["active", "plugin-disabled", "plugin-failed", "handler-missing"] as const;
 export type CapabilityAvailability = (typeof CAPABILITY_AVAILABILITIES)[number];
 
+const ToolAccessChoicesSchema = z.record(z.string().min(1), z.boolean());
+const ToolAccessRevisionSchema = z.int().nonnegative();
+export const ToolAccessFileSchema = z.strictObject({
+  formatVersion: z.literal(1),
+  revision: ToolAccessRevisionSchema,
+  choices: ToolAccessChoicesSchema,
+});
+export const ToolAccessSnapshotSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("ready"), revision: ToolAccessRevisionSchema, choices: ToolAccessChoicesSchema }),
+  z.object({ state: z.literal("error"), reason: z.enum(["missing", "unreadable", "invalid-format"]), message: z.string() }),
+]);
+export type ToolAccessSnapshot = z.infer<typeof ToolAccessSnapshotSchema>;
+
 /** 管理目录条目。尚未迁移静态描述的停用项只保留清单身份。 */
 export const CapabilityCatalogEntrySchema = z.object({
   name: z.string(),
@@ -22,10 +35,15 @@ export const CapabilityCatalogEntrySchema = z.object({
   input: z.unknown(),
   output: z.unknown(),
   exposable: z.boolean(),
+  /** null 表示尚无选择，或策略不可读。配置状态见 gateway.get。 */
+  selected: z.boolean().nullable(),
   exposed: z.boolean(),
   availability: z.enum(CAPABILITY_AVAILABILITIES),
 });
 export type CapabilityCatalogEntry = z.infer<typeof CapabilityCatalogEntrySchema>;
+
+export const CapabilityDiscoveryEntrySchema = CapabilityCatalogEntrySchema.pick({ name: true, plugin: true, input: true, output: true }).extend({ scope: z.enum(CAPABILITY_SCOPES) });
+export type CapabilityDiscoveryEntry = z.infer<typeof CapabilityDiscoveryEntrySchema>;
 
 export const CapabilityRequestSchema = z.object({
   capability: z.string().min(1),

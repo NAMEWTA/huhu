@@ -1,28 +1,17 @@
 import { createMcpServer as createShared } from "@huhu/kernel";
-import { callCapability } from "./commands/call.js";
+import { callCapability, discoverCapabilities } from "./commands/call.js";
 import type { Connection } from "./connect.js";
-
-interface CapInfo {
-  name: string;
-  plugin: string;
-  scope: string;
-  exposed: boolean;
-  input: unknown;
-}
 
 /** stdio MCP：能力清单与调用都经 Engine 的 HTTP 接口（身份由所用令牌决定）；每次 tools/list 重新读取开放状态。 */
 export function createMcpServer(conn: Connection, version: string, opts: { watchToolsMs?: number } = { watchToolsMs: 2000 }) {
   return createShared(
     {
       list: async () => {
-        const r = await callCapability(conn, "capabilities.list", {});
+        const r = await discoverCapabilities(conn);
         if (!r.ok) throw new Error(r.error.message);
-        return (r.data as CapInfo[]).filter((c) => c.exposed);
+        return r.data;
       },
-      known: async () => {
-        const r = await callCapability(conn, "capabilities.list", { includeInactive: true });
-        return r.ok ? (r.data as CapInfo[]).map((c) => c.name) : [];
-      },
+      callTool: (name, input) => callCapability(conn, name, input, "mcp"),
       call: (cap, input) => callCapability(conn, cap, input),
     },
     version,

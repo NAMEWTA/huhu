@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { CapabilityRequestSchema, toJsonSchema, type Caller } from "@huhu/contracts";
+import { CapabilityRequestSchema, errors, toJsonSchema, type Caller } from "@huhu/contracts";
 import { Hono } from "hono";
 import { getRequestListener } from "@hono/node-server";
 import { WebSocketServer } from "ws";
 import type { CapabilityRegistry } from "../capabilities/define.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { EventBus } from "../context.js";
-import { createMcpServer } from "../mcp.js";
+import { createMcpServer, resolveMcpToolName } from "../mcp.js";
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN, RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import type { TokenTable } from "./tokens.js";
 import { EventReplay } from "./ws-events.js";
@@ -18,8 +18,6 @@ export interface EngineServerDeps {
   registry: CapabilityRegistry;
   tokens: TokenTable;
   events: EventBus;
-  /** 当前调用者可见的能力（外部入口按开放状态过滤）。 */
-  visibleTo(caller: Caller, name: string): boolean;
   /**
    * 终端字节流路由 `/ws/terminal/:sessionId?cols=&rows=&mode=attach|observe`：鉴权与来源检查通过后交给桥接实现
    * （Agent 会话 → Herdr attach；`ssh-` 前缀 → SSH shell）。返回 false 表示会话不存在。
@@ -55,6 +53,9 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
   const inflight = new Map<Caller, number>();
   let lastActivity = Date.now();
   let port = 0;
+  const discover = (caller: Caller) => d.dispatcher.discover(caller).map((def) => ({ name: def.name, plugin: def.plugin, scope: def.scope, input: toJsonSchema(def.input), output: toJsonSchema(def.output, "output") }));
+  const resolveTool = (name: string) => resolveMcpToolName(d.registry.knownNames(), name);
+  const unknownTool = (name: string) => ({ ok: false as const, error: errors.capabilityNotFound(name).toJSON() });
 
   const app = new Hono();
   app.get("/healthz", (c) => c.text("ok"));
@@ -89,6 +90,8 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
 
   app.post("/api/v1/call", async (c) => {
     const caller = c.get("caller" as never) as Caller;
+    const mcpTool = c.req.query("nameFormat") === "mcp";
+    if (mcpTool && caller !== "mcp") return c.json({ error: "该令牌身份不能提交 MCP 工具名" }, 403);
     const declared = Number(c.req.header("content-length") ?? 0);
     if (Number.isNaN(declared) || declared > MAX_BODY_BYTES) return c.json({ error: "请求体过大" }, 413);
     // 边读边计数：不带 Content-Length（chunked）的请求超过上限时立即中止，不缓冲全部内容
@@ -120,7 +123,9 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (n >= MAX_CONCURRENT_PER_TOKEN) return c.json({ error: "并发调用过多" }, 429);
     inflight.set(caller, n + 1);
     try {
-      return c.json(await d.dispatcher.call(caller, req.data, c.req.raw.signal));
+      const capability = mcpTool ? resolveTool(req.data.capability) : req.data.capability;
+      if (!capability) return c.json(unknownTool(req.data.capability));
+      return c.json(await d.dispatcher.call(caller, { ...req.data, capability }, c.req.raw.signal));
     } finally {
       inflight.set(caller, (inflight.get(caller) ?? 1) - 1);
     }
@@ -128,12 +133,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
 
   app.get("/api/v1/capabilities", (c) => {
     const caller = c.get("caller" as never) as Caller;
-    return c.json(
-      d.registry
-        .list()
-        .filter((def) => d.visibleTo(caller, def.name))
-        .map((def) => ({ name: def.name, plugin: def.plugin, scope: def.scope, input: toJsonSchema(def.input), output: toJsonSchema(def.output, "output") })),
-    );
+    return c.json(discover(caller));
   });
 
   const listener = getRequestListener(app.fetch);
@@ -167,15 +167,15 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       return send(400, { error: "请求不是合法 JSON" });
     }
     const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
+    const call = (capability: string, input: unknown) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
     const mcp = createMcpServer(
       {
-        list: () =>
-          d.registry
-            .list()
-            .filter((c) => d.visibleTo(caller, c.name))
-            .map((c) => ({ name: c.name, plugin: c.plugin, scope: c.scope, input: toJsonSchema(c.input) })),
-        known: () => d.registry.knownNames(),
-        call: (capability, input) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+        list: () => discover(caller),
+        callTool: async (name, input) => {
+          const capability = resolveTool(name);
+          return capability ? call(capability, input) : unknownTool(name);
+        },
+        call,
       },
       "0.0.1",
     );

@@ -1,6 +1,7 @@
 import { Command, CommanderError } from "commander";
-import { callCapability, render } from "./commands/call.js";
-import { ConnectError, connect } from "./connect.js";
+import { callCapability, discoverCapabilities, render } from "./commands/call.js";
+import { ConnectError, connect, type Connection } from "./connect.js";
+import type { CapabilityResult } from "@huhu/contracts";
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
 import { createMcpServer } from "./mcp.js";
 
@@ -70,8 +71,7 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
       }
     });
 
-  /** 便捷命令都转为 `call`。 */
-  const shortcut = (cmd: Command, capability: string, build: (opts: Record<string, unknown>, args: string[]) => unknown) => {
+  const shortcut = (cmd: Command, capability: string | ((conn: Connection) => Promise<CapabilityResult<unknown>>), build: (opts: Record<string, unknown>, args: string[]) => unknown = () => ({})) => {
     cmd
       .option("--vault <path>", "Vault 路径")
       .option("--json", "输出 CapabilityResult JSON")
@@ -81,7 +81,8 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
         const args = a.slice(0, -2) as string[];
         try {
           const conn = await connect(opts["vault"] as string | undefined);
-          const r = render(await callCapability(conn, capability, build(opts, args)), opts["json"] === true);
+          const result = typeof capability === "string" ? await callCapability(conn, capability, build(opts, args)) : await capability(conn);
+          const r = render(result, opts["json"] === true);
           io.out(r.out);
           code = r.code;
         } catch (e) {
@@ -94,7 +95,7 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
   };
   shortcut(program.command("guide").description("Agent 指南").command("status"), "guide.status", () => ({}));
   shortcut(program.command("plugins").description("插件").command("list"), "plugins.list", () => ({}));
-  shortcut(program.command("capabilities").description("能力目录").command("list"), "capabilities.list", () => ({}));
+  shortcut(program.command("capabilities").description("能力发现").command("list"), discoverCapabilities);
   shortcut(program.command("notes").description("笔记").command("list"), "notes.list", () => ({}));
   const tasks = program.command("tasks").description("任务");
   shortcut(

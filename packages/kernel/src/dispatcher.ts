@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { HuhuError, errors, type Caller, type CapabilityRequest, type CapabilityResult } from "@huhu/contracts";
+import { HuhuError, errors, type Caller, type CapabilityRequest, type CapabilityResult, type ToolAccessSnapshot } from "@huhu/contracts";
 import type { CapabilityDefinition, CapabilityRegistry } from "./capabilities/define.js";
+import { toolSelection } from "./exposure.js";
 import type { GatewayAudit } from "./gateway-audit.js";
 import { IdempotencyStore } from "./idempotency.js";
 import { permissionsAllow } from "./permissions.js";
@@ -9,8 +10,8 @@ export interface DispatcherDeps {
   registry: CapabilityRegistry;
   /** 插件是否已启用。 */
   isPluginEnabled(plugin: string): boolean;
-  /** 外部入口：用户是否开放该能力（未配置返回 undefined → 用默认值）。 */
-  exposureOverride(capability: string): boolean | undefined;
+  /** 来自当前 Vault 的工具开放策略。 */
+  toolAccess(): ToolAccessSnapshot;
   /** plugin:<id> 已授予的权限。 */
   grantedPermissions(pluginId: string): readonly string[];
   /** 插件来源：内置插件与第三方插件的授权规则不同（见 permissionsAllow）。 */
@@ -36,6 +37,12 @@ export class Dispatcher {
   /** 进入关闭流程：此后的写/执行类调用返回 ENGINE_CLOSING。 */
   beginClose(): void {
     this.closing = true;
+  }
+
+  discover(caller: Caller): CapabilityDefinition[] {
+    const policy = caller === "desktop" || caller.startsWith("plugin:") ? undefined : this.d.toolAccess();
+    if (policy?.state === "error") return [];
+    return this.d.registry.list().filter((def) => this.d.isPluginEnabled(def.plugin) && (!this.closing || def.scope === "read") && !this.authorize(caller, def, policy));
   }
 
   async call(caller: Caller, req: CapabilityRequest, signal: AbortSignal = new AbortController().signal): Promise<CapabilityResult<unknown>> {
@@ -114,7 +121,7 @@ export class Dispatcher {
     }
   }
 
-  private authorize(caller: Caller, def: CapabilityDefinition): HuhuError | null {
+  private authorize(caller: Caller, def: CapabilityDefinition, policy?: ToolAccessSnapshot): HuhuError | null {
     if (caller === "desktop") return null;
     if (caller.startsWith("plugin:")) {
       const id = caller.slice("plugin:".length);
@@ -122,8 +129,10 @@ export class Dispatcher {
       // 内置插件按权限组授权（内部能力不必 exposable）；第三方插件必须是 exposable 的能力，且只能是 read / write
       return (origin === "builtin" || def.exposable) && permissionsAllow(this.d.grantedPermissions(id), def.name, def.scope, origin) ? null : errors.permissionDenied(def.name);
     }
-    const exposed = this.d.exposureOverride(def.name) ?? def.defaultExposed;
-    return def.exposable && exposed ? null : errors.capabilityNotExposed(def.name);
+    if (!def.exposable) return errors.capabilityNotExposed(def.name);
+    const access = policy ?? this.d.toolAccess();
+    if (access.state === "error") return new HuhuError("CAPABILITY_NOT_EXPOSED", "工具开放配置不可用", { details: { reason: access.reason } });
+    return toolSelection(access, def.name) === true ? null : errors.capabilityNotExposed(def.name);
   }
 
   private async execute(def: CapabilityDefinition, caller: Caller, req: CapabilityRequest, input: unknown, outer: AbortSignal): Promise<CapabilityResult<unknown>> {

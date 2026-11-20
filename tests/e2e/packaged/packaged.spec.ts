@@ -152,6 +152,7 @@ test("打包后：随包命令行 huhu --version 与应用版本一致，huhu ca
     const info = await s.page.evaluate(() => window.huhuHost.appInfo());
     const version = run(["--version"]).trim();
     expect(version).toBe(info.version);
+    expect((await s.call("gateway.update", { capability: "vault.info", exposed: true })).ok).toBe(true);
     const out = run(["call", "vault.info", "--vault", process.platform === "win32" ? `"${s.vault}"` : s.vault, "--json"]);
     expect(JSON.parse(out).ok).toBe(true);
   } finally {

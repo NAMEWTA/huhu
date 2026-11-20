@@ -27,6 +27,11 @@ const tmp = () => {
 };
 const post = (e: RunningEngine, token: string, body: unknown) =>
   fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<Reply>);
+async function allowTools(e: RunningEngine, ...names: string[]) {
+  for (const capability of names) {
+    expect(await post(e, e.rendererToken, { capability: "gateway.update", input: { capability, exposed: true }, requestId: `allow-${capability}` })).toMatchObject({ ok: true });
+  }
+}
 
 describe("首页布局读取", () => {
   const board = { schemaVersion: 1, boardId: "home", revision: "r1", updatedAt: "2026-11-19T00:00:00Z", instances: [], layout: [] };
@@ -111,6 +116,7 @@ describe("Engine 启动与关闭", () => {
   test("Renderer 与 CLI 令牌经同一 Dispatcher 调用 vault.info", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
+    await allowTools(e, "vault.info");
     const req = { capability: "vault.info", input: {}, requestId: "r" };
     const a = await post(e, e.rendererToken, req);
     const b = await post(e, e.cliToken, req);
@@ -247,7 +253,8 @@ describe("Engine 启动与关闭", () => {
     expect(list.data.map((t) => t.title)).toEqual(["写周报"]);
     const tagged = (await post(e, e.rendererToken, { capability: "tasks.list", input: { tags: ["周报"] }, requestId: "r" })) as unknown as { data: { title: string }[] };
     expect(tagged.data).toHaveLength(1);
-    // 外部入口：tasks.list 默认开放，tasks.create 不开放
+    // 用户明确开放查询后，外部入口仍不能创建任务。
+    await allowTools(e, "tasks.list");
     expect((await post(e, e.cliToken, { capability: "tasks.list", input: {}, requestId: "r" })).ok).toBe(true);
     expect((await post(e, e.cliToken, { capability: "tasks.create", input: { title: "x" }, requestId: "r", idempotencyKey: "key-cli-1" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
   });
@@ -317,7 +324,8 @@ describe("Engine 启动与关闭", () => {
     engines.push(e);
     type R = { ok: boolean; data: { id: string; source: string; status: string; result: { kind: string; id: string } | null; type: string }; error?: { code: string } };
     const call = (token: string, capability: string, input: unknown, key = `key-${capability}-${Math.random().toString(36).slice(2)}`) => post(e, token, { capability, input, requestId: "r", idempotencyKey: key }) as unknown as Promise<R>;
-    // ACC-IN-05：CLI 提交带 source: quick，文件中仍是 cli（inbox.capture 默认对外开放）
+    await allowTools(e, "inbox.capture", "archives.list");
+    // ACC-IN-05：CLI 提交带 source: quick，文件中仍是 cli。
     const viaCli = await call(e.cliToken, "inbox.capture", { body: "来自 CLI", source: "quick" });
     expect(viaCli.data.source).toBe("cli");
     // ACC-IN-02：转为任务
@@ -334,7 +342,7 @@ describe("Engine 启动与关闭", () => {
     expect(toArchive.data.result).toMatchObject({ kind: "archive", id: "Archives/项目/新项目/" });
     // 外部入口不能调用 inbox.convert
     expect((await call(e.cliToken, "inbox.convert", { id: second.data.id, target: "task", fields: {} })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
-    // ACC-AR：archives.list 对外默认开放
+    // ACC-AR：archives.list 按用户选择开放。
     expect(((await post(e, e.cliToken, { capability: "archives.list", input: {}, requestId: "r" })) as unknown as { ok: boolean }).ok).toBe(true);
   });
   test("AR-15 档案能力的暴露：外部可读 list/read；create/update/move/delete 需用户开放；types.* 永不对外", async () => {
@@ -350,6 +358,7 @@ describe("Engine 启动与关闭", () => {
         { name: "生日", type: "date" },
       ],
     });
+    await allowTools(e, "archives.list", "archives.read");
     expect((await call(e.cliToken, "archives.list", {})).ok).toBe(true);
     expect((await call(e.cliToken, "archives.create", { type: "通讯录", name: "张三" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     for (const cap of ["archives.create", "archives.update", "archives.move", "archives.delete"]) expect((await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true })).ok).toBe(true);
@@ -711,6 +720,8 @@ describe("Engine 启动与关闭", () => {
     const stored = readFileSync(path.join(dir, ".huhu/gateways.json"), "utf8");
     expect(stored).not.toContain(created.token); // 只保存哈希
     expect(stored).toContain("脚本");
+    expect(((await (await call(e1, created.token, "vault.info")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    await allowTools(e1, "vault.info");
     expect(((await (await call(e1, created.token, "vault.info")).json()) as R).ok).toBe(true);
     expect(((await (await call(e1, created.token, "safe.status")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED"); // 外部入口规则同样适用
     expect(((await (await call(e1, created.token, "gateway.tokens.list")).json()) as R).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
@@ -729,9 +740,13 @@ describe("Engine 启动与关闭", () => {
     const call = (token: string, capability: string, input: unknown = {}): Promise<R> =>
       post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     await call(e.rendererToken, "tasks.create", { title: "T", type: "human" });
-    await call(e.rendererToken, "notes.create", { name: "N" });
-    // 默认：CLI 能读 tasks.list / notes.list，home.summary 带出计数
-    expect((await call(e.cliToken, "home.summary")).data as { tasksOpen: number; notes: number }).toMatchObject({ tasksOpen: 1, notes: 1 });
+    const note = (await call(e.rendererToken, "notes.create", { name: "N" })).data as { path: string };
+    const { version } = (await call(e.rendererToken, "notes.read", { path: note.path })).data as { version: string };
+    expect(await call(e.rendererToken, "notes.save", { path: note.path, expectedVersion: version, text: "# 正文样例\n" })).toMatchObject({ ok: true });
+    await allowTools(e, "home.summary", "tasks.list", "notes.list");
+    expect((await call(e.cliToken, "home.summary")).data).toMatchObject({ tasksOpen: 1, notes: 1, recentNotes: [{ snippet: "" }] });
+    await allowTools(e, "notes.read");
+    expect((await call(e.cliToken, "home.summary")).data).toMatchObject({ recentNotes: [{ snippet: "正文样例" }] });
     // 用户关闭 notes.list 的对外开放后，外部调用 home.summary 看不到笔记；桌面仍然能看到
     await call(e.rendererToken, "gateway.update", { capability: "notes.list", exposed: false });
     expect((await call(e.cliToken, "home.summary")).data as { notes: number; recentNotes: unknown[] }).toMatchObject({ notes: 0, recentNotes: [] });
@@ -1002,6 +1017,7 @@ describe("Engine 启动与关闭", () => {
         body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
       }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
     await call("gateway.mcp.update", { enabled: true, transport: "http" });
+    await allowTools(e, "tasks.list");
     const tools = async () => ((await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools ?? []).map((t) => t.name);
     expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(true);
     await call("plugins.setEnabled", { id: "tasks", enabled: false });
@@ -1034,6 +1050,8 @@ describe("Engine 启动与关闭", () => {
     expect((await rpc(e.rendererToken, init)).status).toBe(403);
     expect((await rpc(e.cliToken, init)).status).toBe(403);
     expect((await rpc(e.mcpToken, init, "GET")).status).toBe(405);
+    expect((await (await rpc(e.mcpToken, init)).json()) as unknown).toMatchObject({ result: { tools: [] } });
+    await allowTools(e, "vault.info", "tasks.list", "inbox.capture");
     const list = (await (await rpc(e.mcpToken, init)).json()) as { result: { tools: { name: string }[] } };
     const names = list.result.tools.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(["vault_info", "tasks_list"]));

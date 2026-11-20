@@ -1,6 +1,7 @@
-import { CAPABILITY_AVAILABILITIES, CAPABILITY_SCOPES, CapabilityCatalogEntrySchema, errors, toJsonSchema, type CapabilityAvailability, type CapabilityCatalogEntry } from "@huhu/contracts";
+import { CAPABILITY_AVAILABILITIES, CAPABILITY_SCOPES, CapabilityCatalogEntrySchema, ToolAccessSnapshotSchema, errors, toJsonSchema, type CapabilityAvailability, type CapabilityCatalogEntry } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
+import { toolSelection, type ExposureStore } from "../exposure.js";
 import type { PluginManager } from "../plugin-manager.js";
 
 const PluginInfo = z.object({
@@ -27,7 +28,7 @@ const unavailableReasons = {
 export function registerSystemCapabilities(
   registry: CapabilityRegistry,
   plugins: PluginManager,
-  exposure: { isExposed(name: string): boolean; set?(name: string, exposed: boolean): void; setPluginEnabled?(id: string, enabled: boolean): void },
+  exposure: Pick<ExposureStore, "snapshot" | "set"> & { setPluginEnabled?(id: string, enabled: boolean): void },
   gateway?: {
     audit?: { list(): { at: string; entry: string; capability: string; code: string; ms: number }[]; clear(): void };
     tokens: {
@@ -102,8 +103,8 @@ export function registerSystemCapabilities(
         exposable: false,
         defaultExposed: false,
         input: z.object({}),
-        output: z.object({ mcp: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }), tokens: z.number(), exposure: z.record(z.string(), z.boolean()) }),
-        handler: () => ({ mcp: gateway?.tokens.mcp() ?? { enabled: false, transport: "stdio" as const }, tokens: gateway?.tokens.list().length ?? 0, exposure: {} }),
+        output: z.object({ mcp: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }), tokens: z.number(), toolAccess: ToolAccessSnapshotSchema }),
+        handler: () => ({ mcp: gateway?.tokens.mcp() ?? { enabled: false, transport: "stdio" as const }, tokens: gateway?.tokens.list().length ?? 0, toolAccess: exposure.snapshot() }),
       }),
     ),
     registry.register(
@@ -168,14 +169,14 @@ export function registerSystemCapabilities(
         exposable: false,
         defaultExposed: false,
         input: z.object({ capability: z.string(), exposed: z.boolean() }),
-        output: z.object({ exposed: z.boolean() }),
-        handler: (_c, i) => {
-          const cap = registry.get(i.capability);
+        output: z.object({ exposed: z.boolean(), revision: z.int().nonnegative() }),
+        handler: async (_c, i) => {
+          const cap = registry.getDescriptor(i.capability) ?? registry.get(i.capability);
           if (!cap) throw errors.capabilityNotFound(i.capability);
           // exposable:false 的能力（保险箱明文、Agent/SSH 执行等）永远不能开放
           if (i.exposed && !cap.exposable) throw errors.invalidInput(`${i.capability} 不允许对外开放`);
-          exposure.set?.(i.capability, i.exposed);
-          return { exposed: i.exposed };
+          const revision = await exposure.set(i.capability, i.exposed);
+          return { exposed: i.exposed, revision };
         },
       }),
     ),
@@ -226,7 +227,9 @@ export function registerSystemCapabilities(
             if (availability !== "active") return { allowed: false, reason: unavailableReasons[availability] };
             if (!cap) return { allowed: false, reason: unavailableReasons["handler-missing"] };
             if (!cap.exposable) return { allowed: false, reason: "该能力永不对外开放" };
-            if (!exposure.isExposed(cap.name)) return { allowed: false, reason: "尚未开放：先在上面打开它的开关" };
+            const policy = exposure.snapshot();
+            if (policy.state === "error") return { allowed: false, reason: policy.message };
+            if (toolSelection(policy, cap.name) !== true) return { allowed: false, reason: "尚未开放：先在上面打开它的开关" };
             return { allowed: true, reason: cap.scope === "read" ? "允许调用" : "允许调用（写/执行类调用需要幂等键）" };
           };
           const v = verdict();
@@ -244,12 +247,13 @@ export function registerSystemCapabilities(
         name: "capabilities.list",
         plugin: "kernel",
         scope: "read",
-        exposable: true,
-        defaultExposed: true,
-        // includeInactive：同时返回曾注册 / 在清单中声明、但现在不可用（插件已停用）的能力名，供 stdio MCP 把已缓存工具的调用交给 Dispatcher 得到 PLUGIN_DISABLED
+        exposable: false,
+        defaultExposed: false,
+        // 管理目录可包含停用项；CLI 和 MCP 使用已认证的发现入口。
         input: z.object({ includeInactive: z.boolean().optional() }),
         output: z.array(CapabilityCatalogEntrySchema),
-        handler: (c, i) => {
+        handler: (_c, i) => {
+          const policy = exposure.snapshot();
           const names = i.includeInactive ? registry.knownNames().sort((a, b) => a.localeCompare(b)) : registry.list().map((cap) => cap.name);
           const entries: CapabilityCatalogEntry[] = [];
           for (const name of names) {
@@ -258,10 +262,9 @@ export function registerSystemCapabilities(
             const active = registry.get(name);
             const availability = availabilityOf(plugin, !!active);
             if (availability === "not-found" || (!i.includeInactive && availability !== "active")) continue;
-            // 外部 stdio 发现需要已停用的名称来解释旧调用；停用项的完整描述供桌面管理。
-            const canDescribe = availability === "active" || c.caller === "desktop";
-            const descriptor = canDescribe ? registry.getDescriptor(name) : undefined;
+            const descriptor = registry.getDescriptor(name);
             const definition = descriptor ?? (availability === "active" ? active : undefined);
+            const selected = toolSelection(policy, name);
             entries.push({
               name,
               plugin,
@@ -269,7 +272,8 @@ export function registerSystemCapabilities(
               scope: definition?.scope ?? null,
               ...(descriptor && { title: descriptor.title, description: descriptor.description, risk: descriptor.risk }),
               exposable: definition?.exposable ?? false,
-              exposed: availability === "active" && definition?.exposable === true && exposure.isExposed(name),
+              selected,
+              exposed: availability === "active" && definition?.exposable === true && selected === true,
               input: definition ? toJsonSchema(definition.input) : null,
               output: definition ? toJsonSchema(definition.output, "output") : null,
             });

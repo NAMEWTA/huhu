@@ -1,23 +1,37 @@
 import { randomUUID } from "node:crypto";
-import type { CapabilityResult } from "@huhu/contracts";
+import type { CapabilityDiscoveryEntry, CapabilityResult } from "@huhu/contracts";
 import { ConnectError, type Connection } from "../connect.js";
 
-export async function callCapability(conn: Connection, capability: string, input: unknown): Promise<CapabilityResult<unknown>> {
-  let res: Response;
+async function request(conn: Connection, route: string, init?: RequestInit): Promise<Response> {
   try {
-    res = await fetch(`${conn.baseUrl}/api/v1/call`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
-    });
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${conn.token}`);
+    return await fetch(`${conn.baseUrl}${route}`, { ...init, headers });
   } catch {
     throw new ConnectError("无法连接 Engine（端点已失效）");
   }
-  if (!res.ok && res.status !== 200) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    return { ok: false, error: { code: "INTERNAL", message: body.error ?? `HTTP ${res.status}`, retryable: false } };
-  }
+}
+
+async function requestError(res: Response): Promise<CapabilityResult<never>> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  return { ok: false, error: { code: "INTERNAL", message: body?.error ?? `HTTP ${res.status}`, retryable: false } };
+}
+
+export async function callCapability(conn: Connection, capability: string, input: unknown, nameFormat?: "mcp"): Promise<CapabilityResult<unknown>> {
+  const route = nameFormat === "mcp" ? "/api/v1/call?nameFormat=mcp" : "/api/v1/call";
+  const res = await request(conn, route, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+  });
+  if (!res.ok) return requestError(res);
   return (await res.json()) as CapabilityResult<unknown>;
+}
+
+export async function discoverCapabilities(conn: Connection): Promise<CapabilityResult<CapabilityDiscoveryEntry[]>> {
+  const res = await request(conn, "/api/v1/capabilities");
+  if (!res.ok) return requestError(res);
+  return { ok: true, data: (await res.json()) as CapabilityDiscoveryEntry[] };
 }
 
 /** 输出约定：--json 输出 CapabilityResult；退出码 0 成功、1 业务错误。 */

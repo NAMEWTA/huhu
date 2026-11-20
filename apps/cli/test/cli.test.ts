@@ -23,6 +23,16 @@ function capture() {
   return { out, err, io: { out: (s: string) => out.push(s), err: (s: string) => err.push(s) } };
 }
 const ENGINE_ENTRY = path.resolve(import.meta.dirname, "../../engine/src/main.ts");
+async function allowTools(e: RunningEngine, ...names: string[]) {
+  for (const capability of names) {
+    const response = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "gateway.update", input: { capability, exposed: true }, requestId: `allow-${capability}` }),
+    });
+    expect(await response.json()).toMatchObject({ ok: true });
+  }
+}
 
 describe("CLI", () => {
   test("--version / --help 不需要 Vault", async () => {
@@ -51,6 +61,7 @@ describe("CLI", () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
+    await allowTools(e, "vault.info");
     const c = capture();
     expect(await run(["call", "vault.info", "--vault", dir, "--json"], c.io)).toBe(0);
     const parsed = JSON.parse(c.out.join(""));
@@ -72,9 +83,8 @@ describe("CLI", () => {
     // 使用短空闲时间：通过环境变量不可行，这里直接调用 connect 的 idleExitMs
     const { connect } = await import("../src/connect.js");
     const conn = await connect(dir, { idleExitMs: 1500, timeoutMs: 20000 });
-    const { callCapability } = await import("../src/commands/call.js");
-    const r = await callCapability(conn, "vault.info", {});
-    expect(r.ok).toBe(true);
+    const { discoverCapabilities } = await import("../src/commands/call.js");
+    expect(await discoverCapabilities(conn)).toEqual({ ok: true, data: [] });
     void c;
     const v = await Vault.open(dir, { readOnly: true });
     const desc = path.join(v.runtimeDir, "engine.json");
@@ -95,15 +105,9 @@ describe("CLI", () => {
     const created = await run1("tasks", "create", "--title", "写周报");
     expect(created.code).toBe(1); // 默认不对外开放
     expect((created.out as unknown as { error: { code: string } }).error.code).toBe("CAPABILITY_NOT_EXPOSED");
-    // 用户在网关里开放 tasks.create / tasks.setStatus 后，CLI 便捷命令可用
-    for (const cap of ["tasks.create", "tasks.setStatus"]) {
-      const r = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
-        body: JSON.stringify({ capability: "gateway.update", input: { capability: cap, exposed: true }, requestId: "r", idempotencyKey: `key-gw-${cap}` }),
-      });
-      expect(((await r.json()) as { ok: boolean }).ok).toBe(true);
-    }
+    expect(await run1("capabilities", "list")).toEqual({ code: 0, out: { ok: true, data: [] } });
+    expect((await run1("call", "capabilities.list")).code).toBe(1);
+    await allowTools(e, "tasks.create", "tasks.read", "tasks.setStatus", "tasks.list", "plugins.list", "guide.status", "inbox.capture", "notes.list");
     const created2 = await run1("tasks", "create", "--title", "写周报");
     expect(created2.code).toBe(0);
     const id = (created2.out.data as { id: string }).id;
@@ -121,7 +125,7 @@ describe("CLI", () => {
     expect(plugins.code).toBe(0);
     expect((plugins.out.data as { id: string }[]).map((p) => p.id)).toEqual(expect.arrayContaining(["tasks", "notes", "inbox", "safe"]));
     const caps = await run1("capabilities", "list");
-    expect((caps.out.data as { name: string; exposed: boolean }[]).find((c) => c.name === "safe.items.reveal")?.exposed).toBe(false);
+    expect((caps.out.data as { name: string }[]).map((c) => c.name)).not.toContain("safe.items.reveal");
     // Agent 指南：打开 Vault 时自动补写三份文件；`huhu guide status` 报告 current；`huhu --skill` 不需要 Vault
     await vi.waitFor(() => expect(existsSync(path.join(dir, ".agents/skills/huhu/references/mcp.md"))).toBe(true));
     const guide = await run1("guide", "status");
@@ -138,6 +142,7 @@ describe("CLI", () => {
   test("ACC-PL-01 stdio：停用 tasks 后，已缓存工具表的客户端调用 tasks_list 得到 PLUGIN_DISABLED，且工具表不再含 tasks_*", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
+    await allowTools(e, "tasks.list");
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");
@@ -179,12 +184,27 @@ describe("CLI", () => {
       send({ jsonrpc: "2.0", method: "notifications/initialized" });
       send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
       await vi.waitFor(() => expect(out).toContain('"id":2'), { timeout: 20_000 });
-      const lines = out.split("\n").filter((l) => l.trim());
-      for (const l of lines) expect(() => JSON.parse(l)).not.toThrow(); // 每行都是协议帧
-      const list = lines.map((l) => JSON.parse(l) as { id?: number; result?: { tools?: { name: string }[] } }).find((m) => m.id === 2);
-      const names = (list?.result?.tools ?? []).map((t) => t.name);
-      expect(names).toContain("vault_info");
-      expect(names).not.toContain("safe_items_reveal");
+      const replies = () =>
+        out
+          .split("\n")
+          .filter((l) => l.trim())
+          .map((l) => JSON.parse(l) as { id?: number; result?: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } });
+      expect(replies().find((m) => m.id === 2)?.result?.tools).toEqual([]);
+      await allowTools(e, "vault.info");
+      send({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} });
+      await vi.waitFor(() => expect(out).toContain('"id":3'), { timeout: 20_000 });
+      expect(
+        replies()
+          .find((m) => m.id === 3)
+          ?.result?.tools?.map((tool) => tool.name),
+      ).toEqual(["vault_info"]);
+      writeFileSync(path.join(dir, ".huhu/gateway/tool-access.json"), "{invalid");
+      send({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} });
+      await vi.waitFor(() => expect(out).toContain('"id":4'), { timeout: 20_000 });
+      expect(replies().find((m) => m.id === 4)?.result?.tools).toEqual([]);
+      send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "vault_info", arguments: {} } });
+      await vi.waitFor(() => expect(out).toContain('"id":5'), { timeout: 20_000 });
+      expect(replies().find((m) => m.id === 5)?.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("invalid-format") }] });
     } finally {
       child.kill();
     }
@@ -193,6 +213,7 @@ describe("CLI", () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
+    await allowTools(e, "vault.info", "tasks.list", "inbox.capture", "vault.indexEntries", "notes.list", "notes.read");
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");

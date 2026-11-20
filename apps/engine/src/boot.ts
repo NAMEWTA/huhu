@@ -150,7 +150,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     () => serverRef.current?.closeConnectionsOf("http"),
   );
   const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
-  const exposure = new ExposureStore(path.join(vault.stateDir, "plugins.json"));
+  const exposure = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
   const settingsFile = path.join(vault.stateDir, "settings.json");
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
@@ -219,9 +219,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         const rules = await ask<{ data: { enabled: boolean } }[]>("automations.list", {}, []);
         const mtimes = new Map(index.entries("").map((e) => [e.path, e.mtimeMs]));
         const recent = [...notesList].sort((a, b) => (mtimes.get(b.path) ?? 0) - (mtimes.get(a.path) ?? 0)).slice(0, 4);
-        const snippetOf = (rel: string): string => {
+        const snippetOf = async (rel: string): Promise<string> => {
           try {
-            const text = vault.files.read(rel)?.bytes.toString("utf8") ?? "";
+            const { text } = await ask("notes.read", { path: rel }, { text: "" });
             return text
               .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
               .replace(/[#*`>[\]]/g, "")
@@ -239,13 +239,15 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
           inboxPending: inbox.length,
           notes: notesList.length,
           rulesEnabled: rules.filter((r) => r.data.enabled).length,
-          recentNotes: recent.map((n) => ({
-            path: n.path,
-            title: n.title,
-            folder: n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "根目录",
-            updatedAt: new Date(mtimes.get(n.path) ?? 0).toISOString(),
-            snippet: snippetOf(n.path),
-          })),
+          recentNotes: await Promise.all(
+            recent.map(async (n) => ({
+              path: n.path,
+              title: n.title,
+              folder: n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "根目录",
+              updatedAt: new Date(mtimes.get(n.path) ?? 0).toISOString(),
+              snippet: await snippetOf(n.path),
+            })),
+          ),
           enabled: { tasks: plugins.isEnabled("tasks"), inbox: plugins.isEnabled("inbox"), notes: plugins.isEnabled("notes"), automations: plugins.isEnabled("automations"), agentCli: plugins.isEnabled("agent-cli") },
         };
       },
@@ -283,7 +285,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerSystemCapabilities(
     registry,
     plugins,
-    { isExposed: (n) => exposure.override(n) ?? registry.get(n)?.defaultExposed === true, set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)) },
+    { snapshot: () => exposure.snapshot(), set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)) },
     { tokens: gatewayTokens, audit: gatewayAudit },
   );
   plugins.register({
@@ -368,7 +370,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     audit: gatewayAudit,
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
     isPluginEnabled: (id) => plugins.isEnabled(id),
-    exposureOverride: (n) => exposure.override(n),
+    toolAccess: () => exposure.snapshot(),
     grantedPermissions: (id) => plugins.permissionsOf(id),
     pluginOrigin: (id) => plugins.originOf(id),
   });
@@ -384,10 +386,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     tokens,
     events,
-    visibleTo: (caller, name) => {
-      const cap = registry.get(name);
-      return !!cap && plugins.isEnabled(cap.plugin) && (caller === "desktop" || (cap.exposable && (exposure.override(name) ?? cap.defaultExposed)));
-    },
     ...(opts.port !== undefined ? { port: opts.port } : {}),
   });
 
@@ -424,6 +422,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         .filter((p) => p.manifest.origin === "external" && external.shouldEnable(p.id))
         .map((p) => plugins.enable(p.id)),
     );
+  await exposure.initialize(registry.knownNames());
   const descriptorPath = endpointPath(vault);
   const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, mcpToken, startedAt: new Date().toISOString() };
   if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });

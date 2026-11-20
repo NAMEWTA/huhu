@@ -47,6 +47,7 @@ test("写作与恢复：批注、版本、恢复，重开后一致", async () =>
     expect(c.ok).toBe(true);
 
     // 外部入口（CLI 令牌）捕获一条想法，来源为 cli
+    expect((await call("gateway.update", { capability: "inbox.capture", exposed: true })).ok).toBe(true);
     const runtime = path.join(vault, ".huhu/runtime");
     const desc = JSON.parse(readFileSync(path.join(runtime, readdirSync(runtime)[0] as string, "engine.json"), "utf8")) as { cliToken: string; port: number };
     const cap = await fetch(`http://127.0.0.1:${desc.port}/api/v1/call`, {

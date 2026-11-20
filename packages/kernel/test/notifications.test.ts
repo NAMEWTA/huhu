@@ -67,7 +67,15 @@ describe("设置", () => {
     const file = path.join(dir, "settings.json");
     const registry = new CapabilityRegistry();
     registerNotificationAndSettings(registry, new NotificationStore(path.join(dir, "n.ndjson")), file);
-    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
+    const d = new Dispatcher({
+      registry,
+      audit: new GatewayAudit(),
+      idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      grantedPermissions: () => [],
+      pluginOrigin: () => "external",
+    });
     const r = await d.call("desktop", { capability: "settings.update", input: { patch: { appearance: { theme: "vercel", mode: "dark" } } }, requestId: "r", idempotencyKey: "key-settings-1" });
     expect(r.ok).toBe(true);
     expect(JSON.parse(readFileSync(file, "utf8")).appearance).toMatchObject({ theme: "vercel", mode: "dark" });
@@ -103,7 +111,15 @@ describe("设置范围（规格 modules/system.md §3）", () => {
     writeFileSync(file, "{损坏的内容");
     const registry = new CapabilityRegistry();
     registerNotificationAndSettings(registry, new NotificationStore(path.join(dir, "n.ndjson")), file);
-    const d = new Dispatcher({ registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(), isPluginEnabled: () => true, exposureOverride: () => undefined, grantedPermissions: () => [], pluginOrigin: () => "external" });
+    const d = new Dispatcher({
+      registry,
+      audit: new GatewayAudit(),
+      idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      grantedPermissions: () => [],
+      pluginOrigin: () => "external",
+    });
     const r = await d.call("desktop", { capability: "settings.update", input: { patch: { editor: { autosave: false } } }, requestId: "r", idempotencyKey: "key-corrupt-1" });
     expect(r.ok).toBe(true);
     const copies = (await import("node:fs")).readdirSync(dir).filter((f) => f.startsWith("settings.json.corrupt-"));
