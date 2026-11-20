@@ -226,6 +226,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
     const refreshes: string[] = [];
     let rejectRefresh = false;
     let blockEntered: (() => void) | undefined;
+    let browserAck: Promise<void> | undefined;
     const credentials = new Map<string, { access: string; refresh: string; provider: OAuthProvider }>();
     const materials: string[] = [];
     const gmail = gmailFixture(google, () => credentials.get(google)?.access);
@@ -353,6 +354,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         now: () => now,
         openBrowser: async (url) => {
           opened.push(new URL(url));
+          await browserAck;
         },
       };
       const request = (capability: string, input: unknown = {}, caller: "desktop" | "web:other" | "cli" = "desktop") => {
@@ -569,6 +571,54 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
           smtpData: smtp.counts.data - beforeOutlook.smtp,
         }),
       );
+
+      const callbackFirst = "callback-first@example.invalid";
+      const browserFirst = "browser-first@example.invalid";
+      const ack = Promise.withResolvers<void>();
+      const exchangeEntered = Promise.withResolvers<void>();
+      const finishExchange = Promise.withResolvers<void>();
+      const startCount = opened.length;
+      const codeCount = exchangeCount;
+      browserAck = ack.promise;
+      blockEntered = exchangeEntered.resolve;
+      const start = call<Status>("mail.oauth.begin", { provider: "gmail", email: callbackFirst });
+      await expect.poll(() => opened.length).toBe(startCount + 1);
+      const target = opened.at(-1)!;
+      const tokenCode = `fixture-code-${randomUUID()}`;
+      codes.set(tokenCode, { url: target, provider: "gmail", email: callbackFirst, scopes: googleScopes, hold: finishExchange.promise });
+      try {
+        expect((await callback(target, { code: tokenCode })).status).toBe(200);
+        await exchangeEntered.promise;
+        ack.reject(new Error("fixture lost the browser acknowledgement"));
+        const slot = await start;
+        expect(await status(slot)).toMatchObject({ phase: "finishing" });
+        expect(await request("mail.oauth.begin", { provider: "gmail", email: callbackFirst })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        expect(opened).toHaveLength(startCount + 1);
+        finishExchange.resolve();
+        await expect.poll(() => status(slot)).toMatchObject({ phase: "configured" });
+        expect((await list()).accounts.filter(({ definition }) => definition.settings.email === callbackFirst)).toHaveLength(1);
+        expect(exchangeCount - codeCount).toBe(1);
+      } finally {
+        ack.resolve();
+        finishExchange.resolve();
+        browserAck = undefined;
+        blockEntered = undefined;
+      }
+
+      const refuse = Promise.withResolvers<void>();
+      browserAck = refuse.promise;
+      const deniedBrowser = call<Status>("mail.oauth.begin", { provider: "gmail", email: browserFirst });
+      await expect.poll(() => opened.length).toBe(startCount + 2);
+      refuse.reject(new Error("fixture refused to launch the browser"));
+      const deniedBrowserSlot = await deniedBrowser;
+      await expect.poll(() => status(deniedBrowserSlot)).toMatchObject({ phase: "failed", reason: "browser-unavailable" });
+      const late = await callback(opened.at(-1)!, { code: "late" }).then(
+        (response) => response.status,
+        () => "closed",
+      );
+      expect(late).not.toBe(200);
+      expect(exchangeCount - codeCount).toBe(1);
+      browserAck = undefined;
 
       rejectRefresh = true;
       now += 100_000;

@@ -206,17 +206,15 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
             parameters.set("prompt", "consent");
           } else parameters.set("response_mode", "query");
           auth.search = parameters.toString();
-          const cancelBegin = () => stop(session, "cancelled");
-          signal.addEventListener("abort", cancelBegin, { once: true });
-          try {
-            await runtime.openBrowser(auth.href);
-          } finally {
-            signal.removeEventListener("abort", cancelBegin);
-          }
+          // After launch the listener belongs to the session, even if the RPC response is lost.
+          void runtime.openBrowser(auth.href).catch(() => {
+            if (session.status.phase === "waiting") end(session, "failed", "browser-unavailable");
+          });
         } catch {
-          if (!live(session)) return session.status;
-          if (signal.aborted || active.aborted) stop(session, "cancelled");
-          else end(session, "failed", "browser-unavailable");
+          if (session.status.phase === "waiting") {
+            if (signal.aborted || active.aborted) stop(session, "cancelled");
+            else end(session, "failed", "browser-unavailable");
+          }
         }
         return session.status;
       },
