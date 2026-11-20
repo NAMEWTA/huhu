@@ -1,0 +1,16 @@
+{
+  "id": "mail",
+  "title": "邮件",
+  "description": "邮箱账号与 IMAP 目录发现",
+  "version": "0.0.1-rc.4",
+  "origin": "builtin",
+  "activation": "vault-open",
+  "contributes": {
+    "modules": [],
+    "settingsPages": [],
+    "homeWidgets": [],
+    "commands": [],
+    "capabilities": [],
+    "fileKinds": []
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@huhu/plugin-mail",
+  "version": "0.0.1-rc.4",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./engine": "./src/engine/index.ts",
+    "./manifest": "./huhu-plugin.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@huhu/kernel": "workspace:*",
+    "imapflow": "2.12.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@huhu/vault": "workspace:*"
+  }
+}
