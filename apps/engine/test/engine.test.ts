@@ -498,65 +498,43 @@ describe("Engine 启动与关闭", () => {
     },
     90_000,
   );
-  test.skipIf(process.platform === "win32")(
-    "automations：预览无副作用、立即运行用假 CLI 处理 Agent 任务（派发置进行中、写评论），再次运行不重复，任务不会自动完成",
-    async () => {
-      const { chmodSync, writeFileSync, readdirSync: ls } = await import("node:fs");
-      const bin = tmp();
-      writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 CLI 已处理"\n');
-      chmodSync(path.join(bin, "codex"), 0o755);
-      const oldPath = process.env["PATH"];
-      process.env["PATH"] = `${bin}:${oldPath}`;
-      try {
-        const dir = tmp();
-        const e = await boot({ vaultPath: dir, create: true });
-        engines.push(e);
-        type R = { ok: boolean; data: unknown; error?: { code: string } };
-        const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-        // 新 Vault 没有任何内置规则
-        expect((await call("automations.list", {})).data).toEqual([]);
-        const rule = (await call("automations.create", { title: "处理 Agent 任务", trigger: { preset: "every5", cron: "*/5 * * * *", zone: "UTC" }, action: { kind: "agent", input: { source: "tasks", tags: [], maxConcurrent: 1 } } }))
-          .data as { id: string; data: { enabled: boolean } };
-        expect(rule.data.enabled).toBe(false);
-        const space = ((await call("agent.spaces.list", {})).data as { id: string }[])[0] as { id: string };
-        const t = await call("tasks.create", { title: "整理资料", type: "agent", body: "请整理 [[笔记.md]]", execution: { spaceId: space.id, provider: "codex" } });
-        expect(t.ok).toBe(true);
-        await call("tasks.create", { title: "手动任务", type: "human" });
-        // 等 Provider 检测完成
-        for (let i = 0; i < 50; i++) {
-          const d = (await call("agent.catalog.detect", { refresh: true })).data as { id: string; installed: boolean }[];
-          if (d.find((x) => x.id === "codex")?.installed) break;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        await new Promise((r) => setTimeout(r, 300));
-        const preview = (await call("automations.preview", { id: rule.id })).data as { candidates: unknown[]; skipped: { reason: string }[] };
-        expect(preview.candidates).toHaveLength(1);
-        expect(preview.skipped.map((x) => x.reason)).toEqual(["not-agent"]);
-        expect(existsSync(path.join(dir, "Task Runs"))).toBe(false); // 预览不写文件
-        const run1 = (await call("automations.runNow", { id: rule.id })).data as { summary: unknown };
-        expect(run1.summary).toEqual({ processed: 1, skipped: 1 });
-        const runFile = ls(path.join(dir, "Task Runs"));
-        expect(runFile).toHaveLength(1);
-        const text = readFileSync(path.join(dir, "Task Runs", runFile[0] as string), "utf8");
-        expect(text).toContain("state: succeeded");
-        expect(text).toContain("假 CLI 已处理");
-        // 派发把任务置为进行中（不会自动完成），并留下系统评论与 Agent 结果评论
-        const task = (await call("tasks.read", { id: (t.data as { id: string }).id })).data as { status: string; comments: { source: string; event?: string; body: string }[] };
-        expect(task.status).toBe("in_progress");
-        expect(task.comments.map((c) => [c.source, c.event])).toEqual([
-          ["system", "dispatched"],
-          ["agent", "succeeded"],
-        ]);
-        expect(task.comments[1]?.body).toContain("假 CLI 已处理");
-        expect(((await call("automations.runNow", { id: rule.id })).data as { summary: unknown }).summary).toEqual({ processed: 0, skipped: 2 });
-        expect(ls(path.join(dir, "Task Runs"))).toHaveLength(1);
-        expect(((await call("automations.activations", {})).data as unknown[]).length).toBe(2);
-      } finally {
-        process.env["PATH"] = oldPath;
-      }
-    },
-    60_000,
-  );
+  test("Agent 任务自动化的预览和立即运行使用同一持久发生与派遣记录", async () => {
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    const call = (capability: string, input: unknown, key = `test-${Math.random().toString(36)}`) => post(e, e.rendererToken, { capability, input, requestId: "fixture-rule", idempotencyKey: key });
+    const [space] = (await call("agent.spaces.list", {})).data as unknown as { id: string }[];
+    const { data: task } = await call("tasks.create", {
+      title: "整理资料",
+      type: "agent",
+      body: "只发给指定的测试会话",
+      execution: { spaceId: space!.id, target: { mode: "existing", sessionId: "fixture-missing-original" } },
+    });
+    expect(task).toMatchObject({ id: expect.any(String) });
+    expect((await call("tasks.create", { title: "手动任务" })).ok).toBe(true);
+    const { data: rule } = await call("automations.create", {
+      title: "处理 Agent 任务",
+      trigger: { preset: "every5", cron: "*/5 * * * *", zone: "UTC" },
+      action: { kind: "agent", input: { source: "tasks", includeUnscheduled: true, tags: [], maxConcurrent: 1 } },
+    });
+    const occurrenceDir = path.join(e.vault.stateDir, "automations", "task-scan-occurrences");
+    expect(await call("automations.preview", { id: rule.id })).toMatchObject({
+      ok: true,
+      data: { candidates: [expect.objectContaining({ taskId: task.id })], skipped: [expect.objectContaining({ reason: "not-agent" })] },
+    });
+    expect(existsSync(occurrenceDir)).toBe(false);
+    const first = await call("automations.runNow", { id: rule.id }, "one-intent");
+    expect(first).toMatchObject({ ok: true, data: { activationId: expect.stringMatching(/^inv-/), summary: { processed: 1, skipped: 1 } } });
+    expect(await call("automations.runNow", { id: rule.id }, "one-intent")).toEqual(first);
+    expect(readdirSync(occurrenceDir)).toHaveLength(1);
+    expect(await call("automations.activations", {})).toMatchObject({
+      ok: true,
+      data: [{ ruleId: rule.id, trigger: "manual", summary: { processed: 1, skipped: 1 } }],
+    });
+    expect(await call("tasks.dispatch.list", { taskId: task.id })).toMatchObject({ ok: true, data: [{ dispatchId: expect.stringMatching(/^scan-/), runId: expect.any(String) }] });
+    expect(existsSync(path.join(dir, "Task Runs"))).toBe(false);
+    expect(await call("agent.sessions.list", { spaceId: space!.id })).toMatchObject({ ok: true, data: [] });
+  }, 30_000);
   test("versioning：命名版本、时间线、读取、恢复（经 HTTP）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

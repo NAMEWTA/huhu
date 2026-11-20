@@ -11,7 +11,7 @@ import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, 
 import { HoldStore } from "./holds.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
+import { AutomationsService, type ActivationRecord, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
 import { hasRunDir, killRound, roundActive } from "./supervised.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { processWorker, roundDir, type ResolveLaunch } from "./worker.js";
@@ -96,7 +96,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
 
   const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
-  const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now);
+  const publishActivation = ({ ruleId, activationId, trigger }: ActivationRecord) => api.events.publish("automation.activated", { ruleId, activationId, trigger });
+  const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now, publishActivation);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());
   const followUps = new FollowUps(
@@ -124,7 +125,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         },
         opts.reminderNotifications,
         now,
-        ({ ruleId, activationId, trigger }) => api.events.publish("automation.activated", { ruleId, activationId, trigger }),
+        publishActivation,
       )
     : undefined;
   if (reminders) api.provide("automationReminderDeliveries", reminders);
@@ -132,6 +133,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     const check = () => {
       void followUps.tick().catch(() => undefined);
       void reminders?.recover().catch(() => undefined);
+      if (!stateFiles.readOnly) void scans.recover().catch(() => undefined);
     };
     const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
     if (timer) check();
@@ -145,15 +147,24 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   api.provide(DEFAULT_TASK_SCAN_SERVICE, defaults);
   ctx.effect(() => () => defaults.close());
 
+  const activate = async (ruleId: string, at: Date | null): Promise<ActivationRecord | null> => {
+    const { action } = svc.rule(ruleId).data;
+    if (action.kind === "agent") {
+      const occurrence = at ? await scans.scheduled(ruleId, at) : await scans.invoke(ruleId);
+      return occurrence ? scans.activation(occurrence) : null;
+    }
+    if (action.kind === "reminder" && reminders) return reminders.activate(ruleId, at);
+    return svc.activate(ruleId, at ? "schedule" : "manual", at);
+  };
   const scheduler = new Scheduler({
-    activate: async (ruleId, at, trigger) => {
-      if (reminders && svc.rule(ruleId).data.action.kind === "reminder") await reminders.activate(ruleId, at);
-      else await svc.activate(ruleId, trigger, at);
+    activate: async (ruleId, at) => {
+      await activate(ruleId, at);
     },
     lastActivatedFor: (id) => {
       const last = svc.lastActivatedFor(id);
-      const reminder = reminders?.lastScheduledFor(id);
-      return reminder && (!last || reminder > last) ? reminder : last;
+      const kind = svc.rule(id).data.action.kind;
+      const current = kind === "agent" ? scans.lastScheduledFor(id) : kind === "reminder" ? reminders?.lastScheduledFor(id) : null;
+      return current && (!last || current > last) ? current : last;
     },
     now,
   });
@@ -353,7 +364,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       defaultExposed: false,
       input: Id,
       output: z.object({ next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
-      handler: (_c, i) => svc.preview(i.id),
+      handler: (_c, i) => (svc.rule(i.id).data.action.kind === "agent" ? scans.preview(i.id) : svc.preview(i.id)),
     }),
   );
   api.defineCapability(
@@ -367,8 +378,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: Id,
       output: z.object({ activationId: z.string(), summary: z.unknown() }),
       handler: async (_c, i) => {
-        const a = reminders && svc.rule(i.id).data.action.kind === "reminder" ? await reminders.activate(i.id, null) : await svc.activate(i.id, "manual");
-        if (!a) throw errors.notFound("未找到提醒规则");
+        const a = await activate(i.id, null);
+        if (!a) throw errors.notFound("规则未产生发生记录");
         return { activationId: a.activationId, summary: a.summary };
       },
     }),
@@ -385,7 +396,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       defaultExposed: true,
       input: z.object({}),
       output: z.array(z.object({ activationId: z.string(), ruleId: z.string(), trigger: z.string(), scheduledFor: z.string().nullable(), startedAt: z.string(), finishedAt: z.string().optional(), summary: z.unknown().optional() })),
-      handler: () => [...svc.activations(), ...(reminders?.list() ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+      handler: () =>
+        [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId)),
     }),
   );
   const RunRow = z.object({

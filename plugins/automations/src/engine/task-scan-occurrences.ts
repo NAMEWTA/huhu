@@ -4,7 +4,7 @@ import { AgentInputSchema, AutomationRuleFrontmatterSchema, errors, HuhuError, i
 import { filesystemIdentity, machineId, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
-import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type AutomationsService, type TaskScanRule } from "./service.js";
+import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type AutomationsService, type TaskScanRule } from "./service.js";
 
 const dir = "automations/task-scan-occurrences";
 const Id = z.string().regex(/^(occ-[a-f0-9]{64}|inv-[a-f0-9-]{36})$/);
@@ -76,6 +76,7 @@ export class TaskScanOccurrences {
     private readonly rules: Pick<AutomationsService, "rule" | "preview" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
+    private readonly onActivated?: (activation: ActivationRecord) => void,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const directory = filesystemIdentity(stat);
@@ -111,6 +112,20 @@ export class TaskScanOccurrences {
       if (!occurrence) throw new HuhuError("WRITE_PARTIAL", "扫描发生记录在读取期间消失", { details: { id } });
       return occurrence;
     });
+  }
+
+  activation({ id, ruleId, scheduledForUTC, startedAt, finishedAt, items, template }: Occurrence): ActivationRecord {
+    const processed = items.filter(({ state }) => state === "accepted").length;
+    const skipped = items.filter(({ state }) => state === "skipped").length + Number(!!template?.issue);
+    return {
+      activationId: id,
+      ruleId,
+      scheduledFor: scheduledForUTC,
+      trigger: scheduledForUTC ? "schedule" : "manual",
+      startedAt,
+      ...(finishedAt && { finishedAt }),
+      summary: finishedAt ? { processed, skipped } : { state: "pending" },
+    };
   }
 
   lastScheduledFor(ruleId: string): Date | null {
@@ -208,6 +223,7 @@ export class TaskScanOccurrences {
       if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
       const occurrence = isTaskScanRule(rule) ? this.freeze(id, rule, trigger.at, now, this.owner) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
       stored = await this.persist(occurrence, null);
+      this.onActivated?.(this.activation(stored.occurrence));
     }
     if (!stored) throw new HuhuError("WRITE_PARTIAL", "扫描发生记录在读取期间消失", { details: { id } });
     // A restored scan is history. Only its original machine and directory may finish acceptance.

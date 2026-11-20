@@ -703,29 +703,20 @@ test("任务详情：提前派遣先核对原目标，不可用时重开仍显�
   }
 });
 
-test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果；任务进入进行中、不会自动完成，用户可自己关闭", async () => {
-  test.skip(process.platform === "win32", "假 Codex 是 POSIX shell 脚本；Windows 需要 .cmd 假程序");
-  const fs = await import("node:fs");
-  const bin = mkdtempSync(path.join(tmpdir(), "huhu-wa-bin-"));
-  writeFileSync(path.join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex 1.0.0"; exit 0; fi\necho "假 Codex 已整理完成"\n');
-  fs.chmodSync(path.join(bin, "codex"), 0o755);
-  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` });
+test("工作流 W-A：收件箱想法进入 Agent 任务后，自动化在任务详情留下同一笔受控派遣", async () => {
+  const { page, vault, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
-    // 1. 想法进入收件箱（外部入口同样走这条能力）
     expect((await call("inbox.capture", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要" })).ok).toBe(true);
-    const task = await (async () => {
-      // 2. 转为任务：执行方式 Agent（Space 与 Codex）
-      const spaces = (await call("agent.spaces.list", {})).data as { id: string }[];
-      await expect.poll(async () => ((await call("agent.catalog.detect", { refresh: true })).data as { id: string; installed: boolean }[]).find((x) => x.id === "codex")?.installed).toBe(true);
-      const created = await call("tasks.create", { title: "整理研究资料", type: "agent", body: "把本周的研究笔记整理成摘要", execution: { spaceId: spaces[0]!.id, provider: "codex" } });
-      expect(created.ok, JSON.stringify(created.error ?? created)).toBe(true);
-      const listed = ((await call("tasks.list", { category: "all" })).data as { title: string }[]).map((x) => x.title);
-      expect(listed, "创建后任务列表里应有这条任务").toContain("整理研究资料");
-      return created.data as { id: string };
-    })();
-    // 3. 自动化：新建“让 Agent 处理任务”规则并立即运行（新 Vault 没有内置规则）
+    const [{ id: spaceId }] = (await call("agent.spaces.list")).data as { id: string }[];
+    const created = await call("tasks.create", {
+      title: "整理研究资料",
+      type: "agent",
+      body: "把本周的研究笔记整理成摘要",
+      execution: { spaceId, target: { mode: "existing", sessionId: "fixture-missing-automation-target" } },
+    });
+    expect(created.ok).toBe(true);
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByTestId("rule-new").click();
     await page.getByLabel("规则名称").fill("处理 Agent 任务");
@@ -737,36 +728,21 @@ test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立�
       .getByRole("button", { name: /激活记录/ })
       .first()
       .click();
-    await expect(page.getByTestId("activation-row").first()).toBeVisible({ timeout: 30_000 }); // 激活记录出现
-    // 4. 任务详情显示运行结果；任务仍未完成，用户阅读后自己勾选
+    await expect(page.getByTestId("activation-row")).toHaveCount(1);
+    expect((await call("automations.activations")).data).toMatchObject([{ activationId: expect.stringMatching(/^inv-/), summary: { processed: 1 } }]);
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
-    await page.getByRole("button", { name: "打开任务 整理研究资料" }).click(); // 点任务名按钮：点行的中心在不同窗口宽度下可能落在空白处
-    try {
-      await expect(page.getByTestId("task-runs")).toContainText("已完成", { timeout: 30_000 });
-    } catch (e) {
-      // 诊断（macOS CI）：运行记录到底有没有落盘、状态是什么
-      const ls = (d: string) => (fs.existsSync(`${vault}/${d}`) ? fs.readdirSync(`${vault}/${d}`) : "（不存在）");
-      console.log(
-        "W-A 诊断：",
-        JSON.stringify({
-          taskRuns: ls("Task Runs"),
-          automationRuns: ls("Automation Runs"),
-          activations: (await call("automations.activations", {})).data,
-          runs: (await call("tasks.runs", { id: task.id })).data,
-          runsList: (await call("automations.runs.list", {})).data,
-        }).slice(0, 1500),
-      );
-      throw e;
-    }
-    await page.getByTestId("task-runs").getByRole("button", { name: "展开结果" }).click();
-    await expect(page.getByTestId("run-result")).toContainText("假 Codex 已整理完成");
-    expect(((await call("tasks.read", { id: task.id })).data as { status: string }).status).toBe("in_progress"); // 派发置进行中，不会自动完成
-    await page.getByTestId("task-row").filter({ hasText: "整理研究资料" }).getByTestId("task-status").selectOption("completed");
-    await expect.poll(async () => ((await call("tasks.read", { id: task.id })).data as { status: string }).status).toBe("completed");
-    expect(fs.readdirSync(`${vault}/Task Runs`).length).toBe(1);
+    await page.getByRole("button", { name: "打开任务 整理研究资料" }).click();
+    const row = page.getByTestId("managed-task-run");
+    await expect(row).toContainText("原会话未连接或已不可用", { timeout: 12_000 });
+    const taskId = created.data.id as string;
+    const rows = (await call("tasks.dispatch.list", { taskId })).data as { dispatchId: string; runId: string }[];
+    expect(rows).toMatchObject([{ dispatchId: expect.stringMatching(/^scan-/) }]);
+    await expect(row).toHaveAttribute("data-run-id", rows[0]!.runId);
+    expect((await call("tasks.read", { id: taskId })).data.status).toBe("not_started");
+    expect((await call("agent.sessions.list", { spaceId })).data).toEqual([]);
+    expect(existsSync(path.join(vault, "Task Runs"))).toBe(false);
   } finally {
     await close();
-    rmSync(bin, { recursive: true, force: true });
   }
 });
 
