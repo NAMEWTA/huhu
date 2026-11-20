@@ -1,8 +1,11 @@
 import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
-import { Activity, ArrowRight, Cable, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
-import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
+import { CapabilityError, host as desktopHost, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { Fragment, useState } from "react";
+import type { z } from "zod";
+import type { DirectoryView } from "../engine/directory-schema.js";
 import { FilesPanel } from "./FilesPanel.js";
+import { HostImportDialog } from "./HostImportDialog.js";
 import { t } from "./i18n.js";
 
 interface Host {
@@ -57,10 +60,26 @@ interface HostForm {
 
 type Tab = "overview" | "terminal" | "exec" | "files" | "audit";
 
+function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId: string): string {
+  if (!directory) return "";
+  const groups = new Map(directory.groups.map((group) => [group.groupId, group]));
+  const parts: string[] = [];
+  let groupId = directory.hosts.find((host) => host.hostId === hostId)?.groupId;
+  while (groupId) {
+    const group = groups.get(groupId);
+    if (!group) break;
+    groups.delete(groupId);
+    parts.unshift(group.name);
+    groupId = group.parentId;
+  }
+  return parts.join(" / ");
+}
+
 export function SshModule() {
   const engine = useEngine();
   const qc = useQueryClient();
   const hosts = useCapability<Host[]>("ssh.hosts.list", {});
+  const directory = useCapability<z.output<typeof DirectoryView>>("ssh.hosts.directory", {});
   const [sel, setSel] = useState<string | null>(null);
   const [connected, setConnected] = useState<Set<string>>(new Set());
   const [prompt, setPrompt] = useState<Prompt | null>(null);
@@ -74,6 +93,9 @@ export function SshModule() {
   const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [importVault, setImportVault] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
+  const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
   const host = (hosts.data ?? []).find((h) => h.id === sel) ?? hosts.data?.[0] ?? null;
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("ssh.") });
@@ -243,9 +265,14 @@ export function SshModule() {
           title={host?.name ?? t.title}
           description={host ? `${host.host}:${host.port}` : "通过统一连接配置管理远程工作环境。"}
           actions={
-            host ? (
-              <>
-                {isConn ? (
+            <>
+              {desktopHost() ? (
+                <Button icon={FileUp} onClick={() => setImportVault(engine.vaultId)}>
+                  {importStatus?.pending ? "补齐导入分组" : "导入主机"}
+                </Button>
+              ) : null}
+              {host ? (
+                isConn ? (
                   <Button icon={Unplug} onClick={() => disconnect(host)}>
                     {t.disconnect}
                   </Button>
@@ -253,9 +280,9 @@ export function SshModule() {
                   <Button variant="primary" icon={Cable} loading={busy} onClick={() => void connect(host)}>
                     {t.connect}
                   </Button>
-                )}
-              </>
-            ) : null
+                )
+              ) : null}
+            </>
           }
         />
         <div className="hu-toolbar">
@@ -273,6 +300,13 @@ export function SshModule() {
           />
           <span className="grow" />
           {host ? <Badge tone={status === "connected" ? "success" : "neutral"}>{status === "connected" ? t.connected : status === "connecting" ? "连接中" : t.notConnected}</Badge> : null}
+        </div>
+        <div role="status">
+          {importStatus ? (
+            <div className="hu-callout">
+              <p>{importStatus.text}</p>
+            </div>
+          ) : null}
         </div>
         {error ? (
           <div role="alert" className="hu-callout danger">
@@ -332,14 +366,17 @@ export function SshModule() {
                 { Icon: KeyRound, label: "认证方式", value: { key: "SSH 私钥", agent: "SSH Agent", password: "密码引用" }[host.auth?.kind ?? "password"] ?? "密码引用" },
                 { Icon: Network, label: "连接路径", value: (host.jumpHostIds ?? []).length > 0 ? "经跳板转发" : "直接连接" },
                 { Icon: ShieldCheck, label: "主机信任", value: isConn ? "已保存信任" : "首次连接待确认" },
-              ].map(({ Icon, label, value }) => (
-                <div key={label} className="ssh-stat">
-                  <span className="muted small">
-                    <Icon size={13} aria-hidden /> {label}
-                  </span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
+                { Icon: Folder, label: "分组", value: groupPath(directory.data, host.id) },
+              ]
+                .filter(({ value }) => value)
+                .map(({ Icon, label, value }) => (
+                  <div key={label} className="ssh-stat">
+                    <span className="muted small">
+                      <Icon size={13} aria-hidden /> {label}
+                    </span>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
             </div>
             <section className="hu-card-alt hu-execution-connection-route" data-testid="ssh-route">
               <div className="ssh-section-heading">
@@ -495,6 +532,18 @@ export function SshModule() {
           )
         ) : null}
       </main>
+      {desktopHost() ? (
+        <HostImportDialog
+          key={engine.vaultId}
+          open={importVault === engine.vaultId}
+          onClose={() => setImportVault((current) => (current === engine.vaultId ? null : current))}
+          onResult={async ({ imported, groups }) => {
+            const pending = groups.state === "pending";
+            setImportResult({ vaultId: engine.vaultId, text: pending ? `已保存 ${imported.length} 台主机，分组待补齐。` : `已导入 ${imported.length} 台主机。`, pending });
+            await qc.invalidateQueries({ predicate: ({ queryKey: [vault, capability] }) => vault === engine.vaultId && (capability === "ssh.hosts.list" || capability === "ssh.hosts.directory") });
+          }}
+        />
+      ) : null}
       {prompt ? (
         <Dialog
           open

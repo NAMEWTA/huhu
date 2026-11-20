@@ -1,5 +1,76 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @layer modules {
+  dialog:modal:has(.ssh-import-body) {
+    overscroll-behavior: contain;
+  }
+  dialog:modal:has(form.ssh-import-body) {
+    display: flex;
+    flex-direction: column;
+    inline-size: min(44rem, calc(100vw - 32px));
+    overflow: hidden;
+  }
+  dialog:modal:has(form.ssh-import-body) > :is(.hu-modal-head, .hu-modal-footer) {
+    flex: none;
+  }
+  dialog:modal:has(form.ssh-import-body) > .hu-modal-body {
+    min-block-size: 0;
+    overflow: auto;
+  }
+  dialog:has(.ssh-import-body)::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+  .ssh-import-body input[type="file"] {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+  .ssh-import-summary {
+    display: grid;
+    gap: 4px;
+    overflow-wrap: anywhere;
+  }
+  .ssh-import-table {
+    max-inline-size: 100%;
+    max-block-size: min(34dvh, 28rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .ssh-import-table table {
+    min-inline-size: 27rem;
+  }
+  .ssh-import-table caption {
+    text-align: start;
+    padding-block-end: 6px;
+  }
+  .ssh-import-table thead th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
+    background: var(--panel);
+  }
+  .ssh-import-table tbody th {
+    font-weight: normal;
+    color: var(--text);
+    white-space: normal;
+  }
+  .ssh-import-table tbody th > * {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .ssh-import-table tbody :is(td, th) {
+    vertical-align: top;
+  }
+  .ssh-import-choice {
+    display: inline-grid;
+    place-items: center;
+    min-inline-size: 24px;
+    min-block-size: 24px;
+  }
+  .ssh-import-details {
+    padding-inline-start: 1.2em;
+    margin-block: 4px;
+    overflow-wrap: anywhere;
+  }
   .hu-ssh-console {
     display: flex;
     flex-direction: column;
