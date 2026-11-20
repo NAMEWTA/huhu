@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
@@ -7,6 +7,7 @@ const archive = join(root, ".agents/dev/archive/changes/implemented/feature_2026
 const parity = join(root, ".agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity");
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 const adaptation = readJson(join(archive, "vendor-test-adaptation.json"));
+const reviewedOkTests = readJson(join(archive, "vendor-test-subject-review.json"));
 const [ok, orca] = gunzipSync(readFileSync(join(archive, "source-file-catalog.jsonl.gz")))
   .toString()
   .trim()
@@ -23,6 +24,29 @@ const byTarget = new Map(
     row,
   ]),
 );
+const orcaE2ETitles = new Map([
+  ["src/renderer/src/components/editor/PdfFind.test.tsx", "G04 ORCA：重新打开 PDF 查找能读取缓存，清除查询后隐藏计数"],
+  ["src/renderer/src/components/editor/use-pdf-viewer-find-shortcut.test.tsx", "OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重开可用"],
+  ["tests/e2e/pdf-find-counter.spec.ts", "G04 ORCA：PDF 查找计数随前后导航和查询词更新"],
+  ["tests/e2e/pdf-viewer-rebuild-recovery.spec.ts", "G04 ORCA：重复加载坏 PDF 后恢复，错误时不会保留旧页"],
+]);
+const orcaE2EFile = "tests/e2e/workflows/viewers.spec.ts";
+const orcaE2EPasses = new Map();
+const orcaE2EExpected = new Set(orcaE2ETitles.values());
+for (const file of process.argv.slice(4)) {
+  const report = readJson(file);
+  const pending = [...report.suites];
+  while (pending.length) {
+    const suite = pending.pop();
+    pending.push(...(suite.suites ?? []));
+    for (const spec of suite.specs ?? []) {
+      if (resolve(report.config.rootDir, spec.file) !== join(root, orcaE2EFile) || !orcaE2EExpected.has(spec.title)) continue;
+      if (!spec.tests.some((test) => test.results.length)) continue;
+      const passed = spec.tests.every((test) => test.status === "expected" && test.results.at(-1)?.status === "passed");
+      orcaE2EPasses.set(spec.title, passed);
+    }
+  }
+}
 const known = new Map(readJson(join(archive, "vendor-tests-na.json")).map(({ file, reason }) => [`packages/${file}`, reason]));
 for (const line of readFileSync(join(parity, "dom-tests-applicability.md"), "utf8").split("\n")) {
   const decision = /^\| `([^`]+)` \| [^|]+ \| 不适用 \| (.+) \|$/.exec(line);
@@ -158,6 +182,9 @@ for (const source of [ok, orca]) {
   for (const file of source.files) {
     if (!/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file.upstream)) continue;
     const row = file.target ? byTarget.get(file.target) : undefined;
+    const reviewed = source === ok ? reviewedOkTests[file.upstream] : undefined;
+    const orcaTitle = source === orca ? orcaE2ETitles.get(file.upstream) : undefined;
+    let target = file.target;
     let status;
     let reason;
     let subjects;
@@ -173,6 +200,20 @@ for (const source of [ok, orca]) {
     } else if (known.has(file.upstream) && source === ok) {
       status = "not-applicable";
       reason = known.get(file.upstream);
+    } else if (orcaTitle && orcaE2EPasses.has(orcaTitle)) {
+      status = orcaE2EPasses.get(orcaTitle) ? "patch" : "failed";
+      target = orcaE2EFile;
+      reason = `实际 Electron Playwright 收集：${orcaTitle}`;
+    } else if (reviewed) {
+      const { testedModule, testedTarget } = reviewed;
+      const subject = testedModule ? byPath.get(testedModule) : null;
+      if (testedModule && !subject?.target) throw new Error(`G01 缺少复核确认的交付模块：${testedModule}`);
+      if (testedTarget && !existsSync(join(root, testedTarget))) throw new Error(`找不到复核确认的 Huhu 模块：${testedTarget}`);
+      subjects = subject ? [subject] : undefined;
+      const production = subject?.target ?? testedTarget;
+      closureExcluded = !production;
+      status = closureExcluded ? "not-applicable" : "needs-adaptation";
+      reason = production ? `被测模块已交付（${production}）：${reviewed.reason}；需要适配` : `被测主体未交付：${reviewed.reason}`;
     } else if (substitutes.has(file.upstream)) {
       status = "partial";
       reason = substitutes.get(file.upstream);
@@ -208,7 +249,7 @@ for (const source of [ok, orca]) {
     outcomes.push({
       source: source.source,
       upstream: file.upstream,
-      target: file.target,
+      target,
       status,
       reason,
       ...(subjects?.length ? { testedModules: subjects.map(({ upstream }) => upstream) } : {}),

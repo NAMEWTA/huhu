@@ -584,3 +584,43 @@ test("D04 已保存线程在强调、表格和链接重写后仍高亮原文，�
     await close();
   }
 });
+
+test("H04：批注列表读取失败提示重试，恢复后显示真实空列表", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const file = "批注重试.md";
+    const original = "批注读取测试\n";
+    writeFileSync(path.join(vault, file), original);
+    let unavailable = true;
+    let successfulReads = 0;
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request();
+      if (request.method() !== "POST" || request.postDataJSON()?.capability !== "comments.list") return route.continue();
+      if (unavailable) {
+        return route.fulfill({ status: 500, json: { ok: false, error: { code: "INTERNAL", message: "测试读取失败" } } });
+      }
+      successfulReads++;
+      await route.continue();
+    });
+    await gotoNotes(page);
+    await treeItem(page, file).click();
+    const details = page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情", exact: true });
+    await expect(details).toBeVisible();
+    if ((await details.getAttribute("aria-expanded")) === "false") await details.click();
+    await page.getByTestId("note-inspector").getByRole("tab", { name: "批注" }).click();
+    const panel = page.getByTestId("comments-panel");
+    const status = panel.getByTestId("comment-doc-load-status");
+    const empty = panel.getByText("还没有评论。在文档中选中文本即可添加。", { exact: true });
+    await expect(status).toHaveText("无法加载批注");
+    await expect(empty).toHaveCount(0);
+    unavailable = false;
+    await panel.getByRole("button", { name: "重试", exact: true }).click();
+    await expect(status).toBeEmpty();
+    await expect(empty).toBeVisible();
+    expect(successfulReads).toBeGreaterThan(0);
+    expect(commentFiles(vault)).toEqual([]);
+    expect(readFileSync(path.join(vault, file), "utf8")).toBe(original);
+  } finally {
+    await close();
+  }
+});

@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "134ae251a6c0089a537a0bcfea0fee3bba2326ed0ef398efdd7070f3fc0239b2",
+      "sha256": "e1d57ddc1c1b6c12ff44f39be18c901ef984c32dd1e0b9ce819371bae215148f",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -50,7 +50,7 @@
       "target": "app/src/comments/CommentListPanel.tsx",
       "upstream": "packages/app/src/comments/CommentListPanel.tsx",
       "blob": "5579239427ab484dcd90db3495f34af8cd4ce7e5",
-      "sha256": "eb734f8bac617d3f53a95362e9f50fb3539fe66dce82a8837b54167f0bdb420f",
+      "sha256": "54bb06ac5d6a99f8110fa9a1a25662b1406a5474a5d71dadfbae9c1066678c2f",
       "method": "patch",
       "description": "PATCHES.md:18 - P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 `CommentSendFooter`（AI 派发发送栏，Q2 不接）。"
     },
@@ -118,8 +118,9 @@
       "target": "app/src/comments/CommentsPanel.tsx",
       "upstream": "packages/app/src/comments/CommentsPanel.tsx",
       "blob": "5495bef1caaa8283666e30ebfcd7ccc301c768a1",
-      "sha256": "de515b15e5a763ebd7090aa79fbcb88a55aedd70e9df45d145dfd02fb608e288",
-      "method": "copy"
+      "sha256": "38b334147dacb6d20ad4c00d0dee1fd94136200e21cec35c9f394a7c795fceae",
+      "method": "patch",
+      "description": "PATCHES.md:599 - `app/src/comments/CommentsPanel.tsx`：单篇批注读取失败时保留已加载的线程，显示错误和重试入口。未成功读取时隐藏空列表文案。"
     },
     {
       "target": "app/src/comments/CommentsTab.tsx",
@@ -2584,8 +2585,9 @@
       "target": "app/src/editor/clipboard/copy-image.ts",
       "upstream": "packages/app/src/editor/clipboard/copy-image.ts",
       "blob": "93ecec3074831f0de4f43e39bf17d1af87a0938b",
-      "sha256": "cf74e4803e802808d42c53ce030c03055d983d4e4144a870134a02efd2fde7de",
-      "method": "copy"
+      "sha256": "2cb9fc735455fccb51c28072a96234efaafd9d5e267446bedb7dc1fcd6548a71",
+      "method": "patch",
+      "description": "PATCHES.md:601 - `app/src/editor/clipboard/copy-image.ts`：浏览器剪贴板回退失败时经已有通知组件显示错误。"
     },
     {
       "target": "app/src/editor/clipboard/detect-source.test.ts",
@@ -7275,7 +7277,7 @@
       "target": "app/src/locales/en/messages.po",
       "upstream": "packages/app/src/locales/en/messages.po",
       "blob": "7e3974ca12795cc5cd9690eb4902095333bf74b5",
-      "sha256": "d80a7a5bd6e9c5a55f7cae70064a103f77ca2d878082dc06899fbe761a5a0940",
+      "sha256": "fa34d6088816ce2bd19edb9c23a393a051bed7db739ca8c7b017111a15743b46",
       "method": "patch",
       "description": "PATCHES.md:21 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
     },
@@ -7283,7 +7285,7 @@
       "target": "app/src/locales/zh-Hans/messages.po",
       "upstream": "packages/app/src/locales/zh-Hans/messages.po",
       "blob": "e3ce9c9ab58688885c95ebbf973354413f654604",
-      "sha256": "60897293461f8a614c1af179ea92276448200ef99d36ca8d2c7ff965896d801c",
+      "sha256": "f65b72b7d2550e00710911e3b8ddf2af1f18b6d19bd548458f668380f178fbe3",
       "method": "patch",
       "description": "PATCHES.md:21 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。"
     },

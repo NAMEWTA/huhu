@@ -74,6 +74,7 @@ export function CommentListPanel({
   threads,
   groupByDocument = false,
   empty,
+  loadStatus,
   testIdPrefix,
   scopeSwitch,
   onDestinationComplete,
@@ -81,6 +82,7 @@ export function CommentListPanel({
   threads: readonly CommentThread[];
   groupByDocument?: boolean;
   empty: ReactNode;
+  loadStatus?: ReactNode;
   testIdPrefix: string;
   scopeSwitch?: ReactNode;
   onDestinationComplete?: (target: HTMLElement) => void;
@@ -239,8 +241,9 @@ export function CommentListPanel({
       </PanelHeader>
       {scopeSwitch}
       <PanelBody className={groupByDocument ? 'flex flex-col gap-3' : 'flex flex-col gap-0'}>
+        {loadStatus}
         {visible.length === 0 ? (
-          <PanelEmpty>{empty}</PanelEmpty>
+          empty && <PanelEmpty>{empty}</PanelEmpty>
         ) : groupByDocument ? (
           groups.map((group) => {
             const sendable = sendableIn(group);
