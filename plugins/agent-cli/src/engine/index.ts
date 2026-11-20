@@ -29,6 +29,7 @@ import { ProtectedLaunch } from "./protected-launch.js";
 import { launchHash } from "./launch-binding.js";
 import { WORKSPACE_DOCUMENT, WorkspaceLaunchViewSchema, WorkspaceTargetSchema } from "../shared/workspace-layout.js";
 import { registerWorkspaceLayout } from "./workspace-layout.js";
+import { InteractiveEnvironment } from "./interactive-environment.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -61,7 +62,9 @@ export interface AgentCliOptions {
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
-  registerAgentEnvironments(api, opts.credentialHost);
+  let interactiveEnvironment: InteractiveEnvironment;
+  const environments = registerAgentEnvironments(api, opts.credentialHost, () => interactiveEnvironment.available);
+  interactiveEnvironment = new InteractiveEnvironment(process.env["HUHU_AGENT_PTY_HOST"], environments);
   const root = api.vault.files.root;
   const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId());
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
@@ -107,6 +110,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     inputOwnership: ownership,
     codex,
     protectedLaunch,
+    interactiveEnvironment,
   });
   const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new", "existing"], transport: "native" };
   const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
@@ -263,6 +267,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     command: z.string().min(1).max(4000).optional(),
     shell: z.enum(["default", "bash", "zsh", "sh", "powershell", "cmd"]).optional(),
   });
+  const EnvironmentSelection = z.strictObject({ id: z.uuidv4(), revision: z.uuidv4() });
+  const ApprovedEnvironment = EnvironmentSelection.extend({ approval: z.string().regex(/^[0-9a-f]{64}$/) });
+  const InteractiveTarget = LaunchTarget.omit({ command: true, shell: true });
+  const WorkspaceLaunch = InteractiveTarget.extend({
+    requestId: z.string().regex(/^[A-Za-z0-9_-]{8,110}$/),
+    baseVersion: z.int().nonnegative(),
+    target: WorkspaceTargetSchema,
+  }).strict();
+  api.defineCapability(
+    def({
+      name: "agent.launch.environments.preview",
+      plugin: "agent-cli",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      desktopOnly: true,
+      input: InteractiveTarget.extend({ environment: EnvironmentSelection }).strict(),
+      output: z.strictObject({ environment: ApprovedEnvironment, cwd: z.string(), argv: z.array(z.string()), ordinaryNames: z.array(z.string()), protectedNames: z.array(z.string()) }),
+      handler: (_c, { environment, ...input }) => sessions.previewEnvironment(input, environment),
+    }),
+  );
   const SessionPreview = z.object({ machineId: z.string(), cwd: z.string(), command: z.string().nullable(), argv: z.array(z.string()) });
   api.defineCapability(
     def({
@@ -352,13 +377,24 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "execute",
       exposable: false,
       defaultExposed: false,
-      input: LaunchTarget.omit({ command: true, shell: true })
-        .extend({
-          requestId: z.string().regex(/^[A-Za-z0-9_-]{8,110}$/),
-          baseVersion: z.int().nonnegative(),
-          target: WorkspaceTargetSchema,
-        })
-        .strict(),
+      input: WorkspaceLaunch,
+      output: WorkspaceLaunchViewSchema,
+      handler: async ({ signal }, { baseVersion, target, ...launch }) => {
+        const view = await workspaceLayout.launch(launch, target, baseVersion, signal);
+        waiting.poke();
+        return view;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "agent.workspace.launchProtected",
+      plugin: "agent-cli",
+      scope: "execute",
+      exposable: false,
+      defaultExposed: false,
+      desktopOnly: true,
+      input: WorkspaceLaunch.extend({ environment: ApprovedEnvironment }),
       output: WorkspaceLaunchViewSchema,
       handler: async ({ signal }, { baseVersion, target, ...launch }) => {
         const view = await workspaceLayout.launch(launch, target, baseVersion, signal);

@@ -1,6 +1,7 @@
 import { _electron as electron, chromium, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
@@ -1757,6 +1758,122 @@ test("Agent 启动环境在桌面写入保护值，重开编辑时只显示状�
   } finally {
     await app.close();
     rmTree(vault);
+  }
+});
+
+test("Agent 受保护启动在 Safe 未初始化、锁定和停用时接入真实终端", async () => {
+  const native = process.env["HUHU_AGENT_PTY_HOST"] ?? path.resolve(import.meta.dirname, "../../native/agent-pty/bin/huhu-agent-pty.exe");
+  test.skip(process.platform !== "win32" || !existsSync(HERDR) || !existsSync(native), "需要 Windows Core 与 Windows 原生终端宿主");
+  test.setTimeout(90_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-env-vault-"));
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-env-probe-"));
+  const entry = path.join(fixture, "check.mjs");
+  const proof = path.join(fixture, "proof.json");
+  const secret = "fixture-native-env-private-" + crypto.randomUUID();
+  writeFileSync(
+    entry,
+    [
+      'import { writeFileSync } from "node:fs";',
+      'import { createHash } from "node:crypto";',
+      'const value = process.env.HUHU_E2E_AGENT_PRIVATE ?? "";',
+      'writeFileSync(process.env.HUHU_E2E_AGENT_PROOF, JSON.stringify({ tty: [process.stdin.isTTY, process.stdout.isTTY], hash: createHash("sha256").update(value).digest("hex") }));',
+      'process.stdout.write("protected-output " + value + "\\n");',
+      "process.stdin.setRawMode(true);",
+      'process.stdin.on("data", () => process.exit(0));',
+      "setTimeout(() => process.exit(32), 20000).unref();",
+    ].join("\n"),
+  );
+  const app = await launch(vault, { HUHU_AGENT_PTY_HOST: native });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = async <T>(capability: string, input: unknown): Promise<T> =>
+      page.evaluate(
+        async ({ capability, input }) => {
+          const endpoint = await window.huhuHost.engine();
+          const response = await fetch(endpoint.baseUrl + "/api/v1/call", {
+            method: "POST",
+            headers: { authorization: "Bearer " + endpoint.token, "content-type": "application/json" },
+            body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+          });
+          const result = (await response.json()) as { ok: boolean; data: T; error?: { code?: string; message?: string } };
+          if (!result.ok) throw new Error(result.error?.code + " " + result.error?.message);
+          return result.data;
+        },
+        { capability, input },
+      );
+    const settings = await call<{ settings: { revision: number } }>("agent.settings.get", {});
+    await call("agent.settings.update", { expectedRevision: settings.settings.revision, defaultAgent: "pi", agents: { pi: { command: entry, args: [] } } });
+    const profile = await call<{ id: string }>("agent.launch.environments.save", {
+      expectedRevision: null,
+      name: "终端实测",
+      provider: "pi",
+      ordinary: [{ name: "HUHU_E2E_AGENT_PROOF", value: proof }],
+      protectedNames: ["HUHU_E2E_AGENT_PRIVATE"],
+      changes: [{ name: "HUHU_E2E_AGENT_PRIVATE", action: "replace", value: secret }],
+    });
+    const state = await call<{ initialized: boolean }>("safe.status", {});
+    expect(state.initialized).toBe(false);
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByTestId("agent-cli-module")).toBeVisible();
+    let launchReason = "";
+    page.on("response", (response) => {
+      if (!response.url().endsWith("/api/v1/call") || response.request().method() !== "POST") return;
+      const request = response.request().postDataJSON() as { capability?: string };
+      if (request?.capability !== "agent.workspace.launchProtected") return;
+      void response.json().then(
+        (reply: { error?: { code?: string; details?: { reason?: string } } }) => {
+          launchReason = [reply.error?.code, reply.error?.details?.reason].filter(Boolean).join("/");
+        },
+        () => undefined,
+      );
+    });
+
+    for (const stage of ["uninitialized", "locked", "disabled"]) {
+      if (stage === "locked") {
+        await call("safe.setup", { password: "fixture-safe-password-2026" });
+        await call("safe.lock", {});
+        expect(await call("safe.status", {})).toMatchObject({ initialized: true, locked: true });
+      }
+      if (stage === "disabled") expect(await call("plugins.setEnabled", { id: "safe", enabled: false })).toMatchObject({ state: "disabled" });
+      rmSync(proof, { force: true });
+      await page.locator(".agent-add-cli").click();
+      await page.getByRole("menuitem", { name: "使用启动环境…" }).click();
+      const dialog = page.getByRole("dialog", { name: "使用启动环境" });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("combobox", { name: "启动环境", exact: true }).selectOption(profile.id);
+      await dialog.getByRole("button", { name: "预览启动" }).click();
+      await expect(dialog).toContainText(entry);
+      await expect(dialog).toContainText("HUHU_E2E_AGENT_PRIVATE");
+      await expect(dialog).not.toContainText(secret);
+      expect(existsSync(proof)).toBe(false);
+      await dialog.getByRole("button", { name: "确认启动" }).click();
+      const module = page.getByTestId("agent-cli-module");
+      await expect
+        .poll(
+          async () => {
+            if (existsSync(proof)) return "started";
+            const errors = await module.getByRole("alert").allTextContents();
+            return [launchReason, ...errors].filter(Boolean).join(" ").replaceAll(secret, "[REDACTED]") || "pending";
+          },
+          { timeout: 15000 },
+        )
+        .toBe("started");
+      expect(JSON.parse(readFileSync(proof, "utf8"))).toEqual({ tty: [true, true], hash: createHash("sha256").update(secret).digest("hex") });
+      const sessions = () => call<{ id: string; state: string }[]>("agent.sessions.list", {});
+      await expect.poll(async () => (await sessions()).some((session) => session.state === "running")).toBe(true);
+      const active = (await sessions()).find((session) => session.state === "running")!;
+      await expect.poll(async () => (await call<{ text: string }>("agent.sessions.output", { id: active.id })).text).toContain("protected-output");
+      const { text } = await call<{ text: string }>("agent.sessions.output", { id: active.id });
+      expect(text).not.toContain(secret);
+      await page.getByTestId("workspace-pane").locator(".xterm").last().click();
+      await page.keyboard.type("q");
+      await expect.poll(async () => (await call<{ id: string; state: string }[]>("agent.sessions.list", {})).find((session) => session.id === active.id)?.state).toBe("exited");
+    }
+  } finally {
+    await app.close();
+    rmTree(vault);
+    rmTree(fixture);
   }
 });
 

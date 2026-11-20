@@ -3,12 +3,14 @@ import { ChevronRight, Search, Settings2, SquareTerminal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AGENT_CATALOG, isEnabled, type AgentCatalogEntry, type AgentSettingsFile } from "../shared/index.js";
 import { AgentIcon } from "./AgentIcon.js";
+import type { AgentEnvironmentApproval } from "../engine/interactive-environment.js";
 
 export interface LaunchOptions {
   model?: string;
   effort?: string;
   fast?: boolean;
   prompt?: string;
+  environment?: AgentEnvironmentApproval;
 }
 export interface Detected {
   id: string;
@@ -28,6 +30,7 @@ export function LaunchMenu({
   noSpace,
   onLaunch,
   onOpenSettings,
+  onOpenEnvironment,
   onClose,
 }: {
   detected: Detected[];
@@ -36,6 +39,7 @@ export function LaunchMenu({
   noSpace: boolean;
   onLaunch(provider: string, o?: LaunchOptions): void;
   onOpenSettings(): void;
+  onOpenEnvironment?: (() => void) | undefined;
   onClose(): void;
 }) {
   const [query, setQuery] = useState("");
@@ -123,6 +127,11 @@ export function LaunchMenu({
         )}
         {rows.length === 0 ? <p className="agent-launch-menu-hint">没有匹配项</p> : null}
         <div className="agent-launch-menu-sep" />
+        {onOpenEnvironment ? (
+          <button type="button" role="menuitem" className="agent-launch-menu-row" onClick={onOpenEnvironment}>
+            使用启动环境…
+          </button>
+        ) : null}
         <button type="button" role="menuitem" className="agent-launch-menu-row" data-testid="launch-open-settings" onClick={onOpenSettings}>
           <Settings2 size={16} aria-hidden />
           <span className="grow">智能体设置…</span>

@@ -22,6 +22,7 @@
       "agent.history.read",
       "agent.history.resume",
       "agent.launch.environments.list",
+      "agent.launch.environments.preview",
       "agent.launch.environments.save",
       "agent.launch.environments.remove",
       "agent.launch.resolve",
@@ -52,6 +53,7 @@
       "agent.workspace.close",
       "agent.workspace.get",
       "agent.workspace.launch",
+      "agent.workspace.launchProtected",
       "agent.workspace.save"
     ],
     "fileKinds": []

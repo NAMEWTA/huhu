@@ -34,6 +34,9 @@ extraResources:
   - from: ../../THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
 win:
+  extraResources:
+    - from: ../../native/agent-pty/bin/huhu-agent-pty.exe
+      to: agent-pty/huhu-agent-pty.exe
   target: [{ target: nsis, arch: x64 }]
   artifactName: HUHU-${version}-win32-x64.${ext}
 nsis:

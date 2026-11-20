@@ -6,6 +6,7 @@
     ".": {
       "entry": [
         "scripts/*.mjs",
+        "native/agent-pty/tests/*.cjs",
         "tests/e2e/*.spec.ts",
         "tests/e2e/workflows/*.spec.ts",
         "tests/parity-ok/compare.spec.ts",

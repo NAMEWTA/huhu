@@ -3,6 +3,7 @@ import { errors, HuhuError } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapabilityDescriptor, ModuleCredentials, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { AGENT_CATALOG } from "../shared/catalog.js";
+import type { AgentEnvironmentSelection } from "./interactive-environment.js";
 
 const key = z
   .string()
@@ -46,7 +47,7 @@ export const agentEnvironmentDescriptors = {
     title: "列出 Agent CLI 启动环境",
     description: "读取启动环境和受保护变量的本机状态。",
     input: z.strictObject({}),
-    output: z.strictObject({ localAvailable: z.boolean(), profiles: z.array(view) }),
+    output: z.strictObject({ localAvailable: z.boolean(), nativeAvailable: z.boolean(), profiles: z.array(view) }),
   }),
   save: defineCapabilityDescriptor({
     ...base,
@@ -85,6 +86,8 @@ function translate(error: unknown): never {
       throw errors.invalidInput("已取消启动环境修改");
     case "invalid-input":
       throw errors.invalidInput("启动环境配置无效");
+    case "unconfigured":
+    case "unbound":
     case "missing-key":
       throw new HuhuError("INVALID_INPUT", "本机密钥不可用，请重新配置受保护变量");
     default:
@@ -112,11 +115,18 @@ function patches(definition: Definition, previous: Definition | undefined, chang
   return [...events.values()];
 }
 
-export function registerAgentEnvironments(api: HuhuApi, host?: AgentCredentialHost): void {
+export interface AgentEnvironmentAccess {
+  available: boolean;
+  profile(selection: AgentEnvironmentSelection, provider: Definition["provider"]): Promise<AgentEnvironmentProfile>;
+  use<R>(selection: AgentEnvironmentSelection, provider: Definition["provider"], purposes: readonly string[], consumer: (values: ReadonlyMap<string, string>) => Promise<R>): Promise<R>;
+}
+
+export function registerAgentEnvironments(api: HuhuApi, host: AgentCredentialHost | undefined, nativeAvailable: () => boolean): AgentEnvironmentAccess {
   const store = host && new ModuleCredentials({ ...host, pluginId: "agent-cli", definition: Definition, targets: (d) => Object.fromEntries(d.protectedNames.map((name) => [name, d.provider])) });
   api.defineCapability(
     bindCapability(agentEnvironmentDescriptors.list, async () => ({
       localAvailable: store !== undefined,
+      nativeAvailable: nativeAvailable(),
       profiles: store ? (await store.list().catch(translate)).map(project) : [],
     })),
   );
@@ -140,4 +150,23 @@ export function registerAgentEnvironments(api: HuhuApi, host?: AgentCredentialHo
       return { removed: true as const };
     }),
   );
+  return {
+    available: store !== undefined,
+    async profile(selection, provider) {
+      if (!store) throw unavailable();
+      const entry = (await store.list().catch(translate)).find((profile) => profile.entityId === selection.id);
+      if (!entry || entry.revision !== selection.revision || entry.definition.provider !== provider) throw new HuhuError("VERSION_CONFLICT", "启动环境已变化，请重新选择");
+      if (entry.definition.protectedNames.some((name) => entry.authState[name] !== "configured")) throw errors.invalidInput("请在智能体设置中重新配置本机变量");
+      return project(entry);
+    },
+    async use(selection, provider, purposes, consumer) {
+      if (!store) throw unavailable();
+      return store
+        .use(selection.id, purposes, (definition, values, revision) => {
+          if (revision !== selection.revision || definition.provider !== provider) return Promise.reject(new Error("Agent environment revision changed"));
+          return consumer(values);
+        })
+        .catch(translate);
+    },
+  };
 }

@@ -257,7 +257,8 @@ async function scenario(c, name) {
     const wireClosed = new Promise((resolve) => attach.onClose(resolve));
     const screen = async () => (await c.call("terminal.read", { terminal: terminal.address, lines: 300 })).text;
     const wire = () => Buffer.concat(chunks).toString("utf8");
-    const publicText = async () => (wire() + "\n" + (await screen())).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+    const csi = new RegExp(String.fromCharCode(27) + "\\[[0-?]*[ -/]*[@-~]", "g");
+    const publicText = async () => (wire() + "\n" + (await screen())).replace(csi, "");
     const textMatch = (pattern, label, ms) => until(async () => pattern.exec(await publicText()), label, ms);
     let host = { pid: terminal.pid, created: rootCreated, image: installed };
     if (name === "wrong-host") host.created = String(BigInt(rootCreated) + 1n);

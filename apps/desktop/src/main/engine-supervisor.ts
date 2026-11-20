@@ -105,6 +105,9 @@ export class EngineSupervisor {
     this.lastError = null;
     this.set("starting");
     const args = ["--vault", this.vaultPath, ...(this.flags.create ? ["--create"] : []), ...(this.flags.readOnly ? ["--read-only"] : [])];
+    const protectedPty = app.isPackaged
+      ? path.join(process.resourcesPath, "agent-pty", "huhu-agent-pty.exe")
+      : (process.env["HUHU_AGENT_PTY_HOST"] ?? path.resolve(import.meta.dirname, "../../../../native/agent-pty/bin/huhu-agent-pty.exe"));
     const child = utilityProcess.fork(this.entry, args, {
       stdio: "pipe",
       serviceName: "huhu-engine",
@@ -113,6 +116,7 @@ export class EngineSupervisor {
         HUHU_EXAMPLES_DIR: examplesDir(),
         HUHU_WEB_ASSETS_DIR: path.join(import.meta.dirname, "../renderer"),
         HUHU_DESKTOP_USER_DATA: app.getPath("userData"),
+        ...(process.platform === "win32" && process.arch === "x64" && existsSync(protectedPty) ? { HUHU_AGENT_PTY_HOST: protectedPty } : {}),
         HUHU_NODE_BIN: process.execPath /* 主程序可执行文件：Engine 里启动监督进程要用它（utilityProcess 的 execPath 在 macOS 可能是 Helper） */,
         HUHU_CODEX_DISPATCH_HELPER: app.isPackaged ? path.join(process.resourcesPath, "codex-dispatch", "helper.cjs") : path.resolve(import.meta.dirname, "../../../../plugins/agent-cli/src/engine/codex-dispatch-helper.cjs"),
         HUHU_PROTECTED_LAUNCH_HELPER: app.isPackaged ? path.join(process.resourcesPath, "protected-launch", "helper.cjs") : path.resolve(import.meta.dirname, "../../../../plugins/agent-cli/src/engine/protected-launch-helper.cjs"),

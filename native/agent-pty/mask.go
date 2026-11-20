@@ -49,7 +49,8 @@ func maskStream(dst io.Writer, src io.Reader, values []string) error {
 	}
 	tokens := boundaries(values)
 	from := make([]byte, 4096)
-	var pending, ending, partialRune []byte
+	var pending, partialRune []byte
+	var endings [][]byte
 	emit := func(b []byte) error {
 		if len(partialRune) > 0 {
 			b = append(partialRune, b...)
@@ -75,13 +76,20 @@ func maskStream(dst io.Writer, src io.Reader, values []string) error {
 		n, readErr := src.Read(from)
 		pending = append(pending, from[:n]...)
 		for len(pending) > 0 {
-			if len(ending) > 0 {
-				if at := bytes.Index(pending, ending); at >= 0 {
-					pending = pending[at+len(ending):]
-					ending = nil
+			if len(endings) > 0 {
+				first, length, keep := -1, 0, 0
+				for _, ending := range endings {
+					if at := bytes.Index(pending, ending); at >= 0 && (first < 0 || at < first || at == first && len(ending) > length) {
+						first, length = at, len(ending)
+					}
+					keep = max(keep, prefixTail(pending, ending))
+				}
+				if first >= 0 {
+					pending = pending[first+length:]
+					endings = endings[:0]
 					continue
 				}
-				pending = pending[len(pending)-prefixTail(pending, ending):]
+				pending = pending[len(pending)-keep:]
 				break
 			}
 			best, keep := -1, 0
@@ -106,13 +114,17 @@ func maskStream(dst io.Writer, src io.Reader, values []string) error {
 				return err
 			}
 			pending = pending[best+len(found.first):]
-			ending = found.last
+			for _, token := range tokens {
+				if len(token.last) > 0 && bytes.Equal(token.first, found.first) {
+					endings = append(endings, token.last)
+				}
+			}
 		}
 		if readErr != nil {
 			if readErr != io.EOF {
 				return readErr
 			}
-			if (len(pending) > 0 || len(partialRune) > 0) && len(ending) == 0 {
+			if (len(pending) > 0 || len(partialRune) > 0) && len(endings) == 0 {
 				partialRune = nil
 				return emit([]byte("[REDACTED]"))
 			}

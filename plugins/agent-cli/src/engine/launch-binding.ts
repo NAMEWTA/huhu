@@ -32,6 +32,8 @@ export interface LaunchAttempt {
   addressHint?: string;
   binding?: ProcessBinding;
   issue?: string;
+  nativeStatus?: "pending" | "started" | "failed";
+  nativeConsumed?: true;
 }
 
 export interface LaunchReceipt {

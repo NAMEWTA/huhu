@@ -32,6 +32,19 @@ func TestMaskStreamStopsAnUnfinishedSpan(t *testing.T) {
 	}
 }
 
+func TestMaskStreamResumesAfterEitherSecretWithSharedPrefix(t *testing.T) {
+	const a = "shared-start-first-secret-111111111111"
+	const b = "shared-start-other-secret-222222222222"
+	input := "READY> " + b[:20] + "\x1b[1mPUBLIC_EVENT\x1b[0m" + b[20:] + " AFTER_B " + a + " AFTER_A"
+	var actual bytes.Buffer
+	if err := maskStream(&actual, iotest.OneByteReader(strings.NewReader(input)), []string{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	if actual.String() != "READY> [REDACTED] AFTER_B [REDACTED] AFTER_A" {
+		t.Fatal("output did not resume after matching both secret suffixes")
+	}
+}
+
 func TestMaskStreamDoesNotWaitForANewline(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer reader.Close()

@@ -6,6 +6,7 @@ import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
+import { ProtectedLaunchDialog } from "./ProtectedLaunchDialog.js";
 import { WorkspaceCanvas, type WorkspaceSession as Session } from "./WorkspaceCanvas.js";
 import {
   leaves,
@@ -61,6 +62,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const [active, setActive] = useState<string | null>(null);
   const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string } | null>(null);
   const [menu, setMenu] = useState<LaunchIntent | null>(null);
+  const [environmentIntent, setEnvironmentIntent] = useState<LaunchIntent | null>(null);
   const [recoveries, setRecoveries] = useState<Record<string, LaunchRecovery | null>>({});
   const launcher = useRef<HTMLDivElement>(null);
   const [selections, setSelections] = useState<Record<string, ViewSelection | null>>({});
@@ -229,7 +231,8 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     setMenu(null);
     setError(null);
     try {
-      const result = await engine.call<WorkspaceLaunchView>("agent.workspace.launch", { spaceId: space.id, spaceRevision: space.revision, baseVersion: intent.view.version, requestId: id, target, provider, ...options }, { write: true });
+      const capability = options.environment ? "agent.workspace.launchProtected" : "agent.workspace.launch";
+      const result = await engine.call<WorkspaceLaunchView>(capability, { spaceId: space.id, spaceRevision: space.revision, baseVersion: intent.view.version, requestId: id, target, provider, ...options }, { write: true });
       setRecoveries((previous) => (previous[space.id]?.intent.id === id ? { ...previous, [space.id]: null } : previous));
       await rememberWorkspace(result.workspace);
       confirmed = result.placement !== null;
@@ -365,8 +368,15 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
 
   function moveTo(leaf: string, direction: SplitDirection) {
     if (!view || !tab || !moving || writeReceipt.current) return;
+    const restoreSource = () => {
+      const source = view.layout.tabs.find(({ id }) => id === moving.tab);
+      if (!source || !leaves(source.pane).some(({ id, sessionId }) => id === moving.leaf.id && sessionId === moving.leaf.sessionId)) return;
+      tabFocus(moving.tab, moving.leaf.id, moving.leaf.sessionId);
+      setFocusTarget(moving.leaf.id);
+    };
     if (moving.version !== view.version) {
       setError("工作区布局已更新，请重新选择要移动的分栏。");
+      restoreSource();
       setMoveSource(null);
       return;
     }
@@ -374,10 +384,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     if (next === view.layout) return;
     const generation = navigation.current;
     void edit(view, next, { tab: tab.id, leaf: moving.leaf }).then((saved) => {
-      if (!saved && navigation.current === generation) {
-        tabFocus(moving.tab, moving.leaf.id, moving.leaf.sessionId);
-        setFocusTarget(moving.leaf.id);
-      }
+      if (!saved && navigation.current === generation) restoreSource();
       setMoveSource(null);
     });
   }
@@ -501,10 +508,32 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
               settings={agentSettings.data?.settings ?? emptyAgentSettings()}
               noSpace={false}
               onLaunch={(provider, options) => void launch(menu, provider, options)}
+              onOpenEnvironment={
+                host()
+                  ? () => {
+                      setEnvironmentIntent(menu);
+                      setMenu(null);
+                    }
+                  : undefined
+              }
               onOpenSettings={() => (dismissMenu(false), onNavigate?.("settings", "agent-cli"))}
               onClose={() => dismissMenu()}
             />
           </div>
+        ) : null}
+        {environmentIntent ? (
+          <ProtectedLaunchDialog
+            spaceId={environmentIntent.space.id}
+            spaceRevision={environmentIntent.space.revision}
+            onClose={() => {
+              setEnvironmentIntent(null);
+              requestAnimationFrame(() => environmentIntent.trigger?.focus());
+            }}
+            onLaunch={(provider, environment) => {
+              setEnvironmentIntent(null);
+              void launch(environmentIntent, provider, { environment });
+            }}
+          />
         ) : null}
         <div className="agent-workspace-tabs" role="group" aria-label="工作区标签">
           {tabOrder.length > 1 ? (
