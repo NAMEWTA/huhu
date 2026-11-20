@@ -1,7 +1,7 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
 import { ArrowLeft, ArrowRight, ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
-import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
@@ -53,7 +53,7 @@ type LaunchRecovery = {
   outcome: "unknown" | "not-created";
 };
 
-export function AgentCliModule({ onNavigate }: ModuleProps) {
+export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
@@ -68,7 +68,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const [closing, setClosing] = useState<{ view: WorkspaceView; tab: string; leaf: string; session: Session; navigation: number } | null>(null);
   const [moveSource, setMoveSource] = useState<{ spaceId: string; tab: string; leaf: PaneLeaf; version: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const working = useRef(false);
+  const writeReceipt = useRef<Promise<boolean> | null>(null);
   const navigation = useRef(0);
   const [spaceForm, setSpaceForm] = useState<{ id?: string; revision?: number; name: string; folder: string } | null>(null);
   const [spaceDelete, setSpaceDelete] = useState<Space | null>(null);
@@ -96,9 +96,23 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const currentTabIndex = tabOrder.findIndex(({ id }) => id === tab?.id);
 
   useEffect(() => {
+    const check = (request: ExitRequest) => {
+      if (request.signal.aborted) return false;
+      const pending = writeReceipt.current;
+      return pending ? request.waitForUser(pending) : true;
+    };
+    const exit = registerExitParticipant(check);
+    const leave = registerLeaveGuard?.(check);
+    return () => {
+      leave?.();
+      exit();
+    };
+  }, [registerLeaveGuard]);
+
+  useEffect(() => {
     if (!moving) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || working.current) return;
+      if (event.key !== "Escape" || writeReceipt.current) return;
       event.preventDefault();
       setMoveSource(null);
       setSelections((previous) => ({ ...previous, [moving.spaceId]: { tab: moving.tab, leaf: moving.leaf.id, zoom: null } }));
@@ -170,6 +184,19 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     setRequestedSession(null);
   }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, view, workspace.isFetched, workspace.isFetching, workspace.isError]);
 
+  function beginWrite() {
+    let settle!: (confirmed: boolean) => void;
+    writeReceipt.current = new Promise<boolean>((resolve) => {
+      settle = resolve;
+    });
+    setBusy(true);
+    return (confirmed: boolean) => {
+      writeReceipt.current = null;
+      setBusy(false);
+      settle(confirmed);
+    };
+  }
+
   async function rememberWorkspace(saved: WorkspaceView) {
     const key = queryKey(engine.vaultId, "agent.workspace.get", { spaceId: saved.spaceId });
     await qc.cancelQueries({ queryKey: key, exact: true });
@@ -178,7 +205,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   }
 
   function startTarget(target: WorkspaceTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
-    if (!space || !view || !editable || working.current) return null;
+    if (!space || !view || !editable || writeReceipt.current) return null;
     const intent: LaunchIntent = { space, view, target, navigation: navigation.current, id: createRequestId() };
     if (!event) return intent;
     const trigger = event.currentTarget;
@@ -194,17 +221,18 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   }
 
   async function launch(intent: LaunchIntent, provider: string, options: LaunchOptions = {}) {
-    if (working.current) return;
+    if (writeReceipt.current) return;
     const { space, target, id } = intent;
     const stay = () => navigation.current === intent.navigation;
-    working.current = true;
-    setBusy(true);
+    const finish = beginWrite();
+    let confirmed = false;
     setMenu(null);
     setError(null);
     try {
       const result = await engine.call<WorkspaceLaunchView>("agent.workspace.launch", { spaceId: space.id, spaceRevision: space.revision, baseVersion: intent.view.version, requestId: id, target, provider, ...options }, { write: true });
       setRecoveries((previous) => (previous[space.id]?.intent.id === id ? { ...previous, [space.id]: null } : previous));
       await rememberWorkspace(result.workspace);
+      confirmed = result.placement !== null;
       if (stay()) {
         setActive(result.sessionId);
         if (result.placement) {
@@ -225,8 +253,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
       }
       if (stay()) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      working.current = false;
-      setBusy(false);
+      finish(confirmed);
       void refresh();
     }
   }
@@ -282,14 +309,15 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   type Destination = { tab: string; leaf: PaneLeaf };
 
   async function commitWorkspace(operation: () => Promise<WorkspaceView>, onSaved?: (view: WorkspaceView) => Destination | null) {
-    if (working.current) return;
+    if (writeReceipt.current) return;
     const generation = navigation.current;
-    working.current = true;
-    setBusy(true);
+    const finish = beginWrite();
+    let confirmed = false;
     setError(null);
     try {
       const view = await operation();
       await rememberWorkspace(view);
+      confirmed = true;
       if (navigation.current === generation && onSaved) {
         const focus = onSaved(view);
         setActive(focus?.leaf.sessionId ?? null);
@@ -299,8 +327,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     } catch (e) {
       if (navigation.current === generation) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      working.current = false;
-      setBusy(false);
+      finish(confirmed);
       setClosing(null);
       void refresh();
     }
@@ -335,7 +362,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   }
 
   function moveTo(leaf: string, direction: SplitDirection) {
-    if (!view || !tab || !moving || working.current) return;
+    if (!view || !tab || !moving || writeReceipt.current) return;
     if (moving.version !== view.version) {
       setError("工作区布局已更新，请重新选择要移动的分栏。");
       setMoveSource(null);
@@ -563,7 +590,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             showReview={showReview && active === currentLeaf?.sessionId}
             status={stateBadge}
             onFocus={(leafId, sessionId) => {
-              if (working.current && leafId !== currentLeaf?.id) ++navigation.current;
+              if (writeReceipt.current && leafId !== currentLeaf?.id) ++navigation.current;
               tabFocus(tab.id, leafId, sessionId, zoom);
             }}
             onRequest={(event, leaf, direction) => {
@@ -577,7 +604,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             }}
             onMoveDrop={moveTo}
             onMoveCancel={() => {
-              if (!working.current) setMoveSource(null);
+              if (!writeReceipt.current) setMoveSource(null);
             }}
             onClose={(leafId) => {
               if (!view) return;
@@ -627,7 +654,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
           title={`关闭“${closing.session.name}”的分栏？`}
           testId="workspace-pane-close-dialog"
           onClose={() => {
-            if (!working.current) setClosing(null);
+            if (!writeReceipt.current) setClosing(null);
           }}
           actions={
             <>

@@ -1891,6 +1891,48 @@ test("Agent CLI 跨标签移动分栏与重排标签保留实际终端", async (
   }
 });
 
+test("Agent CLI 关窗等分栏保存回执，再打开看到已提交布局", async () => {
+  test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  let page: Page | undefined;
+  const kept = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  try {
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.route("**/api/v1/call", async (route) => {
+      const body = route.request().postDataJSON() as { capability?: string } | null;
+      if (body?.capability !== "agent.workspace.close") return route.continue();
+      const result = await route.fetch();
+      expect(await result.json()).toMatchObject({ ok: true, data: { layout: { tabs: [] } } });
+      kept.resolve();
+      await release.promise;
+      return route.fulfill({ response: result });
+    });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await page.getByTestId("workspace-pane-close").click();
+    await kept.promise;
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
+    await expect(page.waitForEvent("close", { timeout: 500 })).rejects.toThrow(/Timeout/);
+    const closed = page.waitForEvent("close");
+    release.resolve();
+    await closed;
+    await app.close();
+
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByText("这个 Space 没有打开的标签")).toBeVisible();
+  } finally {
+    release.resolve();
+    if (page && !page.isClosed()) await page.unrouteAll({ behavior: "wait" });
+    await app.close();
+    rmTree(vault);
+  }
+});
+
 test("Agent CLI 的启动响应丢失后，用原请求找回原终端及目标分栏", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
