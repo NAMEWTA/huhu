@@ -58,7 +58,6 @@ type TerminalRuleLaunch = {
   provider: "shell";
   command: string;
   shell: TerminalRuleAction["shell"];
-  envRefs?: TerminalRuleAction["envRefs"];
   requestId: string;
 };
 type TerminalSession = { id: string; requestId: string; state: string; exitCode?: number | null; hasEnv?: boolean };
@@ -78,6 +77,16 @@ const STATE_TEXT: Record<string, string> = { succeeded: "已完成", failed: "�
 const TERMINAL_TIMEOUT_MS = 10 * 60_000;
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 type RuleData = AutomationRuleFrontmatter;
+export function hasLegacyTerminalEnvironment(action: RuleData["action"]): boolean {
+  return action.kind === "terminal" && Object.keys(action.envRefs ?? {}).length > 0;
+}
+
+function actionForWrite(action: RuleData["action"]): RuleData["action"] {
+  if (action.kind !== "terminal") return action;
+  if (hasLegacyTerminalEnvironment(action)) throw errors.invalidInput("规则环境请在此规则的受保护配置中设置");
+  const { envRefs: _, ...current } = action;
+  return current;
+}
 type TaskScanInput = Extract<Extract<RuleData["action"], { kind: "agent" }>["input"], { source: "tasks" }>;
 export type TaskScanRule = {
   id: string;
@@ -171,7 +180,7 @@ export class AutomationsService {
     const now = iso(this.d.now());
     const e = await this.d.repo.create(
       "automation-rule",
-      { title: input.title, enabled: false, trigger: input.trigger, missedRunGraceMinutes: input.missedRunGraceMinutes ?? 30, action: input.action, createdAt: now, updatedAt: now },
+      { title: input.title, enabled: false, trigger: input.trigger, missedRunGraceMinutes: input.missedRunGraceMinutes ?? 30, action: actionForWrite(input.action), createdAt: now, updatedAt: now },
       input.body ?? "",
     );
     this.d.publish("entity.changed", { kind: "automation-rule", id: e.id, op: "created" });
@@ -183,6 +192,7 @@ export class AutomationsService {
     if (patch.trigger) validateSchedule(patch.trigger.cron, patch.trigger.zone);
     const currentAction = cur.data.action;
     const action = patch.action;
+    if (action) patch = { ...patch, action: actionForWrite(action) };
     if (action?.kind === "agent" && action.input.source === "tasks" && currentAction.kind === "agent" && currentAction.input.source === "tasks") {
       patch = { ...patch, action: { ...action, input: { ...currentAction.input, ...action.input } } };
     }
@@ -190,13 +200,15 @@ export class AutomationsService {
     if (body !== undefined && body.trim() !== "" && next.kind !== "agent") throw errors.invalidInput("只有 Agent 规则可保存提示词或扫描补充指令");
     if (next.kind === "agent" && next.input.source === "tasks" && (body?.length ?? 0) > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
     if (body === undefined && currentAction.kind === "agent" && (next.kind !== "agent" || currentAction.input.source !== next.input.source)) body = "";
-    await this.d.repo.patch("automation-rule", id, { ...patch, updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
+    const replacingLegacy = action && hasLegacyTerminalEnvironment(currentAction);
+    await this.d.repo.patch("automation-rule", id, { ...patch, ...(replacingLegacy && { enabled: false }), updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
     this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
     return this.rule(id);
   }
 
   async setEnabled(id: string, enabled: boolean) {
     const cur = this.rule(id);
+    if (enabled && hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
     await this.d.repo.patch("automation-rule", id, { enabled, updatedAt: iso(this.d.now()) }, cur.version);
     this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
     return this.rule(id);
@@ -310,6 +322,7 @@ export class AutomationsService {
   activateNonAgent(ruleId: string, trigger: "schedule" | "manual", scheduledFor: Date | null = null): Promise<ActivationRecord> {
     const rule = this.rule(ruleId);
     if (rule.data.action.kind === "agent") throw errors.invalidInput("Agent 规则由 Tasks 接受派遣");
+    if (hasLegacyTerminalEnvironment(rule.data.action)) throw errors.invalidInput("旧规则需要重新配置受保护环境");
     return this.activateRule(rule, trigger, scheduledFor);
   }
 
@@ -354,7 +367,6 @@ export class AutomationsService {
     const { terminalOwner } = this.d;
     if (!terminalOwner) throw errors.invalidInput("无法确认终端规则的本机归属");
     const run = await this.d.repo.create("automation-run", { activationId, ruleId, actionKind: "terminal", trigger, scheduledFor, state: "running", startedAt, terminalOwner }, "");
-    const usedEnv = Object.keys(a.envRefs).length > 0;
     const cancel = this.terminalSignal(ruleId, run.id);
     const launchSignal = AbortSignal.any([this.abort.signal, cancel]);
     let accepted = false;
@@ -363,7 +375,7 @@ export class AutomationsService {
       const space = a.spaceId ? spaces.find((x) => x.id === a.spaceId) : spaces.find((x) => sameDir(x.root, this.d.vaultRoot));
       if (!space) throw errors.invalidInput(a.spaceId ? "Space 不存在或目录不可访问" : "没有以 Vault 根为目录的 Space，请在规则里选择一个 Space");
       const key = terminalRequestId(run.id);
-      const input: TerminalRuleLaunch = { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: a.command, shell: a.shell, ...(usedEnv ? { envRefs: a.envRefs } : {}), requestId: key };
+      const input: TerminalRuleLaunch = { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: a.command, shell: a.shell, requestId: key };
       const sess = this.d.launchTerminal ? await this.d.launchTerminal(ruleId, a, input, launchSignal) : ((await this.d.call("agent.sessions.launch", input, key)) as { id: string });
       accepted = true;
       const cur = this.d.repo.read("automation-run", run.id);
@@ -420,7 +432,6 @@ export class AutomationsService {
     } catch {
       output = "（终端输出已不可读）";
     }
-    // 带保险箱环境变量的命令：输出读完就移除终端，Herdr 的状态文件里不留秘密值
     const exitCode = sess.exitCode ?? null;
     const state = killedFor === "cancel" ? "cancelled" : killedFor === "timeout" || sess.state === "failed" ? "failed" : exitCode === 0 ? "succeeded" : exitCode === null ? "unknown" : "failed";
     const note = killedFor === "timeout" ? `超过 ${TERMINAL_TIMEOUT_MS / 60_000} 分钟，已结束终端。\n` : "";

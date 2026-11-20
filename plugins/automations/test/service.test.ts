@@ -52,7 +52,7 @@ function setup(
     tasks?: TaskDto[];
     tasksEnabled?: boolean;
     /** 假 agent-cli：按命令返回会话；output 为命令的“输出”。 */
-    terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; loseReply?: boolean; unavailable?: () => boolean };
+    terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; loseReply?: boolean; unavailable?: () => boolean; hasEnv?: boolean };
     spaceState?: "ok" | "missing";
   } = {},
 ) {
@@ -66,8 +66,9 @@ function setup(
   const notes: string[] = [];
   const events: string[] = [];
   const sessions = new Map<string, { id: string; state: string; exitCode: number | null; requestId?: string; hasEnv?: boolean }>();
+  const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
   const svc = new AutomationsService({
-    repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
+    repo,
     activationsDir: path.join(d, "act"),
     taskQuery: () =>
       opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listDispatchable: () => tasks.filter((t) => t.type === "agent" && t.status === "not_started"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto },
@@ -89,7 +90,7 @@ function setup(
           state: opts.terminal?.stayRunning ? "running" : "exited",
           exitCode: opts.terminal?.exitCode ?? 0,
           requestId: String(i["requestId"]),
-          hasEnv: Object.keys((i["envRefs"] as object | undefined) ?? {}).length > 0,
+          hasEnv: opts.terminal?.hasEnv ?? false,
         });
         if (opts.terminal?.loseReply) throw new HuhuError("RUN_UNKNOWN", "终端启动回执未收到");
         return { id: `sess-${sessions.size}` };
@@ -112,7 +113,7 @@ function setup(
     now: () => new Date("2026-11-10T12:00:00Z"),
     zone: () => "UTC",
   });
-  return { svc, root, tasks, calls, notes, events, d, sessions };
+  return { svc, root, tasks, calls, notes, events, d, sessions, repo };
 }
 
 const every5 = { preset: "every5", cron: "*/5 * * * *", zone: "UTC" };
@@ -296,20 +297,20 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     expect((await bad.svc.activateNonAgent(r2.id, "manual")).summary).toEqual({ state: "failed" });
   });
 
-  test("terminal：环境变量引用原样交给 agent-cli（automations 不接触秘密值）；启动失败（保险箱锁定等）→ 失败并通知，不留下 running", async () => {
-    const { svc, calls } = setup({ terminal: { exitCode: 0, output: "token=***" } });
-    const r = await svc.create({ title: "带密钥", trigger: every5, action: { kind: "terminal", command: 'echo "token=$MY_TOKEN"', shell: "default", spaceId: null, envRefs: { MY_TOKEN: "vault:token" } } });
-    expect((await svc.activateNonAgent(r.id, "manual")).summary).toEqual({ state: "succeeded" });
-    const launch = calls.find((c) => c.capability === "agent.sessions.launch")!;
-    expect(launch.input["envRefs"]).toEqual({ MY_TOKEN: "vault:token" });
-    expect(calls.find((c) => c.capability === "agent.sessions.output")!.input).not.toHaveProperty("usedEnv"); // 是否带过环境变量以 agent-cli 的会话记录为准，不由调用方声明
-    expect(calls.some((c) => c.capability === "agent.sessions.release")).toBe(true); // 带密钥的命令读完输出后移除终端
-    const locked = setup({ terminal: { launchError: "SAFE_LOCKED：保险箱已锁定" } });
-    const r2 = await locked.svc.create({ title: "锁定", trigger: every5, action: { kind: "terminal", command: "echo x", shell: "default", spaceId: null, envRefs: { A: "vault:x" } } });
-    expect((await locked.svc.activateNonAgent(r2.id, "manual")).summary).toEqual({ state: "failed" });
-    expect(locked.notes.some((t) => t.includes("SAFE_LOCKED"))).toBe(true);
-    const run = locked.svc.runs().find((x) => x.kind === "automation-run")!;
-    expect(locked.svc.runDetail(run.id).data["state"]).toBe("failed");
+  test("旧环境待重新配置，不创建旧引用、不启动、不改历史规则", async () => {
+    const { svc, calls, repo } = setup();
+    const action = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null, envRefs: { FIXTURE: "safe://old-fixture" } } as const;
+    await expect(svc.create({ title: "新规则", trigger: every5, action })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const old = await repo.create("automation-rule", { title: "旧规则", enabled: true, action, trigger: every5, createdAt: "2026-11-10T12:00:00Z", updatedAt: "2026-11-10T12:00:00Z" }, "");
+    expect(() => svc.activateNonAgent(old.id, "manual")).toThrow("旧规则需要重新配置");
+    await expect(svc.setEnabled(old.id, true)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(svc.rule(old.id).data.action).toEqual(action);
+    expect(calls).toHaveLength(0);
+    expect(svc.runs()).toHaveLength(0);
+    const { envRefs: _, ...current } = action;
+    const updated = await svc.update(old.id, old.version, { action: current });
+    expect(updated.data).toMatchObject({ enabled: false, action: current });
+    expect(updated.data.action).not.toHaveProperty("envRefs");
   });
 
   test("terminal：取消 → 结束终端并记为 cancelled；重启对账：停在 running 的运行按会话真实状态完成", async () => {
@@ -336,10 +337,10 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     expect(rec.svc.runDetail(stuck.id).body).toContain("done-after-restart");
   });
 
-  test("重启对账：规则之后被删除 / 去掉 envRefs 也不影响——带环境变量的会话仍会移除终端；sessionId 没来得及写回时按 requestId 找回", async () => {
-    const ctx = setup({ terminal: { exitCode: 0, output: "token=***" } });
+  test("重启对账：规则后来被删除，受保护会话仍会移除；丢失 sessionId 时按 requestId 找回", async () => {
+    const ctx = setup({ terminal: { exitCode: 0, output: "token=***", hasEnv: true } });
     const { svc, calls } = ctx;
-    const rule = await svc.create({ title: "带密钥", trigger: every5, action: { kind: "terminal", command: "echo", shell: "default", spaceId: null, envRefs: { T: "vault:t" } } });
+    const rule = await svc.create({ title: "带密钥", trigger: every5, action: { kind: "terminal", command: "echo", shell: "default", spaceId: null } });
     await svc.activateNonAgent(rule.id, "manual");
     calls.length = 0;
     await svc.delete(rule.id); // 规则没了：对账不能再靠规则推断是否带过密钥

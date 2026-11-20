@@ -12,7 +12,7 @@ import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, 
 import { HoldStore } from "./holds.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, type ActivationRecord, type TaskQueryLike } from "./service.js";
+import { AutomationsService, hasLegacyTerminalEnvironment, type ActivationRecord, type TaskQueryLike } from "./service.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
@@ -35,8 +35,14 @@ const Rule = z.object({
   path: z.string(),
   version: z.string(),
   body: z.string(),
-  data: z.object({ title: z.string(), enabled: z.boolean(), trigger: Trigger, missedRunGraceMinutes: z.number(), action: Action }).passthrough(),
+  data: z.object({ title: z.string(), enabled: z.boolean(), trigger: Trigger, missedRunGraceMinutes: z.number(), action: Action, legacyEnvironment: z.boolean().optional() }).passthrough(),
 });
+
+function publicRule(value: ReturnType<AutomationsService["rule"]>): z.output<typeof Rule> {
+  if (value.data.action.kind !== "terminal") return value;
+  const { envRefs: _, ...action } = value.data.action;
+  return { ...value, data: { ...value.data, action, legacyEnvironment: hasLegacyTerminalEnvironment(value.data.action) } };
+}
 
 export interface AutomationsOptions {
   zone?: () => string;
@@ -81,7 +87,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     launchTerminal: (ruleId, action, input, signal) =>
       terminalEnvironments.use(ruleId, action, input, async (env) => {
         if (!env) return (await api.call("agent.sessions.launch", input, { idempotencyKey: input.requestId, signal })) as { id: string };
-        if (input.envRefs) throw errors.invalidInput("移除旧保险箱引用后再使用规则自有环境");
         const agent = api.service<{ launch(request: typeof input & { env: Record<string, string> }, signal: AbortSignal): Promise<{ id: string }> }>("agentProtectedTerminal");
         if (!agent) throw errors.invalidInput("Agent CLI 的受保护启动服务不可用");
         return agent.launch({ ...input, env }, signal);
@@ -170,7 +175,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     },
     now,
   });
-  const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes, updatedAt: r.data.updatedAt })));
+  const sync = () =>
+    scheduler.sync(
+      svc.rules().map((r) => ({
+        id: r.id,
+        enabled: r.data.enabled && !hasLegacyTerminalEnvironment(r.data.action),
+        cron: r.data.trigger.cron,
+        zone: r.data.trigger.zone,
+        missedRunGraceMinutes: r.data.missedRunGraceMinutes,
+        updatedAt: r.data.updatedAt,
+      })),
+    );
   // 能力在启动对账完成后才开始服务；对账失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
   const ready = svc
     .reconcileTerminals()
@@ -251,7 +266,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.array(Rule),
       handler: async () => {
         await ready;
-        return svc.rules() as never;
+        return svc.rules().map(publicRule);
       },
     }),
   );
@@ -266,7 +281,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: Rule,
       handler: async (_c, i) => {
         await ready;
-        return svc.rule(i.id) as never;
+        return publicRule(svc.rule(i.id));
       },
     }),
   );
@@ -283,7 +298,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         assertNoAgentAction(c.caller, i.action as never);
         const r = await svc.create(i as never);
         resync();
-        return r as never;
+        return publicRule(r);
       },
     }),
   );
@@ -307,7 +322,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         }
         const r = await svc.update(i.id, i.expectedVersion, i.patch as never, i.body);
         resync();
-        return r as never;
+        return publicRule(r);
       },
     }),
   );
@@ -341,7 +356,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         if (i.enabled) assertNoAgentAction(c.caller, svc.rule(i.id).data.action as never);
         /* 暂停永远允许 */ const r = await svc.setEnabled(i.id, i.enabled);
         resync();
-        return r as never;
+        return publicRule(r);
       },
     }),
   );

@@ -1001,76 +1001,67 @@ test("切换笔记再切回：撤销历史保留（编辑器按笔记路径重�
   }
 });
 
-test("工作流 W-C 远程运维脚本：保险箱 → SSH 用密码引用连接并 Exec → 自动化脚本用 Token 环境变量运行，输出进运行结果且文件里没有明文", async () => {
-  test.skip(process.platform === "win32", "用 POSIX 脚本；Windows 需要 .cmd 假程序");
-  const fs = await import("node:fs");
-  const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
-  const srv = await startFakeSsh({ password: "wc-ssh-pw" });
-  const prog = path.join(mkdtempSync(path.join(tmpdir(), "huhu-wc-bin-")), "report.sh");
-  writeFileSync(prog, '#!/bin/sh\necho "token=${API_TOKEN:+已提供} 长度=${#API_TOKEN}"\n');
-  fs.chmodSync(prog, 0o755);
-  const { page, vault, close } = await openApp();
+test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可运行", async () => {
+  test.skip(process.platform !== "win32" || process.arch !== "x64", "使用 Windows Credential Manager 和 PowerShell 夹具");
+  const { page, close } = await openApp();
+  const prefix = "automations.terminal.environment";
+  const variable = "HUHU_STAGED_FIXTURE";
+  let clearSynthetic: (() => Promise<void>) | undefined;
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    // 1. 保险箱：设置主密码（界面）
-    await page.getByRole("button", { name: "保险箱" }).first().click();
-    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
-    await page.getByLabel("确认主密码").fill("correct horse battery");
-    await page.getByLabel("我已了解").check();
-    await page.getByRole("button", { name: "创建保险箱" }).click();
-    await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
-    // 2. SSH：新增主机（密码进保险箱，主机配置只存引用），确认指纹、连接、Exec（界面）
-    await page.getByRole("button", { name: "远程连接" }).first().click();
-    await page.getByRole("button", { name: "新增 SSH 主机" }).click();
-    const hostDialog = page.getByTestId("ssh-host-dialog");
-    await hostDialog.getByLabel("显示名称").fill("运维机");
-    await hostDialog.getByLabel("主机名或 IP").fill("127.0.0.1");
-    await hostDialog.getByLabel("端口", { exact: true }).fill(String(srv.port));
-    await hostDialog.getByLabel("用户名").fill("ops");
-    await hostDialog.getByLabel("密码", { exact: true }).fill("wc-ssh-pw");
-    await hostDialog.getByRole("button", { name: "新增主机" }).click();
-    await page.getByRole("button", { name: "连接", exact: true }).click();
-    await page.getByRole("button", { name: "信任并连接" }).click();
-    await expect(page.getByRole("button", { name: "断开" })).toBeVisible({ timeout: 10_000 });
-    await page.getByRole("tab", { name: "Exec" }).click();
-    await page.getByLabel("命令", { exact: true }).fill("echo 巡检完成");
-    await page.getByRole("button", { name: "运行" }).click();
-    await expect(page.getByTestId("exec-output")).toContainText("巡检完成");
-    const hostFiles = fs.readdirSync(`${vault}/.huhu/ssh/hosts`).map((f) => fs.readFileSync(`${vault}/.huhu/ssh/hosts/${f}`, "utf8"));
-    expect(hostFiles.join()).toContain("safe://");
-    expect(hostFiles.join()).not.toContain("wc-ssh-pw"); // 主机配置里只有引用
-
-    // 3. API Token 存进保险箱，允许 automations 引用；脚本把它当环境变量用
     const call = await caller(page);
-    const item = (await call("safe.items.save", { name: "运维 API Token", type: "token", allowedModules: ["ssh", "automations"], value: "TOP-SECRET-WC-TOKEN" })).data as { id: string };
-    expect(
-      (
-        await call("automations.create", {
-          title: "每日运维脚本",
-          trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" },
-          action: { kind: "terminal", command: `"${prog}"`, shell: "sh", spaceId: null, envRefs: { API_TOKEN: `safe://${item.id}` } },
-        })
-      ).ok,
-    ).toBe(true);
-    // 4. 自动化：立即运行，运行页看到结果（界面）
+    const rule = await call("automations.create", {
+      title: "桌面规则的独立环境",
+      trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+      action: {
+        kind: "terminal",
+        command: "if (-not $env:HUHU_STAGED_FIXTURE) { exit 7 }; [Console]::WriteLine('protected-environment-ok'); [Console]::WriteLine($env:HUHU_STAGED_FIXTURE)",
+        shell: "powershell",
+        spaceId: null,
+      },
+    });
+    expect(rule.ok).toBe(true);
+    clearSynthetic = async () => {
+      const current = (await call(`${prefix}.get`, { ruleId: rule.data.id })).data;
+      if (current?.states?.[variable] === "configured") {
+        await call(`${prefix}.save`, { ruleId: rule.data.id, expectedRevision: current.revision, names: [], changes: [{ name: variable, action: "clear" }] });
+      }
+    };
+    expect((await call("safe.status")).data.initialized).toBe(false);
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
-    await page.getByTestId("rule-row").filter({ hasText: "每日运维脚本" }).click();
-    await page.getByRole("button", { name: "立即运行" }).click();
+    await page.getByTestId("rule-row").filter({ hasText: "桌面规则的独立环境" }).click();
+    await page.getByRole("button", { name: "添加受保护变量" }).click();
+    const config = page.getByRole("dialog", { name: "配置受保护变量" });
+    await config.getByLabel("变量名").fill(variable);
+    const synthetic = "synthetic-module-only-environment";
+    await config.getByLabel("受保护值").fill(synthetic);
+    await config.getByRole("button", { name: "保存配置" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "规则环境已保存" })).toBeVisible();
+    expect((await call("plugins.setEnabled", { id: "safe", enabled: false })).ok).toBe(true);
+    await page.getByRole("button", { name: "立即运行", exact: true }).click();
     await page.getByRole("button", { name: "运行", exact: true }).click();
-    const row = page.getByTestId("run-row").filter({ hasText: "每日运维脚本" });
-    await expect(row).toContainText("已完成", { timeout: 30_000 });
-    await row.getByRole("button").first().click();
-    await expect(page.getByTestId("run-body")).toContainText("token=已提供 长度=19");
-    // 5. 明文不落盘：整个 Vault 目录里都找不到 Token 与 SSH 密码
-    const all = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? all(`${dir}/${e.name}`) : [`${dir}/${e.name}`]));
-    for (const f of all(vault)) {
-      const text = fs.readFileSync(f).toString("latin1");
-      expect(text, f).not.toContain("TOP-SECRET-WC-TOKEN");
-      expect(text, f).not.toContain("wc-ssh-pw");
-    }
+    const run = page.getByTestId("run-row").filter({ hasText: "桌面规则的独立环境" });
+    await expect(run).toContainText("已完成", { timeout: 25_000 });
+    await run.getByRole("button").first().click();
+    await expect(page.getByTestId("run-body")).toContainText("protected-environment-ok");
+    await expect(page.getByTestId("run-body")).toContainText("***");
+    await expect(page.getByTestId("run-body")).not.toContainText(synthetic);
+    await page.getByTestId("run-detail").getByRole("button", { name: "关闭", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "自动化导航" })
+      .getByRole("button", { name: /^定时自动化/ })
+      .click();
+    await page.getByTestId("rule-row").filter({ hasText: "桌面规则的独立环境" }).click();
+    await page.getByRole("button", { name: "清除 HUHU_STAGED_FIXTURE" }).click();
+    await page.getByRole("dialog", { name: "清除受保护变量" }).getByRole("button", { name: "确认清除" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已清除本机值" })).toBeVisible();
+    const row = (await call(`${prefix}.get`, { ruleId: rule.data.id })).data;
+    expect(row).toMatchObject({ states: { HUHU_STAGED_FIXTURE: "unconfigured" } });
+    expect(JSON.stringify(row)).not.toContain(synthetic);
+    expect(await call("automations.runNow", { id: rule.data.id })).toMatchObject({ ok: true, data: { summary: { state: "failed" } } });
   } finally {
+    if (!page.isClosed()) await clearSynthetic?.().catch(() => undefined);
     await close();
-    await srv.close();
   }
 });
 

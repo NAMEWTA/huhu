@@ -53,8 +53,6 @@ export const t = {
   command: "要运行的命令",
   commandPlaceholder: "例如：git pull --ff-only && pnpm test",
   vaultRoot: "Vault 根目录",
-  envRefs: "环境变量引用（每行 NAME=safe://item-…，值来自保险箱）",
-  envRefsPlaceholder: "GITHUB_TOKEN=safe://item-xxxx",
   space: "Space（Agent 工作目录）",
   provider: "Agent CLI",
   model: "模型（可留空）",

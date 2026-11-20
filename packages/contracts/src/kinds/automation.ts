@@ -37,8 +37,8 @@ export const AutomationActionSchema = z.discriminatedUnion("kind", [
     shell: z.enum(["default", "bash", "zsh", "sh", "powershell", "cmd"]).default("default"),
     /** 运行目录：Space；缺省为 Vault 根。 */
     spaceId: z.string().nullable().default(null),
-    /** 环境变量名 → 保险箱引用（运行时解析，不写进文件、不回显）。 */
-    envRefs: z.record(z.string(), z.string()).default({}),
+    /** 旧格式只用于识别需要重新配置的规则。 */
+    envRefs: z.record(z.string(), z.string()).optional(),
   }),
   z.object({
     kind: z.literal("reminder"),

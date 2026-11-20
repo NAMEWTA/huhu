@@ -14,11 +14,12 @@ export interface EditableRule {
     title: string;
     trigger: { preset: string; cron: string; zone: string };
     action: Action;
+    legacyEnvironment?: boolean;
   };
 }
 type Action =
   | { kind: "agent"; input: { source: "tasks"; tags: string[]; maxConcurrent: number } | { source: "prompt"; spaceId: string; provider: string; model: string | null; effort: string | null; fast: boolean } }
-  | { kind: "terminal"; command: string; shell: string; spaceId: string | null; envRefs: Record<string, string> }
+  | { kind: "terminal"; command: string; shell: string; spaceId: string | null }
   | { kind: "reminder"; mode: "notification" | "task" | "both"; text: string; taskId: string | null };
 /** 表单里的动作种类：agent 动作按输入来源拆成两项。 */
 type FormKind = "agent_tasks" | "agent_prompt" | "terminal" | "reminder";
@@ -67,13 +68,7 @@ export function RuleEditor({
   const [prompt, setPrompt] = useState(prompt0 || (a?.kind === "agent" && a.input.source === "tasks") ? (rule?.body ?? "") : "");
   const [tagsText, setTagsText] = useState(a?.kind === "agent" && a.input.source === "tasks" ? a.input.tags.join(", ") : "");
   const [command, setCommand] = useState(a?.kind === "terminal" ? a.command : "");
-  const [envText, setEnvText] = useState(
-    a?.kind === "terminal"
-      ? Object.entries(a.envRefs)
-          .map(([k, v]) => `${k}=${v}`)
-          .join("\n")
-      : "",
-  );
+  const [replaceLegacy, setReplaceLegacy] = useState(false);
   const [busy, setBusy] = useState(false);
   const cron = cronFor(preset, time, custom);
   const found = (providers.data ?? []).filter((p) => p.installed && p.headless);
@@ -93,7 +88,7 @@ export function RuleEditor({
       triggerError = /Range|time ?zone/i.test(String(e)) ? t.zoneInvalid : t.cronInvalid;
     }
   }
-  const valid = title.trim() !== "" && tz.trim() !== "" && triggerError === null && actionValid;
+  const valid = title.trim() !== "" && tz.trim() !== "" && triggerError === null && actionValid && (!rule?.data.legacyEnvironment || replaceLegacy);
 
   async function submit() {
     setBusy(true);
@@ -101,14 +96,6 @@ export function RuleEditor({
       .split(",")
       .map((x) => x.trim())
       .filter(Boolean);
-    const envRefs = Object.fromEntries(
-      envText
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .map((l) => [l.slice(0, l.indexOf("=")).trim(), l.slice(l.indexOf("=") + 1).trim()] as const)
-        .filter(([k]) => k !== ""),
-    );
     const action: Record<string, unknown> =
       kind === "reminder"
         ? { kind: "reminder", mode, text: text.trim(), taskId: a?.kind === "reminder" ? a.taskId : null }
@@ -116,7 +103,7 @@ export function RuleEditor({
           ? { kind: "agent", input: { source: "prompt", spaceId, provider, model: model.trim() || null, effort: prompt0?.effort ?? null, fast: prompt0?.fast ?? false } }
           : kind === "agent_tasks"
             ? { kind: "agent", input: { source: "tasks", tags, maxConcurrent: a?.kind === "agent" && a.input.source === "tasks" ? a.input.maxConcurrent : 1 } }
-            : { kind: "terminal", command: command.trim(), shell: "default", spaceId: spaceId || null, envRefs: a?.kind === "terminal" ? { ...a.envRefs, ...envRefs } : envRefs };
+            : { kind: "terminal", command: command.trim(), shell: a?.kind === "terminal" ? a.shell : "default", spaceId: spaceId || null };
     const ok = await onSave({ title: title.trim(), trigger: { preset, cron, zone: tz.trim() }, action, body: kind === "agent_prompt" || kind === "agent_tasks" ? prompt.trim() : "" });
     setBusy(false);
     if (ok && !rule) {
@@ -229,14 +216,18 @@ export function RuleEditor({
                     ))}
                   </select>
                 </Field>
-                <Field label={t.envRefs}>
-                  <textarea rows={3} aria-label={t.envRefs} placeholder={t.envRefsPlaceholder} value={envText} onChange={(e) => setEnvText(e.target.value)} />
-                </Field>
+                <p className="tasks-hint">在已保存规则的详情中设置受保护环境。</p>
               </>
             ) : null}
           </div>
         </div>
         <aside className="automations-editor-aside">
+          {rule?.data.legacyEnvironment ? (
+            <label>
+              <input type="checkbox" checked={replaceLegacy} onChange={(event) => setReplaceLegacy(event.target.checked)} />
+              移除旧环境引用并暂停规则。保存后可在详情中重新配置。
+            </label>
+          ) : null}
           <div className="hu-tw-section-label">
             <Clock size={14} aria-hidden />
             <strong>何时激活</strong>

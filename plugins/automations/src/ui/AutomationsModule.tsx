@@ -1,10 +1,11 @@
 import { Badge, Button, Dialog, EmptyState, IconButton } from "@huhu/ui";
 import { ArrowRight, ArrowUpRight, FileText, History, List, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
-import { useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { t } from "./i18n.js";
 import { RuleEditor, type EditableRule } from "./RuleEditor.js";
 import { RunsPanel } from "./RunsPanel.js";
+import { TerminalEnvironment } from "./TerminalEnvironment.js";
 
 interface Rule extends EditableRule {
   data: EditableRule["data"] & { enabled: boolean };
@@ -185,6 +186,7 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
                     <p>{cur.data.action.text}</p>
                   </section>
                 )}
+                {cur.data.action.kind === "terminal" && host() ? cur.data.legacyEnvironment ? <p role="status">旧终端环境需要重新配置。编辑并确认替换后，规则会暂停。</p> : <TerminalEnvironment key={cur.id} ruleId={cur.id} /> : null}
                 <RuleSchedule id={cur.id} zone={cur.data.trigger.zone} />
                 <div className="automations-rule-preview-action">
                   <Button icon={Search} onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>
@@ -192,7 +194,7 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
                   </Button>
                   <p>预览不写日志、不运行；立即运行才会记录一次激活。</p>
                   <div className="row" style={{ marginTop: 10 }}>
-                    <Button variant="primary" icon={Play} onClick={() => void act("automations.runNow", { id: cur.id })}>
+                    <Button variant="primary" icon={Play} disabled={cur.data.legacyEnvironment} onClick={() => void act("automations.runNow", { id: cur.id })}>
                       {t.runNow}
                     </Button>
                     <Button onClick={() => void act("automations.cancel", { id: cur.id })}>{t.cancel}</Button>

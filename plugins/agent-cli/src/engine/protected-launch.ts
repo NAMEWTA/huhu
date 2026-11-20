@@ -8,6 +8,39 @@ const MAX_PAYLOAD = 2 * 1024 * 1024;
 
 type Ticket = { content: string; timeout: NodeJS.Timeout };
 
+function windowsConsoleCommand(helperArgv: string[]): string[] {
+  // Electron's GUI executable can have discarded stdout/stderr in a ConPTY even in Node mode.
+  // Keep a console process on the PTY and stream the masked bytes from explicit child pipes.
+  const configuration = Buffer.from(JSON.stringify(helperArgv), "utf8").toString("base64");
+  const script = `
+$ErrorActionPreference = 'Stop'
+try {
+  $serialized = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${configuration}'))
+  $executable, $helper, $port, $ticket = (ConvertFrom-Json -InputObject $serialized)
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start.FileName = $executable
+  $start.Arguments = '"{0}" {1} {2}' -f $helper, $port, $ticket
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $start.RedirectStandardOutput = $true
+  $start.RedirectStandardError = $true
+  $child = [Diagnostics.Process]::Start($start)
+  try {
+    $out = $child.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput())
+    $err = $child.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError())
+    $child.WaitForExit()
+    [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($out, $err))
+    exit $child.ExitCode
+  } finally {
+    $child.Dispose()
+  }
+} catch {
+  [Console]::Error.WriteLine('Protected terminal launch failed.')
+  exit 1
+}`;
+  return ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
+}
+
 /** Core sees a one-use ticket. The program and its private environment stay in memory. */
 export class ProtectedLaunch {
   private readonly server = createServer((socket) => this.handle(socket));
@@ -59,7 +92,8 @@ export class ProtectedLaunch {
     const timeout = setTimeout(revoke, this.lifetimeMs);
     timeout.unref();
     this.tickets.set(token, { content, timeout });
-    return { argv: [this.executable, this.helper, String(port), token], revoke };
+    const helperArgv = [this.executable, this.helper, String(port), token];
+    return { argv: process.platform === "win32" ? windowsConsoleCommand(helperArgv) : helperArgv, revoke };
   }
 
   close(): void {

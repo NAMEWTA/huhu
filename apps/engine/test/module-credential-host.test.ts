@@ -211,11 +211,18 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       expect(first).toEqual(replay);
       expect(first).toMatchObject({ summary: { state: "succeeded" } });
       expect(starts).toHaveLength(1);
-      expect(starts[0]).toMatchObject({ env: { ELECTRON_RUN_AS_NODE: "1" }, argv: [expect.any(String), expect.stringContaining("protected-launch-helper.cjs"), expect.stringMatching(/^\d+$/), expect.stringMatching(/^[a-f0-9]{64}$/)] });
+      expect(starts[0]).toMatchObject({ env: { ELECTRON_RUN_AS_NODE: "1" }, argv: ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", expect.any(String)] });
       expect(JSON.stringify(starts)).not.toContain(privateValue);
       const {
         argv: [executable, ...previousArgs],
       } = starts[0] as { argv: string[] };
+      const relay = Buffer.from(previousArgs.at(-1)!, "base64").toString("utf16le");
+      const configuration = /::FromBase64String\('([A-Za-z0-9+/=]+)'\)/.exec(relay)?.[1];
+      expect(configuration).toBeDefined();
+      const helperArgs = JSON.parse(Buffer.from(configuration!, "base64").toString("utf8"));
+      expect(helperArgs).toEqual([expect.any(String), expect.stringContaining("protected-launch-helper.cjs"), expect.stringMatching(/^\d+$/), expect.stringMatching(/^[a-f0-9]{64}$/)]);
+      expect(relay).not.toContain(privateValue);
+      expect(JSON.stringify(helperArgs)).not.toContain(privateValue);
       await expect(promisify(execFile)(executable!, previousArgs, { windowsHide: true })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("受保护的终端命令未能启动") });
       const [row] = await data<{ id: string; state: string }[]>(source, "automations.runs.list");
       const detail = await data<{ body: string }>(source, "automations.runs.read", { runId: row!.id });

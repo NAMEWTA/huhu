@@ -303,25 +303,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       scope: "execute",
       exposable: false,
       defaultExposed: false,
-      input: LaunchTarget.extend({
-        requestId: z.string().min(8),
-        /** 旧的保险箱引用在 Engine 解析，值经临时启动交接交给子进程。 */
-        envRefs: z.record(z.string(), z.string()).optional(),
-      }),
+      input: LaunchTarget.extend({ requestId: z.string().min(8) }).strict(),
       output: Session,
       handler: async (c, i) => {
-        let env: Record<string, string> | undefined;
-        if (i.command !== undefined || i.envRefs) {
-          if (i.provider !== "shell") throw errors.invalidInput("command / envRefs 只能与终端（shell）一起用");
-          if (i.envRefs && Object.keys(i.envRefs).length > 0) {
-            if (!c.caller.startsWith("plugin:")) throw errors.permissionDenied("环境变量引用（仅内置插件可用）");
-            const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
-            if (!su) throw errors.invalidInput("保险箱插件未启用");
-            env = {};
-            for (const [k, ref] of Object.entries(i.envRefs)) env[k] = su.resolve(ref, { plugin: c.caller.slice("plugin:".length), purpose: "terminal" });
-          }
-        }
-        const s = await sessions.launch({ ...i, ...(env ? { env } : {}) }, c.signal);
+        if (i.command !== undefined && i.provider !== "shell") throw errors.invalidInput("只有终端会话可以运行指定命令");
+        const s = await sessions.launch(i, c.signal);
         waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
         return publicSession(s);
       },

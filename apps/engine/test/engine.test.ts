@@ -959,52 +959,32 @@ describe("Engine 启动与关闭", () => {
     });
     expect(await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 3000))])).toBe(4401);
   }, 30_000);
-  test.skipIf(!existsSync(REAL_HERDR) || process.platform === "win32")(
-    "ACC-SF-04 / C07（端到端，真实 Herdr）：terminal 动作在可见的 Herdr 会话里运行；环境变量引用只允许被授权的保险箱条目 → 失败 SECRET_REF_INVALID 并通知；允许 automations 后成功，输出里的秘密值被抹掉，运行记录带 sessionId；锁定后失败",
-    async () => {
-      process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
-      const { readdirSync: ls } = await import("node:fs");
-      const dir = tmp();
-      const e = await boot({ vaultPath: dir, create: true });
-      engines.push(e);
-      type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
-      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-      const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
-      const { machineId } = await import("@huhu/vault");
-      const core = new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") });
-      try {
-        await call("safe.setup", { password: "correct horse battery" });
-        const item = (await call("safe.items.save", { name: "tok", type: "token", allowedModules: ["ssh"], value: "TOP-SECRET-VALUE" })).data as { id: string };
-        const rule = (
-          await call("automations.create", {
-            title: "终端规则",
-            trigger: { preset: "custom", cron: "0 9 * * *", zone: "UTC" },
-            action: { kind: "terminal", command: 'echo "got=${TOKEN:+set} value=$TOKEN"', shell: "sh", spaceId: null, envRefs: { TOKEN: `safe://${item.id}` } },
-          })
-        ).data as { id: string };
-        expect((await call("automations.runNow", { id: rule.id })).data.summary).toEqual({ state: "failed" });
-        const note = ((await call("notifications.list", {})).data as { title: string }[]).map((n) => n.title).join("\n");
-        expect(note).toContain("SECRET_REF_INVALID");
-        // 允许 automations 引用后成功：在 Herdr 里留下可见会话
-        await call("safe.items.save", { id: item.id, name: "tok", type: "token", allowedModules: ["ssh", "automations"] });
-        expect((await call("automations.runNow", { id: rule.id })).data.summary).toEqual({ state: "succeeded" });
-        const texts = ls(path.join(dir, "Automation Runs")).map((f) => readFileSync(path.join(dir, "Automation Runs", f), "utf8"));
-        const ok = texts.find((t) => t.includes("state: succeeded"))!;
-        expect(ok).toMatch(/sessionId: sess-/);
-        expect(ok).toContain("got=set value=***"); // 回显的秘密值落盘前被抹掉
-        expect(texts.join()).not.toContain("TOP-SECRET-VALUE");
-        const sessions = (await call("agent.sessions.list", {})).data as { command?: string; state: string; exitCode?: number }[];
-        expect(sessions.find((s) => s.command?.includes("TOKEN"))).toMatchObject({ state: "exited", exitCode: 0 });
-        // 保险箱锁定后同一规则失败（SAFE_LOCKED）
-        await call("safe.lock", {});
-        expect((await call("automations.runNow", { id: rule.id })).data.summary).toEqual({ state: "failed" });
-      } finally {
-        await core.stop();
-        delete process.env["HUHU_HERDR_BIN"];
-      }
-    },
-    90_000,
-  );
+  test("旧规则环境只需重新配置，工作台和工具拒绝旧格式启动", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    const call = (capability: string, input: unknown = {}) => post(e, e.rendererToken, { capability, input, requestId: "legacy-terminal", idempotencyKey: "legacy-terminal-" + Math.random().toString(36).slice(2) });
+    const repo = new SemanticRepository(e.vault.files, new OperationLog(e.vault.files, path.join(e.vault.stateDir, "operations")));
+    const title = "旧终端环境";
+    const at = new Date().toISOString();
+    const trigger = { preset: "every15", cron: "*/15 * * * *", zone: "UTC" };
+    const action = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null, envRefs: { SYNTHETIC: "safe://retired-reference" } };
+    expect(await call("automations.create", { title, trigger, action })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const old = await repo.create("automation-rule", { title, trigger, action, enabled: true, createdAt: at, updatedAt: at }, "");
+    const bytes = readFileSync(path.join(e.vault.files.root, old.path));
+    const shown = await call("automations.read", { id: old.id });
+    expect(shown).toMatchObject({ ok: true, data: { data: { legacyEnvironment: true } } });
+    expect(JSON.stringify(shown)).not.toContain("retired-reference");
+    expect(await call("automations.runNow", { id: old.id })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const available = await call("agent.spaces.list");
+    expect(available.ok).toBe(true);
+    const [space] = available.data as unknown as { id: string; revision: number }[];
+    expect(await call("agent.sessions.launch", { spaceId: space!.id, spaceRevision: space!.revision, provider: "shell", requestId: "obsolete-launch", command: "echo fixture", envRefs: action.envRefs })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect((await call("automations.runs.list")).data).toEqual([]);
+    expect(readFileSync(path.join(e.vault.files.root, old.path)).equals(bytes)).toBe(true);
+  });
   test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "ACC-WB-02 无写权限的普通文件夹：写入打开给出“无法写入”（READ_ONLY_VAULT + 只读打开建议），只读打开可浏览，写操作被拒绝，磁盘无变化",
     async () => {

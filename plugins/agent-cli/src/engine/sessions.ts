@@ -35,7 +35,7 @@ export interface SessionRecord {
   nativeSessionId?: string;
   /** 终端命令会话（automations 的 terminal 动作）：显示用，不含环境变量。 */
   command?: string;
-  /** 启动时带了保险箱环境变量（只存布尔，不存值）：输出读取与终端清理都以它为准，不信任调用方的声明。 */
+  /** 启动时带受保护环境变量。只存布尔值，用于输出脱敏与终端清理。 */
   hasEnv?: boolean;
   /** 变更审查意见（随会话记录保存）。 */
   reviewComments?: ReviewComment[];
@@ -123,7 +123,6 @@ export interface LaunchInput {
   shell?: ShellName | undefined;
   /** 由经过授权的 Engine 调用者解析，在目标子进程启动时使用。 */
   env?: Record<string, string> | undefined;
-  envRefs?: Record<string, string> | undefined;
   expectedConfigurationId?: string;
   controlled?: "codex";
 }
@@ -357,8 +356,7 @@ export class SessionsService {
     let env: Record<string, string> | undefined;
     let controlled: Awaited<ReturnType<CodexDispatch["prepare"]>> | undefined;
     if (input.controlled) {
-      if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.command !== undefined || input.env !== undefined || input.envRefs !== undefined)
-        throw errors.invalidInput("受控 Codex 仅支持新会话");
+      if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.command !== undefined || input.env !== undefined) throw errors.invalidInput("受控 Codex 仅支持新会话");
       controlled = await this.d.codex.prepare(input);
     } else if (input.command !== undefined) {
       if (input.provider !== "shell") throw errors.invalidInput("command 只能与终端（shell）一起用");
@@ -881,8 +879,7 @@ export class SessionsService {
   }
 
   /**
-   * 移除已结束的终端：Herdr 会把启动时的环境变量连同终端记录一起保存在状态文件里（restart_env），
-   * 带保险箱环境变量的命令读完输出后必须移除终端，秘密值才不会留在 Vault 的运行目录里。
+   * 受保护命令读完脱敏输出后移除终端并清理本进程的脱敏材料。
    */
   async release(id: string): Promise<void> {
     const s = this.get(id);
