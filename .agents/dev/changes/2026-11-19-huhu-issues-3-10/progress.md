@@ -8,14 +8,14 @@
 
 | Issue | 本轮产物与状态 | 下一交付点 |
 | --- | --- | --- |
-| #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`ea1acc3` 的 Windows 实机用例通过，挂起保存时窗口和 Engine 留存，恢复后重开能读到最后输入。 | S1a-01 的手动模式与草稿故障；S1a-02/S1a-03 故障反馈、请求世代和退出与看板离场的契约。 |
-| #4 | W6.0 经三轮独立审查合入 `1b3b385`，组合分支的回执合同及 Markdown 回归 55 项通过。[Windows Core 生命周期](../2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md)覆盖父子进程四组。 | `t19/task04` 推进 W1.1 实际启动与 W1.2 前置核对。W8.3 等 #5 T7.1，同包分别执行 W8.2 和 T7.2。 |
-| #5 | [T0.1](../2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md) 已从 Codex 及 Pi 实际读取一轮结果和原生 ID。 | `t44/task01` 推进 T1.1 条件写和保存零启动。真实原生问答与恢复待实测，界面按原型确认范围推进。 |
-| #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。G1.2 `6e6240d` 已审查，G2.1 `29a6e8f` 在两个隔离 Vault 验证默认关闭、单项授权、撤销和损坏时保留文件。 | `t1c/task04` 修复 G1.2 审查发现的卸载残留和登记描述可变，再从固定候选复核。 |
-| #7 | [H1.1 源码核对](../2026-11-19-issue-7-ssh-module/evidence/H1.1-upstream-map.md)记录四条入口和两份上游许可证。 | H1.2 核对执行组件、分发与授权测试主机。 |
-| #8 | [S0.1 源码核对](../2026-11-19-issue-8-mail-module/evidence/S0.1-source-baseline.md)记录预设、正文、投递、备份和 AI。[S0.2 样本](../2026-11-19-issue-8-mail-module/evidence/S0.2-transport-probe.md)已走通 IMAP UID、API 字符串 ID、SMTP 结果未知与新进程读回。 | 比较 Rust 适配的实际必要性，确认取消、认证和打包路径后推进 S1。 |
-| #9 | `t1b/report01` 验证 Windows 本机保护，覆盖 Electron 44.9.1 utilityProcess、main safeStorage 和独立 Node。P0.2 私有事务候选 `7174fc8` 有隔离回归。 | 候选待独立审查。本机依赖装配完成后用 P10.2 核对真实模块认证及新格式备份。 |
-| #10 | `1057af9` 将 W02-01 读布局接到 Engine。[W02-02 整板提交](../2026-11-19-issue-10-widget-dashboard/evidence/W02-02-atomic-board.md)在测试装配的 Engine 上写入并重启读回。W03-01 候选 `15403bd` 的注册和授权投影已在 Edge 与 Electron 实跑。 | 独立审查 Widget 合同，接入真实调用者授权。生产整板写者按 W06 切换，W04-07 等 #3 的退出契约。 |
+| #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`f193612` 绑定窗口主文档。`3f45c00` 上[两窗退出、自动保存与草稿恢复](../2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)均在 Windows Electron 通过。 | 模拟草稿写失败、故障反馈选项、退出参与者与菜单。 |
+| #4 | W6.0 经三轮独立审查合入 `1b3b385`，回执合同及 Markdown 回归 55 项通过。[Windows Core](../2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md)实测子进程、握手 generation 与 doc/CAS。W1.1 `ce5289d` 已用锁定 Core 和合成 `.cmd` 实跑。 | `t54` 独立核对 W1.1，再接 W1.2 的持久启动对账。W8.3 等 #5 T7.1，同包分别执行 W8.2 和 T7.2。 |
+| #5 | [T0.1](../2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md)已从 Codex 及 Pi 实际读取结果和原生 ID。T1.1 `a5d82cb` 复现并修复过期编辑覆盖，验证保存和重开均未启动 CLI。 | `t54` 独立核对。真实原生问答、恢复和 Agent 派遣接线待后续。 |
+| #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。`t4x` 核对 `cc736e5`，确认两项返工和 G2.1 默认关闭、逐项授权、撤销、坏格式保护。 | 同一 Engine 的安装失败回滚仍留临时名称占位。修复并复核后合入整个目录和授权切片。 |
+| #7 | [H1.1 来源](../2026-11-19-issue-7-ssh-module/evidence/H1.1-upstream-map.md)与 [H1.2 Windows 构建](../2026-11-19-issue-7-ssh-module/evidence/H1.2-windows-executor-reference.md)有证据。Motty 参考二进制验证同级 Viva 和三项回环权限用例。 | 核对单一执行端接入、分发错误与实际授权 SSH 主机。 |
+| #8 | [S0.1 来源](../2026-11-19-issue-8-mail-module/evidence/S0.1-source-baseline.md)与 [S0.2 TS/Rust 对照](../2026-11-19-issue-8-mail-module/evidence/S0.2-transport-probe.md)已实测同一 IMAP/API 和 SMTP 确认中断，分别关闭连接并在新进程读回投递身份。已选 TS Engine 路径。 | S1a.1 等 #9 模块凭据合同和生产接入。应用认证、真实邮箱和包内 Mail 待实测。 |
+| #9 | `t1b` 实跑 Windows 本机保护。`t4z` 复验 `7174fc8` 的同进程事务、真实独立进程原生保护和故障窗口。 | 返工待重配实体阻塞回收及独立进程取用竞态，之后再做正式驱动装配和 P10.2。 |
+| #10 | [W02-02 整板写](../2026-11-19-issue-10-widget-dashboard/evidence/W02-02-atomic-board.md)通过测试装配的 Engine 提交并重启读回。`t4z` 复跑 `15403bd` 的 Edge 与 Electron 静态 SSH Widget 投影。 | 修复注册描述与嵌套 Schema 可漂移。生产整板写者按 W06 切换，W04-07 等 #3 的退出契约。 |
 
 ## 平台与运行证据
 
@@ -26,9 +26,9 @@
 - `t2h` 初次桌面用例在等待进入编辑器设置时超时，已保全 Playwright trace。`ea1acc3` 从常用自动保存路径验收，`t2w` 于 14.2 秒通过关窗回归。
 - `t3k` 从 `f193612` 使用两个 worker 重跑全量测试，仍以 1 退出并报告 `ERR_IPC_CHANNEL_CLOSED`，没有完整计数。保留原始输出。
 - `1b3b385` 的固定检出完成冻结安装和 `pnpm build`。`t46` 通过两项 Windows Electron 关窗测试，覆盖延迟保存和顶层重载中止旧请求。测试用隔离窗口、Vault 和用户目录。
-- Windows 首轮阶段 NSIS 安装包已生成。Lead 在打包读取工作区时合入新回执合同，文件字节与此前收集的 ASAR 偏移不同。三个包内启动用例均失败，已在固定检出重新打包。此包的失败复现和校验值见 [Windows 打包对照](windows-stage-packaging.md)。
+- 固定检出重新打出的 Windows 阶段 NSIS 通过全部 ASAR 内文件校验。`t5g` 同一轮三项 Windows 包内冒烟通过。首轮 `7d4fef5` 阶段包因扫描后读取到变更文件而损坏，已保全失败记录。见 [Windows 打包对照](windows-stage-packaging.md)。
 - `ubuntu26` 已只读核对为 Linux x86_64、Wayland，可用 Xvfb 与 dpkg。用户答复「暂仅在 Windows 继续」，本轮没有在该主机写入或运行候选。Linux 与 macOS 的安装包和实机验收均待相应平台授权与环境。
 - 任务与报告见原工作区 `.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/topic.md`。当前报告、独立审查和合入以实际终稿、候选提交及检查输出为准。
-- 已按实际退出状态归档并关闭用完的 Core pane，命令退出状态和输出在原工作区 `temp/issue-baseline/core-finished/`。研究和独立审查的原报告留在实施主题目录，实施终端按 manifest 当前任务继续。
+- 用户限制最多四个 worktree。退役已交付的实现检出及固定包检出先降至两处，计原工作区和集成分支，再按返工范围分配。候选分支和提交保留。用完的 pane 按实际退出状态关闭，命令输出在原工作区 `temp/issue-baseline/core-finished/`，工作分派、研究和独立审查在实施主题目录。
 
 同一组合候选的安装包、八项验收与三条联验路径仍待交付。
