@@ -97,13 +97,12 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const [dailyDate, setDailyDate] = useState(today());
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
-  const editorRef = useRef<RichEditorPort | null>(null);
+  const [editorPort, setEditorPort] = useState<RichEditorPort | null>(null);
+  const [propertiesTarget, setPropertiesTarget] = useState<HTMLDivElement | null>(null);
   const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
     flushRef.current = flush;
   }, []);
-  const registerEditor = useCallback((port: RichEditorPort | null) => {
-    editorRef.current = port;
-  }, []);
+  const headings = useMemo(() => (inspector && inspectorTab === "outline" ? (editorPort?.getOutline(docText) ?? []) : []), [docText, editorPort, inspector, inspectorTab]);
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -362,7 +361,8 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     inspector && selected && tab?.kind === "file" && section !== "trash" ? (
       <NoteInspector
         path={selected}
-        text={docText}
+        headings={headings}
+        propertiesRef={setPropertiesTarget}
         tags={current?.tags ?? []}
         tab={inspectorTab}
         onTab={setInspectorTab}
@@ -371,7 +371,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         readOnly={false}
         onClose={() => setInspector(false)}
         onOpen={openLinked}
-        onJump={(line) => editorRef.current?.gotoLine(line)}
+        onJump={(line) => editorPort?.gotoLine(line)}
         onOpenHistory={() => onNavigate?.("versioning")}
         {...(onNavigate ? { onNavigate } : {})}
       />
@@ -537,6 +537,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               favorite={current?.favorite === true}
               inspectorOpen={inspector}
               detail={detail}
+              propertiesTarget={propertiesTarget}
               onToggleInspector={() => setInspector((v) => !v)}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
@@ -546,7 +547,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               }}
               onText={setDocText}
               registerFlush={registerFlush}
-              registerEditor={registerEditor}
+              registerEditor={setEditorPort}
               onAddComment={addComment}
             />
           </>

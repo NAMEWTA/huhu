@@ -48,6 +48,7 @@
     "@hocuspocus/provider": "4.0.0-rc.1",
     "@hocuspocus/server": "4.0.0-rc.1",
     "@huhu/contracts": "workspace:*",
+    "@huhu/vault": "workspace:*",
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.8.1",
     "@lingui/core": "6.5.0",

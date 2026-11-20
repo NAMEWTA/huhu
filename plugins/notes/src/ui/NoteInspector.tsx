@@ -1,3 +1,4 @@
+import type { OutlineHeading } from "@huhu/editor/rich";
 import { Button, EmptyState, IconButton } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
 import { ArrowUpRight, FileText, ListChecks, X } from "lucide-react";
@@ -11,8 +12,9 @@ type Tab = InspectorTab;
 /** 文档详情抽屉（原型 knowledge-inspector）：属性 / 大纲 / 关联（反向链接）/ 历史（由版本历史模块提供）。 */
 export function NoteInspector({
   path,
-  text,
+  headings,
   tags,
+  propertiesRef,
   tab,
   onTab,
   notePaths,
@@ -25,8 +27,9 @@ export function NoteInspector({
   onNavigate,
 }: {
   path: string;
-  text: string;
+  headings: readonly OutlineHeading[];
   tags: string[];
+  propertiesRef(element: HTMLDivElement | null): void;
   tab: InspectorTab;
   onTab(t: InspectorTab): void;
   /** Vault 里已知的笔记路径（批注的 docName ↔ 路径解析） */
@@ -43,11 +46,6 @@ export function NoteInspector({
 }) {
   const setTab = onTab;
   const backlinks = useCapability<{ path: string; title: string }[]>("notes.backlinks", { path });
-  const headings = text
-    .split("\n")
-    .map((l, i) => ({ l, i }))
-    .filter(({ l }) => /^#{1,6}\s+\S/.test(l))
-    .map(({ l, i }) => ({ level: (/^#+/.exec(l)?.[0].length ?? 1) as number, title: l.replace(/^#+\s+/, ""), line: i + 1 }));
   const title = n.props.tabs[tab];
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   return (
@@ -77,6 +75,7 @@ export function NoteInspector({
                 <dd>{tags.length ? tags.map((t) => `#${t}`).join(" ") : "—"}</dd>
               </div>
             </dl>
+            <div ref={propertiesRef} />
           </section>
         ) : tab === "outline" ? (
           headings.length ? (

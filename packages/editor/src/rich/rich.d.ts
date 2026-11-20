@@ -6,8 +6,15 @@ import type { CSSProperties, ReactElement, ReactNode } from "react";
 export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
 
+export interface OutlineHeading {
+  level: number;
+  title: string;
+  line: number;
+}
+
 export interface RichEditorPort extends EditorPort {
   gotoLine(line: number): void;
+  getOutline(source: string): OutlineHeading[];
   undo(): void;
   redo(): void;
   canUndo(): boolean;
@@ -32,6 +39,7 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
+  propertiesTarget?: HTMLElement | null;
   fontSize?: number;
   contentWidth?: number | null;
   referenceSearch?: (query: string) => readonly { path: string; kind: "file" | "folder" }[];

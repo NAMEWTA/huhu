@@ -530,6 +530,9 @@ importers:
       '@huhu/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@huhu/vault':
+        specifier: workspace:*
+        version: link:../vault
       '@lezer/highlight':
         specifier: ^1.2.5
         version: 1.2.5

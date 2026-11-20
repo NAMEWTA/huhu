@@ -27,6 +27,7 @@ export interface NoteDocumentProps {
   favorite: boolean;
   inspectorOpen: boolean;
   detail: ReactNode;
+  propertiesTarget: HTMLElement | null;
   onToggleInspector(): void;
   onToggleFavorite(): void;
   onOpen(path: string): void;
@@ -295,6 +296,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                 value={text}
                 onChange={onChange}
                 mode={VIEW[mode]}
+                propertiesTarget={props.propertiesTarget}
                 notes={all.data ?? []}
                 flush={flush}
                 onOpen={props.onOpen}
