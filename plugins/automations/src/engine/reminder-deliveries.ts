@@ -28,6 +28,7 @@ const RecordSchema = z.strictObject({
 });
 type ReminderRecord = z.infer<typeof RecordSchema>;
 type Stored = { data: ReminderRecord; version: string };
+type ReminderTrigger = { ruleId: string; at: string | null; expectedVersion?: string };
 type Notification = { id: string; title: string; module: string };
 export type ReminderNotifications = { send(notification: Notification): void; has(id: string): boolean };
 const scheduledId = (ruleId: string, at: string) => `rem-${digest([ruleId, at])}`;
@@ -65,6 +66,15 @@ export class ReminderDeliveries {
     const at = scheduled?.toISOString() ?? null;
     const data = await this.run(at ? scheduledId(ruleId, at) : `rem-${randomUUID()}`, { ruleId, at });
     return data ? this.view(data) : null;
+  }
+
+  async activateManual(ruleId: string, expectedVersion: string, caller: string, intentId: string): Promise<ActivationRecord | null> {
+    const trigger = { ruleId, at: null, expectedVersion };
+    const id = `rem-${digest(["manual-intent", this.vaultId, caller, intentId])}`;
+    const data = await this.run(id, trigger);
+    if (!data) return null;
+    this.assertClaim(data, trigger);
+    return this.view(data);
   }
 
   async recover(): Promise<void> {
@@ -118,7 +128,7 @@ export class ReminderDeliveries {
     return { data, version };
   }
 
-  private run(id: string, trigger?: { ruleId: string; at: string | null }): Promise<ReminderRecord | null> {
+  private run(id: string, trigger?: ReminderTrigger): Promise<ReminderRecord | null> {
     const existing = this.active.get(id);
     if (existing) return existing;
     const pending = this.advance(id, trigger).finally(() => this.active.delete(id));
@@ -126,13 +136,24 @@ export class ReminderDeliveries {
     return pending;
   }
 
-  private async advance(id: string, trigger?: { ruleId: string; at: string | null }): Promise<ReminderRecord | null> {
+  private assertClaim(data: ReminderRecord, { ruleId, expectedVersion }: ReminderTrigger): void {
+    if (!this.owner || data.owner !== this.owner || data.vaultId !== this.vaultId) throw errors.notFound("此主机的提醒执行意图");
+    if (data.ruleId !== ruleId || data.ruleVersion !== expectedVersion || data.scheduledFor !== null) throw errors.idempotencyMismatch();
+  }
+
+  private async advance(id: string, trigger?: ReminderTrigger): Promise<ReminderRecord | null> {
     this.lifetime.signal.throwIfAborted();
     let row = this.load(id);
+    if (row && trigger?.expectedVersion !== undefined) this.assertClaim(row.data, trigger);
     if (!row && trigger) {
       const rule = this.rules.rule(trigger.ruleId);
       const action = rule.data.action;
-      if (action.kind !== "reminder") throw errors.invalidInput("当前规则不再是提醒规则");
+      if (trigger.expectedVersion !== undefined) {
+        if (action.kind !== "reminder") throw errors.permissionDenied("外部立即运行只支持提醒规则");
+        if (rule.version !== trigger.expectedVersion) throw errors.versionConflict(rule.version);
+      } else if (action.kind !== "reminder") {
+        throw errors.invalidInput("当前规则不再是提醒规则");
+      }
       if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
       if (trigger.at && Date.parse(trigger.at) > this.now().getTime()) throw errors.invalidInput("提醒时间尚未到达");
       if (!this.owner) throw errors.invalidInput("无法确认本机的提醒归属");

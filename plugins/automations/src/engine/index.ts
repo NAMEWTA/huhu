@@ -333,11 +333,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "write",
       exposable: true,
       defaultExposed: false,
-      input: Id,
+      input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional() }),
       output: z.object({ ok: z.literal(true) }),
       handler: async (_c, i) => {
-        if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id));
-        else await svc.delete(i.id);
+        if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id, i.expectedVersion));
+        else await svc.delete(i.id, i.expectedVersion);
         resync();
         return { ok: true as const };
       },
@@ -350,10 +350,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "write",
       exposable: true,
       defaultExposed: false,
-      input: Id.extend({ enabled: z.boolean() }),
+      input: Id.extend({ enabled: z.boolean(), expectedVersion: z.string().min(1).max(128).optional() }),
       output: Rule,
       handler: async (c, i) => {
-        const r = await svc.setEnabled(i.id, i.enabled, (action) => assertNoAgentAction(c.caller, action));
+        const r = await svc.setEnabled(i.id, i.enabled, (action) => assertNoAgentAction(c.caller, action), i.expectedVersion);
         resync();
         return publicRule(r);
       },
@@ -376,13 +376,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       name: "automations.runNow",
       plugin: "automations",
       scope: "execute",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       timeoutMs: 30 * 60_000,
-      input: Id,
+      input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional(), intentId: z.uuidv4().optional() }),
       output: z.object({ activationId: z.string(), summary: z.unknown() }),
-      handler: async (_c, i) => {
-        const a = await activate(i.id, null);
+      handler: async ({ caller, signal }, { id, expectedVersion, intentId }) => {
+        signal.throwIfAborted();
+        let a: ActivationRecord | null;
+        if (isWorkbenchCaller(caller) && intentId === undefined && expectedVersion === undefined) {
+          a = await activate(id, null);
+        } else {
+          if (!intentId || !expectedVersion) throw errors.invalidInput("运行提醒须提供规则版本和固定的执行意图");
+          if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
+          a = await reminders.activateManual(id, expectedVersion, caller, intentId);
+        }
         if (!a) throw errors.notFound("规则未产生发生记录");
         return { activationId: a.activationId, summary: a.summary };
       },

@@ -236,9 +236,10 @@ export class AutomationsService {
     return this.rule(id);
   }
 
-  async setEnabled(id: string, enabled: boolean, authorizeEnable?: (action: RuleData["action"]) => void) {
+  async setEnabled(id: string, enabled: boolean, authorizeEnable?: (action: RuleData["action"]) => void, expectedVersion?: string) {
     return this.withRuleConfiguration(async () => {
       const cur = this.rule(id);
+      if (expectedVersion !== undefined && expectedVersion !== cur.version) throw errors.versionConflict(cur.version);
       if (enabled) {
         authorizeEnable?.(cur.data.action);
         if (hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
@@ -249,9 +250,10 @@ export class AutomationsService {
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, expectedVersion?: string): Promise<void> {
     await this.withRuleConfiguration(async () => {
       const cur = this.rule(id);
+      if (expectedVersion !== undefined && expectedVersion !== cur.version) throw errors.versionConflict(cur.version);
       await this.d.repo.delete("automation-rule", id, cur.version);
       this.d.publish("entity.changed", { kind: "automation-rule", id, op: "deleted" });
     });

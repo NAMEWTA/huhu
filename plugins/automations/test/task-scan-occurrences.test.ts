@@ -153,13 +153,53 @@ test("公开扫描明细按授权给出原派遣身份，停用或删除后仍�
   expect(result).toMatchObject({ ok: true, data: { dispatches: [{ taskId: task.id, dispatchId: expect.any(String), state: "accepted" }] } });
   const { taskId, dispatchId } = result.data.dispatches[0]!;
   const target = { taskId, dispatchId };
-  expect(await cli("automations.setEnabled", { id: rule.id, enabled: false })).toMatchObject({ ok: true, data: { data: { enabled: false } } });
-  expect(await cli("automations.delete", { id: rule.id })).toMatchObject({ ok: true });
+  const paused = await cli<Rule>("automations.setEnabled", { id: rule.id, expectedVersion: rule.version, enabled: false });
+  expect(paused).toMatchObject({ ok: true, data: { data: { enabled: false } } });
+  expect(await cli("automations.delete", { id: rule.id, expectedVersion: rule.version })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await cli("automations.delete", { id: rule.id, expectedVersion: paused.data.version })).toMatchObject({ ok: true });
   expect(await cli("automations.activations.dispatches", identity)).toEqual(result);
   expect(await cli("tasks.dispatch.read", target)).toMatchObject({ ok: true, data: { state: "pending" } });
   const cancelled = await cli("tasks.dispatch.cancel", target);
   expect(cancelled).toMatchObject({ ok: true, data: { state: "cancelled" } });
   expect(await cli("tasks.dispatch.cancel", target)).toEqual(cancelled);
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+}, 20_000);
+
+test("外部提醒规则独立授权，固定版本的运行意图在重启后仍只交付一次", async () => {
+  let { engine } = await start();
+  const cli = <T = unknown>(capability: string, input: unknown) => call<T>(engine, capability, input, true);
+  const draft = { title: "合成提醒草稿", trigger, action: { kind: "reminder", mode: "both", text: "合成提醒效果" } };
+  expect(await cli("automations.create", draft)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  for (const capability of ["automations.create", "automations.update", "automations.setEnabled", "automations.preview"]) {
+    await invoke(engine, "gateway.update", { capability, exposed: true });
+  }
+  const created = await cli<Rule>("automations.create", draft);
+  expect(created).toMatchObject({ ok: true, data: { data: { enabled: false } } });
+  const { id, version } = created.data;
+  const edited = await cli<Rule>("automations.update", { id, expectedVersion: version, patch: { title: "已编辑测试提醒" } });
+  expect(edited).toMatchObject({ ok: true });
+  const enabled = await cli<Rule>("automations.setEnabled", { id, expectedVersion: edited.data.version, enabled: true });
+  expect(enabled).toMatchObject({ ok: true, data: { data: { enabled: true } } });
+  expect(await cli("automations.preview", { id })).toMatchObject({ ok: true, data: { next: expect.any(Array) } });
+  const input = { id, expectedVersion: enabled.data.version, intentId: randomUUID() };
+  expect(await cli("automations.runNow", input)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  await invoke(engine, "gateway.update", { capability: "automations.runNow", exposed: true });
+  expect(await cli("automations.runNow", { ...input, expectedVersion: version })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  const agent = await createRule(engine, "不能从提醒入口运行的 Agent 规则");
+  expect(await cli("automations.runNow", { id: agent.id, expectedVersion: agent.version, intentId: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+
+  const [accepted, duplicate] = await Promise.all([cli("automations.runNow", input), cli("automations.runNow", input)]);
+  expect(accepted).toMatchObject({ ok: true, data: { activationId: expect.stringMatching(/^rem-/), summary: { state: "succeeded", notification: "sent", task: "created" } } });
+  expect(duplicate).toEqual(accepted);
+  expect(await cli("automations.runNow", { ...input, expectedVersion: version })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+
+  const { root } = engine.vault.files;
+  await stop(engine);
+  ({ engine } = await start(root));
+  expect(await cli("automations.runNow", input)).toEqual(accepted);
+  const notices = await invoke<{ title: string }[]>(engine, "notifications.list", {});
+  expect(notices.filter(({ title }) => title === draft.action.text)).toHaveLength(1);
+  expect(readdirSync(path.join(engine.vault.stateDir, "automations/reminder-deliveries"))).toHaveLength(1);
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 20_000);
 
