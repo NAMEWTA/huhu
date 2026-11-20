@@ -641,8 +641,11 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
   let held = false;
   let delay = true;
   let failInstall = false;
+  let hideReadback = true;
+  let installsWithLostReply = 0;
   const retryPath = "/home/test/retry.bin";
   const cancelPath = "/home/test/cancel.bin";
+  const uncertainPath = "/home/test/uncertain.bin";
   const source = await startFakeSsh({ password });
   const destination = await startFakeSsh({
     password,
@@ -655,6 +658,13 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
       if (!failInstall || to !== retryPath || !from.endsWith(".part")) return false;
       failInstall = false;
       return true;
+    },
+    dropRenameReply(from, to) {
+      if (to !== uncertainPath || !from.endsWith(".part")) return false;
+      return ++installsWithLostReply === 1;
+    },
+    waitReadFile(file) {
+      if (hideReadback && installsWithLostReply && file === uncertainPath) return Promise.reject(new Error("fixture blocks readback"));
     },
   });
   const fixture = await openApp();
@@ -765,6 +775,29 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
     await expect(cancelling).toHaveAttribute("data-state", "cancelled");
     expect(destination.fs.files.get(cancelPath)?.toString()).toBe("取消时的原目标");
     expect([...destination.fs.files.keys()].filter((file) => file.includes(".huhu-transfer-"))).toEqual([]);
+
+    await cancelling.getByRole("button", { name: "返回原文件会话" }).click();
+    const backupBytes = Buffer.from("需保留的旧目标");
+    destination.fs.files.set(uncertainPath, backupBytes);
+    const uncertain = rowById(await copy(uncertainPath));
+    await uncertain.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("button", { name: "确认覆盖" }).click();
+    await expect(uncertain).toHaveAttribute("data-state", "uncertain");
+    const [backup] = [...destination.fs.files.keys()].filter((file) => file.endsWith(".old"));
+    expect(destination.fs.files.get(backup!)).toEqual(backupBytes);
+    await expect(uncertain).toContainText(backup!);
+    await expect(uncertain.getByRole("button", { name: "重试原任务" })).toHaveCount(0);
+    const recheck = uncertain.getByRole("button", { name: "重查提交结果" });
+    await recheck.click();
+    await expect(recheck).toBeEnabled();
+    await expect(uncertain).toContainText(backup!);
+    hideReadback = false;
+    await recheck.click();
+    await expect(uncertain).toHaveAttribute("data-state", "completed");
+    await expect(uncertain).toContainText("已从原端点回读确认提交");
+    expect(destination.fs.files.get(uncertainPath)).toEqual(bytes);
+    expect(destination.fs.files.has(backup!)).toBe(false);
+    expect(installsWithLostReply).toBe(1);
 
     const input = { source: { kind: "remote", fileSessionId: origin, path: name }, target: { kind: "remote", fileSessionId: target, path: bad } };
     const linkPath = "/home/test/linked-target";

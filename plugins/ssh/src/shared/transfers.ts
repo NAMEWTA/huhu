@@ -20,7 +20,7 @@ export const TransferLocation = FileSession.extend({ transferPath: z.string() })
 export type TransferLocation = z.infer<typeof TransferLocation>;
 const Origin = z.discriminatedUnion("kind", [Local, Remote.extend({ session: FileSession })]);
 export type TransferOrigin = z.infer<typeof Origin>;
-export const TransferState = z.enum(["queued", "checking", "waiting", "running", "paused", "committing", "cancelling", "completed", "failed", "cancelled", "skipped"]);
+export const TransferState = z.enum(["queued", "checking", "waiting", "running", "paused", "committing", "uncertain", "cancelling", "completed", "failed", "cancelled", "skipped"]);
 export const TransferJob = TransferId.extend({
   source: Origin,
   target: Origin,
@@ -30,6 +30,7 @@ export const TransferJob = TransferId.extend({
   bytesPerSecond: z.number().nonnegative(),
   message: z.string().optional(),
   errorCode: z.string().optional(),
+  recovery: z.object({ stagingPath: TransferPath, backupPath: TransferPath.optional() }).optional(),
   directory: z.boolean().optional(),
   batchId: z.uuid().optional(),
 });

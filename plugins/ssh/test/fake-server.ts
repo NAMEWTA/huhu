@@ -28,6 +28,8 @@ export interface FakeSshOptions {
   onWriteFile?: (file: string) => void;
   waitWriteFile?: (file: string) => Promise<void> | undefined;
   failRename?: (from: string, to: string) => boolean;
+  waitReadFile?: (file: string) => Promise<void> | undefined;
+  dropRenameReply?: (from: string, to: string) => boolean;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -113,6 +115,8 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
             o.holdReadDirectory,
             o.waitWriteFile,
             o.failRename,
+            o.waitReadFile,
+            o.dropRenameReply,
           );
         });
         session.on("exec", (acceptExec, _rej, info) => {
@@ -193,6 +197,8 @@ function serveSftp(
   holdReadDirectory?: (dir: string) => boolean,
   waitWriteFile?: (file: string) => Promise<void> | undefined,
   failRename?: (from: string, to: string) => boolean,
+  waitReadFile?: (file: string) => Promise<void> | undefined,
+  dropRenameReply?: (from: string, to: string) => boolean,
 ): void {
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
@@ -271,9 +277,18 @@ function serveSftp(
   sftp.on("READ", (id, h, offset, len) => {
     const f = get(h);
     if (!f || f.kind !== "file") return st(id, STATUS_CODE.FAILURE);
-    const buf = fs.files.get(f.path) ?? Buffer.alloc(0);
-    if (offset >= buf.length) return st(id, STATUS_CODE.EOF);
-    sftp.data(id, buf.subarray(offset, Math.min(buf.length, offset + len)));
+    const read = () => {
+      if (closed) return;
+      const buf = fs.files.get(f.path) ?? Buffer.alloc(0);
+      if (offset >= buf.length) return st(id, STATUS_CODE.EOF);
+      sftp.data(id, buf.subarray(offset, Math.min(buf.length, offset + len)));
+    };
+    const waiting = waitReadFile?.(f.path);
+    if (waiting)
+      void waiting.then(read, () => {
+        if (!closed) st(id, STATUS_CODE.FAILURE);
+      });
+    else read();
   });
   sftp.on("WRITE", (id, h, offset, data) => {
     const f = get(h);
@@ -355,6 +370,10 @@ function serveSftp(
       moveContents(fs.links);
       moveContents(fs.permissions);
       moveContents(fs.timestamps);
+    }
+    if (dropRenameReply?.(a, b)) {
+      sftp.end();
+      return;
     }
     st(id, STATUS_CODE.OK);
   });

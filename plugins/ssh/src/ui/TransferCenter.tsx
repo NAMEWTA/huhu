@@ -10,6 +10,7 @@ const labels: Record<TransferJob["state"], string> = {
   running: "传输中",
   paused: "已暂停",
   committing: "校验完成，提交目标",
+  uncertain: "提交结果待核实",
   cancelling: "正在取消",
   completed: "已完成",
   failed: "传输失败",
@@ -103,6 +104,18 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
             </p>
             <span role="status">{labels[job.state]}</span>
             {job.message && <p>{job.message}</p>}
+            {job.recovery && (
+              <ul>
+                <li>
+                  暂存位置 <code>{job.recovery.stagingPath}</code>
+                </li>
+                {job.recovery.backupPath && (
+                  <li>
+                    备份位置 <code>{job.recovery.backupPath}</code>
+                  </li>
+                )}
+              </ul>
+            )}
             {job.total !== null && (
               <div>
                 <progress aria-label={`${leaf(job.source)} 的传输进度`} max={job.total || 1} value={job.total === 0 && job.state === "completed" ? 1 : job.bytes} />
@@ -135,6 +148,11 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
               {job.state === "failed" && job.errorCode !== "VERSION_CONFLICT" && job.errorCode !== "SSH_DISCONNECTED" && (
                 <Button disabled={saving} onClick={() => void action("ssh.transfers.retry", { transferId: job.transferId })}>
                   重试原任务
+                </Button>
+              )}
+              {job.state === "uncertain" && (
+                <Button disabled={saving} onClick={() => void action("ssh.transfers.recheck", { transferId: job.transferId })}>
+                  重查提交结果
                 </Button>
               )}
               {["queued", "checking", "waiting", "running", "paused"].includes(job.state) && (

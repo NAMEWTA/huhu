@@ -131,6 +131,17 @@ export const sshCapabilityDescriptors = {
     input: TransferId,
     output: TransferJob,
   }),
+  transferRecheck: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.recheck",
+    title: "重查传输提交结果",
+    description: "从原端点回读目标，必要时恢复已核实的旧文件或清理暂存。",
+    scope: "execute",
+    risk: "high",
+    input: TransferId,
+    output: TransferJob,
+  }),
   transferOrigin: defineCapabilityDescriptor({
     ...ssh,
     desktopOnly: true,

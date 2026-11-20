@@ -58,6 +58,7 @@
       "ssh.transfers.list",
       "ssh.transfers.origin",
       "ssh.transfers.pause",
+      "ssh.transfers.recheck",
       "ssh.transfers.resume",
       "ssh.transfers.retry",
       "ssh.transfers.start",

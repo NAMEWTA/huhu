@@ -15,6 +15,11 @@ const HISTORY_LIMIT = 64;
 const PARALLEL = 2;
 const terminal = new Set<TransferJob["state"]>(["completed", "failed", "cancelled", "skipped"]);
 type Plan = { source: Snapshot; target: Snapshot | null };
+type Publication = {
+  staged: { name: string; path: string; snapshot: Snapshot };
+  backup?: { name: string; path: string; snapshot: Snapshot };
+  failure?: { message: string; code: string };
+};
 type Batch = Omit<TransferBatch, "state">;
 type Record = {
   job: TransferJob;
@@ -22,6 +27,8 @@ type Record = {
   plan?: Plan;
   choice?: "replace" | "resume" | "merge";
   pausedFrom?: "queued" | "running";
+  pauseVersion?: number;
+  publication?: Publication;
   wake?: () => void;
   locks: string[];
   parentId?: string;
@@ -53,7 +60,7 @@ export class Transfers {
 
   list(): TransferQueue {
     for (const rec of this.records.values()) {
-      if (terminal.has(rec.job.state) || this.active.has(rec)) continue;
+      if (terminal.has(rec.job.state) || rec.job.state === "uncertain" || this.active.has(rec)) continue;
       const lost = [rec.job.source, rec.job.target].some((origin) => origin.kind === "remote" && this.manager.fileOrigin(origin.session.hostId)?.connectionId !== origin.session.connectionId);
       if (lost) this.finish(rec, "failed", "文件会话的原连接已断开", "SSH_DISCONNECTED");
     }
@@ -162,7 +169,7 @@ export class Transfers {
   cancel(id: string): TransferJob {
     const rec = this.lookup(id);
     if (rec.job.state === "committing") throw errors.invalidInput("任务正在提交目标，请等待结果");
-    if (terminal.has(rec.job.state)) return { ...rec.job };
+    if (terminal.has(rec.job.state) || rec.job.state === "uncertain") return { ...rec.job };
     const inFlight = rec.job.state === "checking" || rec.job.state === "running" || rec.job.state === "cancelling" || (rec.job.state === "paused" && rec.pausedFrom === "running");
     if (rec.controller && inFlight) {
       this.update(rec, { state: "cancelling" });
@@ -178,6 +185,7 @@ export class Transfers {
     const rec = this.lookup(id);
     if (rec.job.state !== "queued" && rec.job.state !== "running") throw errors.invalidInput("任务当前不能暂停");
     rec.pausedFrom = rec.job.state;
+    rec.pauseVersion = (rec.pauseVersion ?? 0) + 1;
     this.update(rec, { state: "paused", bytesPerSecond: 0 });
     return { ...rec.job };
   }
@@ -206,6 +214,24 @@ export class Transfers {
     this.update(rec, { state: "queued", bytes: 0 });
     queueMicrotask(() => this.pump());
     return { ...rec.job };
+  }
+
+  async recheck(id: string, signal: AbortSignal): Promise<TransferJob> {
+    const rec = this.lookup(id);
+    if (rec.job.state !== "uncertain" || this.active.has(rec)) return { ...rec.job };
+    if (this.active.size >= PARALLEL || [...this.active].some(({ locks }) => locks.some((lock) => rec.locks.includes(lock)))) {
+      throw errors.invalidInput("原端点正在传输，请稍后重查提交结果");
+    }
+    rec.controller = new AbortController();
+    this.active.add(rec);
+    try {
+      await this.reconcile(rec, AbortSignal.any([signal, rec.controller.signal]));
+      return { ...rec.job };
+    } finally {
+      delete rec.controller;
+      this.active.delete(rec);
+      this.pump();
+    }
   }
 
   openOrigin(id: string) {
@@ -375,7 +401,6 @@ export class Transfers {
     const { source, target, transferId } = rec.job;
     const stagedName = `.huhu-transfer-${transferId}.part`;
     let stagedOwned = false;
-    let backupName: string | undefined;
     try {
       const prepared = await this.withFile(source, signal, (from, readSignal) =>
         this.withFile(target, readSignal, async (to, active) => {
@@ -447,30 +472,44 @@ export class Transfers {
         const checked = await fingerprint(staged, active);
         const correctTime = checked && Math.abs(checked.mtime - sourceSnapshot.mtime) < 1000;
         const correctMode = target.kind === "local" || checked?.mode === (source.kind === "remote" ? sourceSnapshot.mode & 0o777 : 0o600);
-        if (!correctTime || !correctMode || checked?.hash !== sourceSnapshot.hash) throw transferChanged("暂存文件");
-        if (!sameSnapshot(await fingerprint(to, active), targetSnapshot)) throw transferChanged("目标文件");
-        // When a pause did not await during byte copy, verify the target again after waking.
-        if (rec.job.state === "paused") {
+        if (!checked || !correctTime || !correctMode || checked.size !== sourceSnapshot.size || checked.hash !== sourceSnapshot.hash) throw transferChanged("暂存文件");
+        for (;;) {
+          const version = rec.pauseVersion;
           await this.waitIfPaused(rec, active);
-          if (!sameSnapshot(await fingerprint(to, active), targetSnapshot)) throw transferChanged("目标文件");
+          const current = await fingerprint(to, active);
+          // A pause accepted during fingerprinting invalidates this read, even after a quick resume.
+          if (version !== rec.pauseVersion || rec.job.state === "paused") continue;
+          if (!sameSnapshot(current, targetSnapshot)) throw transferChanged("目标文件");
+          break;
         }
         active.throwIfAborted();
-        this.update(rec, { state: "committing", bytes });
-        if (targetSnapshot) backupName = `.huhu-transfer-${transferId}-${randomUUID()}.old`;
-        const warning = await this.publish(staged, to, targetSnapshot, active, backupName);
-        stagedOwned = false;
-        let notes = warning ?? "文件已校验并提交";
-        try {
-          await removeTemp(staged);
-        } catch {
-          notes += `；暂存清理失败：${staged.path}`;
+        const publication: Publication = { staged: { name: stagedName, path: staged.path, snapshot: checked } };
+        if (targetSnapshot) {
+          const name = `.huhu-transfer-${transferId}-${randomUUID()}.old`;
+          publication.backup = { name, path: to.sibling(name).path, snapshot: targetSnapshot };
         }
-        this.finish(rec, "completed", notes);
+        rec.publication = publication;
+        this.update(rec, { state: "committing", bytes });
+        if (publication.backup) {
+          const backup = to.sibling(publication.backup.name);
+          await to.take(backup);
+          if (!sameSnapshot(await fingerprint(backup, active), targetSnapshot)) throw transferChanged("目标文件");
+        }
+        await staged.install(to);
+        const notes = await this.cleanupPublication(to, publication);
+        active.throwIfAborted();
+        delete rec.publication;
+        delete rec.job.recovery;
+        this.finish(rec, "completed", "文件已校验并提交" + notes);
       });
     } catch (error) {
       if (rec.job.state === "completed") return;
+      if (rec.publication) {
+        rec.publication.failure = { message: error instanceof Error ? error.message : "传输失败", code: error instanceof HuhuError ? error.code : "INTERNAL" };
+        await this.reconcile(rec, signal);
+        return;
+      }
       let cleanup = "";
-      if (backupName) cleanup = await this.recoverBackup(target, backupName);
       if (stagedOwned) {
         try {
           await this.withFile(target, AbortSignal.timeout(15_000), async (to) => removeTemp(to.sibling(stagedName)));
@@ -483,50 +522,67 @@ export class Transfers {
     }
   }
 
-  private async recoverBackup(origin: TransferOrigin, name: string): Promise<string> {
-    try {
-      return await this.withFile(origin, AbortSignal.timeout(15_000), async (target) => {
-        const backup = target.sibling(name);
-        if (!(await backup.stat())) return "";
-        if (await target.stat()) return `；原目标备份保存在 ${backup.path}`;
-        try {
-          await backup.install(target);
-          await removeTemp(backup);
-          return "；已恢复原目标";
-        } catch {
-          return `；原目标备份保存在 ${backup.path}`;
-        }
-      });
-    } catch {
-      return `；发布回执未确认，请在原设备检查备份 ${name}`;
+  private async cleanupPublication(target: TransferFile, publication: Publication, verified?: { staging: Snapshot | null; backup: Snapshot | null }) {
+    let notes = "";
+    for (const [item, observed] of [
+      [publication.staged, verified?.staging],
+      [publication.backup, verified?.backup],
+    ] as const) {
+      if (!item) continue;
+      try {
+        const file = target.sibling(item.name);
+        const current = await file.stat();
+        if (!current) continue;
+        if (!sameSnapshot(current, item.snapshot) || (verified && !sameSnapshot(observed ?? null, item.snapshot))) throw transferChanged("暂存或备份");
+        await removeTemp(file);
+      } catch {
+        notes += `。尚待检查 ${item.path}`;
+      }
     }
+    return notes;
   }
 
-  private async publish(staged: TransferFile, target: TransferFile, expected: Snapshot | null, signal: AbortSignal, backupName?: string) {
-    if (!expected || !backupName) {
-      await staged.install(target);
-      return undefined;
-    }
-    const backup = target.sibling(backupName);
-    await target.take(backup);
+  private async reconcile(rec: Record, signal: AbortSignal) {
+    const publication = rec.publication;
+    if (!publication) return;
+    const original = publication.backup?.snapshot ?? null;
+    const intended = publication.staged.snapshot;
     try {
-      if (!sameSnapshot(await fingerprint(backup, signal), expected)) throw transferChanged("目标文件");
-      await staged.install(target);
-    } catch (error) {
-      try {
-        await backup.install(target);
-      } catch {
-        throw new HuhuError("VERSION_CONFLICT", `目标发生变化，原目标保存在 ${backup.path}`);
+      const result = await this.withFile(rec.job.target, AbortSignal.any([signal, AbortSignal.timeout(15_000)]), async (target, active) => {
+        const current = await fingerprint(target, active);
+        const staging = await fingerprint(target.sibling(publication.staged.name), active);
+        const backupFile = publication.backup && target.sibling(publication.backup.name);
+        const backup = backupFile ? await fingerprint(backupFile, active) : null;
+        const stagedIntact = sameSnapshot(staging, intended);
+        if (sameSnapshot(current, intended) && (!staging || (intended.identity && stagedIntact))) {
+          const notes = await this.cleanupPublication(target, publication, { staging, backup });
+          return { state: "completed", message: "已从原端点回读确认提交" + notes } as const;
+        }
+        if (!stagedIntact || (backup && !sameSnapshot(backup, original))) return;
+        if (!sameSnapshot(current, original)) {
+          if (current || !backupFile || !backup) return;
+          await backupFile.install(target);
+          if (!sameSnapshot(await fingerprint(target, active), original)) return;
+        }
+        const notes = await this.cleanupPublication(target, publication, { staging, backup });
+        // Keep the same task out of the write queue until any remaining staging is accounted for.
+        if (!notes) return { state: "failed", message: `${publication.failure?.message ?? "提交失败"}。回读确认未提交，原目标保持` } as const;
+      });
+      if (result) {
+        delete rec.publication;
+        delete rec.job.recovery;
+        const code = publication.failure?.code;
+        this.finish(rec, result.state, result.message, result.state === "failed" ? (code === "SSH_DISCONNECTED" ? "INTERNAL" : code) : undefined);
+        return;
       }
-      await removeTemp(backup).catch(() => undefined);
-      throw error;
-    }
-    // The verified new bytes are committed. Keep the old copy if cleanup cannot complete.
-    try {
-      await removeTemp(backup);
     } catch {
-      return `文件已提交，原目标备份尚待清理：${backup.path}`;
+      // The original connection or paths cannot currently establish the outcome.
     }
-    return undefined;
+    this.update(rec, {
+      state: "uncertain",
+      bytesPerSecond: 0,
+      message: "无法核实提交结果，保留现场。可通过原端点重查。",
+      recovery: { stagingPath: publication.staged.path, ...(publication.backup && { backupPath: publication.backup.path }) },
+    });
   }
 }

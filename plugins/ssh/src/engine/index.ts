@@ -157,6 +157,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferPause, (_c, i) => transfers.pause(i.transferId)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferResume, (_c, i) => transfers.resume(i.transferId)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferRetry, (_c, i) => transfers.retry(i.transferId)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferRecheck, ({ signal }, i) => transfers.recheck(i.transferId, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferOrigin, (_c, i) => transfers.openOrigin(i.transferId)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.transferClear, () => transfers.clear()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsList, () => files.list()));
