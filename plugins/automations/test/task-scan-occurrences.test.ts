@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskDto } from "@huhu/contracts";
-import { VaultFiles } from "@huhu/vault";
+import { exportPackage, importPackage, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
@@ -272,6 +272,46 @@ test.each(["occurrence", "acceptance", "finish"] as const)("%s 写入边界中�
   for (const record of before) expect(after).toEqual(expect.arrayContaining([expect.objectContaining({ receipt: expect.objectContaining({ eventId: record.receipt.eventId, runId: record.receipt.runId }) })]));
   expect(await reopened.scans.scheduled(rule.id, slot)).toEqual(completed);
   expect(fixture.legacyWorker).not.toHaveBeenCalled();
+});
+
+test.each([false, true])("还原的扫描名单双份 Vault ID 策略下都仅作历史 (%s)", async (regenerateId) => {
+  const first = await start();
+  const rule = await createRule(first.engine, "归档中的扫描");
+  const task = await createTask(first.engine, "尚未受理的任务");
+  fixture.now = at("01:15:00");
+  const slot = fixture.now;
+  const write = VaultFiles.prototype.write;
+  const interrupted = new Error("扫描写入后中断");
+  const boundary = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, rel, bytes, options) {
+    const result = await write.call(this, rel, bytes, options);
+    if (rel.startsWith(scanDir) && options?.expectedVersion === null) throw interrupted;
+    return result;
+  });
+  try {
+    await expect(first.scans.scheduled(rule.id, slot)).rejects.toBe(interrupted);
+  } finally {
+    boundary.mockRestore();
+  }
+  const [frozen] = first.scans.list();
+  expect(frozen).toMatchObject({ finishedAt: null, items: [expect.objectContaining({ state: "pending", taskId: task.id })] });
+  expect(fixture.accept).not.toHaveBeenCalled();
+
+  const base = mkdtempSync(path.join(tmpdir(), "huhu-scan-restore-"));
+  dirs.push(base);
+  const archive = path.join(base, "frozen.zip");
+  const restoredPath = path.join(base, "restored");
+  await exportPackage(first.engine.vault.root, archive);
+  importPackage(archive, restoredPath, { regenerateId });
+  await stop(first.engine);
+  const restored = await start(restoredPath);
+  expect(restored.engine.vault.id === first.engine.vault.id).toBe(!regenerateId);
+  expect(restored.scans.list()).toEqual([frozen]);
+  expect(restored.scans.lastScheduledFor(rule.id)).toBeNull();
+  await restored.scans.recover();
+  expect(await restored.scans.scheduled(rule.id, slot)).toEqual(frozen);
+  expect(restored.scans.read(frozen!.id)).toEqual(frozen);
+  expect(dispatchRecords(restored.engine)).toHaveLength(0);
+  expect(fixture.accept).not.toHaveBeenCalled();
 });
 
 test("停用期间不补扫，既受理任务可单独取消，启用后只补最近一轮且手动有独立身份", async () => {

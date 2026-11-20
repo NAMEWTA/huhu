@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { AgentInputSchema, AutomationRuleFrontmatterSchema, errors, HuhuError, isHuhuError } from "@huhu/contracts";
-import type { VaultFiles } from "@huhu/vault";
+import { filesystemIdentity, machineId, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
 import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type AutomationsService, type TaskScanRule } from "./service.js";
@@ -22,6 +22,10 @@ const Item = z
 const Occurrence = z.object({
   schema: z.literal(1),
   vaultId: z.string(),
+  owner: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   id: Id,
   ruleId: z.string().min(1),
   ruleVersion: z.string().min(1),
@@ -61,6 +65,7 @@ function rejection(error: unknown): { reason: string; detail: string; blockingRu
 export class TaskScanOccurrences {
   private readonly active = new Map<string, Promise<Occurrence | null>>();
   private readonly shutdown = new AbortController();
+  private readonly owner: string | null;
 
   constructor(
     private readonly files: VaultFiles,
@@ -68,7 +73,11 @@ export class TaskScanOccurrences {
     private readonly rules: Pick<AutomationsService, "rule" | "classifyTaskScan">,
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
-  ) {}
+  ) {
+    const stat = statSync(files.root, { bigint: true });
+    const directory = filesystemIdentity(stat);
+    this.owner = directory && stat.birthtimeNs > 0n ? digest([machineId(), directory, String(stat.birthtimeNs)]) : null;
+  }
 
   scheduled(ruleId: string, scheduledFor: Date): Promise<Occurrence | null> {
     const at = scheduledFor.toISOString();
@@ -97,7 +106,7 @@ export class TaskScanOccurrences {
     let latest: string | null = null;
     for (const row of this.list()) {
       const at = row.scheduledForUTC;
-      if (row.ruleId === ruleId && at && (!latest || at > latest)) latest = at;
+      if (this.owns(row) && row.ruleId === ruleId && at && (!latest || at > latest)) latest = at;
     }
     return latest ? new Date(latest) : null;
   }
@@ -150,7 +159,6 @@ export class TaskScanOccurrences {
       if (
         row.id !== id ||
         correctId !== id ||
-        row.vaultId !== this.vaultId ||
         taskIds.size !== row.items.length ||
         (row.tasksDisabled && row.items.length !== 0) ||
         row.items.some((item) => (item.dispatchId && item.dispatchId !== dispatchId(id, item.taskId)) || (row.finishedAt !== null && item.state === "pending"))
@@ -158,8 +166,12 @@ export class TaskScanOccurrences {
         throw new Error("扫描发生身份或状态不一致");
       return { occurrence: row, version: file.version };
     } catch {
-      throw new HuhuError("WRITE_PARTIAL", "扫描发生记录损坏或不属于当前 Vault", { details: { id } });
+      throw new HuhuError("WRITE_PARTIAL", "扫描发生记录损坏", { details: { id } });
     }
+  }
+
+  private owns(row: Occurrence): boolean {
+    return this.owner !== null && row.owner === this.owner && row.vaultId === this.vaultId;
   }
 
   private async persist(occurrence: Occurrence, expectedVersion: string | null): Promise<Stored> {
@@ -178,10 +190,12 @@ export class TaskScanOccurrences {
       if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
       if (trigger.at && Date.parse(trigger.at) > now.getTime()) throw errors.invalidInput("计划派遣时间尚未到达");
       if (!isTaskScanRule(rule)) throw errors.invalidInput("该规则没有扫描已有任务");
-      stored = await this.persist(this.freeze(id, rule, trigger.at, now), null);
+      if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
+      stored = await this.persist(this.freeze(id, rule, trigger.at, now, this.owner), null);
     }
     if (!stored) throw new HuhuError("WRITE_PARTIAL", "扫描发生记录在读取期间消失", { details: { id } });
-    if (stored.occurrence.finishedAt !== null) return stored.occurrence;
+    // A restored scan is history. Only its original machine and directory may finish acceptance.
+    if (!this.owns(stored.occurrence) || stored.occurrence.finishedAt !== null) return stored.occurrence;
     this.files.assertWritable();
 
     const row = stored.occurrence;
@@ -196,7 +210,7 @@ export class TaskScanOccurrences {
     return (await this.persist({ ...row, finishedAt: this.now().toISOString() }, stored.version)).occurrence;
   }
 
-  private freeze(id: string, rule: TaskScanRule, at: string | null, now: Date): Occurrence {
+  private freeze(id: string, rule: TaskScanRule, at: string | null, now: Date, owner: string): Occurrence {
     if (rule.body.length > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
     const { tasksDisabled, candidates, skipped } = this.rules.classifyTaskScan(rule, now, true);
     const identity = (task: (typeof candidates)[number]["task"]) => ({
@@ -209,6 +223,7 @@ export class TaskScanOccurrences {
     return {
       schema: 1,
       vaultId: this.vaultId,
+      owner,
       id,
       ruleId: rule.id,
       ruleVersion: rule.version,
