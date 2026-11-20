@@ -1730,56 +1730,107 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
   }
 });
 
-test("Agent CLI 分屏：左右两格同时显示两个会话并各自输入；四格有空位提示；新建/点标签自动出现；切回单窗格", async () => {
+test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收起的会话在重开后保留", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  test.setTimeout(120_000);
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
-  const app = await launch(vault);
-  let page: Awaited<ReturnType<typeof app.firstWindow>> | undefined;
+  const outside = mkdtempSync(path.join(tmpdir(), "huhu-space-"));
+  let app = await launch(vault);
   try {
-    page = await app.firstWindow();
+    const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.setViewportSize({ width: 1600, height: 1050 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
-    for (let i = 0; i < 2; i++) {
-      await page.getByRole("button", { name: "新终端", exact: true }).click();
+    const spaces = page.getByTestId("agent-space-item");
+    const panes = page.getByTestId("workspace-pane");
+    const start = async (button: ReturnType<Page["getByTestId"]>, count: number) => {
+      await button.click();
       await page.getByTestId("launch-shell").click();
-      await expect(page.getByTestId("session-tab")).toHaveCount(i + 1, { timeout: 15_000 });
-    }
-    await page.getByTestId("layout-2").click();
-    await expect(page.getByTestId("split-cell")).toHaveCount(2);
-    await expect(page.getByTestId("terminal-view")).toHaveCount(2);
-    for (const tv of await page.getByTestId("terminal-view").all()) await expect(tv).toHaveAttribute("data-state", "open", { timeout: 15_000 });
-    const picks = page.getByTestId("split-pick");
-    expect(await picks.nth(0).inputValue()).not.toBe(await picks.nth(1).inputValue()); // 两格不是同一个会话
-    const helpers = page.locator(".xterm-helper-textarea");
-    await helpers.nth(0).focus();
-    await page.keyboard.type("echo LEFT-$((1+1))");
-    await page.keyboard.press("Enter");
-    await helpers.nth(1).focus();
-    await page.keyboard.type("echo RIGHT-$((2+2))");
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("split-cell").nth(0).locator(".xterm-rows")).toContainText("LEFT-2", { timeout: 10_000 });
-    await expect(page.getByTestId("split-cell").nth(1).locator(".xterm-rows")).toContainText("RIGHT-4", { timeout: 10_000 });
-    await expect(page.getByTestId("split-cell").nth(0).locator(".xterm-rows")).not.toContainText("RIGHT-4"); // 各自独立
+      await expect(page.getByTestId("terminal-view")).toHaveCount(count, { timeout: 20_000 });
+    };
+    await start(page.getByTestId("workspace-pane-launch"), 1);
+    const firstId = (await panes.first().getAttribute("data-pane-id"))!;
+    const first = page.locator(`[data-pane-id="${firstId}"]`);
+    await expect(first.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    const attached = await first.getByTestId("terminal-view").elementHandle();
+    await start(first.getByTestId("workspace-split-right"), 2);
+    const secondId = (await panes.nth(1).getAttribute("data-pane-id"))!;
+    const second = page.locator(`[data-pane-id="${secondId}"]`);
+    const primaryDivider = page.getByRole("separator", { name: "左右分栏宽度" }).first();
+    await expect(primaryDivider).toHaveAttribute("aria-valuenow", "50");
+    await primaryDivider.focus();
+    await page.keyboard.press("Shift+ArrowRight");
+    await expect(primaryDivider).toHaveAttribute("aria-valuenow", "60");
+    const handle = await primaryDivider.boundingBox();
+    expect(handle).toBeTruthy();
+    await page.mouse.move(handle!.x + 3, handle!.y + 40);
+    await page.mouse.down();
+    await page.mouse.move(handle!.x - 42, handle!.y + 40);
+    await expect(primaryDivider).not.toHaveAttribute("aria-valuenow", "60");
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(primaryDivider).toHaveAttribute("aria-valuenow", "60");
 
-    await page.getByTestId("layout-4").click();
-    await expect(page.getByTestId("split-cell")).toHaveCount(4);
-    await expect(page.getByText("选一个运行中的会话显示在这里")).toHaveCount(2);
-    // 新建的会话自动出现在空格里（分屏中不用手动去下拉框选）
-    await page.getByRole("button", { name: "新终端", exact: true }).click();
-    await page.getByTestId("launch-shell").click();
-    await expect(page.getByTestId("session-tab")).toHaveCount(3, { timeout: 15_000 });
-    await expect(page.getByTestId("terminal-view")).toHaveCount(3);
-    // 用户明确选“空”的格子不会被自动补满
-    await page.getByTestId("split-pick").nth(2).selectOption("");
-    await expect(page.getByTestId("terminal-view")).toHaveCount(2);
-    await page.getByTestId("layout-1").click();
-    await expect(page.getByTestId("split-view")).toHaveCount(0);
-    await expect(page.getByTestId("terminal-view")).toHaveCount(1);
+    const output = async (pane: ReturnType<Page["locator"]>, expression: string, expected: string) => {
+      await expect(pane.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+      await pane.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.type(expression);
+      await page.keyboard.press("Enter");
+      await expect(pane.locator(".xterm-rows")).toContainText(expected, { timeout: 15_000 });
+    };
+    await output(first, 'echo "LEFT-$((1+1))"', "LEFT-2");
+    await second.getByRole("button", { name: "放大分栏" }).click();
+    await expect(first).toBeHidden();
+    await output(second, 'echo "RIGHT-$((2+2))"', "RIGHT-4");
+    await second.getByRole("button", { name: "还原分栏" }).click();
+    await expect(first).toBeVisible();
+    await expect(first.locator(".xterm-rows")).not.toContainText("RIGHT-4");
+
+    await start(first.getByTestId("workspace-split-up"), 3);
+    await start(second.getByTestId("workspace-split-down"), 4);
+    await start(panes.last().getByTestId("workspace-split-left"), 5);
+    await start(panes.first().getByTestId("workspace-split-down"), 6);
+    expect(await attached?.evaluate((element) => element.isConnected)).toBe(true);
+    const idsBefore = await panes.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-pane-id")));
+    await expect(panes).toHaveCount(6);
+    expect(new Set(idsBefore).size).toBe(6);
+
+    await page.getByTestId("space-new").click();
+    await page.getByLabel("Space 名称").fill("分栏的另一工作区");
+    await page.getByLabel("工作目录").fill(outside);
+    await page.getByTestId("space-save").click();
+    await expect(spaces.filter({ hasText: "分栏的另一工作区" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("terminal-view")).toHaveCount(0);
+    await start(page.getByTestId("workspace-pane-launch"), 1);
+    await spaces.filter({ hasNotText: "分栏的另一工作区" }).click();
+    await expect(panes).toHaveCount(6);
+    expect(await panes.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-pane-id")))).toEqual(idsBefore);
+
+    await first.getByTestId("workspace-pane-close").click();
+    await expect(page.getByTestId("workspace-pane-close-dialog")).toBeVisible();
+    await page.getByRole("button", { name: "收起分栏" }).click();
+    await expect(panes).toHaveCount(5);
+    await expect(page.getByTestId("session-tab")).toHaveCount(6);
+
+    await app.close();
+    app = await launch(vault);
+    const reopened = await app.firstWindow();
+    await expect(reopened.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await reopened.setViewportSize({ width: 1600, height: 1050 });
+    await reopened.getByRole("button", { name: "Agent CLI" }).first().click();
+    await reopened.getByTestId("agent-space-item").filter({ hasNotText: "分栏的另一工作区" }).click();
+    await expect(reopened.getByTestId("workspace-pane")).toHaveCount(5);
+    expect(await reopened.getByTestId("workspace-pane").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-pane-id")))).toEqual(idsBefore.filter((id) => id !== firstId));
+    const restoredDivider = reopened.getByRole("separator", { name: "左右分栏宽度" }).first();
+    await expect(restoredDivider).toHaveAttribute("data-saved-ratio", "60");
+    const max = Number(await restoredDivider.getAttribute("aria-valuemax"));
+    await expect(restoredDivider).toHaveAttribute("aria-valuenow", String(Math.min(60, max)));
+    await reopened.getByTestId("agent-space-item").filter({ hasText: "分栏的另一工作区" }).click();
+    await expect(reopened.getByTestId("workspace-pane")).toHaveCount(1);
   } finally {
-    await page?.evaluate(() => localStorage.removeItem("huhu.agentcli.layout")).catch(() => undefined); // 布局偏好存在共享的 Electron profile 里：不要影响后面的单窗格用例
     await app.close();
     rmTree(vault);
+    rmTree(outside);
   }
 });
 

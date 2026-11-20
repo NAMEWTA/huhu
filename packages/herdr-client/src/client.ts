@@ -266,7 +266,7 @@ export interface EventSubscription {
  */
 export async function subscribeEvents(
   endpoint: string,
-  o: { labels?: Record<string, string>; onEvent(e: { seq: number; type: string; terminal?: string; data?: unknown }): void; onLost(reason: "closed" | "missed"): void },
+  o: { labels?: Record<string, string>; docs?: string[]; onEvent(e: { seq: number; type: string; terminal?: string; data?: unknown }): void; onLost(reason: "closed" | "missed"): void },
 ): Promise<EventSubscription> {
   let closed = false;
   const lost = (r: "closed" | "missed") => {
@@ -278,7 +278,7 @@ export async function subscribeEvents(
   const c = new HerdrClient({ endpoint, timeoutMs: 10_000, onEvent: (e) => o.onEvent(e), onNotify: (m) => m === "missed" && lost("missed"), onClose: () => lost("closed") });
   try {
     await c.connect();
-    const snapshot = await c.call<EventSubscription["snapshot"]>("events.subscribe", o.labels ? { labels: o.labels } : {});
+    const snapshot = await c.call<EventSubscription["snapshot"]>("events.subscribe", { ...(o.labels && { labels: o.labels }), ...(o.docs && { docs: o.docs }) });
     return {
       snapshot,
       close: () => {

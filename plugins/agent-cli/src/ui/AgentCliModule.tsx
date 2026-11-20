@@ -1,13 +1,13 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
 import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
-import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { agentById, emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
-import { useEffect, useRef, useState } from "react";
+import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
-import { SplitView } from "./SplitView.js";
-import { choose, fillCells, reveal, type Layout, type SplitState } from "./split-layout.js";
+import { WorkspaceCanvas, type WorkspaceSession as Session } from "./WorkspaceCanvas.js";
+import { leaves, removePane, replacePane, splitPane, type PaneLeaf, type SpaceLayout, type SplitDirection, type WorkspaceView } from "../shared/workspace-layout.js";
 import { t } from "./i18n.js";
 
 interface Space {
@@ -16,22 +16,42 @@ interface Space {
   root: string;
   revision: number;
 }
-interface Session {
-  id: string;
-  spaceId: string;
-  provider: string;
-  name: string;
-  state: string;
-  terminalId: string | null;
-  exitCode?: number | null;
-  error?: string;
-  /** 程序经 OSC 7501 上报“等人工”。 */
-  waiting?: { active: boolean; kind: string | null; msg: string | null };
-}
 interface Detected {
   id: string;
   displayName: string;
   installed: boolean;
+}
+
+type LaunchTarget = { kind: "tab" } | { kind: "leaf"; tab: string; leaf: string; direction?: SplitDirection };
+interface LaunchIntent {
+  space: Space;
+  view: WorkspaceView;
+  target: LaunchTarget;
+  navigation: number;
+  id: string;
+  trigger?: HTMLButtonElement;
+  position?: CSSProperties;
+}
+type ViewSelection = { tab: string; leaf: string; zoom: string | null };
+
+function addSession(layout: SpaceLayout, target: LaunchTarget, sessionId: string): { layout: SpaceLayout; tab: string; leaf: string } {
+  const opened: PaneLeaf = { kind: "leaf", id: createRequestId(), sessionId };
+  if (target.kind === "tab") {
+    const tab = createRequestId();
+    return { tab, leaf: opened.id, layout: { tabs: [...layout.tabs, { id: tab, pane: opened }] } };
+  }
+  const { tab, leaf, direction } = target;
+  return {
+    tab,
+    leaf: direction ? opened.id : leaf,
+    layout: {
+      tabs: layout.tabs.map((item) => {
+        if (item.id !== tab) return item;
+        const pane = direction ? splitPane(item.pane, leaf, direction, createRequestId(), opened) : replacePane(item.pane, leaf, (current) => (current.kind === "leaf" && !current.sessionId ? { ...current, sessionId } : current));
+        return { ...item, pane };
+      }),
+    },
+  };
 }
 
 export function AgentCliModule({ onNavigate }: ModuleProps) {
@@ -41,43 +61,67 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
   const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string } | null>(null);
-  const [menu, setMenu] = useState(false);
+  const [menu, setMenu] = useState<LaunchIntent | null>(null);
+  const launcher = useRef<HTMLDivElement>(null);
+  const [selections, setSelections] = useState<Record<string, ViewSelection | null>>({});
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const [closing, setClosing] = useState<{ view: WorkspaceView; tab: string; leaf: string; session: Session; navigation: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const working = useRef(false);
+  const navigation = useRef(0);
   const [spaceForm, setSpaceForm] = useState<{ id?: string; revision?: number; name: string; folder: string } | null>(null);
   const [spaceDelete, setSpaceDelete] = useState<Space | null>(null);
   const [spaceError, setSpaceError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(true); // 原型：会话历史在桌面宽度下常驻右侧
   const [showReview, setShowReview] = useState(false);
-  const [layout, setLayoutState] = useState<Layout>(() => {
-    try {
-      const v = Number(localStorage.getItem("huhu.agentcli.layout"));
-      return v === 2 || v === 4 ? v : 1;
-    } catch {
-      return 1;
-    }
-  });
-  const [split, setSplit] = useState<SplitState>({ picks: [], hidden: [] }); // 用户的选择；显示哪些由 fillCells 每次现算（会话结束、切换 Space、新建会话都自动跟上）
-  const setLayout = (l: Layout) => {
-    setLayoutState(l);
-    try {
-      localStorage.setItem("huhu.agentcli.layout", String(l));
-    } catch {
-      /* 仅个人偏好，存不了就算了 */
-    }
-  };
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
-  const sessions = useCapability<Session[]>("agent.sessions.list", space ? { spaceId: space.id } : {});
+  const sessions = useCapability<Session[]>("agent.sessions.list", { spaceId: space?.id }, { enabled: Boolean(space) });
+  const workspace = useCapability<WorkspaceView>("agent.workspace.get", { spaceId: space?.id }, { enabled: Boolean(space) });
   const detected = useCapability<Detected[]>("agent.catalog.detect", {});
   const agentSettings = useCapability<{ settings: AgentSettingsFile }>("agent.settings.get", {});
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
+  const view = workspace.data;
+  const inSpace = space ? selections[space.id] : null;
+  const tab = view?.layout.tabs.find(({ id }) => id === inSpace?.tab) ?? view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId !== null)) ?? view?.layout.tabs[0];
+  const openLeaves = tab ? leaves(tab.pane) : [];
+  const currentLeaf = openLeaves.find(({ id }) => id === inSpace?.leaf) ?? openLeaves[0];
+  const zoom = openLeaves.find(({ id }) => id === inSpace?.zoom)?.id ?? null;
+  const editable = Boolean(view?.writable && !busy && !workspace.isFetching && !workspace.isError);
+
+  useLayoutEffect(() => {
+    if (!focusTarget) return;
+    const pane = document.querySelector<HTMLElement>(`[data-pane-id="${CSS.escape(focusTarget)}"]`);
+    if (pane) {
+      (pane.querySelector<HTMLElement>(".xterm-helper-textarea") ?? pane).focus();
+      setFocusTarget(null);
+    }
+  }, [focusTarget, tab]);
+
+  const dismissMenu = (restore = true) => {
+    setMenu(null);
+    if (restore && menu?.trigger?.isConnected) menu.trigger.focus();
+  };
+  useEffect(() => {
+    if (!menu) return;
+    const outside = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || launcher.current?.contains(event.target) || menu.trigger?.contains(event.target)) return;
+      setMenu(null);
+      if (menu.trigger?.isConnected) menu.trigger.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [menu]);
 
   useEffect(
     () =>
       onOpenAgentSessionRequest((request) => {
         if (request.vaultId !== engine.vaultId) return;
+        ++navigation.current;
         setRequestedSession(request);
         setSpaceId(request.spaceId);
+        setMenu(null);
         setError(null);
         void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" });
       }),
@@ -91,33 +135,80 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
       setRequestedSession(null);
       return;
     }
-    if (space?.id !== requestedSession.spaceId || sessions.isFetching || !sessions.isFetched) return;
+    if (space?.id !== requestedSession.spaceId || sessions.isFetching || !sessions.isFetched || (!workspace.isFetched && !workspace.isError)) return;
     const session = sessions.data?.find(({ id }) => id === requestedSession.sessionId);
     if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
     else {
       setActive(session.id);
-      if (layout !== 1 && session.state === "running") {
-        setSplit((previous) => reveal(layout, fillCells(layout, previous.picks, sessions.data ?? [], active, previous.hidden), previous, session.id));
-      }
+      const owner = view?.layout.tabs.find((item) => leaves(item.pane).some(({ sessionId }) => sessionId === session.id));
+      const leaf = owner && leaves(owner.pane).find(({ sessionId }) => sessionId === session.id);
+      if (owner && leaf) setSelections((previous) => ({ ...previous, [space.id]: { tab: owner.id, leaf: leaf.id, zoom: null } }));
     }
     setRequestedSession(null);
-  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, layout, active]);
+  }, [requestedSession, spaces.data, spaces.isFetching, space?.id, sessions.data, sessions.isFetched, sessions.isFetching, view, workspace.isFetched, workspace.isError]);
 
-  async function launch(provider: string, o: LaunchOptions = {}) {
-    if (!space) return;
-    setError(null);
+  async function saveWorkspace(basis: WorkspaceView, layout: SpaceLayout) {
+    const key = queryKey(engine.vaultId, "agent.workspace.get", { spaceId: basis.spaceId });
     try {
-      const s = await engine.call<Session>("agent.sessions.launch", { spaceId: space.id, spaceRevision: space.revision, provider, ...o, requestId: createRequestId() }, { write: true });
-      setActive(s.id);
-      setMenu(false);
-      await refresh();
+      const saved = await engine.call<WorkspaceView>("agent.workspace.save", { spaceId: basis.spaceId, baseVersion: basis.version, layout }, { write: true });
+      await qc.cancelQueries({ queryKey: key, exact: true });
+      qc.setQueryData<WorkspaceView>(key, (previous) => (previous && previous.version > saved.version ? previous : saved));
+      return saved;
+    } finally {
+      void qc.invalidateQueries({ queryKey: key, exact: true });
+    }
+  }
+
+  function startTarget(target: LaunchTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
+    if (!space || !view || !editable || working.current) return null;
+    const intent: LaunchIntent = { space, view, target, navigation: navigation.current, id: createRequestId() };
+    if (!event) return intent;
+    const trigger = event.currentTarget;
+    const bounds = trigger.getBoundingClientRect();
+    const below = window.innerHeight - bounds.bottom;
+    const flip = below < Math.min(360, window.innerHeight / 2) && bounds.top > below;
+    const position = {
+      left: Math.max(8, Math.min(bounds.left, window.innerWidth - 608)),
+      maxHeight: Math.max(96, (flip ? bounds.top : below) - 16),
+      ...(flip ? { bottom: below + bounds.height + 8 } : { top: bounds.bottom + 8 }),
+    };
+    return { ...intent, trigger, position };
+  }
+
+  async function launch(intent: LaunchIntent, provider: string, o: LaunchOptions = {}) {
+    if (working.current) return;
+    const stay = () => navigation.current === intent.navigation;
+    working.current = true;
+    setBusy(true);
+    setMenu(null);
+    setError(null);
+    let opened: Session | undefined;
+    try {
+      opened = await engine.call<Session>("agent.sessions.launch", { spaceId: intent.space.id, spaceRevision: intent.space.revision, provider, ...o, requestId: intent.id }, { write: true });
+      const next = addSession(intent.view.layout, intent.target, opened.id);
+      await saveWorkspace(intent.view, next.layout);
+      if (stay()) {
+        setSelections((previous) => ({ ...previous, [intent.space.id]: { tab: next.tab, leaf: next.leaf, zoom: null } }));
+        setActive(opened.id);
+        setFocusTarget(next.leaf);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (stay()) {
+        if (opened) setActive(opened.id);
+        setError(opened ? "会话已启动，布局未能更新。可从当前 Space 的 Agents 列表打开。" : e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      working.current = false;
+      setBusy(false);
+      void refresh();
     }
   }
   // Ctrl+T（macOS ⌘T）：新建普通终端。只在本模块激活时生效；终端获得焦点时不拦截（Claude Code 的 TUI 自己用 Ctrl+T）
   const newShell = useRef<() => void>(() => undefined);
-  newShell.current = () => (space ? void launch("shell") : setError("先选择或创建 Space"));
+  newShell.current = () => {
+    const intent = startTarget({ kind: "tab" });
+    if (intent) void launch(intent, "shell");
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "t") return;
@@ -146,11 +237,79 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     const id = setInterval(() => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" }), 5000);
     return () => clearInterval(id);
   }, [anyRunning, engine.vaultId, qc]);
-  const cur = list.find((s) => s.id === active) ?? null;
-  const shown = layout === 1 ? [] : fillCells(layout, split.picks, list, active, split.hidden);
+  const currentSession = active ?? currentLeaf?.sessionId;
+  const cur = list.find((s) => s.id === currentSession) ?? null;
+  const preview = cur && !view?.layout.tabs.some(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId === cur.id)) ? cur : null;
   const stateBadge = (s: Session) => <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>;
+
+  function tabFocus(tabId: string, leafId: string, sessionId: string | null, zoomId: string | null = null) {
+    if (!space) return;
+    setSelections((previous) => {
+      const remembered = previous[space.id];
+      if (remembered?.tab === tabId && remembered.leaf === leafId && remembered.zoom === zoomId) return previous;
+      return { ...previous, [space.id]: { tab: tabId, leaf: leafId, zoom: zoomId } };
+    });
+    setActive(sessionId);
+  }
+
+  async function edit(basis: WorkspaceView, next: SpaceLayout, focus?: { tab: string; leaf: PaneLeaf } | null, kill?: Session) {
+    if (working.current) return;
+    const generation = navigation.current;
+    working.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      if (kill) {
+        const actual = await engine.call<WorkspaceView>("agent.workspace.get", { spaceId: basis.spaceId });
+        if (actual.version !== basis.version) throw new Error("分栏已更新。请重新选择要关闭的会话。");
+        await engine.call("agent.sessions.kill", { id: kill.id }, { write: true });
+        let done = false;
+        for (let i = 0; i < 12 && !done; i++) {
+          const sessions = await engine.call<Session[]>("agent.sessions.list", { spaceId: basis.spaceId });
+          done = sessions.find(({ id }) => id === kill.id)?.state === "exited";
+          if (!done) await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        if (!done) throw new Error("尚未核实终端已退出，原分栏仍可查看。");
+      }
+      await saveWorkspace(basis, next);
+      if (navigation.current === generation && focus !== undefined) {
+        setActive(focus?.leaf.sessionId ?? null);
+        setSelections((previous) => ({ ...previous, [basis.spaceId]: focus ? { tab: focus.tab, leaf: focus.leaf.id, zoom: null } : null }));
+        setFocusTarget(focus?.leaf.id ?? null);
+      }
+    } catch (e) {
+      if (navigation.current === generation) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      working.current = false;
+      setBusy(false);
+      setClosing(null);
+      void refresh();
+    }
+  }
+
+  function closePane(basis: WorkspaceView, tabId: string, leafId: string, kill?: Session) {
+    const tabs = basis.layout.tabs.flatMap((entry) => {
+      if (entry.id !== tabId) return [entry];
+      const pane = removePane(entry.pane, leafId);
+      return pane ? [{ ...entry, pane }] : [];
+    });
+    const nextTab = tabs.find(({ id }) => id === tabId) ?? tabs[0];
+    const nextLeaf = nextTab && leaves(nextTab.pane)[0];
+    return edit(basis, { tabs }, nextLeaf && nextTab ? { tab: nextTab.id, leaf: nextLeaf } : null, kill);
+  }
+
+  function openExisting(session: Session) {
+    ++navigation.current;
+    setShowReview(false);
+    dismissMenu(false);
+    setActive(session.id);
+    const owner = view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId === session.id));
+    const leaf = owner && leaves(owner.pane).find(({ sessionId }) => sessionId === session.id);
+    if (owner && leaf) tabFocus(owner.id, leaf.id, session.id);
+  }
+
   return (
-    <div className={`hu-module-layout agent-layout${showHistory ? " agent-history-open" : ""}`} data-testid="agent-cli-module" style={showHistory && space ? undefined : { gridTemplateColumns: "224px minmax(300px, 1fr)" }}>
+    <div className={`hu-module-layout agent-layout${showHistory && space ? " agent-history-open" : ""}`} data-testid="agent-cli-module">
       <aside className="agent-spaces" aria-label={t.spaces}>
         <div className="agent-sidebar-head">
           <span>Spaces</span>
@@ -173,9 +332,13 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
               aria-pressed={space?.id === s.id}
               title={s.root}
               onClick={() => {
+                ++navigation.current;
                 setSpaceId(s.id);
                 setActive(null);
-                setSplit({ picks: [], hidden: [] });
+                setRequestedSession(null);
+                setClosing(null);
+                dismissMenu(false);
+                setError(null);
               }}
             >
               <FolderOpen size={17} aria-hidden />
@@ -213,20 +376,10 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
           </div>
         ) : null}
         <div className="agent-tabs">
-          <div className="agent-open-tabs" role="tablist" aria-label={t.sessions}>
+          <div className="agent-open-tabs" role="tablist" aria-label="Agents">
             {list.map((s) => (
-              <div key={s.id} className={`agent-session-tab${s.id === active ? " active" : ""}`}>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={s.id === active}
-                  data-testid="session-tab"
-                  onClick={() => {
-                    setActive(s.id);
-                    if (layout !== 1 && s.state === "running") setSplit(reveal(layout, shown, split, s.id));
-                    else if (split.hidden.includes(s.id)) setSplit({ ...split, hidden: split.hidden.filter((h) => h !== s.id) });
-                  }}
-                >
+              <div key={s.id} className={`agent-session-tab${s.id === currentSession ? " active" : ""}`}>
+                <button type="button" role="tab" aria-selected={s.id === currentSession} data-testid="session-tab" onClick={() => openExisting(s)}>
                   <span className={`agent-provider-mark provider-${s.provider}`}>{s.provider === "shell" ? "›" : s.provider.slice(0, 1).toUpperCase()}</span>
                   {s.name} {stateBadge(s)}
                   {s.waiting?.active ? (
@@ -239,94 +392,135 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             ))}
           </div>
           <div className="agent-tab-actions">
-            <button type="button" className="agent-add-cli" aria-label={t.newTerminal} aria-expanded={menu} onClick={() => setMenu(!menu)}>
+            <button
+              type="button"
+              className="agent-add-cli"
+              aria-label={t.newTerminal}
+              disabled={!editable}
+              aria-expanded={menu?.target.kind === "tab"}
+              onClick={(event) => (menu?.target.kind === "tab" ? dismissMenu() : setMenu(startTarget({ kind: "tab" }, event)))}
+            >
               <Plus size={17} aria-hidden />
               <ChevronDown size={12} aria-hidden />
             </button>
-            <div role="radiogroup" aria-label={t.split.label} className="row">
-              {(
-                [
-                  [1, t.split.single],
-                  [2, t.split.two],
-                  [4, t.split.four],
-                ] as const
-              ).map(([l, text]) => (
-                <button
-                  key={l}
-                  type="button"
-                  role="radio"
-                  aria-checked={layout === l}
-                  className={`agent-subtle-button${layout === l ? " active" : ""}`}
-                  data-testid={`layout-${l}`}
-                  onClick={() => setLayout(l)}
-                  onKeyDown={(e) => {
-                    const order: Layout[] = [1, 2, 4];
-                    const k = order.indexOf(l);
-                    const to = e.key === "ArrowRight" || e.key === "ArrowDown" ? order[(k + 1) % 3] : e.key === "ArrowLeft" || e.key === "ArrowUp" ? order[(k + 2) % 3] : undefined;
-                    if (to) {
-                      e.preventDefault();
-                      setLayout(to);
-                      document.querySelector<HTMLElement>(`[data-testid="layout-${to}"]`)?.focus();
-                    }
-                  }}
-                  tabIndex={layout === l ? 0 : -1}
-                >
-                  {text}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
         {menu ? (
-          <div className="agent-launcher" style={{ position: "static", flexShrink: 0, minHeight: "min-content", margin: "8px 16px", width: "fit-content", maxWidth: "calc(100% - 32px)" }}>
+          <div className="agent-launcher agent-workspace-launcher" ref={launcher} style={menu.position}>
             <LaunchMenu
               detected={detected.data ?? []}
               settings={agentSettings.data?.settings ?? emptyAgentSettings()}
-              noSpace={!space}
-              onLaunch={(provider, o) => void launch(provider, o)}
-              onOpenSettings={() => (setMenu(false), onNavigate?.("settings", "agent-cli"))}
-              onClose={() => setMenu(false)}
+              noSpace={false}
+              onLaunch={(provider, options) => void launch(menu, provider, options)}
+              onOpenSettings={() => (dismissMenu(false), onNavigate?.("settings", "agent-cli"))}
+              onClose={() => dismissMenu()}
             />
           </div>
         ) : null}
-        {list.length === 0 ? (
-          <EmptyState icon={FolderOpen} title={space ? "在这个 Space 开始工作" : "创建你的第一个 Space"} hint={space ? "点击顶部 + 选择检测到的 AI CLI，工作目录自动使用当前 Space。" : "Space 绑定一个工作目录，会话和历史按 Space 隔离。"} />
-        ) : null}
-        {layout !== 1 ? (
-          <>
-            <div className="row" style={{ padding: "6px 16px" }}>
-              <Button aria-expanded={showReview} data-testid="agent-review-toggle" disabled={!cur || cur.state !== "running"} onClick={() => setShowReview(!showReview)}>
-                {showReview ? t.review.close : t.review.open}
+        <div className="agent-workspace-tabs" role="group" aria-label="工作区标签">
+          {view?.layout.tabs.map((entry, index) => {
+            const first = leaves(entry.pane)[0]!;
+            const name = list.find(({ id }) => id === first.sessionId)?.name;
+            return (
+              <Button
+                key={entry.id}
+                aria-pressed={entry.id === tab?.id && !preview}
+                data-testid="workspace-tab"
+                onClick={() => {
+                  ++navigation.current;
+                  dismissMenu(false);
+                  setShowReview(false);
+                  tabFocus(entry.id, first.id, first.sessionId);
+                }}
+              >
+                {name ?? `标签 ${index + 1}`}
               </Button>
-              <span className="muted small">{t.split.reviewHint}</span>
-            </div>
-            <SplitView layout={layout} cells={shown} sessions={list} onChange={(i, v) => setSplit(choose(shown, split, i, v))} onAct={(cap, id) => void act(cap, id)} />
-          </>
-        ) : cur && cur.state === "running" ? (
-          <div className="agent-terminal-grid">
-            <section className="agent-terminal-pane" aria-label={cur.name}>
-              <div className="hu-v9-terminal-heading">
-                <span className={`agent-provider-mark provider-${cur.provider}`}>{cur.provider === "shell" ? "›" : cur.provider.slice(0, 1).toUpperCase()}</span>
-                <strong title={cur.name}>{cur.provider === "shell" ? "Shell" : (agentById(cur.provider)?.displayName ?? cur.provider)}</strong>
-                {stateBadge(cur)}
-                <span className="grow" />
-                <Button onClick={() => void act("agent.sessions.interrupt", cur.id)}>{t.interrupt}</Button>
-                <Button variant="danger" onClick={() => void act("agent.sessions.kill", cur.id)}>
-                  {t.kill}
-                </Button>
+            );
+          })}
+        </div>
+        {workspace.isError ? (
+          <div role="alert" className="hu-callout danger">
+            <p>{workspace.error?.message ?? "工作区布局当前无法读取"}</p>
+            <Button onClick={() => void workspace.refetch()}>重试</Button>
+          </div>
+        ) : null}
+        {preview ? (
+          <div className="agent-workspace-preview" data-testid="workspace-session-preview">
+            <div className="agent-workspace-pane-header">
+              <strong>{preview.name}</strong>
+              {stateBadge(preview)}
+              <Button
+                disabled={!editable}
+                onClick={() => {
+                  if (!view) return;
+                  const next = addSession(view.layout, { kind: "tab" }, preview.id);
+                  const assigned = next.layout.tabs.at(-1)!;
+                  void edit(view, next.layout, { tab: next.tab, leaf: leaves(assigned.pane)[0]! });
+                }}
+              >
+                放入新标签
+              </Button>
+              {preview.state === "running" ? (
                 <Button aria-expanded={showReview} data-testid="agent-review-toggle" onClick={() => setShowReview(!showReview)}>
                   {showReview ? t.review.close : t.review.open}
                 </Button>
+              ) : null}
+            </div>
+            {preview.state === "running" ? (
+              <div className="agent-workspace-pane-body">
+                <TerminalView key={preview.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={preview.id} ariaLabel={t.terminalLabel} />
               </div>
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <TerminalView key={cur.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={cur.id} ariaLabel={t.terminalLabel} />
-              </div>
-            </section>
+            ) : (
+              <EmptyState icon={FolderOpen} title={preview.state === "exited" ? t.exitedTitle(preview.exitCode ?? null) : (preview.error ?? t.failed)} />
+            )}
           </div>
-        ) : cur ? (
-          <EmptyState icon={FolderOpen} title={cur.state === "exited" ? t.exitedTitle(cur.exitCode ?? null) : (cur.error ?? t.failed)} {...(cur.state === "exited" ? { hint: cur.error ?? t.exitedHint } : {})} />
-        ) : list.length > 0 ? (
-          <EmptyState icon={FolderOpen} title={t.selectSession} />
+        ) : tab ? (
+          <WorkspaceCanvas
+            key={tab.id}
+            pane={tab.pane}
+            active={currentLeaf?.id ?? null}
+            zoom={zoom}
+            sessions={list}
+            endpoint={engine.endpoint}
+            editable={editable}
+            showReview={showReview && active === currentLeaf?.sessionId}
+            status={stateBadge}
+            onFocus={(leafId, sessionId) => tabFocus(tab.id, leafId, sessionId, zoom)}
+            onRequest={(event, leaf, direction) => setMenu(startTarget({ kind: "leaf", tab: tab.id, leaf, ...(direction ? { direction } : {}) }, event))}
+            onClose={(leafId) => {
+              if (!view) return;
+              const leaf = openLeaves.find(({ id }) => id === leafId);
+              const session = list.find(({ id }) => id === leaf?.sessionId);
+              if (session?.state === "running") setClosing({ view, tab: tab.id, leaf: leafId, session, navigation: navigation.current });
+              else if (leaf?.sessionId && !session && !sessions.isSuccess) setError("载入原会话后才能关闭这个分栏。");
+              else void closePane(view, tab.id, leafId);
+            }}
+            onZoom={(leaf) => {
+              const current = openLeaves.find(({ id }) => id === leaf);
+              if (!current) return;
+              tabFocus(tab.id, leaf, current.sessionId, zoom ? null : leaf);
+              setFocusTarget(leaf);
+            }}
+            onResize={(id, ratio) => {
+              if (!view) return;
+              const tabs = view.layout.tabs.map((entry) => {
+                if (entry.id !== tab.id) return entry;
+                return { ...entry, pane: replacePane(entry.pane, id, (node) => (node.kind === "split" ? { ...node, ratio } : node)) };
+              });
+              void edit(view, { tabs });
+            }}
+            onReview={(sessionId) => {
+              setShowReview(active !== sessionId || !showReview);
+              setActive(sessionId);
+            }}
+            onInterrupt={(id) => void act("agent.sessions.interrupt", id)}
+          />
+        ) : !space || view ? (
+          <EmptyState icon={FolderOpen} title={space ? "这个 Space 没有打开的标签" : "创建你的第一个 Space"} hint={space ? "使用新终端打开标签，或从 Agents 打开现有会话。" : "Space 绑定工作目录，隔离会话和历史。"} />
+        ) : !workspace.isError ? (
+          <p role="status" className="hu-hint-text">
+            正在读取工作区…
+          </p>
         ) : null}
         {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
         <footer className="agent-main-footer">
@@ -334,6 +528,31 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
           <span>关闭标签只分离视图 · 会话记录保留</span>
         </footer>
       </section>
+      {closing && closing.navigation === navigation.current ? (
+        <Dialog
+          open
+          title={`关闭“${closing.session.name}”的分栏？`}
+          testId="workspace-pane-close-dialog"
+          onClose={() => {
+            if (!working.current) setClosing(null);
+          }}
+          actions={
+            <>
+              <Button disabled={busy} onClick={() => setClosing(null)}>
+                取消
+              </Button>
+              <Button disabled={busy} onClick={() => void closePane(closing.view, closing.tab, closing.leaf)}>
+                收起分栏
+              </Button>
+              <Button disabled={busy} variant="danger" onClick={() => void closePane(closing.view, closing.tab, closing.leaf, closing.session)}>
+                终止并关闭
+              </Button>
+            </>
+          }
+        >
+          <p>收起后仍可从 Agents 回到该会话。终止会结束该终端以及它的子进程。</p>
+        </Dialog>
+      ) : null}
       {spaceDelete ? (
         <Dialog
           open
@@ -354,9 +573,12 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
                     setSpaceError(null);
                     try {
                       await engine.call("agent.spaces.delete", { id: spaceDelete.id }, { write: true });
+                      ++navigation.current;
                       setSpaceDelete(null);
                       setSpaceId(null);
                       setActive(null);
+                      setRequestedSession(null);
+                      setMenu(null);
                       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
                     } catch (e) {
                       setSpaceError(e instanceof CapabilityError || e instanceof Error ? e.message : String(e));
@@ -397,9 +619,12 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
                         { name: spaceForm.name.trim(), root: spaceForm.folder.trim(), ...(spaceForm.id ? { id: spaceForm.id, expectedRevision: spaceForm.revision ?? 0 } : {}) },
                         { write: true },
                       );
+                      ++navigation.current;
                       setSpaceForm(null);
                       setSpaceId(created.id);
                       setActive(null);
+                      setRequestedSession(null);
+                      setMenu(null);
                       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
                     } catch (e) {
                       setSpaceError(e instanceof CapabilityError || e instanceof Error ? e.message : String(e));
@@ -440,9 +665,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             key={space.id} // 切换 Space 时历史面板重新挂载：搜索框与筛选被清空（ACC-AG-05）
             space={space}
             installed={new Set((detected.data ?? []).filter((p) => p.installed).map((p) => p.id))}
-            onResumed={(id) => {
-              setActive(id);
-            }}
+            onResumed={(id) => setRequestedSession({ spaceId: space.id, sessionId: id })}
           />
         </aside>
       ) : null}

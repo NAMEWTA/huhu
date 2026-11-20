@@ -60,19 +60,6 @@
     min-height: 0;
     background: var(--panel);
   }
-  .agent-subtle-button {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border: 0;
-    background: transparent;
-    white-space: nowrap;
-  }
-  .agent-subtle-button,
-  :is(.agent-layout, .agent-launcher) .agent-subtle-button {
-    font-size: 12px;
-    color: var(--muted);
-  }
   .agent-session-tab {
     display: flex;
     min-width: 100px;
@@ -90,27 +77,6 @@
     background: var(--panel);
     border-color: var(--line);
     color: var(--text);
-  }
-  .agent-terminal-pane {
-    display: flex;
-    flex-direction: column;
-    min-height: 200px;
-    min-width: 0;
-    overflow: hidden;
-    border-right: 1px solid var(--line);
-  }
-  .hu-v9-terminal-heading {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    min-height: 45px;
-    padding: 0 16px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .hu-v9-terminal-heading strong {
-    color: var(--text);
-    font-weight: 550;
   }
   .agent-history-item {
     display: flex;
@@ -162,22 +128,6 @@
   @media (max-width: 999px) {
     .hu-module-layout.agent-layout {
       grid-template-columns: 155px minmax(260px, 1fr) 210px;
-    }
-  }
-  @media (max-width: 999px) {
-    .agent-subtle-button span {
-      display: none;
-    }
-  }
-  @media (max-width: 999px) {
-    .hu-v9-terminal-heading {
-      gap: 5px;
-      padding: 0 10px;
-    }
-  }
-  @media (max-width: 999px) {
-    .hu-v9-terminal-heading > span:not(.agent-provider-mark):not(.grow) {
-      display: none;
     }
   }
   @media (max-width: 760px) {
@@ -398,12 +348,105 @@
   .agent-add-cli:hover {
     background: var(--muted-bg);
   }
-  .agent-terminal-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    flex: 1;
-    min-height: 0;
+  .hu-module-layout.agent-layout:not(.agent-history-open) {
+    grid-template-columns: minmax(105px, min(22%, 224px)) minmax(0, 1fr);
+  }
+  .agent-workspace-tabs {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 3px 12px;
+    border-block-end: 1px solid var(--line);
+  }
+  .agent-workspace-tabs:empty {
+    display: none;
+  }
+  .agent-workspace-tabs .hu-btn {
+    white-space: nowrap;
+  }
+  .agent-workspace-tabs [aria-pressed="true"] {
+    border-color: var(--focus);
+  }
+  .agent-workspace-canvas {
+    flex: 1 1 auto;
+    min-block-size: 0;
     overflow: auto;
+    scrollbar-gutter: stable;
+  }
+  .agent-workspace-surface {
+    position: relative;
+  }
+  .agent-workspace-leaf {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-inline-size: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+  }
+  .agent-workspace-leaf[hidden] {
+    display: none;
+  }
+  .agent-workspace-leaf[data-active="true"] {
+    border-color: var(--focus);
+  }
+  .agent-workspace-divider {
+    position: absolute;
+    touch-action: none;
+    outline-offset: -1px;
+    border-radius: 2px;
+  }
+  .agent-workspace-divider[aria-orientation="vertical"] {
+    cursor: col-resize;
+  }
+  .agent-workspace-divider[aria-orientation="horizontal"] {
+    cursor: row-resize;
+  }
+  .agent-workspace-divider:hover,
+  .agent-workspace-divider:focus-visible {
+    background: var(--focus);
+  }
+  .agent-workspace-preview {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-block-size: 0;
+  }
+  .agent-workspace-pane-header,
+  .agent-workspace-pane-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+  }
+  .agent-workspace-pane-header strong {
+    overflow: hidden;
+    max-inline-size: 55%;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-workspace-pane-controls .hu-btn {
+    padding: 3px 6px;
+    min-block-size: 24px;
+    font-size: 11px;
+  }
+  .agent-workspace-pane-body {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    min-inline-size: 0;
+    overflow: hidden;
+  }
+  .agent-workspace-pane-body > .hu-btn {
+    margin: 12px;
+  }
+  .agent-workspace-launcher {
+    position: fixed;
+    overflow: auto;
+    overscroll-behavior: contain;
   }
   .agent-main-footer {
     display: flex;

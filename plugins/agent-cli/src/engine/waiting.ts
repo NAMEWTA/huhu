@@ -17,6 +17,7 @@ export interface WaitingWatcherDeps {
   /** 会话第一次或再次进入 blocked（发生标识 = `<会话 id>:<n>`）。处理失败不影响订阅；下一次重连的快照会重试尚未完成的发生。 */
   onBlocked(session: SessionRecord): Promise<void>;
   onChanged?(sessionId: string): void;
+  document?: { name: string; changed(): void };
   /** 测试用：缩短重连间隔。 */
   backoffMs?: { min: number; max: number };
 }
@@ -80,6 +81,7 @@ export class WaitingWatcher {
     if (process.platform !== "win32" && !existsSync(this.d.endpoint)) return this.schedule();
     subscribeEvents(this.d.endpoint, {
       labels: { "huhu.vault": this.d.vaultId },
+      ...(this.d.document && { docs: [this.d.document.name] }),
       onEvent: (e) => void this.onEvent(e),
       onLost: () => {
         this.sub = null;
@@ -90,6 +92,7 @@ export class WaitingWatcher {
         if (this.stopped) return sub.close();
         this.sub = sub;
         this.delay = this.range.min;
+        this.d.document?.changed();
         await this.reconcile(sub.snapshot.terminals as TerminalRecord[]); // 订阅之后读快照：断线期间发生的 blocked 在这里补上
       },
       () => this.schedule(),
@@ -122,7 +125,8 @@ export class WaitingWatcher {
   private retryBindings() {
     if (this.stopped || this.retryTimer || this.pendingBindings.size === 0) return;
     this.retryTimer = setTimeout(async () => {
-      for (const [id, sequence] of [...this.pendingBindings]) {
+      const batch = [...this.pendingBindings];
+      for (const [id, sequence] of batch) {
         if (this.stopped) return;
         try {
           const session = this.d.sessions.get(id);
@@ -174,6 +178,11 @@ export class WaitingWatcher {
   }
 
   private async onEvent(e: { type: string; terminal?: string; data?: unknown }): Promise<void> {
+    if (e.type === "doc") {
+      const data = e.data as { name?: string } | undefined;
+      if (this.d.document && data?.name === this.d.document.name) this.d.document.changed();
+      return;
+    }
     if (!e.terminal) return;
     const sess = this.d.sessions.byTerminal(e.terminal);
     if (!sess) return;

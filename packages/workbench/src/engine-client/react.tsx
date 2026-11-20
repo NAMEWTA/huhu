@@ -73,9 +73,9 @@ export function EngineProvider({ endpoint, children, onConnection }: EngineProvi
   );
 }
 
-export function useCapability<T>(capability: string, input: unknown = {}) {
+export function useCapability<T>(capability: string, input: unknown = {}, options: { enabled?: boolean } = {}) {
   const client = useEngine();
-  return useQuery({ queryKey: queryKey(client.vaultId, capability, input), queryFn: () => client.call<T>(capability, input) });
+  return useQuery({ queryKey: queryKey(client.vaultId, capability, input), queryFn: () => client.call<T>(capability, input), ...options });
 }
 
 export function useDiscoveredCapabilities() {

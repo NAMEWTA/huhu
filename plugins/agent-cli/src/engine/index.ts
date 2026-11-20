@@ -27,6 +27,8 @@ import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.j
 import { registerAgentEnvironments, type AgentCredentialHost } from "./launch-environment.js";
 import { ProtectedLaunch } from "./protected-launch.js";
 import { launchHash } from "./launch-binding.js";
+import { WORKSPACE_DOCUMENT } from "../shared/workspace-layout.js";
+import { registerWorkspaceLayout } from "./workspace-layout.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -122,6 +124,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     sessions,
     ...(opts.waitingBackoffMs ? { backoffMs: opts.waitingBackoffMs } : {}),
     onChanged: (id) => api.events.publish("entity.changed", { kind: "agent-session", id, op: "updated" }),
+    document: { name: WORKSPACE_DOCUMENT, changed: () => api.events.publish("entity.changed", { kind: "agent-workspace", id: WORKSPACE_DOCUMENT, op: "updated" }) },
     onBlocked: async (sess) => {
       lifetime.signal.throwIfAborted();
       const w = sess.waiting;
@@ -160,6 +163,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   });
   waiting.start();
   ctx.effect(() => () => waiting.stop()); // 停用时关闭订阅连接；重新启用后 apply 再次运行，重连并用快照补齐期间的 blocked
+  registerWorkspaceLayout(api, {
+    core: async () => {
+      const client = await core.ensure();
+      waiting.poke();
+      return client;
+    },
+    spaces,
+    sessions,
+    readOnly: api.vault.files.readOnly,
+    signal: lifetime.signal,
+  });
 
   api.defineCapability(def({ name: "agent.spaces.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(SpaceDto), handler: () => spaces.list() }));
   api.defineCapability(

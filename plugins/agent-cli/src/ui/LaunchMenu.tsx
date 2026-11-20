@@ -65,6 +65,7 @@ export function LaunchMenu({
     if (r.installed) onLaunch(r.entry.id);
   };
   const onKey = (e: KeyboardEvent) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Escape") return void (e.preventDefault(), sub ? setSub(null) : onClose());
     if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return; // 子菜单内的输入不拦截
     if (e.key === "ArrowDown") return void (e.preventDefault(), setFocus((i) => Math.min(rows.length - 1, i + 1)), setSub(null));
