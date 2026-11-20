@@ -334,3 +334,9 @@
 - `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：委托 Vault 的浏览器可用 YAML codec。保留 OK 的字段校验、重复键策略与删除语义，标量改值保留邻接源码。
 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。
 - `app/src/components/ReadonlyPropertyPanel.tsx`、`app/src/components/PropertyDisplayRow.tsx`：迁入固定上游的阅读属性视图及行组件。
+
+## D02 评论 Markdown 与引用
+
+- `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
+- `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。
+- `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。

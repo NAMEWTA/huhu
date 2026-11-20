@@ -193,6 +193,7 @@ export function dismissOpenCommentThread(): void;
 export interface CommentsPanelHostProps {
   docName: string;
   routes: HostRoutes;
+  openExternal?(url: string): Promise<void>;
   locale?: string;
   readOnly?: boolean;
   readOnlyReason?: string;

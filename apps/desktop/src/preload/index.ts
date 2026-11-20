@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("huhuHost", {
   engine: (): Promise<{ baseUrl: string; token: string; vaultId: string }> => ipcRenderer.invoke("huhu:engine"),
   engineState: (): Promise<EngineState> => ipcRenderer.invoke("huhu:engineState"),
   revealVault: (): Promise<void> => ipcRenderer.invoke("huhu:revealVault"),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke("huhu:openExternal", url),
   openVaultFile: (rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed"> => ipcRenderer.invoke("huhu:openVaultFile", rel, reveal === true),
   /** HTML 预览：为 Vault 内的文件签发一次一页的预览 URL（主进程校验路径）；标签关闭 / 换文件时撤销。 */
   previewGrant: (rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }> => ipcRenderer.invoke("huhu:previewGrant", rel),

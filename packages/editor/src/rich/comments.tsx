@@ -82,6 +82,7 @@ function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: s
 export interface CommentsPanelHostProps {
   docName: string;
   routes: HostRoutes;
+  openExternal?(url: string): Promise<void>;
   locale?: string;
   readOnly?: boolean;
   /** 只读时显示在面板底部的原因 */
@@ -90,9 +91,9 @@ export interface CommentsPanelHostProps {
 }
 
 /** 详情栏“批注”页：OK 的评论列表 + 整篇笔记批注输入（Huhu 的 `target:"file"`）。 */
-export function CommentsPanelHost({ docName, routes, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
+export function CommentsPanelHost({ docName, routes, openExternal, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
   return (
-    <OkRoot routes={routes} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
+    <OkRoot routes={routes} host={openExternal ? { openExternal } : undefined} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
       <CommentsReadOnly readOnly={readOnly} />
       <div className="editor-comments-panel" data-testid="comments-panel">
         <div className="editor-comments-list">

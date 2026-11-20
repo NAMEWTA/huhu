@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "6356136ea131dd36c56c849fac77a2642a0db666041ba28e314c54d4f4f39bd9",
+      "sha256": "aa0994a97f72af87c4c5f9031116b0bf1ba336fcb70e13cddb4013fde1ceea88",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -61,6 +61,22 @@
       "sha256": "455ca2f54d193e1532642ffdf626f8786e94003b3163baad5d848a44d392aae4",
       "method": "patch",
       "description": "PATCHES.md:23 - P-S4-09 `app/src/comments/CommentMarginRail.tsx`：宿主中将评论边缘按钮挂到编辑器的 `.ok-root`。窄屏详情浮层遮住右侧留白时使用左侧留白，保留上游的引用定位与线程打开行为。"
+    },
+    {
+      "target": "app/src/comments/CommentMarkdown.dom.test.tsx",
+      "upstream": null,
+      "blob": null,
+      "sha256": "6d0f98cd417771b296e5322544daa82535bc15418ed63629a300b045bb69ae0e",
+      "method": "local",
+      "description": "PATCHES.md:342 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。"
+    },
+    {
+      "target": "app/src/comments/CommentMarkdown.tsx",
+      "upstream": null,
+      "blob": null,
+      "sha256": "d4d33ab1f6f8d98353ce81fc0a7306fc56a9ec232cdd7e8255858e087028c784",
+      "method": "local",
+      "description": "PATCHES.md:341 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。"
     },
     {
       "target": "app/src/comments/CommentProjectPanel.tsx",
@@ -131,7 +147,7 @@
       "target": "app/src/comments/ThreadCard.tsx",
       "upstream": "packages/app/src/comments/ThreadCard.tsx",
       "blob": "829fc7310feed64d843e6e9701f4761d3800725e",
-      "sha256": "ed5d2b5bbd7b6c6f85f81606b575a3b616492dfd92754158dbc3b68ed547ed11",
+      "sha256": "e5c2a4e9a8986111b981ed27bbedd836701bfbe64aaebd9f4b1c21f8fc7ba04d",
       "method": "patch",
       "description": "PATCHES.md:19 - P-S4-05 `app/src/comments/ThreadCard.tsx`（含 e2e 用的 data-testid：comment-thread / comment-orphaned / thread-*）：去掉“发送”勾选与点击卡片切换发送；铅笔编辑入口换成“标记为已解决”（Huhu 的消息是追加式记录，没有编辑）；回复列表与回复输入；删除两步确认；整篇笔记批注的标签。"
     },

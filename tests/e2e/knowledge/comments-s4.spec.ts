@@ -343,6 +343,113 @@ test("D02 只读 Vault 内可查看和定位已有线程，评论操作与磁盘
   }
 });
 
+test("D02 评论正文与回复安全渲染 Markdown，关闭重开和只读 Vault 中保留原文", async () => {
+  const { app, page, vault, close } = await openApp();
+  const file = "评论排版.md";
+  const note = "# 评论排版\n\n笔记正文。\n";
+  const link = "https://example.test/comment-link";
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://example.test/")) requests.push(request.url());
+  });
+  const message = (kind: string) =>
+    [
+      `**bold ${kind}** *emphasis* \`inline\` [link ${kind}](${link})`,
+      `> quote ${kind}`,
+      "- list item",
+      "```text\n<code text>\n```",
+      "[unsafe](javascript:document.body.setAttribute%28%27data-comment-script%27,%271%27%29)",
+      "![image label](https://example.test/comment-image.png)",
+      "<script>document.body.dataset.commentScript = '1'</script>",
+      `<img src="https://example.test/comment-html-image.png" onerror="document.body.dataset.commentScript='1'">`,
+    ].join("\n\n");
+  const original = message("original");
+  const response = message("reply");
+  const body = page.getByTestId("thread-comment-body");
+  const reply = page.getByTestId("thread-reply");
+  const checkRendered = async () => {
+    for (const [region, kind] of [
+      [body, "original"],
+      [reply, "reply"],
+    ] as const) {
+      await expect(region.locator("strong").filter({ hasText: `bold ${kind}` })).toBeVisible();
+      await expect(region.locator("blockquote")).toHaveText(`quote ${kind}`);
+      await expect(region.locator("li")).toHaveText("list item");
+      await expect(region.locator("pre code")).toHaveText("<code text>");
+      await expect(region.getByRole("link", { name: `link ${kind}` })).toHaveAttribute("href", link);
+      await expect(region).toContainText("image label");
+      await expect(region.locator('script, img, [onclick], [onerror], a[href^="javascript:"]')).toHaveCount(0);
+    }
+    expect(await page.locator("body").getAttribute("data-comment-script")).toBeNull();
+    expect(requests).toEqual([]);
+  };
+  const openPanel = async () => {
+    const toggle = page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情", exact: true });
+    await expect(toggle).toBeVisible();
+    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+    await page.getByTestId("note-inspector").getByRole("tab", { name: "批注" }).click();
+  };
+
+  try {
+    await app.evaluate(({ shell }) => {
+      const opened: string[] = [];
+      Object.assign(globalThis, { commentExternalUrls: opened });
+      shell.openExternal = async (url) => {
+        opened.push(url);
+      };
+    });
+    writeFileSync(path.join(vault, file), note);
+    await gotoNotes(page);
+    await treeItem(page, file).click();
+    await openPanel();
+    const composer = page.getByTestId("comment-whole-note-input");
+    await composer.fill(original);
+    await expect(composer).toHaveValue(original);
+    await page.getByTestId("comment-whole-note-add").click();
+
+    const replyInput = page.getByTestId("thread-reply-input");
+    await replyInput.fill("**bold reply**");
+    await replyInput.press("End");
+    await replyInput.press("Shift+Enter");
+    await expect(replyInput).toHaveValue("**bold reply**\n");
+    await replyInput.fill(response);
+    await expect(replyInput).toHaveValue(response);
+    await replyInput.press("Enter");
+    await checkRendered();
+
+    const [storedFile] = commentFiles(vault);
+    if (!storedFile) throw new Error("批注没有落盘");
+    const readStored = () => readFileSync(path.join(commentsDir(vault), storedFile));
+    const stored = readStored();
+    expect(stored.includes(Buffer.from(`\n\n${original}\n\n### `))).toBe(true);
+    expect(stored.subarray(-Buffer.byteLength(`\n\n${response}\n`))).toEqual(Buffer.from(`\n\n${response}\n`));
+
+    await reply.getByRole("link", { name: "link reply" }).click();
+    await expect(page.evaluate(() => window.huhuHost.openExternal("javascript:example"))).rejects.toThrow("unsupported external URL");
+    await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "commentExternalUrls"))).toEqual([link]);
+    expect(app.windows()).toHaveLength(1);
+
+    await page.getByRole("button", { name: "关闭 评论排版", exact: true }).click();
+    await expect(body).toHaveCount(0);
+    await treeItem(page, file).click();
+    await openPanel();
+    await checkRendered();
+
+    expect(await page.evaluate((location) => window.huhuHost.vault.open(location, { kind: "open", readOnly: true }), vault)).toMatchObject({ ok: true });
+    await page.reload();
+    await gotoNotes(page);
+    await treeItem(page, file).click();
+    await openPanel();
+    await expect(page.getByTestId("comments-readonly-reason")).toBeVisible();
+    await expect(replyInput).toHaveCount(0);
+    await checkRendered();
+    expect(readStored()).toEqual(stored);
+    expect(readFileSync(path.join(vault, file), "utf8")).toBe(note);
+  } finally {
+    await close();
+  }
+});
+
 test("D03 双向定位精确线程，离开编辑视图或批注页清除浮层与焦点", async () => {
   const { app, page, vault, close } = await openApp();
   try {
