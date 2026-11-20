@@ -2,20 +2,20 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { CapabilityCatalogEntrySchema, CapabilityDiscoveryEntrySchema, CapabilityResultSchema, ToolAccessFileSchema, ToolAccessSnapshotSchema } from "@huhu/contracts";
+import { CapabilityCatalogEntrySchema, CapabilityDiscoveryEntrySchema, CapabilityResultSchema, HuhuError, ToolAccessFileSchema, ToolAccessSnapshotSchema } from "@huhu/contracts";
 import { defineCapability, TOOL_ACCESS_FILE } from "@huhu/kernel";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { boot, type RunningEngine } from "../src/boot.js";
 
 const url = (engine: RunningEngine, route: string) => "http://127.0.0.1:" + engine.port + route;
 const headers = (token: string) => ({ authorization: "Bearer " + token, "content-type": "application/json" });
 
-async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken) {
+async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, idempotencyKey?: string) {
   const result = await fetch(url(engine, "/api/v1/call"), {
     method: "POST",
     headers: headers(token),
-    body: JSON.stringify({ capability, input, requestId: randomUUID() }),
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey }),
   });
   expect(result.status).toBe(200);
   return CapabilityResultSchema.parse(await result.json());
@@ -149,3 +149,70 @@ test("两个 Vault 分开保存工具选择，重启保持版本，未配置的�
     }
   }
 }, 60_000);
+
+test("两份工具预览只有同一版本的首个提交能整批生效，发现、撤销和落盘共用策略", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-tool-batch-"));
+  const engine = await boot({ vaultPath: root, create: true });
+  const policyFile = path.join(root, TOOL_ACCESS_FILE);
+  const changes = [
+    { capability: "notes.list", exposed: true },
+    { capability: "notes.read", exposed: true },
+  ];
+  const otherChanges = [{ capability: "vault.info", exposed: true }];
+  const preview = async (target: typeof changes) => z.object({ revision: z.number(), catalogRevision: z.string(), targets: z.array(z.unknown()) }).parse(await data(call(engine, "gateway.policy.preview", { changes: target })));
+  const update = (view: Awaited<ReturnType<typeof preview>>, target: typeof changes, key = randomUUID()) =>
+    call(engine, "gateway.policy.update", { changes: target, expectedRevision: view.revision, catalogRevision: view.catalogRevision }, engine.rendererToken, key);
+  const publishes: unknown[] = [];
+  const unsubscribe = engine.events.subscribe((event) => {
+    if (event.type === "entity.changed" && (event.payload as { kind?: string }).kind === "tool-access") publishes.push(event.payload);
+  });
+  try {
+    const [first, second] = await Promise.all([preview(changes), preview(otherChanges)]);
+    expect(first).toMatchObject({
+      revision: 0,
+      targets: [expect.objectContaining({ capability: "notes.list", exposed: true, selected: false, availability: "active" }), expect.objectContaining({ capability: "notes.read", exposed: true, selected: false })],
+    });
+    expect(await names(engine, engine.cliToken)).toEqual([]);
+    const key = randomUUID();
+    const committed = await update(first, changes, key);
+    expect(committed).toMatchObject({ ok: true, data: { revision: 1, changed: true } });
+    expect(await update(first, changes, key)).toEqual(committed);
+    expect(await update(second, otherChanges)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT", details: { currentVersion: "1" } } });
+    expect(publishes).toEqual([{ kind: "tool-access", id: "policy", op: "updated" }]);
+    expect((await names(engine, engine.cliToken)).sort()).toEqual(["notes.list", "notes.read"]);
+    expect((await names(engine, engine.mcpToken)).sort()).toEqual(["notes.list", "notes.read"]);
+    expect(await call(engine, "gateway.policy.preview", { changes }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+
+    const before = readFileSync(policyFile, "utf8");
+    const current = await preview(otherChanges);
+    const invalid = [...otherChanges, { capability: "agent.runs.dispatch", exposed: true }];
+    const conflicting = [...otherChanges, { capability: "vault.info", exposed: false }];
+    for (const target of [invalid, conflicting]) expect(await update(current, target)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const write = vi.spyOn(engine.vault.files, "write").mockRejectedValueOnce(new HuhuError("WRITE_PARTIAL", "合成落盘失败"));
+    try {
+      expect(await update(current, otherChanges)).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL" } });
+    } finally {
+      write.mockRestore();
+    }
+    expect(readFileSync(policyFile, "utf8")).toBe(before);
+    expect(await access(engine)).toMatchObject({ state: "ready", revision: 1, choices: { "vault.info": false } });
+    expect(publishes).toHaveLength(1);
+
+    const unlink = engine.registry.register(defineCapability({ name: "fixture.discovered", plugin: "kernel", scope: "read", exposable: true, defaultExposed: false, input: z.object({}), output: z.string(), handler: () => "fixture" }));
+    try {
+      expect(await update(current, otherChanges)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(readFileSync(policyFile, "utf8")).toBe(before);
+    } finally {
+      unlink();
+    }
+    const close = changes.map(({ capability }) => ({ capability, exposed: false }));
+    expect(await update(await preview(close), close)).toMatchObject({ ok: true, data: { revision: 2 } });
+    expect(await names(engine, engine.mcpToken)).toEqual([]);
+    expect(await names(engine, engine.cliToken)).toEqual([]);
+    expect(publishes).toHaveLength(2);
+  } finally {
+    unsubscribe();
+    await engine.shutdown();
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}, 30_000);

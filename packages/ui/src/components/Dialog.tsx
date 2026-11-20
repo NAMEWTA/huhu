@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "./ui.js";
 
 export interface DialogProps {
@@ -21,21 +21,19 @@ export interface DialogProps {
 export function Dialog({ open, title, description, onClose, children, actions, testId, wide = false, error }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  useEffect(() => {
+  const [present, setPresent] = useState(open);
+  useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
-    const opener = document.activeElement as HTMLElement | null;
     if (open && !d.open) {
       d.showModal();
-      // 焦点进入第一个表单控件（没有就保持在对话框内）；关闭后回到打开它的按钮
+      // 让第一个可编辑字段获得焦点。
       d.querySelector<HTMLElement>(".hu-modal-body input:not([type=hidden]), .hu-modal-body textarea, .hu-modal-body select")?.focus();
     }
     if (!open && d.open) d.close();
-    return () => {
-      if (opener && document.contains(opener)) opener.focus();
-    };
+    setPresent(open);
   }, [open]);
-  if (!open) return null;
+  if (!open && !present) return null;
   return (
     <dialog
       ref={ref}

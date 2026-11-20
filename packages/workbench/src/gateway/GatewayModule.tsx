@@ -1,3 +1,4 @@
+import type { CapabilityCatalogEntry, ToolAccessSnapshot } from "@huhu/contracts";
 import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, BookOpen, Blocks, Code2, Command, Copy, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, Settings, ShieldCheck } from "lucide-react";
 import { useState } from "react";
@@ -8,14 +9,8 @@ import { useCapability, useEngine, useQueryClient } from "../engine-client/react
 import { tGateway as g } from "../i18n/zh-CN.js";
 import { openSettings, type UiState } from "../state/ui-store.js";
 import { CliSection } from "./CliSection.js";
+import { ToolPolicyCatalog } from "./ToolPolicyCatalog.js";
 
-interface Cap {
-  name: string;
-  plugin: string;
-  scope: "read" | "write" | "execute" | "admin";
-  exposable: boolean;
-  exposed: boolean;
-}
 interface AuditRow {
   at: string;
   entry: string;
@@ -50,8 +45,8 @@ const TITLE: Record<string, string> = { mcp: "HUHU MCP 服务", cli: "CLI 命令
 export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: StoreApi<UiState> }) {
   const engine = useEngine();
   const qc = useQueryClient();
-  const caps = useCapability<Cap[]>("capabilities.list", {});
-  const gw = useCapability<{ mcp: { enabled: boolean; transport: "stdio" | "http" }; tokens: number }>("gateway.get", {});
+  const caps = useCapability<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true });
+  const gw = useCapability<{ mcp: { enabled: boolean; transport: "stdio" | "http" }; tokens: number; toolAccess: ToolAccessSnapshot }>("gateway.get", {});
   const tokens = useCapability<{ id: string; name: string; createdAt: string }[]>("gateway.tokens.list", {});
   const [filter, setFilter] = useState("");
   const [name, setName] = useState("");
@@ -95,8 +90,8 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
     }
   }
   const all = caps.data ?? [];
-  const list = all.filter((c) => c.name.includes(filter.trim()));
   const open = all.filter((c) => c.exposed).length;
+  const eligible = all.filter((c) => c.exposable).length;
 
   const argsError = (() => {
     try {
@@ -394,9 +389,10 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                     <h2>MCP Server</h2>
                     <p>当前Vault · {mcp.transport === "stdio" ? "stdio" : "Streamable HTTP"} · 能力按模块授权</p>
                   </div>
-                  <Badge tone={mcp.enabled ? "success" : "neutral"}>{mcp.enabled ? `已开启 · ${open}/${all.length}` : `已关闭 · 0/${all.length}`}</Badge>
+                  <Badge tone={open ? "success" : "neutral"}>{`可调用工具 ${open}/${eligible}`}</Badge>
                   <ChoiceSwitch checked={mcp.enabled} label={g.mcpEnabled} onChange={(v) => void act("gateway.mcp.update", { enabled: v, transport: mcp.transport })} />
                 </div>
+                <p className="small muted">CLI 和 MCP 的 stdio 客户端使用同一工具策略。MCP over HTTP {mcp.enabled && mcp.transport === "http" ? "端点已启用，连接需要服务端令牌。" : "端点当前关闭。"}</p>
                 <div className="shell-gateway-meta">
                   <button type="button" data-testid="gateway-mcp-config" onClick={() => setConfigOpen(true)}>
                     <Settings size={14} aria-hidden /> 配置传输
@@ -440,29 +436,9 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   />
                 </section>
               ) : null}
-              <section className="hu-card-alt" hidden={mcpTab !== "tools"}>
-                <DataTable
-                  label="能力开放列表"
-                  rows={list}
-                  rowKey={(c) => c.name}
-                  rowTestId="cap-row"
-                  rowAttrs={(c) => ({ "data-cap": c.name })}
-                  columns={[
-                    { id: "name", header: "能力", width: 280, cell: (c) => <code>{c.name}</code> },
-                    { id: "plugin", header: "所属模块", width: 130, cell: (c) => (c.plugin === "kernel" ? "基础能力" : c.plugin) },
-                    { id: "scope", header: "访问范围", width: 110, cell: (c) => <Badge tone={c.scope === "read" ? "neutral" : "warning"}>{g.scope[c.scope]}</Badge> },
-                    { id: "state", header: "有效状态", width: 120, cell: (c) => <Badge tone={c.exposed ? "success" : "neutral"}>{c.exposable ? (c.exposed ? "可调用" : g.closed) : g.never}</Badge> },
-                    {
-                      id: "expose",
-                      header: "开放",
-                      width: 110,
-                      cell: (c) =>
-                        c.exposable ? <ChoiceSwitch checked={c.exposed} label={`暴露 ${c.name}`} onChange={(v) => void act("gateway.update", { capability: c.name, exposed: v })} /> : <span className="small muted">{g.never}</span>,
-                    },
-                  ]}
-                />
-                {list.length === 0 ? <EmptyState icon={Activity} title="没有匹配的能力" /> : null}
-              </section>
+              <div hidden={mcpTab !== "tools"}>
+                <ToolPolicyCatalog entries={all} filter={filter} policy={gw.data?.toolAccess} />
+              </div>
               <div className="hu-callout shell-system-note">
                 <ShieldCheck size={17} aria-hidden />
                 <p>列表发现和实际调用都会检查模块状态与开放设置。Agent 执行永不对外。</p>

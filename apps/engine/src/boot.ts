@@ -328,7 +328,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerSystemCapabilities(
     registry,
     plugins,
-    { snapshot: () => exposure.snapshot(), set: (n, v) => exposure.set(n, v), setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)) },
+    {
+      snapshot: () => exposure.snapshot(),
+      setMany: (changes, revision, assertCatalog) => exposure.setMany(changes, revision, assertCatalog),
+      setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)),
+      publishPolicyChange: () => events.publish("entity.changed", { kind: "tool-access", id: "policy", op: "updated" }),
+    },
     { tokens: gatewayTokens, audit: gatewayAudit },
   );
   plugins.register({

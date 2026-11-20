@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { CAPABILITY_AVAILABILITIES, CAPABILITY_SCOPES, CapabilityCatalogEntrySchema, ToolAccessSnapshotSchema, errors, toJsonSchema, type CapabilityAvailability, type CapabilityCatalogEntry } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
@@ -24,11 +25,28 @@ const unavailableReasons = {
   "handler-missing": "所属插件已启用，处理函数尚未注册",
 };
 
+const policyChanges = z
+  .array(z.strictObject({ capability: z.string().min(1), exposed: z.boolean() }))
+  .min(1)
+  .max(1000);
+const policyRevision = z.int().nonnegative();
+const catalogRevision = z.string().regex(/^[a-f0-9]{64}$/);
+const policyTarget = z.strictObject({
+  capability: z.string(),
+  plugin: z.string(),
+  title: z.string(),
+  risk: z.enum(["normal", "high"]),
+  scope: z.enum(CAPABILITY_SCOPES),
+  availability: z.enum(CAPABILITY_AVAILABILITIES),
+  selected: z.boolean().nullable(),
+  exposed: z.boolean(),
+});
+
 /** 注册内核的插件与能力目录能力（interfaces.md §2：plugins.*、capabilities.list）。 */
 export function registerSystemCapabilities(
   registry: CapabilityRegistry,
   plugins: PluginManager,
-  exposure: Pick<ExposureStore, "snapshot" | "set"> & { setPluginEnabled?(id: string, enabled: boolean): void },
+  exposure: Pick<ExposureStore, "snapshot" | "setMany"> & { setPluginEnabled?(id: string, enabled: boolean): void; publishPolicyChange?(): void },
   gateway?: {
     audit?: { list(): { at: string; entry: string; capability: string; code: string; ms: number }[]; clear(): void };
     tokens: {
@@ -47,6 +65,32 @@ export function registerSystemCapabilities(
     if (state === "failed") return "plugin-failed";
     return handlerBound ? "active" : "handler-missing";
   };
+  function catalog() {
+    const entries = new Map(
+      registry
+        .knownNames()
+        .sort()
+        .flatMap((name) => {
+          const handler = registry.get(name);
+          const descriptor = registry.getDescriptor(name);
+          const cap = descriptor ?? handler;
+          const availability = availabilityOf(cap?.plugin, !!handler);
+          if (!cap?.exposable || cap.desktopOnly || availability === "not-found") return [];
+          return [[name, { cap, availability, title: descriptor?.title ?? name, risk: descriptor?.risk ?? (cap.scope === "read" ? "normal" : "high") }]] as const;
+        }),
+    );
+    const identity = [...entries].map(([name, { cap, availability, risk, title }]) => [name, cap.plugin, cap.scope, availability, risk, title, toJsonSchema(cap.input), toJsonSchema(cap.output, "output")]);
+    return { revision: createHash("sha256").update(JSON.stringify(identity)).digest("hex"), entries };
+  }
+  function verifiedChanges(raw: z.infer<typeof policyChanges>, entries: ReturnType<typeof catalog>["entries"]) {
+    const changes = new Map<string, boolean>();
+    for (const { capability, exposed } of raw) {
+      if (!entries.has(capability)) throw errors.invalidInput(`${capability} 不在可开放的工具目录中`);
+      if (changes.has(capability) && changes.get(capability) !== exposed) throw errors.invalidInput(`${capability} 有冲突的开放选择`);
+      changes.set(capability, exposed);
+    }
+    return [...changes].map(([capability, exposed]) => ({ capability, exposed }));
+  }
 
   const offs = [
     registry.register(
@@ -175,8 +219,55 @@ export function registerSystemCapabilities(
           if (!cap) throw errors.capabilityNotFound(i.capability);
           // exposable:false 的能力（保险箱明文、Agent/SSH 执行等）永远不能开放
           if (i.exposed && !cap.exposable) throw errors.invalidInput(`${i.capability} 不允许对外开放`);
-          const revision = await exposure.set(i.capability, i.exposed);
+          const { revision, changed } = await exposure.setMany([i]);
+          if (changed) exposure.publishPolicyChange?.();
           return { exposed: i.exposed, revision };
+        },
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "gateway.policy.preview",
+        plugin: "kernel",
+        scope: "admin",
+        desktopOnly: true,
+        exposable: false,
+        defaultExposed: false,
+        input: z.strictObject({ changes: policyChanges }),
+        output: z.strictObject({ revision: policyRevision, catalogRevision, targets: z.array(policyTarget) }),
+        handler: (_c, { changes }) => {
+          const policy = exposure.snapshot();
+          if (policy.state === "error") throw errors.invalidInput(policy.message, { reason: policy.reason });
+          const current = catalog();
+          const targets = verifiedChanges(changes, current.entries).map(({ capability, exposed }) => {
+            const { cap, availability, risk, title } = current.entries.get(capability)!;
+            return { capability, exposed, plugin: cap.plugin, scope: cap.scope, availability, risk, title, selected: toolSelection(policy, capability) };
+          });
+          return { revision: policy.revision, catalogRevision: current.revision, targets };
+        },
+      }),
+    ),
+    registry.register(
+      defineCapability({
+        name: "gateway.policy.update",
+        plugin: "kernel",
+        scope: "write",
+        desktopOnly: true,
+        exposable: false,
+        defaultExposed: false,
+        input: z.strictObject({ changes: policyChanges, expectedRevision: policyRevision, catalogRevision }),
+        output: z.strictObject({ revision: policyRevision, changed: z.boolean() }),
+        handler: async ({ caller }, input) => {
+          if (caller !== "desktop") throw errors.permissionDenied("更新工具开放策略");
+          const current = catalog();
+          const assertCatalog = (revision: string) => {
+            if (revision !== input.catalogRevision) throw errors.versionConflict(revision);
+          };
+          assertCatalog(current.revision);
+          const changes = verifiedChanges(input.changes, current.entries);
+          const saved = await exposure.setMany(changes, input.expectedRevision, () => assertCatalog(catalog().revision));
+          if (saved.changed) exposure.publishPolicyChange?.();
+          return saved;
         },
       }),
     ),

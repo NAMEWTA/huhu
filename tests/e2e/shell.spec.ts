@@ -1959,11 +1959,17 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await expect(page.getByTestId("gateway-module")).toBeVisible();
     await page.getByLabel("筛选能力").fill("tasks.create");
     const row = page.getByTestId("cap-row").filter({ hasText: "tasks.create" }).first();
-    await row.getByRole("switch").click(); // 受控开关：状态在引擎回执后才改变
-    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).capabilityExposure["tasks.create"]).toBe(true);
+    const policyFile = path.join(vault, ".huhu/gateway/tool-access.json");
+    await row.getByRole("switch").click();
+    const enable = page.getByRole("dialog", { name: "开放工具" });
+    await expect(enable).toContainText("tasks.create");
+    expect(JSON.parse(readFileSync(policyFile, "utf8")).choices["tasks.create"]).toBe(false);
+    await enable.getByRole("button", { name: "保存选择" }).click();
+    await expect.poll(() => JSON.parse(readFileSync(policyFile, "utf8")).choices["tasks.create"]).toBe(true);
     await expect(row.getByRole("switch")).toBeChecked();
     await row.getByRole("switch").click();
-    await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/plugins.json"), "utf8")).capabilityExposure["tasks.create"]).toBe(false);
+    await page.getByRole("dialog", { name: "关闭工具" }).getByRole("button", { name: "保存选择" }).click();
+    await expect.poll(() => JSON.parse(readFileSync(policyFile, "utf8")).choices["tasks.create"]).toBe(false);
     await page.getByLabel("筛选能力").fill("safe.items.reveal");
     await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" }).getByRole("switch")).toHaveCount(0);
     await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" })).toContainText("不可开放");
@@ -1989,7 +1995,10 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-notfound")).toBeVisible();
 
-    await page.getByRole("switch", { name: "启用 MCP 服务" }).click();
+    const mcpToggle = page.getByRole("switch", { name: "启用 MCP 服务" });
+    await expect(mcpToggle).not.toBeChecked();
+    await mcpToggle.click();
+    await expect(mcpToggle).toBeChecked();
     await expect.poll(() => JSON.parse(readFileSync(path.join(vault, ".huhu/gateways.json"), "utf8")).mcp?.enabled).toBe(true);
     // 测试台：真实调用（桌面身份）；参数不是合法 JSON 时不能调用
     await page.getByLabel("测试台", { exact: true }).fill("vault.info");

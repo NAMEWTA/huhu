@@ -59,15 +59,22 @@ export class ExposureStore {
   }
 
   set(name: string, selected: boolean): Promise<number> {
+    return this.setMany([{ capability: name, exposed: selected }]).then(({ revision }) => revision);
+  }
+
+  setMany(changes: readonly { capability: string; exposed: boolean }[], expectedRevision?: number, assertCurrentCatalog?: () => void): Promise<{ revision: number; changed: boolean }> {
     const save = this.pending.then(async () => {
       this.files.assertWritable();
       const policy = this.readPolicy();
       if (policy.state === "error") throw errors.invalidInput(policy.message, { reason: policy.reason });
-      if (toolSelection(policy, name) === selected) return policy.revision;
+      if (expectedRevision !== undefined && policy.revision !== expectedRevision) throw errors.versionConflict(String(policy.revision));
+      assertCurrentCatalog?.();
+      if (changes.every(({ capability, exposed }) => toolSelection(policy, capability) === exposed)) return { revision: policy.revision, changed: false };
       if (policy.revision === Number.MAX_SAFE_INTEGER) throw errors.invalidInput("工具开放配置的版本已达上限");
       const revision = policy.revision + 1;
-      await this.writePolicy(revision, { ...policy.choices, [name]: selected }, policy.version);
-      return revision;
+      const choices = { ...policy.choices, ...Object.fromEntries(changes.map(({ capability, exposed }) => [capability, exposed])) };
+      await this.writePolicy(revision, choices, policy.version);
+      return { revision, changed: true };
     });
     this.pending = save.catch(() => undefined);
     return save;

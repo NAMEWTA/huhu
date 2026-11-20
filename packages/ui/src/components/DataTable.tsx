@@ -35,7 +35,7 @@ const ROW_H = 41;
 
 /** 数据表（design-system.md DataTable）：TanStack Table 管列与列宽，行数超过 200 用 react-virtual 只渲染可见行；吸顶表头、hover / 选中、↑↓ 移动、Enter 打开。仍然是语义化的 <table>。 */
 export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey = null, onSelect, rowTestId, rowAttrs, empty, virtualizeAfter = 200, height = 480 }: DataTableProps<T>) {
-  const defs = useMemo<ColumnDef<T>[]>(() => columns.map((c) => ({ id: c.id, header: c.header, size: c.width ?? 160, minSize: 60, cell: (ctx) => c.cell(ctx.row.original), meta: { className: c.className } })), [columns]);
+  const defs = useMemo<ColumnDef<T>[]>(() => columns.map((c) => ({ id: c.id, header: c.header, size: c.width ?? 160, minSize: 60, meta: { className: c.className, cell: c.cell } })), [columns]);
   const table = useReactTable<T>({ data: rows as T[], columns: defs, getCoreRowModel: getCoreRowModel(), getRowId: (r) => rowKey(r), columnResizeMode: "onChange", enableColumnResizing: true });
   const scroller = useRef<HTMLDivElement>(null);
   const body = table.getRowModel().rows;
@@ -127,11 +127,15 @@ export function DataTable<T>({ label, columns, rows, rowKey, onOpen, selectedKey
                 onClick={() => onSelect?.(r.original)}
                 onDoubleClick={() => onOpen?.(r.original)}
               >
-                {r.getVisibleCells().map((c) => (
-                  <td key={c.id} className={(c.column.columnDef.meta as { className?: string } | undefined)?.className}>
-                    {flexRender(c.column.columnDef.cell, c.getContext())}
-                  </td>
-                ))}
+                {r.getVisibleCells().map((c) => {
+                  // Call the render prop directly so a new column object does not remount focused controls.
+                  const meta = c.column.columnDef.meta as Pick<DataTableColumn<T>, "className" | "cell">;
+                  return (
+                    <td key={c.id} className={meta.className}>
+                      {meta.cell(r.original)}
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}

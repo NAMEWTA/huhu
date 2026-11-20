@@ -619,6 +619,48 @@ test("能力网关 MCP：配置传输（对话框）、复制客户端配置、�
   }
 });
 
+test("能力网关：逐项和批量选择先预览，旧版本保留草稿并在刷新后整批保存", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const policyFile = path.join(vault, ".huhu/gateway/tool-access.json");
+    const readPolicy = () => JSON.parse(readFileSync(policyFile, "utf8")) as { revision: number; choices: Record<string, boolean> };
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    const filter = page.getByRole("textbox", { name: "筛选能力" });
+    await filter.fill("notes.read");
+    const single = page.getByRole("switch", { name: "暴露 notes.read" });
+    await expect(single).not.toBeChecked();
+    await single.click();
+    const draft = page.getByRole("dialog", { name: "开放工具" });
+    await expect(draft).toContainText("notes.read");
+    await page.keyboard.press("Escape");
+    await expect(draft).toBeHidden();
+    await expect(single).toBeFocused();
+    expect(readPolicy().revision).toBe(0);
+
+    await page.getByRole("checkbox", { name: "选择 notes.read", exact: true }).check();
+    await filter.fill("notes.list");
+    await page.getByRole("checkbox", { name: "选择 notes.list", exact: true }).check();
+    await page.getByRole("button", { name: "开启所选" }).click();
+    const bulk = page.getByRole("dialog", { name: "开启所选" });
+    await expect(bulk.getByRole("listitem")).toHaveCount(2);
+    await expect(bulk).toContainText("策略版本 0");
+    expect((await call("gateway.update", { capability: "vault.info", exposed: true })).ok).toBe(true);
+    await bulk.getByRole("button", { name: "保存选择" }).click();
+    await expect(bulk.getByRole("alert")).toContainText("策略或工具目录已变化");
+    expect(readPolicy().choices).toMatchObject({ "vault.info": true, "notes.read": false, "notes.list": false });
+    await bulk.getByRole("button", { name: "刷新预览" }).click();
+    await expect(bulk).toContainText("策略版本 1");
+    await expect(bulk.getByRole("listitem")).toHaveCount(2);
+    await bulk.getByRole("button", { name: "保存选择" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已保存 2 项工具选择" })).toBeVisible();
+    expect(readPolicy()).toMatchObject({ revision: 2, choices: { "vault.info": true, "notes.read": true, "notes.list": true } });
+  } finally {
+    await close();
+  }
+});
+
 test("工作流 W-A：收件箱想法 → 转为 Agent 任务 → 自动化立即运行（假 Codex）→ 任务详情显示结果；任务进入进行中、不会自动完成，用户可自己关闭", async () => {
   test.skip(process.platform === "win32", "假 Codex 是 POSIX shell 脚本；Windows 需要 .cmd 假程序");
   const fs = await import("node:fs");
