@@ -57,6 +57,10 @@ function main(file) {
   let turnId;
   let executionBinding;
   const questions = new Map();
+  const submittedAnswers = new Map();
+  const seenQuestionIds = new Set();
+  const seenQuestionItems = new Set();
+  let currentQuestion;
   const finals = new Map();
   const completed = new Map();
   const emitted = new Set();
@@ -84,31 +88,52 @@ function main(file) {
   const validId = (value) => typeof value === "string" && id.test(value);
   const validText = (value, limit) => typeof value === "string" && value.length <= limit && /\S/.test(value) && value.isWellFormed();
   const hash = (values) => createHash("sha256").update(JSON.stringify(values)).digest("hex");
+  const executionFields = ({ vaultId, taskId, runId, attempt, dispatchId, sessionBinding: b }) => [
+    vaultId,
+    taskId,
+    runId,
+    attempt,
+    dispatchId,
+    b.machineId,
+    b.sessionId,
+    b.coreId,
+    b.coreAddress,
+    b.processGeneration,
+    b.provider,
+    b.nativeSessionId,
+  ];
 
   function report(source, payload) {
     const { vaultId, runId, attempt, dispatchId, sessionBinding } = executionBinding;
     const receiptId = "codex-" + hash([vaultId, runId, attempt, dispatchId, sessionBinding.processGeneration, source.kind, source.threadId, source.turnId, source.itemId, source.rpcId, source.questionId]);
-    if (emitted.has(receiptId)) return;
+    if (emitted.has(receiptId)) return false;
     const receipt = { version: 1, receiptId, execution: executionBinding, kind: source.kind, payload };
     save("report-" + receiptId, { source, receipt });
     emitted.add(receiptId);
+    return true;
+  }
+
+  function questionIdentity(source) {
+    const nativeRequestId = "codex-request-" + hash([source.threadId, source.turnId, source.itemId, source.rpcId]);
+    return { nativeRequestId, requestId: "codex-question-" + hash([nativeRequestId, source.questionId]), requestVersion: 1 };
   }
 
   function publishBoundReports() {
     if (!turnId) return;
     const status = completed.get(turnId);
     if (!status) {
-      for (const { source, question } of questions.values()) {
+      for (const entry of questions.values()) {
+        const { source, question } = entry;
         if (source.turnId !== turnId) continue;
-        const nativeRequestId = "codex-request-" + hash([threadId, turnId, source.itemId, source.rpcId]);
-        report(source, {
-          mode: "native_deferred",
-          nativeRequestId,
-          requestId: "codex-question-" + hash([nativeRequestId, question.id]),
-          requestVersion: 1,
-          text: question.question,
-          options: question.options.map(({ label }) => label),
-        });
+        if (
+          report(source, {
+            mode: "native_deferred",
+            ...questionIdentity(source),
+            text: question.question,
+            options: question.options.map(({ label }) => label),
+          })
+        )
+          currentQuestion = entry;
       }
       return;
     }
@@ -119,6 +144,7 @@ function main(file) {
   }
 
   function boundQuestion(rpcId, params) {
+    if (seenQuestionIds.has(rpcId)) return true;
     if (!submitted || params?.threadId !== threadId || !validId(params.turnId) || !validId(params.itemId) || (turnId && params.turnId !== turnId) || completed.has(params.turnId)) return false;
     if (!(Number.isSafeInteger(rpcId) || validId(rpcId)) || params.isBlocking !== true || !Array.isArray(params.questions) || params.questions.length !== 1) return false;
     const [question] = params.questions;
@@ -127,11 +153,12 @@ function main(file) {
     if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 8) return false;
     if (!question.options.every((option) => validText(option?.label, 512) && typeof option.description === "string" && option.isOther !== true)) return false;
     if (new Set(question.options.map(({ label }) => label)).size !== question.options.length) return false;
-    if (!questions.has(rpcId)) {
-      if (questions.size >= 32) return false;
-      const source = { kind: "question", threadId, turnId: params.turnId, itemId: params.itemId, rpcId, questionId: question.id };
-      questions.set(rpcId, { source, question });
-    }
+    const itemKey = hash([params.turnId, params.itemId]);
+    if (questions.size >= 32 || seenQuestionIds.size >= 128 || seenQuestionItems.has(itemKey)) return false;
+    const source = { kind: "question", threadId, turnId: params.turnId, itemId: params.itemId, rpcId, questionId: question.id };
+    questions.set(rpcId, { source, question });
+    seenQuestionIds.add(rpcId);
+    seenQuestionItems.add(itemKey);
     publishBoundReports();
     return true;
   }
@@ -140,7 +167,16 @@ function main(file) {
     if (!submitted || params?.threadId !== threadId) return;
     if (method === "serverRequest/resolved") {
       questions.delete(params.requestId);
-    } else if (method === "item/completed" && validId(params.turnId) && (!turnId || params.turnId === turnId)) {
+      const answer = submittedAnswers.get(params.requestId);
+      if (!answer) return;
+      answer.resolved = true;
+      confirmAnswer(answer);
+      return;
+    }
+    if (params.turnId === turnId && turnId && (method === "item/completed" || method === "rawResponseItem/completed")) {
+      recordAnswerOutput(method, params.item);
+    }
+    if (method === "item/completed" && validId(params.turnId) && (!turnId || params.turnId === turnId)) {
       const item = params.item;
       if (item?.type !== "agentMessage" || item.phase !== "final_answer" || !validId(item.id) || !validText(item.text, 64_000)) return;
       const prior = finals.get(params.turnId);
@@ -151,6 +187,48 @@ function main(file) {
       if (["completed", "failed", "interrupted"].includes(status) && completed.size < 32) completed.set(completedId, status);
       publishBoundReports();
     }
+  }
+
+  function recordAnswerOutput(method, item) {
+    if (item?.name !== "request_user_input") return;
+    const itemId = method === "item/completed" && item.type === "functionCallOutput" ? item.id : method === "rawResponseItem/completed" && item.type === "function_call_output" ? item.call_id : undefined;
+    const answer = [...submittedAnswers.values()].find((entry) => entry.source.itemId === itemId);
+    if (!answer) return;
+    const output = Array.isArray(item.output) && item.output.length === 1 && item.output[0]?.type === "input_text" ? item.output[0].text : item.output;
+    if (!validText(output, 16_000)) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(output);
+    } catch {
+      return;
+    }
+    if (JSON.stringify(parsed) !== JSON.stringify(answer.result)) return;
+    answer.consumed = true;
+    confirmAnswer(answer);
+  }
+
+  function confirmAnswer(answer) {
+    if (!answer.resolved || !answer.consumed || answer.accepted) return;
+    save("answer-ack-" + answer.fingerprint, { fingerprint: answer.fingerprint });
+    answer.accepted = true;
+  }
+
+  function nativeAnswer(data) {
+    const { execution, requestId, requestVersion, nativeRequestId, replyId, answer, operation } = data;
+    if (!turnId || closing || completed.has(turnId) || !execution?.sessionBinding || JSON.stringify(executionFields(execution)) !== JSON.stringify(executionFields(executionBinding)) || !currentQuestion) return "stale";
+    const { source, question } = currentQuestion;
+    const identity = questionIdentity(source);
+    if (source.turnId !== turnId || questions.get(source.rpcId) !== currentQuestion || identity.requestId !== requestId || identity.requestVersion !== requestVersion || identity.nativeRequestId !== nativeRequestId) return "stale";
+    if (!validText(replyId, 256) || !question.options.some(({ label }) => label === answer)) return "unsupported";
+    const fingerprint = hash([...executionFields(execution), requestId, requestVersion, nativeRequestId, replyId, answer]);
+    const previous = submittedAnswers.get(source.rpcId);
+    if (previous) return previous.fingerprint === fingerprint ? (previous.accepted ? "accepted" : "unknown") : "stale";
+    if (operation === "answer.inspect") return "not_sent";
+    const result = { answers: { [source.questionId]: { answers: [answer] } } };
+    save("answer-write-" + nativeRequestId, { fingerprint });
+    submittedAnswers.set(source.rpcId, { source, fingerprint, result });
+    send({ id: source.rpcId, result });
+    return "unknown";
   }
 
   function submit(data) {
@@ -223,6 +301,17 @@ function main(file) {
         return socket.end();
       }
       if (envelope && authentic(envelope.mac, sign("input", [nonce, envelope.data]))) {
+        const operation = envelope.data?.operation;
+        if (operation === "answer.submit" || operation === "answer.inspect") {
+          let status;
+          try {
+            status = nativeAnswer(envelope.data);
+          } catch {
+            status = "unknown";
+            if (operation === "answer.submit") stop("native answer could not be confirmed");
+          }
+          return socket.end(JSON.stringify({ status, mac: sign("answer-response", [nonce, status]) }) + "\n");
+        }
         try {
           submit(envelope.data);
         } catch {

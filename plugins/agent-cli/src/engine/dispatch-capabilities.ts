@@ -3,6 +3,7 @@ import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { AgentDispatch } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, LaunchOptions, ProviderAcceptance } from "./dispatch-store.js";
+import { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 
 export const AgentDispatchTargetInfoSchema = z.object({
   mode: z.enum(["new", "existing", "resume"]),
@@ -71,6 +72,34 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       handler: ({ caller, signal }, input) => {
         trust(caller);
         return dispatch.inspect(input, signal);
+      },
+    }),
+  );
+  const answerOutput = z.strictObject({ status: NativeAnswerStatus });
+  api.defineCapability(
+    def({
+      ...internal,
+      name: "agent.runs.answer",
+      scope: "execute",
+      idempotency: "handler",
+      input: NativeAnswer,
+      output: answerOutput,
+      handler: async ({ caller, signal }, input) => {
+        trust(caller);
+        return { status: await dispatch.answer(input, true, signal) };
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      ...internal,
+      name: "agent.runs.answer.inspect",
+      scope: "read",
+      input: NativeAnswer,
+      output: answerOutput,
+      handler: async ({ caller, signal }, input) => {
+        trust(caller);
+        return { status: await dispatch.answer(input, false, signal) };
       },
     }),
   );

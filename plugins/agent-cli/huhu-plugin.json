@@ -29,6 +29,8 @@
       "agent.review.send",
       "agent.runs.dispatch",
       "agent.runs.inspect",
+      "agent.runs.answer",
+      "agent.runs.answer.inspect",
       "agent.sessions.interrupt",
       "agent.sessions.kill",
       "agent.sessions.launch",

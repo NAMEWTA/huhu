@@ -12,6 +12,7 @@ import { entryOf, type AgentSettingsFile } from "../shared/settings.js";
 import { launchHash } from "./launch-binding.js";
 import { ProviderAcceptance } from "./dispatch-store.js";
 import { putReceiptFile } from "./execution-receipts.js";
+import { answerFingerprint, NativeAnswerIntents, NativeAnswerStatus, type NativeAnswer } from "./native-answer.js";
 import type { LaunchInput } from "./sessions.js";
 
 const Version = "codex-cli 0.171.0";
@@ -20,6 +21,7 @@ const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive() });
 const Launch = z.object({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id });
 const Completion = z.object({ threadId: Id, turnId: Id });
+const AnswerAck = z.strictObject({ fingerprint: Digest });
 const Item = z.strictObject({ threadId: Id, turnId: Id, itemId: Id });
 const NativeReport = z.strictObject({
   source: z.discriminatedUnion("kind", [Item.extend({ kind: z.literal("question"), rpcId: z.union([z.int(), Id]), questionId: Id }), Item.extend({ kind: z.literal("result") })]),
@@ -67,11 +69,14 @@ function signedFile<T>(control: Control, name: string, schema: z.ZodType<T>): T 
 
 export class CodexDispatch {
   private versionCheck?: { stamp: string; result: Promise<boolean> };
+  readonly answerIntents: NativeAnswerIntents;
 
   constructor(
     private readonly options: CodexDispatchOptions,
     private readonly settings: () => AgentSettingsFile,
-  ) {}
+  ) {
+    this.answerIntents = new NativeAnswerIntents(path.join(options.root, "native-answer-intents.json"));
+  }
 
   get configured(): boolean {
     const { binary, helper, home } = this.options;
@@ -195,7 +200,44 @@ export class CodexDispatch {
     putReceiptFile(path.join(control.directory, name + ".json"), { data: ack, mac: signature(control.secret, name, ack) }, true);
   }
 
+  answerAccepted(input: NativeAnswer, session: BoundSession): boolean {
+    const { execution } = input;
+    const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
+    if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return false;
+    const fingerprint = answerFingerprint(input);
+    return signedFile(bound.control, "answer-ack-" + fingerprint, AnswerAck)?.fingerprint === fingerprint;
+  }
+
+  async connectAnswer(input: NativeAnswer, session: BoundSession, signal: AbortSignal) {
+    const connection = await this.open(input.execution, session, signal);
+    if (!connection) return null;
+    const { socket, nonce, secret } = connection;
+    return {
+      exchange(operation: "answer.submit" | "answer.inspect"): Promise<NativeAnswerStatus> {
+        if (socket.destroyed) return Promise.resolve("unknown");
+        const data = { operation, ...input };
+        const result = answerResponse(socket, nonce, secret);
+        socket.end(JSON.stringify({ data, mac: signature(secret, "input", [nonce, data]) }) + "\n");
+        return result;
+      },
+      close: () => socket.destroy(),
+    };
+  }
+
   async connect(execution: ExecutionBinding, session: BoundSession, signal: AbortSignal): Promise<{ submit(input: string): void; close(): void } | null> {
+    const connection = await this.open(execution, session, signal);
+    if (!connection) return null;
+    const { socket, nonce, secret } = connection;
+    return {
+      submit(input) {
+        const data = { execution, input };
+        socket.end(JSON.stringify({ data, mac: signature(secret, "input", [nonce, data]) }) + "\n");
+      },
+      close: () => socket.destroy(),
+    };
+  }
+
+  private async open(execution: ExecutionBinding, session: BoundSession, signal: AbortSignal) {
     signal.throwIfAborted();
     const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return null;
@@ -211,14 +253,36 @@ export class CodexDispatch {
       socket.destroy();
       return null;
     }
-    return {
-      submit(input) {
-        const data = { execution, input };
-        socket.end(JSON.stringify({ data, mac: signature(secret, "input", [nonce, data]) }) + "\n");
-      },
-      close: () => socket.destroy(),
-    };
+    return { socket, nonce, secret };
   }
+}
+
+function answerResponse(socket: Socket, nonce: string, secret: string): Promise<NativeAnswerStatus> {
+  return new Promise((resolve) => {
+    let buffer = "";
+    const finish = (status: NativeAnswerStatus) => {
+      clearTimeout(timer);
+      socket.off("data", receive);
+      socket.off("close", closed);
+      resolve(status);
+    };
+    const closed = () => finish("unknown");
+    const receive = (chunk: string) => {
+      buffer += chunk;
+      if (buffer.length > 256) finish("unknown");
+      else if (buffer.endsWith("\n")) {
+        try {
+          const frame = JSON.parse(buffer) as { status: unknown; mac: unknown };
+          const status = NativeAnswerStatus.parse(frame.status);
+          finish(authentic(frame.mac, signature(secret, "answer-response", [nonce, status])) ? status : "unknown");
+        } catch {
+          finish("unknown");
+        }
+      }
+    };
+    const timer = setTimeout(() => finish("unknown"), 2_000);
+    socket.once("close", closed).on("data", receive);
+  });
 }
 
 function authenticate(socket: Socket, nonce: string, secret: string): Promise<boolean> {

@@ -4,6 +4,7 @@ import { AGENT_CATALOG, type AgentId } from "../shared/catalog.js";
 import { ProviderAcceptance, type AgentDispatchStore, type DispatchInput, type DispatchLookup, type LaunchOptions, type StoredDispatch } from "./dispatch-store.js";
 import type { InputOwnership } from "./input-ownership.js";
 import { launchHash } from "./launch-binding.js";
+import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import type { SessionsService } from "./sessions.js";
 import type { SpaceStore } from "./spaces.js";
 import type { z } from "zod";
@@ -129,6 +130,18 @@ export class AgentDispatch {
     const result = this.observe(prior, signal).finally(() => this.inflight.delete(input.dispatchId));
     this.inflight.set(input.dispatchId, { fingerprint: prior.fingerprint, result });
     return result;
+  }
+
+  async answer(input: NativeAnswer, send: boolean, requestSignal: AbortSignal): Promise<NativeAnswerStatus> {
+    const { execution } = input;
+    const { provider, sessionId, machineId, nativeSessionId } = execution.sessionBinding;
+    this.assertScope({ vaultId: execution.vaultId, machineId });
+    const signal = AbortSignal.any([this.d.signal, requestSignal]);
+    signal.throwIfAborted();
+    if ((send && this.d.readOnly) || this.d.providers[provider as AgentId]?.transport !== "native" || !nativeSessionId) return "unsupported";
+    const record = this.lookup({ ...execution, machineId });
+    if (!record?.execution || record.transport !== "native" || record.write === "not_sent" || launchHash(record.execution) !== launchHash(execution)) return "stale";
+    return this.d.sessions.answerNative(input, send, signal, () => this.d.ownership.hasTask(sessionId, execution.dispatchId) && this.d.ownership.availableForTask(sessionId, execution.dispatchId));
   }
 
   private assertScope(input: { vaultId: string; machineId: string }): void {

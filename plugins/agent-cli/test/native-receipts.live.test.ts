@@ -13,6 +13,8 @@ import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { CodexDispatch } from "../src/engine/codex-dispatch.js";
 import { putReceiptFile, TASKS_RECEIPTS_CONSUME } from "../src/engine/execution-receipts.js";
 import { launchHash } from "../src/engine/launch-binding.js";
+import { type NativeAnswer, type NativeAnswerStatus } from "../src/engine/native-answer.js";
+import { createFixtureGate } from "./fixtures/dispatch-provider.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const fixture = vi.hoisted(() => ({ directory: "", root: "" }));
@@ -329,6 +331,179 @@ test.skipIf(process.platform !== "win32" || !bin)(
           detect.mockRestore();
           vi.unstubAllEnvs();
           if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-w63-compose-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        }
+      }
+    }
+  },
+  85_000,
+);
+
+test.skipIf(process.platform !== "win32" || !bin)(
+  "Windows Engine sends one answer to the original native request and reconciles only matching provider proof",
+  async () => {
+    const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w62-live-")));
+    fixture.directory = sandbox;
+    const makeDir = (name: string) => {
+      const dir = path.join(sandbox, name);
+      mkdirSync(dir);
+      return dir;
+    };
+    const vaultPath = makeDir("vault");
+    const desktopUserData = makeDir("desktop");
+    vi.stubEnv("HUHU_HERDR_BIN", bin!);
+    vi.stubEnv("HUHU_NODE_BIN", process.execPath);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_HOME", makeDir("provider-home"));
+    vi.stubEnv("HUHU_CODEX_DISPATCH_HELPER", path.resolve(import.meta.dirname, "../src/engine/codex-dispatch-helper.cjs"));
+    const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
+    const gate = createFixtureGate();
+    let engine!: RunningEngine;
+    let stopCore: (() => void) | undefined;
+    const signalFixture = (name: string) => writeFileSync(path.join(sandbox, name), "");
+    const events = () => files(sandbox, /^native-events\.log$/).flatMap((file) => readFileSync(file, "utf8").trim().split("\n"));
+    const nativeAnswers = () =>
+      events()
+        .filter((event) => event.startsWith('{"nativeAnswer":'))
+        .map((event) => JSON.parse(event) as unknown);
+    const evidence = (pattern: RegExp) => files(fixture.root, /^[a-f0-9]{64}$/).flatMap((dir) => files(dir, pattern));
+    const acknowledgements = () => evidence(/^answer-ack-.*\.json$/);
+    const writes = () => evidence(/^answer-write-.*\.json$/);
+    const intents = () => files(fixture.root, /^native-answer-intents\.json$/);
+    const inputFor = (text: string) => {
+      const match = evidence(/^report-.*\.json$/)
+        .map((file) => (read(file) as { data: { receipt: ExecutionReceipt } }).data.receipt)
+        .find((receipt) => receipt.kind === "question" && receipt.payload.mode === "native_deferred" && receipt.payload.text === text);
+      if (match?.kind !== "question" || match.payload.mode !== "native_deferred") throw new Error(`Missing fixture question: ${text}`);
+      const { requestId, requestVersion, nativeRequestId } = match.payload;
+      return { execution: match.execution, requestId, requestVersion, nativeRequestId, replyId: "fixture-reply", answer: "Circle" } satisfies NativeAnswer;
+    };
+    const answer = (input: NativeAnswer, inspect = false, caller: "plugin:tasks" | "desktop" = "plugin:tasks", idempotencyKey = randomUUID()) =>
+      engine.dispatcher.call(caller, { ...request(inspect ? "agent.runs.answer.inspect" : "agent.runs.answer", input), idempotencyKey });
+    const status = (value: NativeAnswerStatus) => ({ ok: true, data: { status: value } });
+    const connectAnswer = CodexDispatch.prototype.connectAnswer;
+    const connectSpy = vi.spyOn(CodexDispatch.prototype, "connectAnswer");
+    try {
+      signalFixture("native-answer-fixture");
+      signalFixture("allow-turn-ack");
+      engine = await boot({ vaultPath, desktopUserData, create: true });
+      const mid = machineId();
+      const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
+      const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
+      const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
+      for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
+      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      expect(cli("server", "status").status).toBe(5);
+      stopCore = () => {
+        if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
+        expect(cli("server", "status").status).toBe(5);
+        console.info(JSON.stringify({ phase: "answer-fixture-cleanup", isolatedCoreStopped: true }));
+      };
+      await call(engine, "plugins.setEnabled", { id: "automations", enabled: false });
+      const [space] = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+      const task = await call<TaskDto>(engine, "tasks.create", { title: "Fixture native answer", body: "Isolated native answer probe.", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+      const dispatchId = "fixture-w62";
+      const run = await call<{ runId: string; attempt: number }>(engine, "tasks.dispatch", { taskId: task.id, dispatchId, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
+      await expect.poll(() => evidence(/^report-.*\.json$/), { timeout: 15_000 }).toHaveLength(2);
+      const original = inputFor("Choose a fixture shape");
+      expect(original.execution).toMatchObject({ taskId: task.id, dispatchId, runId: run.runId, attempt: run.attempt });
+      expect(await answer(original, false, "desktop")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      expect(await answer(original, true, "desktop")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      expect(await answer(inputFor("Older fixture question"))).toEqual(status("stale"));
+      expect(await answer({ ...original, requestVersion: 2 })).toEqual(status("stale"));
+      expect(await answer({ ...original, execution: { ...original.execution, sessionBinding: { ...original.execution.sessionBinding, nativeSessionId: "foreign-thread" } } })).toEqual(status("stale"));
+      expect(await answer({ ...original, answer: "circle" })).toEqual(status("unsupported"));
+      expect(await answer(original, true)).toEqual(status("not_sent"));
+      expect(intents()).toHaveLength(0);
+      expect(writes()).toHaveLength(0);
+      expect(nativeAnswers()).toHaveLength(0);
+
+      let connections = 0;
+      connectSpy.mockImplementation(async function (this: CodexDispatch, ...args) {
+        const channel = await connectAnswer.apply(this, args);
+        if (++connections === 2 && channel) await gate.wait();
+        return channel;
+      });
+      const disabled = answer(original);
+      expect(await Promise.race([gate.entered.then(() => "paused"), disabled.then(() => "finished")])).toBe("paused");
+      try {
+        await call(engine, "plugins.setEnabled", { id: "agent-cli", enabled: false });
+        expect(await answer(original, true)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      } finally {
+        gate.resume();
+      }
+      expect(await disabled).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      expect(intents()).toHaveLength(0);
+      expect(writes()).toHaveLength(0);
+      expect(nativeAnswers()).toHaveLength(0);
+      connectSpy.mockRestore();
+      await call(engine, "plugins.setEnabled", { id: "agent-cli", enabled: true });
+      expect(await answer(original, true)).toEqual(status("not_sent"));
+      console.info(JSON.stringify({ phase: "answer-disabled-before-write", intents: intents().length, nativeWrites: nativeAnswers().length }));
+
+      const contenders = [original, { ...original, replyId: "competing-reply", answer: "Square" }];
+      const transportKeys = contenders.map(() => randomUUID());
+      const replies = await Promise.all(contenders.map((input, index) => answer(input, false, "plugin:tasks", transportKeys[index])));
+      expect(replies).toEqual(expect.arrayContaining([status("unknown"), status("stale")]));
+      const chosenIndex = replies.findIndex((reply) => reply.ok && (reply.data as { status: NativeAnswerStatus }).status === "unknown");
+      const chosen = contenders[chosenIndex]!;
+      const competing = contenders[1 - chosenIndex]!;
+      await expect.poll(nativeAnswers).toEqual([{ nativeAnswer: { id: 0, result: { answers: { choice: { answers: [chosen.answer] } } } } }]);
+      expect(intents()).toHaveLength(1);
+      expect(writes()).toHaveLength(1);
+      expect(acknowledgements()).toHaveLength(0);
+      expect(await answer(competing, true)).toEqual(status("stale"));
+      expect(await answer({ ...chosen, answer: competing.answer })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      expect(await answer(chosen, false, "plugin:tasks", transportKeys[chosenIndex])).toEqual(status("unknown"));
+
+      signalFixture("resolve-without-proof");
+      await expect.poll(events).toContain("resolution-without-proof");
+      expect(await answer(chosen, true)).toEqual(status("unknown"));
+      expect(acknowledgements()).toHaveLength(0);
+      console.info(JSON.stringify({ phase: "answer-resolution-without-ack", concurrentStatuses: replies, nativeAnswers: nativeAnswers().length, confirmed: acknowledgements().length }));
+      await engine.shutdown();
+      signalFixture("allow-answer-proof");
+      await expect.poll(acknowledgements, { timeout: 8_000 }).toHaveLength(1);
+      engine = await boot({ vaultPath, desktopUserData });
+      expect(await answer(chosen, true)).toEqual(status("accepted"));
+      expect(await answer(chosen, false, "plugin:tasks", transportKeys[chosenIndex])).toEqual(status("accepted"));
+
+      signalFixture("ask-canceled");
+      await expect.poll(() => evidence(/^report-.*\.json$/)).toHaveLength(3);
+      const canceled = { ...inputFor("Canceled fixture question"), replyId: "canceled-reply" };
+      expect(await answer(canceled, true)).toEqual(status("not_sent"));
+      signalFixture("cancel-question");
+      await expect.poll(() => answer(canceled, true)).toEqual(status("stale"));
+      expect(await answer(canceled)).toEqual(status("stale"));
+      signalFixture("allow-turn-end");
+      await expect.poll(events).toContain("turn-ended");
+      expect(await answer(chosen, true)).toEqual(status("accepted"));
+      expect(nativeAnswers()).toHaveLength(1);
+      expect(events().filter((event) => event === "turn-input")).toHaveLength(1);
+      const info = JSON.parse(cli("server", "status").stdout) as { version: string };
+      expect(info.version).toBe("0.1.19");
+      console.info(
+        JSON.stringify({
+          phase: "answer-reconciled-after-engine-restart",
+          core: info.version,
+          originalThread: original.execution.sessionBinding.nativeSessionId,
+          nativeTurnInputs: 1,
+          nativeAnswers: 1,
+          confirmations: 1,
+          canceledRequest: "stale",
+        }),
+      );
+    } finally {
+      gate.resume();
+      try {
+        await engine?.shutdown();
+      } finally {
+        try {
+          stopCore?.();
+        } finally {
+          connectSpy.mockRestore();
+          detect.mockRestore();
+          vi.unstubAllEnvs();
+          if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-w62-live-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
         }
       }
     }

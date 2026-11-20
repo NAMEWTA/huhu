@@ -11,6 +11,7 @@ import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding
 import type { SpaceStore } from "./spaces.js";
 import type { InputOwnership } from "./input-ownership.js";
 import type { CodexDispatch } from "./codex-dispatch.js";
+import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 
 export interface SessionRecord {
   id: string;
@@ -690,6 +691,58 @@ export class SessionsService {
   nativeReports(execution: ExecutionBinding, inputSha256: string) {
     const owner = this.nativeOwner(execution);
     return owner && this.d.codex ? this.d.codex.reports(execution, owner, inputSha256) : [];
+  }
+
+  async answerNative(input: NativeAnswer, send: boolean, signal: AbortSignal, ownsInput: () => boolean): Promise<NativeAnswerStatus> {
+    const { execution } = input;
+    const { codex } = this.d;
+    if (!codex) return "unsupported";
+    const owner = this.nativeOwner(execution);
+    const { answerIntents } = codex;
+    const persisted = (): NativeAnswerStatus | null => {
+      const intent = answerIntents.lookup(input);
+      if (intent === "occupied") return "stale";
+      if (intent === "original") return owner && codex.answerAccepted(input, owner) ? "accepted" : "unknown";
+      return null;
+    };
+    const prior = persisted();
+    if (prior) return prior;
+    if (!owner) return "stale";
+
+    const { sessionId } = execution.sessionBinding;
+    const session = this.list().find(({ id }) => id === sessionId);
+    if (session?.state !== "running" || !ownsInput()) return "stale";
+    const inspect = await codex.connectAnswer(input, owner, signal);
+    if (!inspect) return persisted() ?? "unknown";
+    let observed: NativeAnswerStatus;
+    try {
+      const terminal = await this.verifiedTerminal(session).catch(() => null);
+      signal.throwIfAborted();
+      if (!terminal || terminal.terminal.state === "finished" || terminal.terminal.finished_ms != null || !ownsInput()) return persisted() ?? "stale";
+      observed = await inspect.exchange("answer.inspect");
+    } finally {
+      inspect.close();
+    }
+    const afterInspect = persisted();
+    if (afterInspect) return afterInspect;
+    signal.throwIfAborted();
+    if (observed !== "not_sent" || !send) return observed === "accepted" ? "unknown" : observed;
+
+    const submit = await codex.connectAnswer(input, owner, signal);
+    if (!submit) return persisted() ?? "unknown";
+    try {
+      const terminal = await this.verifiedTerminal(session).catch(() => null);
+      signal.throwIfAborted();
+      if (!terminal || terminal.terminal.state === "finished" || terminal.terminal.finished_ms != null || !ownsInput()) return persisted() ?? "stale";
+      if (!this.nativeOwner(execution)) return persisted() ?? "stale";
+      // There is no await between the Vault intent and the first possible socket write.
+      if (!answerIntents.claim(input)) return persisted() ?? "unknown";
+      const result = await submit.exchange("answer.submit");
+      if (codex.answerAccepted(input, owner)) return "accepted";
+      return result === "stale" || result === "unsupported" ? result : "unknown";
+    } finally {
+      submit.close();
+    }
   }
 
   async writeExecutionInput(execution: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {
