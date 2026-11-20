@@ -295,8 +295,18 @@ test("H4.2 绑定写入失败零拨号，已删除和身份变更有各自分栏
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     expect(moved.ok, moved.error?.message).toBe(true);
-    // Simulate a missing record left by an older copy of the directory.
-    rmSync(path.join(vault, ".huhu/ssh/hosts", `${removed.data.hostId}.json`));
+    // Simulate a portable directory copied without the referenced host.
+    const definitions = path.join(
+      vault,
+      ".huhu",
+      "module-credentials",
+      `${createHash("sha256")
+        .update(JSON.stringify(["ssh"]))
+        .digest("hex")}.json`,
+    );
+    const directory = JSON.parse(readFileSync(definitions, "utf8")) as { format: 1; entries: { entityId: string }[] };
+    expect(directory.entries.some(({ entityId }) => entityId === removed.data.hostId)).toBe(true);
+    writeFileSync(definitions, JSON.stringify({ ...directory, entries: directory.entries.filter(({ entityId }) => entityId !== removed.data.hostId) }) + "\n");
     await page.reload();
     await openWorkspace(page);
     await page.getByRole("button", { name: "检查旧目标" }).click();
