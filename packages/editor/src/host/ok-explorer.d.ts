@@ -10,6 +10,7 @@ export interface HostFsEntry {
   mtimeMs?: number;
   protected?: string;
   linkOutside?: boolean;
+  linkCycle?: boolean;
 }
 
 export interface FilesRouteDeps {
@@ -18,7 +19,7 @@ export interface FilesRouteDeps {
   hiddenPaths(): readonly string[];
   showHidden(): boolean;
   rename(input: { kind: "file" | "folder" | "asset"; fromPath: string; toPath: string }): Promise<{ moved: Record<string, string> }>;
-  duplicate(input: { kind: "file" | "folder"; path: string }): Promise<{ path: string; paths: string[] }>;
+  duplicate(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ path: string; paths: string[] }>;
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
   listTemplates?(): Promise<string[]>;
@@ -30,7 +31,7 @@ export interface FilesRouteDeps {
 
 export interface OkExplorerProps {
   deps: FilesRouteDeps;
-  onOpen(target: { kind: "file" | "folder" | "asset"; path: string }): void;
+  onOpen(target: { kind: "file" | "folder" | "asset"; path: string; restricted?: boolean }): void;
   onHide(path: string, kind: "file" | "folder"): void | Promise<void>;
   locale?: "en" | "zh-Hans";
   refreshToken?: number;

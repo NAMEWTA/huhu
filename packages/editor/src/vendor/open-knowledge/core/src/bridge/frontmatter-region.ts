@@ -1,28 +1,27 @@
 import {
-  Document,
+  type Document,
   isMap,
   isSeq,
   type Pair,
-  parseDocument,
   type Scalar,
   type YAMLMap,
   type YAMLSeq,
 } from 'yaml';
-import { FRONTMATTER_RE, unwrapFrontmatterFences } from '../extensions/frontmatter.ts';
+import { FRONTMATTER_RE } from '../extensions/frontmatter.ts';
 import {
   type FrontmatterMap,
-  FrontmatterMapSchema,
   FrontmatterPatchSchema,
   type FrontmatterValue,
   FrontmatterValueSchema,
   RESERVED_FRONTMATTER_KEY,
 } from '../frontmatter/schema.ts';
 import {
-  buildValueNode,
-  CODEC_SCHEMA_OPTIONS,
-  STRINGIFY_OPTIONS,
-  withFences,
-} from '../frontmatter/yaml-codec.ts';
+  encodeFrontmatterYaml,
+  encodePatchedFrontmatterYaml,
+  replaceFencedYaml,
+  setFrontmatterValue,
+} from '@huhu/vault/frontmatter-codec';
+import { parseFrontmatterYaml } from '../frontmatter/yaml-codec.ts';
 
 export const MAX_FM_REGION_BYTES = 65536;
 
@@ -37,53 +36,14 @@ export function detectFmRegion(ytextSnapshot: string): FmRegion {
   return { fenced: match[0], body: ytextSnapshot.slice(match[0].length) };
 }
 
-export type ParsedFmRegion =
-  | { doc: Document; map: FrontmatterMap; parseError?: never }
-  | { doc: Document; map: null; parseError: string };
+export type ParsedFmRegion = ReturnType<typeof parseFrontmatterYaml>;
 
 export function parseFmRegion(yamlBody: string): ParsedFmRegion {
-  if (yamlBody.trim() === '') {
-    return { doc: new Document({}), map: {} };
-  }
-  let doc: Document;
-  try {
-    doc = parseDocument(yamlBody, { uniqueKeys: false, ...CODEC_SCHEMA_OPTIONS });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { doc: new Document({}), map: null, parseError: `parse threw: ${msg}` };
-  }
-  if (doc.errors.length > 0) {
-    return { doc, map: null, parseError: doc.errors[0]?.message ?? 'yaml parse errors' };
-  }
-  let json: unknown;
-  try {
-    json = doc.toJS();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { doc, map: null, parseError: `toJS threw: ${msg}` };
-  }
-  if (json == null || typeof json !== 'object' || Array.isArray(json)) {
-    return { doc, map: null, parseError: 'top-level value is not a mapping' };
-  }
-  const result = FrontmatterMapSchema.safeParse(json);
-  if (!result.success) {
-    const issue = result.error.issues[0];
-    const path = issue && Array.isArray(issue.path) ? issue.path.join('.') : '';
-    const reason = issue?.message ?? 'unknown';
-    return {
-      doc,
-      map: null,
-      parseError: path
-        ? `value at "${path}" failed schema: ${reason}`
-        : `schema validation failed: ${reason}`,
-    };
-  }
-  return { doc, map: result.data };
+  return parseFrontmatterYaml(yamlBody, false);
 }
 
 export function parseFencedFmRegion(fenced: string): ParsedFmRegion {
-  if (fenced === '') return { doc: new Document({}), map: {} };
-  return parseFmRegion(unwrapFrontmatterFences(fenced));
+  return parseFmRegion(FRONTMATTER_RE.exec(fenced)?.[2] ?? fenced);
 }
 
 export function readFmMap(ytextSnapshot: string): FrontmatterMap {
@@ -170,14 +130,6 @@ function ensureContents(doc: Document): YAMLMap {
   return doc.contents as YAMLMap;
 }
 
-function stringify(doc: Document): string {
-  const contents = doc.contents as YAMLMap | null | undefined;
-  if (!contents || !('items' in contents) || (contents.items?.length ?? 0) === 0) {
-    return '';
-  }
-  return withFences(doc.toString(STRINGIFY_OPTIONS));
-}
-
 function checkRegionSize(fenced: string): FmEditError | null {
   const bytes = new TextEncoder().encode(fenced).byteLength;
   if (bytes > MAX_FM_REGION_BYTES) {
@@ -186,8 +138,10 @@ function checkRegionSize(fenced: string): FmEditError | null {
   return null;
 }
 
-function finalizeFenced(doc: Document): FmEditResult {
-  const next = stringify(doc);
+function finalizeFenced(doc: Document, currentFenced: string, yaml?: string): FmEditResult {
+  const eol = currentFenced.includes('\r\n') ? '\r\n' : '\n';
+  const contents = yaml ?? encodeFrontmatterYaml(doc).replace(/\n/g, eol);
+  const next = (!isMap(doc.contents) || doc.contents.items.length === 0) ? '' : replaceFencedYaml(contents, currentFenced, eol);
   const sizeErr = checkRegionSize(next);
   if (sizeErr) return { ok: false, error: sizeErr };
   return { ok: true, nextFenced: next };
@@ -226,10 +180,12 @@ export function applyPatchToFm(
         doc.delete(key);
         continue;
       }
-      doc.set(key, buildValueNode(doc, doc.get(key, true), value));
+      setFrontmatterValue(doc, [key], value);
     }
 
-    return finalizeFenced(doc);
+    const original = FRONTMATTER_RE.exec(currentFenced)?.[2] ?? '';
+    const yaml = encodePatchedFrontmatterYaml(doc, original, Object.keys(parsed.data), currentFenced.includes('\r\n') ? '\r\n' : '\n');
+    return finalizeFenced(doc, currentFenced, yaml);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -279,7 +235,7 @@ export function applyRenameToFm(
   try {
     setPairKey(sourcePair, newKey);
 
-    return finalizeFenced(doc);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -332,7 +288,7 @@ export function applyReorderToFm(
     }
     contents.items = next;
 
-    return finalizeFenced(doc);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -405,8 +361,8 @@ export function applyPathSetToFm(
 
   try {
     ensureContents(doc);
-    doc.setIn(path as unknown[], buildValueNode(doc, doc.getIn(path, true), parsed.data));
-    return finalizeFenced(doc);
+    setFrontmatterValue(doc, path, parsed.data);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -431,7 +387,7 @@ export function applyPathDeleteToFm(
     }
     doc.deleteIn(path as unknown[]);
 
-    return finalizeFenced(doc);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -506,7 +462,7 @@ export function applyPathRenameToFm(
 
   try {
     setPairKey(sourcePair, newKey);
-    return finalizeFenced(doc);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -578,7 +534,7 @@ export function applyPathReorderToFm(
     }
     target.items = next;
 
-    return finalizeFenced(doc);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };
@@ -630,7 +586,7 @@ export function applyPathReorderSeqToFm(
     const next = want.map((idx) => original[idx]);
     seq.items = next;
 
-    return finalizeFenced(doc);
+    return finalizeFenced(doc, currentFenced);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, error: { kind: 'parse_failed', reason: `yaml@2 threw: ${reason}` } };

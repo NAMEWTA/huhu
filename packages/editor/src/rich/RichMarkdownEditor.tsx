@@ -5,10 +5,14 @@
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
 import type { EditorPort } from "@huhu/contracts";
 import { useLingui } from "@lingui/react/macro";
-import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+import { toString } from "mdast-util-to-string";
+import { visit } from "unist-util-visit";
 import type { Editor } from "@tiptap/core";
 import type * as Y from "yjs";
 import { Toaster } from "sonner";
+import { useTheme } from "next-themes";
 import { getEditorForDoc, subscribeEditorRegistry } from "@/editor/active-editor";
 import { EmojiInsertPopover } from "@/editor/components/EmojiInsertPopover";
 import { TagDialog } from "@/editor/components/TagDialog";
@@ -19,6 +23,9 @@ import { isOverlayLayerOpen } from "@/lib/overlay-layers";
 import { FindReplaceController } from "@/editor/find-replace/FindReplaceController";
 import { getMarkdownSourceViewForDoc } from "@/editor/full-page-cm-views";
 import { PropertyPanel } from "@/components/PropertyPanel";
+import { ReadonlyPropertyPanel } from "@/components/ReadonlyPropertyPanel";
+import { getSharedMarkdownManager } from "@/editor/utils/md-singleton";
+import { stripFrontmatter } from "../vendor/open-knowledge/core/src/extensions/frontmatter";
 import { SourceEditor } from "@/editor/SourceEditor";
 import { TiptapEditor } from "@/editor/TiptapEditor";
 import { replaceRawBody } from "../vendor/open-knowledge/server-bridge/bridge-intake";
@@ -29,14 +36,46 @@ import { FILE_LOAD_ORIGIN } from "../host/doc-source";
 import { registerOfflineEmojiRoutes } from "../host/offline-emoji";
 import type { LocalDocProvider } from "../host/hocuspocus-provider";
 import { DocumentProvider, useDocumentContext } from "../host/document-context";
+import { okRootClassName } from "./OkRoot";
 
 export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
+
+export interface OutlineHeading {
+  level: number;
+  title: string;
+  line: number;
+}
+
+function outlineHeadings(source: string): OutlineHeading[] {
+  const { frontmatter, body } = stripFrontmatter(source);
+  const lineOffset = (frontmatter.match(/\n/g) ?? []).length;
+  const headings: OutlineHeading[] = [];
+  visit(getSharedMarkdownManager().parseToEditorMdast(body), "heading", (node) => {
+    if (node.position) headings.push({ level: node.depth, title: toString(node), line: lineOffset + node.position.start.line });
+  });
+  return headings;
+}
+
+function ReadonlyProperties({ provider }: { provider: LocalDocProvider }) {
+  const ytext = provider.document.getText("source");
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      ytext.observe(onChange);
+      return () => ytext.unobserve(onChange);
+    },
+    [ytext],
+  );
+  const snapshot = useCallback(() => stripFrontmatter(ytext.toString()).frontmatter, [ytext]);
+  const frontmatter = useSyncExternalStore(subscribe, snapshot, snapshot);
+  return <ReadonlyPropertyPanel text={frontmatter} />;
+}
 
 /** EditorPort + 大纲跳转 / 撤销重做。批注锚点不经由这里：富文本选区不会被换算成源码偏移（S4，D05）。 */
 export interface RichEditorPort extends EditorPort {
   /** 把源码偏移所在行设为光标（大纲跳转） */
   gotoLine(line: number): void;
+  getOutline(source: string): OutlineHeading[];
   undo(): void;
   redo(): void;
   canUndo(): boolean;
@@ -56,6 +95,7 @@ export interface RichMarkdownEditorProps {
   placeholder?: string;
   /** 顶部 YAML 属性面板（OK PropertyPanel；默认：document 变体开启）。属性与正文共用同一 Y.Text，只改 frontmatter 段。 */
   properties?: boolean;
+  propertiesTarget?: HTMLElement | null;
   /** 字号（px）与正文可读宽度（px，null = 不限制）：来自笔记设置 */
   fontSize?: number;
   contentWidth?: number | null;
@@ -87,6 +127,7 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const { t } = useLingui();
+  const { resolvedTheme } = useTheme();
   const { docName, value, onChange, mode = "rich", variant = "document", readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch } = props;
   const [provider, setProvider] = useState<LocalDocProvider | null>(null);
   const editorScope = useRef<HTMLDivElement>(null);
@@ -110,8 +151,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     window.addEventListener("keydown", selectCurrentLink, true);
     return () => window.removeEventListener("keydown", selectCurrentLink, true);
   }, [docName, linkShortcut]);
-  const showProperties = (properties ?? variant === "document") && !readOnly && mode !== "read";
-  const needsEmojiData = enableEmojiPicker || showProperties;
+  const showProperties = properties ?? variant === "document";
+  const propertiesReadOnly = readOnly || mode === "read";
+  const needsEmojiData = enableEmojiPicker || (showProperties && !propertiesReadOnly);
   useEffect(() => (needsEmojiData ? registerOfflineEmojiRoutes() : undefined), [needsEmojiData]);
   useEffect(() => {
     if (!onRevealSource || !enableEmojiPicker) return;
@@ -381,6 +423,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         const { from, to } = ed.state.selection;
         return { text: ed.state.doc.textBetween(from, to, "\n"), from, to };
       },
+      getOutline: outlineHeadings,
       gotoLine(line) {
         const v = cm();
         if (mode === "source" && v) {
@@ -391,14 +434,14 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
         }
         const ed = tip();
         if (!ed) return;
-        const src = text().split("\n");
-        const heading = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(src[Math.max(0, line - 1)] ?? "")?.[1];
-        if (!heading) return;
-        let pos: number | null = null;
-        ed.state.doc.descendants((node, p) => {
-          if (pos === null && node.type.name === "heading" && node.textContent.trim() === heading.trim()) pos = p;
+        provider.settleNow();
+        const ordinal = outlineHeadings(text()).findIndex((heading) => heading.line === line);
+        if (ordinal < 0) return;
+        let index = 0;
+        let target: number | null = null;
+        ed.state.doc.descendants((node, pos) => {
+          if (node.type.name === "heading" && index++ === ordinal) target = pos;
         });
-        const target = pos as number | null;
         if (target !== null)
           ed.chain()
             .focus()
@@ -481,9 +524,17 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
           ) : null}
           {provider && showProperties ? (
             <div className="editor-ok-properties" data-testid="editor-properties" style={{ flex: "0 0 auto" }}>
-              <PropertyPanel provider={provider as never} />
+              {propertiesReadOnly ? <ReadonlyProperties provider={provider} /> : <PropertyPanel provider={provider as never} />}
             </div>
           ) : null}
+          {provider && props.propertiesTarget
+            ? createPortal(
+                <div className={okRootClassName(resolvedTheme === "dark")} data-testid="inspector-properties">
+                  {propertiesReadOnly ? <ReadonlyProperties provider={provider} /> : <PropertyPanel provider={provider as never} />}
+                </div>,
+                props.propertiesTarget,
+              )
+            : null}
           {provider ? (
             <div style={variant === "document" ? { flex: "1 1 0", minHeight: 0, position: "relative" } : { display: "contents" }}>
               {/* 富文本 / 阅读：Tiptap（其 chrome 是 h-full，内容挂在滚动容器 portal 里）；源码模式整块隐藏 */}

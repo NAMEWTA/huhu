@@ -27,7 +27,7 @@ export type { FilesRouteDeps } from "./routes/files";
 export interface OkExplorerProps {
   deps: FilesRouteDeps;
   /** 用户在树里点开一个条目（文件 / 目录 / 非 Markdown 资源）。path 为 Vault 相对路径。 */
-  onOpen(target: { kind: "file" | "folder" | "asset"; path: string }): void;
+  onOpen(target: { kind: "file" | "folder" | "asset"; path: string; restricted?: boolean }): void;
   /** “隐藏”菜单：写 hiddenPaths 偏好（仅树视图）。 */
   onHide(path: string, kind: "file" | "folder"): void | Promise<void>;
   locale?: "en" | "zh-Hans";
@@ -59,6 +59,7 @@ export function notifyExplorerChanged(): void {
 export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken = 0, mode = "light", activePath = null, menuItems }: OkExplorerProps) {
   const [ready, setReady] = useState(false);
   const known = useRef(new Set<string>());
+  const restricted = useRef(new Set<string>());
   const [reveal, setReveal] = useState<{ requested: string; active: string | null } | null>(null);
   useEffect(() => {
     setReveal(null);
@@ -81,7 +82,11 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
       ...deps,
       list: async (dir) => {
         const r = await deps.list(dir);
-        for (const e of r.entries) known.current.add(e.path);
+        for (const e of r.entries) {
+          known.current.add(e.path);
+          if (e.protected || e.linkOutside || e.linkCycle) restricted.current.add(e.path);
+          else restricted.current.delete(e.path);
+        }
         return r;
       },
     };
@@ -99,8 +104,9 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
   useEffect(() => {
     if (refreshToken > 0) notifyExplorerChanged();
   }, [refreshToken]);
-  const host = useMemo(
-    () => ({
+  const host = useMemo(() => {
+    const openFile = (kind: "asset" | "file", path: string) => onOpen({ kind, path, restricted: restricted.current.has(path) });
+    return {
       // 选中高亮：树按 activeTarget / activeDocName 标出当前打开的文件
       activeDocName: treePath && /\.(md|mdx)$/i.test(treePath) ? treePath.replace(/\.(md|mdx)$/i, "") : null,
       activeTarget: !treePath
@@ -110,14 +116,13 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
           : { kind: "asset", target: treePath, assetPath: treePath, mediaKind: null },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
         // 'large-file'：OK 对超过 512 KiB 的文档不进编辑器；Huhu 由查看器分派（viewers/dispatch.ts）决定上限，源码优先打开大笔记（P-S3-01）
-        if (t.kind === "doc" || t.kind === "folder-index" || t.kind === "large-file") onOpen({ kind: "file", path: resolveDocPath(t.docName ?? "", known.current) });
+        if (t.kind === "doc" || t.kind === "folder-index" || t.kind === "large-file") openFile("file", resolveDocPath(t.docName ?? "", known.current));
         else if (t.kind === "folder") onOpen({ kind: "folder", path: t.folderPath ?? "" });
-        else if (t.kind === "asset") onOpen({ kind: "asset", path: t.assetPath ?? "" });
+        else if (t.kind === "asset") openFile("asset", t.assetPath ?? "");
       },
-      openDocument: (docName: string) => onOpen({ kind: "file", path: resolveDocPath(docName, known.current) }),
-    }),
-    [onOpen, treePath],
-  );
+      openDocument: (docName: string) => openFile("file", resolveDocPath(docName, known.current)),
+    };
+  }, [onOpen, treePath]);
   if (!ready) return null;
   return (
     <I18nProvider i18n={i18n}>

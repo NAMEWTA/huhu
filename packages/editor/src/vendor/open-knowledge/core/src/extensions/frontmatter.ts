@@ -1,4 +1,6 @@
-export const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?\r?\n)?---[ \t]*(\r?\n|$)/;
+import { FRONTMATTER_RE } from '@huhu/vault/frontmatter-codec';
+
+export { FRONTMATTER_RE };
 
 export const FM_FENCE_LINE_RE = /^---[ \t]*$/;
 
@@ -23,6 +25,6 @@ export function unwrapFrontmatterFences(fenced: string): string {
   if (fenced === '') return '';
   const match = fenced.match(FRONTMATTER_RE);
   if (!match) return fenced;
-  const body = match[1] ?? '';
+  const body = match[2] ?? '';
   return body.replace(/\r?\n$/, '');
 }

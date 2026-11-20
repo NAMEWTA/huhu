@@ -14,6 +14,7 @@ export interface HostFsEntry {
   mtimeMs?: number;
   protected?: string;
   linkOutside?: boolean;
+  linkCycle?: boolean;
 }
 
 export interface ListedDirState {
@@ -64,6 +65,7 @@ const toFs = (e: VaultListEntry): HostFsEntry => ({
   ...(e.mtimeMs !== undefined ? { mtimeMs: e.mtimeMs } : {}),
   ...(e.protected ? { protected: e.protected } : {}),
   ...(e.linkTarget && !e.linkTarget.inside ? { linkOutside: true } : {}),
+  ...(e.linkTarget?.cycle ? { linkCycle: true } : {}),
 });
 
 export function createFilesDeps(o: FilesDepsOptions) {
@@ -107,7 +109,7 @@ export function createFilesDeps(o: FilesDepsOptions) {
       o.onMoved(moved);
       return { moved };
     },
-    async duplicate(i: { kind: "file" | "folder"; path: string }) {
+    async duplicate(i: { kind: "file" | "folder" | "asset"; path: string }) {
       await ensureFlushed([i.path]);
       const r = await o.engine.call<{ path: string; paths?: string[] }>("notes.duplicate", { path: i.path }, { write: true });
       return { path: r.path, paths: r.paths ?? [r.path] };

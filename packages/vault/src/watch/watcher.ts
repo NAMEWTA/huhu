@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import watcher from "@parcel/watcher";
 import type { ReceiptLog } from "../receipts.js";
@@ -33,6 +33,8 @@ export interface WatcherOptions {
 export class VaultWatcher {
   private snapshot = new Map<string, FileInfo>();
   private subscription: watcher.AsyncSubscription | null = null;
+  private refreshingSubscription: Promise<void> | null = null;
+  private nativeCreates = new Set<string>();
   private pending = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -46,34 +48,53 @@ export class VaultWatcher {
 
   async start(): Promise<void> {
     this.snapshot = takeSnapshot(this.o.root);
-    if (!this.o.forcePolling) {
-      try {
-        // 原生监听报告的是真实路径（macOS 的临时目录 /var → /private/var；Vault 放在符号链接下也一样）：相对路径要按真实根计算
-        let real = this.o.root;
-        try {
-          real = realpathSync(this.o.root);
-        } catch {
-          /* 根目录不存在时沿用原路径 */
-        }
-        this.subscription = await watcher.subscribe(
-          real,
-          (err, events) => {
-            if (err) return this.degrade(String(err.message ?? err));
-            for (const e of events) {
-              const rel = path.relative(real, e.path).split(path.sep).join("/");
-              if (rel && !rel.startsWith("..") && !isIgnored(rel)) this.pending.add(rel);
-            }
-            this.schedule();
-          },
-          { ignore: [".git", "node_modules", ".huhu", ".agents"].map((d) => path.join(real, d)) },
-        );
-        return;
-      } catch (e) {
-        this.degrade(e instanceof Error ? e.message : String(e));
-        return;
-      }
+    if (this.o.forcePolling) {
+      this.degrade("强制轮询");
+      return;
     }
-    this.degrade("强制轮询");
+    try {
+      await this.subscribeNative();
+    } catch (e) {
+      this.degrade(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  private async subscribeNative(): Promise<void> {
+    // Native callbacks report real paths, even when the Vault root is a symlink.
+    const real = realpathSync(this.o.root);
+    const subscription = await watcher.subscribe(
+      real,
+      (err, events) => {
+        if (err) return this.degrade(String(err.message ?? err));
+        for (const e of events) {
+          const rel = path.relative(real, e.path).split(path.sep).join("/");
+          if (!rel || rel.startsWith("..") || isIgnored(rel)) continue;
+          this.pending.add(rel);
+          if (process.platform === "linux" && e.type === "create") this.nativeCreates.add(rel);
+        }
+        this.schedule();
+      },
+      { ignore: [".git", "node_modules", ".huhu", ".agents"].map((d) => path.join(real, d)) },
+    );
+    if (this.closed || this.mode !== "native") await subscription.unsubscribe();
+    else this.subscription = subscription;
+  }
+
+  private refreshNativeSubscription(): void {
+    const old = this.subscription;
+    if (!old || this.refreshingSubscription || this.closed) return;
+    this.subscription = null;
+    this.refreshingSubscription = old
+      .unsubscribe()
+      .then(async () => {
+        if (this.closed || this.mode !== "native") return;
+        await this.subscribeNative();
+        if (this.subscription) this.poll();
+      })
+      .catch((error: unknown) => this.degrade(error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        this.refreshingSubscription = null;
+      });
   }
 
   private degrade(reason: string): void {
@@ -107,8 +128,11 @@ export class VaultWatcher {
 
   private flush(immediate = false): void {
     if ((this.pending.size === 0 && this.heldCreated.length === 0) || this.closed) return;
-    const paths = [...this.pending];
+    const paths = new Set(this.pending);
     this.pending.clear();
+    const nativeCreates = this.nativeCreates;
+    this.nativeCreates = new Set();
+    let refreshNative = false;
     const now = Date.now();
     const created: { path: string; info: FileInfo }[] = [];
     const deleted: { path: string; info: FileInfo }[] = [];
@@ -116,14 +140,30 @@ export class VaultWatcher {
     const dirs: string[] = [];
 
     for (const p of paths) {
+      const absolute = path.join(this.o.root, p);
       const before = this.snapshot.get(p);
-      const after = infoOf(path.join(this.o.root, p), true);
+      const after = infoOf(absolute, true);
       if (!after && !before) {
         // 不是已跟踪的文件：目录被创建 / 删除 / 改名，或已不存在的未跟踪项（保守地都通知，只会多刷新一次列表）
         try {
-          if (statSync(path.join(this.o.root, p)).isDirectory()) dirs.push(p);
+          const entry = lstatSync(absolute);
+          if (entry.isDirectory() || entry.isSymbolicLink()) dirs.push(p);
+          // inotify adds the new directory itself, but misses children created before that watch.
+          if (entry.isDirectory() && nativeCreates.has(p)) {
+            for (const child of readdirSync(absolute, { withFileTypes: true })) {
+              const rel = `${p}/${child.name}`;
+              if (isIgnored(rel)) continue;
+              if (child.isDirectory()) refreshNative = true;
+              else if (child.isFile()) paths.add(rel);
+            }
+          }
         } catch {
           dirs.push(p);
+          // Some native backends report a removed directory without its file descendants.
+          const prefix = `${p}/`;
+          for (const tracked of this.snapshot.keys()) {
+            if (tracked.startsWith(prefix)) paths.add(tracked);
+          }
         }
         continue;
       }
@@ -169,6 +209,7 @@ export class VaultWatcher {
 
     if (changes.length) this.o.onChanges(changes);
     if (dirs.length) this.o.onDirChanges?.(dirs);
+    if (refreshNative) this.refreshNativeSubscription();
   }
 
   private isEcho(rel: string): boolean {
@@ -185,6 +226,7 @@ export class VaultWatcher {
     if (this.timer) clearTimeout(this.timer);
     if (this.holdTimer) clearTimeout(this.holdTimer);
     if (this.pollTimer) clearInterval(this.pollTimer);
+    await this.refreshingSubscription;
     await this.subscription?.unsubscribe();
   }
 }

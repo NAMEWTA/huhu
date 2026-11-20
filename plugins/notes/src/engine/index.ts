@@ -44,6 +44,7 @@ export interface NotesOptions {
 export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): NotesService {
   const svc = new NotesService({
     files: api.vault.files,
+    stateDir: api.vault.stateDir,
     ops: new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations")),
     index: api.vault.index,
     trash: api.vault.trash,

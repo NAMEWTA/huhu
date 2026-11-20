@@ -56,6 +56,24 @@ describe("S5 files 路由（A01 / A05 / A10：全部真实文件、空目录、�
     expect(paths).toContain(".huhu");
     expect(paths).toContain("paper.PDF");
   });
+  test("A10：保护类型贯穿 Markdown 与资产，循环链接保留为不可展开条目", async () => {
+    const stop = registerHostRoutes(
+      filesRoutes({
+        ...deps,
+        list: async () => ({ entries: [e(".git/local.md", "file", { protected: "git" }), e(".git/config", "file", { protected: "git" }), e(".git/loop", "symlink", { linkCycle: true })] }),
+      }),
+    );
+    try {
+      const { documents } = DocumentListSuccessSchema.parse(await get("/api/documents?showAll=true&dir=.git"));
+      expect(documents).toMatchObject([
+        { kind: "document", protected: "git" },
+        { kind: "file", protected: "git" },
+        { kind: "file", linkCycle: true },
+      ]);
+    } finally {
+      stop();
+    }
+  });
   test("Markdown 条目 docName 去掉扩展名，非 Markdown 条目保留路径", async () => {
     const body = DocumentListSuccessSchema.parse(await get("/api/documents?showAll=true&dir=Notes&depth=1"));
     expect(body.documents[0]).toMatchObject({ kind: "document", docName: "Notes/a" });

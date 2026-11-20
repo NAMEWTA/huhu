@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
@@ -77,6 +77,123 @@ test("A06 行内、右键与 Shift+F10 的目标一致，方向键和 Enter 可�
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
     await expect(row).toBeFocused();
+  } finally {
+    await close();
+  }
+});
+
+test("A06/A10：三种入口显示同一限制，右键保留多选，空白菜单在根创建", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const protectedDir = path.join(vault, ".agents");
+    mkdirSync(protectedDir, { recursive: true });
+    writeFileSync(path.join(protectedDir, "仅元信息.md"), "Markdown 内容不能进入编辑器");
+    writeFileSync(path.join(protectedDir, "仅元信息.txt"), "文本内容不能进入编辑器");
+    for (const name of ["甲.md", "乙.md"]) writeFileSync(path.join(vault, name), "保留原字节");
+    await openTree(page);
+    await treeSettled(page);
+    const folder = page.getByTestId("notes-resource-tree").locator('[data-item-path=".agents/"]');
+    const reason = "受保护的资源，仅可查看元信息";
+    await expect(folder).toHaveAttribute("data-file-restriction", reason);
+    await folder.click();
+    const protectedMarkdown = treeItem(page, "仅元信息.md");
+    const protectedText = treeItem(page, "仅元信息.txt");
+    for (const row of [protectedMarkdown, protectedText]) {
+      await expect(row).toHaveAttribute("data-file-restriction", reason);
+      await row.click();
+      await expect(page.getByTestId("file-card")).toHaveAttribute("data-viewer", "protected");
+      await expect(page.getByTestId("file-card")).toContainText("受保护的文件仅显示元信息");
+      await expect(page.locator(".ProseMirror,.cm-content")).toHaveCount(0);
+    }
+    for (const open of [
+      () => protectedMarkdown.click({ button: "right" }),
+      async () => {
+        await protectedMarkdown.hover();
+        await page.getByTestId("notes-resource-tree").getByRole("button", { name: "文件操作选项" }).click();
+      },
+      () => protectedMarkdown.press("Shift+F10"),
+    ]) {
+      await open();
+      await expect(page.getByTestId("file-tree-restriction-reason")).toHaveText(reason);
+      await expect(page.getByRole("menuitem", { name: `重命名：${reason}` })).toBeDisabled();
+      await page.keyboard.press("Escape");
+    }
+
+    const a = treeItem(page, "甲.md");
+    const b = treeItem(page, "乙.md");
+    await a.click();
+    await b.click({ modifiers: ["ControlOrMeta"] });
+    await expect(a).toHaveAttribute("data-item-selected", "true");
+    await expect(b).toHaveAttribute("data-item-selected", "true");
+    await b.click({ button: "right" });
+    await expect(a).toHaveAttribute("data-item-selected", "true");
+    await expect(b).toHaveAttribute("data-item-selected", "true");
+    await expect(page.getByRole("menuitem", { name: /2.*(项|个)/ }).last()).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    const scroll = page.getByTestId("notes-resource-tree").locator("[data-file-tree-virtualized-scroll]");
+    const point = await scroll.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.bottom - 10 };
+    });
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    const menu = page.getByTestId("file-tree-root-menu");
+    await expect(menu).toBeVisible();
+    const newFolder = menu.getByRole("menuitem", { name: "新建文件夹" });
+    await newFolder.focus();
+    await newFolder.dispatchEvent("keydown", { key: "Enter", code: "Enter", isComposing: true });
+    await expect(menu).toBeVisible();
+    await newFolder.click();
+    const rename = page.getByTestId("notes-resource-tree").locator("input:visible");
+    await expect(rename).toBeFocused({ timeout: 15_000 });
+    await rename.fill("根目录新建");
+    await rename.press("Enter");
+    await expect.poll(() => existsSync(path.join(vault, "根目录新建")), { timeout: 15_000 }).toBe(true);
+    for (const name of ["甲.md", "乙.md"]) expect(readFileSync(path.join(vault, name), "utf8")).toBe("保留原字节");
+  } finally {
+    await close();
+  }
+});
+
+test("A05：已挂载的树随外部 mkdir/rmdir 更新", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(path.join(vault, "基准.md"), "挂载时存在");
+    await openTree(page);
+    await expect(treeItem(page, "基准.md")).toBeVisible({ timeout: 30_000 });
+    const externalDir = path.join(vault, "外部 空目录");
+    const row = treeFolder(page, "外部 空目录");
+    await expect(row).toHaveCount(0);
+    mkdirSync(externalDir);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    rmdirSync(externalDir);
+    await expect(row).toHaveCount(0, { timeout: 15_000 });
+  } finally {
+    await close();
+  }
+});
+
+test("A07：非 Markdown 在树里复制、回收，并从回收站原样恢复", async () => {
+  const { page, vault, close } = await openApp();
+  const original = path.join(vault, "原始 数据.json");
+  const copy = path.join(vault, "原始 数据 · 副本.json");
+  const bytes = Buffer.from('\uFEFF{ "值": 42 }\r\n');
+  try {
+    writeFileSync(original, bytes);
+    await openTree(page);
+    await treeMenu(page, treeItem(page, "原始 数据.json"), "创建副本");
+    await expect.poll(() => existsSync(copy)).toBe(true);
+    expect(readFileSync(copy)).toEqual(bytes);
+    const list = page.getByTestId("notes-resource-tree");
+    await treeMenu(page, list.locator('[data-item-path="原始 数据 · 副本.json"]'), /删除|移到/);
+    const dialog = page.getByRole("alertdialog");
+    await dialog.getByRole("button", { name: /删除|移到/ }).click();
+    await expect.poll(() => existsSync(copy)).toBe(false);
+    await page.getByTestId("notes-section-trash").click();
+    await page.getByRole("button", { name: "恢复笔记", exact: true }).click();
+    await expect.poll(() => existsSync(copy)).toBe(true);
+    expect(readFileSync(copy)).toEqual(bytes);
+    expect(readFileSync(original)).toEqual(bytes);
   } finally {
     await close();
   }

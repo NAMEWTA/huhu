@@ -34,7 +34,7 @@ export interface ExplorerProps {
   query: string;
   onQuery(q: string): void;
   selected: string | null;
-  onOpen(path: string): void;
+  onOpen(path: string, restricted?: boolean): void;
   /** 点击文件夹名称（没有 index.md 的文件夹）：宿主可据此打开文件夹视图（例如档案首页）。 */
   onFolderClick?(path: string): void;
   /** 点击顶部“档案”分区：打开 / 聚焦档案首页标签（S6）。 */

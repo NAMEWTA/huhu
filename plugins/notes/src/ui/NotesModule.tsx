@@ -20,6 +20,7 @@ import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
 import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
+import { hasProtectedSegment } from "../shared/attachments.js";
 import { noteTemplateInput } from "./explorer/filesDeps.js";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
@@ -97,13 +98,12 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const [dailyDate, setDailyDate] = useState(today());
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
-  const editorRef = useRef<RichEditorPort | null>(null);
+  const [editorPort, setEditorPort] = useState<RichEditorPort | null>(null);
+  const [propertiesTarget, setPropertiesTarget] = useState<HTMLDivElement | null>(null);
   const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
     flushRef.current = flush;
   }, []);
-  const registerEditor = useCallback((port: RichEditorPort | null) => {
-    editorRef.current = port;
-  }, []);
+  const headings = useMemo(() => (inspector && inspectorTab === "outline" ? (editorPort?.getOutline(docText) ?? []) : []), [docText, editorPort, inspector, inspectorTab]);
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -178,7 +178,8 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   );
   const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
-  const selectedFile = tab?.kind === "file" ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
+  const restrictedFile = tab?.kind === "file" && (tab.view === "viewer" || hasProtectedSegment(tab.path));
+  const selectedFile = tab?.kind === "file" && !restrictedFile ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   // 知识库界面出现就预载编辑器块（F09：打开第一篇笔记不再等块下载与求值）
   useEffect(() => preloadEditorSurface(), []);
@@ -315,10 +316,10 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     else if (/\.[A-Za-z0-9]+$/.test(target) && target.includes("/")) openLinked(target); // 刚创建、列表还没刷新的文件
   };
   /** 文件树 / 标签条的打开：永远是文件标签（Markdown 视图）；档案的 index.md 在这里也是 Markdown（E04）。 */
-  const openNote = (path: string) => {
+  const openNote = (path: string, restricted = false) => {
     pendingArchive.current = null;
     setSection((s) => (s === "trash" ? "all" : s));
-    dispatch({ type: "open", tab: fileTab(vaultRef.current, path) });
+    dispatch({ type: "open", tab: fileTab(vaultRef.current, path, restricted ? "viewer" : "rich") });
     expandTo(path.split("/").slice(0, -1).join("/")); // 展开它所在的文件夹，树里能定位到
   };
   /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
@@ -359,10 +360,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const archiveIndexOfTab = tab?.kind === "file" && archiveNoteRoute(tab.path) ? tab.path : null;
   const archivesActive = shell.sidebar.context === "archives";
   const detail =
-    inspector && selected && tab?.kind === "file" && section !== "trash" ? (
+    inspector && selected && tab?.kind === "file" && !restrictedFile && section !== "trash" ? (
       <NoteInspector
         path={selected}
-        text={docText}
+        headings={headings}
+        propertiesRef={setPropertiesTarget}
         tags={current?.tags ?? []}
         tab={inspectorTab}
         onTab={setInspectorTab}
@@ -371,7 +373,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         readOnly={false}
         onClose={() => setInspector(false)}
         onOpen={openLinked}
-        onJump={(line) => editorRef.current?.gotoLine(line)}
+        onJump={(line) => editorPort?.gotoLine(line)}
         onOpenHistory={() => onNavigate?.("versioning")}
         {...(onNavigate ? { onNavigate } : {})}
       />
@@ -506,7 +508,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
             </Suspense>
             {detail}
           </>
-        ) : tab?.kind === "file" && section !== "trash" && !/\.md$/i.test(tab.path) ? (
+        ) : tab?.kind === "file" && section !== "trash" && (restrictedFile || !/\.md$/i.test(tab.path)) ? (
           <>
             <Suspense fallback={<p role="status">{t.loading}</p>}>
               <UnindexedFileViewer key={tab.path} path={tab.path} />
@@ -537,6 +539,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               favorite={current?.favorite === true}
               inspectorOpen={inspector}
               detail={detail}
+              propertiesTarget={propertiesTarget}
               onToggleInspector={() => setInspector((v) => !v)}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
@@ -546,7 +549,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               }}
               onText={setDocText}
               registerFlush={registerFlush}
-              registerEditor={registerEditor}
+              registerEditor={setEditorPort}
               onAddComment={addComment}
             />
           </>

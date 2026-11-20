@@ -19,6 +19,7 @@ export interface NoteEditorSurfaceProps {
   value: string;
   onChange(text: string): void;
   mode: EditorViewMode;
+  propertiesTarget: HTMLElement | null;
   onRevealSource(): void;
   notes: readonly SurfaceNoteRef[];
   /** 编辑器内点击 wiki-link / 内部链接：交给笔记模块打开 */
@@ -165,6 +166,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         value={props.value}
         onChange={props.onChange}
         mode={props.mode}
+        propertiesTarget={props.propertiesTarget}
         assetActions={assetActions}
         onPort={props.onPort}
         onRevealSource={props.onRevealSource}

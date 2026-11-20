@@ -59,6 +59,11 @@
 - 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
 
+- P-S5-06 `app/src/components/FileTree.tsx`：树空白处打开根目录操作，使用已有内联创建及模板流程。文件和目录共享同一个受限原因，并保护多选、输入法组字及拖放目标。普通非 Markdown 文件经宿主复制能力创建副本。
+- P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。
+- P-S5-08 `app/src/components/file-tree-operations.ts`：复制普通文件后用原资产条目更新树。
+- P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。
+
 ## S3（编辑行为对等与性能 F09）补丁
 
 - P-S3-01（宿主，非 vendor 文件）大文档源码优先打开：`host/hocuspocus-provider.ts`（`lazyRich` / `ensureRich()` / `settleNow()`）、`host/provider-pool.ts`、`rich/RichMarkdownEditor.tsx`。源码模式只装载 `Y.Text('source')`；解析 + `Y.XmlFragment` + 桥观察者延后到切换富文本时。1 MiB 文档打开：5.4 s → 约 0.45 s。
@@ -319,3 +324,9 @@
 - P-H02-02 `app/src/globals.css` 与 P-H02-01 的八个浮层文件：深色变体和图片遮罩接受宿主 `data-mode="dark"`，保留独立预览的 `.dark`；图片缩放库样式由宿主 CSS 生成器按 OK 作用域导入。浮层追加 `editor-ok-portal` 标记，供宿主映射其 UI 字体，拖拽预览继续沿用正文计算样式。
 
 - P-H02-03 `app/src/lib/ok-portal.ts`、`app/src/editor/bubble-menu/BubbleMenuBar.tsx`：共享 Radix 浮层容器标记为宿主浮层，气泡使用专用类映射宿主的浮层圆角与阴影。快捷键标签的字体映射在宿主 token-map 中通过既有部件标识应用。
+
+## C01–C03 / OP-D17 属性视图与 YAML
+
+- `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：委托 Vault 的浏览器可用 YAML codec。保留 OK 的字段校验、重复键策略与删除语义，标量改值保留邻接源码。
+- `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。
+- `app/src/components/ReadonlyPropertyPanel.tsx`、`app/src/components/PropertyDisplayRow.tsx`：迁入固定上游的阅读属性视图及行组件。
