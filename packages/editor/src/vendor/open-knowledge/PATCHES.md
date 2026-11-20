@@ -338,5 +338,5 @@
 ## D02 评论 Markdown 与引用
 
 - `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
-- `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。
+- `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。
 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。

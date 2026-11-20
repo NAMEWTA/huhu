@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
-import { CommentMarkdown } from './CommentMarkdown';
+import { CommentExternalLinkContext, CommentMarkdown } from './CommentMarkdown';
 
 afterEach(() => {
   cleanup();
@@ -49,4 +49,19 @@ test('omits active HTML and automatic media and displays unsafe link labels as t
   expect(container.textContent).toContain('image label');
   expect(container.textContent).toContain('HTML label');
   expect(container.textContent).not.toContain('commentMarker');
+});
+
+test('dispatches a scoped host link without adding a desktop bridge to the window', () => {
+  const openExternal = vi.fn(async () => {});
+  const openWindow = vi.spyOn(window, 'open').mockImplementation(() => null);
+  const previousBridge = window.okDesktop;
+  render(
+    <CommentExternalLinkContext.Provider value={openExternal}>
+      <CommentMarkdown text="[host link](https://example.test/)" />
+    </CommentExternalLinkContext.Provider>,
+  );
+  fireEvent.click(screen.getByRole('link', { name: 'host link' }));
+  expect(openExternal).toHaveBeenCalledWith('https://example.test/');
+  expect(openWindow).not.toHaveBeenCalled();
+  expect(window.okDesktop).toBe(previousBridge);
 });

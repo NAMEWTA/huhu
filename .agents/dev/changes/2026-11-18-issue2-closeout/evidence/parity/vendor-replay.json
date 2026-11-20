@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "aa0994a97f72af87c4c5f9031116b0bf1ba336fcb70e13cddb4013fde1ceea88",
+      "sha256": "2d3c9932412988e40019d35f25e3c739c473844af8e25663f56619b889b84240",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -66,7 +66,7 @@
       "target": "app/src/comments/CommentMarkdown.dom.test.tsx",
       "upstream": null,
       "blob": null,
-      "sha256": "6d0f98cd417771b296e5322544daa82535bc15418ed63629a300b045bb69ae0e",
+      "sha256": "00a8bd6de54df75168cc5439344fe32e0cce0cd093c8a54748346fc453bf964e",
       "method": "local",
       "description": "PATCHES.md:342 - `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。"
     },
@@ -74,9 +74,9 @@
       "target": "app/src/comments/CommentMarkdown.tsx",
       "upstream": null,
       "blob": null,
-      "sha256": "d4d33ab1f6f8d98353ce81fc0a7306fc56a9ec232cdd7e8255858e087028c784",
+      "sha256": "32860ce9713764324e809a8466885dd39801698aa9fc10897496d04f4a6fc4f5",
       "method": "local",
-      "description": "PATCHES.md:341 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。"
+      "description": "PATCHES.md:341 - `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。"
     },
     {
       "target": "app/src/comments/CommentProjectPanel.tsx",
