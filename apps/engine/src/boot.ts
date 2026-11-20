@@ -129,13 +129,7 @@ export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir" | "root">): End
 export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
-  registry.declareDescriptors("mail", [
-    mail.mailAccountsListDescriptor,
-    mail.mailRefreshDescriptor,
-    mail.mailLatestMessageDescriptor,
-    mail.mailMessageSourceDescriptor,
-    ...Object.values(mail.mailOAuthCapabilityDescriptors),
-  ]);
+  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor, ...Object.values(mail.mailOAuthCapabilityDescriptors)]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.terminalEnvironmentDescriptors));
