@@ -42,7 +42,7 @@ export default defineConfig({
       rollupOptions: {
         input: { index: "src/main/index.ts", engine: "../engine/src/main.ts" },
         // 原生模块不打包；其余工作区源码被打进各自入口
-        external: ["electron", "@parcel/watcher", "bufferutil", "utf-8-validate", "cpu-features", "ssh2"],
+        external: ["electron", "@parcel/watcher", "koffi", "bufferutil", "utf-8-validate", "cpu-features", "ssh2"],
         output: { format: "es", entryFileNames: "[name].js" },
       },
     },

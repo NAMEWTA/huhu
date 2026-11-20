@@ -276,6 +276,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @jridgewell/trace-mapping | 0.3.31 | MIT | https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping |
 | @keyv/bigmap | 1.3.1 | MIT | https://github.com/jaredwray/keyv |
 | @keyv/serialize | 1.1.1 | MIT | https://github.com/jaredwray/keyv |
+| @koromix/koffi-linux-x64 | 3.3.8 | MIT | https://koffi.dev/ |
 | @lezer/common | 1.5.5 | MIT |  |
 | @lezer/css | 1.3.9 | MIT |  |
 | @lezer/highlight | 1.2.5 | MIT |  |
@@ -1034,6 +1035,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | kleur | 4.1.5 | MIT |  |
 | knip | 6.44.2 | ISC | https://knip.dev |
 | known-css-properties | 0.37.0 | MIT | https://github.com/known-css/known-css-properties#readme |
+| koffi | 3.3.8 | MIT | https://koffi.dev/ |
 | langium | 3.3.1 | MIT | https://langium.org |
 | layout-base | 1.0.2 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |
 | layout-base | 2.0.1 | MIT | https://github.com/iVis-at-Bilkent/layout-base#readme |

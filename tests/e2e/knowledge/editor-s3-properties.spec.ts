@@ -322,14 +322,59 @@ test("F02：Markdown、TXT 和 JSON 在显式转换前保留旧编码字节", as
       await expect(page.getByTestId("file-encoding-unsupported")).toBeVisible();
       await expect(page.locator(".ProseMirror[contenteditable=true], .cm-content[contenteditable=true]")).toHaveCount(0);
       const convert = page.getByRole("button", { name: "转换并保存为 UTF-8" });
-      await expect(convert).toBeDisabled();
+      await expect(convert).toHaveCount(0);
       await page.getByLabel("原文件编码").selectOption("gb18030");
+      await page.getByRole("button", { name: "预览解码" }).click();
+      await expect(page.getByTestId("file-encoding-preview")).toContainText("你好");
       expect(readFileSync(file)).toEqual(bytes);
       await convert.click();
       await expect.poll(() => readFileSync(file)).toEqual(Buffer.from(text));
       const editor = name.endsWith(".md") ? prose(page) : page.locator(".cm-content");
       await expect(editor).toContainText("你好");
       await page.getByRole("button", { name: `关闭 ${name.replace(/\.md$/i, "")}`, exact: true }).click();
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("F02：UTF-16 带或不带 BOM 都先预览，错误编码和二进制保持只读", async () => {
+  const { page, vault, close } = await openApp();
+  const samples = [
+    { name: "带标记.txt", native: Buffer.from("\ufeffhello 你好\n", "utf16le"), wrong: "utf-16be", text: "hello 你好\n" },
+    { name: "无标记.txt", native: Buffer.from("hello 你好\n", "utf16le"), wrong: null, text: "hello 你好\n" },
+    { name: "二进制.txt", native: Buffer.from([0x00, 0xff, 0x20]), wrong: "utf-16le", text: null },
+  ];
+  try {
+    for (const item of samples) writeFileSync(path.join(vault, item.name), item.native);
+    await gotoNotes(page);
+    for (const { name, native, wrong, text } of samples) {
+      const file = path.join(vault, name);
+      await treeItem(page, name).click();
+      const unsupported = page.getByTestId("file-encoding-unsupported");
+      await expect(unsupported).toBeVisible();
+      await expect(page.locator(".cm-content[contenteditable=true]")).toHaveCount(0);
+      const convert = page.getByRole("button", { name: "转换并保存为 UTF-8" });
+      const preview = page.getByRole("button", { name: "预览解码" });
+      const encoding = page.getByLabel("原文件编码");
+      await expect(convert).toHaveCount(0);
+      if (wrong) {
+        await encoding.selectOption(wrong);
+        await preview.click();
+        await expect(unsupported.getByRole("alert")).toBeVisible();
+        await expect(convert).toHaveCount(0);
+        expect(readFileSync(file)).toEqual(native);
+      }
+      if (text !== null) {
+        await encoding.selectOption("utf-16le");
+        await preview.click();
+        await expect(page.getByTestId("file-encoding-preview")).toContainText("hello 你好");
+        expect(readFileSync(file)).toEqual(native);
+        await convert.click();
+        await expect.poll(() => readFileSync(file)).toEqual(Buffer.from(text));
+        await expect(page.locator(".cm-content")).toContainText("hello 你好");
+      }
+      await page.getByRole("button", { name: `关闭 ${name}`, exact: true }).click();
     }
   } finally {
     await close();

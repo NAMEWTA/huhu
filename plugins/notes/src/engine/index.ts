@@ -150,8 +150,20 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       exposable: false,
       defaultExposed: false,
       input: Path,
-      output: z.object({ state: z.enum(["ok", "binary", "encoding"]), version: z.string() }),
+      output: z.object({ state: z.enum(["ok", "binary", "encoding"]), encodings: z.array(z.enum(legacyTextEncodings)), version: z.string() }),
       handler: (_c, i) => svc.inspectEncoding(i.path),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.previewEncoding",
+      plugin: "notes",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: Path.extend({ encoding: z.enum(legacyTextEncodings), expectedVersion: z.string() }),
+      output: z.object({ text: z.string(), truncated: z.boolean() }),
+      handler: (_c, i) => svc.previewEncoding(i.path, i.encoding, i.expectedVersion),
     }),
   );
   api.defineCapability(

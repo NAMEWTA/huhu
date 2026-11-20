@@ -21,7 +21,7 @@
       "ignoreDependencies": ["tsx"]
     },
     "apps/desktop": {
-      "ignoreDependencies": ["@parcel/watcher", "ssh2"],
+      "ignoreDependencies": ["@parcel/watcher", "koffi", "ssh2"],
       "entry": ["scripts/before-pack.cjs", "src/index.ts"]
     },
     "apps/cli": {

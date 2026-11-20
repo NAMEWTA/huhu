@@ -16,13 +16,34 @@ import { v } from "./strings.js";
  */
 export function TextFileView({ path, language, toolbarLead, sidecar }: { path: string; language: "text" | "json"; toolbarLead?: ReactNode | undefined; sidecar?: ((text: string) => ReactNode) | undefined }) {
   const probe = useCapability<TextEncodingInfo>("notes.textEncoding", { path });
-  if (probe.data?.state === "ok") return <TextEditorBody path={path} language={language} toolbarLead={toolbarLead} sidecar={sidecar} />;
+  const [failedConversion, setFailedConversion] = useState<{ path: string; message: string } | null>(null);
+  if (probe.data?.state === "ok")
+    return (
+      <>
+        {failedConversion?.path === path ? (
+          <p role="alert" className="hu-field-error">
+            {failedConversion.message}
+          </p>
+        ) : null}
+        <TextEditorBody path={path} language={language} toolbarLead={toolbarLead} sidecar={sidecar} />
+      </>
+    );
   return (
     <>
       <FileToolbar path={path}>{toolbarLead}</FileToolbar>
       <div className="hu-empty-state" style={{ margin: "auto" }} data-testid="file-unreadable">
-        {probe.data?.state === "encoding" ? <EncodingConversion key={path} path={path} onConverted={() => void probe.refetch()} /> : null}
-        {probe.data?.state === "binary" ? <p className="hu-hint-text">{v.binary}</p> : null}
+        {probe.data?.encodings.length ? (
+          <EncodingConversion
+            key={path}
+            path={path}
+            onConverted={() => {
+              setFailedConversion(null);
+              void probe.refetch();
+            }}
+            onConversionError={(message) => setFailedConversion({ path, message })}
+          />
+        ) : null}
+        {probe.data?.state === "binary" && !probe.data.encodings.length ? <p className="hu-hint-text">{v.binary}</p> : null}
         {probe.error ? <p className="hu-field-error">{probe.error.message}</p> : null}
         {probe.isPending ? <p className="hu-hint-text">{v.reading}</p> : null}
       </div>

@@ -1,9 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { OperationLog, ReceiptLog, VaultFiles, versionOf } from "../src/index.js";
+import * as moves from "../src/rename.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof fsPromises>();
+  return { ...actual, link: vi.fn(actual.link) };
+});
 
 import { createRequire } from "node:module";
 const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
@@ -61,6 +68,51 @@ describe("VaultFiles", () => {
     expect(readdirSync(root).filter((name) => name.startsWith(".huhu-create-"))).toEqual([]);
   });
 
+  test.each(["EPERM", "EXDEV", "ENOTSUP"])("卷不支持硬链接时仍可独占发布（%s）", async (code) => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const link = vi.spyOn(fsPromises, "link").mockRejectedValue(Object.assign(new Error(code), { code }));
+    try {
+      const results = await Promise.allSettled(["first", "second"].map((value) => files.write("new.md", Buffer.from(value), { expectedVersion: null })));
+      const winner = results.findIndex((result) => result.status === "fulfilled");
+      expect(results[1 - winner]).toMatchObject({ status: "rejected", reason: { code: "NAME_CONFLICT" } });
+      expect(read(root, "new.md")).toBe(["first", "second"][winner]);
+      await expect(
+        log.run("fallback", "copy", [
+          { action: "write", path: "copy.md", bytes: Buffer.from("copy"), expectedVersion: null },
+          { action: "rename", from: "a.md", path: "b.md" },
+        ]),
+      ).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+      expect(read(root, "copy.md")).toBeNull();
+      expect(read(root, "b.md")).toBe("B-old");
+      expect(readdirSync(root).some((name) => name.startsWith(".huhu-create-"))).toBe(false);
+    } finally {
+      link.mockRestore();
+    }
+  });
+
+  test("转换发布前外部同名创建时保留当前文件及原始备份", () => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const target = path.join(root, "a.md");
+    const move = moves.renameNoReplace;
+    const spy = vi.spyOn(moves, "renameNoReplace").mockImplementation((from, to, label) => {
+      if (path.basename(from) === "converted") writeFileSync(to, "rival", { flag: "wx" });
+      move(from, to, label);
+    });
+    try {
+      expect(() => files.replaceRecoverably("a.md", Buffer.from("A-old"), Buffer.from("conversion"), 32, ops)).toThrow(/转换已停止/);
+      const recovery = path.join(ops, "operations", "encoding-recovery");
+      const copy = path.join(recovery, readdirSync(recovery)[0]!);
+      expect(readFileSync(path.join(copy, "original"))).toEqual(Buffer.from("A-old"));
+      expect(readFileSync(path.join(copy, "inspected"))).toEqual(Buffer.from("A-old"));
+      expect(readFileSync(target)).toEqual(Buffer.from("rival"));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("版本冲突、必须不存在、回执", async () => {
     const { root } = init();
     const f = new VaultFiles(root);
@@ -114,6 +166,22 @@ describe("多文件操作", () => {
     expect(read(root, "e.md")).toBe("E-old");
     expect(log.load("bad1")?.state).toBe("rolled_back");
   });
+  test.each([false, true])("最后一次检查后同名写入保留双方（大小写改名：%s）", async (caseOnly) => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const destination = caseOnly ? "A.md" : "new.md";
+    const exists = files.exists.bind(files);
+    vi.spyOn(files, "exists").mockImplementation((rel) => {
+      const found = exists(rel);
+      if (rel === destination && !found) writeFileSync(path.join(root, rel), "rival", { flag: "wx" });
+      return found;
+    });
+    await expect(log.run("late-collision", "rename", [{ action: "rename", from: "a.md", path: destination, ...(caseOnly ? { caseOnly: true } : {}) }])).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+    expect(read(root, destination)).toBe("rival");
+    expect(read(root, "a.md")).toBe("A-old");
+  });
+
   test("大小写改名在第一跳后检测到目标冲突时恢复原路径", async () => {
     const { root, ops } = init();
     const files = new VaultFiles(root);
