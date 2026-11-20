@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree } from "../helpers/launch.js";
-import { treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
+import { treeFolder, treeItem, treeMenu, treeRename, treeSettled } from "../helpers/tree.js";
 import { call, engineReady, holdBridgeTimers } from "./session-slow-bridge.js";
 
 const name = "退出交付.md";
@@ -227,6 +227,56 @@ test("A08：移父目录前结算活动 TXT，后台 Markdown 与 JSON 草稿迁
     await expect(plain).toContainText("JSON末字");
     expect(readFileSync(path.join(vault, after, "后台.json"), "utf8")).toBe(files["后台.json"]);
   } finally {
+    await close();
+  }
+});
+
+test("A08：文件操作结果返回前暂停编辑，返回后输入写入新路径", async () => {
+  const { page, vault, close } = await openApp();
+  const renamed = "已重命名.md";
+  const before = path.join(vault, name);
+  const after = path.join(vault, renamed);
+  const release = Promise.withResolvers<void>();
+  let held = false;
+  try {
+    writeFileSync(before, original);
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (request.capability !== "notes.rename" || request.input?.path !== name) return route.continue();
+      const response = await route.fetch();
+      held = true;
+      await release.promise;
+      await route.fulfill({ response });
+    });
+    await treeRename(page, treeItem(page, name), renamed.slice(0, -3));
+    await expect.poll(() => held).toBe(true);
+    expect(existsSync(before)).toBe(false);
+    expect(readFileSync(after, "utf8")).toBe(original);
+
+    const editor = prose(page);
+    const tabs = page.getByTestId("document-tabs");
+    await expect(tabs.getByTitle(name, { exact: true })).toBeVisible();
+    await expect(editor).toContainText("初始正文");
+    await editor.evaluate((element) => (element as HTMLElement).focus());
+    await expect(editor).not.toBeFocused();
+    await page.keyboard.insertText("不应写入旧路径");
+    await expect(editor).not.toContainText("不应写入旧路径");
+
+    release.resolve();
+    await expect(tabs.getByTitle(renamed, { exact: true })).toBeVisible();
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("新路径的输入");
+    await expect(editor).toContainText("初始正文新路径的输入");
+    await page.getByTestId("note-save").click();
+    await expect.poll(() => readFileSync(after, "utf8")).toBe(original.replace("初始正文", "初始正文新路径的输入"));
+    expect(existsSync(before)).toBe(false);
+    expect(await call(page, "notes.draft.get", { path: name })).toBeNull();
+  } finally {
+    release.resolve();
     await close();
   }
 });

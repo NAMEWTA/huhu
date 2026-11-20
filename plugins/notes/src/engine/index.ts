@@ -1,3 +1,4 @@
+import { legacyTextEncodings } from "../shared/text-encoding.js";
 import { errors } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
@@ -143,6 +144,35 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   );
   api.defineCapability(
     def({
+      name: "notes.textEncoding",
+      plugin: "notes",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: Path,
+      output: z.object({ state: z.enum(["ok", "binary", "encoding"]), version: z.string() }),
+      handler: (_c, i) => svc.inspectEncoding(i.path),
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "notes.convertEncoding",
+      plugin: "notes",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: Path.extend({ encoding: z.enum(legacyTextEncodings), expectedVersion: z.string() }),
+      output: z.object({ version: z.string() }),
+      handler: async (c, i) => {
+        assertNotAutomationsDir(c.caller, i.path);
+        const result = await svc.convertEncoding(i.path, i.encoding, i.expectedVersion);
+        changed(svc.noteId(i.path), "updated");
+        return result;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
       name: "notes.save",
       plugin: "notes",
       scope: "write",
@@ -153,9 +183,10 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       handler: async (c, i) => {
         assertNotAutomationsDir(c.caller, i.path);
         const r = await svc.save(i.path, i.text, i.expectedVersion);
-        await comments.refind(i.path, i.text, r.version).catch(() => undefined); // 批注重定位失败不应让保存失败
+        const source = r.previous.version === i.expectedVersion ? r.previous : undefined;
+        await comments.refind(i.path, i.text, r.version, source).catch(() => undefined); // 批注重定位失败不应让保存失败
         changed(svc.noteId(i.path), "updated");
-        return r;
+        return { version: r.version };
       },
     }),
   );

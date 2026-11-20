@@ -16,10 +16,11 @@ import { dynamicActivate } from "@/lib/activate-locale";
 import { emitDocumentsChanged } from "@/lib/documents-events";
 import { setHostHiddenPaths, setHostMenuExtras } from "@/lib/host-hidden";
 import { i18n } from "@/lib/i18n";
+import { OkFetchContext } from "@/lib/ok-fetch";
 import { FILE_TREE_REVEAL_EVENT } from "./file-tree-reveal";
 import { HostConfigProvider } from "./config-provider";
 import { DocumentProvider } from "./document-context";
-import { installHostFetch, registerHostRoutes } from "./host-fetch";
+import { createHostFetch } from "./host-fetch";
 import { filesRoutes, type FilesRouteDeps } from "./routes/files";
 
 export type { FilesRouteDeps } from "./routes/files";
@@ -48,9 +49,6 @@ function resolveDocPath(docName: string, known: ReadonlySet<string>): string {
   return `${docName}.md`;
 }
 
-let sharedClient: QueryClient | null = null;
-const queryClient = () => (sharedClient ??= new QueryClient());
-
 /** 通知树重新列举（外部变更监听 / 其他入口写入后调用）。 */
 export function notifyExplorerChanged(): void {
   emitDocumentsChanged(["files"]);
@@ -75,8 +73,8 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
       live = false;
     };
   }, [locale]);
-  useEffect(installHostFetch, []);
-  useEffect(() => {
+  const [queryClient] = useState(() => new QueryClient());
+  const request = useMemo(() => {
     const tracked: FilesRouteDeps = {
       ...deps,
       list: async (dir) => {
@@ -90,7 +88,7 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
       },
     };
     // 菜单回调变化时，子树的首次列举仍须命中已注册的文件路由。
-    return registerHostRoutes(filesRoutes(tracked));
+    return createHostFetch(filesRoutes(tracked));
   }, [deps]);
   useEffect(() => {
     setHostHiddenPaths({ hide: (p, k) => onHide(p, k) });
@@ -126,19 +124,21 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
   return (
     <I18nProvider i18n={i18n}>
       <ThemeProvider attribute="class" forcedTheme={mode}>
-        <QueryClientProvider client={queryClient()}>
+        <QueryClientProvider client={queryClient}>
           <TooltipProvider>
             <HostConfigProvider>
               <DocumentProvider host={host as never}>
-                <PageListProvider>
-                  <ExternalHandoffGateProvider>
-                    <SidebarProvider style={{ minHeight: 0, height: "100%", flex: 1 }}>
-                      <div className="ok-root ok-explorer-root" lang={locale} data-testid="ok-explorer" style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
-                        <FileTree />
-                      </div>
-                    </SidebarProvider>
-                  </ExternalHandoffGateProvider>
-                </PageListProvider>
+                <OkFetchContext value={request}>
+                  <PageListProvider>
+                    <ExternalHandoffGateProvider>
+                      <SidebarProvider style={{ minHeight: 0, height: "100%", flex: 1 }}>
+                        <div className="ok-root ok-explorer-root" lang={locale} data-testid="ok-explorer" style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+                          <FileTree />
+                        </div>
+                      </SidebarProvider>
+                    </ExternalHandoffGateProvider>
+                  </PageListProvider>
+                </OkFetchContext>
               </DocumentProvider>
             </HostConfigProvider>
           </TooltipProvider>

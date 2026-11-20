@@ -5,30 +5,31 @@ export interface DocumentListFetchResult {
   body: unknown;
 }
 
-let inflight: Promise<DocumentListFetchResult> | null = null;
+let inflight = new WeakMap<typeof okFetch, Promise<DocumentListFetchResult>>();
 
-export function fetchDocumentListShared(): Promise<DocumentListFetchResult> {
-  if (inflight) return inflight;
+export function fetchDocumentListShared(request = okFetch): Promise<DocumentListFetchResult> {
+  const existing = inflight.get(request);
+  if (existing) return existing;
   const pending = (async (): Promise<DocumentListFetchResult> => {
-    const res = await okFetch('/api/documents');
+    const res = await request('/api/documents');
     const body = (await res.json().catch((err: unknown) => {
       console.warn('[documents-fetch] /api/documents response was not valid JSON:', err);
       return null;
     })) as unknown;
     return { ok: res.ok, status: res.status, body };
   })();
-  inflight = pending;
+  inflight.set(request, pending);
   void pending.then(
     () => {
-      if (inflight === pending) inflight = null;
+      if (inflight.get(request) === pending) inflight.delete(request);
     },
     () => {
-      if (inflight === pending) inflight = null;
+      if (inflight.get(request) === pending) inflight.delete(request);
     },
   );
   return pending;
 }
 
 export function __resetDocumentListInflightForTests(): void {
-  inflight = null;
+  inflight = new WeakMap();
 }

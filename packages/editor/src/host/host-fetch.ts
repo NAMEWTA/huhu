@@ -28,14 +28,14 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function dispatch(tables: readonly HostRoutes[], input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const url = new URL(raw, "http://huhu.local");
   const method = (init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET")).toUpperCase();
   const key = `${method} ${url.pathname}`;
   // 后注册的路由表优先（files / comments 切片可以覆盖 core 的兜底实现）。
-  for (const table of [...routeTables].reverse()) {
-    const handler = table[key] ?? table[url.pathname];
+  for (const table of tables) {
+    const handler = Object.hasOwn(table, key) ? table[key] : undefined;
     if (!handler) continue;
     let body: unknown;
     if (typeof FormData !== "undefined" && init?.body instanceof FormData) {
@@ -60,10 +60,21 @@ export async function hostFetch(input: RequestInfo | URL, init?: RequestInit): P
   return jsonResponse(404, { code: "NOT_AVAILABLE", message: `Huhu 宿主未实现 ${key}` });
 }
 
-export function installHostFetch(): () => void {
-  return attachOkFetch((input, init) => {
+export const hostFetch: typeof fetch = (input, init) => dispatch([...routeTables].reverse(), input, init);
+
+export function createHostFetch(...tables: HostRoutes[]): typeof fetch {
+  const scoped = [...tables, baselineRoutes];
+  return adapt((input, init) => dispatch(scoped, input, init));
+}
+
+function adapt(request: typeof fetch): typeof fetch {
+  return (input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (raw.startsWith("/api/") || raw === "/api") return hostFetch(input, init);
+    if (raw.startsWith("/api/") || raw === "/api") return request(input, init);
     return globalThis.fetch(input, init);
-  });
+  };
+}
+
+export function installHostFetch(): () => void {
+  return attachOkFetch(adapt(hostFetch));
 }

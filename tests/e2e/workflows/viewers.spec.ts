@@ -2,8 +2,7 @@ import { expect, test, type Frame, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
-import { openApp, root } from "../helpers/launch.js";
+import { openApp } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 
 /**
@@ -20,7 +19,10 @@ function buildPdf(pages: string[], pad = 0): Buffer {
   const fontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
   const kids: number[] = [];
   for (const text of pages) {
-    const stream = `BT /F1 24 Tf 72 700 Td (${text}) Tj ET`;
+    const stream = text
+      .split("\n")
+      .map((line, index) => `BT /F1 24 Tf 72 ${700 - index * 36} Td (${line}) Tj ET`)
+      .join("\n");
     const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
     kids.push(add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`));
   }
@@ -48,7 +50,10 @@ function buildPdf(pages: string[], pad = 0): Buffer {
 const MODES = ["prod"] as const;
 
 /** 每个用例用独立的用户数据目录：Electron 的单实例锁按 userData 区分，别的会话 / 并行任务正在运行的应用不会让这里的启动立刻退出。 */
-const launch = (extra: Record<string, string> = {}) => openApp({ XDG_CONFIG_HOME: mkdtempSync(path.join(tmpdir(), "huhu-xdg-")), ...extra });
+const launch = (extra: Record<string, string> = {}, prepareVault?: (vault: string) => void) => openApp({ XDG_CONFIG_HOME: mkdtempSync(path.join(tmpdir(), "huhu-xdg-")), ...extra }, prepareVault);
+
+// VaultWatcher 原生监听不可用时每 30 秒对账，断言同时覆盖真实外改的两条交付路径。
+const PDF_EXTERNAL_CHANGE_TIMEOUT = 40_000;
 
 const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
@@ -324,33 +329,22 @@ test("F03：密码保护的 PDF 显示原因，不渲染空白页", async () => 
   }
 });
 
-/** 原生文件监听是否可用：容器 / 共享主机上 inotify 配额耗尽（ENOSPC）时 Engine 收不到外部修改事件，依赖外部修改事件的用例无法在该环境运行。 */
-async function nativeWatchAvailable(): Promise<boolean> {
-  try {
-    const req = createRequire(path.join(root, "package.json"));
-    const watcher = req("@parcel/watcher") as { subscribe: (dir: string, cb: () => void) => Promise<{ unsubscribe: () => Promise<void> }> };
-    const sub = await watcher.subscribe(mkdtempSync(path.join(tmpdir(), "huhu-watch-probe-")), () => undefined);
-    await sub.unsubscribe();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 test("F03：PDF 被外部修改——出现“已被外部修改”提示或直接显示新内容，不继续展示旧页面", async () => {
-  test.skip(!(await nativeWatchAvailable()), "原生文件监听不可用（inotify ENOSPC）：Engine 收不到外部修改事件，见 evidence/s7/report.md");
-  const { page, vault, close } = await launch();
+  test.setTimeout(90_000);
+  const { page, vault, close } = await launch({}, (vault) => writeFileSync(`${vault}/手册.pdf`, buildPdf(["Alpha Page", "Bravo Page", "Charlie Page"])));
   try {
-    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Alpha Page", "Bravo Page", "Charlie Page"]));
     await openKnowledge(page);
     await openFile(page, "手册");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(3, { timeout: 30_000 });
-    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Delta Page"]));
-    // 外壳可能因文件元信息变化直接重新挂载查看器（立即显示新内容），也可能显示“已被外部修改”横幅；两种都不能继续展示旧页面而不提示
+    await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Alpha Page");
     const banner = page.getByTestId("pdf-external-change");
+    await expect(banner).toHaveCount(0);
+    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Delta Page"]));
+    // 文件元信息更新可能直接触发新文档渲染，也可能出现横幅供用户重新载入。
     const fresh = page.locator(".pdfViewer .textLayer").first().filter({ hasText: "Delta Page" });
-    await expect(banner.or(fresh)).toBeVisible({ timeout: 20_000 });
+    await expect(banner.or(fresh).first()).toBeVisible({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
     if (await banner.isVisible()) await page.getByTestId("pdf-reload").click();
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(1);
     await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Delta Page", { timeout: 30_000 });
   } finally {
     await close();
@@ -748,11 +742,13 @@ test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的
 });
 
 test("OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重开可用", async () => {
-  const { page, vault, close } = await launch();
+  test.setTimeout(90_000);
+  const { page, vault, close } = await launch({}, (vault) => {
+    writeFileSync(path.join(vault, "查找说明.pdf"), buildPdf(["Original PDF Match"]));
+    writeFileSync(path.join(vault, "另一页.md"), "外部编辑位置\n");
+  });
   try {
     const file = path.join(vault, "查找说明.pdf");
-    writeFileSync(file, buildPdf(["Original PDF Match"]));
-    writeFileSync(path.join(vault, "另一页.md"), "外部编辑位置\n");
     await openKnowledge(page);
     await openFile(page, "查找说明");
     await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Original PDF Match", { timeout: 30_000 });
@@ -782,7 +778,7 @@ test("OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重
     await openFile(page, "查找说明");
     const banner = page.getByTestId("pdf-external-change");
     const text = page.locator(".pdfViewer .textLayer").first().filter({ hasText: "Replacement PDF Match" });
-    await expect(banner.or(text).first()).toBeVisible({ timeout: 30_000 });
+    await expect(banner.or(text).first()).toBeVisible({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
     if (await banner.isVisible()) await page.getByTestId("pdf-reload").click();
     await expect(text).toBeVisible({ timeout: 30_000 });
     await tab.focus();
@@ -831,37 +827,67 @@ test("OP-D08 原生预览链接动作只在确认后转交 HTTP(S) 给宿主", a
   }
 });
 
-test("G04 ORCA：PDF 查找计数随前后导航和查询词更新", async () => {
-  const { page, vault, close } = await launch();
+test("G04 ORCA：PDF 查找计数和活动高亮随导航及查询更新，关闭时清除高亮", async () => {
+  const { page, close } = await launch({}, (vault) => writeFileSync(path.join(vault, "查找计数.pdf"), buildPdf(["Alpha needle\nBravo needle\nCharlie needle", "Delta Page", "Echo Page"])));
   try {
-    writeFileSync(path.join(vault, "查找计数.pdf"), buildPdf(["Alpha needle", "Bravo needle", "Charlie needle"]));
     await openKnowledge(page);
     await openFile(page, "查找计数");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(3);
-    await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
+    const find = page.getByRole("button", { name: "在 PDF 中查找", exact: true });
+    await find.click();
     const input = page.getByTestId("pdf-find-input");
     const count = page.getByTestId("pdf-find-count");
+    const selected = page.locator(".pdfViewer .highlight.selected");
+    const previous = page.getByRole("search").getByRole("button", { name: "上一个", exact: true });
+    const next = page.getByRole("search").getByRole("button", { name: "下一个", exact: true });
+    const match = async (label: string, activeText: string) => {
+      await expect(count).toHaveText(label);
+      await expect(selected).toHaveCount(1);
+      await expect(selected.locator("..")).toHaveText(activeText);
+    };
     await input.fill("needle");
-    await expect(count).toHaveText("1 / 3");
+    await match("1 / 3", "Alpha needle");
+    await next.click();
+    await match("2 / 3", "Bravo needle");
     await input.press("Enter");
-    await expect(count).toHaveText("2 / 3");
+    await match("3 / 3", "Charlie needle");
     await input.press("Shift+Enter");
-    await expect(count).toHaveText("1 / 3");
+    await match("2 / 3", "Bravo needle");
+    await previous.click();
+    await match("1 / 3", "Alpha needle");
+    await previous.click();
+    await match("3 / 3", "Charlie needle");
+    await input.press("Enter");
+    await match("1 / 3", "Alpha needle");
     await input.fill("Bravo");
-    await expect(count).toHaveText("1 / 1");
+    await match("1 / 1", "Bravo needle");
+    await input.fill("absentword");
+    await expect(selected).toHaveCount(0);
+    await expect(count).toHaveText("无匹配");
+    await input.fill("needle");
+    await match("1 / 3", "Alpha needle");
+    await input.fill("Bravo");
+    await input.fill("absentword");
+    await input.fill("needle");
+    await match("1 / 3", "Alpha needle");
+    await next.click();
+    await match("2 / 3", "Bravo needle");
     await input.press("Escape");
-    await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
-    await input.fill("Bravo");
-    await expect(count).toHaveText("1 / 1");
+    await expect(input).toHaveCount(0);
+    await expect(page.locator(".pdfViewer .highlight")).toHaveCount(0);
+    await find.click();
+    await expect(input).toHaveValue("needle");
+    await match("1 / 3", "Alpha needle");
+    await input.press("Enter");
+    await match("2 / 3", "Bravo needle");
   } finally {
     await close();
   }
 });
 
-test("G04 ORCA：重新打开 PDF 查找能读取缓存，清除查询后隐藏计数", async () => {
-  const { page, vault, close } = await launch();
+test("G04 ORCA：重新打开 PDF 查找保留查询并读取缓存，清空后隐藏计数", async () => {
+  const { page, close } = await launch({}, (vault) => writeFileSync(path.join(vault, "查找缓存.pdf"), buildPdf(["Cached match", "Cached match again"])));
   try {
-    writeFileSync(path.join(vault, "查找缓存.pdf"), buildPdf(["Cached match", "Cached match again"]));
     await openKnowledge(page);
     await openFile(page, "查找缓存");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(2);
@@ -873,11 +899,12 @@ test("G04 ORCA：重新打开 PDF 查找能读取缓存，清除查询后隐藏�
     await expect(count).toHaveText("1 / 2");
     await input.press("Escape");
     await find.click();
-    await input.fill("Cached");
+    await expect(input).toHaveValue("Cached");
     await expect(count).toHaveText("1 / 2");
     await input.fill("pending");
     await input.clear();
     await expect(count).toHaveCount(0);
+    await expect(page.locator(".pdfViewer .highlight")).toHaveCount(0);
     await input.fill("again");
     await expect(count).toHaveText("1 / 1");
   } finally {
@@ -886,24 +913,25 @@ test("G04 ORCA：重新打开 PDF 查找能读取缓存，清除查询后隐藏�
 });
 
 test("G04 ORCA：重复加载坏 PDF 后恢复，错误时不会保留旧页", async () => {
-  const { page, vault, close } = await launch();
+  test.setTimeout(150_000);
+  const { page, vault, close } = await launch({}, (vault) => writeFileSync(path.join(vault, "恢复预览.pdf"), buildPdf(["Original PDF content"])));
   try {
     const file = path.join(vault, "恢复预览.pdf");
-    writeFileSync(file, buildPdf(["Original PDF content"]));
     await openKnowledge(page);
     await openFile(page, "恢复预览");
     const view = page.getByTestId("pdf-view");
     const pages = view.locator(".pdfViewer .page");
     const text = view.locator(".pdfViewer .textLayer").first();
     await expect(text).toContainText("Original PDF content");
+    const reload = page.getByTestId("pdf-reload");
     for (const corrupt of ["bad PDF first attempt", "bad PDF second attempt"]) {
       writeFileSync(file, corrupt);
-      await page.getByTestId("pdf-reload").click();
+      await reload.click({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
       await expect(view.getByRole("alert")).toBeVisible();
       await expect(pages).toHaveCount(0);
     }
     writeFileSync(file, buildPdf(["Recovered PDF content"]));
-    await page.getByTestId("pdf-reload").click();
+    await reload.click({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
     await expect(text).toContainText("Recovered PDF content");
     await expect(text).not.toContainText("Original PDF content");
     await expect(view.getByRole("alert")).toHaveCount(0);

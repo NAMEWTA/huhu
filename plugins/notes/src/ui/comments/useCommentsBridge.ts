@@ -37,7 +37,7 @@ export function useCommentsBridge(opts: { paths: readonly string[]; flush(): Pro
 
   // 批注数据变化（本机或其它入口创建 / 回复 / 解决 / 保存后重定位）→ 让 OK 的 store 重新拉取
   useEngineEvents((e) => {
-    if (e.type === "entity.changed" && (e.payload as { kind?: string }).kind === "comment") notifyCommentsChanged();
+    if (e.type === "entity.changed" && (e.payload as { kind?: string }).kind === "comment") notifyCommentsChanged(engine.vaultId);
   });
   return { commentRoutes: routes };
 }

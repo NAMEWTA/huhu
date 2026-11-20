@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import hostPath from "node:path";
 import path from "node:path/posix";
 import { errors, KINDS, newId } from "@huhu/contracts";
@@ -7,6 +7,9 @@ import { folderNoteDir, normalizeRelPath, resolveReadableAsset, splitDocument, v
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
+
+import type { LegacyTextEncoding } from "../shared/text-encoding.js";
+import { decodeUtf8, requireUtf8, textEncodingOf } from "./text-encoding.js";
 
 export interface NotesDeps {
   files: VaultFiles;
@@ -181,16 +184,17 @@ export class NotesService {
     }
   }
 
-  /** 磁盘上某个目录下的全部文件（相对路径）；不是目录则为空。 */
-  private filesUnder(rel: string): string[] {
+  /** 磁盘目录的真实后代，按相对路径列出，不跟随子目录链接。 */
+  private filesUnder(rel: string, options: { includeDirectories?: boolean; validate?: (child: string, symlink: boolean) => void } = {}): string[] {
     const abs = this.d.files.abs(rel);
     if (!existsSync(abs) || !statSync(abs).isDirectory()) return [];
     const out: string[] = [];
     const walk = (dirRel: string): void => {
       for (const e of readdirSync(this.d.files.abs(dirRel), { withFileTypes: true })) {
         const child = `${dirRel}/${e.name}`;
+        options.validate?.(child, e.isSymbolicLink());
         if (e.isDirectory()) {
-          out.push(child);
+          if (options.includeDirectories !== false) out.push(child);
           walk(child);
         } else out.push(child);
       }
@@ -321,6 +325,16 @@ export class NotesService {
   /** 在状态目录备妥字节，再由 OperationLog 将整棵树移入目标路径。 */
   private async duplicateFolder(rel: string): Promise<{ path: string; id: string; paths: string[] }> {
     const dest = this.duplicateDestination(rel, "");
+    const key = dest.toLowerCase();
+    this.pendingCreations.add(key);
+    try {
+      return await this.copyFolderTo(rel, dest);
+    } finally {
+      this.pendingCreations.delete(key);
+    }
+  }
+
+  private async copyFolderTo(rel: string, dest: string): Promise<{ path: string; id: string; paths: string[] }> {
     const copies = hostPath.join(this.d.stateDir, "notes", "copies");
     mkdirSync(copies, { recursive: true });
     const staging = mkdtempSync(hostPath.join(copies, "copy-"));
@@ -364,9 +378,15 @@ export class NotesService {
     if (!src) throw errors.notFound(`文件不存在：${rel}`);
     const dest = this.duplicateDestination(rel, path.extname(rel));
     const id = newId("note");
-    await this.d.ops.run(`copy-${randomUUID()}`, "duplicate-file", [{ action: "write", path: dest, bytes: src.bytes }, this.jsonStep(IDENTITIES, { ...this.identities(), [dest]: id })]);
-    this.d.index.refreshPaths([dest]);
-    return { path: dest, id };
+    const key = dest.toLowerCase();
+    this.pendingCreations.add(key);
+    try {
+      await this.d.ops.run(`copy-${randomUUID()}`, "duplicate-file", [{ action: "write", path: dest, bytes: src.bytes, expectedVersion: null }, this.jsonStep(IDENTITIES, { ...this.identities(), [dest]: id })]);
+      this.d.index.refreshPaths([dest]);
+      return { path: dest, id };
+    } finally {
+      this.pendingCreations.delete(key);
+    }
   }
 
   // ---- 重命名 / 移动 ----
@@ -398,49 +418,43 @@ export class NotesService {
     this.assertUnprotectedDestination(to);
     const isDir = statSync(source).isDirectory();
     if (isDir && (to === from || to.startsWith(`${from}/`))) throw errors.invalidInput("不能把文件夹移入自身或其后代");
+    const caseOnly = from.toLowerCase() === to.toLowerCase();
     const existing = this.findCaseInsensitive(to);
-    // 仅大小写变化（同一个文件）允许；否则同名拒绝，不合并
-    if (existing && existing.toLowerCase() !== from.toLowerCase()) throw errors.nameConflict(to);
-    if (from.toLowerCase() === to.toLowerCase()) return this.caseOnlyRename(from, to, isDir);
-    mkdirSync(path.dirname(this.d.files.abs(to)), { recursive: true });
+    if (existing && (!caseOnly || existing !== from)) throw errors.nameConflict(to);
 
-    const all = [...new Set([...this.allFiles(), ...(isDir ? [] : [from])])];
-    const moves = new Map<string, string>();
-    if (isDir) {
-      for (const p of all) if (p.startsWith(`${from}/`)) moves.set(p, `${to}${p.slice(from.length)}`);
-    } else moves.set(from, to);
+    const under = (p: string) => p.startsWith(`${from}/`);
+    const actualFiles = isDir
+      ? this.filesUnder(from, {
+          includeDirectories: false,
+          validate: (child, symlink) => {
+            if (hasProtectedSegment(child)) throw errors.permissionDenied(child);
+            if (symlink) resolveReadableAsset(this.d.files.root, child);
+          },
+        })
+      : [from];
+    const all = [...new Set([...this.allFiles().filter((p) => !isDir || !under(p)), ...actualFiles])];
+    const moves = new Map(actualFiles.map((p) => [p, to + p.slice(from.length)]));
     const folderMoves = isDir ? new Map([[from, to]]) : undefined;
-    if (isDir && moves.size === 0) {
-      // 空文件夹：只改登记
-      const list = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
-      const hid = this.hiddenStepFor(from, to);
-      await this.d.ops.run(`mv-${Date.now().toString(36)}`, "move-folder", [{ action: "rename", from, path: to }, this.jsonStep(FOLDERS, list), ...(hid ? [hid] : [])]);
-      return { moved: { [from]: to }, rewrittenFiles: [], ambiguous: [] };
-    }
 
     const steps: OpStep[] = [];
     const rewritten: string[] = [];
     const ambiguous = new Set<string>();
     const ids = this.identities();
     for (const p of all) {
-      const newPath = moves.get(p) ?? p;
+      if (!(isNoteFile(p) || isTaskFile(p))) continue;
+      const absolute = this.d.files.abs(p);
+      if (!lstatSync(absolute, { throwIfNoEntry: false })?.isFile()) continue;
       const f = this.d.files.read(p);
       if (!f) continue;
-      let bytes: Uint8Array = f.bytes;
-      let changed = false;
-      if (isNoteFile(p) || isTaskFile(p)) {
-        const r = rewriteFile(p, f.bytes.toString("utf8"), { filePath: p, newFilePath: newPath, moves, allPaths: all, ...(folderMoves ? { folderMoves } : {}) });
-        r.ambiguous.forEach((a) => ambiguous.add(a));
-        if (r.changes > 0) {
-          bytes = Buffer.from(r.text);
-          changed = true;
-          rewritten.push(newPath);
-        }
+      const text = decodeUtf8(f.bytes);
+      if (text === null) continue;
+      const newPath = moves.get(p) ?? p;
+      const r = rewriteFile(p, text, { filePath: p, newFilePath: newPath, moves, allPaths: all, ...(folderMoves ? { folderMoves } : {}) });
+      r.ambiguous.forEach((a) => ambiguous.add(a));
+      if (r.changes > 0) {
+        steps.push({ action: "write", path: p, bytes: Buffer.from(r.text), expectedVersion: f.version });
+        rewritten.push(newPath);
       }
-      if (moves.has(p)) {
-        steps.push({ action: "write", path: newPath, bytes });
-        steps.push({ action: "delete", path: p });
-      } else if (changed) steps.push({ action: "write", path: p, bytes });
     }
     for (const [o, n] of moves) {
       steps.push(...(this.d.draftMoveSteps?.(o, n) ?? []));
@@ -449,62 +463,16 @@ export class NotesService {
         delete ids[o];
       }
     }
-    const folderList = this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
+    const folderList = this.folders().map((f) => (f === from || under(f) ? to + f.slice(from.length) : f));
     steps.push(this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folderList));
     const hiddenStep = this.hiddenStepFor(from, to);
     if (hiddenStep) steps.push(hiddenStep);
-    await this.d.ops.run(`mv-${Date.now().toString(36)}`, isDir ? "move-folder" : "move-file", dedupeWrites(steps));
-    if (isDir) removeEmptyDirs(this.d.files.abs(from));
-    this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
-    return { moved: Object.fromEntries(moves), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };
-  }
-
-  /**
-   * 仅大小写变化：大小写不敏感的文件系统上 from 与 to 是同一物理文件，不能"写新+删旧"。
-   * 这里经临时名做两次物理重命名，再单独改写双链与登记。
-   */
-  private async caseOnlyRename(from: string, to: string, isDir: boolean): Promise<MoveResult> {
-    const all = this.allFiles();
-    const moves = new Map<string, string>();
-    if (isDir) {
-      for (const p of all) if (p.startsWith(`${from}/`)) moves.set(p, `${to}${p.slice(from.length)}`);
-    } else moves.set(from, to);
-    const steps = [...moves].flatMap(([o, n]) => this.d.draftMoveSteps?.(o, n) ?? []);
-    const folderMoves = isDir ? new Map([[from, to]]) : undefined;
-    const tmp = `${from}.huhu-case-tmp`;
-    renameSync(this.d.files.abs(from), this.d.files.abs(tmp));
-    renameSync(this.d.files.abs(tmp), this.d.files.abs(to));
-    const rewritten: string[] = [];
-    const ambiguous = new Set<string>();
-    for (const p of all) {
-      if (moves.has(p) || !(isNoteFile(p) || isTaskFile(p))) continue;
-      const f = this.d.files.read(p);
-      if (!f) continue;
-      const r = rewriteFile(p, f.bytes.toString("utf8"), { filePath: p, newFilePath: p, moves, allPaths: all, ...(folderMoves ? { folderMoves } : {}) });
-      r.ambiguous.forEach((a) => ambiguous.add(a));
-      if (r.changes > 0) {
-        steps.push({ action: "write", path: p, bytes: Buffer.from(r.text) });
-        rewritten.push(p);
-      }
-    }
-    const ids = this.identities();
-    for (const [o, n] of moves)
-      if (ids[o]) {
-        ids[n] = ids[o] as string;
-        delete ids[o];
-      }
-    steps.push(
-      this.jsonStep(IDENTITIES, ids),
-      this.jsonStep(
-        FOLDERS,
-        this.folders().map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f)),
-      ),
-    );
-    const hiddenStep = this.hiddenStepFor(from, to);
-    if (hiddenStep) steps.push(hiddenStep);
-    await this.d.ops.run(`case-${Date.now().toString(36)}`, "rename-case", dedupeWrites(steps));
-    this.d.index.refreshPaths([...moves.keys(), ...moves.values(), ...rewritten]);
-    return { moved: Object.fromEntries(moves), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };
+    // 改写旧路径的双链并保留备份，再通过一次物理移动保留目录内的所有条目。
+    steps.push({ action: "rename", from, path: to, ...(caseOnly ? { caseOnly: true as const } : {}) });
+    await this.d.ops.run(`mv-${randomUUID()}`, caseOnly ? "rename-case" : isDir ? "move-folder" : "move-file", dedupeWrites(steps));
+    const moved = isDir ? this.filesUnder(to, { includeDirectories: false }).map((p) => [from + p.slice(to.length), p] as const) : ([[from, to]] as const);
+    this.d.index.refreshPaths([...new Set([...moves.keys(), ...moved.flat(), ...rewritten])]);
+    return { moved: Object.fromEntries(moved.length ? moved : [[from, to]]), rewrittenFiles: rewritten, ambiguous: [...ambiguous] };
   }
 
   // ---- 回收站 ----
@@ -579,11 +547,15 @@ export class NotesService {
   }
 
   /** 编辑器保存：必须带 expectedVersion，冲突时返回 VERSION_CONFLICT。 */
-  async save(rel: string, text: string, expectedVersion: string): Promise<{ version: string }> {
+  async save(rel: string, text: string, expectedVersion: string): Promise<{ version: string; previous: { text: string; version: string } }> {
     const norm = normalizeRelPath(rel);
+    const file = this.d.files.read(norm);
+    if (!file) throw errors.notFound(`文件不存在：${rel}`);
+    const previous = { text: requireUtf8(file.bytes), version: file.version };
+    if (file.bytes.includes(0)) throw errors.invalidInput("不能把二进制文件当作文本覆盖");
     const r = await this.d.files.write(norm, Buffer.from(text), { expectedVersion });
     this.d.index.refreshPaths([norm]);
-    return r;
+    return { ...r, previous };
   }
 
   list(filter: "all" | "favorites" | "daily" | "trash" | { tag: string }): { path: string; id: string | null; title: string; trashId?: string; deletedAt?: string; favorite?: boolean; tags?: string[] }[] {
@@ -604,24 +576,38 @@ export class NotesService {
   read(rel: string): { path: string; text: string; version: string } {
     const f = this.d.files.read(normalizeRelPath(rel));
     if (!f) throw errors.notFound(`文件不存在：${rel}`);
-    return { path: rel, text: f.bytes.toString("utf8"), version: f.version };
+    const text = requireUtf8(f.bytes);
+    if (text.includes("\0")) throw errors.invalidInput("这个文件含有二进制内容，无法作为文本编辑");
+    return { path: rel, text, version: f.version };
+  }
+
+  inspectEncoding(rel: string) {
+    const f = this.d.files.read(normalizeRelPath(rel));
+    if (!f) throw errors.notFound(`文件不存在：${rel}`);
+    return { state: textEncodingOf(f.bytes), version: f.version };
+  }
+
+  async convertEncoding(rel: string, encoding: LegacyTextEncoding, expectedVersion: string): Promise<{ version: string }> {
+    const norm = normalizeRelPath(rel);
+    const f = this.d.files.read(norm);
+    if (!f) throw errors.notFound(`文件不存在：${rel}`);
+    if (f.version !== expectedVersion) throw errors.versionConflict(f.version);
+    if (textEncodingOf(f.bytes) !== "encoding") throw errors.invalidInput("此文件无需转换编码或不是文本");
+    let text: string;
+    try {
+      text = new TextDecoder(encoding, { fatal: true }).decode(f.bytes);
+    } catch {
+      throw errors.invalidInput("无法按所选编码无损解码文件");
+    }
+    if (text.includes("\0")) throw errors.invalidInput("解码结果包含二进制内容，请检查所选编码");
+    const result = await this.d.files.write(norm, Buffer.from(text), { expectedVersion });
+    this.d.index.refreshPaths([norm]);
+    return result;
   }
 
   backlinks(rel: string): { path: string; title: string }[] {
     return this.d.index.backlinks(rel);
   }
-}
-
-/** 递归删除空目录（文件夹移走后留下的空壳）；含文件的目录不动。 */
-function removeEmptyDirs(dir: string): boolean {
-  if (!existsSync(dir)) return true;
-  let empty = true;
-  for (const ent of readdirSync(dir, { withFileTypes: true })) {
-    if (ent.isDirectory() && removeEmptyDirs(path.join(dir, ent.name))) continue;
-    empty = false;
-  }
-  if (empty) rmSync(dir, { recursive: true, force: true });
-  return empty;
 }
 
 /** 同一路径的多个 write 步骤只保留最后一个（例如 identities.json）。 */

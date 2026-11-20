@@ -111,6 +111,7 @@ export interface OkRootProps {
   routes?: HostRoutes;
   config?: { wordWrap?: boolean; showHiddenFiles?: boolean; showOnlyMarkdownFiles?: boolean; linkPreviewsEnabled?: boolean; requestLinkPreview?(url: string): Promise<unknown> };
   poolKey?: string;
+  commentScope?: string;
   acceptSidebarDrop?: boolean;
   documentHost?: {
     readAsset?(path: string): Promise<Blob>;
@@ -186,15 +187,16 @@ export interface CommentRouteDeps {
   selectionRevision?(path: string): (CommentSelectionRevision & { sourceVersion: string }) | undefined;
 }
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes;
-export function notifyCommentsChanged(): void;
+export function notifyCommentsChanged(scope?: string): void;
 export function startComment(): void;
-export function registerCommentSelectionSource(docName: string, read: () => CommentSelectionRevision | undefined): () => void;
+export function registerCommentSelectionSource(docName: string, read: () => CommentSelectionRevision | undefined, scope?: string): () => void;
 export function useCommentsReadOnlySync(readOnly: boolean): void;
 export function onCommentPosted(handler: () => void): () => void;
 export function onCommentThreadOpened(handler: () => void): () => void;
 export function dismissOpenCommentThread(): void;
 export interface CommentsPanelHostProps {
   docName: string;
+  commentScope?: string;
   routes: HostRoutes;
   openExternal?(url: string): Promise<void>;
   locale?: string;

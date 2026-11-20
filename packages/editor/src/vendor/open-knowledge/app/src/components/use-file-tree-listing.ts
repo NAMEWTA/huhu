@@ -1,3 +1,6 @@
+import { useMemo } from 'react';
+import { useOkFetch } from '@/lib/ok-fetch';
+import { fetchShowAllDepth1Listing } from './file-tree-listing-transport';
 import {
   type Dispatch,
   type SetStateAction,
@@ -12,7 +15,7 @@ import { getRelaunchInFlightSnapshot, useRelaunchInFlight } from '@/lib/relaunch
 import { fileEntryToTreePath, treeDirectoryPathToFolderPath } from './file-tree-adapter';
 import {
   type FileTreeListingSource,
-  httpFileTreeListingSource,
+  type FileTreeListingRequest,
 } from './file-tree-listing-transport';
 import { mergeRootEntriesAdditive, spliceLazyFolderChildren } from './file-tree-merge';
 import { type FileEntry, filterVisibleEntries, isFolderEntry } from './file-tree-utils';
@@ -52,8 +55,10 @@ export function useFileTreeListing({
   showOnlyMarkdownFiles,
   showOkFolders,
   messages,
-  source = httpFileTreeListingSource,
+  source: customSource,
 }: FileTreeListingOptions): FileTreeListingHandle {
+  const request = useOkFetch();
+  const source = useMemo(() => customSource ?? { listDepthOne: (options: FileTreeListingRequest) => fetchShowAllDepth1Listing(options, request) }, [customSource, request]);
   const [documents, setDocuments] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

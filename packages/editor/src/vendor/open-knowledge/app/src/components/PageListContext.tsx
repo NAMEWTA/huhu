@@ -1,4 +1,4 @@
-import { okFetch } from '@/lib/ok-fetch';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { toWikiLinkSlug } from '@inkeep/open-knowledge-core/utils/slug';
 import {
   asTargetNamespace,
@@ -98,8 +98,8 @@ function mergePageTitles(
   return merged;
 }
 
-async function loadPages(): Promise<PageSummary[]> {
-  const r = await okFetch('/api/pages');
+async function loadPages(request: typeof fetch): Promise<PageSummary[]> {
+  const r = await request('/api/pages');
   if (!r.ok) {
     const body = (await r.json().catch(() => null)) as unknown;
     throw new Error(parseApiError(body) ?? `/api/pages responded with ${r.status}`);
@@ -111,12 +111,12 @@ async function loadPages(): Promise<PageSummary[]> {
   return [];
 }
 
-async function loadDocumentListSummary(): Promise<{
+async function loadDocumentListSummary(request: typeof fetch): Promise<{
   assetPaths: string[];
   folderPaths: string[];
   filePaths: string[];
 }> {
-  const { ok, status, body } = await fetchDocumentListShared();
+  const { ok, status, body } = await fetchDocumentListShared(request);
   if (!ok) {
     throw new Error(parseApiError(body) ?? `/api/documents responded with ${status}`);
   }
@@ -151,6 +151,7 @@ function logLoadAssetsError(err: unknown) {
 }
 
 export function PageListProvider({ children }: { children: ReactNode }) {
+  const request = useOkFetch();
   const [serverPages, setServerPages] = useState(new Set<string>());
   const [serverPageTitles, setServerPageTitles] = useState(new Map<string, string>());
   const [serverPageMeta, setServerPageMeta] = useState(new Map<string, PageMeta>());
@@ -168,11 +169,11 @@ export function PageListProvider({ children }: { children: ReactNode }) {
     const abandonedByTeardown = () =>
       issuedWhileLive && documentTeardownRef.current?.isUnloading() === true;
     return Promise.all([
-      loadPages().catch((err: unknown) => {
+      loadPages(request).catch((err: unknown) => {
         if (abandonedByTeardown()) return null;
         throw err;
       }),
-      loadDocumentListSummary().catch((err: unknown) => {
+      loadDocumentListSummary(request).catch((err: unknown) => {
         if (abandonedByTeardown()) return null;
         logLoadAssetsError(err);
         return { assetPaths: [], folderPaths: [], filePaths: [] };
@@ -236,7 +237,7 @@ export function PageListProvider({ children }: { children: ReactNode }) {
     setError(null);
   }
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: run only on mount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restart for a new host transport
   useEffect(() => {
     documentTeardownRef.current = installDocumentTeardownObserver();
     let requestedWhileLive = true;
@@ -269,13 +270,14 @@ export function PageListProvider({ children }: { children: ReactNode }) {
     return () => {
       if (pushFlushTimer !== null) clearTimeout(pushFlushTimer);
       scheduler.dispose();
+      latestRequestIdRef.current++;
       window.removeEventListener('focus', handleResume);
       window.removeEventListener('visibilitychange', handleResume);
       unsubscribe();
       documentTeardownRef.current?.uninstall();
       documentTeardownRef.current = null;
     };
-  }, []);
+  }, [request]);
 
   const pages = asTargetNamespace('document', mergePageSets(serverPages, optimisticPages));
   const pageTitles = mergePageTitles(serverPageTitles, optimisticPages);

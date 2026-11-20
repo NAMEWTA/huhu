@@ -3,7 +3,7 @@
 // 编辑 → Y.Text 变化 → 防抖 300 ms → `onChange(全文)` 交给会话；会话把外部版本（载入 / 合并 / 恢复草稿）经 `value` 带回，
 // 只有与“最近交给会话的文本”不同的 `value` 才会被当作外部变化，用 replaceRawBody 写回（不进撤销栈）。
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
-import { markdownFileBody, restoreMarkdownFileEnvelope } from "../host/markdown-file-envelope";
+import { applyMarkdownFileDelta, hasMixedMarkdownLineEndings, markdownFileBody, restoreMarkdownFileEnvelope } from "../host/markdown-file-envelope";
 import type { EditorPort } from "@huhu/contracts";
 import { Compartment, EditorState, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -197,6 +197,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   retainSession.current = props.retainSession;
   const lastEmitted = useRef(markdownFileBody(value));
   const lastDeliveredFile = useRef<string | undefined>(undefined);
+  const mixedEnvelope = useRef<string | null>(null);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queued = useRef(false);
   // 输入法组合进行中不把未提交的拼音交给会话（否则 800 ms 自动保存会把拼音写进磁盘）；组合结束后补一次交付。flush / 卸载仍然无条件交付。
@@ -218,7 +219,8 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     const text = yt.toString();
     if (text === lastEmitted.current) return;
     lastEmitted.current = text;
-    const fileText = restoreMarkdownFileEnvelope(valueRef.current, text, modeRef.current !== "source");
+    const mapped = mixedEnvelope.current;
+    const fileText = mapped !== null && markdownFileBody(mapped) === text ? mapped : restoreMarkdownFileEnvelope(valueRef.current, text, modeRef.current !== "source");
     lastDeliveredFile.current = fileText;
     onChangeRef.current(fileText);
   }, []);
@@ -258,9 +260,12 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       ytextRef.current = yt;
       // 复用 park 住的 provider 时，Y.Doc 里可能是旧文本：以 Y.Doc 为准，随后由 value 副作用决定是否 replaceRawBody
       lastEmitted.current = yt.toString();
+      const currentFile = valueRef.current;
+      mixedEnvelope.current = hasMixedMarkdownLineEndings(currentFile) && markdownFileBody(currentFile) === lastEmitted.current ? currentFile : null;
       lastDeliveredFile.current = undefined;
-      const observer = (_e: Y.YTextEvent, tr: Y.Transaction) => {
+      const observer = (event: Y.YTextEvent, tr: Y.Transaction) => {
         if (tr.origin === FILE_LOAD_ORIGIN) return;
+        if (mixedEnvelope.current !== null) mixedEnvelope.current = applyMarkdownFileDelta(mixedEnvelope.current, event.delta);
         // 同一事务批内合并为一次交付（微任务）：会话的文本始终与编辑器保持同步，退出前 flush 不依赖定时器
         if (composing.current) {
           deferredWhileComposing.current = true;
@@ -319,7 +324,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     const yt = ytextRef.current;
     if (!provider || !yt) return;
     const body = markdownFileBody(value);
-    if (value === lastDeliveredFile.current || body === yt.toString()) return;
+    if (value === lastDeliveredFile.current) return;
+    mixedEnvelope.current = hasMixedMarkdownLineEndings(value) ? value : null;
+    if (body === yt.toString()) return;
     lastDeliveredFile.current = undefined;
     provider.document.transact(() => {
       replaceRawBody(provider.document, body);

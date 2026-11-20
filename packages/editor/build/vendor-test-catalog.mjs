@@ -24,10 +24,15 @@ const byTarget = new Map(
     row,
   ]),
 );
+const orcaFindUpstream = "src/renderer/src/components/editor/PdfFind.test.tsx";
+const orcaFindComponent = "plugins/notes/test/orca-pdf-find.test.tsx";
+const orcaFindAssertions = ["subscribes before a synchronous cached result on reopening", "keeps empty queries clear even if a pending scan reports late", "admits the changed query when the real PDF.js controller resets its match arrays"];
+const orcaFindResult = byTarget.get(orcaFindComponent);
+const orcaFindPassed = orcaFindResult?.status === "passed" && orcaFindAssertions.every((title) => orcaFindResult.assertionResults.some((result) => result.fullName === title && result.status === "passed"));
 const orcaE2ETitles = new Map([
-  ["src/renderer/src/components/editor/PdfFind.test.tsx", "G04 ORCA：重新打开 PDF 查找能读取缓存，清除查询后隐藏计数"],
+  [orcaFindUpstream, "G04 ORCA：重新打开 PDF 查找保留查询并读取缓存，清空后隐藏计数"],
   ["src/renderer/src/components/editor/use-pdf-viewer-find-shortcut.test.tsx", "OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重开可用"],
-  ["tests/e2e/pdf-find-counter.spec.ts", "G04 ORCA：PDF 查找计数随前后导航和查询词更新"],
+  ["tests/e2e/pdf-find-counter.spec.ts", "G04 ORCA：PDF 查找计数和活动高亮随导航及查询更新，关闭时清除高亮"],
   ["tests/e2e/pdf-viewer-rebuild-recovery.spec.ts", "G04 ORCA：重复加载坏 PDF 后恢复，错误时不会保留旧页"],
 ]);
 const orcaE2EFile = "tests/e2e/workflows/viewers.spec.ts";
@@ -67,17 +72,16 @@ const okExcludedAreas = new Map([
 const orcaNotApplicable = new Map([
   ["image-viewer-zoom-ownership.test.tsx", "ORCA 窗口缩放路由未迁入，Huhu 使用自己的查看器焦点处理"],
   ["pdf-viewer-zoom-ownership.test.tsx", "ORCA 分组命令所有权未迁入，Huhu 使用查看器本地快捷键"],
-  ["pdf-viewer-failed-load-recovery.test.tsx", "Huhu 的 PdfView 自行渲染错误及重载状态。OP-D09 外壳等价待确认"],
+  ["pdf-viewer-failed-load-recovery.test.tsx", "固定上游直接替换 PdfViewer 的 Base64 content prop 及面板 owner，Huhu 按 Vault 路径读取 ranges 并重挂文档。外壳适配经 OP-D09 批准，用户可见恢复与资源清理分别由两条 E2E 项跟踪"],
   ["pdfjs-viewer-assets-stream.test.ts", "测试 ORCA 开发服务的背压与文件句柄清理。Huhu 构建时复制静态 PDF.js 资源，未接 ORCA 响应流"],
   ["cdp-print-to-pdf.test.ts", "测试 ORCA 浏览器 CDP 导出的句柄、游标与过期回收。Huhu PDF 查看器不提供打印到 PDF 流"],
 ]);
 const substitutes = new Map([
   ["src/renderer/src/components/editor/use-pdf-viewer-find-shortcut.test.tsx", "tests/e2e/workflows/viewers.spec.ts OP-D09 实测当前分栏接管、焦点和再次打开；ORCA 浮动窗格不属于 Huhu 拓扑"],
-  ["src/renderer/src/components/editor/PdfFind.test.tsx", "tests/e2e/workflows/viewers.spec.ts OP-D09 实测焦点、查询计数及重开；同步缓存结果与过期扫描仍欠独立组件证据"],
   ["packages/app/src/editor/editor-cache.test.ts", "tests/e2e/knowledge/editor-s2b.spec.ts 验证打开、切换与写盘，缓存上限仍缺断言"],
   ["packages/server/src/link-preview/guarded-fetch.test.ts", "packages/editor/test/link-preview-main.test.ts 对主进程拒绝本地地址、实际 HTTP 读取及字节和截止时间有断言，其余上游边界仍待核对"],
   ["packages/server/src/link-preview/html-metadata.test.ts", "packages/editor/test/link-preview-main.test.ts 断言实际响应的标题和描述，其余上游解析边界仍待核对"],
-  ["tests/e2e/pdf-find-counter.spec.ts", "tests/e2e/workflows/viewers.spec.ts 验证定位与计数，连续导航、改查词和重开后的计数待核对"],
+  ["tests/e2e/pdf-find-counter.spec.ts", "需收集 Electron 导航、活动高亮所在文本、切换查询、关闭清除高亮和重开的测试"],
   ["tests/e2e/pdf-viewer-rebuild-recovery.spec.ts", "tests/e2e/workflows/viewers.spec.ts 验证外部修改后不展示旧页面，多次失败再恢复待核对"],
   ["tests/e2e/pdf-viewer-reload-cleanup.spec.ts", "tests/e2e/workflows/viewers.spec.ts 验证重复打开关闭后的 DOM，worker、事件监听和本地化观察器逐项释放待核对"],
 ]);
@@ -189,17 +193,27 @@ for (const source of [ok, orca]) {
     let reason;
     let subjects;
     let closureExcluded = false;
-    if (row) {
-      const failures = row.assertionResults.filter(({ status }) => status === "failed");
-      const passed = row.assertionResults.filter(({ status }) => status === "passed");
-      status = failures.length || row.status === "failed" ? "failed" : passed.length ? file.action : "skipped";
-      reason = `${passed.length} 通过，${failures.length} 失败；实际 Vitest JSON 收集`;
-      for (const result of row.assertionResults) {
-        if (!["passed", "failed"].includes(result.status)) skips.push({ file: file.target, test: result.fullName, status: result.status, line: result.location?.line ?? null });
-      }
-    } else if (known.has(file.upstream) && source === ok) {
+    if (source === orca && file.upstream === orcaFindUpstream) {
+      const electron = orcaE2EPasses.get(orcaTitle);
+      target = orcaFindComponent;
+      status = electron === false || orcaFindResult?.status === "failed" ? "failed" : electron && orcaFindPassed ? "patch" : "partial";
+      reason = `组件断言（${orcaFindPassed ? "通过" : "未全部通过或未收集"}）：同步缓存订阅顺序、清空及改词后的晚旧回执、PDF.js 控制器重新交付；Electron 收集（${electron === true ? "通过" : electron === false ? "失败" : "缺失"}）：${orcaTitle}`;
+    } else if (source === ok && known.has(file.upstream)) {
+      // A collected fixture does not change the recorded scope of the shipped application.
       status = "not-applicable";
       reason = known.get(file.upstream);
+    } else if (row) {
+      const failures = row.assertionResults.filter(({ status }) => status === "failed");
+      const passed = row.assertionResults.filter(({ status }) => status === "passed");
+      const unexecuted = row.assertionResults.filter(({ status }) => !["passed", "failed"].includes(status));
+      if (failures.length || row.status === "failed") status = "failed";
+      else if (!passed.length) status = "skipped";
+      else if (source === orca && unexecuted.length) status = "partial";
+      else status = file.action;
+      reason = `${passed.length} 通过，${failures.length} 失败；实际 Vitest JSON 收集`;
+      for (const result of unexecuted) {
+        skips.push({ file: file.target, test: result.fullName, status: result.status, line: result.location?.line ?? null });
+      }
     } else if (orcaTitle && orcaE2EPasses.has(orcaTitle)) {
       status = orcaE2EPasses.get(orcaTitle) ? "patch" : "failed";
       target = orcaE2EFile;

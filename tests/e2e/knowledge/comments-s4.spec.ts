@@ -216,24 +216,31 @@ test("D04 删除锚定段落后，同偏移的另一段不亮，磁盘线程保�
   const { page, vault, close } = await openApp();
   const file = path.join(vault, "同偏移.md");
   try {
-    writeFileSync(file, "甲：同句。\n\n乙：同句。\n");
+    const first = "甲组：统一说明模板。相同词句，办理前请核对以下基本信息。\n";
+    const second = "乙组：统一说明模板。相同词句，办理前请核对以下基本信息。\n";
+    writeFileSync(file, first + "\n" + second);
     await gotoNotes(page);
     await treeItem(page, "同偏移.md").click();
-    await expect(prose(page)).toContainText("甲：同句。");
-    await selectText(page, "同句");
+    await expect(prose(page)).toContainText(first.trimEnd());
+    await selectText(page, "相同词句");
     await addComment(page, "只针对甲");
     await expect(page.getByTestId("comment-thread")).toHaveAttribute("data-state", "anchored");
+    const marker = page.getByRole("button", { name: /^(打开评论|关闭评论)$/ });
+    await expect(marker).toHaveCount(1);
+    await expect(prose(page).locator("[data-comment-thread]")).toHaveText("相同词句");
     await page.getByRole("tab", { name: "源码" }).click();
     const cm = page.getByTestId("markdown-editor").locator(".cm-content");
     await cm.click();
     await cm.press("ControlOrMeta+a");
-    await page.keyboard.insertText("乙：同句。\n");
-    await expect.poll(() => readFileSync(file, "utf8")).toBe("乙：同句。\n");
+    await page.keyboard.insertText(second);
+    await expect.poll(() => readFileSync(file, "utf8")).toBe(second);
     await expect.poll(() => readAll(vault)).toMatch(/state: orphaned/);
+    expect(readAll(vault)).toContain("只针对甲");
     await page.getByRole("tab", { name: "实时预览" }).click();
-    await expect(prose(page)).toContainText("乙：同句。");
+    await expect(prose(page)).toContainText(second.trimEnd());
     await expect(page.getByTestId("comment-orphaned")).toBeVisible();
-    await expect(page.locator("[data-comment-thread]")).toHaveCount(0);
+    await expect(marker).toHaveCount(0);
+    await expect(prose(page).locator("[data-comment-thread]")).toHaveCount(0);
   } finally {
     await close();
   }
@@ -585,12 +592,14 @@ test("D04 已保存线程在强调、表格和链接重写后仍高亮原文，�
   }
 });
 
-test("H04：批注列表读取失败提示重试，恢复后显示真实空列表", async () => {
+test("H04：批注列表读取失败提示重试，恢复后显示磁盘已有线程", async () => {
   const { page, vault, close } = await openApp();
   try {
     const file = "批注重试.md";
     const original = "批注读取测试\n";
     writeFileSync(path.join(vault, file), original);
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    const seeded = await call<{ id: string }>(page, "comments.create", { path: file, target: "file", text: "磁盘已有批注" });
     let unavailable = true;
     let successfulReads = 0;
     await page.route("**/api/v1/call", async (route) => {
@@ -613,12 +622,14 @@ test("H04：批注列表读取失败提示重试，恢复后显示真实空列�
     const empty = panel.getByText("还没有评论。在文档中选中文本即可添加。", { exact: true });
     await expect(status).toHaveText("无法加载批注");
     await expect(empty).toHaveCount(0);
+    await expect(panel.getByTestId("comment-thread")).toHaveCount(0);
     unavailable = false;
     await panel.getByRole("button", { name: "重试", exact: true }).click();
     await expect(status).toBeEmpty();
-    await expect(empty).toBeVisible();
+    await expect(panel.getByTestId("comment-thread")).toContainText("磁盘已有批注");
     expect(successfulReads).toBeGreaterThan(0);
-    expect(commentFiles(vault)).toEqual([]);
+    expect(commentFiles(vault)).toHaveLength(1);
+    expect(readAll(vault)).toContain(seeded.id);
     expect(readFileSync(path.join(vault, file), "utf8")).toBe(original);
   } finally {
     await close();

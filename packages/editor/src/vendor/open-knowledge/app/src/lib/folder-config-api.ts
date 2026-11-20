@@ -112,11 +112,11 @@ export async function importTemplate(input: {
   name?: string;
   title?: string;
   deleteSource?: boolean;
-}): Promise<
+}, request = okFetch): Promise<
   { ok: true; path: string; created: boolean; warnings: string[] } | { ok: false; error: string }
 > {
   try {
-    const res = await okFetch('/api/template/import', {
+    const res = await request('/api/template/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),

@@ -4,23 +4,24 @@ import { Editor, EditorContent } from "@tiptap/react";
 import { useRef, useState } from "react";
 import { Toaster } from "sonner";
 import { expect, test, vi } from "vitest";
-import { HostConfigProvider, registerLinkPreviewRoute } from "../src/host/config-provider";
+import { HostConfigProvider, linkPreviewRoutes } from "../src/host/config-provider";
 import { installDesktopBridge } from "../src/host/desktop-bridge";
 import { DEFAULT_FEATURES } from "../src/host/ok-host";
 import { DocumentProvider } from "../src/host/document-context";
 import { hostFetch, registerHostRoutes } from "../src/host/host-fetch";
 import { filesRoutes } from "../src/host/routes/files";
 import { coreRoutes } from "../src/host/routes/core";
-import { commentRoutes, type HuhuComment } from "../src/host/routes/comments";
+import { commentRoutes, toThreadMeta, type HuhuComment } from "../src/host/routes/comments";
 import { CommentsBoundary } from "../src/vendor/open-knowledge/app/src/comments/CommentsBoundary";
 import { CommentedDocProvider, useCommentedDocName } from "../src/vendor/open-knowledge/app/src/comments/CommentedDocContext";
 import { CommentsPanel } from "../src/vendor/open-knowledge/app/src/comments/CommentsPanel";
-import { createFileThread, deleteThread, reopenThread, replaceOrphan, replyToThread, resolveThread } from "../src/vendor/open-knowledge/app/src/comments/store";
+import { CommentScopeProvider, createFileThread, deleteThread, reopenThread, replaceOrphan, replyToThread, resolveThread } from "../src/vendor/open-knowledge/app/src/comments/store";
 import { TagDialog } from "../src/vendor/open-knowledge/app/src/editor/components/TagDialog";
 import { dispatchTagClickEvent } from "../src/vendor/open-knowledge/app/src/editor/extensions/tag-click-plugin";
 import { setEditorDocName } from "../src/vendor/open-knowledge/app/src/editor/extensions/doc-context";
 import { scopeExtensionsToDocument, sharedExtensions } from "../src/vendor/open-knowledge/app/src/editor/extensions/shared";
-import { attachOkFetch } from "../src/vendor/open-knowledge/app/src/lib/ok-fetch";
+import { attachOkFetch, OkFetchContext } from "../src/vendor/open-knowledge/app/src/lib/ok-fetch";
+import { emitDocumentsChanged } from "../src/vendor/open-knowledge/app/src/lib/documents-events";
 import { NewItemDialog } from "../src/vendor/open-knowledge/app/src/components/NewItemDialog";
 import { PageListProvider } from "../src/vendor/open-knowledge/app/src/components/PageListContext";
 import { InternalLinkPropPanel } from "../src/vendor/open-knowledge/app/src/editor/extensions/InternalLinkPropPanel";
@@ -279,11 +280,13 @@ test.each([
   { state: "disabled", enabled: false, status: null },
 ])("H04 external link preview $state preserves the URL", async ({ state, enabled, status }) => {
   const url = `https://example.invalid/${encodeURIComponent(state)}`;
-  const stopRoute = registerLinkPreviewRoute(async (requestedUrl) => {
-    expect(requestedUrl).toBe(url);
-    if (status === 500) throw new Error("预览暂时不可用");
-    return { ok: true, metadata: { domain: "example.invalid", title: "Preview title" } };
-  });
+  const stopRoute = registerHostRoutes(
+    linkPreviewRoutes(async (requestedUrl) => {
+      expect(requestedUrl).toBe(url);
+      if (status === 500) throw new Error("预览暂时不可用");
+      return { ok: true, metadata: { domain: "example.invalid", title: "Preview title" } };
+    }),
+  );
   const stopPages = registerHostRoutes(coreRoutes({ listPages: () => [], listDocuments: () => [] }));
   const responses: Response[] = [];
   const stop = attachOkFetch(async (input, init) => {
@@ -424,13 +427,29 @@ test.each([{ errorPath: null }, { errorPath: "/api/folder-config" }, { errorPath
   }
 });
 
-test("H04 comment list shows a load failure until a retry reads the list", async () => {
+test("H04 comment list shows a load failure until a retry reads a nonempty list", async () => {
   let failed = true;
   const docName = "comment-list-retry";
+  const at = "2026-11-20T12:00:00.000Z";
+  const meta = toThreadMeta(
+    {
+      id: "recovered-comment",
+      documentPath: docName,
+      target: "file",
+      property: null,
+      anchor: null,
+      state: "anchored",
+      resolved: false,
+      createdAt: at,
+      updatedAt: at,
+      messages: [{ at, author: "Huhu", text: "Recovered comment" }],
+    },
+    (path) => path,
+  );
   const dispose = registerHostRoutes({
     "GET /api/comments": () => {
       if (failed) throw new Error("测试读取失败");
-      return { threads: [] };
+      return { threads: [meta] };
     },
   });
   const stop = attachOkFetch(hostFetch);
@@ -445,13 +464,119 @@ test("H04 comment list shows a load failure until a retry reads the list", async
     expect(screen.queryByText(/No comments yet/)).toBeNull();
     failed = false;
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await screen.findByText(/No comments yet/);
+    await screen.findByText("Recovered comment");
     expect(screen.queryByText("Couldn't load comments")).toBeNull();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   } finally {
     cleanup();
     stop();
     dispose();
+  }
+});
+
+test.each([false, true])("H04 comments share a pending read and ignore a stale settlement after switching tabs (old failure: %s)", async (oldFails) => {
+  type List = { threads: ReturnType<typeof toThreadMeta>[] };
+  const reads = [Promise.withResolvers<List>(), Promise.withResolvers<List>()];
+  let count = 0;
+  const dispose = registerHostRoutes({
+    "GET /api/comments": () => reads[count++]?.promise ?? { threads: [] },
+  });
+  const stop = attachOkFetch(hostFetch);
+  const at = "2026-11-20T12:00:00.000Z";
+  const meta = (text: string) =>
+    toThreadMeta(
+      {
+        id: text,
+        documentPath: "next-tab",
+        target: "file",
+        property: null,
+        anchor: null,
+        state: "anchored",
+        resolved: false,
+        createdAt: at,
+        updatedAt: at,
+        messages: [{ at, author: "Huhu", text }],
+      },
+      (path) => path,
+    );
+  const panel = (docName: string) => (
+    <TooltipProvider>
+      <CommentsPanel docName={docName} />
+    </TooltipProvider>
+  );
+  try {
+    const view = render(panel("first-tab"));
+    await waitFor(() => expect(count).toBe(1));
+    view.rerender(panel("next-tab"));
+    expect(count).toBe(1);
+    act(() => emitDocumentsChanged(["comments"]));
+    await waitFor(() => expect(count).toBe(2));
+    await act(async () => reads[1]!.resolve({ threads: [meta("Current comment")] }));
+    expect(screen.getByText("Current comment")).toBeDefined();
+    await act(async () => {
+      if (oldFails) reads[0]!.reject(new Error("old error"));
+      else reads[0]!.resolve({ threads: [meta("Stale comment")] });
+    });
+    expect(screen.queryByText("Couldn't load comments")).toBeNull();
+    expect(screen.queryByText("Stale comment")).toBeNull();
+    expect(screen.getByText("Current comment")).toBeDefined();
+  } finally {
+    reads.forEach((read) => read.resolve({ threads: [] }));
+    cleanup();
+    stop();
+    dispose();
+  }
+});
+
+test("H04 comment lists keep simultaneous Vault scopes and late unmount responses isolated", async () => {
+  const held = Promise.withResolvers<Response>();
+  const first = vi.fn(() => held.promise);
+  const threads = (text: string) => ({
+    threads: [
+      {
+        threadId: text,
+        docName: "same-note",
+        target: { kind: "body" },
+        scope: "file",
+        anchor: null,
+        state: "anchored",
+        latestComment: text,
+        createdBy: "Huhu",
+        createdAt: 1,
+        queued: false,
+      },
+    ],
+  });
+  const second = vi.fn(async () => Response.json(threads("Second Vault thread")));
+  const panel = (showFirst: boolean) => (
+    <TooltipProvider>
+      {showFirst && (
+        <OkFetchContext value={first}>
+          <CommentScopeProvider scope="test-vault-one">
+            <CommentsPanel docName="same-note" />
+          </CommentScopeProvider>
+        </OkFetchContext>
+      )}
+      <OkFetchContext value={second}>
+        <CommentScopeProvider scope="test-vault-two">
+          <CommentsPanel docName="same-note" />
+        </CommentScopeProvider>
+      </OkFetchContext>
+    </TooltipProvider>
+  );
+  try {
+    const view = render(panel(true));
+    await screen.findByText("Second Vault thread");
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    view.rerender(panel(false));
+    await act(async () => held.resolve(Response.json(threads("First Vault thread"))));
+    expect(screen.queryByText("First Vault thread")).toBeNull();
+    expect(screen.getByText("Second Vault thread")).toBeDefined();
+    expect(second).toHaveBeenCalledTimes(1);
+  } finally {
+    held.resolve(Response.json({ threads: [] }));
+    cleanup();
   }
 });
 

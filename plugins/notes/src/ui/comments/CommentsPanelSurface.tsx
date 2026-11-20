@@ -1,5 +1,5 @@
 import { CommentsPanelHost, coreRoutes, type HostRoutes } from "@huhu/editor/rich";
-import { host } from "@huhu/workbench";
+import { host, useEngine } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
 import { docNameOf } from "./commentAdapter.js";
 import { useCommentsBridge } from "./useCommentsBridge.js";
@@ -18,6 +18,7 @@ export interface CommentsPanelSurfaceProps {
 /** 详情栏“批注”页（经动态 import 加载，OK 评论 UI 不进首屏）。 */
 export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
   const locale = useKnowledgeLocale();
+  const { vaultId } = useEngine();
   const { commentRoutes } = useCommentsBridge({ paths: props.paths, flush: props.flush });
   const known = useRef(props.paths);
   known.current = props.paths;
@@ -36,6 +37,7 @@ export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
   return (
     <CommentsPanelHost
       docName={docNameOf(props.path)}
+      commentScope={vaultId}
       routes={routes}
       {...(openExternal
         ? {

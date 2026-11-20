@@ -1,6 +1,6 @@
 import { type RefObject, useEffect } from 'react';
 import { locateInValue } from './property-row-rect';
-import { emitOpenThread, getOpenThread, getThreads } from './store';
+import { emitOpenThread, getOpenThread, getThreads, useCommentSurface } from './store';
 import type { CommentThread } from './types';
 
 const ROW_SELECTOR = '[data-testid="property-row"]';
@@ -74,6 +74,7 @@ export function usePropertyAnchorClick(
   containerRef: RefObject<HTMLElement | null>,
   docName: string,
 ): void {
+  const surface = useCommentSurface();
   useEffect(() => {
     if (docName === '') return;
     const container = containerRef.current;
@@ -86,7 +87,7 @@ export function usePropertyAnchorClick(
       if (rowKey === null) return;
       const offset = caretOffset(control);
       if (offset === null) return;
-      const threadId = threadAtValueOffset(getThreads(docName), rowKey, control.value, offset);
+      const threadId = threadAtValueOffset(getThreads(docName, surface), rowKey, control.value, offset);
       if (threadId !== null) {
         emitOpenThread(threadId);
         return;
@@ -98,5 +99,5 @@ export function usePropertyAnchorClick(
     return () => {
       container.removeEventListener('click', onClick);
     };
-  }, [containerRef, docName]);
+  }, [containerRef, docName, surface]);
 }

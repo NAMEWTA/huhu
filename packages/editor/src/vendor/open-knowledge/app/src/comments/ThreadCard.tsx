@@ -32,6 +32,7 @@ import {
   setActiveThread,
   toggleSending,
   useCommentsReadOnly,
+  useCommentSurface,
 } from './store';
 import type { CommentThread } from './types';
 
@@ -81,6 +82,7 @@ export function ThreadCard({
   const [draftEmpty, setDraftEmpty] = useState(false);
   // HUHU(P-S4-05)：删除确认、回复草稿
   const hostReadOnly = useCommentsReadOnly();
+  const surface = useCommentSurface();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [replyDraft, setReplyDraft] = useState('');
   const editFieldRef = useRef<ComposerMentionInputHandle>(null);
@@ -109,7 +111,7 @@ export function ThreadCard({
     setEditing(false);
     const next = (raw ?? '').trim();
     if (next.length === 0 || next === bodyRef.current) return;
-    editComment(thread.id, next);
+    editComment(thread.id, next, surface);
   }
 
   function commitEdit() {
@@ -122,7 +124,7 @@ export function ThreadCard({
 
   function deleteComment() {
     cancelEdit();
-    deleteThread(thread.id);
+    deleteThread(thread.id, surface);
   }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: settleEdit is deliberately read at cleanup time; keying the effect on it would re-arm the commit on every render.
@@ -183,11 +185,11 @@ export function ThreadCard({
     if (empty) return;
     const quote = editor.state.doc.textBetween(from, to, ' ').trim();
     if (quote.length > 0) {
-      const selection = captureCommentSelectionRevision(thread.docName);
+      const selection = captureCommentSelectionRevision(thread.docName, surface);
       replaceOrphan(thread.id, quote, {
         ...captureSelectionContext(editor.state.doc, from, to),
         ...(selection ? { selection } : {}),
-      });
+      }, surface);
     }
   }
 
@@ -219,7 +221,7 @@ export function ThreadCard({
         ) {
           return;
         }
-        toggleSending(thread.id);
+        toggleSending(thread.id, surface);
       }}
       className={cn(
         'group/comment-card flex flex-col gap-1.5 transition-[box-shadow,border-color,background-color]',
@@ -268,7 +270,7 @@ export function ThreadCard({
                     variant="ghost"
                     aria-label={t`Reopen`}
                     className={cn(actionRevealClass, 'hover:text-foreground')}
-                    onClick={() => reopenThread(thread.id)}
+                    onClick={() => reopenThread(thread.id, surface)}
                   >
                     <RotateCcw className="size-3.5" />
                   </Button>
@@ -286,7 +288,7 @@ export function ThreadCard({
                     aria-label={t`Resolve this comment`}
                     data-testid="thread-resolve"
                     className={cn(actionRevealClass, 'hover:text-foreground')}
-                    onClick={() => resolveThread(thread.id)}
+                    onClick={() => resolveThread(thread.id, surface)}
                   >
                     <Check className="size-3.5" />
                   </Button>
@@ -434,7 +436,7 @@ export function ThreadCard({
             event.preventDefault();
             const text = replyDraft.trim();
             if (text.length === 0) return;
-            replyToThread(thread.id, text);
+            replyToThread(thread.id, text, surface);
             setReplyDraft('');
           }}
           className="rounded-md border bg-background px-2 py-1 text-sm"

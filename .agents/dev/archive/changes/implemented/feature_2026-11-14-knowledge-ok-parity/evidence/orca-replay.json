@@ -20,7 +20,7 @@
       "target": "UPSTREAM.md",
       "upstream": null,
       "blob": null,
-      "sha256": "4fa18fc1053fe57121f73943aff87e2a294469cb4fd7c902ec23444bd9ddd1ef",
+      "sha256": "c4dd6878ce87465df2a8f2d7d38dacd4b525df3c84efe9123058cb97d2f96b7c",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },

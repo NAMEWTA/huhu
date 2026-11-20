@@ -3,7 +3,19 @@
 import { type ReactNode, useLayoutEffect, useState } from "react";
 import { CommentExternalLinkContext } from "@/comments/CommentMarkdown";
 import { CommentsPanel } from "@/comments/CommentsPanel";
-import { createFileThread, emitOpenThread, emitStartComment, getOpenThread, invalidateCommentNavigation, registerCommentSelectionSource, setCommentsReadOnly, subscribeCommentPosted, subscribeOpenThread } from "@/comments/store";
+import {
+  createFileThread,
+  emitOpenThread,
+  emitStartComment,
+  getOpenThread,
+  invalidateCommentNavigation,
+  invalidateCommentScope,
+  registerCommentSelectionSource,
+  setCommentsReadOnly,
+  subscribeCommentPosted,
+  subscribeOpenThread,
+  useCommentSurface,
+} from "@/comments/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { emitDocumentsChanged } from "@/lib/documents-events";
@@ -35,8 +47,9 @@ export function dismissOpenCommentThread(): void {
 }
 
 /** 批注数据在宿主侧变化（engine 事件 / 保存后重定位）：让 OK 的 store 重新拉取。 */
-export function notifyCommentsChanged(): void {
-  emitDocumentsChanged(["comments"]);
+export function notifyCommentsChanged(scope?: string): void {
+  if (scope === undefined) emitDocumentsChanged(["comments"]);
+  else invalidateCommentScope(scope);
 }
 
 export { registerCommentSelectionSource };
@@ -58,10 +71,11 @@ export function useCommentsReadOnlySync(readOnly: boolean): void {
 
 function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: string; label: string; placeholder: string; submit: string }): ReactNode {
   const [text, setText] = useState("");
+  const surface = useCommentSurface();
   const send = () => {
     const body = text.trim();
     if (!body) return;
-    createFileThread({ docName, body });
+    createFileThread({ docName, body }, surface);
     setText("");
   };
   return (
@@ -82,6 +96,7 @@ function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: s
 
 export interface CommentsPanelHostProps {
   docName: string;
+  commentScope?: string;
   routes: HostRoutes;
   openExternal?(url: string): Promise<void>;
   locale?: string;
@@ -92,9 +107,9 @@ export interface CommentsPanelHostProps {
 }
 
 /** 详情栏“批注”页：OK 的评论列表 + 整篇笔记批注输入（Huhu 的 `target:"file"`）。 */
-export function CommentsPanelHost({ docName, routes, openExternal, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
+export function CommentsPanelHost({ docName, commentScope, routes, openExternal, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
   return (
-    <OkRoot routes={routes} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
+    <OkRoot routes={routes} {...(commentScope !== undefined ? { commentScope } : {})} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
       <CommentsReadOnly readOnly={readOnly} />
       <div className="editor-comments-panel" data-testid="comments-panel">
         <div className="editor-comments-list">

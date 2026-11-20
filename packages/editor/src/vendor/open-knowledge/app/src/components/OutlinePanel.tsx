@@ -1,7 +1,7 @@
 // oxlint-disable ok/no-raw-html-interactive-element -- pre-rule backlog — file uses raw <button>/<input>/<textarea> awaiting shadcn migration; tracked at https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-raw-html-interactive-element
 // oxlint-disable ok/no-physical-direction-utility -- pre-rule backlog — physical margin/padding/inset utilities predate the rule; drain by swapping ml/mr → ms/me, pl/pr → ps/pe, left/right → start/end, then deleting this line. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-physical-direction-utility
 
-import { okFetch } from '@/lib/ok-fetch';
+import { useOkFetch } from '@/lib/ok-fetch';
 import {
   PageHeadingsSuccessSchema,
   ProblemDetailsSchema,
@@ -37,8 +37,8 @@ import { cn } from '@/lib/utils';
  */
 const OUTLINE_INVALIDATE_DEBOUNCE_MS = 300;
 
-async function fetchHeadings(docName: string): Promise<HeadingEntry[]> {
-  const res = await okFetch(`/api/page-headings?docName=${encodeURIComponent(docName)}`);
+async function fetchHeadings(docName: string, request: typeof fetch): Promise<HeadingEntry[]> {
+  const res = await request(`/api/page-headings?docName=${encodeURIComponent(docName)}`);
   let body: unknown;
   try {
     body = await res.json();
@@ -111,6 +111,7 @@ function OutlinePanelInner({
   onNavigated?: (target: HTMLElement) => void;
 }) {
   const { t } = useLingui();
+  const request = useOkFetch();
   const { pages, loading, error: pageListError } = usePageList();
   const queryClient = useQueryClient();
   const { activeProvider, activeDocName } = useDocumentContext();
@@ -127,7 +128,7 @@ function OutlinePanelInner({
     error,
   } = useQuery({
     queryKey: ['page-headings', docName],
-    queryFn: () => fetchHeadings(docName),
+    queryFn: () => fetchHeadings(docName, request),
     enabled: !loading && isKnownPage,
     staleTime: Number.POSITIVE_INFINITY,
   });

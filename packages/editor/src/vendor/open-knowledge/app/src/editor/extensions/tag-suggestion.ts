@@ -1,4 +1,4 @@
-import { okFetch } from '@/lib/ok-fetch';
+import { editorFetch, okFetch } from '@/lib/ok-fetch';
 import {
   INLINE_TAG_VALUE_PATTERN_SOURCE,
   INLINE_TAG_VALUE_RE,
@@ -32,8 +32,8 @@ const MAX_ITEMS = 8;
 
 const TAG_TRIGGER_RE = new RegExp(`(^|[\\s￼])#(${INLINE_TAG_VALUE_PATTERN_SOURCE})?$`, 'u');
 
-export async function fetchTags(): Promise<TagSummaryEntry[]> {
-  const r = await okFetch('/api/tags');
+export async function fetchTags(request = okFetch): Promise<TagSummaryEntry[]> {
+  const r = await request('/api/tags');
   if (!r.ok) throw new Error(`/api/tags responded with ${r.status}`);
   const data: { tags?: TagSummaryEntry[] } = await r.json();
   return Array.isArray(data.tags) ? data.tags : [];
@@ -115,7 +115,7 @@ export function configureTagSuggestion(editor: Editor) {
 
     items: async ({ query }) => {
       if (!tagsLoaded) {
-        tagsPromise ||= fetchTags();
+        tagsPromise ||= fetchTags(editorFetch(editor));
         try {
           cachedTags = await tagsPromise;
           fetchError = null;

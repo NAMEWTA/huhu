@@ -64,6 +64,23 @@ describe("锚点（R-24）", () => {
     const original = "甲：同句。\n乙：同句。";
     expect(refind("乙：同句。", createAnchor(original, 2, 4))).toEqual({ status: "orphaned" });
   });
+  test("删除第一段后，长模板的幸存引文不继承旧锚点", () => {
+    const first = "甲组：统一说明模板。相同词句，办理前请核对以下基本信息。\n";
+    const second = "乙组：统一说明模板。相同词句，办理前请核对以下基本信息。\n";
+    const original = first + second;
+    const { start, end } = at(original, "相同词句");
+    expect(refind(second, createAnchor(original, start, end))).toEqual({ status: "orphaned" });
+  });
+  test("重复引文随原行映射到新位置，无法区分的完整重复行删除时孤立", () => {
+    const first = "甲：共用一段很长的起始模板。相同词句，以及一段共用的结束模板。\n";
+    const second = first.replace("甲", "乙");
+    const original = first + second;
+    const { start, end } = at(original, "相同词句");
+    const anchor = createAnchor(original, start, end);
+    const added = "另加一段\n";
+    expect(refind(added + first, anchor, 0, original)).toEqual({ status: "anchored", start: start + added.length, end: end + added.length });
+    expect(refind(first, createAnchor(first + first, start, end), 0, first + first)).toEqual({ status: "orphaned" });
+  });
   test("上下文同分时不能按距离选择", () => {
     const original = "甲：同句。";
     const next = "新增\n甲：同句。\n甲：同句。";
@@ -155,6 +172,24 @@ describe("CommentsService", () => {
     const re = await svc.relocate(c.id, at(removed, "前言一行"));
     expect(re.state).toBe("anchored");
     expect(re.anchor?.exact).toBe("前言一行");
+  });
+  test("删除重复长段落后在磁盘保留孤立线程及其原锚点", async () => {
+    const first = "甲组：统一说明模板。相同词句，办理前请核对以下基本信息。\n";
+    const second = "乙组：统一说明模板。相同词句，办理前请核对以下基本信息。\n";
+    const original = first + second;
+    const { svc, root, write, version } = await setup(original);
+    const created = await svc.create({ path: "笔记.md", target: "body", ...at(original, "相同词句"), text: "只针对甲", author: "我" });
+    const previous = { text: original, version: version() };
+    write(second);
+    await svc.refind("笔记.md", second, version(), previous);
+    const thread = readFileSync(path.join(root, created.path), "utf8");
+    expect(thread).toContain("state: orphaned");
+    expect(thread).toContain("只针对甲");
+    expect(svc.list("笔记.md")[0]).toMatchObject({ state: "orphaned", anchor: created.anchor });
+    write(original);
+    await svc.refind("笔记.md", original, version());
+    expect(svc.list("笔记.md")[0]?.state).toBe("orphaned");
+    expect((await svc.relocate(created.id, at(original, "相同词句"))).state).toBe("anchored");
   });
   test("文档改名：批注的 documentPath 同步；永久删除：批注一起删除", async () => {
     const { svc } = await setup(DOC);

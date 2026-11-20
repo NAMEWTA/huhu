@@ -1,4 +1,4 @@
-import { okFetch } from '@/lib/ok-fetch';
+import { useOkFetch } from '@/lib/ok-fetch';
 import {
   type FolderConfigWarningCode,
   type TemplatesListSuccess,
@@ -51,6 +51,7 @@ export interface FolderConfigHandle {
 }
 
 export function useFolderConfig(folderPath: string | null): FolderConfigHandle {
+  const request = useOkFetch();
   const [state, setState] = useState<AsyncState<FolderConfigSnapshot>>({ status: 'idle' });
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -70,7 +71,7 @@ export function useFolderConfig(folderPath: string | null): FolderConfigHandle {
     let cancelled = false;
     setState({ status: 'loading' });
     const qs = folderPath ? `?path=${encodeURIComponent(folderPath)}` : '';
-    okFetch(`/api/folder-config${qs}`)
+    request(`/api/folder-config${qs}`)
       .then(async (r) => {
         if (!r.ok) {
           const body = (await r.json().catch(() => null)) as unknown;
@@ -106,7 +107,7 @@ export function useFolderConfig(folderPath: string | null): FolderConfigHandle {
     return () => {
       cancelled = true;
     };
-  }, [folderPath, refreshKey]);
+  }, [folderPath, refreshKey, request]);
 
   return {
     state,
@@ -115,6 +116,7 @@ export function useFolderConfig(folderPath: string | null): FolderConfigHandle {
 }
 
 export function useAllTemplates(): AsyncState<TemplatesListSuccess> {
+  const request = useOkFetch();
   const [state, setState] = useState<AsyncState<TemplatesListSuccess>>({ status: 'idle' });
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -128,7 +130,7 @@ export function useAllTemplates(): AsyncState<TemplatesListSuccess> {
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });
-    okFetch('/api/templates')
+    request('/api/templates')
       .then(async (r) => {
         if (!r.ok) {
           const body = (await r.json().catch(() => null)) as unknown;
@@ -159,7 +161,7 @@ export function useAllTemplates(): AsyncState<TemplatesListSuccess> {
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, request]);
 
   return state;
 }
