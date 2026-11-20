@@ -108,11 +108,12 @@ export class EngineSupervisor {
     const protectedPty = app.isPackaged
       ? path.join(process.resourcesPath, "agent-pty", "huhu-agent-pty.exe")
       : (process.env["HUHU_AGENT_PTY_HOST"] ?? path.resolve(import.meta.dirname, "../../../../native/agent-pty/bin/huhu-agent-pty.exe"));
+    const inheritedEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== "HUHU_AGENT_PTY_HOST"));
     const child = utilityProcess.fork(this.entry, args, {
       stdio: "pipe",
       serviceName: "huhu-engine",
       env: {
-        ...process.env,
+        ...inheritedEnv,
         HUHU_EXAMPLES_DIR: examplesDir(),
         HUHU_WEB_ASSETS_DIR: path.join(import.meta.dirname, "../renderer"),
         HUHU_DESKTOP_USER_DATA: app.getPath("userData"),

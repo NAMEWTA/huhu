@@ -359,6 +359,18 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const Ok = z.object({ ok: z.literal(true) });
   api.defineCapability(
     def({
+      name: "agent.sessions.recover",
+      plugin: "agent-cli",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: Id.strict(),
+      output: Session,
+      handler: async ({ signal }, { id }) => publicSession(await sessions.recover(id, signal)),
+    }),
+  );
+  api.defineCapability(
+    def({
       name: "agent.sessions.launch",
       plugin: "agent-cli",
       scope: "execute",

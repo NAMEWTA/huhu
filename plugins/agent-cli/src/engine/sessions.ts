@@ -652,6 +652,13 @@ export class SessionsService {
     return current;
   }
 
+  async recover(id: string, signal: AbortSignal): Promise<SessionRecord> {
+    const session = this.get(id);
+    const origin = this.recordedLaunch(session.requestId);
+    if (origin?.id !== id || !origin.launchReceipt?.attempt) throw errors.invalidInput("没有可核对的原启动请求");
+    return this.findLaunch(origin, signal);
+  }
+
   private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
     if (session.state === "exited") return session;
     if (session.launchReceipt?.attempt?.nativeStatus === "failed") throw errors.invalidInput(session.error ?? "受保护进程未启动");

@@ -216,6 +216,10 @@ test.skipIf(process.platform !== "win32" || !coreBinary)(
       expect(await call("agent.workspace.close", { ...close, terminate: true })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
       expect(await data<WorkspaceLaunchView>("agent.workspace.launch", intended)).toEqual({ sessionId: start.sessionId, workspace: parked, placement: null });
       expect(await data<unknown[]>("agent.sessions.list", { spaceId: space.id })).toMatchObject([{ id: start.sessionId, state: "running" }]);
+      const priorTerminal = await data<{ terminalId: string }>("agent.sessions.recover", { id: start.sessionId });
+      expect(priorTerminal).toMatchObject({ id: start.sessionId, requestId: intended.requestId, state: "running" });
+      expect(priorTerminal.terminalId).toBeTruthy();
+      expect(await data<unknown[]>("agent.sessions.list", { spaceId: space.id })).toHaveLength(1);
       const otherDir = path.join(fixture, "second-space");
       mkdirSync(otherDir);
       const other = await data<{ id: string }>("agent.spaces.save", { name: "第二工作区", root: otherDir });

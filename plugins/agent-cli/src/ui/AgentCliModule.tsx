@@ -294,7 +294,11 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const currentSession = active ?? currentLeaf?.sessionId;
   const cur = list.find((s) => s.id === currentSession) ?? null;
   const preview = cur && (!view || !sessionPlacement(view.layout, cur.id)) ? cur : null;
-  const stateBadge = (s: Session) => <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : "danger"}>{s.state === "running" ? t.running : s.state === "exited" ? t.exited : t.failed}</Badge>;
+  const stateBadge = (s: Session) => (
+    <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : s.state === "failed" ? "danger" : "warning"}>
+      {s.state === "running" ? t.running : s.state === "exited" ? t.exited : s.state === "failed" ? t.failed : "待核实"}
+    </Badge>
+  );
 
   function tabFocus(tabId: string, leafId: string, sessionId: string | null, zoomId: string | null = null) {
     if (!space) return;
@@ -477,6 +481,16 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             </Button>
           </div>
         ) : null}
+        {!recovery
+          ? list
+              .filter(({ state }) => state === "unknown")
+              .map((session) => (
+                <div key={session.id} className="hu-callout" data-testid="workspace-persisted-launch-recovery">
+                  <p role="status">{session.name} · 启动结果待核实</p>
+                  <Button onClick={() => void act("agent.sessions.recover", session.id)}>核对原启动</Button>
+                </div>
+              ))
+          : null}
         <div className="agent-tabs">
           <div className="agent-open-tabs" role="tablist" aria-label="Agents">
             {list.map((s) => (

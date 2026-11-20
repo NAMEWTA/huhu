@@ -41,6 +41,7 @@
       "agent.sessions.kill",
       "agent.sessions.launch",
       "agent.sessions.list",
+      "agent.sessions.recover",
       "agent.sessions.output",
       "agent.sessions.release",
       "agent.sessions.rename",

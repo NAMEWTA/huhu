@@ -1,11 +1,14 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { EngineSupervisor } from "../src/main/engine-supervisor.js";
 
-const { fork } = vi.hoisted(() => ({ fork: vi.fn() }));
+const { app, fork } = vi.hoisted(() => ({ app: { isPackaged: false, getPath: () => "fixture-user-data" }, fork: vi.fn() }));
 vi.mock("electron", async () => {
   const { MessageChannel } = await import("node:worker_threads");
-  return { app: { getPath: () => "fixture-user-data" }, utilityProcess: { fork }, MessageChannelMain: MessageChannel };
+  return { app, utilityProcess: { fork }, MessageChannelMain: MessageChannel };
 });
 
 class Child extends EventEmitter {
@@ -14,9 +17,28 @@ class Child extends EventEmitter {
 }
 
 afterEach(() => {
+  app.isPackaged = false;
   fork.mockReset();
   vi.unstubAllEnvs();
   vi.useRealTimers();
+});
+
+test("安装资源缺失时不向 Engine 传递开发用受保护宿主", () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-packaged-resource-"));
+  const previous = Object.getOwnPropertyDescriptor(process, "resourcesPath");
+  Object.defineProperty(process, "resourcesPath", { value: fixture, configurable: true });
+  try {
+    app.isPackaged = true;
+    vi.stubEnv("huhu_agent_pty_host", path.join(fixture, "developer-host.exe"));
+    vi.stubEnv("HUHU_HERDR_BIN", "fixture-herdr");
+    fork.mockReturnValueOnce(new Child());
+    new EngineSupervisor("fixture-vault", {}, () => undefined, "fixture-engine.js").start();
+    expect(Object.keys(fork.mock.calls[0]?.[2].env).map((name) => name.toUpperCase())).not.toContain("HUHU_AGENT_PTY_HOST");
+  } finally {
+    if (previous) Object.defineProperty(process, "resourcesPath", previous);
+    else Reflect.deleteProperty(process, "resourcesPath");
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });
 
 async function stoppedAtDeadline() {
