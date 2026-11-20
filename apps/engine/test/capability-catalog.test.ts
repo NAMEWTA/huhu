@@ -62,12 +62,12 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
     expect(published.map((entry) => entry.name).sort()).toEqual([...sshManifest.contributes.capabilities].sort());
     expect(new Set(published.map((entry) => entry.name)).size).toBe(published.length);
     expect(published.every((entry) => entry.title && entry.description && entry.risk && entry.input && entry.output && entry.availability === "active")).toBe(true);
-    expect(published.find((entry) => entry.name === "ssh.hosts.delete")).toMatchObject({
+    expect(published.find((entry) => entry.name === "ssh.hosts.remove")).toMatchObject({
       plugin: "ssh",
-      title: "删除 SSH 主机",
-      scope: "write",
+      title: "移除 SSH 主机配置",
+      scope: "admin",
       risk: "high",
-      input: { properties: { id: { type: "string" } }, required: ["id"] },
+      input: { properties: { hostId: { type: "string" }, expectedRevision: { type: "string" } }, required: ["hostId", "expectedRevision"] },
       output: { properties: { ok: { const: true } } },
     });
     expect(await call(engine, "ssh.hosts.list")).toEqual({ ok: true, data: [] });

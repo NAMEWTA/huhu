@@ -626,10 +626,10 @@ describe("Engine 启动与关闭", () => {
       expect(await call("history.read", { path: runPath, entryId: entry.id })).toMatchObject({ ok: true, data: { text: original.toString("utf8") } });
     }
   }, 60_000);
-  test("ssh + safe：凭据只经保险箱引用；锁定时连接失败；解锁后确认指纹并执行命令；审计无密码", async () => {
+  test("SSH 使用模块凭据，保险箱锁定时仍能确认指纹、连接和执行，审计无密码", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
     const srv = await startFakeSsh({ password: "s3cret-PW-marker" });
-    const e = await boot({ vaultPath: tmp(), create: true });
+    const e = await boot({ vaultPath: tmp(), desktopUserData: tmp(), create: true });
     engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
@@ -639,18 +639,27 @@ describe("Engine 启动与关闭", () => {
     });
     try {
       await call("safe.setup", { password: "correct horse battery" });
-      const item = (await call("safe.items.save", { name: "服务器密码", type: "password", allowedModules: ["ssh"], value: "s3cret-PW-marker" })).data as { id: string };
-      const host = (await call("ssh.hosts.save", { name: "测试机", host: "127.0.0.1", port: srv.port, user: "u", auth: { kind: "password", secretRef: `safe://${item.id}` }, connectTimeoutSec: 5 })).data as { id: string };
+      const saved = await call("ssh.hosts.configure", {
+        name: "测试机",
+        host: "127.0.0.1",
+        port: srv.port,
+        user: "u",
+        authKind: "password",
+        expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "s3cret-PW-marker" }],
+        connectTimeoutSec: 5,
+      });
+      expect(saved.ok).toBe(true);
+      const { hostId } = saved.data as { hostId: string };
       await call("safe.lock", {});
-      expect((await call("ssh.connect", { hostId: host.id })).error?.code).toBe("SAFE_LOCKED");
-      await call("safe.unlock", { password: "correct horse battery" });
-      const connecting = call("ssh.connect", { hostId: host.id });
+      expect((await call("safe.status", {})).data).toMatchObject({ locked: true });
+      const connecting = call("ssh.connect", { hostId });
       for (let i = 0; i < 100 && prompts.length === 0; i++) await new Promise((r) => setTimeout(r, 30));
       expect((await call("ssh.hostKey.decide", { attemptId: prompts[0]?.attemptId, hop: 0, accept: true })).data).toEqual({ applied: true });
       expect((await connecting).ok).toBe(true);
-      const out = (await call("ssh.exec.run", { hostId: host.id, command: "echo 远程你好" })).data as { stdout: string; exitCode: number };
+      const out = (await call("ssh.exec.run", { hostId, command: "echo 远程你好" })).data as { stdout: string; exitCode: number };
       expect(out).toMatchObject({ stdout: "远程你好\n", exitCode: 0 });
-      expect((await call("ssh.disconnect", { hostId: host.id })).ok).toBe(true);
+      expect((await call("ssh.disconnect", { hostId })).ok).toBe(true);
       const audit = JSON.stringify((await call("ssh.audit.list", {})).data);
       expect(audit).toContain("connect");
       expect(audit).not.toContain("s3cret-PW-marker");
@@ -897,7 +906,7 @@ describe("Engine 启动与关闭", () => {
   test("SSH shell 经同一条 /ws/terminal/ssh-<id> 路由：输入回显；关闭视图后 shell 仍在，可重新打开；ssh- 路由对未知 shell 返回 4404", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
     const srv = await startFakeSsh({ password: "pw-shell-1" });
-    const e = await boot({ vaultPath: tmp(), create: true });
+    const e = await boot({ vaultPath: tmp(), desktopUserData: tmp(), create: true });
     engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
@@ -907,14 +916,23 @@ describe("Engine 启动与关闭", () => {
     });
     const { WebSocket } = await import("ws");
     try {
-      await call("safe.setup", { password: "correct horse battery" });
-      const item = (await call("safe.items.save", { name: "pw", type: "password", allowedModules: ["ssh"], value: "pw-shell-1" })).data as { id: string };
-      const host = (await call("ssh.hosts.save", { name: "m", host: "127.0.0.1", port: srv.port, user: "u", auth: { kind: "password", secretRef: `safe://${item.id}` }, connectTimeoutSec: 5 })).data as { id: string };
-      const connecting = call("ssh.connect", { hostId: host.id });
+      const saved = await call("ssh.hosts.configure", {
+        name: "m",
+        host: "127.0.0.1",
+        port: srv.port,
+        user: "u",
+        authKind: "password",
+        expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw-shell-1" }],
+        connectTimeoutSec: 5,
+      });
+      expect(saved.ok).toBe(true);
+      const { hostId } = saved.data as { hostId: string };
+      const connecting = call("ssh.connect", { hostId });
       for (let i = 0; i < 100 && prompts.length === 0; i++) await new Promise((r) => setTimeout(r, 30));
       await call("ssh.hostKey.decide", { attemptId: prompts[0]?.attemptId, hop: 0, accept: true });
       expect((await connecting).ok).toBe(true);
-      const shell = (await call("ssh.shells.open", { hostId: host.id, cols: 100, rows: 30 })).data as { id: string };
+      const shell = (await call("ssh.shells.open", { hostId, cols: 100, rows: 30 })).data as { id: string };
       // 回放在连接建立时立即发出，所以收集器必须在 open 之前就挂好
       const open = (id: string) =>
         new Promise<InstanceType<typeof WebSocket> & { text: string }>((resolve, reject) => {
@@ -932,7 +950,7 @@ describe("Engine 启动与关闭", () => {
       expect(ws.text).toContain("ECHO:ping");
       ws.close();
       await new Promise((r) => setTimeout(r, 200));
-      expect(((await call("ssh.shells.list", { hostId: host.id })).data as { state: string }[])[0]?.state).toBe("running");
+      expect(((await call("ssh.shells.list", { hostId })).data as { state: string }[])[0]?.state).toBe("running");
       const again = await open(shell.id);
       for (let i = 0; i < 100 && !again.text.includes("ECHO:ping"); i++) await new Promise((r) => setTimeout(r, 30));
       expect(again.text).toContain("ECHO:ping"); // 回放最近输出

@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openApp } from "../../../tests/e2e/helpers/launch.js";
-import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../src/engine/monitor-sample.js";
-import { CONTAINER_LIST, PROCESS_LIST } from "../src/engine/monitor-tools.js";
-import { startFakeSsh } from "../test/fake-server.js";
+import { openApp } from "../helpers/launch.js";
+import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../../../plugins/ssh/src/engine/monitor-sample.js";
+import { CONTAINER_LIST, PROCESS_LIST } from "../../../plugins/ssh/src/engine/monitor-tools.js";
+import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 
 async function call<T>(page: Page, capability: string, input: unknown) {
   const result = await page.evaluate(

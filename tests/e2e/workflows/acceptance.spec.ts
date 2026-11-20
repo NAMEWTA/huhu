@@ -397,7 +397,7 @@ test("ACC-SH-04 远程连接：编辑主机、从已有主机里按顺序选跳�
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
-    const mk = (name: string, host: string) => call("ssh.hosts.save", { name, host, port: 22, user: "ops", auth: { kind: "agent" }, jumpHostIds: [] });
+    const mk = (name: string, host: string) => call("ssh.hosts.configure", { name, host, port: 22, user: "ops", authKind: "agent", expectedRevision: null, jumpHostIds: [] });
     const a = await mk("跳板甲", "a.example.internal");
     const b = await mk("目标乙", "b.example.internal");
     expect(a.ok && b.ok).toBe(true);

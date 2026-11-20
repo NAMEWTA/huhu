@@ -51,11 +51,12 @@ test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删
   try {
     const { page, vault } = fixture;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    const hosts: { id: string; name: string }[] = [];
+    const hosts: { id: string; name: string; revision: string }[] = [];
     for (let i = 1; i <= 13; i++) {
-      const saved = await sshCall<{ id: string; name: string }>(page, "ssh.hosts.save", { name: `测试主机 ${i}`, host: "127.0.0.1", port: 21000 + i, user: "fixture", auth: { kind: "agent" } });
+      const name = `测试主机 ${i}`;
+      const saved = await sshCall<{ hostId: string; revision: string }>(page, "ssh.hosts.configure", { name, host: "127.0.0.1", port: 21000 + i, user: "fixture", authKind: "agent", expectedRevision: null });
       expect(saved.ok, saved.error?.message).toBe(true);
-      hosts.push(saved.data);
+      hosts.push({ id: saved.data.hostId, name, revision: saved.data.revision });
     }
     await openWorkspace(page);
     await page.getByRole("button", { name: "新建模板" }).click();
@@ -94,7 +95,8 @@ test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删
     ]) {
       expect((await sshCall(page, "ssh.workspace.templates.save", { name: "无效模板", ...invalid })).ok).toBe(false);
     }
-    const blocked = await sshCall(page, "ssh.hosts.delete", { id: hosts[0]!.id });
+    const remove = { hostId: hosts[0]!.id, expectedRevision: hosts[0]!.revision };
+    const blocked = await sshCall(page, "ssh.hosts.remove", remove);
     expect(blocked.ok).toBe(false);
     expect(blocked.error?.message).toContain("开发工作区");
     await page.getByRole("button", { name: "编辑模板" }).click();
@@ -115,7 +117,7 @@ test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删
       await fresh.getByRole("button", { name: "删除模板" }).click();
       await fresh.getByRole("button", { name: "确认删除" }).click();
       await expect(fresh.getByText("暂无工作区模板")).toBeVisible();
-      expect((await sshCall(fresh, "ssh.hosts.delete", { id: hosts[0]!.id })).ok).toBe(true);
+      expect((await sshCall(fresh, "ssh.hosts.remove", remove)).ok).toBe(true);
     } finally {
       await reopened.close();
     }
@@ -255,12 +257,12 @@ test("H4.2 绑定写入失败零拨号，已删除和身份变更有各自分栏
     await openWorkspace(page);
     const change = await configureLoopback(page, "身份已变", oldTarget.port, password);
     const unreachableHost = await configureLoopback(page, "本机端口未监听", unreachablePort, password);
-    const removed = await sshCall<{ id: string }>(page, "ssh.hosts.save", { name: "稍后移除", host: "127.0.0.1", port: oldTarget.port, user: "fixture", auth: { kind: "agent" } });
+    const removed = await sshCall<{ hostId: string }>(page, "ssh.hosts.configure", { name: "稍后移除", host: "127.0.0.1", port: oldTarget.port, user: "fixture", authKind: "agent", expectedRevision: null });
     expect(removed.ok).toBe(true);
     const template = await sshCall<WorkspaceTemplate>(page, "ssh.workspace.templates.save", {
       name: "检查旧目标",
       layout: { kind: "three" },
-      panes: [{ hostId: change.hostId }, { hostId: removed.data.id }, { hostId: unreachableHost.hostId }],
+      panes: [{ hostId: change.hostId }, { hostId: removed.data.hostId }, { hostId: unreachableHost.hostId }],
     });
     expect(template.ok).toBe(true);
     await page.getByRole("button", { name: "临时启动", exact: true }).click();
@@ -294,13 +296,13 @@ test("H4.2 绑定写入失败零拨号，已删除和身份变更有各自分栏
     });
     expect(moved.ok, moved.error?.message).toBe(true);
     // Simulate a missing record left by an older copy of the directory.
-    rmSync(path.join(vault, ".huhu/ssh/hosts", `${removed.data.id}.json`));
+    rmSync(path.join(vault, ".huhu/ssh/hosts", `${removed.data.hostId}.json`));
     await page.reload();
     await openWorkspace(page);
     await page.getByRole("button", { name: "检查旧目标" }).click();
     await page.getByRole("button", { name: "启动模板" }).click();
     await expect(page.getByRole("article", { name: "身份已变" }).getByRole("alert")).toContainText("身份已变更");
-    await expect(page.getByRole("article", { name: removed.data.id }).getByRole("alert")).toContainText("已移除");
+    await expect(page.getByRole("article", { name: removed.data.hostId }).getByRole("alert")).toContainText("已移除");
     await expect(page.getByRole("article", { name: "本机端口未监听" }).getByRole("alert")).toContainText("连接失败");
     expect(oldTarget.conns).toHaveLength(0);
     expect(newTarget.conns).toHaveLength(0);

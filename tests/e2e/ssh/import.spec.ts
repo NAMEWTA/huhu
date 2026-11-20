@@ -107,7 +107,9 @@ test("SSH 取消零写入、过期重新预览、冲突处理和相同主机身�
   try {
     await openSsh(page);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(960, 600));
-    const existing = await desktopCall<SavedHost>(page, "ssh.hosts.save", { name: "Mirror", host: "mirror.invalid", port: 22, user: "fixture", auth: { kind: "agent" } });
+    const saved = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", { name: "Mirror", host: "mirror.invalid", port: 22, user: "fixture", authKind: "agent", expectedRevision: null });
+    const existing = (await desktopCall<SavedHost[]>(page, "ssh.hosts.list")).find((host) => host.id === saved.hostId);
+    expect(existing).toBeDefined();
     const initial = await desktopCall(page, "ssh.hosts.directory");
     const file = path.join(fixtures, "conflicts.csv");
     writeFileSync(
@@ -144,7 +146,7 @@ test("SSH 取消零写入、过期重新预览、冲突处理和相同主机身�
     expect(await desktopCall(page, "ssh.hosts.directory")).toEqual(initial);
 
     await preview(page, "netcatty", file);
-    await desktopCall(page, "ssh.hosts.save", { name: "Concurrent", host: "concurrent.invalid", port: 22, user: "fixture", auth: { kind: "agent" } });
+    await desktopCall(page, "ssh.hosts.configure", { name: "Concurrent", host: "concurrent.invalid", port: 22, user: "fixture", authKind: "agent", expectedRevision: null });
     await submit(page).click();
     await expect(modal(page).getByRole("alert")).toContainText("预览已过期");
     await expect(submit(page)).toHaveCount(0);
