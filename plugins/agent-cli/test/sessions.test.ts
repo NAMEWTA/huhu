@@ -37,7 +37,17 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
       }
       if (method === "terminal.run") {
         runs.push({ ...(params.argv ? { argv: params.argv } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) });
-        const t = { address: `t${terminals.length + 1}`, labels: params.labels ?? {}, cwd: params.cwd!, argv: params.argv ?? [], pid: 100 + terminals.length, created_ms: 200 + terminals.length };
+        const t = {
+          address: `t${terminals.length + 1}`,
+          labels: params.labels ?? {},
+          cwd: params.cwd!,
+          argv: params.argv ?? [],
+          pid: 100 + terminals.length,
+          created_ms: 200 + terminals.length,
+          state: "live",
+          finished_ms: null,
+          exit_code: null,
+        };
         if (opts.failRun === "throw") throw new Error("boom");
         terminals.push(t);
         if (opts.failRun === "throw-after-create") throw new Error("响应丢失");

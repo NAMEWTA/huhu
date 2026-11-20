@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HerdrClient } from "@huhu/herdr-client";
@@ -48,6 +48,10 @@ test.skipIf(process.platform !== "win32" || !bin)(
     let emptyEndpoint = false;
     let isolatedId: string | undefined;
     let dispose: (() => void) | undefined;
+    async function closeEngine() {
+      await dispose?.();
+      dispose = undefined;
+    }
     try {
       expect(expectedCore.endpoint).toMatch(/^\\\\\.\\pipe\\huhu-[a-z0-9]{8}-[a-z0-9]{4}$/);
       const before = cli("server", "status");
@@ -239,8 +243,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const persisted = () => JSON.parse(readFileSync(path.join(vault.stateDir, "agent-cli", "sessions", `${sessionId}.json`), "utf8"));
       expect(persisted()).toMatchObject({ state: "unknown", requestId: launchId, terminalId: null, launchReceipt: { vaultId: vault.id, attempt: { id: attemptId, core: { id: isolatedId, generation: 1 } } } });
       expect(JSON.parse(cli("get", original.address).stdout)).toMatchObject({ pid: original.pid, created_ms: original.created_ms, state: "live" });
-      await dispose?.();
-      dispose = undefined;
+      await closeEngine();
       const vaultRoot = vault.root;
       await vault.close();
       vault = await Vault.open(vaultRoot);
@@ -256,13 +259,46 @@ test.skipIf(process.platform !== "win32" || !bin)(
         const after = await coreClient.call<{ terminals: Terminal[] }>("terminal.list", { all: true });
         expect(after.terminals).toHaveLength(3);
         expect(after.terminals.filter((terminal) => terminal.labels["huhu.launch"] === launchId)).toMatchObject([{ address: original.address, pid: original.pid, created_ms: original.created_ms }]);
+
+        const sessionPath = path.join(vault.stateDir, "agent-cli", "sessions", `${sessionId}.json`);
+        const sessionContents = readFileSync(sessionPath);
+        for (const scenario of ["truncated", "missing"]) {
+          await closeEngine();
+          await vault.close();
+          if (scenario === "truncated") writeFileSync(sessionPath, '{"id":');
+          else rmSync(sessionPath);
+          vault = await Vault.open(vaultRoot);
+          await openEngine();
+          const repeated = await request("agent.sessions.launch", launch, transportKey);
+          const { terminals } = await coreClient.call<{ terminals: Terminal[] }>("terminal.list", { all: true });
+          const matches = terminals.filter((terminal) => terminal.labels["huhu.launch"] === launchId);
+          console.info(JSON.stringify({ scenario, result: repeated.ok ? "ok" : repeated.error.code, addresses: matches.map(({ address, pid }) => ({ address, pid })) }));
+          expect(repeated).toMatchObject({ ok: false, error: { code: "RUN_UNKNOWN", details: { reason: "launch_receipt_unavailable", requestId: launchId } } });
+          expect(matches).toMatchObject([{ address: original.address, pid: original.pid, created_ms: original.created_ms, state: "live" }]);
+          writeFileSync(sessionPath, sessionContents);
+        }
       } finally {
         coreClient.close();
       }
       await call("agent.sessions.kill", { id: sessionId });
+      const junction = path.join(cwd, "start junction");
+      const actual = path.join(cwd, "original target");
+      const moved = path.join(cwd, "different target");
+      mkdirSync(actual);
+      mkdirSync(moved);
+      symlinkSync(actual, junction, "junction");
+      const throughJunction = { ...launch, requestId: crypto.randomUUID(), cwd: junction };
+      const junctionLaunch = await call<{ id: string; terminalId: string; cwd: string }>("agent.sessions.launch", throughJunction);
+      expect(junctionLaunch.cwd).toBe(actual);
+      rmSync(junction);
+      expect(await call("agent.sessions.launch", throughJunction)).toMatchObject({ id: junctionLaunch.id, terminalId: junctionLaunch.terminalId, cwd: actual });
+      symlinkSync(moved, junction, "junction");
+      expect(await request("agent.sessions.launch", throughJunction)).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      await call("agent.sessions.kill", { id: junctionLaunch.id });
+      console.info(JSON.stringify({ scenario: "junction", kept: junctionLaunch.terminalId, retargeted: "IDEMPOTENCY_MISMATCH" }));
       console.info(JSON.stringify({ isolatedId, launchId, sessionId, attemptId, address: original.address, pid: original.pid, createdMs: original.created_ms }));
     } finally {
-      await dispose?.();
+      await closeEngine();
       try {
         if (emptyEndpoint) {
           const status = cli("server", "status");

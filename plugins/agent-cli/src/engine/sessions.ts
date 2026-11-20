@@ -121,6 +121,8 @@ export interface LaunchInput {
 }
 
 type TerminalSnapshot = { kind: "available"; client: HerdrClient; core: Awaited<ReturnType<typeof identifyCore>>; terminals: Terminal[] } | { kind: "absent" | "unavailable" };
+type LaunchIntent = { literalHash: string; resolvedHash: string | null };
+type LaunchIndex = Pick<LaunchReceipt, "vaultId" | "machineId" | "intentHash" | "executionHash" | "literalIntentHash"> & { requestId: string; sessionId: string };
 
 export interface SessionsDeps {
   dir: string;
@@ -148,18 +150,112 @@ export class SessionsService {
     renameSync(tmp, this.file(s.id)); // 原子替换：崩溃时不会留下写到一半的记录（“发送中”标记依赖它）
   }
 
+  private requestFile(requestId: string): string {
+    return path.join(path.dirname(this.d.dir), "launch-requests", launchHash(requestId) + ".json");
+  }
+
+  private readSessionFile(name: string): SessionRecord {
+    const session = JSON.parse(readFileSync(path.join(this.d.dir, name), "utf8")) as SessionRecord | null;
+    if (!session || typeof session.id !== "string" || name !== session.id + ".json" || typeof session.requestId !== "string" || typeof session.createdAt !== "string") {
+      throw new Error("Session file has no verifiable identity");
+    }
+    return session;
+  }
+
+  private recordLaunchRequest(session: SessionRecord, { vaultId, machineId, intentHash, executionHash, literalIntentHash }: LaunchReceipt): void {
+    const file = this.requestFile(session.requestId);
+    if (existsSync(file)) {
+      if (this.recordedLaunch(session.requestId)?.id !== session.id) throw this.unknown(session, "launch_receipt_unavailable");
+      return;
+    }
+    mkdirSync(path.dirname(file), { recursive: true });
+    const index: LaunchIndex = { vaultId, machineId, intentHash, executionHash, ...(literalIntentHash ? { literalIntentHash } : {}), requestId: session.requestId, sessionId: session.id };
+    // The request remains recognizable even if its session file is later interrupted, damaged or removed.
+    try {
+      writeFileSync(file, JSON.stringify(index), { flag: "wx", flush: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw this.unknown(session, "launch_receipt_unavailable");
+      throw error;
+    }
+  }
+
+  private recordedLaunch(requestId: string): SessionRecord | undefined {
+    const unavailable = (id?: string) => this.unknown({ requestId, ...(id ? { id } : {}) }, "launch_receipt_unavailable");
+    let contents: string | undefined;
+    try {
+      contents = readFileSync(this.requestFile(requestId), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw unavailable();
+    }
+    if (contents !== undefined) {
+      let id: string | undefined;
+      try {
+        const index = JSON.parse(contents) as LaunchIndex;
+        if (index.requestId !== requestId || index.vaultId !== this.d.vaultId || index.machineId !== this.d.spaces.machineId || !/^sess-[a-z0-9-]+$/i.test(index.sessionId)) {
+          throw unavailable();
+        }
+        id = index.sessionId;
+        const session = this.readSessionFile(id + ".json");
+        const receipt = session.launchReceipt;
+        if (
+          session.requestId !== requestId ||
+          !receipt ||
+          receipt.vaultId !== index.vaultId ||
+          receipt.machineId !== index.machineId ||
+          receipt.intentHash !== index.intentHash ||
+          receipt.executionHash !== index.executionHash ||
+          (index.literalIntentHash !== undefined && receipt.literalIntentHash !== index.literalIntentHash)
+        )
+          throw unavailable(id);
+        return session;
+      } catch {
+        throw unavailable(id);
+      }
+    }
+
+    // Before the index existed, a damaged file could contain the very request being retried.
+    const files = this.sessionFiles();
+    let match: SessionRecord | undefined;
+    let unreadable = false;
+    for (const file of files) {
+      let session: SessionRecord;
+      try {
+        session = this.readSessionFile(file);
+      } catch {
+        unreadable = true;
+        continue;
+      }
+      if (session.requestId !== requestId) continue;
+      if (match || (session.launchReceipt && !this.localReceipt(session.launchReceipt))) throw unavailable();
+      match = session;
+    }
+    if (unreadable && !match?.launchReceipt?.attempt) throw unavailable(match?.id);
+    return match;
+  }
+
+  private sessionFiles(): string[] {
+    try {
+      return readdirSync(this.d.dir).filter((name) => name.endsWith(".json"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  private localReceipt(receipt: LaunchReceipt): boolean {
+    return receipt.vaultId === this.d.vaultId && receipt.machineId === this.d.spaces.machineId;
+  }
+
   list(spaceId?: string): SessionRecord[] {
-    if (!existsSync(this.d.dir)) return [];
-    return readdirSync(this.d.dir)
-      .filter((f) => f.endsWith(".json"))
+    return this.sessionFiles()
       .flatMap((f) => {
         try {
-          return [JSON.parse(readFileSync(path.join(this.d.dir, f), "utf8")) as SessionRecord];
+          return [this.readSessionFile(f)];
         } catch {
           return [];
         }
       }) // 单个记录损坏不拖垮整个列表
-      .filter((s) => (!s.launchReceipt || (s.launchReceipt.vaultId === this.d.vaultId && s.launchReceipt.machineId === this.d.spaces.machineId)) && (!spaceId || s.spaceId === spaceId))
+      .filter((s) => (!s.launchReceipt || this.localReceipt(s.launchReceipt)) && (!spaceId || s.spaceId === spaceId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -169,25 +265,26 @@ export class SessionsService {
     return s;
   }
 
-  private readonly inflight = new Map<string, { intentHash: string; executionHash: string | undefined; result: Promise<SessionRecord> }>();
+  private readonly inflight = new Map<string, { intent: LaunchIntent; executionHash: string | undefined; result: Promise<SessionRecord> }>();
 
-  private intentHash({ requestId: _requestId, env: _env, cwd, ...intent }: LaunchInput): string {
-    let directory = cwd;
+  private launchIntent({ requestId: _requestId, env: _env, cwd, ...intent }: LaunchInput, preparedCwd?: string): LaunchIntent {
+    const literal = cwd && path.isAbsolute(cwd) ? localDrivePath(path.normalize(cwd)) : cwd;
+    const literalHash = launchHash({ ...intent, cwd: literal });
+    if (preparedCwd !== undefined) return { literalHash, resolvedHash: launchHash({ ...intent, cwd: preparedCwd }) };
     if (cwd && path.isAbsolute(cwd)) {
       try {
-        directory = realpathSync(cwd);
+        return { literalHash, resolvedHash: launchHash({ ...intent, cwd: localDrivePath(realpathSync(cwd)) }) };
       } catch {
-        directory = path.normalize(cwd);
+        return { literalHash, resolvedHash: null };
       }
-      directory = localDrivePath(directory);
     }
-    return launchHash({ ...intent, cwd: directory });
+    return { literalHash, resolvedHash: literalHash };
   }
 
   async launch(input: LaunchInput): Promise<SessionRecord> {
-    const intentHash = this.intentHash(input);
-    const previous = this.list().find((s) => s.requestId === input.requestId);
-    if (previous) this.verifyIntent(previous, intentHash);
+    const intent = this.launchIntent(input);
+    const previous = this.recordedLaunch(input.requestId);
+    if (previous) this.verifyIntent(previous, intent);
 
     let prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined;
     try {
@@ -195,6 +292,9 @@ export class SessionsService {
     } catch (error) {
       // A sent operation remains queryable even when its old directory or executable is gone.
       if (!previous?.launchReceipt?.attempt) throw error;
+    }
+    if (prepared && input.cwd !== undefined && this.launchIntent(input, prepared.cwd).resolvedHash !== intent.resolvedHash) {
+      throw new HuhuError("VERSION_CONFLICT", "预检期间工作目录发生变化，请重新选择");
     }
     const executionHash =
       prepared &&
@@ -206,11 +306,12 @@ export class SessionsService {
       });
     const running = this.inflight.get(input.requestId);
     if (running) {
-      if (running.intentHash !== intentHash || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
+      const sameIntent = intent.resolvedHash === null ? running.intent.literalHash === intent.literalHash : running.intent.resolvedHash === intent.resolvedHash;
+      if (!sameIntent || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
       return running.result;
     }
-    const result = this.doLaunch(input, intentHash, executionHash, prepared).finally(() => this.inflight.delete(input.requestId));
-    this.inflight.set(input.requestId, { intentHash, executionHash, result });
+    const result = this.doLaunch(input, intent, executionHash, prepared).finally(() => this.inflight.delete(input.requestId));
+    this.inflight.set(input.requestId, { intent, executionHash, result });
     return result;
   }
 
@@ -258,33 +359,37 @@ export class SessionsService {
     return { machineId: space.machineId, cwd, command: command ?? null, argv: args };
   }
 
-  private unknown(session: SessionRecord, reason: string): HuhuError {
+  private unknown(session: { requestId: string; id?: string }, reason: string): HuhuError {
     return new HuhuError("RUN_UNKNOWN", "启动结果待核实，请用原启动请求重查", {
       retryable: true,
-      details: { stage: "run", reason, requestId: session.requestId, sessionId: session.id },
+      details: { stage: "run", reason, requestId: session.requestId, ...(session.id ? { sessionId: session.id } : {}) },
     });
   }
 
-  private verifyIntent(session: SessionRecord, intentHash: string, executionHash?: string): LaunchReceipt {
+  private verifyIntent(session: SessionRecord, intent: LaunchIntent, executionHash?: string): LaunchReceipt {
     const receipt = session.launchReceipt;
     if (!receipt) throw this.unknown(session, "legacy_record");
-    if (receipt.intentHash !== intentHash || (executionHash && receipt.executionHash !== executionHash)) throw errors.idempotencyMismatch();
+    const sameIntent = intent.resolvedHash === null ? !!receipt.attempt && receipt.literalIntentHash === intent.literalHash : receipt.intentHash === intent.resolvedHash;
+    if (!sameIntent || (executionHash && receipt.executionHash !== executionHash)) throw errors.idempotencyMismatch();
     return receipt;
   }
 
-  private async doLaunch(input: LaunchInput, intentHash: string, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined): Promise<SessionRecord> {
-    const previous = this.list().find((s) => s.requestId === input.requestId);
-    if (previous && this.verifyIntent(previous, intentHash, executionHash).attempt) {
+  private async doLaunch(input: LaunchInput, intent: LaunchIntent, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined): Promise<SessionRecord> {
+    const previous = this.recordedLaunch(input.requestId);
+    const priorReceipt = previous && this.verifyIntent(previous, intent, executionHash);
+    if (previous && priorReceipt?.attempt) {
+      this.recordLaunchRequest(previous, priorReceipt);
       if (previous.state === "exited") return previous;
       return this.findLaunch(previous);
     }
-    if (!prepared || !executionHash) throw errors.invalidInput("启动配置不可用");
+    if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
 
     const { space, cwd, argv, env } = prepared;
-    const receipt: LaunchReceipt = {
+    const receipt: LaunchReceipt = priorReceipt ?? {
       vaultId: this.d.vaultId,
       machineId: space.machineId,
-      intentHash,
+      intentHash: intent.resolvedHash,
+      literalIntentHash: intent.literalHash,
       executionHash,
       argvHash: argv ? launchHash(argv) : null,
     };
@@ -304,6 +409,7 @@ export class SessionsService {
       ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
       launchReceipt: receipt,
     };
+    this.recordLaunchRequest(session, receipt);
     this.save(session);
     let client: HerdrClient;
     let core: Awaited<ReturnType<typeof identifyCore>>;
@@ -362,7 +468,7 @@ export class SessionsService {
   }
 
   private bind(session: SessionRecord, terminal: Terminal, binding: ProcessBinding): SessionRecord {
-    const finished = terminal.state === "finished" || terminal.finished_ms != null;
+    const finished = terminal.state === "finished";
     if (session.state === "running" && !finished) return session;
     const receipt = session.launchReceipt!;
     const attempt = receipt.attempt!;

@@ -38,6 +38,7 @@ export interface LaunchReceipt {
   vaultId: string;
   machineId: string;
   intentHash: string;
+  literalIntentHash?: string;
   executionHash: string;
   argvHash: string | null;
   // An empty attempt means no run was sent or Core explicitly rejected it before creation.
@@ -68,10 +69,16 @@ export function launchLabels(vaultId: string, session: { id: string; spaceId: st
 export const hasLaunchLabels = (terminal: Terminal, labels: Record<string, string>): boolean => Object.entries(labels).every(([key, value]) => terminal.labels?.[key] === value);
 
 export function processBinding(terminal: Terminal): ProcessBinding | null {
-  const { address, created_ms, pid, reason } = terminal;
+  const { address, created_ms, pid, reason, state, finished_ms, exit_code } = terminal;
   if (reason === "spawn_pending" || typeof address !== "string" || !address) return null;
   if (typeof created_ms !== "number" || created_ms <= 0 || !Number.isSafeInteger(created_ms)) return null;
   if (typeof pid !== "number" || pid <= 0 || !Number.isSafeInteger(pid)) return null;
+  if (state === "live") {
+    if (finished_ms !== null || exit_code !== null) return null;
+  } else if (state === "finished") {
+    if (typeof finished_ms !== "number" || finished_ms < created_ms || !Number.isSafeInteger(finished_ms)) return null;
+    if (exit_code !== null && !Number.isSafeInteger(exit_code)) return null;
+  } else return null;
   return { address, createdMs: created_ms, pid };
 }
 

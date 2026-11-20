@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
@@ -23,7 +23,7 @@ function fixture() {
   const space = spaces.save({ name: "Workspace", root: cwd });
   const target = { spaceId: space.id, spaceRevision: space.revision, cwd, provider: "claude", requestId: "request-v1", prompt: "two words" } satisfies LaunchInput;
   const params = { cwd, argv: ["synthetic.cmd", "two words"], labels: {} as Record<string, string> };
-  const terminal = { ...params, address: "t1", created_ms: 101, pid: 123 as number | null, state: "live", reason: null as string | null };
+  const terminal = { ...params, address: "t1", created_ms: 101, pid: 123 as number | null, state: "live" as string | undefined, reason: null as string | null, finished_ms: null as number | null, exit_code: null as number | null };
   const terminals: (typeof terminal)[] = [];
   const fake = { tries: 0, fail: null as "before-send" | "rejected" | "lost" | "spawn-timeout" | null, listFails: false, coreId: "core-id", generation: 1, args: ["two words"] };
   const client = {
@@ -93,6 +93,55 @@ test("concurrent same-key different intent conflicts before a second run", async
   const assertion = expect(different).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH" });
   expect(await first).toMatchObject({ state: "running" });
   await assertion;
+  expect(fake.tries).toBe(1);
+});
+
+test("a candidate needs an explicit lifecycle compatible with its exit fields", async () => {
+  const { fake, target, terminals, reopen } = fixture();
+  fake.fail = "lost";
+  fake.listFails = true;
+  await expect(reopen().launch(target)).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
+  const [real] = terminals.splice(0);
+  fake.listFails = false;
+  for (const terminal of [
+    { ...real!, state: undefined },
+    { ...real!, state: "live", finished_ms: 202 },
+    { ...real!, state: "finished" },
+  ]) {
+    terminals.splice(0, terminals.length, terminal);
+    await expect(reopen().launch(target)).rejects.toMatchObject({ code: "RUN_UNKNOWN", details: { reason: "process_unverified" } });
+  }
+  terminals.splice(0, terminals.length, { ...real!, state: "finished", finished_ms: 202, exit_code: 7 });
+  expect(await reopen().launch(target)).toMatchObject({ terminalId: real!.address, state: "exited", exitCode: 7 });
+  expect(fake.tries).toBe(1);
+});
+
+test.skipIf(process.platform !== "win32")("replays the literal junction spelling only when the old target can no longer resolve", async () => {
+  const { fake, target, reopen } = fixture();
+  const first = path.join(target.cwd, "first");
+  const other = path.join(target.cwd, "other");
+  const junction = path.join(target.cwd, "junction");
+  mkdirSync(first);
+  mkdirSync(other);
+  symlinkSync(first, junction, "junction");
+  const input = { ...target, cwd: junction };
+  const original = await reopen().launch(input);
+  expect(original.cwd).toBe(first);
+  rmSync(junction);
+  expect(await reopen().launch(input)).toMatchObject({ id: original.id, terminalId: original.terminalId, cwd: first });
+  await expect(reopen().launch({ ...input, cwd: junction + "-other" })).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH" });
+  symlinkSync(other, junction, "junction");
+  await expect(reopen().launch(input)).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH" });
+  expect(fake.tries).toBe(1);
+});
+
+test("an unreadable pre-index receipt cannot be treated as proof of a fresh request", async () => {
+  const { dir, fake, target, reopen } = fixture();
+  const original = await reopen().launch(target);
+  const index = path.join(path.dirname(dir), "launch-requests");
+  for (const name of readdirSync(index)) rmSync(path.join(index, name));
+  writeFileSync(path.join(dir, original.id + ".json"), '{"id":');
+  await expect(reopen().launch(target)).rejects.toMatchObject({ code: "RUN_UNKNOWN", details: { reason: "launch_receipt_unavailable" } });
   expect(fake.tries).toBe(1);
 });
 
