@@ -978,9 +978,15 @@ test("H7.3 原生 ZIP 列表、摘要及解压绑定实际设备，失败保留�
     await openWorkspace(page);
     const a = await configureLoopback(page, "归档甲", archiveHost.port, password);
     const b = await configureLoopback(page, "无 SFTP 乙", noSftp.port, password);
-    expect((await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
-      name: "归档能力双端", layout: { kind: "tabs" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
-    })).ok).toBe(true);
+    expect(
+      (
+        await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+          name: "归档能力双端",
+          layout: { kind: "tabs" },
+          panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+        })
+      ).ok,
+    ).toBe(true);
     await page.getByRole("button", { name: /归档能力双端.*代次 1/ }).click();
     const run = page.getByTestId("ssh-workspace-run");
     const panel = page.getByTestId("ssh-independent-files").filter({ visible: true });
@@ -1032,12 +1038,20 @@ test("H7.3 原生 ZIP 列表、摘要及解压绑定实际设备，失败保留�
     await expect(localTools).toContainText("系统选择器支持单文件或目录");
     const localEndpoint = { kind: "local", path: localRoot };
     const made = await sshCall<ArchiveResult>(page, "ssh.archives.run", {
-      directory: localEndpoint, localFileSessionId: id, name: "local-docs", operation: "compress", output: "local.zip",
+      directory: localEndpoint,
+      localFileSessionId: id,
+      name: "local-docs",
+      operation: "compress",
+      output: "local.zip",
     });
     expect(made.ok, made.error?.message).toBe(true);
     expect(digest(readFileSync(path.join(localRoot, "local.zip")))).toBe(made.data.archiveSha256);
     const extracted = await sshCall<ArchiveResult>(page, "ssh.archives.run", {
-      directory: localEndpoint, localFileSessionId: id, name: "local.zip", operation: "extract", output: "restored",
+      directory: localEndpoint,
+      localFileSessionId: id,
+      name: "local.zip",
+      operation: "extract",
+      output: "restored",
     });
     expect(extracted.ok, extracted.error?.message).toBe(true);
     expect(extracted.data.entries.find(({ name }) => name === "local-docs/local.txt")?.sha256).toBe(digest(Buffer.from("本机 ZIP 成员")));
