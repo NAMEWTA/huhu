@@ -1,4 +1,4 @@
-import { Button, TerminalView } from "@huhu/ui";
+import { Button } from "@huhu/ui";
 import { useEngine } from "@huhu/workbench";
 import { useState } from "react";
 import type { WorkspaceRun, WorkspaceRunPane } from "../shared/workspace.js";
@@ -6,6 +6,8 @@ import { WorkspaceLayout } from "./WorkspaceLayout.js";
 import { AttachedFiles } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
 import { MonitorSidebar } from "./MonitorSidebar.js";
+import { SshTerminal } from "./SshTerminal.js";
+import { useDevicePreferences } from "./device-preferences.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
@@ -28,6 +30,7 @@ export function WorkspaceRunView({
   onOpenFiles: (session: FileSession) => void;
 }) {
   const { endpoint } = useEngine();
+  const { paneTools } = useDevicePreferences();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
   const [active, setActive] = useState(0);
   const [showFiles, setShowFiles] = useState(false);
@@ -57,31 +60,32 @@ export function WorkspaceRunView({
                   setDeciding((state) => ({ ...state, [decidingKey]: false }));
                 }
               }
+              const toolbar = pane.phase === "ready" && (
+                <div className="ssh-workspace-controls" data-testid="ssh-pane-tools" data-position={paneTools}>
+                  <Button
+                    onClick={() => {
+                      setActive(index);
+                      setShowFiles(true);
+                    }}
+                  >
+                    分栏文件
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setActive(index);
+                      setShowMonitor(true);
+                    }}
+                  >
+                    分栏监控
+                  </Button>
+                </div>
+              );
               return (
                 <article className="ssh-workspace-run-pane" data-testid="ssh-workspace-run-pane" data-pane-id={pane.paneId} data-session-id={pane.sessionId} data-phase={pane.phase} key={pane.paneId} aria-label={pane.label}>
                   <header className="ssh-workspace-controls">
                     <strong>{pane.label}</strong>
                     <span role="status">{PHASES[pane.phase]}</span>
-                    {pane.phase === "ready" && (
-                      <Button
-                        onClick={() => {
-                          setActive(index);
-                          setShowFiles(true);
-                        }}
-                      >
-                        分栏文件
-                      </Button>
-                    )}
-                    {pane.phase === "ready" && (
-                      <Button
-                        onClick={() => {
-                          setActive(index);
-                          setShowMonitor(true);
-                        }}
-                      >
-                        分栏监控
-                      </Button>
-                    )}
+                    {paneTools === "top" && toolbar}
                   </header>
                   {pane.error && <p role="alert">{pane.error.message}</p>}
                   {prompt && (
@@ -104,9 +108,10 @@ export function WorkspaceRunView({
                   )}
                   {pane.phase === "ready" && pane.sessionId && (
                     <div className="ssh-workspace-terminal">
-                      <TerminalView key={pane.sessionId} ariaLabel={`${pane.label} 终端`} baseUrl={endpoint.baseUrl} token={endpoint.token} sessionId={pane.sessionId} />
+                      <SshTerminal key={pane.sessionId} ariaLabel={`${pane.label} 终端`} baseUrl={endpoint.baseUrl} token={endpoint.token} sessionId={pane.sessionId} />
                     </div>
                   )}
+                  {paneTools === "bottom" && toolbar}
                 </article>
               );
             }}

@@ -1,6 +1,6 @@
-import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
+import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
-import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
@@ -16,6 +16,7 @@ import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHos
 import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
 import { ForwardingPanel } from "./ForwardingPanel.js";
 import { MonitorDashboard } from "./MonitorDashboard.js";
+import { SshTerminal } from "./SshTerminal.js";
 import { t } from "./i18n.js";
 
 interface Shell {
@@ -51,7 +52,7 @@ function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId
   return parts.join(" / ");
 }
 
-export function SshModule() {
+export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const engine = useEngine();
   const qc = useQueryClient();
   const desktop = Boolean(desktopHost());
@@ -268,6 +269,11 @@ export function SshModule() {
             <LockKeyhole size={15} aria-hidden /> 本机 SSH 认证
           </div>
           <span className="muted small">连接、PTY 与 Exec 独立管理</span>
+          {onNavigate && (
+            <Button variant="ghost" onClick={() => onNavigate("settings", "ssh")}>
+              SSH 设置
+            </Button>
+          )}
           <Button variant="ghost" icon={Fingerprint} onClick={() => openReview(null)}>
             已知主机
           </Button>
@@ -564,7 +570,7 @@ export function SshModule() {
                       {t.endShell}
                     </Button>
                   </div>
-                  <TerminalView key={activeShell} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={activeShell} ariaLabel={t.terminalLabel} />
+                  <SshTerminal key={activeShell} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={activeShell} ariaLabel={t.terminalLabel} />
                 </div>
               </div>
             ) : (

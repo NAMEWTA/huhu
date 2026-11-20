@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { paneCount, type SplitTree, type WorkspaceLayout as Layout } from "../shared/workspace.js";
+import { useDevicePreferences } from "./device-preferences.js";
 
 export const LAYOUT_LABELS: Record<Layout["kind"], string> = {
   one: "1 列",
@@ -13,6 +14,7 @@ export const LAYOUT_LABELS: Record<Layout["kind"], string> = {
 
 export function WorkspaceLayout({ layout, labels, pane, active, onActive }: { layout: Layout; labels: string[]; pane: (index: number) => ReactNode; active?: number; onActive?: (index: number) => void }) {
   const [localActive, setLocalActive] = useState(0);
+  const { tabs } = useDevicePreferences();
   const current = Math.min(active ?? localActive, labels.length - 1);
   const activate = onActive ?? setLocalActive;
   function tree(node: SplitTree, index: number): ReactNode {
@@ -30,7 +32,7 @@ export function WorkspaceLayout({ layout, labels, pane, active, onActive }: { la
   if (layout.kind === "custom") return tree(layout.tree, 0);
   if (layout.kind === "tabs") {
     return (
-      <div className="ssh-workspace-tabs">
+      <div className="ssh-workspace-tabs" data-tab-side={tabs}>
         <div className="ssh-workspace-tabstrip" aria-label="内部标签">
           {labels.map((label, index) => (
             <button key={index} type="button" aria-pressed={index === current} onClick={() => activate(index)}>

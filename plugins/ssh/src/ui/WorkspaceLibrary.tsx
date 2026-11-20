@@ -5,6 +5,7 @@ import { layoutProblem, MAX_WORKSPACE_PANES, paneCount, splitTree, type SplitTre
 import { LAYOUT_LABELS, WorkspaceLayout } from "./WorkspaceLayout.js";
 import { WorkspaceRunView } from "./WorkspaceRunView.js";
 import type { FileSession } from "../shared/files.js";
+import { lastWorkspace, rememberWorkspace, useDevicePreferences } from "./device-preferences.js";
 
 export interface WorkspaceHost {
   hostId: string;
@@ -79,7 +80,12 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => v
   const templates = useCapability<WorkspaceTemplate[]>("ssh.workspace.templates.list", {});
   const runs = useCapability<WorkspaceRun[]>("ssh.workspace.runs.list", {});
   const [selected, select] = useState("");
-  const [runId, selectRun] = useState("");
+  const { restoreWorkspace } = useDevicePreferences();
+  const [runId, setRunId] = useState(() => (restoreWorkspace ? lastWorkspace(engine.vaultId) : ""));
+  const selectRun = (id: string) => {
+    setRunId(id);
+    rememberWorkspace(engine.vaultId, id);
+  };
   const [templateName, setTemplateName] = useState<string>();
   const [draft, setDraft] = useState<Editor>();
   const [deleting, setDeleting] = useState<WorkspaceTemplate>();

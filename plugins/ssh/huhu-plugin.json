@@ -10,7 +10,7 @@
   "activation": "vault-open",
   "contributes": {
     "modules": ["ssh"],
-    "settingsPages": [],
+    "settingsPages": ["ssh"],
     "homeWidgets": ["hosts"],
     "commands": [],
     "capabilities": [
