@@ -23,7 +23,7 @@ const approvedNames = z
   .max(64)
   .refine((names) => new Set(names).size === names.length);
 const approval = z.strictObject({ id: z.uuidv4(), target: digest, names: approvedNames, namesRevision: z.uuidv4().optional() });
-const approvalFile = z.strictObject({ format: z.literal(1), approval: approval.nullable() });
+const approvalFile = z.strictObject({ format: z.literal(1), approval: approval.nullable(), suspended: z.literal(true).optional() });
 const review = z.strictObject({
   ruleVersion,
   target: digest,
@@ -203,14 +203,15 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     const saved = local.read(file);
     if (!saved) return { approval: null, version: null };
     try {
-      return { approval: approvalFile.parse(JSON.parse(saved.bytes.toString("utf8"))).approval, version: saved.version };
+      const record = approvalFile.parse(JSON.parse(saved.bytes.toString("utf8")));
+      return { approval: record.suspended ? null : record.approval, version: saved.version };
     } catch {
       throw errors.permissionDenied("本机规则批准不可用");
     }
   };
-  const writeApproval = async (ruleId: string, next: Approval | null, expectedVersion: string | null) => {
+  const writeApproval = async (ruleId: string, next: Approval | null, expectedVersion: string | null, suspended = false) => {
     if (!local || api.vault.files.readOnly) throw errors.permissionDenied("本机规则批准不可用");
-    await local.write(approvalPath(ruleId), Buffer.from(JSON.stringify({ format: 1, approval: next }) + "\n"), { expectedVersion });
+    return local.write(approvalPath(ruleId), Buffer.from(JSON.stringify({ format: 1, approval: next, ...(suspended && { suspended: true }) }) + "\n"), { expectedVersion });
   };
   const describeTarget = (ruleId: string) => {
     const rule = rules.rule(ruleId);
@@ -275,12 +276,25 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
         if (!current) throw errors.invalidInput("规则工作区不可用");
         const previous = await read(ruleId);
         if ((previous?.revision ?? null) !== expectedRevision) throw errors.versionConflict(previous?.revision ?? "");
-        const previousNames = previous?.definition.names ?? readApproval(ruleId).approval?.names ?? [];
-        const namesRevision = sameNames(previousNames, names) ? previous?.definition.namesRevision : randomUUID();
+        const prior = readApproval(ruleId);
+        const previousNames = previous?.definition.names ?? prior.approval?.names ?? [];
+        const changed = !sameNames(previousNames, names);
+        const namesRevision = changed ? randomUUID() : previous?.definition.namesRevision;
         const definition = { format: 1 as const, fingerprint: current, names, ...(namesRevision && { namesRevision }) };
         const actions = actionsFor(names, previous?.definition, changes).filter(({ purpose }) => names.includes(purpose) || previous?.authState[purpose] !== "unconfigured");
-        const saved = await store.save({ entityId: ruleId, expectedRevision, definition, actions, signal }).catch(translate);
-        return { revision: saved.revision, localAvailable: true, names, states: saved.authState, targetChanged: false };
+        signal.throwIfAborted();
+        // Suspend locally before publishing changed names. A crash or a later
+        // rollback of the portable file cannot revive the old authorization.
+        const suspended = changed && prior.approval ? await writeApproval(ruleId, prior.approval, prior.version, true) : null;
+        try {
+          const saved = await store.save({ entityId: ruleId, expectedRevision, definition, actions, signal });
+          return { revision: saved.revision, localAvailable: true, names, states: saved.authState, targetChanged: false };
+        } catch (error) {
+          if (suspended && (portable(ruleId)?.revision ?? null) === expectedRevision) {
+            await writeApproval(ruleId, prior.approval, suspended.version);
+          }
+          return translate(error);
+        }
       }),
     ),
   );

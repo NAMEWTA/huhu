@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -184,6 +184,11 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       const id = { ruleId: rule.id };
       const save = (expectedRevision: string | null, names: string[], removed?: string) => data<{ revision: string }>(`${env}.save`, { ...id, expectedRevision, names, changes: removed ? [{ name: removed, action: "clear" }] : [] });
       const first = await save(null, [original]);
+      const definitionDir = path.join(vaultPath, ".huhu", "module-credentials");
+      const files = readdirSync(definitionDir);
+      expect(files).toHaveLength(1);
+      const definitionPath = path.join(definitionDir, files[0]!);
+      const originalDefinition = readFileSync(definitionPath);
       const approve = async () => {
         const target = await data<{ ruleVersion: string; target: string; names: string[]; approvalId: string | null }>(`${approval}.review`, id);
         return data<{ approvalId: string }>(`${approval}.approve`, { ...id, expectedRuleVersion: target.ruleVersion, target: target.target, names: target.names, expectedApprovalId: target.approvalId });
@@ -208,6 +213,13 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
 
       const afterRename = await save(first.revision, [renamed], original);
       expect(await call(status, id, "cli")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      const renamedDefinition = readFileSync(definitionPath);
+      await engine.shutdown();
+      writeFileSync(definitionPath, originalDefinition);
+      engine = await boot({ vaultPath, desktopUserData });
+      expect(await call(`${env}.get`, id)).toMatchObject({ ok: true, data: { revision: first.revision, names: [original] } });
+      expect(await call(status, id, "cli")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      writeFileSync(definitionPath, renamedDefinition);
       const restored = await save(afterRename.revision, [original], renamed);
       expect(await call(status, id, "cli")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect((await approve()).approvalId).not.toBe(granted.approvalId);

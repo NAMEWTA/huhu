@@ -1,5 +1,5 @@
 import path from "node:path";
-import { HuhuError, errors } from "@huhu/contracts";
+import { HuhuError, KINDS, errors } from "@huhu/contracts";
 import { normalizeRelPath, parseFrontmatter, parseTaskBody, patchFrontmatter, replaceBody, replaceTaskSection, splitDocument } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
@@ -28,14 +28,19 @@ export interface VersioningOptions {
 
 /**
  * 恢复后对语义文件的保护：
+ * - 任务运行与自动化运行记录只允许查看历史，退出结果和回执由各自的运行服务维护；
  * - 自动化规则恢复后一律暂停（旧版本里的 enabled: true 不能立刻重新生效）；
  * - 任务文件只恢复 `<task>` 内容与普通字段；当前的 `status`、`completedAt`、`origin` 与整个 `<comments>` 区段保持不变；
  *   恢复到旧版（schema 1）的任务文件会被拒绝（项目不再读取旧格式）。
  */
 export function guardRestoredContent(relInput: string, restored: string, current = ""): string {
   const rel = normalizeRelPath(relInput); // 与 restore 内部一致：忽略 "./"、重复斜杠
-  // 大小写不敏感的文件系统上 automations/ 与 Automations/ 是同一目录
-  if (rel.toLowerCase().startsWith("automations/")) return patchFrontmatter(restored, { enabled: false });
+  // 大小写不敏感的文件系统上同一目录可由不同写法指向。
+  const dir = rel.split("/")[0]?.toLowerCase();
+  if (dir === KINDS["automation-run"].dir.toLowerCase() || dir === KINDS["task-run"].dir.toLowerCase()) {
+    throw errors.invalidInput("运行记录可查看历史，但不能覆盖当前回执或执行结果");
+  }
+  if (dir === KINDS["automation-rule"].dir.toLowerCase()) return patchFrontmatter(restored, { enabled: false });
   if (rel.startsWith("Tasks/")) {
     const old = parseFrontmatter(restored).data;
     if ((old["huhu"] as { schema?: number } | undefined)?.schema !== 2) throw errors.invalidInput("这个版本是旧版任务文件（schema 1），不能恢复");

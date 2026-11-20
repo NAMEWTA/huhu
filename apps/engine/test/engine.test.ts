@@ -611,6 +611,19 @@ describe("Engine 启动与关闭", () => {
     const rest = await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: saved2.version });
     expect(rest.error, JSON.stringify(rest.error)).toBeUndefined();
     expect(((await call("notes.read", { path: note.path })).data as { text: string }).text).toContain("第一版");
+    for (const directory of ["Automation Runs", "Task Runs"]) {
+      const runPath = `${directory}/fixture--run-history.md`;
+      const original = Buffer.from("---\nstatus: running\n---\n运行中\n");
+      const final = Buffer.from("---\nstatus: succeeded\nterminalReleasePending: true\n---\n核实后的输出\n");
+      await e.vault.files.write(runPath, original);
+      const checkpoint = await call("history.checkpoint", { path: runPath, title: "运行中" });
+      expect(checkpoint.error).toBeUndefined();
+      const entry = checkpoint.data as { id: string };
+      const current = await e.vault.files.write(runPath, final);
+      expect(await call("history.restore", { path: runPath, entryId: entry.id, expectedCurrentVersion: current.version })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(e.vault.files.read(runPath)?.bytes).toEqual(final);
+      expect(await call("history.read", { path: runPath, entryId: entry.id })).toMatchObject({ ok: true, data: { text: original.toString("utf8") } });
+    }
   }, 60_000);
   test("ssh + safe：凭据只经保险箱引用；锁定时连接失败；解锁后确认指纹并执行命令；审计无密码", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
