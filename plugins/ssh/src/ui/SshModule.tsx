@@ -1,6 +1,6 @@
 import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
-import { CapabilityError, host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
@@ -103,7 +103,7 @@ export function SshModule() {
     }
   });
 
-  const message = (e: unknown) => (e instanceof CapabilityError && e.code === "SAFE_LOCKED" ? t.safeLocked : e instanceof Error ? e.message : String(e));
+  const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
   async function connect(h: Host) {
     setConnectError(null);
@@ -240,6 +240,7 @@ export function SshModule() {
               </span>
               {byHost.get(h.id)?.state === "waiting" ? <Badge tone="warning">待核对</Badge> : null}
               {byHost.get(h.id)?.state === "key-changed" ? <Badge tone="danger">密钥变化</Badge> : null}
+              {!isManagedHost(h) && <Badge tone="warning">需要修复</Badge>}
               <span className={`hu-execution-status-dot ${byHost.get(h.id)?.state === "connected" ? "connected" : "disconnected"}`} aria-label={byHost.get(h.id)?.state === "connected" ? t.connected : t.notConnected} />
             </button>
           ))}
@@ -291,7 +292,7 @@ export function SshModule() {
                 ) : connecting ? (
                   <Button onClick={() => void disconnect(host)}>取消连接</Button>
                 ) : (
-                  <Button variant="primary" icon={Cable} onClick={() => void connect(host)}>
+                  <Button variant="primary" icon={Cable} disabled={!isManagedHost(host)} onClick={() => void connect(host)}>
                     {t.connect}
                   </Button>
                 )

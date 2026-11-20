@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { FileSessions } from "../src/engine/file-sessions.js";
-import { HostStore } from "../src/engine/hosts.js";
+import { ownedHosts } from "./owned-hosts.js";
 import { SshManager } from "../src/engine/manager.js";
 import { Transfers } from "../src/engine/transfers.js";
 import type { TransferJob } from "../src/shared/transfers.js";
@@ -11,14 +11,14 @@ import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-transfer-publication-")));
-  const hosts = new HostStore(path.join(root, "hosts"));
+  const hosts = ownedHosts();
   const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
   const manager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
     auditDir: path.join(root, "audit"),
     now: () => new Date(),
-    resolveSecret: () => "pw",
+    withManagedAuth: (_host, connect) => connect({ password: "pw" }),
     decisionTimeoutMs: 2500,
     publish: (type, payload) => {
       if (type !== "ssh.hostKeyPrompt") return;
@@ -36,7 +36,6 @@ async function fixture() {
       host: "127.0.0.1",
       port: server.port,
       user: "fixture",
-      auth: { kind: "password", secretRef: "safe://item-fixture" },
       tags: [],
       jumpHostIds: [],
       connectTimeoutSec: 4,

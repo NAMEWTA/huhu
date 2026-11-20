@@ -34,28 +34,40 @@ async function directory(engine: RunningEngine, input: Record<string, unknown> =
 const hostIds = (view: z.infer<typeof DirectoryView>) => view.hosts.map((host) => host.hostId);
 
 async function saveHost(engine: RunningEngine, properties: Record<string, unknown>) {
-  return z.object({ id: z.string() }).parse(await data(engine, "ssh.hosts.save", { auth: { kind: "agent" }, ...properties })).id;
+  return z.object({ hostId: z.string() }).parse(await data(engine, "ssh.hosts.configure", { authKind: "agent", expectedRevision: null, ...properties })).hostId;
 }
 
 test("通过 Engine HTTP 按真实主机 ID 搜索、整理和重开同一个 Vault", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "huhu-ssh-directory-"));
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "huhu-ssh-directory-"));
+  const root = path.join(fixtureRoot, "vault");
+  const desktopUserData = path.join(fixtureRoot, "desktop");
+  mkdirSync(root);
+  mkdirSync(desktopUserData);
   let engine: RunningEngine | undefined;
   try {
-    const live = await boot({ vaultPath: root, create: true });
+    const live = await boot({ vaultPath: root, desktopUserData, create: true });
     engine = live;
-    const alice = await saveHost(live, {
-      name: "Mirror",
-      user: "alice",
-      host: "mirror.invalid",
-      tags: ["Blue"],
-      auth: { kind: "key", secretRef: "safe://synthetic-key-ref", passphraseRef: "safe://synthetic-passphrase-ref" },
-    });
+    const alice = "legacy-mirror";
+    const oldDirectory = path.join(root, ".huhu", "ssh", "hosts");
+    mkdirSync(oldDirectory, { recursive: true });
+    const oldProfile = path.join(oldDirectory, `${alice}.json`);
+    writeFileSync(
+      oldProfile,
+      JSON.stringify({
+        id: alice,
+        name: "Mirror",
+        user: "alice",
+        host: "mirror.invalid",
+        tags: ["Blue"],
+        auth: { kind: "key", secretRef: "safe://synthetic-key-ref", passphraseRef: "safe://synthetic-passphrase-ref" },
+      }),
+    );
     const bob = await saveHost(live, { name: "Mirror", user: "bob", host: "mirror.invalid", tags: ["Green"] });
     const alpha = await saveHost(live, { name: "Alpha", user: "preview", host: "2001:db8::10" });
     const zulu = await saveHost(live, { name: "Zulu", user: "relay", host: "relay.invalid", port: 2222 });
     const legacy = await data(live, "ssh.hosts.list");
-    const paths = [alice, bob, alpha, zulu].map((id) => path.join(root, ".huhu", "ssh", "hosts", `${id}.json`));
-    const savedProfiles = paths.map((file) => readFileSync(file));
+    const savedProfile = readFileSync(oldProfile);
+    const owners = z.array(z.object({ id: z.string(), revision: z.string().optional() })).parse(legacy);
 
     const importSource = { format: "openssh", filename: "config", contentBase64: Buffer.from("Host Mirror candidate\n User alice\n HostName mirror.invalid").toString("base64") };
     const preview = await data(live, "ssh.hosts.import.preview", importSource);
@@ -63,7 +75,7 @@ test("通过 Engine HTTP 按真实主机 ID 搜索、整理和重开同一个 Va
     expect(JSON.stringify(preview)).not.toMatch(/synthetic-key-ref|safe:\/\//);
     expect(await call(live, "ssh.hosts.import.preview", importSource, live.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     expect(await data(live, "ssh.hosts.list")).toEqual(legacy);
-    expect(paths.map((file) => readFileSync(file))).toEqual(savedProfiles);
+    expect(readFileSync(oldProfile)).toEqual(savedProfile);
 
     let current = await directory(live);
     expect(current).toMatchObject({ version: "0", sort: "name-asc", groups: [] });
@@ -152,24 +164,24 @@ test("通过 Engine HTTP 按真实主机 ID 搜索、整理和重开同一个 Va
       { groupId: build, parentId: net, name: "Release" },
     ]);
     expect(await data(live, "ssh.hosts.list")).toEqual(legacy);
-    expect(paths.map((file) => readFileSync(file))).toEqual(savedProfiles);
+    expect(readFileSync(oldProfile)).toEqual(savedProfile);
     const directoryFile = path.join(root, ".huhu", "ssh", "host-directory.json");
     expect(readFileSync(directoryFile, "utf8")).not.toMatch(/auth|safe:\/\/|secretRef|passphraseRef/);
     expect(existsSync(path.join(root, ".huhu", "ssh", "known_hosts"))).toBe(false);
     const vaultId = live.vault.id;
     await live.shutdown();
-    engine = await boot({ vaultPath: root });
+    engine = await boot({ vaultPath: root, desktopUserData });
     expect(engine.vault.id).toBe(vaultId);
     expect(await directory(engine)).toEqual(current);
     expect(hostIds(await directory(engine, { groupId: build }))).toEqual([alice, bob, alpha]);
     expect(await data(engine, "ssh.hosts.list")).toEqual(legacy);
-    expect(await data(engine, "ssh.hosts.delete", { id: zulu })).toEqual({ ok: true });
+    expect(await data(engine, "ssh.hosts.remove", { hostId: zulu, expectedRevision: owners.find(({ id }) => id === zulu)!.revision })).toEqual({ ok: true });
     expect(hostIds(await directory(engine))).toEqual([alice, bob, alpha]);
   } finally {
     try {
       await engine?.shutdown();
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(fixtureRoot, { recursive: true, force: true });
     }
   }
 }, 60_000);
@@ -295,6 +307,7 @@ test("导入确认只创建明确选中的主机，分组失败后可按原身�
     const input = confirm(token, selected);
     expect(await call(live, "ssh.hosts.import.confirm", input, live.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
 
+    mkdirSync(path.dirname(directoryFile), { recursive: true });
     writeFileSync(directoryFile, "{broken");
     const pending = await write(input);
     expect(pending, JSON.stringify(pending)).toMatchObject({ ok: true, data: { groups: { state: "pending" } } });

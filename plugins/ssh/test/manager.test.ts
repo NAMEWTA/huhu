@@ -3,10 +3,13 @@ import { utils } from "ssh2";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { HostStore, findJumpCycle, type SshHost } from "../src/engine/hosts.js";
+import { HuhuError } from "@huhu/contracts";
+import { findJumpCycle } from "../src/engine/hosts.js";
+import type { SshHostProfile } from "../src/engine/auth-profile.js";
 import { SshManager } from "../src/engine/manager.js";
 import { workspaceTarget } from "../src/engine/workspace-target.js";
-import { startFakeSsh } from "./fake-server.js";
+import { genHostKey, startFakeSsh } from "./fake-server.js";
+import { ownedHosts } from "./owned-hosts.js";
 
 const dirs: string[] = [];
 const closers: (() => Promise<void> | void)[] = [];
@@ -20,9 +23,9 @@ const tmp = () => {
   return d;
 };
 
-function setup(secrets: Record<string, string> = { "safe://item-pw1": "pw" }, locked = false) {
+function setup(password = "pw", unavailable = false) {
   const root = tmp();
-  const hosts = new HostStore(path.join(root, "hosts"));
+  const hosts = ownedHosts();
   const prompts: { hop: number; reason: string; attemptId: string; fingerprint: string }[] = [];
   let mgr!: SshManager;
   const secretCalls: string[] = [];
@@ -31,12 +34,10 @@ function setup(secrets: Record<string, string> = { "safe://item-pw1": "pw" }, lo
     knownHostsFile: path.join(root, "known_hosts"),
     auditDir: path.join(root, "audit"),
     now: () => new Date("2026-11-11T00:00:00Z"),
-    resolveSecret: (ref) => {
-      secretCalls.push(ref);
-      if (locked) throw Object.assign(new Error("保险箱已锁定"), { code: "SAFE_LOCKED" });
-      const v = secrets[ref];
-      if (v === undefined) throw new Error("bad ref");
-      return v;
+    withManagedAuth: async (host, connect) => {
+      secretCalls.push(host.id);
+      if (unavailable) throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用");
+      await connect({ password });
     },
     publish: (type, payload) => {
       if (type === "ssh.hostKeyPrompt") {
@@ -47,8 +48,7 @@ function setup(secrets: Record<string, string> = { "safe://item-pw1": "pw" }, lo
     decisionTimeoutMs: 1000,
   });
   closers.push(() => mgr.disposeAll());
-  const add = (port: number, over: Partial<SshHost> = {}) =>
-    hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", auth: { kind: "password", secretRef: "safe://item-pw1" }, jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
+  const add = (port: number, over: Partial<SshHostProfile> = {}) => hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
   return { root, hosts, mgr, prompts, add, secretCalls };
 }
 const until = async (c: () => boolean, ms = 3000) => {
@@ -60,11 +60,10 @@ describe("主机配置", () => {
   test("校验：端口、主机名、用户；ACC-SH-04 跳板链循环被拒", () => {
     const { hosts, add } = setup();
     expect(() => add(0)).toThrow(/端口/);
-    expect(() => hosts.save({ name: "x", host: "a b", port: 22, user: "u", auth: { kind: "agent" }, jumpHostIds: [], tags: [], connectTimeoutSec: 20 })).toThrow(/空格/);
+    expect(() => add(22, { host: "a b" })).toThrow(/空格/);
     const a = add(2201);
     const b = add(2202, { jumpHostIds: [a.id] });
     expect(() => hosts.save({ ...a, jumpHostIds: [b.id] })).toThrowError(/循环/);
-    expect(() => hosts.delete(a.id)).toThrowError(/以它为跳板/);
     expect(
       findJumpCycle(
         [
@@ -146,7 +145,7 @@ describe("连接与主机密钥", () => {
     await until(() => prompts.length > 0);
     const offered = mgr.connectionStatuses()[0];
     if (offered?.state !== "waiting") throw new Error("预期等待主机指纹");
-    const peer = utils.parseKey(utils.generateKeyPairSync("ed25519").public);
+    const peer = utils.parseKey(genHostKey());
     const key = Array.isArray(peer) ? peer[0] : peer;
     if (!key || key instanceof Error) throw new Error("测试主机密钥无法解析");
     const file = path.join(root, "known_hosts");
@@ -164,7 +163,7 @@ describe("连接与主机密钥", () => {
     const srv = await startFakeSsh({ onAuth: (u, m) => auth.push(`${u}:${m}`) });
     closers.push(srv.close);
     const { mgr, add, root } = setup();
-    const other = utils.parseKey(utils.generateKeyPairSync("ed25519").public);
+    const other = utils.parseKey(genHostKey());
     const blob = (Array.isArray(other) ? other[0] : other) as { getPublicSSH(): Buffer };
     writeFileSync(path.join(root, "known_hosts"), `[127.0.0.1]:${srv.port} ssh-ed25519 ${blob.getPublicSSH().toString("base64")}\n`);
     const h = add(srv.port);
@@ -209,22 +208,22 @@ describe("连接与主机密钥", () => {
     expect((await mgr.exec(t.id, "echo 你好")).stdout.trim()).toBe("你好");
   });
 
-  test("ACC-SH-07 保险箱锁定：连接前就失败（SAFE_LOCKED），未发起网络认证；审计中没有密码", async () => {
+  test("本机所有者认证不可用时不拨号，审计中没有密码", async () => {
     const auth: string[] = [];
     const srv = await startFakeSsh({ onAuth: (u, m) => auth.push(m) });
     closers.push(srv.close);
-    const { mgr, add, root } = setup({}, true);
+    const { mgr, add } = setup("pw", true);
     const h = add(srv.port);
-    await expect(mgr.connect(h.id)).rejects.toMatchObject({ code: "SAFE_LOCKED" });
+    await expect(mgr.connect(h.id)).rejects.toMatchObject({ code: "SSH_AUTH_FAILED" });
+    expect(srv.conns).toHaveLength(0);
     expect(auth).toEqual([]);
     expect(JSON.stringify(mgr.auditList())).not.toContain("pw");
-    void root;
   });
 
   test("认证失败 → SSH_AUTH_FAILED", async () => {
     const srv = await startFakeSsh({ password: "right" });
     closers.push(srv.close);
-    const { mgr, prompts, add } = setup({ "safe://item-pw1": "wrong" });
+    const { mgr, prompts, add } = setup("wrong");
     const h = add(srv.port);
     const p = mgr.connect(h.id).catch((e: Error) => e);
     await until(() => prompts.length > 0);

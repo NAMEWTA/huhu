@@ -38,12 +38,6 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     ...(stateInVault && { knownHostsFiles: api.vault.files }),
     auditDir: path.join(root, "audit"),
     withManagedAuth: (host, connect) => hosts.withAuthentication(host, connect),
-    // 秘密只经 SecretUse 取得，且仅限被允许引用的模块（ssh）
-    resolveSecret: (ref, purpose) => {
-      const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
-      if (!su) throw Object.assign(new Error("保险箱插件未启用"), { code: "SECRET_REF_INVALID" });
-      return su.resolve(ref, { plugin: "ssh", purpose });
-    },
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
   });
@@ -105,23 +99,6 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         return view;
       }),
     ),
-  );
-  api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsSave, async (_c, i) => {
-      api.vault.files.assertWritable();
-      const saved = await hosts.saveLegacy(i);
-      api.events.publish("entity.changed", { kind: "ssh-host", id: saved.id, op: i.id ? "updated" : "created" }); // 带外（CLI / MCP）改主机，界面也能刷新
-      return saved;
-    }),
-  );
-  api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsDelete, async (_c, i) => {
-      api.vault.files.assertWritable();
-      await hosts.deleteLegacy(i.id, () => assertHostUnused(i.id));
-      manager.forgetConnection(i.id);
-      api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" });
-      return { ok: true as const };
-    }),
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsConfigure, async ({ signal }, input) => {

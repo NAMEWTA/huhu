@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { HostStore } from "../src/engine/hosts.js";
+import { ownedHosts } from "./owned-hosts.js";
 import { SshManager } from "../src/engine/manager.js";
 import { normalizeRemote } from "../src/engine/sftp.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
@@ -27,21 +27,21 @@ async function connected(o: FakeSshOptions = {}) {
   const srv = await startFakeSsh(o);
   closers.push(srv.close);
   const root = tmp();
-  const hosts = new HostStore(path.join(root, "hosts"));
+  const hosts = ownedHosts();
   const prompts: { attemptId: string }[] = [];
   const mgr: SshManager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
     auditDir: path.join(root, "audit"),
     now: () => new Date("2026-11-11T00:00:00Z"),
-    resolveSecret: () => "pw",
+    withManagedAuth: (_host, connect) => connect({ password: "pw" }),
     publish: (type, payload) => {
       if (type === "ssh.hostKeyPrompt") prompts.push(payload as { attemptId: string });
     },
     decisionTimeoutMs: 1000,
   });
   closers.push(() => mgr.disposeAll());
-  const h = hosts.save({ name: "h", host: "127.0.0.1", port: srv.port, user: "u", auth: { kind: "password", secretRef: "safe://item-pw1" }, jumpHostIds: [], tags: [], connectTimeoutSec: 20 });
+  const h = hosts.save({ name: "h", host: "127.0.0.1", port: srv.port, user: "u", jumpHostIds: [], tags: [], connectTimeoutSec: 20 });
   const p = mgr.connect(h.id);
   await until(() => prompts.length > 0);
   mgr.decide(prompts[0]!.attemptId, 0, true);

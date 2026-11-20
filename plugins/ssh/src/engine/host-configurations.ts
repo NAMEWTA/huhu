@@ -6,11 +6,11 @@ import { CredentialError, ModuleCredentials, type CredentialAction, type Credent
 import ssh2, { type ConnectConfig } from "ssh2";
 import type { z } from "zod";
 import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose, type SshHostProfile } from "./auth-profile.js";
-import { validateHost, type HostInput, type HostStore, type SshHost } from "./hosts.js";
+import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
 
 export type SshCredentialHost = Pick<CredentialOwner<HostDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 export type ManagedHost = z.infer<typeof ManagedHostView> & { configId: string };
-export type HostRecord = SshHost | ManagedHost;
+export type HostRecord = LegacyHost | ManagedHost;
 export type ConnectionAuth = Pick<ConnectConfig, "password" | "privateKey" | "passphrase" | "agent">;
 
 type StoredHost = CredentialSummary & { definition: HostDefinition };
@@ -112,22 +112,8 @@ export class HostConfigurations {
     return [...legacy, ...managed.map(asHost)].sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  saveLegacy(input: HostInput) {
-    if (input.id && OwnedHostId.safeParse(input.id).success) throw errors.invalidInput("请通过 SSH 主机配置管理新版主机");
-    return this.mutate(async () => this.legacy.save(input));
-  }
-
   withStableDirectory<T>(operation: () => Promise<T>): Promise<T> {
     return this.mutate(operation);
-  }
-
-  deleteLegacy(id: string, assertUnused?: () => void) {
-    if (OwnedHostId.safeParse(id).success) throw errors.invalidInput("请通过 SSH 主机配置管理新版主机");
-    return this.mutate(async () => {
-      await this.assertUnused(id);
-      assertUnused?.();
-      this.legacy.delete(id);
-    });
   }
 
   private async assertUnused(id: string) {

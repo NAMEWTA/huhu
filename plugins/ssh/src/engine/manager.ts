@@ -7,8 +7,7 @@ import type { HuhuApi } from "@huhu/kernel";
 import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../shared/trust.js";
 import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
-import { agentAuth, type ConnectionAuth, type HostRecord, type ManagedHost } from "./host-configurations.js";
-import type { SshHost } from "./hosts.js";
+import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { FileOrigin } from "../shared/files.js";
 import type { z } from "zod";
@@ -26,9 +25,7 @@ export interface SshDeps {
   knownHostsFile: string;
   knownHostsFiles?: HuhuApi["vault"]["files"];
   auditDir: string;
-  /** 解析 safe:// 引用；保险箱锁定时抛 SAFE_LOCKED。 */
-  resolveSecret(ref: string, purpose: string): string;
-  withManagedAuth?: (host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>) => Promise<void>;
+  withManagedAuth: (host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>) => Promise<void>;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
   decisionTimeoutMs?: number;
@@ -71,8 +68,8 @@ export type ForwardLease = {
   release(): void;
 };
 
-function connectionIdentity(chain: readonly HostRecord[]): string {
-  return JSON.stringify(chain.map((host) => ("revision" in host ? [host.id, host.revision] : [host.id, host.host, host.port, host.user, host.auth, host.connectTimeoutSec])));
+function connectionIdentity(chain: readonly ManagedHost[]): string {
+  return JSON.stringify(chain.map(({ id, revision }) => [id, revision]));
 }
 
 interface ExecRun {
@@ -172,15 +169,12 @@ export class SshManager {
     return true;
   }
 
-  private route(hostId: string, hosts: readonly HostRecord[]): HostRecord[] {
-    return routeForHost(new Map(hosts.map((host) => [host.id, host])), hostId);
-  }
-
-  private legacyAuth(h: SshHost): ConnectionAuth {
-    if (h.auth.kind === "agent") return agentAuth();
-    if (h.auth.kind === "password") return { password: this.d.resolveSecret(h.auth.secretRef, `ssh:${h.id}`) };
-    const privateKey = this.d.resolveSecret(h.auth.secretRef, `ssh:${h.id}`);
-    return { privateKey, ...(h.auth.passphraseRef ? { passphrase: this.d.resolveSecret(h.auth.passphraseRef, `ssh:${h.id}`) } : {}) };
+  private route(hostId: string, hosts: readonly HostRecord[]): ManagedHost[] {
+    const chain = routeForHost(new Map(hosts.map((host) => [host.id, host])), hostId);
+    return chain.map((host, hop) => {
+      if (!("revision" in host)) throw new HuhuError("SSH_AUTH_FAILED", `第 ${hop + 1} 跳的 SSH 主机需要在模块中重新配置凭据`, { details: { reason: "legacy-host-needs-repair", hop } });
+      return host;
+    });
   }
 
   private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<DialResult>; direct: boolean; workspaces: number }>();
@@ -273,7 +267,7 @@ export class SshManager {
     }
   }
 
-  private async dialChain(chain: HostRecord[], attempt: Attempt, opened: Client[], onHop?: (hop: number, host: HostRecord) => void): Promise<Client> {
+  private async dialChain(chain: ManagedHost[], attempt: Attempt, opened: Client[], onHop?: (hop: number, host: ManagedHost) => void): Promise<Client> {
     const target = chain[chain.length - 1]!;
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
@@ -282,12 +276,7 @@ export class SshManager {
       const client = new Client();
       opened.push(client);
       const authenticate = (auth: ConnectionAuth) => this.connectHop(client, host, target, hop, attempt, auth, socket);
-      if ("revision" in host) {
-        if (!this.d.withManagedAuth) throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用");
-        await this.d.withManagedAuth(host, authenticate);
-      } else {
-        await authenticate(this.legacyAuth(host));
-      }
+      await this.d.withManagedAuth(host, authenticate);
       client.setNoDelay(true);
       const next = chain[hop + 1];
       if (next) {
@@ -351,7 +340,7 @@ export class SshManager {
     }
   }
 
-  private openForwardDial(identity: string, chain: HostRecord[], hostId: string): ForwardDial {
+  private openForwardDial(identity: string, chain: ManagedHost[], hostId: string): ForwardDial {
     const abort = new AbortController();
     const signal = abort.signal;
     const opened: Client[] = [];

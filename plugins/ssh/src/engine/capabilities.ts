@@ -1,7 +1,7 @@
 import { defineCapabilityDescriptor } from "@huhu/kernel";
 import { z } from "zod";
 import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
-import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput, LegacyHostView, ManagedHostView } from "./auth-profile.js";
+import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostView, ManagedHostView } from "./auth-profile.js";
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
@@ -354,16 +354,6 @@ export const sshCapabilityDescriptors = {
     input: z.object({}),
     output: z.array(z.union([ManagedHostView, LegacyHostView])),
   }),
-  hostsSave: defineCapabilityDescriptor({
-    ...ssh,
-    name: "ssh.hosts.save",
-    title: "保存 SSH 主机",
-    description: "创建或更新主机、认证引用和跳板配置。",
-    scope: "write",
-    risk: "high",
-    input: LegacyHostInput,
-    output: LegacyHostView,
-  }),
   hostsConfigure: defineCapabilityDescriptor({
     ...desktopHost,
     name: "ssh.hosts.configure",
@@ -386,16 +376,6 @@ export const sshCapabilityDescriptors = {
     title: "移除 SSH 主机配置",
     description: "按版本移除未被用作跳板的主机及其认证。",
     input: HostRevision,
-    output: Ok,
-  }),
-  hostsDelete: defineCapabilityDescriptor({
-    ...ssh,
-    name: "ssh.hosts.delete",
-    title: "删除 SSH 主机",
-    description: "断开该主机的活动连接并删除保存的配置。",
-    scope: "write",
-    risk: "high",
-    input: z.object({ id: z.string() }),
     output: Ok,
   }),
   connect: defineCapabilityDescriptor({

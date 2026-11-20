@@ -154,11 +154,11 @@ test("four forwarding configurations persist by revision without opening a socke
     await Promise.all([mkdir(vault), mkdir(userData)]);
     const live = await api(vault, userData, true);
     engine = live.engine;
-    const host = await live.client.call<{ id: string }>("ssh.hosts.save", { name: "fixture", host: FORWARD_BIND, user: "fixture", auth: { kind: "agent" } }, { write: true });
+    const host = await live.client.call<{ hostId: string; revision: string }>("ssh.hosts.configure", { name: "fixture", host: FORWARD_BIND, user: "fixture", authKind: "agent", expectedRevision: null }, { write: true });
     const probe = net.createServer();
     const listenPort = await bind(probe);
     await close(probe);
-    const shared = { hostId: host.id, listenPort, resume: true };
+    const shared = { hostId: host.hostId, listenPort, resume: true };
     const target = { host: FORWARD_BIND, port: 1234 };
     const drafts: SaveForward[] = [
       { ...shared, name: "Local", mode: "local", target },
@@ -185,7 +185,7 @@ test("four forwarding configurations persist by revision without opening a socke
     ]) {
       await expect(live.client.call("ssh.forwarding.rules.save", invalid, { write: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     }
-    await expect(live.client.call("ssh.hosts.delete", { id: host.id }, { write: true })).rejects.toThrow(/转发规则引用/);
+    await expect(live.client.call("ssh.hosts.remove", { hostId: host.hostId, expectedRevision: host.revision }, { write: true })).rejects.toThrow(/转发规则引用/);
     const cli = new EngineClient({ ...live.client.endpoint, token: engine.cliToken });
     await expect(cli.call("ssh.forwarding.rules.list")).rejects.toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
     expect(await engine.dispatcher.call("web:synthetic", { capability: "ssh.forwarding.rules.list", requestId: "forwarding-test", input: {} })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });

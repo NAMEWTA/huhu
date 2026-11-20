@@ -28,7 +28,7 @@ const credentialStates: Record<ManagedHost["authState"][string], string> = {
 };
 
 export function authAvailability(host: Host): string {
-  if (!isManagedHost(host)) return "旧式主机配置";
+  if (!isManagedHost(host)) return "旧式主机需要修复。请在 SSH 主机配置中重新配置本机凭据。";
   if (host.auth.kind === "agent") return "连接时检查本机 SSH Agent";
   return purposes[host.auth.kind].map((purpose) => `${credentialLabels[purpose]}：${credentialState(host, purpose)}`).join(" · ");
 }

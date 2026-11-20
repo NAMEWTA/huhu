@@ -90,6 +90,61 @@ afterEach(async () => {
   }
 });
 
+testWindows("旧主机仅显示修复标记，跳板及转发均不拨号，旧条目与文件保留", async () => {
+  const live = await fixture();
+  const remote = await server({});
+  const password = randomUUID();
+  const vaultPassword = randomUUID();
+  await live.client.call("safe.setup", { password: vaultPassword }, { write: true });
+  const item = await live.client.call<{ id: string }>("safe.items.save", { name: "legacy synthetic", type: "password", value: password, allowedModules: ["ssh"] }, { write: true });
+  const folder = path.join(live.vaultPath, ".huhu", "ssh", "hosts");
+  mkdirSync(folder, { recursive: true });
+  const legacy = { id: "host-legacy-test", name: "legacy loopback", host: "127.0.0.1", port: remote.port, user: "fixture", auth: { kind: "password", secretRef: `safe://${item.id}` } };
+  const profile = path.join(folder, `${legacy.id}.json`);
+  const original = JSON.stringify(legacy);
+  writeFileSync(profile, original);
+  const records = await live.client.call("ssh.hosts.list");
+  expect(records).toEqual([expect.objectContaining({ id: legacy.id, repairRequired: true, auth: { kind: "password", source: "legacy" } })]);
+  expect(JSON.stringify(records)).not.toContain(item.id);
+  const catalog = await live.client.call<Array<{ name: string }>>("capabilities.list", { includeInactive: true });
+  expect(catalog.map(({ name }) => name)).not.toContain("ssh.hosts.save");
+  expect(catalog.map(({ name }) => name)).not.toContain("ssh.hosts.delete");
+  await expect(live.client.call("ssh.connect", { hostId: legacy.id }, { write: true })).rejects.toMatchObject({ code: "SSH_AUTH_FAILED" });
+  const attached = await live.client.call<Summary>(
+    "ssh.hosts.configure",
+    {
+      name: "owner behind legacy jump",
+      host: "127.0.0.1",
+      port: remote.port,
+      user: "fixture",
+      authKind: "agent",
+      jumpHostIds: [legacy.id],
+      expectedRevision: null,
+    },
+    { write: true },
+  );
+  await expect(live.client.call("ssh.connect", { hostId: attached.hostId }, { write: true })).rejects.toMatchObject({ code: "SSH_AUTH_FAILED" });
+  const rule = await live.client.call<{ id: string; revision: string }>(
+    "ssh.forwarding.rules.save",
+    {
+      name: "legacy rule",
+      hostId: legacy.id,
+      mode: "local",
+      listenPort: 43190,
+      target: { host: "127.0.0.1", port: remote.port },
+      resume: false,
+    },
+    { write: true },
+  );
+  await live.client.call("ssh.forwarding.runs.start", { id: rule.id, expectedRevision: rule.revision }, { write: true });
+  await vi.waitFor(async () => {
+    expect(await live.client.call("ssh.forwarding.runs.list")).toMatchObject([{ ruleId: rule.id, state: "failed", message: expect.stringContaining("重新配置凭据") }]);
+  });
+  expect(remote.conns).toHaveLength(0);
+  expect(readFileSync(profile, "utf8")).toBe(original);
+  expect(await live.client.call("safe.items.reveal", { id: item.id })).toMatchObject({ value: password });
+});
+
 testWindows(
   "Windows SSH 自有密码在 Safe 三种状态可用且备份只带可恢复定义",
   async () => {

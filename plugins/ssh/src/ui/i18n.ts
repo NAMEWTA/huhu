@@ -13,7 +13,6 @@ export const t = {
   connected: "已连接",
   notConnected: "未连接",
   connecting: "连接中…",
-  safeLocked: "需要先解锁保险箱",
   trustTitle: "确认主机密钥",
   trustFirst: (hop: number, type: string, fp: string) => `第 ${hop + 1} 跳首次连接：${type} ${fp}`,
   trustChanged: "主机密钥与已记录的不同，可能存在中间人攻击",

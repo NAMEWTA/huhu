@@ -1,12 +1,5 @@
 import { z } from "zod";
 
-const SafeRef = z.string().regex(/^safe:\/\/[a-zA-Z0-9_-]+$/);
-export const LegacyAuth = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("key"), secretRef: SafeRef, passphraseRef: SafeRef.optional() }),
-  z.strictObject({ kind: z.literal("password"), secretRef: SafeRef }),
-  z.strictObject({ kind: z.literal("agent") }),
-]);
-
 export const SshHostProfile = z.object({
   name: z.string(),
   host: z.string(),
@@ -20,8 +13,12 @@ export const SshHostProfile = z.object({
 });
 export type SshHostProfile = z.infer<typeof SshHostProfile>;
 const LegacyProfile = { ...SshHostProfile.shape, jumpHostIds: z.array(z.string()).default([]) };
-export const LegacyHostView = z.object({ ...LegacyProfile, id: z.string(), auth: LegacyAuth });
-export const LegacyHostInput = z.strictObject({ ...LegacyProfile, id: z.string().optional(), auth: LegacyAuth });
+const legacyAuthKind = z.enum(["key", "password", "agent"]);
+export const LegacyHostRecord = z.object({ ...LegacyProfile, id: z.string(), auth: z.object({ kind: legacyAuthKind }) });
+export const LegacyHostView = LegacyHostRecord.extend({
+  auth: z.object({ kind: legacyAuthKind, source: z.literal("legacy") }),
+  repairRequired: z.literal(true),
+});
 
 const AuthKind = z.enum(["password", "key", "agent", "identity-file"]);
 export type AuthKind = z.infer<typeof AuthKind>;
