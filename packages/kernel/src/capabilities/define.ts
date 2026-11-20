@@ -14,7 +14,7 @@ interface CapabilityContract<I, O> {
   scope: CapabilityScope;
   input: z.ZodType<I>;
   output: z.ZodType<O>;
-  /** false = 只允许桌面调用。 */
+  /** 是否可为 CLI、MCP 和受权 HTTP 工具入口开放。 */
   exposable: boolean;
   /** 外部入口（MCP/CLI/HTTP）的默认开放状态。 */
   defaultExposed: boolean;

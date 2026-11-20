@@ -23,3 +23,5 @@ export * from "./plugins/external.js";
 export * from "./capabilities/external-plugins.js";
 export { ModuleCredentials, type CredentialAction, type CredentialOwner, type CredentialState, type CredentialSummary } from "./credentials/module-credentials.js";
 export { CredentialError, LocalProtectionError, type CredentialErrorCode, type LocalCredentialProtection } from "./credentials/protection.js";
+export { WebShareService } from "./server/web-share.js";
+export { registerWebShareCapabilities } from "./capabilities/web-share.js";

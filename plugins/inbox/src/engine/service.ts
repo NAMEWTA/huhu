@@ -1,4 +1,4 @@
-import { errors, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
+import { errors, isWorkbenchCaller, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
 import type { Entity, SemanticRepository, Trash } from "@huhu/vault";
 
 export type CaptureSource = CaptureFrontmatter["source"];
@@ -32,7 +32,7 @@ const VALID_DESKTOP_SOURCES = new Set(["quick", "note-excerpt", "agent-cli", "im
 
 /** 调用者身份决定来源，输入里的来源字段只对桌面调用有意义（ACC-IN-05）。 */
 export function sourceFor(caller: string, requested?: string): CaptureSource {
-  if (caller === "desktop") return (requested && VALID_DESKTOP_SOURCES.has(requested) ? requested : "quick") as CaptureSource;
+  if (isWorkbenchCaller(caller)) return (requested && VALID_DESKTOP_SOURCES.has(requested) ? requested : "quick") as CaptureSource;
   if (caller === "cli" || caller === "mcp" || caller === "http") return caller;
   if (caller.startsWith("plugin:")) return caller as CaptureSource;
   return "quick";

@@ -10,17 +10,22 @@ interface WebSessionHttpOptions {
   origins(): readonly string[];
 }
 
+export function acceptsWebOrigin(origins: readonly string[], header: (name: string) => string | string[] | undefined, requireOrigin: boolean): boolean {
+  const host = String(header("host") ?? "").toLowerCase();
+  const expected = origins.map((value) => new URL(value)).find((value) => value.host === host)?.origin;
+  const origin = header("origin");
+  return expected !== undefined && !hasForwardingHeaders(header) && (origin === undefined && !requireOrigin ? true : origin === expected);
+}
+
 /** Web listener 的引导入口，认证事实来自当前服务代次。 */
 export function webSessionRoutes(options: WebSessionHttpOptions) {
   const app = new Hono();
   app.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("Referrer-Policy", "no-referrer");
-    const host = c.req.header("host")?.toLowerCase();
-    const origin = options.origins().map((value) => new URL(value)).find((value) => value.host === host)?.origin;
-    // 同源 GET 可能没有 Origin，兑换邀请的写操作必须带当前来源。
-    const supplied = c.req.header("origin");
-    if (!origin || hasForwardingHeaders((name) => c.req.header(name)) || ((supplied !== undefined || c.req.method !== "GET") && supplied !== origin)) {
+    // 同源读取可能没有 Origin，写操作必须带当前来源。
+    const read = c.req.method === "GET" || c.req.method === "HEAD";
+    if (!acceptsWebOrigin(options.origins(), (name) => c.req.header(name), !read)) {
       return c.json({ error: "来源不被允许" }, 403);
     }
     await next();

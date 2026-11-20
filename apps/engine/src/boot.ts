@@ -29,6 +29,8 @@ import {
   registerVaultCapabilities,
   startEngineServer,
   type RunningServer,
+  WebShareService,
+  registerWebShareCapabilities,
 } from "@huhu/kernel";
 import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
@@ -65,6 +67,8 @@ export interface BootOptions {
   create?: boolean;
   readOnly?: boolean;
   port?: number;
+  /** 由桌面宿主传入的已构建工作台资源目录。 */
+  webAssetsDir?: string;
   /** 无界面模式：最后一个客户端离开后空闲这么久自行退出（毫秒，0 = 不自动退出）。 */
   idleExitMs?: number;
 }
@@ -378,12 +382,15 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
 
   dispatcherRef.current = real;
+  const terminal: NonNullable<Parameters<typeof startEngineServer>[0]["terminal"]> = (id, ws, options) => {
+    const bridge = getService<(i: string, w: typeof ws, x: typeof options) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
+    return bridge ? bridge(id, ws, options) : false;
+  };
+  const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, terminal);
+  registerWebShareCapabilities(registry, webShare);
   const server = await startEngineServer({
     mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
-    terminal: (id, ws, o) => {
-      const bridge = getService<(i: string, w: typeof ws, x: typeof o) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
-      return bridge ? bridge(id, ws, o) : false;
-    },
+    terminal,
     dispatcher: real,
     registry,
     tokens,
@@ -439,12 +446,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         await plugins.disposeAll();
       } finally {
         try {
-          await server.close();
+          await webShare.stop();
         } finally {
           try {
-            await vault.close();
+            await server.close();
           } finally {
-            if (!vault.readOnly) rmSync(descriptorPath, { force: true });
+            try {
+              await vault.close();
+            } finally {
+              if (!vault.readOnly) rmSync(descriptorPath, { force: true });
+            }
           }
         }
       }

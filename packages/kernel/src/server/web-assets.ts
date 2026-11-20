@@ -4,7 +4,7 @@ import { getRequestListener } from "@hono/node-server";
 import { Hono } from "hono";
 
 /** `root` 指向随包交付的 Renderer 构建目录。其中只有公开构建资源。 */
-export function webAssets(root: string) {
+export function webAssetRoutes(root: string) {
   if (!path.isAbsolute(root)) throw new Error("Web 资源目录必须是绝对路径");
 
   const app = new Hono();
@@ -32,5 +32,9 @@ export function webAssets(root: string) {
     (c) => c.text("Web 工作台构建资源不可用", 503),
   );
 
-  return getRequestListener(app.fetch);
+  return app;
+}
+
+export function webAssets(root: string) {
+  return getRequestListener(webAssetRoutes(root).fetch);
 }

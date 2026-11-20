@@ -3,7 +3,6 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Caller } from "@huhu/contracts";
 import { Hono } from "hono";
 import { getRequestListener } from "@hono/node-server";
-import { WebSocketServer } from "ws";
 import type { CapabilityRegistry } from "../capabilities/define.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { EventBus } from "../context.js";
@@ -12,7 +11,8 @@ import { discoverCapabilities, registerCapabilityHttp, unknownTool, type Capabil
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN, RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import { listenHttp } from "./listen-http.js";
 import type { TokenTable } from "./tokens.js";
-import { EventReplay } from "./ws-events.js";
+import type { EventReplay } from "./ws-events.js";
+import { attachWorkbenchStreams, type TerminalBridge } from "./ws-workbench.js";
 
 export interface EngineServerDeps {
   dispatcher: Dispatcher;
@@ -23,7 +23,7 @@ export interface EngineServerDeps {
    * 终端字节流路由 `/ws/terminal/:sessionId?cols=&rows=&mode=attach|observe`：鉴权与来源检查通过后交给桥接实现
    * （Agent 会话 → Herdr attach；`ssh-` 前缀 → SSH shell）。返回 false 表示会话不存在。
    */
-  terminal?(sessionId: string, ws: import("ws").WebSocket, opts: { cols: number; rows: number; observe: boolean }): Promise<boolean> | boolean;
+  terminal?: TerminalBridge;
   /** MCP Streamable HTTP（`POST /mcp`，无状态）：未启用时返回 404。令牌身份必须是 mcp 或 http。 */
   mcpHttp?: { enabled(): boolean };
   /** 测试/嵌入时指定端口，默认随机。 */
@@ -45,12 +45,6 @@ export interface RunningServer {
 
 /** 在 127.0.0.1 上启动 HTTP + WS 服务（interfaces.md §6）。 */
 export async function startEngineServer(d: EngineServerDeps): Promise<RunningServer> {
-  const replay = new EventReplay();
-  const unsub = d.events.subscribe((e) => {
-    const s = replay.push(e);
-    const frame = JSON.stringify({ seq: s.seq, ...s.event });
-    for (const c of wss.clients) if (c.readyState === 1) c.send(frame);
-  });
   const inflight = new Map<Caller, number>();
   let lastActivity = Date.now();
   let port = 0;
@@ -153,82 +147,42 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       });
     else void listener(req, res);
   });
-  const byCaller = new Map<Caller, Set<import("ws").WebSocket>>();
-  const track = (who: Caller, ws: import("ws").WebSocket) => {
-    const set = byCaller.get(who) ?? new Set();
-    set.add(ws);
-    byCaller.set(who, set);
-    ws.on("close", () => set.delete(ws));
-  };
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, handleProtocols: (protocols) => [...protocols].find((p) => p.startsWith("bearer.")) ?? false });
-
-  server.on("upgrade", (req, socket, head) => {
-    const reject = (status: number) => {
-      socket.write(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\n\r\n`);
-      socket.destroy();
-    };
-    const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    const termMatch = /^\/ws\/terminal\/([A-Za-z0-9._-]{1,64})$/.exec(url.pathname);
-    if (url.pathname !== "/ws/events" && !(termMatch && d.terminal)) return reject(404);
-    const verdict = checkIngress(req.headers, port);
-    if (!verdict.ok) return reject(verdict.status);
-    const proto = String(req.headers["sec-websocket-protocol"] ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .find((s) => s.startsWith("bearer."));
-    const who = d.tokens.authenticate(proto?.slice("bearer.".length));
-    if (!who) return reject(401);
-    // 终端流承载 Agent/SSH 执行，永不对外（security.md §1）：只有桌面身份可以连接
-    if (termMatch && who !== "desktop") return reject(403);
-    // 事件流载荷（任务标题、文件路径、通知……）不受权限表约束：外部扩展令牌不能订阅
-    if (who.startsWith("plugin:")) return reject(403);
-    if (termMatch && d.terminal) {
-      const dims = (k: string, def: number) => Math.min(500, Math.max(1, Number(url.searchParams.get(k)) || def));
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        ws.on("error", () => undefined);
-        track(who, ws);
-        void Promise.resolve(d.terminal!(termMatch[1] as string, ws, { cols: dims("cols", 80), rows: dims("rows", 24), observe: url.searchParams.get("mode") === "observe" }))
-          .then((ok) => {
-            if (!ok) ws.close(4404, "会话不存在");
-          })
-          .catch(() => ws.close(1011, "终端桥接失败"));
-      });
-      return;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      ws.on("error", () => undefined);
-      track(who, ws);
-      const last = url.searchParams.get("lastSeq");
-      const epoch = url.searchParams.get("epoch");
-      if (last !== null) {
-        const r = epoch !== null && epoch !== replay.epoch ? ({ resync: true } as const) : replay.since(Number(last));
-        if (r.resync) ws.send(JSON.stringify({ type: "resync", seq: replay.lastSeq, epoch: replay.epoch }));
-        else for (const e of r.events) ws.send(JSON.stringify({ seq: e.seq, ...e.event }));
-      } else ws.send(JSON.stringify({ type: "hello", seq: replay.lastSeq, epoch: replay.epoch }));
-    });
+  const streams = attachWorkbenchStreams(server, {
+    events: d.events,
+    ...(d.terminal ? { terminal: d.terminal } : {}),
+    bearerProtocol: true,
+    authorize: (req, terminal) => {
+      const verdict = checkIngress(req.headers, port);
+      if (!verdict.ok) return { status: verdict.status };
+      const protocol = String(req.headers["sec-websocket-protocol"] ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .find((value) => value.startsWith("bearer."));
+      const caller = d.tokens.authenticate(protocol?.slice("bearer.".length));
+      if (!caller) return { status: 401 };
+      // 回环终端只接受桌面令牌，外部扩展也不能订阅事件流。
+      if ((terminal && caller !== "desktop") || caller.startsWith("plugin:")) return { status: 403 };
+      lastActivity = Date.now();
+      return { caller };
+    },
   });
 
   try {
     port = (await listenHttp(server, "127.0.0.1", d.port ?? 0)).port;
   } catch (error) {
-    unsub();
-    wss.close();
+    streams.close();
     throw error;
   }
 
   return {
     port,
     server,
-    replay,
-    activeConnections: () => wss.clients.size,
-    closeConnectionsOf: (caller: Caller) => {
-      for (const ws of byCaller.get(caller) ?? []) ws.close(4401, "令牌已撤销");
-    },
+    replay: streams.replay,
+    activeConnections: streams.activeConnections,
+    closeConnectionsOf: streams.closeConnectionsOf,
     lastActivity: () => lastActivity,
     close: async () => {
-      unsub();
-      for (const c of wss.clients) c.terminate();
-      wss.close();
+      streams.close();
       await new Promise<void>((r) => server.close(() => r()));
     },
   };

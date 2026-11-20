@@ -25,6 +25,7 @@ interface Binding {
   config: WebListenerConfig;
   generation: string;
   address: AddressInfo;
+  closeStreams?: () => void;
 }
 
 async function bind(handler: RequestListener, port: number, host: string): Promise<Pick<Binding, "server" | "address">> {
@@ -58,6 +59,7 @@ export class WebListener {
   constructor(
     private readonly handler: RequestListener,
     private readonly interfaces = networkInterfaces,
+    private readonly onBound?: (server: Server, generation: string) => () => void,
   ) {}
 
   status(): WebListenerStatus {
@@ -88,7 +90,14 @@ export class WebListener {
       await this.stopBinding();
       try {
         const bound = await this.bindMode(options);
-        this.binding = { ...bound, config: options, generation: randomUUID() };
+        const generation = randomUUID();
+        try {
+          const closeStreams = this.onBound?.(bound.server, generation);
+          this.binding = { ...bound, config: options, generation, ...(closeStreams ? { closeStreams } : {}) };
+        } catch (error) {
+          await closeHttp(bound.server);
+          throw error;
+        }
       } catch (error) {
         this.failure = { config: options, reason: bindError(error) };
       }
@@ -118,7 +127,11 @@ export class WebListener {
     if (!this.binding) return;
     const binding = this.binding;
     this.binding = undefined;
-    await closeHttp(binding.server);
+    try {
+      binding.closeStreams?.();
+    } finally {
+      await closeHttp(binding.server);
+    }
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

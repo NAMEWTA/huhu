@@ -1,4 +1,4 @@
-import { errors } from "@huhu/contracts";
+import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { bindCapability, defineCapability as def, defineCapabilityDescriptor } from "@huhu/kernel";
@@ -15,7 +15,7 @@ import { NotesService } from "./service.js";
 
 /** 自动化规则（含 agent_prompt）是"会被调度器执行"的 Markdown：外部入口不得通过通用笔记写入口在 Automations/ 下创建、改写、复制或移出它们。 */
 function assertNotAutomationsDir(caller: string, ...paths: (string | undefined)[]): void {
-  if (caller === "desktop") return;
+  if (isWorkbenchCaller(caller)) return;
   for (const p of paths) {
     const first = (p ?? "")
       .replace(/\\/g, "/")
@@ -71,7 +71,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     publish: (t, p) => api.events.publish(t, p),
     now: opts.now ?? (() => new Date()),
   });
-  const author = (caller: string) => (caller === "desktop" ? "我" : caller);
+  const author = (caller: string) => (isWorkbenchCaller(caller) ? "我" : caller);
   const changed = (id: string | null, op: "created" | "updated" | "deleted") => api.events.publish("entity.changed", { kind: "note", id: id ?? "", op });
 
   api.defineCapability(
@@ -88,7 +88,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional() }),
       output: z.object({ path: z.string(), id: z.string() }),
       handler: async (c, i) => {
-        if (i.templatePath !== undefined && c.caller !== "desktop") throw errors.permissionDenied("Vault 本地模板（仅桌面可用）");
+        if (i.templatePath !== undefined && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("Vault 本地模板（仅工作台可用）");
         assertNotAutomationsDir(c.caller, i.folder);
         const r = await svc.create({
           name: i.name,

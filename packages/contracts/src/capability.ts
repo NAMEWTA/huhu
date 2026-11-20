@@ -2,8 +2,13 @@ import { z } from "zod";
 import { HuhuErrorSchema } from "./errors.js";
 
 export const CALLER_KINDS = ["desktop", "cli", "mcp", "http"] as const;
-/** 调用者身份：desktop/cli/mcp/http 或 plugin:<id>，只来自所用令牌。 */
-export type Caller = (typeof CALLER_KINDS)[number] | `plugin:${string}`;
+export type WorkbenchCaller = "desktop" | `web:${string}`;
+/** 调用者身份由已认证的宿主或连接确定。 */
+export type Caller = (typeof CALLER_KINDS)[number] | `plugin:${string}` | WorkbenchCaller;
+
+export function isWorkbenchCaller(caller: string): caller is WorkbenchCaller {
+  return caller === "desktop" || caller.startsWith("web:");
+}
 export const CAPABILITY_SCOPES = ["read", "write", "execute", "admin"] as const;
 export type CapabilityScope = (typeof CAPABILITY_SCOPES)[number];
 export const CAPABILITY_RISKS = ["normal", "high"] as const;

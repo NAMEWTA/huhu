@@ -42,6 +42,10 @@ export class WebInvitations {
     return invitation ? { id, token: invitation.token } : null;
   }
 
+  list(): { id: string; sessions: number }[] {
+    return [...this.invitations.values()].map(({ id, sessionHashes }) => ({ id, sessions: sessionHashes.size }));
+  }
+
   join(token: string): { sessionId: string; token: string } | null {
     const id = this.invitationIds.get(TokenTable.hashHex(token));
     const invitation = id ? this.invitations.get(id) : undefined;

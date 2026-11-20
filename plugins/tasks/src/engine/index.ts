@@ -1,4 +1,4 @@
-import { errors, TaskCategorySchema, TaskCommentSchema, TaskDtoSchema, TaskStatusSchema, TaskTypeSchema, TaskWritableSchema, type TaskOrigin } from "@huhu/contracts";
+import { errors, isWorkbenchCaller, TaskCategorySchema, TaskCommentSchema, TaskDtoSchema, TaskStatusSchema, TaskTypeSchema, TaskWritableSchema, type TaskOrigin } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
@@ -21,7 +21,7 @@ const Id = z.object({ id: z.string() });
 
 /** 创建来源：种类由网关根据受信的 caller 推导（请求体里自报的来源一律忽略）。明细 ID 由 T02 的 onBehalfOf 补上。 */
 export function originOf(caller: string): TaskOrigin {
-  if (caller === "desktop") return { kind: "desktop" };
+  if (isWorkbenchCaller(caller)) return { kind: "desktop" };
   if (caller.startsWith("plugin:")) {
     const id = caller.slice("plugin:".length);
     if (id === "inbox") return { kind: "inbox" };
@@ -32,9 +32,9 @@ export function originOf(caller: string): TaskOrigin {
   return { kind: "external", caller };
 }
 
-/** Agent 执行永不对外开放（security.md）：只有桌面界面能创建 / 修改 agent 任务或它的执行配置，外部入口即使被开放 tasks.create / update 也不行。 */
+/** 创建和修改 Agent 任务或它的执行配置要求已认证的工作台用户。 */
 function assertAgentAllowed(caller: string, i: { type?: string | undefined; execution?: unknown }): void {
-  if ((i.type === "agent" || (i.execution !== undefined && i.execution !== null)) && caller !== "desktop") throw errors.permissionDenied("创建或修改 Agent 任务（仅桌面可用）");
+  if ((i.type === "agent" || (i.execution !== undefined && i.execution !== null)) && !isWorkbenchCaller(caller)) throw errors.permissionDenied("创建或修改 Agent 任务（仅工作台可用）");
 }
 const Versioned = Id.extend({ expectedVersion: z.string() });
 const REMINDER_CHECK_MS = 30_000;
@@ -124,7 +124,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: (c, i) => {
         assertAgentAllowed(c.caller, i.patch);
         const cur = svc.read(i.id);
-        if (cur.type === "agent" && c.caller !== "desktop") throw errors.permissionDenied("修改 Agent 任务（仅桌面可用）");
+        if (cur.type === "agent" && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("修改 Agent 任务（仅工作台可用）");
         return svc.update(i.id, i.expectedVersion, i.patch as never, i.baseInputHash);
       },
     }),
@@ -138,7 +138,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       defaultExposed: false,
       input: Id,
       output: TaskDtoSchema,
-      handler: (c, i) => (svc.read(i.id).type === "agent" && c.caller !== "desktop" ? Promise.reject(errors.permissionDenied("复制 Agent 任务（仅桌面可用）")) : svc.duplicate(i.id, originOf(c.caller))),
+      handler: (c, i) => (svc.read(i.id).type === "agent" && !isWorkbenchCaller(c.caller) ? Promise.reject(errors.permissionDenied("复制 Agent 任务（仅工作台可用）")) : svc.duplicate(i.id, originOf(c.caller))),
     }),
   );
   api.defineCapability(
@@ -196,14 +196,15 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
         const task = svc.read(i.taskId);
         const internal = c.caller.startsWith("plugin:");
         // 外部入口只能给 human 任务写评论：agent 任务的输入（含评论）不能被外部注入（spec §8.3）
-        if (!internal && c.caller !== "desktop" && task.type === "agent") throw errors.permissionDenied("给 Agent 任务写评论（仅桌面可用）");
-        const source = c.caller === "desktop" ? "human" : internal ? (i.source ?? "system") : "external";
+        const user = isWorkbenchCaller(c.caller);
+        if (!internal && !user && task.type === "agent") throw errors.permissionDenied("给 Agent 任务写评论（仅工作台可用）");
+        const source = user ? "human" : internal ? (i.source ?? "system") : "external";
         const at = (opts.now?.() ?? new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
         return svc.addComment(i.taskId, {
           id: internal && i.id ? i.id : `c-${newId("cap").replace("cap-", "")}`,
           at,
           source,
-          author: c.caller === "desktop" ? "我" : internal ? i.author : c.caller,
+          author: user ? "我" : internal ? i.author : c.caller,
           run: internal ? i.run : undefined,
           ask: internal ? i.ask : undefined,
           session: internal ? i.session : undefined,

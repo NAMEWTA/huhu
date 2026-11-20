@@ -2,7 +2,7 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { machineId } from "@huhu/vault";
-import { AutomationActionSchema, errors } from "@huhu/contracts";
+import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
 import { HoldStore } from "./holds.js";
@@ -18,7 +18,7 @@ const Trigger = z.object({ preset: z.string(), cron: z.string(), zone: z.string(
 const Action = AutomationActionSchema;
 /** Agent 执行与命令执行永不对外（security.md §1）：外部入口即使被开放 automations.create/update/setEnabled，也不能创建、修改或启用会启动 Agent 或运行命令的规则。 */
 function assertNoAgentAction(caller: string, action: { kind: string; input?: { source: string; model?: string | null } } | undefined): void {
-  if ((action?.kind === "agent" || action?.kind === "terminal") && caller !== "desktop") throw errors.permissionDenied("会启动 Agent 或运行命令的规则（仅桌面可用）");
+  if ((action?.kind === "agent" || action?.kind === "terminal") && !isWorkbenchCaller(caller)) throw errors.permissionDenied("会启动 Agent 或运行命令的规则（仅工作台可用）");
   const model = action?.input && "model" in action.input ? action.input.model : undefined;
   if (model && model.startsWith("-")) throw errors.invalidInput("model 不能以 - 开头");
 }

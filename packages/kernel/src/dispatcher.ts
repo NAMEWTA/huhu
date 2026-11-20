@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { HuhuError, errors, type Caller, type CapabilityRequest, type CapabilityResult, type ToolAccessSnapshot } from "@huhu/contracts";
+import { HuhuError, errors, isWorkbenchCaller, type Caller, type CapabilityRequest, type CapabilityResult, type ToolAccessSnapshot } from "@huhu/contracts";
 import type { CapabilityDefinition, CapabilityRegistry } from "./capabilities/define.js";
 import { toolSelection } from "./exposure.js";
 import type { GatewayAudit } from "./gateway-audit.js";
@@ -40,7 +40,7 @@ export class Dispatcher {
   }
 
   discover(caller: Caller): CapabilityDefinition[] {
-    const policy = caller === "desktop" || caller.startsWith("plugin:") ? undefined : this.d.toolAccess();
+    const policy = isWorkbenchCaller(caller) || caller.startsWith("plugin:") ? undefined : this.d.toolAccess();
     if (policy?.state === "error") return [];
     return this.d.registry.list().filter((def) => this.d.isPluginEnabled(def.plugin) && (!this.closing || def.scope === "read") && !this.authorize(caller, def, policy));
   }
@@ -48,7 +48,7 @@ export class Dispatcher {
   async call(caller: Caller, req: CapabilityRequest, signal: AbortSignal = new AbortController().signal): Promise<CapabilityResult<unknown>> {
     const started = (this.d.now ?? Date.now)();
     const result = await this.run(caller, req, signal);
-    if (caller !== "desktop" && !caller.startsWith("plugin:")) {
+    if (!isWorkbenchCaller(caller) && !caller.startsWith("plugin:")) {
       try {
         this.d.audit.add({
           at: new Date(started).toISOString(),
@@ -123,7 +123,7 @@ export class Dispatcher {
   }
 
   private authorize(caller: Caller, def: CapabilityDefinition, policy?: ToolAccessSnapshot): HuhuError | null {
-    if (caller === "desktop") return null;
+    if (isWorkbenchCaller(caller)) return null;
     if (caller.startsWith("plugin:")) {
       const id = caller.slice("plugin:".length);
       const origin = this.d.pluginOrigin(id);

@@ -18,6 +18,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const idle = Number(arg("--idle-exit-ms") ?? 0);
+  const webAssetsDir = process.env["HUHU_WEB_ASSETS_DIR"];
   // 启动期间收到的关闭请求不能丢：boot 完成后立刻关闭
   let stopRequested = false;
   let stopNow: (() => void) | null = null;
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
     create: process.argv.includes("--create"),
     readOnly: process.argv.includes("--read-only"),
     idleExitMs: idle,
+    ...(webAssetsDir ? { webAssetsDir } : {}),
   });
   // Renderer 令牌只经 IPC 通道交给 Main；独立运行（无 IPC）时不输出任何令牌
   const ready = { type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id };

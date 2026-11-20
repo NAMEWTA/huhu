@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, statSync, type BigIntStats } from "node:fs";
 import path from "node:path";
-import { errors, KINDS, VaultListInput, VaultListOutput, VaultReadRangeInput, VaultReadRangeOutput } from "@huhu/contracts";
+import { errors, isWorkbenchCaller, KINDS, VaultListInput, VaultListOutput, VaultReadRangeInput, VaultReadRangeOutput } from "@huhu/contracts";
 import { listDir, OperationLog, resolveReadableAsset, VaultIndex, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
@@ -149,7 +149,7 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
         exposable: true,
         defaultExposed: false,
         handler: (c, i) => {
-          if (c.caller !== "desktop" && i.includeProtected) throw errors.invalidInput("外部入口不能列出受保护目录");
+          if (!isWorkbenchCaller(c.caller) && i.includeProtected) throw errors.invalidInput("外部入口不能列出受保护目录");
           return listDir(vault.root, i.dir, { cursor: i.cursor, limit: i.limit, includeProtected: i.includeProtected });
         },
       }),
