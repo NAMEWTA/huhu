@@ -147,8 +147,19 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     readDefinition,
     ensureOAuthAccess,
     drainOAuth: () => Promise.allSettled(renewals.values()),
+    async confirmOAuthCommit(accountId: string, sessionId: string) {
+      try {
+        return await credentials.use(accountId, [accountPasswordPurpose], async (definition, values) => {
+          if (!definition.oauth) return undefined;
+          const stored = sealedOAuthToken.safeParse(JSON.parse(values.get(accountPasswordPurpose)!));
+          return stored.success && stored.data.commit?.sessionId === sessionId ? stored.data.commit : undefined;
+        });
+      } catch {
+        return undefined;
+      }
+    },
     async saveOAuth(
-      target: { accountId: string; expectedRevision: string | null; provider: OAuthProvider; email: string; label: string; smtp: boolean },
+      target: { sessionId: string; accountId: string; expectedRevision: string | null; provider: OAuthProvider; email: string; label: string; smtp: boolean },
       identity: { subject: string; personal: boolean },
       token: SealedOAuthToken,
       signal: AbortSignal,
@@ -171,7 +182,9 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       return removals.serialize(accountId, async () => {
         signal.throwIfAborted();
         removals.assertActive(accountId);
-        const saved = await credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: JSON.stringify(token), reconfigure: true }], signal });
+        // The witness belongs to the very same protected generation as the new token.
+        const value = JSON.stringify({ ...token, commit: { sessionId: target.sessionId, smtp: settings.smtpEnabled } });
+        const saved = await credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value, reconfigure: true }], signal });
         rejectedRevisions.delete(accountId);
         return mailAccount(saved, definition);
       });

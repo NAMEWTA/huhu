@@ -16,8 +16,10 @@ const beginInput = z.strictObject({
   smtp: z.boolean().default(true),
   repair: z.strictObject({ accountId: id, expectedRevision: id }).optional(),
 });
-const phase = z.enum(["waiting", "finishing", "configured", "failed", "cancelled", "expired"]);
+const phase = z.enum(["waiting", "finishing", "configured", "failed", "cancelled", "expired", "unknown"]);
 const sessionOutput = z.strictObject({ sessionId: id, host: z.string(), phase, reason: z.string().optional(), accountId: id.optional(), route: z.literal("imap").optional(), smtp: z.boolean().optional() });
+const storedStatus = sessionOutput.omit({ host: true });
+const sessionIndex = z.strictObject({ actor: z.hash("sha256", { enc: "hex" }), accountId: id });
 const descriptorBase = { plugin: "mail", exposable: true, defaultExposed: false } as const;
 export const mailOAuthCapabilityDescriptors = {
   availability: defineCapabilityDescriptor({
@@ -65,7 +67,9 @@ export const mailOAuthCapabilityDescriptors = {
 };
 type Status = z.infer<typeof sessionOutput>;
 
-type Session = { status: Status; actor: string; key: string; controller: AbortController; close: () => void; stop?: "cancelled" | "expired" };
+type Receipt = NonNullable<ReturnType<OperationReceipts["lookup"]>>;
+type Accepted = Extract<Receipt, { phase: "accepted" }>;
+type Session = { status: Status; actor: string; receipt: Accepted; key: string; controller: AbortController; close: () => void; stop?: "cancelled" | "expired" | "unknown" };
 type IntentStore = { ledger: OperationReceipts; vaultInstance: string };
 type Intent = { owner: string; capability: "mail.oauth.begin" | "mail.oauth.cancel"; key: string };
 const random = () => randomBytes(32).toString("base64url");
@@ -85,18 +89,34 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
   const sessions = new Map<string, Session>();
   const pending = new Set<Promise<void>>();
   const now = runtime?.now ?? Date.now;
+  const host = runtime?.hostLabel ?? "当前 Engine 主机";
+  const ledger = intents?.ledger;
+  const indexOwner = createHash("sha256")
+    .update(JSON.stringify([intents?.vaultInstance, "mail.oauth.session-index"]))
+    .digest("hex");
 
-  function end(session: Session, state: Status["phase"], reason?: OAuthIssue) {
-    session.status = { sessionId: session.status.sessionId, host: session.status.host, phase: state, ...(reason && { reason }) };
-    session.close();
+  function persist(receipt: Accepted, status: Status) {
+    if (status.phase === "unknown" || ledger?.lookup(receipt.owner, { operationId: receipt.operationId })?.phase !== "accepted") return;
+    try {
+      const { host: _host, ...data } = status;
+      ledger.complete(receipt, "completed", { ok: true, data: storedStatus.parse(data) });
+    } catch {
+      // The begin claim still prevents a replay. A configured account can be reconciled from its protected generation.
+    }
   }
 
-  function stop(session: Session, reason: "cancelled" | "expired") {
+  function end(session: Session, state: Status["phase"], reason?: OAuthIssue, configured?: { accountId: string; smtp: boolean }) {
+    session.status = { sessionId: session.status.sessionId, host, phase: state, ...(reason && { reason }), ...(configured && { ...configured, route: "imap" as const }) };
+    session.close();
+    persist(session.receipt, session.status);
+  }
+
+  function stop(session: Session, reason: "cancelled" | "expired" | "unknown") {
     if (!live(session) || session.stop) return;
     session.stop = reason;
     session.controller.abort();
     session.close();
-    if (session.status.phase === "waiting") end(session, reason, reason);
+    if (session.status.phase === "waiting") end(session, reason, reason === "unknown" ? "commit-unconfirmed" : reason);
   }
 
   function actorOf({ caller, subject }: CapabilityContext) {
@@ -106,9 +126,9 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       .digest("hex");
   }
 
-  function get(context: CapabilityContext, sessionId: string) {
+  function getActive(context: CapabilityContext, sessionId: string) {
     const session = sessions.get(sessionId);
-    if (!session || (session.actor !== actorOf(context) && context.caller !== "desktop")) throw errors.notFound("授权会话已不存在。");
+    if (session && session.actor !== actorOf(context) && context.caller !== "desktop") throw errors.notFound("授权会话已不存在。");
     return session;
   }
 
@@ -118,18 +138,38 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
   }
 
   function claim(intent: Intent, input: unknown) {
-    if (!intents) throw errors.invalidInput("此 Vault 的本机授权操作存储不可用。");
-    const { entry, mismatch } = intents.ledger.claim(intent.owner, intent.capability, intent.key, input);
+    if (!ledger) throw errors.invalidInput("此 Vault 的本机授权操作存储不可用。");
+    const { entry, mismatch } = ledger.claim(intent.owner, intent.capability, intent.key, input);
     if (mismatch) throw errors.idempotencyMismatch();
-    return entry.operationId;
+    return entry;
   }
 
   function replay(intent: Intent, input: unknown) {
-    if (intents?.ledger.lookup(intent.owner, { capability: intent.capability, intentKey: intent.key })) return claim(intent, input);
+    if (ledger?.lookup(intent.owner, { capability: intent.capability, intentKey: intent.key })) return claim(intent, input);
   }
 
-  function resumedStatus(sessionId: string): Status {
-    return sessions.get(sessionId)?.status ?? { sessionId, host: runtime?.hostLabel ?? "当前 Engine 主机", phase: "expired", reason: "expired" };
+  async function resumedStatus(context: CapabilityContext, sessionId: string): Promise<Status> {
+    const active = getActive(context, sessionId);
+    if (active && active.status.phase !== "unknown") return active.status;
+    const lookup = ledger?.lookup(indexOwner, { capability: "mail.oauth.session-index", intentKey: sessionId });
+    const indexed = lookup?.phase === "completed" && lookup.result.ok ? sessionIndex.safeParse(lookup.result.data) : undefined;
+    const metadata = indexed?.success ? indexed.data : undefined;
+    const actor = actorOf(context);
+    const receipt = ledger?.lookup(context.caller === "desktop" ? (metadata?.actor ?? actor) : actor, { operationId: sessionId });
+    if (!receipt || receipt.capability !== "mail.oauth.begin") throw errors.notFound("授权会话已不存在。");
+    const unknown: Status = { sessionId, host, phase: "unknown", reason: "commit-unconfirmed" };
+    if (receipt.phase === "completed" && receipt.result.ok) {
+      const outcome = storedStatus.safeParse(receipt.result.data);
+      return outcome.success && outcome.data.sessionId === sessionId ? { ...outcome.data, host } : unknown;
+    }
+    if (receipt.phase !== "accepted" || !metadata) return unknown;
+    if (!ledger?.lookup(indexOwner, { capability: "mail.oauth.exchange", intentKey: sessionId })) return ledger?.available ? { sessionId, host, phase: "expired", reason: "expired" } : unknown;
+    const proof = await accounts?.confirmOAuthCommit(metadata.accountId, sessionId);
+    if (!proof) return unknown;
+    const configured = { sessionId, host, phase: "configured", accountId: metadata.accountId, route: "imap", smtp: proof.smtp } as const;
+    persist(receipt, configured);
+    if (active) active.status = configured;
+    return configured;
   }
 
   api.defineCapability(
@@ -143,9 +183,9 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       lifetime.throwIfAborted();
       const intent = intentOf(context, "mail.oauth.begin");
       const prior = replay(intent, input);
-      if (prior) return resumedStatus(prior);
+      if (prior) return resumedStatus(context, prior.operationId);
       const issuer = runtime?.issuers[input.provider];
-      if (!runtime || !issuer || !accounts) throw new HuhuError("INVALID_INPUT", "当前 Engine 主机尚未配置此邮件授权客户端。", { details: { reason: "not-configured" } });
+      if (!runtime || !issuer || !accounts || !ledger) throw new HuhuError("INVALID_INPUT", "当前 Engine 主机尚未配置此邮件授权客户端。", { details: { reason: "not-configured" } });
       const previous = input.repair ? accounts.readDefinition(input.repair.accountId) : undefined;
       if (
         input.repair &&
@@ -161,15 +201,19 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       signal.throwIfAborted();
       lifetime.throwIfAborted();
       const concurrent = replay(intent, input);
-      if (concurrent) return resumedStatus(concurrent);
+      if (concurrent) return resumedStatus(context, concurrent.operationId);
       if (!input.repair && current) throw new HuhuError("VERSION_CONFLICT", "该邮箱已存在，请使用重新授权。", { details: { reason: "account-changed" } });
       const key = `${input.provider}:${input.email.toLowerCase()}`;
       if ([...sessions.values()].some((session) => session.key === key && live(session))) throw errors.invalidInput("此邮箱已有在途授权。");
       for (const [key, session] of sessions) if (sessions.size >= 32 && !live(session)) sessions.delete(key);
       if (sessions.size >= 32) throw errors.invalidInput("在途邮箱授权过多。");
       // The persisted claim ID identifies the session. Only live process state holds its authorization material.
-      const sessionId = claim(intent, input);
+      const receipt = claim(intent, input);
+      const sessionId = receipt.operationId;
+      if (receipt.phase !== "accepted") return resumedStatus(context, sessionId);
       const accountId = input.repair?.accountId ?? randomUUID();
+      const index = ledger.claim(indexOwner, "mail.oauth.session-index", sessionId, {}).entry;
+      if (index.phase === "accepted") ledger.complete(index, "completed", { ok: true, data: sessionIndex.parse({ actor: intent.owner, accountId }) });
       const controller = new AbortController();
       const active = AbortSignal.any([lifetime, controller.signal, ...(input.repair ? [accounts.signal(input.repair.accountId)] : [])]);
       const state = random();
@@ -202,6 +246,13 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
           return;
         }
         if (refused || !code || values.getAll("code").length !== 1 || !/^[\x21-\x7e]{1,8192}$/.test(code)) return fail();
+        try {
+          ledger.claim(indexOwner, "mail.oauth.exchange", sessionId, {});
+        } catch {
+          end(session, "unknown", "commit-unconfirmed");
+          response.writeHead(503).end("Unable to confirm authorization. Return to Huhu.");
+          return;
+        }
         session.status = { ...session.status, phase: "finishing" };
         response.writeHead(200).end("Response received. Return to Huhu to check the result.");
         const redirectUri = redirect.href;
@@ -211,18 +262,19 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
             const identity = await verifyOAuthIdentity(issuer, input.provider, idToken, nonce, input.email, active, now());
             active.throwIfAborted();
             const saved = await accounts.saveOAuth(
-              { accountId, expectedRevision: input.repair?.expectedRevision ?? null, provider: input.provider, email: input.email, label: previous?.definition.settings.label ?? input.label, smtp: input.smtp },
+              { sessionId, accountId, expectedRevision: input.repair?.expectedRevision ?? null, provider: input.provider, email: input.email, label: previous?.definition.settings.label ?? input.label, smtp: input.smtp },
               identity,
               bundle,
               active,
             );
-            end(session, "configured");
-            Object.assign(session.status, { accountId: saved.accountId, route: "imap", smtp: saved.definition.settings.smtpEnabled });
+            end(session, "configured", undefined, { accountId: saved.accountId, smtp: saved.definition.settings.smtpEnabled });
             if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: saved.accountId, op: input.repair ? "updated" : "created" });
           } catch (error) {
             if (session.status.phase === "configured") return;
-            const cancellation = session.stop ?? (active.aborted ? "cancelled" : undefined);
-            end(session, cancellation ?? "failed", cancellation ?? reasonOf(error));
+            const cancellation = session.stop ?? (active.aborted ? "unknown" : undefined);
+            const uncertain = cancellation === "unknown" || (error instanceof CredentialError && error.code === "storage-failed");
+            if (uncertain) end(session, "unknown", "commit-unconfirmed");
+            else end(session, cancellation ?? "failed", cancellation ?? reasonOf(error));
           }
         })();
         pending.add(work);
@@ -236,8 +288,8 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
         server.close();
         server.closeIdleConnections();
       };
-      const aborted = () => stop(session, "cancelled");
-      const session: Session = { status: { sessionId, host: runtime.hostLabel, phase: "waiting" }, actor: intent.owner, key, controller, close };
+      const aborted = () => stop(session, session.status.phase === "waiting" ? "cancelled" : "unknown");
+      const session: Session = { status: { sessionId, host, phase: "waiting" }, actor: intent.owner, receipt, key, controller, close };
       sessions.set(sessionId, session);
       active.addEventListener("abort", aborted, { once: true });
       try {
@@ -286,23 +338,26 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       return session.status;
     }),
   );
-  api.defineCapability(bindCapability(mailOAuthCapabilityDescriptors.status, (context, { sessionId }) => get(context, sessionId).status));
+  api.defineCapability(bindCapability(mailOAuthCapabilityDescriptors.status, (context, { sessionId }) => resumedStatus(context, sessionId)));
   api.defineCapability(
-    bindCapability(mailOAuthCapabilityDescriptors.cancel, (context, input) => {
+    bindCapability(mailOAuthCapabilityDescriptors.cancel, async (context, input) => {
       api.vault.files.assertWritable();
       context.signal.throwIfAborted();
       lifetime.throwIfAborted();
       const intent = intentOf(context, "mail.oauth.cancel");
       const { sessionId } = input;
-      if (replay(intent, input)) return resumedStatus(sessionId);
-      const session = get(context, sessionId);
+      if (replay(intent, input)) return resumedStatus(context, sessionId);
+      const session = getActive(context, sessionId);
+      const previous = session ? session.status : await resumedStatus(context, sessionId);
+      lifetime.throwIfAborted();
+      context.signal.throwIfAborted();
       claim(intent, input);
-      stop(session, "cancelled");
-      return session.status;
+      if (session) stop(session, "cancelled");
+      return session?.status ?? previous;
     }),
   );
   return async () => {
-    for (const session of sessions.values()) stop(session, "cancelled");
+    for (const session of sessions.values()) stop(session, session.status.phase === "waiting" ? "cancelled" : "unknown");
     await Promise.allSettled(pending);
     sessions.clear();
   };

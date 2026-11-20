@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { OAuthProvider } from "../engine/oauth-provider.js";
 
 type Availability = { host: string; gmail: boolean; outlook: boolean };
-type Status = { sessionId: string; host: string; phase: "waiting" | "finishing" | "configured" | "failed" | "cancelled" | "expired"; reason?: string; accountId?: string; route?: "imap"; smtp?: boolean };
+type Status = { sessionId: string; host: string; phase: "waiting" | "finishing" | "configured" | "failed" | "cancelled" | "expired" | "unknown"; reason?: string; accountId?: string; route?: "imap"; smtp?: boolean };
 const reasons: Record<string, string> = {
   "not-configured": "此主机尚未配置该服务的授权客户端。",
   "browser-unavailable": "无法在 Engine 主机上打开系统浏览器。",
@@ -19,6 +19,7 @@ const reasons: Record<string, string> = {
   "protocol-unavailable": "服务已授权，但无法连接 IMAP 或读取所选目录，请检查服务端的协议设置。",
   reauthorize: "服务未提供可长期使用的凭据，请重新授权。",
   "account-changed": "邮箱已变化，请重新打开账号再授权。",
+  "commit-unconfirmed": "授权提交结果待核实。请到邮箱账号列表检查当前配置。",
 };
 const failure = "邮箱授权未完成，请重试。";
 

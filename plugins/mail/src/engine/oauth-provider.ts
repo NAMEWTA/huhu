@@ -17,6 +17,7 @@ export type OAuthIssue =
   | "graph-metadata-only"
   | "wrong-resource"
   | "protocol-unavailable"
+  | "commit-unconfirmed"
   | "reauthorize"
   | "account-changed";
 
@@ -93,7 +94,14 @@ const tokenReply = z.object({
   scope: z.string().max(8192).optional(),
   id_token: secret.optional(),
 });
-export const sealedOAuthToken = z.strictObject({ access: secret, refresh: secret, until: z.int().positive(), scopes: z.string().max(8192), smtp: z.boolean() });
+export const sealedOAuthToken = z.strictObject({
+  access: secret,
+  refresh: secret,
+  until: z.int().positive(),
+  scopes: z.string().max(8192),
+  smtp: z.boolean(),
+  commit: z.strictObject({ sessionId: z.uuidv4(), smtp: z.boolean() }).optional(),
+});
 export type SealedOAuthToken = z.infer<typeof sealedOAuthToken>;
 
 /** Scope receipt from the provider's token endpoint. Exchange tokens may be opaque. */
@@ -148,7 +156,7 @@ export async function requestOAuthToken(issuer: MailOAuthIssuer, provider: OAuth
   if (!permission.imap) throw new MailOAuthError(permission.problem ?? "permission-missing");
   const refresh = refresh_token ?? previous?.refresh;
   if (!refresh) throw new MailOAuthError("reauthorize");
-  return { bundle: { access: access_token, refresh, until: now + expires_in * 1000, scopes, smtp: permission.smtp }, idToken: id_token };
+  return { bundle: { access: access_token, refresh, until: now + expires_in * 1000, scopes, smtp: permission.smtp, ...(previous?.commit && { commit: previous.commit }) }, idToken: id_token };
 }
 
 const headerSchema = z.object({ alg: z.literal("RS256"), kid: z.string().min(1).max(512) });

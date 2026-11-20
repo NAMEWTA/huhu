@@ -1,12 +1,13 @@
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
-import { NotificationStore } from "@huhu/kernel";
+import { ModuleCredentials, NotificationStore, OperationReceipts } from "@huhu/kernel";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
+import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts, type MailAccount } from "../src/engine/accounts.js";
 import type { MailLocationTarget, MailSearchPage } from "../src/engine/conversations.js";
 import type { ReplySeed } from "../src/engine/prepare-reply.js";
@@ -406,8 +407,10 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         return result.data as T;
       };
       const status = (slot: Status) => call<Status>("mail.oauth.status", { sessionId: slot.sessionId });
-      const begin = async (provider: OAuthProvider, email: string, repair?: { accountId: string; expectedRevision: string }) => {
-        const slot = await call<Status>("mail.oauth.begin", { provider, email, ...(repair && { repair }) });
+      const begin = async (provider: OAuthProvider, email: string, repair?: { accountId: string; expectedRevision: string }, key?: string) => {
+        const result = await request("mail.oauth.begin", { provider, email, ...(repair && { repair }) }, "desktop", key);
+        assert(result.ok, JSON.stringify(result));
+        const slot = result.data as Status;
         expect(slot).toMatchObject({ host: "Fixture Engine", phase: "waiting" });
         const url = opened.at(-1)!;
         expect(url.searchParams.get("code_challenge_method")).toBe("S256");
@@ -527,7 +530,8 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(await Promise.all([sendCredential(), sendCredential()])).toEqual([true, true]);
       expect(refreshes).toHaveLength(1);
       const rotated = credentials.get(google)!.refresh;
-      const beforeSwitch = await begin("gmail", "switch@example.invalid");
+      const switchKey = randomUUID();
+      const beforeSwitch = await begin("gmail", "switch@example.invalid", undefined, switchKey);
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
       blockEntered = entered.resolve;
@@ -543,6 +547,10 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData });
       expect((await list()).accounts).toHaveLength(2);
+      expect(await status(beforeSwitch.slot)).toMatchObject({ sessionId: beforeSwitch.slot.sessionId, phase: "unknown", reason: "commit-unconfirmed" });
+      expect(await request("mail.oauth.begin", { provider: "gmail", email: "switch@example.invalid" }, "desktop", switchKey)).toMatchObject({ ok: true, data: { sessionId: beforeSwitch.slot.sessionId, phase: "unknown" } });
+      expect(await status(rejected.slot)).toMatchObject({ phase: "failed", reason: "denied" });
+      expect(await status(expired.slot)).toMatchObject({ phase: "expired", reason: "expired" });
       now += 100_000;
       expect(await call("mail.sync.refresh", mbox)).toMatchObject({ message: { uid: 42 } });
       expect(refreshes[1]).toBe(rotated);
@@ -623,6 +631,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       const completionKey = randomUUID();
       const completionInput = { provider: "gmail", email: callbackFirst };
       const start = request("mail.oauth.begin", completionInput, "desktop", completionKey);
+      let configuredSlot: Status | undefined;
       await expect.poll(() => opened.length).toBe(startCount + 1);
       const target = opened.at(-1)!;
       const tokenCode = `fixture-code-${randomUUID()}`;
@@ -639,6 +648,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         expect(opened).toHaveLength(startCount + 1);
         finishExchange.resolve();
         await expect.poll(() => status(slot)).toMatchObject({ phase: "configured" });
+        configuredSlot = await status(slot);
         expect(await request("mail.oauth.begin", completionInput, "desktop", completionKey)).toMatchObject({ ok: true, data: { phase: "configured", sessionId: slot.sessionId } });
         expect((await list()).accounts.filter(({ definition }) => definition.settings.email === callbackFirst)).toHaveLength(1);
         expect(exchangeCount - codeCount).toBe(1);
@@ -734,9 +744,14 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect((await oauthHttp(engine.port, a.token, "mail.oauth.begin", inputA, sharedKey)).status).toBe(401);
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData });
-      expect(await statusOf(a.token, "mail.oauth.begin", inputA, sharedKey)).toMatchObject({ ...sessionA, phase: "expired", reason: "expired" });
-      expect(await statusOf(a.token, "mail.oauth.cancel", sessionA, cancelKey)).toMatchObject({ ...sessionA, phase: "expired", reason: "expired" });
-      expect(await statusOf(b.token, "mail.oauth.begin", inputB, sharedKey)).toMatchObject({ ...sessionB, phase: "expired", reason: "expired" });
+      expect(await statusOf(a.token, "mail.oauth.begin", inputA, sharedKey)).toMatchObject({ ...sessionA, phase: "cancelled", reason: "cancelled" });
+      expect(await statusOf(a.token, "mail.oauth.cancel", sessionA, cancelKey)).toMatchObject({ ...sessionA, phase: "cancelled", reason: "cancelled" });
+      expect(await statusOf(b.token, "mail.oauth.begin", inputB, sharedKey)).toMatchObject({ ...sessionB, phase: "cancelled", reason: "cancelled" });
+      expect(await http(b.token, "mail.oauth.status", sessionA)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(await status(startA)).toMatchObject({ ...sessionA, phase: "cancelled" });
+      assert(configuredSlot?.accountId);
+      expect(await status(configuredSlot)).toEqual(configuredSlot);
+      expect(await request("mail.oauth.begin", completionInput, "desktop", completionKey)).toEqual({ ok: true, data: configuredSlot });
       expect(opened).toHaveLength(beforeReplay + 2);
 
       const generationKey = randomUUID();
@@ -748,7 +763,8 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(await call("plugins.setEnabled", { id: "mail", enabled: false })).toMatchObject({ state: "disabled" });
       expect(await http(a.token, "mail.oauth.begin", inputA, generationKey)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
       expect(await call("plugins.setEnabled", { id: "mail", enabled: true })).toMatchObject({ state: "active" });
-      expect(await statusOf(a.token, "mail.oauth.begin", inputA, generationKey)).toMatchObject({ sessionId: generation.sessionId, phase: "expired", reason: "expired" });
+      expect(await statusOf(a.token, "mail.oauth.begin", inputA, generationKey)).toMatchObject({ sessionId: generation.sessionId, phase: "cancelled", reason: "cancelled" });
+      expect(await status(configuredSlot)).toEqual(configuredSlot);
       expect(
         await callback(oldListener, { code: "late" }).then(
           (response) => response.status,
@@ -756,6 +772,95 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         ),
       ).not.toBe(200);
       expect(opened).toHaveLength(beforeReplay + 3);
+
+      const gapEmail = "receipt-gap@example.invalid";
+      const gapKey = randomUUID();
+      const gap = await begin("gmail", gapEmail, undefined, gapKey);
+      const complete = OperationReceipts.prototype.complete;
+      const crashGap = vi.spyOn(OperationReceipts.prototype, "complete").mockImplementation(function (this: OperationReceipts, entry, state, result) {
+        if (entry.operationId === gap.slot.sessionId) throw new Error("fixture interrupted after credential commit");
+        return complete.call(this, entry, state, result);
+      });
+      let committed: Status;
+      try {
+        expect((await callback(gap.url, { code: ticketFor(gap, "gmail", gapEmail) })).status).toBe(200);
+        await expect.poll(() => status(gap.slot)).toMatchObject({ phase: "configured" });
+        committed = await status(gap.slot);
+        expect(
+          readFileSync(path.join(engine.vault.runtimeDir, "mail-oauth-intents.ndjson"), "utf8")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as { operationId: string; phase: string })
+            .filter(({ operationId }) => operationId === gap.slot.sessionId),
+        ).toMatchObject([{ phase: "accepted" }]);
+      } finally {
+        crashGap.mockRestore();
+      }
+      const finishCounters = { browsers: opened.length, exchanges: exchangeCount };
+      await engine.shutdown();
+      engine = await boot({ vaultPath, desktopUserData });
+      expect(await status(gap.slot)).toEqual(committed);
+      expect(await request("mail.oauth.begin", { provider: "gmail", email: gapEmail }, "desktop", gapKey)).toEqual({ ok: true, data: committed });
+      expect({ browsers: opened.length, exchanges: exchangeCount }).toEqual(finishCounters);
+
+      const sameAccount = (await list()).accounts.find(({ accountId }) => accountId === committed.accountId);
+      assert(sameAccount);
+      const failedKey = randomUUID();
+      const repairInput = { accountId: sameAccount.accountId, expectedRevision: sameAccount.revision };
+      const precommit = await begin("gmail", gapEmail, repairInput, failedKey);
+      const write = engine.vault.files.write.bind(engine.vault.files);
+      const crashBefore = vi.spyOn(engine.vault.files, "write").mockImplementation(async (...args) => {
+        if (args[0].startsWith(".huhu/module-credentials/")) throw new Error("fixture denied credential publication");
+        return write(...args);
+      });
+      try {
+        expect((await callback(precommit.url, { code: ticketFor(precommit, "gmail", gapEmail) })).status).toBe(200);
+        await expect.poll(() => status(precommit.slot)).toMatchObject({ phase: "unknown", reason: "commit-unconfirmed" });
+        expect((await list()).accounts.find(({ accountId }) => accountId === sameAccount.accountId)?.revision).toBe(sameAccount.revision);
+      } finally {
+        crashBefore.mockRestore();
+      }
+      await engine.shutdown();
+      engine = await boot({ vaultPath, desktopUserData });
+      expect(await status(precommit.slot)).toMatchObject({ sessionId: precommit.slot.sessionId, phase: "unknown", reason: "commit-unconfirmed" });
+      expect(await request("mail.oauth.begin", { provider: "gmail", email: gapEmail, repair: repairInput }, "desktop", failedKey)).toMatchObject({ ok: true, data: { sessionId: precommit.slot.sessionId, phase: "unknown" } });
+
+      const evicted = await begin("gmail", "evicted-outcome@example.invalid", undefined, gapKey + "-evict");
+      expect((await callback(evicted.url, { code: ticketFor(evicted, "gmail", "evicted-outcome@example.invalid") })).status).toBe(200);
+      await expect.poll(() => status(evicted.slot)).toMatchObject({ phase: "configured" });
+      const evictedResult = await status(evicted.slot);
+      for (let i = 0; i < 32; i++) {
+        const idle = await begin("gmail", `slot-${i}@example.invalid`);
+        await call("mail.oauth.cancel", { sessionId: idle.slot.sessionId });
+      }
+      expect(await status(evicted.slot)).toEqual(evictedResult);
+      expect(await request("mail.oauth.begin", { provider: "gmail", email: "evicted-outcome@example.invalid" }, "desktop", gapKey + "-evict")).toEqual({ ok: true, data: evictedResult });
+
+      assert(engine.moduleCredentialHost);
+      const unrelatedAccount = randomUUID();
+      const accountStore = new ModuleCredentials({ ...engine.moduleCredentialHost, vault: engine.vault, pluginId: "mail", definition: mailAccountDefinitionSchema, targets: ({ settings, oauth }) => accountTargets(settings, oauth) });
+      await accountStore.save({
+        entityId: unrelatedAccount,
+        expectedRevision: null,
+        definition: { ...sameAccount.definition, settings: { ...sameAccount.definition.settings, email: "switch@example.invalid" } },
+        actions: [{ purpose: accountPasswordPurpose, action: "clear" }],
+      });
+      expect(await status(beforeSwitch.slot)).toMatchObject({ sessionId: beforeSwitch.slot.sessionId, phase: "unknown" });
+
+      const copiedVault = path.join(root, "copied-outcomes");
+      mkdirSync(path.join(copiedVault, ".huhu"), { recursive: true });
+      writeFileSync(path.join(copiedVault, ".huhu", "vault.json"), readFileSync(path.join(vaultPath, ".huhu", "vault.json")));
+      const runtimeCopy = path.join(copiedVault, path.relative(vaultPath, engine.vault.runtimeDir));
+      mkdirSync(runtimeCopy, { recursive: true });
+      writeFileSync(path.join(runtimeCopy, "mail-oauth-intents.ndjson"), readFileSync(path.join(engine.vault.runtimeDir, "mail-oauth-intents.ndjson")));
+      const clone = await boot({ vaultPath: copiedVault, desktopUserData });
+      try {
+        const response = await oauthHttp(clone.port, clone.rendererToken, "mail.oauth.status", { sessionId: gap.slot.sessionId });
+        expect(CapabilityResultSchema.parse(await response.json())).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      } finally {
+        await clone.shutdown();
+      }
 
       rejectRefresh = true;
       now += 100_000;
