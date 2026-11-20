@@ -91,13 +91,14 @@ function main(file) {
   let stopRequest;
   const questions = new Map();
   const submittedAnswers = new Map();
-  const readAnswerOutput = createNativeAnswerOutputReader();
+  let readAnswerOutput = createNativeAnswerOutputReader();
   const seenQuestionIds = new Set();
   const seenQuestionItems = new Set();
   let currentQuestion;
   const finals = new Map();
   const completed = new Map();
   const emitted = new Set();
+  const observedTurns = new Set();
   let closing = false;
   let submitted = false;
   let serial = 0;
@@ -136,6 +137,7 @@ function main(file) {
     b.nativeSessionId,
   ];
   const sameExecution = (execution) => execution?.sessionBinding && executionBinding && JSON.stringify(executionFields(execution)) === JSON.stringify(executionFields(executionBinding));
+  const runFile = (execution, name) => "run-" + hash(executionFields(execution)) + "-" + name;
 
   function report(source, payload) {
     const { vaultId, runId, attempt, dispatchId, sessionBinding } = executionBinding;
@@ -173,13 +175,26 @@ function main(file) {
     }
     const final = finals.get(turnId);
     if (status === "completed" && final) report(final.source, { message: final.text });
-    save("completed", { threadId, turnId, status });
-    stop("original turn ended");
+    save(runFile(executionBinding, "completed"), { threadId, turnId, status });
+    log("original turn ended");
+    submitted = false;
+    turnId = undefined;
+    executionBinding = undefined;
+    stopRequest = undefined;
+    currentQuestion = undefined;
+    questions.clear();
+    submittedAnswers.clear();
+    seenQuestionIds.clear();
+    seenQuestionItems.clear();
+    finals.clear();
+    completed.clear();
+    emitted.clear();
+    readAnswerOutput = createNativeAnswerOutputReader();
   }
 
   function boundQuestion(rpcId, params) {
     if (seenQuestionIds.has(rpcId)) return true;
-    if (!submitted || params?.threadId !== threadId || !validId(params.turnId) || !validId(params.itemId) || (turnId && params.turnId !== turnId) || completed.has(params.turnId)) return false;
+    if (!submitted || params?.threadId !== threadId || !validId(params.turnId) || !validId(params.itemId) || (turnId ? params.turnId !== turnId : observedTurns.has(params.turnId)) || completed.has(params.turnId)) return false;
     if (!(Number.isSafeInteger(rpcId) || validId(rpcId)) || params.isBlocking !== true || !Array.isArray(params.questions) || params.questions.length !== 1) return false;
     const [question] = params.questions;
     if (!validId(question?.id) || typeof question.header !== "string" || !validText(question.question, 8_000)) return false;
@@ -208,13 +223,13 @@ function main(file) {
       return;
     }
     recordAnswerOutput(readAnswerOutput(method, params, threadId, turnId));
-    if (method === "item/completed" && validId(params.turnId) && (!turnId || params.turnId === turnId)) {
+    if (method === "item/completed" && validId(params.turnId) && (turnId ? params.turnId === turnId : !observedTurns.has(params.turnId))) {
       const item = params.item;
       if (item?.type !== "agentMessage" || item.phase !== "final_answer" || !validId(item.id) || !validText(item.text, 64_000)) return;
       const prior = finals.get(params.turnId);
       if (prior === undefined && finals.size < 32) finals.set(params.turnId, { source: { kind: "result", threadId, turnId: params.turnId, itemId: item.id }, text: item.text });
       else if (prior && (prior.source.itemId !== item.id || prior.text !== item.text)) finals.set(params.turnId, null);
-    } else if (method === "turn/completed" && validId(params.turn?.id) && (!turnId || params.turn.id === turnId)) {
+    } else if (method === "turn/completed" && validId(params.turn?.id) && (turnId ? params.turn.id === turnId : !observedTurns.has(params.turn.id))) {
       const { id: completedId, status } = params.turn;
       if (["completed", "failed", "interrupted"].includes(status) && completed.size < 32) completed.set(completedId, status);
       publishBoundReports();
@@ -260,7 +275,7 @@ function main(file) {
     const fingerprint = hash([...executionFields(execution), stopId]);
     if (stopRequest) return stopRequest === fingerprint ? "unknown" : "stale";
     if (operation === "stop.inspect") return "not_sent";
-    save("stop-write", { fingerprint, threadId, turnId });
+    save(runFile(execution, "stop-write"), { fingerprint, threadId, turnId });
     stopRequest = fingerprint;
     // The response to turn/interrupt is transport feedback. Only nativeNotice records the terminal state.
     request("turn/interrupt", { threadId, turnId }, () => {});
@@ -289,20 +304,23 @@ function main(file) {
       typeof execution?.runId !== "string"
     )
       return;
+    const intent = runFile(execution, "intent");
+    if (statSync(path.join(directory, intent + ".json"), { throwIfNoEntry: false })) return;
     submitted = true;
     executionBinding = execution;
     const inputSha256 = createHash("sha256").update(input).digest("hex");
     const clientUserMessageId = createHash("sha256")
       .update(JSON.stringify([execution, inputSha256]))
       .digest("hex");
-    save("intent", { execution, inputSha256, clientUserMessageId });
+    save(intent, { execution, inputSha256, clientUserMessageId });
     request("turn/start", { threadId, clientUserMessageId, input: [{ type: "text", text: input }] }, (result) => {
-      if (typeof result?.turn?.id !== "string" || !id.test(result.turn.id)) return stop("turn acceptance is unconfirmed");
+      if (typeof result?.turn?.id !== "string" || !id.test(result.turn.id) || observedTurns.has(result.turn.id)) return stop("turn acceptance is unconfirmed");
       turnId = result.turn.id;
+      observedTurns.add(turnId);
       const acceptanceId = createHash("sha256")
         .update(JSON.stringify([threadId, turnId]))
         .digest("hex");
-      save("receipt", { id: acceptanceId, execution, inputSha256, nativeTurnId: turnId });
+      save(runFile(execution, "receipt"), { id: acceptanceId, execution, inputSha256, nativeTurnId: turnId });
       log("provider accepted the original input");
       publishBoundReports();
     });
@@ -406,7 +424,7 @@ function main(file) {
         server.once("error", () => stop("control channel unavailable"));
         server.listen("\\\\.\\pipe\\huhu-codex-" + sign("socket", 1), () => {
           try {
-            save("thread", { attempt: config.attempt, threadId, address, pid: process.pid });
+            save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2 });
             clearTimeout(startup);
             log("native thread ready");
           } catch {

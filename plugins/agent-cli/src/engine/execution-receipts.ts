@@ -107,7 +107,15 @@ export class ExecutionReceipts {
   }
 }
 
-export function pollExecutionReceipts(api: HuhuApi, dispatches: AgentDispatchStore, sessions: SessionsService, receipts: ExecutionReceipts, signal: AbortSignal, interval: number): () => void {
+export function pollExecutionReceipts(
+  api: HuhuApi,
+  dispatches: AgentDispatchStore,
+  sessions: SessionsService,
+  receipts: ExecutionReceipts,
+  signal: AbortSignal,
+  interval: number,
+  reconcile: (execution: ExecutionBinding) => void,
+): () => void {
   let running = false;
   async function drain() {
     if (running || signal.aborted) return;
@@ -116,6 +124,7 @@ export function pollExecutionReceipts(api: HuhuApi, dispatches: AgentDispatchSto
       for (const record of dispatches.nativeInputs()) {
         signal.throwIfAborted();
         try {
+          reconcile(record.execution);
           for (const report of sessions.nativeReports(record.execution, record.inputSha256)) {
             try {
               const ack = receipts.receive(report.receipt, record.execution);

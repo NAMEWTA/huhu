@@ -85,6 +85,7 @@ export class AgentDispatch {
           let reason = unavailable ?? (adapter?.modes.includes("existing") ? null : "provider_generation_unavailable");
           const current = reason ? null : await this.d.sessions.executionSession(session.id);
           if (!reason && (!current || current.finished)) reason = "binding_unverified";
+          if (!reason && adapter?.transport === "native" && !current?.nativeExisting) reason = "provider_generation_unavailable";
           if (!reason && !this.d.ownership.availableForTask(session.id)) reason = "input_owned";
           return { mode: "existing" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId: null, sessionId: session.id, binding: current?.binding ?? null, available: reason === null, reason };
         }),
@@ -234,6 +235,7 @@ export class AgentDispatch {
       throw new HuhuError("VERSION_CONFLICT", "Agent 进程绑定已变化", { details: { reason: "binding_changed" } });
     }
     if (current.finished) return this.observe(record, signal);
+    if (target.mode === "existing" && adapter.transport === "native" && !current.nativeExisting) return receipt(record, "unsupported", "provider_generation_unavailable");
 
     if (!this.d.ownership.availableForTask(id, input.dispatchId)) return receipt(record, "busy", "input_owned");
     const ready = adapter.transport === "native" ? current.binding.nativeSessionId !== null : await adapter.ready(current.binding, signal).catch(() => false);
@@ -320,5 +322,12 @@ export class AgentDispatch {
     }
     if (next.providerAcceptance) return receipt(next, "accepted");
     return receipt(next, "unknown", "native_acceptance_unconfirmed");
+  }
+
+  reconcileNative(execution: ExecutionBinding): void {
+    if (this.d.readOnly || this.d.signal.aborted || this.inflight.has(execution.dispatchId)) return;
+    const record = this.lookup({ ...execution, machineId: execution.sessionBinding.machineId });
+    if (!record?.ownerActive || record.transport !== "native" || launchHash(record.execution) !== launchHash(execution)) return;
+    this.observeNative(record, execution);
   }
 }

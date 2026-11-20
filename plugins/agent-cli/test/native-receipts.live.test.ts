@@ -339,7 +339,26 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(await reply()).toMatchObject({ status: "accepted" });
       expect(events().filter((event) => event === "turn-input")).toHaveLength(1);
       expect(events().filter((event) => event === "answered-original-question")).toHaveLength(1);
-      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 1, answerCount: 1, timelineComments: originalTimeline.length, durableAcks: originalAcks.length }));
+
+      const next = await call<TaskDto>(engine, "tasks.create", {
+        title: "Fixture existing provider session",
+        body: "Follow the first turn on this fixture thread.",
+        type: "agent",
+        execution: { spaceId: space!.id, provider: "codex", target: { mode: "existing", sessionId } },
+      });
+      const nextInput = { taskId: next.id, dispatchId: "fixture-w63-existing", expectedVersion: next.version, inputRevision: next.inputRevision, inputHash: next.inputHash };
+      const nextRun = await call<{ runId: string }>(engine, "tasks.dispatch", nextInput);
+      await expect
+        .poll(async () => (await call<TaskDto>(engine!, "tasks.read", { id: next.id })).comments.filter(({ event }) => event === "result"), { timeout: 20_000 })
+        .toMatchObject([{ event: "result", run: nextRun.runId, session: sessionId, body: "Synthetic result from the existing thread." }]);
+      await expect.poll(acks).toHaveLength(3);
+      const nextAck = acks().find(({ receipt }) => receipt.execution.runId === nextRun.runId);
+      expect(nextAck?.receipt.execution.sessionBinding).toEqual(bindings[0]!.sessionBinding);
+      expect(await call(engine, "tasks.dispatch", nextInput)).toMatchObject({ runId: nextRun.runId });
+      expect(events().filter((event) => event === "existing-turn-input")).toHaveLength(1);
+      expect(await timeline()).toEqual(originalTimeline);
+      expect(acks()).toEqual(expect.arrayContaining(originalAcks));
+      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 2, answerCount: 1, timelineComments: originalTimeline.length, durableAcks: acks().length }));
     } finally {
       try {
         await engine?.shutdown();

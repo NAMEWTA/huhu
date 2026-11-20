@@ -19,7 +19,7 @@ import type { LaunchInput } from "./sessions.js";
 const Version = "codex-cli 0.171.0";
 const Id = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
-const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive() });
+const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive(), protocol: z.literal(2).optional() });
 const Launch = z.object({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id });
 const Completion = z.strictObject({ threadId: Id, turnId: Id, status: z.enum(["completed", "failed", "interrupted"]).optional() });
 const AnswerAck = z.strictObject({ fingerprint: Digest });
@@ -67,6 +67,13 @@ function signedFile<T>(control: Control, name: string, schema: z.ZodType<T>): T 
   } catch {
     return null;
   }
+}
+
+function runArtifact(execution: ExecutionBinding, name: "receipt" | "completed" | "stop-write", protocol?: 2): string {
+  if (protocol !== 2) return name;
+  const { vaultId, taskId, runId, attempt, dispatchId, sessionBinding: binding } = execution;
+  const scope = [vaultId, taskId, runId, attempt, dispatchId, binding.machineId, binding.sessionId, binding.coreId, binding.coreAddress, binding.processGeneration, binding.provider, binding.nativeSessionId];
+  return `run-${launchHash(scope)}-${name}`;
 }
 
 export class CodexDispatch {
@@ -163,17 +170,17 @@ export class CodexDispatch {
     return { control, thread };
   }
 
-  thread(vaultId: string, machineId: string, session: BoundSession): string | null {
-    return this.forSession(vaultId, machineId, session)?.thread.threadId ?? null;
+  thread(vaultId: string, machineId: string, session: BoundSession) {
+    return this.forSession(vaultId, machineId, session)?.thread ?? null;
   }
 
   evidence(execution: ExecutionBinding, session: BoundSession) {
     const { sessionBinding } = execution;
     const bound = this.forSession(execution.vaultId, sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== sessionBinding.nativeSessionId) return null;
-    const proof = signedFile(bound.control, "receipt", ProviderAcceptance);
+    const proof = signedFile(bound.control, runArtifact(execution, "receipt", bound.thread.protocol), ProviderAcceptance);
     if (!proof?.nativeTurnId || launchHash(proof.execution) !== launchHash(execution)) return null;
-    const completed = signedFile(bound.control, "completed", Completion);
+    const completed = signedFile(bound.control, runArtifact(execution, "completed", bound.thread.protocol), Completion);
     const finished = completed?.threadId === bound.thread.threadId && completed.turnId === proof.nativeTurnId;
     return { proof, finished, terminalStatus: finished ? completed.status : undefined };
   }
@@ -182,7 +189,7 @@ export class CodexDispatch {
     const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return;
     const { control } = bound;
-    const proof = signedFile(control, "receipt", ProviderAcceptance);
+    const proof = signedFile(control, runArtifact(execution, "receipt", bound.thread.protocol), ProviderAcceptance);
     if (!proof?.nativeTurnId || proof.inputSha256 !== inputSha256 || launchHash(proof.execution) !== launchHash(execution)) return;
     for (const file of readdirSync(control.directory).sort()) {
       const match = /^report-(codex-[a-f0-9]{64})\.json$/.exec(file);
@@ -190,7 +197,7 @@ export class CodexDispatch {
       const report = signedFile(control, file.slice(0, -5), NativeReport);
       if (!report) continue;
       const { source, receipt } = report;
-      if (receipt.receiptId !== match[1] || receipt.kind !== source.kind || source.threadId !== bound.thread.threadId || source.turnId !== proof.nativeTurnId) continue;
+      if (receipt.receiptId !== match[1] || receipt.kind !== source.kind || source.threadId !== bound.thread.threadId || source.turnId !== proof.nativeTurnId || launchHash(receipt.execution) !== launchHash(execution)) continue;
       if (receipt.kind === "question" && receipt.payload.mode !== "native_deferred") continue;
       const ackName = "agent-ack-" + receipt.receiptId;
       const ack = signedFile(control, ackName, ExecutionReceiptAckSchema);
@@ -215,7 +222,7 @@ export class CodexDispatch {
     const { execution } = input;
     const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return false;
-    const write = signedFile(bound.control, "stop-write", StopWrite);
+    const write = signedFile(bound.control, runArtifact(execution, "stop-write", bound.thread.protocol), StopWrite);
     return write?.threadId === bound.thread.threadId && write.turnId === turnId && write.fingerprint === stopFingerprint(input);
   }
 

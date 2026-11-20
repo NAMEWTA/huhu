@@ -634,7 +634,7 @@ export class SessionsService {
     return client;
   }
 
-  async executionSession(id: string): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string } | null> {
+  async executionSession(id: string): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string; nativeExisting?: boolean } | null> {
     const session = this.list().find((item) => item.id === id);
     if (!session?.terminalId || session.provider === "shell") return null;
     const owner = this.executionOwner(session);
@@ -642,11 +642,12 @@ export class SessionsService {
     const verified = await this.verifiedTerminal(session).catch(() => null);
     if (!verified) return null;
     const machineId = this.d.spaces.machineId;
-    const nativeSessionId = session.controlled && this.d.codex?.thread(this.d.vaultId, machineId, owner);
-    if (session.controlled && !nativeSessionId) return null;
+    const thread = session.controlled ? this.d.codex?.thread(this.d.vaultId, machineId, owner) : null;
+    if (session.controlled && !thread) return null;
     return {
       spaceId: session.spaceId,
       finished: verified.terminal.state === "finished" || verified.terminal.finished_ms != null,
+      ...(thread && { nativeExisting: thread.protocol === 2 }),
       binding: {
         machineId,
         sessionId: session.id,
@@ -654,7 +655,7 @@ export class SessionsService {
         coreAddress: owner.address,
         processGeneration: owner.generation,
         provider: session.provider,
-        nativeSessionId: nativeSessionId ?? null,
+        nativeSessionId: thread?.threadId ?? null,
       },
     };
   }
