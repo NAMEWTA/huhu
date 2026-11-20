@@ -8,7 +8,7 @@ const instructions = {
   unsafe: "无法安全访问保存的工作目录，请重新选择。",
 };
 
-export function SpaceDirectoryNotice({ space, onBind }: { space: Pick<Space, "root" | "binding">; onBind?: () => void }) {
+export function SpaceDirectoryNotice({ space, onBind }: { space: Pick<Space, "root" | "binding">; onBind?: (() => void) | undefined }) {
   if (spaceCanLaunch(space)) return null;
   const detail = space.binding?.status === "needs-binding" ? instructions[space.binding.reason] : "请选择工作目录。";
   return (

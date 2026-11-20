@@ -37,6 +37,7 @@ const closeInput = WorkspaceEditSchema.pick({ spaceId: true, baseVersion: true }
 
 interface WorkspaceDeps {
   core(): Promise<HerdrClient>;
+  readCore?(): Promise<HerdrClient | null>;
   spaces: SpaceStore;
   sessions: SessionsService;
   readOnly: boolean;
@@ -57,9 +58,9 @@ class WorkspaceLayoutService {
     return { version, value: parsed.data };
   }
 
-  private async current(spaceId: string) {
+  private async current(spaceId: string, connected?: HerdrClient) {
     this.deps.spaces.get(spaceId);
-    const client = await this.deps.core();
+    const client = connected ?? (await this.deps.core());
     const document = await this.document(client);
     const layout = document.value.spaces[spaceId];
     const view: WorkspaceView = {
@@ -72,7 +73,11 @@ class WorkspaceLayoutService {
   }
 
   async read(spaceId: string): Promise<WorkspaceView> {
-    return (await this.current(spaceId)).view;
+    if (!this.deps.readCore) return (await this.current(spaceId)).view;
+    this.deps.spaces.get(spaceId);
+    const client = await this.deps.readCore();
+    if (client) return (await this.current(spaceId, client)).view;
+    return { spaceId, version: 0, layout: emptyLayout(spaceId), writable: !this.deps.readOnly };
   }
 
   private operate<T>(signal: AbortSignal, action: (active: AbortSignal) => Promise<T>): Promise<T> {
@@ -129,8 +134,9 @@ class WorkspaceLayoutService {
   launch(input: LaunchInput, target: WorkspaceTarget, baseVersion: number, signal: AbortSignal): Promise<WorkspaceLaunchView> {
     return this.operate(signal, async (active) => {
       const { spaceId, requestId } = input;
-      const current = await this.current(spaceId);
       const recorded = this.deps.sessions.list(spaceId).find((session) => session.requestId === requestId && session.launchReceipt?.attempt);
+      if (!recorded) this.deps.spaces.validateForLaunch(spaceId, input.spaceRevision);
+      const current = await this.current(spaceId);
       const pending = placeSession(current.view.layout, target, `pending-${requestId}`, requestId);
       if (!recorded) {
         this.checkVersion(current.view, baseVersion);

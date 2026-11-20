@@ -30,6 +30,7 @@ import { launchHash } from "./launch-binding.js";
 import { WORKSPACE_DOCUMENT, WorkspaceLaunchViewSchema, WorkspaceTargetSchema } from "../shared/workspace-layout.js";
 import { registerWorkspaceLayout } from "./workspace-layout.js";
 import { InteractiveEnvironment } from "./interactive-environment.js";
+import { SpaceSchema, spaceCanLaunch } from "../shared/space.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -42,8 +43,6 @@ export { AgentDispatchTargetInfoSchema, AgentDispatchResponseSchema } from "./di
 export { DispatchInput as AgentDispatchInputSchema, DispatchTarget as AgentDispatchTargetSchema } from "./dispatch-store.js";
 export { NativeStop as AgentNativeStopInputSchema, NativeStopStatus as AgentNativeStopStatusSchema } from "./native-stop.js";
 export { agentEnvironmentDescriptors } from "./launch-environment.js";
-
-const SpaceDto = z.object({ id: z.string(), name: z.string(), root: z.string(), machineId: z.string(), createdAt: z.string(), revision: z.number() });
 
 export interface AgentCliOptions {
   /** 历史扫描的 HOME 与环境（测试用；缺省为进程的真实值）。 */
@@ -66,7 +65,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const environments = registerAgentEnvironments(api, opts.credentialHost, () => interactiveEnvironment.available);
   interactiveEnvironment = new InteractiveEnvironment(process.env["HUHU_AGENT_PTY_HOST"], environments);
   const root = api.vault.files.root;
-  const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId());
+  const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId(), undefined, { vaultRoot: root, readOnly: api.vault.files.readOnly });
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
   const settingsStore = new AgentSettingsStore(path.join(api.vault.stateDir, "agent-cli", "agents.json"));
   const codex = opts.codexDispatch && new CodexDispatch(opts.codexDispatch, () => settingsStore.get());
@@ -173,13 +172,18 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       waiting.poke();
       return client;
     },
+    readCore: async () => {
+      const client = await core.workspaceConnection();
+      if (client) waiting.poke();
+      return client;
+    },
     spaces,
     sessions,
     readOnly: api.vault.files.readOnly,
     signal: lifetime.signal,
   });
 
-  api.defineCapability(def({ name: "agent.spaces.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(SpaceDto), handler: () => spaces.list() }));
+  api.defineCapability(def({ name: "agent.spaces.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(SpaceSchema), handler: () => spaces.list() }));
   api.defineCapability(
     def({
       name: "agent.spaces.save",
@@ -188,7 +192,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       exposable: false,
       defaultExposed: false,
       input: z.object({ id: z.string().optional(), name: z.string(), root: z.string(), expectedRevision: z.number().optional() }),
-      output: SpaceDto,
+      output: SpaceSchema,
       handler: (_c, i) => spaces.save({ name: i.name, root: i.root, ...(i.id ? { id: i.id } : {}), ...(i.expectedRevision !== undefined ? { expectedRevision: i.expectedRevision } : {}) }),
     }),
   );
@@ -470,7 +474,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       defaultExposed: false,
       input: z.object({}),
       output: z.object({ state: z.string(), version: z.string().nullable(), error: z.string().optional() }),
-      handler: () => core.status(),
+      handler: () => core.statusIfRunning(),
     }),
   );
   api.defineCapability(
@@ -493,6 +497,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const spaceOf = (id: string) => {
     const sp = spaces.list().find((x) => x.id === id);
     if (!sp) throw errors.notFound("Space 不存在");
+    if (!spaceCanLaunch(sp)) throw new HuhuError("SPACE_INVALID", "请先绑定 Space 工作目录");
     return sp;
   };
   // 列表请求很频繁（打开面板、切换 Space），短时间内复用结果；恢复时总是重新扫描

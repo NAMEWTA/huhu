@@ -262,6 +262,7 @@ export function StoragePage() {
                 <Folder size={19} aria-hidden />
                 <strong>请自行保留</strong>
                 <p>文件历史与运行状态不在数据包里；完整备份请复制整个 Vault 文件夹。</p>
+                <p>数据包保留 Space 配置。Agent 分栏布局保存在当前设备的 Vault 运行目录，恢复后可重新选择外部工作目录。</p>
               </div>
               <div>
                 <ShieldCheck size={19} aria-hidden />

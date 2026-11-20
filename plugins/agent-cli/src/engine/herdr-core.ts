@@ -108,6 +108,26 @@ export class HerdrCore {
     }
   }
 
+  async workspaceConnection(): Promise<HerdrClient | null> {
+    const client = await this.peek();
+    if (client === null) throw new HuhuError("HERDR_UNAVAILABLE", "无法核对原 Core 的工作区状态");
+    if (client !== "absent") return client;
+    const savedLayout = path.join(this.o.runtimeDir, "state", "herdr-core", "huhu", "docs.json");
+    return existsSync(savedLayout) ? this.ensure() : null;
+  }
+
+  async statusIfRunning(): Promise<{ state: "connected" | "unavailable" | "idle"; version: string | null; error?: string }> {
+    const client = await this.peek();
+    if (client === "absent") return { state: "idle", version: null };
+    if (!client) return { state: "unavailable", version: null };
+    try {
+      const { version } = await client.call<{ version: string }>("server.status");
+      return { state: "connected", version };
+    } catch (error) {
+      return { state: "unavailable", version: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async status(): Promise<{ state: "connected" | "unavailable"; version: string | null; error?: string }> {
     try {
       const s = await (await this.ensure()).call<{ version: string }>("server.status");

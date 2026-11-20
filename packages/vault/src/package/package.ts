@@ -24,15 +24,19 @@ export type PackageManifest = z.infer<typeof ManifestSchema>;
 const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history"]);
 const IGNORED_ROOT = new Set([".git", "node_modules", ".agents"]);
 
+function localState(relative: string): boolean {
+  const [root, directory, detail] = relative.toLowerCase().split("/");
+  return root === HUHU_DIR && (EXCLUDED_HUHU.has(directory ?? "") || (directory === "agent-cli" && (detail === "sessions" || detail === "launch-requests")));
+}
+
 function collect(root: string, includeAttachments: boolean, includeFile?: (relative: string) => boolean): string[] {
   const out: string[] = [];
   const walk = (rel: string) => {
     for (const ent of readdirSync(path.join(root, rel), { withFileTypes: true })) {
       const childRel = rel ? `${rel}/${ent.name}` : ent.name;
-      if (ent.isSymbolicLink()) continue;
+      if (ent.isSymbolicLink() || localState(childRel)) continue;
       if (ent.isDirectory()) {
         if (!rel && IGNORED_ROOT.has(ent.name)) continue;
-        if (rel === HUHU_DIR && EXCLUDED_HUHU.has(ent.name)) continue;
         if (rel === HUHU_DIR && ent.name === "writer.lock") continue;
         walk(childRel);
       } else if (ent.isFile()) {
@@ -161,7 +165,8 @@ export function importPackage(zipPath: string, targetRoot: string, opts: { exist
   mkdirSync(parent, { recursive: true });
   const tmp = mkdtempSync(path.join(parent, ".huhu-import-"));
   try {
-    for (const f of manifest.files) {
+    const restorable = manifest.files.filter(({ path: relative }) => !localState(relative));
+    for (const f of restorable) {
       const dest = path.join(tmp, ...f.path.split("/"));
       mkdirSync(path.dirname(dest), { recursive: true });
       writeFileSync(dest, entries[f.path] as Uint8Array);
@@ -174,7 +179,7 @@ export function importPackage(zipPath: string, targetRoot: string, opts: { exist
     }
     if (existsSync(targetRoot)) rmSync(targetRoot, { recursive: true });
     renameSync(tmp, targetRoot);
-    return { vaultId: vj.id, files: manifest.files.length };
+    return { vaultId: vj.id, files: restorable.length };
   } catch (e) {
     rmSync(tmp, { recursive: true, force: true });
     throw e;

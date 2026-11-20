@@ -56,6 +56,21 @@ describe("数据包", () => {
     const m = await exportPackage(makeVault(), path.join(tmp(), "o.zip"), { includeAttachments: false });
     expect(m.files.map((f) => f.path)).not.toContain("pic.png");
   });
+  test("导入只还原业务定义，忽略旧包内的本地 Core 状态与会话回执", () => {
+    const file = evilZip({
+      ".huhu/vault.json": VJ,
+      ".huhu/agent-cli/spaces/space-fixture.json": "{}",
+      ".huhu/runtime/win/herdr/state/herdr-core/huhu/docs.json": "{}",
+      ".huhu/agent-cli/sessions/sess-fixture.json": "{}",
+      ".huhu/agent-cli/launch-requests/fixture.json": "{}",
+    });
+    const target = path.join(tmp(), "unpacked");
+    expect(importPackage(file, target).files).toBe(2);
+    expect(readFileSync(path.join(target, ".huhu/agent-cli/spaces/space-fixture.json"), "utf8")).toBe("{}");
+    expect(existsSync(path.join(target, ".huhu/runtime"))).toBe(false);
+    expect(existsSync(path.join(target, ".huhu/agent-cli/sessions"))).toBe(false);
+    expect(existsSync(path.join(target, ".huhu/agent-cli/launch-requests"))).toBe(false);
+  });
   test("同 id 已存在 → 生成新 id", async () => {
     const zip = path.join(tmp(), "o.zip");
     await exportPackage(makeVault(), zip);

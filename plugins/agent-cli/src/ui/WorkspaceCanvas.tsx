@@ -79,6 +79,7 @@ interface CanvasProps {
   sessions: WorkspaceSession[];
   endpoint: { baseUrl: string; token?: string | undefined };
   editable: boolean;
+  launchable: boolean;
   showReview: boolean;
   onFocus(id: string, sessionId: string | null): void;
   onRequest(event: MouseEvent<HTMLButtonElement>, id: string, direction?: SplitDirection): void;
@@ -93,7 +94,28 @@ interface CanvasProps {
   status(session: WorkspaceSession): ReactNode;
 }
 
-export function WorkspaceCanvas({ pane, active, zoom, retained, sessions, endpoint, editable, showReview, onFocus, onRequest, onMoveStart, onMoveDrop, onMoveCancel, onClose, onZoom, onResize, onReview, onInterrupt, status }: CanvasProps) {
+export function WorkspaceCanvas({
+  pane,
+  active,
+  zoom,
+  retained,
+  sessions,
+  endpoint,
+  editable,
+  launchable,
+  showReview,
+  onFocus,
+  onRequest,
+  onMoveStart,
+  onMoveDrop,
+  onMoveCancel,
+  onClose,
+  onZoom,
+  onResize,
+  onReview,
+  onInterrupt,
+  status,
+}: CanvasProps) {
   const host = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState<Size>(minPane);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -193,7 +215,14 @@ export function WorkspaceCanvas({ pane, active, zoom, retained, sessions, endpoi
                   }}
                 />
                 {directions.map(({ id, label, icon }) => (
-                  <IconButton key={id} icon={icon} label={retained ? label.replace("分栏", "移动") : label} data-testid={`workspace-split-${id}`} disabled={!editable || isSource} onClick={(e) => onRequest(e, leaf.id, id)} />
+                  <IconButton
+                    key={id}
+                    icon={icon}
+                    label={retained ? label.replace("分栏", "移动") : label}
+                    data-testid={`workspace-split-${id}`}
+                    disabled={!editable || isSource || (!retained && !launchable)}
+                    onClick={(e) => onRequest(e, leaf.id, id)}
+                  />
                 ))}
                 {session?.state === "running" ? (
                   <>
@@ -210,7 +239,7 @@ export function WorkspaceCanvas({ pane, active, zoom, retained, sessions, endpoi
                 ) : leaf.sessionId ? (
                   <EmptyState title={session?.state === "exited" ? t.exitedTitle(session.exitCode ?? null) : (session?.error ?? "原会话当前不可用")} />
                 ) : (
-                  <Button icon={Plus} disabled={!editable} data-testid="workspace-pane-launch" onClick={(e) => onRequest(e, leaf.id)}>
+                  <Button icon={Plus} disabled={!editable || !launchable} data-testid="workspace-pane-launch" onClick={(e) => onRequest(e, leaf.id)}>
                     在此处新建
                   </Button>
                 )}

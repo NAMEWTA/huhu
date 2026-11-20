@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HerdrCore } from "@huhu/plugin-agent-cli/engine";
@@ -10,6 +10,70 @@ import { boot, type RunningEngine } from "../src/boot.js";
 import { WORKSPACE_DOCUMENT, emptyLayout, splitPane, type WorkspaceLaunchView, type WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
 
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+
+test.skipIf(process.platform !== "win32" || !coreBinary)(
+  "恢复 Space 时只载入业务目录，原 Core 布局和启动回执留在源 Vault",
+  async () => {
+    const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-workspace-package-")));
+    const vaultPath = path.join(fixture, "source");
+    const destination = path.join(fixture, "restored");
+    const external = path.join(fixture, "external");
+    const archive = path.join(fixture, "spaces.zip");
+    mkdirSync(vaultPath);
+    mkdirSync(external);
+    vi.stubEnv("HUHU_HERDR_BIN", coreBinary!);
+    let engine: RunningEngine | undefined;
+    let core: HerdrCore | undefined;
+    const call = (capability: string, input: unknown) => engine!.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const data = async <T>(capability: string, input: unknown): Promise<T> => {
+      const reply = await call(capability, input);
+      assert(reply.ok, JSON.stringify(reply));
+      return reply.data as T;
+    };
+    try {
+      engine = await boot({ vaultPath, create: true });
+      core = new HerdrCore({ bin: coreBinary!, vaultId: engine.vault.id, machineId: machineId(), runtimeDir: path.join(engine.vault.runtimeDir, "herdr") });
+      const spaces = () => data<{ id: string; root: string; revision: number; binding: unknown }[]>("agent.spaces.list", {});
+      const [source] = await spaces();
+      assert(source);
+      const outside = await data<{ id: string }>("agent.spaces.save", { name: "外部工作目录", root: external });
+      expect(await data<WorkspaceView>("agent.workspace.save", { spaceId: source.id, baseVersion: 0, layout: { tabs: [] } })).toMatchObject({ version: 1 });
+      const receipts = path.join(engine.vault.stateDir, "agent-cli", "launch-requests");
+      mkdirSync(receipts, { recursive: true });
+      writeFileSync(path.join(receipts, "fixture.json"), "{}");
+      await data("vault.exportPackage", { dest: archive });
+      await data("vault.importPackage", { zipPath: archive, targetDir: destination });
+      await engine.shutdown();
+
+      engine = await boot({ vaultPath: destination });
+      expect(await spaces()).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: source.id, root: destination, binding: { status: "bound" } }), expect.objectContaining({ id: outside.id, root: "", binding: { status: "needs-binding", reason: "external" } })]),
+      );
+      const newCoreDir = path.join(engine.vault.runtimeDir, "herdr");
+      expect(await data("agent.core.status", {})).toMatchObject({ state: "idle" });
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: source.id })).toMatchObject({ version: 0, layout: emptyLayout(source.id) });
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: outside.id })).toMatchObject({ version: 0, layout: emptyLayout(outside.id) });
+      const pendingSpace = (await spaces()).find((space) => space.id === outside.id)!;
+      expect(await call("agent.workspace.launch", { spaceId: outside.id, spaceRevision: pendingSpace.revision, provider: "shell", requestId: randomUUID(), baseVersion: 0, target: { kind: "tab" } })).toMatchObject({
+        ok: false,
+        error: { code: "SPACE_INVALID" },
+      });
+      expect(existsSync(newCoreDir)).toBe(false);
+      expect(existsSync(path.join(engine.vault.stateDir, "agent-cli", "launch-requests"))).toBe(false);
+
+      await engine.shutdown();
+      engine = await boot({ vaultPath });
+      expect(await data<WorkspaceView>("agent.workspace.get", { spaceId: source.id })).toMatchObject({ version: 1, layout: { tabs: [] } });
+      expect((await spaces()).find((space) => space.id === outside.id)?.root).toBe(external);
+    } finally {
+      await engine?.shutdown();
+      await core?.stop();
+      vi.unstubAllEnvs();
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
+  },
+  45000,
+);
 
 test.skipIf(process.platform !== "win32" || !coreBinary)(
   "Core 工作区按 Space 持久化，旧版本拒绝覆盖，丢回包只核对原版本",

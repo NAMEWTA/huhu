@@ -7,6 +7,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { ProtectedLaunchDialog } from "./ProtectedLaunchDialog.js";
+import { SpaceDirectoryNotice } from "./SpaceDirectoryNotice.js";
+import { spaceCanLaunch, type Space } from "../shared/space.js";
 import { WorkspaceCanvas, type WorkspaceSession as Session } from "./WorkspaceCanvas.js";
 import {
   leaves,
@@ -24,12 +26,6 @@ import {
 } from "../shared/workspace-layout.js";
 import { t } from "./i18n.js";
 
-interface Space {
-  id: string;
-  name: string;
-  root: string;
-  revision: number;
-}
 interface Detected {
   id: string;
   displayName: string;
@@ -79,6 +75,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const [showReview, setShowReview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
+  const boundSpace = spaceCanLaunch(space);
   const sessions = useCapability<Session[]>("agent.sessions.list", { spaceId: space?.id }, { enabled: Boolean(space) });
   const workspace = useCapability<WorkspaceView>("agent.workspace.get", { spaceId: space?.id }, { enabled: Boolean(space) });
   const detected = useCapability<Detected[]>("agent.catalog.detect", {});
@@ -207,7 +204,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   }
 
   function startTarget(target: WorkspaceTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
-    if (!space || !view || !editable || writeReceipt.current) return null;
+    if (!space || !boundSpace || !view || !editable || writeReceipt.current) return null;
     const intent: LaunchIntent = { space, view, target, navigation: navigation.current, id: createRequestId() };
     if (!event) return intent;
     const trigger = event.currentTarget;
@@ -396,7 +393,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   }
 
   return (
-    <div className={`hu-module-layout agent-layout${showHistory && space ? " agent-history-open" : ""}`} data-testid="agent-cli-module">
+    <div className={`hu-module-layout agent-layout${showHistory && boundSpace ? " agent-history-open" : ""}`} data-testid="agent-cli-module">
       <aside className="agent-spaces" aria-label={t.spaces}>
         <div className="agent-sidebar-head">
           <span>Spaces</span>
@@ -432,7 +429,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
               <FolderOpen size={17} aria-hidden />
               <span>
                 <strong>{s.name}</strong>
-                <small title={s.root}>{s.root}</small>
+                <small title={s.root || undefined}>{s.root || "待绑定"}</small>
               </span>
               <span className="agent-count">{space?.id === s.id ? list.length : ""}</span>
             </button>
@@ -444,7 +441,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
         </button>
         <div className="hu-v9-core-note" data-testid="core-status">
           <span className="shell-status-dot" />
-          {t.coreStatus} · {core.data?.state === "connected" ? `${core.data.version} ${t.connected}` : t.unavailable}
+          {t.coreStatus} · {core.data?.state === "connected" ? `${core.data.version} ${t.connected}` : core.data?.state === "idle" ? "未启动" : t.unavailable}
         </div>
       </aside>
       <section className="hu-v9-session-main">
@@ -452,12 +449,21 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
           <div>
             <FolderOpen size={16} aria-hidden />
             <strong>{space?.name ?? t.title}</strong>
-            <span className="agent-cwd">{space?.root ?? "先选择一个工作目录"}</span>
+            <span className="agent-cwd">{space?.root || "先选择一个工作目录"}</span>
           </div>
-          <button type="button" className="agent-history-toggle" aria-expanded={showHistory} aria-label={showHistory ? t.history.close : t.history.open} data-testid="agent-history-toggle" onClick={() => setShowHistory(!showHistory)}>
+          <button
+            type="button"
+            className="agent-history-toggle"
+            aria-expanded={showHistory && boundSpace}
+            aria-label={showHistory ? t.history.close : t.history.open}
+            data-testid="agent-history-toggle"
+            disabled={!boundSpace}
+            onClick={() => setShowHistory(!showHistory)}
+          >
             <History size={15} aria-hidden />
           </button>
         </header>
+        {space ? <SpaceDirectoryNotice space={space} onBind={view?.writable ? () => setSpaceForm({ id: space.id, revision: space.revision, name: space.name, folder: "" }) : undefined} /> : null}
         {error ? (
           <div role="alert" className="hu-callout danger">
             <p>{error}</p>
@@ -492,7 +498,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
               type="button"
               className="agent-add-cli"
               aria-label={t.newTerminal}
-              disabled={!editable}
+              disabled={!editable || !boundSpace}
               aria-expanded={menu?.target.kind === "tab"}
               onClick={(event) => (menu?.target.kind === "tab" ? dismissMenu() : setMenu(startTarget({ kind: "tab" }, event)))}
             >
@@ -631,6 +637,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             sessions={list}
             endpoint={engine.endpoint}
             editable={editable}
+            launchable={boundSpace}
             showReview={showReview && active === currentLeaf?.sessionId}
             status={stateBadge}
             onFocus={(leafId, sessionId) => {
@@ -823,7 +830,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
           <p className="hu-hint-text">当前 Space 新建的每个 CLI 都使用这个目录。</p>
         </Dialog>
       ) : null}
-      {showHistory && space ? (
+      {showHistory && boundSpace && space ? (
         <aside className="agent-history" aria-label="当前 Space 会话历史">
           <HistoryPanel
             key={space.id} // 切换 Space 时历史面板重新挂载：搜索框与筛选被清空（ACC-AG-05）
