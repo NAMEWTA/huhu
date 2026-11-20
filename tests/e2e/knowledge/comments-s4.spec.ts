@@ -29,17 +29,18 @@ async function selectText(page: Page, text: string, nth = 0): Promise<void> {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let seen = 0;
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-        const at = (n.textContent ?? "").indexOf(needle as string);
-        if (at < 0) continue;
-        if (seen++ < (index as number)) continue;
-        const range = document.createRange();
-        range.setStart(n, at);
-        range.setEnd(n, at + (needle as string).length);
-        const sel = window.getSelection();
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-        document.dispatchEvent(new Event("selectionchange"));
-        return;
+        const content = n.textContent ?? "";
+        for (let at = content.indexOf(needle); at !== -1; at = content.indexOf(needle, at + needle.length)) {
+          if (seen++ < index) continue;
+          const range = document.createRange();
+          range.setStart(n, at);
+          range.setEnd(n, at + needle.length);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+          document.dispatchEvent(new Event("selectionchange"));
+          return;
+        }
       }
       throw new Error(`没找到文字：${needle}`);
     },

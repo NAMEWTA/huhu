@@ -60,18 +60,24 @@ export function bestByContext<T extends Span>(body: string, hits: readonly T[], 
   return best;
 }
 
-export function refind(body: string, anchor: Anchor): RefindResult {
+export function refind(body: string, anchor: Anchor, bodyOffset = 0): RefindResult {
   const { exact, prefix, suffix } = anchor;
 
   if (prefix !== "" && suffix !== "" && !body.includes(prefix + exact + suffix) && body.includes(prefix + suffix)) {
     return { status: "orphaned" };
   }
 
-  const literal = allOccurrences(body, exact).map((start) => ({ start, end: start + exact.length }));
+  const literal = allOccurrences(body, exact)
+    .filter((start) => start >= bodyOffset)
+    .map((start) => ({ start, end: start + exact.length }));
   const rendered = markdownPassageText(exact);
-  const byStart = new Map(findAllPassages(body, rendered).map((hit) => [hit.start, hit]));
+  const byStart = new Map(
+    findAllPassages(body, rendered)
+      .filter((hit) => hit.start >= bodyOffset)
+      .map((hit) => [hit.start, hit]),
+  );
   for (const hit of literal) byStart.set(hit.start, hit);
-  if (byStart.size === 0) return refindBetweenBrackets(body, anchor);
+  if (byStart.size === 0) return refindBetweenBrackets(body, anchor, bodyOffset);
 
   const best = bestByContext(body, [...byStart.values()], anchor, { contextIsMarkdown: true });
   const top = best[0];
@@ -82,11 +88,16 @@ export function refind(body: string, anchor: Anchor): RefindResult {
   return { status: "anchored", start: top.start, end: top.end };
 }
 
-function refindBetweenBrackets(body: string, anchor: Anchor): RefindResult {
+function refindBetweenBrackets(body: string, anchor: Anchor, bodyOffset: number): RefindResult {
   const { prefix, suffix, exact } = anchor;
   if (prefix === "" && suffix === "") return { status: "orphaned" };
-  const starts = prefix === "" ? [0] : allOccurrences(body, prefix).map((i) => i + prefix.length);
-  const ends = suffix === "" ? [body.length] : allOccurrences(body, suffix);
+  const starts =
+    prefix === ""
+      ? [bodyOffset]
+      : allOccurrences(body, prefix)
+          .map((i) => i + prefix.length)
+          .filter((start) => start >= bodyOffset);
+  const ends = suffix === "" ? [body.length] : allOccurrences(body, suffix).filter((end) => end >= bodyOffset);
   if (starts.length !== 1 || ends.length !== 1) return { status: "orphaned" };
 
   const start = starts[0];

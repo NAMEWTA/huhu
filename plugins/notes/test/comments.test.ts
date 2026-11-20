@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { OperationLog, SemanticRepository, VaultFiles, VaultIndex } from "@huhu/vault";
+import { OperationLog, patchFrontmatter, SemanticRepository, VaultFiles, VaultIndex } from "@huhu/vault";
 import { afterEach, describe, expect, test } from "vitest";
 import { createAnchor, refind } from "../src/engine/comments/anchor.js";
 import { CommentsService, parseMessages } from "../src/engine/comments/service.js";
@@ -203,6 +203,24 @@ describe("引用文字锚点（S4：富文本不使用 PM 坐标，D04 / D05）"
     const a = await svc.create({ path: "笔记.md", target: "body", quote: "一套能力", text: "x", author: "我" });
     expect(a.anchor?.start).toBeGreaterThan(doc.indexOf("---\n\n"));
     expect(a.anchor?.exact).toBe("一套**能力");
+  });
+  test("正文锚点的上下文从可见正文开始，偏移仍指向完整文件", async () => {
+    const body = "---\nstatus: open\n---\n\n第一处。\n\n已有锚点。\n";
+    const { svc } = await setup(body);
+    const c = await svc.create({ path: "笔记.md", target: "body", quote: "已有锚点", text: "属性之下", author: "我" });
+    expect(c.anchor).toMatchObject({ ...at(body, "已有锚点"), prefix: "\n第一处。\n\n", suffix: "。\n" });
+  });
+  test("读取旧评论时为当前源版本去掉 YAML 上下文，磁盘评论保持原样", async () => {
+    const body = "---\nstatus: open\n---\n\n第一处。\n\n已有锚点。\n";
+    const { svc, root } = await setup(body);
+    const c = await svc.create({ path: "笔记.md", target: "body", quote: "已有锚点", text: "旧记录", author: "我" });
+    const legacy = { ...c.anchor!, prefix: body.slice(0, c.anchor!.start) };
+    const file = path.join(root, c.path);
+    const disk = patchFrontmatter(readFileSync(file, "utf8"), { anchor: legacy });
+    writeFileSync(file, disk);
+    expect(svc.list("笔记.md")[0]?.anchor).toEqual(c.anchor);
+    expect(svc.list()[0]?.anchor).toEqual(c.anchor);
+    expect(readFileSync(file, "utf8")).toBe(disk);
   });
   test("重复段落：prefix / suffix 判优；仍并列则报错而不是吸附", async () => {
     const doc = "甲：同一句话。\n\n乙：同一句话。\n";
