@@ -42,15 +42,28 @@ export class OperationReceipts {
     this.byId.set(entry.operationId, entry);
   }
 
+  get available(): boolean {
+    return !this.damaged;
+  }
+
+  private unavailable() {
+    return new HuhuError("INTERNAL", "操作记录需要修复", { retryable: false, details: { outcome: "not-accepted" } });
+  }
+
   private append(entry: Entry): void {
-    if (this.damaged) throw new HuhuError("INTERNAL", "操作记录需要修复", { retryable: false, details: { operationId: entry.operationId, outcome: "unknown" } });
+    if (this.damaged) {
+      if (entry.phase === "accepted") throw this.unavailable();
+      throw new HuhuError("INTERNAL", "操作记录需要修复", { retryable: false, details: { operationId: entry.operationId, outcome: "unknown" } });
+    }
     try {
       mkdirSync(path.dirname(this.file), { recursive: true });
-      appendFileSync(this.file, JSON.stringify(entry) + "\n", { encoding: "utf8", flush: true });
+      // A complete last record can survive a crash without its final newline.
+      appendFileSync(this.file, "\n" + JSON.stringify(entry) + "\n", { encoding: "utf8", flush: true });
       this.set(entry);
     } catch {
       this.damaged = true;
-      throw new HuhuError("INTERNAL", "操作记录无法持久保存", { retryable: false, details: { operationId: entry.operationId, outcome: "unknown" } });
+      const details = entry.phase === "accepted" ? { outcome: "not-accepted" } : { operationId: entry.operationId, outcome: "unknown" };
+      throw new HuhuError("INTERNAL", "操作记录无法持久保存", { retryable: false, details });
     }
   }
 
@@ -59,6 +72,7 @@ export class OperationReceipts {
     const inputDigest = hash(input);
     const existing = this.byKey.get(key);
     if (existing) return { entry: existing, mismatch: existing.input !== inputDigest, fresh: false };
+    if (this.damaged) throw this.unavailable();
     const accepted: Accepted = { operationId: randomUUID(), key, input: inputDigest, owner, capability, phase: "accepted" };
     this.append(accepted);
     return { entry: accepted, mismatch: false, fresh: true };

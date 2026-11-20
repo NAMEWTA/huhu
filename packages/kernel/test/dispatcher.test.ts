@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
@@ -12,7 +12,18 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; granted?: string[]; auditFile?: string; timeoutMs?: number; operations?: { ledger: OperationReceipts; vaultInstance: string }; invalidOutput?: boolean } = {}) {
+function setup(
+  opts: {
+    enabled?: boolean;
+    exposure?: boolean | undefined;
+    granted?: string[];
+    auditFile?: string;
+    timeoutMs?: number;
+    operations?: { ledger: OperationReceipts; vaultInstance: string };
+    invalidOutput?: boolean;
+    extraField?: boolean;
+  } = {},
+) {
   const registry = new CapabilityRegistry();
   let calls = 0;
   registry.register(
@@ -27,7 +38,7 @@ function setup(opts: { enabled?: boolean; exposure?: boolean | undefined; grante
       idempotency: "durable",
       handler: (_c, i) => {
         calls++;
-        return { n: opts.invalidOutput ? ("wrong-output-fixture" as unknown as number) : calls + i.title.length };
+        return { n: opts.invalidOutput ? ("wrong-output-fixture" as unknown as number) : calls + i.title.length, ...(opts.extraField && { hidden: "private-projection-fixture" }) };
       },
     }),
   );
@@ -117,6 +128,43 @@ const req = (capability: string, input: unknown = {}, idempotencyKey?: string) =
 const code = (r: { ok: boolean; error?: { code: string } }) => (r.ok ? "OK" : r.error?.code);
 
 describe("Dispatcher 管线", () => {
+  test("收据以完整记录恢复，最后无换行仍可追加，半行拒绝受理且保留旧结果", async () => {
+    const { dir } = setup();
+    const file = path.join(dir, "durable.jsonl");
+    const vaultInstance = "isolated-vault";
+    const attach = () => setup({ operations: { ledger: new OperationReceipts(file), vaultInstance }, exposure: true, extraField: true });
+    const one = { ...req("tasks.create", { title: "开始" }), intentKey: "operation-one" };
+    const first = await attach().d.call("cli", one);
+    expect(first).toMatchObject({ ok: true, data: { n: 3 } });
+    if (!first.ok || !first.opId) throw new Error("Expected stored receipt");
+    expect(Object.keys(first.data as object)).toEqual(["n"]);
+    expect(readFileSync(file, "utf8")).not.toContain("private-projection-fixture");
+    writeFileSync(file, readFileSync(file, "utf8").trimEnd());
+    const two = { ...one, intentKey: "operation-two" };
+    const second = await attach().d.call("cli", two);
+    expect(second).toMatchObject({ ok: true });
+    expect(await attach().d.call("cli", one)).toEqual(first);
+    expect(await attach().d.call("cli", two)).toEqual(second);
+    appendFileSync(file, "{");
+    const damaged = attach();
+    expect(damaged.d.readOperation("cli", "cli", { operationId: first.opId })).toMatchObject({ ok: true, data: { state: "completed", result: first } });
+    const rejected = await damaged.d.call("cli", { ...one, intentKey: "operation-three" });
+    expect(rejected).toMatchObject({ ok: false, error: { retryable: false, details: { outcome: "not-accepted" } } });
+    expect(damaged.calls()).toBe(0);
+    expect(JSON.stringify(rejected)).not.toContain("operationId");
+  });
+
+  test("旧幂等键也按受信主体隔离", async () => {
+    const { d, calls } = setup({ exposure: true });
+    const same = req("tasks.create", { title: "合成" }, "legacy-wire-key");
+    const one = await d.call("http", same, undefined, "service-one");
+    const two = await d.call("http", same, undefined, "service-two");
+    expect(one).toEqual({ ok: true, data: { n: 3 } });
+    expect(two).toEqual({ ok: true, data: { n: 4 } });
+    expect(await d.call("http", same, undefined, "service-one")).toEqual(one);
+    expect(calls()).toBe(2);
+  });
+
   test("已受理的持久意图重启后只能查询，直到领域能证明结果", async () => {
     const { dir } = setup();
     const file = path.join(dir, "durable.jsonl");

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import MailComposer from "nodemailer/lib/mail-composer";
 import SMTPConnection from "nodemailer/lib/smtp-connection";
@@ -47,7 +47,7 @@ import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { PluginManifestSchema } from "@huhu/contracts";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
-import { filesystemIdentity, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import { directoryInstance, endpointRootBinding, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
@@ -67,6 +67,7 @@ export interface EndpointDescriptor {
   pid: number;
   port: number;
   vaultId: string;
+  rootBinding: string;
   cliToken: string;
   mcpToken: string;
   startedAt: string;
@@ -111,13 +112,14 @@ export function endpointPath(vault: Vault): string {
 }
 
 /** 读取端点描述；进程已不存在时视为陈旧并删除。 */
-export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir">): EndpointDescriptor | null {
+export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir" | "root">): EndpointDescriptor | null {
   const file = path.join(vault.runtimeDir, "engine.json");
   if (!existsSync(file)) return null;
   try {
     const d = JSON.parse(readFileSync(file, "utf8")) as EndpointDescriptor;
+    if (!Number.isSafeInteger(d.pid) || d.pid <= 0) return null;
     process.kill(d.pid, 0);
-    return d;
+    return d.rootBinding === endpointRootBinding(vault.root) ? d : null;
   } catch {
     rmSync(file, { force: true });
     return null;
@@ -136,8 +138,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
   const runtime = vault.runtimeDir;
   mkdirSync(runtime, { recursive: true });
-  const vaultIdentity = statSync(vault.root, { bigint: true });
-  const rootIdentity = filesystemIdentity(vaultIdentity);
+  const rootIdentity = directoryInstance(vault.root);
 
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
@@ -408,11 +409,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     audit: gatewayAudit,
     idempotency: new IdempotencyStore(path.join(runtime, "idempotency.ndjson")),
     ...(!vault.files.readOnly &&
-      rootIdentity &&
-      vaultIdentity.birthtimeNs > 0n && {
+      rootIdentity && {
         operations: {
           ledger: new OperationReceipts(path.join(runtime, "invocation-intents.ndjson")),
-          vaultInstance: JSON.stringify([vault.id, rootIdentity, String(vaultIdentity.birthtimeNs)]),
+          vaultInstance: JSON.stringify([vault.id, ...rootIdentity]),
         },
       }),
     isPluginEnabled: (id) => plugins.isEnabled(id),
@@ -508,8 +508,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     );
   await exposure.initialize(registry.knownNames());
   const descriptorPath = endpointPath(vault);
-  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, cliToken, mcpToken, startedAt: new Date().toISOString() };
-  if (!vault.readOnly) writeFileSync(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
+  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, rootBinding: endpointRootBinding(vault.root), cliToken, mcpToken, startedAt: new Date().toISOString() };
+  if (!vault.readOnly) {
+    const temp = `${descriptorPath}.${process.pid}.tmp`;
+    try {
+      writeFileSync(temp, JSON.stringify(descriptor), { mode: 0o600 });
+      renameSync(temp, descriptorPath);
+    } finally {
+      rmSync(temp, { force: true });
+    }
+  }
 
   let closed: Promise<void> | undefined;
   const attachmentLifetime = new AbortController();

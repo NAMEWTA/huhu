@@ -48,6 +48,10 @@ export class Dispatcher {
     return this.d.registry.list().filter((def) => this.d.isPluginEnabled(def.plugin) && (!this.closing || def.scope === "read") && !this.authorize(caller, def, policy));
   }
 
+  supportsDurableIntent(def: CapabilityDefinition): boolean {
+    return def.idempotency === "durable" && this.d.operations?.ledger.available === true;
+  }
+
   async call(caller: Caller, req: CapabilityRequest, signal: AbortSignal = new AbortController().signal, subject: string = caller): Promise<CapabilityResult<unknown>> {
     const started = (this.d.now ?? Date.now)();
     const result = await this.run(caller, req, signal, subject);
@@ -108,8 +112,9 @@ export class Dispatcher {
           const known = executed.error.details?.["outcome"] !== "unknown" && failure.code !== "INTERNAL";
           return ledger.complete(entry, known ? "failed" : "unknown", known ? { ok: false, error: failure } : this.uncertain(operationId, failure.details)).result;
         }
-        if (!def.output.safeParse(executed.data).success) return ledger.complete(entry, "invalid-output", this.uncertain(operationId, { verification: "invalid-output" })).result;
-        return ledger.complete(entry, "completed", { ...executed, opId: operationId }).result;
+        const projected = def.output.safeParse(executed.data);
+        if (!projected.success) return ledger.complete(entry, "invalid-output", this.uncertain(operationId, { verification: "invalid-output" })).result;
+        return ledger.complete(entry, "completed", { ok: true, data: projected.data, opId: operationId }).result;
       });
       this.activeOperation.set(operationId, task);
       try {
@@ -146,10 +151,14 @@ export class Dispatcher {
     const key = req.idempotencyKey;
 
     if (def.idempotency === "handler") return this.execute(def, caller, req, parsed.data, signal, subject);
-    const hit = this.d.idempotency.lookup(caller, def.name, key, req.input);
+    const owner = subject === caller ? caller : JSON.stringify([caller, subject]);
+    const hit = this.d.idempotency.lookup(owner, def.name, key, req.input);
     if (hit.hit) return hit.mismatch ? this.fail(errors.idempotencyMismatch()) : hit.result;
+    if (owner !== caller && this.d.idempotency.lookup(caller, def.name, key, req.input).hit) {
+      return this.fail(new HuhuError("INTERNAL", "旧调用结果缺少可核实的持有者", { retryable: false, details: { outcome: "unknown" } }));
+    }
 
-    const flightKey = `${caller}|${def.name}|${key}`;
+    const flightKey = `${owner}|${def.name}|${key}`;
     const running = this.inflight.get(flightKey);
     if (running) {
       const sameInput = IdempotencyStore.hashInput(req.input) === this.inflightHash.get(flightKey);
@@ -161,7 +170,7 @@ export class Dispatcher {
       // 可重试的失败不缓存，允许同 key 重试
       if (result.ok || !result.error.retryable) {
         try {
-          this.d.idempotency.record(caller, def.name, key, req.input, result);
+          this.d.idempotency.record(owner, def.name, key, req.input, result);
         } catch (e) {
           this.d.log?.("error", "幂等记录写入失败", { error: String(e) });
         }

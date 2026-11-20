@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -51,6 +51,40 @@ async function setMcp(e: RunningEngine, enabled: boolean, transport: "stdio" | "
 }
 
 describe("CLI", () => {
+  test("复制的活动端点不允许 CLI 或 stdio 接到源 Vault", async () => {
+    const { connect } = await import("../src/connect.js");
+    const source = await boot({ vaultPath: tmp(), create: true });
+    engines.push(source);
+    await allowTools(source, "tasks.create");
+    const task = { title: "源 Vault 的合成任务" };
+    const made = await source.dispatcher.call("cli", { capability: "tasks.create", requestId: randomUUID(), intentKey: "copy-source-intent", input: task });
+    if (!made.ok || !made.opId) throw new Error("源 Vault 缺少测试操作");
+
+    const copy = tmp();
+    const stale = path.join(copy, path.relative(source.vault.root, source.descriptorPath));
+    mkdirSync(path.dirname(stale), { recursive: true });
+    copyFileSync(source.descriptorPath, stale);
+    copyFileSync(path.join(source.vault.root, ".huhu", "vault.json"), path.join(copy, ".huhu", "vault.json"));
+    expect((await connect(source.vault.root)).baseUrl).toBe(`http://127.0.0.1:${source.port}`);
+    vi.stubEnv("HUHU_ENGINE_ENTRY", undefined);
+    try {
+      await expect(connect(copy)).rejects.toThrow("未配置引擎入口");
+      await expect(connect(copy, { role: "mcp" })).rejects.toThrow("未配置引擎入口");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const copyEngine = await boot({ vaultPath: copy });
+    engines.push(copyEngine);
+    expect(copyEngine.vault.id).toBe(source.vault.id);
+    expect((await connect(copy)).baseUrl).toBe(`http://127.0.0.1:${copyEngine.port}`);
+    expect((await connect(copy, { role: "mcp" })).baseUrl).toBe(`http://127.0.0.1:${copyEngine.port}`);
+    const looked = capture();
+    expect(await run(["operation", made.opId, "--vault", copy, "--json"], looked.io)).toBe(1);
+    expect(JSON.parse(looked.out.join(""))).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    const inventory = await source.dispatcher.call("desktop", { capability: "tasks.list", requestId: randomUUID(), input: {} });
+    expect(inventory).toMatchObject({ ok: true, data: [{ title: task.title }] });
+  }, 25_000);
+
   test("从标准输入读取 UTF-8 JSON 并经真实 CLI 创建任务", async () => {
     const { spawn } = await import("node:child_process");
     const dir = tmp();

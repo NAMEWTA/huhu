@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { findVaultRoot, machineId } from "@huhu/vault";
+import { endpointRootBinding, findVaultRoot, machineId } from "@huhu/vault";
 
 export interface Connection {
   baseUrl: string;
@@ -22,11 +22,11 @@ function readLive(root: string): { port: number; cliToken: string; mcpToken?: st
   const f = descriptorFile(root);
   if (!existsSync(f)) return null;
   try {
-    const d = JSON.parse(readFileSync(f, "utf8")) as { pid: number; port: number; cliToken: string; mcpToken?: string; vaultId: string };
+    const d = JSON.parse(readFileSync(f, "utf8")) as { pid: number; port: number; cliToken: string; mcpToken?: string; vaultId: string; rootBinding?: string };
+    if (d.rootBinding !== endpointRootBinding(root) || !Number.isSafeInteger(d.pid) || d.pid <= 0 || !Number.isSafeInteger(d.port) || d.port < 1 || d.port > 65_535) return null;
     process.kill(d.pid, 0);
     return d;
   } catch {
-    rmSync(f, { force: true }); // 进程已不存在：删除陈旧描述
     return null;
   }
 }

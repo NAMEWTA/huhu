@@ -21,7 +21,7 @@ export type AuthorizeCapabilityHttp = (context: Context<CapabilityHttpEnv>) => P
 export function discoverCapabilities(dispatcher: Dispatcher, caller: Caller) {
   return dispatcher
     .discover(caller)
-    .map((def) => ({ name: def.name, plugin: def.plugin, scope: def.scope, input: toJsonSchema(def.input), output: toJsonSchema(def.output, "output"), ...(def.idempotency === "durable" && { durableIntent: true as const }) }));
+    .map((def) => ({ name: def.name, plugin: def.plugin, scope: def.scope, input: toJsonSchema(def.input), output: toJsonSchema(def.output, "output"), ...(dispatcher.supportsDurableIntent(def) && { durableIntent: true as const }) }));
 }
 
 export const unknownTool = (name: string) => ({ ok: false as const, error: errors.capabilityNotFound(name).toJSON() });
