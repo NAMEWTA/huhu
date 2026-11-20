@@ -2,9 +2,19 @@ import { createServer, type Socket } from "node:net";
 import { createInterface } from "node:readline";
 
 /** Folder discovery adaptation of the S0.2 synthetic IMAP endpoint. */
-export async function openImapFixture(options: { stallList?: boolean; rejectLogin?: boolean; rejectList?: boolean; disconnectDuringList?: boolean; namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent" } = {}) {
+export async function openImapFixture(
+  options: {
+    stallList?: boolean;
+    rejectLogin?: boolean;
+    rejectList?: boolean;
+    disconnectDuringList?: boolean;
+    namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
+    message?: { uidValidity: number; subject: string; source: string };
+  } = {},
+) {
   const commands: string[] = [];
   const listRequests: string[] = [];
+  const fetchRequests: string[] = [];
   const sockets = new Set<Socket>();
   const listed = Promise.withResolvers<void>();
   const disconnected = Promise.withResolvers<void>();
@@ -47,6 +57,26 @@ export async function openImapFixture(options: { stallList?: boolean; rejectLogi
         }
         case "LSUB":
           return socket.write(`${tag} OK LSUB\r\n`);
+        case "EXAMINE": {
+          const message = options.message;
+          if (!message) return socket.write(`${tag} BAD mailbox not configured\r\n`);
+          return socket.write(`* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${message.uidValidity}] stable\r\n* OK [UIDNEXT 43] next\r\n${tag} OK [READ-ONLY] examine\r\n`);
+        }
+        case "FETCH": {
+          const message = options.message;
+          if (!message) return socket.write(`${tag} BAD message not configured\r\n`);
+          fetchRequests.push(line);
+          const size = Buffer.byteLength(message.source);
+          return socket.write(`* 1 FETCH (UID 42 RFC822.SIZE ${size} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n${tag} OK FETCH\r\n`);
+        }
+        case "UID": {
+          const message = options.message;
+          if (!message || !/UID FETCH 42 .*BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
+          fetchRequests.push(line);
+          socket.write(`* 1 FETCH (UID 42 BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
+          socket.write(message.source);
+          return socket.write(`)\r\n${tag} OK UID FETCH\r\n`);
+        }
         default:
           return socket.write(`${tag} BAD unsupported fixture command\r\n`);
       }
@@ -64,6 +94,7 @@ export async function openImapFixture(options: { stallList?: boolean; rejectLogi
     port,
     commands,
     listRequests,
+    fetchRequests,
     listed: listed.promise,
     disconnected: disconnected.promise,
     close: () =>

@@ -3,3 +3,4 @@ export type { MailAccountDefinition, MailAccountSettings, MailFolder } from "./a
 export { MailAccountError, type MailAccountErrorCode, type MailFolderDiscovery } from "./discovery.js";
 export { mailPreset, mailProviderSchema, type MailProvider } from "./presets.js";
 export { apply, mailAccountsListDescriptor } from "./registration.js";
+export { mailLatestMessageDescriptor, mailMessageSourceDescriptor, mailRefreshDescriptor } from "./message-cache.js";

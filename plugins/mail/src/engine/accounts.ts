@@ -15,6 +15,7 @@ import {
 } from "./account-definition.js";
 import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { discoverImapFolders } from "./imap-discovery.js";
+import { fetchLatestImapMessage } from "./imap-message.js";
 import type { MailEndpoint } from "./presets.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
@@ -44,6 +45,20 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     list: async () => (await credentials.list()).map((entry) => mailAccount(entry, entry.definition)),
     recover: () => credentials.recover(),
     begin: (settings: MailAccountSettings, password?: string) => new MailAccountDraft(credentials, discover, settings, password),
+    async fetchLatest(accountId: string, folder: string, signal: AbortSignal) {
+      const result = await credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
+        if (!folders.some(({ path }) => path === folder)) return { error: new MailAccountError("invalid-selection") };
+        const password = values.get(accountPasswordPurpose);
+        if (!password) return { error: new MailAccountError("credential-required") };
+        try {
+          return { data: await fetchLatestImapMessage({ endpoint: settings.imap, email: settings.email, password, signal }, folder) };
+        } catch (error) {
+          return { error: error instanceof MailAccountError ? error : new MailAccountError("message-read") };
+        }
+      });
+      if (result.error) throw result.error;
+      return result.data;
+    },
   };
 }
 

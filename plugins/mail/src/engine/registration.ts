@@ -1,8 +1,9 @@
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
-import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type Context, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { mailAccountDefinitionSchema } from "./account-definition.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
+import { registerMessageCache } from "./message-cache.js";
 
 const accountSummary = z.strictObject({
   accountId: z.string(),
@@ -24,7 +25,9 @@ export const mailAccountsListDescriptor = defineCapabilityDescriptor({
   output: z.strictObject({ available: z.boolean(), accounts: z.array(accountSummary) }),
 });
 
-export async function apply(api: HuhuApi, owner?: MailAccountOwner): Promise<void> {
+export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner): Promise<void> {
+  const lifetime = new AbortController();
+  ctx.effect(() => () => lifetime.abort());
   const accounts = owner ? openMailAccounts(owner) : undefined;
   if (accounts && owner && !owner.vault.readOnly) await accounts.recover();
   api.defineCapability(
@@ -33,4 +36,5 @@ export async function apply(api: HuhuApi, owner?: MailAccountOwner): Promise<voi
       return { available: accounts !== undefined, accounts: accounts ? await accounts.list() : [] };
     }),
   );
+  registerMessageCache(api, accounts, lifetime.signal);
 }

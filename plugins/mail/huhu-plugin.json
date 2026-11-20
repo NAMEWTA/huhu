@@ -10,7 +10,7 @@
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],
-    "capabilities": ["mail.accounts.list"],
+    "capabilities": ["mail.accounts.list", "mail.sync.refresh", "mail.messages.latest", "mail.messages.loadSource"],
     "fileKinds": []
   }
 }

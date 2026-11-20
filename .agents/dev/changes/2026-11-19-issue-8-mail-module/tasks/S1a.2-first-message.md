@@ -22,3 +22,11 @@ Mail 为每封信建立 localMessageId 和账号、目录、UIDVALIDITY、UID �
 - [ ] 替换一方 UIDVALIDITY 后用旧定位重试，应提示重新同步该目录；另一账号和已有草稿完好。只读 Vault 不执行远端标记或持久写入。
 
 使用合成邮箱、消息、附件和模拟交付结果，记录测试 Vault、输入、操作前后结果及实际调用次数。实际结果回填本任务。
+
+## Windows Engine 数据验证
+
+两个合成回环 IMAP 账号分别使用真实 Windows Credential Manager。Engine 对两个 INBOX 发出 `EXAMINE` 和 `UID FETCH ... BODY.PEEK[]`，未发送 `SELECT` 或 `STORE`。两个账号均使用 UID 42、UIDVALIDITY 12，得到不同本地 ID 与各自的原文字节。重开回读和只读 Vault 回读沿用本机缓存，未增加远端 FETCH。只读刷新返回 `READ_ONLY_VAULT`。
+
+把其中一个合成目录切到 UIDVALIDITY 13 后刷新，结果标记目录换代，旧 ID 返回 `needs-refresh`。另一账号保留原 ID 和字节，远端调用计数不变。Vault ZIP 不收集 `.huhu/cache/mail`。实际 Engine 验证同账号、目录、UIDVALIDITY 和 UID，当前切片保存所选目录的最新摘要和 RFC822 原文。真实阅读页、MIME 正文、联系人聚合与多页同步继续分片。 [ImapFlow Fetch 文档](https://imapflow.com/docs/guides/fetching-messages/) · [实际 Windows 用例](../../../../../plugins/mail/test/messages-engine.test.ts)
+
+Windows 三文件 24 项通过，原工作区日志 `temp/issue-baseline/core-finished/t14j.log`。

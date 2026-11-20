@@ -15,7 +15,11 @@ export type MailAccountErrorCode =
   | "timeout"
   | "tls"
   | "authentication"
-  | "folder-list";
+  | "folder-list"
+  | "message-read"
+  | "message-too-large"
+  | "mailbox-changed"
+  | "cancelled";
 
 export class MailAccountError extends Error {
   constructor(readonly code: MailAccountErrorCode) {

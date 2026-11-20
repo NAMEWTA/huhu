@@ -117,7 +117,7 @@ export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir">): EndpointDesc
 export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
-  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor]);
+  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
@@ -190,7 +190,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(mailManifest),
-    apply: (_ctx, api) => mail.apply(api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined),
+    apply: (ctx, api) => mail.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),
