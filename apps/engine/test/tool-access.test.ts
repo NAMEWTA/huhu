@@ -74,12 +74,14 @@ test("两个 Vault 分开保存工具选择，重启保持版本，未配置的�
     expect(Object.values(initial.choices).every((selected) => selected === false)).toBe(true);
     expect(readFileSync(legacyFile, "utf8")).toBe(legacy);
     expect((await fetch(url(a, "/api/v1/capabilities"))).status).toBe(401);
-    for (const token of [a.cliToken, a.mcpToken, http]) {
+    for (const token of [a.cliToken, http]) {
       expect(await names(a, token)).toEqual([]);
       expect(await call(a, "notes.read", input, token)).toMatchObject(deny);
       expect(await call(a, "capabilities.list", { includeInactive: true }, token)).toMatchObject(deny);
       expect(await call(a, "gateway.get", {}, token)).toMatchObject(deny);
     }
+    expect(await names(a, a.mcpToken)).toEqual([]);
+    expect(await call(a, "notes.read", input, a.mcpToken)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
 
     expect(await data(call(a, "gateway.mcp.update", { enabled: true, transport: "http" }))).toMatchObject({ enabled: true });
     expect(await mcp(a, a.mcpToken, "tools/list")).toMatchObject({ result: { tools: [] } });

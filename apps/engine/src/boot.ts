@@ -431,6 +431,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerWebShareCapabilities(registry, webShare);
   const server = await startEngineServer({
     mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
+    mcpStdioEnabled: () => gatewayTokens.mcp().enabled,
     terminal,
     dispatcher: real,
     registry,

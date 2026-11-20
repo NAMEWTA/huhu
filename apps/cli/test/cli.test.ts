@@ -40,6 +40,15 @@ async function allowTools(e: RunningEngine, ...names: string[]) {
   }
 }
 
+async function setMcp(e: RunningEngine, enabled: boolean, transport: "stdio" | "http" = "stdio") {
+  const response = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ capability: "gateway.mcp.update", input: { enabled, transport }, requestId: randomUUID() }),
+  });
+  expect(await response.json()).toMatchObject({ ok: true, data: { enabled, transport } });
+}
+
 describe("CLI", () => {
   test("--version / --help 不需要 Vault", async () => {
     const c = capture();
@@ -251,6 +260,7 @@ describe("CLI", () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     await allowTools(e, "tasks.list");
+    await setMcp(e, true);
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");
@@ -299,6 +309,7 @@ describe("CLI", () => {
           .map((l) => JSON.parse(l) as { id?: number; result?: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } });
       expect(replies().find((m) => m.id === 2)?.result?.tools).toEqual([]);
       await allowTools(e, "vault.info");
+      await setMcp(e, true);
       send({ jsonrpc: "2.0", id: 3, method: "tools/list", params: {} });
       await vi.waitFor(() => expect(out).toContain('"id":3'), { timeout: 20_000 });
       expect(
@@ -306,6 +317,16 @@ describe("CLI", () => {
           .find((m) => m.id === 3)
           ?.result?.tools?.map((tool) => tool.name),
       ).toEqual(["vault_info"]);
+      await setMcp(e, false);
+      send({ jsonrpc: "2.0", id: 6, method: "tools/list", params: {} });
+      await vi.waitFor(() => expect(out).toContain('"id":6'), { timeout: 20_000 });
+      expect(replies().find((m) => m.id === 6)?.result?.tools).toEqual([]);
+      send({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "vault_info", arguments: {} } });
+      await vi.waitFor(() => expect(out).toContain('"id":7'), { timeout: 20_000 });
+      expect(replies().find((m) => m.id === 7)?.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("PERMISSION_DENIED") }] });
+      const cli = capture();
+      expect(await run(["call", "vault.info", "--vault", dir, "--json"], cli.io)).toBe(0);
+      await setMcp(e, true);
       writeFileSync(path.join(dir, ".huhu/gateway/tool-access.json"), "{invalid");
       send({ jsonrpc: "2.0", id: 4, method: "tools/list", params: {} });
       await vi.waitFor(() => expect(out).toContain('"id":4'), { timeout: 20_000 });
@@ -322,6 +343,7 @@ describe("CLI", () => {
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
     await allowTools(e, "vault.info", "tasks.list", "inbox.capture", "vault.indexEntries", "notes.list", "notes.read");
+    await setMcp(e, true);
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");

@@ -88,6 +88,7 @@ test("Tasks production dispatch keeps providers without acceptance evidence unsu
       });
       expect(await engine.dispatcher.call("plugin:automations", request("agent.targets.list", scope))).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(await post(engine, "agent.targets.list", scope)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" });
       for (const token of [engine.cliToken, engine.mcpToken]) {
         expect(await post(engine, "agent.targets.list", scope, token)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
       }

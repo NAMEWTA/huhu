@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { Caller } from "@huhu/contracts";
+import { errors, type Caller } from "@huhu/contracts";
 import { Hono } from "hono";
 import { getRequestListener } from "@hono/node-server";
 import type { CapabilityRegistry } from "../capabilities/define.js";
@@ -26,6 +26,8 @@ export interface EngineServerDeps {
   terminal?: TerminalBridge;
   /** MCP Streamable HTTP（`POST /mcp`，无状态）：未启用时返回 404。令牌身份必须是 mcp 或 http。 */
   mcpHttp?: { enabled(): boolean };
+  /** stdio 适配器每次经控制端点读目录、调用或取资源时核对当前开关。 */
+  mcpStdioEnabled?(): boolean;
   /** 测试/嵌入时指定端口，默认随机。 */
   port?: number;
 }
@@ -79,6 +81,10 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       const verdict = checkIngress(c.env.incoming.headers, port);
       if (!verdict.ok) return c.json({ error: verdict.reason }, verdict.status);
       const caller = d.tokens.authenticate(bearerFrom(c.req.header("authorization")));
+      if (caller === "mcp" && d.mcpStdioEnabled?.() === false) {
+        if (c.req.method === "GET" && c.req.path === "/api/v1/capabilities") return c.json([]);
+        return c.json({ ok: false, error: errors.permissionDenied("MCP 服务已关闭").toJSON() });
+      }
       return caller ? { caller } : c.json({ error: "未授权" }, 401);
     },
     inflight,
