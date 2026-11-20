@@ -81,6 +81,16 @@ export class TaskDispatch {
     return stored.record.boundExecution;
   }
 
+  private matchesExecution = (execution: ExecutionBinding): boolean => {
+    const expected = this.boundExecution(execution);
+    return expected !== undefined && fingerprint(expected) === fingerprint(execution);
+  };
+
+  questions(taskId: string) {
+    this.tasks.read(taskId);
+    return this.receipts.questions(taskId, this.matchesExecution, this.onError);
+  }
+
   hasHold(taskId: string): boolean {
     return this.store.list().some(({ receipt }) => receipt.taskId === taskId && holdsTask(receipt));
   }
@@ -90,12 +100,13 @@ export class TaskDispatch {
   }
 
   runs(taskId: string): ReturnType<TasksService["runs"]> {
+    const questions = this.receipts.questions(taskId, this.matchesExecution, this.onError).filter(({ status }) => status === "awaiting");
     return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt }) => {
       if (receipt.taskId !== taskId || !claim) return [];
       let state = "queued";
       if (receipt.state === "running" || receipt.state === "unknown" || receipt.state === "cancelled") state = receipt.state;
       if (receipt.state === "stale_input" || receipt.state === "expired" || receipt.state === "blocked") state = "cancelled";
-      return [{ id: receipt.runId, state, startedAt, finishedAt, model: snapshot.execution.model, questions: 0 }];
+      return [{ id: receipt.runId, state, startedAt, finishedAt, model: snapshot.execution.model, questions: questions.filter(({ runId }) => runId === receipt.runId).length }];
     });
   }
 
@@ -194,15 +205,7 @@ export class TaskDispatch {
           if (!this.abort.signal.aborted) this.onError?.(error);
         }
       }
-      await this.receipts.replay(
-        this.tasks,
-        (execution) => {
-          const expected = this.boundExecution(execution);
-          return expected !== undefined && fingerprint(expected) === fingerprint(execution);
-        },
-        this.abort.signal,
-        this.onError,
-      );
+      await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
     } catch (error) {
       this.onError?.(error);
     } finally {

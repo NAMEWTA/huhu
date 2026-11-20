@@ -15,6 +15,18 @@ const RecordSchema = z.strictObject({
   status: z.enum(["pending", "delivered", "target_missing"]),
 });
 type DeliveryRecord = z.infer<typeof RecordSchema>;
+export const TaskQuestionView = z.strictObject({
+  runId: z.string(),
+  sessionId: z.string(),
+  requestId: z.string(),
+  requestVersion: z.int().positive(),
+  mode: z.enum(["normal", "native_deferred"]),
+  status: z.enum(["awaiting", "closed"]),
+  text: z.string(),
+  options: z.array(z.string()),
+  at: z.iso.datetime(),
+});
+type QuestionView = z.infer<typeof TaskQuestionView>;
 
 function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
@@ -47,7 +59,6 @@ export class TaskReceiptInbox {
   async consume(input: ExecutionReceipt, expected: ExecutionBinding, signal: AbortSignal) {
     this.files.assertWritable();
     signal.throwIfAborted();
-    if (input.kind === "question" || input.kind === "progress") throw new HuhuError("RUN_UNKNOWN", "该类型的回执正在等待任务消费", { retryable: true });
     const file = this.file(input.receiptId);
     const previous = this.read(file);
     const result = validateExecutionReceipt(input, expected, previous?.record.consumption.delivery.receipt);
@@ -76,18 +87,54 @@ export class TaskReceiptInbox {
     return ack.ack;
   }
 
-  async replay(tasks: TasksService, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {
-    let files: string[];
+  private filesInInbox(): string[] {
     try {
-      files = readdirSync(this.files.abs(DIRECTORY));
+      return readdirSync(this.files.abs(DIRECTORY))
+        .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
+        .map((file) => `${DIRECTORY}/${file}`);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
-    for (const name of files.filter((file) => /^[a-f0-9]{64}\.json$/.test(file))) {
+  }
+
+  questions(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void): QuestionView[] {
+    const questions = new Map<string, { view: QuestionView; payloadHash: string }>();
+    const finished = new Set<string>();
+    for (const file of this.filesInInbox()) {
+      try {
+        const value = this.read(file);
+        if (!value) continue;
+        const { receipt, at } = value.record;
+        const { execution } = receipt;
+        if (execution.taskId !== taskId || !bound(execution)) continue;
+        if (receipt.kind !== "question") {
+          if (receipt.kind !== "progress") finished.add(execution.runId);
+          continue;
+        }
+        const { requestId, requestVersion, mode, text, options } = receipt.payload;
+        const key = fingerprint([execution.runId, requestId]);
+        const previous = questions.get(key);
+        const view: QuestionView = { runId: execution.runId, sessionId: execution.sessionBinding.sessionId, requestId, requestVersion, mode, text, options, at, status: "awaiting" };
+        const payloadHash = fingerprint(receipt.payload);
+        if (!previous || requestVersion > previous.view.requestVersion) questions.set(key, { view, payloadHash });
+        else if (requestVersion === previous.view.requestVersion && payloadHash !== previous.payloadHash) {
+          // Counterparts supplied the same version with conflicting content. This question cannot be answered.
+          questions.set(key, { ...previous, view: { ...previous.view, status: "closed" } });
+        }
+      } catch (error) {
+        onError?.(error);
+      }
+    }
+    return [...questions.values()]
+      .map(({ view }) => (view.mode === "native_deferred" && finished.has(view.runId) ? { ...view, status: "closed" as const } : view))
+      .sort((a, b) => a.at.localeCompare(b.at) || a.runId.localeCompare(b.runId) || a.requestId.localeCompare(b.requestId));
+  }
+
+  async replay(tasks: TasksService, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {
+    for (const file of this.filesInInbox()) {
       if (signal.aborted) return;
       try {
-        const file = `${DIRECTORY}/${name}`;
         const previous = this.read(file);
         if (!previous || previous.record.status !== "pending") continue;
         const { record } = previous;

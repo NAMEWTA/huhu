@@ -361,7 +361,7 @@ function executor(): TaskDispatchExecutor {
   };
 }
 
-test("持久验收原回执后才 ACK，重开补送原评论一次且不重新执行", { timeout: 60_000 }, async () => {
+async function startBoundRun() {
   const root = tempVault();
   const fake = executor();
   fixture.executor = fake;
@@ -382,10 +382,18 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
   const run = await acceptDispatch(engine, intent(task));
   await waitDispatch(engine, run, { state: "running" });
   expect(bound).toBeDefined();
-  const input = { version: 1, receiptId: "fixture-result", kind: "result", execution: bound!, payload: { message: "已完成的合成结果" } } as const satisfies ExecutionReceipt;
+  return { root, fake, engine, task, run, execution: bound! };
+}
+
+function submitReceipt(engine: RunningEngine, receipt: ExecutionReceipt) {
+  return engine.dispatcher.call("plugin:agent-cli", { capability: "tasks.receipts.consume", input: receipt, requestId: randomUUID(), idempotencyKey: receipt.receiptId });
+}
+
+test("持久验收原回执后才 ACK，重开补送原评论一次且不重新执行", { timeout: 60_000 }, async () => {
+  const { root, fake, engine, task, run, execution } = await startBoundRun();
+  const input = { version: 1, receiptId: "fixture-result", kind: "result", execution, payload: { message: "已完成的合成结果" } } as const satisfies ExecutionReceipt;
   const expected = { ok: true, data: { stage: "tasks_consumed", receipt: executionReceiptIdentity(input) } };
-  const consume = (running: RunningEngine, receipt: ExecutionReceipt = input) =>
-    running.dispatcher.call("plugin:agent-cli", { capability: "tasks.receipts.consume", input: receipt, requestId: randomUUID(), idempotencyKey: receipt.receiptId });
+  const consume = (running: RunningEngine, receipt: ExecutionReceipt = input) => submitReceipt(running, receipt);
   const resultComments = async (running: RunningEngine) => (await call<TaskDto>(running, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "result");
   expect(await call(engine, "tasks.receipts.consume", input, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
   expect(await call(engine, "tasks.receipts.consume", input)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
@@ -427,6 +435,48 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
   } finally {
     injection.mockRestore();
   }
+});
+
+test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeout: 60_000 }, async () => {
+  const { engine, task, run, execution } = await startBoundRun();
+  const normal = {
+    version: 1,
+    receiptId: "normal-question",
+    kind: "question",
+    execution,
+    payload: { mode: "normal", requestId: "normal", requestVersion: 1, text: "普通问题", options: [] },
+  } as const satisfies ExecutionReceipt;
+  const native = {
+    version: 1,
+    receiptId: "native-question",
+    kind: "question",
+    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } },
+    payload: { mode: "native_deferred", requestId: "native", requestVersion: 2, text: "原生暂停", options: ["一", "二"], nativeRequestId: "private-native-route" },
+  } as const satisfies ExecutionReceipt;
+  const list = () => call(engine, "tasks.questions.list", { taskId: task.id });
+  expect(await submitReceipt(engine, normal)).toMatchObject({ ok: true, data: { stage: "tasks_consumed" } });
+  const ack = await submitReceipt(engine, native);
+  expect(ack).toMatchObject({ ok: true, data: { stage: "tasks_consumed" } });
+  expect(await submitReceipt(engine, native)).toEqual(ack);
+  expect(await submitReceipt(engine, { ...native, receiptId: "late-native-question", payload: { ...native.payload, requestVersion: 1, text: "过期问题" } })).toMatchObject({ ok: true });
+  expect(await submitReceipt(engine, { ...normal, receiptId: "foreign-question", execution: { ...execution, runId: "wrong-run" } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  const pending = await list();
+  expect(pending).toMatchObject({
+    ok: true,
+    data: expect.arrayContaining([
+      expect.objectContaining({ runId: run.runId, requestId: "normal", requestVersion: 1, mode: "normal", status: "awaiting" }),
+      expect.objectContaining({ runId: run.runId, requestId: "native", requestVersion: 2, mode: "native_deferred", status: "awaiting" }),
+    ]),
+  });
+  expect(pending.data).toHaveLength(2);
+  expect(JSON.stringify(pending)).not.toContain("private-native-route");
+  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 2 })] });
+
+  expect(await submitReceipt(engine, { version: 1, receiptId: "same-run-finished", kind: "no_update", execution, payload: {} })).toMatchObject({ ok: true });
+  expect(await list()).toMatchObject({
+    data: expect.arrayContaining([expect.objectContaining({ requestId: "normal", status: "awaiting" }), expect.objectContaining({ requestId: "native", status: "closed" })]),
+  });
+  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 1 })] });
 });
 
 test("Automations 停用后，人工受理、两规则竞争及任务正文快照在重开后沿用一个 run", { timeout: 60_000 }, async () => {

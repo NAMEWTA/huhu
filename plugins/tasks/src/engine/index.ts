@@ -22,7 +22,7 @@ import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore } from "./dispatch-store.js";
-import { TaskReceiptInbox } from "./receipt-inbox.js";
+import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
@@ -111,6 +111,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: ({ caller, signal }, input) => {
         if (caller !== "plugin:agent-cli") throw errors.permissionDenied("接收 Agent 任务回执");
         return dispatch.consumeReceipt(input, signal);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.questions.list",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.strictObject({ taskId: z.string() }),
+      output: z.array(TaskQuestionView),
+      handler: ({ caller }, { taskId }) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务请求");
+        return dispatch.questions(taskId);
       },
     }),
   );
