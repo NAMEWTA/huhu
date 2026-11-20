@@ -415,10 +415,22 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
   api.defineCapability(
     def({
+      name: "automations.activations.dispatches",
+      plugin: "automations",
+      scope: "read",
+      exposable: true,
+      defaultExposed: false,
+      input: z.strictObject({ ruleId: z.string().min(1).max(128), activationId: z.string().regex(/^(?:occ-[a-f0-9]{64}|inv-[a-f0-9-]{36})$/) }),
+      output: z.strictObject({ dispatches: z.array(z.strictObject({ taskId: z.string(), dispatchId: z.string(), state: z.enum(["pending", "accepted"]), runId: z.string().nullable() })) }),
+      handler: (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }),
+    }),
+  );
+  api.defineCapability(
+    def({
       name: "automations.runs.list",
       plugin: "automations",
       scope: "read",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: z.object({ limit: z.number().int().min(1).max(500).optional() }),
       output: z.array(RunRow),
@@ -433,13 +445,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       name: "automations.runs.read",
       plugin: "automations",
       scope: "read",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: z.object({ runId: z.string() }),
       output: z.object({ id: z.string(), kind: z.literal("automation-run"), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean() }),
-      handler: async (_c, i) => {
+      handler: async ({ caller }, i) => {
         await ready;
-        return svc.runDetail(i.runId);
+        const run = svc.runDetail(i.runId);
+        if (isWorkbenchCaller(caller)) return run;
+        const { ruleId, actionKind, state, startedAt, finishedAt, exitCode } = run.data as Record<string, unknown>;
+        return { ...run, body: "", data: { ruleId, actionKind, state, startedAt, finishedAt, exitCode } };
       },
     }),
   );
@@ -448,14 +463,15 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       name: "automations.runs.cancel",
       plugin: "automations",
       scope: "execute",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: z.object({ runId: z.string() }),
-      output: z.object({ cancelled: z.boolean() }),
+      output: z.object({ cancelled: z.boolean(), state: z.string() }),
       handler: async (_c, i) => {
         await ready;
-        const { live } = svc.runDetail(i.runId);
-        return { cancelled: live && svc.cancelRun(i.runId) };
+        const { live, data } = svc.runDetail(i.runId);
+        const cancelled = live && svc.cancelRun(i.runId);
+        return { cancelled, state: cancelled ? "cancelling" : typeof data.state === "string" ? data.state : "unknown" };
       },
     }),
   );

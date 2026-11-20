@@ -106,6 +106,15 @@ export class TaskScanOccurrences {
     return this.load(Id.parse(id))?.occurrence ?? null;
   }
 
+  dispatches(ruleId: string, id: string) {
+    const occurrence = this.read(id);
+    if (!occurrence || occurrence.ruleId !== ruleId || !this.owns(occurrence)) throw errors.notFound("没有找到此 Vault 的原扫描发生记录");
+    return occurrence.items.flatMap((item) => {
+      if (item.state === "skipped" || !item.dispatchId) return [];
+      return [{ taskId: item.taskId, dispatchId: item.dispatchId, state: item.state, runId: item.state === "accepted" ? item.runId : null }];
+    });
+  }
+
   list(): Occurrence[] {
     return this.ids().map((id) => {
       const occurrence = this.read(id);

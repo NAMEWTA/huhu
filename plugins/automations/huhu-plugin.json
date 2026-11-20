@@ -15,6 +15,7 @@
     "commands": [],
     "capabilities": [
       "automations.activations",
+      "automations.activations.dispatches",
       "automations.cancel",
       "automations.create",
       "automations.delete",

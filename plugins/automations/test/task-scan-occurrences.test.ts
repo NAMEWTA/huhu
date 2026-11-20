@@ -113,10 +113,10 @@ async function stop(engine: RunningEngine) {
   engines.splice(engines.indexOf(engine), 1);
 }
 
-async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown) {
+async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown, external = false) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
-    headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${external ? engine.cliToken : engine.rendererToken}`, "content-type": "application/json" },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
   });
   return (await response.json()) as { ok: boolean; data: T; error?: { code: string; details?: Record<string, unknown> } };
@@ -134,6 +134,34 @@ async function createTask(engine: RunningEngine, title: string, tags = ["match"]
 }
 
 type Rule = { id: string; version: string; body: string; data: { updatedAt: string; enabled: boolean; missedRunGraceMinutes: number } };
+
+test("公开扫描明细按授权给出原派遣身份，停用或删除后仍可单项取消", async () => {
+  const { engine, scans } = await start();
+  const task = await createTask(engine, "实测待派任务");
+  const rule = await createRule(engine, "挂起扫描");
+  fixture.now = at("01:15:00");
+  const occurrence = await scans.scheduled(rule.id, fixture.now);
+  expect(occurrence?.items).toHaveLength(1);
+  const identity = { ruleId: rule.id, activationId: occurrence!.id };
+  const cli = <T = unknown>(capability: string, input: unknown) => call<T>(engine, capability, input, true);
+  expect(await cli("automations.activations.dispatches", identity)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  for (const capability of ["automations.activations.dispatches", "automations.setEnabled", "automations.delete", "tasks.dispatch.read", "tasks.dispatch.cancel"]) {
+    await invoke(engine, "gateway.update", { capability, exposed: true });
+  }
+  expect(await cli("automations.activations.dispatches", { ...identity, ruleId: "another-rule" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  const result = await cli<{ dispatches: { taskId: string; dispatchId: string; state: string }[] }>("automations.activations.dispatches", identity);
+  expect(result).toMatchObject({ ok: true, data: { dispatches: [{ taskId: task.id, dispatchId: expect.any(String), state: "accepted" }] } });
+  const { taskId, dispatchId } = result.data.dispatches[0]!;
+  const target = { taskId, dispatchId };
+  expect(await cli("automations.setEnabled", { id: rule.id, enabled: false })).toMatchObject({ ok: true, data: { data: { enabled: false } } });
+  expect(await cli("automations.delete", { id: rule.id })).toMatchObject({ ok: true });
+  expect(await cli("automations.activations.dispatches", identity)).toEqual(result);
+  expect(await cli("tasks.dispatch.read", target)).toMatchObject({ ok: true, data: { state: "pending" } });
+  const cancelled = await cli("tasks.dispatch.cancel", target);
+  expect(cancelled).toMatchObject({ ok: true, data: { state: "cancelled" } });
+  expect(await cli("tasks.dispatch.cancel", target)).toEqual(cancelled);
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+}, 20_000);
 
 async function createRule(engine: RunningEngine, title: string) {
   const rule = await invoke<Rule>(engine, "automations.create", {
