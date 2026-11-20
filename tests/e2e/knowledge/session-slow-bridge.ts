@@ -15,17 +15,18 @@ export async function holdBridgeTimers(prose: Locator) {
     doc.emit = (event, args) => {
       if (inside || event !== "afterAllTransactions") return emit(event, args);
       const now = performance.now;
-      const timeout = window.setTimeout;
+      const browser: Window = window;
+      const timeout = browser.setTimeout;
       let elapsed = now.call(performance);
       inside = true;
       // 只影响当前 Y.Doc 内的实际桥调度。首笔测成慢结算，后续计时器等显式 flush。
       performance.now = () => (elapsed += 50);
-      window.setTimeout = (callback, ms, ...inputs) => timeout.call(window, callback, ms !== undefined && ms >= 100 && ms <= 1500 ? 60_000 : ms, ...inputs);
+      browser.setTimeout = (callback, ms, ...inputs) => timeout(callback, ms !== undefined && ms >= 100 && ms <= 1500 ? 60_000 : ms, ...inputs);
       try {
         emit(event, args);
       } finally {
         performance.now = now;
-        window.setTimeout = timeout;
+        browser.setTimeout = timeout;
         inside = false;
       }
     };

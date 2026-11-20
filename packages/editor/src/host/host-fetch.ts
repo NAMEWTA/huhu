@@ -4,13 +4,14 @@
 // 没有对应 Huhu 能力的端点返回 404 + { code: 'NOT_AVAILABLE' }，由 OkHost.features 关闭对应入口。
 import { attachOkFetch } from "../vendor/open-knowledge/app/src/lib/ok-fetch";
 
-export type HostRouteHandler = (req: { url: URL; method: string; body: unknown }) => Promise<unknown> | unknown;
+export type HostRouteHandler = (req: { url: URL; method: string; body: unknown; signal: AbortSignal | undefined }) => Promise<unknown> | unknown;
 export type HostRoutes = Record<string, HostRouteHandler>;
 export const PASS_HOST_ROUTE = Symbol("pass host route");
 
 // 兜底路由表（最低优先级，永远在表里）：页面 / 文档清单没有宿主注入时返回空清单而不是 404，
 // 例如详情栏的批注页（OkRoot 只带评论路由）挂载时比编辑面更早发出 /api/pages。有数据的宿主路由仍然优先。
 const baselineRoutes: HostRoutes = {
+  "GET /api/config": () => ({ collabUrl: null, previewUrl: null, port: 0, singleFile: false }),
   "GET /api/pages": () => ({ pages: [] }),
   "GET /api/documents": () => ({ documents: [] }),
 };
@@ -32,6 +33,8 @@ async function dispatch(tables: readonly HostRoutes[], input: RequestInfo | URL,
   const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const url = new URL(raw, "http://huhu.local");
   const method = (init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET")).toUpperCase();
+  const signal = init?.signal ?? (typeof input === "object" && "signal" in input ? input.signal : undefined);
+  signal?.throwIfAborted();
   const key = `${method} ${url.pathname}`;
   // 后注册的路由表优先（files / comments 切片可以覆盖 core 的兜底实现）。
   for (const table of tables) {
@@ -48,10 +51,12 @@ async function dispatch(tables: readonly HostRoutes[], input: RequestInfo | URL,
       }
     }
     try {
-      const result = await handler({ url, method, body });
+      const result = await handler({ url, method, body, signal });
+      signal?.throwIfAborted();
       if (result === PASS_HOST_ROUTE) continue;
       return jsonResponse(200, result);
     } catch (err) {
+      signal?.throwIfAborted();
       const message = err instanceof Error ? err.message : String(err);
       // title / detail：vendor 的 ProblemDetailsSchema（RFC 9457）读这两个字段给用户看
       return jsonResponse(500, { code: "HOST_ERROR", message, type: "urn:ok:error:invalid-request", title: message, status: 500, detail: message });

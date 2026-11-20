@@ -2,7 +2,8 @@ import { toDesktopAssetHref } from '@inkeep/open-knowledge-core/utils/asset-href
 import { parsePdfAnchor } from '@inkeep/open-knowledge-core/utils/pdf-anchor';
 import { Trans, useLingui } from '@lingui/react/macro';
 import { Check, ChevronDown, PanelLeft, ZoomIn, ZoomOut } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
+import { LocalReferenceContext } from './live-doc-pool.ts';
 import { computeBaseScale, type PdfLayoutMode } from './pdf-layout.ts';
 
 interface PdfProps {
@@ -80,18 +81,28 @@ export function Pdf(props: PdfProps) {
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const { t } = useLingui();
+  const local = use(LocalReferenceContext);
+  const [revision, setRevision] = useState(0);
 
   const totalPages = pages.length;
 
   useEffect(() => {
     if (!props.src) {
+      setPages([]);
+      setError(null);
       setLoading(false);
       return;
     }
-    const docUrl = toDesktopAssetHref(props.src);
-    let cancelled = false;
+    const src = props.src;
+    const localPath = local && !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(src)
+      ? (src.replace(/^\//, '').split(/[?#]/, 1)[0] ?? '')
+      : null;
+    let unsubscribe: (() => void) | undefined;
+    const controller = new AbortController();
+    const { signal } = controller;
     let loadingTask: PdfLoadingTask | null = null;
     setLoading(true);
+    setPages([]);
     setError(null);
 
     (async () => {
@@ -102,38 +113,47 @@ export function Pdf(props: PdfProps) {
          * compilation path and its `isEvalSupported` opt-out are both gone, so
          * there is no eval left here to harden.
          */
-        const task = pdfjs.getDocument({ url: docUrl });
+        signal.throwIfAborted();
+        let input;
+        if (local && localPath !== null) {
+          const path = decodeURIComponent(localPath);
+          unsubscribe = local.subscribe(path, () => setRevision((current) => current + 1));
+          const blob = await local.readPdf(path, signal);
+          input = { data: new Uint8Array(await blob.arrayBuffer()) };
+        } else {
+          input = { url: toDesktopAssetHref(src) };
+        }
+        signal.throwIfAborted();
+        const task = pdfjs.getDocument(input);
         loadingTask = task;
         const doc = await task.promise;
-        if (cancelled) {
-          await task.destroy();
-          return;
-        }
+        if (signal.aborted) return;
         docRef.current = doc;
 
         const meta: PageInfo[] = [];
         for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-          if (cancelled) return;
+          if (signal.aborted) return;
           const page = await doc.getPage(pageNumber);
           const v = page.getViewport({ scale: 1 });
           meta.push({ pageNumber, naturalWidth: v.width, naturalHeight: v.height });
         }
-        if (cancelled) return;
+        if (signal.aborted) return;
         setPages(meta);
       } catch (err) {
-        if (cancelled) return;
+        if (signal.aborted) return;
         setError(err instanceof Error ? err.message : t`Failed to load PDF`);
         setLoading(false);
       }
     })();
 
     return () => {
-      cancelled = true;
+      unsubscribe?.();
+      controller.abort();
       void loadingTask?.destroy().catch(() => {});
       loadingTask = null;
       docRef.current = null;
     };
-  }, [props.src, t]);
+  }, [props.src, t, local, revision]);
 
   useEffect(() => {
     const el = containerRef.current;

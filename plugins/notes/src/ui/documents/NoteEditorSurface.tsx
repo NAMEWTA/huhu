@@ -14,7 +14,7 @@ import {
   type ReferenceCandidate,
   type RichEditorPort,
 } from "@huhu/editor/rich";
-import { useCapability, useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
+import { useCapability, useEngine, useEngineEvents, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
@@ -53,6 +53,15 @@ export interface NoteEditorSurfaceProps {
 
 const MD = /\.(md|mdx)$/i;
 const docNameOf = (path: string): string => path.replace(MD, "");
+const BOARD = /\.excalidraw$/i;
+const PDF = /\.pdf$/i;
+const MAX_REFERENCE_TEXT_BYTES = 4 * 1024 * 1024;
+
+function assertReferencePath(path: string): void {
+  if (path.split("/").some((segment) => !segment || segment === "." || segment === "..") || hasProtectedSegment(path)) {
+    throw new Error("无效的引用路径");
+  }
+}
 
 /**
  * 笔记的编辑面（整个新编辑器闭包经 `NoteDocument` 的动态 import 加载到这里，不进首屏）：
@@ -88,10 +97,41 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   notePath.current = props.path;
   const currentText = useRef(props.value);
   currentText.current = props.value;
+  const referencePath = useMemo(
+    () => (docName: string) => (BOARD.test(docName) || PDF.test(docName) ? docName : (notes.current.find((entry) => docNameOf(entry.path) === docName || entry.path === docName)?.path ?? (MD.test(docName) ? docName : `${docName}.md`))),
+    [],
+  );
+  const subscribers = useMemo(() => new Set<{ docName: string; refresh(): void }>(), [engine]);
+  useEngineEvents((event) => {
+    if (event.vaultId !== engine.vaultId || subscribers.size === 0) return;
+    if (event.type === "entity.changed") {
+      const { kind } = event.payload as { kind: string };
+      if (kind === "note") for (const { docName, refresh } of subscribers) if (!BOARD.test(docName) && !PDF.test(docName)) refresh();
+    }
+    if (event.type === "vault.fileChanged" || event.type === "vault.dirChanged") {
+      const { path, from } = event.payload as { path: string; from?: string };
+      for (const { docName, refresh } of subscribers) {
+        const target = referencePath(docName);
+        if (target === path || target === from || (event.type === "vault.dirChanged" && target.startsWith(path ? `${path}/` : ""))) refresh();
+      }
+    }
+  });
   const routes = useMemo<HostRoutes>(() => {
     const pathForDocName = (docName: string) => notes.current.find((entry) => docNameOf(entry.path) === docName)?.path;
     return {
       ...commentRoutes,
+      "GET /api/reference-text": async ({ url, signal }) => {
+        const docName = url.searchParams.get("doc");
+        if (!docName || /^__(?:config|system)__\//.test(docName)) throw new Error("无效的引用路径");
+        const path = referencePath(docName);
+        assertReferencePath(path);
+        if (!MD.test(path) && !BOARD.test(path)) throw new Error("无效的引用路径");
+        const chunk = await engine.call<VaultReadRangeOutput>("vault.readRange", { path, offset: 0, length: MAX_REFERENCE_TEXT_BYTES }, signal ? { signal } : {});
+        if (chunk.size > MAX_REFERENCE_TEXT_BYTES || !chunk.eof || chunk.offset !== 0 || chunk.length !== chunk.size) throw new Error("引用文件超过内嵌读取上限，或读取时发生变化");
+        const bytes = Uint8Array.from(atob(chunk.base64), (char) => char.charCodeAt(0));
+        if (bytes.length !== chunk.length) throw new Error("引用文件读取不完整");
+        return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+      },
       "POST /api/create-page": async ({ body }) => {
         const file = (body as { path?: unknown } | null)?.path;
         if (typeof file !== "string" || !MD.test(file) || hasProtectedSegment(file)) throw new Error("无效的笔记路径");
@@ -123,7 +163,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         },
       }),
     };
-  }, [commentRoutes, engine]);
+  }, [commentRoutes, engine, referencePath]);
   const downloadScope = useRef<AbortController | null>(null);
   useLayoutEffect(() => {
     const controller = new AbortController();
@@ -152,18 +192,19 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
   const documentHost = useMemo(
     () => ({
-      readAsset: async (path: string) => {
+      readAsset: async (path: string, requestSignal?: AbortSignal) => {
         if (hasProtectedSegment(path)) throw new Error("附件位于受保护的目录");
         const length = 4 * 1024 * 1024;
         const parts: BlobPart[] = [];
         let offset = 0;
-        const signal = downloadScope.current?.signal;
-        if (!signal) throw new DOMException("下载已取消", "AbortError");
+        const scopeSignal = downloadScope.current?.signal;
+        if (!scopeSignal) throw new DOMException("下载已取消", "AbortError");
+        const signal = requestSignal ? AbortSignal.any([scopeSignal, requestSignal]) : scopeSignal;
         let expectedVersion: string | undefined;
         let expectedSize: number | undefined;
         while (true) {
           signal.throwIfAborted();
-          const chunk = await engine.call<VaultReadRangeOutput & { version: string }>("vault.readRange", { path, offset, length, expectedVersion }).catch((error: unknown) => {
+          const chunk = await engine.call<VaultReadRangeOutput & { version: string }>("vault.readRange", { path, offset, length, expectedVersion }, { signal }).catch((error: unknown) => {
             if ((error as { code?: string })?.code === "VERSION_CONFLICT") throw new Error("附件在读取期间发生变化，请重新下载", { cause: error });
             throw error;
           });
@@ -201,8 +242,26 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
     [engine],
   );
 
+  const localReferences = useMemo(
+    () => ({
+      subscribe(docName: string, refresh: () => void) {
+        const subscriber = { docName, refresh };
+        subscribers.add(subscriber);
+        return () => {
+          subscribers.delete(subscriber);
+        };
+      },
+      readPdf(path: string, signal: AbortSignal) {
+        assertReferencePath(path);
+        if (!PDF.test(path)) throw new Error("无效的 PDF 路径");
+        return documentHost.readAsset(path, signal);
+      },
+    }),
+    [documentHost, subscribers],
+  );
+
   return (
-    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} commentScope={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} localReferences={localReferences} poolKey={engine.vaultId} commentScope={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}

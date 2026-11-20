@@ -15,3 +15,7 @@
 | 视口边缘定位 | 等价 | 两边均在 1440 × 900 视口内把 360 像素高的菜单放到光标上方。OK 光标底边约 731 像素，Huhu 约 841 像素。两端的工作台布局与菜单宽度不同。 |
 
 [OK 分类与预览](slash/ok-categories-and-order.png) · [OK 无结果](slash/ok-no-results.png) · [OK 视口边缘](slash/ok-viewport-edge.png) · [全部步骤 DOM](slash/ok.json) · [最终 Markdown](slash/ok.md)
+
+## 收尾补充序列
+
+Lead 统一执行 [两端对拍](../../../../../../tests/parity-ok/compare.spec.ts)。两端使用同一文档和同一操作顺序，检查紧贴正文的斜杠与全角空格前缀、首尾循环、菜单展开后随滚动重定位、菜单遮挡区域的指针与键盘归属、右缘限位、切文档后的菜单及预览清理。上表和已保存截图属于前一轮。
