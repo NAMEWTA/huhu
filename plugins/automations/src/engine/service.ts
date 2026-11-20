@@ -236,10 +236,13 @@ export class AutomationsService {
     return this.rule(id);
   }
 
-  async setEnabled(id: string, enabled: boolean) {
+  async setEnabled(id: string, enabled: boolean, authorizeEnable?: (action: RuleData["action"]) => void) {
     return this.withRuleConfiguration(async () => {
       const cur = this.rule(id);
-      if (enabled && hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
+      if (enabled) {
+        authorizeEnable?.(cur.data.action);
+        if (hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
+      }
       await this.d.repo.patch("automation-rule", id, { enabled, updatedAt: iso(this.d.now()) }, cur.version);
       this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
       return this.rule(id);

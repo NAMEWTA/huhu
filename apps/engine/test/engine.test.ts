@@ -3,8 +3,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { OperationLog, SemanticRepository } from "@huhu/vault";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
 interface Reply {
@@ -1108,6 +1109,65 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "automations.update", { id: desktopRule.id, expectedVersion: desktopRule.version, patch: { title: "改名" } })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.rendererToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).ok).toBe(true);
     expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: false })).ok).toBe(true);
+    const desktopTerminal = (await call(e.rendererToken, "automations.create", { title: "桌面终端夹具", trigger: trig, action: terminal })).data as { id: string };
+    expect((await call(e.cliToken, "automations.setEnabled", { id: desktopTerminal.id, enabled: true })).error?.code).toBe("PERMISSION_DENIED");
+  }, 30_000);
+  test("公开启用提醒时，权限判定与写入读取同一事务的当前规则", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    await allowTools(e, "automations.setEnabled");
+    const call = (token: string, capability: string, input: unknown) => post(e, token, { capability, input, requestId: capability, idempotencyKey: `config-${capability}` });
+    const created = await call(e.rendererToken, "automations.create", {
+      title: "原提醒",
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: "fixture" },
+    });
+    expect(created.ok).toBe(true);
+    const { id, version } = created.data as typeof created.data & { version: string };
+    let holdWrite!: () => void;
+    let allowWrite!: () => void;
+    let observeEnable!: () => void;
+    const writing = new Promise<void>((resolve) => {
+      holdWrite = resolve;
+    });
+    const resume = new Promise<void>((resolve) => {
+      allowWrite = resolve;
+    });
+    const enabling = new Promise<void>((resolve) => {
+      observeEnable = resolve;
+    });
+    const patch = SemanticRepository.prototype.patch;
+    const setEnabled = AutomationsService.prototype.setEnabled;
+    const observeWrite = vi.spyOn(SemanticRepository.prototype, "patch").mockImplementation(async function (this: SemanticRepository, ...args) {
+      if (args[0] === "automation-rule" && args[1] === id && args[2]["title"] === "更新后的提醒") {
+        holdWrite();
+        await resume;
+      }
+      return patch.apply(this, args);
+    });
+    const observeCall = vi.spyOn(AutomationsService.prototype, "setEnabled").mockImplementation(function (this: AutomationsService, ...args) {
+      const result = setEnabled.apply(this, args);
+      observeEnable();
+      return result;
+    });
+    const ruleReads = vi.spyOn(AutomationsService.prototype, "rule");
+    try {
+      const edit = call(e.rendererToken, "automations.update", { id, expectedVersion: version, patch: { title: "更新后的提醒" } });
+      await writing;
+      ruleReads.mockClear();
+      const enable = call(e.cliToken, "automations.setEnabled", { id, enabled: true });
+      await enabling;
+      const readsWhileQueued = ruleReads.mock.calls.filter(([ruleId]) => ruleId === id).length;
+      allowWrite();
+      expect(await edit).toMatchObject({ ok: true });
+      expect(await enable).toMatchObject({ ok: true, data: { data: { title: "更新后的提醒", enabled: true } } });
+      expect(readsWhileQueued).toBe(0);
+    } finally {
+      allowWrite();
+      ruleReads.mockRestore();
+      observeCall.mockRestore();
+      observeWrite.mockRestore();
+    }
   }, 30_000);
   test("ACC-SY-06：设置里的时区立即影响日记的“今天”（两个相差 25 小时的时区得到不同日期）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });

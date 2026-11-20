@@ -353,8 +353,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: Id.extend({ enabled: z.boolean() }),
       output: Rule,
       handler: async (c, i) => {
-        if (i.enabled) assertNoAgentAction(c.caller, svc.rule(i.id).data.action as never);
-        /* 暂停永远允许 */ const r = await svc.setEnabled(i.id, i.enabled);
+        const r = await svc.setEnabled(i.id, i.enabled, (action) => assertNoAgentAction(c.caller, action));
         resync();
         return publicRule(r);
       },
