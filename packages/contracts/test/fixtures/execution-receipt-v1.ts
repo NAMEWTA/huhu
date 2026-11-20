@@ -1,6 +1,6 @@
 import type { ExecutionBinding, ExecutionReceipt, ExecutionReceiptAck, ExecutionReceiptIdentity, TasksReceiptConsumption } from "../../src/index.js";
 
-export const execution: ExecutionBinding = {
+export const execution = {
   vaultId: "vault-fixture-1",
   taskId: "task-fixture-1",
   runId: "run-fixture-1",
@@ -15,7 +15,7 @@ export const execution: ExecutionBinding = {
     provider: "codex",
     nativeSessionId: "native-fixture-1",
   },
-};
+} satisfies ExecutionBinding;
 
 function fixture<T extends ExecutionReceipt>(receipt: T, payloadSha256: string) {
   const identity: ExecutionReceiptIdentity = { version: 1, receiptId: receipt.receiptId, execution, payloadSha256 };
@@ -61,3 +61,25 @@ export const nativeQuestion = fixture(
   },
   "c0142f20a745fa97231ce252b642852203dad2f8d8dc0a65d88dcfce397ff7b1",
 );
+
+export const questionSchemaCases = [
+  { name: "native deferred with its native session", receipt: nativeQuestion.receipt, valid: true },
+  {
+    name: "native deferred without a native session",
+    receipt: { ...nativeQuestion.receipt, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: null } } },
+    valid: false,
+  },
+  {
+    name: "normal question without a native session",
+    receipt: { ...question.receipt, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: null } } },
+    valid: true,
+  },
+];
+
+export const invalidCommentMessageIds = [
+  ["LF", "message-fixture\nreview"],
+  ["CR", "message-fixture\rreview"],
+  ["trailing CRLF", "message-fixture\r\n"],
+  ["quote", 'message-fixture"review'],
+  ["attribute boundary", 'message-fixture" source="external'],
+] as const;

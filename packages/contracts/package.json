@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./execution-receipt/engine": {
+      "types": "./src/execution-receipt-engine.ts",
+      "node": "./src/execution-receipt-engine.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

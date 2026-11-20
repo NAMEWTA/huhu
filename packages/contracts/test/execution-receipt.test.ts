@@ -1,17 +1,10 @@
 import { existsSync, mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createExecutionReceiptAck, executionReceiptIdentity, validateExecutionReceipt, validateExecutionReceiptAck } from "@huhu/contracts/execution-receipt/engine";
 import { describe, expect, test } from "vitest";
-import {
-  ExecutionReceiptSchema,
-  TasksReceiptConsumptionSchema,
-  createExecutionReceiptAck,
-  executionReceiptIdentity,
-  validateExecutionReceipt,
-  validateExecutionReceiptAck,
-  type ExecutionBinding,
-  type ExecutionReceiptAckStage,
-} from "../src/index.js";
-import { execution, nativeQuestion, question, result } from "./fixtures/execution-receipt-v1.js";
+import { appendComment, buildTaskBody, parseTaskBody } from "../../vault/src/markdown/regions.js";
+import { ExecutionReceiptSchema, TasksReceiptConsumptionSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceiptAckStage } from "../src/index.js";
+import { execution, invalidCommentMessageIds, nativeQuestion, question, questionSchemaCases, result } from "./fixtures/execution-receipt-v1.js";
 
 const fixtures = [result, question, nativeQuestion];
 
@@ -69,6 +62,26 @@ describe("execution receipt v1", () => {
     expect(validateExecutionReceiptAck(result.tasksAck, "agent_received", result.identity)).toBe(false);
   });
 
+  test.each(questionSchemaCases)("validates $name", ({ receipt, valid }) => {
+    expect(ExecutionReceiptSchema.safeParse(receipt).success).toBe(valid);
+  });
+
+  test("publishes distinct native and normal question bindings in the project JSON Schema", () => {
+    const { anyOf } = toJsonSchema(ExecutionReceiptSchema) as { anyOf: Array<{ properties: { payload: { properties?: { mode?: { const: string } } } } }> };
+    for (const [mode, nativeSessionId] of [
+      ["native_deferred", { type: "string" }],
+      ["normal", { anyOf: expect.arrayContaining([{ type: "null" }]) }],
+    ]) {
+      const branch = anyOf.find(({ properties }) => properties.payload.properties?.mode?.const === mode);
+      expect(branch).toMatchObject({
+        properties: {
+          kind: { const: "question" },
+          execution: { properties: { sessionBinding: { properties: { nativeSessionId }, required: expect.arrayContaining(["nativeSessionId"]) } } },
+        },
+      });
+    }
+  });
+
   test("ACK issuance requires matching readback including original payload and delivery reconstruction data", () => {
     const { receipt, identity, consumption } = result;
     const changed = { ...receipt, payload: { message: "Different result under the same ID" } };
@@ -85,6 +98,36 @@ describe("execution receipt v1", () => {
     ]) {
       expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, stored)).toEqual({ status: "pending", reason: "missing_durable_consumption" });
     }
+  });
+});
+
+describe("Tasks delivery message ID", () => {
+  const { receipt, consumption } = result;
+  const taskBody = buildTaskBody("Synthetic task");
+  const comment = { at: "2026-11-20T00:00:00Z", source: "agent", body: receipt.payload.message } as const;
+
+  test.each(invalidCommentMessageIds)("keeps delivery pending when Markdown rewrites the %s in an ID", (_name, messageId) => {
+    const delivery = { ...consumption.delivery, messageId };
+    const written = appendComment(taskBody, { ...comment, id: messageId });
+    const comments = parseTaskBody(written.body).comments;
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.id).not.toBe(messageId);
+    expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, { ...consumption, delivery })).toEqual({ status: "pending", reason: "missing_durable_consumption" });
+  });
+
+  test.each([consumption.delivery.messageId, "message-fixture:&quot; 原样"])("retains %s verbatim on delivery and deduplicates after an ACK is lost", (messageId) => {
+    const record = TasksReceiptConsumptionSchema.parse({ ...consumption, delivery: { ...consumption.delivery, messageId } });
+    expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, record)).toEqual({ status: "ack", ack: result.tasksAck });
+
+    const first = appendComment(taskBody, { ...comment, id: record.delivery.messageId });
+    expect(first.added).toBe(true);
+    const readback = parseTaskBody(first.body);
+    expect(readback.problems).toEqual([]);
+    expect(readback.comments.map(({ id, source }) => ({ id, source }))).toEqual([{ id: messageId, source: "agent" }]);
+
+    const reloaded = TasksReceiptConsumptionSchema.parse(JSON.parse(JSON.stringify(record)));
+    expect(appendComment(first.body, { ...comment, id: reloaded.delivery.messageId })).toEqual({ body: first.body, added: false });
+    expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, reloaded)).toEqual({ status: "ack", ack: result.tasksAck });
   });
 });
 
