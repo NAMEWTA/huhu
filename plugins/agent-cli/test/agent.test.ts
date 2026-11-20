@@ -208,7 +208,7 @@ describe("Space", () => {
     const root = tmp();
     const work = tmp();
     const link = path.join(root, "link");
-    symlinkSync(work, link);
+    symlinkSync(work, link, process.platform === "win32" ? "junction" : "dir");
     const store = new SpaceStore(path.join(root, "spaces"), "m1", () => new Date("2026-11-10T00:00:00Z"));
     const a = store.save({ name: "研究", root: work });
     expect(a).toMatchObject({ revision: 1, machineId: "m1" });

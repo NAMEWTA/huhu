@@ -126,10 +126,20 @@ describe("导出的安全与内存", () => {
     const out = tmp();
     const victim = path.join(out, "victim.txt");
     writeFileSync(victim, "原内容");
-    symlinkSync(victim, path.join(out, "o.zip.partial"));
+    const reserved = path.join(out, "o.zip.partial");
+    try {
+      symlinkSync(victim, reserved, "file");
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+      const target = path.join(out, "linked-folder");
+      mkdirSync(target);
+      writeFileSync(path.join(target, "sentinel.txt"), "保留");
+      symlinkSync(target, reserved, "junction");
+    }
     const dest = path.join(out, "o.zip");
     await exportPackage(root, dest);
     expect(readFileSync(victim, "utf8")).toBe("原内容");
+    if (existsSync(path.join(out, "linked-folder"))) expect(readFileSync(path.join(out, "linked-folder", "sentinel.txt"), "utf8")).toBe("保留");
     expect(readFileSync(dest).subarray(0, 2).toString()).toBe("PK");
     expect(readdirSync(out).filter((f) => f.endsWith(".partial") && f !== "o.zip.partial")).toEqual([]);
   });

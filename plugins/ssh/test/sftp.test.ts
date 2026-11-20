@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -131,8 +131,16 @@ describe("SFTP 上传与下载", () => {
     expect(r.size).toBe(bytes.length);
     expect(srv.fs.files.get("/home/test/up.bin")!.equals(bytes)).toBe(true);
     await expect(mgr.sftpUpload(h.id, path.join(local, "up.bin"), "/home/test/up.bin", false)).rejects.toMatchObject({ code: "NAME_CONFLICT" });
-    symlinkSync(path.join(local, "up.bin"), path.join(local, "link.bin"));
-    await expect(mgr.sftpUpload(h.id, path.join(local, "link.bin"), "/home/test/l.bin", false)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const link = path.join(local, "link.bin");
+    try {
+      symlinkSync(path.join(local, "up.bin"), link, "file");
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+      const target = path.join(local, "linked-folder");
+      mkdirSync(target);
+      symlinkSync(target, link, "junction");
+    }
+    await expect(mgr.sftpUpload(h.id, link, "/home/test/l.bin", false)).rejects.toMatchObject({ code: "INVALID_INPUT" });
     await expect(mgr.sftpUpload(h.id, "relative.bin", "/home/test/r.bin", false)).rejects.toMatchObject({ code: "INVALID_INPUT" });
 
     const dest = path.join(local, "down.bin");

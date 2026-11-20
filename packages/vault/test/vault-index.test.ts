@@ -45,7 +45,8 @@ describe("VaultIndex", () => {
     });
     const ix = new VaultIndex(root);
     expect(await ix.build()).toBe(true);
-    expect(ix.entries().map((e) => e.path)).toEqual(["a", "a/研究摘要.md", "img.png", "读书笔记.md"]);
+    const paths = ["a", "a/研究摘要.md", "img.png", "读书笔记.md"].sort((a, b) => a.localeCompare(b));
+    expect(ix.entries().map((e) => e.path)).toEqual(paths);
     expect(ix.query("本周进展").hits[0]?.path).toBe("a/研究摘要.md");
     expect(ix.backlinks("读书笔记.md")).toEqual([{ path: "a/研究摘要.md", title: "研究摘要" }]);
     expect(ix.backlinks("a/研究摘要.md").map((b) => b.path)).toEqual(["读书笔记.md"]);

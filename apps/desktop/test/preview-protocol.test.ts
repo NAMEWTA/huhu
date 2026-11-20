@@ -12,6 +12,8 @@ let base: string;
 let vault: string;
 let outside: string;
 const ANCESTORS = "huhu-app://workbench";
+let escapedFile = "/pw-link.txt";
+let internalFile = "/%E5%86%85%E9%83%A8%E9%93%BE%E6%8E%A5.html";
 
 beforeAll(() => {
   base = mkdtempSync(path.join(tmpdir(), "huhu-preview-"));
@@ -31,10 +33,19 @@ beforeAll(() => {
   writeFileSync(path.join(vault, ".agents", "a.md"), "agent");
   writeFileSync(path.join(vault, "node_modules", "x", "i.js"), "1");
   writeFileSync(path.join(outside, "pw.txt"), "outside-secret");
-  symlinkSync(outside, path.join(vault, "逃逸"));
-  symlinkSync(path.join(outside, "pw.txt"), path.join(vault, "pw-link.txt"));
-  symlinkSync(path.join(vault, ".huhu"), path.join(vault, "指向内部"));
-  symlinkSync(path.join(vault, "页面", "index.html"), path.join(vault, "内部链接.html")); // Vault 内的合法链接
+  const directoryLink = process.platform === "win32" ? "junction" : "dir";
+  symlinkSync(outside, path.join(vault, "逃逸"), directoryLink);
+  symlinkSync(path.join(vault, ".huhu"), path.join(vault, "指向内部"), directoryLink);
+  try {
+    symlinkSync(path.join(outside, "pw.txt"), path.join(vault, "pw-link.txt"), "file");
+    symlinkSync(path.join(vault, "页面", "index.html"), path.join(vault, "内部链接.html"), "file");
+  } catch (error) {
+    if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    // 无文件链接权限时，经 Windows 目录联接读取同一目标文件。
+    symlinkSync(path.join(vault, "页面"), path.join(vault, "内部链接"), "junction");
+    escapedFile = "/%E9%80%83%E9%80%B8/pw.txt";
+    internalFile = "/%E5%86%85%E9%83%A8%E9%93%BE%E6%8E%A5/index.html";
+  }
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
@@ -62,9 +73,9 @@ describe("resolvePreviewPath", () => {
   });
   test("符号链接：指向 Vault 外的目录 / 文件、指向受保护目录 → 拒绝；Vault 内的合法链接放行", () => {
     expect(resolvePreviewPath(vault, "/%E9%80%83%E9%80%B8/pw.txt").ok).toBe(false);
-    expect(resolvePreviewPath(vault, "/pw-link.txt").ok).toBe(false);
+    expect(resolvePreviewPath(vault, escapedFile).ok).toBe(false);
     expect(resolvePreviewPath(vault, "/%E6%8C%87%E5%90%91%E5%86%85%E9%83%A8/secret.json").ok).toBe(false);
-    expect(resolvePreviewPath(vault, "/%E5%86%85%E9%83%A8%E9%93%BE%E6%8E%A5.html").ok).toBe(true);
+    expect(resolvePreviewPath(vault, internalFile).ok).toBe(true);
   });
   test("目录 / 不存在 / 空路径 → 404", () => {
     for (const p of ["/页面", "/页面/nope.html", "/"]) {
@@ -110,7 +121,7 @@ describe("PreviewGrants 与 handlePreviewRequest", () => {
     expect((await at("/top.js")).status).toBe(200); // ../top.js 的结果
     expect((await at("/.huhu/secret.json")).status).toBe(403);
     expect((await at("/%E9%80%83%E9%80%B8/pw.txt")).status).toBe(403);
-    expect((await at("/pw-link.txt")).status).toBe(403);
+    expect((await at(escapedFile)).status).toBe(403);
     expect((await at("/%2e%2e/outside/pw.txt")).status).not.toBe(200); // URL 规范化可能已折叠成 /outside/…（404）或被守卫拒绝（403），都不能读到
   });
   test("未知 / 已撤销 nonce → 404；非 GET → 405", async () => {
@@ -129,7 +140,7 @@ describe("PreviewGrants 与 handlePreviewRequest", () => {
     const g = new PreviewGrants();
     expect(g.grant(vault, ".huhu/secret.json").ok).toBe(false);
     expect(g.grant(vault, "../outside/pw.txt").ok).toBe(false);
-    expect(g.grant(vault, "pw-link.txt").ok).toBe(false);
+    expect(g.grant(vault, decodeURIComponent(escapedFile).slice(1)).ok).toBe(false);
     expect(g.grant(vault, "不存在.html").ok).toBe(false);
   });
   test("授权表有上限（防止无限增长）", () => {

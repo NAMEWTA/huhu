@@ -108,20 +108,35 @@ describe("变更审查：git diff HEAD", () => {
     expect((await import("node:fs")).existsSync(mark)).toBe(false);
   });
 
-  test("过大的文件只给统计；未跟踪的符号链接不跟随（不读它指向的文件）", async () => {
+  test("过大的文件只给统计", async () => {
     const r = repo();
     put(r, "keep.md", "k\n");
     git(r, "add", "-A");
     git(r, "commit", "-qm", "init");
     put(r, "keep.md", `${"很长的一行\n".repeat(LIMITS.filePatchBytes / 4)}`);
     put(r, "huge-untracked.txt", "x".repeat(LIMITS.filePatchBytes + 1));
-    symlinkSync("/etc/passwd", path.join(r, "link"));
     const d = await reviewDiff(r);
     const by = Object.fromEntries(d.files.map((f) => [f.path, f]));
     expect(by["keep.md"]).toMatchObject({ tooLarge: true, hunks: [] });
     expect(by["keep.md"]!.additions).toBeGreaterThan(1000);
     expect(by["huge-untracked.txt"]).toMatchObject({ tooLarge: true, hunks: [] });
-    expect(by["link"]).toMatchObject({ tooLarge: true, hunks: [] }); // 没有读 /etc/passwd
+  });
+
+  test("未跟踪的文件符号链接只给统计，不读目标", async ({ skip }) => {
+    const r = repo();
+    put(r, "keep.md", "k\n");
+    git(r, "add", "-A");
+    git(r, "commit", "-qm", "init");
+    const target = path.join(tmp(), "link-target.txt");
+    writeFileSync(target, "目标文件不应进入审查");
+    try {
+      symlinkSync(target, path.join(r, "link"), "file");
+    } catch (error) {
+      if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") skip("Windows 文件符号链接权限不可用");
+      throw error;
+    }
+    const d = await reviewDiff(r);
+    expect(d.files.find((file) => file.path === "link")).toMatchObject({ tooLarge: true, hunks: [] });
   });
 });
 

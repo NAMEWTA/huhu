@@ -71,7 +71,7 @@ describe("历史扫描", () => {
     const home = tmp();
     const real = realpathSync(tmp());
     const link = path.join(tmp(), "link");
-    symlinkSync(real, link);
+    symlinkSync(real, link, process.platform === "win32" ? "junction" : "dir");
     claudeFile(home, real, "r", [userRow(real, "经链接")]);
     expect(scanHistory({ roots: [link], home, env: {} }).entries.map((e) => e.nativeSessionId)).toEqual(["r"]);
   });
@@ -144,7 +144,7 @@ describe("历史扫描", () => {
     const home = tmp();
     const real = tmp();
     const link = path.join(tmp(), "link");
-    symlinkSync(real, link);
+    symlinkSync(real, link, process.platform === "win32" ? "junction" : "dir");
     claudeFile(home, link, "via-link", [userRow(real, "经链接启动")]);
     expect(scanHistory({ roots: [link], home, env: {} }).entries.map((e) => e.nativeSessionId)).toEqual(["via-link"]);
   });
