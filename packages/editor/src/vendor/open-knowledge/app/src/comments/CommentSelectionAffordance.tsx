@@ -32,7 +32,7 @@ import { useCommentsPanelOnScreen } from './comments-panel-visibility';
 import { revealComments } from './reveal-queue';
 import { selectedSpan } from './selected-span';
 import type { CommentSelectionRevision } from './comments-client';
-import { captureCommentSelectionRevision, createThread, emitStartComment, subscribeStartComment, useCommentsReadOnly } from './store';
+import { captureCommentSelectionRevision, createThread, emitStartComment, subscribeCommentNavigationInvalidated, subscribeStartComment, useCommentsReadOnly } from './store';
 
 interface Captured {
   doc: PMNode;
@@ -173,7 +173,11 @@ export function CommentSelectionAffordance({
       reset();
     };
     document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    const unsubscribe = subscribeCommentNavigationInvalidated(reset);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
   });
 
   function post() {

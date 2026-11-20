@@ -172,6 +172,12 @@ export function captureCommentSelectionRevision(docName: string): api.CommentSel
 let navigationRevision = 0;
 export function invalidateCommentNavigation(): void {
   navigationRevision++;
+  bus.dispatchEvent(new Event(NAVIGATION_INVALIDATED_EVENT));
+}
+
+export function subscribeCommentNavigationInvalidated(listener: () => void): () => void {
+  bus.addEventListener(NAVIGATION_INVALIDATED_EVENT, listener);
+  return () => bus.removeEventListener(NAVIGATION_INVALIDATED_EVENT, listener);
 }
 
 export function createThread(args: {
@@ -513,6 +519,7 @@ async function runDispatch(
 
 const FOCUS_EVENT = 'open-knowledge:comment-focus-thread';
 const OPEN_THREAD_EVENT = 'open-knowledge:comment-open-thread';
+const NAVIGATION_INVALIDATED_EVENT = 'open-knowledge:comment-navigation-invalidated';
 const START_EVENT = 'open-knowledge:comment-start';
 const POSTED_EVENT = 'open-knowledge:comment-posted';
 

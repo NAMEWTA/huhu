@@ -41,6 +41,7 @@ test("G07 收件正文的普通段落与原 OK 阅读器复制两种 MIME 一致
   const { app, page, vault, close } = await openApp();
   try {
     await engineReady(page);
+    writeFileSync(path.join(vault, "下一页.md"), "# 双链落点\n\n收件正文引用内容。\n");
     const text = "第一段自然语言。\n\nSecond paragraph for the inbox";
     const plain = await call<{ path: string }>(page, "inbox.capture", { title: "普通段落", body: text });
     // Frontmatter forces the unchanged OK reader. OK removes it before reading.
@@ -86,6 +87,9 @@ test("G07 收件正文的普通段落与原 OK 阅读器复制两种 MIME 一致
     await expect(paragraphs.locator("p")).toHaveText(text.split("\n\n"));
     await expect(ok).toHaveCount(0);
     expect(readFileSync(file, "utf8")).toBe(before);
+    await captureRow(page, "双链").click();
+    await ok.locator("[data-wiki-link]").click();
+    await expect(page.getByTestId("markdown-editor")).toContainText("收件正文引用内容。");
   } finally {
     await close();
   }

@@ -242,23 +242,27 @@ test("D05 flush 确实在途时继续编辑，过期选区须重选，重选后�
   const { page, vault, close } = await openApp();
   try {
     writeFileSync(path.join(vault, "在途.md"), "甲：同句。\n\n乙：同句。\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await call(page, "settings.update", { patch: { editor: { autosave: false } } });
+    await page.reload();
     await gotoNotes(page);
     await treeItem(page, "在途.md").click();
     await expect(prose(page)).toContainText("乙：同句。");
-    // 把真实 notes.save 回执扣住，直到第二次编辑已经送入渲染进程。
+    // 扣住由评论 flush 发出的真实保存请求，直到同一编辑器送入第二笔编辑。
     const saveStarted = page.waitForEvent("console", { predicate: (message) => message.text() === "comment test save held" });
     await page.evaluate(() => {
       const original = window.fetch.bind(window);
       const { promise, resolve } = Promise.withResolvers<void>();
+      let held = false;
       document.addEventListener("comment-test-release-save", () => resolve(), { once: true });
       window.fetch = async (input, init) => {
         const body = typeof init?.body === "string" ? init.body : "";
-        if (!body.includes('"notes.save"')) return original(input, init);
-        window.fetch = original;
-        const response = await original(input, init);
-        console.info("comment test save held");
-        await promise;
-        return response;
+        if (!held && body.includes('"notes.save"')) {
+          held = true;
+          console.info("comment test save held");
+          await promise;
+        }
+        return original(input, init);
       };
     });
     await prose(page).focus();
@@ -274,10 +278,11 @@ test("D05 flush 确实在途时继续编辑，过期选区须重选，重选后�
       await page.keyboard.press("ControlOrMeta+Home");
       await page.keyboard.insertText("丙：同句。");
       await expect(prose(page)).toContainText("丙：同句。新前缀");
+      await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
     } finally {
       await page.evaluate(() => document.dispatchEvent(new Event("comment-test-release-save")));
     }
-    await expect(page.getByText(/请重新选择/)).toBeVisible();
+    await expect(page.getByText(/请重新选择/)).toBeVisible({ timeout: 15_000 });
     expect(commentFiles(vault)).toHaveLength(0);
 
     await selectText(page, "同句", 2);

@@ -73,7 +73,7 @@
       "target": "app/src/comments/CommentSelectionAffordance.tsx",
       "upstream": "packages/app/src/comments/CommentSelectionAffordance.tsx",
       "blob": "1ac120109b8a0b62e820c0ef92f8b58a4ffa1dd5",
-      "sha256": "a9a046a88a6bc3406e69369f893c57ad6d703ea07c7b5b48e7af65e4c8f48083",
+      "sha256": "3354229c359f285c850deda3d5f50d1c4421d95a2a298b48e2b9bd064ece97df",
       "method": "patch",
       "description": "PATCHES.md:24 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
     },
@@ -430,7 +430,7 @@
       "target": "app/src/comments/store.ts",
       "upstream": "packages/app/src/comments/store.ts",
       "blob": "e5b6e5154a419f3138a42549a8adffcfbf94fd09",
-      "sha256": "7789275995991f22d540f9395e625acb3df1bee37da983ff38a2690633a27793",
+      "sha256": "b30fb6004d688dcf2efc9e63f51dc34c4ee25b3cb9b8d33b861c85dd54cd72c7",
       "method": "patch",
       "description": "PATCHES.md:17 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。"
     },

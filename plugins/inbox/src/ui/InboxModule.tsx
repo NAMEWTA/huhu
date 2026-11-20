@@ -1,12 +1,13 @@
 import { CompactMarkdownReader } from "@huhu/editor/reading";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient, useReferenceIndex } from "@huhu/workbench";
+import { requestOpenPath, useCapability, useEngine, useQueryClient, useReferenceIndex, type ModuleProps } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { t } from "./i18n.js";
 
 // 紧凑 OK 编辑器（S2c）按需加载：收件箱的首屏不带编辑器闭包
+const CompactView = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownView })));
 const CompactInput = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownInput })));
 
 interface Capture {
@@ -31,7 +32,7 @@ const TARGET_TEXT: Record<Target, string> = { task: "任务", note: "笔记", ar
 const shortDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("zh-CN") : "");
 
 /** 收件箱（原型 InboxView）：左侧状态分段 + 搜索 + 来源筛选 + 批量归档的列表；右侧快速捕获条与详情（待处理的三种整理方式 / 已处理的结果 / 已归档的恢复）。 */
-export function InboxModule() {
+export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [status, setStatus] = useState<Status>("pending");
@@ -223,7 +224,13 @@ export function InboxModule() {
             </div>
             <h2>{cur.title}</h2>
             <div className="inbox-knowledge-inbox-note">
-              <CompactMarkdownReader id={`inbox-${cur.id}-${cur.version}`} value={cur.body.trim() || "这条记录还没有补充内容。"} />
+              <CaptureReader
+                item={cur}
+                onOpen={(target) => {
+                  requestOpenPath(target);
+                  onNavigate?.("notes");
+                }}
+              />
             </div>
             {cur.status === "pending" ? (
               <>
@@ -372,6 +379,17 @@ export function InboxModule() {
       ) : null}
     </div>
   );
+}
+
+function CaptureReader({ item, onOpen }: { item: Capture; onOpen(path: string): void }) {
+  const id = `inbox-${item.id}-${item.version}`;
+  const value = item.body.trim() || "这条记录还没有补充内容。";
+  return <CompactMarkdownReader id={id} value={value} fallback={<LinkedCaptureView key={id} id={id} value={value} onOpen={onOpen} />} />;
+}
+
+function LinkedCaptureView({ id, value, onOpen }: { id: string; value: string; onOpen(path: string): void }) {
+  const refs = useReferenceIndex();
+  return <CompactView id={id} value={value} pages={refs.pages} onOpenPath={onOpen} className="editor-ok-compact-view" />;
 }
 
 function CaptureBodyInput({ value, onPort }: { value: string; onPort(port: RichEditorPort | null): void }) {
