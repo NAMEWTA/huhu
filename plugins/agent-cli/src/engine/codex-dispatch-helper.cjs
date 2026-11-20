@@ -55,7 +55,11 @@ function main(file) {
   let server;
   let threadId;
   let turnId;
-  let completed;
+  let executionBinding;
+  const questions = new Map();
+  const finals = new Map();
+  const completed = new Map();
+  const emitted = new Set();
   let closing = false;
   let submitted = false;
   let serial = 0;
@@ -77,10 +81,76 @@ function main(file) {
     log(state);
   }
 
-  function finishIfMatched() {
-    if (!turnId || completed !== turnId) return;
+  const validId = (value) => typeof value === "string" && id.test(value);
+  const validText = (value, limit) => typeof value === "string" && value.length <= limit && /\S/.test(value) && value.isWellFormed();
+  const hash = (values) => createHash("sha256").update(JSON.stringify(values)).digest("hex");
+
+  function report(source, payload) {
+    const { vaultId, runId, attempt, dispatchId, sessionBinding } = executionBinding;
+    const receiptId = "codex-" + hash([vaultId, runId, attempt, dispatchId, sessionBinding.processGeneration, source.kind, source.threadId, source.turnId, source.itemId, source.rpcId, source.questionId]);
+    if (emitted.has(receiptId)) return;
+    const receipt = { version: 1, receiptId, execution: executionBinding, kind: source.kind, payload };
+    save("report-" + receiptId, { source, receipt });
+    emitted.add(receiptId);
+  }
+
+  function publishBoundReports() {
+    if (!turnId) return;
+    const status = completed.get(turnId);
+    if (!status) {
+      for (const { source, question } of questions.values()) {
+        if (source.turnId !== turnId) continue;
+        const nativeRequestId = "codex-request-" + hash([threadId, turnId, source.itemId, source.rpcId]);
+        report(source, {
+          mode: "native_deferred",
+          nativeRequestId,
+          requestId: "codex-question-" + hash([nativeRequestId, question.id]),
+          requestVersion: 1,
+          text: question.question,
+          options: question.options.map(({ label }) => label),
+        });
+      }
+      return;
+    }
+    const final = finals.get(turnId);
+    if (status === "completed" && final) report(final.source, { message: final.text });
     save("completed", { threadId, turnId });
     stop("original turn ended");
+  }
+
+  function boundQuestion(rpcId, params) {
+    if (!submitted || params?.threadId !== threadId || !validId(params.turnId) || !validId(params.itemId) || (turnId && params.turnId !== turnId) || completed.has(params.turnId)) return false;
+    if (!(Number.isSafeInteger(rpcId) || validId(rpcId)) || params.isBlocking !== true || !Array.isArray(params.questions) || params.questions.length !== 1) return false;
+    const [question] = params.questions;
+    if (!validId(question?.id) || typeof question.header !== "string" || !validText(question.question, 8_000)) return false;
+    if ((question.isSecret !== undefined && question.isSecret !== false) || (question.isOther !== undefined && question.isOther !== false)) return false;
+    if (!Array.isArray(question.options) || question.options.length < 2 || question.options.length > 8) return false;
+    if (!question.options.every((option) => validText(option?.label, 512) && typeof option.description === "string" && option.isOther !== true)) return false;
+    if (new Set(question.options.map(({ label }) => label)).size !== question.options.length) return false;
+    if (!questions.has(rpcId)) {
+      if (questions.size >= 32) return false;
+      const source = { kind: "question", threadId, turnId: params.turnId, itemId: params.itemId, rpcId, questionId: question.id };
+      questions.set(rpcId, { source, question });
+    }
+    publishBoundReports();
+    return true;
+  }
+
+  function nativeNotice(method, params) {
+    if (!submitted || params?.threadId !== threadId) return;
+    if (method === "serverRequest/resolved") {
+      questions.delete(params.requestId);
+    } else if (method === "item/completed" && validId(params.turnId) && (!turnId || params.turnId === turnId)) {
+      const item = params.item;
+      if (item?.type !== "agentMessage" || item.phase !== "final_answer" || !validId(item.id) || !validText(item.text, 64_000)) return;
+      const prior = finals.get(params.turnId);
+      if (prior === undefined && finals.size < 32) finals.set(params.turnId, { source: { kind: "result", threadId, turnId: params.turnId, itemId: item.id }, text: item.text });
+      else if (prior && (prior.source.itemId !== item.id || prior.text !== item.text)) finals.set(params.turnId, null);
+    } else if (method === "turn/completed" && validId(params.turn?.id) && (!turnId || params.turn.id === turnId)) {
+      const { id: completedId, status } = params.turn;
+      if (["completed", "failed", "interrupted"].includes(status) && completed.size < 32) completed.set(completedId, status);
+      publishBoundReports();
+    }
   }
 
   function submit(data) {
@@ -106,6 +176,7 @@ function main(file) {
     )
       return;
     submitted = true;
+    executionBinding = execution;
     const inputSha256 = createHash("sha256").update(input).digest("hex");
     const clientUserMessageId = createHash("sha256")
       .update(JSON.stringify([execution, inputSha256]))
@@ -119,7 +190,7 @@ function main(file) {
         .digest("hex");
       save("receipt", { id: acceptanceId, execution, inputSha256, nativeTurnId: turnId });
       log("provider accepted the original input");
-      finishIfMatched();
+      publishBoundReports();
     });
   }
 
@@ -172,11 +243,8 @@ function main(file) {
       const { id: rpcId, method, result, error, params } = JSON.parse(line);
       if (typeof method === "string") {
         if (rpcId !== undefined) {
-          send({ id: rpcId, error: { code: -32601, message: "This client cannot handle the request" } });
-        } else if (method === "turn/completed" && threadId && params?.threadId === threadId && ["completed", "failed", "interrupted"].includes(params.turn?.status)) {
-          completed = params.turn?.id;
-          finishIfMatched();
-        }
+          if (method !== "item/tool/requestUserInput" || !boundQuestion(rpcId, params)) send({ id: rpcId, error: { code: -32601, message: "This client cannot handle the request" } });
+        } else nativeNotice(method, params);
         return;
       }
       const accept = pending.get(rpcId);

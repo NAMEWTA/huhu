@@ -673,12 +673,23 @@ export class SessionsService {
     return vaultId === this.d.vaultId && binding.machineId === this.d.spaces.machineId && owner.generation === binding.processGeneration && owner.address === binding.coreAddress && owner.coreId === binding.coreId;
   }
 
-  nativeEvidence(execution: ExecutionBinding) {
+  private nativeOwner(execution: ExecutionBinding) {
     const session = this.list().find(({ id }) => id === execution.sessionBinding.sessionId);
     if (!session?.controlled || this.recordedLaunch(session.requestId)?.id !== session.id) return null;
     const owner = this.executionOwner(session);
     if (!owner || !this.matchesExecution(owner, execution)) return null;
+    return owner;
+  }
+
+  nativeEvidence(execution: ExecutionBinding) {
+    const owner = this.nativeOwner(execution);
+    if (!owner) return null;
     return this.d.codex?.evidence(execution, owner) ?? null;
+  }
+
+  nativeReports(execution: ExecutionBinding, inputSha256: string) {
+    const owner = this.nativeOwner(execution);
+    return owner && this.d.codex ? this.d.codex.reports(execution, owner, inputSha256) : [];
   }
 
   async writeExecutionInput(execution: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {

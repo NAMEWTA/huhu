@@ -23,6 +23,7 @@ import { registerDispatch } from "./dispatch-capabilities.js";
 import { InputOwnership } from "./input-ownership.js";
 import type { AgentId } from "../shared/catalog.js";
 import { CodexDispatch, type CodexDispatchOptions } from "./codex-dispatch.js";
+import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -48,6 +49,7 @@ export interface AgentCliOptions {
   /** Engine-owned provider protocols. Omit a provider that cannot prove input acceptance. */
   dispatchProviders?: Partial<Record<AgentId, DispatchProvider>>;
   codexDispatch?: CodexDispatchOptions | undefined;
+  receiptCheckMs?: number;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
@@ -97,6 +99,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new"], transport: "native" };
   const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
   registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers, signal: lifetime.signal }));
+  if (opts.codexDispatch && !api.vault.files.readOnly) {
+    const receipts = new ExecutionReceipts(path.join(opts.codexDispatch.root, "agent-receipts"), { vaultId, machineId: mid });
+    ctx.effect(() => pollExecutionReceipts(api, dispatchStore, sessions, receipts, lifetime.signal, opts.receiptCheckMs ?? 5_000));
+  }
 
   // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
   const waiting = new WaitingWatcher({

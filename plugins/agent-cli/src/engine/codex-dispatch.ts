@@ -1,15 +1,17 @@
 import { execFile } from "node:child_process";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { errors, HuhuError, type ExecutionBinding } from "@huhu/contracts";
+import { errors, ExecutionReceiptAckSchema, ExecutionReceiptSchema, HuhuError, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck } from "@huhu/contracts";
+import { executionReceiptIdentity, validateExecutionReceiptAck } from "@huhu/contracts/execution-receipt/engine";
 import { z } from "zod";
 import { entryOf, type AgentSettingsFile } from "../shared/settings.js";
 import { launchHash } from "./launch-binding.js";
 import { ProviderAcceptance } from "./dispatch-store.js";
+import { putReceiptFile } from "./execution-receipts.js";
 import type { LaunchInput } from "./sessions.js";
 
 const Version = "codex-cli 0.171.0";
@@ -18,6 +20,11 @@ const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive() });
 const Launch = z.object({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id });
 const Completion = z.object({ threadId: Id, turnId: Id });
+const Item = z.strictObject({ threadId: Id, turnId: Id, itemId: Id });
+const NativeReport = z.strictObject({
+  source: z.discriminatedUnion("kind", [Item.extend({ kind: z.literal("question"), rpcId: z.union([z.int(), Id]), questionId: Id }), Item.extend({ kind: z.literal("result") })]),
+  receipt: ExecutionReceiptSchema,
+});
 const exec = promisify(execFile);
 
 export interface CodexDispatchOptions {
@@ -34,6 +41,7 @@ type CodexPlan = { node: string; helper: string; command: string; args: string[]
 type Identity = Omit<z.infer<typeof Launch>, "secret">;
 type Control = Identity & { secret: string; directory: string };
 type BoundSession = { id: string; coreId: string; attempt: string; address: string; pid: number };
+type PendingReport = { receipt: ExecutionReceipt; acknowledge(ack: ExecutionReceiptAck): void };
 
 const unavailable = () => new HuhuError("HEADLESS_UNSUPPORTED", "当前配置无法验证 Codex 受控派遣");
 const signature = (key: string, purpose: string, data: unknown) =>
@@ -160,6 +168,31 @@ export class CodexDispatch {
     if (!proof?.nativeTurnId || launchHash(proof.execution) !== launchHash(execution)) return null;
     const completed = signedFile(bound.control, "completed", Completion);
     return { proof, finished: completed?.threadId === bound.thread.threadId && completed.turnId === proof.nativeTurnId };
+  }
+
+  *reports(execution: ExecutionBinding, session: BoundSession, inputSha256: string): Iterable<PendingReport> {
+    const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
+    if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return;
+    const { control } = bound;
+    const proof = signedFile(control, "receipt", ProviderAcceptance);
+    if (!proof?.nativeTurnId || proof.inputSha256 !== inputSha256 || launchHash(proof.execution) !== launchHash(execution)) return;
+    for (const file of readdirSync(control.directory).sort()) {
+      const match = /^report-(codex-[a-f0-9]{64})\.json$/.exec(file);
+      if (!match) continue;
+      const report = signedFile(control, file.slice(0, -5), NativeReport);
+      if (!report) continue;
+      const { source, receipt } = report;
+      if (receipt.receiptId !== match[1] || receipt.kind !== source.kind || source.threadId !== bound.thread.threadId || source.turnId !== proof.nativeTurnId) continue;
+      if (receipt.kind === "question" && receipt.payload.mode !== "native_deferred") continue;
+      const ackName = "agent-ack-" + receipt.receiptId;
+      const ack = signedFile(control, ackName, ExecutionReceiptAckSchema);
+      if (validateExecutionReceiptAck(ack, "agent_received", executionReceiptIdentity(receipt))) continue;
+      yield { receipt, acknowledge: (acknowledgement) => this.acknowledgeReport(control, ackName, acknowledgement) };
+    }
+  }
+
+  acknowledgeReport(control: Control, name: string, ack: ExecutionReceiptAck): void {
+    putReceiptFile(path.join(control.directory, name + ".json"), { data: ack, mac: signature(control.secret, name, ack) }, true);
   }
 
   async connect(execution: ExecutionBinding, session: BoundSession, signal: AbortSignal): Promise<{ submit(input: string): void; close(): void } | null> {
