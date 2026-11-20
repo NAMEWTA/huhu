@@ -2,7 +2,8 @@ import { z } from "zod";
 import { attachmentRefs } from "./draft-attachments.js";
 
 export const uuid = z.uuidv4().toLowerCase();
-const recipients = z.array(z.string().trim().toLowerCase().max(254).pipe(z.email())).max(1_000);
+export const draftRecipient = z.string().trim().toLowerCase().max(254).pipe(z.email());
+const recipients = z.array(draftRecipient).max(1_000);
 const maxBodyBytes = 1024 * 1024;
 
 // Tiptap/ProseMirror document JSON. Preserve editor node and mark attributes as supplied.

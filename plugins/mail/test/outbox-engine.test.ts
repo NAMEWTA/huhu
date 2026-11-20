@@ -372,11 +372,266 @@ testWindows(
       expect(outbox.status({ operationId: refused.operationId })).toMatchObject({ state: "not-delivered", smtpCode: 554 });
       expect(outbox.status({ operationId: unknown.operationId })).toMatchObject({ state: "unknown", messageId: unknown.messageId });
       expect(outbox.status({ operationId: unwritten.operationId })).toMatchObject({ state: "unknown", reason: "result-not-recorded", messageId: unwritten.messageId });
+      for (const [parent, draft] of [
+        [unknown, unknownDraft],
+        [unwritten, unwrittenDraft],
+      ] as const) {
+        expect(outbox.status({ operationId: parent.operationId })).toMatchObject({ retryableRecipients: [] });
+        await expect(outbox.retry({ parentOperationId: parent.operationId, expectedRevision: draft.expectedRevision, recipients: [to] })).rejects.toMatchObject({ details: { reason: "retry-recipient-ineligible" } });
+      }
       expect(await outbox.submit(refusedDraft)).toEqual(refused);
       expect(await outbox.submit(unknownDraft)).toEqual(unknown);
       expect(await outbox.submit(unwrittenDraft)).toEqual(unwritten);
       expect(smtp.counts).toEqual({ connections: 5, authenticated: 5, data: 4 });
       console.log(JSON.stringify({ scenario: "outcomes-after-reopen", refusal: 554, envelopeRefusal: 550, unknown: unknown.operationId, resultNotRecorded: unwritten.operationId, ...smtp.counts }));
+
+      smtp.configure("reject-rcpt");
+      const failedRetry = await outbox.retry({ parentOperationId: refused.operationId, expectedRevision: refusedDraft.expectedRevision, recipients: [to] });
+      await expect.poll(() => outbox.status({ operationId: failedRetry.operationId })).toMatchObject({ state: "not-delivered", retryableRecipients: [to] });
+      expect(smtp.counts.data).toBe(4);
+      smtp.configure("accept");
+      const resolvedRetry = await outbox.retry({ parentOperationId: failedRetry.operationId, expectedRevision: refusedDraft.expectedRevision, recipients: [to] });
+      await expect
+        .poll(() => outbox.status({ operationId: resolvedRetry.operationId }))
+        .toMatchObject({
+          state: "accepted",
+          retry: { parentOperationId: failedRetry.operationId, parentMessageId: failedRetry.messageId, originalOperationId: refused.operationId, originalMessageId: refused.messageId },
+          recipients: [{ address: to, state: "accepted" }],
+        });
+      expect(smtp.messages.at(-1)?.recipients).toEqual([to]);
+      expect(smtp.counts.data).toBe(5);
+    });
+  },
+  120_000,
+);
+
+testWindows(
+  "Windows Engine 只重试选定的明确拒收地址，删除本地详情后仍保留防重认领",
+  async () => {
+    await fixture(async ({ root, smtp, password, open }) => {
+      let engine = await open({ create: true });
+      let { outbox, attachments } = services(engine);
+      const { accountId } = await account(engine, smtp.port, password);
+      const rejected = "refused@example.invalid";
+      const unselected = "refused@other.example.invalid";
+      const start = await save(engine, accountId, randomUUID(), null, { cc: [rejected], bcc: [unselected] });
+      const data = Buffer.from("outbox attachment fixture");
+      const attached = await attachments.addAttachment(start, {
+        name: "outbox.bin",
+        size: data.length,
+        async *read() {
+          yield data;
+        },
+      });
+      const digest = attached.draft.attachments?.[0]?.digest;
+      assert(digest);
+      const original = { draftId: start.draftId, expectedRevision: attached.draft.revision };
+      smtp.configure("partial");
+      const first = await outbox.submit(original);
+      const firstKey = { operationId: first.operationId };
+      await expect
+        .poll(() => outbox.status(firstKey))
+        .toMatchObject({
+          state: "partially-accepted",
+          recipients: [
+            { address: to, state: "accepted" },
+            { address: rejected, state: "not-delivered", smtpCode: 550 },
+            { address: unselected, state: "not-delivered", smtpCode: 550 },
+          ],
+          retryableRecipients: [rejected, unselected],
+        });
+      expect(await call(engine, "mail.outbox.list", {})).toMatchObject({ ok: true, data: { operations: [{ operationId: first.operationId, state: "partially-accepted" }] } });
+      expect(smtp.messages[0]?.recipients).toEqual([to]);
+
+      const withoutB = await save(engine, accountId, start.draftId, original.expectedRevision, { cc: [], bcc: [unselected] });
+      await expect(outbox.retry({ parentOperationId: first.operationId, expectedRevision: withoutB.expectedRevision, recipients: [rejected] })).rejects.toMatchObject({ details: { reason: "retry-recipient-missing" } });
+      const corrected = await save(engine, accountId, start.draftId, withoutB.expectedRevision, { subject: "corrected delivery", cc: [rejected], bcc: [unselected] });
+      const retry = { parentOperationId: first.operationId, expectedRevision: corrected.expectedRevision, recipients: [rejected] };
+      await expect(outbox.retry({ ...retry, expectedRevision: original.expectedRevision })).rejects.toMatchObject({ code: "VERSION_CONFLICT", details: { currentVersion: corrected.expectedRevision } });
+      await expect(outbox.retry({ ...retry, recipients: [to, rejected] })).rejects.toMatchObject({ details: { reason: "retry-recipient-ineligible" } });
+      await expect(outbox.submit(corrected)).rejects.toMatchObject({ details: { reason: "retry-required" } });
+      expect(smtp.counts).toEqual({ connections: 1, authenticated: 1, data: 1 });
+
+      smtp.configure("accept");
+      const response = await call(engine, "mail.outbox.retry", retry);
+      assert(response.ok);
+      const one = outboxReceipt.parse(response.data);
+      const [repeat, overlap] = await Promise.all([outbox.retry({ ...retry, recipients: [rejected.toUpperCase()] }), outbox.retry({ ...retry, recipients: [rejected, unselected] }).catch((error) => error)]);
+      expect(repeat).toEqual(one);
+      expect(overlap).toMatchObject({ details: { reason: "retry-recipient-ineligible" } });
+      expect(one.operationId).not.toBe(first.operationId);
+      expect(one.messageId).not.toBe(first.messageId);
+      const secondKey = { operationId: one.operationId };
+      await expect
+        .poll(() => outbox.status(secondKey))
+        .toMatchObject({
+          state: "accepted",
+          draftId: start.draftId,
+          revision: corrected.expectedRevision,
+          retry: { parentOperationId: first.operationId, originalOperationId: first.operationId, parentMessageId: first.messageId, originalMessageId: first.messageId },
+          recipients: [{ address: rejected, state: "accepted", smtpCode: 250 }],
+          retryableRecipients: [],
+        });
+      expect(outbox.status(firstKey)).toMatchObject({ state: "partially-accepted", retryableRecipients: [unselected], messageId: first.messageId });
+      expect(smtp.messages.map(({ recipients }) => recipients)).toEqual([[to], [rejected]]);
+      const wire = smtp.messages[1]!.wire;
+      expect(wire).toContain(`Message-ID: ${one.messageId}`);
+      expect(wire).toContain("Subject: corrected delivery");
+      expect(wire).not.toContain(to);
+      expect(wire).not.toContain(unselected);
+
+      await engine.shutdown();
+      engine = await open();
+      ({ outbox, attachments } = services(engine));
+      expect(outbox.status(firstKey)).toMatchObject({ state: "partially-accepted", retryableRecipients: [unselected] });
+      expect(outbox.status(secondKey)).toMatchObject({ state: "accepted", messageId: one.messageId });
+      expect(await outbox.retry(retry)).toEqual(one);
+      const readonly = await open({ readOnly: true });
+      expect(services(readonly).outbox.status(secondKey)).toMatchObject({ state: "accepted" });
+      await expect(services(readonly).outbox.retry(retry)).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+      await expect(services(readonly).outbox.deleteLocal(secondKey)).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+
+      const removed = await attachments.removeAttachment({ ...corrected, digest });
+      const childFile = path.join(engine.vault.root, outboxDir, `${one.operationId}.json`);
+      const fullRecord = readFileSync(childFile);
+      const rename = fs.rename;
+      const failure = vi.spyOn(fs, "rename").mockImplementation((from, to, callback) => {
+        if (to !== childFile) return rename(from, to, callback);
+        callback(Object.assign(new Error("synthetic local deletion failure"), { code: "EIO" }));
+      });
+      try {
+        await expect(outbox.deleteLocal(secondKey)).rejects.toMatchObject({ details: { reason: "outbox-write-failed" } });
+      } finally {
+        failure.mockRestore();
+      }
+      expect(readFileSync(childFile)).toEqual(fullRecord);
+      expect(outbox.status(secondKey)).toMatchObject({ state: "accepted" });
+
+      expect(await call(engine, "mail.outbox.deleteLocal", secondKey)).toMatchObject({ ok: true, data: { ...secondKey, deleted: true } });
+      expect(await outbox.deleteLocal(secondKey)).toEqual({ ...secondKey, deleted: true });
+      const shortened = JSON.parse(readFileSync(childFile, "utf8"));
+      expect(shortened).toEqual({
+        format: 1,
+        ...secondKey,
+        draftId: start.draftId,
+        revision: corrected.expectedRevision,
+        messageId: one.messageId,
+        deleted: true,
+        retry: { parentOperationId: first.operationId, recipientKeys: [expect.stringMatching(/^[0-9a-f]{64}$/)] },
+      });
+      expect(await call(engine, "mail.outbox.status", secondKey)).toMatchObject({ ok: true, data: null });
+      expect(outbox.list().map(({ operationId }) => operationId)).toEqual([first.operationId]);
+      expect(await outbox.retry(retry)).toEqual(one);
+      await expect(outbox.retry({ ...retry, expectedRevision: removed.revision })).rejects.toMatchObject({ details: { reason: "retry-recipient-ineligible" } });
+      expect(await attachments.sweepUnreferenced()).toEqual({ removed: [], failed: [] });
+
+      expect(await outbox.deleteLocal(firstKey)).toEqual({ ...firstKey, deleted: true });
+      expect(outbox.status(firstKey)).toBeNull();
+      expect(outbox.list()).toEqual([]);
+      expect(await attachments.sweepUnreferenced()).toEqual({ removed: [digest], failed: [] });
+      expect(await outbox.submit(original)).toEqual(first);
+      expect(await outbox.retry(retry)).toEqual(one);
+      await expect(outbox.retry({ ...retry, recipients: [unselected] })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      const archive = path.join(root, "deleted-local.zip");
+      const restoredPath = path.join(root, "restored-deleted");
+      const manifest = await attachments.withSnapshot((signal) => exportPackage(engine.vault.root, archive, { signal }));
+      expect(manifest.files.some(({ path: item }) => item.endsWith(`/${digest}`))).toBe(false);
+      importPackage(archive, restoredPath, { regenerateId: true });
+      const restoredOutbox = services(await open({ vaultPath: restoredPath })).outbox;
+      expect(restoredOutbox.list()).toEqual([]);
+      expect(await restoredOutbox.submit(original)).toEqual(first);
+      expect(await restoredOutbox.retry(retry)).toEqual(one);
+      await expect(restoredOutbox.submit({ draftId: start.draftId, expectedRevision: removed.revision })).rejects.toMatchObject({ details: { reason: "retry-required" } });
+      expect(smtp.counts).toEqual({ connections: 2, authenticated: 2, data: 2 });
+      console.log(
+        JSON.stringify({
+          scenario: "selective-retry-and-delete",
+          operationId: first.operationId,
+          retryOperationId: one.operationId,
+          smtpRecipients: smtp.messages.map(({ recipients }) => recipients),
+          ...smtp.counts,
+          restoredLocalRecords: 0,
+        }),
+      );
+    });
+  },
+  120_000,
+);
+
+testWindows(
+  "Windows Engine 关闭途中保留未知，迟到结果无法恢复已删除详情",
+  async () => {
+    await fixture(async ({ smtp, password, open }) => {
+      let engine = await open({ create: true });
+      let { outbox } = services(engine);
+      const { accountId } = await account(engine, smtp.port, password);
+      const draft = await save(engine, accountId);
+      const gotData = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      smtp.configure("accept", () => {
+        gotData.resolve();
+        return release.promise;
+      });
+      const pending = await outbox.submit(draft);
+      await gotData.promise;
+      try {
+        expect(outbox.status({ operationId: pending.operationId })).toMatchObject({ state: "sending", retryableRecipients: [] });
+        await engine.shutdown();
+      } finally {
+        release.resolve();
+      }
+      engine = await open();
+      ({ outbox } = services(engine));
+      expect(outbox.status({ operationId: pending.operationId })).toMatchObject({
+        state: "unknown",
+        recipients: [
+          { address: to, state: "unknown" },
+          { address: bcc, state: "unknown" },
+        ],
+        retryableRecipients: [],
+      });
+      await expect(outbox.retry({ parentOperationId: pending.operationId, expectedRevision: draft.expectedRevision, recipients: [to] })).rejects.toMatchObject({ details: { reason: "retry-recipient-ineligible" } });
+      expect(await outbox.submit(draft)).toEqual(pending);
+      expect(smtp.counts.data).toBe(1);
+
+      const secondDraft = await save(engine, accountId);
+      const gotSecondData = Promise.withResolvers<void>();
+      const releaseSecond = Promise.withResolvers<void>();
+      smtp.configure("accept", () => {
+        gotSecondData.resolve();
+        return releaseSecond.promise;
+      });
+      const second = await outbox.submit(secondDraft);
+      const secondKey = { operationId: second.operationId };
+      await gotSecondData.promise;
+      const lateWrite = Promise.withResolvers<void>();
+      const files = engine.vault.files;
+      const write = files.write.bind(files);
+      const observe = vi.spyOn(files, "write").mockImplementation(async (relative, bytes, options) => {
+        try {
+          return await write(relative, bytes, options);
+        } finally {
+          if (relative.startsWith(outboxDir) && JSON.parse(Buffer.from(bytes).toString("utf8")).result) lateWrite.resolve();
+        }
+      });
+      try {
+        expect(outbox.status(secondKey)).toMatchObject({ state: "sending" });
+        await outbox.deleteLocal(secondKey);
+        releaseSecond.resolve();
+        await lateWrite.promise;
+      } finally {
+        releaseSecond.resolve();
+        observe.mockRestore();
+      }
+      expect(outbox.status(secondKey)).toBeNull();
+      expect(await outbox.submit(secondDraft)).toEqual(second);
+      await engine.shutdown();
+      const reopened = services(await open()).outbox;
+      expect(reopened.status(secondKey)).toBeNull();
+      expect(reopened.status({ operationId: pending.operationId })).toMatchObject({ state: "unknown" });
+      expect(smtp.counts).toEqual({ connections: 2, authenticated: 2, data: 2 });
+      console.log(JSON.stringify({ scenario: "shutdown-and-delete-race", unresolved: pending.operationId, deleted: second.operationId, ...smtp.counts }));
     });
   },
   120_000,

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
 import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
 import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
-import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxStatusInput, outboxSubmitInput, outboxView, type MailOutboxService } from "./outbox.js";
+import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outboxStatusInput, outboxSubmitInput, outboxSummary, outboxView, type MailOutboxService } from "./outbox.js";
 import type { MailSmtpTransport } from "./smtp.js";
 
 const draftKey = z.strictObject({ draftId: uuid });
@@ -276,7 +276,10 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
   } satisfies MailDraftAttachments);
   api.provide(MAIL_OUTBOX_SERVICE, {
     submit: outbox.submit.bind(outbox),
+    retry: outbox.retry.bind(outbox),
     status: outbox.status.bind(outbox),
+    list: outbox.list.bind(outbox),
+    deleteLocal: outbox.deleteLocal.bind(outbox),
   } satisfies MailOutboxService);
   api.defineCapability(
     defineCapability({
@@ -302,6 +305,47 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
       handler: ({ caller }, input) => {
         authorize(caller, "mail.outbox.status");
         return outbox.status(input);
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...workbenchDraft,
+      name: "mail.outbox.list",
+      scope: "read",
+      input: z.strictObject({}),
+      output: z.strictObject({ operations: z.array(outboxSummary) }),
+      handler: ({ caller }) => {
+        authorize(caller, "mail.outbox.list");
+        return { operations: outbox.list() };
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...workbenchDraft,
+      name: "mail.outbox.retry",
+      scope: "execute",
+      idempotency: "handler",
+      input: outboxRetryInput,
+      output: outboxReceipt,
+      handler: ({ caller, signal }, input) => {
+        authorize(caller, "mail.outbox.retry");
+        return outbox.retry(input, signal);
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...workbenchDraft,
+      name: "mail.outbox.deleteLocal",
+      scope: "write",
+      idempotency: "handler",
+      input: outboxStatusInput,
+      output: outboxStatusInput.extend({ deleted: z.literal(true) }),
+      handler: ({ caller, signal }, input) => {
+        authorize(caller, "mail.outbox.deleteLocal");
+        return outbox.deleteLocal(input, signal);
       },
     }),
   );

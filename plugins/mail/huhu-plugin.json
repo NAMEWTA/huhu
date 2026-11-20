@@ -20,7 +20,10 @@
       "mail.drafts.save",
       "mail.drafts.discard",
       "mail.outbox.submit",
-      "mail.outbox.status"
+      "mail.outbox.status",
+      "mail.outbox.list",
+      "mail.outbox.retry",
+      "mail.outbox.deleteLocal"
     ],
     "fileKinds": []
   }
