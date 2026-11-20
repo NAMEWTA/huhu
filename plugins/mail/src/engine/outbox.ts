@@ -219,6 +219,7 @@ export class MailOutbox {
   private async claim({ operationId, draftId, revision, retry, selected }: Claim, signal: AbortSignal) {
     const frozen = this.drafts.freezeForSend(draftId, revision);
     const draft = selected ? retainSelected(frozen.draft, selected) : frozen.draft;
+    if (draft.reply && draft.accountId !== draft.reply.accountId) throw unavailable("reply-origin-mismatch", "回复必须使用原邮件所属的邮箱。");
     if (!recipientsOf(draft).length) throw unavailable("recipient-required", "请添加至少一个收件人");
     const { accounts, transport } = this;
     const sender = draft.accountId && (await accounts?.list())?.find(({ accountId }) => accountId === draft.accountId);
@@ -255,9 +256,21 @@ export class MailOutbox {
     try {
       outcome = await accounts.withSmtpCredentials(accountId, async (settings, password) => {
         if (!sameSender(intent, settings) || this.lifetime.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
-        const { to, cc, bcc, subject } = intent.draft;
+        const { to, cc, bcc, subject, reply: replyContext } = intent.draft;
         try {
-          const message = { from: intent.from, to: [...to], cc: [...cc], bcc: [...bcc], subject, text: intent.text, messageId: intent.messageId, date: intent.claimedAt, attachments };
+          const message = {
+            from: intent.from,
+            to: [...to],
+            cc: [...cc],
+            bcc: [...bcc],
+            subject,
+            text: intent.text,
+            messageId: intent.messageId,
+            date: intent.claimedAt,
+            attachments,
+            ...(replyContext?.inReplyTo && { inReplyTo: replyContext.inReplyTo }),
+            ...(replyContext?.references.length && { references: [...replyContext.references] }),
+          };
           const reply = await transport({ ...intent.smtp }, password, message, this.lifetime);
           const checked = smtpResultSchema.parse(reply);
           if (hasSameRecipients(checked, addresses)) return checked;

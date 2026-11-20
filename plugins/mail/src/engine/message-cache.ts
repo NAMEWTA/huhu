@@ -6,19 +6,21 @@ import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
 import { MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
 import { messageBody, parseMessageBody } from "./message-body.js";
+import { prepareReply, replyMode, replySeed } from "./prepare-reply.js";
+import { sourceMessage } from "./reply-context.js";
 
-const mailbox = z.strictObject({ accountId: z.uuid(), folder: z.string().min(1).max(1024) });
+const mailbox = sourceMessage.omit({ localMessageId: true });
 const uidValidity = z.string().regex(/^[1-9][0-9]*$/);
 const readState = z.enum(["unread", "local", "synced"]);
 const summary = mailbox.extend({
-  localMessageId: z.string().regex(/^[a-f0-9]{64}$/),
+  localMessageId: sourceMessage.shape.localMessageId,
   uidValidity,
   uid: z.int().positive(),
   subject: z.string(),
   transport: z.literal("imap"),
   readState: readState.optional(),
 });
-const messageKey = mailbox.extend({ localMessageId: summary.shape.localMessageId });
+const messageKey = sourceMessage;
 const cacheSnapshot = z.strictObject({
   format: z.literal(1),
   uidValidity,
@@ -141,6 +143,41 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       authorize(caller, mailMessageSourceDescriptor.name);
       const message = readSnapshot(files, input).snapshot?.message;
       return message && message.summary.localMessageId === input.localMessageId ? { state: "ready" as const, message: message.summary, source: message.source } : { state: "needs-refresh" as const };
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      plugin: "mail",
+      exposable: false,
+      defaultExposed: false,
+      name: "mail.messages.prepareReply",
+      scope: "read",
+      input: messageKey.extend({ mode: replyMode }),
+      output: replySeed,
+      handler: async ({ caller, signal }, { mode, ...input }) => {
+        authorize(caller, "mail.messages.prepareReply");
+        const cancelled = AbortSignal.any([signal, lifetime]);
+        cancelled.throwIfAborted();
+        const message = readSnapshot(files, input).snapshot?.message;
+        if (!message || message.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
+        const available = await accounts?.list();
+        if (!available?.some(({ accountId }) => accountId === input.accountId)) throw errors.notFound("原邮件所属邮箱不可用。");
+        let seed: Awaited<ReturnType<typeof prepareReply>>;
+        try {
+          seed = await prepareReply(
+            Buffer.from(message.source, "base64"),
+            input,
+            message.summary.subject,
+            mode,
+            available.map(({ definition }) => definition.settings.email),
+          );
+        } catch {
+          throw errors.invalidInput("无法解析原邮件的回复信息。");
+        }
+        cancelled.throwIfAborted();
+        if (readSnapshot(files, input).snapshot?.message?.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
+        return seed;
+      },
     }),
   );
   api.defineCapability(

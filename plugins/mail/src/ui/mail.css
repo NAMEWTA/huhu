@@ -147,6 +147,14 @@
     width: min(100%, 58rem);
   }
 
+  .hu-mail-compose[data-inline="true"] {
+    position: static;
+    width: auto;
+    max-height: none;
+    margin-block-start: 12px;
+    margin-inline-start: 0;
+  }
+
   .hu-mail-editor {
     border: 1px solid var(--line);
     border-radius: var(--radius-control);
@@ -220,6 +228,10 @@
   @container (min-width: 581px) {
     .hu-mail-columns {
       grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+    }
+
+    .hu-mail-compose[data-inline="true"] {
+      margin-inline-start: 272px;
     }
   }
 

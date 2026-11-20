@@ -1,6 +1,7 @@
-import { Banner, Button } from "@huhu/ui";
+import { Banner, Button, Dialog } from "@huhu/ui";
 import { CapabilityError, host, useEngine } from "@huhu/workbench";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ReplySeed } from "../engine/prepare-reply.js";
 import { prepareMailHtml } from "./mail-html.js";
 
 export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; readState?: "unread" | "local" | "synced" };
@@ -24,7 +25,19 @@ function PlainBody({ text }: { text: string }) {
   );
 }
 
-export function MailReader({ message, readOnly, onRead, onRefresh }: { message: MessageSummary; readOnly: boolean; onRead(): Promise<{ isError: boolean }>; onRefresh(): Promise<void> }) {
+export function MailReader({
+  message,
+  readOnly,
+  onRead,
+  onRefresh,
+  onReply,
+}: {
+  message: MessageSummary;
+  readOnly: boolean;
+  onRead(): Promise<{ isError: boolean }>;
+  onRefresh(): Promise<void>;
+  onReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null): void;
+}) {
   const engine = useEngine();
   const { accountId, folder, localMessageId } = message;
   const identity = useMemo(() => ({ accountId, folder, localMessageId }), [accountId, folder, localMessageId]);
@@ -43,6 +56,11 @@ export function MailReader({ message, readOnly, onRead, onRefresh }: { message: 
   const [marking, setMarking] = useState(false);
   const [markError, setMarkError] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
+  const [replyMenu, setReplyMenu] = useState(false);
+  const [preparingReply, setPreparingReply] = useState(false);
+  const [replyError, setReplyError] = useState("");
+  const replyRequest = useRef<AbortController | null>(null);
+  const replyActions = useRef<HTMLDivElement>(null);
   const marked = useRef(false);
   const activeWrite = useRef<AbortController | null>(null);
   const readingArea = useRef<HTMLDivElement>(null);
@@ -69,6 +87,7 @@ export function MailReader({ message, readOnly, onRead, onRefresh }: { message: 
     () => () => {
       activeWrite.current?.abort();
       sourceRequest.current?.abort();
+      replyRequest.current?.abort();
     },
     [engine, identity],
   );
@@ -177,13 +196,40 @@ export function MailReader({ message, readOnly, onRead, onRefresh }: { message: 
   const state = readResult ?? message.readState;
   const changed = stale || state === "needs-refresh";
   const currentText = body?.text ?? prepared?.text ?? "";
+  const canReply = !!body && !changed && !readOnly;
+
+  async function startReply(mode: ReplySeed["reply"]["mode"], trigger: HTMLElement | null) {
+    if (!canReply || replyRequest.current) return;
+    setReplyMenu(false);
+    setReplyError("");
+    const controller = new AbortController();
+    replyRequest.current = controller;
+    setPreparingReply(true);
+    try {
+      const seed = await engine.call<ReplySeed>("mail.messages.prepareReply", { ...identity, mode }, { signal: controller.signal });
+      if (!controller.signal.aborted) onReply(seed, currentText, trigger);
+    } catch (err) {
+      if (!controller.signal.aborted) setReplyError(err instanceof CapabilityError ? err.message : "无法准备回复，请重试。");
+    } finally {
+      if (replyRequest.current === controller) replyRequest.current = null;
+      if (!controller.signal.aborted) setPreparingReply(false);
+    }
+  }
   let status = readLabels[state ?? "unknown"];
   if (changed) status = readLabels["needs-refresh"];
   else if (marking) status = "正在同步已读状态…";
   else if (readOnly && state !== "local" && state !== "synced") status = "只读 · 不更新已读状态";
 
   return (
-    <section className="hu-mail-reader" aria-label="邮件阅读">
+    <section
+      className="hu-mail-reader"
+      aria-label="邮件阅读"
+      onContextMenu={(event) => {
+        if (!canReply || preparingReply || (event.target instanceof Element && event.target.closest("a,button,input"))) return;
+        event.preventDefault();
+        setReplyMenu(true);
+      }}
+    >
       <div className="hu-mail-row">
         <p role="status">{status}</p>
         {!readOnly && !changed && state !== "synced" && (state === "local" || markError) && (
@@ -269,6 +315,32 @@ export function MailReader({ message, readOnly, onRead, onRefresh }: { message: 
             </ul>
           )}
         </div>
+      )}
+      {replyError && <Banner tone="danger">{replyError}</Banner>}
+      {canReply && (
+        <div className="hu-mail-row" ref={replyActions}>
+          <Button loading={preparingReply} onClick={(event) => void startReply("reply", event.currentTarget)}>
+            引用回复
+          </Button>
+          <Button disabled={preparingReply} onClick={(event) => void startReply("reply-all", event.currentTarget)}>
+            回复全部
+          </Button>
+        </div>
+      )}
+      {replyMenu && canReply && (
+        <Dialog
+          open
+          title="邮件操作"
+          onClose={() => {
+            setReplyMenu(false);
+            requestAnimationFrame(() => replyActions.current?.querySelector("button")?.focus());
+          }}
+        >
+          <div className="hu-mail-row">
+            <Button onClick={() => void startReply("reply", replyActions.current?.querySelector("button") ?? null)}>引用回复</Button>
+            <Button onClick={() => void startReply("reply-all", replyActions.current?.querySelector("button") ?? null)}>回复全部</Button>
+          </div>
+        </Dialog>
       )}
     </section>
   );

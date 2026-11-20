@@ -80,11 +80,15 @@ class MailDrafts {
 
   async save({ draftId, expectedRevision, draft: content }: z.infer<typeof saveInput>, signal: AbortSignal): Promise<Draft> {
     const draft = normalizeDraft(content);
+    if (draft.reply && draft.accountId !== draft.reply.accountId) throw errors.invalidInput("回复必须使用原邮件所属的邮箱。");
     const record = await this.change(
       draftId,
       expectedRevision,
       () => signal.throwIfAborted(),
-      (previous) => ({ ...draft, attachments: previous?.attachments }),
+      (previous) => {
+        if (previous && JSON.stringify(previous.reply) !== JSON.stringify(draft.reply)) throw errors.invalidInput("已保存草稿的原邮件关联不能更改。");
+        return { ...draft, attachments: previous?.attachments };
+      },
     );
     return this.details(draftId, record);
   }
@@ -232,7 +236,7 @@ class MailDrafts {
       if (previous && draft === previous.draft) return previous;
       const accountId = draft?.accountId;
       if (accountId && accountId !== previous?.draft?.accountId) {
-        const available = (await this.accounts?.list())?.some((account) => account.accountId === accountId && account.definition.settings.smtpEnabled);
+        const available = (await this.accounts?.list())?.some((account) => account.accountId === accountId && (draft.reply?.accountId === accountId || account.definition.settings.smtpEnabled));
         if (!available) throw new HuhuError("INVALID_INPUT", "请选择可发信的邮箱账号", { details: { reason: "sender-not-available" } });
       }
       assertActive();

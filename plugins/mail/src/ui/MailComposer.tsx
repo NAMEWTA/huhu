@@ -25,12 +25,14 @@ function newDraftId() {
 }
 
 function sameContent(saved: Draft, outgoing: DraftContent) {
-  const { accountId, to, cc, bcc, subject, body } = saved;
-  return JSON.stringify({ accountId, to, cc, bcc, subject, body }) === JSON.stringify(outgoing);
+  const { accountId, to, cc, bcc, subject, body, reply } = saved;
+  return JSON.stringify({ accountId, to, cc, bcc, subject, body, reply }) === JSON.stringify(outgoing);
 }
 
 export function MailComposer({
   draft,
+  seed,
+  inline = false,
   accounts,
   initialAccountId,
   readOnly,
@@ -41,6 +43,8 @@ export function MailComposer({
   onSent,
 }: {
   draft: Draft | null;
+  seed?: DraftContent;
+  inline?: boolean;
   accounts: MailAccount[];
   initialAccountId: string | null;
   readOnly: boolean;
@@ -55,15 +59,17 @@ export function MailComposer({
   const recipientsId = useId();
   const senderControl = useRef<HTMLSelectElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
+  const initial = draft ?? seed;
+  const reply = initial?.reply;
   const [draftId] = useState(() => draft?.draftId ?? newDraftId());
   const [revision, setRevision] = useState(draft?.revision ?? null);
   const revisionRef = useRef(revision);
-  const [accountId, setAccountId] = useState((draft ? draft.accountId : initialAccountId) ?? "");
-  const [addresses, setAddresses] = useState({ to: draft?.to.join(", ") ?? "", cc: draft?.cc.join(", ") ?? "", bcc: draft?.bcc.join(", ") ?? "" });
-  const [subject, setSubject] = useState(draft?.subject ?? "");
-  const [dirty, setDirty] = useState(false);
-  const dirtyRef = useRef(false);
-  const originalBody = useRef(draft?.body ?? emptyBody);
+  const [accountId, setAccountId] = useState((initial ? initial.accountId : initialAccountId) ?? "");
+  const [addresses, setAddresses] = useState({ to: initial?.to.join(", ") ?? "", cc: initial?.cc.join(", ") ?? "", bcc: initial?.bcc.join(", ") ?? "" });
+  const [subject, setSubject] = useState(initial?.subject ?? "");
+  const [dirty, setDirty] = useState(!!seed);
+  const dirtyRef = useRef(!!seed);
+  const originalBody = useRef(initial?.body ?? emptyBody);
   const body = useRef(originalBody.current);
   const [editorError, setEditorError] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -97,8 +103,12 @@ export function MailComposer({
     editor?.setEditable(!readOnly && !busy && !editorError, false);
   }, [editor, readOnly, busy, editorError]);
   useLayoutEffect(() => {
-    (readOnly ? title.current : senderControl.current)?.focus();
-  }, [readOnly]);
+    if (readOnly) title.current?.focus();
+    else if (!reply) senderControl.current?.focus();
+  }, [readOnly, reply]);
+  useEffect(() => {
+    if (reply && !readOnly) editor?.commands.focus("start");
+  }, [editor, readOnly, reply]);
 
   async function persist() {
     if (!dirtyRef.current && revisionRef.current) return revisionRef.current;
@@ -116,7 +126,7 @@ export function MailComposer({
           seen.add(address);
           return true;
         });
-    const outgoing = { accountId: accountId || null, to: destination("to"), cc: destination("cc"), bcc: destination("bcc"), subject, body: body.current };
+    const outgoing = { accountId: accountId || null, to: destination("to"), cc: destination("cc"), bcc: destination("bcc"), subject, body: body.current, reply };
     let saved: Draft;
     try {
       saved = await engine.call<Draft>("mail.drafts.save", { draftId, expectedRevision: revisionRef.current, draft: outgoing }, { write: true });
@@ -194,7 +204,8 @@ export function MailComposer({
   const sender = accounts.find((account) => account.accountId === accountId);
   const canSend = sender?.definition.settings.smtpEnabled && sender.authState["account-password"] === "configured";
   const attachmentIssue = draft?.attachments?.some(({ state }) => state !== "ready");
-  const senderInList = accounts.some((account) => account.accountId === accountId && account.definition.settings.smtpEnabled);
+  const senderOptions = accounts.filter((account) => (reply ? account.accountId === accountId : account.definition.settings.smtpEnabled));
+  const senderInList = senderOptions.some((account) => account.accountId === accountId);
   const blocked = !canSend || previousDelivery || attachmentIssue || !subject.trim() || ![addresses.to, addresses.cc, addresses.bcc].some((value) => value.trim());
 
   function applyLink() {
@@ -211,6 +222,7 @@ export function MailComposer({
   return (
     <section
       className="hu-mail-compose"
+      data-inline={inline}
       data-expanded={expanded}
       aria-labelledby={titleId}
       onKeyDown={(e) => {
@@ -226,25 +238,29 @@ export function MailComposer({
         method="post"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!blocked) void run("send");
+          if (!reply && !blocked) void run("send");
         }}
       >
         <header className="hu-mail-row hu-mail-spread">
           <h2 id={titleId} ref={title} tabIndex={-1}>
-            写信
+            {reply ? (reply.mode === "reply-all" ? "回复全部" : "回复邮件") : "写信"}
           </h2>
           <div className="hu-mail-row">
-            <Button variant="ghost" aria-pressed={expanded} onClick={() => setExpanded(!expanded)}>
-              {expanded ? "还原" : "扩大"}
-            </Button>
+            {!inline && (
+              <Button variant="ghost" aria-pressed={expanded} onClick={() => setExpanded(!expanded)}>
+                {expanded ? "还原" : "扩大"}
+              </Button>
+            )}
             <Button variant="ghost" disabled={busy !== null} onClick={close}>
               关闭写信
             </Button>
           </div>
         </header>
+        {reply && <p className="hu-mail-help">回复原邮件「{reply.subject || "无主题"}」，发件人沿用来源邮箱。</p>}
         {readOnly && <Banner>当前 Vault 为只读，草稿可查看。</Banner>}
         {previousDelivery && <Banner>这份草稿已有投递记录。请在发件箱核对或重试明确未投递的收件人。</Banner>}
-        {sender && !canSend && <Banner>{sender.definition.settings.smtpEnabled ? "发件邮箱需要重新配置凭据。" : "该账号只接收邮件。请选择可发送的发件人。"}</Banner>}
+        {sender && !canSend && <Banner>{sender.definition.settings.smtpEnabled ? "发件邮箱需要重新配置凭据。" : reply ? "原邮箱只接收邮件，回复可以保存为草稿。" : "该账号只接收邮件。请选择可发送的发件人。"}</Banner>}
+        {reply && !sender && <Banner>此回复的来源邮箱当前不可用。</Banner>}
         {error && <Banner tone="danger">{error}</Banner>}
         <fieldset className="hu-mail-fields" disabled={readOnly || busy !== null}>
           <MailField
@@ -254,26 +270,25 @@ export function MailComposer({
                 id={id}
                 ref={senderControl}
                 name="accountId"
+                disabled={!!reply}
                 value={accountId}
                 onChange={(e) => {
                   setAccountId(e.target.value);
                   setEdited();
                 }}
               >
-                <option value="">稍后选择发件人</option>
+                {!reply && <option value="">稍后选择发件人</option>}
                 {accountId && !senderInList && (
                   <option value={accountId} disabled>
                     {sender?.definition.settings.email ?? "原邮箱不可用"}
                   </option>
                 )}
-                {accounts
-                  .filter(({ definition }) => definition.settings.smtpEnabled)
-                  .map(({ accountId, definition: { settings } }) => (
-                    <option key={accountId} value={accountId}>
-                      {settings.label ? `${settings.label} · ` : ""}
-                      {settings.email}
-                    </option>
-                  ))}
+                {senderOptions.map(({ accountId, definition: { settings } }) => (
+                  <option key={accountId} value={accountId}>
+                    {settings.label ? `${settings.label} · ` : ""}
+                    {settings.email}
+                  </option>
+                ))}
               </select>
             )}
           />
@@ -353,7 +368,7 @@ export function MailComposer({
           <Button variant="danger" disabled={readOnly || busy !== null} onClick={() => setDiscard(true)}>
             丢弃
           </Button>
-          <Button type="submit" variant="primary" disabled={readOnly || busy !== null || !!blocked} loading={busy === "send"}>
+          <Button type={reply ? "button" : "submit"} onClick={reply ? () => void run("send") : undefined} variant="primary" disabled={readOnly || busy !== null || !!blocked} loading={busy === "send"}>
             发送邮件
           </Button>
         </footer>

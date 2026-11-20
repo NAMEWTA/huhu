@@ -11,7 +11,7 @@ import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/accou
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和投递", async () => {
+test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、草稿和投递", async () => {
   const repo = path.resolve(import.meta.dirname, "../../..");
   const desktop = path.join(repo, "apps/desktop");
   const entry = path.join(desktop, "src/renderer/mail-proof-entry.tsx");
@@ -73,12 +73,23 @@ test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和�
   const replacement = randomUUID();
   let acceptedPassword = password;
   const subject = "Mail reading fixture";
+  const replyRoute = "reply-target@example.invalid";
+  const participant = "team-member@example.invalid";
+  const originalMessageId = "<original-edge@example.invalid>";
+  const ancestorMessageId = "<prior-edge@example.invalid>";
   const message = {
     uidValidity: 12,
     subject,
     ignoreRead: true,
     source: [
       `Subject: ${subject}`,
+      "From: Original Sender <author@example.invalid>",
+      `Reply-To: Reply Route <${replyRoute}>`,
+      `To: renderer@example.invalid, second@example.invalid, ${participant}`,
+      `Cc: ${participant.toUpperCase()}, ${replyRoute}`,
+      "Bcc: hidden-original@example.invalid",
+      `Message-ID: ${originalMessageId}`,
+      `References: ${ancestorMessageId}`,
       "MIME-Version: 1.0",
       'Content-Type: multipart/mixed; boundary="mixed"',
       "",
@@ -108,7 +119,10 @@ test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和�
   };
   const imap = await openImapFixture({ message, acceptPassword: (value) => value === acceptedPassword });
   const otherPassword = randomUUID();
-  const other = await openImapFixture({ acceptPassword: (value) => value === otherPassword, message: { uidValidity: 12, subject: "Other mailbox fixture", source: "Subject: Other mailbox fixture\r\n\r\nOther account\r\n" } });
+  const other = await openImapFixture({
+    acceptPassword: (value) => value === otherPassword,
+    message: { uidValidity: 12, subject: "Other mailbox fixture", source: "From: author@example.invalid\r\nSubject: Other mailbox fixture\r\n\r\nOther account\r\n" },
+  });
   const smtp = await loopbackSmtp(password);
   const engine = await boot({ vaultPath, desktopUserData, create: true });
   const origin = "http://mail-workbench.test";
@@ -224,7 +238,7 @@ test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和�
     await browserExpect(shell.getByText("本机已读 · 待同步", { exact: true })).toBeVisible();
     expect(imap.storeRequests).toHaveLength(1);
     message.ignoreRead = false;
-    await offscreen.evaluate((element) => element.remove());
+    await offscreen.evaluate((element) => element.parentNode?.removeChild(element));
     await shell.getByRole("button", { name: "重试同步已读" }).click();
     await browserExpect(shell.getByText("已读 · 服务器已确认", { exact: true })).toBeVisible();
     expect(imap.storeRequests).toHaveLength(2);
@@ -312,6 +326,63 @@ test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和�
     await browserExpect(backMessages).toBeFocused();
     await backMessages.press("Enter");
     await browserExpect(openedMessage).toBeFocused();
+    await openedMessage.press("Enter");
+    const replyComposer = shell.locator(".hu-mail-compose");
+    const replyEditor = replyComposer.getByRole("textbox", { name: "正文", exact: true });
+    const mailReader = shell.getByRole("region", { name: "邮件阅读", exact: true });
+    const dataBeforeReply = smtp.counts.data;
+    await mailReader.getByRole("button", { name: "引用回复", exact: true }).press("Enter");
+    await browserExpect(replyEditor).toBeFocused();
+    await browserExpect(replyComposer.getByLabel("收件人", { exact: true })).toHaveValue(replyRoute);
+    await browserExpect(replyComposer.getByLabel("抄送", { exact: true })).toHaveValue("");
+    expect(smtp.counts.data).toBe(dataBeforeReply);
+    await replyComposer.getByRole("button", { name: "丢弃", exact: true }).click();
+    await shell.getByRole("dialog", { name: "丢弃草稿？" }).getByRole("button", { name: "丢弃草稿", exact: true }).click();
+    await browserExpect(replyComposer).toBeHidden();
+
+    const messageContent = mailReader.getByRole("region", { name: "正文", exact: true });
+    await messageContent.click({ button: "right" });
+    await shell.getByRole("dialog", { name: "邮件操作", exact: true }).getByRole("button", { name: "回复全部", exact: true }).click();
+    await browserExpect(replyEditor).toBeFocused();
+    await browserExpect(replyComposer).toHaveAttribute("data-inline", "true");
+    await browserExpect(replyComposer.getByLabel("发件人", { exact: true })).toBeDisabled();
+    await browserExpect(replyComposer.getByLabel("收件人", { exact: true })).toHaveValue(replyRoute);
+    await browserExpect(replyComposer.getByLabel("抄送", { exact: true })).toHaveValue(participant);
+    await browserExpect(replyComposer.getByLabel("密送", { exact: true })).toHaveValue("");
+    await browserExpect(replyEditor).toContainText("> 纯文本正文");
+    await replyEditor.pressSequentially("My reply");
+    await replyEditor.getByText("> 纯文本正文", { exact: true }).click();
+    await replyEditor.press("End");
+    await replyEditor.pressSequentially(" [edited]");
+    await browserExpect(replyEditor).toContainText("> 纯文本正文 [edited]");
+    await replyComposer.getByLabel("主题", { exact: true }).press("Enter");
+    expect(smtp.counts.data).toBe(dataBeforeReply);
+    failDraftSave = true;
+    await replyComposer.getByRole("button", { name: "关闭写信" }).click();
+    await browserExpect(replyComposer.getByText("暂时无法确认操作结果", { exact: false })).toBeVisible();
+    await browserExpect(replyEditor).toContainText("My reply");
+    await replyComposer.getByRole("button", { name: "关闭写信" }).click();
+    await browserExpect(replyComposer).toBeHidden();
+    expect(smtp.counts.data).toBe(dataBeforeReply);
+
+    await shell.getByRole("button", { name: "草稿", exact: true }).click();
+    await shell.getByRole("button", { name: `Re: ${subject}`, exact: true }).click();
+    await shell.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await browserExpect(replyEditor).toContainText("My reply");
+    await browserExpect(replyEditor).toContainText("> 纯文本正文 [edited]");
+    await browserExpect(replyComposer.getByText(`回复原邮件「${subject}」`, { exact: false })).toBeVisible();
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-reply-390.png"), animations: "disabled" });
+    smtp.configure("accept");
+    await replyComposer.getByRole("button", { name: "发送邮件", exact: true }).press("Enter");
+    await browserExpect(replyComposer).toBeHidden();
+    await expect.poll(() => smtp.counts.data).toBe(dataBeforeReply + 1);
+    await expect.poll(() => smtp.messages.at(-1)?.recipients).toEqual([replyRoute, participant]);
+    const replyWire = smtp.messages.at(-1)?.wire;
+    expect(replyWire).toContain(`In-Reply-To: ${originalMessageId}`);
+    expect(replyWire).toContain(`References: ${ancestorMessageId} ${originalMessageId}`);
+    expect(replyWire).not.toContain("hidden-original@example.invalid");
+    await shell.getByRole("button", { name: "邮箱", exact: true }).click();
+
     await backAccounts.click();
     await browserExpect(accountA).toBeFocused();
     await browserExpect(accountA).toHaveAttribute("aria-pressed", "true");
@@ -339,8 +410,17 @@ test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和�
     await browserExpect(shell.getByRole("heading", { name: "另一回环邮箱" })).toBeVisible();
     await browserExpect(repair).toBeHidden();
     await shell.getByRole("button", { name: "同步目录", exact: true }).click();
-    await browserExpect(shell.getByRole("button", { name: "Other mailbox fixture" })).toBeVisible();
+    const otherMessage = shell.getByRole("button", { name: "Other mailbox fixture" });
+    await browserExpect(otherMessage).toBeVisible();
     await browserExpect(openedMessage).toBeHidden();
+    await otherMessage.click();
+    await mailReader.getByRole("button", { name: "引用回复", exact: true }).click();
+    await browserExpect(replyComposer.getByText("原邮箱只接收邮件", { exact: false })).toBeVisible();
+    await browserExpect(replyComposer.getByRole("button", { name: "发送邮件", exact: true })).toBeDisabled();
+    await replyComposer.getByRole("button", { name: "关闭写信", exact: true }).click();
+    await browserExpect(replyComposer).toBeHidden();
+    expect(smtp.counts.data).toBe(dataBeforeReply + 1);
+    await backMessages.click();
 
     await backAccounts.click();
     await accountA.click();

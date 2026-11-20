@@ -1,6 +1,8 @@
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
+import type { DraftContent } from "../engine/draft-content.js";
+import type { ReplySeed } from "../engine/prepare-reply.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
@@ -17,6 +19,15 @@ const tabs = [
 const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
 type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount };
+
+function replyDraft(seed: ReplySeed, original: string): DraftContent {
+  const excerpt = original.trimEnd().slice(0, 24_000).split(/\r?\n/);
+  const lines = excerpt.slice(0, 300);
+  if (original.length > 24_000 || excerpt.length > 300) lines.push("…（引用已截短）");
+  const makeParagraph = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const quoted = original.trim() ? [makeParagraph("引用原邮件"), ...lines.map((line) => makeParagraph(`> ${line}`))] : [];
+  return { ...seed, bcc: [], body: { type: "doc", content: [{ type: "paragraph" }, ...quoted] } };
+}
 
 export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
   const engine = useEngine();
@@ -37,7 +48,9 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [dialog, setDialog] = useState<AccountDialog | null>(null);
   const [accountView, setAccountView] = useState<"accounts" | "mailbox">("accounts");
   const [collapsed, setCollapsed] = useState<Set<MailProvider>>(() => new Set());
-  const [composer, setComposer] = useState<{ draft: Draft | null } | null>(null);
+  const [composer, setComposer] = useState<{ draft: Draft | null; seed?: DraftContent } | null>(null);
+  const [readingMessage, setReadingMessage] = useState<string | null>(null);
+  const composing = useRef(false);
   const feedbackScope = `mail-${engine.vaultId}`;
   const feedback = useWorkbenchFeedback(feedbackScope);
   const [error, setError] = useState("");
@@ -70,6 +83,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   );
 
   function closeComposer() {
+    composing.current = false;
     setComposer(null);
     requestAnimationFrame(() => composeTrigger.current?.focus());
   }
@@ -109,14 +123,19 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     });
   }
 
-  function showComposer(draft: Draft | null) {
-    if (composer) {
-      document.querySelector<HTMLElement>('.hu-mail-compose [name="accountId"]')?.focus();
+  function showComposer(draft: Draft | null, seed?: DraftContent, trigger = document.activeElement) {
+    if (composing.current) {
+      document.querySelector<HTMLElement>('.hu-mail-compose [contenteditable="true"]')?.focus();
       feedback("请先完成当前草稿。", "info");
       return;
     }
-    composeTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setComposer({ draft });
+    composing.current = true;
+    composeTrigger.current = trigger instanceof HTMLElement ? trigger : null;
+    setComposer({ draft, ...(seed && { seed }) });
+  }
+
+  function showReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null) {
+    showComposer(null, replyDraft(seed, quote), trigger);
   }
 
   async function resume(id: string) {
@@ -141,6 +160,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
 
   const accountSetupAvailable = desktop && !readOnly && accounts.data?.available;
   const currentQuery = tab === "mail" ? accounts : tab === "drafts" ? drafts : deliveries;
+  const original = (composer?.draft ?? composer?.seed)?.reply;
 
   return (
     <div className="hu-mail-workspace">
@@ -229,6 +249,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               key={account.accountId}
               account={account}
               readOnly={readOnly}
+              onReply={showReply}
+              onReading={setReadingMessage}
               backAccounts={backAccounts}
               onBack={returnToAccounts}
               {...(accountSetupAvailable && {
@@ -345,6 +367,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       {composer && (
         <MailComposer
           draft={composer.draft}
+          {...(composer.seed && { seed: composer.seed })}
+          inline={tab === "mail" && !!original && original.accountId === accountId && original.localMessageId === readingMessage}
           accounts={rows}
           initialAccountId={account?.definition.settings.smtpEnabled ? account.accountId : null}
           readOnly={readOnly}
@@ -353,6 +377,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           onChanged={changed}
           onClose={closeComposer}
           onSent={(id) => {
+            composing.current = false;
             setComposer(null);
             showDelivery(id);
           }}
@@ -367,12 +392,16 @@ function Mailbox({
   readOnly,
   backAccounts,
   onBack,
+  onReading,
+  onReply,
   onAccountAction,
 }: {
   account: MailAccount;
   readOnly: boolean;
   backAccounts: Ref<HTMLButtonElement>;
   onBack(): void;
+  onReading(id: string | null): void;
+  onReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null): void;
   onAccountAction?(kind: "repair" | "rename", trigger: HTMLButtonElement): void;
 }) {
   const engine = useEngine();
@@ -388,6 +417,11 @@ function Mailbox({
   const latest = useCapability<{ message: MessageSummary | null }>("mail.messages.latest", input);
   const { message } = latest.data ?? {};
   const reading = !!message && opened === message.localMessageId;
+
+  useEffect(() => {
+    onReading(reading ? opened : null);
+    return () => onReading(null);
+  }, [onReading, opened, reading]);
 
   useEffect(() => {
     setError("");
@@ -501,7 +535,7 @@ function Mailbox({
               </Button>
               {message.readState === "unread" && <span>未读</span>}
             </div>
-            {opened === message.localMessageId && <MailReader key={message.localMessageId} message={message} readOnly={readOnly} onRead={latest.refetch} onRefresh={refresh} />}
+            {opened === message.localMessageId && <MailReader key={message.localMessageId} message={message} readOnly={readOnly} onRead={latest.refetch} onRefresh={refresh} onReply={onReply} />}
           </div>
         ) : (
           <p>此目录暂无已缓存的邮件。</p>

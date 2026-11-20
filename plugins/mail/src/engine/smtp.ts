@@ -22,6 +22,8 @@ export type MailSmtpMessage = {
   subject: string;
   text: string;
   messageId: string;
+  inReplyTo?: string;
+  references?: string[];
   date: string;
   attachments: MessageAttachment[];
 };

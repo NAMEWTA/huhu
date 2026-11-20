@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { attachmentRefs } from "./draft-attachments.js";
+import { replyContext } from "./reply-context.js";
 
 export const uuid = z.uuidv4().toLowerCase();
 export const draftRecipient = z.string().trim().toLowerCase().max(254).pipe(z.email());
@@ -36,6 +37,7 @@ export const draftContent = z.strictObject({
   bcc: recipients,
   subject: z.string().max(8192),
   body: editorDocument,
+  reply: replyContext.optional(),
 });
 export const storedDraftContent = draftContent.extend({ attachments: attachmentRefs.optional() });
 export type DraftContent = z.infer<typeof draftContent>;

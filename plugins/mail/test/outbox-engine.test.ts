@@ -10,6 +10,7 @@ import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
 import { outboxReceipt } from "../src/engine/outbox.js";
+import { replySeed, type ReplySeed } from "../src/engine/prepare-reply.js";
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
@@ -140,6 +141,153 @@ async function save(engine: RunningEngine, accountId: string, draftId: string = 
   const draft = result.data as { draftId: string; revision: string };
   return { draftId: draft.draftId, expectedRevision: draft.revision };
 }
+
+testWindows(
+  "真实 IMAP 回复保留来源、草稿和 SMTP 线程头，拒收重试沿用原信",
+  async () => {
+    await fixture(async ({ root, smtp, password, open }) => {
+      const other = "own-alias@example.invalid";
+      const replyTo = "routing@example.invalid";
+      const refused = "refused@example.invalid";
+      const participant = "team@example.invalid";
+      const blind = "hidden@example.invalid";
+      const sourceId = "<incoming.42@example.invalid>";
+      const chain = ["<root@example.invalid>", "<previous@example.invalid>", sourceId];
+      const source = [
+        'From: "Original, Author" <original@example.invalid>',
+        `Reply-To: Team Routing <${replyTo}>`,
+        `To: <${sender.toUpperCase()}>, <${other}>, Team: <${participant}>;`,
+        `Cc: <${participant.toUpperCase()}>, <${refused}>, <${replyTo}>`,
+        `Bcc: <${blind}>`,
+        `Message-ID: ${sourceId}`,
+        "In-Reply-To: <another@example.invalid>",
+        "References: <root@example.invalid>",
+        " <previous@example.invalid> <root@example.invalid>",
+        "Subject: Thread fixture",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Original message text",
+        "",
+      ].join("\r\n");
+      const imapA = await openImapFixture({ message: { uidValidity: 12, subject: "Thread fixture", source } });
+      const imapB = await openImapFixture({ message: { uidValidity: 12, subject: "Receive only", source: "From: origin@example.invalid\r\nSubject: Receive only\r\n\r\nReceived fixture\r\n" } });
+      try {
+        let engine = await open({ create: true });
+        async function add(email: string, port: number, smtpEnabled: boolean) {
+          const tested = await call(engine, "mail.accounts.testConnection", {
+            settings: {
+              provider: "custom_imap",
+              email,
+              label: "",
+              auth: "password",
+              imap: { host: "127.0.0.1", port, security: "none" },
+              smtpEnabled,
+              smtp: { host: "127.0.0.1", port: smtp.port, security: "none" },
+            },
+            password,
+          });
+          assert(tested.ok);
+          const saved = await call(engine, "mail.accounts.save", { setupId: (tested.data as { setupId: string }).setupId, folders: ["INBOX"] });
+          assert(saved.ok);
+          const accountId = (saved.data as { accountId: string }).accountId;
+          const result = await call(engine, "mail.sync.refresh", { accountId, folder: "INBOX" });
+          assert(result.ok);
+          return { accountId, folder: "INBOX", localMessageId: (result.data as { message: { localMessageId: string } }).message.localMessageId };
+        }
+        async function reply(identity: Awaited<ReturnType<typeof add>>, mode: ReplySeed["reply"]["mode"]) {
+          const result = await call(engine, "mail.messages.prepareReply", { ...identity, mode });
+          assert(result.ok, result.ok ? undefined : result.error.message);
+          return replySeed.parse(result.data);
+        }
+
+        const from = await add(sender, imapA.port, true);
+        const receiveOnly = await add(other, imapB.port, false);
+        const cross = await call(engine, "mail.messages.prepareReply", { ...from, accountId: receiveOnly.accountId, mode: "reply-all" });
+        expect(cross).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+        expect(await reply(from, "reply")).toMatchObject({ accountId: from.accountId, to: [replyTo], cc: [], reply: { inReplyTo: sourceId } });
+        const seed = await reply(from, "reply-all");
+        expect(seed).toEqual({ accountId: from.accountId, to: [replyTo], cc: [participant, refused], subject: "Re: Thread fixture", reply: { ...from, subject: "Thread fixture", mode: "reply-all", inReplyTo: sourceId, references: chain } });
+        expect(JSON.stringify(seed)).not.toContain(blind);
+        expect(existsSync(path.join(root, "vault", ".huhu/mail/drafts.json"))).toBe(false);
+        expect(smtp.counts).toMatchObject({ connections: 0, data: 0 });
+
+        const toDraft = (prepared: ReplySeed) => ({
+          ...prepared,
+          bcc: [],
+          body: {
+            type: "doc",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "Reply text" }] },
+              { type: "paragraph", content: [{ type: "text", text: "> Original message text" }] },
+            ],
+          },
+        });
+        const draftId = randomUUID();
+        const writing = { draftId, expectedRevision: null, draft: toDraft(seed) };
+        const stored = await call(engine, "mail.drafts.save", writing);
+        assert(stored.ok);
+        const revision = (stored.data as { revision: string }).revision;
+        const edited = { ...writing.draft, subject: "Re: Edited thread" };
+        const write = engine.vault.files.write.bind(engine.vault.files);
+        const fail = vi.spyOn(engine.vault.files, "write").mockImplementation(async (...args) => {
+          if (args[0] === ".huhu/mail/drafts.json") throw new Error("synthetic write failure");
+          return write(...args);
+        });
+        try {
+          expect(await call(engine, "mail.drafts.save", { draftId, expectedRevision: revision, draft: edited })).toMatchObject({ ok: false, error: { details: { reason: "draft-write-failed" } } });
+        } finally {
+          fail.mockRestore();
+        }
+        expect(await call(engine, "mail.drafts.get", { draftId })).toMatchObject({ ok: true, data: { draft: { ...writing.draft, revision } } });
+        expect(smtp.counts.data).toBe(0);
+
+        await engine.shutdown();
+        engine = await open();
+        expect(await call(engine, "mail.drafts.get", { draftId })).toMatchObject({ ok: true, data: { draft: { ...writing.draft, revision } } });
+        expect(await call(engine, "mail.drafts.save", { draftId, expectedRevision: revision, draft: { ...edited, accountId: receiveOnly.accountId } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        const continued = await call(engine, "mail.drafts.save", { draftId, expectedRevision: revision, draft: edited });
+        assert(continued.ok);
+        const finalRevision = (continued.data as { revision: string }).revision;
+        const receiverDraft = toDraft(await reply(receiveOnly, "reply"));
+        expect(receiverDraft.reply.inReplyTo).toBeUndefined();
+        const localId = randomUUID();
+        const local = await call(engine, "mail.drafts.save", { draftId: localId, expectedRevision: null, draft: receiverDraft });
+        assert(local.ok);
+        expect(await call(engine, "mail.outbox.submit", { draftId: localId, expectedRevision: (local.data as { revision: string }).revision })).toMatchObject({ ok: false, error: { details: { reason: "sender-not-available" } } });
+        expect(smtp.counts.connections).toBe(0);
+
+        smtp.configure("partial");
+        const submitted = await call(engine, "mail.outbox.submit", { draftId, expectedRevision: finalRevision });
+        assert(submitted.ok);
+        const first = outboxReceipt.parse(submitted.data);
+        await expect.poll(() => call(engine, "mail.outbox.status", { operationId: first.operationId })).toMatchObject({ ok: true, data: { state: "partially-accepted", retryableRecipients: [refused] } });
+        smtp.configure("accept");
+        const retried = await call(engine, "mail.outbox.retry", { parentOperationId: first.operationId, expectedRevision: finalRevision, recipients: [refused] });
+        assert(retried.ok);
+        const second = outboxReceipt.parse(retried.data);
+        await expect.poll(() => call(engine, "mail.outbox.status", { operationId: second.operationId })).toMatchObject({ ok: true, data: { state: "accepted", retry: { parentOperationId: first.operationId } } });
+        expect(smtp.messages.map(({ sender: envelopeSender, recipients }) => [envelopeSender, recipients])).toEqual([
+          [sender, [replyTo, participant]],
+          [sender, [refused]],
+        ]);
+        for (const { wire } of smtp.messages) {
+          const headers = wire.split("\r\n\r\n")[0]?.replace(/\r\n[ \t]+/g, " ");
+          expect(headers).toContain(`In-Reply-To: ${sourceId}`);
+          expect(headers).toContain(`References: ${chain.join(" ")}`);
+          expect(headers).not.toMatch(/^Bcc:/im);
+          expect(wire).not.toContain(blind);
+          expect(wire).toContain("> Original message text");
+        }
+        expect(first.messageId).not.toBe(second.messageId);
+        expect(first.messageId).not.toBe(sourceId);
+        expect(smtp.counts.data).toBe(2);
+      } finally {
+        await Promise.all([imapA.close(), imapB.close()]);
+      }
+    });
+  },
+  45_000,
+);
 
 testWindows(
   "工作台能力使用回环 IMAP 添加邮箱，重开草稿后只重试拒收项并保留待核实记录",

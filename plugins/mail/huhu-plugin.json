@@ -20,6 +20,7 @@
       "mail.messages.latest",
       "mail.messages.loadSource",
       "mail.messages.loadBody",
+      "mail.messages.prepareReply",
       "mail.messages.markRead",
       "mail.drafts.list",
       "mail.drafts.get",
