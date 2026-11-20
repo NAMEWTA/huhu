@@ -170,19 +170,17 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(await taskStatus(late)).toMatchObject({ status: "not_started", comments: [] });
       expect(await internal("agent.targets.list", { ...scope, spaceId: space!.id })).toMatchObject({
         ok: true,
-        data: expect.arrayContaining([expect.objectContaining({ provider: "codex", mode: "existing", sessionId: session!.id, available: false })]),
+        data: expect.arrayContaining([expect.objectContaining({ provider: "codex", mode: "existing", sessionId: session!.id, available: false, reason: "input_owned" })]),
       });
-      const unsupported = [
-        { mode: "existing", sessionId: session!.id },
-        { mode: "resume", nativeSessionId: turn!.threadId! },
-      ] as const;
-      for (const target of unsupported) {
-        const task = await create(target.mode, target);
-        const receipt = await begin(task, "fixture-" + target.mode);
-        await poll(receipt, "blocked");
-        expect(await call(engine, "tasks.dispatch.read", key(receipt))).toMatchObject({ reason: "target_unsupported" });
-        expect(await taskStatus(task)).toMatchObject({ status: "not_started" });
-      }
+      const existing = await create("existing", { mode: "existing", sessionId: session!.id });
+      const waiting = await begin(existing, "fixture-existing");
+      await expect.poll(() => call(engine, "tasks.dispatch.read", key(waiting))).toMatchObject({ state: "pending", reason: "waiting_resource" });
+      expect(await call(engine, "tasks.dispatch.cancel", key(waiting))).toMatchObject({ state: "cancelled" });
+      const resume = await create("resume", { mode: "resume", nativeSessionId: turn!.threadId! });
+      const unsupported = await begin(resume, "fixture-resume");
+      await poll(unsupported, "blocked");
+      expect(await call(engine, "tasks.dispatch.read", key(unsupported))).toMatchObject({ reason: "target_unsupported" });
+      expect(await taskStatus(resume)).toMatchObject({ status: "not_started" });
       expect(events().filter((e) => e.event === "thread")).toHaveLength(1);
       await enable("agent-cli", false);
       await engine.shutdown();
