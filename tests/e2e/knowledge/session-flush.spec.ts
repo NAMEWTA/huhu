@@ -339,3 +339,42 @@ test("TB-14/15 关窗缺少保存回执时保留编辑和 Engine", async () => {
     await close();
   }
 });
+
+test("TB-15 顶层重载结束旧一轮关窗检查", async () => {
+  const { app, page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const result = await app.evaluate(async ({ BrowserWindow, dialog, ipcMain }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      const sender = win.webContents;
+      const send = sender.send;
+      const showMessageBox = dialog.showMessageBox;
+      let prompts = 0;
+      dialog.showMessageBox = (async () => {
+        prompts++;
+        return { response: 0, checkboxChecked: false };
+      }) as typeof showMessageBox;
+      sender.send = (channel, ...args) => {
+        if (channel !== "huhu:flush") send.call(sender, channel, ...args);
+      };
+      const before = ipcMain.listenerCount("huhu:flushed");
+      const navigation = new Promise<void>((resolve) => sender.once("did-start-navigation", () => resolve()));
+      try {
+        win.close();
+        const pending = ipcMain.listenerCount("huhu:flushed");
+        sender.reload();
+        await navigation;
+        await Promise.resolve();
+        return { pending: pending - before, remaining: ipcMain.listenerCount("huhu:flushed") - before, prompts, closed: win.isDestroyed() };
+      } finally {
+        sender.send = send;
+        dialog.showMessageBox = showMessageBox;
+      }
+    });
+    expect(result).toEqual({ pending: 1, remaining: 0, prompts: 1, closed: false });
+    await engineReady(page);
+    expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
+  } finally {
+    await close();
+  }
+});

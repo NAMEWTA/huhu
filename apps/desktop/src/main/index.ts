@@ -57,23 +57,35 @@ function assertTrusted(url: string | undefined): void {
 type FlushResult = "saved" | "failed" | "timeout";
 let flushRequestId = 0;
 
-/** 只有当前窗口的主框架和当前请求的回执有效。 */
+/** 回执必须来自发出请求时的主文档。导航或渲染进程退出会结束等待。 */
 function requestFlush(win: BrowserWindow): Promise<FlushResult> {
   if (win.isDestroyed()) return Promise.resolve("saved");
   const sender = win.webContents;
+  const frame = sender.mainFrame;
   const requestId = ++flushRequestId;
   return new Promise((resolve) => {
     const finish = (result: FlushResult) => {
       clearTimeout(timer);
       ipcMain.off("huhu:flushed", onReply);
+      sender.off("did-start-navigation", onNavigation);
+      sender.off("render-process-gone", onRendererGone);
+      sender.off("destroyed", onRendererGone);
       resolve(result);
     };
     const onReply = (event: Electron.IpcMainEvent, replyId: unknown, ok: unknown) => {
-      if (event.sender !== sender || sender.isDestroyed() || event.senderFrame !== sender.mainFrame || replyId !== requestId || typeof ok !== "boolean") return;
+      if (event.sender !== sender || sender.isDestroyed() || event.senderFrame !== frame || replyId !== requestId || typeof ok !== "boolean") return;
+      if (!isTrustedUrl(event.senderFrame?.url)) return;
       finish(ok ? "saved" : "failed");
     };
+    const onNavigation = ({ isMainFrame, isSameDocument }: Electron.WebContentsDidStartNavigationEventParams) => {
+      if (isMainFrame && !isSameDocument) finish("failed");
+    };
+    const onRendererGone = () => finish("failed");
     const timer = setTimeout(() => finish("timeout"), 3000);
     ipcMain.on("huhu:flushed", onReply);
+    sender.on("did-start-navigation", onNavigation);
+    sender.once("render-process-gone", onRendererGone);
+    sender.once("destroyed", onRendererGone);
     try {
       sender.send("huhu:flush", requestId);
     } catch {
