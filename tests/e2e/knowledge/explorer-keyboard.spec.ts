@@ -190,7 +190,7 @@ test("A07：非 Markdown 在树里复制、回收，并从回收站原样恢复"
     await dialog.getByRole("button", { name: /删除|移到/ }).click();
     await expect.poll(() => existsSync(copy)).toBe(false);
     await page.getByTestId("notes-section-trash").click();
-    await page.getByRole("button", { name: "恢复", exact: true }).click();
+    await page.getByRole("button", { name: "恢复笔记", exact: true }).click();
     await expect.poll(() => existsSync(copy)).toBe(true);
     expect(readFileSync(copy)).toEqual(bytes);
     expect(readFileSync(original)).toEqual(bytes);
