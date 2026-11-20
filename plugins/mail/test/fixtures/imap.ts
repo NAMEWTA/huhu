@@ -6,6 +6,7 @@ export async function openImapFixture(
   options: {
     stallList?: boolean;
     rejectLogin?: boolean;
+    acceptPassword?: (value: string) => boolean;
     rejectList?: boolean;
     disconnectDuringList?: boolean;
     namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
@@ -35,8 +36,11 @@ export async function openImapFixture(
       switch (command) {
         case "CAPABILITY":
           return socket.write(`* CAPABILITY IMAP4rev1 NAMESPACE\r\n${tag} OK CAPABILITY\r\n`);
-        case "LOGIN":
-          return socket.write(options.rejectLogin ? `${tag} NO [AUTHENTICATIONFAILED] denied\r\n` : `${tag} OK LOGIN\r\n`);
+        case "LOGIN": {
+          const supplied = line.match(/(?:"([a-z0-9-]+)"|([a-z0-9-]+))$/i);
+          const rejected = options.rejectLogin || (options.acceptPassword && !options.acceptPassword(supplied?.[1] ?? supplied?.[2] ?? ""));
+          return socket.write(rejected ? `${tag} NO [AUTHENTICATIONFAILED] denied\r\n` : `${tag} OK LOGIN\r\n`);
+        }
         case "NAMESPACE":
           if (options.namespacedInbox) return socket.write(`* NAMESPACE (("INBOX." ".")) NIL NIL\r\n${tag} OK NAMESPACE\r\n`);
           return socket.write(`* NAMESPACE (("" "/")) NIL NIL\r\n${tag} OK NAMESPACE\r\n`);

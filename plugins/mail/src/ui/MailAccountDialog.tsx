@@ -3,6 +3,7 @@ import { CapabilityError, host, useEngine } from "@huhu/workbench";
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import type { MailAccountSettings, MailFolder } from "../engine/account-definition.js";
 import { mailPreset, mailProviderSchema, type MailEndpoint, type MailProvider } from "../engine/presets.js";
+import type { MailAccount } from "./mail-types.js";
 
 type Connection = { setupId: string; folders: (MailFolder & { selectable: boolean; selected: boolean })[] };
 type EndpointFields = Omit<MailEndpoint, "port"> & { port: string };
@@ -10,7 +11,12 @@ type AccountForm = Omit<MailAccountSettings, "imap" | "smtp"> & { imap: Endpoint
 
 function defaults(provider: MailProvider, email = "", label = ""): AccountForm {
   const preset = mailPreset(provider, email);
-  return { provider, email, label, auth: preset.credentials[0]!.method, imap: { ...preset.imap, port: String(preset.imap.port) }, smtpEnabled: preset.smtpEnabled, smtp: { ...preset.smtp, port: String(preset.smtp.port) } };
+  return fromSettings({ ...preset, email, label, auth: preset.credentials[0]!.method });
+}
+
+function fromSettings(settings: MailAccountSettings): AccountForm {
+  const { provider, email, label, auth, imap, smtpEnabled, smtp } = settings;
+  return { provider, email, label, auth, imap: { ...imap, port: String(imap.port) }, smtpEnabled, smtp: { ...smtp, port: String(smtp.port) } };
 }
 
 export function MailField({ label, control }: { label: string; control(id: string): ReactElement }) {
@@ -51,29 +57,31 @@ function ServerFields({ label, endpoint, onChange, disabled }: { label: string; 
   );
 }
 
-export function MailAccountDialog({ onClose, onSaved }: { onClose(): void; onSaved(accountId: string): void }) {
+export function MailAccountDialog({ repair, onClose, onSaved }: { repair?: MailAccount; onClose(): void; onSaved(accountId: string): void }) {
   const engine = useEngine();
   const formId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const serverDetails = useRef<HTMLDetailsElement>(null);
   const testing = useRef<AbortController | null>(null);
   const session = useRef<string | null>(null);
-  const saving = useRef(false);
-  const [form, setForm] = useState(() => defaults("custom_imap"));
+  const saving = useRef<AbortController | null>(null);
+  const [form, setForm] = useState(() => (repair ? fromSettings(repair.definition.settings) : defaults("custom_imap")));
   const [connection, setConnection] = useState<Connection | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guideFeedback, setGuideFeedback] = useState("");
 
-  useEffect(
-    () => () => {
-      const controller = testing.current;
-      testing.current = null;
-      controller?.abort();
-      if (session.current) void engine.call("mail.accounts.cancelSetup", { setupId: session.current }, { write: true }).catch(() => undefined);
-    },
-    [engine],
-  );
+  function cancelActivity() {
+    const controller = testing.current;
+    testing.current = null;
+    controller?.abort();
+    saving.current?.abort();
+    saving.current = null;
+    const setupId = session.current;
+    session.current = null;
+    if (setupId) void engine.call("mail.accounts.cancelSetup", { setupId }, { write: true }).catch(() => undefined);
+  }
+  useEffect(() => cancelActivity, [engine]);
 
   function invalidate() {
     testing.current?.abort();
@@ -110,7 +118,8 @@ export function MailAccountDialog({ onClose, onSaved }: { onClose(): void; onSav
     testing.current = controller;
     setBusy("test");
     try {
-      const result = await engine.call<Connection>("mail.accounts.testConnection", { settings, password }, { write: true, signal: controller.signal });
+      const input = repair ? { accountId: repair.accountId, expectedRevision: repair.revision, password } : { settings, password };
+      const result = await engine.call<Connection>("mail.accounts.testConnection", input, { write: true, signal: controller.signal });
       if (testing.current !== controller) {
         void engine.call("mail.accounts.cancelSetup", { setupId: result.setupId }, { write: true }).catch(() => undefined);
         return;
@@ -137,18 +146,23 @@ export function MailAccountDialog({ onClose, onSaved }: { onClose(): void; onSav
       setError("请至少选择 INBOX。");
       return;
     }
-    saving.current = true;
+    const controller = new AbortController();
+    saving.current = controller;
     setBusy("save");
     setError(null);
     try {
-      const { accountId } = await engine.call<{ accountId: string }>("mail.accounts.save", { setupId, folders: selected }, { write: true });
-      onSaved(accountId);
+      const input = repair ? { setupId } : { setupId, folders: selected };
+      const { accountId } = await engine.call<{ accountId: string }>("mail.accounts.save", input, { write: true, signal: controller.signal });
+      if (saving.current === controller) onSaved(accountId);
     } catch (err) {
-      if (err instanceof CapabilityError && err.details?.reason === "discovery-required") invalidate();
+      if (saving.current !== controller) return;
+      if (err instanceof CapabilityError && (err.details?.reason === "discovery-required" || err.code === "VERSION_CONFLICT")) invalidate();
       setError(err instanceof CapabilityError ? err.message : "暂时无法确认保存结果，请重试或查看邮箱列表。");
     } finally {
-      saving.current = false;
-      setBusy(null);
+      if (saving.current === controller) {
+        saving.current = null;
+        setBusy(null);
+      }
     }
   }
 
@@ -156,23 +170,26 @@ export function MailAccountDialog({ onClose, onSaved }: { onClose(): void; onSav
   const desktopHost = host();
   const credential = preset.credentials.find(({ method }) => method === form.auth)?.label ?? "邮箱密码";
   const close = () => {
-    if (!saving.current) onClose();
+    if (!repair && saving.current) return;
+    cancelActivity();
+    onClose();
   };
 
   return (
     <Dialog
       open
-      title="添加邮箱"
+      title={repair ? "修复邮箱认证" : "添加邮箱"}
+      {...(repair && { description: `只更新 ${repair.definition.settings.email} 的邮箱凭据。` })}
       onClose={close}
       wide
       error={error}
       actions={
         <>
-          <Button disabled={busy === "save"} onClick={close}>
+          <Button disabled={!repair && busy === "save"} onClick={close}>
             取消
           </Button>
           <Button type="submit" form={formId} variant="primary" disabled={!connection} loading={busy === "save"}>
-            保存邮箱
+            {repair ? "保存新认证" : "保存邮箱"}
           </Button>
         </>
       }
@@ -192,60 +209,70 @@ export function MailAccountDialog({ onClose, onSaved }: { onClose(): void; onSav
         }}
       >
         <fieldset className="hu-mail-fields" disabled={busy === "save"}>
-          <MailField
-            label="邮箱提供商"
-            control={(id) => (
-              <select
-                id={id}
-                name="provider"
-                value={form.provider}
-                onChange={(e) => {
-                  change(defaults(e.target.value as MailProvider, form.email, form.label));
-                  if (serverDetails.current) serverDetails.current.open = e.target.value === "custom_imap";
-                }}
-              >
-                {mailProviderSchema.options.map((provider) => (
-                  <option key={provider} value={provider}>
-                    {mailPreset(provider).label}
-                  </option>
-                ))}
-              </select>
-            )}
-          />
-          <MailField label="显示名称" control={(id) => <input id={id} name="label" value={form.label} maxLength={80} onChange={(e) => change({ ...form, label: e.target.value })} />} />
-          <MailField
-            label="邮箱地址（必填）"
-            control={(id) => <input id={id} name="email" type="email" autoComplete="username" spellCheck={false} autoCapitalize="none" required value={form.email} onChange={(e) => changeEmail(e.target.value)} />}
-          />
-          <MailField
-            label="认证方式"
-            control={(id) => (
-              <select id={id} name="auth" value={form.auth} onChange={(e) => change({ ...form, auth: e.target.value as AccountForm["auth"] })}>
-                {preset.credentials.map((option) => (
-                  <option key={option.method} value={option.method}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          />
+          {repair ? (
+            <p>
+              IMAP {form.imap.host}:{form.imap.port}
+            </p>
+          ) : (
+            <>
+              <MailField
+                label="邮箱提供商"
+                control={(id) => (
+                  <select
+                    id={id}
+                    name="provider"
+                    value={form.provider}
+                    onChange={(e) => {
+                      change(defaults(e.target.value as MailProvider, form.email, form.label));
+                      if (serverDetails.current) serverDetails.current.open = e.target.value === "custom_imap";
+                    }}
+                  >
+                    {mailProviderSchema.options.map((provider) => (
+                      <option key={provider} value={provider}>
+                        {mailPreset(provider).label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              />
+              <MailField label="显示名称" control={(id) => <input id={id} name="label" value={form.label} maxLength={80} onChange={(e) => change({ ...form, label: e.target.value })} />} />
+              <MailField
+                label="邮箱地址（必填）"
+                control={(id) => <input id={id} name="email" type="email" autoComplete="username" spellCheck={false} autoCapitalize="none" required value={form.email} onChange={(e) => changeEmail(e.target.value)} />}
+              />
+              <MailField
+                label="认证方式"
+                control={(id) => (
+                  <select id={id} name="auth" value={form.auth} onChange={(e) => change({ ...form, auth: e.target.value as AccountForm["auth"] })}>
+                    {preset.credentials.map((option) => (
+                      <option key={option.method} value={option.method}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              />
+            </>
+          )}
           {form.auth !== "oauth2" && (
             <MailField
-              label={`${credential}（必填）`}
+              label={`${repair ? "新" : ""}${credential}（必填）`}
               control={(id) => <input key={`${form.provider}:${form.auth}`} id={id} name="password" required type="password" autoComplete="current-password" maxLength={4096} onChange={invalidate} />}
             />
           )}
-          <details ref={serverDetails} open>
-            <summary>收发服务器</summary>
-            <ServerFields label="IMAP" endpoint={form.imap} onChange={(imap) => change({ ...form, imap })} />
-            <label className="hu-mail-check">
-              <input type="checkbox" name="smtpEnabled" checked={form.smtpEnabled} onChange={(e) => change({ ...form, smtpEnabled: e.target.checked })} />
-              启用 SMTP 发送
-            </label>
-            <ServerFields label="SMTP" endpoint={form.smtp} disabled={!form.smtpEnabled} onChange={(smtp) => change({ ...form, smtp })} />
-          </details>
+          {!repair && (
+            <details ref={serverDetails} open>
+              <summary>收发服务器</summary>
+              <ServerFields label="IMAP" endpoint={form.imap} onChange={(imap) => change({ ...form, imap })} />
+              <label className="hu-mail-check">
+                <input type="checkbox" name="smtpEnabled" checked={form.smtpEnabled} onChange={(e) => change({ ...form, smtpEnabled: e.target.checked })} />
+                启用 SMTP 发送
+              </label>
+              <ServerFields label="SMTP" endpoint={form.smtp} disabled={!form.smtpEnabled} onChange={(smtp) => change({ ...form, smtp })} />
+            </details>
+          )}
           <div className="hu-mail-help">
-            {preset.hint}{" "}
+            {!repair && preset.hint}{" "}
             {desktopHost ? (
               <Button
                 variant="ghost"
@@ -270,12 +297,12 @@ export function MailAccountDialog({ onClose, onSaved }: { onClose(): void; onSav
           ) : (
             <div>
               <Button type={connection ? "button" : "submit"} onClick={connection ? () => void testConnection() : undefined} loading={busy === "test"}>
-                {connection ? "重新测试连接" : "测试连接并发现文件夹"}
+                {repair ? (connection ? "重新测试新认证" : "测试新认证") : connection ? "重新测试连接" : "测试连接并发现文件夹"}
               </Button>
             </div>
           )}
-          <div role="status">{connection ? "IMAP 连接成功。选择要同步的文件夹。" : ""}</div>
-          {connection && (
+          <div role="status">{connection ? (repair ? "新凭据已通过 IMAP 测试，保存后在当前账号生效。" : "IMAP 连接成功。选择要同步的文件夹。") : ""}</div>
+          {connection && !repair && (
             <fieldset className="hu-mail-group">
               <legend>已发现的文件夹</legend>
               {connection.folders.map((folder) => (

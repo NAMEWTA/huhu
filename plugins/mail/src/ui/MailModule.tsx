@@ -1,7 +1,9 @@
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { mailPreset, type MailProvider } from "../engine/presets.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
+import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
@@ -14,6 +16,7 @@ const tabs = [
 ] as const;
 const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
+type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount };
 
 export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
   const engine = useEngine();
@@ -31,16 +34,27 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [accountId, setAccountId] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [operationId, setOperationId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [dialog, setDialog] = useState<AccountDialog | null>(null);
+  const [accountView, setAccountView] = useState<"accounts" | "mailbox">("accounts");
+  const [collapsed, setCollapsed] = useState<Set<MailProvider>>(() => new Set());
   const [composer, setComposer] = useState<{ draft: Draft | null } | null>(null);
   const feedbackScope = `mail-${engine.vaultId}`;
   const feedback = useWorkbenchFeedback(feedbackScope);
   const [error, setError] = useState("");
   const composeTrigger = useRef<HTMLElement | null>(null);
-  const addTrigger = useRef<HTMLButtonElement | null>(null);
+  const accountActionTrigger = useRef<HTMLButtonElement | null>(null);
+  const accountList = useRef<HTMLElement>(null);
+  const backAccounts = useRef<HTMLButtonElement>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const rows = accounts.data?.accounts ?? emptyAccounts;
   const account = rows.find((row) => row.accountId === accountId);
+  const groups = new Map<MailProvider, MailAccount[]>();
+  for (const row of rows) {
+    const { provider } = row.definition.settings;
+    const members = groups.get(provider);
+    if (members) members.push(row);
+    else groups.set(provider, [row]);
+  }
   const draft = drafts.data?.drafts.find((row) => row.draftId === draftId) ?? drafts.data?.drafts[0];
   const operation = deliveries.data?.operations.find((row) => row.operationId === operationId) ?? deliveries.data?.operations[0];
   const activeOperationId = operationId ?? operation?.operationId;
@@ -61,8 +75,38 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   }
 
   function closeAccountDialog() {
-    setAdding(false);
-    requestAnimationFrame(() => addTrigger.current?.focus());
+    if (dialog?.kind !== "add") void accounts.refetch();
+    setDialog(null);
+  }
+
+  useLayoutEffect(() => {
+    if (dialog || !accountActionTrigger.current) return;
+    const trigger = accountActionTrigger.current;
+    accountActionTrigger.current = null;
+    const frame = requestAnimationFrame(() => trigger.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [dialog]);
+
+  function expandProvider(provider: MailProvider) {
+    setCollapsed((current) => (current.has(provider) ? new Set([...current].filter((entry) => entry !== provider)) : current));
+  }
+
+  function chooseAccount(row: MailAccount) {
+    expandProvider(row.definition.settings.provider);
+    setAccountId(row.accountId);
+    setAccountView("mailbox");
+    requestAnimationFrame(() => {
+      if (backAccounts.current?.getClientRects().length) backAccounts.current.focus();
+    });
+  }
+
+  function returnToAccounts() {
+    if (account) expandProvider(account.definition.settings.provider);
+    setAccountView("accounts");
+    const id = accountId;
+    requestAnimationFrame(() => {
+      if (id) accountList.current?.querySelector<HTMLElement>(`[data-mail-account="${CSS.escape(id)}"]`)?.focus();
+    });
   }
 
   function showComposer(draft: Draft | null) {
@@ -111,8 +155,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               variant="primary"
               disabled={!accountSetupAvailable}
               onClick={(e) => {
-                addTrigger.current = e.currentTarget;
-                setAdding(true);
+                accountActionTrigger.current = e.currentTarget;
+                setDialog({ kind: "add" });
               }}
             >
               添加邮箱
@@ -149,21 +193,53 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       )}
       {currentQuery.isPending && <p>正在读取邮件工作区…</p>}
       {tab === "mail" && !currentQuery.isPending && (
-        <div className="hu-mail-columns">
-          <aside aria-label="邮箱账号" className="hu-mail-list">
-            <Button aria-pressed={!account} onClick={() => setAccountId(null)}>
+        <div className="hu-mail-columns hu-mail-account-columns" data-account-view={account ? accountView : "accounts"}>
+          <aside ref={accountList} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
+            <Button
+              aria-pressed={!account}
+              onClick={() => {
+                setAccountId(null);
+                setAccountView("accounts");
+              }}
+            >
               全部账号
             </Button>
-            {rows.map((row) => (
-              <Button key={row.accountId} aria-pressed={row.accountId === account?.accountId} onClick={() => setAccountId(row.accountId)}>
-                {accountTitle(row)}
-              </Button>
+            {[...groups].map(([provider, members]) => (
+              <div key={provider} className="hu-mail-provider">
+                <Button
+                  variant="ghost"
+                  aria-expanded={!collapsed.has(provider)}
+                  onClick={() => setCollapsed((current) => (current.has(provider) ? new Set([...current].filter((item) => item !== provider)) : new Set([...current, provider])))}
+                >
+                  {mailPreset(provider).label}
+                </Button>
+                <div className="hu-mail-provider-accounts" hidden={collapsed.has(provider)}>
+                  {members.map((row) => (
+                    <Button key={row.accountId} data-mail-account={row.accountId} aria-pressed={row.accountId === account?.accountId} onClick={() => chooseAccount(row)}>
+                      {accountTitle(row)}
+                      {row.authState["account-password"] !== "configured" && <span className="hu-mail-help"> · 凭据待检查</span>}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             ))}
           </aside>
           {account ? (
-            <Mailbox key={account.accountId} account={account} readOnly={readOnly} />
+            <Mailbox
+              key={account.accountId}
+              account={account}
+              readOnly={readOnly}
+              backAccounts={backAccounts}
+              onBack={returnToAccounts}
+              {...(accountSetupAvailable && {
+                onAccountAction: (kind: "repair" | "rename", trigger: HTMLButtonElement) => {
+                  accountActionTrigger.current = trigger;
+                  setDialog({ kind, account });
+                },
+              })}
+            />
           ) : (
-            <article className="hu-mail-detail">
+            <article className="hu-mail-detail hu-mail-account-overview">
               <h2>{rows.length ? "全部账号" : "添加第一个邮箱"}</h2>
               <p>
                 {rows.length
@@ -232,14 +308,37 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </div>
         </>
       )}
-      {adding && (
+      {dialog?.kind === "add" && (
         <MailAccountDialog
           onClose={closeAccountDialog}
           onSaved={(id) => {
             closeAccountDialog();
             setTab("mail");
             setAccountId(id);
+            setAccountView("mailbox");
             changed("邮箱已保存。");
+          }}
+        />
+      )}
+      {dialog?.kind === "repair" && (
+        <MailAccountDialog
+          key={dialog.account.accountId}
+          repair={dialog.account}
+          onClose={closeAccountDialog}
+          onSaved={() => {
+            closeAccountDialog();
+            changed("邮箱认证已更新。");
+          }}
+        />
+      )}
+      {dialog?.kind === "rename" && (
+        <MailAccountNameDialog
+          key={dialog.account.accountId}
+          account={dialog.account}
+          onClose={closeAccountDialog}
+          onSaved={() => {
+            closeAccountDialog();
+            changed("邮箱名称已更新。");
           }}
         />
       )}
@@ -263,71 +362,141 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   );
 }
 
-function Mailbox({ account, readOnly }: { account: MailAccount; readOnly: boolean }) {
+function Mailbox({
+  account,
+  readOnly,
+  backAccounts,
+  onBack,
+  onAccountAction,
+}: {
+  account: MailAccount;
+  readOnly: boolean;
+  backAccounts: Ref<HTMLButtonElement>;
+  onBack(): void;
+  onAccountAction?(kind: "repair" | "rename", trigger: HTMLButtonElement): void;
+}) {
   const engine = useEngine();
   const [selected, setSelected] = useState("INBOX");
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<string | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const messageTrigger = useRef<HTMLButtonElement | null>(null);
+  const backMessages = useRef<HTMLButtonElement>(null);
   const folder = account.definition.folders.some(({ path }) => path === selected) ? selected : "INBOX";
   const input = { accountId: account.accountId, folder };
   const latest = useCapability<{ message: MessageSummary | null }>("mail.messages.latest", input);
   const { message } = latest.data ?? {};
+  const reading = !!message && opened === message.localMessageId;
+
+  useEffect(() => {
+    setError("");
+    setRefreshing(false);
+    return () => {
+      request.current?.abort();
+      request.current = null;
+    };
+  }, [engine, account.revision]);
 
   async function refresh() {
+    if (request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
     setRefreshing(true);
     setError("");
     try {
-      const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", input, { write: true });
+      const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", input, { write: true, signal: controller.signal });
+      if (controller.signal.aborted) return;
       await latest.refetch();
-      if (result.mailboxChanged) setOpened(null);
+      if (!controller.signal.aborted && result.mailboxChanged) setOpened(null);
     } catch (err) {
-      setError(err instanceof CapabilityError ? err.message : "无法刷新此目录。");
+      if (!controller.signal.aborted) setError(err instanceof CapabilityError ? err.message : "无法刷新此目录。");
     } finally {
-      setRefreshing(false);
+      if (request.current === controller) request.current = null;
+      if (!controller.signal.aborted) setRefreshing(false);
     }
   }
 
   return (
-    <article className="hu-mail-detail">
-      <h2>{accountTitle(account)}</h2>
-      <p>
-        {account.definition.settings.email}
-        {account.definition.settings.smtpEnabled ? "" : " · 只接收"}
-      </p>
-      <div className="hu-mail-row">
-        <label>
-          目录{" "}
-          <select
-            value={folder}
-            onChange={(e) => {
-              setSelected(e.target.value);
-              setError("");
-              setOpened(null);
-            }}
-            disabled={refreshing}
-          >
-            {account.definition.folders.map(({ path }) => (
-              <option key={path}>{path}</option>
-            ))}
-          </select>
-        </label>
-        <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
-          同步目录
-        </Button>
+    <article className="hu-mail-detail hu-mail-account-detail" data-reading={reading}>
+      <div className="hu-mail-narrow-back hu-mail-mailbox-nav">
+        <button type="button" className="hu-btn" ref={backAccounts} onClick={onBack}>
+          返回账号
+        </button>
       </div>
-      {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
-      {error && <Banner tone="danger">{error}</Banner>}
-      {latest.isError && (
-        <Banner tone="danger" action={<Button onClick={() => void latest.refetch()}>重试读取</Button>}>
-          无法读取本机邮件缓存。
-        </Banner>
+      {reading && (
+        <div className="hu-mail-narrow-back">
+          <button
+            type="button"
+            className="hu-btn"
+            ref={backMessages}
+            onClick={() => {
+              setOpened(null);
+              requestAnimationFrame(() => messageTrigger.current?.focus());
+            }}
+          >
+            返回邮件列表
+          </button>
+        </div>
       )}
+      <div className="hu-mail-detail hu-mail-mailbox-toolbar">
+        <h2>{accountTitle(account)}</h2>
+        <p>
+          {account.definition.settings.email}
+          {account.definition.settings.smtpEnabled ? "" : " · 只接收"}
+        </p>
+        <div className="hu-mail-row">
+          <label>
+            目录{" "}
+            <select
+              value={folder}
+              onChange={(e) => {
+                setSelected(e.target.value);
+                setError("");
+                setOpened(null);
+              }}
+              disabled={refreshing}
+            >
+              {account.definition.folders.map(({ path }) => (
+                <option key={path}>{path}</option>
+              ))}
+            </select>
+          </label>
+          <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
+            同步目录
+          </Button>
+        </div>
+        {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
+        {onAccountAction && (
+          <div className="hu-mail-row">
+            <Button onClick={(event) => onAccountAction("repair", event.currentTarget)}>修复认证</Button>
+            <Button variant="ghost" onClick={(event) => onAccountAction("rename", event.currentTarget)}>
+              更改名称
+            </Button>
+          </div>
+        )}
+        {error && <Banner tone="danger">{error}</Banner>}
+        {latest.isError && (
+          <Banner tone="danger" action={<Button onClick={() => void latest.refetch()}>重试读取</Button>}>
+            无法读取本机邮件缓存。
+          </Banner>
+        )}
+      </div>
       {latest.data &&
         (message ? (
           <div className="hu-mail-detail">
-            <div className="hu-mail-row">
-              <Button aria-expanded={opened === message.localMessageId} onClick={() => setOpened(opened === message.localMessageId ? null : message.localMessageId)}>
+            <div className="hu-mail-row hu-mail-mailbox-nav">
+              <Button
+                aria-expanded={reading}
+                onClick={(event) => {
+                  messageTrigger.current = event.currentTarget;
+                  setOpened(reading ? null : message.localMessageId);
+                  if (!reading)
+                    requestAnimationFrame(() => {
+                      if (backMessages.current?.getClientRects().length) backMessages.current.focus();
+                    });
+                }}
+              >
                 {message.subject || "无主题"}
               </Button>
               {message.readState === "unread" && <span>未读</span>}

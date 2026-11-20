@@ -7,6 +7,7 @@ export type MailAccountErrorCode =
   | "oauth-required"
   | "discovery-stale"
   | "inbox-required"
+  | "saved-folders-unavailable"
   | "invalid-selection"
   | "discovery-required"
   | "draft-busy"

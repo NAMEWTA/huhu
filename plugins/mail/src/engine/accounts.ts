@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { errors, HuhuError } from "@huhu/contracts";
 import { ModuleCredentials, type CredentialOwner, type CredentialSummary } from "@huhu/kernel";
 import {
   accountPasswordPurpose,
@@ -28,6 +29,8 @@ type FolderDiscovery = {
 };
 
 export type MailAccount = Omit<CredentialSummary, "entityId"> & { accountId: string; definition: MailAccountDefinition };
+export type MailAccountVersion = { accountId: string; expectedRevision: string };
+type RepairAccount = Pick<MailAccount, "accountId" | "revision" | "definition">;
 
 function mailAccount({ entityId, revision, authState }: CredentialSummary, definition: MailAccountDefinition): MailAccount {
   return { accountId: entityId, revision, authState, definition };
@@ -41,10 +44,32 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     definition: mailAccountDefinitionSchema,
     targets: ({ settings }) => accountTargets(settings),
   });
+  function current({ accountId, expectedRevision }: MailAccountVersion): RepairAccount {
+    const found = ModuleCredentials.readPortableDefinition(owner.vault.files, "mail", mailAccountDefinitionSchema, accountId);
+    if (!found) throw errors.notFound("邮箱账号已不存在。");
+    if (found.revision !== expectedRevision) throw new HuhuError("VERSION_CONFLICT", "邮箱配置已更新，请关闭后重新打开该账号。", { details: { currentVersion: found.revision } });
+    return { accountId, revision: found.revision, definition: found.definition };
+  }
   return {
     list: async () => (await credentials.list()).map((entry) => mailAccount(entry, entry.definition)),
     recover: () => credentials.recover(),
     begin: (settings: MailAccountSettings, password?: string) => new MailAccountDraft(credentials, discover, settings, password),
+    beginRepair(target: MailAccountVersion, password: string) {
+      const account = current(target);
+      return new MailAccountDraft(credentials, discover, account.definition.settings, password, account);
+    },
+    async rename(target: MailAccountVersion, label: string, signal: AbortSignal) {
+      signal.throwIfAborted();
+      const { accountId, revision, definition } = current(target);
+      const saved = await credentials.save({
+        entityId: accountId,
+        expectedRevision: revision,
+        definition: { ...definition, settings: { ...definition.settings, label } },
+        actions: [{ purpose: accountPasswordPurpose, action: "keep" }],
+        signal,
+      });
+      return { accountId, revision: saved.revision };
+    },
     withSmtpCredentials<R>(accountId: string, send: (settings: MailAccountDefinition["settings"], password: string) => Promise<R>) {
       return credentials.use(accountId, [accountPasswordPurpose], ({ settings }, values) => {
         const password = values.get(accountPasswordPurpose);
@@ -97,6 +122,7 @@ export class MailAccountDraft {
     private readonly discover: MailFolderDiscovery,
     settings: MailAccountSettings,
     password?: string,
+    private readonly repair?: RepairAccount,
   ) {
     this.#input = { settings: structuredClone(settings), password };
   }
@@ -146,10 +172,18 @@ export class MailAccountDraft {
       }
       const inbox = folders.get("INBOX");
       if (!inbox || !isSelectable(inbox)) throw new MailAccountError("inbox-required");
+      const selected = this.repair?.definition.folders.map(({ path }) => path) ?? ["INBOX"];
+      if (
+        selected.some((path) => {
+          const folder = folders.get(path);
+          return !folder || !isSelectable(folder);
+        })
+      )
+        throw new MailAccountError("saved-folders-unavailable");
       this.#assertCurrentDiscovery(discovery);
       discovery.controller = undefined;
       this.#folders = folders;
-      this.#selected.add("INBOX");
+      this.#selected = new Set(selected);
       return this.snapshot().folders;
     } catch (error) {
       this.#assertCurrentDiscovery(discovery);
@@ -170,10 +204,10 @@ export class MailAccountDraft {
     this.#selected = next;
   }
 
-  async save() {
+  async save(signal?: AbortSignal) {
     this.#assertEditable();
     const { settings, password } = this.#assertDiscovered();
-    const definition: MailAccountDefinition = {
+    const definition: MailAccountDefinition = this.repair?.definition ?? {
       format: 1,
       settings,
       folders: [...this.#folders.values()].filter((folder) => this.#selected.has(folder.path)),
@@ -181,10 +215,11 @@ export class MailAccountDraft {
     this.#saving = true;
     try {
       const saved = await this.credentials.save({
-        entityId: this.#id,
-        expectedRevision: null,
+        entityId: this.repair?.accountId ?? this.#id,
+        expectedRevision: this.repair?.revision ?? null,
         definition,
-        actions: [{ purpose: accountPasswordPurpose, action: "replace", value: password }],
+        actions: [{ purpose: accountPasswordPurpose, action: "replace", value: password, ...(this.repair && { reconfigure: true as const }) }],
+        ...(signal && { signal }),
       });
       this.#closed = true;
       this.#input = { settings: this.#input.settings, password: undefined };

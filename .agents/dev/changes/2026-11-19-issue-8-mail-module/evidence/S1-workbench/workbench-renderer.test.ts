@@ -11,7 +11,7 @@ import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/accou
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿和投递", async () => {
+test("Mail 实际组件经本机 Engine 走通账号修复、阅读、草稿和投递", async () => {
   const repo = path.resolve(import.meta.dirname, "../../..");
   const desktop = path.join(repo, "apps/desktop");
   const entry = path.join(desktop, "src/renderer/mail-proof-entry.tsx");
@@ -70,6 +70,8 @@ test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿�
   mkdirSync(vaultPath);
   mkdirSync(desktopUserData);
   const password = randomUUID();
+  const replacement = randomUUID();
+  let acceptedPassword = password;
   const subject = "Mail reading fixture";
   const message = {
     uidValidity: 12,
@@ -104,7 +106,9 @@ test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿�
       "",
     ].join("\r\n"),
   };
-  const imap = await openImapFixture({ message });
+  const imap = await openImapFixture({ message, acceptPassword: (value) => value === acceptedPassword });
+  const otherPassword = randomUUID();
+  const other = await openImapFixture({ acceptPassword: (value) => value === otherPassword, message: { uidValidity: 12, subject: "Other mailbox fixture", source: "Subject: Other mailbox fixture\r\n\r\nOther account\r\n" } });
   const smtp = await loopbackSmtp(password);
   const engine = await boot({ vaultPath, desktopUserData, create: true });
   const origin = "http://mail-workbench.test";
@@ -114,7 +118,21 @@ test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿�
   let failBodyRead = true;
   let markCalls = 0;
   const externalRequests: string[] = [];
+  const repairReplyReady = Promise.withResolvers<void>();
+  const deliverRepairReply = Promise.withResolvers<void>();
+  let holdRepair = false;
   shell.on("pageerror", (error) => pageErrors.push(error.message));
+  async function direct(capability: string, input: unknown) {
+    const id = randomUUID();
+    const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability, input, requestId: id, idempotencyKey: id }),
+    });
+    const reply = await response.json();
+    assert(reply.ok);
+    return reply.data;
+  }
   try {
     await shell.addInitScript(
       (endpoint) => {
@@ -133,7 +151,8 @@ test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿�
       if (url.pathname.startsWith("/api/")) {
         const request = route.request();
         const payload = request.postData();
-        const capability = payload ? JSON.parse(payload).capability : undefined;
+        const envelope = payload ? JSON.parse(payload) : undefined;
+        const capability = envelope?.capability;
         if (capability === "mail.messages.markRead") markCalls++;
         if (failBodyRead && capability === "mail.messages.loadBody") {
           failBodyRead = false;
@@ -148,7 +167,13 @@ test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿�
           headers: { authorization: engine.rendererToken ? "Bearer " + engine.rendererToken : "", "content-type": "application/json" },
           body: payload,
         });
-        return route.fulfill({ status: response.status, contentType: "application/json", body: await response.text() });
+        const body = await response.text();
+        if (holdRepair && capability === "mail.accounts.testConnection" && envelope?.input?.accountId) {
+          holdRepair = false;
+          repairReplyReady.resolve();
+          await deliverRepairReply.promise;
+        }
+        return route.fulfill({ status: response.status, contentType: "application/json", body });
       }
       const asset = assets.get(url.pathname.slice(1));
       if (!asset) return route.abort();
@@ -256,15 +281,96 @@ test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿�
     await browserExpect(shell.getByRole("button", { name: "核对投递记录" })).toBeVisible();
     expect(await shell.locator("body").evaluate((body) => body.scrollWidth)).toBeLessThanOrEqual(390);
     if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-unknown-390.png") });
+
+    const otherSetup = await direct("mail.accounts.testConnection", {
+      settings: {
+        provider: "yahoo",
+        email: "second@example.invalid",
+        label: "另一回环邮箱",
+        auth: "app-password",
+        imap: { host: "127.0.0.1", port: other.port, security: "none" },
+        smtpEnabled: false,
+        smtp: { host: "", port: 465, security: "tls" },
+      },
+      password: otherPassword,
+    });
+    await direct("mail.accounts.save", { setupId: otherSetup.setupId, folders: ["INBOX"] });
+    await shell.reload();
+    const accountA = shell.getByRole("button", { name: "回环邮箱已修改", exact: true });
+    const accountB = shell.getByRole("button", { name: "另一回环邮箱", exact: true });
+    const groupA = shell.getByRole("button", { name: "自定义 IMAP/SMTP", exact: true });
+    const backAccounts = shell.getByRole("button", { name: "返回账号", exact: true });
+    await groupA.click();
+    await browserExpect(accountA).toBeHidden();
+    await browserExpect(accountB).toBeVisible();
+    await groupA.press("Enter");
+    await accountA.press("Enter");
+    await browserExpect(backAccounts).toBeFocused();
+    const openedMessage = shell.getByRole("button", { name: subject, exact: true });
+    await openedMessage.press("Enter");
+    const backMessages = shell.getByRole("button", { name: "返回邮件列表", exact: true });
+    await browserExpect(backMessages).toBeFocused();
+    await backMessages.press("Enter");
+    await browserExpect(openedMessage).toBeFocused();
+    await backAccounts.click();
+    await browserExpect(accountA).toBeFocused();
+    await browserExpect(accountA).toHaveAttribute("aria-pressed", "true");
+    await accountA.click();
+
+    const repairButton = shell.getByRole("button", { name: "修复认证", exact: true });
+    const repair = shell.getByRole("dialog", { name: "修复邮箱认证" });
+    await repairButton.click();
+    const newPassword = repair.getByLabel("新邮箱密码或客户端授权码");
+    const testRepair = repair.getByRole("button", { name: "测试新认证", exact: true });
+    await newPassword.fill(replacement);
+    await testRepair.click();
+    await browserExpect(repair.getByText("邮箱认证失败", { exact: false })).toBeVisible();
+    await browserExpect(repair.getByRole("button", { name: "保存新认证" })).toBeDisabled();
+
+    acceptedPassword = replacement;
+    holdRepair = true;
+    await testRepair.click();
+    await repairReplyReady.promise;
+    await repair.getByRole("button", { name: "取消", exact: true }).click();
+    await browserExpect(repairButton).toBeFocused();
+    await backAccounts.click();
+    await accountB.click();
+    deliverRepairReply.resolve();
+    await browserExpect(shell.getByRole("heading", { name: "另一回环邮箱" })).toBeVisible();
+    await browserExpect(repair).toBeHidden();
+    await shell.getByRole("button", { name: "同步目录", exact: true }).click();
+    await browserExpect(shell.getByRole("button", { name: "Other mailbox fixture" })).toBeVisible();
+    await browserExpect(openedMessage).toBeHidden();
+
+    await backAccounts.click();
+    await accountA.click();
+    await repairButton.click();
+    await newPassword.fill(replacement);
+    await testRepair.click();
+    await browserExpect(repair.getByText("新凭据已通过 IMAP 测试", { exact: false })).toBeVisible();
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-repair-390.png"), animations: "disabled", style: 'dialog input[type="password"] { visibility: hidden; }' });
+    await repair.getByRole("button", { name: "保存新认证" }).click();
+    await browserExpect(repair).toBeHidden();
+    await browserExpect(shell.getByRole("heading", { name: "回环邮箱已修改" })).toBeVisible();
+    await shell.getByRole("button", { name: "更改名称", exact: true }).click();
+    const rename = shell.getByRole("dialog", { name: "更改邮箱名称" });
+    await rename.getByLabel("显示名称").fill("已修复的回环邮箱");
+    await rename.getByRole("button", { name: "保存名称" }).click();
+    await browserExpect(shell.getByRole("heading", { name: "已修复的回环邮箱" })).toBeVisible();
+    const synced = shell.waitForResponse((response) => response.url().endsWith("/api/v1/call") && response.request().postDataJSON()?.capability === "mail.sync.refresh");
+    await shell.getByRole("button", { name: "同步目录", exact: true }).click();
+    expect(await (await synced).json()).toMatchObject({ ok: true, data: { message: { subject } } });
+    await browserExpect(openedMessage).toBeVisible();
     expect(pageErrors).toEqual([]);
   } finally {
+    deliverRepairReply.resolve();
     await browser.close();
     try {
       assert(engine.moduleCredentialHost);
       const owner = new ModuleCredentials({ ...engine.moduleCredentialHost, vault: engine.vault, pluginId: "mail", definition: mailAccountDefinitionSchema, targets: ({ settings }) => accountTargets(settings) });
       for (const { entityId, revision } of await owner.list()) await owner.delete(entityId, revision);
     } finally {
-      await Promise.all([imap.close(), smtp.close(), engine.shutdown()]);
+      await Promise.all([imap.close(), other.close(), smtp.close(), engine.shutdown()]);
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
     }
   }

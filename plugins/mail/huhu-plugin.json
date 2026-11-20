@@ -15,6 +15,7 @@
       "mail.accounts.testConnection",
       "mail.accounts.save",
       "mail.accounts.cancelSetup",
+      "mail.accounts.rename",
       "mail.sync.refresh",
       "mail.messages.latest",
       "mail.messages.loadSource",
