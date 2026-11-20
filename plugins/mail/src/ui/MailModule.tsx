@@ -1,14 +1,15 @@
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, host, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage } from "../engine/conversations.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
+import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailComposer } from "./MailComposer.js";
-import { MailReader, type RelatedDraft } from "./MailReader.js";
+import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
 
@@ -67,6 +68,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const backAccounts = useRef<HTMLButtonElement>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const rows = accounts.data?.accounts ?? emptyAccounts;
+  const accountVersions = JSON.stringify(rows.map(({ accountId, revision }) => [accountId, revision]).sort());
   const account = rows.find((row) => row.accountId === accountId);
   const conversationScope = account?.accountId ?? "";
   const groups = new Map<MailProvider, MailAccount[]>();
@@ -81,6 +83,19 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const activeOperationId = operationId ?? operation?.operationId;
   const readOnly = access.data?.readOnly !== false;
   const desktop = !!engine.endpoint.token;
+
+  const refetchAccounts = accounts.refetch;
+  useEngineEvents((event) => {
+    if (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "mail-account") void refetchAccounts();
+  });
+  useEffect(() => {
+    if (!readingMessage) return;
+    const timer = setInterval(() => void refetchAccounts(), 1500);
+    return () => clearInterval(timer);
+  }, [readingMessage, refetchAccounts]);
+  useEffect(() => {
+    void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && String(entry.queryKey[1]).startsWith("mail.conversations.") });
+  }, [accountVersions, engine, query]);
 
   const changed = useCallback(
     (message: string, kind: "success" | "info" = "success") => {
@@ -477,6 +492,7 @@ function Mailbox({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<ConversationMessage | null>(null);
+  const [ordinary, setOrdinary] = useState<MessageSummary | null>(null);
   const [offset, setOffset] = useState(remembered?.offset ?? 0);
   const [conversationId, setConversationId] = useState(remembered?.id ?? "");
   const request = useRef<AbortController | null>(null);
@@ -487,13 +503,30 @@ function Mailbox({
   const list = useCapability<ConversationsPage>("mail.conversations.list", { ...(account && { accountId: account.accountId }), offset });
   const conversations = list.data?.conversations ?? [];
   const conversation = conversations.find((row) => row.conversationId === conversationId) ?? conversations[0];
-  const activeMessage = conversation?.conversationId === conversationId ? opened : null;
-  const reading = activeMessage !== null;
+  const owner = opened && accounts.find((row) => row.accountId === opened.accountId);
+  const visible = opened && owner && (opened.source === "sent" || owner.definition.folders.some((row) => row.path === opened.folder && isPublicMailFolder(row)));
+  const activeMessage = visible && conversation?.conversationId === conversationId ? opened : null;
+  const ordinaryMessage = ordinary && ordinary.accountId === account?.accountId && account.definition.folders.some(({ path }) => path === ordinary.folder) ? ordinary : null;
+  const reading = !!(activeMessage || ordinaryMessage);
+
+  const revokeOpened = useCallback(() => {
+    setOpened(null);
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) contactsHeading.current?.focus();
+    });
+  }, []);
 
   useEffect(() => {
-    onReading(activeMessage?.source === "imap" ? activeMessage.localMessageId : null);
+    if (opened && (!visible || (list.isSuccess && !list.isFetching && activeMessage === null))) revokeOpened();
+  }, [activeMessage, list.isFetching, list.isSuccess, opened, revokeOpened, visible]);
+  useEffect(() => {
+    if (ordinary && !ordinaryMessage) setOrdinary(null);
+  }, [ordinary, ordinaryMessage]);
+
+  useEffect(() => {
+    onReading(ordinaryMessage?.localMessageId ?? (activeMessage?.source === "imap" ? activeMessage.localMessageId : null));
     return () => onReading(null);
-  }, [onReading, activeMessage]);
+  }, [onReading, activeMessage, ordinaryMessage]);
 
   useEffect(() => {
     setError("");
@@ -513,8 +546,11 @@ function Mailbox({
     try {
       const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", { accountId: sourceAccount, folder: sourceFolder }, { write: true, signal: controller.signal });
       if (controller.signal.aborted) return;
-      await query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && String(entry.queryKey[1]).startsWith("mail.conversations.") });
-      if (!controller.signal.aborted && result.mailboxChanged) setOpened((current) => (current?.source === "imap" && current.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
+      await query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && (entry.queryKey[1] === "mail.messages.latest" || String(entry.queryKey[1]).startsWith("mail.conversations.")) });
+      if (!controller.signal.aborted && result.mailboxChanged) {
+        setOpened((current) => (current?.source === "imap" && current.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
+        setOrdinary((current) => (current?.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
+      }
     } catch (err) {
       if (!controller.signal.aborted) setError(err instanceof CapabilityError ? err.message : "无法刷新此目录。");
     } finally {
@@ -546,6 +582,7 @@ function Mailbox({
             ref={backMessages}
             onClick={() => {
               setOpened(null);
+              setOrdinary(null);
               requestAnimationFrame(() => {
                 if (messageTrigger.current?.getClientRects().length) messageTrigger.current.focus();
                 else contactsHeading.current?.focus();
@@ -573,6 +610,7 @@ function Mailbox({
                     setSelected(e.target.value);
                     setError("");
                     setOpened(null);
+                    setOrdinary(null);
                   }}
                   disabled={refreshing}
                 >
@@ -584,6 +622,18 @@ function Mailbox({
               <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
                 同步目录
               </Button>
+              <FolderLatestButton
+                accountId={account.accountId}
+                folder={folder}
+                onOpen={(message, trigger) => {
+                  setOpened(null);
+                  messageTrigger.current = trigger;
+                  setOrdinary(message);
+                  requestAnimationFrame(() => {
+                    if (backMessages.current?.getClientRects().length) backMessages.current.focus();
+                  });
+                }}
+              />
             </div>
             {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
           </>
@@ -619,6 +669,7 @@ function Mailbox({
               aria-pressed={row.conversationId === conversation?.conversationId}
               onClick={() => {
                 setOpened(null);
+                setOrdinary(null);
                 setConversationId(row.conversationId);
                 onConversation({ id: row.conversationId, offset });
               }}
@@ -647,31 +698,62 @@ function Mailbox({
             </nav>
           )}
         </aside>
-        {conversation && (
-          <ConversationTimeline
-            key={conversation.conversationId}
-            conversation={conversation}
-            accountId={account?.accountId}
-            accounts={accounts}
-            opened={activeMessage}
+        {ordinaryMessage ? (
+          <MailReader
+            key={ordinaryMessage.localMessageId}
+            view="mailbox"
+            message={ordinaryMessage}
             readOnly={readOnly}
             onCompose={onCompose}
             onRefresh={refresh}
-            onChanged={list.refetch}
-            onOpen={(message, trigger) => {
-              setConversationId(conversation.conversationId);
-              onConversation({ id: conversation.conversationId, offset });
-              messageTrigger.current = trigger;
-              setOpened(message);
-              if (message)
-                requestAnimationFrame(() => {
-                  if (backMessages.current?.getClientRects().length) backMessages.current.focus();
-                });
+            onRead={async () => {
+              const latest = await engine.call<{ message: MessageSummary | null }>("mail.messages.latest", { accountId: ordinaryMessage.accountId, folder: ordinaryMessage.folder });
+              setOrdinary((current) => (current?.localMessageId === latest.message?.localMessageId ? latest.message : current));
+              return list.refetch();
             }}
           />
+        ) : (
+          conversation && (
+            <ConversationTimeline
+              key={conversation.conversationId}
+              conversation={conversation}
+              accountId={account?.accountId}
+              accounts={accounts}
+              opened={activeMessage}
+              readOnly={readOnly}
+              onCompose={onCompose}
+              onRefresh={refresh}
+              onChanged={list.refetch}
+              onRevoked={revokeOpened}
+              onOpen={(message, trigger) => {
+                setConversationId(conversation.conversationId);
+                onConversation({ id: conversation.conversationId, offset });
+                messageTrigger.current = trigger;
+                setOpened(message);
+                if (message)
+                  requestAnimationFrame(() => {
+                    if (backMessages.current?.getClientRects().length) backMessages.current.focus();
+                  });
+              }}
+            />
+          )
         )}
       </div>
     </article>
+  );
+}
+
+function FolderLatestButton({ accountId, folder, onOpen }: { accountId: string; folder: string; onOpen(message: MessageSummary, trigger: HTMLButtonElement): void }) {
+  const latest = useCapability<{ message: MessageSummary | null }>("mail.messages.latest", { accountId, folder });
+  return (
+    <Button
+      disabled={!latest.data?.message}
+      onClick={(event) => {
+        if (latest.data?.message) onOpen(latest.data.message, event.currentTarget);
+      }}
+    >
+      阅读目录最新邮件
+    </Button>
   );
 }
 
@@ -689,6 +771,7 @@ function ConversationTimeline({
   onRefresh,
   onChanged,
   onOpen,
+  onRevoked,
 }: {
   conversation: ConversationSummary;
   accountId: string | undefined;
@@ -699,13 +782,18 @@ function ConversationTimeline({
   onRefresh(folder: string, accountId: string): Promise<void>;
   onChanged(): Promise<unknown>;
   onOpen(message: ConversationMessage | null, trigger: HTMLButtonElement): void;
+  onRevoked(): void;
 }) {
   const [offset, setOffset] = useState(0);
   const [copyStatus, setCopyStatus] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const page = useCapability<ConversationMessagesPage>("mail.conversations.messages", { ...(accountId && { accountId }), conversationId: conversation.conversationId, offset });
   const current = opened && conversationMessageKey(opened);
-  const reader = current ? (page.data?.messages.find((message) => conversationMessageKey(message) === current) ?? opened) : null;
+  const reader = current ? page.data?.messages.find((message) => conversationMessageKey(message) === current) : null;
+
+  useEffect(() => {
+    if (current && page.isSuccess && !page.isFetching && !reader) onRevoked();
+  }, [current, onRevoked, page.isFetching, page.isSuccess, reader]);
 
   async function copy(address: string) {
     try {
@@ -774,7 +862,9 @@ function ConversationTimeline({
       {reader?.source === "imap" && (
         <MailReader
           key={reader.localMessageId}
+          view="conversation"
           message={reader}
+          onRevoked={onRevoked}
           readOnly={readOnly}
           onRead={async () => {
             void onChanged();

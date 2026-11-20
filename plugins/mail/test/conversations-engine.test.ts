@@ -42,7 +42,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       Archive: fixtureMail("A duplicate", 42, 1, [`From: ${alice}`, `To: ${aEmail}`, `Cc: ${bob}`, `Bcc: ${blind}`], sharedId),
       Waste: fixtureMail("Hidden duplicate", 42, 20, [`From: ${hidden}`, `To: ${aEmail}`], sharedId),
       Junk: fixtureMail("Remote junk", 42, 23, [`From: ${hidden}`, `To: ${aEmail}`]),
-      Sent: fixtureMail("Mirrored sent body", 42, 6, [`From: ${aEmail}`, `To: ${alice}`], mirroredId),
+      Sent: fixtureMail("Mirrored sent body", 42, 6, [`From: ${aEmail}`, `To: ${alice}`, `Bcc: ${blind}`], mirroredId),
       Drafts: fixtureMail("Remote draft", 42, 21, [`From: ${aEmail}`, `To: ${hidden}`]),
       Confidential: fixtureMail("Hidden flagged folder", 42, 22, [`From: ${hidden}`, `To: ${aEmail}`]),
     };
@@ -158,6 +158,15 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(await call("mail.messages.loadBody", key(first))).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Body for A canonical") } });
       expect(await call("mail.messages.loadBody", key(sibling))).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Body for B canonical") } });
       expect(await call("mail.messages.loadBody", { ...key(first), accountId: b })).toEqual({ state: "needs-refresh" });
+      const sent = items.find((item) => item.subject === "Mirrored sent body");
+      assert(sent?.source === "imap");
+      const projection = await call("mail.conversations.loadBody", key(sent));
+      expect(projection).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Body for Mirrored sent body") } });
+      expect(JSON.stringify(projection)).not.toContain(blind);
+      const raw = await call<{ source: string }>("mail.messages.loadSource", key(sent));
+      expect(Buffer.from(raw.source, "base64").toString()).toContain(`Bcc: ${blind}`);
+      const trashed = (await call<{ message: Location }>("mail.messages.latest", { accountId: a, folder: "Waste" })).message;
+      expect(await call("mail.conversations.loadBody", key(trashed))).toEqual({ state: "needs-refresh" });
       expect(await call("mail.conversations.sentBody", { accountId: a, operationId: sentOnly })).toEqual({ text: "Local body for Only local sent" });
       await expect(call("mail.conversations.sentBody", { accountId: b, operationId: sentOnly })).rejects.toThrow("NOT_FOUND");
       await expect(call("mail.conversations.sentBody", { accountId: a, operationId: privateOnly })).rejects.toThrow("NOT_FOUND");

@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { isInbox, isSelectable, type MailFolder } from "./account-definition.js";
+import { isPublicMailFolder, mailFolderRole } from "../mail-folder-visibility.js";
+import { isInbox } from "./account-definition.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { draftRecipient } from "./draft-content.js";
@@ -27,14 +28,7 @@ export type ConversationsPage = z.infer<typeof listOutput>;
 export type ConversationMessagesPage = z.infer<typeof messagesOutput>;
 
 type Candidate = { message: ConversationMessage; addresses: string[]; internetId?: string; rank: number };
-const hiddenFolders = new Set(["hidden", "trash", "junk", "spam", "drafts", "draft", "deleted", "deleted items", "deleted messages", "垃圾箱", "垃圾邮件", "草稿", "草稿箱", "已删除"]);
-const role = (value: string) => value.trim().replace(/^\\/, "").toLowerCase();
 const messageKey = (message: ConversationMessage) => (message.source === "imap" ? message.localMessageId : message.operationId);
-
-function visibleFolder(folder: MailFolder) {
-  const name = folder.delimiter ? folder.path.split(folder.delimiter).at(-1)! : folder.path;
-  return isSelectable(folder) && ![name, folder.name, folder.specialUse ?? "", ...folder.flags].some((value) => hiddenFolders.has(role(value)));
-}
 
 function compareMessages(a: ConversationMessage, b: ConversationMessage) {
   return (b.date ?? "").localeCompare(a.date ?? "") || a.source.localeCompare(b.source) || (a.source === "imap" && b.source === "imap" ? b.uid - a.uid : 0) || messageKey(a).localeCompare(messageKey(b));
@@ -89,9 +83,9 @@ export function registerConversations(api: HuhuApi, accounts: ReturnType<typeof 
     const selectedIds = new Set(selected.map(({ accountId }) => accountId));
     const candidates: Candidate[] = [];
     for (const account of selected) {
-      for (const folder of account.definition.folders.filter(visibleFolder)) {
+      for (const folder of account.definition.folders.filter(isPublicMailFolder)) {
         signal.throwIfAborted();
-        const rank = isInbox(folder.path) ? 0 : role(folder.specialUse ?? "") === "sent" ? 1 : 2;
+        const rank = isInbox(folder.path) ? 0 : mailFolderRole(folder.specialUse ?? "") === "sent" ? 1 : 2;
         for (const entry of cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path })) {
           const info = entry.publicMail ?? (await readPublicMail(Buffer.from(entry.source, "base64")).catch(() => undefined));
           if (!info) continue;

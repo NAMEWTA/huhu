@@ -36,16 +36,20 @@ function PlainBody({ text }: { text: string }) {
 
 export function MailReader({
   message,
+  view,
   readOnly,
   onRead,
   onRefresh,
   onCompose,
+  onRevoked,
 }: {
   message: MessageSummary;
+  view: "conversation" | "mailbox";
   readOnly: boolean;
   onRead(): Promise<{ isError: boolean }>;
   onRefresh(): Promise<void>;
   onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
+  onRevoked?(): void;
 }) {
   const engine = useEngine();
   const { accountId, folder, localMessageId } = message;
@@ -75,24 +79,31 @@ export function MailReader({
   const readingArea = useRef<HTMLDivElement>(null);
   const bodyContent = useRef<HTMLDivElement>(null);
   const sourceRequest = useRef<AbortController | null>(null);
+  const revoke = useRef(onRevoked);
+  revoke.current = onRevoked;
   const contentId = useId();
 
   useEffect(() => {
     const controller = new AbortController();
-    void engine.call<BodyReply>("mail.messages.loadBody", identity, { signal: controller.signal }).then(
+    const capability = view === "conversation" ? "mail.conversations.loadBody" : "mail.messages.loadBody";
+    void engine.call<BodyReply>(capability, identity, { signal: controller.signal }).then(
       (result) => {
         if (controller.signal.aborted) return;
         if (result.state === "ready") {
           setBody({ ...result.body, sourceDigest: result.sourceDigest });
           setStale(false);
-        } else setStale(true);
+        } else {
+          setBody(null);
+          setStale(true);
+          if (view === "conversation") revoke.current?.();
+        }
       },
       (error: unknown) => {
         if (!controller.signal.aborted) setBodyError(error instanceof CapabilityError ? error.message : "无法读取邮件正文。");
       },
     );
     return () => controller.abort();
-  }, [engine, identity, attempt]);
+  }, [engine, identity, attempt, view]);
 
   useEffect(
     () => () => {
@@ -160,6 +171,7 @@ export function MailReader({
   }, [body]);
 
   async function viewSource() {
+    if (view !== "mailbox") return;
     setShowSource(true);
     if (source !== null || sourceRequest.current) return;
     const controller = new AbortController();
@@ -292,16 +304,18 @@ export function MailReader({
       )}
       {!body && !bodyError && !changed && <p>正在读取邮件正文…</p>}
       <div className="hu-mail-row">
-        <Button
-          aria-pressed={showSource}
-          loading={loadingSource}
-          onClick={() => {
-            if (showSource) setShowSource(false);
-            else void viewSource();
-          }}
-        >
-          {showSource ? "收起原文" : "查看原文"}
-        </Button>
+        {view === "mailbox" && (
+          <Button
+            aria-pressed={showSource}
+            loading={loadingSource}
+            onClick={() => {
+              if (showSource) setShowSource(false);
+              else void viewSource();
+            }}
+          >
+            {showSource ? "收起原文" : "查看原文"}
+          </Button>
+        )}
         {prepared && (
           <Button aria-pressed={plain} onClick={() => setPlain(!plain)}>
             {plain ? "HTML 显示" : "纯文本显示"}

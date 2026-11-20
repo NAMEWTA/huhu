@@ -1,6 +1,8 @@
 import { isIP } from "node:net";
 import { z } from "zod";
+import { isSelectable } from "../mail-folder-visibility.js";
 import { mailPreset, mailProviderSchema } from "./presets.js";
+export { isSelectable } from "../mail-folder-visibility.js";
 
 const hostname = z.hostname();
 const host = z
@@ -38,7 +40,6 @@ export const mailFolderSchema = z.strictObject({
 export type MailFolder = z.infer<typeof mailFolderSchema>;
 
 export const isInbox = (path: string) => path.toUpperCase() === "INBOX";
-export const isSelectable = ({ flags }: MailFolder) => !flags.some((flag) => ["\\noselect", "\\nonexistent"].includes(flag.toLowerCase()));
 
 export const mailAccountDefinitionSchema = z.strictObject({
   format: z.literal(1),

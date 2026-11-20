@@ -28,6 +28,7 @@
       "mail.messages.markRead",
       "mail.conversations.list",
       "mail.conversations.messages",
+      "mail.conversations.loadBody",
       "mail.conversations.sentBody",
       "mail.drafts.list",
       "mail.drafts.get",

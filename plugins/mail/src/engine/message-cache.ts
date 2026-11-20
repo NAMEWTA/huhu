@@ -3,6 +3,7 @@ import { unlinkSync } from "node:fs";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
+import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
@@ -282,36 +283,42 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       },
     }),
   );
-  api.defineCapability(
-    defineCapability({
-      plugin: "mail",
-      exposable: false,
-      defaultExposed: false,
-      name: "mail.messages.loadBody",
-      scope: "read",
-      input: messageKey,
-      output: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody, sourceDigest: forwardContext.shape.sourceDigest }), z.strictObject({ state: z.literal("needs-refresh") })]),
-      handler: async ({ caller, signal }, input) => {
-        authorize(caller, "mail.messages.loadBody");
-        if (removals.read(input.accountId)) return { state: "needs-refresh" as const };
-        const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
-        cancelled.throwIfAborted();
-        const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
-        if (!message) return { state: "needs-refresh" as const };
-        const bytes = Buffer.from(message.source, "base64");
-        let body: Awaited<ReturnType<typeof parseMessageBody>>;
-        try {
-          body = await parseMessageBody(bytes);
-        } catch {
-          throw new HuhuError("INVALID_INPUT", "无法解析邮件正文。仍可查看原文。", { details: { reason: "mime" } });
-        }
-        cancelled.throwIfAborted();
-        const current = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
-        if (current?.source !== message.source) return { state: "needs-refresh" as const };
-        return { state: "ready" as const, body, sourceDigest: sourceDigest(bytes) };
-      },
-    }),
-  );
+  const bodyOutput = z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody, sourceDigest: forwardContext.shape.sourceDigest }), z.strictObject({ state: z.literal("needs-refresh") })]);
+  async function isPublicSource({ accountId, folder }: Mailbox) {
+    const current = (await accounts?.list())?.find((account) => account.accountId === accountId);
+    return !removals.read(accountId) && current?.definition.folders.some((row) => row.path === folder && isPublicMailFolder(row));
+  }
+  for (const [name, publicOnly] of [
+    ["mail.messages.loadBody", false],
+    ["mail.conversations.loadBody", true],
+  ] as const) {
+    api.defineCapability(
+      defineCapability({
+        ...internal,
+        name,
+        scope: "read",
+        input: messageKey,
+        output: bodyOutput,
+        async handler({ caller, signal }, input) {
+          authorize(caller, name);
+          const stale = { state: "needs-refresh" } as const;
+          if (removals.read(input.accountId) || (publicOnly && !(await isPublicSource(input)))) return stale;
+          const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
+          cancelled.throwIfAborted();
+          const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+          if (!message) return stale;
+          const bytes = Buffer.from(message.source, "base64");
+          const body = await parseMessageBody(bytes).catch(() => null);
+          if (publicOnly && !(await isPublicSource(input))) return stale;
+          cancelled.throwIfAborted();
+          const current = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+          if (current?.source !== message.source) return stale;
+          if (!body) throw new HuhuError("INVALID_INPUT", publicOnly ? "无法解析邮件正文。" : "无法解析邮件正文。仍可查看原文。", { details: { reason: "mime" } });
+          return { state: "ready" as const, body, sourceDigest: sourceDigest(bytes) };
+        },
+      }),
+    );
+  }
   api.defineCapability(
     defineCapability({
       plugin: "mail",

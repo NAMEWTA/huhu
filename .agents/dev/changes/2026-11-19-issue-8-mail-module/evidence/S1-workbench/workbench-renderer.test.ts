@@ -145,11 +145,28 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       "",
     ].join("\r\n"),
   };
-  const imap = await openImapFixture({ message, acceptPassword: (value) => value === acceptedPassword });
+  const sentSubject = "Sent privacy fixture";
+  const privateAddress = "sent-private@example.invalid";
+  const sentMessage = {
+    uidValidity: 12,
+    seen: true,
+    subject: sentSubject,
+    source: [`Subject: ${sentSubject}`, "From: renderer@example.invalid", "To: author@example.invalid", `Cc: ${participant}, ${replyRoute}`, `Bcc: ${privateAddress}`, "", "Sent public content", ""].join("\r\n"),
+  };
+  const imap = await openImapFixture({
+    mailboxes: { INBOX: message, Sent: sentMessage },
+    folders: [
+      { path: "inbox", flags: ["\\HasNoChildren"] },
+      { path: "Container", flags: ["\\Noselect", "\\HasChildren"] },
+      { path: "Container/Projects", flags: ["\\HasNoChildren"] },
+      { path: "Sent", flags: ["\\Sent", "\\HasNoChildren"] },
+    ],
+    acceptPassword: (value) => value === acceptedPassword,
+  });
   const otherPassword = randomUUID();
   const other = await openImapFixture({
     acceptPassword: (value) => value === otherPassword || value === password,
-    message: { uidValidity: 12, subject: "Other mailbox fixture", source: "From: author@example.invalid\r\nSubject: Other mailbox fixture\r\n\r\nOther account\r\n" },
+    message: { uidValidity: 12, subject: "Other mailbox fixture", source: `From: author@example.invalid\r\nCc: ${participant}, ${replyRoute}\r\nSubject: Other mailbox fixture\r\n\r\nOther account\r\n` },
   });
   const smtp = await loopbackSmtp(password);
   const engine = await boot({ vaultPath, desktopUserData, create: true });
@@ -176,11 +193,17 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
   let importCalls = 0;
   let fileReads = 0;
   const origin = "http://mail-workbench.test";
-  const shell = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const rendererContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const shell = await rendererContext.newPage();
   const pageErrors: string[] = [];
   let failDraftSave = true;
   let failBodyRead = true;
   let markCalls = 0;
+  let rawCalls = 0;
+  let holdPublicAccount: string | undefined;
+  const publicReplyReady = Promise.withResolvers<void>();
+  const deliverPublicReply = Promise.withResolvers<void>();
+  const publicReplyDelivered = Promise.withResolvers<void>();
   const externalRequests: string[] = [];
   const repairReplyReady = Promise.withResolvers<void>();
   const deliverRepairReply = Promise.withResolvers<void>();
@@ -194,7 +217,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       body: JSON.stringify({ capability, input, requestId: id, idempotencyKey: id }),
     });
     const reply = await response.json();
-    assert(reply.ok);
+    assert(reply.ok, `${capability}: ${reply.error?.code ?? "missing reply"}`);
     return reply.data;
   }
   try {
@@ -241,7 +264,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       cancellations.push(operationId);
       pendingSelections.get(operationId)?.abort();
     });
-    await shell.addInitScript(
+    await rendererContext.addInitScript(
       (endpoint) => {
         Reflect.set(window, "testEndpoint", endpoint);
         Reflect.set(window, "huhuHost", {
@@ -253,8 +276,8 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       },
       { baseUrl: origin, token: engine.rendererToken, vaultId: engine.vault.id },
     );
-    await shell.routeWebSocket("**/*", () => {});
-    await shell.route("**/*", async (route) => {
+    await rendererContext.routeWebSocket("**/*", () => {});
+    await rendererContext.route("**/*", async (route) => {
       const url = new URL(route.request().url());
       if (url.origin !== origin) {
         externalRequests.push(url.origin);
@@ -267,7 +290,8 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
         const envelope = payload ? JSON.parse(payload) : undefined;
         const capability = envelope?.capability;
         if (capability === "mail.messages.markRead") markCalls++;
-        if (failBodyRead && capability === "mail.messages.loadBody") {
+        if (capability === "mail.messages.loadSource") rawCalls++;
+        if (failBodyRead && capability === "mail.conversations.loadBody") {
           failBodyRead = false;
           return route.abort("failed");
         }
@@ -281,6 +305,20 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
           body: payload,
         });
         const body = await response.text();
+        if (capability === "mail.conversations.loadBody" && holdPublicAccount && envelope?.input?.accountId === holdPublicAccount) {
+          holdPublicAccount = undefined;
+          expect(JSON.parse(body)).toMatchObject({ ok: true, data: { state: "ready" } });
+          publicReplyReady.resolve();
+          await deliverPublicReply.promise;
+          try {
+            await route.fulfill({ status: response.status, contentType: "application/json", body });
+          } catch {
+            // Closing a revoked reader can cancel the browser request while the reply is in flight.
+          } finally {
+            publicReplyDelivered.resolve();
+          }
+          return;
+        }
         if (holdRepair && capability === "mail.accounts.testConnection" && envelope?.input?.accountId) {
           holdRepair = false;
           repairReplyReady.resolve();
@@ -314,6 +352,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     await browserExpect(dialog.getByRole("button", { name: "保存邮箱" })).toBeDisabled();
     await testConnection.click();
     await dialog.getByRole("checkbox", { name: "Container/Projects", exact: true }).check();
+    await dialog.getByRole("checkbox", { name: "Sent", exact: true }).check();
     await dialog.getByRole("button", { name: "保存邮箱" }).click();
     await browserExpect(dialog).toBeHidden();
     await browserExpect(add).toBeFocused();
@@ -343,9 +382,8 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     expect(imap.storeRequests).toHaveLength(2);
     await browserExpect(reading.locator("img, iframe, script, style")).toHaveCount(0);
     await browserExpect(shell.getByRole("list", { name: "邮件附件" })).toContainText("fixture.txt · text/plain · 仅有元数据");
-    await shell.getByRole("button", { name: "查看原文" }).click();
-    await browserExpect(shell.locator(".hu-mail-source")).toContainText('<img src="https://mail-images.invalid/pixel"');
-    await shell.getByRole("button", { name: "收起原文" }).click();
+    await browserExpect(shell.getByRole("button", { name: "查看原文" })).toHaveCount(0);
+    expect(rawCalls).toBe(0);
     await shell.getByRole("button", { name: "纯文本显示" }).click();
     await browserExpect(reading).toContainText("纯文本正文");
     await reading.getByText("展开引用与签名").click();
@@ -359,6 +397,11 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     expect(externalRequests).toEqual([]);
     expect(await shell.evaluate(() => Reflect.get(globalThis, "mailFixtureRan"))).toBeUndefined();
     if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-reader-1440.png") });
+    await shell.getByRole("button", { name: "阅读目录最新邮件", exact: true }).click();
+    await shell.getByRole("button", { name: "查看原文", exact: true }).click();
+    await browserExpect(shell.locator(".hu-mail-source")).toContainText("Bcc: hidden-original@example.invalid");
+    await shell.getByRole("button", { name: "收起原文", exact: true }).click();
+    expect(rawCalls).toBe(1);
 
     await shell.getByRole("button", { name: "写信", exact: true }).click();
     await shell.getByLabel("收件人", { exact: true }).fill("accepted@example.invalid, refused@example.invalid");
@@ -541,7 +584,79 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
     await backAccounts.press("Enter");
     await browserExpect(allAccounts).toBeFocused();
     expect(smtp.counts.data).toBe(beforeCachingView);
+
+    acceptedPassword = password;
+    const mailAccounts = await direct("mail.accounts.list", {});
+    const privacyA = mailAccounts.accounts.find((item: { definition: { settings: { email: string } } }) => item.definition.settings.email === "renderer@example.invalid");
+    assert(privacyA && engine.moduleCredentialHost);
+    const readIdentity = ({ accountId, folder, localMessageId }: { accountId: string; folder: string; localMessageId: string }) => ({ accountId, folder, localMessageId });
     await accountA.click();
+    await shell.getByRole("combobox", { name: /^目录/ }).selectOption("Sent");
+    const sentSync = shell.waitForResponse((response) => response.url().endsWith("/api/v1/call") && response.request().postDataJSON()?.capability === "mail.sync.refresh");
+    await shell.getByRole("button", { name: "同步目录", exact: true }).click();
+    const sentResponse = await (await sentSync).json();
+    expect(sentResponse).toMatchObject({ ok: true, data: { message: { subject: sentSubject } } });
+    const sentCache = sentResponse.data.message;
+    await backAccounts.click();
+    await allAccounts.click();
+    const sentItem = shell.getByRole("button", { name: sentSubject, exact: true });
+    await sentItem.click();
+    await browserExpect(mailReader).toContainText("Sent public content");
+    await browserExpect(mailReader).not.toContainText(privateAddress);
+    await browserExpect(mailReader.getByRole("button", { name: "查看原文" })).toHaveCount(0);
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-public-sent-390.png"), animations: "disabled" });
+    const networkBeforeRevocation = [imap.commands.length, other.commands.length, smtp.counts.data];
+    const credentialOwner = new ModuleCredentials({ ...engine.moduleCredentialHost, vault: engine.vault, pluginId: "mail", definition: mailAccountDefinitionSchema, targets: ({ settings }) => accountTargets(settings) });
+    await credentialOwner.save({
+      entityId: privacyA.accountId,
+      expectedRevision: privacyA.revision,
+      definition: { ...privacyA.definition, folders: privacyA.definition.folders.filter(({ path }: { path: string }) => path !== "Sent") },
+      actions: [{ purpose: "account-password", action: "keep" }],
+    });
+    expect(await direct("mail.conversations.loadBody", readIdentity(sentCache))).toEqual({ state: "needs-refresh" });
+    await browserExpect(mailReader).toHaveCount(0);
+    await browserExpect(sentItem).toHaveCount(0);
+    await browserExpect(otherMessage).toBeVisible();
+    expect([imap.commands.length, other.commands.length, smtp.counts.data]).toEqual(networkBeforeRevocation);
+
+    const privacySetup = await direct("mail.accounts.testConnection", {
+      settings: { ...privacyA.definition.settings, email: "privacy-race@example.invalid", label: "待移除测试邮箱", smtpEnabled: false },
+      password,
+    });
+    const privacyAccount = await direct("mail.accounts.save", { setupId: privacySetup.setupId, folders: ["INBOX", "Sent"] });
+    const raced = (await direct("mail.sync.refresh", { accountId: privacyAccount.accountId, folder: "Sent" })).message;
+    const observer = await rendererContext.newPage();
+    await observer.setViewportSize({ width: 390, height: 844 });
+    await observer.goto(origin);
+    await observer.getByRole("button", { name: "全部账号", exact: true }).click();
+    await observer.getByRole("button", { name: sentSubject, exact: true }).click();
+    const observerReader = observer.getByRole("region", { name: "邮件阅读", exact: true });
+    await browserExpect(observerReader).toContainText("Sent public content");
+    await shell.reload();
+    await allAccounts.click();
+    holdPublicAccount = privacyAccount.accountId;
+    await sentItem.click();
+    await publicReplyReady.promise;
+    const latestPrivacy = (await credentialOwner.list()).find(({ entityId }) => entityId === privacyAccount.accountId);
+    assert(latestPrivacy);
+    const privacyTarget = { accountId: privacyAccount.accountId, expectedRevision: latestPrivacy.revision };
+    const removalPreview = await direct("mail.accounts.previewRemoval", privacyTarget);
+    expect(await direct("mail.accounts.remove", { ...privacyTarget, impactKey: removalPreview.impactKey })).toMatchObject({ state: "removed" });
+    expect(await direct("mail.conversations.loadBody", readIdentity(raced))).toEqual({ state: "needs-refresh" });
+    await browserExpect(mailReader).toHaveCount(0);
+    await browserExpect(observerReader).toHaveCount(0);
+    await browserExpect(observer.getByRole("button", { name: "Other mailbox fixture", exact: true })).toBeVisible();
+    await observer.close();
+    deliverPublicReply.resolve();
+    await publicReplyDelivered.promise;
+    await browserExpect(otherMessage).toBeVisible();
+    await browserExpect(mailReader).toHaveCount(0);
+    await browserExpect(sentItem).toHaveCount(0);
+    expect(rawCalls).toBe(1);
+    await backAccounts.click();
+    acceptedPassword = replacement;
+    await accountA.click();
+    await contacts.getByRole("button", { name: /author@example\.invalid.*reply-target/s }).click();
     await repairButton.click();
     await newPassword.fill(replacement);
     await testRepair.click();
@@ -822,6 +937,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
   } finally {
     deliverSelection.resolve();
     deliverRepairReply.resolve();
+    deliverPublicReply.resolve();
     await browser.close();
     try {
       assert(engine.moduleCredentialHost);
@@ -832,4 +948,4 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话�
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
     }
   }
-}, 90_000);
+}, 120_000);

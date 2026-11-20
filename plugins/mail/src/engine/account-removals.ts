@@ -199,6 +199,7 @@ export function registerAccountRemoval(
             const pending = { ...planned, pending: true, state: "pending" } as const;
             signal.throwIfAborted();
             await removals.write(pending, null);
+            api.events.publish("entity.changed", { kind: "mail-account", id: accountId, op: "deleted" });
             return pending;
           });
           if (record.state === "removed") return { accountId, state: "removed" as const };
