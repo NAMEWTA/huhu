@@ -160,39 +160,40 @@ test("打包后：随包命令行 huhu --version 与应用版本一致，huhu ca
   }
 });
 
-test("打包后：Agent 规则经监督进程运行（fake provider），运行页显示已完成与结果", async () => {
-  test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
-  const { chmodSync, writeFileSync: write } = await import("node:fs");
-  const bin = mkdtempSync(path.join(tmpdir(), "huhu-pk-bin-"));
-  write(path.join(bin, "claude"), '#!/bin/sh\ncase "$*" in *" -p"*|"-p "*) cat >/dev/null; printf \'%s\\n\' \'{"type":"result","result":"周报已整理","session_id":"pk-sess-1","is_error":false}\';; *) echo \'2.0.0 (Claude Code)\';; esac\n');
-  chmodSync(path.join(bin, "claude"), 0o755);
-  const vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
-  const env = { ...process.env, HUHU_VAULT: vault, PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` } as Record<string, string>;
-  delete env["HUHU_HERDR_BIN"];
-  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox", USER_DATA_ARG], env });
+test("打包后：自动化发生、运行抽屉与任务详情使用同一笔派遣", async () => {
+  const { page, call, vault, stop } = await start();
   try {
-    const page = await app.firstWindow();
-    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    const spaces = await call("agent.spaces.list");
+    expect(spaces.ok).toBe(true);
+    const [{ id: spaceId }] = spaces.data as { id: string }[];
+    const created = await call("tasks.create", {
+      title: "打包后的原任务",
+      type: "agent",
+      body: "只发送给选定的原会话",
+      execution: { spaceId, target: { mode: "existing", sessionId: "missing-packaged-test-session" } },
+    });
+    expect(created.ok).toBe(true);
+    const taskId = created.data.id as string;
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByTestId("rule-new").click();
-    const editor = page.getByTestId("rule-editor");
-    await editor.getByLabel("规则名称").fill("打包后的规则");
-    await editor.getByTestId("rule-kind").selectOption("agent_prompt");
-    await expect(editor.getByTestId("rule-provider")).toContainText("Claude Code", { timeout: 15_000 });
-    await editor.getByTestId("rule-space").selectOption({ index: 1 });
-    await editor.getByTestId("rule-provider").selectOption("claude");
-    await editor.getByTestId("rule-prompt").fill("请整理本周的工作记录。");
-    await editor.getByTestId("rule-save").click();
+    await page.getByLabel("规则名称").fill("打包后的规则");
+    await page.getByTestId("rule-kind").selectOption("agent_tasks");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
     await page.getByTestId("rule-row").filter({ hasText: "打包后的规则" }).click();
     await page.getByRole("button", { name: "立即运行" }).click();
+    await expect.poll(async () => (await call("tasks.dispatch.list", { taskId })).data, { timeout: 25_000 }).toMatchObject([{ dispatchId: expect.stringMatching(/^scan-/), state: "blocked" }]);
+    const [{ runId }] = (await call("tasks.dispatch.list", { taskId })).data as { runId: string }[];
     await page.getByRole("button", { name: "运行", exact: true }).click();
-    const row = page.getByTestId("run-row").filter({ hasText: "打包后的规则" });
-    await expect(row).toContainText("已完成", { timeout: 30_000 });
-    await row.getByRole("button").first().click();
-    await expect(page.getByTestId("run-body")).toContainText("周报已整理");
+    await page.getByRole("button", { name: "打包后的原任务", exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: "打包后的原任务" });
+    await expect(drawer.locator("[data-run-id]")).toHaveAttribute("data-run-id", runId);
+    await expect(drawer).toContainText("原会话未连接或已不可用");
+    await drawer.getByRole("button", { name: "打开原任务" }).click();
+    await expect(page.getByTestId("managed-task-run")).toHaveAttribute("data-run-id", runId);
+    expect((await call("tasks.read", { id: taskId })).data.status).toBe("not_started");
+    expect((await call("agent.sessions.list", { spaceId })).data).toEqual([]);
+    expect(existsSync(path.join(vault, "Task Runs"))).toBe(false);
   } finally {
-    await app.close();
-    rmSync(vault, { recursive: true, force: true });
-    rmSync(bin, { recursive: true, force: true });
+    await stop();
   }
 });
