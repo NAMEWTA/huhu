@@ -14,11 +14,13 @@ import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type ActivationRecord, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
 import { hasRunDir, killRound, roundActive } from "./supervised.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
+import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 import { processWorker, roundDir, type ResolveLaunch } from "./worker.js";
 
 export { AutomationsService } from "./service.js";
 export { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "./default-task-scan.js";
 export { Scheduler } from "./scheduler.js";
+export { terminalEnvironmentDescriptors } from "./terminal-environment.js";
 
 const Trigger = z.object({ preset: z.string(), cron: z.string(), zone: z.string() });
 const Action = AutomationActionSchema;
@@ -45,6 +47,7 @@ export interface AutomationsOptions {
   adopt?: AutomationsDeps["adopt"];
   notify?: (n: { title: string; module: string }) => void;
   reminderNotifications?: ReminderNotifications;
+  credentialHost?: AutomationCredentialHost;
   spaceState?: (spaceId: string) => { state: "ok" | "missing" | "inaccessible"; root?: string };
   /** CLI 是否已检测到（来自智能体目录的检测结果）。 */
   cliAvailable?: (provider: string) => boolean;
@@ -88,12 +91,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       }
     },
     call: (capability, input, idempotencyKey) => api.call(capability, input, idempotencyKey ? { idempotencyKey } : undefined),
+    launchTerminal: (ruleId, action, input, signal) =>
+      terminalEnvironments.use(ruleId, action, input, async (env) => {
+        if (!env) return (await api.call("agent.sessions.launch", input, { idempotencyKey: input.requestId, signal })) as { id: string };
+        if (input.envRefs) throw errors.invalidInput("移除旧保险箱引用后再使用规则自有环境");
+        const agent = api.service<{ launch(request: typeof input & { env: Record<string, string> }, signal: AbortSignal): Promise<{ id: string }> }>("agentProtectedTerminal");
+        if (!agent) throw errors.invalidInput("Agent CLI 的受保护启动服务不可用");
+        return agent.launch({ ...input, env }, signal);
+      }),
     notify: opts.notify ?? (() => undefined),
     publish: (t, p) => api.events.publish(t, p),
     now,
     zone,
     machineId: mid,
   });
+  const terminalEnvironments = registerTerminalEnvironments(api, svc, opts.credentialHost);
 
   const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
   const publishActivation = ({ ruleId, activationId, trigger, finishedAt }: ActivationRecord) => {

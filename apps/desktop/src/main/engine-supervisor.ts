@@ -76,6 +76,7 @@ export class EngineSupervisor {
         HUHU_DESKTOP_USER_DATA: app.getPath("userData"),
         HUHU_NODE_BIN: process.execPath /* 主程序可执行文件：Engine 里启动监督进程要用它（utilityProcess 的 execPath 在 macOS 可能是 Helper） */,
         HUHU_CODEX_DISPATCH_HELPER: app.isPackaged ? path.join(process.resourcesPath, "codex-dispatch", "helper.cjs") : path.resolve(import.meta.dirname, "../../../../plugins/agent-cli/src/engine/codex-dispatch-helper.cjs"),
+        HUHU_PROTECTED_LAUNCH_HELPER: app.isPackaged ? path.join(process.resourcesPath, "protected-launch", "helper.cjs") : path.resolve(import.meta.dirname, "../../../../plugins/agent-cli/src/engine/protected-launch-helper.cjs"),
         ...(process.env["HUHU_HERDR_BIN"]
           ? {}
           : (() => {

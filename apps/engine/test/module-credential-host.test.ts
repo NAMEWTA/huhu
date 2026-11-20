@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { ModuleCredentials } from "@huhu/kernel";
-import { exportPackage, importPackage } from "@huhu/vault";
+import { exportPackage, importPackage, machineId } from "@huhu/vault";
+import { HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { unzipSync } from "fflate";
-import { assert, expect, test } from "vitest";
+import { assert, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { boot, type RunningEngine } from "../src/boot.js";
+import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 
 test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Windows 模块凭据与 Safe 锁独立，ZIP 恢复到新目录不继承系统密钥", async () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-module-host-"));
@@ -147,3 +151,104 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启�
     }
   }
 });
+
+const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
+  "Windows 自动化用同一请求只启动一次，本机规则环境不进入 Core 或 ZIP",
+  async () => {
+    const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-rule-environment-")));
+    const vaultPath = path.join(fixture, "vault");
+    const desktopUserData = path.join(fixture, "app-data");
+    const restoredPath = path.join(fixture, "restored");
+    const archive = path.join(fixture, "rules.zip");
+    const privateValue = `fixture-terminal-value-${randomUUID()}`;
+    const name = "HUHU_TEST_PROTECTED";
+    const requestId = randomUUID();
+    let source: RunningEngine | undefined;
+    let restored: RunningEngine | undefined;
+    let core: HerdrCore | undefined;
+    let ruleId: string | undefined;
+    let revision: string | undefined;
+    const starts: unknown[] = [];
+    const actualCall = HerdrClient.prototype.call;
+    const probe = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown) {
+      const result = (await actualCall.call(this, method, params)) as T;
+      if (method === "terminal.run") {
+        starts.push(params);
+        if (starts.length === 1) throw new Error("合成 Core 启动回包丢失");
+      }
+      return result;
+    });
+    const action = (engine: RunningEngine, capability: string, input: unknown = {}, key = randomUUID()) => engine.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: key });
+    const data = async <T>(...args: Parameters<typeof action>): Promise<T> => {
+      const reply = await action(...args);
+      if (!reply.ok) throw new Error(reply.error.message);
+      return reply.data as T;
+    };
+    try {
+      vi.stubEnv("HUHU_HERDR_BIN", coreBinary!);
+      mkdirSync(vaultPath);
+      mkdirSync(desktopUserData);
+      source = await boot({ vaultPath, desktopUserData, create: true });
+      core = new HerdrCore({ bin: coreBinary!, vaultId: source.vault.id, machineId: machineId(), runtimeDir: path.join(source.vault.runtimeDir, "herdr") });
+      await data(source, "safe.setup", { password: "only-a-synthetic-password" });
+      await data(source, "safe.lock");
+      const command =
+        "if (-not $env:HUHU_TEST_PROTECTED) { exit 7 }; [Console]::Write('env-received:'); [Console]::Write($env:HUHU_TEST_PROTECTED.Substring(0, 4)); Start-Sleep -Milliseconds 30; [Console]::WriteLine($env:HUHU_TEST_PROTECTED.Substring(4))";
+      const rule = await data<{ id: string; version: string }>(source, "automations.create", {
+        title: "受保护的测试规则",
+        trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+        action: { kind: "terminal", command, shell: "powershell", spaceId: null },
+      });
+      ruleId = rule.id;
+      const prefix = "automations.terminal.environment";
+      const entry = await data<{ revision: string }>(source, `${prefix}.save`, { ruleId, expectedRevision: null, names: [name], changes: [{ name, action: "replace", value: privateValue }] });
+      revision = entry.revision;
+      expect(entry).toMatchObject({ names: [name], states: { [name]: "configured" } });
+      expect(JSON.stringify(entry)).not.toContain(privateValue);
+      const run = () => data(source!, "automations.runNow", { id: ruleId }, requestId);
+      const [first, replay] = await Promise.all([run(), run()]);
+      expect(first).toEqual(replay);
+      expect(first).toMatchObject({ summary: { state: "succeeded" } });
+      expect(starts).toHaveLength(1);
+      expect(starts[0]).toMatchObject({ env: { ELECTRON_RUN_AS_NODE: "1" }, argv: [expect.any(String), expect.stringContaining("protected-launch-helper.cjs"), expect.stringMatching(/^\d+$/), expect.stringMatching(/^[a-f0-9]{64}$/)] });
+      expect(JSON.stringify(starts)).not.toContain(privateValue);
+      const {
+        argv: [executable, ...previousArgs],
+      } = starts[0] as { argv: string[] };
+      await expect(promisify(execFile)(executable!, previousArgs, { windowsHide: true })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("受保护的终端命令未能启动") });
+      const [row] = await data<{ id: string; state: string }[]>(source, "automations.runs.list");
+      const detail = await data<{ body: string }>(source, "automations.runs.read", { runId: row!.id });
+      expect(detail.body).toContain("env-received:***");
+      expect(JSON.stringify(detail)).not.toContain(privateValue);
+      expect(JSON.stringify(await data(source, "agent.sessions.list", {}))).not.toContain(privateValue);
+
+      await exportPackage(vaultPath, archive);
+      expect(Object.values(unzipSync(readFileSync(archive))).some((bytes) => Buffer.from(bytes).includes(privateValue))).toBe(false);
+      importPackage(archive, restoredPath);
+      restored = await boot({ vaultPath: restoredPath, desktopUserData });
+      expect(await data(restored, `${prefix}.get`, { ruleId })).toMatchObject({ names: [name], states: { [name]: "needs-reconfiguration" } });
+      expect(await data(restored, "automations.runNow", { id: ruleId })).toMatchObject({ summary: { state: "failed" } });
+      expect(starts).toHaveLength(1);
+      await data(source, "automations.update", {
+        id: ruleId,
+        expectedVersion: rule.version,
+        patch: { action: { kind: "terminal", command: "Write-Output '新的规则目标'", shell: "powershell", spaceId: null } },
+      });
+      expect(await data(source, `${prefix}.get`, { ruleId })).toMatchObject({ targetChanged: true });
+      expect(await data(source, "automations.runNow", { id: ruleId })).toMatchObject({ summary: { state: "failed" } });
+      expect(starts).toHaveLength(1);
+    } finally {
+      try {
+        if (source && ruleId && revision) await data(source, "automations.terminal.environment.save", { ruleId, expectedRevision: revision, names: [], changes: [{ name, action: "clear" }] });
+      } finally {
+        await Promise.allSettled([restored?.shutdown(), source?.shutdown()]);
+        await core?.stop();
+        probe.mockRestore();
+        vi.unstubAllEnvs();
+        if (path.dirname(fixture) === realpathSync(tmpdir()) && path.basename(fixture).startsWith("huhu-rule-environment-")) rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+      }
+    }
+  },
+  60_000,
+);

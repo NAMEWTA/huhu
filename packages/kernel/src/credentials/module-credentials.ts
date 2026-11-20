@@ -63,11 +63,40 @@ function assertUnique(values: readonly string[], code: "invalid-input" | "corrup
   if (new Set(values).size !== values.length) throw new CredentialError(code);
 }
 
+const definitionFile = (pluginId: string) => `.huhu/module-credentials/${identityHash(pluginId)}.json`;
+type DefinitionFiles = Pick<Vault["files"], "abs" | "read">;
+
+function loadDefinitions<T>(files: DefinitionFiles, path: string, definition: z.ZodType<T>): { entries: Definition<T>[]; version: string | null } {
+  const stats = lstatSync(files.abs(path), { throwIfNoEntry: false });
+  if (stats && !stats.isFile()) throw new CredentialError("corrupt");
+  const file = files.read(path);
+  if (file === null) return { entries: [], version: null };
+  const schema = z.strictObject({
+    format: z.literal(1),
+    entries: z.array(z.strictObject({ entityId: entityIdSchema, revision: generation, definition, configured: z.array(purpose) })),
+  });
+  const { entries } = parse(schema, readJson(file.bytes), "corrupt");
+  assertUnique(
+    entries.map((entry) => entry.entityId),
+    "corrupt",
+  );
+  assertUnique(
+    entries.map((entry) => entry.revision),
+    "corrupt",
+  );
+  for (const entry of entries) assertUnique(entry.configured, "corrupt");
+  return { entries, version: file.version };
+}
+
 /**
  * One private owner per plugin and open Vault. Local material is accessed only by the Vault writer.
  * Callers authorize before entry and keep the writer open through use.
  */
 export class ModuleCredentials<T> {
+  static readPortableDefinition<T>(files: DefinitionFiles, pluginId: string, definition: z.ZodType<T>, entityId: string): Definition<T> | undefined {
+    return loadDefinitions(files, definitionFile(pluginId), definition).entries.find((entry) => entry.entityId === entityId);
+  }
+
   readonly #vault: Vault;
   readonly #file: string;
   readonly #queueKey: string;
@@ -80,7 +109,7 @@ export class ModuleCredentials<T> {
     this.#definition = owner.definition;
     this.#deriveTargets = owner.targets.bind(owner);
     const vaultRoot = realpathSync.native(this.#vault.root);
-    this.#file = `.huhu/module-credentials/${identityHash(owner.pluginId)}.json`;
+    this.#file = definitionFile(owner.pluginId);
     this.#queueKey = `${vaultRoot}/${this.#file}`;
     this.#versions = new LocalVersions(vaultRoot, owner.localRoot, owner.localVaultInstanceId, owner.pluginId, owner.protection);
   }
@@ -105,32 +134,7 @@ export class ModuleCredentials<T> {
   }
 
   #load(): { entries: Definition<T>[]; version: string | null } {
-    const stats = lstatSync(this.#vault.files.abs(this.#file), { throwIfNoEntry: false });
-    if (stats && !stats.isFile()) throw new CredentialError("corrupt");
-    const file = this.#vault.files.read(this.#file);
-    if (file === null) return { entries: [], version: null };
-    const schema = z.strictObject({
-      format: z.literal(1),
-      entries: z.array(
-        z.strictObject({
-          entityId: entityIdSchema,
-          revision: generation,
-          definition: this.#definition,
-          configured: z.array(purpose),
-        }),
-      ),
-    });
-    const { entries } = parse(schema, readJson(file.bytes), "corrupt");
-    assertUnique(
-      entries.map((entry) => entry.entityId),
-      "corrupt",
-    );
-    assertUnique(
-      entries.map((entry) => entry.revision),
-      "corrupt",
-    );
-    for (const entry of entries) assertUnique(entry.configured, "corrupt");
-    return { entries, version: file.version };
+    return loadDefinitions(this.#vault.files, this.#file, this.#definition);
   }
 
   #targets(definition: T): Map<string, string> {

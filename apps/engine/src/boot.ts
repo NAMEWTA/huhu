@@ -124,6 +124,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
+  registry.declareDescriptors("automations", Object.values(automations.terminalEnvironmentDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
@@ -349,6 +350,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       void refreshClis().catch(() => undefined);
       automations.apply(ctx, api, {
         zone: settingsZone,
+        ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
         cliAvailable: (p) => exes[p] !== undefined,
         refreshClis,
         spaceState: (id) => {

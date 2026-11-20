@@ -29,7 +29,7 @@
       "ignoreDependencies": ["tsx"]
     },
     "plugins/agent-cli": {
-      "entry": ["src/engine/codex-dispatch-helper.cjs"]
+      "entry": ["src/engine/codex-dispatch-helper.cjs", "src/engine/protected-launch-helper.cjs"]
     },
     "plugins/tasks": {
       "ignoreDependencies": ["tsx"]

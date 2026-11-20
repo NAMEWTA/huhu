@@ -16,6 +16,8 @@ files:
 extraResources:
   - from: ../../plugins/agent-cli/src/engine/codex-dispatch-helper.cjs
     to: codex-dispatch/helper.cjs
+  - from: ../../plugins/agent-cli/src/engine/protected-launch-helper.cjs
+    to: protected-launch/helper.cjs
   - from: resources/bin
     to: bin
   - from: ../cli/dist/cli.mjs

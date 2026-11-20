@@ -10,7 +10,7 @@ import { dispatchWindow } from "./dispatch-window.js";
 import { ACTIVE_CLAIM, classify, type ScanEnv, type ScanFilter, type SnapshotTask } from "./scan.js";
 
 /** 两个目录是否是同一个目录（macOS 上临时目录 /var 是 /private/var 的符号链接，Windows 上大小写不敏感）：优先比 realpath。 */
-function sameDir(a: string, b: string): boolean {
+export function sameDir(a: string, b: string): boolean {
   const norm = (p: string): string => {
     try {
       return realpathSync.native(p);
@@ -98,6 +98,7 @@ export interface AutomationsDeps {
   readVaultFile(rel: string): string | null;
   /** 调用其他插件的能力（tasks.markDispatched、tasks.comments.add、tasks.create）；插件停用时抛错。 */
   call(capability: string, input: unknown, idempotencyKey?: string): Promise<unknown>;
+  launchTerminal?(ruleId: string, action: TerminalRuleAction, input: TerminalRuleLaunch, signal: AbortSignal): Promise<{ id: string }>;
   /** 测试用：终端会话轮询间隔（毫秒），缺省 500。 */
   terminalPollMs?: number;
   notify(n: { title: string; module: string }): void;
@@ -106,6 +107,17 @@ export interface AutomationsDeps {
   zone(): string;
   machineId: string;
 }
+
+type TerminalRuleAction = Extract<AutomationRuleFrontmatter["action"], { kind: "terminal" }>;
+type TerminalRuleLaunch = {
+  spaceId: string;
+  spaceRevision: number;
+  provider: "shell";
+  command: string;
+  shell: TerminalRuleAction["shell"];
+  envRefs?: TerminalRuleAction["envRefs"];
+  requestId: string;
+};
 
 export interface ActivationRecord {
   activationId: string;
@@ -425,14 +437,9 @@ export class AutomationsService {
 
   /**
    * terminal 动作：在 Space 里以可见的 Herdr 终端会话运行命令（agent-cli 的 `agent.sessions.launch`，由 agent-cli 按平台 shell 构造命令行，见 plugins/agent-cli/src/shared/shell.ts）。
-   * 环境变量由 agent-cli 在引擎侧从保险箱解析（保险箱锁定 → 启动失败并通知）；automation-run 记录 sessionId，界面可“查看 / 接管终端”。
+   * 规则环境只在 Engine 交给 Agent CLI 的启动服务。运行记录持有同一终端会话 ID。
    */
-  private async runTerminalAction(
-    ruleId: string,
-    ruleTitle: string,
-    a: { command: string; shell: "default" | "bash" | "zsh" | "sh" | "powershell" | "cmd"; spaceId: string | null; envRefs: Record<string, string> },
-    trigger: "schedule" | "manual",
-  ): Promise<{ state: string }> {
+  private async runTerminalAction(ruleId: string, ruleTitle: string, a: TerminalRuleAction, trigger: "schedule" | "manual"): Promise<{ state: string }> {
     const run = await this.d.repo.create("automation-run", { ruleId, actionKind: "terminal", trigger, state: "running", startedAt: iso(this.d.now()) }, "");
     const usedEnv = Object.keys(a.envRefs).length > 0;
     try {
@@ -440,11 +447,8 @@ export class AutomationsService {
       const space = a.spaceId ? spaces.find((x) => x.id === a.spaceId) : spaces.find((x) => sameDir(x.root, this.d.vaultRoot));
       if (!space) throw errors.invalidInput(a.spaceId ? "Space 不存在或目录不可访问" : "没有以 Vault 根为目录的 Space，请在规则里选择一个 Space");
       const key = `autorun-${run.id}`;
-      const sess = (await this.d.call(
-        "agent.sessions.launch",
-        { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: a.command, shell: a.shell, ...(usedEnv ? { envRefs: a.envRefs } : {}), requestId: key },
-        key,
-      )) as { id: string };
+      const input: TerminalRuleLaunch = { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: a.command, shell: a.shell, ...(usedEnv ? { envRefs: a.envRefs } : {}), requestId: key };
+      const sess = this.d.launchTerminal ? await this.d.launchTerminal(ruleId, a, input, this.signalFor(ruleId)) : ((await this.d.call("agent.sessions.launch", input, key)) as { id: string });
       const cur = this.d.repo.read("automation-run", run.id);
       await this.d.repo.patch("automation-run", run.id, { sessionId: sess.id }, cur.version);
       return await this.settleTerminalRun(run.id, sess.id, ruleTitle, this.signalFor(ruleId));

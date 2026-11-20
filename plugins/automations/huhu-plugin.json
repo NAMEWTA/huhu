@@ -29,6 +29,8 @@
       "automations.runs.read",
       "automations.runs.retry",
       "automations.setEnabled",
+      "automations.terminal.environment.get",
+      "automations.terminal.environment.save",
       "automations.update"
     ],
     "fileKinds": ["automation-rule", "automation-run", "task-run"]

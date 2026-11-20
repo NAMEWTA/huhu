@@ -6,6 +6,7 @@ import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { isValidNativeId, isWithin } from "./history/scanner.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
 import { redactSecrets, shellCommand, type ShellName } from "../shared/shell.js";
+import type { ProtectedLaunch } from "./protected-launch.js";
 import type { ResolvedLaunch, ResolveInput } from "./launch.js";
 import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
@@ -120,7 +121,7 @@ export interface LaunchInput {
   /** 终端命令（只与 provider=shell 一起用）：以 `argv = [shell, -c, command]` 运行，能拿到退出码。 */
   command?: string | undefined;
   shell?: ShellName | undefined;
-  /** 已由调用方（引擎侧）从保险箱解析好的环境变量；只传给 terminal.run，不落盘、不回显。 */
+  /** 由经过授权的 Engine 调用者解析，在目标子进程启动时使用。 */
   env?: Record<string, string> | undefined;
   envRefs?: Record<string, string> | undefined;
   expectedConfigurationId?: string;
@@ -143,6 +144,7 @@ export interface SessionsDeps {
   now(): Date;
   inputOwnership?: InputOwnership;
   codex?: CodexDispatch | undefined;
+  protectedLaunch?: ProtectedLaunch | undefined;
   signal?: AbortSignal;
 }
 
@@ -453,7 +455,12 @@ export class SessionsService {
     this.save(session);
     let client: HerdrClient;
     let core: Awaited<ReturnType<typeof identifyCore>>;
+    let protectedPort: number | undefined;
     try {
+      if (input.provider === "shell" && env) {
+        if (!this.d.protectedLaunch) throw new Error("Missing protected shell launcher");
+        protectedPort = await this.d.protectedLaunch.listen();
+      }
       client = await this.d.core();
       signal?.throwIfAborted();
       core = await identifyCore(client);
@@ -472,30 +479,41 @@ export class SessionsService {
     if (controlled) {
       argv = this.d.codex!.start(controlled, { vaultId: receipt.vaultId, machineId: receipt.machineId, sessionId: session.id, attempt: attempt.id, coreId: core.id });
     }
-    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, ...(controlled && { argvHash: launchHash(argv) }), attempt } };
-    delete pending.error;
-    this.save(pending);
+    const ticket = protectedPort && env && argv ? this.d.protectedLaunch!.issue(protectedPort, argv, env) : undefined;
+    if (ticket) argv = ticket.argv;
+    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, ...((controlled || ticket) && { argvHash: launchHash(argv) }), attempt } };
+    try {
+      delete pending.error;
+      this.save(pending);
+    } catch (error) {
+      ticket?.revoke();
+      throw error;
+    }
     if (env) this.secrets.set(session.id, Object.values(env));
     let terminal: Terminal | undefined;
     let rejectedBeforeCreation = false;
     try {
-      const terminalEnv = controlled ? { ELECTRON_RUN_AS_NODE: "1" } : env;
+      const terminalEnv = controlled || ticket ? { ELECTRON_RUN_AS_NODE: "1" } : env;
       terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(terminalEnv ? { env: terminalEnv } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
     } catch (error) {
       // JSON-RPC parameter rejection happens before terminal.run. spawn_failed also covers holder timeouts.
       rejectedBeforeCreation = error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params";
     }
-    if (signal?.aborted) throw this.unknown(pending, "launch_scope_ended");
+    if (signal?.aborted) {
+      ticket?.revoke();
+      throw this.unknown(pending, "launch_scope_ended");
+    }
     pending = this.currentLaunch(pending, intent, executionHash);
     if (pending.launchReceipt?.attempt?.id !== attempt.id) throw this.unknown(pending, "attempt_changed");
     if (pending.launchReceipt.attempt.binding && (pending.state === "running" || pending.state === "exited")) return pending;
     if (rejectedBeforeCreation) {
+      ticket?.revoke();
       throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
     }
     const binding = terminal && this.verifyTerminal(pending, terminal);
     if (terminal && binding) return this.bind(pending, terminal, binding);
     if (terminal?.address && hasLaunchLabels(terminal, launchLabels(this.d.vaultId, pending))) {
-      pending.launchReceipt = { ...receipt, attempt: { ...attempt, addressHint: terminal.address } };
+      pending.launchReceipt = { ...pending.launchReceipt!, attempt: { ...attempt, addressHint: terminal.address } };
       this.save(pending);
     }
 

@@ -25,6 +25,7 @@ import type { AgentId } from "../shared/catalog.js";
 import { CodexDispatch, type CodexDispatchOptions } from "./codex-dispatch.js";
 import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.js";
 import { registerAgentEnvironments, type AgentCredentialHost } from "./launch-environment.js";
+import { ProtectedLaunch } from "./protected-launch.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -72,6 +73,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const mid = machineId();
   const vaultId = api.vault.vaultId;
   const lifetime = new AbortController();
+  const protectedLaunch = new ProtectedLaunch(process.env["HUHU_NODE_BIN"] ?? process.execPath, process.env["HUHU_PROTECTED_LAUNCH_HELPER"] ?? path.join(import.meta.dirname, "protected-launch-helper.cjs"));
   const dispatchStore = new AgentDispatchStore(api.vault.stateDir, api.vault.files, { vaultId, machineId: mid });
   const ownership = new InputOwnership(
     (id) => dispatchStore.owner(id),
@@ -88,6 +90,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     const { code, message, details, recovery } = errors.pluginDisabled("agent-cli");
     lifetime.abort(new HuhuError(code, message, { ...(details && { details }), ...(recovery && { recovery }), retryable: true }));
     core.dispose();
+    protectedLaunch.close();
   });
   const sessions: SessionsService = new SessionsService({
     dir: path.join(api.vault.stateDir, "agent-cli", "sessions"),
@@ -100,6 +103,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     signal: lifetime.signal,
     inputOwnership: ownership,
     codex,
+    protectedLaunch,
   });
   const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new", "existing"], transport: "native" };
   const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
@@ -301,7 +305,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       defaultExposed: false,
       input: LaunchTarget.extend({
         requestId: z.string().min(8),
-        /** 环境变量名 → 保险箱引用：在引擎侧解析（调用方插件的身份），值只传给 terminal.run，不落盘、不回显。 */
+        /** 旧的保险箱引用在 Engine 解析，值经临时启动交接交给子进程。 */
         envRefs: z.record(z.string(), z.string()).optional(),
       }),
       output: Session,
@@ -584,6 +588,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     }),
   );
   api.provide("agentCli", { spaces, detector, core });
+  api.provide("agentProtectedTerminal", {
+    launch: async (input: Parameters<SessionsService["launch"]>[0] & { provider: "shell"; env: Record<string, string>; command: string }, signal?: AbortSignal) => {
+      const session = await sessions.launch(input, signal);
+      waiting.poke();
+      return { id: session.id };
+    },
+  });
   api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core, ownership, signal: lifetime.signal }));
   return { spaces, detector, sessions, core };
 }
