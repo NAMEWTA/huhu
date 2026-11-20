@@ -165,7 +165,7 @@ describe("TasksService（schema 2）", () => {
   test("A03 agent 任务缺少执行配置或内容时给出不可派发原因", async () => {
     const { svc } = setup();
     const noExec = await svc.create(w({ type: "agent", body: "x" }), desktop);
-    expect(noExec.dispatchBlockers).toContain("缺少执行配置");
+    expect(noExec.dispatchBlockers).toEqual(["没有选择工作目录（Space）", "没有选择 CLI"]);
     const empty = await svc.create(w({ type: "agent", execution: agentExec }), desktop);
     expect(empty.dispatchBlockers).toContain("任务内容为空");
     const ok = await svc.create(w({ type: "agent", body: "x", execution: agentExec }), desktop);

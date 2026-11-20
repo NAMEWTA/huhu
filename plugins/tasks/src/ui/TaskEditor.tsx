@@ -92,7 +92,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
       if (bad.length > 0) return;
       const w = draftToWritable(current);
       const saved = start
-        ? await engine.call<TaskDto>("tasks.update", { id: start.id, expectedVersion: start.version, baseInputHash: start.inputHash, patch: w }, { write: true })
+        ? await engine.call<TaskDto>("tasks.update", { id: start.id, expectedVersion: start.version, baseEditHash: start.editHash, patch: w }, { write: true })
         : await engine.call<TaskDto>("tasks.create", w, { write: true });
       onSaved(saved);
     } catch (e) {

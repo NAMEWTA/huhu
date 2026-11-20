@@ -1,7 +1,23 @@
-import { errors, isHuhuError, matchesTags, newId, normalizeTags, type EventPayload, type EventType, type TaskComment, type TaskDto, type TaskOrigin, type TaskReference, type TaskStatus, type TaskWritable } from "@huhu/contracts";
-import { appendComment, buildTaskBody, parseTaskBody, parseWikiLinks, replaceTaskSection, type Entity, type NewComment, type SemanticRepository, type Trash } from "@huhu/vault";
+import {
+  errors,
+  isHuhuError,
+  matchesTags,
+  newId,
+  normalizeTags,
+  TaskExecutionSchema,
+  type EventPayload,
+  type EventType,
+  type TaskComment,
+  type TaskDto,
+  type TaskOrigin,
+  type TaskPatch,
+  type TaskReference,
+  type TaskStatus,
+  type TaskWritable,
+} from "@huhu/contracts";
+import { appendComment, buildTaskBody, parseTaskBody, parseWikiLinks, replaceTaskSection, versionOf, type Entity, type NewComment, type SemanticRepository, type Trash } from "@huhu/vault";
 import { inCategory, todayIn, type TaskCategory } from "../shared/categories.js";
-import { inputHash, processingKey } from "../shared/input.js";
+import { canonicalJson, inputHash, processingKey } from "../shared/input.js";
 import { matchesQuery } from "../shared/search.js";
 
 export interface TasksDeps {
@@ -36,6 +52,20 @@ const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const ACTIVE_RUN = new Set(["queued", "running", "waiting_input", "unknown"]);
 const refKey = (target: string) => target.replace(/#.*$/, "").trim();
 
+function executionWithDefault(type: TaskDto["type"], execution: TaskDto["execution"]): TaskDto["execution"] {
+  if (type === "human" || execution?.target) return execution;
+  return { ...(execution ?? TaskExecutionSchema.parse({})), target: { mode: "new" } };
+}
+
+function taskInputHash(body: string, execution: TaskDto["execution"]): string {
+  // 显式 new 与旧文件的缺省 new 等价，保留现有派发输入身份。
+  if (execution?.target?.mode === "new") {
+    const { target: _target, ...config } = execution;
+    return inputHash({ body, execution: config });
+  }
+  return inputHash({ body, execution });
+}
+
 /** 任务文件 → DTO：区段解析、引用解析、不可派发原因都是派生值，不写回文件。 */
 export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): TaskDto {
   const d = e.data as unknown as TaskData;
@@ -63,28 +93,33 @@ export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): 
     if (!d.execution) dispatchBlockers.push("缺少执行配置");
     else {
       if (!d.execution.spaceId) dispatchBlockers.push("没有选择工作目录（Space）");
-      if (!d.execution.provider) dispatchBlockers.push("没有选择 CLI");
+      if (d.execution.target?.mode === "existing") dispatchBlockers.push("复用已有会话需要 Agent CLI 支持绑定派遣");
+      else if (!d.execution.provider) dispatchBlockers.push("没有选择 CLI");
     }
     if (!body.trim()) dispatchBlockers.push("任务内容为空");
     for (const ref of references.filter((x) => /(^|\/)\.\.(\/|$)/.test(x.path) || x.path.startsWith("/"))) dispatchBlockers.push(`引用越界：${ref.path}`);
   }
-  return {
-    id: e.id,
-    path: e.path,
-    version: e.version,
+  const editable: TaskWritable = {
     title: d.title,
     body,
     type: d.type,
-    status: d.status,
-    completedAt: d.completedAt ?? null,
     tags: d.tags ?? [],
     due: d.due ?? null,
     project: d.project ?? null,
-    origin: d.origin,
     execution: d.execution ?? null,
     reminders: d.reminders,
+  };
+  return {
+    ...editable,
+    id: e.id,
+    path: e.path,
+    version: e.version,
+    status: d.status,
+    completedAt: d.completedAt ?? null,
+    origin: d.origin,
     inputRevision: d.inputRevision,
-    inputHash: inputHash({ body, execution: d.execution ?? null }),
+    inputHash: taskInputHash(body, editable.execution),
+    editHash: versionOf(Buffer.from(canonicalJson(editable))),
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     readOnly: e.readOnly,
@@ -155,7 +190,7 @@ export class TasksService {
       due: input.due,
       project: input.project,
       origin,
-      execution: input.execution,
+      execution: executionWithDefault(input.type, input.execution),
       reminders: input.reminders.map((r) => ({ ...r, id: r.id || newId("cap").replace("cap", "rem"), deliveredAt: null })),
       inputRevision: 1,
       createdAt: now,
@@ -168,16 +203,15 @@ export class TasksService {
 
   /**
    * 更新可写字段。`<task>` 内容只替换 `<task>` 区段，评论与区段外的字节保持不变。
-   * 版本冲突时，如果任务输入（`<task>` + execution）没有变化（例如只是有评论到达），按当前文件重新应用补丁（B09）。
+   * 版本变化后，在编辑快照仍匹配时重新应用补丁（B09）。旧输入哈希仅覆盖正文与执行配置。
    */
-  async update(id: string, expectedVersion: string, patch: Partial<TaskWritable>, baseInputHash?: string): Promise<TaskDto> {
+  async update(id: string, expectedVersion: string, patch: TaskPatch, baseInputHash?: string, baseEditHash?: string): Promise<TaskDto> {
     return withRetry(async () => {
       const entity = this.d.repo.read("task", id);
       const cur = this.dto(entity);
-      let version = expectedVersion;
       if (cur.version !== expectedVersion) {
-        if (!baseInputHash || baseInputHash !== cur.inputHash) throw errors.versionConflict(cur.version);
-        version = cur.version; // 只有评论 / 区段外内容变化：补丁里的字段不受影响
+        const sameEdit = baseEditHash === undefined ? baseInputHash === cur.inputHash && Object.keys(patch).every((key) => key === "body" || key === "execution") : baseEditHash === cur.editHash;
+        if (!sameEdit) throw errors.versionConflict(cur.version);
       }
       const changes: Record<string, unknown> = { updatedAt: iso(this.d.now()) };
       if (patch.title !== undefined) changes["title"] = patch.title;
@@ -185,14 +219,19 @@ export class TasksService {
       if (patch.tags !== undefined) changes["tags"] = normalizeTags(patch.tags);
       if (patch.due !== undefined) changes["due"] = patch.due;
       if (patch.project !== undefined) changes["project"] = patch.project;
-      if (patch.execution !== undefined) changes["execution"] = patch.execution;
       if (patch.reminders !== undefined) changes["reminders"] = patch.reminders;
+      let nextExec = cur.execution;
+      if (patch.execution !== undefined || (patch.type !== undefined && patch.type !== cur.type)) {
+        const requested = patch.execution === undefined ? cur.execution : patch.execution;
+        const target = requested?.target ?? cur.execution?.target;
+        nextExec = executionWithDefault(patch.type ?? cur.type, requested && target ? { ...requested, target } : requested);
+        changes["execution"] = nextExec;
+      }
       const nextBody = patch.body ?? cur.body;
-      const nextExec = patch.execution !== undefined ? patch.execution : cur.execution;
-      const inputDidChange = inputHash({ body: nextBody, execution: nextExec }) !== cur.inputHash;
+      const inputDidChange = taskInputHash(nextBody, nextExec) !== cur.inputHash;
       if (inputDidChange) changes["inputRevision"] = cur.inputRevision + 1;
       const body = patch.body !== undefined ? replaceTaskSection(entity.body, patch.body) : undefined;
-      const e = await this.d.repo.patch("task", id, changes, version, body);
+      const e = await this.d.repo.patch("task", id, changes, cur.version, body);
       const dto = this.dto(e);
       this.d.publish("entity.changed", { kind: "task", id, op: "updated" });
       if (inputDidChange) this.d.publish("task.inputChanged", { taskId: id, inputRevision: dto.inputRevision, inputHash: dto.inputHash });

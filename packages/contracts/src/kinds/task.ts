@@ -17,6 +17,8 @@ export const TaskExecutionSchema = z.object({
   model: z.string().nullable().default(null),
   effort: z.string().nullable().default(null),
   fast: z.boolean().default(false),
+  /** 旧文件缺省为 new；existing 保存 Huhu sessionId，绑定和进程代次在派遣时核验。 */
+  target: z.discriminatedUnion("mode", [z.strictObject({ mode: z.literal("new") }), z.strictObject({ mode: z.literal("existing"), sessionId: z.string().trim().min(1) })]).optional(),
 });
 export type TaskExecution = z.infer<typeof TaskExecutionSchema>;
 

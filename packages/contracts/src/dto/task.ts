@@ -47,6 +47,8 @@ export const TaskDtoSchema = z.object({
   reminders: z.array(TaskReminderSchema),
   inputRevision: z.number().int(),
   inputHash: z.string(),
+  /** 任务编辑快照的哈希，涵盖 tasks.update 的所有可写字段。 */
+  editHash: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   readOnly: z.boolean(),
@@ -59,24 +61,31 @@ export const TaskDtoSchema = z.object({
 });
 export type TaskDto = z.infer<typeof TaskDtoSchema>;
 
-/** 创建/编辑可写字段（strict：未知字段报 INVALID_INPUT）。`status` 只能经 setStatus 或 markDispatched 修改，`origin` 由网关写入；`body` 是 `<task>` 区段的内容。 */
-export const TaskWritableSchema = z
-  .object({
-    title: z.string().min(1).max(200),
-    type: TaskTypeSchema.default("human"),
-    body: z.string().default(""),
-    tags: z
-      .array(z.string())
-      .default([])
-      .transform((t) => normalizeTags(t)),
-    due: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .nullable()
-      .default(null),
-    project: z.string().nullable().default(null),
-    execution: TaskExecutionSchema.nullable().default(null),
-    reminders: z.array(TaskReminderSchema.omit({ deliveredAt: true }).extend({ deliveredAt: z.string().nullable().default(null) })).default([]),
-  })
-  .strict();
+/** 创建/编辑可写字段。`status` 经 setStatus 或 markDispatched 修改，`origin` 由网关写入。 */
+const TaskFields = z.strictObject({
+  title: z.string().min(1).max(200),
+  type: TaskTypeSchema,
+  body: z.string(),
+  tags: z.array(z.string()).transform((t) => normalizeTags(t)),
+  due: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  project: z.string().nullable(),
+  execution: TaskExecutionSchema.nullable(),
+  reminders: z.array(TaskReminderSchema.omit({ deliveredAt: true }).extend({ deliveredAt: z.string().nullable().default(null) })),
+});
+
+export const TaskWritableSchema = TaskFields.extend({
+  type: TaskFields.shape.type.default("human"),
+  body: TaskFields.shape.body.default(""),
+  tags: TaskFields.shape.tags.default([]),
+  due: TaskFields.shape.due.default(null),
+  project: TaskFields.shape.project.default(null),
+  execution: TaskFields.shape.execution.default(null),
+  reminders: TaskFields.shape.reminders.default([]),
+});
 export type TaskWritable = z.infer<typeof TaskWritableSchema>;
+
+export const TaskPatchSchema = TaskFields.partial();
+export type TaskPatch = z.infer<typeof TaskPatchSchema>;

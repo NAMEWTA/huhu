@@ -1,4 +1,4 @@
-import { errors, isWorkbenchCaller, TaskCategorySchema, TaskCommentSchema, TaskDtoSchema, TaskStatusSchema, TaskTypeSchema, TaskWritableSchema, type TaskOrigin } from "@huhu/contracts";
+import { errors, isWorkbenchCaller, TaskCategorySchema, TaskCommentSchema, TaskDtoSchema, TaskPatchSchema, TaskStatusSchema, TaskTypeSchema, TaskWritableSchema, type TaskOrigin } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
@@ -105,27 +105,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       exposable: true,
       defaultExposed: false,
       input: Versioned.extend({
-        patch: z
-          .object({
-            title: z.string().min(1).max(200),
-            type: TaskTypeSchema,
-            body: z.string(),
-            tags: z.array(z.string()),
-            due: z.string().nullable(),
-            project: z.string().nullable(),
-            execution: TaskWritableSchema.shape.execution,
-            reminders: TaskWritableSchema.shape.reminders,
-          })
-          .partial()
-          .strict(),
+        patch: TaskPatchSchema,
         baseInputHash: z.string().optional(),
+        baseEditHash: z.string().optional(),
       }),
       output: TaskDtoSchema,
       handler: (c, i) => {
         assertAgentAllowed(c.caller, i.patch);
         const cur = svc.read(i.id);
         if (cur.type === "agent" && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("修改 Agent 任务（仅工作台可用）");
-        return svc.update(i.id, i.expectedVersion, i.patch as never, i.baseInputHash);
+        return svc.update(i.id, i.expectedVersion, i.patch, i.baseInputHash, i.baseEditHash);
       },
     }),
   );
