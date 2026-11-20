@@ -17,7 +17,7 @@ import {
   type StopLookup,
   type StopReceipt,
 } from "./dispatch-store.js";
-import type { TasksService } from "./service.js";
+import { agentDispatchBlocker, type TasksService } from "./service.js";
 import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
 import { type AgentReplyInput, type AgentReplyResult, type ReplyAvailability, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup } from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
@@ -405,9 +405,7 @@ export class TaskDispatch {
 
   private dispatchable(task: TaskDto): DispatchSnapshot["execution"] | null {
     const config = task.execution;
-    if (task.readOnly || task.type !== "agent" || task.status !== "not_started" || task.problems.length || !task.body.trim() || !config?.spaceId) return null;
-    if (config.target?.mode !== "existing" && !config.provider) return null;
-    if (task.references.some((ref) => ref.from === "task" && (ref.path.startsWith("/") || ref.path.split("/").includes("..") || /^[a-z]:/i.test(ref.path) || ref.path.includes("\\")))) return null;
+    if (!config || agentDispatchBlocker(task)) return null;
     return { ...config, target: config.target ?? { mode: "new" } };
   }
 

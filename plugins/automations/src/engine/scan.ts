@@ -8,6 +8,7 @@ export interface SnapshotTask {
   tags: string[];
   availableAt?: string | null;
   execution: { spaceId: string | null; provider: string | null } | null;
+  usesExistingSession?: boolean;
   inputRevision: number;
   inputHash: string;
   /** 任务自身原因导致的不可派发原因（结构错误、缺少执行配置、引用越界等）。 */
@@ -140,7 +141,7 @@ export function classify<T extends SnapshotTask>(tasks: T[], env: ScanEnv, filte
       skip(sp === "missing" ? "missing-space" : "space-inaccessible");
       continue;
     }
-    if (!task.execution?.provider || !env.cliAvailable(task.execution.provider)) {
+    if (!task.usesExistingSession && (!task.execution?.provider || !env.cliAvailable(task.execution.provider))) {
       skip("cli-missing");
       continue;
     }

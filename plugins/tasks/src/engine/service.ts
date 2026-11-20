@@ -66,6 +66,16 @@ function executionWithDefault(type: TaskDto["type"], execution: TaskDto["executi
   return { ...(execution ?? TaskExecutionSchema.parse({})), target: { mode: "new" } };
 }
 
+export function agentDispatchBlocker(task: TaskDto): string | undefined {
+  if (task.readOnly || task.type !== "agent" || task.status !== "not_started") return "此任务无法开始新的 Agent 执行";
+  if (task.problems.length) return "任务文件有结构问题";
+  if (!task.body.trim()) return "任务内容为空";
+  if (!task.execution?.spaceId) return "没有选择工作目录（Space）";
+  if (task.execution.target?.mode !== "existing" && !task.execution.provider) return "没有选择 CLI";
+  const invalid = task.references.find((ref) => ref.from === "task" && (ref.path.startsWith("/") || ref.path.split("/").includes("..") || /^[a-z]:/i.test(ref.path) || ref.path.includes("\\")));
+  return invalid ? `引用越界：${invalid.path}` : undefined;
+}
+
 function taskInputHash(body: string, execution: TaskDto["execution"]): string {
   // 显式 new 与旧文件的缺省 new 等价，保留现有派发输入身份。
   if (execution?.target?.mode === "new") {

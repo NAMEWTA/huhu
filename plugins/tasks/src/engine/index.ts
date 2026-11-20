@@ -24,7 +24,7 @@ import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, StopLookup, StopReceipt } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
-import { TasksService } from "./service.js";
+import { agentDispatchBlocker, TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
 export type { TaskDispatchExecutor } from "./dispatch.js";
@@ -36,6 +36,7 @@ export interface TaskQuery {
   /** 可以派发的 agent 任务：type=agent 且未开始。 */
   listDispatchable(): import("@huhu/contracts").TaskDto[];
   snapshot(taskId: string): import("@huhu/contracts").TaskDto;
+  agentDispatchBlocker: typeof agentDispatchBlocker;
 }
 
 const Id = z.object({ id: z.string() });
@@ -426,6 +427,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     listAll: () => svc.list(),
     listDispatchable: () => svc.list({ type: "agent", status: ["not_started"] }),
     snapshot: (taskId: string) => svc.read(taskId),
+    agentDispatchBlocker,
   } satisfies TaskQuery);
 
   // 提醒：启动时与每 30 秒检查；应用关闭期间到点的在下次启动补发一次

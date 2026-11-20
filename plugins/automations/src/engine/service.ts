@@ -28,6 +28,7 @@ export interface TaskQueryLike {
   /** 可以派发的 agent 任务：type=agent 且未开始。 */
   listDispatchable(): TaskDto[];
   snapshot(taskId: string): TaskDto;
+  agentDispatchBlocker?(task: TaskDto): string | undefined;
 }
 
 /** 引擎内全局的派发互斥：派发顺序（预检 → claim → markDispatched）整体串行，不同规则、不同扫描之间也不会交错。 */
@@ -316,12 +317,12 @@ export class AutomationsService {
   }
 
   /** 只读预览：候选、跳过原因、接下来三次激活时间；不写任何文件。 */
-  preview(ruleId: string) {
+  preview(ruleId: string, queueBusySpaces = false) {
     const r = this.rule(ruleId);
     const now = this.d.now();
     const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
     if (!isTaskScanRule(r)) return { next, tasksDisabled: false, candidates: [], skipped: [] };
-    const { tasksDisabled, candidates, skipped } = this.classifyTaskScan(r, now);
+    const { tasksDisabled, candidates, skipped } = this.classifyTaskScan(r, now, queueBusySpaces);
     return {
       next,
       tasksDisabled,
@@ -332,9 +333,10 @@ export class AutomationsService {
 
   classifyTaskScan(rule: TaskScanRule, now: Date, queueBusySpaces = false) {
     const query = this.d.taskQuery();
+    const blockerOf = queueBusySpaces ? query?.agentDispatchBlocker : undefined;
     return {
       tasksDisabled: !query,
-      ...classify(this.allTasks(query), this.scanEnv(), { ...taskScanFilter(rule.data.action.input, rule.data.trigger.zone, now), queueBusySpaces }),
+      ...classify(this.allTasks(query, blockerOf), this.scanEnv(), { ...taskScanFilter(rule.data.action.input, rule.data.trigger.zone, now), queueBusySpaces }),
     };
   }
 
@@ -351,8 +353,13 @@ export class AutomationsService {
     return undefined;
   }
 
-  private allTasks(query: TaskQueryLike | undefined) {
-    return (query?.listAll() ?? []).map((task) => this.snapshotOf(task));
+  private allTasks(query: TaskQueryLike | undefined, blockerOf?: TaskQueryLike["agentDispatchBlocker"]) {
+    return (query?.listAll() ?? []).map((task) => {
+      const snapshot = this.snapshotOf(task);
+      if (!blockerOf) return snapshot;
+      const blocker = blockerOf(task);
+      return { ...snapshot, dispatchBlockers: blocker ? [blocker] : [], usesExistingSession: task.execution?.target?.mode === "existing" };
+    });
   }
 
   // ---- 激活 ----

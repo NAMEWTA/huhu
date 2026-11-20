@@ -206,6 +206,38 @@ test("真实两规则和工作台争同一任务，重交沿用原版本，运�
   expect(fixture.legacyWorker).not.toHaveBeenCalled();
 });
 
+test("已有会话和原生恢复交由 Tasks 对各自目标做预检", async () => {
+  const { engine, scans } = await start();
+  const rule = await createRule(engine, "扫描绑定目标");
+  const [space] = await invoke<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const create = (title: string, execution: Omit<NonNullable<TaskDto["execution"]>, "spaceId" | "model" | "effort" | "fast">) =>
+    invoke<TaskDto>(engine, "tasks.create", { title, body: title, type: "agent", tags: ["match"], execution: { spaceId: space!.id, ...execution } });
+  const existingTarget = { mode: "existing", sessionId: "synthetic-session" } as const;
+  const resumeTarget = { mode: "resume", nativeSessionId: "synthetic-thread" } as const;
+  const existing = await create("已有会话", { provider: null, target: existingTarget });
+  const resume = await create("原生恢复", { provider: "codex", target: resumeTarget });
+  const preview = await scans.preview(rule.id);
+  expect(preview.candidates.map(({ taskId }) => taskId).sort()).toEqual([existing.id, resume.id].sort());
+  expect(scans.list()).toEqual([]);
+  expect(dispatchRecords(engine)).toEqual([]);
+  const row = await scans.invoke(rule.id);
+  expect(row.items).toHaveLength(2);
+  expect(row.items).toEqual(expect.arrayContaining([expect.objectContaining({ taskId: existing.id, state: "accepted" }), expect.objectContaining({ taskId: resume.id, state: "accepted" })]));
+  await vi.waitFor(() =>
+    expect(dispatchRecords(engine)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          receipt: expect.objectContaining({ taskId: existing.id, state: "pending", reason: "waiting_resource" }),
+          snapshot: expect.objectContaining({ execution: expect.objectContaining({ target: existingTarget }) }),
+        }),
+        expect.objectContaining({ receipt: expect.objectContaining({ taskId: resume.id, state: "pending", reason: "waiting_resource" }), snapshot: expect.objectContaining({ execution: expect.objectContaining({ target: resumeTarget }) }) }),
+      ]),
+    ),
+  );
+  expect(fixture.dispatch).not.toHaveBeenCalled();
+  expect(fixture.legacyWorker).not.toHaveBeenCalled();
+});
+
 test("刷新未完成时保留扫描资格，冻结完成后重交不再刷新", async () => {
   const { engine, scans } = await start();
   const rule = await createRule(engine, "等待 CLI 探测");

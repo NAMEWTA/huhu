@@ -73,7 +73,7 @@ export class TaskScanOccurrences {
   constructor(
     private readonly files: VaultFiles,
     private readonly vaultId: string,
-    private readonly rules: Pick<AutomationsService, "rule" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
+    private readonly rules: Pick<AutomationsService, "rule" | "preview" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
   ) {
@@ -91,6 +91,14 @@ export class TaskScanOccurrences {
     const occurrence = await this.run(`inv-${randomUUID()}`, { ruleId, at: null });
     if (!occurrence) throw errors.notFound(`规则 ${ruleId} 不存在`);
     return occurrence;
+  }
+
+  async preview(ruleId: string) {
+    const signal = this.shutdown.signal;
+    signal.throwIfAborted();
+    await this.rules.refreshTaskScanTargets();
+    signal.throwIfAborted();
+    return this.rules.preview(ruleId, true);
   }
 
   read(id: string): Occurrence | null {
