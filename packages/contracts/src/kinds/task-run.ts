@@ -1,12 +1,14 @@
 import { z } from "zod";
 import { HuhuHeaderSchema, IsoTime, RunState, dateLike } from "./common.js";
 
+export const TaskRunAttemptSchema = z.number().int().min(1);
+
 export const TaskRunFrontmatterSchema = z.object({
   huhu: HuhuHeaderSchema("task-run"),
   taskId: z.string(),
   ruleId: z.string(),
   processingKey: z.string(),
-  attempt: z.number().int().min(1),
+  attempt: TaskRunAttemptSchema,
   /** 问答续跑的轮次：每答完一批问题加一轮（同一个 task-run，attempt 不变）。 */
   round: z.number().int().min(1).default(1),
   state: RunState,
