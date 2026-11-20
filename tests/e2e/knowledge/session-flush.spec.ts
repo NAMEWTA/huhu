@@ -298,13 +298,11 @@ test("C06 退出前草稿写入失败时保留窗口，可再次关闭并保存�
 test("TB-14/15 关窗缺少保存回执时保留编辑和 Engine", async () => {
   const { app, page, vault, close } = await openApp();
   const file = path.join(vault, name);
-  const releaseDraft = Promise.withResolvers<void>();
+  const releaseSave = Promise.withResolvers<void>();
   try {
     writeFileSync(file, original);
     await engineReady(page);
-    await manualSave(page);
     await openNote(page);
-    await inputWithPendingBridge(page);
     await app.evaluate(({ BrowserWindow, dialog }) => {
       dialog.showMessageBox = (async () => {
         BrowserWindow.getAllWindows()[0]?.setTitle("测试：未收到保存回执");
@@ -313,9 +311,10 @@ test("TB-14/15 关窗缺少保存回执时保留编辑和 Engine", async () => {
     });
     await page.route("**/api/v1/call", async (route) => {
       const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
-      if (request.capability === "notes.draft.save" && request.input?.path === name) await releaseDraft.promise;
+      if (request.capability === "notes.save" && request.input?.path === name) await releaseSave.promise;
       await route.continue();
     });
+    await inputWithPendingBridge(page);
 
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
     await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle()), { timeout: 10_000 }).toBe("测试：未收到保存回执");
@@ -323,18 +322,20 @@ test("TB-14/15 关窗缺少保存回执时保留编辑和 Engine", async () => {
     expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
     expect(readFileSync(file, "utf8")).toBe(original);
 
-    releaseDraft.resolve();
+    releaseSave.resolve();
     await page.unrouteAll({ behavior: "wait" });
     await Promise.all([app.waitForEvent("close"), app.evaluate(({ app }) => app.quit())]);
     const reopened = await openApp({ HUHU_VAULT: vault });
     try {
       await engineReady(reopened.page);
-      expect((await call<{ text: string } | null>(reopened.page, "notes.draft.get", { path: name }))?.text).toBe(written);
+      expect(readFileSync(file, "utf8")).toBe(written);
+      await reopenFromSearch(reopened.page);
+      await expect(prose(reopened.page)).toContainText(last);
     } finally {
       await reopened.close();
     }
   } finally {
-    releaseDraft.resolve();
+    releaseSave.resolve();
     await close();
   }
 });
