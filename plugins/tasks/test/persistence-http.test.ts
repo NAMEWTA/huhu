@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
@@ -9,6 +9,7 @@ import { machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
+import type { FollowUps } from "../../automations/src/engine/follow-ups.js";
 import type { TaskDispatchExecutor } from "../src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord, RuleSource } from "../src/engine/dispatch-store.js";
 import type { TaskRuleDispatch } from "../src/engine/index.js";
@@ -16,7 +17,7 @@ import { TasksService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
-const fixture: { now?: Date; executor?: TaskDispatchExecutor; rule?: TaskRuleDispatch; errors: unknown[]; checkMs?: number } = { errors: [] };
+const fixture: { now?: Date; executor?: TaskDispatchExecutor; rule?: TaskRuleDispatch; errors: unknown[]; checkMs?: number; followUpClock?: boolean; followUps?: FollowUps } = { errors: [] };
 
 vi.mock("@huhu/plugin-tasks/engine", async (original) => {
   const tasks = await original<typeof import("../src/engine/index.js")>();
@@ -43,6 +44,27 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
   };
 });
 
+vi.mock("../../automations/src/engine/index.js", async (original) => {
+  const automations = await original<typeof import("../../automations/src/engine/index.js")>();
+  return {
+    ...automations,
+    apply: ((ctx, api, opts) => {
+      if (!fixture.followUpClock) return automations.apply(ctx, api, opts);
+      return automations.apply(
+        ctx,
+        {
+          ...api,
+          provide(name, service) {
+            api.provide(name, service);
+            if (name === "taskFollowUps") fixture.followUps = service as FollowUps;
+          },
+        },
+        { ...opts, schedule: false, now: () => fixture.now! },
+      );
+    }) satisfies typeof automations.apply,
+  };
+});
+
 vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
@@ -58,6 +80,8 @@ afterEach(async () => {
   delete fixture.executor;
   delete fixture.rule;
   delete fixture.checkMs;
+  delete fixture.followUpClock;
+  delete fixture.followUps;
   fixture.errors.length = 0;
 });
 
@@ -578,6 +602,72 @@ test("只派发显式选择的补充，忙时重开仍只发送一次，丢失�
   expect(fake.dispatch).toHaveBeenCalledTimes(2);
   const { data: saved } = await call<TaskDto>(reopened, "tasks.read", { id: task.id });
   expect(saved.comments.filter(({ event }) => event === "supplement")).toMatchObject([{ run: run.runId, session: lookup.sessionId, body: "这条补充发给原会话" }]);
+});
+
+test("跟进改期与过期进程只针对原任务受理一次，关闭任务不会被重开", { timeout: 60_000 }, async () => {
+  fixture.followUpClock = true;
+  fixture.now = new Date("2026-11-21T10:00:00.000Z");
+  const fake = executor();
+  fixture.executor = fake;
+  const root = tempVault();
+  const engine = await start(root, true);
+  const task = await createDispatchable(engine, "保留原任务");
+  const closed = await createDispatchable(engine, "关闭后无需跟进");
+  const first = "2026-11-21T10:01:00.000Z";
+  const next = "2026-11-21T10:02:00.000Z";
+  const schedule = (taskId: string, scheduledFor: string, expectedRevision: string | null) => call<{ revision: string }>(engine, "automations.followUps.schedule", { taskId, scheduledFor, expectedRevision });
+  const original = await schedule(task.id, first, null);
+  expect(original).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: first } });
+  expect(await schedule(task.id, next, original.data.revision)).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: next } });
+  expect(await schedule(task.id, first, original.data.revision)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await schedule(closed.id, next, null)).toMatchObject({ ok: true });
+  expect(await call(engine, "tasks.setStatus", { id: closed.id, expectedVersion: closed.version, status: "completed" })).toMatchObject({ ok: true });
+  fixture.now = new Date("2026-11-21T10:01:01.000Z");
+  await fixture.followUps!.tick();
+  expect(fake.dispatch).not.toHaveBeenCalled();
+  await stop(engine);
+  const copy = tempVault();
+  cpSync(root, copy, { recursive: true });
+  fixture.now = new Date("2026-11-21T10:02:01.000Z");
+  const imported = await start(copy);
+  await fixture.followUps!.tick();
+  expect(await call(imported, "automations.followUps.get", { taskId: task.id })).toMatchObject({ ok: true, data: { state: "needs_confirmation" } });
+  expect(fake.dispatch).not.toHaveBeenCalled();
+  await stop(imported);
+  const reopened = await start(root);
+  const action = () => fixture.followUps!.tick();
+  await Promise.all([action(), action()]);
+  await expect.poll(() => vi.mocked(fake.dispatch).mock.calls.length).toBe(1);
+  expect(await call(reopened, "automations.followUps.get", { taskId: task.id })).toMatchObject({ ok: true, data: { state: "accepted", scheduledFor: next, runId: expect.any(String) } });
+  expect(await call(reopened, "automations.followUps.get", { taskId: closed.id })).toMatchObject({ ok: true, data: { state: "skipped", reason: "task_unavailable" } });
+  await action();
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect((await call<TaskDto[]>(reopened, "tasks.list", {})).data.map(({ id }) => id).sort()).toEqual([task.id, closed.id].sort());
+});
+
+test("取消一次性跟进后无写入，新的跟进等原轮完成并沿用会话", { timeout: 60_000 }, async () => {
+  fixture.followUpClock = true;
+  fixture.now = new Date("2026-11-21T10:00:00.000Z");
+  const { engine, task, fake, run, execution } = await startBoundRun();
+  await expect.poll(() => call(engine, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: { status: "in_progress" } });
+  const modify = (scheduledFor: string, expectedRevision: string | null) => call<{ revision: string }>(engine, "automations.followUps.schedule", { taskId: task.id, scheduledFor, expectedRevision });
+  const first = await modify("2026-11-21T10:01:00.000Z", null);
+  expect(first).toMatchObject({ ok: true });
+  const cancelled = await call<{ revision: string }>(engine, "automations.followUps.cancel", { taskId: task.id, expectedRevision: first.data.revision });
+  expect(cancelled).toMatchObject({ ok: true, data: { state: "cancelled" } });
+  fixture.now = new Date("2026-11-21T10:01:01.000Z");
+  await fixture.followUps!.tick();
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect(await modify("2026-11-21T10:02:00.000Z", cancelled.data.revision)).toMatchObject({ ok: true });
+  fixture.now = new Date("2026-11-21T10:02:01.000Z");
+  await fixture.followUps!.tick();
+  const followUp = await call<{ runId: string }>(engine, "automations.followUps.get", { taskId: task.id });
+  expect(followUp).toMatchObject({ ok: true, data: { state: "accepted" } });
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect(await submitReceipt(engine, { version: 1, kind: "no_update", receiptId: "scheduled-parent-done", execution, payload: {} })).toMatchObject({ ok: true });
+  await expect.poll(() => call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: followUp.data.runId, parentRunId: run.runId, state: "running" })]) });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  expect(fake.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ agentTarget: expect.objectContaining({ binding: execution.sessionBinding }) }), expect.any(AbortSignal));
 });
 
 test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeout: 60_000 }, async () => {

@@ -45,7 +45,9 @@ export const SupplementSource = z.strictObject({
   text: z.string().max(20_000).optional(),
   messageIds: z.array(Id).max(32),
 });
-const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), RuleSource, ReplySource, SupplementSource]);
+export const FollowUpDispatch = InputIdentity.extend({ taskId: Id, followUpId: Id, scheduledFor: Instant }).strict();
+export const FollowUpSource = FollowUpDispatch.pick({ followUpId: true, scheduledFor: true }).extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });
+const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), RuleSource, ReplySource, SupplementSource, FollowUpSource]);
 const Snapshot = InputIdentity.extend({
   taskId: Id,
   expectedVersion: z.string(),
@@ -182,7 +184,7 @@ export class DispatchStore {
     try {
       const record = DispatchRecord.parse(JSON.parse(file.bytes.toString("utf8")));
       const { receipt, snapshot, claim, requestHash, snapshotHash } = record;
-      if (receipt.parentRunId !== ("parent" in snapshot.source ? snapshot.source.parent.runId : undefined)) throw new Error("后续运行关联不一致");
+      if (receipt.parentRunId !== ("parent" in snapshot.source ? snapshot.source.parent?.runId : undefined)) throw new Error("后续运行关联不一致");
       const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly } = snapshot;
       const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion, ...(allowEarly !== undefined && { allowEarly }) };
       if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run") || receipt.attempt !== 1) throw new Error("派遣身份校验失败");

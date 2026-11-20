@@ -4,6 +4,8 @@ import {
   DispatchInput,
   DispatchLookup,
   DispatchStore,
+  FollowUpDispatch,
+  FollowUpSource,
   ReplySource,
   RuleSource,
   SupplementSource,
@@ -58,7 +60,12 @@ type ReplyView = z.infer<typeof TaskReplyView>;
 type SupplementInput = z.infer<typeof TaskSupplementInput>;
 type SupplementLookup = z.infer<typeof TaskSupplementLookup>;
 type SupplementView = z.infer<typeof TaskSupplementView>;
-type ContinuationSource = z.infer<typeof ReplySource> | z.infer<typeof SupplementSource>;
+type ContinuationSource = z.infer<typeof ReplySource> | z.infer<typeof SupplementSource> | (z.infer<typeof FollowUpSource> & { parent: ExecutionBinding });
+type FollowUpInput = z.infer<typeof FollowUpDispatch>;
+
+function hasParent(source: DispatchSource): source is ContinuationSource {
+  return "parent" in source && source.parent !== undefined;
+}
 
 const normalDispatchId = ({ taskId, replyId }: ReplyLookup) => `reply-${fingerprint([taskId, replyId])}`;
 const supplementDispatchId = ({ taskId, supplementId }: SupplementLookup) => `supplement-${fingerprint([taskId, supplementId])}`;
@@ -472,6 +479,43 @@ export class TaskDispatch {
     return this.accept(DispatchInput.parse(input), RuleSource.parse(source));
   }
 
+  async acceptFollowUp(raw: FollowUpInput): Promise<DispatchReceipt> {
+    const input = FollowUpDispatch.parse(raw);
+    const { taskId, followUpId, scheduledFor } = input;
+    const dispatchId = `follow-up-${fingerprint([taskId, followUpId])}`;
+    const previous = () => {
+      const prior = this.store.read(eventIdOf(dispatchId))?.record;
+      if (!prior) return undefined;
+      const { source } = prior.snapshot;
+      if (!this.store.owns(prior) || source.kind !== "follow-up" || source.scheduledFor !== scheduledFor || prior.snapshot.inputRevision !== input.inputRevision || prior.snapshot.inputHash !== input.inputHash)
+        throw errors.idempotencyMismatch();
+      return prior.receipt;
+    };
+    const prior = previous();
+    if (prior) return prior;
+    if (Date.parse(scheduledFor) > this.now().getTime()) rejectDispatch("not_due", "尚未到达跟进时间");
+    const task = this.tasks.read(taskId);
+    const source = { kind: "follow-up", followUpId, scheduledFor } as const;
+    if (task.status === "not_started") {
+      return this.accept({ taskId, dispatchId, expectedVersion: task.version, inputHash: input.inputHash, inputRevision: input.inputRevision }, source);
+    }
+    return this.tasks.withTaskWrite(taskId, async () => {
+      this.abort.signal.throwIfAborted();
+      const replay = previous();
+      if (replay) return replay;
+      this.store.assertWritable();
+      const current = this.tasks.read(taskId);
+      if (current.status !== "in_progress" || current.type !== "agent") rejectDispatch("task_unavailable", "当前任务无法跟进");
+      if (!sameInput(current, input)) rejectDispatch("stale_input", "任务输入已变化");
+      if (!isTaskAvailable(current.availableAt, this.now())) rejectDispatch("not_due", "尚未到达最早派遣时间");
+      const records = this.store.list().filter(({ receipt }) => receipt.taskId === taskId);
+      const parent = records.filter(({ boundExecution }) => boundExecution && this.matchesExecution(boundExecution)).sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt))[0];
+      if (!parent?.boundExecution) rejectDispatch("target_unavailable", "无法确认原任务的会话");
+      this.assertContinuationSlot(current, records, parent.receipt.runId);
+      return (await this.saveContinuation(current, parent, { ...source, parent: parent.boundExecution }, dispatchId, selectedInput(current, current.body, []))).receipt;
+    });
+  }
+
   async accept(input: DispatchInput, source: DispatchSource): Promise<DispatchReceipt> {
     const eventId = eventIdOf(input.dispatchId);
     const requestHash = fingerprint({ input, source });
@@ -682,11 +726,11 @@ export class TaskDispatch {
       await this.tasks.addComment(receipt.taskId, {
         id: receipt.dispatchId,
         at: receipt.acceptedAt,
-        source: "human",
-        author: "我",
+        source: source.kind === "follow-up" ? "system" : "human",
+        ...(source.kind !== "follow-up" && { author: "我" }),
         run: source.parent.runId,
         session: source.parent.sessionBinding.sessionId,
-        ...(source.kind === "reply" ? { ask: source.requestId, event: "answer", body: source.answer } : { event: "supplement", body: record.snapshot.body }),
+        ...(source.kind === "reply" ? { ask: source.requestId, event: "answer", body: source.answer } : source.kind === "supplement" ? { event: "supplement", body: record.snapshot.body } : { event: "follow-up", body: "按计划跟进" }),
       });
     } catch (error) {
       if (!isHuhuError(error) || error.code !== "NOT_FOUND") throw error;
@@ -708,7 +752,7 @@ export class TaskDispatch {
     }
     const work: TaskDispatchWork = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash, ...(agentTarget && { agentTarget }) };
     if (receipt.state === "pending" || receipt.state === "claimed") {
-      if ("parent" in snapshot.source) await this.projectContinuation(record, snapshot.source);
+      if (hasParent(snapshot.source)) await this.projectContinuation(record, snapshot.source);
       // 重开后先检查原快照有效性，过期或已关闭的任务不做目标预检。
       if (!(await this.prepare(record, "check")) || !executor) return;
       const next = this.current(record)?.record.receipt.state;
@@ -778,7 +822,8 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const now = this.now();
       const source = snapshot.source;
-      const continuation = "parent" in source ? this.continuation(source) : null;
+      const continuation = hasParent(source) ? this.continuation(source) : null;
+      const validateInput = continuation === null || source.kind === "follow-up";
       const next = { ...receipt };
       let claim = record.claim;
       let agentTarget = record.agentTarget;
@@ -786,10 +831,10 @@ export class TaskDispatch {
       if (receipt.cancelRequested) Object.assign(next, { state: "cancelled", reason: null });
       else if (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime()) Object.assign(next, { state: "expired", reason: null });
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
-      else if (continuation === "stale" || (continuation === null && task && !sameInput(task, snapshot))) Object.assign(next, { state: "stale_input", reason: null });
+      else if (continuation === "stale" || (validateInput && task && !sameInput(task, snapshot))) Object.assign(next, { state: "stale_input", reason: null });
       else if (!task || (continuation === null ? !this.dispatchable(task) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
       else if (continuation === "waiting") next.reason = "waiting_resource";
-      else if (continuation === null && !maySend(task, receipt, now)) next.reason = "waiting_schedule";
+      else if (validateInput && !maySend(task, receipt, now)) next.reason = "waiting_schedule";
       else if (this.tasks.hasLegacyRun(taskId)) next.reason = "task_occupied";
       else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
       else if (state === "busy" || state === "ready") {
@@ -819,9 +864,10 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const source = record.snapshot.source;
       if (!task || this.tasks.hasLegacyRun(taskId)) return false;
-      if ("parent" in source ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !sameInput(task, record.snapshot) || !this.dispatchable(task)) return false;
+      if (hasParent(source) ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !this.dispatchable(task)) return false;
+      const validateInput = !hasParent(source) || source.kind === "follow-up";
       const now = this.now();
-      if ((!("parent" in source) && !maySend(task, record.receipt, now)) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
+      if ((validateInput && (!sameInput(task, record.snapshot) || !maySend(task, record.receipt, now))) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
       await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version);
       return !this.abort.signal.aborted;
     });
@@ -845,7 +891,7 @@ export class TaskDispatch {
       const receipt = { ...record.receipt };
       if (receipt.state !== "sending" && receipt.state !== "unknown") return null;
       const source = record.snapshot.source;
-      if ("parent" in source && (result === "accepted" || (typeof result === "object" && fingerprint(result.execution.sessionBinding) !== fingerprint(source.parent.sessionBinding)))) result = "unknown";
+      if (hasParent(source) && (result === "accepted" || (typeof result === "object" && fingerprint(result.execution.sessionBinding) !== fingerprint(source.parent.sessionBinding)))) result = "unknown";
       const now = this.now().toISOString();
       if (result === "accepted" || typeof result === "object") {
         receipt.state = "running";

@@ -29,6 +29,7 @@ import { agentDispatchBlocker, TasksService } from "./service.js";
 export { TasksService } from "./service.js";
 export type { TaskDispatchExecutor } from "./dispatch.js";
 export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule"> & Pick<TasksService, "createFromRule">;
+export type TaskFollowUpDispatch = Pick<TaskDispatch, "acceptFollowUp">;
 
 /** 其他插件通过 `api.service<TaskQuery>("taskQuery")` 使用。 */
 export interface TaskQuery {
@@ -288,6 +289,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return receipt;
     },
   } satisfies TaskRuleDispatch);
+  api.provide("taskFollowUpDispatch", {
+    acceptFollowUp: async (input) => {
+      const receipt = await dispatch.acceptFollowUp(input);
+      void dispatch.check();
+      return receipt;
+    },
+  } satisfies TaskFollowUpDispatch);
 
   ctx.effect(() => {
     void dispatch.check();

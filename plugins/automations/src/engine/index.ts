@@ -2,10 +2,12 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { machineId, VaultFiles } from "@huhu/vault";
+import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
 import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
+import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
@@ -95,6 +97,24 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());
+  const followUps = new FollowUps(
+    stateFiles,
+    api.vault.vaultId,
+    mid,
+    () => api.service<TaskQueryLike>("taskQuery"),
+    () => api.service<TaskFollowUpDispatch>("taskFollowUpDispatch"),
+    now,
+  );
+  api.provide("taskFollowUps", followUps);
+  ctx.effect(() => {
+    const check = () => void followUps.tick().catch(() => undefined);
+    const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
+    if (timer) check();
+    return () => {
+      clearInterval(timer);
+      followUps.close();
+    };
+  });
   const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
   api.provide(DEFAULT_TASK_SCAN_SERVICE, defaults);
   ctx.effect(() => () => defaults.close());
@@ -131,6 +151,51 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   api.provide("automations", { activeFor: (ids: string[]) => svc.activeFor(ids), holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
 
   const Id = z.object({ id: z.string() });
+  api.defineCapability(
+    def({
+      name: "automations.followUps.get",
+      plugin: "automations",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: FollowUpLookup,
+      output: FollowUpView.nullable(),
+      handler: ({ caller }, { taskId }) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务跟进");
+        return followUps.read(taskId);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "automations.followUps.schedule",
+      plugin: "automations",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: FollowUpScheduleInput,
+      output: FollowUpView,
+      handler: ({ caller }, input) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("安排任务跟进");
+        return followUps.schedule(input);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "automations.followUps.cancel",
+      plugin: "automations",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: FollowUpCancelInput,
+      output: FollowUpView,
+      handler: ({ caller }, input) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("取消任务跟进");
+        return followUps.cancel(input);
+      },
+    }),
+  );
   api.defineCapability(
     def({
       name: "automations.runs.activeFor",
