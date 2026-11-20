@@ -84,7 +84,7 @@ export function registerAtReference(editor: Editor, search: (query: string) => r
         place(p.clientRect?.() ?? null);
       },
       onKeyDown: (p: SuggestionKeyDownProps) => {
-        if (!menu || items.length === 0) return false;
+        if (!menu || items.length === 0 || p.event.isComposing || p.event.keyCode === 229) return false;
         if (p.event.key === "ArrowDown") {
           index = (index + 1) % items.length;
           paint();

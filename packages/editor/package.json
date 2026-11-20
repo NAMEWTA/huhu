@@ -5,6 +5,10 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./reading": {
+      "types": "./src/reading/reading.d.ts",
+      "default": "./src/reading/index.tsx"
+    },
     "./rich": {
       "types": "./src/rich/rich.d.ts",
       "default": "./src/rich/index.ts"
