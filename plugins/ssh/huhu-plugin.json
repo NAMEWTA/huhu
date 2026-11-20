@@ -11,7 +11,7 @@
   "contributes": {
     "modules": ["ssh"],
     "settingsPages": [],
-    "homeWidgets": [],
+    "homeWidgets": ["hosts"],
     "commands": [],
     "capabilities": [
       "ssh.audit.list",

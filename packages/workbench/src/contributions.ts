@@ -1,3 +1,4 @@
+import { assertHomeWidgetDefinitions, homeWidgetType, projectHomeWidget, type HomeWidgetDefinition, type HomeWidgetSource, type HomeWidgetType } from "@huhu/contracts";
 import type { LucideIcon } from "lucide-react";
 import { createContext, useContext, type ComponentType, type ReactNode } from "react";
 
@@ -44,6 +45,12 @@ export interface HomeWidgetContribution {
   /** 默认顺序，越小越靠前。 */
   order: number;
   component: ComponentType<{ onNavigate(moduleId: string): void }>;
+  /** 看板元数据。旧首页贡献可暂不提供。 */
+  definition?: HomeWidgetDefinition;
+}
+
+export function defineHomeWidgetContribution(definition: HomeWidgetDefinition, order: number, component: HomeWidgetContribution["component"]): HomeWidgetContribution {
+  return { id: definition.id, plugin: definition.owner, title: definition.title, order, component, definition };
 }
 
 /**
@@ -77,29 +84,63 @@ export interface ContributionSnapshot {
   settingsPages: SettingsPageContribution[];
 }
 
+interface Contributions {
+  modules?: ModuleContribution[];
+  commands?: CommandContribution[];
+  homeWidgets?: HomeWidgetContribution[];
+  homeWidgetSource?: HomeWidgetSource;
+  settingsPages?: SettingsPageContribution[];
+}
+
 /** 贡献注册表：插件按启用状态挂载/移除，无需刷新页面。 */
 export class ContributionRegistry {
   private modules = new Map<string, ModuleContribution>();
   private commands = new Map<string, CommandContribution>();
-  private widgets = new Map<string, HomeWidgetContribution>();
+  private widgets = new Map<HomeWidgetType, HomeWidgetContribution>();
   private settingsPages = new Map<string, SettingsPageContribution>();
   private listeners = new Set<() => void>();
   private enabled: ReadonlySet<string> | null = null;
   private snapshotCache: ContributionSnapshot | null = null;
 
-  register(c: { modules?: ModuleContribution[]; commands?: CommandContribution[]; homeWidgets?: HomeWidgetContribution[]; settingsPages?: SettingsPageContribution[] }): () => void {
+  register(c: Contributions): () => void {
+    const widgets = new Map<HomeWidgetType, HomeWidgetContribution>();
+    const definitions: HomeWidgetDefinition[] = [];
+    for (const widget of c.homeWidgets ?? []) {
+      const key = homeWidgetType(widget.plugin, widget.id);
+      if (widgets.has(key) || this.widgets.has(key)) throw new Error(`Duplicate home widget registration ${key}`);
+      const { definition } = widget;
+      if (definition) {
+        if (!c.homeWidgetSource) throw new Error(`Missing home widget source for ${key}`);
+        if (definition.id !== widget.id || definition.owner !== widget.plugin || definition.title !== widget.title) throw new Error(`Renderer metadata differs for ${key}`);
+        definitions.push(definition);
+      } else if (c.homeWidgetSource) {
+        throw new Error(`Missing home widget definition for ${key}`);
+      }
+      widgets.set(key, Object.freeze({ ...widget }));
+    }
+    if (c.homeWidgetSource) assertHomeWidgetDefinitions(c.homeWidgetSource, definitions);
+
     for (const m of c.modules ?? []) this.modules.set(m.id, m);
     for (const cmd of c.commands ?? []) this.commands.set(cmd.id, cmd);
-    for (const w of c.homeWidgets ?? []) this.widgets.set(`widget:${w.plugin}:${w.id}`, w);
+    for (const [id, widget] of widgets) this.widgets.set(id, widget);
     for (const p of c.settingsPages ?? []) this.settingsPages.set(p.id, p);
     this.changed();
     return () => {
       for (const m of c.modules ?? []) if (this.modules.get(m.id) === m) this.modules.delete(m.id);
       for (const cmd of c.commands ?? []) if (this.commands.get(cmd.id) === cmd) this.commands.delete(cmd.id);
-      for (const w of c.homeWidgets ?? []) if (this.widgets.get(`widget:${w.plugin}:${w.id}`) === w) this.widgets.delete(`widget:${w.plugin}:${w.id}`);
+      for (const [id, widget] of widgets) if (this.widgets.get(id) === widget) this.widgets.delete(id);
       for (const p of c.settingsPages ?? []) if (this.settingsPages.get(p.id) === p) this.settingsPages.delete(p.id);
       this.changed();
     };
+  }
+
+  /** 目录使用当前调用者的能力清单。不可用项仍可查状态，但无法从目录取得组件。 */
+  getHomeWidgetCatalog(allowedCapabilities: ReadonlySet<string>) {
+    return [...this.widgets.values()].flatMap((widget) => {
+      if (!widget.definition) return [];
+      const entry = projectHomeWidget(widget.definition, this.enabled, allowedCapabilities);
+      return [{ ...entry, component: entry.status === "available" ? widget.component : undefined }];
+    });
   }
 
   /** 按插件启用状态过滤贡献（null = 不过滤）；`kernel` 的贡献始终可见。启停时无需刷新页面。 */
