@@ -13,7 +13,7 @@ const endpointFields = {
   security: z.enum(["tls", "starttls", "none"]),
 };
 
-const accountSettingsSchema = z
+export const accountSettingsSchema = z
   .strictObject({
     provider: mailProviderSchema,
     email: z.string().trim().pipe(z.email()),

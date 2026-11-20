@@ -3,6 +3,7 @@ import { bindCapability, defineCapabilityDescriptor, type Context, type HuhuApi 
 import { z } from "zod";
 import { mailAccountDefinitionSchema } from "./account-definition.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
+import { registerAccountSetup } from "./account-setup.js";
 import { registerDrafts } from "./drafts.js";
 import { registerMessageCache } from "./message-cache.js";
 import type { MailSmtpTransport } from "./smtp.js";
@@ -37,10 +38,11 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
       return { available: accounts !== undefined, accounts: accounts ? await accounts.list() : [] };
     }),
   );
+  const drainSetup = registerAccountSetup(api, accounts, lifetime.signal);
   registerMessageCache(api, accounts, lifetime.signal);
   const drainDrafts = registerDrafts(api, accounts, lifetime.signal, transport);
   ctx.effect(() => async () => {
     lifetime.abort();
-    await drainDrafts();
+    await Promise.all([drainSetup(), drainDrafts()]);
   });
 }

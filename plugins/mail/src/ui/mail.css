@@ -1,0 +1,165 @@
+@layer theme, tokens, base, vendor, components, shell, modules;
+
+@layer modules {
+  .hu-mail-workspace {
+    container-type: inline-size;
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    padding: 16px;
+  }
+
+  .hu-mail-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hu-mail-spread {
+    justify-content: space-between;
+  }
+
+  .hu-mail-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    margin-block: 12px;
+  }
+
+  .hu-mail-list,
+  .hu-mail-detail,
+  .hu-mail-form,
+  .hu-mail-fields {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .hu-mail-list,
+  .hu-mail-columns > .hu-mail-detail {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+    overflow-wrap: anywhere;
+  }
+
+  .hu-mail-list > button {
+    justify-content: flex-start;
+    min-height: 32px;
+    text-align: start;
+    white-space: normal;
+  }
+
+  .hu-mail-list > button[aria-pressed="true"] {
+    background: var(--sidebar);
+    border-color: var(--accent);
+  }
+
+  .hu-mail-workspace h2,
+  .hu-mail-workspace h3,
+  .hu-mail-workspace p {
+    margin-block: 0;
+  }
+
+  .hu-mail-form,
+  .hu-mail-group {
+    overflow-wrap: anywhere;
+  }
+
+  .hu-mail-fields {
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+
+  .hu-mail-group {
+    min-width: 0;
+    padding: 10px;
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+  }
+
+  .hu-mail-server {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .hu-mail-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+  }
+
+  .hu-mail-form .hu-field-label:empty {
+    display: none;
+  }
+
+  .hu-mail-help {
+    color: var(--muted);
+  }
+
+  .hu-mail-compose {
+    position: sticky;
+    z-index: 2;
+    inset-block-end: 0;
+    margin-inline-start: auto;
+    width: min(100%, 36rem);
+    max-height: 85%;
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+  }
+
+  .hu-mail-compose[data-expanded="true"] {
+    width: min(100%, 58rem);
+  }
+
+  .hu-mail-editor {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+  }
+
+  .hu-mail-editor [contenteditable] {
+    min-height: 8rem;
+    padding: 10px;
+  }
+
+  .hu-mail-addresses {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hu-mail-addresses > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .hu-mail-source {
+    max-height: 20rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  @container (min-width: 581px) {
+    .hu-mail-columns {
+      grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 450px) {
+    .hu-mail-server {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}

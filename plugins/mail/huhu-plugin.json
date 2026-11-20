@@ -1,17 +1,20 @@
 {
   "id": "mail",
   "title": "邮件",
-  "description": "邮箱账号与 IMAP 目录发现",
+  "description": "邮箱账号、草稿与本机投递记录",
   "version": "0.0.1-rc.4",
   "origin": "builtin",
   "activation": "vault-open",
   "contributes": {
-    "modules": [],
+    "modules": ["mail"],
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],
     "capabilities": [
       "mail.accounts.list",
+      "mail.accounts.testConnection",
+      "mail.accounts.save",
+      "mail.accounts.cancelSetup",
       "mail.sync.refresh",
       "mail.messages.latest",
       "mail.messages.loadSource",

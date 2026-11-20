@@ -10,6 +10,7 @@ import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
 import { outboxReceipt } from "../src/engine/outbox.js";
+import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
 const shared = vi.hoisted(() => ({ services: new Map<string, { outbox?: MailOutboxService; attachments?: MailDraftAttachments }>() }));
@@ -139,6 +140,92 @@ async function save(engine: RunningEngine, accountId: string, draftId: string = 
   const draft = result.data as { draftId: string; revision: string };
   return { draftId: draft.draftId, expectedRevision: draft.revision };
 }
+
+testWindows(
+  "工作台能力使用回环 IMAP 添加邮箱，重开草稿后只重试拒收项并保留待核实记录",
+  async () => {
+    await fixture(async ({ smtp, password, open }) => {
+      const imap = await openImapFixture();
+      const rejectedImap = await openImapFixture({ rejectLogin: true });
+      const stalledImap = await openImapFixture({ stallList: true });
+      try {
+        let engine = await open({ create: true });
+        const settings = {
+          provider: "custom_imap",
+          email: sender,
+          label: "工作台回环",
+          auth: "password",
+          imap: { host: "127.0.0.1", port: imap.port, security: "none" },
+          smtpEnabled: true,
+          smtp: { host: "127.0.0.1", port: smtp.port, security: "none" },
+        };
+        const testConnection = (port: number, signal?: AbortSignal) => call(engine, "mail.accounts.testConnection", { settings: { ...settings, imap: { ...settings.imap, port } }, password }, signal);
+        expect(await testConnection(rejectedImap.port)).toMatchObject({ ok: false, error: { details: { reason: "authentication" } } });
+        const abort = new AbortController();
+        const stalled = testConnection(stalledImap.port, abort.signal);
+        const stalledRejection = expect(stalled).rejects.toMatchObject({ name: "AbortError" });
+        await stalledImap.listed;
+        abort.abort();
+        await stalledRejection;
+        await stalledImap.disconnected;
+        expect(await call(engine, "mail.accounts.list", {})).toMatchObject({ ok: true, data: { accounts: [] } });
+
+        const old = await testConnection(imap.port);
+        assert(old.ok);
+        const oldKey = { setupId: (old.data as { setupId: string }).setupId };
+        expect(await call(engine, "mail.accounts.cancelSetup", oldKey)).toMatchObject({ ok: true });
+        expect(await call(engine, "mail.accounts.save", { ...oldKey, folders: ["INBOX"] })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+        const tested = await testConnection(imap.port);
+        expect(tested).toMatchObject({
+          ok: true,
+          data: { folders: expect.arrayContaining([expect.objectContaining({ path: "INBOX", selectable: true, selected: true }), expect.objectContaining({ path: "Container", selectable: false })]) },
+        });
+        assert(tested.ok);
+        expect(JSON.stringify(tested.data).includes(password)).toBe(false);
+        const key = { setupId: (tested.data as { setupId: string }).setupId };
+        expect(await call(engine, "mail.accounts.save", { ...key, folders: ["Container/Projects"] })).toMatchObject({ ok: false, error: { details: { reason: "inbox-required" } } });
+        expect(await call(engine, "mail.accounts.save", { ...key, folders: ["INBOX", "Container"] })).toMatchObject({ ok: false, error: { details: { reason: "invalid-selection" } } });
+        const saved = await call(engine, "mail.accounts.save", { ...key, folders: ["INBOX", "Container/Projects"] });
+        assert(saved.ok);
+        expect(await call(engine, "mail.accounts.save", { ...key, folders: ["Container/Projects", "INBOX"] })).toEqual(saved);
+        const { accountId } = saved.data as { accountId: string };
+        expect(imap.commands.filter((command) => command === "LOGIN")).toHaveLength(2);
+
+        const refused = "refused@example.invalid";
+        const draft = await save(engine, accountId, undefined, null, { cc: [refused] });
+        await engine.shutdown();
+        engine = await open();
+        expect(await call(engine, "mail.accounts.list", {})).toMatchObject({ ok: true, data: { accounts: [{ accountId, definition: { settings, folders: [{ path: "INBOX" }, { path: "Container/Projects" }] } }] } });
+        expect(await call(engine, "mail.drafts.get", { draftId: draft.draftId })).toMatchObject({ ok: true, data: { draft: { ...content, cc: [refused], revision: draft.expectedRevision } } });
+        expect(smtp.counts.data).toBe(0);
+
+        smtp.configure("partial");
+        const result = await call(engine, "mail.outbox.submit", draft);
+        assert(result.ok);
+        const parent = outboxReceipt.parse(result.data);
+        const status = (operationId: string) => call(engine, "mail.outbox.status", { operationId });
+        await expect.poll(() => status(parent.operationId)).toMatchObject({ ok: true, data: { state: "partially-accepted", retryableRecipients: [refused] } });
+        expect(await call(engine, "mail.outbox.retry", { parentOperationId: parent.operationId, expectedRevision: draft.expectedRevision, recipients: [to, refused] })).toMatchObject({
+          ok: false,
+          error: { details: { reason: "retry-recipient-ineligible" } },
+        });
+        smtp.configure("lose-reply");
+        const retry = await call(engine, "mail.outbox.retry", { parentOperationId: parent.operationId, expectedRevision: draft.expectedRevision, recipients: [refused] });
+        assert(retry.ok);
+        const child = outboxReceipt.parse(retry.data);
+        await expect.poll(() => status(child.operationId)).toMatchObject({ ok: true, data: { state: "unknown", retryableRecipients: [], recipients: [{ address: refused, state: "unknown" }] } });
+        expect(smtp.messages.map(({ recipients }) => recipients)).toEqual([[to, bcc], [refused]]);
+        await engine.shutdown();
+        engine = await open();
+        expect(await status(child.operationId)).toMatchObject({ ok: true, data: { state: "unknown", messageId: child.messageId, retryableRecipients: [] } });
+        expect(smtp.counts.data).toBe(2);
+      } finally {
+        await Promise.all([imap.close(), rejectedImap.close(), stalledImap.close()]);
+      }
+    });
+  },
+  45_000,
+);
 
 testWindows(
   "Windows Engine 对两个来路只认领一次，冻结内容、密送信封和附件后只发一次 DATA",

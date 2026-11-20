@@ -12,7 +12,7 @@ const draftKey = z.strictObject({ draftId: uuid });
 const recipientFields = ["to", "cc", "bcc"] as const;
 const draftMetadata = draftKey.extend({ revision: uuid, updatedAt: z.iso.datetime() });
 const draftDetails = draftMetadata.extend(draftContent.shape).extend({ attachments: z.array(attachmentDetails).optional() });
-const draftSummary = draftMetadata.extend(draftContent.pick({ accountId: true, subject: true }).shape);
+export const draftSummary = draftMetadata.extend(draftContent.pick({ accountId: true, subject: true }).shape);
 const saveInput = draftKey.extend({ expectedRevision: uuid.nullable(), draft: draftContent });
 const discardInput = draftKey.extend({ expectedRevision: uuid });
 const attachmentKey = draftKey.extend({ digest: attachmentDigest });
@@ -20,7 +20,7 @@ const removeInput = discardInput.extend({ digest: attachmentDigest });
 const storedDraft = draftMetadata.omit({ draftId: true }).extend({ draft: storedDraftContent.nullable() });
 const snapshotSchema = z.strictObject({ format: z.literal(1), drafts: z.record(uuid, storedDraft) });
 
-type Draft = z.infer<typeof draftDetails>;
+export type Draft = z.infer<typeof draftDetails>;
 type StoredDraft = z.infer<typeof storedDraft>;
 type Snapshot = z.infer<typeof snapshotSchema>;
 type VaultFiles = HuhuApi["vault"]["files"];
