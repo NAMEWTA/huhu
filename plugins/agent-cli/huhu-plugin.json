@@ -6,7 +6,7 @@
   "origin": "builtin",
   "dependsOn": [],
   "optionalDeps": ["safe", "tasks"],
-  "permissions": ["tasks.write", "tasks.comment.system"],
+  "permissions": ["tasks.write", "tasks.comment.system", "tasks.receipt-consume"],
   "activation": "vault-open",
   "contributes": {
     "modules": ["agent-cli"],

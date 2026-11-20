@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type TaskDto } from "@huhu/contracts";
-import { VaultFiles } from "@huhu/vault";
+import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
+import { executionReceiptIdentity } from "@huhu/contracts/execution-receipt/engine";
+import { machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
@@ -359,6 +360,74 @@ function executor(): TaskDispatchExecutor {
     inspect: vi.fn<TaskDispatchExecutor["inspect"]>().mockResolvedValue("unknown"),
   };
 }
+
+test("持久验收原回执后才 ACK，重开补送原评论一次且不重新执行", { timeout: 60_000 }, async () => {
+  const root = tempVault();
+  const fake = executor();
+  fixture.executor = fake;
+  const engine = await start(root, true);
+  let bound: ExecutionBinding | undefined;
+  fake.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockImplementation(async ({ snapshot, dispatchId, runId, attempt }) => {
+    bound = {
+      vaultId: engine.vault.id,
+      taskId: snapshot.taskId,
+      dispatchId,
+      runId,
+      attempt,
+      sessionBinding: { machineId: machineId(), sessionId: "fixture-session", coreId: "fixture-core", coreAddress: "t2", processGeneration: "fixture-generation", provider: "codex", nativeSessionId: "fixture-thread" },
+    };
+    return { state: "accepted", execution: bound };
+  });
+  const task = await createDispatchable(engine);
+  const run = await acceptDispatch(engine, intent(task));
+  await waitDispatch(engine, run, { state: "running" });
+  expect(bound).toBeDefined();
+  const input = { version: 1, receiptId: "fixture-result", kind: "result", execution: bound!, payload: { message: "已完成的合成结果" } } as const satisfies ExecutionReceipt;
+  const expected = { ok: true, data: { stage: "tasks_consumed", receipt: executionReceiptIdentity(input) } };
+  const consume = (running: RunningEngine, receipt: ExecutionReceipt = input) =>
+    running.dispatcher.call("plugin:agent-cli", { capability: "tasks.receipts.consume", input: receipt, requestId: randomUUID(), idempotencyKey: receipt.receiptId });
+  const resultComments = async (running: RunningEngine) => (await call<TaskDto>(running, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "result");
+  expect(await call(engine, "tasks.receipts.consume", input, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  expect(await call(engine, "tasks.receipts.consume", input)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await consume(engine, { ...input, execution: { ...input.execution, runId: "other-run" } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+
+  let fault: "before" | "after-comment" | null = "before";
+  const write = VaultFiles.prototype.write;
+  const injection = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(function (this: VaultFiles, rel, bytes, options) {
+    if (rel.startsWith("tasks/receipts/")) {
+      const { status } = JSON.parse(Buffer.from(bytes).toString("utf8")) as { status: string };
+      if ((status === "pending" && fault === "before") || (status === "delivered" && fault === "after-comment")) throw new Error("合成落盘中断");
+    }
+    return write.call(this, rel, bytes, options);
+  });
+  try {
+    expect(await consume(engine)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+    expect(await resultComments(engine)).toEqual([]);
+    fault = "after-comment";
+    // The origin can lose the first successful response without losing the committed payload.
+    expect(await consume(engine)).toEqual(expected);
+    const receiptDir = path.join(engine.vault.stateDir, "tasks", "receipts");
+    const [file] = readdirSync(receiptDir);
+    expect(file).toBeDefined();
+    const deliveryFile = path.join(receiptDir, file!);
+    const durable = () => JSON.parse(readFileSync(deliveryFile, "utf8")) as { status: string; receipt: ExecutionReceipt; consumption: { delivery: { messageId: string } } };
+    expect(durable()).toMatchObject({ receipt: input, status: "pending" });
+    const messageId = durable().consumption.delivery.messageId;
+    await vi.waitFor(async () => expect(await resultComments(engine)).toMatchObject([{ id: messageId, run: run.runId, body: input.payload.message }]));
+    expect(durable().status).toBe("pending");
+    await stop(engine);
+    fault = null;
+    const reopened = await start(root);
+    expect(await consume(reopened)).toEqual(expected);
+    expect(await consume(reopened, { ...input, payload: { message: "同 ID 异载荷" } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    await vi.waitFor(() => expect(durable().status).toBe("delivered"));
+    expect(await resultComments(reopened)).toMatchObject([{ id: messageId, run: run.runId, body: input.payload.message }]);
+    expect((await call<TaskDto>(reopened, "tasks.read", { id: task.id })).data.status).toBe("in_progress");
+    expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  } finally {
+    injection.mockRestore();
+  }
+});
 
 test("Automations 停用后，人工受理、两规则竞争及任务正文快照在重开后沿用一个 run", { timeout: 60_000 }, async () => {
   const root = tempVault();

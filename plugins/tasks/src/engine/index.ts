@@ -1,4 +1,17 @@
-import { errors, isWorkbenchCaller, TaskCategorySchema, TaskCommentSchema, TaskDtoSchema, TaskPatchSchema, TaskStatusSchema, TaskTypeSchema, TaskWritableSchema, type TaskOrigin } from "@huhu/contracts";
+import {
+  errors,
+  ExecutionReceiptAckSchema,
+  ExecutionReceiptSchema,
+  isWorkbenchCaller,
+  TaskCategorySchema,
+  TaskCommentSchema,
+  TaskDtoSchema,
+  TaskPatchSchema,
+  TaskStatusSchema,
+  TaskTypeSchema,
+  TaskWritableSchema,
+  type TaskOrigin,
+} from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
@@ -9,6 +22,7 @@ import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore } from "./dispatch-store.js";
+import { TaskReceiptInbox } from "./receipt-inbox.js";
 import { TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
@@ -79,9 +93,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     },
   });
   const machine = machineId();
-  const store = new DispatchStore(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly), api.vault.vaultId, machine);
+  const files = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
+  const store = new DispatchStore(files, api.vault.vaultId, machine);
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
-  const dispatch: TaskDispatch = new TaskDispatch(svc, store, now, machine, executor ?? undefined, opts.onError);
+  const dispatch: TaskDispatch = new TaskDispatch(svc, store, new TaskReceiptInbox(files, now), now, machine, executor ?? undefined, opts.onError);
+
+  api.defineCapability(
+    def({
+      name: "tasks.receipts.consume",
+      plugin: "tasks",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      idempotency: "handler",
+      input: ExecutionReceiptSchema,
+      output: ExecutionReceiptAckSchema,
+      handler: ({ caller, signal }, input) => {
+        if (caller !== "plugin:agent-cli") throw errors.permissionDenied("接收 Agent 任务回执");
+        return dispatch.consumeReceipt(input, signal);
+      },
+    }),
+  );
 
   api.defineCapability(
     def({

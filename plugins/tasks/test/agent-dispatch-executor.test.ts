@@ -48,6 +48,6 @@ test("the bound input uses the frozen body and requires a matching provider ACK"
   );
   expect(snapshot.body).toBe("Frozen body\r\nSecond line");
   call.mockResolvedValueOnce({ ...receipt, providerAcceptance: { id: "fixture-ack", execution, inputSha256: createHash("sha256").update(input).digest("hex") } });
-  expect(await executor.inspect(work, signal)).toBe("accepted");
+  expect(await executor.inspect(work, signal)).toEqual({ state: "accepted", execution });
   expect(call).toHaveBeenLastCalledWith("agent.runs.inspect", { ...key, machineId: "machine-fixture" }, { signal });
 });

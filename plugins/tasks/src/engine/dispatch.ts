@@ -1,4 +1,4 @@
-import { HuhuError, errors, isHuhuError, newId, type TaskDto } from "@huhu/contracts";
+import { HuhuError, errors, isHuhuError, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
 import {
   DispatchInput,
   DispatchLookup,
@@ -15,6 +15,7 @@ import {
   type OwnedRecord,
 } from "./dispatch-store.js";
 import type { TasksService } from "./service.js";
+import type { TaskReceiptInbox } from "./receipt-inbox.js";
 import { WriteQueue } from "./write-queue.js";
 
 export type TaskDispatchWork = Readonly<{
@@ -28,7 +29,7 @@ export type TaskDispatchWork = Readonly<{
 }>;
 
 export type TaskDispatchReadiness = "ready" | "busy" | "unavailable" | "unsupported" | { state: "ready" | "busy"; target: NonNullable<DispatchRecord["agentTarget"]> };
-export type TaskDispatchResult = "accepted" | "not_sent" | "unknown" | "unsupported";
+export type TaskDispatchResult = "accepted" | "not_sent" | "unknown" | "unsupported" | { state: "accepted"; execution: ExecutionBinding };
 
 export interface TaskDispatchExecutor {
   /** 只读目标/资源预检。实际输入所有权仍须由执行者在派遣时核验。 */
@@ -54,6 +55,7 @@ export class TaskDispatch {
   constructor(
     private readonly tasks: TasksService,
     private readonly store: DispatchStore,
+    private readonly receipts: TaskReceiptInbox,
     private readonly now: () => Date,
     private readonly machineId: string,
     private readonly executor?: TaskDispatchExecutor,
@@ -63,6 +65,20 @@ export class TaskDispatch {
   async close(): Promise<void> {
     this.abort.abort();
     await this.tasks.drainWrites();
+  }
+
+  consumeReceipt(receipt: ExecutionReceipt, signal: AbortSignal) {
+    const stopped = AbortSignal.any([signal, this.abort.signal]);
+    stopped.throwIfAborted();
+    const expected = this.boundExecution(receipt.execution);
+    if (!expected) throw new HuhuError("RUN_UNKNOWN", "任务仍在等待已确认的执行绑定", { retryable: true });
+    return this.receipts.consume(receipt, expected, stopped);
+  }
+
+  private boundExecution({ dispatchId, taskId }: ExecutionBinding): ExecutionBinding | undefined {
+    const stored = this.store.read(eventIdOf(dispatchId));
+    if (!stored || stored.record.receipt.taskId !== taskId || !this.store.owns(stored.record) || stored.record.claim?.machineId !== this.machineId) return undefined;
+    return stored.record.boundExecution;
   }
 
   hasHold(taskId: string): boolean {
@@ -178,6 +194,15 @@ export class TaskDispatch {
           if (!this.abort.signal.aborted) this.onError?.(error);
         }
       }
+      await this.receipts.replay(
+        this.tasks,
+        (execution) => {
+          const expected = this.boundExecution(execution);
+          return expected !== undefined && fingerprint(expected) === fingerprint(execution);
+        },
+        this.abort.signal,
+        this.onError,
+      );
     } catch (error) {
       this.onError?.(error);
     } finally {
@@ -317,10 +342,10 @@ export class TaskDispatch {
       const receipt = { ...record.receipt };
       if (receipt.state !== "sending" && receipt.state !== "unknown") return null;
       const now = this.now().toISOString();
-      if (result === "accepted") {
+      if (result === "accepted" || typeof result === "object") {
         receipt.state = "running";
         receipt.reason = null;
-        return this.store.write({ ...record, receipt, startedAt: now }, version);
+        return this.store.write({ ...record, receipt, startedAt: now, ...(typeof result === "object" && { boundExecution: result.execution }) }, version);
       }
       if (result === "unsupported" || (result === "not_sent" && receipt.cancelRequested)) {
         receipt.state = receipt.cancelRequested ? "cancelled" : "blocked";

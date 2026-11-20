@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { HuhuError, isHuhuError, isId, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
+import { ExecutionBindingSchema, HuhuError, isHuhuError, isId, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
 import { AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
@@ -45,6 +45,7 @@ const RecordFields = z.object({
   snapshot: Snapshot,
   snapshotHash: z.string(),
   agentTarget: AgentDispatchTargetSchema.optional(),
+  boundExecution: ExecutionBindingSchema.optional(),
   claim: z.object({ machineId: z.string(), at: Instant }).nullable(),
   startedAt: Instant.nullable(),
   finishedAt: Instant.nullable(),
@@ -155,6 +156,19 @@ export class DispatchStore {
       if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run") || receipt.attempt !== 1) throw new Error("派遣身份校验失败");
       if (fingerprint(snapshot) !== snapshotHash || fingerprint({ input, source }) !== requestHash) throw new Error("请求或快照校验失败");
       if ((receipt.state === "pending" && claim) || (["claimed", "sending", "running", "unknown"].includes(receipt.state) && !claim)) throw new Error("领取状态与记录不符");
+      const execution = record.boundExecution;
+      if (
+        execution &&
+        (record.schema !== 2 ||
+          execution.vaultId !== record.owner.vaultId ||
+          execution.taskId !== taskId ||
+          execution.dispatchId !== receipt.dispatchId ||
+          execution.runId !== receipt.runId ||
+          execution.attempt !== receipt.attempt ||
+          execution.sessionBinding.machineId !== claim?.machineId)
+      ) {
+        throw new Error("执行绑定与派遣记录不符");
+      }
       if (record.schema === 2) {
         const { seal: savedSeal, ...unsigned } = record;
         if (identityOf(unsigned) !== unsigned.identityHash) throw new Error("受理身份校验失败");

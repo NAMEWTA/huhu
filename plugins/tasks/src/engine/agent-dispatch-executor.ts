@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { HuhuApi } from "@huhu/kernel";
 import { AgentDispatchInputSchema, AgentDispatchResponseSchema, AgentDispatchTargetInfoSchema, AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
 import { z } from "zod";
-import type { TaskDispatchExecutor, TaskDispatchWork } from "./dispatch.js";
+import type { TaskDispatchExecutor, TaskDispatchResult, TaskDispatchWork } from "./dispatch.js";
 import { fingerprint } from "./dispatch-store.js";
 
 const Targets = z.array(AgentDispatchTargetInfoSchema);
@@ -24,7 +24,7 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
   const scope = { vaultId: api.vault.vaultId, machineId };
   const keyOf = ({ snapshot, dispatchId, runId, attempt }: TaskDispatchWork) => ({ ...scope, taskId: snapshot.taskId, dispatchId, runId, attempt });
 
-  const outcome = (receipt: z.infer<typeof AgentDispatchResponseSchema>, work: TaskDispatchWork): "accepted" | "not_sent" | "unknown" => {
+  const outcome = (receipt: z.infer<typeof AgentDispatchResponseSchema>, work: TaskDispatchWork): Exclude<TaskDispatchResult, "unsupported"> => {
     if (receipt.status === "not_sent" && receipt.coreWrite === "not_sent" && !receipt.providerAcceptance) return "not_sent";
     const { execution, providerAcceptance } = receipt;
     if (receipt.status !== "accepted" || receipt.coreWrite === "not_sent" || !execution || !providerAcceptance || !work.agentTarget) return "unknown";
@@ -35,7 +35,7 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
     if (target.mode === "existing" ? fingerprint(sessionBinding) !== fingerprint(target.binding) : sessionBinding.provider !== target.provider) return "unknown";
     if (target.mode === "resume" && sessionBinding.nativeSessionId !== target.nativeSessionId) return "unknown";
     const sha256 = createHash("sha256").update(textOf(work)).digest("hex");
-    return providerAcceptance.inputSha256 === sha256 && fingerprint(providerAcceptance.execution) === fingerprint(execution) ? "accepted" : "unknown";
+    return providerAcceptance.inputSha256 === sha256 && fingerprint(providerAcceptance.execution) === fingerprint(execution) ? { state: "accepted", execution } : "unknown";
   };
 
   return {
