@@ -26,6 +26,7 @@ import { CodexDispatch, type CodexDispatchOptions } from "./codex-dispatch.js";
 import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.js";
 import { registerAgentEnvironments, type AgentCredentialHost } from "./launch-environment.js";
 import { ProtectedLaunch } from "./protected-launch.js";
+import { launchHash } from "./launch-binding.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -120,11 +121,25 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     vaultId: api.vault.vaultId,
     sessions,
     ...(opts.waitingBackoffMs ? { backoffMs: opts.waitingBackoffMs } : {}),
+    onChanged: (id) => api.events.publish("entity.changed", { kind: "agent-session", id, op: "updated" }),
     onBlocked: async (sess) => {
       lifetime.signal.throwIfAborted();
       const w = sess.waiting;
       if (!w) return;
       const what = w.kind === "permission" ? "需要批准" : w.kind === "question" ? "有问题要回答" : w.kind === "auth" ? "需要登录授权" : "需要你操作";
+      const dispatchId = dispatchStore.owner(sess.id);
+      if (dispatchId) {
+        const execution = dispatchStore.read(dispatchId)?.execution;
+        const current = await sessions.executionSession(sess.id);
+        if (!execution || !current || current.finished || launchHash(execution.sessionBinding) !== launchHash(current.binding) || dispatchStore.owner(sess.id) !== dispatchId) {
+          throw new HuhuError("RUN_UNKNOWN", "无法核对等待信号的原会话与任务");
+        }
+        if (sessions.setWaitingTaskRun(sess.id, w.n, { taskId: execution.taskId, runId: execution.runId })) {
+          opts.notify?.({ title: `${sess.name}：${what}`, module: "agent-cli" });
+        }
+        return;
+      }
+      if (sess.controlled) throw new HuhuError("RUN_UNKNOWN", "受控会话的任务运行尚未核对");
       opts.notify?.({ title: `${sess.name}：${what}${w.msg ? `（${w.msg}）` : ""}`, module: "agent-cli" });
       if (settingsStore.get().waitingTasks === false) return;
       // 独立会话：在为它自动建立的 human 任务上追加评论（任务按会话 id 幂等创建，评论 id 由发生标识派生）
@@ -290,6 +305,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         app: z.string().nullable(),
         since: z.string(),
         taskId: z.string().optional(),
+        taskRun: z.object({ taskId: z.string(), runId: z.string() }).optional(),
         handled: z.number().optional(),
       })
       .optional(),

@@ -52,6 +52,10 @@ export function createDispatchProviderFixture(sandbox: string, cli: (...args: st
     for await (const text of line) {
       let message;
       try { message = JSON.parse(text); } catch { continue; }
+      if (message.kind === "fixture-program-status" && ["blocked", "working"].includes(message.state)) {
+        process.stdout.write("\\x1b]7501;state=" + message.state + ":kind=permission:app=fixture\\x1b\\\\");
+        continue;
+      }
       if (message.kind !== "fixture-task") continue;
       appendFileSync(path.join(dir, address + ".jsonl"), JSON.stringify({
         pid: process.pid, dispatchId: message.dispatchId, sha256: createHash("sha256").update(text).digest("hex"), proof: !message.exitWithoutProof

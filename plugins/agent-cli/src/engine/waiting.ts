@@ -15,6 +15,7 @@ export interface WaitingWatcherDeps {
   sessions: SessionsService;
   /** 会话第一次或再次进入 blocked（发生标识 = `<会话 id>:<n>`）。处理失败不影响订阅；下一次重连的快照会重试尚未完成的发生。 */
   onBlocked(session: SessionRecord): Promise<void>;
+  onChanged?(sessionId: string): void;
   /** 测试用：缩短重连间隔。 */
   backoffMs?: { min: number; max: number };
 }
@@ -95,12 +96,16 @@ export class WaitingWatcher {
     for (const t of terminals) {
       const sess = this.sessionOf(t);
       if (!sess) continue;
-      if (t.state === "finished") this.d.sessions.expireWaiting(sess.id);
+      if (t.state === "finished") this.expire(sess.id);
       else await this.apply(sess.id, t.status ?? null);
     }
     // 订阅快照里已经没有的终端：对应会话里残留的等待标为过期
     const live = new Set(terminals.map((t) => t.address));
-    for (const s of this.d.sessions.list()) if (s.waiting?.active && s.terminalId && !live.has(s.terminalId)) this.d.sessions.expireWaiting(s.id);
+    for (const s of this.d.sessions.list()) if (s.waiting?.active && s.terminalId && !live.has(s.terminalId)) this.expire(s.id);
+  }
+
+  private expire(sessionId: string) {
+    if (this.d.sessions.expireWaiting(sessionId)) this.d.onChanged?.(sessionId);
   }
 
   private async apply(sessionId: string, status: ProgramStatus | null): Promise<void> {
@@ -111,6 +116,9 @@ export class WaitingWatcher {
       if (status?.state === "blocked" && w?.active && w.handled !== w.n) {
         await this.d.onBlocked(r.session);
         this.d.sessions.markWaitingHandled(sessionId, w.n);
+        this.d.onChanged?.(sessionId);
+      } else if (r.transition) {
+        this.d.onChanged?.(sessionId);
       }
     } catch {
       /* 处理失败（tasks 未启用、会话记录读写失败）：保持 handled 不变，下次快照或事件再试 */
@@ -124,6 +132,6 @@ export class WaitingWatcher {
     if (e.type === "status") {
       const data = e.data as { status?: ProgramStatus | null } | undefined;
       await this.apply(sess.id, data?.status ?? null);
-    } else if (e.type === "finished" || e.type === "removed") this.d.sessions.expireWaiting(sess.id);
+    } else if (e.type === "finished" || e.type === "removed") this.expire(sess.id);
   }
 }

@@ -13,6 +13,7 @@ import { agentEnvironmentDescriptors, apply } from "../src/engine/index.js";
 import type { DispatchInput, DispatchLookup } from "../src/engine/dispatch-store.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import type { TerminalBridge } from "../src/engine/terminal-bridge.js";
+import type { WaitingInfo } from "../src/engine/sessions.js";
 import { createDispatchProviderFixture, createFixtureGate, readFixtureJson as read } from "./fixtures/dispatch-provider.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
@@ -56,6 +57,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const permission = "test.agent.dispatch";
     const permissions = PERMISSION_TABLE as Record<string, readonly string[]>;
     const openViewers: FixtureViewer[] = [];
+    const fallbackCalls: string[] = [];
+    const waitingChanges: string[] = [];
     let dispatcher: Dispatcher;
     let manager!: PluginManager;
     let refreshBridge!: () => void;
@@ -66,6 +69,11 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const registry = new CapabilityRegistry();
       registry.declareDescriptors("agent-cli", Object.values(agentEnvironmentDescriptors));
       const events = new EventBus(() => vault.id);
+      events.subscribe((event) => {
+        if (event.type !== "entity.changed") return;
+        const { kind, id } = event.payload as { kind: string; id: string };
+        if (kind === "agent-session") waitingChanges.push(id);
+      });
       dispatcher = new Dispatcher({
         registry,
         audit: new GatewayAudit(),
@@ -80,7 +88,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
         registry,
         events,
         vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
-        call: async () => {
+        call: async (_caller, capability) => {
+          fallbackCalls.push(capability);
           throw new Error("isolated fixture does not call other plugins");
         },
       });
@@ -141,7 +150,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
         {
           expectedRevision: 0,
           defaultAgent: "claude",
-          waitingTasks: false,
+          waitingTasks: true,
           agents: { claude: { command: process.execPath, args: [script, proofDir] }, codex: { enabled: false }, pi: { enabled: false } },
         },
         "desktop",
@@ -183,6 +192,16 @@ test.skipIf(process.platform !== "win32" || !bin)(
       controls.allowProof = true;
       expect(await call<Result>("agent.runs.inspect", key("first"))).toMatchObject({ status: "accepted", coreWrite: "core_written", providerAcceptance: { id: "first-received" } });
       expect(readers(firstAddress).map(({ dispatchId }) => dispatchId)).toEqual(["first"]);
+      const firstSession = written.execution!.sessionBinding.sessionId;
+      const currentWaiting = async () => (await call<{ id: string; waiting?: WaitingInfo }[]>("agent.sessions.list", {}, "desktop")).find(({ id }) => id === firstSession)?.waiting;
+      const client = await core.ensure();
+      const programStatus = (state: "blocked" | "working") => client.call("terminal.send", { terminal: firstAddress, force: true, text: JSON.stringify({ kind: "fixture-program-status", state }) });
+      await programStatus("blocked");
+      await expect.poll(currentWaiting, { timeout: 15_000 }).toMatchObject({ active: true, n: 1, taskRun: { taskId: first.taskId, runId: first.runId } });
+      await programStatus("working");
+      await expect.poll(currentWaiting, { timeout: 15_000 }).toMatchObject({ active: false, n: 1 });
+      expect(waitingChanges).toContain(firstSession);
+      expect(fallbackCalls).toEqual([]);
       const firstRecord = readFileSync(recordFile("first"));
       try {
         rmSync(recordFile("first"));

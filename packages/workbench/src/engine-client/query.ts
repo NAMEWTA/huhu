@@ -8,6 +8,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   task: ["tasks."],
   "task-run": ["tasks."],
   "task-follow-up": ["automations.followUps.get"],
+  "agent-session": ["agent.sessions.list"],
   note: ["notes.", "vault.", "archives."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新
   archive: ["archives.", "notes.", "vault."],
   capture: ["inbox."],

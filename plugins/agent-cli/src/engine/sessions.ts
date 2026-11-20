@@ -72,6 +72,8 @@ export interface WaitingInfo {
   since: string;
   /** 独立会话自动建立的 human 任务。 */
   taskId?: string;
+  /** 本次等待发生所属的原任务与运行。 */
+  taskRun?: { taskId: string; runId: string };
   /** 已完成通知 / 评论的最近一次发生（等于 n 表示这次已处理；不等说明上次处理失败，重连后重试）。 */
   handled?: number;
 }
@@ -970,19 +972,30 @@ export class SessionsService {
   }
 
   /** 终端结束：未解除的等待标为过期。 */
-  expireWaiting(sessionId: string): void {
+  expireWaiting(sessionId: string): boolean {
     const sess = this.get(sessionId);
-    if (sess.waiting?.active) this.save({ ...sess, waiting: { ...sess.waiting, active: false, expired: true } });
+    if (!sess.waiting?.active) return false;
+    this.save({ ...sess, waiting: { ...sess.waiting, active: false, expired: true } });
+    return true;
   }
 
   markWaitingHandled(sessionId: string, n: number): void {
     const sess = this.get(sessionId);
-    if (sess.waiting && sess.waiting.handled !== n) this.save({ ...sess, waiting: { ...sess.waiting, handled: n } });
+    if (sess.waiting?.n === n && sess.waiting.handled !== n) this.save({ ...sess, waiting: { ...sess.waiting, handled: n } });
   }
 
   setWaitingTask(sessionId: string, taskId: string): void {
     const sess = this.get(sessionId);
     if (sess.waiting && sess.waiting.taskId !== taskId) this.save({ ...sess, waiting: { ...sess.waiting, taskId } });
+  }
+
+  setWaitingTaskRun(sessionId: string, occurrence: number, taskRun: NonNullable<WaitingInfo["taskRun"]>): boolean {
+    const session = this.get(sessionId);
+    const waiting = session.waiting;
+    if (!waiting?.active || waiting.n !== occurrence) return false;
+    if (waiting.taskRun?.taskId === taskRun.taskId && waiting.taskRun.runId === taskRun.runId) return false;
+    this.save({ ...session, waiting: { ...waiting, taskRun } });
+    return true;
   }
 
   // ---- 变更审查意见 ----

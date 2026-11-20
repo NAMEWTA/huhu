@@ -221,6 +221,7 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
           定位原会话
         </Button>
       ) : null}
+      {session && row.state === "running" && !run?.finishedAt ? <TaskRunWaiting session={session} taskId={task.id} runId={row.runId} /> : null}
       <StopRun task={task} row={row} canStop={!!session && row.state === "running" && !run?.finishedAt} refresh={refresh} />
       {questions.error ? (
         <p role="alert" className="hu-field-error">
@@ -243,6 +244,14 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
       ) : null}
     </>
   );
+}
+
+function TaskRunWaiting({ session, taskId, runId }: { session: NonNullable<TaskDispatchView["session"]>; taskId: string; runId: string }) {
+  const sessions = useCapability<{ id: string; state: string; waiting?: { active: boolean; taskRun?: { taskId: string; runId: string } } }[]>("agent.sessions.list", { spaceId: session.spaceId });
+  const current = sessions.data?.find(({ id }) => id === session.id);
+  const waiting = current?.waiting;
+  const needsInput = current?.state === "running" && waiting?.active && waiting.taskRun?.taskId === taskId && waiting.taskRun.runId === runId;
+  return <div role="status">{needsInput ? "原会话需要你操作。" : ""}</div>;
 }
 
 function StopRun({ task, row, canStop, refresh }: { task: TaskDto; row: TaskDispatchView; canStop: boolean; refresh(): Promise<void> }) {
