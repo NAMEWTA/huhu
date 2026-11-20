@@ -33,6 +33,7 @@
 | R-64 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src-tauri/src/commands/data/conversations.rs` | `plugins/mail/src/engine/{conversations,message-cache,public-mail}.ts` | 参考按公开参与者过滤、归组和分页的流程。由 Huhu 校验原目录与账号身份，使用现有缓存及发件结果。 |
 | R-65 | motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/workspace/spec.go`、`internal/workbench/workspace_launch.go` | `plugins/ssh/src/{shared/workspace.ts,engine/workspace-templates.ts,engine/workspace-runs.ts}` | 参考模板预设、阅读顺序和分栏启动流程。用 Huhu 主机目录、私有运行绑定和既有连接及信任状态机实现。 |
 | R-66 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src-tauri/src/commands/data/conversations.rs`、`src/components/conversations/use-conversations.ts`、`src/components/conversations/conversation-workspace/global-search-dialog.tsx` | `plugins/mail/src/{engine/search-text.ts,engine/conversations.ts,ui/MailSearch.tsx}` | 参考自然日过滤、跨账号搜索和定位原件。由 Huhu 的缓存、公开正文投影和 Workbench 命令负责读取和交互。 |
+| R-67 | Motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/sftpclient/{walk,text,worker}.go`、`write_protocol_test.go` | `plugins/ssh/src/engine/{file-sessions,sftp,transfers,transfer-io}.ts` | 参考绑定文件会话、文本保存、传输队列、续传及提交恢复。以 Huhu 的 SSH 连接身份、ssh2 流与 Workbench 界面实现。 |
 
 ## 安装包依赖
 
@@ -43,6 +44,7 @@
 | `imapflow@2.12.1` | Postal Systems OÜ，MIT。 [发布包](https://registry.npmjs.org/imapflow/-/imapflow-2.12.1.tgz) · [许可证](https://github.com/postalsys/imapflow/blob/master/LICENSE.txt) | Mail 的 IMAP 登录和文件夹发现复用发布接口。桌面将此依赖作为 Node 模块随包分发，传递依赖由工作区锁文件固定。 |
 | `nodemailer@10.6.0` | Andris Reinman，MIT-0，按发布包固定版本与完整性摘要。 [发布包](https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.0.tgz) | Engine 装配 Mail SMTP 传输，调用发布的 `nodemailer/lib/smtp-connection` 与 `nodemailer/lib/mail-composer` 构造器。Mail 自行管理草稿认领、收件人投递证据和故障恢复。该版本没有运行时传递依赖。 |
 | `@zone-eu/mailsplit@5.4.31`、`parse5@8.1.1` | 本仓库已锁定的发布包。mailsplit 为 MIT OR EUPL-1.1+，parse5 为 MIT。 | Mail Engine 用 Splitter 解析 MIME 边界和传输编码。阅读器用 parse5 生成无网络副作用的数据树，按自身允许清单构造 React 节点。 |
+| Go `1.26.7`、`golang.org/x/sys v0.50.0` | BSD-3-Clause。Go 提交 `e3336a22ad3f0a90bd252c95d8b5544e02674205`，x/sys 提交 `00227f1d192842e243cba7763c1f9a1fcb1c4344`。 [Go 标签](https://go.googlesource.com/go/+/refs/tags/go1.26.7) · [x/sys 标签](https://go.googlesource.com/sys/+/refs/tags/v0.50.0) | 使用 `windows/{syscall_windows,zsyscall_windows,types_windows}.go` 的 Win32 调用构建 Windows 受保护 PTY。Huhu 实现身份核验和授权协议，`native/agent-pty/go.sum` 固定依赖摘要，应用随 Windows 安装资源交付两份许可和专利文件。 |
 
 ## 黄金往返测试夹具
 
