@@ -73,7 +73,10 @@ export type WidgetsState = z.infer<typeof WidgetsStateSchema>;
 export const DASHBOARD_SCHEMA_VERSION = 1;
 export const DASHBOARD_COLUMNS = 6;
 
-const DashboardInstanceIdSchema = z.string().min(1).regex(/^\S(?:.*\S)?$/u);
+const DashboardInstanceIdSchema = z
+  .string()
+  .min(1)
+  .regex(/^\S(?:.*\S)?$/u);
 const DashboardInstanceSchema = z.strictObject({
   instanceId: DashboardInstanceIdSchema,
   widgetType: z.string().regex(WIDGET_ID),

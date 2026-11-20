@@ -32,7 +32,7 @@ describe("首页布局读取", () => {
   const withCard = { ...board, instances: [focus], layout: [{ instanceId: focus.instanceId, x: 0, y: 0, w: 3, h: 2 }] };
   const getBoard = (e: RunningEngine) => post(e, e.rendererToken, { capability: "home.dashboard.get", input: {}, requestId: "dashboard" });
 
-  test("W02-01 缺文件重复读保持默认；空板、大纲与不可识别的原件按实际来源返回", async () => {
+  test("W02-01 缺文件重复读保持默认；空板、有卡布局和不可识别的原件按实际来源返回", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     const home = path.join(e.vault.root, ".huhu", "home");
@@ -1137,7 +1137,7 @@ describe("Engine 启动与关闭", () => {
     for (const f of list(e.vault.root, ".huhu/safe").filter((n) => n.endsWith(".json") || n.endsWith(".bin"))) expect(sha(path.join(target, ".huhu/safe", f))).toBe(sha(path.join(e.vault.root, ".huhu/safe", f)));
     // 经悬空符号链接指向 Vault 内部的导入目标：明确拒绝，而不是靠后续 mkdir 恰好失败
     const { symlinkSync } = await import("node:fs");
-    symlinkSync(path.join(e.vault.root, "ghost"), path.join(out, "linkgone"));
+    symlinkSync(path.join(e.vault.root, "ghost"), path.join(out, "linkgone"), process.platform === "win32" ? "junction" : "dir");
     const viaLink = await call(e.rendererToken, "vault.importPackage", { zipPath: zip, targetDir: path.join(out, "linkgone", "new") });
     expect(viaLink.ok).toBe(false);
     expect(viaLink.error?.code).toBe("INVALID_INPUT");
