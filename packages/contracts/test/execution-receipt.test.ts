@@ -4,7 +4,7 @@ import { createExecutionReceiptAck, executionReceiptIdentity, validateExecutionR
 import { describe, expect, test } from "vitest";
 import { appendComment, buildTaskBody, parseTaskBody } from "../../vault/src/markdown/regions.js";
 import { ExecutionReceiptSchema, TasksReceiptConsumptionSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceiptAckStage } from "../src/index.js";
-import { execution, invalidCommentMessageIds, nativeQuestion, question, questionSchemaCases, result } from "./fixtures/execution-receipt-v1.js";
+import { execution, invalidCommentMessageIds, nativeQuestion, question, questionSchemaCases, result, utf8CommentMessageIds } from "./fixtures/execution-receipt-v1.js";
 
 const fixtures = [result, question, nativeQuestion];
 
@@ -115,20 +115,54 @@ describe("Tasks delivery message ID", () => {
     expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, { ...consumption, delivery })).toEqual({ status: "pending", reason: "missing_durable_consumption" });
   });
 
-  test.each([consumption.delivery.messageId, "message-fixture:&quot; 原样"])("retains %s verbatim on delivery and deduplicates after an ACK is lost", (messageId) => {
-    const record = TasksReceiptConsumptionSchema.parse({ ...consumption, delivery: { ...consumption.delivery, messageId } });
-    expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, record)).toEqual({ status: "ack", ack: result.tasksAck });
-
-    const first = appendComment(taskBody, { ...comment, id: record.delivery.messageId });
-    expect(first.added).toBe(true);
-    const readback = parseTaskBody(first.body);
-    expect(readback.problems).toEqual([]);
-    expect(readback.comments.map(({ id, source }) => ({ id, source }))).toEqual([{ id: messageId, source: "agent" }]);
-
-    const reloaded = TasksReceiptConsumptionSchema.parse(JSON.parse(JSON.stringify(record)));
-    expect(appendComment(first.body, { ...comment, id: reloaded.delivery.messageId })).toEqual({ body: first.body, added: false });
-    expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, reloaded)).toEqual({ status: "ack", ack: result.tasksAck });
+  test.each(["", "u"])("exports message ID patterns that match UTF-8 readback (regex flags: %j)", (flags) => {
+    const schema = toJsonSchema(TasksReceiptConsumptionSchema) as { properties: { delivery: { properties: { messageId: { allOf: Array<{ pattern: string }> } } } } };
+    const patterns = schema.properties.delivery.properties.messageId.allOf.map(({ pattern }) => new RegExp(pattern, flags));
+    for (const { name, messageId, readbackId } of utf8CommentMessageIds) {
+      expect(
+        patterns.every((pattern) => pattern.test(messageId)),
+        name,
+      ).toBe(messageId === readbackId);
+    }
   });
+
+  test.each(utf8CommentMessageIds)(
+    "checks ACK and comment retry after UTF-8 disk readback for $name",
+    ({ messageId, readbackId }) => {
+      const directory = mkdtempSync(resolve(".receipt-fixture-"));
+      const markdown = resolve(directory, "task.md");
+      const projection = journal(directory, "delivery.json");
+      const record = { ...consumption, delivery: { ...consumption.delivery, messageId } };
+      const canDeduplicate = messageId === readbackId;
+
+      try {
+        projection.save(record);
+        const reloaded = projection.read() as typeof record;
+        expect(reloaded).toEqual(record);
+
+        const first = appendComment(taskBody, { ...comment, id: messageId });
+        expect(first.added).toBe(true);
+        writeFileSync(markdown, Buffer.from(first.body), { flag: "wx", flush: true });
+        const persistedBody = readFileSync(markdown).toString("utf8");
+        const readback = parseTaskBody(persistedBody);
+        expect(readback.problems).toEqual([]);
+        expect(readback.comments.map(({ id, source }) => ({ id, source }))).toEqual([{ id: readbackId, source: "agent" }]);
+
+        const retry = appendComment(persistedBody, { ...comment, id: reloaded.delivery.messageId });
+        expect(retry.added).toBe(!canDeduplicate);
+        if (canDeduplicate) expect(retry.body).toBe(persistedBody);
+
+        expect(TasksReceiptConsumptionSchema.safeParse(reloaded).success).toBe(canDeduplicate);
+        const expected = canDeduplicate ? { status: "ack", ack: result.tasksAck } : { status: "pending", reason: "missing_durable_consumption" };
+        expect(createExecutionReceiptAck(receipt, "tasks_consumed", receipt, reloaded)).toEqual(expected);
+      } finally {
+        if (projection.pending()) projection.release();
+        if (existsSync(markdown)) unlinkSync(markdown);
+        rmdirSync(directory);
+      }
+    },
+    30_000,
+  );
 });
 
 // Each operation opens the file afresh. The driver never passes a sender's in-memory data as receiver readback.

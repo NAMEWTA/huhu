@@ -83,3 +83,12 @@ export const invalidCommentMessageIds = [
   ["quote", 'message-fixture"review'],
   ["attribute boundary", 'message-fixture" source="external'],
 ] as const;
+
+export const utf8CommentMessageIds = [
+  { name: "stable ASCII ID", messageId: result.consumption.delivery.messageId, readbackId: result.consumption.delivery.messageId },
+  { name: "BMP and supplementary characters", messageId: "message-fixture:&quot; 原样 \u{1f680}\u{20000}", readbackId: "message-fixture:&quot; 原样 \u{1f680}\u{20000}" },
+  { name: "literal replacement character", messageId: "message-fixture\ufffd", readbackId: "message-fixture\ufffd" },
+  { name: "isolated high surrogate", messageId: "message-fixture\ud800", readbackId: "message-fixture\ufffd" },
+  { name: "isolated low surrogate", messageId: "message-fixture\udfff", readbackId: "message-fixture\ufffd" },
+  { name: "reversed surrogate pair", messageId: "message-fixture\udc00\ud800", readbackId: "message-fixture\ufffd\ufffd" },
+];
