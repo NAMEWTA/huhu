@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openApp } from "../../../tests/e2e/helpers/launch.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../src/engine/monitor-sample.js";
+import { CONTAINER_LIST, PROCESS_LIST } from "../src/engine/monitor-tools.js";
 import { startFakeSsh } from "../test/fake-server.js";
 
 async function call<T>(page: Page, capability: string, input: unknown) {
@@ -25,6 +26,8 @@ test("Workbench monitors a saved panel in the background and controls the active
   const server = await startFakeSsh({
     onExec(command) {
       if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+      if (command === PROCESS_LIST) return { stdout: "42 monitor-fixture" };
+      if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
       if (command !== LINUX_SAMPLE) return;
       const sequence = 100 + ++reads;
       return { stdout: `cpu ${sequence * 25} ${sequence * 100}\nmemory 8388608 4194304\nuptime 3600\nload 1.25\ndisk 41943040 20971520\nnet ${sequence * 80} ${sequence * 50}\n` };
@@ -81,6 +84,12 @@ test("Workbench monitors a saved panel in the background and controls the active
     await expect(sidebar.getByText("采样空隙")).toBeVisible();
     await sidebar.getByRole("button", { name: "继续", exact: true }).click();
     await expect(sidebar.getByRole("status")).toHaveText(/正在采样/);
+    await sidebar.getByRole("button", { name: "服务器工具" }).click();
+    const tools = page.getByRole("dialog", { name: "服务器工具" });
+    await expect(tools.getByText(/monitor-fixture/)).toBeVisible();
+    await tools.getByRole("button", { name: "容器" }).click();
+    await expect(tools.getByRole("alert")).toHaveText("当前主机缺少 Docker 命令");
+    await tools.getByRole("button", { name: "关闭", exact: true }).click();
     await sidebar.getByRole("button", { name: "关闭监控" }).click();
     await expect(sidebar).toHaveCount(0);
     await expect(workspace.getByTestId("ssh-workspace-run-pane")).toHaveAttribute("data-phase", "ready");

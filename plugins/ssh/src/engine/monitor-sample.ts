@@ -21,7 +21,6 @@ df -Pk / 2>/dev/null | awk 'NR==2 && $2>0 {printf "disk %.0f %.0f\n",$2*1024,$4*
 const windowsScript = String.raw`# huhu-monitor-windows-v1
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
-[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 function Query($name) { Get-CimInstance -ClassName $name -OperationTimeoutSec 2 -ErrorAction Stop }
 $result=@{}
 try {
@@ -48,8 +47,8 @@ try {
 } catch {}
 [Console]::WriteLine((ConvertTo-Json -InputObject $result -Depth 4 -Compress))
 `;
-export const WINDOWS_SAMPLE = `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(windowsScript, "utf16le").toString("base64")}`;
-type Command = typeof PLATFORM_COMMAND | typeof LINUX_SAMPLE | typeof WINDOWS_SAMPLE;
+export const powershellProbe = (script: string) => `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(`[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\n${script}`, "utf16le").toString("base64")}`;
+export const WINDOWS_SAMPLE = powershellProbe(windowsScript);
 export type Platform = "linux" | "windows";
 
 export class SampleError extends Error {
@@ -61,7 +60,7 @@ export class SampleError extends Error {
   }
 }
 
-export function monitorExec(client: Client, command: Command, signal: AbortSignal): Promise<{ stdout: string; stderr: string; code: number | undefined }> {
+export function monitorExec(client: Client, command: string, signal: AbortSignal): Promise<{ stdout: string; stderr: string; code: number | undefined }> {
   return new Promise((resolve, reject) => {
     let channel: ClientChannel | undefined;
     let finished = false;

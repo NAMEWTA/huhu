@@ -11,7 +11,19 @@ import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archive
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
-import { MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorSession, MonitorSessionChange, MonitorSessionId, MonitorSessionOpen, SaveMonitorPanel } from "../shared/monitoring.js";
+import {
+  MonitorPanel,
+  MonitorPanelChange,
+  MonitorPanelRevision,
+  MonitorPanelRun,
+  MonitorSession,
+  MonitorSessionChange,
+  MonitorSessionId,
+  MonitorSessionOpen,
+  MonitorToolRequest,
+  MonitorToolResult,
+  SaveMonitorPanel,
+} from "../shared/monitoring.js";
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
@@ -23,6 +35,15 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  monitorToolsRead: defineCapabilityDescriptor({
+    ...monitor,
+    name: "ssh.monitor.tools.read",
+    title: "读取已绑定服务器的进程和容器状态",
+    description: "在原分栏执行固定只读查询。",
+    scope: "read",
+    input: MonitorToolRequest,
+    output: MonitorToolResult,
+  }),
   monitorSessionOpen: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.session.open", title: "打开分栏监控", description: "采样当前分栏的原 SSH 连接。", scope: "execute", input: MonitorSessionOpen, output: MonitorSession }),
   monitorSessionGet: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.session.get", title: "查看分栏监控", description: "读取分栏样本与当前连接状态。", scope: "read", input: MonitorSessionId, output: MonitorSession }),
   monitorSessionChange: defineCapabilityDescriptor({

@@ -3,6 +3,7 @@ import { useCapability, useEngine } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { SESSION_INTERVALS, SessionInterval, type MonitorHost, type MonitorSession, type MonitorSessionChange } from "../shared/monitoring.js";
 import type { z } from "zod";
+import { MonitorTools } from "./MonitorTools.js";
 
 const phase: Record<MonitorHost["state"], string> = {
   connecting: "正在连接",
@@ -126,6 +127,7 @@ export function MonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onC
   const [session, setSession] = useState<MonitorSession>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tools, showTools] = useState(false);
   const reading = useCapability<MonitorSession>("ssh.monitor.session.get", { id: session?.id ?? "" }, { enabled: Boolean(session && active) });
   useMonitorPoll(Boolean(session && active), reading.refetch);
   useEffect(() => {
@@ -197,9 +199,11 @@ export function MonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onC
           </Button>
         )}
         <Button onClick={onClose}>关闭监控</Button>
+        {current?.host.state !== "disconnected" && <Button onClick={() => showTools(true)}>服务器工具</Button>}
       </div>
       {(error || reading.error) && <p role="alert">{error || reading.error?.message}</p>}
       {current && <MonitorMetrics host={current.host} />}
+      {tools && <MonitorTools hostId={hostId} shellId={shellId} name={name} onClose={() => showTools(false)} />}
     </aside>
   );
 }

@@ -6,9 +6,10 @@ import { expect, test, vi } from "vitest";
 import { boot } from "../../../apps/engine/src/boot.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND, WINDOWS_SAMPLE } from "../src/engine/monitor-sample.js";
-import type { MonitorPanel, MonitorPanelRun, MonitorSession, SaveMonitorPanel } from "../src/shared/monitoring.js";
+import { CONTAINER_LIST, PROCESS_LIST } from "../src/engine/monitor-tools.js";
+import type { MonitorPanel, MonitorPanelRun, MonitorSession, MonitorTool, MonitorToolResult, SaveMonitorPanel } from "../src/shared/monitoring.js";
 import type { ConnectionStatus, HostKeyPrompt } from "../src/shared/trust.js";
-import { startFakeSsh } from "./fake-server.js";
+import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 const wait = { timeout: 7500, interval: 30 };
 const opts = { write: true };
@@ -25,13 +26,13 @@ async function fixture() {
   const clientFor = () => new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   return {
     client: clientFor(),
-    async host(name: string, platform: "linux" | "windows") {
+    async host(name: string, platform: "linux" | "windows", tools?: FakeSshOptions["onExec"]) {
       let reads = 0;
       let denied = false;
       const server = await startFakeSsh({
         onExec(command) {
           if (command === PLATFORM_COMMAND) return platform === "linux" ? { stdout: "Linux" } : { stderr: "command not found", code: 127 };
-          if (command !== (platform === "linux" ? LINUX_SAMPLE : WINDOWS_SAMPLE)) return undefined;
+          if (command !== (platform === "linux" ? LINUX_SAMPLE : WINDOWS_SAMPLE)) return tools?.(command);
           reads++;
           if (denied) return { stdout: "denied" };
           const linux = `cpu ${readCount(25)} ${readCount(100)}\nmemory 8192 4096\nuptime 3600\nload 1.25\nnet ${readCount(80)} ${readCount(50)}\ndisk 40960 20480\n`;
@@ -104,6 +105,41 @@ const panel = (client: EngineClient, draft: SaveMonitorPanel) => client.call<Mon
 const readPanel = (client: EngineClient, id: string) => client.call<MonitorPanelRun | null>("ssh.monitor.panels.run", { id });
 const change = (client: EngineClient, panel: MonitorPanel, action: "start" | "pause" | "continue" | "stop" | "retry", hostId?: string) =>
   client.call<MonitorPanelRun>("ssh.monitor.panels.change", { id: panel.id, expectedRevision: panel.revision, action, ...(hostId && { hostId }) }, opts);
+
+test("server tools use only read-only commands on the selected Pane", { timeout: 20_000 }, async () => {
+  const f = await fixture();
+  try {
+    const { client } = f;
+    const a = await f.host("Tool A", "linux", (command) => {
+      if (command === PROCESS_LIST) return { stdout: "23 tool-a" };
+      if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
+    });
+    let restricted = false;
+    const b = await f.host("Tool B", "linux", (command) => {
+      if (command === PROCESS_LIST) return { stdout: "31 tool-b" };
+      if (command === CONTAINER_LIST) return restricted ? { stderr: "permission denied", code: 1 } : { stdout: "abcdef123456|fixture-b|fixture/image|running" };
+    });
+    const left = await shell(client, a.id);
+    const right = await shell(client, b.id);
+    const read = (hostId: string, shellId: string, tool: MonitorTool) => client.call<MonitorToolResult>("ssh.monitor.tools.read", { hostId, shellId, tool });
+    const leftResult = await read(a.id, left, "processes");
+    const rightResult = await read(b.id, right, "processes");
+    expect(leftResult).toMatchObject({ state: "ready", rows: [{ id: "23", name: "tool-a" }] });
+    expect(rightResult).toMatchObject({ state: "ready", rows: [{ id: "31", name: "tool-b" }] });
+    expect(leftResult.connectionId).not.toBe(rightResult.connectionId);
+    await expect(read(a.id, right, "processes")).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
+    await expect(client.call("ssh.monitor.tools.read", { hostId: a.id, shellId: left, tool: "processes", command: "echo fixture" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(await read(a.id, left, "containers")).toMatchObject({ state: "unsupported", rows: [] });
+    expect(await read(b.id, right, "containers")).toMatchObject({ state: "ready", rows: [{ id: "abcdef123456", name: "fixture-b", detail: "fixture/image · running" }] });
+    restricted = true;
+    expect(await read(b.id, right, "containers")).toMatchObject({ state: "denied", rows: [] });
+    await client.call("ssh.disconnect", { hostId: a.id }, opts);
+    await expect(read(a.id, left, "processes")).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
+    expect(await client.call("ssh.shells.list", { hostId: b.id })).toContainEqual(expect.objectContaining({ id: right, state: "running" }));
+  } finally {
+    await f.close();
+  }
+});
 
 test("Pane monitor binds the original shell and separates Linux counters, Windows readings, and reconnect history", { timeout: 25_000 }, async () => {
   const f = await fixture();

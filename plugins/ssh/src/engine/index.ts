@@ -17,6 +17,7 @@ import { ForwardRules } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
 import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
+import { readMonitorTool } from "./monitor-tools.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -61,6 +62,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionChange, (_c, i) => monitors.session(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsList, () => monitorPanels.list()));

@@ -63,3 +63,15 @@ export const MonitorSession = MonitorSessionId.extend({ interval: SessionInterva
 export type MonitorSession = z.infer<typeof MonitorSession>;
 export const MonitorPanelRun = z.object({ id: z.uuid(), revision: z.uuid(), state: z.enum(["running", "paused", "stopped"]), hosts: z.array(MonitorHost) });
 export type MonitorPanelRun = z.infer<typeof MonitorPanelRun>;
+
+export const MonitorTool = z.enum(["processes", "containers"]);
+export type MonitorTool = z.infer<typeof MonitorTool>;
+export const MonitorToolRequest = MonitorSessionOpen.omit({ interval: true }).extend({ tool: MonitorTool });
+export const MonitorToolResult = z.object({
+  connectionId: z.string(),
+  tool: MonitorTool,
+  state: z.enum(["ready", "denied", "unsupported", "failed"]),
+  message: z.string().optional(),
+  rows: z.array(z.object({ id: z.string(), name: z.string(), detail: z.string().optional() })).max(64),
+});
+export type MonitorToolResult = z.infer<typeof MonitorToolResult>;
