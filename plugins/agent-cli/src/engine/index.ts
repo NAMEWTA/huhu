@@ -522,10 +522,15 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
+    historyRevision: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
   });
   const Entry = z.object({
     provider: HistoryProvider,
     historyId: z.string(),
+    revision: z.string(),
     nativeSessionId: z.string(),
     cwd: z.string(),
     title: z.string(),
@@ -569,9 +574,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   };
   const scan = (roots: string[]) => scanHistory({ roots, ...(opts.history?.home ? { home: opts.history.home } : {}), ...(opts.history?.env ? { env: opts.history.env } : {}) });
   const nativeKey = (e: Pick<HistoryEntry, "provider" | "nativeSessionId">) => `${e.provider}:${e.nativeSessionId}`;
-  const canOpenHistory = (e: Omit<HistoryEntry, "file">, unique: boolean) => e.provider === "pi" || (unique && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(e.nativeSessionId));
+  const canOpenHistory = (e: Omit<HistoryEntry, "file">) => e.provider === "pi";
   const matchesHistory = (session: SessionRecord, e: Omit<HistoryEntry, "file">, unique: boolean) =>
-    session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && (session.historyId ? session.historyId === e.historyId : unique && path.relative(session.cwd, e.cwd) === "");
+    session.provider === e.provider &&
+    session.nativeSessionId === e.nativeSessionId &&
+    (session.historyId ? session.historyId === e.historyId : e.provider === "pi" && /^huhu-[a-f0-9]{64}$/.test(e.nativeSessionId) && unique && path.relative(session.cwd, e.cwd) === "");
   function historyReference(i: z.infer<typeof HistoryReference>) {
     if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
     const matches = scan(historyRoots(i)).entries.filter((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
@@ -584,7 +591,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     await sessions.reconcile();
     const sp = spaceOf(i.spaceId);
     const { selected: hit, unique } = historyReference(i);
-    if (!canOpenHistory(hit, unique)) throw errors.invalidInput("此记录缺少唯一的原生会话标识，只能预览");
+    if (!canOpenHistory(hit)) throw errors.invalidInput("当前原生 CLI 无法绑定这个历史文件，此记录仅可预览");
     const cwd = i.action === "fork" && hit.provider === "pi" ? sp.root : hit.cwd;
     if (!isWithin(sp.root, cwd)) throw errors.invalidInput("原目录不在目标 Space 内，请选择原 Space");
     const key = hit.provider === "pi" ? hit.historyId : nativeKey(hit);
@@ -595,7 +602,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     claim.count++;
     resuming.set(key, claim);
     try {
-      const source = { sourceId: hit.historyId, nativeId: hit.nativeSessionId, ...(hit.provider === "pi" && { file: hit.file }) };
+      const source = { sourceId: hit.historyId, nativeId: hit.nativeSessionId, ...(hit.provider === "pi" && { file: hit.file, ...(i.historyRevision && { revision: i.historyRevision }) }) };
       const history = i.action === "fork" ? { ...source, mode: "fork" as const, ...(hit.provider === "pi" && { forkId: `huhu-${launchHash([vaultId, mid, i.requestId])}` }) } : { ...source, mode: "resume" as const };
       return await launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: hit.provider, requestId: i.requestId, history, cwd });
     } finally {
@@ -639,7 +646,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
           .map(({ file: _file, ...e }) => {
             const unique = counts.get(nativeKey(e)) === 1;
             const active = live.get(nativeKey(e))?.some((s) => matchesHistory(s, e, unique)) ?? false;
-            const offerLaunch = !active && canOpenHistory(e, unique);
+            const offerLaunch = !active && canOpenHistory(e);
             const inTarget = isWithin(targetRoot, e.cwd);
             return { ...e, active, canResume: offerLaunch && inTarget, canFork: offerLaunch && (inTarget || e.provider === "pi"), pinned: pinned.has(e.historyId) || (unique && pinned.has(nativeKey(e))) };
           })

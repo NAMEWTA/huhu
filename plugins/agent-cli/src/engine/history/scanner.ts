@@ -7,6 +7,7 @@ import path from "node:path";
 export interface HistoryEntry {
   provider: "claude" | "codex" | "pi";
   historyId: string;
+  revision: string;
   /** provider 自己的会话 id，恢复时原样交给 CLI。 */
   nativeSessionId: string;
   cwd: string;
@@ -168,18 +169,26 @@ function parsePi(file: string): Parsed {
   return { id, cwd, title };
 }
 
-function historyIdentity(provider: HistoryEntry["provider"], id: string, file: string, cwd: string) {
+function sourceFile(file: string) {
+  const stat = lstatSync(file, { bigint: true });
+  if (!stat.isFile()) throw new Error("Expected a native history file");
+  const physical = [stat.dev, stat.ino, stat.birthtimeNs].map(String).join(":");
+  const revision = createHash("sha256").update([physical, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(":")).digest("hex");
+  return { physical, revision };
+}
+
+function historyIdentity(provider: HistoryEntry["provider"], id: string, file: string, cwd: string, physical: string) {
   return createHash("sha256")
-    .update(JSON.stringify([provider, id, file, cwd]))
+    .update(JSON.stringify([provider, id, file, cwd, physical]))
     .digest("hex");
 }
 
-export function isPiHistoryFile(file: string, nativeId: string, historyId: string): boolean {
+export function isPiHistoryFile(file: string, nativeId: string, historyId: string, expectedRevision?: string): boolean {
   try {
-    const stat = lstatSync(file);
-    if (!stat.isFile() || !stat.size || realpathSync(file) !== file) return false;
+    const before = sourceFile(file);
+    if (realpathSync(file) !== file || (expectedRevision && before.revision !== expectedRevision)) return false;
     const { id, cwd } = parsePi(file);
-    return !!cwd && id === nativeId && historyIdentity("pi", nativeId, file, real(cwd)) === historyId;
+    return !!cwd && id === nativeId && historyIdentity("pi", nativeId, file, real(cwd), before.physical) === historyId && sourceFile(file).revision === before.revision;
   } catch {
     return false;
   }
@@ -229,7 +238,10 @@ export function scanHistory(o: ScanOptions): ScanResult {
   const limitedProviders: HistoryEntry["provider"][] = [];
   const seen = new Set<string>();
   let skipped = 0;
-  const accept = (provider: HistoryEntry["provider"], p: Parsed, fallbackId: string | null, mtime: Date, file: string) => {
+  const accept = (provider: HistoryEntry["provider"], parser: (file: string) => Parsed, fallbackId: string | null, mtime: Date, file: string) => {
+    const location = real(file);
+    const before = sourceFile(location);
+    const p = parser(location);
     const id = p.id ?? fallbackId;
     if (!id || !p.cwd || !isValidNativeId(id)) {
       skipped++;
@@ -238,11 +250,15 @@ export function scanHistory(o: ScanOptions): ScanResult {
     const cwd = real(p.cwd);
     if (!roots.some((r) => within(r, cwd))) return;
     if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
-    const location = real(file);
-    const historyId = historyIdentity(provider, id, location, cwd);
+    const after = sourceFile(location);
+    if (after.physical !== before.physical) {
+      skipped++;
+      return;
+    }
+    const historyId = historyIdentity(provider, id, location, cwd, before.physical);
     if (seen.has(historyId)) return;
     seen.add(historyId);
-    entries.push({ provider, historyId, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file: location });
+    entries.push({ provider, historyId, revision: after.revision, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file: location });
   };
 
   // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件
@@ -269,7 +285,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
     if (cFiles.length > MAX_FILES) limitedProviders.push("claude");
     for (const { file, id, mtime } of cFiles.slice(0, MAX_FILES)) {
       try {
-        accept("claude", parseClaude(file), id, mtime, file);
+        accept("claude", parseClaude, id, mtime, file);
       } catch {
         skipped++;
       }
@@ -293,7 +309,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
     if (files.length > MAX_FILES) limitedProviders.push(store.provider);
     for (const { file, mtime } of files.slice(0, MAX_FILES)) {
       try {
-        accept(store.provider, store.parse(file), null, mtime, file);
+        accept(store.provider, store.parse, null, mtime, file);
       } catch {
         skipped++;
       }

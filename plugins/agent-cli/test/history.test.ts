@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { isValidNativeId, scanHistory } from "../src/engine/history/scanner.js";
+import { isPiHistoryFile, isValidNativeId, scanHistory } from "../src/engine/history/scanner.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -188,5 +188,27 @@ describe("历史扫描", () => {
 
   test("没有任何历史目录 → 空结果", () => {
     expect(scanHistory({ roots: [tmp()], home: tmp(), env: {} })).toEqual({ entries: [], skipped: 0, limitedProviders: [] });
+  });
+
+  test("Pi 文件追加保留身份，旧启动版本及同路径替换都拒绝", () => {
+    const root = tmp();
+    const history = tmp();
+    const home = tmp();
+    const file = path.join(history, "original.jsonl");
+    const replacement = path.join(history, "replacement.tmp");
+    const content = jl({ type: "session", version: 3, id: "original", cwd: root });
+    writeFileSync(file, content);
+    writeFileSync(replacement, content);
+    const options = { roots: [root], home, env: { PI_CODING_AGENT_SESSION_DIR: history } };
+    const initial = scanHistory(options).entries[0]!;
+    expect(isPiHistoryFile(initial.file, initial.nativeSessionId, initial.historyId, initial.revision)).toBe(true);
+    appendFileSync(file, jl({ type: "message", id: "a", parentId: null, message: { role: "user", content: "后来追加" } }));
+    expect(scanHistory(options).entries[0]?.historyId).toBe(initial.historyId);
+    expect(isPiHistoryFile(initial.file, initial.nativeSessionId, initial.historyId, initial.revision)).toBe(false);
+    expect(isPiHistoryFile(initial.file, initial.nativeSessionId, initial.historyId)).toBe(true);
+    rmSync(file);
+    renameSync(replacement, file);
+    expect(scanHistory(options).entries[0]?.historyId).not.toBe(initial.historyId);
+    expect(isPiHistoryFile(initial.file, initial.nativeSessionId, initial.historyId)).toBe(false);
   });
 });

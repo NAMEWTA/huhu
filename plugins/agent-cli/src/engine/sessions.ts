@@ -128,7 +128,7 @@ export interface LaunchInput {
   workspaceIntent?: string;
   /** 恢复历史会话（仅内部调用：id 来自对历史的扫描结果，不由外部直接传入）。 */
   resumeSessionId?: string | undefined;
-  history?: (HistoryLaunch & { sourceId: string }) | undefined;
+  history?: (HistoryLaunch & { sourceId: string; revision?: string }) | undefined;
   /** 显式 cwd 必须是 Space 范围内的现有绝对目录。 */
   cwd?: string | undefined;
   /** 终端命令（只与 provider=shell 一起用）：以 `argv = [shell, -c, command]` 运行，能拿到退出码。 */
@@ -479,7 +479,7 @@ export class SessionsService {
     };
     const history = input.history;
     const nativeSessionId = history ? (history.mode === "resume" ? history.nativeId : history.forkId) : input.resumeSessionId;
-    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId)) throw errors.notFound("原 Pi 会话文件已变化，请重新选择");
+    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId, history.revision)) throw errors.notFound("原 Pi 会话文件已变化，请重新选择");
     const session: SessionRecord = previous ?? {
       id: newId("cap").replace(/^cap-/, "sess-"),
       spaceId: space.id,
@@ -523,7 +523,7 @@ export class SessionsService {
     // Another service may have claimed the same request while this connection was opening.
     const current = this.currentLaunch(session, intent, executionHash);
     if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
-    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId)) {
+    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId, history.revision)) {
       throw this.confirmNotCreated(current, receipt, "run", "原 Pi 会话文件已变化，启动请求尚未发送");
     }
     if (input.approvedDirectory && !matchesProtectedDirectory(cwd, input.approvedDirectory)) {

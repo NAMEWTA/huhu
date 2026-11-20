@@ -7,6 +7,7 @@ import { t } from "../i18n.js";
 interface Entry {
   provider: "claude" | "codex" | "pi";
   historyId: string;
+  revision: string;
   nativeSessionId: string;
   cwd: string;
   title: string;
@@ -18,11 +19,11 @@ interface Entry {
 }
 type Browse = { entries: Entry[]; skipped: number; total: number; nextOffset: number | null; limitedProviders: Entry["provider"][] };
 export type HistoryAction = "resume" | "fork";
-export type HistorySelection = Pick<Entry, "provider" | "nativeSessionId" | "historyId"> & { allSpaces: boolean };
+export type HistorySelection = Pick<Entry, "provider" | "nativeSessionId" | "historyId"> & { allSpaces: boolean; historyRevision: string };
 type LaunchPlan = { tab: () => Promise<void>; pane?: () => Promise<void>; paneLabel: string };
 const PAGE_SIZE = 50;
 const PROVIDERS = ["claude", "codex", "pi"] as const;
-const reference = ({ provider, nativeSessionId, historyId }: Entry) => ({ provider, nativeSessionId, historyId });
+const reference = ({ provider, nativeSessionId, historyId, revision }: Entry) => ({ provider, nativeSessionId, historyId, historyRevision: revision });
 
 interface Transcript {
   messages: { role: "user" | "assistant"; text: string; at: string | null }[];
@@ -252,7 +253,7 @@ export function HistoryPanel({
                 </small>
                 <time>{new Date(e.updatedAt).toLocaleString("zh-CN", { hour12: false })}</time>
                 {!e.active && !ok ? <small>{t.history.notInstalled}</small> : null}
-                {!e.active && ok && !e.canResume && !e.canFork ? <small>此记录仅可预览</small> : null}
+                {!e.active && ok && !e.canResume && !e.canFork ? <small>当前 CLI 无法绑定这个历史文件，仅可预览</small> : null}
                 {!e.active && ok && !e.canResume && e.canFork ? <small>请在原 Space 中恢复</small> : null}
               </span>
               <button
