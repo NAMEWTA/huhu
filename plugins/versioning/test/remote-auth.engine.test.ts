@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
@@ -12,6 +13,7 @@ import { GitRunner, type RunOpts } from "../src/engine/git.js";
 import { httpTarget } from "../src/engine/remote-auth.js";
 
 type Auth = { revision: string | null; state: string };
+type SyncState = { name: string; detail: string; pausedReason: string | null; authPause?: { source: string; target: string; revision: string | null; reason: string } };
 const roots: string[] = [];
 const engines: Array<{ engine: RunningEngine; client: EngineClient }> = [];
 const servers: ReturnType<typeof createServer>[] = [];
@@ -36,9 +38,14 @@ async function fixture() {
   git(vaultPath, "init", "--quiet", "--initial-branch=main");
   for (const name of ["a.git", "b.git"]) git(remoteRoot, "init", "--bare", "--quiet", "--initial-branch=main", name);
   const engine = await boot({ vaultPath, desktopUserData: profile, create: true });
+  const client = clientFor(engine);
+  return { root, vaultPath, profile, remoteRoot, engine, client, privateGitConfig };
+}
+
+function clientFor(engine: RunningEngine) {
   const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   engines.push({ engine, client });
-  return { root, vaultPath, remoteRoot, engine, client, privateGitConfig };
+  return client;
 }
 
 async function capture(pending: Promise<unknown>) {
@@ -97,12 +104,12 @@ function runBackend(root: string, req: IncomingMessage, res: ServerResponse, url
 
 async function remote(root: string, username: string, token: string, tls?: { cert: string; key: string }) {
   const expected = `Basic ${Buffer.from(`${username}:${token}`).toString("base64")}`;
-  const seen: Array<{ path: string; auth: "none" | "correct" | "other" }> = [];
+  const seen: Array<{ path: string; service: string | null; auth: "none" | "correct" | "other" }> = [];
   let afterAuth: ((req: IncomingMessage, res: ServerResponse) => void) | undefined;
   const handle = (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://fixture.local");
     const auth = !req.headers.authorization ? "none" : req.headers.authorization === expected ? "correct" : "other";
-    seen.push({ path: url.pathname, auth });
+    seen.push({ path: url.pathname, service: url.searchParams.get("service"), auth });
     if (auth !== "correct") return void res.writeHead(401, { "WWW-Authenticate": 'Basic realm="fixture"' }).end();
     if (afterAuth) return afterAuth(req, res);
     runBackend(root, req, res, url);
@@ -141,13 +148,131 @@ function event() {
   return { promise, fire };
 }
 
+function seedDivergedRemote(live: Awaited<ReturnType<typeof fixture>>) {
+  const repository = path.join(live.remoteRoot, "a.git");
+  const peer = path.join(live.root, "peer");
+  const commit = (directory: string) => git(directory, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "--quiet", "-m", "Synthetic sync fixture");
+  writeFileSync(path.join(live.vaultPath, "base.md"), "common fixture");
+  git(live.vaultPath, "add", "--", "base.md");
+  commit(live.vaultPath);
+  git(live.vaultPath, "push", "--quiet", repository, "main");
+  git(live.root, "clone", "--quiet", repository, peer);
+  writeFileSync(path.join(peer, "incoming.md"), "P4.2 isolated fetch fixture");
+  git(peer, "add", "--", "incoming.md");
+  commit(peer);
+  git(peer, "push", "--quiet", repository, "main");
+}
+
+testWindows(
+  "同一 HTTPS 目标修复认证只恢复一次原定同步，Safe 解锁与过期提交没有新增请求",
+  async () => {
+    const live = await fixture();
+    seedDivergedRemote(live);
+    const tls = certificate(live.root);
+    git(live.vaultPath, "config", "http.sslBackend", "openssl");
+    git(live.vaultPath, "config", "http.sslCAInfo", tls.cert.replaceAll("\\", "/"));
+    git(live.vaultPath, "config", "protocol.version", "2");
+    const user = `user-${randomUUID()}`;
+    const accepted = `ok-${randomUUID()}`;
+    const rejected = `denied-${randomUUID()}`;
+    const endpoint = await remote(live.remoteRoot, user, accepted, tls);
+    const target = `${endpoint.base}/a.git`;
+    const status = () => live.client.call<SyncState>("sync.status");
+    const save = (expectedRevision: string | null, token: string) => live.client.call<Auth>("sync.auth.configure", { remote: target, expectedRevision, credential: { action: "replace", username: user, token } });
+    await live.client.call("sync.update", { remote: target, mode: "full", pullIntervalSec: 3600, pushIntervalSec: 3600 }, { write: true });
+    const initial = await save(null, rejected);
+    const config = await live.client.call("sync.get");
+    writeFileSync(path.join(live.vaultPath, "repair.md"), "P4.2 isolated repair fixture");
+    expect(await capture(live.client.call("sync.run", { mode: "sync" }, { write: true }))).toBe("GIT_AUTH_FAILED");
+    expect(await status()).toMatchObject({ name: "auth-failed", pausedReason: "auth-failed", authPause: { source: "versioning", target, revision: initial.revision, reason: "remote-rejected" } });
+    expect(endpoint.seen.map((request) => request.auth)).toEqual(["none", "other"]);
+    const before = endpoint.seen.length;
+    const safe = randomUUID();
+    await live.client.call("safe.setup", { password: safe });
+    for (let round = 0; round < 2; round++) {
+      await live.client.call("safe.lock");
+      await live.client.call("safe.unlock", { password: safe });
+    }
+    await live.client.call("safe.lock");
+    await delay(300);
+    expect(endpoint.seen).toHaveLength(before);
+
+    const saved = await save(initial.revision, accepted);
+    expect(saved.state).toBe("configured");
+    await expect.poll(async () => (await status()).pausedReason, { timeout: 20_000 }).toBeNull();
+    expect(await status()).toMatchObject({ name: "idle" });
+    expect(await live.client.call("sync.get")).toEqual(config);
+    expect(readFileSync(path.join(live.vaultPath, "incoming.md"), "utf8")).toBe("P4.2 isolated fetch fixture");
+    expect(git(path.join(live.remoteRoot, "a.git"), "show", "main:repair.md")).toBe("P4.2 isolated repair fixture");
+    const after = endpoint.seen.slice(before);
+    expect(after).toHaveLength(7);
+    expect(after.filter((request) => request.path === "/a.git/info/refs" && request.auth === "correct").map((request) => request.service)).toEqual(["git-upload-pack", "git-receive-pack"]);
+    expect(after.filter((request) => request.path === "/a.git/git-upload-pack" && request.auth === "correct")).toHaveLength(2);
+    expect(after.filter((request) => request.path === "/a.git/git-receive-pack" && request.auth === "correct")).toHaveLength(1);
+    expect(await capture(save(initial.revision, rejected))).toBe("VERSION_CONFLICT");
+    await delay(300);
+    expect(endpoint.seen).toHaveLength(before + after.length);
+  },
+  120_000,
+);
+
+testWindows(
+  "HTTP 仅重试当前仓库的新修订一次；其他仓库、保留凭据和只读 Vault 均无请求",
+  async () => {
+    const live = await fixture();
+    const user = `user-${randomUUID()}`;
+    const endpoint = await remote(live.remoteRoot, user, randomUUID());
+    const a = `${endpoint.base}/a.git`;
+    const b = `${endpoint.base}/b.git`;
+    const select = (remote: string) => live.client.call("sync.update", { remote, mode: "follow", pullIntervalSec: 3600 }, { write: true });
+    const configure = (remote: string, expectedRevision: string | null, action: "replace" | "keep") =>
+      live.client.call<Auth>("sync.auth.configure", { remote, expectedRevision, credential: action === "keep" ? { action } : { action, username: user, token: randomUUID() } });
+    const pull = (client = live.client) => client.call("sync.run", { mode: "pull" }, { write: true });
+    const status = (client = live.client) => client.call<SyncState>("sync.status");
+
+    await select(a);
+    const initial = await configure(a, null, "replace");
+    expect(await capture(pull())).toBe("GIT_AUTH_FAILED");
+    expect(endpoint.seen.map((request) => request.auth)).toEqual(["none", "other"]);
+    await select(b);
+    const other = await configure(b, initial.revision, "replace");
+    await delay(300);
+    expect(endpoint.seen).toHaveLength(2);
+    expect(await status()).toMatchObject({ authPause: { target: a, revision: initial.revision } });
+
+    expect(await capture(pull())).toBe("GIT_AUTH_FAILED");
+    expect(endpoint.seen).toHaveLength(4);
+    const kept = await configure(b, other.revision, "keep");
+    await delay(300);
+    expect(endpoint.seen).toHaveLength(4);
+    const retry = await configure(b, kept.revision, "replace");
+    await expect.poll(async () => (await status()).authPause?.revision, { timeout: 15_000 }).toBe(retry.revision);
+    expect(await status()).toMatchObject({ pausedReason: "auth-failed", authPause: { target: b, reason: "remote-rejected" } });
+    expect(endpoint.seen.slice(4)).toEqual([
+      { path: "/b.git/info/refs", service: "git-upload-pack", auth: "none" },
+      { path: "/b.git/info/refs", service: "git-upload-pack", auth: "other" },
+    ]);
+
+    const readonly = clientFor(await boot({ vaultPath: live.vaultPath, desktopUserData: live.profile, readOnly: true }));
+    const gitConfig = path.join(live.vaultPath, ".git", "config");
+    const before = readFileSync(gitConfig);
+    expect(await status(readonly)).toMatchObject({ name: "read-only", detail: "Vault 以只读方式打开" });
+    expect(await capture(readonly.call("sync.preview"))).toBe("READ_ONLY_VAULT");
+    expect(await capture(pull(readonly))).toBe("READ_ONLY_VAULT");
+    expect(await capture(readonly.call("sync.auth.configure", { remote: b, expectedRevision: retry.revision, credential: { action: "replace", username: user, token: randomUUID() } }))).toBe("READ_ONLY_VAULT");
+    expect(readFileSync(gitConfig)).toEqual(before);
+    expect(endpoint.seen).toHaveLength(6);
+  },
+  120_000,
+);
+
 afterEach(async () => {
   vi.restoreAllMocks();
   try {
     for (const { engine, client } of engines.splice(0).reverse()) {
       try {
         const current = await client.call<Auth>("sync.auth.get").catch(() => null);
-        if (current?.revision && engine.moduleCredentialHost) {
+        if (current?.revision && engine.moduleCredentialHost && !engine.vault.readOnly) {
           const { remote } = await client.call<{ remote: string }>("sync.get");
           await client.call("sync.auth.configure", { remote, expectedRevision: current.revision, credential: { action: "clear" } });
         }
@@ -167,7 +292,10 @@ afterEach(async () => {
       ),
     );
     vi.unstubAllEnvs();
-    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+      expect(existsSync(root)).toBe(false);
+    }
   }
 });
 

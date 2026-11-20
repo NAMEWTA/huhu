@@ -23,8 +23,29 @@ const credential = z.discriminatedUnion("action", [
 export const ConfigureGitAuth = z.strictObject({ remote: z.string(), expectedRevision: z.uuidv4().nullable(), credential });
 export type ConfigureGitAuth = z.infer<typeof ConfigureGitAuth>;
 export const GitAuthSummary = z.object({ revision: z.uuidv4().nullable(), state: z.enum(["unconfigured", "configured", "needs-reconfiguration", "temporarily-unavailable", "corrupt"]) });
-type GitAuthSummary = z.infer<typeof GitAuthSummary>;
+export type GitAuthSummary = z.infer<typeof GitAuthSummary>;
 export type GitLogin = { username: string; token: string };
+
+export type VersioningAuth = { source: "versioning"; target: string; revision: string | null };
+export type LegacyAuth = { source: "legacy-safe"; target: string; reference: string };
+export type SyncAuthScope = VersioningAuth | LegacyAuth;
+
+const AUTH_CODES = new Set(["GIT_AUTH_FAILED", "SAFE_LOCKED", "SECRET_REF_INVALID"]);
+export const isSyncAuthError = (code: string): boolean => AUTH_CODES.has(code);
+
+export class SyncAuthFailure extends HuhuError {
+  readonly reason: string;
+
+  constructor(
+    error: HuhuError,
+    readonly scope: SyncAuthScope,
+  ) {
+    const { retryable, details, recovery } = error;
+    super(error.code, error.message, { retryable, ...(details && { details }), ...(recovery && { recovery }) });
+    const reason = error.details?.reason;
+    this.reason = typeof reason === "string" ? reason : error.code === "GIT_AUTH_FAILED" ? "remote-rejected" : error.code.toLowerCase().replaceAll("_", "-");
+  }
+}
 
 const ID = "sync";
 const PURPOSES = ["username", "token"] as const;

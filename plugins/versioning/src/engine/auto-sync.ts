@@ -1,4 +1,5 @@
-/** 自动同步调度器：按模式与间隔定时拉取/推送；认证失败或冲突后暂停；其他失败指数退避。时钟与同步函数都可注入，便于单测。 */
+import { isSyncAuthError, SyncAuthFailure, type LegacyAuth, type VersioningAuth } from "./remote-auth.js";
+
 export type AutoMode = "off" | "follow" | "full";
 export type RunMode = "pull" | "sync";
 
@@ -10,9 +11,9 @@ export interface AutoSyncConfig {
 
 export interface AutoSyncDeps {
   config(): AutoSyncConfig;
-  /** 执行一次同步；失败抛出带 code 的错误。 */
-  run(mode: RunMode): Promise<unknown>;
-  /** 是否已有未解决的冲突（有则不自动同步）。 */
+  run(mode: RunMode, isCurrent: () => boolean, repair?: VersioningAuth): Promise<unknown>;
+  authTarget?(): string | null;
+  canRun?(): boolean;
   hasConflict(): boolean;
   schedule(fn: () => void, ms: number): () => void;
   onChange?(state: AutoSyncState): void;
@@ -28,9 +29,7 @@ export const MIN_INTERVAL_SEC = 30;
 export const MAX_INTERVAL_SEC = 3600;
 const MAX_BACKOFF_MS = MAX_INTERVAL_SEC * 1000;
 
-/** 需要用户去重新配置凭据的错误（含保险箱锁定/引用失效）。 */
-const AUTH_CODES = new Set(["GIT_AUTH_FAILED", "SAFE_LOCKED", "SECRET_REF_INVALID"]);
-const codeOf = (e: unknown): string => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "");
+const codeOf = (e: unknown): string => (e && typeof e === "object" && "code" in e ? String(e.code) : "");
 
 export class AutoSync {
   private timers: Partial<Record<RunMode, () => void>> = {};
@@ -38,6 +37,11 @@ export class AutoSync {
   private failures = 0;
   private running = false;
   private stopped = false;
+  private generation = 0;
+  private authFailure: SyncAuthFailure | undefined;
+  private latestRevision: string | null | undefined;
+  private repair: VersioningAuth | undefined;
+  private repairTimer: (() => void) | undefined;
 
   constructor(private readonly d: AutoSyncDeps) {}
 
@@ -45,62 +49,163 @@ export class AutoSync {
     return { active: Object.keys(this.timers).length > 0, pausedReason: this.paused, failures: this.failures };
   }
 
-  /** 配置变化、手动同步成功、冲突解决/放弃之后调用：清除暂停与退避并按当前配置重新排程。 */
+  authPause() {
+    const error = this.authFailure;
+    if (!error) return undefined;
+    const { scope, reason } = error;
+    return { source: scope.source, target: scope.target, revision: scope.source === "versioning" ? scope.revision : null, reason };
+  }
+
   restart(): void {
     this.stopped = false;
+    this.generation++;
     this.paused = null;
+    this.authFailure = undefined;
+    this.clearRepair();
     this.failures = 0;
     this.arm();
   }
 
   stop(): void {
     this.stopped = true;
-    this.clear();
+    this.generation++;
+    this.clearRepair();
+    this.clearTimers();
     this.d.onChange?.(this.state());
   }
 
-  /** 手动同步失败时通知：认证失败/冲突同样会让自动同步暂停。 */
   noteManualFailure(e: unknown): void {
-    const c = codeOf(e);
-    if (c === "GIT_CONFLICT") this.pause("conflict");
-    else if (AUTH_CODES.has(c)) this.pause("auth-failed");
-  }
-
-  private clear(): void {
-    for (const k of Object.keys(this.timers) as RunMode[]) {
-      this.timers[k]?.();
-      delete this.timers[k];
+    const code = codeOf(e);
+    if (code === "GIT_CONFLICT") this.pause("conflict");
+    else if (isSyncAuthError(code)) {
+      if (e instanceof SyncAuthFailure) {
+        const { scope } = e;
+        if (this.d.authTarget && this.d.authTarget() !== scope.target) return;
+        if (scope.source === "versioning" && this.latestRevision !== undefined && scope.revision !== this.latestRevision) return;
+      }
+      this.pause("auth-failed", e instanceof SyncAuthFailure ? e : undefined);
     }
   }
 
-  private pause(reason: NonNullable<AutoSyncState["pausedReason"]>): void {
+  configChanged(): void {
+    if (!this.authFailure) return this.restart();
+    if (this.repair && !this.recoveryMode(this.repair)) this.clearRepair();
+    this.d.onChange?.(this.state());
+  }
+
+  credentialsChanged(previous: string | null, next: VersioningAuth, replaced: boolean): void {
+    // 凭据记录的修订链包含 keep 和 clear，只有实际替换可以排队恢复。
+    if (this.latestRevision !== undefined && this.latestRevision !== previous) return;
+    const scope = this.authFailure?.scope;
+    const followsFailedRevision = scope?.source === "legacy-safe" || this.latestRevision !== undefined || scope?.revision === previous;
+    this.latestRevision = next.revision;
+    this.clearRepair();
+    if (replaced && followsFailedRevision && scope?.target === next.target && this.recoveryMode(next)) {
+      this.repair = next;
+      this.scheduleRepair();
+    }
+  }
+
+  legacyUnlocked(legacyAuth: () => LegacyAuth | null): void {
+    const failed = this.authFailure;
+    const scope = failed?.scope;
+    if (failed?.code !== "SAFE_LOCKED" || scope?.source !== "legacy-safe") return;
+    const current = legacyAuth();
+    if (current?.target === scope.target && current.reference === scope.reference) this.restart();
+  }
+
+  private clearRepair(): void {
+    this.repairTimer?.();
+    this.repairTimer = undefined;
+    this.repair = undefined;
+  }
+
+  private recoveryMode(repair: VersioningAuth): RunMode | null {
+    if (this.stopped || this.d.canRun?.() === false || this.d.hasConflict() || this.d.authTarget?.() !== repair.target || !repair.revision) return null;
+    const { mode } = this.d.config();
+    return mode === "full" ? "sync" : mode === "follow" ? "pull" : null;
+  }
+
+  private scheduleRepair(): void {
+    const repair = this.repair;
+    if (!repair || this.running || this.repairTimer) return;
+    this.repairTimer = this.d.schedule(() => {
+      if (this.repair !== repair) return;
+      this.repairTimer = undefined;
+      void this.recover(repair);
+    }, 0);
+  }
+
+  private async recover(repair: VersioningAuth): Promise<void> {
+    if (this.running) return;
+    const mode = this.recoveryMode(repair);
+    if (!mode) return this.clearRepair();
+    const isCurrent = () => this.repair === repair && this.recoveryMode(repair) === mode;
+    this.running = true;
+    try {
+      const ran = await this.d.run(mode, isCurrent, repair);
+      if (this.repair === repair && ran === true) this.restart();
+    } catch (e) {
+      if (this.repair === repair) {
+        const code = codeOf(e);
+        if (isSyncAuthError(code) || code === "GIT_CONFLICT") this.noteManualFailure(e);
+        else {
+          this.paused = null;
+          this.authFailure = undefined;
+          this.failures = 1;
+          this.arm();
+        }
+      }
+    } finally {
+      if (this.repair === repair) this.clearRepair();
+      this.running = false;
+      this.scheduleRepair();
+    }
+  }
+
+  private clearTimers(): void {
+    for (const cancel of Object.values(this.timers)) cancel();
+    this.timers = {};
+  }
+
+  private pause(reason: NonNullable<AutoSyncState["pausedReason"]>, error?: SyncAuthFailure): void {
+    this.generation++;
     this.paused = reason;
-    this.clear();
+    this.authFailure = error;
+    this.clearRepair();
+    this.clearTimers();
     this.d.onChange?.(this.state());
   }
 
   private arm(): void {
-    this.clear();
-    if (!this.stopped && !this.paused) {
-      const c = this.d.config();
-      if (c.mode !== "off") {
+    this.clearTimers();
+    if (!this.stopped && !this.paused && this.d.canRun?.() !== false) {
+      const { mode } = this.d.config();
+      if (mode !== "off") {
         this.armOne("pull");
-        if (c.mode === "full") this.armOne("sync");
+        if (mode === "full") this.armOne("sync");
       }
     }
     this.d.onChange?.(this.state());
   }
 
-  /** 拉取与推送各有自己的定时器（规格：独立间隔）；一方触发只重排自己的，不重置另一方。 */
   private armOne(kind: RunMode): void {
     this.timers[kind]?.();
     delete this.timers[kind];
-    const c = this.d.config();
-    if (!this.allowed(kind, c.mode)) return; // tick 进行中改了模式：不再为不属于新模式的一方续排
-    const raw = kind === "pull" ? c.pullIntervalSec : c.pushIntervalSec;
-    const sec = Number.isFinite(raw) ? raw : kind === "pull" ? 30 : 60; // 手改配置文件写出非数字时不能变成 1ms 的紧循环
+    const config = this.d.config();
+    if (!this.allowed(kind, config.mode)) return;
+    const raw = kind === "pull" ? config.pullIntervalSec : config.pushIntervalSec;
+    const sec = Number.isFinite(raw) ? raw : kind === "pull" ? 30 : 60;
     const ms = Math.min(MAX_INTERVAL_SEC, Math.max(MIN_INTERVAL_SEC, Math.round(sec))) * 1000;
-    this.timers[kind] = this.d.schedule(() => void this.tick(kind), Math.min(MAX_BACKOFF_MS, ms * 2 ** this.failures));
+    const cancel = this.d.schedule(
+      () => {
+        if (this.timers[kind] !== cancel) return;
+        delete this.timers[kind];
+        void this.tick(kind);
+      },
+      Math.min(MAX_BACKOFF_MS, ms * 2 ** this.failures),
+    );
+    this.timers[kind] = cancel;
   }
 
   private allowed(kind: RunMode, mode: AutoMode): boolean {
@@ -108,27 +213,27 @@ export class AutoSync {
   }
 
   private async tick(mode: RunMode): Promise<void> {
-    if (this.stopped || this.paused) return;
-    if (!this.allowed(mode, this.d.config().mode)) return; // 模式已改：这一方不再执行
+    if (this.stopped || this.paused || this.d.canRun?.() === false) return;
+    if (!this.allowed(mode, this.d.config().mode)) return;
     if (this.d.hasConflict()) return this.pause("conflict");
-    if (this.running) return this.armOne(mode); // 上一次还没结束：跳过这一拍
+    if (this.running) return this.armOne(mode);
     this.running = true;
+    const generation = this.generation;
+    const isCurrent = () => generation === this.generation && this.allowed(mode, this.d.config().mode);
     try {
-      await this.d.run(mode);
-      this.failures = 0;
+      await this.d.run(mode, isCurrent);
+      if (isCurrent()) this.failures = 0;
     } catch (e) {
-      const c = codeOf(e);
-      if (c === "GIT_CONFLICT") this.pause("conflict");
-      else if (AUTH_CODES.has(c)) this.pause("auth-failed");
-      else this.failures = Math.min(this.failures + 1, 7); // 离线等：退避（30 秒起翻 7 次即封顶 3600 秒）
+      if (isCurrent()) {
+        const code = codeOf(e);
+        if (code === "GIT_CONFLICT" || isSyncAuthError(code)) this.noteManualFailure(e);
+        else this.failures = Math.min(this.failures + 1, 7);
+      }
     } finally {
       this.running = false;
+      this.scheduleRepair();
     }
-    if (this.stopped || this.paused) {
-      this.d.onChange?.(this.state());
-      return;
-    }
-    this.armOne(mode);
+    if (isCurrent()) this.armOne(mode);
     this.d.onChange?.(this.state());
   }
 }

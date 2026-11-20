@@ -1,5 +1,5 @@
 import path from "node:path";
-import { errors } from "@huhu/contracts";
+import { HuhuError, errors } from "@huhu/contracts";
 import { normalizeRelPath, parseFrontmatter, parseTaskBody, patchFrontmatter, replaceBody, replaceTaskSection, splitDocument } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
@@ -218,16 +218,19 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     (ref) => {
       // 秘密只经 SecretUse 取得，且仅限被允许引用的模块（versioning）
       const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
-      if (!su) throw Object.assign(new Error("保险箱插件未启用"), { code: "SECRET_REF_INVALID" });
+      if (!su) throw new HuhuError("SECRET_REF_INVALID", "保险箱插件未启用");
       return su.resolve(ref, { plugin: "versioning", purpose: "sync" });
     },
     opts.credentialHost && new GitRemoteCredentials(opts.credentialHost),
+    files.readOnly,
   );
   let publishStatus = () => {};
   // 自动同步：按模式与间隔定时拉取/推送；认证失败或冲突后暂停，插件停用即停止
   const auto = new AutoSync({
     config: () => sync.config(),
-    run: (m) => sync.run(m),
+    run: (mode, isCurrent, repair) => sync.runAutomatic(mode, isCurrent, repair),
+    authTarget: () => sync.authTarget(),
+    canRun: () => !files.readOnly,
     hasConflict: () => sync.status().name === "conflict",
     schedule: (fn, ms) => {
       const t = setTimeout(fn, ms);
@@ -247,7 +250,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   });
   api.events.subscribe((e) => {
     if (e.type === "engine.closing") sync.dispose();
-    if (e.type === "safe.unlocked" && sync.config().credential && auto.state().pausedReason === "auth-failed") auto.restart();
+    if (e.type === "safe.unlocked") auto.legacyUnlocked(() => sync.legacyAuth());
   });
   const Cfg = z.object({
     remote: z.string(),
@@ -262,7 +265,19 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
   api.defineCapability(def({ name: "sync.get", plugin: "versioning", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: Cfg, handler: () => sync.config() }));
   const desktopAuth = { plugin: "versioning", desktopOnly: true, exposable: false, defaultExposed: false } as const;
   api.defineCapability(def({ ...desktopAuth, name: "sync.auth.get", scope: "read", input: z.object({}), output: GitAuthSummary, handler: () => sync.authStatus() }));
-  api.defineCapability(def({ ...desktopAuth, name: "sync.auth.configure", scope: "admin", input: ConfigureGitAuth, output: GitAuthSummary, handler: ({ signal }, input) => sync.configureAuth(input, signal) }));
+  api.defineCapability(
+    def({
+      ...desktopAuth,
+      name: "sync.auth.configure",
+      scope: "admin",
+      input: ConfigureGitAuth,
+      output: GitAuthSummary,
+      handler: ({ signal }, input) =>
+        sync.configureAuth(input, signal, (target, result) => {
+          auto.credentialsChanged(input.expectedRevision, { source: "versioning", target, revision: result.revision }, input.credential.action === "replace" && result.state === "configured");
+        }),
+    }),
+  );
   api.defineCapability(
     def({
       name: "sync.update",
@@ -276,7 +291,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       output: Cfg,
       handler: async ({ signal }, i) => {
         const next = await sync.updateConfig(i as never, signal);
-        auto.restart();
+        auto.configChanged();
         return next;
       },
     }),
@@ -291,7 +306,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       timeoutMs: 120_000,
       input: z.object({}),
       output: z.object({ push: z.array(z.string()), skipped: z.array(z.object({ path: z.string(), reason: z.string() })), pull: z.array(z.string()), ahead: z.number(), behind: z.number() }),
-      handler: ({ signal }) => sync.preview(signal),
+      handler: async ({ signal }) => {
+        try {
+          return await sync.preview(signal);
+        } catch (e) {
+          auto.noteManualFailure(e);
+          throw e;
+        }
+      },
     }),
   );
   api.defineCapability(
@@ -367,8 +389,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       output: z.object({ commit: z.string(), pushed: z.boolean(), syncError: z.string().optional() }),
       handler: async (_c, i) => {
         try {
-          const r = await sync.resolveConflicts(i.sessionId, i.resolutions as never);
-          auto.restart();
+          const r = await sync.resolveConflicts(i.sessionId, i.resolutions as never, (e) => auto.noteManualFailure(e));
+          auto.configChanged();
           return r;
         } finally {
           publishStatus();
@@ -387,7 +409,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       output: z.object({ cancelled: z.boolean() }),
       handler: async () => {
         const r = await sync.cancelConflicts();
-        auto.restart();
+        auto.configChanged();
         publishStatus();
         return r;
       },
@@ -401,8 +423,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       exposable: false,
       defaultExposed: false,
       input: z.object({}),
-      output: z.object({ name: z.string(), detail: z.string(), pausedReason: z.enum(["conflict", "auth-failed"]).nullable() }),
-      handler: () => ({ ...sync.status(), pausedReason: auto.state().pausedReason }),
+      output: z.object({
+        name: z.string(),
+        detail: z.string(),
+        pausedReason: z.enum(["conflict", "auth-failed"]).nullable(),
+        authPause: z.object({ source: z.enum(["versioning", "legacy-safe"]), target: z.string(), revision: z.uuidv4().nullable(), reason: z.string() }).optional(),
+      }),
+      handler: () => ({ ...sync.status(), pausedReason: auto.state().pausedReason, authPause: auto.authPause() }),
     }),
   );
   auto.restart(); // 启动时按已保存的模式与间隔排程

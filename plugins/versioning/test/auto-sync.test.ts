@@ -1,18 +1,23 @@
 import { describe, expect, test } from "vitest";
+import { HuhuError } from "@huhu/contracts";
 import { AutoSync, type AutoSyncConfig, type RunMode } from "../src/engine/auto-sync.js";
+import { SyncAuthFailure, type LegacyAuth, type VersioningAuth } from "../src/engine/remote-auth.js";
 
-function setup(cfg: Partial<AutoSyncConfig> = {}) {
+function setup(cfg: Partial<AutoSyncConfig> = {}, runRepair?: (repair: VersioningAuth, isCurrent: () => boolean) => Promise<boolean>) {
   const config: AutoSyncConfig = { mode: "full", pullIntervalSec: 30, pushIntervalSec: 60, ...cfg };
   const timers: { id: number; ms: number; fn: () => void; live: boolean }[] = [];
   const calls: RunMode[] = [];
-  const st = { fail: null as unknown, conflict: false };
+  const st = { fail: null as unknown, conflict: false, writable: true, target: "https://fixture.invalid/a.git" };
   const changes: unknown[] = [];
   const auto = new AutoSync({
     config: () => config,
-    run: async (m) => {
+    run: async (m, isCurrent, repair) => {
       calls.push(m);
+      if (repair) return runRepair?.(repair, isCurrent) ?? true;
       if (st.fail) throw st.fail;
     },
+    authTarget: () => st.target,
+    canRun: () => st.writable,
     hasConflict: () => st.conflict,
     schedule: (fn, ms) => {
       const t = { id: timers.length, ms, fn, live: true };
@@ -215,5 +220,82 @@ describe("自动同步调度", () => {
         .map((x) => x.ms)
         .sort((a, b) => a - b),
     ).toEqual([30_000, 60_000]);
+  });
+
+  test("并发保存只安排最新修订，迟到的旧失败和已取消定时器不能覆盖它", async () => {
+    const handled: (string | null)[] = [];
+    const t = setup({}, async (repair, isCurrent) => {
+      if (!isCurrent()) return false;
+      handled.push(repair.revision);
+      return true;
+    });
+    const scope = (revision: string): VersioningAuth => ({ source: "versioning", target: t.st.target, revision });
+    const failed = new SyncAuthFailure(new HuhuError("GIT_AUTH_FAILED", "fixture"), scope("r1"));
+    t.auto.restart();
+    t.auto.noteManualFailure(failed);
+    t.auto.credentialsChanged("r1", scope("r2"), true);
+    const obsolete = t.live()[0]!;
+    t.auto.credentialsChanged("r2", scope("r3"), true);
+    t.auto.credentialsChanged("r1", scope("late"), true);
+    t.auto.noteManualFailure(failed);
+    obsolete.fn();
+    expect(t.live().map((timer) => timer.ms)).toEqual([0]);
+    expect(t.auto.authPause()).toMatchObject({ revision: "r1" });
+    await t.fire(0);
+    expect(t.calls).toEqual(["sync"]);
+    expect(handled).toEqual(["r3"]);
+    expect(t.auto.authPause()).toBeUndefined();
+    expect(t.live().map((timer) => timer.ms)).toEqual([30_000, 60_000]);
+  });
+
+  test("已排队的恢复等待实际发起条件；关闭、只读与冲突保留暂停原因", async () => {
+    for (const block of ["off", "read-only", "conflict"] as const) {
+      const starting = (() => {
+        let release!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { waiting, release };
+      })();
+      const attempts: string[] = [];
+      const t = setup({ mode: "follow" }, async (repair, isCurrent) => {
+        await starting.waiting;
+        if (!isCurrent()) return false;
+        attempts.push(repair.target);
+        return true;
+      });
+      const first: VersioningAuth = { source: "versioning", target: t.st.target, revision: "r1" };
+      t.auto.restart();
+      t.auto.noteManualFailure(new SyncAuthFailure(new HuhuError("GIT_AUTH_FAILED", "fixture"), first));
+      t.auto.credentialsChanged("r1", { ...first, revision: "r2" }, true);
+      const recovery = t.fire(0);
+      if (block === "off") t.config.mode = "off";
+      if (block === "read-only") t.st.writable = false;
+      if (block === "conflict") t.st.conflict = true;
+      starting.release();
+      await recovery;
+      expect(attempts).toEqual([]);
+      expect(t.calls).toEqual(["pull"]);
+      expect(t.auto.authPause()).toMatchObject({ revision: "r1", reason: "remote-rejected" });
+      expect(t.live()).toHaveLength(0);
+    }
+  });
+
+  test("Safe 解锁只恢复匹配旧引用的锁定暂停", () => {
+    const t = setup();
+    const legacy: LegacyAuth = { source: "legacy-safe", target: t.st.target, reference: "safe://item-fixture" };
+    t.auto.restart();
+    t.auto.noteManualFailure(new SyncAuthFailure(new HuhuError("SAFE_LOCKED", "fixture"), legacy));
+    t.auto.legacyUnlocked(() => ({ ...legacy, reference: "safe://item-other" }));
+    expect(t.live()).toHaveLength(0);
+    t.auto.legacyUnlocked(() => legacy);
+    expect(t.live()).toHaveLength(2);
+    t.auto.noteManualFailure(new SyncAuthFailure(new HuhuError("GIT_AUTH_FAILED", "fixture"), legacy));
+    const shouldNotReadLegacy = () => {
+      throw new Error("远端拒绝不应解析旧引用");
+    };
+    t.auto.legacyUnlocked(shouldNotReadLegacy);
+    expect(t.auto.authPause()).toMatchObject({ source: "legacy-safe", reason: "remote-rejected" });
+    expect(t.live()).toHaveLength(0);
   });
 });
