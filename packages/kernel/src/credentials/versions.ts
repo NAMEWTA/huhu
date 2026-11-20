@@ -10,6 +10,8 @@ const reference = z.strictObject({ purpose, target: z.string(), key: generation,
 const snapshotSchema = z.strictObject({ format: z.literal(1), entityId: z.string().min(1), revision: generation, references: z.array(reference) });
 export type Reference = z.infer<typeof reference>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
+const scopeHash = z.string().regex(/^[0-9a-f]{64}$/);
+const unboundSchema = z.strictObject({ format: z.literal(1), scope: scopeHash, entries: z.array(scopeHash) });
 
 export function identityHash(...parts: string[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
@@ -57,6 +59,23 @@ export class LocalVersions {
 
   get directory(): string {
     return this.#directory;
+  }
+
+  recordInitiallyUnbound(entries: readonly Pick<Snapshot, "entityId" | "revision">[]): void {
+    if (entries.length === 0 || existsAs(this.#directory, "directory")) return;
+    // Only a fresh local scope proves that these exact portable revisions have no local references.
+    mkdirSync(this.#directory, { mode: 0o700 });
+    const record = { format: 1, scope: this.#scope, entries: entries.map(({ entityId, revision }) => identityHash(entityId, revision)) };
+    writeFileSync(path.join(this.#directory, "initially-unbound.json"), JSON.stringify(record), { flag: "wx", mode: 0o600, flush: true });
+  }
+
+  initiallyUnbound(): ReadonlySet<string> {
+    if (!existsAs(this.#directory, "directory")) return new Set();
+    const file = path.join(this.#directory, "initially-unbound.json");
+    if (!existsAs(file, "file")) return new Set();
+    const record = unboundSchema.safeParse(readJson(readFileSync(file)));
+    if (!record.success || record.data.scope !== this.#scope) throw new CredentialError("corrupt");
+    return new Set(record.data.entries);
   }
 
   #subdir(name: "snapshots" | "keys", create = false): string | null {

@@ -1,16 +1,19 @@
-import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { fork, spawnSync } from "node:child_process";
+import { once } from "node:events";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Vault } from "@huhu/vault";
 import { afterEach, expect, test, vi } from "vitest";
 import { type CredentialAction, type ModuleCredentials } from "../src/credentials/module-credentials.js";
 import { definition, owner, TestProtection } from "./fixtures/credentials.js";
 
 const tmp = fileURLToPath(new URL("../../../temp/", import.meta.url));
-const tsx = createRequire(new URL("../../vault/package.json", import.meta.url)).resolve("tsx/cli");
+const vaultRequire = createRequire(new URL("../../vault/package.json", import.meta.url));
+const tsx = vaultRequire.resolve("tsx/cli");
 const crashFixture = fileURLToPath(new URL("./fixtures/crash-credentials.ts", import.meta.url));
+const readOnlyFixture = fileURLToPath(new URL("./fixtures/read-only-credentials.ts", import.meta.url));
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
@@ -59,6 +62,14 @@ function files(directory: string, suffix: string): string[] {
     .map((file) => path.join(directory, file));
 }
 
+function copyDefinitions(base: string, root: string, portable: string[]): string {
+  const copyRoot = path.join(base, "copy");
+  mkdirSync(path.join(copyRoot, ".huhu", "module-credentials"), { recursive: true });
+  copyFileSync(path.join(root, ".huhu", "vault.json"), path.join(copyRoot, ".huhu", "vault.json"));
+  for (const file of portable) copyFileSync(file, path.join(copyRoot, ".huhu", "module-credentials", path.basename(file)));
+  return copyRoot;
+}
+
 test("publishes portable definitions independently of four credential dimensions", async () => {
   const { base, root, vault, backend, open, close, credentials } = await setup();
   const view = path.join(base, "private");
@@ -83,10 +94,7 @@ test("publishes portable definitions independently of four credential dimensions
   for (const file of portable) {
     expect(Object.keys(JSON.parse(readFileSync(file, "utf8")).entries[0]).sort()).toEqual(["configured", "definition", "entityId", "revision"]);
   }
-  const copyRoot = path.join(base, "copy");
-  mkdirSync(path.join(copyRoot, ".huhu", "module-credentials"), { recursive: true });
-  copyFileSync(path.join(root, ".huhu", "vault.json"), path.join(copyRoot, ".huhu", "vault.json"));
-  for (const file of portable) copyFileSync(file, path.join(copyRoot, ".huhu", "module-credentials", path.basename(file)));
+  const copyRoot = copyDefinitions(base, root, portable);
   const copy = await open(copyRoot);
   expect(copy.id).toBe(vault.id);
   const copyOwner = owner(copy, base, "instance-b", undefined, backend);
@@ -114,6 +122,58 @@ test("publishes portable definitions independently of four credential dimensions
   expect(await auth(copyOwner, "synthetic-other-vault")).toBe(true);
   expect(files(view, ".bin")).toHaveLength(3);
   expect(backend.keys()).toHaveLength(3);
+}, 15_000);
+
+test("reclaims a copied entity's local material while its neighbor remains unbound", async () => {
+  const { base, root, backend, open, close, credentials } = await setup();
+  const localRoot = path.join(base, "private");
+  const first = await save(credentials, null, [replace("password", "source-first"), keep("passphrase")]);
+  await save(credentials, null, [replace("password", "source-neighbor"), keep("passphrase")], "neighbor");
+  const copyRoot = copyDefinitions(base, root, files(path.join(root, ".huhu", "module-credentials"), ".json"));
+  const copy = await open(copyRoot);
+  const copied = owner(copy, base, "instance-b");
+  const rebound = await save(copied, first.revision, [replace("password", "copy-first"), keep("passphrase")]);
+  expect(await auth(copied, "copy-first")).toBe(true);
+  expect(files(localRoot, ".bin")).toHaveLength(3);
+  expect(backend.keys()).toHaveLength(2);
+  const snapshot = files(localRoot, ".json").find((file) => path.basename(file) === `${rebound.revision}.json`)!;
+  renameSync(snapshot, `${snapshot}.lost`);
+  expect(await copied.recover()).toBe(false);
+  expect(files(localRoot, ".bin")).toHaveLength(3);
+  expect(backend.keys()).toHaveLength(2);
+  renameSync(`${snapshot}.lost`, snapshot);
+  await close(copy);
+  const reopened = owner(await open(copyRoot), base, "instance-b");
+  const cleared = await save(reopened, rebound.revision, [clear("password"), keep("passphrase")]);
+  expect(cleared.authState.password).toBe("unconfigured");
+  expect((await reopened.list()).find(({ entityId }) => entityId === "neighbor")?.authState.password).toBe("needs-reconfiguration");
+  const afterClear = { ciphertexts: files(localRoot, ".bin").length, keys: backend.keys().length };
+  expect({ ...afterClear, recovered: await reopened.recover() }).toEqual({ ciphertexts: 2, keys: 1, recovered: true });
+  expect(await auth(credentials, "source-first")).toBe(true);
+  expect(await auth(credentials, "source-neighbor", "neighbor")).toBe(true);
+}, 15_000);
+
+test("defers collection when the local proof for copied revisions is invalid", async () => {
+  const { base, root, backend, open, credentials } = await setup();
+  const first = await save(credentials, null, [replace("password", "source-first"), keep("passphrase")]);
+  await save(credentials, null, [replace("password", "source-neighbor"), keep("passphrase")], "neighbor");
+  const copyRoot = copyDefinitions(base, root, files(path.join(root, ".huhu", "module-credentials"), ".json"));
+  const copied = owner(await open(copyRoot), base, "instance-b");
+  const rebound = await save(copied, first.revision, [replace("password", "copy-first"), keep("passphrase")]);
+  const localRoot = path.join(base, "private");
+  const proof = files(localRoot, ".json").find((file) => path.basename(file) === "initially-unbound.json")!;
+  const original = readFileSync(proof, "utf8");
+  writeFileSync(proof, JSON.stringify({ ...JSON.parse(original), scope: "0".repeat(64) }));
+  await save(copied, rebound.revision, [clear("password"), keep("passphrase")]);
+  expect(await copied.recover()).toBe(false);
+  writeFileSync(proof, "{");
+  expect(await copied.recover()).toBe(false);
+  expect(files(localRoot, ".bin")).toHaveLength(3);
+  expect(backend.keys()).toHaveLength(2);
+  writeFileSync(proof, original);
+  expect(await copied.recover()).toBe(true);
+  expect(files(localRoot, ".bin")).toHaveLength(2);
+  expect(backend.keys()).toHaveLength(1);
 }, 15_000);
 
 test("rejects a ciphertext transplant between purposes using the same local key", async () => {
@@ -168,7 +228,8 @@ test("keeps the committed revision on cancellation, read-only access, and write 
   const before = readFileSync(config);
   const readOnly = owner(await open(vault.root, true), base);
   await expect(save(readOnly, first.revision, [clear("password"), keep("passphrase")])).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
-  expect(await auth(readOnly, "old")).toBe(true);
+  await expect(auth(readOnly, "old")).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+  expect(await readOnly.list()).toEqual([{ ...first, definition, authState: { password: "temporarily-unavailable", passphrase: "unconfigured" } }]);
   const write = vi.spyOn(vault.files, "write").mockRejectedValueOnce(new Error("synthetic writer failure"));
   await expect(save(credentials, first.revision, [replace("password", "new"), keep("passphrase")])).rejects.toMatchObject({ code: "storage-failed" });
   write.mockRestore();
@@ -187,6 +248,36 @@ test("keeps the committed revision on cancellation, read-only access, and write 
   expect(retargeted.authState.password).toBe("needs-reconfiguration");
   await expect(auth(credentials, "old")).rejects.toMatchObject({ code: "unbound" });
 });
+
+test("rejects read-only subprocess use before opening local materials while the writer clears them", async () => {
+  const { base, backend, credentials } = await setup();
+  const first = await save(credentials, null, [replace("password", "old"), replace("passphrase", "synthetic second purpose")]);
+  const child = fork(readOnlyFixture, [base], { execArgv: ["--import", pathToFileURL(vaultRequire.resolve("tsx")).href], stdio: ["ignore", "ignore", "inherit", "ipc"] });
+  const exited = once(child, "exit");
+  cleanup.push(async () => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+      await exited;
+    }
+  });
+  let message = await Promise.race([
+    once(child, "message").then(([value]) => value),
+    exited.then(([code]) => {
+      throw new Error(`Read-only fixture exited before reporting: ${code}`);
+    }),
+  ]);
+  const cleared = await save(credentials, first.revision, [clear("password"), clear("passphrase")]);
+  if (message === "reading") {
+    const resumed = once(child, "message");
+    child.send("resume");
+    [message] = await resumed;
+  }
+  expect(message).toEqual({ code: "READ_ONLY_VAULT", reads: 0, invoked: false });
+  expect(await exited).toEqual([0, null]);
+  expect(cleared.authState).toEqual({ password: "unconfigured", passphrase: "unconfigured" });
+  expect(files(path.join(base, "private"), ".bin")).toHaveLength(0);
+  expect(backend.keys()).toHaveLength(0);
+}, 15_000);
 
 test("distinguishes lock, denial, absence and corrupt material without replacing an old key", async () => {
   const { base, credentials, backend } = await setup();
@@ -253,15 +344,28 @@ test.each([
 );
 
 test("defers collection when the committed reference set is uncertain", async () => {
-  const { base, vault, credentials } = await setup();
-  await save(credentials, null, [replace("password", "old"), keep("passphrase")]);
+  const { base, vault, credentials, backend } = await setup();
+  const first = await save(credentials, null, [replace("password", "old"), keep("passphrase")]);
+  const localRoot = path.join(base, "private");
+  const snapshot = files(localRoot, ".json").find((file) => path.basename(file) === `${first.revision}.json`)!;
+  const original = readFileSync(snapshot);
+  rmSync(snapshot);
+  await save(credentials, null, [replace("password", "new"), keep("passphrase")], "neighbor");
+  expect(await credentials.recover()).toBe(false);
+  expect(files(localRoot, ".bin")).toHaveLength(2);
+  expect(backend.keys()).toHaveLength(2);
+  writeFileSync(snapshot, "{}");
+  expect(await credentials.recover()).toBe(false);
+  expect(files(localRoot, ".bin")).toHaveLength(2);
+  writeFileSync(snapshot, original);
   const config = files(path.join(vault.root, ".huhu", "module-credentials"), ".json")[0]!;
   const bytes = readFileSync(config);
   writeFileSync(config, "{}");
   expect(await credentials.recover()).toBe(false);
-  expect(files(path.join(base, "private"), ".bin")).toHaveLength(1);
+  expect(files(localRoot, ".bin")).toHaveLength(2);
   writeFileSync(config, bytes);
   expect(await auth(credentials, "old")).toBe(true);
+  expect(await auth(credentials, "new", "neighbor")).toBe(true);
 });
 
 test("returns the committed receipt when key cleanup needs a later retry", async () => {

@@ -63,7 +63,10 @@ function assertUnique(values: readonly string[], code: "invalid-input" | "corrup
   if (new Set(values).size !== values.length) throw new CredentialError(code);
 }
 
-/** One private owner per plugin and open Vault. Callers authorize before entry and keep the Vault open through use. */
+/**
+ * One private owner per plugin and open Vault. Local material is accessed only by the Vault writer.
+ * Callers authorize before entry and keep the writer open through use.
+ */
 export class ModuleCredentials<T> {
   readonly #vault: Vault;
   readonly #file: string;
@@ -142,10 +145,11 @@ export class ModuleCredentials<T> {
     return snapshot;
   }
 
-  async #summarize(entry: Definition<T>, snapshot: Snapshot | null | "corrupt", verified?: ReadonlySet<string>): Promise<CredentialSummary> {
+  async #summarize(entry: Definition<T>, snapshot: Snapshot | null | "corrupt" | "read-only", verified?: ReadonlySet<string>): Promise<CredentialSummary> {
     const states = await Promise.all(
       [...this.#targets(entry.definition)].map(async ([name]): Promise<[string, CredentialState]> => {
         if (!entry.configured.includes(name)) return [name, "unconfigured"];
+        if (snapshot === "read-only") return [name, "temporarily-unavailable"];
         if (snapshot === "corrupt") return [name, "corrupt"];
         if (verified?.has(name)) return [name, "configured"];
         const ref = snapshot?.references.find((ref) => ref.purpose === name);
@@ -167,12 +171,14 @@ export class ModuleCredentials<T> {
     return this.#serial(async () =>
       Promise.all(
         this.#load().entries.map(async (entry) => {
-          let snapshot: Snapshot | null | "corrupt";
-          try {
-            snapshot = this.#snapshot(entry);
-          } catch (error) {
-            if (!(error instanceof CredentialError && error.code === "corrupt")) throw error;
-            snapshot = "corrupt";
+          let snapshot: Snapshot | null | "corrupt" | "read-only" = "read-only";
+          if (!this.#vault.readOnly) {
+            try {
+              snapshot = this.#snapshot(entry);
+            } catch (error) {
+              if (!(error instanceof CredentialError && error.code === "corrupt")) throw error;
+              snapshot = "corrupt";
+            }
           }
           return { ...(await this.#summarize(entry, snapshot)), definition: entry.definition };
         }),
@@ -206,6 +212,7 @@ export class ModuleCredentials<T> {
         throw new CredentialError("invalid-input");
       }
       try {
+        this.#versions.recordInitiallyUnbound(entries.filter((entry) => entry.configured.length > 0));
         let newKey: string | undefined;
         const verified = new Set<string>();
         for (const action of actions) {
@@ -297,8 +304,9 @@ export class ModuleCredentials<T> {
     }
   }
 
-  /** Hold one committed definition and its versions for a trusted authentication operation. */
+  /** The Vault writer holds one committed definition and its versions for trusted authentication. */
   async use<R>(entityId: string, purposes: readonly string[], operation: (definition: T, values: ReadonlyMap<string, string>) => Promise<R>): Promise<R> {
+    this.#vault.assertWritable();
     parse(entityIdSchema, entityId, "invalid-input");
     const requested = parse(z.array(purpose), purposes, "invalid-input");
     assertUnique(requested, "invalid-input");
@@ -341,11 +349,16 @@ export class ModuleCredentials<T> {
     if (this.#vault.readOnly) return false;
     try {
       const snapshots = [...queue.pins].filter((pin) => pin.directory === this.#versions.directory).map((pin) => pin.snapshot);
+      let initiallyUnbound: ReadonlySet<string> | undefined;
       for (const entry of this.#load().entries) {
         if (!entry.configured.length) continue;
         const snapshot = this.#snapshot(entry);
-        if (snapshot === null) return false;
-        snapshots.push(snapshot);
+        if (snapshot !== null) {
+          snapshots.push(snapshot);
+        } else {
+          initiallyUnbound ??= this.#versions.initiallyUnbound();
+          if (!initiallyUnbound.has(identityHash(entry.entityId, entry.revision))) return false;
+        }
       }
       await this.#versions.collect(snapshots);
       return true;
