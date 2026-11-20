@@ -336,7 +336,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),
-    apply: (ctx, api) => void ssh.apply(ctx, api),
+    apply: (ctx, api) => void ssh.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined),
   });
   const external = new ExternalPlugins({
     root: vault.root,

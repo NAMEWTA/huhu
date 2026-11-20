@@ -17,6 +17,7 @@ export interface FakeSshOptions {
   /** SFTP 写入第 N 个 WRITE 请求后断开连接（测试中途断线清理临时文件）。 */
   dropAfterWrites?: number;
   password?: string;
+  publicKey?: string;
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
   hostKey?: string;
@@ -34,6 +35,8 @@ export function genHostKey(): string {
 
 /** 假 SSH 服务器：密码认证、exec（echo/sleep/exit/出错）、tcpip 转发（供跳板测试）。 */
 export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: number; close(): Promise<void>; conns: Connection[]; closed(): number; fs: FakeFs }> {
+  const publicKey = o.publicKey === undefined ? undefined : utils.parseKey(o.publicKey);
+  if (publicKey instanceof Error) throw new Error("测试公钥无法解析");
   const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map() };
   let writes = 0;
   const conns: Connection[] = [];
@@ -46,8 +49,11 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
     });
     client.on("authentication", (ctx) => {
       o.onAuth?.(ctx.username, ctx.method);
-      if (ctx.method === "password" && ctx.password === (o.password ?? "pw")) return ctx.accept();
-      ctx.reject(["password"]);
+      if (publicKey !== undefined && ctx.method === "publickey" && ctx.key.algo === publicKey.type && ctx.key.data.equals(publicKey.getPublicSSH())) {
+        if (!ctx.signature || (ctx.blob && publicKey.verify(ctx.blob, ctx.signature, ctx.hashAlgo) === true)) return ctx.accept();
+      }
+      if (publicKey === undefined && ctx.method === "password" && ctx.password === (o.password ?? "pw")) return ctx.accept();
+      ctx.reject(publicKey === undefined ? ["password"] : ["publickey"]);
     });
     client.on("error", () => undefined);
     client.on("ready", () => {

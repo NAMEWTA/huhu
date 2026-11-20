@@ -1,20 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { errors, newId } from "@huhu/contracts";
+import { LegacyHostView, type SshHostProfile } from "./auth-profile.js";
 
 export type SshAuth = { kind: "key"; secretRef: string; passphraseRef?: string | undefined } | { kind: "password"; secretRef: string } | { kind: "agent" };
 
-export interface SshHost {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  user: string;
-  auth: SshAuth;
-  jumpHostIds: string[];
-  tags: string[];
-  connectTimeoutSec: number;
-}
+export type SshHost = SshHostProfile & { id: string; auth: SshAuth };
 
 export type HostInput = Omit<SshHost, "id"> & { id?: string | undefined };
 
@@ -32,6 +23,17 @@ export function findJumpCycle(hosts: Pick<SshHost, "id" | "jumpHostIds">[], star
   return walk(startId, []);
 }
 
+export function validateHost<T extends SshHostProfile>(input: T, id: string, all: Pick<SshHost, "id" | "jumpHostIds">[]): T {
+  if (!input.name.trim()) throw errors.invalidInput("显示名称必填");
+  if (!input.host.trim() || /[\s/\\]/.test(input.host)) throw errors.invalidInput("主机名不能含空格或路径");
+  if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) throw errors.invalidInput("端口范围 1–65535");
+  if (!input.user.trim()) throw errors.invalidInput("用户名必填");
+  if (input.connectTimeoutSec < 1 || input.connectTimeoutSec > 300) throw errors.invalidInput("连接超时 1–300 秒");
+  if (input.jumpHostIds.some((jump) => jump === id || !all.some((host) => host.id === jump))) throw errors.invalidInput("无效的跳板主机");
+  if (findJumpCycle([...all.filter((host) => host.id !== id), { id, jumpHostIds: input.jumpHostIds }], id)) throw errors.invalidInput("跳板链不能形成循环");
+  return { ...input, name: input.name.trim(), host: input.host.trim(), user: input.user.trim() };
+}
+
 /** 主机配置：`.huhu/ssh/hosts/<id>.json`。秘密只以 `safe://` 引用保存。 */
 export class HostStore {
   constructor(private readonly dir: string) {}
@@ -42,7 +44,8 @@ export class HostStore {
       .filter((f) => f.endsWith(".json"))
       .flatMap((f) => {
         try {
-          return [JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as SshHost];
+          const host = LegacyHostView.parse(JSON.parse(readFileSync(path.join(this.dir, f), "utf8")) as unknown);
+          return `${host.id}.json` === f ? [host] : [];
         } catch {
           return [];
         }
@@ -57,17 +60,9 @@ export class HostStore {
   }
 
   save(input: HostInput): SshHost {
-    if (!input.name.trim()) throw errors.invalidInput("显示名称必填");
-    if (!input.host.trim() || /[\s/\\]/.test(input.host)) throw errors.invalidInput("主机名不能含空格或路径");
-    if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) throw errors.invalidInput("端口范围 1–65535");
-    if (!input.user.trim()) throw errors.invalidInput("用户名必填");
-    if (input.connectTimeoutSec < 1 || input.connectTimeoutSec > 300) throw errors.invalidInput("连接超时 1–300 秒");
-    const all = this.list();
-    for (const j of input.jumpHostIds) if (!all.some((h) => h.id === j)) throw errors.invalidInput("跳板主机不存在");
     const id = input.id ?? newId("host");
-    const host: SshHost = { ...input, id, name: input.name.trim(), host: input.host.trim(), user: input.user.trim() };
-    const cycle = findJumpCycle([...all.filter((h) => h.id !== id), host], id);
-    if (cycle) throw errors.invalidInput("跳板链不能形成循环");
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw errors.invalidInput("SSH 主机 ID 无效");
+    const host: SshHost = { ...validateHost(input, id, this.list()), id };
     mkdirSync(this.dir, { recursive: true });
     writeFileSync(path.join(this.dir, `${id}.json`), JSON.stringify(host, null, 2));
     return host;

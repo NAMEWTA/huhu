@@ -4,20 +4,22 @@ import { bindCapability, type HuhuApi } from "@huhu/kernel";
 import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostDirectory } from "./directory.js";
 import { HostStore } from "./hosts.js";
+import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
 import { SshManager } from "./manager.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
 export { SshManager } from "./manager.js";
 
-export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
+export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
-  const hosts = new HostStore(path.join(root, "hosts"));
+  const hosts = new HostConfigurations(new HostStore(path.join(root, "hosts")), credentialHost);
   const directory = new HostDirectory(hosts, api.vault.files);
   const manager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
     auditDir: path.join(root, "audit"),
+    withManagedAuth: (host, connect) => hosts.withAuthentication(host, connect),
     // 秘密只经 SecretUse 取得，且仅限被允许引用的模块（ssh）
     resolveSecret: (ref, purpose) => {
       const su = api.service<{ resolve(ref: string, c: { plugin: string; purpose: string }): string }>("secretUse");
@@ -37,18 +39,55 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
       return view;
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsList, () => hosts.list()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostsList, async () =>
+      (await hosts.list()).map((host) => {
+        if (!("configId" in host)) return host;
+        const { configId: _internal, ...view } = host;
+        return view;
+      }),
+    ),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsSave, async (_c, i) => {
-      const saved = await hosts.save(i as never);
+      api.vault.files.assertWritable();
+      const saved = await hosts.saveLegacy(i);
       api.events.publish("entity.changed", { kind: "ssh-host", id: saved.id, op: i.id ? "updated" : "created" }); // 带外（CLI / MCP）改主机，界面也能刷新
       return saved;
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsDelete, (_c, i) => (manager.disconnect(i.id), hosts.delete(i.id), api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" }), { ok: true as const })),
+    bindCapability(sshCapabilityDescriptors.hostsDelete, async (_c, i) => {
+      api.vault.files.assertWritable();
+      await hosts.deleteLegacy(i.id);
+      manager.disconnect(i.id);
+      api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" });
+      return { ok: true as const };
+    }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.connect, (_c, i) => manager.connect(i.hostId)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostsConfigure, async ({ signal }, input) => {
+      const saved = await hosts.configure(input, signal);
+      api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: input.hostId ? "updated" : "created" });
+      return saved;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostsCopy, async ({ signal }, input) => {
+      const saved = await hosts.copy(input, signal);
+      api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: "created" });
+      return saved;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostsRemove, async ({ signal }, input) => {
+      await hosts.remove(input, signal);
+      manager.disconnect(input.hostId);
+      api.events.publish("entity.changed", { kind: "ssh-host", id: input.hostId, op: "deleted" });
+      return { ok: true as const };
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.connect, ({ signal }, i) => manager.connect(i.hostId, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.disconnect, (_c, i) => (manager.disconnect(i.hostId), { ok: true as const })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => ({ applied: manager.decide(i.attemptId, i.hop, i.accept) })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) })));

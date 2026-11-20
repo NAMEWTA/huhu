@@ -3,7 +3,7 @@ import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import type { z } from "zod";
 import { DirectoryState, type DirectoryQuery, type DirectoryUpdate, type DirectoryView } from "./directory-schema.js";
-import type { HostStore, SshHost } from "./hosts.js";
+import type { HostRecord } from "./host-configurations.js";
 
 type State = z.infer<typeof DirectoryState>;
 type Group = State["groups"][number];
@@ -44,11 +44,11 @@ function groupsInScope(groups: Group[], groupId: string): Set<string> {
   return ids;
 }
 
-function compareHosts(a: SshHost, b: SshHost): number {
+function compareHosts(a: HostRecord, b: HostRecord): number {
   return a.name.localeCompare(b.name) || a.user.localeCompare(b.user) || a.host.localeCompare(b.host) || a.port - b.port || a.id.localeCompare(b.id);
 }
 
-function projectDirectory(state: State, hosts: SshHost[], query: Query): View {
+function projectDirectory(state: State, hosts: HostRecord[], query: Query): View {
   const placements = new Map(state.placements.map((placement) => [placement.hostId, placement]));
   const ranks = new Map(state.manualOrder.map((id, index) => [id, index]));
   const words = query.query?.trim().toLowerCase().split(/\s+/).filter(Boolean) ?? [];
@@ -93,7 +93,7 @@ function projectDirectory(state: State, hosts: SshHost[], query: Query): View {
   };
 }
 
-function applyOperation(state: State, hosts: SshHost[], operation: Update["operation"]): State {
+function applyOperation(state: State, hosts: HostRecord[], operation: Update["operation"]): State {
   const liveHostIds = new Set(hosts.map((host) => host.id));
   const groups = new Map(state.groups.map((group) => [group.groupId, group]));
   // Only live HostStore records occupy a group.
@@ -170,7 +170,7 @@ function applyOperation(state: State, hosts: SshHost[], operation: Update["opera
 
 export class HostDirectory {
   constructor(
-    private readonly hosts: HostStore,
+    private readonly hosts: { list(): HostRecord[] | Promise<HostRecord[]> },
     private readonly files: HuhuApi["vault"]["files"],
   ) {}
 
@@ -202,15 +202,15 @@ export class HostDirectory {
     return { state, fileVersion: file.version };
   }
 
-  list(query: Query): View {
-    return projectDirectory(this.readState().state, this.hosts.list(), query);
+  async list(query: Query): Promise<View> {
+    return projectDirectory(this.readState().state, await this.hosts.list(), query);
   }
 
   async organize({ expectedVersion, operation }: Update): Promise<View> {
     this.files.assertWritable();
     const { state, fileVersion } = this.readState();
     if (state.version !== expectedVersion) throw errors.versionConflict(state.version);
-    const hosts = this.hosts.list();
+    const hosts = await this.hosts.list();
     const next = applyOperation(state, hosts, operation);
     const view = projectDirectory(next, hosts, {});
     try {

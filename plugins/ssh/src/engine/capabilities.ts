@@ -1,22 +1,11 @@
 import { defineCapabilityDescriptor } from "@huhu/kernel";
 import { z } from "zod";
+import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput, LegacyHostView, ManagedHostView } from "./auth-profile.js";
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 
-const Auth = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("key"),
-    secretRef: z.string().regex(/^safe:\/\//),
-    passphraseRef: z
-      .string()
-      .regex(/^safe:\/\//)
-      .optional(),
-  }),
-  z.object({ kind: z.literal("password"), secretRef: z.string().regex(/^safe:\/\//) }),
-  z.object({ kind: z.literal("agent") }),
-]);
-const Host = z.object({ id: z.string(), name: z.string(), host: z.string(), port: z.number(), user: z.string(), auth: Auth, jumpHostIds: z.array(z.string()), tags: z.array(z.string()), connectTimeoutSec: z.number() });
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
+const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const HostId = z.object({ hostId: z.string() });
 const Entry = z.object({ name: z.string(), type: z.enum(["file", "dir", "link", "other"]), size: z.number(), mtime: z.number(), mode: z.string() });
 const Size = z.object({ size: z.number() });
@@ -51,7 +40,7 @@ export const sshCapabilityDescriptors = {
     scope: "read",
     risk: "normal",
     input: z.object({}),
-    output: z.array(Host),
+    output: z.array(z.union([ManagedHostView, LegacyHostView])),
   }),
   hostsSave: defineCapabilityDescriptor({
     ...ssh,
@@ -60,18 +49,32 @@ export const sshCapabilityDescriptors = {
     description: "创建或更新主机、认证引用和跳板配置。",
     scope: "write",
     risk: "high",
-    input: z.object({
-      id: z.string().optional(),
-      name: z.string(),
-      host: z.string(),
-      port: z.number().int().default(22),
-      user: z.string(),
-      auth: Auth,
-      jumpHostIds: z.array(z.string()).default([]),
-      tags: z.array(z.string()).default([]),
-      connectTimeoutSec: z.number().default(20),
-    }),
-    output: Host,
+    input: LegacyHostInput,
+    output: LegacyHostView,
+  }),
+  hostsConfigure: defineCapabilityDescriptor({
+    ...desktopHost,
+    name: "ssh.hosts.configure",
+    title: "配置 SSH 主机认证",
+    description: "按版本保存主机与本机认证补丁。",
+    input: ConfigureHost,
+    output: HostAuthSummary,
+  }),
+  hostsCopy: defineCapabilityDescriptor({
+    ...desktopHost,
+    name: "ssh.hosts.copy",
+    title: "复制 SSH 主机配置",
+    description: "复制主机设置，按新主机独立配置凭据。",
+    input: CopyHost,
+    output: HostAuthSummary,
+  }),
+  hostsRemove: defineCapabilityDescriptor({
+    ...desktopHost,
+    name: "ssh.hosts.remove",
+    title: "移除 SSH 主机配置",
+    description: "按版本移除未被用作跳板的主机及其认证。",
+    input: HostRevision,
+    output: Ok,
   }),
   hostsDelete: defineCapabilityDescriptor({
     ...ssh,
