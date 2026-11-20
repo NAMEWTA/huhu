@@ -236,12 +236,12 @@ function createWindow(): BrowserWindow {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
-  // 只有主框架加载失败才显示错误页：HTML 预览 iframe 里被拦截的导航（ERR_BLOCKED_BY_CSP / ERR_BLOCKED_BY_CLIENT 等）不能把整个工作台换成错误页
-  win.webContents.on("did-fail-load", (_e, code, desc, _url, isMainFrame) => {
-    if (!isMainFrame) return;
-    void win.loadURL(errorPage(`${desc} (${code})`));
+  // 只为工作台主框架的实际失败显示错误页。新导航取消旧加载时会报告 ERR_ABORTED。
+  win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3 || !isTrustedUrl(url)) return;
+    void win.loadURL(errorPage(`${desc} (${code})`)).catch(() => undefined);
   });
-  void win.loadURL(rendererAddress());
+  void win.loadURL(rendererAddress()).catch(() => undefined);
   return win;
 }
 

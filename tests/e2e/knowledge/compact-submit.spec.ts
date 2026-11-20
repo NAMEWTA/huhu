@@ -9,7 +9,7 @@ const latest = "撤销后立即发表的正文";
 
 async function openTask(page: Page) {
   await page.getByRole("button", { name: "任务", exact: true }).first().click();
-  await page.getByTestId("task-row").filter({ hasText: title }).first().click();
+  await page.getByRole("button", { name: `打开任务 ${title}`, exact: true }).click();
 }
 
 for (const closeTask of [false, true]) {

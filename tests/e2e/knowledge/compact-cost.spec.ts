@@ -38,7 +38,7 @@ test("S2c：任务评论 30 条的紧凑阅读实例成本", async () => {
       return ((await cdp.send("Runtime.getHeapUsage")) as { usedSize: number }).usedSize;
     };
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
-    await page.getByTestId("task-row").filter({ hasText: "成本测量" }).first().click();
+    await page.getByRole("button", { name: "打开任务 成本测量", exact: true }).click();
     const before = await heap();
     const t0 = Date.now();
     await expect(page.getByTestId("task-comment")).toHaveCount(N, { timeout: 30_000 });
