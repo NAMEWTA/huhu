@@ -226,7 +226,7 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
                     </strong>
                     <div className="automations-scan-list">
                       {preview.skipped.map((sk) => (
-                        <div key={sk.taskId} className="skipped" data-testid="preview-skipped">
+                        <div key={sk.taskId} className="automations-scan-skipped" data-testid="preview-skipped">
                           <strong>{sk.title}</strong>
                           <small>{t.reasons[sk.reason] ?? sk.reason}</small>
                         </div>

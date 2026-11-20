@@ -543,16 +543,16 @@ test("规则空出原生暂停的执行槽，并在原回答恢复时先取得�
   const fake = executor();
   fixture.executor = fake;
   const engine = await start(tempVault(), true);
-  const bindings = new Map<string, ExecutionBinding>();
+  const bindings = new Map<string, Extract<ExecutionReceipt, { kind: "question"; payload: { mode: "native_deferred" } }>["execution"]>();
   fake.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockImplementation(async ({ snapshot, dispatchId, runId, attempt }) => {
-    const execution: ExecutionBinding = {
+    const execution = {
       vaultId: engine.vault.id,
       taskId: snapshot.taskId,
       dispatchId,
       runId,
       attempt,
       sessionBinding: { machineId: machineId(), sessionId: `session-${runId}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: `thread-${runId}` },
-    };
+    } satisfies ExecutionBinding;
     bindings.set(runId, execution);
     return { state: "accepted", execution };
   });

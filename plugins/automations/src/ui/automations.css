@@ -251,7 +251,7 @@
     font-size: 10px;
     color: var(--muted);
   }
-  .automations-scan-list .skipped {
+  .automations-scan-list .automations-scan-skipped {
     background: var(--bg);
     color: var(--muted);
   }
