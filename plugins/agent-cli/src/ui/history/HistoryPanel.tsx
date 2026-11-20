@@ -1,7 +1,7 @@
 import { Button, Dialog } from "@huhu/ui";
-import { createRequestId, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Eye, History, Pin, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../i18n.js";
 
 interface Entry {
@@ -14,24 +14,25 @@ interface Entry {
   active: boolean;
   pinned: boolean;
   canResume: boolean;
+  canFork: boolean;
 }
 type Browse = { entries: Entry[]; skipped: number; total: number; nextOffset: number | null; limitedProviders: Entry["provider"][] };
+export type HistoryAction = "resume" | "fork";
+export type HistorySelection = Pick<Entry, "provider" | "nativeSessionId" | "historyId"> & { allSpaces: boolean };
+type LaunchPlan = { tab: () => Promise<void>; pane?: () => Promise<void>; paneLabel: string };
 const PAGE_SIZE = 50;
 const PROVIDERS = ["claude", "codex", "pi"] as const;
 const reference = ({ provider, nativeSessionId, historyId }: Entry) => ({ provider, nativeSessionId, historyId });
 
-interface Session {
-  id: string;
-}
 interface Transcript {
   messages: { role: "user" | "assistant"; text: string; at: string | null }[];
   truncated: boolean;
 }
 
-function TranscriptDialog({ spaceId, allSpaces, entry, onClose }: { spaceId: string; allSpaces: boolean; entry: Entry; onClose: () => void }) {
+function TranscriptDialog({ spaceId, allSpaces, entry, onClose, actions }: { spaceId: string; allSpaces: boolean; entry: Entry; onClose: () => void; actions: ReactNode }) {
   const transcript = useCapability<Transcript>("agent.history.read", { spaceId, allSpaces, ...reference(entry) });
   return (
-    <Dialog open title={entry.title} description="只读的对话记录（用户与助手的文字；不含工具调用）。" testId="history-transcript" onClose={onClose}>
+    <Dialog open title={entry.title} description="只读的对话记录（用户与助手的文字；不含工具调用）。" testId="history-transcript" onClose={onClose} actions={actions}>
       {transcript.isError ? (
         <div role="alert" className="hu-callout danger">
           <p>{transcript.error instanceof Error ? transcript.error.message : String(transcript.error)}</p>
@@ -52,13 +53,29 @@ function TranscriptDialog({ spaceId, allSpaces, entry, onClose }: { spaceId: str
   );
 }
 
-export function HistoryPanel({ space, installed, onResumed }: { space: { id: string; revision: number; name?: string; root?: string }; installed: Set<string>; onResumed: (sessionId: string) => void }) {
+export function HistoryPanel({
+  space,
+  installed,
+  writable,
+  canLaunch,
+  planLaunch,
+  onLocate,
+}: {
+  space: { id: string; name?: string; root?: string };
+  installed: Set<string>;
+  writable: boolean;
+  canLaunch: boolean;
+  planLaunch: (selection: HistorySelection, action: HistoryAction) => LaunchPlan | null;
+  onLocate: (selection: HistorySelection) => Promise<void>;
+}) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [viewing, setViewing] = useState<Entry | null>(null);
+  const [confirming, setConfirming] = useState<{ entry: Entry; action: HistoryAction; plan: LaunchPlan } | null>(null);
+  const [destination, setDestination] = useState<"tab" | "pane">("tab");
   const [filter, setFilter] = useState<"all" | "active" | "resumable">("all");
   const [provider, setProvider] = useState<Entry["provider"] | "">("");
   const [allSpaces, setAllSpaces] = useState(false);
@@ -86,13 +103,19 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
     setError(null);
   }
 
-  async function resume(e: Entry) {
+  function selectLaunch(e: Entry, action: HistoryAction) {
+    const plan = planLaunch({ ...reference(e), allSpaces }, action);
+    if (!plan) return;
+    setViewing(null);
+    setDestination("tab");
+    setConfirming({ entry: e, action, plan });
+  }
+
+  async function locate(e: Entry) {
     setBusy(e.historyId);
     setError(null);
     try {
-      const s = await engine.call<Session>("agent.history.resume", { spaceId: space.id, spaceRevision: space.revision, ...reference(e), requestId: createRequestId() }, { write: true });
-      await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
-      onResumed(s.id);
+      await onLocate({ ...reference(e), allSpaces });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -224,16 +247,20 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
               <span style={{ flex: 1, minWidth: 0 }}>
                 <strong data-testid="history-title">{e.title}</strong>
                 <small>
-                  {t.history.provider[e.provider] ?? e.provider}
+                  {t.history.provider[e.provider]}
                   {e.active ? ` · ${t.history.active}` : ""}
                 </small>
                 <time>{new Date(e.updatedAt).toLocaleString("zh-CN", { hour12: false })}</time>
+                {!e.active && !ok ? <small>{t.history.notInstalled}</small> : null}
+                {!e.active && ok && !e.canResume && !e.canFork ? <small>此记录仅可预览</small> : null}
+                {!e.active && ok && !e.canResume && e.canFork ? <small>请在原 Space 中恢复</small> : null}
               </span>
               <button
                 type="button"
                 className={`agent-pin${e.pinned ? " agent-pinned" : ""}`}
                 aria-pressed={e.pinned}
                 aria-label={e.pinned ? t.history.unpin(e.title) : t.history.pin(e.title)}
+                disabled={!writable}
                 data-testid="history-pin"
                 onClick={() => void togglePin(e)}
               >
@@ -242,15 +269,15 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
               <button type="button" className="agent-pin" aria-label={`查看记录 ${e.title}`} title="只读查看这次会话的对话记录" data-testid="history-view" onClick={() => setViewing(e)}>
                 <Eye size={12} aria-hidden />
               </button>
-              <Button
-                disabled={!ok || !e.canResume || allSpaces || busy !== null}
-                loading={busy === e.historyId}
-                title={!ok ? t.history.notInstalled : e.canResume && allSpaces ? "请在原 Space 中恢复" : !e.canResume && !e.active ? "此记录仅可预览" : undefined}
-                data-testid="history-resume"
-                onClick={() => void resume(e)}
-              >
-                {busy === e.historyId ? t.history.resuming : t.history.resume}
-              </Button>
+              {e.active ? (
+                <Button disabled={busy !== null} loading={busy === e.historyId} data-testid="history-locate" onClick={() => void locate(e)}>
+                  前往会话
+                </Button>
+              ) : (
+                <Button disabled={!ok || !e.canResume || !canLaunch} data-testid="history-resume" onClick={() => selectLaunch(e, "resume")}>
+                  {t.history.resume}
+                </Button>
+              )}
             </div>
           );
         })}
@@ -266,7 +293,50 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
         ) : null}
       </div>
       <div className="agent-history-footnote">{t.history.note}</div>
-      {viewing ? <TranscriptDialog spaceId={space.id} allSpaces={allSpaces} entry={viewing} onClose={() => setViewing(null)} /> : null}
+      {viewing ? (
+        <TranscriptDialog
+          spaceId={space.id}
+          allSpaces={allSpaces}
+          entry={viewing}
+          onClose={() => setViewing(null)}
+          actions={
+            <Button disabled={!canLaunch || !viewing.canFork || !installed.has(viewing.provider)} data-testid="history-fork" onClick={() => selectLaunch(viewing, "fork")}>
+              创建分支
+            </Button>
+          }
+        />
+      ) : null}
+      {confirming ? (
+        <Dialog
+          open
+          title={confirming.action === "resume" ? "恢复原会话" : "创建会话分支"}
+          description={confirming.entry.title}
+          testId="history-launch"
+          onClose={() => setConfirming(null)}
+          actions={
+            <Button
+              onClick={() => {
+                const open = confirming.plan[destination];
+                setConfirming(null);
+                void open?.();
+              }}
+            >
+              {confirming.action === "resume" ? "恢复会话" : "创建分支"}
+            </Button>
+          }
+        >
+          <p>
+            {space.name} · {confirming.action === "fork" && confirming.entry.provider === "pi" ? space.root : confirming.entry.cwd}
+          </p>
+          <label>
+            打开位置{" "}
+            <select value={destination} onChange={(event) => setDestination(event.currentTarget.value === "pane" ? "pane" : "tab")}>
+              <option value="tab">打开新标签页</option>
+              {confirming.plan.pane ? <option value="pane">{confirming.plan.paneLabel}</option> : null}
+            </select>
+          </label>
+        </Dialog>
+      ) : null}
     </section>
   );
 }

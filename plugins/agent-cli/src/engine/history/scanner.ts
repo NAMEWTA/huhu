@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -168,6 +168,23 @@ function parsePi(file: string): Parsed {
   return { id, cwd, title };
 }
 
+function historyIdentity(provider: HistoryEntry["provider"], id: string, file: string, cwd: string) {
+  return createHash("sha256")
+    .update(JSON.stringify([provider, id, file, cwd]))
+    .digest("hex");
+}
+
+export function isPiHistoryFile(file: string, nativeId: string, historyId: string): boolean {
+  try {
+    const stat = lstatSync(file);
+    if (!stat.isFile() || !stat.size || realpathSync(file) !== file) return false;
+    const { id, cwd } = parsePi(file);
+    return !!cwd && id === nativeId && historyIdentity("pi", nativeId, file, real(cwd)) === historyId;
+  } catch {
+    return false;
+  }
+}
+
 function claudeRoot(env: NodeJS.ProcessEnv, home: string): string {
   return path.join(env["CLAUDE_CONFIG_DIR"] || path.join(home, ".claude"), "projects");
 }
@@ -222,9 +239,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
     if (!roots.some((r) => within(r, cwd))) return;
     if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
     const location = real(file);
-    const historyId = createHash("sha256")
-      .update(JSON.stringify([provider, id, location]))
-      .digest("hex");
+    const historyId = historyIdentity(provider, id, location, cwd);
     if (seen.has(historyId)) return;
     seen.add(historyId);
     entries.push({ provider, historyId, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file: location });

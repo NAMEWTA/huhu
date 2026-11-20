@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, ChevronDown, Folder, FolderOpen, History, Pencil
 import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
-import { HistoryPanel } from "./history/HistoryPanel.js";
+import { HistoryPanel, type HistoryAction, type HistorySelection } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { ProtectedLaunchDialog } from "./ProtectedLaunchDialog.js";
 import { SpaceDirectoryNotice } from "./SpaceDirectoryNotice.js";
@@ -43,11 +43,13 @@ interface LaunchIntent {
   position?: CSSProperties;
 }
 type ViewSelection = { tab: string; leaf: string; zoom: string | null };
+type HistoryLocation = { spaceId: string; sessionId: string; terminalId: string; tab: string; leaf: string };
+type LaunchParameters = LaunchOptions & { history?: HistorySelection & { action: HistoryAction } };
 
 type LaunchRecovery = {
   intent: Omit<LaunchIntent, "trigger" | "position">;
   provider: string;
-  options: LaunchOptions;
+  options: LaunchParameters;
   outcome: "unknown" | "not-created";
 };
 
@@ -57,7 +59,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
-  const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string } | null>(null);
+  const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string; exact?: HistoryLocation } | null>(null);
   const [menu, setMenu] = useState<LaunchIntent | null>(null);
   const [environmentIntent, setEnvironmentIntent] = useState<LaunchIntent | null>(null);
   const [recoveries, setRecoveries] = useState<Record<string, LaunchRecovery | null>>({});
@@ -182,7 +184,15 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     }
     if (space?.id !== requestedSession.spaceId || sessions.isFetching || workspace.isFetching || !sessions.isSuccess || !workspace.isSuccess) return;
     const session = sessions.data?.find(({ id }) => id === requestedSession.sessionId);
-    if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
+    const exact = requestedSession.exact;
+    if (exact) {
+      const placement = view && sessionPlacement(view.layout, exact.sessionId);
+      if (session?.state === "running" && session.terminalId === exact.terminalId && placement?.tab === exact.tab && placement.leaf === exact.leaf) {
+        setActive(exact.sessionId);
+        setSelections((previous) => ({ ...previous, [exact.spaceId]: { tab: exact.tab, leaf: exact.leaf, zoom: null } }));
+        setFocusTarget(exact.leaf);
+      } else setError("原会话的分栏已变化，请从历史重新查询");
+    } else if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
     else {
       setActive(session.id);
       const owner = view?.layout.tabs.find((item) => leaves(item.pane).some(({ sessionId }) => sessionId === session.id));
@@ -231,7 +241,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     return { ...intent, trigger, position };
   }
 
-  async function launch(intent: LaunchIntent, provider: string, options: LaunchOptions = {}) {
+  async function launch(intent: LaunchIntent, provider: string, options: LaunchParameters = {}) {
     if (writeReceipt.current) return;
     const { space, target, id } = intent;
     const stay = () => navigation.current === intent.navigation;
@@ -240,8 +250,9 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     setMenu(null);
     setError(null);
     try {
-      const capability = options.environment ? "agent.workspace.launchProtected" : "agent.workspace.launch";
-      const result = await engine.call<WorkspaceLaunchView>(capability, { spaceId: space.id, spaceRevision: space.revision, baseVersion: intent.view.version, requestId: id, target, provider, ...options }, { write: true });
+      const { history, ...settings } = options;
+      const capability = history ? "agent.history.workspaceLaunch" : settings.environment ? "agent.workspace.launchProtected" : "agent.workspace.launch";
+      const result = await engine.call<WorkspaceLaunchView>(capability, { spaceId: space.id, spaceRevision: space.revision, baseVersion: intent.view.version, requestId: id, target, provider, ...settings, ...history }, { write: true });
       setRecoveries((previous) => (previous[space.id]?.intent.id === id ? { ...previous, [space.id]: null } : previous));
       await rememberWorkspace(result.workspace);
       confirmed = result.placement !== null;
@@ -268,6 +279,34 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
       finish(confirmed);
       void refresh();
     }
+  }
+
+  function planHistory(selection: HistorySelection, action: HistoryAction) {
+    const target: WorkspaceTarget | null = tab && currentLeaf ? { kind: "leaf", tab: tab.id, leaf: currentLeaf.id, ...(currentLeaf.sessionId && { direction: "right" }) } : null;
+    const newTab = startTarget({ kind: "tab" });
+    const current = target && startTarget(target);
+    if (!newTab) return null;
+    const options = { history: { ...selection, action } };
+    return {
+      tab: () => launch(newTab, selection.provider, options),
+      ...(current && { pane: () => launch(current, selection.provider, options) }),
+      paneLabel: currentLeaf?.sessionId ? "在当前分栏右侧打开" : "在当前空分栏打开",
+    };
+  }
+
+  async function locateHistory(selection: HistorySelection) {
+    if (!space) return;
+    const startedAt = navigation.current;
+    const result = await engine.call<HistoryLocation>("agent.history.locate", { spaceId: space.id, ...selection });
+    if (navigation.current !== startedAt) return;
+    ++navigation.current;
+    setRequestedSession({ spaceId: result.spaceId, sessionId: result.sessionId, exact: result });
+    setSpaceId(result.spaceId);
+    setShowHistory(false);
+    setMenu(null);
+    setMoveSource(null);
+    setError(null);
+    void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && ["agent.sessions.list", "agent.workspace.get"].includes(String(q.queryKey[1])) });
   }
   // Ctrl+T（macOS ⌘T）：新建普通终端。只在本模块激活时生效；终端获得焦点时不拦截（Claude Code 的 TUI 自己用 Ctrl+T）
   const newShell = useRef<() => void>(() => undefined);
@@ -876,7 +915,10 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             key={space.id} // 切换 Space 时历史面板重新挂载：搜索框与筛选被清空（ACC-AG-05）
             space={space}
             installed={new Set((detected.data ?? []).filter((p) => p.installed).map((p) => p.id))}
-            onResumed={(id) => setRequestedSession({ spaceId: space.id, sessionId: id })}
+            writable={Boolean(view?.writable)}
+            canLaunch={editable}
+            planLaunch={planHistory}
+            onLocate={locateHistory}
           />
         </aside>
       ) : null}

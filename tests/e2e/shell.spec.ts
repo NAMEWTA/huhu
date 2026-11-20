@@ -1258,6 +1258,102 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   }
 });
 
+test("Agent CLI 历史：在 Windows 原生 Pi 上分支、恢复并跨 Space 定位原分栏", async () => {
+  const piCommand = process.env["HUHU_PI_HISTORY_E2E"];
+  test.skip(!piCommand || !existsSync(piCommand) || !existsSync(HERDR), "需要独立的 Pi CLI 与本地 Core");
+  test.setTimeout(90_000);
+  const base = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-pi-history-")));
+  const vault = path.join(base, "Vault");
+  const other = path.join(base, "其他 Space");
+  const agentDir = path.join(base, "pi-config");
+  const historyDir = path.join(base, "pi history");
+  for (const dir of [vault, other, agentDir, historyDir]) mkdirSync(dir);
+  writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ cacheWarming: "off", defaultProjectTrust: "never", enableInstallTelemetry: false, httpProxy: "http://127.0.0.1:9" }));
+  const source = path.join(historyDir, "origin 中文.jsonl");
+  const time = "2026-11-01T10:00:00.000Z";
+  const rows = [
+    { type: "session", version: 3, id: "history-original-a", timestamp: time, cwd: vault },
+    { type: "message", id: "p1", parentId: null, timestamp: time, message: { role: "user", content: "Pi 原始消息", timestamp: Date.parse(time) } },
+  ];
+  const original = rows.map((item) => JSON.stringify(item)).join("\n") + "\n";
+  writeFileSync(source, original);
+  const app = await launch(vault, { CLAUDE_CONFIG_DIR: agentDir, CODEX_HOME: agentDir, PI_CODING_AGENT_DIR: agentDir, PI_CODING_AGENT_SESSION_DIR: historyDir });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    async function call<T>(capability: string, input: object = {}) {
+      return page.evaluate(
+        async ({ capability, input }) => {
+          const ep = await window.huhuHost.engine();
+          const id = crypto.randomUUID();
+          return (await (
+            await fetch(`${ep.baseUrl}/api/v1/call`, {
+              method: "POST",
+              headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+              body: JSON.stringify({ capability, input, requestId: id, idempotencyKey: id }),
+            })
+          ).json()) as { ok: boolean; data: T; error?: { code: string; message: string } };
+        },
+        { capability, input },
+      );
+    }
+    const set = await call("agent.settings.update", { expectedRevision: 0, defaultAgent: null, agents: { pi: { command: piCommand, args: ["--no-extensions", "--no-tools"] } } });
+    expect(set.ok, set.error?.message).toBe(true);
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    const originSpace = page.getByTestId("agent-space-item").first();
+    const originName = await originSpace.locator("strong").textContent();
+    const entries = page.getByTestId("history-item");
+    const entry = entries.filter({ hasText: "Pi 原始消息" });
+    await expect(entry).toHaveCount(1);
+    await entry.getByTestId("history-view").click();
+    await expect(page.getByTestId("history-transcript").getByTestId("transcript-message")).toContainText("Pi 原始消息");
+    expect(readFileSync(source, "utf8")).toBe(original);
+    await page.getByTestId("history-fork").click();
+    const confirm = page.getByTestId("history-launch");
+    await expect(confirm.getByLabel("打开位置")).toHaveValue("tab");
+    await confirm.getByRole("button", { name: "创建分支" }).click();
+    await expect.poll(() => readdirSync(historyDir).filter((name) => name.endsWith(".jsonl")).length, { timeout: 20_000 }).toBe(2);
+    const forkFile = readdirSync(historyDir).find((name) => name.endsWith(".jsonl") && name !== path.basename(source));
+    const fork = JSON.parse(readFileSync(path.join(historyDir, forkFile!), "utf8").split("\n")[0]!) as { id: string; cwd: string; parentSession: string };
+    expect(fork.id).toMatch(/^huhu-/);
+    expect(path.relative(vault, fork.cwd)).toBe("");
+    expect(path.relative(source, fork.parentSession)).toBe("");
+    expect(readFileSync(source, "utf8")).toBe(original);
+
+    const originalRow = entries.filter({ hasText: "Pi 原始消息" }).filter({ has: page.getByTestId("history-resume") });
+    await originalRow.getByTestId("history-resume").click();
+    await confirm.getByLabel("打开位置").selectOption("pane");
+    await confirm.getByRole("button", { name: "恢复会话" }).click();
+    const spaces = await call<{ id: string; name: string }[]>("agent.spaces.list");
+    const originalSpaceId = spaces.data.find((space) => space.name === originName)!.id;
+    type AgentSession = { id: string; state: string; terminalId: string; nativeSessionId?: string };
+    const list = () => call<AgentSession[]>("agent.sessions.list", { spaceId: originalSpaceId });
+    await expect.poll(async () => (await list()).data.find((x) => x.nativeSessionId === "history-original-a")?.state).toBe("running");
+    const originalBinding = (await list()).data.find((x) => x.nativeSessionId === "history-original-a")!;
+    const pane = page.getByTestId("workspace-pane").and(page.locator(`[data-session-id="${originalBinding.id}"]`));
+    await expect(pane).toBeVisible();
+    await page.getByTestId("space-new").click();
+    const newSpace = page.getByTestId("space-dialog");
+    await newSpace.getByLabel("Space 名称").fill("验证其他空间");
+    await newSpace.getByLabel("工作目录", { exact: true }).fill(other);
+    await newSpace.getByTestId("space-save").click();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "验证其他空间" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByLabel("范围", { exact: true }).selectOption("all");
+    await page.getByRole("searchbox", { name: "搜索会话历史" }).fill("history-original-a");
+    await expect(entries).toHaveCount(1);
+    await entries.getByTestId("history-locate").click();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: originName! })).toHaveAttribute("aria-pressed", "true");
+    await expect(pane).toHaveAttribute("data-active", "true");
+    const relocated = (await list()).data;
+    expect(relocated).toHaveLength(2);
+    expect(relocated.find(({ id }) => id === originalBinding.id)?.terminalId).toBe(originalBinding.terminalId);
+    expect(readFileSync(source, "utf8")).toBe(original);
+  } finally {
+    await app.close();
+    rmTree(base);
+  }
+});
+
 test("同步设置用 Versioning 凭据补配旧 HTTPS 目标，换目标后明确提示重新配置", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const first = "https://example.invalid/team/notes.git";

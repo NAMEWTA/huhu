@@ -79,7 +79,7 @@ export const t = {
     filterAll: "全部",
     filterResumable: "可恢复",
     filters: "历史筛选",
-    search: "搜索当前 Space 历史",
+    search: "搜索会话历史",
     searchPlaceholder: "搜索当前 Space…",
     noMatch: "当前 Space 没有匹配会话",
     resuming: "正在恢复…",

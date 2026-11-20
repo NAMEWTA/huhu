@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameS
 import path from "node:path";
 import { HuhuError, errors, newId, type ExecutionBinding } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
-import { isValidNativeId, isWithin } from "./history/scanner.js";
+import { isValidNativeId, isWithin, isPiHistoryFile } from "./history/scanner.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
 import { redactSecrets, shellCommand, type ShellName } from "../shared/shell.js";
 import { matchesProtectedDirectory, type ProtectedDirectory, type ProtectedLaunch } from "./protected-launch.js";
-import type { ResolvedLaunch, ResolveInput } from "./launch.js";
+import type { HistoryLaunch, ResolvedLaunch, ResolveInput } from "./launch.js";
 import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchAttempt, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
 import type { InputOwnership } from "./input-ownership.js";
@@ -35,6 +35,8 @@ export interface SessionRecord {
   createdAt: string;
   /** 由历史恢复启动时记录 provider 原生会话 id。 */
   nativeSessionId?: string;
+  /** Exact local history reference when the session was opened from a record. */
+  historyId?: string;
   /** 终端命令会话（automations 的 terminal 动作）：显示用，不含环境变量。 */
   command?: string;
   /** 启动时带受保护环境变量。只存布尔值，用于输出脱敏与终端清理。 */
@@ -126,6 +128,7 @@ export interface LaunchInput {
   workspaceIntent?: string;
   /** 恢复历史会话（仅内部调用：id 来自对历史的扫描结果，不由外部直接传入）。 */
   resumeSessionId?: string | undefined;
+  history?: (HistoryLaunch & { sourceId: string }) | undefined;
   /** 显式 cwd 必须是 Space 范围内的现有绝对目录。 */
   cwd?: string | undefined;
   /** 终端命令（只与 provider=shell 一起用）：以 `argv = [shell, -c, command]` 运行，能拿到退出码。 */
@@ -377,14 +380,15 @@ export class SessionsService {
     let env: Record<string, string> | undefined;
     let controlled: Awaited<ReturnType<CodexDispatch["prepare"]>> | undefined;
     if (input.controlled) {
-      if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.command !== undefined || input.env !== undefined) throw errors.invalidInput("受控 Codex 仅支持新会话");
+      if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.history !== undefined || input.command !== undefined || input.env !== undefined)
+        throw errors.invalidInput("受控 Codex 仅支持新会话");
       controlled = await this.d.codex.prepare(input);
     } else if (input.command !== undefined) {
       if (input.provider !== "shell") throw errors.invalidInput("command 只能与终端（shell）一起用");
       argv = shellCommand(input.shell ?? "default", input.command);
       if (input.env && Object.keys(input.env).length > 0) env = input.env;
     } else if (input.provider !== "shell") {
-      const r = await this.d.resolve({ agentId: input.provider, mode: "interactive", model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt, resume: input.resumeSessionId });
+      const r = await this.d.resolve({ agentId: input.provider, mode: "interactive", model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt, resume: input.resumeSessionId, history: input.history });
       argv = [r.command, ...r.argv];
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
     }
@@ -473,6 +477,9 @@ export class SessionsService {
       executionHash,
       argvHash: argv ? launchHash(argv) : null,
     };
+    const history = input.history;
+    const nativeSessionId = history ? (history.mode === "resume" ? history.nativeId : history.forkId) : input.resumeSessionId;
+    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId)) throw errors.notFound("原 Pi 会话文件已变化，请重新选择");
     const session: SessionRecord = previous ?? {
       id: newId("cap").replace(/^cap-/, "sess-"),
       spaceId: space.id,
@@ -486,7 +493,8 @@ export class SessionsService {
       ...(env && !native ? { hasEnv: true } : {}),
       cwd,
       createdAt: this.d.now().toISOString(),
-      ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
+      ...(nativeSessionId ? { nativeSessionId } : {}),
+      ...(history?.mode === "resume" ? { historyId: history.sourceId } : {}),
       ...(input.controlled ? { controlled: input.controlled } : {}),
       launchReceipt: receipt,
     };
@@ -515,6 +523,9 @@ export class SessionsService {
     // Another service may have claimed the same request while this connection was opening.
     const current = this.currentLaunch(session, intent, executionHash);
     if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId)) {
+      throw this.confirmNotCreated(current, receipt, "run", "原 Pi 会话文件已变化，启动请求尚未发送");
+    }
     if (input.approvedDirectory && !matchesProtectedDirectory(cwd, input.approvedDirectory)) {
       const changed = this.approvedDirectoryChanged();
       this.save({ ...current, state: "failed", error: changed.message });

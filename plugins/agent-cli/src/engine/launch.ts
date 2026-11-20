@@ -1,7 +1,10 @@
 import { HuhuError, errors } from "@huhu/contracts";
+import path from "node:path";
 import { AGENT_CATALOG, type AgentCatalogEntry, type ArgTemplate, type ConflictFlag, type OptionArgs } from "../shared/catalog.js";
 import { entryOf, isEnabled, type AgentSettingsEntry, type AgentSettingsFile } from "../shared/settings.js";
 import type { DetectInfo } from "./detect.js";
+
+export type HistoryLaunch = { mode: "resume"; nativeId: string; file?: string } | { mode: "fork"; nativeId: string; file?: string; forkId?: string };
 
 export interface ResolveInput {
   agentId: string;
@@ -15,6 +18,8 @@ export interface ResolveInput {
   sessionId?: string | undefined;
   /** 恢复会话 id。 */
   resume?: string | undefined;
+  /** Trusted history reference resolved by the Engine. */
+  history?: HistoryLaunch | undefined;
   /** 仅预览：用未保存的设置代替已存设置（必须与 preview 一起用）。 */
   draft?: AgentSettingsEntry | undefined;
   /** 仅预览：command 用可读命令名，env 值打码，不要求已检测到、不报停用。 */
@@ -33,6 +38,7 @@ export interface ResolvedLaunch {
 }
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const HISTORY_FLAGS = /^(?:--(?:resume|continue|session|session-id|fork|fork-session|no-session|last|remote|print|mode|help|version|list-models|teleport)(?:=|$)|-[rphv]$|--$)/;
 
 const fill = (t: ArgTemplate, vars: { v?: string; id?: string; uuid?: string }): string[] =>
   t.map((a) =>
@@ -100,10 +106,19 @@ export function resolveAgentLaunch(
   const warnings: string[] = [];
   const userArgs = user.args ?? entry.fullAccessArgs;
   const argv: string[] = [];
-  const resumeId = input.resume;
+  const history = input.history;
+  if (history) {
+    if (!SAFE_ID.test(history.nativeId) || input.mode !== "interactive" || input.resume || input.prompt !== undefined) throw errors.invalidInput("历史会话启动参数无效");
+    if (userArgs.some((arg) => HISTORY_FLAGS.test(arg) || (arg === "-c" && entry.id !== "codex"))) throw errors.invalidInput("当前智能体参数覆盖了原生历史，请在设置中移除冲突参数");
+    if (entry.id === "pi" && (!history.file || !path.isAbsolute(history.file))) throw errors.invalidInput("Pi 需要确切的历史文件");
+    if (entry.id !== "pi" && !entry.interactive.resume) throw errors.invalidInput("此智能体不支持原生历史启动");
+    if (history.mode === "fork" && entry.id === "pi" && (!history.forkId || !SAFE_ID.test(history.forkId))) throw errors.invalidInput("Pi 分支标识无效");
+  }
+  const resumeId = history && entry.id !== "pi" && (history.mode === "resume" || entry.id === "claude") ? history.nativeId : input.resume;
 
   // 2. 前缀子命令
   if (input.mode === "headless" && headless) argv.push(...(resumeId && headless.resume.prefix ? headless.resume.prefix : headless.prefix));
+  else if (history?.mode === "fork" && entry.id === "codex") argv.push("fork", history.nativeId);
   else if (resumeId && entry.interactive.resume?.position === "prefix") argv.push(...fill(entry.interactive.resume.argv, { id: resumeId }));
 
   // 3. 启动选项
@@ -133,6 +148,11 @@ export function resolveAgentLaunch(
       else tail.push(...fill(headless.resume.argv, { id: resumeId }));
     } else if (input.sessionId && headless.newSession) argv.push(...fill(headless.newSession, { uuid: input.sessionId }));
   } else if (resumeId && entry.interactive.resume?.position === "option") argv.push(...fill(entry.interactive.resume.argv, { id: resumeId }));
+  if (history?.mode === "fork" && entry.id === "claude") argv.push("--fork-session");
+  if (history && entry.id === "pi" && history.file) {
+    argv.push(history.mode === "fork" ? "--fork" : "--session", history.file);
+    if (history.mode === "fork" && history.forkId) argv.push("--session-id", history.forkId);
+  }
   // 7. 位置参数
   argv.push(...tail);
   if (input.mode === "interactive" && input.prompt && !resumeId && entry.interactive.prompt === "positional") argv.push(input.prompt);

@@ -75,7 +75,23 @@ export function installDirs(home: string = homedir(), platform: NodeJS.Platform 
 }
 
 /** 运行 `<exe> <args>`，5 秒超时；返回首行文本或 null。 */
-export function probeVersion(exe: string, args: string[] = ["--version"], timeoutMs = 5000, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+export async function probeVersion(exe: string, args: string[] = ["--version"], timeoutMs = 5000, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const stdout = await probeText(exe, args, timeoutMs, env);
+  return (
+    stdout
+      ?.split(/\r?\n/)
+      .find((line) => line.trim())
+      ?.trim() ?? null
+  );
+}
+
+export async function supportsPiHistory(exe: string, mode: "resume" | "fork", env: NodeJS.ProcessEnv): Promise<boolean> {
+  const help = await probeText(exe, ["--help"], 5000, env);
+  if (!help) return false;
+  return mode === "resume" ? /^\s+--session\s/m.test(help) : /^\s+--fork\s/m.test(help) && /^\s+--session-id\s/m.test(help);
+}
+
+function probeText(exe: string, args: string[], timeoutMs: number, env: NodeJS.ProcessEnv): Promise<string | null> {
   const batch = process.platform === "win32" && /\.(cmd|bat)$/i.test(exe);
   let command = exe;
   let argv = args;
@@ -94,13 +110,7 @@ export function probeVersion(exe: string, args: string[] = ["--version"], timeou
   }
   return new Promise((resolve) => {
     execFile(command, argv, { timeout: timeoutMs, env: childEnv, windowsHide: true, windowsVerbatimArguments: batch }, (err, stdout) => {
-      if (err) return resolve(null);
-      resolve(
-        String(stdout)
-          .split(/\r?\n/)
-          .find((l) => l.trim())
-          ?.trim() ?? null,
-      );
+      resolve(err ? null : String(stdout));
     });
   });
 }

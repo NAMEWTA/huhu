@@ -119,6 +119,16 @@ describe("启动合成 resolveAgentLaunch", () => {
     // LA-04：codex 恢复以 resume <id> 紧跟命令，恢复时不追加提示词
     expect(run("codex", { resume: "s1", prompt: "忽略" }).argv).toEqual(["resume", "s1", "--dangerously-bypass-approvals-and-sandbox"]);
   });
+  test("历史恢复与分支使用各提供方的原生引用，并拒绝会覆盖来源的参数", () => {
+    const nativeId = "11111111-1111-1111-1111-111111111111";
+    const file = path.resolve("synthetic Pi history", "中文.jsonl");
+    expect(run("pi", { history: { mode: "resume", nativeId, file } }).argv).toEqual(["--session", file]);
+    expect(run("pi", { history: { mode: "fork", nativeId, file, forkId: "new-id" } }).argv).toEqual(["--fork", file, "--session-id", "new-id"]);
+    expect(run("claude", { history: { mode: "fork", nativeId } }).argv.slice(-3)).toEqual(["--resume", nativeId, "--fork-session"]);
+    expect(run("codex", { history: { mode: "fork", nativeId } }).argv.slice(0, 2)).toEqual(["fork", nativeId]);
+    expect(() => run("pi", { history: { mode: "resume", nativeId, file: "relative.jsonl" } })).toThrow("确切的历史文件");
+    expect(() => run("pi", { history: { mode: "fork", nativeId, file, forkId: "new-id" } }, settingsWith({ pi: { args: ["--continue"] } }))).toThrow("覆盖了原生历史");
+  });
   test("LA-02 claude headless：参数顺序，--disallowedTools 在最后", () => {
     const r = run("claude", { mode: "headless", model: "sonnet", sessionId: "11111111-1111-1111-1111-111111111111", prompt: "任务" });
     expect(r.argv).toEqual([
