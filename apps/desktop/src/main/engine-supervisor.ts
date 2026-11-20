@@ -37,6 +37,7 @@ export class EngineSupervisor {
   private waiters: ((e: EngineEndpoint) => void)[] = [];
   private stopping = false;
   private restartWhenStopped = false;
+  private stopGeneration = 0;
   /** 最近一次启动失败的原因（Engine 在 stderr 上输出的 {"type":"error"} 行）。 */
   lastError: { code: string; message: string } | null = null;
 
@@ -58,6 +59,7 @@ export class EngineSupervisor {
   }
 
   start(): void {
+    this.stopGeneration++;
     this.stopping = false;
     this.restartWhenStopped = false;
     this.endpoint = null;
@@ -155,7 +157,8 @@ export class EngineSupervisor {
   }
 
   /** 退出撤销时恢复原 Engine。若 stop 等到了强制结束时限，等原进程实际退出再启动。 */
-  restartAfterStop(): void {
+  restartAfterStop(generation: number): void {
+    if (generation !== this.stopGeneration) return;
     if (this.child && this.stopping) {
       this.restartWhenStopped = true;
       return;
@@ -163,11 +166,12 @@ export class EngineSupervisor {
     this.restart();
   }
 
-  /** 发送关闭请求并等待退出；超过 15 秒强制结束。 */
-  async stop(timeoutMs = 15_000): Promise<void> {
+  /** 发送关闭请求并等待退出。返回本次停止身份，较晚的停止可以撤销其恢复许可。 */
+  async stop(timeoutMs = 15_000): Promise<number> {
+    const generation = ++this.stopGeneration;
     this.restartWhenStopped = false;
     const child = this.child;
-    if (!child) return;
+    if (!child) return generation;
     this.stopping = true;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
@@ -180,5 +184,6 @@ export class EngineSupervisor {
       });
       child.postMessage({ type: "shutdown" });
     });
+    return generation;
   }
 }

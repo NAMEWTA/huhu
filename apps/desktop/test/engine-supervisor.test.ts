@@ -25,15 +25,15 @@ async function stoppedAtDeadline() {
   engine.start();
   const stopping = engine.stop(5);
   await vi.advanceTimersByTimeAsync(5);
-  await stopping;
+  const generation = await stopping;
   expect(child.kill).toHaveBeenCalledOnce();
   expect(fork).toHaveBeenCalledOnce();
-  return { engine, child };
+  return { engine, child, generation };
 }
 
 test("退出取消后等旧子进程退出，再恢复原 Engine", async () => {
-  const { engine, child } = await stoppedAtDeadline();
-  engine.restartAfterStop();
+  const { engine, child, generation } = await stoppedAtDeadline();
+  engine.restartAfterStop(generation);
   expect(fork).toHaveBeenCalledOnce();
   child.emit("exit");
   expect(fork).toHaveBeenCalledTimes(2);
@@ -41,11 +41,22 @@ test("退出取消后等旧子进程退出，再恢复原 Engine", async () => {
 });
 
 test("第二次确认退出撤销上次取消所请求的延迟恢复", async () => {
-  const { engine, child } = await stoppedAtDeadline();
-  engine.restartAfterStop();
+  const { engine, child, generation } = await stoppedAtDeadline();
+  engine.restartAfterStop(generation);
   const quitting = engine.stop(50);
   child.emit("exit");
   await quitting;
+  expect(child.postMessage).toHaveBeenCalledTimes(2);
+  expect(fork).toHaveBeenCalledOnce();
+  expect(engine.current).toBe("stopped");
+});
+
+test("切 Vault 开始停止后，较早的退出不能再登记旧 Engine 恢复", async () => {
+  const { engine, child, generation } = await stoppedAtDeadline();
+  const switching = engine.stop(50);
+  engine.restartAfterStop(generation);
+  child.emit("exit");
+  await switching;
   expect(child.postMessage).toHaveBeenCalledTimes(2);
   expect(fork).toHaveBeenCalledOnce();
   expect(engine.current).toBe("stopped");

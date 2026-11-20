@@ -542,15 +542,16 @@ if (!gotLock) {
       }
       const engine = supervisor;
       const resume = engine?.current === "ready" || engine?.current === "starting";
+      let stopGeneration: number | undefined;
       try {
-        await engine?.stop();
+        stopGeneration = await engine?.stop();
       } catch (error) {
         console.error("退出时停止引擎失败", error);
       }
       if (supervisor !== engine || exits.some((exit) => exit.signal.aborted)) {
         cancel();
         quitting = false;
-        if (resume && supervisor === engine) engine?.restartAfterStop();
+        if (resume && supervisor === engine && stopGeneration !== undefined) engine?.restartAfterStop(stopGeneration);
         return;
       }
       for (const exit of exits) exit.signal.removeEventListener("abort", cancel);
