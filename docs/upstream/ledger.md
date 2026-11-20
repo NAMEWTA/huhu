@@ -31,6 +31,8 @@
 | R-62 | herdr-app `317e673f1f1568b876cbaa0b41dabeb9153ecbea`、herdr-core v0.1.19 `06793ede1bedb1fed8d22d3cae476d3eb239edf0`（Apache-2.0） | `src/mirror_sync.rs`、Core `crates/herdr-core/src/api/doc.rs` 与 `crates/herdr-core/src/events.rs` | `plugins/agent-cli/src/engine/{workspace-layout,waiting}.ts` | 调用固定 Core 的 `doc.get`、`doc.set` 与无标签事件订阅。Huhu 筛选自己的文档、校验同 Space 会话及丢回包后的原版本。 |
 | R-63 | orca `8bc232f5ed8b4b36fec0c5f0f85ab96b4c0ccdf3`（MIT） | `src/shared/workspace-layout/terminal-topology/terminal-pane-tree.ts` | `plugins/agent-cli/src/shared/workspace-layout.ts`、`plugins/agent-cli/src/ui/WorkspaceCanvas.tsx` | 参考递归插入与兄弟节点折叠。Huhu 自行管理稳定叶 ID、最小分栏尺寸和 TerminalView 的连接。 |
 | R-64 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src-tauri/src/commands/data/conversations.rs` | `plugins/mail/src/engine/{conversations,message-cache,public-mail}.ts` | 参考按公开参与者过滤、归组和分页的流程。由 Huhu 校验原目录与账号身份，使用现有缓存及发件结果。 |
+| R-65 | motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/workspace/spec.go`、`internal/workbench/workspace_launch.go` | `plugins/ssh/src/{shared/workspace.ts,engine/workspace-templates.ts,engine/workspace-runs.ts}` | 参考模板预设、阅读顺序和分栏启动流程。用 Huhu 主机目录、私有运行绑定和既有连接及信任状态机实现。 |
+| R-66 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src-tauri/src/commands/data/conversations.rs`、`src/components/conversations/use-conversations.ts`、`src/components/conversations/conversation-workspace/global-search-dialog.tsx` | `plugins/mail/src/{engine/search-text.ts,engine/conversations.ts,ui/MailSearch.tsx}` | 参考自然日过滤、跨账号搜索和定位原件。由 Huhu 的缓存、公开正文投影和 Workbench 命令负责读取和交互。 |
 
 ## 安装包依赖
 

@@ -5,7 +5,7 @@ import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
-import { contributions as mailUi } from "@huhu/plugin-mail/ui";
+import { createMailContributions } from "@huhu/plugin-mail/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
@@ -103,12 +103,16 @@ interface AppProps {
 
 function App({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
   const [vaultName, setVaultName] = useState("HUHU");
+  const ui = useMemo(() => {
+    const active = (browser && browserLocation(location.pathname)?.module) || "home";
+    return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
+  }, [browser]);
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
     r.register(notesUi);
     r.register(tasksUi);
     r.register(inboxUi);
-    r.register(mailUi);
+    r.register(createMailContributions(() => ui.getState().openModule("mail")));
     r.register(safeUi);
     r.register(agentCliUi);
     r.register(automationsUi);
@@ -213,11 +217,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
       ],
     });
     return r;
-  }, []);
-  const ui = useMemo(() => {
-    const active = (browser && browserLocation(location.pathname)?.module) || "home";
-    return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
-  }, [browser]);
+  }, [ui]);
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
 
   useEffect(() => {

@@ -5,6 +5,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 
+test("工作台命令从首页打开邮件缓存搜索并交接焦点", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByLabel("搜索模块、命令和内容").fill("搜索已缓存邮件");
+    await page.getByTestId("palette-item").filter({ hasText: "搜索已缓存邮件" }).click();
+    const search = page.getByRole("dialog", { name: "搜索已缓存邮件" });
+    await expect(search).toBeVisible();
+    await expect(search.getByRole("combobox", { name: "主题、联系人或正文" })).toBeFocused();
+  } finally {
+    await close();
+  }
+});
+
 test("邮件草稿保存失败时保留工作区，重试后可切换并继续编辑原草稿", async () => {
   const { app, page, close } = await openApp();
   try {
