@@ -9,7 +9,8 @@ const log = (event) => appendFileSync(path.join(directory, "native-events.log"),
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
 const threadId = "thread-" + process.pid;
 const turnId = "turn-" + process.pid;
-const answerFixture = existsSync(path.join(directory, "native-answer-fixture"));
+const taskReplyFixture = existsSync(path.join(directory, "tasks-reply-fixture"));
+const answerFixture = taskReplyFixture || existsSync(path.join(directory, "native-answer-fixture"));
 
 function waitFor(file, fn) {
   const timer = setInterval(() => {
@@ -43,7 +44,7 @@ if (process.argv.includes("--version")) {
       send({ id: 2, method: "item/tool/requestUserInput", params: { ...ask, turnId: "foreign-turn" } });
       send({ id: "secret", method: "item/tool/requestUserInput", params: { ...ask, questions: [{ ...question, isSecret: true }] } });
       send({ id: "free-text", method: "item/tool/requestUserInput", params: { ...ask, questions: [{ ...question, isOther: true }] } });
-      if (answerFixture) send({ id: "previous", method: "item/tool/requestUserInput", params: { ...ask, itemId: "older-question", questions: [{ ...question, question: "Older fixture question" }] } });
+      if (answerFixture && !taskReplyFixture) send({ id: "previous", method: "item/tool/requestUserInput", params: { ...ask, itemId: "older-question", questions: [{ ...question, question: "Older fixture question" }] } });
       send({ id: 0, method: "item/tool/requestUserInput", params: ask });
       item("foreign-thread", turnId, "foreign-item", "final_answer", "Foreign thread");
       item(threadId, "foreign-turn", "foreign-item", "final_answer", "Foreign turn");

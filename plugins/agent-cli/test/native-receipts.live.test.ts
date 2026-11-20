@@ -255,7 +255,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
 );
 
 test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows Engine delivers native receipts to the production Tasks inbox for the original run",
+  "Windows Engine continues one native reply and delivers the result to its production Tasks inbox",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w63-compose-")));
     fixture.directory = sandbox;
@@ -273,6 +273,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
     let engine: RunningEngine | undefined;
     let stopCore: (() => void) | undefined;
     try {
+      writeFileSync(path.join(sandbox, "tasks-reply-fixture"), "");
       engine = await boot({ vaultPath, desktopUserData, create: true });
       const mid = machineId();
       const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
@@ -293,34 +294,52 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const eventLog = path.join(sandbox, "native-events.log");
       await expect.poll(() => files(sandbox, /^native-events\.log$/), { timeout: 20_000 }).toHaveLength(1);
       writeFileSync(path.join(sandbox, "allow-turn-ack"), "");
-      const questions = () => call(engine!, "tasks.questions.list", { taskId: task.id });
+      const questions = () => call<{ requestId: string; requestVersion: number; sessionId: string; runId: string }[]>(engine!, "tasks.questions.list", { taskId: task.id });
       await expect.poll(questions, { timeout: 15_000 }).toMatchObject([{ runId: run.runId, mode: "native_deferred", status: "awaiting", options: ["Circle", "Square"] }]);
       expect(JSON.stringify(await questions())).not.toContain("nativeRequestId");
       const acks = () => files(path.join(fixture.root, "agent-receipts"), /\.tasks-ack$/).map((file) => read(file) as ExecutionReceiptAck);
       await expect.poll(acks).toMatchObject([{ stage: "tasks_consumed", receipt: { execution: { ...key, runId: run.runId } } }]);
 
+      const [question] = await questions();
+      const { runId, requestId, requestVersion, sessionId } = question!;
+      const lookup = { taskId: task.id, runId, requestId, requestVersion, sessionId, replyId: "fixture-tasks-reply" };
+      const answer = () => call(engine!, "tasks.reply", { ...lookup, answer: "Circle" });
+      expect(await answer()).toMatchObject({ status: "pending" });
+      const reply = () => call(engine!, "tasks.reply.read", lookup);
+      const events = () => readFileSync(eventLog, "utf8").trim().split("\n");
+      await expect.poll(events, { timeout: 15_000 }).toContain("answered-original-question");
+      await expect.poll(reply, { timeout: 15_000 }).toMatchObject({ status: "unknown" });
+      writeFileSync(path.join(sandbox, "resolve-without-proof"), "");
+      await expect.poll(events).toContain("resolution-without-proof");
+      expect(await answer()).toMatchObject({ status: "unknown" });
+      await engine.shutdown();
+      writeFileSync(path.join(sandbox, "allow-answer-proof"), "");
+      await expect.poll(events).toContain("original-answer-output");
+      engine = await boot({ vaultPath, desktopUserData });
+      await expect.poll(reply, { timeout: 15_000 }).toMatchObject({ status: "accepted" });
       writeFileSync(path.join(sandbox, "allow-turn-end"), "");
-      const results = async () => (await call<TaskDto>(engine!, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "result");
-      await expect.poll(results, { timeout: 15_000 }).toMatchObject([{ run: run.runId, body: "Synthetic result from the original turn." }]);
+      const timeline = async () => (await call<TaskDto>(engine!, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer" || event === "result");
+      await expect.poll(timeline, { timeout: 15_000 }).toMatchObject([
+        { event: "answer", run: runId, session: sessionId, ask: requestId, body: "Circle" },
+        { event: "result", run: runId, session: sessionId, body: "Synthetic result from the original turn." },
+      ]);
       await expect.poll(questions).toMatchObject([{ runId: run.runId, status: "closed" }]);
       await expect.poll(acks).toHaveLength(2);
-      const originalResults = await results();
+      const originalTimeline = await timeline();
       const originalAcks = acks();
       const bindings = originalAcks.map(({ receipt }) => receipt.execution);
       expect(bindings[0]).toEqual(bindings[1]);
-      expect(originalResults[0]?.session).toBe(bindings[0]!.sessionBinding.sessionId);
+      expect(sessionId).toBe(bindings[0]!.sessionBinding.sessionId);
       const readCore = await call<{ id: string; address: string }[]>(engine, "agent.sessions.list", { spaceId: space!.id });
       expect(readCore.find(({ id }) => id === bindings[0]!.sessionBinding.sessionId)).toBeDefined();
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData });
-      expect(await results()).toEqual(originalResults);
+      expect(await timeline()).toEqual(originalTimeline);
       expect(acks()).toEqual(originalAcks);
-      expect(
-        readFileSync(eventLog, "utf8")
-          .split("\n")
-          .filter((event) => event === "turn-input"),
-      ).toHaveLength(1);
-      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 1, resultComments: originalResults.length, durableAcks: originalAcks.length }));
+      expect(await reply()).toMatchObject({ status: "accepted" });
+      expect(events().filter((event) => event === "turn-input")).toHaveLength(1);
+      expect(events().filter((event) => event === "answered-original-question")).toHaveLength(1);
+      console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 1, answerCount: 1, timelineComments: originalTimeline.length, durableAcks: originalAcks.length }));
     } finally {
       try {
         await engine?.shutdown();
