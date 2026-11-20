@@ -3,6 +3,7 @@ import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
+import type { ExitPhase } from "../exit-ipc.js";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
@@ -54,54 +55,92 @@ function assertTrusted(url: string | undefined): void {
   if (!isTrustedUrl(url)) throw new Error("untrusted sender");
 }
 
-type FlushResult = "saved" | "failed" | "timeout";
+type FlushResult = "saved" | "failed" | "timeout" | "stay";
 let flushRequestId = 0;
 
-/** 回执必须来自发出请求时的主文档。导航或渲染进程退出会结束等待。 */
-function requestFlush(win: BrowserWindow): Promise<FlushResult> {
-  if (win.isDestroyed()) return Promise.resolve("saved");
+interface WindowExit {
+  decision: Promise<boolean>;
+  signal: AbortSignal;
+  release(): void;
+}
+
+/** 检查与许可均绑定当前主文档，直到关窗或整轮取消。 */
+function requestWindowExit(win: BrowserWindow) {
   const sender = win.webContents;
   const frame = sender.mainFrame;
+  const controller = new AbortController();
   const requestId = ++flushRequestId;
-  return new Promise((resolve) => {
+  let release!: () => void;
+  const result = new Promise<FlushResult>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let phase: ExitPhase = "checking";
     const finish = (result: FlushResult) => {
       clearTimeout(timer);
+      ipcMain.off("huhu:exit-progress", onProgress);
       ipcMain.off("huhu:flushed", onReply);
-      sender.off("did-start-navigation", onNavigation);
-      sender.off("render-process-gone", onRendererGone);
-      sender.off("destroyed", onRendererGone);
       resolve(result);
     };
-    const onReply = (event: Electron.IpcMainEvent, replyId: unknown, ok: unknown) => {
-      if (event.sender !== sender || sender.isDestroyed() || event.senderFrame !== frame || replyId !== requestId || typeof ok !== "boolean") return;
-      if (!isTrustedUrl(event.senderFrame?.url)) return;
-      finish(ok ? "saved" : "failed");
+    const matches = (event: Electron.IpcMainEvent, replyId: unknown) =>
+      event.sender === sender && !sender.isDestroyed() && event.senderFrame === frame && replyId === requestId && isTrustedUrl(event.senderFrame?.url);
+    const setDeadline = () => {
+      clearTimeout(timer);
+      if (phase !== "waiting") timer = setTimeout(() => finish(phase === "flushing" ? "timeout" : "stay"), 3000);
+    };
+    const onProgress = (event: Electron.IpcMainEvent, replyId: unknown, next: unknown) => {
+      if (!matches(event, replyId) || phase === "flushing") return;
+      if (next !== "checking" && next !== "waiting" && next !== "flushing") return;
+      phase = next;
+      setDeadline();
+    };
+    const onReply = (event: Electron.IpcMainEvent, replyId: unknown, reply: unknown) => {
+      if (!matches(event, replyId)) return;
+      if (reply === "stay") finish("stay");
+      if (reply === false) finish(phase === "flushing" ? "failed" : "stay");
+      if (reply === true && phase === "flushing") finish("saved");
     };
     const onNavigation = ({ isMainFrame, isSameDocument }: Electron.WebContentsDidStartNavigationEventParams) => {
-      if (isMainFrame && !isSameDocument) finish("failed");
+      if (isMainFrame && !isSameDocument) release();
     };
-    const onRendererGone = () => finish("failed");
-    const timer = setTimeout(() => finish("timeout"), 3000);
+    release = () => {
+      if (controller.signal.aborted) return;
+      controller.abort();
+      finish("stay");
+      sender.off("did-start-navigation", onNavigation);
+      sender.off("render-process-gone", release);
+      sender.off("destroyed", release);
+      if (!sender.isDestroyed() && sender.mainFrame === frame && isTrustedUrl(frame.url)) {
+        try {
+          sender.send("huhu:exit-release", requestId);
+        } catch {
+          // 文档可能在发送前退出。
+        }
+      }
+    };
+    setDeadline();
+    ipcMain.on("huhu:exit-progress", onProgress);
     ipcMain.on("huhu:flushed", onReply);
     sender.on("did-start-navigation", onNavigation);
-    sender.once("render-process-gone", onRendererGone);
-    sender.once("destroyed", onRendererGone);
+    sender.once("render-process-gone", release);
+    sender.once("destroyed", release);
     try {
       sender.send("huhu:flush", requestId);
     } catch {
-      finish("failed");
+      release();
     }
   });
+  return { result, signal: controller.signal, release };
 }
 
-const exitDecisions = new WeakMap<BrowserWindow, Promise<boolean>>();
-function canCloseWindow(win: BrowserWindow): Promise<boolean> {
+const exitDecisions = new WeakMap<BrowserWindow, WindowExit>();
+function canCloseWindow(win: BrowserWindow): WindowExit {
   const pending = exitDecisions.get(win);
   if (pending) return pending;
+  const request = requestWindowExit(win);
   const decision = (async () => {
-    const result = await requestFlush(win);
+    const result = await request.result;
+    if (request.signal.aborted || result === "stay") return false;
     if (result === "timeout") console.warn("退出前保存未在 3 秒内回执");
-    if (result === "saved" || win.isDestroyed()) return true;
+    if (result === "saved") return true;
     const answer = await dialog.showMessageBox(win, {
       type: "warning",
       title: "退出前保存失败",
@@ -110,15 +149,23 @@ function canCloseWindow(win: BrowserWindow): Promise<boolean> {
       buttons: ["保留窗口", "放弃并退出"],
       defaultId: 0,
       cancelId: 0,
+      signal: request.signal,
     });
-    return answer.response === 1;
+    return !request.signal.aborted && answer.response === 1;
   })().catch((error: unknown) => {
     console.error("退出前确认失败", error);
     return false;
   });
-  exitDecisions.set(win, decision);
-  void decision.then(() => exitDecisions.delete(win));
-  return decision;
+  const exit: WindowExit = {
+    decision,
+    signal: request.signal,
+    release: () => {
+      if (exitDecisions.get(win) === exit) exitDecisions.delete(win);
+      request.release();
+    },
+  };
+  exitDecisions.set(win, exit);
+  return exit;
 }
 let flushedForQuit = false;
 let quitting = false;
@@ -147,10 +194,13 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     if (closing || quitting) return;
     closing = true;
-    void canCloseWindow(win).then((allowed) => {
+    const exit = canCloseWindow(win);
+    void exit.decision.then((allowed) => {
       closing = false;
       // 应用退出已接管本窗口的在途检查；其余窗口取消时也保留此窗。
-      if (allowed && !quitting && !flushedForQuit && !win.isDestroyed()) win.destroy();
+      if (quitting || flushedForQuit) return;
+      if (allowed && !exit.signal.aborted && !win.isDestroyed()) win.destroy();
+      exit.release();
     });
   });
   win.webContents.on("will-navigate", (event, url) => {
@@ -448,11 +498,23 @@ if (!gotLock) {
     }
     e.preventDefault();
     quitting = true;
-    void Promise.all(BrowserWindow.getAllWindows().map(canCloseWindow)).then(async (allowed) => {
-      if (!allowed.every(Boolean)) {
+    const exits = BrowserWindow.getAllWindows().map(canCloseWindow);
+    const cancel = () => {
+      for (const exit of exits) exit.signal.removeEventListener("abort", cancel);
+      for (const exit of exits) exit.release();
+    };
+    for (const exit of exits) exit.signal.addEventListener("abort", cancel, { once: true });
+    void Promise.all(exits.map(async (exit) => {
+      const allowed = await exit.decision;
+      if (!allowed) cancel();
+      return allowed && !exit.signal.aborted;
+    })).then(async (allowed) => {
+      if (!allowed.every(Boolean) || exits.some((exit) => exit.signal.aborted)) {
+        cancel();
         quitting = false;
         return;
       }
+      for (const exit of exits) exit.signal.removeEventListener("abort", cancel);
       try {
         await supervisor?.stop();
       } catch (error) {

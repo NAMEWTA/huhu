@@ -18,6 +18,7 @@ import {
   HealthModule,
   HomeModule,
   CommandPalette,
+  checkExitParticipants,
   requestOpenPath,
   runFlushers,
   LaunchPage,
@@ -39,6 +40,7 @@ import {
 import { Activity, Bell, Blocks, CalendarDays, HeartPulse, House, LayoutGrid, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
 
 // 首帧：用 localStorage 里缓存的最近一次外观（没有就是默认主题 + 跟随系统），打开 Vault 后再以 Vault 的设置为准
 appearanceController().refresh();
@@ -270,11 +272,58 @@ function App() {
   );
 }
 
+function connectWindowExit(): () => void {
+  let active: { id: number; controller: AbortController; restore?: () => void } | undefined;
+  const release: ReleaseExit = (id) => {
+    if (!active || active.id !== id) return;
+    const attempt = active;
+    active = undefined;
+    attempt.controller.abort();
+    attempt.restore?.();
+  };
+  const prepare: PrepareExit = async (id, report) => {
+    if (active) release(active.id);
+    const controller = new AbortController();
+    const attempt: NonNullable<typeof active> = { id, controller };
+    active = attempt;
+    const { signal } = controller;
+    const leave = await checkExitParticipants({
+      signal,
+      async waitForUser(decision) {
+        signal.throwIfAborted();
+        report("waiting");
+        try {
+          return await decision;
+        } finally {
+          if (!signal.aborted) report("checking");
+        }
+      },
+    });
+    if (!leave || signal.aborted) return "stay";
+    const previousFocus = document.activeElement;
+    const body = document.body;
+    const wasInert = body.inert;
+    body.inert = true;
+    attempt.restore = () => {
+      body.inert = wasInert;
+      if (!wasInert && previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+    };
+    report("flushing");
+    await runFlushers();
+    return signal.aborted ? "stay" : true;
+  };
+  const unsubscribe = window.huhuHost.onExit(prepare, release);
+  return () => {
+    unsubscribe();
+    if (active) release(active.id);
+  };
+}
+
 /** 根：先问 Main 当前有没有打开的 Vault；没有就显示启动页，打开成功后重新载入界面（旧 Vault 的缓存与事件随页面一起丢弃）。 */
 function Root() {
   const [vault, setVault] = useState<VaultHostState | null>(null);
+  useEffect(connectWindowExit, []);
   useEffect(() => {
-    window.huhuHost.onFlush(runFlushers);
     void window.huhuHost.vault.state().then(setVault);
   }, []);
   if (!vault) return null;

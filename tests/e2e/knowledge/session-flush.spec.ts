@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openApp, rmTree } from "../helpers/launch.js";
+import { openApp, rmTree, root } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 import { call, engineReady, holdBridgeTimers } from "./session-slow-bridge.js";
 
@@ -372,7 +372,7 @@ test("TB-15 顶层重载结束旧一轮关窗检查", async () => {
         dialog.showMessageBox = showMessageBox;
       }
     });
-    expect(result).toEqual({ pending: 1, remaining: 0, prompts: 1, closed: false });
+    expect(result).toEqual({ pending: 1, remaining: 0, prompts: 0, closed: false });
     await engineReady(page);
     expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
   } finally {
@@ -381,17 +381,18 @@ test("TB-15 顶层重载结束旧一轮关窗检查", async () => {
 });
 
 test("TB-15 应用退出接管在途关窗，另一窗口取消时保留已确认窗口", async () => {
-  const { app, page, close } = await openApp();
+  const { app, page, vault, close } = await openApp();
+  const file = path.join(vault, name);
   try {
+    writeFileSync(file, original);
     await engineReady(page);
-    const result = await app.evaluate(async ({ app: nativeApp, BrowserWindow, dialog, ipcMain }) => {
+    const result = await app.evaluate(async ({ app: nativeApp, BrowserWindow, ipcMain }, preload) => {
       const first = BrowserWindow.getAllWindows()[0]!;
       const origin = first.webContents;
-      const fixture = new BrowserWindow({ show: false });
+      const fixture = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true } });
+      await fixture.loadURL(origin.getURL());
       const originalSend = origin.send;
-      const originalDialog = dialog.showMessageBox;
-      const prompt = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
+      const awaitingChoice = Promise.withResolvers<number>();
       const acknowledged = Promise.withResolvers<boolean>();
       const onReply = (event: Electron.IpcMainEvent, _id: number, saved: boolean) => {
         if (event.sender === origin) acknowledged.resolve(saved);
@@ -401,34 +402,94 @@ test("TB-15 应用退出接管在途关窗，另一窗口取消时保留已确�
         if (channel === "huhu:flush") requests++;
         originalSend.call(origin, channel, ...args);
       };
-      fixture.webContents.send = () => {
-        throw new Error("测试窗口无保存回执");
+      const other = fixture.webContents;
+      const otherSend = other.send;
+      const reply = { sender: other, senderFrame: other.mainFrame };
+      other.send = (channel, ...args) => {
+        if (channel !== "huhu:flush") {
+          otherSend.call(other, channel, ...args);
+          return;
+        }
+        const id = args[0] as number;
+        ipcMain.emit("huhu:exit-progress", reply, id, "waiting");
+        awaitingChoice.resolve(id);
       };
-      dialog.showMessageBox = (async () => {
-        prompt.resolve();
-        await release.promise;
-        return { response: 0, checkboxChecked: false };
-      }) as typeof originalDialog;
       ipcMain.on("huhu:flushed", onReply);
       try {
         first.close();
         nativeApp.quit();
-        await prompt.promise;
+        const id = await awaitingChoice.promise;
         const saved = await acknowledged.promise;
-        await new Promise<void>((resolve) => setImmediate(resolve));
         const during = !first.isDestroyed() && !fixture.isDestroyed();
-        release.resolve();
+        const frozen = (await origin.executeJavaScript("document.body.inert")) as boolean;
+        ipcMain.emit("huhu:flushed", reply, id, "stay");
         await new Promise<void>((resolve) => setImmediate(resolve));
-        return { saved, requests, during, after: !first.isDestroyed() && !fixture.isDestroyed() };
+        return { saved, requests, during, frozen, after: !first.isDestroyed() && !fixture.isDestroyed() };
       } finally {
-        release.resolve();
         ipcMain.off("huhu:flushed", onReply);
-        dialog.showMessageBox = originalDialog;
         if (!first.isDestroyed()) origin.send = originalSend;
         fixture.destroy();
       }
+    }, path.join(root, "out/preload/index.cjs"));
+    expect(result).toEqual({ saved: true, requests: 1, during: true, frozen: true, after: true });
+    await expect.poll(() => page.evaluate(() => document.body.inert)).toBe(false);
+    expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
+    await openNote(page);
+    await inputWithPendingBridge(page);
+    await Promise.all([app.waitForEvent("close"), app.evaluate(({ app }) => app.quit())]);
+    expect(readFileSync(file, "utf8")).toBe(written);
+  } finally {
+    await close();
+  }
+});
+
+test("TB-15 参与者失败或超时保留窗口，旧许可不能结束当前检查", async () => {
+  const { app, page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const outcomes = await app.evaluate(async ({ BrowserWindow, ipcMain, dialog }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      const sender = win.webContents;
+      const frame = { sender, senderFrame: sender.mainFrame };
+      const originalSend = sender.send;
+      const originalDialog = dialog.showMessageBox;
+      const outcomes: string[] = [];
+      let prompts = 0;
+      let previous: number | undefined;
+      dialog.showMessageBox = (async () => {
+        prompts++;
+        return { response: 0, checkboxChecked: false };
+      }) as typeof originalDialog;
+      try {
+        for (const mode of ["stay", "failure", "timeout"]) {
+          const released = Promise.withResolvers<number>();
+          sender.send = (channel, ...args) => {
+            const id = args[0] as number;
+            if (channel === "huhu:exit-release") {
+              released.resolve(id);
+              return;
+            }
+            if (channel !== "huhu:flush") {
+              originalSend.call(sender, channel, ...args);
+              return;
+            }
+            if (previous !== undefined) {
+              ipcMain.emit("huhu:exit-progress", frame, previous, "flushing");
+              ipcMain.emit("huhu:flushed", frame, previous, true);
+            }
+            if (mode !== "timeout") ipcMain.emit("huhu:flushed", frame, id, mode === "stay" ? "stay" : false);
+          };
+          win.close();
+          previous = await released.promise;
+          if (!win.isDestroyed()) outcomes.push(mode);
+        }
+        return { outcomes, prompts };
+      } finally {
+        sender.send = originalSend;
+        dialog.showMessageBox = originalDialog;
+      }
     });
-    expect(result).toEqual({ saved: true, requests: 1, during: true, after: true });
+    expect(outcomes).toEqual({ outcomes: ["stay", "failure", "timeout"], prompts: 0 });
     expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
   } finally {
     await close();

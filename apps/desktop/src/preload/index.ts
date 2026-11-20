@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
 
 export interface AppInfo {
   name: string;
@@ -42,16 +43,23 @@ contextBridge.exposeInMainWorld("huhuHost", {
   cliUninstall: (): Promise<unknown> => ipcRenderer.invoke("huhu:cliUninstall"),
   notices: (): Promise<string> => ipcRenderer.invoke("huhu:notices"),
   restartEngine: (): Promise<void> => ipcRenderer.invoke("huhu:restartEngine"),
-  /** 应用退出前主进程会请求界面把未落盘的编辑写出去；回调完成后回 ack。 */
-  onFlush: (cb: () => Promise<void>): void => {
-    ipcRenderer.on("huhu:flush", (_event, requestId: number) => {
+  /** 只传本次退出的 ID 与状态，Electron 事件留在 preload。 */
+  onExit: (prepare: PrepareExit, release: ReleaseExit): (() => void) => {
+    const onRequest = (_event: unknown, requestId: number) => {
       void Promise.resolve()
-        .then(() => cb())
+        .then(() => prepare(requestId, (phase) => ipcRenderer.send("huhu:exit-progress", requestId, phase)))
         .then(
-          () => ipcRenderer.send("huhu:flushed", requestId, true),
+          (result) => ipcRenderer.send("huhu:flushed", requestId, result),
           () => ipcRenderer.send("huhu:flushed", requestId, false),
         );
-    });
+    };
+    const onRelease = (_event: unknown, requestId: number) => release(requestId);
+    ipcRenderer.on("huhu:flush", onRequest);
+    ipcRenderer.on("huhu:exit-release", onRelease);
+    return () => {
+      ipcRenderer.off("huhu:flush", onRequest);
+      ipcRenderer.off("huhu:exit-release", onRelease);
+    };
   },
   onEngineState: (cb: (s: EngineState) => void): (() => void) => {
     const handler = (_e: unknown, s: EngineState) => cb(s);
