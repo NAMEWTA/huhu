@@ -137,6 +137,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | 依赖 | 来源与许可 | 用途 |
 | --- | --- | --- |
 | `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理 Windows Credential Manager 的精确数据键。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入原生包。 |
+| `imapflow@2.12.1` | Postal Systems OÜ，MIT。 [发布包](https://registry.npmjs.org/imapflow/-/imapflow-2.12.1.tgz) · [许可证](https://github.com/postalsys/imapflow/blob/master/LICENSE.txt) | Mail 的 IMAP 登录和文件夹发现复用发布接口。桌面将此依赖作为 Node 模块随包分发，传递依赖由工作区锁文件固定。 |
 
 ## 黄金往返测试夹具
 
@@ -333,6 +334,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @peculiar/utils | 2.0.3 | MIT | https://github.com/PeculiarVentures/pvtsutils#readme |
 | @peculiar/webcrypto | 1.7.2 | MIT | https://github.com/PeculiarVentures/webcrypto#readme |
 | @pierre/trees | 1.0.0-beta.4 | Apache-2.0 |  |
+| @pinojs/redact | 0.4.0 | MIT | https://github.com/pinojs/redact#readme |
 | @playwright/test | 1.65.0 | Apache-2.0 | https://playwright.dev |
 | @radix-ui/number | 1.1.1 | MIT | https://radix-ui.com/primitives |
 | @radix-ui/primitive | 1.1.3 | MIT | https://radix-ui.com/primitives |
@@ -580,6 +582,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @xmldom/xmldom | 0.8.15 | MIT | https://github.com/xmldom/xmldom |
 | @xterm/addon-fit | 0.11.0 | MIT |  |
 | @xterm/xterm | 6.0.0 | MIT |  |
+| @zone-eu/mailsplit | 5.4.31 | (MIT OR EUPL-1.1+) |  |
 | abbrev | 4.0.0 | ISC |  |
 | accepts | 2.0.0 | MIT |  |
 | accessor-fn | 1.5.3 | MIT | https://github.com/vasturiano/accessor-fn |
@@ -609,6 +612,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | async-mutex | 0.5.0 | MIT |  |
 | asynckit | 0.4.0 | MIT | https://github.com/alexindigo/asynckit#readme |
 | at-least-node | 1.0.0 | ISC | https://github.com/RyanZim/at-least-node#readme |
+| atomic-sleep | 1.0.0 | MIT | https://github.com/davidmarkclements/atomic-sleep#readme |
 | atomically | 1.7.0 | MIT |  |
 | aws4 | 1.13.2 | MIT |  |
 | axe-core | 4.14.0 | MPL-2.0 | https://www.deque.com/axe/ |
@@ -816,6 +820,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | emojibase | 18.0.0 | MIT |  |
 | emojibase-data | 16.0.2 | MIT |  |
 | encodeurl | 2.0.1 | MIT |  |
+| encoding-japanese | 2.5.0 | MIT | https://github.com/polygonplanet/encoding.js |
 | end-of-stream | 1.4.5 | MIT | https://github.com/mafintosh/end-of-stream |
 | enhanced-resolve | 5.27.0 | MIT | https://github.com/webpack/enhanced-resolve#readme |
 | enquirer | 2.4.1 | MIT | https://github.com/enquirer/enquirer |
@@ -954,6 +959,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | ignore | 5.3.2 | MIT |  |
 | ignore | 7.0.14 | MIT |  |
 | image-blob-reduce | 3.0.1 | MIT |  |
+| imapflow | 2.12.1 | MIT | https://imapflow.com/ |
 | immutable | 4.3.9 | MIT | https://immutable-js.com |
 | import-fresh | 3.3.1 | MIT |  |
 | import-meta-resolve | 4.2.0 | MIT |  |
@@ -1041,6 +1047,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
 | leven | 3.1.0 | MIT |  |
 | lib0 | 0.2.117 | MIT | https://github.com/dmonad/lib0#readme |
+| libbase64 | 1.4.1 | MIT | https://github.com/nodemailer/libbase64 |
+| libmime | 5.6.5 | MIT | https://github.com/nodemailer/libmime |
+| libqp | 3.0.2 | MIT | https://github.com/nodemailer/libqp |
 | lightningcss | 1.33.0 | MPL-2.0 |  |
 | lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |  |
 | lilconfig | 3.1.5 | MIT |  |
@@ -1186,6 +1195,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | object-inspect | 1.13.4 | MIT | https://github.com/inspect-js/object-inspect |
 | object-keys | 1.1.1 | MIT |  |
 | object-treeify | 1.1.33 | MIT | https://github.com/blackflux/object-treeify#readme |
+| on-exit-leak-free | 2.1.2 | MIT | https://github.com/mcollina/on-exit-or-gc#readme |
 | on-finished | 2.4.2 | MIT |  |
 | once | 1.4.0 | ISC |  |
 | onetime | 5.1.2 | MIT |  |
@@ -1231,6 +1241,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | picocolors | 1.1.1 | ISC |  |
 | picomatch | 2.3.2 | MIT | https://github.com/micromatch/picomatch |
 | picomatch | 4.0.7 | MIT | https://github.com/micromatch/picomatch |
+| pino | 10.3.1 | MIT | https://getpino.io |
+| pino-abstract-transport | 3.0.0 | MIT | https://github.com/pinojs/pino-abstract-transport#readme |
+| pino-std-serializers | 7.1.0 | MIT | https://github.com/pinojs/pino-std-serializers#readme |
 | pkce-challenge | 5.0.1 | MIT | https://github.com/crouchcd/pkce-challenge#readme |
 | pkg-up | 3.1.0 | MIT |  |
 | pkijs | 3.4.3 | BSD-3-Clause |  |
@@ -1259,6 +1272,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | prism-react-renderer | 2.4.1 | MIT |  |
 | proc-log | 6.1.0 | ISC |  |
 | process-nextick-args | 2.0.1 | MIT | https://github.com/calvinmetcalf/process-nextick-args |
+| process-warning | 5.1.1 | MIT | https://github.com/fastify/fastify-warning#readme |
 | progress | 2.0.3 | MIT |  |
 | promise-retry | 2.0.1 | MIT |  |
 | prompts | 2.4.2 | MIT |  |
@@ -1289,6 +1303,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | qified | 0.10.1 | MIT | https://github.com/jaredwray/qified#readme |
 | qs | 6.17.1 | BSD-3-Clause | https://github.com/ljharb/qs |
 | queue-microtask | 1.2.3 | MIT | https://github.com/feross/queue-microtask |
+| quick-format-unescaped | 4.0.4 | MIT | https://github.com/davidmarkclements/quick-format#readme |
 | quick-lru | 5.1.1 | MIT |  |
 | radix-ui | 1.4.3 | MIT | https://radix-ui.com/primitives |
 | range-parser | 1.3.0 | MIT |  |
@@ -1311,6 +1326,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | readable-stream | 2.3.8 | MIT |  |
 | readdirp | 3.6.0 | MIT | https://github.com/paulmillr/readdirp |
 | readdirp | 5.1.1 | MIT | https://github.com/paulmillr/readdirp |
+| real-require | 0.2.0 | MIT | https://github.com/pinojs/real-require |
+| real-require | 1.0.0 | MIT | https://github.com/pinojs/real-require |
 | recast | 0.23.21 | MIT | http://github.com/benjamn/recast |
 | rehype-minify-whitespace | 6.0.2 | MIT |  |
 | rehype-parse | 9.0.1 | MIT | https://github.com/rehypejs/rehype |
@@ -1347,6 +1364,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | run-parallel | 1.2.0 | MIT | https://github.com/feross/run-parallel |
 | rw | 1.3.3 | BSD-3-Clause | https://github.com/mbostock/rw |
 | safe-buffer | 5.1.2 | MIT | https://github.com/feross/safe-buffer |
+| safe-stable-stringify | 2.5.0 | MIT | https://github.com/BridgeAR/safe-stable-stringify#readme |
 | safer-buffer | 2.1.2 | MIT |  |
 | sanitize-filename | 1.6.5 | WTFPL OR ISC |  |
 | sass | 1.51.0 | MIT | https://github.com/sass/dart-sass |
@@ -1378,13 +1396,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | slash | 3.0.0 | MIT |  |
 | slice-ansi | 4.0.0 | MIT |  |
 | sliced | 1.0.1 | MIT |  |
+| smart-buffer | 4.2.0 | MIT | https://github.com/JoshGlazebrook/smart-buffer/ |
 | smol-toml | 1.9.1 | BSD-3-Clause |  |
+| socks | 2.8.10 | MIT | https://github.com/JoshGlazebrook/socks/ |
+| sonic-boom | 4.2.1 | MIT | https://github.com/pinojs/sonic-boom#readme |
 | sonner | 2.0.7 | MIT | https://sonner.emilkowal.ski/ |
 | source-map | 0.6.1 | BSD-3-Clause | https://github.com/mozilla/source-map |
 | source-map | 0.7.6 | BSD-3-Clause | https://github.com/mozilla/source-map |
 | source-map-js | 1.2.2 | BSD-3-Clause | https://github.com/7rulnik/source-map-js |
 | source-map-support | 0.5.21 | MIT |  |
 | space-separated-tokens | 2.0.2 | MIT |  |
+| split2 | 4.2.0 | ISC |  |
 | sprintf-js | 1.1.3 | BSD-3-Clause |  |
 | ssh2 | 1.17.0 | MIT |  |
 | stackback | 0.0.2 | MIT |  |
@@ -1424,6 +1446,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | tar | 7.5.22 | BlueOak-1.0.0 |  |
 | temp | 0.9.4 | MIT |  |
 | temp-file | 3.4.0 | MIT | https://github.com/develar/temp-file |
+| thread-stream | 4.2.1 | MIT | https://github.com/mcollina/thread-stream#readme |
 | tiny-async-pool | 1.3.0 | MIT |  |
 | tiny-invariant | 1.3.3 | MIT |  |
 | tinybench | 2.9.0 | MIT |  |

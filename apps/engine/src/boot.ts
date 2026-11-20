@@ -36,6 +36,7 @@ import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
 import agentGuideManifest from "@huhu/plugin-agent-guide/manifest" with { type: "json" };
 import inboxManifest from "@huhu/plugin-inbox/manifest" with { type: "json" };
+import mailManifest from "@huhu/plugin-mail/manifest" with { type: "json" };
 import safeManifest from "@huhu/plugin-safe/manifest" with { type: "json" };
 import agentCliManifest from "@huhu/plugin-agent-cli/manifest" with { type: "json" };
 import automationsManifest from "@huhu/plugin-automations/manifest" with { type: "json" };
@@ -47,6 +48,7 @@ import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
 import * as inbox from "@huhu/plugin-inbox/engine";
+import * as mail from "@huhu/plugin-mail/engine";
 import * as notes from "@huhu/plugin-notes/engine";
 import * as ssh from "@huhu/plugin-ssh/engine";
 import * as versioning from "@huhu/plugin-versioning/engine";
@@ -115,6 +117,7 @@ export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir">): EndpointDesc
 export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
+  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
@@ -184,6 +187,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(inboxManifest),
     apply: (ctx, api) => void inbox.apply(ctx, api, { isPluginEnabled: (id) => plugins.isEnabled(id) }),
+  });
+  plugins.register({
+    manifest: PluginManifestSchema.parse(mailManifest),
+    apply: (_ctx, api) => mail.apply(api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),

@@ -17,7 +17,7 @@ import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { discoverImapFolders } from "./imap-discovery.js";
 import type { MailEndpoint } from "./presets.js";
 
-type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
+export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 type DraftInput = Readonly<{ settings: MailAccountSettings; password: string | undefined }>;
 type FolderDiscovery = {
   readonly input: DraftInput;

@@ -10,7 +10,7 @@
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],
-    "capabilities": [],
+    "capabilities": ["mail.accounts.list"],
     "fileKinds": []
   }
 }
