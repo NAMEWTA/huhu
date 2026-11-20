@@ -47,7 +47,7 @@ export const SupplementSource = z.strictObject({
 });
 export const FollowUpDispatch = InputIdentity.extend({ taskId: Id, followUpId: Id, scheduledFor: Instant }).strict();
 export const FollowUpSource = FollowUpDispatch.pick({ followUpId: true, scheduledFor: true }).extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });
-const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), RuleSource, ReplySource, SupplementSource, FollowUpSource]);
+const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), z.strictObject({ kind: z.literal("tool") }), RuleSource, ReplySource, SupplementSource, FollowUpSource]);
 const Snapshot = InputIdentity.extend({
   taskId: Id,
   expectedVersion: z.string(),

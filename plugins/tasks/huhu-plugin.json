@@ -17,6 +17,7 @@
       "tasks.list",
       "tasks.read",
       "tasks.create",
+      "tasks.agent.create",
       "tasks.update",
       "tasks.duplicate",
       "tasks.delete",

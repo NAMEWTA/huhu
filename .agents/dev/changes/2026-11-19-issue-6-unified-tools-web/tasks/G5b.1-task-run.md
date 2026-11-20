@@ -18,3 +18,7 @@
 ## 原型对照与确认范围
 
 打开[本地原型](../prototype/index.html)，从[侧栏导航](../prototype/prototype.js)的「工具目录、浏览器工作台」对照「浏览器工作台／任务结果」。浏览器任务列表仅用于比对同步结果。本片验证领域或接口结果，该场景用于对照结果在工作台的解释。可见效果的确认以[原型确认记录](../prototype-review.md)为准；后端合同可独立验证。
+
+## Windows 组合证据
+
+独立测试 Vault 使用实际 Herdr Core 0.1.19 和受控的合成 Codex App Server。MCP 创建任务后由 CLI 派遣和回答原生请求，CLI 在重启后读回原结果。第二个任务由 CLI 创建，经 MCP 派遣、回答普通问题和读回结果。工作台查询与 Core 均返回原会话 ID，三轮复用该会话，原生和普通回答各产生一次输入，最终确认四份持久回执。模拟原生回答确认丢失时保持待核实，重交及 Engine 重启后只核对原输入。独立 HTTP 用例确认 Agent 创建与派遣分别授权，外部调用不能替换工作区、越过可派时间或直接调用受信的 Agent 派遣。真实发布包、实际外部提供方和桌面点击定位仍需组合验收。 [生产协议用例](../../../../../plugins/agent-cli/test/native-receipts.live.test.ts) · [授权用例](../../../../../plugins/tasks/test/persistence-http.test.ts)

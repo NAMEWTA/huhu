@@ -464,6 +464,31 @@ function submitReceipt(engine: RunningEngine, receipt: ExecutionReceipt) {
   return engine.dispatcher.call("plugin:agent-cli", { capability: "tasks.receipts.consume", input: receipt, requestId: randomUUID(), idempotencyKey: receipt.receiptId });
 }
 
+test("命令行分别授权 Agent 任务创建与派遣，不能替换工作区或提前发送", { timeout: 30_000 }, async () => {
+  const root = tempVault();
+  const engine = await start(root, true);
+  const {
+    data: [space],
+  } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const token = engine.cliToken;
+  const input = { title: "外部任务工具", body: "只使用测试工作区", execution: { spaceId: space!.id, provider: "codex" }, availableAt: "2099-11-21T09:00:00Z" };
+  const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  expect(await call(engine, "tasks.agent.create", input, token)).toMatchObject(denied);
+  expect(await call(engine, "gateway.update", { capability: "tasks.create", exposed: true })).toMatchObject({ ok: true });
+  expect(await call(engine, "tasks.create", { ...input, type: "agent" }, token)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await call(engine, "gateway.update", { capability: "tasks.agent.create", exposed: true })).toMatchObject({ ok: true });
+  expect(await call(engine, "tasks.agent.create", { ...input, execution: { ...input.execution, spaceId: "伪造工作区" } }, token)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  const task = await call<TaskDto>(engine, "tasks.agent.create", input, token);
+  expect(task).toMatchObject({ ok: true, data: { type: "agent", origin: { kind: "external", caller: "cli" } } });
+  const attempt = intent(task.data);
+  expect(await call(engine, "tasks.dispatch", attempt, token)).toMatchObject(denied);
+  expect(await call(engine, "gateway.update", { capability: "tasks.dispatch", exposed: true })).toMatchObject({ ok: true });
+  expect(await call(engine, "tasks.dispatch", { ...attempt, allowEarly: true }, token)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await call(engine, "tasks.dispatch", attempt, token)).toMatchObject({ ok: false, error: { details: { reason: "not_due" } } });
+  expect(await call(engine, "tasks.dispatch.list", { taskId: task.data.id })).toMatchObject({ ok: true, data: [] });
+  expect(await call(engine, "agent.runs.dispatch", {}, token)).toMatchObject(denied);
+});
+
 test("持久验收原回执后才 ACK，重开补送原评论一次且不重新执行", { timeout: 60_000 }, async () => {
   const { root, fake, engine, task, run, execution } = await startBoundRun();
   const dispatches = await call(engine, "tasks.dispatch.list", { taskId: task.id });

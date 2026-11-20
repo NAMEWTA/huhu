@@ -9,6 +9,7 @@ import { CapabilityRegistry, defineCapability } from "@huhu/kernel";
 import { AgentDetector, HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
+import { run as runCli } from "../../../apps/cli/src/main.js";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { CodexDispatch } from "../src/engine/codex-dispatch.js";
 import { putReceiptFile, TASKS_RECEIPTS_CONSUME } from "../src/engine/execution-receipts.js";
@@ -255,7 +256,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
 );
 
 test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows Engine continues one native reply and delivers the result to its production Tasks inbox",
+  "Windows MCP and CLI dispatch and answer through the same Core session and production Tasks inbox",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w63-compose-")));
     fixture.directory = sandbox;
@@ -288,13 +289,38 @@ test.skipIf(process.platform !== "win32" || !bin)(
       };
       await call(engine, "plugins.setEnabled", { id: "automations", enabled: false });
       const [space] = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
-      const task = await call<TaskDto>(engine, "tasks.create", { title: "Fixture production Tasks", body: "Isolated native receipt for the Tasks inbox.", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+      const cliTool = async <T>(capability: string, input: unknown): Promise<T> => {
+        const stdout: string[] = [];
+        const stderr: string[] = [];
+        const code = await runCli(["call", capability, "--vault", vaultPath, "--json", "--input-json", JSON.stringify(input)], { out: (line) => stdout.push(line), err: (line) => stderr.push(line) });
+        expect(code, [...stdout, ...stderr].join("\n")).toBe(0);
+        const result = JSON.parse(stdout.join("\n")) as CapabilityResult<T>;
+        if (!result.ok) throw new Error(result.error.code);
+        return result.data;
+      };
+      const mcpTool = async <T>(capability: string, input: unknown): Promise<T> => {
+        const response = await fetch(`http://127.0.0.1:${engine!.port}/mcp`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${engine!.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: capability.replaceAll(".", "_"), arguments: input } }),
+        });
+        expect(response.status).toBe(200);
+        const { result } = (await response.json()) as { result: { isError?: boolean; content: { text: string }[] } };
+        expect(result.isError, result.content[0]?.text).not.toBe(true);
+        return JSON.parse(result.content[0]!.text) as T;
+      };
+      for (const capability of ["tasks.agent.create", "tasks.dispatch", "tasks.dispatch.read", "tasks.questions.list", "tasks.reply", "tasks.reply.read", "tasks.read"]) {
+        await call(engine, "gateway.update", { capability, exposed: true });
+      }
+      await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" });
+      const task = await mcpTool<TaskDto>("tasks.agent.create", { title: "Fixture production Tasks", body: "Isolated native receipt for the Tasks inbox.", execution: { spaceId: space!.id, provider: "codex" } });
+      expect(task.origin).toEqual({ kind: "external", caller: "mcp" });
       const key = { taskId: task.id, dispatchId: "fixture-w63-compose" };
-      const run = await call<{ runId: string; attempt: number }>(engine, "tasks.dispatch", { ...key, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
+      const run = await cliTool<{ runId: string; attempt: number }>("tasks.dispatch", { ...key, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash });
       const eventLog = path.join(sandbox, "native-events.log");
       await expect.poll(() => files(sandbox, /^native-events\.log$/), { timeout: 20_000 }).toHaveLength(1);
       writeFileSync(path.join(sandbox, "allow-turn-ack"), "");
-      const questions = () => call<{ requestId: string; requestVersion: number; sessionId: string; runId: string }[]>(engine!, "tasks.questions.list", { taskId: task.id });
+      const questions = () => mcpTool<{ requestId: string; requestVersion: number; sessionId: string; runId: string }[]>("tasks.questions.list", { taskId: task.id });
       await expect.poll(questions, { timeout: 15_000 }).toMatchObject([{ runId: run.runId, mode: "native_deferred", status: "awaiting", options: ["Circle", "Square"] }]);
       expect(JSON.stringify(await questions())).not.toContain("nativeRequestId");
       const acks = () => files(path.join(fixture.root, "agent-receipts"), /\.tasks-ack$/).map((file) => read(file) as ExecutionReceiptAck);
@@ -303,7 +329,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const [question] = await questions();
       const { runId, requestId, requestVersion, sessionId } = question!;
       const lookup = { taskId: task.id, runId, requestId, requestVersion, sessionId, replyId: "fixture-tasks-reply" };
-      const answer = () => call(engine!, "tasks.reply", { ...lookup, answer: "Circle" });
+      const answer = () => cliTool("tasks.reply", { ...lookup, answer: "Circle" });
       expect(await answer()).toMatchObject({ status: "pending" });
       const reply = () => call(engine!, "tasks.reply.read", lookup);
       const events = () => readFileSync(eventLog, "utf8").trim().split("\n");
@@ -318,7 +344,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       engine = await boot({ vaultPath, desktopUserData });
       await expect.poll(reply, { timeout: 15_000 }).toMatchObject({ status: "accepted" });
       writeFileSync(path.join(sandbox, "allow-turn-end"), "");
-      const timeline = async () => (await call<TaskDto>(engine!, "tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer" || event === "result");
+      const timeline = async () => (await cliTool<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer" || event === "result");
       await expect.poll(timeline, { timeout: 15_000 }).toMatchObject([
         { event: "answer", run: runId, session: sessionId, ask: requestId, body: "Circle" },
         { event: "result", run: runId, session: sessionId, body: "Synthetic result from the original turn." },
@@ -332,6 +358,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(sessionId).toBe(bindings[0]!.sessionBinding.sessionId);
       const readCore = await call<{ id: string; address: string }[]>(engine, "agent.sessions.list", { spaceId: space!.id });
       expect(readCore.find(({ id }) => id === bindings[0]!.sessionBinding.sessionId)).toBeDefined();
+      expect(await call(engine, "tasks.dispatch.list", { taskId: task.id })).toMatchObject([{ runId, session: { id: sessionId, spaceId: space!.id } }]);
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData });
       expect(await timeline()).toEqual(originalTimeline);
@@ -340,14 +367,15 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(events().filter((event) => event === "turn-input")).toHaveLength(1);
       expect(events().filter((event) => event === "answered-original-question")).toHaveLength(1);
 
-      const next = await call<TaskDto>(engine, "tasks.create", {
+      const next = await cliTool<TaskDto>("tasks.agent.create", {
         title: "Fixture existing provider session",
         body: "Follow the first turn on this fixture thread.",
         type: "agent",
         execution: { spaceId: space!.id, provider: "codex", target: { mode: "existing", sessionId } },
       });
+      expect(next.origin).toEqual({ kind: "external", caller: "cli" });
       const nextInput = { taskId: next.id, dispatchId: "fixture-w63-existing", expectedVersion: next.version, inputRevision: next.inputRevision, inputHash: next.inputHash };
-      const nextRun = await call<{ runId: string; attempt: number }>(engine, "tasks.dispatch", nextInput);
+      const nextRun = await mcpTool<{ runId: string; attempt: number }>("tasks.dispatch", nextInput);
       await expect.poll(() => call(engine!, "tasks.dispatch.read", { taskId: next.id, dispatchId: nextInput.dispatchId }), { timeout: 15_000 }).toMatchObject({ state: "running" });
       const normalInput = { taskId: next.id, runId: nextRun.runId, sessionId, requestId: "fixture-ordinary-question", requestVersion: 1, replyId: "fixture-ordinary-reply" };
       const nextExecution = { vaultId: engine.vault.id, taskId: next.id, runId: nextRun.runId, attempt: nextRun.attempt, dispatchId: nextInput.dispatchId, sessionBinding: bindings[0]!.sessionBinding };
@@ -362,7 +390,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
         }),
       );
       expect(normal).toMatchObject({ ok: true, data: { stage: "tasks_consumed" } });
-      const child = await call<{ followUpRunId: string }>(engine, "tasks.reply", { ...normalInput, answer: "Continue after the ordinary question." });
+      const child = await mcpTool<{ followUpRunId: string }>("tasks.reply", { ...normalInput, answer: "Continue after the ordinary question." });
       expect(child).toMatchObject({ status: "pending" });
       expect(events()).not.toContain("ordinary-reply-input");
 
@@ -373,13 +401,13 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await expect.poll(acks).toHaveLength(3);
       const nextAck = acks().find(({ receipt }) => receipt.execution.runId === nextRun.runId);
       expect(nextAck?.receipt.execution.sessionBinding).toEqual(bindings[0]!.sessionBinding);
-      expect(await call(engine, "tasks.dispatch", nextInput)).toMatchObject({ runId: nextRun.runId });
+      expect(await mcpTool("tasks.dispatch", nextInput)).toMatchObject({ runId: nextRun.runId });
       expect(events().filter((event) => event === "existing-turn-input")).toHaveLength(1);
       await expect.poll(() => call(engine!, "tasks.reply.read", normalInput), { timeout: 20_000 }).toMatchObject({ status: "accepted", followUpRunId: child.followUpRunId });
       expect(events().filter((event) => event === "ordinary-reply-input")).toHaveLength(1);
       writeFileSync(path.join(sandbox, "allow-ordinary-reply-end"), "");
       await expect
-        .poll(async () => (await call<TaskDto>(engine!, "tasks.read", { id: next.id })).comments.filter(({ event }) => event === "result"), { timeout: 15_000 })
+        .poll(async () => (await mcpTool<TaskDto>("tasks.read", { id: next.id })).comments.filter(({ event }) => event === "result"), { timeout: 15_000 })
         .toMatchObject([{ run: nextRun.runId }, { run: child.followUpRunId, session: sessionId, body: "Synthetic result from the ordinary reply." }]);
       await expect.poll(acks).toHaveLength(4);
       expect(acks().find(({ receipt }) => receipt.execution.runId === child.followUpRunId)?.receipt.execution.sessionBinding).toEqual(bindings[0]!.sessionBinding);

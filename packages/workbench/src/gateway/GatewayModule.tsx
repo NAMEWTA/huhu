@@ -443,7 +443,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
               </div>
               <div className="hu-callout shell-system-note">
                 <ShieldCheck size={17} aria-hidden />
-                <p>列表发现和实际调用都会检查模块状态与开放设置。Agent 执行永不对外。</p>
+                <p>发现工具与调用都会检查模块状态和工具开放设置。任务派遣需要单独授权，执行回执由所属模块签收。</p>
               </div>
               {tester}
             </>

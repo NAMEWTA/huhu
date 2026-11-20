@@ -6,6 +6,7 @@ import {
   TaskCategorySchema,
   TaskCommentSchema,
   TaskDtoSchema,
+  TaskExecutionSchema,
   TaskPatchSchema,
   TaskStatusSchema,
   TaskTypeSchema,
@@ -18,6 +19,7 @@ import { defineCapability as def } from "@huhu/kernel";
 import { machineId, VaultFiles } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
 import { AgentDispatchTargetInfoSchema } from "@huhu/plugin-agent-cli/engine";
+import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { statSync } from "node:fs";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
@@ -60,6 +62,7 @@ export function originOf(caller: string): TaskOrigin {
 function assertAgentAllowed(caller: string, i: { type?: string | undefined; execution?: unknown }): void {
   if ((i.type === "agent" || (i.execution !== undefined && i.execution !== null)) && !isWorkbenchCaller(caller)) throw errors.permissionDenied("创建或修改 Agent 任务（仅工作台可用）");
 }
+const isTaskToolCaller = (caller: string) => isWorkbenchCaller(caller) || caller === "cli" || caller === "mcp" || caller === "http";
 const Versioned = Id.extend({ expectedVersion: z.string() });
 const REMINDER_CHECK_MS = 30_000;
 
@@ -125,12 +128,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       name: "tasks.questions.list",
       plugin: "tasks",
       scope: "read",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: z.strictObject({ taskId: z.string() }),
       output: z.array(TaskQuestionView.extend({ reply: TaskReplyView.optional() })),
       handler: ({ caller }, { taskId }) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务请求");
+        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务请求");
         return dispatch.questions(taskId);
       },
     }),
@@ -140,13 +143,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       name: "tasks.reply",
       plugin: "tasks",
       scope: "write",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       idempotency: "handler",
       input: TaskReplyInput,
       output: TaskReplyView,
       handler: async ({ caller, signal }, input) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("回答任务请求");
+        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("回答任务请求");
         const reply = await dispatch.reply(input, signal);
         void dispatch.check();
         return reply;
@@ -158,12 +161,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       name: "tasks.reply.read",
       plugin: "tasks",
       scope: "read",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: TaskReplyLookup,
       output: TaskReplyView,
       handler: ({ caller }, input) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务回答");
+        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务回答");
         return dispatch.readReply(input);
       },
     }),
@@ -207,13 +210,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       name: "tasks.dispatch",
       plugin: "tasks",
       scope: "execute",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: DispatchInput,
       output: DispatchReceipt,
       handler: async (c, i) => {
-        if (c.caller !== "desktop") throw errors.permissionDenied("人工任务派遣");
-        const receipt = await dispatch.accept(i, { kind: "desktop" });
+        if (!isTaskToolCaller(c.caller) || (!isWorkbenchCaller(c.caller) && i.allowEarly === true)) throw errors.permissionDenied("任务派遣或提前派遣");
+        const receipt = await dispatch.accept(i, isWorkbenchCaller(c.caller) ? { kind: "desktop" } : { kind: "tool" });
         void dispatch.check();
         return receipt;
       },
@@ -224,12 +227,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       name: "tasks.dispatch.read",
       plugin: "tasks",
       scope: "read",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: DispatchLookup,
       output: DispatchReceipt,
       handler: (c, i) => {
-        if (c.caller !== "desktop") throw errors.permissionDenied("查看任务派遣");
+        if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("查看任务派遣");
         return dispatch.read(i);
       },
     }),
@@ -270,12 +273,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       name: "tasks.dispatch.cancel",
       plugin: "tasks",
       scope: "write",
-      exposable: false,
+      exposable: true,
       defaultExposed: false,
       input: DispatchLookup,
       output: DispatchReceipt,
       handler: (c, i) => {
-        if (c.caller !== "desktop") throw errors.permissionDenied("取消任务派遣");
+        if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("取消任务派遣");
         return dispatch.cancel(i);
       },
     }),
@@ -364,6 +367,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: (c, i) => {
         assertAgentAllowed(c.caller, i);
         return svc.create(i, originOf(c.caller));
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.agent.create",
+      plugin: "tasks",
+      scope: "write",
+      exposable: true,
+      defaultExposed: false,
+      input: TaskWritableSchema.extend({ type: z.literal("agent").default("agent"), execution: TaskExecutionSchema }),
+      output: TaskDtoSchema,
+      handler: ({ caller }, input) => {
+        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("创建 Agent 任务");
+        const { spaceId, target, provider, model, effort } = input.execution;
+        const spaces = api.service<{ spaces: { list(): { id: string }[] } }>("agentCli")?.spaces;
+        if (!spaceId || !spaces?.list().some(({ id }) => id === spaceId)) throw errors.invalidInput("请选择当前 Vault 已配置的工作区");
+        if (target?.mode === "resume") throw errors.invalidInput("此工具需要新会话或明确选中的现有会话");
+        if (target?.mode !== "existing" && (!provider || !agentById(provider))) throw errors.invalidInput("请选择已知的 Agent");
+        if (model?.startsWith("-") || effort?.startsWith("-")) throw errors.invalidInput("模型或推理强度不能以命令选项开头");
+        return svc.create(input, originOf(caller));
       },
     }),
   );
