@@ -1,5 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import MailComposer from "nodemailer/lib/mail-composer";
+import SMTPConnection from "nodemailer/lib/smtp-connection";
 import { z } from "zod";
 import {
   CapabilityRegistry,
@@ -193,7 +195,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(mailManifest),
-    apply: (ctx, api) => mail.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined),
+    apply: (ctx, api) => mail.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, mail.createMailSmtpTransport({ SMTPConnection, MailComposer })),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),

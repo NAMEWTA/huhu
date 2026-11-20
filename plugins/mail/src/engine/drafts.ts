@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
 import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
 import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
-import { MAIL_OUTBOX_SERVICE, MailOutbox, type MailOutboxService } from "./outbox.js";
+import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxStatusInput, outboxSubmitInput, outboxView, type MailOutboxService } from "./outbox.js";
 import type { MailSmtpTransport } from "./smtp.js";
 
 const draftKey = z.strictObject({ draftId: uuid });
@@ -278,6 +278,33 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
     submit: outbox.submit.bind(outbox),
     status: outbox.status.bind(outbox),
   } satisfies MailOutboxService);
+  api.defineCapability(
+    defineCapability({
+      ...workbenchDraft,
+      name: "mail.outbox.submit",
+      scope: "execute",
+      idempotency: "handler",
+      input: outboxSubmitInput,
+      output: outboxReceipt,
+      handler: ({ caller, signal }, input) => {
+        authorize(caller, "mail.outbox.submit");
+        return outbox.submit(input, signal);
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...workbenchDraft,
+      name: "mail.outbox.status",
+      scope: "read",
+      input: outboxStatusInput,
+      output: outboxView,
+      handler: ({ caller }, input) => {
+        authorize(caller, "mail.outbox.status");
+        return outbox.status(input);
+      },
+    }),
+  );
   api.defineCapability(
     defineCapability({
       ...workbenchDraft,

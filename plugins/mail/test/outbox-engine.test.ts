@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
@@ -9,16 +8,16 @@ import { exportPackage, importPackage } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
-import { createMailSmtpTransport, openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
-import type { NodemailerSmtpModules } from "../src/engine/smtp.js";
+import { openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
+import { outboxReceipt } from "../src/engine/outbox.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-const shared = vi.hoisted(() => ({ services: new Map<string, { outbox?: MailOutboxService; attachments?: MailDraftAttachments }>(), transport: null as ReturnType<typeof createMailSmtpTransport> | null }));
+const shared = vi.hoisted(() => ({ services: new Map<string, { outbox?: MailOutboxService; attachments?: MailDraftAttachments }>() }));
 vi.mock("@huhu/plugin-mail/engine", async (original) => {
   const mail = await original<typeof import("../src/engine/index.js")>();
   return {
     ...mail,
-    apply: ((ctx, api, owner) =>
+    apply: ((ctx, api, owner, transport) =>
       mail.apply(
         ctx,
         {
@@ -32,25 +31,12 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
           },
         },
         owner,
-        shared.transport ?? undefined,
+        transport,
       )) satisfies typeof mail.apply,
   };
 });
 
-function installedTransport() {
-  const baseline = process.env["HUHU_MAIL_PROTOCOL_FIXTURE"];
-  const require = createRequire(baseline ? path.join(baseline, "package.json") : import.meta.url);
-  try {
-    const SMTPConnection = require("nodemailer/lib/smtp-connection").default as NodemailerSmtpModules["SMTPConnection"];
-    const MailComposer = require("nodemailer/lib/mail-composer").default as NodemailerSmtpModules["MailComposer"];
-    return createMailSmtpTransport({ SMTPConnection, MailComposer });
-  } catch (error) {
-    if (baseline || (error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error;
-    return null;
-  }
-}
-shared.transport = installedTransport();
-const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !shared.transport);
+const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64");
 
 const outboxDir = ".huhu/mail/outbox";
 const sender = "fixture-sender@example.invalid";
@@ -136,11 +122,12 @@ async function account(engine: RunningEngine, port: number, password: string) {
   return draft.save();
 }
 
-async function call(engine: RunningEngine, capability: string, input: unknown) {
+async function call(engine: RunningEngine, capability: string, input: unknown, signal?: AbortSignal) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
     headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+    signal: signal ?? null,
   });
   expect(response.status).toBe(200);
   return CapabilityResultSchema.parse(await response.json());
@@ -179,9 +166,13 @@ testWindows(
         return reply.promise;
       });
       const desktopRequest = new AbortController();
-      const desktopCaller = () => outbox.submit(input, desktopRequest.signal);
-      const secondCaller = () => outbox.submit(input, new AbortController().signal);
-      const [one, two] = await Promise.all([desktopCaller(), secondCaller()]);
+      const [desktop, web] = await Promise.all([
+        call(engine, "mail.outbox.submit", input, desktopRequest.signal),
+        engine.dispatcher.call("web:fixture", { capability: "mail.outbox.submit", input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+      ]);
+      assert(desktop.ok && web.ok);
+      const one = outboxReceipt.parse(desktop.data);
+      const two = outboxReceipt.parse(web.data);
       expect(one).toEqual(two);
       expect(Object.keys(one).sort()).toEqual(["messageId", "operationId"]);
       const file = path.join(engine.vault.root, outboxDir, `${one.operationId}.json`);
@@ -207,8 +198,11 @@ testWindows(
         expect(wire).not.toMatch(/(?:^|\r\n)Bcc:/i);
         expect(wire).not.toContain(bcc);
         expect(wire).not.toContain("new title");
-        expect(await call(engine, "mail.outbox.submit", input)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_FOUND" } });
-        expect(await call(engine, "mail.outbox.status", { operationId: one.operationId })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_FOUND" } });
+        expect(await engine.dispatcher.call("cli", { capability: "mail.outbox.submit", input, requestId: randomUUID(), idempotencyKey: randomUUID() })).toMatchObject({
+          ok: false,
+          error: { code: "CAPABILITY_NOT_EXPOSED" },
+        });
+        expect(await call(engine, "mail.outbox.status", { operationId: one.operationId })).toMatchObject({ ok: true, data: { state: "sending" } });
       } finally {
         reply.resolve();
       }

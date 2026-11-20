@@ -79,18 +79,21 @@ export function createMailSmtpTransport({ SMTPConnection, MailComposer }: Nodema
       connectionTimeout: 15_000,
       socketTimeout: 30_000,
     });
-    const failed = Promise.withResolvers<never>();
-    const abort = () => failed.reject(signal.reason);
+    let rejectConnection!: (reason: unknown) => void;
+    const failed = new Promise<never>((_resolve, reject) => {
+      rejectConnection = reject;
+    });
+    const abort = () => rejectConnection(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
-    connection.on("error", failed.reject);
+    connection.on("error", rejectConnection);
     let stage: MailSmtpResult["stage"] = "connect";
     let beganData = false;
     try {
       signal.throwIfAborted();
-      await Promise.race([failed.promise, new Promise<void>((resolve, reject) => connection.connect((error) => (error ? reject(error) : resolve())))]);
+      await Promise.race([failed, new Promise<void>((resolve, reject) => connection.connect((error) => (error ? reject(error) : resolve())))]);
       signal.throwIfAborted();
       stage = "auth";
-      await Promise.race([failed.promise, new Promise<void>((resolve, reject) => connection.login({ user: message.from, pass: password }, (error) => (error ? reject(error) : resolve())))]);
+      await Promise.race([failed, new Promise<void>((resolve, reject) => connection.login({ user: message.from, pass: password }, (error) => (error ? reject(error) : resolve())))]);
       signal.throwIfAborted();
       stage = "envelope";
       const stream = Readable.from(
@@ -99,15 +102,12 @@ export function createMailSmtpTransport({ SMTPConnection, MailComposer }: Nodema
           yield wire;
         })(),
       );
-      const result = await Promise.race([
-        failed.promise,
-        new Promise<SmtpInfo>((resolve, reject) => connection.send({ from: message.from, to: addresses, size: wire.length }, stream, (error, info) => (error ? reject(error) : resolve(info)))),
-      ]);
+      const result = await Promise.race([failed, new Promise<SmtpInfo>((resolve, reject) => connection.send({ from: message.from, to: addresses, size: wire.length }, stream, (error, info) => (error ? reject(error) : resolve(info))))]);
       const code = Number(result.response.match(/^2\d{2}(?=[ -]|$)/)?.[0]);
       if (!code) return uniformOutcome(addresses, "data", "unknown");
       const accepted = new Set(result.accepted);
       const rejected = new Set(result.rejected);
-      const rejectionCodes = new Map(result.rejectedErrors?.map((error) => [error.recipient, error.responseCode]));
+      const rejectionCodes = new Map(result.rejectedErrors?.map(({ recipient, responseCode }) => [recipient, responseCode] as const));
       return {
         stage: "data",
         smtpCode: code,

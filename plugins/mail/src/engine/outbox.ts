@@ -13,14 +13,24 @@ export type MailOutboxService = Pick<MailOutbox, "submit" | "status">;
 
 const outboxDirectory = ".huhu/mail/outbox";
 const operationIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
-const submitInput = z.strictObject({ draftId: uuid, expectedRevision: uuid });
-const statusInput = z.strictObject({ operationId: operationIdSchema });
+const messageIdSchema = z.string().regex(/^<[0-9a-f-]{36}@huhu\.local>$/);
+export const outboxSubmitInput = z.strictObject({ draftId: uuid, expectedRevision: uuid });
+export const outboxStatusInput = z.strictObject({ operationId: operationIdSchema });
+export const outboxReceipt = outboxStatusInput.extend({ messageId: messageIdSchema });
+const identity = outboxReceipt.extend({ draftId: uuid, revision: uuid, claimedAt: z.iso.datetime() });
+export const outboxView = z
+  .union([
+    identity.extend({ state: z.literal("sending") }),
+    identity.extend({ state: z.literal("unknown"), reason: z.literal("result-not-recorded"), recipients: smtpResultSchema.shape.recipients }),
+    smtpResultSchema.safeExtend({ ...identity.shape, state: z.enum(["unknown", "not-delivered", "accepted", "partially-accepted"]), finishedAt: z.iso.datetime() }),
+  ])
+  .nullable();
 const intentSchema = z.strictObject({
   format: z.literal(1),
   operationId: operationIdSchema,
   draftId: uuid,
   revision: uuid,
-  messageId: z.string().regex(/^<[0-9a-f-]{36}@huhu\.local>$/),
+  messageId: messageIdSchema,
   claimedAt: z.iso.datetime(),
   from: z.email(),
   auth: z.enum(["password", "app-password"]),
@@ -69,8 +79,8 @@ export class MailOutbox {
     private readonly lifetime: AbortSignal,
   ) {}
 
-  async submit(input: z.infer<typeof submitInput>, requestSignal?: AbortSignal) {
-    const { draftId, expectedRevision } = submitInput.parse(input);
+  async submit(input: z.infer<typeof outboxSubmitInput>, requestSignal?: AbortSignal) {
+    const { draftId, expectedRevision } = outboxSubmitInput.parse(input);
     this.files.assertWritable();
     const operationId = operationIdFor(draftId, expectedRevision);
     const signal = requestSignal ? AbortSignal.any([requestSignal, this.lifetime]) : this.lifetime;
@@ -110,9 +120,9 @@ export class MailOutbox {
     });
   }
 
-  status(input: z.infer<typeof statusInput>) {
+  status(input: z.infer<typeof outboxStatusInput>): z.infer<typeof outboxView> {
     this.lifetime.throwIfAborted();
-    const { operationId } = statusInput.parse(input);
+    const { operationId } = outboxStatusInput.parse(input);
     const record = this.read(operationId);
     if (!record) return null;
     const { messageId, draftId, revision, claimedAt, result, draft } = record.intent;

@@ -40,8 +40,8 @@ export default defineConfig({
       outDir: "out/main",
       rollupOptions: {
         input: { index: "src/main/index.ts", engine: "../engine/src/main.ts" },
-        // 原生模块不打包；其余工作区源码被打进各自入口
-        external: ["electron", "@napi-rs/keyring", "@parcel/watcher", "bufferutil", "utf-8-validate", "cpu-features", "ssh2", "imapflow"],
+        // 原生模块和协议库由桌面运行时加载，工作区源码编入各自入口。
+        external: ["electron", "@napi-rs/keyring", "@parcel/watcher", "bufferutil", "utf-8-validate", "cpu-features", "ssh2", "imapflow", "nodemailer/lib/mail-composer", "nodemailer/lib/smtp-connection"],
         output: { format: "es", entryFileNames: "[name].js" },
       },
     },

@@ -10,7 +10,18 @@
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],
-    "capabilities": ["mail.accounts.list", "mail.sync.refresh", "mail.messages.latest", "mail.messages.loadSource", "mail.drafts.list", "mail.drafts.get", "mail.drafts.save", "mail.drafts.discard"],
+    "capabilities": [
+      "mail.accounts.list",
+      "mail.sync.refresh",
+      "mail.messages.latest",
+      "mail.messages.loadSource",
+      "mail.drafts.list",
+      "mail.drafts.get",
+      "mail.drafts.save",
+      "mail.drafts.discard",
+      "mail.outbox.submit",
+      "mail.outbox.status"
+    ],
     "fileKinds": []
   }
 }

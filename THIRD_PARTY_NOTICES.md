@@ -138,6 +138,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | --- | --- | --- |
 | `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理 Windows Credential Manager 的精确数据键。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入原生包。 |
 | `imapflow@2.12.1` | Postal Systems OÜ，MIT。 [发布包](https://registry.npmjs.org/imapflow/-/imapflow-2.12.1.tgz) · [许可证](https://github.com/postalsys/imapflow/blob/master/LICENSE.txt) | Mail 的 IMAP 登录和文件夹发现复用发布接口。桌面将此依赖作为 Node 模块随包分发，传递依赖由工作区锁文件固定。 |
+| `nodemailer@10.6.0` | Andris Reinman，MIT-0，按发布包固定版本与完整性摘要。 [发布包](https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.0.tgz) | Engine 装配 Mail SMTP 传输，调用发布的 `nodemailer/lib/smtp-connection` 与 `nodemailer/lib/mail-composer` 构造器。Mail 自行管理草稿认领、收件人投递证据和故障恢复。该版本没有运行时传递依赖。 |
 
 ## 黄金往返测试夹具
 
@@ -1186,6 +1187,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | node-gyp | 12.4.0 | MIT |  |
 | node-int64 | 0.4.0 | MIT |  |
 | node-releases | 2.0.63 | MIT |  |
+| nodemailer | 10.6.0 | MIT-0 | https://nodemailer.com/ |
 | nopt | 9.0.0 | ISC |  |
 | normalize-path | 3.0.0 | MIT | https://github.com/jonschlinkert/normalize-path |
 | normalize-url | 6.1.0 | MIT |  |
