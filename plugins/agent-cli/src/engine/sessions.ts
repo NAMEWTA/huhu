@@ -70,6 +70,8 @@ export interface ProgramStatus {
 }
 
 const MAX_COMMENTS = 200;
+// Core 0.1.19 on Windows fails at 259 UTF-16 code units, including with an extended path.
+const MAX_WINDOWS_CORE_CWD = 258;
 const localDrivePath = (directory: string): string => (process.platform === "win32" ? directory.replace(/^\\\\\?\\(?=[a-z]:\\)/i, "") : directory);
 const hasControl = (s: string): boolean => {
   for (const ch of s) {
@@ -190,10 +192,13 @@ export class SessionsService {
 
   private async prepareLaunch(input: Omit<LaunchInput, "requestId">) {
     const space = this.d.spaces.validateForLaunch(input.spaceId, input.spaceRevision);
-    const directory = this.launchDirectory(space.root, input.cwd);
-    const drivePath = localDrivePath(directory);
     // cmd.exe 把盘符的扩展路径当作 UNC。常规长度的本机路径可用普通盘符形式启动。
-    const cwd = drivePath.length < 260 ? drivePath : directory;
+    const cwd = localDrivePath(this.launchDirectory(space.root, input.cwd));
+    if (process.platform === "win32" && cwd.length > MAX_WINDOWS_CORE_CWD) {
+      throw new HuhuError("INVALID_INPUT", "Windows 上的 Herdr Core 无法在此长度的工作目录中启动，请选择较短的目录", {
+        details: { stage: "cwd", reason: "windows_cwd_too_long", maxLength: MAX_WINDOWS_CORE_CWD },
+      });
+    }
     if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
     let argv: string[] | undefined;
     let env: Record<string, string> | undefined;

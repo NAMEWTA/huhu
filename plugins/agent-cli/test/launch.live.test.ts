@@ -129,6 +129,20 @@ test.skipIf(process.platform !== "win32" || !bin)(
         expect(await request("agent.launch.resolve", { session: invalid })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
         expect(await request("agent.sessions.launch", { ...invalid, requestId: crypto.randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       }
+      const deepParent = path.join(cwd, "深".repeat(120));
+      for (const length of [259, 300]) {
+        const longCwd = path.join(deepParent, "层".repeat(length - deepParent.length - 1));
+        const extended = path.toNamespacedPath(longCwd);
+        mkdirSync(extended, { recursive: true });
+        expect(realpathSync(extended).endsWith(longCwd.slice(2))).toBe(true);
+        for (const [input, spelling] of [[shellInput, longCwd], [agentInput, extended]] as const) {
+          const unsupported = { ...input, cwd: spelling };
+          const preview = await request("agent.launch.resolve", { session: unsupported });
+          expect(preview).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { stage: "cwd", reason: "windows_cwd_too_long", maxLength: 258 } } });
+          const launch = await request("agent.sessions.launch", { ...unsupported, requestId: crypto.randomUUID() });
+          expect(launch).toEqual(preview);
+        }
+      }
       expect(await request("agent.launch.resolve", { session: { ...agentInput, provider: "pi" } })).toMatchObject({ ok: false, error: { code: "AGENT_DISABLED" } });
       const shellPreview = await call<LaunchPreview>("agent.launch.resolve", { session: shellInput });
       const agentPreview = await call<LaunchPreview>("agent.launch.resolve", { session: agentInput });
