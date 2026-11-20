@@ -21,3 +21,5 @@ export * from "./mcp.js";
 export * from "./event-log.js";
 export * from "./plugins/external.js";
 export * from "./capabilities/external-plugins.js";
+export { ModuleCredentials, type CredentialAction, type CredentialOwner, type CredentialState, type CredentialSummary } from "./credentials/module-credentials.js";
+export { CredentialError, LocalProtectionError, type CredentialErrorCode, type LocalCredentialProtection } from "./credentials/protection.js";
