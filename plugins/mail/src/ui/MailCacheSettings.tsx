@@ -1,6 +1,6 @@
 import { Button, Dialog } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine, useEngineEvents } from "@huhu/workbench";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { MailCacheUsage } from "../engine/message-cache.js";
 
 const number = new Intl.NumberFormat();
@@ -12,6 +12,10 @@ export function MailCacheSettings({ readOnly }: { readOnly: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const cancel = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (confirming) cancel.current?.focus();
+  }, [confirming]);
   useEngineEvents((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
     if (event.payload.kind === "mail-cache" || event.payload.kind === "mail-message" || event.payload.kind === "mail-mailbox") void usage.refetch();
@@ -61,29 +65,27 @@ export function MailCacheSettings({ readOnly }: { readOnly: boolean }) {
         清理邮件缓存
       </Button>
       <p role="status">{usage.isError ? "无法读取缓存占用。" : feedback}</p>
-      {confirming && (
-        <Dialog
-          open
-          title="清理邮件缓存"
-          description="清理当前 Vault 的邮件副本、同步游标和搜索索引。"
-          onClose={() => {
-            if (!busy) setConfirming(false);
-          }}
-          error={error}
-          actions={
-            <>
-              <Button type="button" autoFocus disabled={busy} onClick={() => setConfirming(false)}>
-                取消
-              </Button>
-              <Button type="button" variant="danger" disabled={readOnly} loading={busy} onClick={() => void clear()}>
-                确认清理
-              </Button>
-            </>
-          }
-        >
-          <p>草稿、受管附件、已读覆盖、发件记录和本机认证将保留。同步目录可重新下载邮件。</p>
-        </Dialog>
-      )}
+      <Dialog
+        open={confirming}
+        title="清理邮件缓存"
+        description="清理当前 Vault 的邮件副本、同步游标和搜索索引。"
+        onClose={() => {
+          if (!busy) setConfirming(false);
+        }}
+        error={error}
+        actions={
+          <>
+            <button type="button" className="hu-btn" ref={cancel} disabled={busy} onClick={() => setConfirming(false)}>
+              取消
+            </button>
+            <Button type="button" variant="danger" disabled={readOnly} loading={busy} onClick={() => void clear()}>
+              确认清理
+            </Button>
+          </>
+        }
+      >
+        <p>草稿、受管附件、已读覆盖、发件记录和本机认证将保留。同步目录可重新下载邮件。</p>
+      </Dialog>
     </details>
   );
 }
