@@ -11,9 +11,9 @@ export interface OpenRequest {
 let pending: OpenRequest | null = null;
 const listeners = new Set<() => void>();
 
-export function requestOpenPath(target: string): void {
+export function requestOpenPath(target: string, literal = false): void {
   const folder = target.endsWith("/");
-  pending = { path: folder ? target.slice(0, -1) : target.replace(/#.*$/, ""), folder };
+  pending = { path: folder ? target.slice(0, -1) : literal ? target : target.replace(/#.*$/, ""), folder };
   for (const l of listeners) l();
 }
 
@@ -26,4 +26,22 @@ export function takeOpenRequest(): OpenRequest | null {
 export function onOpenRequest(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+let pendingTask: string | null = null;
+const taskListeners = new Set<(id: string) => void>();
+
+export function requestOpenTask(id: string): void {
+  if (taskListeners.size === 0) pendingTask = id;
+  else for (const open of taskListeners) open(id);
+}
+
+export function onOpenTaskRequest(open: (id: string) => void): () => void {
+  taskListeners.add(open);
+  if (pendingTask !== null) {
+    const id = pendingTask;
+    pendingTask = null;
+    open(id);
+  }
+  return () => taskListeners.delete(open);
 }

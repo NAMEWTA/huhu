@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
 
 export interface TerminalViewProps {
-  /** Engine 基址（http://127.0.0.1:port）与令牌；WebSocket 经 `Sec-WebSocket-Protocol: bearer.<token>` 鉴权。 */
+  /** 工作台所在的 Engine 基址；桌面附带回环令牌，浏览器自动携带同源 cookie。 */
   baseUrl: string;
-  token: string;
+  token: string | undefined;
   /** 会话 id（Agent 会话；SSH shell 用 `ssh-` 前缀）。 */
   sessionId: string;
   observe?: boolean;
@@ -55,7 +55,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     url.searchParams.set("cols", String(term.cols));
     url.searchParams.set("rows", String(term.rows));
     if (observe) url.searchParams.set("mode", "observe");
-    const ws = new WebSocket(url.toString(), [`bearer.${token}`]);
+    const ws = new WebSocket(url.toString(), token ? [`bearer.${token}`] : undefined);
     ws.binaryType = "arraybuffer";
     let ended = false;
     let disposed = false; // 本次连接已被清理（切换会话 / 卸载 / 重连）：旧 socket 的回调不再改状态

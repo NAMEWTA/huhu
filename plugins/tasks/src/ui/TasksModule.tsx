@@ -1,6 +1,6 @@
 import { matchesTags, type TaskDto, type TaskStatus } from "@huhu/contracts";
 import { Button, EmptyState, IconButton, Segmented } from "@huhu/ui";
-import { queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { onOpenTaskRequest, queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { ArrowUpRight, CalendarDays, CheckCircle2, Columns2, List, Plus, Search, Tag, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { categoryCount, inCategory, todayIn, weekRange, type TaskCategory } from "../shared/categories.js";
@@ -38,6 +38,7 @@ export function TasksModule({ onNavigate }: ModuleProps) {
   const [failure, setFailure] = useState<string | null>(null);
   const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone; // 与引擎同一个口径：设置里的时区
   const [tick, setTick] = useState(0);
+  useEffect(() => onOpenTaskRequest(setSelectedId), []);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 60_000); // 跨午夜后分类自动重算
     return () => clearInterval(id);

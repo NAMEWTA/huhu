@@ -1,6 +1,6 @@
 import "@huhu/ui/styles.css";
 import "@huhu/workbench/shell.css";
-import { appearanceController } from "@huhu/ui";
+import { appearanceController, Button, EmptyState } from "@huhu/ui";
 import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
@@ -20,6 +20,7 @@ import {
   CommandPalette,
   checkExitParticipants,
   requestOpenPath,
+  requestOpenTask,
   runFlushers,
   LaunchPage,
   type VaultHostState,
@@ -38,9 +39,10 @@ import {
   type EngineEndpoint,
 } from "@huhu/workbench";
 import { Activity, Bell, Blocks, CalendarDays, HeartPulse, House, LayoutGrid, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
+import { browserEndpoint, browserLocation, joinBrowserWorkbench, type BrowserEndpoint } from "./web-host.js";
 
 // 首帧：用 localStorage 里缓存的最近一次外观（没有就是默认主题 + 跟随系统），打开 Vault 后再以 Vault 的设置为准
 appearanceController().refresh();
@@ -56,12 +58,11 @@ function PluginFilter({ registry }: { registry: ContributionRegistry }) {
   return null;
 }
 
-function App() {
+function DesktopApp() {
   const [endpoint, setEndpointRaw] = useState<EngineEndpoint | null>(null);
   // 同一端点重复到达时保持引用不变，避免重建连接
   const setEndpoint = (e: EngineEndpoint | null) => setEndpointRaw((cur) => (cur && e && cur.baseUrl === e.baseUrl && cur.token === e.token && cur.vaultId === e.vaultId ? cur : e));
   const [state, setState] = useState<EngineState>("starting");
-  const [vaultName, setVaultName] = useState("HUHU");
   const [version, setVersion] = useState<string | undefined>(undefined);
   useEffect(() => {
     void window.huhuHost
@@ -69,6 +70,38 @@ function App() {
       .then((i) => setVersion(i.version))
       .catch(() => undefined); // 版本号的单一来源是应用本身，不在界面里写死
   }, []);
+
+  useEffect(() => {
+    const off = window.huhuHost.onEngineState((s) => {
+      setState(s);
+      if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
+      if (s === "crashed" || s === "stopped") setEndpoint(null);
+    });
+    void window.huhuHost.engineState().then((s) => {
+      setState(s);
+      if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
+    });
+    void window.huhuHost.engine().then((e) => {
+      setEndpoint(e);
+      setState("ready");
+    });
+    return off;
+  }, []);
+
+  return <App endpoint={endpoint} state={state} version={version} onRestartEngine={() => void window.huhuHost.restartEngine()} />;
+}
+
+interface AppProps {
+  endpoint: EngineEndpoint | null;
+  state: EngineState;
+  version?: string | undefined;
+  onRestartEngine?(): void;
+  onConnection?(state: "connected" | "reconnecting"): void;
+  browser?: boolean;
+}
+
+function App({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
+  const [vaultName, setVaultName] = useState("HUHU");
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
     r.register(notesUi);
@@ -179,25 +212,27 @@ function App() {
     });
     return r;
   }, []);
-  const ui = useMemo(() => createUiStore({ activeModule: "home", openTabs: ["home"] }), []);
+  const ui = useMemo(() => {
+    const active = (browser && browserLocation(location.pathname)?.module) || "home";
+    return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
+  }, [browser]);
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
 
   useEffect(() => {
-    const off = window.huhuHost.onEngineState((s) => {
-      setState(s);
-      if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
-      if (s === "crashed" || s === "stopped") setEndpoint(null);
-    });
-    void window.huhuHost.engineState().then((s) => {
-      setState(s);
-      if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
-    });
-    void window.huhuHost.engine().then((e) => {
-      setEndpoint(e);
-      setState("ready");
-    });
-    return off;
-  }, []);
+    if (!browser) return;
+    const openLocation = () => {
+      const link = browserLocation(location.pathname);
+      if (link?.target) {
+        if (link.module === "tasks") requestOpenTask(link.target);
+        else requestOpenPath(link.target, true);
+      }
+      const active = link?.module ?? "home";
+      if (ui.getState().activeModule !== active) ui.getState().openModule(active);
+    };
+    openLocation();
+    window.addEventListener("popstate", openLocation);
+    return () => window.removeEventListener("popstate", openLocation);
+  }, [browser, ui]);
 
   // 引擎就绪后应用该 Vault 保存的外观设置
   useEffect(() => {
@@ -218,7 +253,7 @@ function App() {
       registry={registry}
       ui={ui}
       engineState={shellState}
-      onRestartEngine={() => void window.huhuHost.restartEngine()}
+      {...(onRestartEngine ? { onRestartEngine } : {})}
       vaultName={vaultName}
       statusSlot={
         <>
@@ -251,7 +286,9 @@ function App() {
     </>
   );
   return endpoint ? (
-    <EngineProvider endpoint={endpoint}>{withFilter}</EngineProvider>
+    <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
+      {withFilter}
+    </EngineProvider>
   ) : (
     <>
       {shell}
@@ -309,7 +346,7 @@ function connectWindowExit(): () => void {
 }
 
 /** 根：先问 Main 当前有没有打开的 Vault；没有就显示启动页，打开成功后重新载入界面（旧 Vault 的缓存与事件随页面一起丢弃）。 */
-function Root() {
+function DesktopRoot() {
   const [vault, setVault] = useState<VaultHostState | null>(null);
   useEffect(connectWindowExit, []);
   useEffect(() => {
@@ -317,7 +354,42 @@ function Root() {
   }, []);
   if (!vault) return null;
   if (vault.path === null) return <LaunchPage state={vault} onOpened={() => window.location.reload()} />;
-  return <App />;
+  return <DesktopApp />;
 }
 
-createRoot(document.getElementById("root")!).render(<Root />);
+type BrowserState = { status: "loading" | "expired" | "unavailable" } | { status: "ready"; endpoint: BrowserEndpoint };
+
+function BrowserRoot() {
+  const [session, setSession] = useState<BrowserState>({ status: "loading" });
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]);
+    void joinBrowserWorkbench(signal).then(
+      (endpoint) => {
+        if (!controller.signal.aborted) setSession(endpoint ? { status: "ready", endpoint } : { status: "expired" });
+      },
+      () => {
+        if (!controller.signal.aborted) setSession({ status: "unavailable" });
+      },
+    );
+    return () => controller.abort();
+  }, []);
+
+  const checkSession = useCallback((state: "connected" | "reconnecting") => {
+    if (state !== "reconnecting") return;
+    void browserEndpoint()
+      .then((current) => {
+        setSession((previous) => {
+          if (previous.status !== "ready") return previous;
+          return current?.generation === previous.endpoint.generation && current.vaultId === previous.endpoint.vaultId ? previous : { status: "expired" };
+        });
+      })
+      .catch(() => undefined); // 暂时断网时由事件流重连，保留正在编辑的内容。
+  }, []);
+
+  if (session.status === "ready") return <App key={session.endpoint.generation} endpoint={session.endpoint} state="ready" browser onConnection={checkSession} />;
+  if (session.status === "loading") return <EmptyState title="正在连接工作台" />;
+  return <EmptyState title={session.status === "expired" ? "浏览器会话不可用" : "无法连接工作台"} hint="打开桌面端提供的有效邀请链接。" action={<Button onClick={() => location.reload()}>重新连接</Button>} />;
+}
+
+createRoot(document.getElementById("root")!).render(window.huhuHost ? <DesktopRoot /> : <BrowserRoot />);

@@ -2,7 +2,8 @@ import type { CapabilityResult, HuhuEvent } from "@huhu/contracts";
 
 export interface EngineEndpoint {
   baseUrl: string;
-  token: string;
+  /** 桌面使用回环令牌，浏览器由同源会话 cookie 鉴权。 */
+  token?: string;
   vaultId: string;
 }
 
@@ -43,12 +44,14 @@ export class EngineClient {
   async call<T>(capability: string, input: unknown = {}, opts: CallOptions = {}): Promise<T> {
     const idempotencyKey = opts.idempotencyKey ?? (opts.write ? createRequestId() : undefined);
     const body = { capability, input, requestId: createRequestId(), idempotencyKey };
+    const headers = new Headers({ "content-type": "application/json" });
+    if (this.endpoint.token) headers.set("authorization", `Bearer ${this.endpoint.token}`);
     const res = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/call`, {
       method: "POST",
-      headers: { authorization: `Bearer ${this.endpoint.token}`, "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
-    if (res.status === 401) throw new CapabilityError("UNAUTHENTICATED", "引擎令牌失效");
+    if (res.status === 401) throw new CapabilityError("UNAUTHENTICATED", this.endpoint.token ? "引擎令牌失效" : "浏览器会话已失效");
     let json: CapabilityResult<T>;
     try {
       json = (await res.json()) as CapabilityResult<T>;
@@ -98,7 +101,7 @@ export class EventStream {
     const url = new URL(this.endpoint.baseUrl.replace(/^http/, "ws") + "/ws/events");
     if (this.lastSeq !== null) url.searchParams.set("lastSeq", String(this.lastSeq));
     if (this.epoch !== null) url.searchParams.set("epoch", this.epoch);
-    const ws = new WS(url.toString(), [`bearer.${this.endpoint.token}`]);
+    const ws = new WS(url.toString(), this.endpoint.token ? [`bearer.${this.endpoint.token}`] : undefined);
     this.ws = ws;
     ws.onopen = () => {
       this.attempt = 0;
