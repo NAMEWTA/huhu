@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityCatalogEntrySchema, CapabilityResultSchema, HuhuErrorSchema } from "@huhu/contracts";
 import { boot, type RunningEngine } from "@huhu/engine";
-import { MAX_BODY_BYTES } from "@huhu/kernel";
+import { createMcpServer as createSharedMcp, MAX_BODY_BYTES } from "@huhu/kernel";
 import { Vault } from "@huhu/vault";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { run } from "../src/main.js";
 
@@ -51,6 +51,37 @@ async function setMcp(e: RunningEngine, enabled: boolean, transport: "stdio" | "
 }
 
 describe("CLI", () => {
+  test("同名 MCP 能力改 schema 后通知刷新，并验证结构化标量与数组", async () => {
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    let mode: "string" | "array" = "string";
+    const server = createSharedMcp(
+      {
+        list: () => [{ name: "fixture.summary", plugin: "fixture", scope: "read", input: { type: "object" }, output: mode === "string" ? { type: "string" } : { type: "array", items: { type: "string" } } }],
+        callTool: async () => ({ ok: true, data: mode === "string" ? "brief" : ["brief"] }),
+        call: async () => ({ ok: true, data: null }),
+      },
+      "1.0.0",
+      { watchToolsMs: 70 },
+    );
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "schema-refresh", version: "1" });
+    let updates = 0;
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => void updates++);
+    try {
+      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+      const input = { name: "fixture_summary", arguments: {} };
+      expect((await client.listTools()).tools).toMatchObject([{ name: input.name, outputSchema: { properties: { data: { type: "string" } } } }]);
+      expect(await client.callTool(input)).toMatchObject({ structuredContent: { data: "brief" }, content: [{ type: "text", text: '"brief"' }] });
+      mode = "array";
+      await vi.waitFor(() => expect(updates).toBe(1), { timeout: 5_000 });
+      expect((await client.listTools()).tools).toMatchObject([{ name: input.name, outputSchema: { properties: { data: { type: "array" } } } }]);
+      expect(await client.callTool(input)).toMatchObject({ structuredContent: { data: ["brief"] }, content: [{ type: "text", text: '["brief"]' }] });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   test("--version / --help 不需要 Vault", async () => {
     const c = capture();
     expect(await run(["--version"], c.io)).toBe(0);
@@ -311,7 +342,6 @@ describe("CLI", () => {
     const server = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1", { watchToolsMs: 200 });
     const [a, b] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "t", version: "1" });
-    const { ToolListChangedNotificationSchema } = await import("@modelcontextprotocol/sdk/types.js");
     let changed = 0;
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => void changed++);
     await Promise.all([server.connect(a), client.connect(b)]);
@@ -388,6 +418,7 @@ describe("CLI", () => {
     engines.push(e);
     await allowTools(e, "vault.info", "tasks.list", "inbox.capture", "vault.indexEntries", "notes.list", "notes.read");
     await setMcp(e, true);
+    await setMcp(e, true, "http");
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");
@@ -401,6 +432,16 @@ describe("CLI", () => {
     expect(tools).not.toContain("tasks_create"); // 默认不对外
     const info = await client.callTool({ name: "vault_info", arguments: {} });
     expect(JSON.parse((info.content as { text: string }[])[0]?.text ?? "{}")).toMatchObject({ id: e.vault.id });
+    expect(info.structuredContent).toMatchObject({ data: { id: e.vault.id } });
+    const arrayTool = { name: "tasks_list", arguments: {} };
+    const array = await client.callTool(arrayTool);
+    expect(array.structuredContent).toEqual({ data: [] });
+    const http = await fetch(`http://127.0.0.1:${e.port}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: arrayTool }),
+    }).then((response) => response.json());
+    expect(CallToolResultSchema.parse(http.result)).toMatchObject({ structuredContent: array.structuredContent });
     const denied = await client.callTool({ name: "tasks_create", arguments: { title: "x" } });
     expect(denied.isError).toBe(true);
     const cap = await client.callTool({ name: "inbox_capture", arguments: { body: "来自 MCP", source: "quick" } });

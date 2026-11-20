@@ -18,3 +18,9 @@
 ## 原型对照与确认范围
 
 打开[本地原型](../prototype/index.html)，从[侧栏导航](../prototype/prototype.js)的「工具目录」对照「浏览器工作台／规则的运行历史」。规则历史和排队判据在 #5 验证。本片验证领域或接口结果，该场景用于对照结果在工作台的解释。可见效果的确认以[原型确认记录](../prototype-review.md)为准；后端合同可独立验证。
+
+## Windows 联验
+
+- 独立测试 Vault 中，用 CLI 身份先得默认关闭，再逐项授权创建、编辑、启用、预览和立即运行。合成提醒先保存为停用草稿。过期规则版本返回冲突。两个并发请求和 Engine 重启后的重交返回同一发生记录，只创建一个任务、一条通知和一份发生记录。受控终端规则沿用按目标批准的入口。
+- 同一发生记录给出原任务和派遣 ID。暂停并按新版本删除规则后，CLI 仍读到并能单项取消原派遣。重复取消读回同一终态，执行器调用数为零。
+- `pnpm exec vitest run plugins/automations/test/task-scan-occurrences.test.ts --pool forks --maxWorkers 1` 在 Windows 通过 16 项，覆盖真实 Engine HTTP 和授权存储。本次提醒和任务均用合成输入。 [测试源码](../../../../../plugins/automations/test/task-scan-occurrences.test.ts)

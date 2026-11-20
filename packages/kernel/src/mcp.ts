@@ -2,14 +2,30 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { type CapabilityResult } from "@huhu/contracts";
 import { mcpToolName } from "./capabilities/define.js";
+import { canonicalJson } from "./idempotency.js";
 
 export interface McpBackend {
   /** 对当前调用者可见（已对外开放）的能力。 */
-  list(): Promise<{ name: string; plugin: string; scope: string; input: unknown }[]> | { name: string; plugin: string; scope: string; input: unknown }[];
+  list(): Promise<McpCapability[]> | McpCapability[];
   /** 解析协议工具名并交给 Dispatcher 复核，包括客户端缓存的旧工具。 */
   callTool(name: string, input: unknown): Promise<CapabilityResult<unknown>>;
   /** 资源依赖的 canonical 能力同样经 Dispatcher 授权。 */
   call(capability: string, input: unknown): Promise<CapabilityResult<unknown>>;
+}
+
+type McpCapability = { name: string; plugin: string; scope: string; input: unknown; output: unknown };
+
+function structuredOutput(schema: unknown) {
+  const record = typeof schema === "object" && schema !== null ? (schema as Record<string, unknown>) : {};
+  const { $schema: _, ...output } = record;
+  // Rebase Zod's fragment pointers inside the object envelope required by MCP v1 clients.
+  const data: unknown = JSON.parse(JSON.stringify(output, (key, value: unknown) => (key === "$ref" && typeof value === "string" && (value === "#" || value.startsWith("#/")) ? "#/properties/data" + value.slice(1) : value)));
+  return {
+    type: "object" as const,
+    properties: { data, opId: { type: "string" } },
+    required: ["data"],
+    additionalProperties: false,
+  };
 }
 
 const SUMMARY = "huhu://vault/summary";
@@ -34,11 +50,7 @@ export function createMcpServer(
   if (opts.watchToolsMs !== undefined) {
     let timer: ReturnType<typeof setInterval> | null = null;
     let last: string | null = null;
-    const signature = async () =>
-      (await backend.list())
-        .map((c) => c.name)
-        .sort()
-        .join("\n");
+    const signature = async () => (await backend.list()).map(canonicalJson).sort().join("\n");
     server.oninitialized = () => {
       void signature().then(
         (s) => (last = s),
@@ -61,12 +73,18 @@ export function createMcpServer(
     };
   }
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: (await backend.list()).map((c) => ({ name: mcpToolName(c.name), description: `${c.name}（${c.plugin} · ${c.scope}）`, inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" } })),
+    tools: (await backend.list()).map((c) => ({
+      name: mcpToolName(c.name),
+      description: `${c.name}（${c.plugin} · ${c.scope}）`,
+      inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
+      outputSchema: structuredOutput(c.output),
+    })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const r = await backend.callTool(req.params.name, req.params.arguments ?? {});
     if (!r.ok) return { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };
-    return { content: [{ type: "text", text: JSON.stringify(r.data) }] };
+    const data = r.data ?? null;
+    return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: { data, ...(r.opId && { opId: r.opId }) } };
   });
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const visible = new Set((await backend.list()).map((c) => c.name));
