@@ -71,6 +71,21 @@ describe("目录变化（A05）", () => {
 });
 
 describe("原生监听", () => {
+  test.skipIf(process.platform !== "linux")("移入完整目录后继续监听所有子目录里的文件", async () => {
+    const { root, seen } = await setup();
+    const staging = mkdtempSync(path.join(tmpdir(), "huhu-wt-stage-"));
+    dirs.push(staging);
+    mkdirSync(path.join(staging, "类型", "档案"), { recursive: true });
+    writeFileSync(path.join(staging, "类型", "档案", "index.md"), "原题");
+    renameSync(staging, path.join(root, "Archives"));
+    const entry = "Archives/类型/档案/index.md";
+    await until(() => seen.some((change) => change.path === entry));
+    expect(seen).toContainEqual({ path: entry, change: "created" });
+    writeFileSync(path.join(root, entry), "外部改写的新正文");
+    await until(() => seen.some((change) => change.path === entry && change.change === "modified"));
+    expect(seen).toContainEqual({ path: entry, change: "modified" });
+  });
+
   test("外部创建/修改/删除在 1 秒内反映", async () => {
     const { root, seen } = await setup();
     const t0 = Date.now();
