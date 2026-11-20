@@ -18,12 +18,14 @@
     "@huhu/kernel": "workspace:*",
     "@huhu/ui": "workspace:*",
     "@huhu/workbench": "workspace:*",
+    "d3-dsv": "3.0.2",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",
     "ssh2": "^1.17.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/d3-dsv": "3.0.7",
     "@types/react": "^19.3.0",
     "@types/ssh2": "^1.15.6",
     "@types/ws": "^8.18.2",

@@ -57,6 +57,14 @@ test("通过 Engine HTTP 按真实主机 ID 搜索、整理和重开同一个 Va
     const paths = [alice, bob, alpha, zulu].map((id) => path.join(root, ".huhu", "ssh", "hosts", `${id}.json`));
     const savedProfiles = paths.map((file) => readFileSync(file));
 
+    const importSource = { format: "openssh", filename: "config", contentBase64: Buffer.from("Host Mirror candidate\n User alice\n HostName mirror.invalid").toString("base64") };
+    const preview = await data(live, "ssh.hosts.import.preview", importSource);
+    expect(preview).toMatchObject({ rows: [{ state: "conflict", conflicts: expect.arrayContaining([{ kind: "existing", hostId: alice, field: "endpoint" }]) }, { state: "conflict" }] });
+    expect(JSON.stringify(preview)).not.toMatch(/synthetic-key-ref|safe:\/\//);
+    expect(await call(live, "ssh.hosts.import.preview", importSource, live.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    expect(await data(live, "ssh.hosts.list")).toEqual(legacy);
+    expect(paths.map((file) => readFileSync(file))).toEqual(savedProfiles);
+
     let current = await directory(live);
     expect(current).toMatchObject({ version: "0", sort: "name-asc", groups: [] });
     expect(hostIds(current)).toEqual([alpha, alice, bob, zulu]);

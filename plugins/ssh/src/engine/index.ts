@@ -5,6 +5,7 @@ import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostDirectory } from "./directory.js";
 import { HostStore } from "./hosts.js";
 import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
+import { hostImportPreview } from "./import/capability.js";
 import { SshManager } from "./manager.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
@@ -32,6 +33,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   ctx.effect(() => () => manager.disposeAll()); // 插件停用 / Vault 关闭：断开全部连接
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
+  api.defineCapability(hostImportPreview(hosts));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsOrganize, async (_c, i) => {
       const view = await directory.organize(i);
