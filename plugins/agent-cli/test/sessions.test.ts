@@ -21,13 +21,14 @@ const tmp = () => {
 };
 
 function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean } = {}) {
-  const terminals: { address: string; labels: Record<string, string>; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
+  const terminals: { address: string; labels: Record<string, string>; argv?: string[]; cwd: string; pid: number; created_ms: number; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
   const calls: string[] = [];
   const runs: { argv?: string[]; cwd?: string }[] = [];
   const sends: { terminal?: string; text?: string }[] = [];
   const client = {
     call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string }) => {
       calls.push(method);
+      if (method === "hello") return { core: { id: "fake-core" }, generation: 1 };
       if (method === "terminal.send") {
         if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } });
         if (opts.failSendTransport) throw new Error("timeout");
@@ -36,11 +37,11 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
       }
       if (method === "terminal.run") {
         runs.push({ ...(params.argv ? { argv: params.argv } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) });
-        const t = { address: `t${terminals.length + 1}`, labels: params.labels ?? {} };
+        const t = { address: `t${terminals.length + 1}`, labels: params.labels ?? {}, cwd: params.cwd!, argv: params.argv ?? [], pid: 100 + terminals.length, created_ms: 200 + terminals.length };
         if (opts.failRun === "throw") throw new Error("boom");
         terminals.push(t);
         if (opts.failRun === "throw-after-create") throw new Error("响应丢失");
-        return { address: t.address };
+        return t;
       }
       if (method === "terminal.list") return { terminals: terminals.filter((t) => Object.entries(params.labels ?? {}).every(([k, v]) => t.labels[k] === v)) };
       return {};
@@ -111,14 +112,14 @@ describe("HerdrCore.peek（不 mock：真实端点检查）", () => {
       srv.close();
     }
   });
-  test("接线到 SessionsService：Core 不在时，记录为 running 的会话对账后变成 exited", async () => {
+  test("接线到 SessionsService：Core 不在时，已绑定会话转为待核实", async () => {
     const f = fakeClient();
     const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });
     const { svc, space } = setup(f.client, { peekCore: () => core.peek() });
     const s = await svc.launch(req(space));
     expect(svc.get(s.id).state).toBe("running");
     await svc.reconcile();
-    expect(svc.get(s.id)).toMatchObject({ state: "exited", error: expect.stringContaining("没有在运行") });
+    expect(svc.get(s.id)).toMatchObject({ state: "unknown", terminalId: null });
   });
 });
 
@@ -135,15 +136,15 @@ describe("会话对账（终端是否已结束）", () => {
     svc.addComment(a.id, { path: "a.md", side: "new", line: 1, text: "x" });
     await expect(svc.sendComments(a.id)).rejects.toThrow(/恢复会话/);
   });
-  test("终端已不存在（Core 重启过）：exited 并说明原因；Core 连不上：保持原状", async () => {
+  test("终端已不在快照中：保留待核实的原绑定", async () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);
     const a = await svc.launch(req(space));
     f.terminals.length = 0; // Core 里已经没有这个终端
     await svc.reconcile();
-    expect(svc.get(a.id)).toMatchObject({ state: "exited", exitCode: null, error: expect.stringContaining("不存在") });
+    expect(svc.get(a.id)).toMatchObject({ state: "unknown", terminalId: null });
   });
-  test("Core 暂时连不上（判断不了）：保持 running 不动；确认没有 Core 在监听（absent）：全部标为已结束并说明", async () => {
+  test("Core 暂时连不上时保持 running，确认 Core 缺席时转为待核实", async () => {
     let mode: "up" | "unknown" | "absent" = "up";
     const f = fakeClient();
     const { svc, space } = setup(f.client, { peekCore: async () => (mode === "up" ? f.client : mode === "unknown" ? null : "absent") });
@@ -154,7 +155,7 @@ describe("会话对账（终端是否已结束）", () => {
     mode = "absent";
     await new Promise((r) => setTimeout(r, 2100)); // 过了节流窗口
     await svc.reconcile();
-    expect(svc.get(a.id)).toMatchObject({ state: "exited", error: expect.stringContaining("没有在运行") });
+    expect(svc.get(a.id)).toMatchObject({ state: "unknown", terminalId: null });
   });
   test("地址被别的终端占用（标签不是这个会话）：不能把旧会话当成还在运行", async () => {
     const f = fakeClient();
@@ -162,7 +163,7 @@ describe("会话对账（终端是否已结束）", () => {
     const a = await svc.launch(req(space));
     f.terminals[0]!.labels = { ...f.terminals[0]!.labels, "huhu.session": "sess-someone-else" }; // Core 重置后 t1 被别的会话的终端复用
     await svc.reconcile();
-    expect(svc.get(a.id).state).toBe("exited");
+    expect(svc.get(a.id).state).toBe("unknown");
   });
   test("2 秒内重复对账直接跳过（不反复打 Core）", async () => {
     const f = fakeClient();
@@ -336,11 +337,11 @@ describe("会话启动", () => {
     expect(s).toMatchObject({ state: "running", terminalId: "t1" });
     expect(f.calls.filter((c) => c === "terminal.run")).toHaveLength(1);
   });
-  test("run 失败且找不到终端 → failed + HERDR_UNAVAILABLE", async () => {
+  test("run 回包缺失且找不到终端 → unknown + RUN_UNKNOWN", async () => {
     const f = fakeClient({ failRun: "throw" });
     const { svc, space } = setup(f.client);
-    await expect(svc.launch(req(space))).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
-    expect(svc.list()[0]?.state).toBe("failed");
+    await expect(svc.launch(req(space))).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
+    expect(svc.list()[0]?.state).toBe("unknown");
   });
   test("provider 未检测到 → AGENT_NOT_FOUND，且不创建终端；revision 变化 → SPACE_INVALID", async () => {
     const f = fakeClient();

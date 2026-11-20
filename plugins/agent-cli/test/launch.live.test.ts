@@ -2,9 +2,10 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { HerdrClient } from "@huhu/herdr-client";
 import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, createHuhuContext, type VaultServices } from "@huhu/kernel";
 import { Vault, machineId } from "@huhu/vault";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { apply } from "../src/engine/index.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 
@@ -24,13 +25,15 @@ interface Terminal {
   labels: Record<string, string>;
   state: string;
   exit_code: number | null;
+  created_ms: number;
+  pid: number;
 }
 
 test.skipIf(process.platform !== "win32" || !bin)(
   "Windows Core 0.1.19: capability preview matches the launched shell and synthetic agents",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w11-")));
-    const vault = await Vault.open(mkdirSync(path.join(sandbox, "vault"), { recursive: true })!, { create: true });
+    let vault = await Vault.open(mkdirSync(path.join(sandbox, "vault"), { recursive: true })!, { create: true });
     const runtimeDir = path.join(vault.runtimeDir, "herdr");
     const expectedCore = new HerdrCore({ bin: bin!, vaultId: vault.id, machineId: machineId(), runtimeDir });
     const env = {
@@ -52,32 +55,36 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(JSON.parse(before.stderr).error).toMatchObject({ kind: "unavailable", message: expect.stringContaining("(os error 2)") });
       emptyEndpoint = true;
 
-      const registry = new CapabilityRegistry();
-      const dispatcher = new Dispatcher({
-        registry,
-        audit: new GatewayAudit(),
-        idempotency: new IdempotencyStore(),
-        isPluginEnabled: () => true,
-        exposureOverride: () => undefined,
-        grantedPermissions: () => [],
-        pluginOrigin: () => "builtin",
-      });
-      const { root, facade } = createHuhuContext({
-        registry,
-        events: new EventBus(() => vault.id),
-        vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
-        call: async () => {
-          throw new Error("The launch probe does not call other plugins");
-        },
-      });
-      const running = root.plugin((ctx) => {
-        apply(ctx, facade("agent-cli", ctx), { herdrBin: bin! });
-      });
-      dispose = () => running.dispose();
-      await running.await?.();
-      const request = (capability: string, input: unknown) => {
+      let dispatcher: Dispatcher;
+      async function openEngine() {
+        const registry = new CapabilityRegistry();
+        dispatcher = new Dispatcher({
+          registry,
+          audit: new GatewayAudit(),
+          idempotency: new IdempotencyStore(),
+          isPluginEnabled: () => true,
+          exposureOverride: () => undefined,
+          grantedPermissions: () => [],
+          pluginOrigin: () => "builtin",
+        });
+        const { root, facade } = createHuhuContext({
+          registry,
+          events: new EventBus(() => vault.id),
+          vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
+          call: async () => {
+            throw new Error("The launch probe does not call other plugins");
+          },
+        });
+        const running = root.plugin((ctx) => {
+          apply(ctx, facade("agent-cli", ctx), { herdrBin: bin! });
+        });
+        dispose = () => running.dispose();
+        await running.await?.();
+      }
+      await openEngine();
+      const request = (capability: string, input: unknown, idempotencyKey = crypto.randomUUID()) => {
         const requestId = crypto.randomUUID();
-        return dispatcher.call("desktop", { capability, input, requestId, idempotencyKey: requestId });
+        return dispatcher.call("desktop", { capability, input, requestId, idempotencyKey });
       };
       async function call<T>(capability: string, input: unknown): Promise<T> {
         const reply = await request(capability, input);
@@ -100,7 +107,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
         agentScript,
         'import { writeFileSync } from "node:fs";\n' +
           'if (process.argv[2] === "--version") console.log("synthetic-cli 1.0.0");\n' +
-          `else writeFileSync(${JSON.stringify(agentEvidence)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\n`,
+          `else writeFileSync(${JSON.stringify(agentEvidence)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\n` +
+          'if (process.argv.includes("isolated reopen fixture")) setTimeout(() => {}, 30_000);\n',
       );
       const { settings } = await call<{ settings: { revision: number } }>("agent.settings.get", {});
       await call("agent.settings.update", {
@@ -135,7 +143,10 @@ test.skipIf(process.platform !== "win32" || !bin)(
         const extended = path.toNamespacedPath(longCwd);
         mkdirSync(extended, { recursive: true });
         expect(realpathSync(extended).endsWith(longCwd.slice(2))).toBe(true);
-        for (const [input, spelling] of [[shellInput, longCwd], [agentInput, extended]] as const) {
+        for (const [input, spelling] of [
+          [shellInput, longCwd],
+          [agentInput, extended],
+        ] as const) {
           const unsupported = { ...input, cwd: spelling };
           const preview = await request("agent.launch.resolve", { session: unsupported });
           expect(preview).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { stage: "cwd", reason: "windows_cwd_too_long", maxLength: 258 } } });
@@ -190,6 +201,66 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const { terminals } = JSON.parse(cli("ls", "--all").stdout) as { terminals: Terminal[] };
       expect(terminals).toHaveLength(2);
       console.info(JSON.stringify({ isolatedId, endpoint: expectedCore.endpoint, shellPreview, agentPreview, labels: observed.map(({ labels }) => labels), exitCodes: observed.map(({ exit_code }) => exit_code) }));
+
+      const launchId = crypto.randomUUID();
+      const transportKey = crypto.randomUUID();
+      const launch = { ...agentInput, prompt: "isolated reopen fixture", requestId: launchId };
+      const realCall = HerdrClient.prototype.call;
+      let dropped: Terminal | undefined;
+      const fault = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
+        if (method === "terminal.list") return Promise.reject(new Error("isolated snapshot unavailable"));
+        const labels = (params as { labels?: Record<string, string> } | undefined)?.labels;
+        if (method === "terminal.run" && labels?.["huhu.launch"] === launchId) {
+          const receiver = this as unknown as { onMessage(line: string): void };
+          const original = receiver.onMessage.bind(receiver);
+          const reply = vi.spyOn(receiver, "onMessage").mockImplementation((line) => {
+            const { result } = JSON.parse(line) as { result?: Terminal };
+            if (result?.labels?.["huhu.launch"] !== launchId) return original(line);
+            dropped = result;
+            reply.mockRestore();
+            this.close();
+          });
+        }
+        return realCall.call(this, method, params) as Promise<T>;
+      });
+      try {
+        expect(await request("agent.sessions.launch", launch, transportKey)).toMatchObject({
+          ok: false,
+          error: { code: "RUN_UNKNOWN", retryable: true, details: { reason: "snapshot_unavailable", requestId: launchId } },
+        });
+      } finally {
+        fault.mockRestore();
+      }
+      expect(dropped).toMatchObject({ state: "live", labels: { "huhu.launch": launchId } });
+      const original = dropped!;
+      const sessionId = original.labels["huhu.session"]!;
+      const attemptId = original.labels["huhu.launch.generation"]!;
+      expect(attemptId).toBeTruthy();
+      const persisted = () => JSON.parse(readFileSync(path.join(vault.stateDir, "agent-cli", "sessions", `${sessionId}.json`), "utf8"));
+      expect(persisted()).toMatchObject({ state: "unknown", requestId: launchId, terminalId: null, launchReceipt: { vaultId: vault.id, attempt: { id: attemptId, core: { id: isolatedId, generation: 1 } } } });
+      expect(JSON.parse(cli("get", original.address).stdout)).toMatchObject({ pid: original.pid, created_ms: original.created_ms, state: "live" });
+      await dispose?.();
+      dispose = undefined;
+      const vaultRoot = vault.root;
+      await vault.close();
+      vault = await Vault.open(vaultRoot);
+      await openEngine();
+      const replay = await request("agent.sessions.launch", launch, transportKey);
+      expect(replay).toMatchObject({ ok: true, data: { id: sessionId, requestId: launchId, terminalId: original.address, state: "running" } });
+      expect(replay.ok && replay.data).not.toHaveProperty("launchReceipt");
+      expect((await call<{ id: string }[]>("agent.sessions.list", {})).find(({ id }) => id === sessionId)).not.toHaveProperty("launchReceipt");
+      expect(persisted()).toMatchObject({ launchReceipt: { attempt: { id: attemptId, binding: { address: original.address, pid: original.pid, createdMs: original.created_ms } } } });
+      const coreClient = new HerdrClient({ endpoint: expectedCore.endpoint });
+      await coreClient.connect();
+      try {
+        const after = await coreClient.call<{ terminals: Terminal[] }>("terminal.list", { all: true });
+        expect(after.terminals).toHaveLength(3);
+        expect(after.terminals.filter((terminal) => terminal.labels["huhu.launch"] === launchId)).toMatchObject([{ address: original.address, pid: original.pid, created_ms: original.created_ms }]);
+      } finally {
+        coreClient.close();
+      }
+      await call("agent.sessions.kill", { id: sessionId });
+      console.info(JSON.stringify({ isolatedId, launchId, sessionId, attemptId, address: original.address, pid: original.pid, createdMs: original.created_ms }));
     } finally {
       await dispose?.();
       try {
@@ -201,6 +272,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
             expect(current).not.toBe("346bd5608735e3fcb27f9d01f5c8008e");
             if (isolatedId) expect(current).toBe(isolatedId);
             expect(cli("server", "stop").status).toBe(0);
+            expect(cli("server", "status").status).toBe(5);
           }
         }
       } finally {

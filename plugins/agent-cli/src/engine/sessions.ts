@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { HuhuError, errors, newId } from "@huhu/contracts";
@@ -6,6 +7,7 @@ import { isValidNativeId, isWithin } from "./history/scanner.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
 import { redactSecrets, shellCommand, type ShellName } from "../shared/shell.js";
 import type { ResolvedLaunch, ResolveInput } from "./launch.js";
+import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
 
 export interface SessionRecord {
@@ -18,6 +20,7 @@ export interface SessionRecord {
   exitCode?: number | null;
   exitedAt?: string;
   requestId: string;
+  launchReceipt?: LaunchReceipt;
   terminalId: string | null;
   name: string;
   cwd: string;
@@ -33,6 +36,10 @@ export interface SessionRecord {
   /** 程序经 OSC 7501 上报 blocked（等人工）的状态；`n` 是第几次进入 blocked，发生标识 = `<会话 id>:<n>`，重连、重启 Engine 不会重复处理。 */
   waiting?: WaitingInfo;
   error?: string;
+}
+
+export function publicSession({ launchReceipt: _launchReceipt, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt"> {
+  return session;
 }
 
 export interface ReviewComment {
@@ -110,14 +117,10 @@ export interface LaunchInput {
   shell?: ShellName | undefined;
   /** 已由调用方（引擎侧）从保险箱解析好的环境变量；只传给 terminal.run，不落盘、不回显。 */
   env?: Record<string, string> | undefined;
+  envRefs?: Record<string, string> | undefined;
 }
 
-interface Terminal {
-  address: string;
-}
-interface RunResult {
-  address: string;
-}
+type TerminalSnapshot = { kind: "available"; client: HerdrClient; core: Awaited<ReturnType<typeof identifyCore>>; terminals: Terminal[] } | { kind: "absent" | "unavailable" };
 
 export interface SessionsDeps {
   dir: string;
@@ -141,7 +144,7 @@ export class SessionsService {
   private save(s: SessionRecord): void {
     mkdirSync(this.d.dir, { recursive: true });
     const tmp = `${this.file(s.id)}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(s, null, 2));
+    writeFileSync(tmp, JSON.stringify(s, null, 2), { flush: true });
     renameSync(tmp, this.file(s.id)); // 原子替换：崩溃时不会留下写到一半的记录（“发送中”标记依赖它）
   }
 
@@ -156,7 +159,7 @@ export class SessionsService {
           return [];
         }
       }) // 单个记录损坏不拖垮整个列表
-      .filter((s) => !spaceId || s.spaceId === spaceId)
+      .filter((s) => (!s.launchReceipt || (s.launchReceipt.vaultId === this.d.vaultId && s.launchReceipt.machineId === this.d.spaces.machineId)) && (!spaceId || s.spaceId === spaceId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -166,15 +169,49 @@ export class SessionsService {
     return s;
   }
 
-  private inflight = new Map<string, Promise<SessionRecord>>();
+  private readonly inflight = new Map<string, { intentHash: string; executionHash: string | undefined; result: Promise<SessionRecord> }>();
 
-  /** 同一 requestId 的并发提交合并为一次，避免两次 terminal.run。 */
-  launch(input: LaunchInput): Promise<SessionRecord> {
+  private intentHash({ requestId: _requestId, env: _env, cwd, ...intent }: LaunchInput): string {
+    let directory = cwd;
+    if (cwd && path.isAbsolute(cwd)) {
+      try {
+        directory = realpathSync(cwd);
+      } catch {
+        directory = path.normalize(cwd);
+      }
+      directory = localDrivePath(directory);
+    }
+    return launchHash({ ...intent, cwd: directory });
+  }
+
+  async launch(input: LaunchInput): Promise<SessionRecord> {
+    const intentHash = this.intentHash(input);
+    const previous = this.list().find((s) => s.requestId === input.requestId);
+    if (previous) this.verifyIntent(previous, intentHash);
+
+    let prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined;
+    try {
+      prepared = await this.prepareLaunch(input);
+    } catch (error) {
+      // A sent operation remains queryable even when its old directory or executable is gone.
+      if (!previous?.launchReceipt?.attempt) throw error;
+    }
+    const executionHash =
+      prepared &&
+      launchHash({
+        machineId: prepared.space.machineId,
+        cwd: prepared.cwd,
+        argv: prepared.argv,
+        envNames: Object.keys(prepared.env ?? {}).sort(),
+      });
     const running = this.inflight.get(input.requestId);
-    if (running) return running;
-    const p = this.doLaunch(input).finally(() => this.inflight.delete(input.requestId));
-    this.inflight.set(input.requestId, p);
-    return p;
+    if (running) {
+      if (running.intentHash !== intentHash || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
+      return running.result;
+    }
+    const result = this.doLaunch(input, intentHash, executionHash, prepared).finally(() => this.inflight.delete(input.requestId));
+    this.inflight.set(input.requestId, { intentHash, executionHash, result });
+    return result;
   }
 
   private launchDirectory(root: string, cwd: string | undefined): string {
@@ -221,12 +258,37 @@ export class SessionsService {
     return { machineId: space.machineId, cwd, command: command ?? null, argv: args };
   }
 
-  private async doLaunch(input: LaunchInput): Promise<SessionRecord> {
-    // 同一 requestId 重复提交：返回已有会话，不重复启动
-    const dup = this.list().find((s) => s.requestId === input.requestId);
-    if (dup) return dup;
-    const { space, cwd, argv, env } = await this.prepareLaunch(input);
-    const session: SessionRecord = {
+  private unknown(session: SessionRecord, reason: string): HuhuError {
+    return new HuhuError("RUN_UNKNOWN", "启动结果待核实，请用原启动请求重查", {
+      retryable: true,
+      details: { stage: "run", reason, requestId: session.requestId, sessionId: session.id },
+    });
+  }
+
+  private verifyIntent(session: SessionRecord, intentHash: string, executionHash?: string): LaunchReceipt {
+    const receipt = session.launchReceipt;
+    if (!receipt) throw this.unknown(session, "legacy_record");
+    if (receipt.intentHash !== intentHash || (executionHash && receipt.executionHash !== executionHash)) throw errors.idempotencyMismatch();
+    return receipt;
+  }
+
+  private async doLaunch(input: LaunchInput, intentHash: string, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined): Promise<SessionRecord> {
+    const previous = this.list().find((s) => s.requestId === input.requestId);
+    if (previous && this.verifyIntent(previous, intentHash, executionHash).attempt) {
+      if (previous.state === "exited") return previous;
+      return this.findLaunch(previous);
+    }
+    if (!prepared || !executionHash) throw errors.invalidInput("启动配置不可用");
+
+    const { space, cwd, argv, env } = prepared;
+    const receipt: LaunchReceipt = {
+      vaultId: this.d.vaultId,
+      machineId: space.machineId,
+      intentHash,
+      executionHash,
+      argvHash: argv ? launchHash(argv) : null,
+    };
+    const session: SessionRecord = previous ?? {
       id: newId("cap").replace(/^cap-/, "sess-"),
       spaceId: space.id,
       provider: input.provider,
@@ -234,41 +296,152 @@ export class SessionsService {
       state: "launching",
       requestId: input.requestId,
       terminalId: null,
-      name: input.command !== undefined ? `命令：${input.command.replace(/\s+/g, " ").slice(0, 40)}` : input.provider === "shell" ? "终端" : (agentById(input.provider)?.displayName ?? input.provider),
+      name: input.command !== undefined ? "命令：" + input.command.replace(/\s+/g, " ").slice(0, 40) : input.provider === "shell" ? "终端" : (agentById(input.provider)?.displayName ?? input.provider),
       ...(input.command !== undefined ? { command: input.command } : {}),
-      ...(env && Object.keys(env).length > 0 ? { hasEnv: true } : {}),
+      ...(env ? { hasEnv: true } : {}),
       cwd,
       createdAt: this.d.now().toISOString(),
       ...(input.resumeSessionId ? { nativeSessionId: input.resumeSessionId } : {}),
+      launchReceipt: receipt,
     };
-    this.save(session); // 先持久化，再启动
-    const labels = { "huhu.vault": this.d.vaultId, "huhu.space": space.id, "huhu.session": session.id, "huhu.launch": input.requestId };
-    const client = await this.d.core().catch((e: unknown) => {
-      this.save({ ...session, state: "failed", error: String(e) });
-      throw e;
-    });
+    this.save(session);
+    let client: HerdrClient;
+    let core: Awaited<ReturnType<typeof identifyCore>>;
     try {
-      const r = await client.call<RunResult>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels, name: session.id }); // Herdr 名称只接受 ASCII（a-z0-9-_.，1–32 位）；显示名保存在 HUHU 会话记录里
-      const ok = { ...session, state: "running" as const, terminalId: r.address };
-      this.save(ok);
-      return ok;
-    } catch (e) {
-      // 响应丢失/调用失败：按标签查回，找到唯一终端则绑定；找不到 failed；多个 unknown；任何情况都不重试 run
-      const found = await client.call<{ terminals: Terminal[] }>("terminal.list", { labels: { "huhu.launch": input.requestId } }).catch(() => null);
-      const list = found?.terminals ?? null;
-      const n = list ? list.length : -1;
-      const next: SessionRecord =
-        n === 1 && list ? { ...session, state: "running", terminalId: (list[0] as Terminal).address } : n > 1 ? { ...session, state: "unknown" } : { ...session, state: "failed", error: e instanceof Error ? e.message : String(e) };
-      this.save(next);
-      if (next.state === "running") return next;
-      throw new HuhuError(next.state === "unknown" ? "RUN_UNKNOWN" : "HERDR_UNAVAILABLE", next.state === "unknown" ? "找到多个同请求终端，请手动选择" : `启动失败：${next.error}`);
+      client = await this.d.core();
+      core = await identifyCore(client);
+    } catch {
+      throw this.confirmNotCreated(session, receipt, "connect", "连接 Herdr Core 失败，启动请求尚未发送");
+    }
+    const attempt = { id: randomUUID(), core };
+    const pending: SessionRecord = { ...session, state: "launching", launchReceipt: { ...receipt, attempt } };
+    delete pending.error;
+    this.save(pending);
+    if (env) this.secrets.set(session.id, Object.values(env));
+    let terminal: Terminal | undefined;
+    try {
+      terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
+    } catch (error) {
+      // JSON-RPC parameter rejection happens before terminal.run. spawn_failed also covers holder timeouts.
+      if (error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params") {
+        throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
+      }
+    }
+    const binding = terminal && this.verifyTerminal(pending, terminal);
+    if (terminal && binding) return this.bind(pending, terminal, binding);
+    if (terminal?.address && hasLaunchLabels(terminal, launchLabels(this.d.vaultId, pending))) {
+      pending.launchReceipt = { ...receipt, attempt: { ...attempt, addressHint: terminal.address } };
+      this.save(pending);
+    }
+
+    return this.findLaunch(pending);
+  }
+
+  private async findLaunch(session: SessionRecord): Promise<SessionRecord> {
+    const snapshot = await this.snapshot();
+    const updated = this.applySnapshot(session, snapshot);
+    if (snapshot.kind === "unavailable") throw this.unknown(updated, "snapshot_unavailable");
+    if (updated.state === "running" || updated.state === "exited") return updated;
+    throw this.unknown(updated, updated.launchReceipt?.attempt?.issue ?? "snapshot_unavailable");
+  }
+
+  private confirmNotCreated(session: SessionRecord, receipt: LaunchReceipt, stage: "connect" | "run", message: string): HuhuError {
+    this.secrets.delete(session.id);
+    this.save({ ...session, state: "failed", launchReceipt: receipt, error: message });
+    return new HuhuError("HERDR_UNAVAILABLE", message, {
+      details: { stage, reason: "confirmed_not_created", requestId: session.requestId, sessionId: session.id },
+    });
+  }
+
+  private verifyTerminal(session: SessionRecord, terminal: Terminal): ProcessBinding | null {
+    const receipt = session.launchReceipt;
+    if (!receipt || !hasLaunchLabels(terminal, launchLabels(this.d.vaultId, session))) return null;
+    if (!terminal.cwd || localDrivePath(terminal.cwd) !== session.cwd) return null;
+    if (receipt.argvHash !== null && (!Array.isArray(terminal.argv) || launchHash(terminal.argv) !== receipt.argvHash)) return null;
+    return processBinding(terminal);
+  }
+
+  private bind(session: SessionRecord, terminal: Terminal, binding: ProcessBinding): SessionRecord {
+    const finished = terminal.state === "finished" || terminal.finished_ms != null;
+    if (session.state === "running" && !finished) return session;
+    const receipt = session.launchReceipt!;
+    const attempt = receipt.attempt!;
+    const next: SessionRecord = {
+      ...session,
+      terminalId: binding.address,
+      state: finished ? "exited" : "running",
+      launchReceipt: { ...receipt, attempt: { id: attempt.id, core: attempt.core, binding } },
+      ...(finished ? { exitCode: terminal.exit_code ?? null, exitedAt: terminal.finished_ms ? new Date(terminal.finished_ms).toISOString() : this.d.now().toISOString() } : {}),
+    };
+    delete next.error;
+    this.save(next);
+    return next;
+  }
+
+  private markUnknown(session: SessionRecord, issue: string): SessionRecord {
+    const receipt = session.launchReceipt!;
+    if (session.state === "unknown" && receipt.attempt?.issue === issue) return session;
+    const next: SessionRecord = {
+      ...session,
+      state: "unknown",
+      terminalId: null,
+      launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, issue } },
+    };
+    this.save(next);
+    return next;
+  }
+
+  private async snapshot(): Promise<TerminalSnapshot> {
+    try {
+      const client = this.d.peekCore ? await this.d.peekCore() : await this.d.core();
+      if (client === "absent") return { kind: "absent" };
+      if (!client) return { kind: "unavailable" };
+      const core = await identifyCore(client);
+      const { terminals } = await client.call<{ terminals: Terminal[] }>("terminal.list", { all: true, labels: { "huhu.vault": this.d.vaultId } });
+      return Array.isArray(terminals) ? { kind: "available", client, core, terminals } : { kind: "unavailable" };
+    } catch {
+      return { kind: "unavailable" };
     }
   }
 
-  /** 带环境变量的命令会话：这些秘密值只在内存里，用来抹掉输出里的回显。 */
+  private applySnapshot(session: SessionRecord, snapshot: TerminalSnapshot): SessionRecord {
+    const attempt = session.launchReceipt?.attempt;
+    if (!attempt) return session;
+    if (snapshot.kind !== "available") {
+      if (snapshot.kind === "unavailable" && attempt.binding) return session;
+      return this.markUnknown(session, snapshot.kind === "absent" ? "core_absent" : "snapshot_unavailable");
+    }
+    if (!sameCore(attempt.core, snapshot.core)) return this.markUnknown(session, "core_changed");
+    const labels = launchLabels(this.d.vaultId, session);
+    const candidates = snapshot.terminals.filter((terminal) => hasLaunchLabels(terminal, labels));
+    if (candidates.length > 1) return this.markUnknown(session, "multiple_matches");
+    const candidate = candidates[0];
+    if (!candidate) return this.markUnknown(session, attempt.binding ? "binding_lost" : "no_match");
+    if (attempt.addressHint && candidate.address !== attempt.addressHint) return this.markUnknown(session, "binding_lost");
+    if (candidate.reason === "spawn_pending") return this.markUnknown(session, "spawn_pending");
+    const binding = this.verifyTerminal(session, candidate);
+    if (!binding) return this.markUnknown(session, "process_unverified");
+    if (attempt.binding && !sameProcess(attempt.binding, binding)) return this.markUnknown(session, "binding_lost");
+    return this.bind(session, candidate, binding);
+  }
+
+  /** Only the process that received the actual launch can be used to redact its output. */
   private readonly secrets = new Map<string, string[]>();
-  rememberSecrets(sessionId: string, values: string[]): void {
-    this.secrets.set(sessionId, values);
+
+  private async terminalClient(session: SessionRecord): Promise<HerdrClient> {
+    const attempt = session.launchReceipt?.attempt;
+    const snapshot = await this.snapshot();
+    if (snapshot.kind !== "available") throw this.unknown(session, "snapshot_unavailable");
+    if (attempt && !sameCore(attempt.core, snapshot.core)) throw this.unknown(session, "core_changed");
+    const labels = launchLabels(this.d.vaultId, session);
+    const candidates = snapshot.terminals.filter((terminal) => hasLaunchLabels(terminal, labels));
+    const terminal = candidates.length === 1 ? candidates[0] : undefined;
+    if (!terminal || terminal.address !== session.terminalId) throw this.unknown(session, "binding_lost");
+    if (attempt?.binding) {
+      const binding = this.verifyTerminal(session, terminal);
+      if (!binding || !sameProcess(attempt.binding, binding)) throw this.unknown(session, "binding_lost");
+    }
+    return snapshot.client;
   }
 
   /**
@@ -279,7 +452,7 @@ export class SessionsService {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
     if (s.hasEnv && !this.secrets.has(id)) return { text: "（引擎重启过：无法确认环境变量值已从输出里抹掉，没有收录输出）", complete: false };
-    const r = await (await this.d.core()).call<{ text?: string; screen?: string; history?: string }>("terminal.read", { terminal: s.terminalId, lines: Math.min(Math.max(lines, 1), 2000) });
+    const r = await (await this.terminalClient(s)).call<{ text?: string; screen?: string; history?: string }>("terminal.read", { terminal: s.terminalId, lines: Math.min(Math.max(lines, 1), 2000) });
     const text = r.text ?? [r.history, r.screen].filter(Boolean).join("\n");
     return {
       text: redactSecrets(text, this.secrets.get(id) ?? [])
@@ -299,48 +472,45 @@ export class SessionsService {
     const s = this.get(id);
     this.secrets.delete(id);
     if (!s.terminalId) return;
-    await (await this.d.core()).call("terminal.rm", { terminal: s.terminalId });
+    await (await this.terminalClient(s)).call("terminal.rm", { terminal: s.terminalId });
   }
 
   async interrupt(id: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    await (await this.d.core()).call("terminal.interrupt", { terminal: s.terminalId });
+    await (await this.terminalClient(s)).call("terminal.interrupt", { terminal: s.terminalId });
   }
 
   async kill(id: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    await (await this.d.core()).call("terminal.kill", { terminal: s.terminalId });
+    await (await this.terminalClient(s)).call("terminal.kill", { terminal: s.terminalId });
   }
 
   private lastReconcile = 0;
 
   /**
-   * 对账：记录里还是 running 的会话，到 Herdr Core 里核对终端是否已经结束（程序退出 / 被结束 / Core 重启后终端不存在）。
-   * 在打开模块时调用；2 秒内重复调用直接跳过。Core 连不上就保持原状，不乱改。
+   * 用只读快照查回未确定的启动，并核对已绑定进程的退出。列表打开时调用，2 秒内只查一次。
    */
   async reconcile(): Promise<void> {
-    const mine = this.list().filter((x) => x.state === "running" && x.terminalId);
+    const mine = this.list().filter((x) => !this.inflight.has(x.requestId) && ((x.state === "running" && x.terminalId) || (x.launchReceipt?.attempt && (x.state === "launching" || x.state === "unknown"))));
     if (mine.length === 0 || Date.now() - this.lastReconcile < 2000) return;
     this.lastReconcile = Date.now();
-    type T = { address: string; labels?: Record<string, string>; state?: string; exit_code?: number | null; finished_ms?: number | null };
-    let list: T[] | null;
-    try {
-      const c = this.d.peekCore ? await this.d.peekCore() : await this.d.core();
-      if (c === null) return; // 暂时判断不了：保持原状
-      list = c === "absent" ? [] : (await c.call<{ terminals: T[] }>("terminal.list", { all: true, labels: { "huhu.vault": this.d.vaultId } })).terminals;
-    } catch {
-      return;
-    }
+    const snapshot = await this.snapshot();
     for (const sess of mine) {
-      // 地址之外还要核对标签：Core 状态被重置后地址可能被别的终端复用
-      const t = list.find((x) => x.address === sess.terminalId && x.labels?.["huhu.session"] === sess.id);
-      const finished = t && (t.state === "finished" || (t.finished_ms ?? null) !== null);
-      if (t && !finished) continue;
+      if (this.inflight.has(sess.requestId)) continue;
       try {
+        const current = this.get(sess.id);
+        if (current.state !== sess.state || current.terminalId !== sess.terminalId || current.launchReceipt?.attempt?.id !== sess.launchReceipt?.attempt?.id) continue;
+        if (current.launchReceipt) {
+          this.applySnapshot(current, snapshot);
+          continue;
+        }
+        if (snapshot.kind === "unavailable") continue;
+        const t = snapshot.kind === "available" ? snapshot.terminals.find((x) => x.address === current.terminalId && hasLaunchLabels(x, launchLabels(this.d.vaultId, current))) : undefined;
+        if (t && t.state !== "finished" && t.finished_ms == null) continue;
         const at = t?.finished_ms ? new Date(t.finished_ms).toISOString() : this.d.now().toISOString();
-        this.save({ ...this.get(sess.id), state: "exited", exitCode: t?.exit_code ?? null, exitedAt: at, ...(t ? {} : { error: "终端已不存在（Herdr Core 没有在运行，或已重启过）" }) });
+        this.save({ ...current, state: "exited", exitCode: t?.exit_code ?? null, exitedAt: at, ...(t ? {} : { error: "终端已不存在（Herdr Core 没有在运行，或已重启过）" }) });
       } catch {
         /* 单条记录读写失败不影响其他会话和列表 */
       }
@@ -444,6 +614,7 @@ export class SessionsService {
     if (dryRun) return { sent: 0, text };
     this.sending.add(id);
     try {
+      const client = await this.terminalClient(s);
       const mark = (patch: (c: ReviewComment) => ReviewComment) => {
         const cur = this.get(id);
         this.save({ ...cur, reviewComments: (cur.reviewComments ?? []).map((c) => (chosen.some((x) => x.id === c.id) ? patch(c) : c)) });
@@ -455,7 +626,7 @@ export class SessionsService {
       // 先落盘“发送中”：发送期间崩溃时，重启后能看出这批意见送达状态未知，而不是静默重发
       mark((c) => ({ ...c, sending: true }));
       try {
-        await (await this.d.core()).call("terminal.send", { terminal: s.terminalId, text });
+        await client.call("terminal.send", { terminal: s.terminalId, text });
       } catch (e) {
         if (e instanceof HerdrError) {
           mark(clear); // Core 明确拒绝了：没有送达

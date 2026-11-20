@@ -15,7 +15,7 @@ export interface Space {
 export class SpaceStore {
   constructor(
     private readonly dir: string,
-    private readonly machineId: string,
+    readonly machineId: string,
     private readonly now: () => Date = () => new Date(),
   ) {}
 

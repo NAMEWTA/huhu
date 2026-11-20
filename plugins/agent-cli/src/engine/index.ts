@@ -14,7 +14,7 @@ import { resolveAgentLaunch } from "./launch.js";
 import { AgentSettingsStore } from "./settings.js";
 import { AgentSettingsEntry } from "../shared/settings.js";
 import { WaitingWatcher } from "./waiting.js";
-import { SessionsService } from "./sessions.js";
+import { publicSession, SessionsService } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
 import { SpaceStore } from "./spaces.js";
 
@@ -269,9 +269,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
           }
         }
         const s = await sessions.launch({ ...i, ...(env ? { env } : {}) });
-        if (env) sessions.rememberSecrets(s.id, Object.values(env));
         waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
-        return s;
+        return publicSession(s);
       },
     }),
   );
@@ -310,7 +309,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       output: z.array(Session),
       handler: async (_c, i) => {
         await sessions.reconcile();
-        return sessions.list(i.spaceId);
+        return sessions.list(i.spaceId).map(publicSession);
       },
     }),
   );
@@ -321,7 +320,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     def({ name: "agent.sessions.kill", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: Ok, handler: async (_c, i) => (await sessions.kill(i.id), { ok: true as const }) }),
   );
   api.defineCapability(
-    def({ name: "agent.sessions.rename", plugin: "agent-cli", scope: "write", exposable: false, defaultExposed: false, input: Id.extend({ name: z.string() }), output: Session, handler: (_c, i) => sessions.rename(i.id, i.name) }),
+    def({
+      name: "agent.sessions.rename",
+      plugin: "agent-cli",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: Id.extend({ name: z.string() }),
+      output: Session,
+      handler: (_c, i) => publicSession(sessions.rename(i.id, i.name)),
+    }),
   );
   api.defineCapability(
     def({
@@ -453,7 +461,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         // launching 也算占用；resuming 在 await 之前同步占位，挡住双击和多窗口并发
         if (resuming.has(key) || sessions.list(sp.id).some((x) => (x.state === "running" || x.state === "launching") && x.provider === i.provider && x.nativeSessionId === i.nativeSessionId)) throw errors.invalidInput("这个会话已经在运行");
         resuming.add(key);
-        return sessions.launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd }).finally(() => resuming.delete(key));
+        return sessions
+          .launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd })
+          .then(publicSession)
+          .finally(() => resuming.delete(key));
       },
     }),
   );
