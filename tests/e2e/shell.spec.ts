@@ -678,7 +678,13 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
       const response = await route.fetch();
       fetched.resolve();
       await release.promise;
-      await route.fulfill({ response }).catch(() => undefined);
+      try {
+        await route.fulfill({ response });
+      } catch {
+        // The lock may already have aborted the renderer's request.
+      } finally {
+        await response.dispose();
+      }
     });
     try {
       await page.getByRole("button", { name: "显示" }).click();
@@ -692,6 +698,7 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
       await expect(page.getByTestId("safe-locked")).toBeVisible({ timeout: 2500 });
     } finally {
       release.resolve();
+      await page.unrouteAll({ behavior: "wait" });
     }
     await expect(page.getByTestId("secret-value")).toHaveCount(0);
 
