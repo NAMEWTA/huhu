@@ -60,3 +60,10 @@
 - `feature/issue-fix` 本地快进到 `1316cf8`，核对原 `program.md` 和锁文件差异，保留操作期间工作区最新的角色表。原工作区 `temp/issue-baseline/feature-checkpoint-preservation.md` 记录字节对照。
 - `0b30323` 接入现有 Safe 页面的世代锁定事件。Engine、Safe 与 Workbench 十文件 59 项通过。Electron 冻结窗口用原能力读出一条合成旧格式凭据，延迟第二次显示响应，再从独立请求锁定。在 2.5 秒观察窗内回到锁屏，释放响应后无秘密节点。首轮窗口关闭时夹具清理超时，保全 trace。显式释放路由和响应后复跑 1 项通过，运行 7.1 秒。日志 `core-finished/t13t.log`、`t148.log`、`t14b.log`。
 - `7f7c554`、`8ee7643` 合入 Safe 多账号存储和按版本更新。两片共 9 项独立验证通过，初次资源争用的 3 项经定向复跑通过。重开时各账号 ID、电话和备注按原值读回，密码按指定账号显式读取，旧版本冲突和晚到的锁定前写入被拒绝。独立记录为 `t13x/report01.md`。新原型表单及旧版本密文回收继续分片。
+
+## Windows 邮件投递、任务调度与 SSH 导入
+
+- `415efe9` 把 Mail SMTP 提交、查询和选择性重试接到工作台 Engine。固定 Nodemailer 10.6.0。并发样例从桌面 HTTP 和 Web 调度入口得到同一投递 ID，仅一次 DATA。部分拒收只向显式选择且已证实未投递的地址补送。确认丢失、记录写失败及 ZIP 恢复保留原记录。Mail 与 Vault 共 144 项通过、1 项跳过。 [联合测试](../../../../temp/issue-baseline/mail-production-smtp-vault.log) · [独立出箱复核](../../../system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t161/report04.md)
+- `764e324` 固定的 Windows 阶段版本通过全仓 lint、typecheck 和 build。全仓单 worker 初跑 1062 项通过，编辑器与 Git 审查各遇一处生命周期钩子超时。在同提交分别通过 128 项编辑器往返和 1 项 Git 审查。CLI 使用 forks 单独通过 11 项。 [初跑](../../../../temp/issue-baseline/764e324-pnpm-test.log) · [编辑器复跑](../../../../temp/issue-baseline/764e324-golden-rerun.log) · [Git 审查复跑](../../../../temp/issue-baseline/764e324-git-review-rerun.log) · [CLI](../../../../temp/issue-baseline/764e324-pnpm-cli-test.log)
+- `53003e14` 和 `f9ad06b7` 增加默认 15 分钟规则的数据初始化、删除标记及扫描归属。ZIP 保留和重置 Vault ID 都能查询原名单，恢复后原时刻重交产生零派遣。`964fd1ce` 增加每条扫描规则的执行槽，原生暂停释放槽，原回答取回槽后续跑。三文件 37 项通过。定时、手动和列表的生产切换仍归 T7.1，目标预检与规则配置需要一起核对。 [调度联测](../../../../temp/issue-baseline/task-automations-slot-regression.log) · [初始扫描独立复核](../../../system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t161/report05.md)
+- `0839ab75` 为受信工作台增加八种 SSH 文件的只读导入预览。合成文件验证映射、组、冲突、加密口令和跳过原因。Engine 定向 13 项通过。静态能力目录在插件停用后保留说明。选中后确认写入和导入体验继续按 H2.4 验收。三份用户改动已按摘要或原差异核对。 [SSH 验收](../2026-11-19-issue-7-ssh-module/tasks/H2.4-import-preview.md) · [工作区核对](../../../../temp/issue-baseline/feature-checkpoint-ssh-task.log)
