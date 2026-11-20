@@ -14,7 +14,7 @@ Windows 和 Linux 使用 `titleBarStyle: "hidden"` 及原生 `titleBarOverlay`�
 
 - Windows 11 Pro 64 位，构建 26300。本机 Electron 44.9.1，捆绑 Chromium 152.0.7977.167。命令为 `playwright test tests/e2e/window-chrome.spec.ts --workers=1`。运行 Electron 生产构建，使用隔离 Vault 和同机回环。
 - 960×600 的启动、工作台和长中文／emoji 名称以 Electron 实际标题区域测量。Win32 `WM_NCHITTEST` 在 DPI 96 逐项验证窗口端识别的拖动、最小化、最大化、关闭和普通应用菜单命中。 `PrintWindow` 取到含系统按钮的本窗画面。
-- 测试覆盖失焦、最小化、最大化与还原，系统全屏进出，浏览器 1.5× 缩放，四主题八套明暗组合和模拟的系统配色切换，保留当前标签的搜索、Vault 弹层及关窗保存。
+- 测试覆盖失焦、最小化、最大化与还原，系统全屏进出，浏览器 1.5× 缩放，四主题八套明暗组合和模拟的系统配色切换，保留当前标签的搜索、Vault 弹层及关窗保存。该 Windows 宿主在全屏中仍报告 `windowControlsOverlay.visible`。Win32 命中结果中原三键位置和原拖动带均转为普通客户区，退出时恢复实际标题栏矩形。
 - 独立起浏览器访问回环 Web。HTML 预览用实际沙箱 iframe 测文本选择及宿主隔离。用不可连接的本地地址复现主框架加载失败，并用 `forcefullyCrashRenderer` 核对错误页与重新进入工作台。
 
 macOS、Linux X11／Wayland、发行版安装包、Win11 Snap 面板悬停、原生显示器间 DPI 切换和物理鼠标手势仍需各自宿主运行证据。网页 1.5× 缩放的通过只覆盖 Web 内容几何。

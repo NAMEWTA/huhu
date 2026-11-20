@@ -1,6 +1,6 @@
 import { chromium, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -56,22 +56,22 @@ function trackedOverlay(app: ElectronApplication) {
   });
 }
 
-async function nativeHits(app: ElectronApplication, page: Page, phase: "launch" | "workbench") {
+async function nativeHits(app: ElectronApplication, page: Page, phase: "launch" | "workbench" | "fullscreen") {
   const handle = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getNativeWindowHandle().readBigUInt64LE().toString());
-  const probe = await titlebar(page).evaluate((header) => {
+  const probe = await titlebar(page).evaluate((header, mode) => {
     const middle = (name: string, element: Element) => {
       const rect = element.getBoundingClientRect();
       return { name, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     };
     const area = (navigator as Navigator & { windowControlsOverlay: { getTitlebarAreaRect(): DOMRect } }).windowControlsOverlay.getTitlebarAreaRect();
-    const left = area.right;
+    const left = mode === "fullscreen" ? innerWidth - 140 : area.right;
     const span = innerWidth - left;
     return [
       middle("drag", header.querySelector(".shell-window-titlebar-drag")!),
       middle("appMenu", header.querySelector("[data-testid=app-menu-button]")!),
-      ...["minimize", "maximize", "close"].map((name, index) => ({ name, x: left + ((index + 0.5) * span) / 3, y: area.y + area.height / 2 })),
+      ...["minimize", "maximize", "close"].map((name, index) => ({ name, x: left + ((index + 0.5) * span) / 3, y: mode === "fullscreen" ? 20 : area.y + area.height / 2 })),
     ];
-  });
+  }, phase);
   const script = path.join(import.meta.dirname, "helpers", "window-chrome-native.ps1");
   const screenshot = test.info().outputPath(`window-caption-${phase}.png`);
   mkdirSync(path.dirname(screenshot), { recursive: true });
@@ -254,7 +254,9 @@ test("native caption tracks focus, maximizing, minimizing and system fullscreen"
     await expect(title).toHaveAttribute("data-window-maximized", "false");
     await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.setFullScreen(true), id);
     await expect(title).toHaveAttribute("data-window-fullscreen", "true");
-    await expect.poll(async () => (await overlayGeometry(page)).visible).toBe(false);
+    const fullscreen = await nativeHits(app, page, "fullscreen");
+    console.log(JSON.stringify({ phase: "fullscreen", ...fullscreen }));
+    expect(fullscreen.hits).toMatchObject({ drag: 1, appMenu: 1, minimize: 1, maximize: 1, close: 1 });
     await expect
       .poll(async () => {
         const { content, viewport } = await overlayGeometry(page);
@@ -295,14 +297,32 @@ test("failed Main load and renderer crash retain one safe title area without a w
   const port = (server.address() as { port: number }).port;
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   const address = `http://127.0.0.1:${port}/`;
-  const failed = await openApp({ HUHU_VAULT: "", ELECTRON_RENDERER_URL: address });
+  const failed = await openApp({ ELECTRON_RENDERER_URL: address });
   try {
     await expect(failed.page.getByRole("heading", { name: "HUHU 无法加载界面" })).toBeVisible({ timeout: 20_000 });
     await expect(titlebar(failed.page)).toHaveCount(1);
     await expectOverlay(failed.page);
     await expect(failed.page.getByRole("link", { name: "重新加载工作台" })).toHaveAttribute("href", address);
     expect(await failed.page.evaluate(() => !!window.huhuHost?.windowChrome)).toBe(false);
+    await expect.poll(() => existsSync(path.join(failed.vault, ".huhu/vault.json"))).toBe(true);
+    const close = failed.app.waitForEvent("close", { timeout: 10_000 });
+    void close.catch(() => undefined);
+    const buttons = await failed.app.evaluate(
+      ({ BrowserWindow, dialog }) =>
+        new Promise<string[]>((resolve) => {
+          const showMessageBox = dialog.showMessageBox;
+          dialog.showMessageBox = (async (_win: Electron.BrowserWindow, options: Electron.MessageBoxOptions) => {
+            dialog.showMessageBox = showMessageBox;
+            resolve(options.buttons ?? []);
+            return { response: 2, checkboxChecked: false };
+          }) as typeof dialog.showMessageBox;
+          BrowserWindow.getAllWindows()[0]?.close();
+        }),
+    );
+    expect(buttons).toEqual(["保留窗口", "重新加载工作台", "未确认保存，仍关闭"]);
+    await close;
   } finally {
+    await failed.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy()).catch(() => undefined);
     await failed.close();
   }
   const active = await openApp();
@@ -338,25 +358,6 @@ test("failed Main load and renderer crash retain one safe title area without a w
       void BrowserWindow.getAllWindows()[0]?.webContents.mainFrame.executeJavaScript('document.querySelector("main a").click()');
     });
     await expect.poll(inspect, { timeout: 20_000 }).toMatchObject({ bars: 1, overlay: true, browserBridge: true, engine: "引擎就绪" });
-
-    await active.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.forcefullyCrashRenderer());
-    await expect.poll(inspect, { timeout: 20_000 }).toMatchObject({ heading: "HUHU 无法加载界面", bars: 1, browserBridge: false });
-    const [buttons] = await Promise.all([
-      active.app.evaluate(
-        ({ BrowserWindow, dialog }) =>
-          new Promise<string[]>((resolve) => {
-            const showMessageBox = dialog.showMessageBox;
-            dialog.showMessageBox = (async (_win: Electron.BrowserWindow, options: Electron.MessageBoxOptions) => {
-              dialog.showMessageBox = showMessageBox;
-              resolve(options.buttons ?? []);
-              return { response: 2, checkboxChecked: false };
-            }) as typeof dialog.showMessageBox;
-            BrowserWindow.getAllWindows()[0]?.close();
-          }),
-      ),
-      active.app.waitForEvent("close"),
-    ]);
-    expect(buttons).toEqual(["保留窗口", "重新加载工作台", "未确认保存，仍关闭"]);
   } finally {
     await active.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy()).catch(() => undefined);
     await active.close();
