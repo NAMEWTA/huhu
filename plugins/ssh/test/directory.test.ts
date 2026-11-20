@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
@@ -218,6 +218,15 @@ test("首次及后续并发写入只有一个胜者，并沿用静态目录与�
       error: { code: "INVALID_INPUT" },
     });
     expect(readFileSync(directoryFile, "utf8")).toBe("{broken");
+
+    rmSync(directoryFile);
+    mkdirSync(directoryFile);
+    const marker = path.join(directoryFile, "keep.txt");
+    writeFileSync(marker, "保留原数据");
+    for (const result of [await call(live, "ssh.hosts.directory"), await call(live, "ssh.hosts.organize", { expectedVersion: "0", operation: { type: "sort.set", sort: "manual" } })]) {
+      expect(result).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    }
+    expect(readFileSync(marker, "utf8")).toBe("保留原数据");
   } finally {
     try {
       await engine?.shutdown();

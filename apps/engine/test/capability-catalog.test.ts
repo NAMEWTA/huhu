@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityCatalogEntrySchema, CapabilityResultSchema } from "@huhu/contracts";
+import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { boot, type RunningEngine } from "../src/boot.js";
@@ -58,8 +59,8 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
     expect(readFileSync(notePath, "utf8")).toBe(note);
 
     const published = active.filter((entry) => entry.plugin === "ssh");
-    expect(published).toHaveLength(21);
-    expect(new Set(published.map((entry) => entry.name)).size).toBe(21);
+    expect(published.map((entry) => entry.name).sort()).toEqual([...sshManifest.contributes.capabilities].sort());
+    expect(new Set(published.map((entry) => entry.name)).size).toBe(published.length);
     expect(published.every((entry) => entry.title && entry.description && entry.risk && entry.input && entry.output && entry.availability === "active")).toBe(true);
     expect(published.find((entry) => entry.name === "ssh.hosts.delete")).toMatchObject({
       plugin: "ssh",

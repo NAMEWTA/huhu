@@ -176,7 +176,10 @@ export class HostDirectory {
 
   private readState(): { state: State; fileVersion: string | null } {
     const file = this.files.read(DIRECTORY_FILE);
-    if (!file) return { state: { schemaVersion: 1, version: INITIAL_VERSION, sort: "name-asc", groups: [], placements: [], manualOrder: [] }, fileVersion: null };
+    if (!file) {
+      if (this.files.exists(DIRECTORY_FILE)) throw errors.invalidInput("主机目录路径上应是普通文件");
+      return { state: { schemaVersion: 1, version: INITIAL_VERSION, sort: "name-asc", groups: [], placements: [], manualOrder: [] }, fileVersion: null };
+    }
     let value: unknown;
     try {
       value = JSON.parse(file.bytes.toString("utf8"));
