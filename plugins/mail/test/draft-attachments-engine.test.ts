@@ -3,7 +3,7 @@ import fs, { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
-import { exportPackage, importPackage } from "@huhu/vault";
+import { importPackage } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { MAIL_DRAFT_ATTACHMENTS_SERVICE, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
@@ -136,12 +136,26 @@ testWindows(
       const destination = path.join(root, "restored");
       const started = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      const exported = managed.withSnapshot(async (signal) => {
-        started.resolve();
-        await release.promise;
-        return exportPackage(vaultPath, archive, { signal, includeAttachments: false });
+      const snapshot = managed.withSnapshot;
+      const guarded = vi.spyOn(managed, "withSnapshot").mockImplementation(<T>(read: (signal: AbortSignal) => Promise<T>, requestSignal?: AbortSignal) =>
+        snapshot(async (signal) => {
+          started.resolve();
+          await release.promise;
+          return read(signal);
+        }, requestSignal),
+      );
+      const exportInput = { dest: archive, includeAttachments: false };
+      expect(await engine.dispatcher.call("web:fixture", { capability: "vault.exportPackage", input: exportInput, requestId: randomUUID(), idempotencyKey: randomUUID() })).toMatchObject({
+        ok: false,
+        error: { code: "PERMISSION_DENIED" },
       });
-      await started.promise;
+      const exported = call(engine, "vault.exportPackage", exportInput);
+      await Promise.race([
+        started.promise,
+        exported.then(() => {
+          throw new Error("桌面数据包导出未取得 Mail 快照");
+        }),
+      ]);
       const revision = (beforeClose.data as { revision: string }).revision;
       const removing = managed.removeAttachment({ draftId: first.draftId, expectedRevision: revision, digest });
       const sweeping = managed.sweepUnreferenced();
@@ -151,13 +165,13 @@ testWindows(
       });
       await new Promise((resolve) => setImmediate(resolve));
       release.resolve();
+      guarded.mockRestore();
       expect(settled).toBe(false);
-      const manifest = await exported;
+      const exportedZip = await exported;
+      expect(exportedZip).toMatchObject({ ok: true, data: { path: archive, sha256: hash(readFileSync(archive)), vaultId: engine.vault.id } });
       const remaining = await removing;
       expect(remaining.attachments?.map((ref) => ref.digest)).toEqual([otherDigest]);
       expect(await sweeping).toEqual({ removed: [], failed: [] });
-      expect(manifest.files).toContainEqual({ path: `${objects}/${digest}`, size: bytes.length, sha256: digest });
-      expect(manifest.files.some((entry) => entry.path === draftsFile)).toBe(true);
       expect(importPackage(archive, destination).vaultId).toBe(engine.vault.id);
       const restored = await open({ vaultPath: destination, readOnly: true });
       const restoredAttachments = service(restored);

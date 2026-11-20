@@ -127,7 +127,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
-  registerPackageCapabilities(registry, vault);
   void index.build(); // 后台构建；构建期间 vault.indexEntries 已可用，vault.search 返回 indexing=true
 
   const events = new EventBus(() => vault.id);
@@ -150,6 +149,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       if (!r.ok) throw Object.assign(new Error(r.error.message), { code: r.error.code });
       return r.data;
     },
+  });
+  registerPackageCapabilities(registry, vault, (read, signal) => {
+    const attachments = getService<mail.MailDraftAttachments>(mail.MAIL_DRAFT_ATTACHMENTS_SERVICE);
+    return attachments ? attachments.withSnapshot(read, signal) : read(signal);
   });
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();
