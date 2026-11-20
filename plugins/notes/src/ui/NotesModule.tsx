@@ -1,6 +1,6 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
@@ -44,6 +44,12 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const vaultId = engine.vaultId;
+  useEngineEvents((event) => {
+    if (event.type !== "vault.fileChanged") return;
+    const { path, change, from } = event.payload as { path: string; change: string; from?: string };
+    if (change === "renamed" && from) documentSessions.get(vaultId, from)?.notifyExternalChange("deleted");
+    documentSessions.get(vaultId, path)?.notifyExternalChange(change);
+  });
   /** 标签 + 侧栏上下文的组合状态（同一个纯 reducer，没有互相触发的 effect，E02）。 */
   const [shell, dispatch] = useReducer(shellReducer, vaultId, (v) => restoreShellState(v, loadTabs(v)));
   const vaultRef = useRef(vaultId);
@@ -109,7 +115,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
   const folders = useCapability<string[]>("notes.folders", {});
   const tags = useCapability<{ tag: string; count: number }[]>("notes.tags", {});
-  const vault = useCapability<{ name: string }>("vault.info", {});
+  const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
 
   async function run<T>(capability: string, input: unknown): Promise<T | null> {
@@ -123,8 +129,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       return null;
     }
   }
-  /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
-  const beforeMove = async (note: NoteRef): Promise<boolean> => ((note.path === selected || (note.folder === true && selected?.startsWith(`${note.path}/`))) && flushRef.current ? flushRef.current() : true);
+  const beforeMove = async (note: NoteRef): Promise<boolean> => {
+    const flushed = await documentSessions.flushPaths(vaultId, [note.path]);
+    if (!flushed) setError("打开的文档有未保存的修改且无法落盘，已取消操作（草稿未丢失）");
+    return flushed;
+  };
 
   /** 工具栏“添加批注”：触发 OK 的选区入口（选区 / 取消 / 上下文冻结都在编辑器里；引用文字在已保存文本上由引擎解析）。 */
   const addComment = () => {
@@ -211,6 +220,9 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   );
   const closeTab = (key: string) => {
     if (pendingArchive.current?.key === key) pendingArchive.current = null;
+    const closing = shell.tabs.tabs.find((open) => tabKey(open) === key);
+    const path = closing && tabFilePath(closing);
+    if (closing?.kind === "file" && path) evictEditor(path);
     dispatch({ type: "close", key });
   };
   async function copyTabPath(path: string) {
@@ -247,7 +259,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       window.clearTimeout(timeout);
     };
   }, [reveal]);
-  const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
+  const evictEditor = (path: string) => {
+    if (!/\.md$/i.test(path)) return;
+    void import("@huhu/editor/rich").then((editor) => {
+      if (vaultRef.current === vaultId) editor.dropProvider(path.replace(/\.md$/i, ""));
+    });
+  };
+  const remapSelected = (from: string, to: string) => {
+    evictEditor(from);
+    dispatch({ type: "remap", from, to });
+  };
   const expandTo = (dir: string) => {
     const parts = dir.split("/").filter(Boolean);
     parts.forEach((_, i) => dispatch({ type: "sidebar", action: { type: "expand", path: parts.slice(0, i + 1).join("/"), open: true, context: "files" } }));
@@ -368,7 +389,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         onTab={setInspectorTab}
         notePaths={(every.data ?? []).map((x) => x.path)}
         flush={flushForComments}
-        readOnly={false}
+        readOnly={vault.data?.readOnly === true}
         onClose={() => setInspector(false)}
         onOpen={openLinked}
         onJump={(line) => editorRef.current?.gotoLine(line)}
@@ -389,7 +410,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         }}
         notes={notes}
         allCount={(every.data ?? []).length}
-        beforeMutate={async (paths) => (selected && paths.some((x) => selected === x || selected.startsWith(`${x}/`)) && flushRef.current ? flushRef.current() : true)}
+        beforeMutate={(paths) => documentSessions.flushPaths(vaultId, paths)}
         onMoved={(moved) => {
           // 内部改名 / 移动：标签与选中项按映射重定位（文件夹按前缀）
           for (const [from, to] of Object.entries(moved)) remapSelected(from, to);
@@ -639,10 +660,9 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           onClose={() => setDialog(null)}
           onSubmit={async (name) => {
             if (!(await beforeMove(dialog.note))) return;
-            const r = await run("notes.rename", { path: dialog.note.path, newName: name });
+            const r = await run<{ moved: Record<string, string> }>("notes.rename", { path: dialog.note.path, newName: name });
             if (r) {
-              const dir = dialog.note.path.includes("/") ? dialog.note.path.slice(0, dialog.note.path.lastIndexOf("/") + 1) : "";
-              remapSelected(dialog.note.path, `${dir}${dialog.note.folder || name.endsWith(".md") ? name : `${name}.md`}`);
+              for (const [from, to] of Object.entries(r.moved)) remapSelected(from, to);
               setDialog(null);
             }
           }}

@@ -9,8 +9,9 @@ export interface SessionLease {
 interface Entry {
   session: DocumentSession;
   refs: number;
-  /** 销毁中的会话在完成前不可被复用，避免新旧会话同时写同一文件。 */
-  disposing: Promise<void> | null;
+  parkedRefs: number;
+  /** 离开编辑面时先结算，后续打开等待同一路径的结算完成。 */
+  settling: Promise<void> | null;
   teardown: () => void;
 }
 
@@ -26,18 +27,62 @@ export class DocumentSessionRegistry {
     return `${vaultId}\u0000${path}`;
   }
 
+  private settle(key: string, entry: Entry): Promise<void> {
+    const dispose = entry.refs === 0;
+    entry.settling = (async () => {
+      try {
+        if (dispose) {
+          await entry.session.dispose();
+          if (this.map.get(key) === entry) this.map.delete(key);
+          entry.teardown();
+        } else {
+          await entry.session.flushForExit();
+          await entry.session.reopenDraft();
+        }
+      } finally {
+        entry.settling = null;
+      }
+    })();
+    return entry.settling;
+  }
+
+  private async release(key: string, entry: Entry): Promise<void> {
+    if (--entry.refs > entry.parkedRefs) return;
+    if (entry.settling) await entry.settling;
+    if (this.map.get(key) === entry && entry.refs <= entry.parkedRefs) {
+      await (entry.settling ?? this.settle(key, entry));
+    }
+  }
+
+  /** 编辑表示停放时持有自己的引用，直到 provider 被驱逐。 */
+  retainForPark(session: DocumentSession): () => Promise<void> {
+    const key = DocumentSessionRegistry.key(session.id.vaultId, session.id.path);
+    const entry = this.map.get(key);
+    if (!entry || entry.session !== session || entry.settling) throw new Error("无法停放未挂载的文档会话");
+    entry.refs++;
+    entry.parkedRefs++;
+    let released = false;
+    return async () => {
+      if (released) return;
+      released = true;
+      entry.parkedRefs--;
+      await this.release(key, entry);
+    };
+  }
+
   /**
    * 取得会话的一个引用；不存在则用 `make` 创建。
    * `bind` 在会话创建时调用一次，返回会话销毁时的清理函数（注册退出 flush / 未保存文档等）。
    */
   async acquire(vaultId: string, path: string, make: (id: SessionOptions["id"]) => DocumentSession, bind?: (s: DocumentSession) => () => void): Promise<SessionLease> {
     const key = DocumentSessionRegistry.key(vaultId, path);
-    const pending = this.map.get(key)?.disposing;
-    if (pending) await pending.catch(() => undefined); // 等旧会话把未保存内容写完
+    for (let pending = this.map.get(key)?.settling; pending; pending = this.map.get(key)?.settling) {
+      await pending.catch(() => undefined); // 失败时重开同一个可重试的会话
+    }
     let e = this.map.get(key);
     if (!e) {
       const session = make({ vaultId, path, epoch: ++this.epoch });
-      e = { session, refs: 0, disposing: null, teardown: bind?.(session) ?? (() => undefined) };
+      e = { session, refs: 0, parkedRefs: 0, settling: null, teardown: bind?.(session) ?? (() => undefined) };
       this.map.set(key, e);
     }
     e.refs++;
@@ -50,18 +95,24 @@ export class DocumentSessionRegistry {
         released = true;
         // 同一次 React 提交中卸载旧视图、挂载同一文件的新视图时保留会话。
         if (options?.handoff) await Promise.resolve();
-        if (--entry.refs > 0) return;
-        entry.disposing = (async () => {
-          try {
-            await entry.session.dispose();
-          } finally {
-            entry.teardown();
-            if (this.map.get(key) === entry) this.map.delete(key);
-          }
-        })();
-        await entry.disposing;
+        await this.release(key, entry);
       },
     };
+  }
+
+  /** Resolve all live buffers covered by a file operation before it changes their paths. */
+  async flushPaths(vaultId: string, paths: readonly string[]): Promise<boolean> {
+    const targets = [...this.map.entries()].filter(([, { session }]) => session.id.vaultId === vaultId && paths.some((path) => session.id.path === path || session.id.path.startsWith(`${path}/`)));
+    const results = await Promise.allSettled(
+      targets.map(async ([key, entry]) => {
+        await entry.settling?.catch(() => undefined);
+        if (this.map.get(key) !== entry) return true;
+        if (!(await entry.session.flush())) return false;
+        if (entry.refs === 0) await (entry.settling ?? this.settle(key, entry));
+        return true;
+      }),
+    );
+    return results.every((result) => result.status === "fulfilled" && result.value);
   }
 
   /** 当前活动会话数（测试 / 诊断）。 */

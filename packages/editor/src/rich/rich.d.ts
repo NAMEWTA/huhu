@@ -7,6 +7,7 @@ export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
 
 export interface RichEditorPort extends EditorPort {
+  prepareModeChange?(next: EditorViewMode): void;
   gotoLine(line: number): void;
   undo(): void;
   redo(): void;
@@ -26,6 +27,7 @@ export interface RichMarkdownEditorProps {
   docName: string;
   value: string;
   onChange(text: string): void;
+  retainSession?: () => () => void;
   mode?: EditorViewMode;
   onRevealSource?(): void;
   assetActions?: EditorAssetActions;
@@ -40,6 +42,7 @@ export interface RichMarkdownEditorProps {
   className?: string;
 }
 export function RichMarkdownEditor(props: RichMarkdownEditorProps): ReactElement;
+export function markdownSemanticallyUnchanged(baseline: string, current: string): boolean;
 export function ReadonlyMarkdown(props: Omit<RichMarkdownEditorProps, "mode" | "readOnly" | "onChange">): ReactElement;
 export function SourceMarkdownEditor(props: Omit<RichMarkdownEditorProps, "mode">): ReactElement;
 

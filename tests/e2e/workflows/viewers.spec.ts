@@ -123,17 +123,44 @@ test("F01 / F02：TXT / JSON 编辑写回原文件；无效 JSON 不被清空；
 test("F02：外部修改与冲突——有未保存编辑时外部改了文件，走冲突流程，不静默覆盖", async () => {
   const { page, vault, close } = await launch();
   try {
-    writeFileSync(`${vault}/冲突.txt`, "原始\n");
+    const file = `${vault}/冲突.txt`;
+    writeFileSync(file, "原始\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    const autosave = page.getByRole("switch", { name: "自动保存" });
+    await autosave.click();
+    await expect(autosave).not.toBeChecked();
     await openKnowledge(page);
-    await page.evaluate(() => undefined);
     await openFile(page, "冲突");
-    // 先在界面里保持“手动保存”之外的状态：输入后立刻让磁盘被外部改写
+    const save = page.getByTestId("note-save");
+    const source = page.locator(".cm-content");
+    const state = page.getByTestId("save-state");
     await typeAtEnd(page, "我的");
-    writeFileSync(`${vault}/冲突.txt`, "外部\n");
-    await expect(page.getByTestId("note-keep-mine").or(page.getByTestId("save-state").filter({ hasText: "已保存" }))).toBeVisible({ timeout: 15_000 });
-    // 如果自动保存先落盘了就没有冲突；否则出现冲突时磁盘上的外部内容必须仍在，直到用户选择
-    const disk = readFileSync(`${vault}/冲突.txt`, "utf8");
-    if (await page.getByTestId("note-keep-mine").count()) expect(disk).toBe("外部\n");
+    writeFileSync(file, "外部\n");
+    await expect(state).toHaveText("有冲突", { timeout: 15_000 });
+    await expect(source).toContainText("我的");
+    expect(readFileSync(file, "utf8")).toBe("外部\n");
+
+    await page.getByTestId("note-keep-mine").click();
+    await expect(state).toHaveText("未保存");
+    expect(readFileSync(file, "utf8")).toBe("外部\n");
+    await save.click();
+    await expect(state).toHaveText("已保存");
+    expect(readFileSync(file, "utf8")).toBe("原始\n我的");
+
+    await typeAtEnd(page, "待放弃");
+    writeFileSync(file, "磁盘更新\n");
+    await expect(state).toHaveText("有冲突", { timeout: 15_000 });
+    const reload = page.getByRole("button", { name: "载入最新版本", exact: true });
+    await reload.click();
+    await expect(source).toContainText("待放弃");
+    expect(readFileSync(file, "utf8")).toBe("磁盘更新\n");
+    await reload.click();
+    await expect(state).toHaveText("已保存");
+    await expect(source).toContainText("磁盘更新");
+    await expect(source).not.toContainText("待放弃");
+    expect(readFileSync(file, "utf8")).toBe("磁盘更新\n");
   } finally {
     await close();
   }
@@ -316,18 +343,88 @@ for (const mode of MODES)
 
       // 源码模式修改并保存 → 回到预览看到新内容
       await page.getByTestId("html-mode").getByRole("tab", { name: "源码" }).click();
-      await page.locator(".cm-content").click();
-      await page.keyboard.press("Control+Home");
-      await page.keyboard.insertText("<!-- 改动 -->");
-      await expect.poll(() => readFileSync(`${vault}/页面.html`, "utf8")).toContain("<!-- 改动 -->");
-      writeFileSync(`${vault}/页面.html`, readFileSync(`${vault}/页面.html`, "utf8").replace("你好页面", "已更新页面"));
+      const file = `${vault}/页面.html`;
+      const original = readFileSync(file, "utf8");
+      const updated = original.replace("你好页面", "已更新页面");
+      const source = page.locator(".cm-content");
+      let failSave = true;
+      await page.route("**/api/v1/call", (route) => {
+        const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+        if (!failSave || request.capability !== "notes.save" || request.input?.path !== "页面.html") return route.continue();
+        return route.fulfill({ json: { ok: false, error: { code: "INTERNAL", message: "测试：文件写入失败" } } });
+      });
+      await source.click();
+      await source.press("ControlOrMeta+a");
+      await page.keyboard.insertText(updated);
       await page.getByTestId("html-mode").getByRole("tab", { name: "预览" }).click();
-      // 保存和外部写入都会换预览 iframe，断言跟随当前预览实例。
+      await expect(page.getByText("测试：文件写入失败", { exact: false })).toBeVisible();
+      await expect(source).toContainText("已更新页面");
+      await expect(page.getByTestId("html-preview-frame")).toHaveCount(0);
+      expect(readFileSync(file, "utf8")).toBe(original);
+
+      failSave = false;
+      await page.getByTestId("html-mode").getByRole("tab", { name: "预览" }).click();
       await expect(page.frameLocator('[data-testid="html-preview-frame"]').locator("#h")).toHaveText("已更新页面", { timeout: 15_000 });
+      expect(readFileSync(file, "utf8")).toBe(updated);
     } finally {
       await close();
     }
   });
+
+type GrantGate = {
+  release(): void;
+  heldNonce?: string;
+  revoked?: boolean;
+};
+type TestPreviewIpc = {
+  _invokeHandlers: Map<string, (...args: unknown[]) => unknown>;
+  grantGate?: GrantGate;
+};
+
+test("F04 / F10：关闭旧 HTML 后迟到签发被撤销，新页的 iframe 与内容保持", async () => {
+  const { app, page, vault, close } = await launch();
+  try {
+    writeFileSync(`${vault}/慢页面.html`, "<h1>旧预览</h1>");
+    writeFileSync(`${vault}/快页面.html`, "<h1>当前预览</h1>");
+    await openKnowledge(page);
+    await app.evaluate(({ ipcMain }) => {
+      const ipc = ipcMain as unknown as TestPreviewIpc;
+      const grant = ipc._invokeHandlers.get("huhu:previewGrant")!;
+      const revoke = ipc._invokeHandlers.get("huhu:previewRevoke")!;
+      const paused = Promise.withResolvers<void>();
+      const gate: GrantGate = { release: paused.resolve };
+      ipc.grantGate = gate;
+      ipc._invokeHandlers.set("huhu:previewGrant", async (...args) => {
+        const result = grant(...args) as { ok: boolean; nonce?: string };
+        if (args[1] === "慢页面.html" && result.ok && result.nonce) {
+          gate.heldNonce = result.nonce;
+          await paused.promise;
+        }
+        return result;
+      });
+      ipc._invokeHandlers.set("huhu:previewRevoke", (...args) => {
+        const result = revoke(...args);
+        if (gate.heldNonce && args[1] === gate.heldNonce) gate.revoked = true;
+        return result;
+      });
+    });
+    await openFile(page, "慢页面.html");
+    await expect.poll(() => app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.heldNonce)).toBeTruthy();
+    await page.getByRole("button", { name: /关闭 慢页面/ }).click();
+    await openFile(page, "快页面.html");
+    const iframe = page.getByTestId("html-preview-frame");
+    await expect(iframe.contentFrame().locator("h1")).toHaveText("当前预览");
+    const src = await iframe.getAttribute("src");
+    await app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.release());
+    await expect.poll(() => app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.revoked)).toBe(true);
+    await expect(iframe).toHaveAttribute("src", src!);
+    await expect(iframe.contentFrame().locator("h1")).toHaveText("当前预览");
+    await expect(page.getByRole("button", { name: /关闭 慢页面/ })).toHaveCount(0);
+  } finally {
+    await app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.release()).catch(() => undefined);
+    await close();
+  }
+});
 
 for (const mode of MODES)
   test(`F05：恶意 HTML 在隔离预览里的越权尝试全部被拦（fetch / XHR / import() / postMessage / top 导航 / 自导航 / window.open / WebRTC / 权限 / file:// / 路径穿越 / 符号链接 / 受保护目录） [${mode}]`, async () => {

@@ -1,4 +1,4 @@
-import { queryKey, registerDirtyDoc, registerFlusher, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { queryKey, registerDirtyDoc, registerFlusher, useEngine, useQueryClient } from "@huhu/workbench";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { archiveNoteRoute } from "../archives/route.js";
 import { DocumentSession, type SessionSnapshot } from "./DocumentSession.js";
@@ -27,7 +27,8 @@ const noopSubscribe = () => () => undefined;
 export function useDocumentSession(path: string, autosave: boolean): { session: DocumentSession | null; snap: SessionSnapshot } {
   const engine = useEngine();
   const qc = useQueryClient();
-  const [session, setSession] = useState<DocumentSession | null>(null);
+  const [binding, setBinding] = useState<{ engine: typeof engine; session: DocumentSession } | null>(null);
+  const session = binding?.engine === engine && binding.session.id.path === path ? binding.session : null;
   const autosaveRef = useRef(autosave);
   autosaveRef.current = autosave;
 
@@ -36,7 +37,6 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
     const reportReleaseError = (err: unknown) => console.error(`释放文档会话失败：${path}`, err);
     let cancelled = false;
     let lease: SessionLease | null = null;
-    setSession(null);
     void documentSessions
       .acquire(
         engine.vaultId,
@@ -65,23 +65,17 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
           return;
         }
         lease = l;
-        setSession(l.session);
-        if (!l.session.getSnapshot().loaded) void l.session.load().catch(() => undefined);
+        setBinding({ engine, session: l.session });
+        if (!l.session.getSnapshot().loaded)
+          void l.session.load().catch((error: unknown) => {
+            if (!cancelled) l.session.setError(error instanceof Error ? error.message : String(error));
+          });
       });
     return () => {
       cancelled = true;
-      setSession(null);
       void lease?.release({ handoff: archive?.kind === "archive" }).catch(reportReleaseError);
     };
   }, [engine, path, qc]);
-
-  // 外部（同步、其他工具）改了当前文件
-  useEngineEvents((e) => {
-    if (e.type !== "vault.fileChanged") return;
-    const p = e.payload as { path?: string; change?: string };
-    if (p.path !== path || p.change === "deleted") return;
-    session?.notifyExternalChange();
-  });
 
   const snap = useSyncExternalStore(session ? session.subscribe : noopSubscribe, session ? session.getSnapshot : () => EMPTY);
   return { session, snap };

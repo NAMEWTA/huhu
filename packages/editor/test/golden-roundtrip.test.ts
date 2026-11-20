@@ -111,6 +111,14 @@ test("H01 语义等价接受换行格式，拒绝相同正文的标记或链接�
   expect(markdownSemanticallyUnchanged("[正文](one.md)\n", "[正文](two.md)\n")).toBe(false);
 });
 
+test("OP-D03 生产保存门禁保留属性字节、链接目标和显式插入的空行", async () => {
+  const { markdownSemanticallyUnchanged: unchanged } = (await server.ssrLoadModule("/src/rich/markdownSemanticallyUnchanged.ts")) as { markdownSemanticallyUnchanged(before: string, after: string): boolean };
+  expect(unchanged("正文\r\n", "正文\n")).toBe(true);
+  expect(unchanged("正文\n", "正文\n\n")).toBe(false);
+  expect(unchanged("---\nzip: 007\n---\n\n正文\n", '---\nzip: "007"\n---\n\n正文\n')).toBe(false);
+  expect(unchanged("[正文](one.md)\n", "[正文](two.md)\n")).toBe(false);
+});
+
 test.each(largeSamples)(
   "H01 大样本构建富文本、序列化并回读 $name",
   async ({ name, bytes }) => {

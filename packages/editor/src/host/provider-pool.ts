@@ -12,6 +12,8 @@ interface Entry {
   refs: number;
   read: () => string;
   unregister: () => void;
+  releaseSession?: () => void;
+  dropWhenUnused?: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -28,6 +30,7 @@ function destroy(name: string): void {
   evictCmEditor(name);
   e.provider.destroy();
   e.unregister();
+  e.releaseSession?.();
 }
 
 export interface PooledDoc {
@@ -37,7 +40,7 @@ export interface PooledDoc {
 }
 
 /** 取得（或创建）docName 的 provider；`read` 给出当前会话缓冲，只在首次创建时用于装载。 */
-export function acquireProvider(docName: string, read: () => string, opts: { lazyRich?: boolean } = {}): PooledDoc {
+export function acquireProvider(docName: string, read: () => string, opts: { lazyRich?: boolean; retainSession?: (() => () => void) | undefined } = {}): PooledDoc {
   let e = entries.get(docName);
   if (e) {
     e.read = read;
@@ -50,6 +53,7 @@ export function acquireProvider(docName: string, read: () => string, opts: { laz
     entries.set(docName, entry);
     e = entry;
   }
+  if (!e.releaseSession && opts.retainSession) e.releaseSession = opts.retainSession();
   e.refs++;
   const provider = e.provider;
   return {
@@ -71,6 +75,7 @@ export function releaseProvider(docName: string): void {
   if (!e) return;
   e.refs = Math.max(0, e.refs - 1);
   if (e.refs > 0) return;
+  if (e.dropWhenUnused) return destroy(docName);
   idle.push(docName);
   while (idle.length > MAX_CACHE) destroy(idle[0] as string);
 }
@@ -82,7 +87,10 @@ export function resetProviderPool(): void {
 
 /** 文档被改名 / 删除：丢弃它的编辑表示，下次打开重新装载。 */
 export function dropProvider(docName: string): void {
-  destroy(docName);
+  const e = entries.get(docName);
+  if (!e) return;
+  if (e.refs > 0) e.dropWhenUnused = true;
+  else destroy(docName);
 }
 
 export function __poolSize(): number {

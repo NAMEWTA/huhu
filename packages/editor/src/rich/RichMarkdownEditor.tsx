@@ -4,6 +4,8 @@
 // 只有与“最近交给会话的文本”不同的 `value` 才会被当作外部变化，用 replaceRawBody 写回（不进撤销栈）。
 // 无编辑 = Y.Text 不变 = 不触发 onChange = 不写盘（B10）。
 import type { EditorPort } from "@huhu/contracts";
+import { Compartment, EditorState, StateEffect } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { useLingui } from "@lingui/react/macro";
 import { Component, type ErrorInfo, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
@@ -12,12 +14,13 @@ import { Toaster } from "sonner";
 import { getEditorForDoc, subscribeEditorRegistry } from "@/editor/active-editor";
 import { EmojiInsertPopover } from "@/editor/components/EmojiInsertPopover";
 import { TagDialog } from "@/editor/components/TagDialog";
-import { requestViewInSource } from "@/editor/mode-switch-landing";
+import { captureModeSwitchAnchor, requestViewInSource } from "@/editor/mode-switch-landing";
+import { peekPendingSourceNavigation } from "@/editor/source-editor-navigation";
 import { VIEW_IN_SOURCE_EVENT, type ViewInSourceDetail } from "@/editor/view-in-source-event";
 import { matchesKeyboardShortcut } from "@/lib/keyboard-shortcuts";
 import { isOverlayLayerOpen } from "@/lib/overlay-layers";
 import { FindReplaceController } from "@/editor/find-replace/FindReplaceController";
-import { getMarkdownSourceViewForDoc } from "@/editor/full-page-cm-views";
+import { getMarkdownSourceViewForDoc, subscribeFullPageCmViewRegistry } from "@/editor/full-page-cm-views";
 import { PropertyPanel } from "@/components/PropertyPanel";
 import { SourceEditor } from "@/editor/SourceEditor";
 import { TiptapEditor } from "@/editor/TiptapEditor";
@@ -32,9 +35,11 @@ import { DocumentProvider, useDocumentContext } from "../host/document-context";
 
 export type EditorViewMode = "rich" | "source" | "read";
 export type EditorVariant = "document" | "compact";
+const SOURCE_READ_ONLY = new Compartment();
 
 /** EditorPort + 大纲跳转 / 撤销重做。批注锚点不经由这里：富文本选区不会被换算成源码偏移（S4，D05）。 */
 export interface RichEditorPort extends EditorPort {
+  prepareModeChange?(next: EditorViewMode): void;
   /** 把源码偏移所在行设为光标（大纲跳转） */
   gotoLine(line: number): void;
   undo(): void;
@@ -48,6 +53,7 @@ export interface RichMarkdownEditorProps {
   docName: string;
   value: string;
   onChange(text: string): void;
+  retainSession?: () => () => void;
   mode?: EditorViewMode;
   onRevealSource?(): void;
   assetActions?: EditorAssetActions;
@@ -144,6 +150,8 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   valueRef.current = value;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const retainSession = useRef(props.retainSession);
+  retainSession.current = props.retainSession;
   const lastEmitted = useRef<string>(value);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queued = useRef(false);
@@ -194,7 +202,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   // 创建 / 销毁 provider（每个 docName 一个；park 的编辑器 DOM 由 vendor 的 editor-cache 管）
   useEffect(() => {
-    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === "source" });
+    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === "source", retainSession: retainSession.current });
     const p = pooled.provider;
     providerRef.current = p;
     let disposeObserve: (() => void) | null = null;
@@ -347,6 +355,19 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     return subscribeEditorRegistry(apply);
   }, [docName, readOnly, mode, provider]);
 
+  useEffect(() => {
+    if (mode !== "source") return;
+    const apply = () => {
+      const view = getMarkdownSourceViewForDoc(docName);
+      if (!view || view.state.readOnly === readOnly) return;
+      const config = readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [];
+      const effect = SOURCE_READ_ONLY.get(view.state) === undefined ? StateEffect.appendConfig.of(SOURCE_READ_ONLY.of(config)) : SOURCE_READ_ONLY.reconfigure(config);
+      view.dispatch({ effects: effect });
+    };
+    apply();
+    return subscribeFullPageCmViewRegistry(apply);
+  }, [docName, mode, readOnly]);
+
   // EditorPort
   useEffect(() => {
     if (!onPort) return;
@@ -362,6 +383,18 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
     const text = () => provider.document.getText("source").toString();
     const isRead = () => readOnly || mode === "read";
     const port: RichEditorPort = {
+      prepareModeChange(next) {
+        if (next === "source") {
+          const nav = peekPendingSourceNavigation(docName);
+          if (nav?.kind === "selection-offset" && nav.intent === "jump") return;
+        }
+        captureModeSwitchAnchor({
+          from: mode === "source" ? "source" : "wysiwyg",
+          to: next === "source" ? "source" : "wysiwyg",
+          docName,
+          ytext: provider.document.getText("source"),
+        });
+      },
       get readOnly() {
         return isRead();
       },

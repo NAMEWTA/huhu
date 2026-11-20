@@ -8,7 +8,9 @@ class FakeEngine implements SessionEngine {
   drafts = new Map<string, { text: string; baseVersion: string; savedAt: string }>();
   calls: string[] = [];
   failSave: Error | null = null;
+  failDraft: Error | null = null;
   saveGate: Promise<void> | null = null;
+  readGate: Promise<void> | null = null;
   constructor(init: Record<string, string> = {}) {
     for (const [p, t] of Object.entries(init)) this.files.set(p, { text: t, version: 1 });
   }
@@ -24,6 +26,7 @@ class FakeEngine implements SessionEngine {
     const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string };
     if (cap === "notes.read") {
       const f = this.files.get(i.path)!;
+      if (this.readGate) await this.readGate;
       return { path: i.path, text: f.text, version: String(f.version) } as T;
     }
     if (cap === "notes.save") {
@@ -36,6 +39,7 @@ class FakeEngine implements SessionEngine {
     }
     if (cap === "notes.draft.get") return (this.drafts.get(i.path) ?? null) as T;
     if (cap === "notes.draft.save") {
+      if (this.failDraft) throw this.failDraft;
       this.drafts.set(i.path, { text: i.text!, baseVersion: i.baseVersion!, savedAt: "2026-11-15T08:00:00" });
       return undefined as T;
     }
@@ -53,6 +57,29 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
+  test("OP-D03：忽略富文本等价规范化，显式源码格式与属性修改仍逐字节保存", async () => {
+    const baseline = "---\ntitle: 样本\n---\n\n正文\r\n";
+    const normalized = baseline.replace("正文\r\n", "正文\n");
+    const eng = new FakeEngine({ "a.md": baseline });
+    const session = mk(eng);
+    const equivalent = vi.fn((before: string, after: string) => before.replaceAll("\r\n", "\n") === after);
+    await session.load();
+    session.setText(normalized, "editor", equivalent);
+    expect(await session.flush()).toBe(true);
+    expect(equivalent).toHaveBeenCalledExactlyOnceWith(baseline, normalized);
+    expect(eng.calls).not.toContain("notes.save");
+    expect(eng.disk("a.md")).toBe(baseline);
+    expect(session.getSnapshot()).toMatchObject({ state: "saved", text: baseline, hasUnsaved: false });
+
+    session.setText(normalized, "source", equivalent);
+    expect(await session.flush()).toBe(true);
+    expect(equivalent).toHaveBeenCalledTimes(1);
+    expect(eng.disk("a.md")).toBe(normalized);
+    const property = normalized.replace("title: 样本", 'title: "样本"');
+    session.setText(property, "editor", equivalent);
+    expect(await session.flush()).toBe(true);
+    expect(eng.disk("a.md")).toBe(property);
+  });
   test("载入后 saved；输入后 dirty，800 ms 自动保存", async () => {
     const eng = new FakeEngine({ "a.md": "hello" });
     const s = mk(eng);
@@ -419,6 +446,37 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(reg.size).toBe(2);
   });
 
+  test("B09：同路径切 Vault 后，旧 Vault 的延迟载入和保存回执互不影响", async () => {
+    const old = new FakeEngine({ "a.md": "旧库已存" });
+    const next = new FakeEngine({ "a.md": "新库已存" });
+    const reg = new DocumentSessionRegistry();
+    const a = await reg.acquire("old", "a.md", make(old));
+    await a.session.load();
+    const read = Promise.withResolvers<void>();
+    const write = Promise.withResolvers<void>();
+    old.readGate = read.promise;
+    old.saveGate = write.promise;
+    const oldLoad = a.session.load();
+    a.session.setText("旧库修改");
+    const oldSave = a.session.save();
+    const releasing = a.release();
+
+    const b = await reg.acquire("next", "a.md", make(next));
+    await b.session.load();
+    b.session.setText("新库当前编辑");
+    expect(b.session.id.epoch).not.toBe(a.session.id.epoch);
+    write.resolve();
+    expect(await oldSave).toBe(true);
+    await releasing;
+    read.resolve();
+    expect(await oldLoad).toBe(false);
+    expect(b.session.getSnapshot()).toMatchObject({ text: "新库当前编辑", hasUnsaved: true, state: "dirty" });
+    expect(old.disk("a.md")).toBe("旧库修改");
+    expect(next.disk("a.md")).toBe("新库已存");
+    await b.release();
+    expect(next.disk("a.md")).toBe("新库当前编辑");
+  });
+
   test("销毁中重新打开：等旧会话写完，再建新会话并读到最新内容", async () => {
     const eng = new FakeEngine({ "a.md": "1" });
     const reg = new DocumentSessionRegistry();
@@ -431,6 +489,75 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(b.session).not.toBe(a.session);
     await b.session.load();
     expect(b.session.currentText()).toBe("12");
+  });
+
+  test("正文和草稿都写失败时保留同一会话；重开并成功保存后才清理", async () => {
+    const eng = new FakeEngine({ "a.md": "原稿" });
+    const reg = new DocumentSessionRegistry();
+    const teardown = vi.fn();
+    const a = await reg.acquire("v", "a.md", make(eng), () => teardown);
+    await a.session.load();
+    a.session.setText("含最后一笔的草稿");
+    eng.failSave = new Error("正文磁盘写入失败");
+    eng.failDraft = new Error("草稿磁盘写入失败");
+    await expect(a.release()).rejects.toThrow("草稿磁盘写入失败");
+    expect(reg.get("v", "a.md")).toBe(a.session);
+    expect(a.session.getSnapshot()).toMatchObject({ text: "含最后一笔的草稿", hasUnsaved: true });
+    expect(teardown).not.toHaveBeenCalled();
+    expect(eng.disk("a.md")).toBe("原稿");
+    expect(eng.drafts.has("a.md")).toBe(false);
+
+    const b = await reg.acquire("v", "a.md", make(eng));
+    expect(b.session).toBe(a.session);
+    eng.failSave = null;
+    eng.failDraft = null;
+    await b.release();
+    expect(eng.disk("a.md")).toBe("含最后一笔的草稿");
+    expect(reg.size).toBe(0);
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
+
+  test("OP-D03：停放后由 provider 持有引用；另一视图使用同一会话，驱逐只归还停放引用", async () => {
+    const eng = new FakeEngine({ "a.md": "原稿" });
+    const reg = new DocumentSessionRegistry();
+    const a = await reg.acquire("v", "a.md", make(eng));
+    await a.session.load();
+    const evict = reg.retainForPark(a.session);
+    expect(reg.refs("v", "a.md")).toBe(2);
+    await a.release();
+    expect(reg.refs("v", "a.md")).toBe(1);
+    const b = await reg.acquire("v", "a.md", make(eng));
+    expect(b.session).toBe(a.session);
+    expect(reg.refs("v", "a.md")).toBe(2);
+    await evict();
+    expect(reg.refs("v", "a.md")).toBe(1);
+    await b.release();
+    expect(reg.get("v", "a.md")).toBeUndefined();
+  });
+
+  test("A08：父目录结算同 Vault 全部相关会话，失败保留文本与操作重试条件", async () => {
+    const paths = ["docs/active.json", "docs/nested/parked.md", "docs-extra/other.txt"];
+    const makeEngine = () => new FakeEngine(Object.fromEntries(paths.map((path) => [path, "旧"])));
+    const eng = makeEngine();
+    const otherVault = makeEngine();
+    const reg = new DocumentSessionRegistry();
+    const [active, parked, sibling, foreign] = await Promise.all([reg.acquire("v", paths[0]!, make(eng)), reg.acquire("v", paths[1]!, make(eng)), reg.acquire("v", paths[2]!, make(eng)), reg.acquire("other", paths[0]!, make(otherVault))]);
+    const releasePark = reg.retainForPark(parked.session);
+    for (const lease of [active, parked, sibling, foreign]) await lease.session.load();
+    eng.failSave = new Error("失败");
+    eng.failDraft = new Error("草稿也失败");
+    parked.session.setText("停放末字");
+    await expect(parked.release()).rejects.toThrow();
+    for (const lease of [active, sibling, foreign]) lease.session.setText("新");
+    expect(await reg.flushPaths("v", ["docs"])).toBe(false);
+    expect(parked.session.currentText()).toBe("停放末字");
+    eng.failSave = null;
+    eng.failDraft = null;
+    expect(await reg.flushPaths("v", ["docs"])).toBe(true);
+    expect(paths.map((path) => eng.disk(path))).toEqual(["新", "停放末字", "旧"]);
+    expect(otherVault.disk(paths[0]!)).toBe("旧");
+    await releasePark();
+    await Promise.all([active.release(), sibling.release(), foreign.release()]);
   });
 
   test("bind 的清理函数在销毁时调用一次", async () => {

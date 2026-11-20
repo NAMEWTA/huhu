@@ -1,11 +1,24 @@
 import type { VaultReadRangeOutput } from "@huhu/contracts";
-import { OkRoot, RichMarkdownEditor, coreRoutes, requestFileTreeReveal, uploadRoutes, type EditorAssetActions, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
+import {
+  OkRoot,
+  RichMarkdownEditor,
+  coreRoutes,
+  markdownSemanticallyUnchanged,
+  requestFileTreeReveal,
+  uploadRoutes,
+  type EditorAssetActions,
+  type EditorViewMode,
+  type HostRoutes,
+  type ReferenceCandidate,
+  type RichEditorPort,
+} from "@huhu/editor/rich";
 import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
+import type { MarkdownEquivalence } from "./DocumentSession.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -17,7 +30,9 @@ export interface SurfaceNoteRef {
 export interface NoteEditorSurfaceProps {
   path: string;
   value: string;
-  onChange(text: string): void;
+  onChange(text: string, equivalentMarkdown: MarkdownEquivalence): void;
+  readOnly: boolean;
+  retainSession(): () => void;
   mode: EditorViewMode;
   onRevealSource(): void;
   notes: readonly SurfaceNoteRef[];
@@ -163,7 +178,9 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}
         value={props.value}
-        onChange={props.onChange}
+        onChange={(text) => props.onChange(text, markdownSemanticallyUnchanged)}
+        readOnly={props.readOnly}
+        retainSession={props.retainSession}
         mode={props.mode}
         assetActions={assetActions}
         onPort={props.onPort}
