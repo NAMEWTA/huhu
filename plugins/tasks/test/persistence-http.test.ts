@@ -92,6 +92,28 @@ test("完整编辑请求合并评论与区段外的 Markdown 字节", { timeout:
   expect(saved.subarray(-commentsAndSuffix.length)).toEqual(commentsAndSuffix);
 });
 
+test("inputRevision 只随持久化后的任务正文变化", { timeout: 30_000 }, async () => {
+  const root = tempVault();
+  const engine = await start(root, true);
+  const { data: original } = await call<TaskDto>(engine, "tasks.create", { title: "任务", body: "原正文" });
+  const update = (task: TaskDto, body: string) => call<TaskDto>(engine, "tasks.update", { id: task.id, expectedVersion: task.version, patch: { body } });
+
+  const padded = await update(original, "\r\n\n原正文\n\r\n");
+  expect(padded).toMatchObject({ ok: true, data: { body: original.body, inputHash: original.inputHash, inputRevision: original.inputRevision } });
+
+  const changed = await update(padded.data, "\n新正文\n");
+  expect(changed).toMatchObject({ ok: true, data: { body: "新正文", inputRevision: original.inputRevision + 1 } });
+  expect(changed.data.inputHash).not.toBe(original.inputHash);
+  await engine.shutdown();
+  engines.splice(engines.indexOf(engine), 1);
+  const reopened = await start(root);
+  expect(await call(reopened, "tasks.read", { id: original.id })).toMatchObject({
+    ok: true,
+    data: { body: changed.data.body, inputHash: changed.data.inputHash, inputRevision: changed.data.inputRevision },
+  });
+  expect(spawn).not.toHaveBeenCalled();
+});
+
 test("Human、缺配 Agent 和显式已有会话在重启后可读，保存或评论零启动", { timeout: 30_000 }, async () => {
   const root = tempVault();
   const engine = await start(root, true);

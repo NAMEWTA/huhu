@@ -227,10 +227,10 @@ export class TasksService {
         nextExec = executionWithDefault(patch.type ?? cur.type, requested && target ? { ...requested, target } : requested);
         changes["execution"] = nextExec;
       }
-      const nextBody = patch.body ?? cur.body;
+      const body = patch.body !== undefined ? replaceTaskSection(entity.body, patch.body) : undefined;
+      const nextBody = body === undefined ? cur.body : (parseTaskBody(body).task ?? "");
       const inputDidChange = taskInputHash(nextBody, nextExec) !== cur.inputHash;
       if (inputDidChange) changes["inputRevision"] = cur.inputRevision + 1;
-      const body = patch.body !== undefined ? replaceTaskSection(entity.body, patch.body) : undefined;
       const e = await this.d.repo.patch("task", id, changes, cur.version, body);
       const dto = this.dto(e);
       this.d.publish("entity.changed", { kind: "task", id, op: "updated" });
