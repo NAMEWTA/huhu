@@ -177,7 +177,7 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
 test("E04：树改名同步两个标签，外部改写和删除更新同一档案文件", async () => {
   const { page, vault, close } = await openApp();
   try {
-    await seed(page);
+    const call = await seed(page);
     await treeFolder(page, "Archives").click();
     await treeFolder(page, "通讯录").click();
     await treeFolder(page, "张三").click();
@@ -202,14 +202,18 @@ test("E04：树改名同步两个标签，外部改写和删除更新同一档�
     await expect(recordTab).toHaveAttribute("title", newPath);
     expect(readdirSync(path.join(vault, base)).sort()).toEqual(["index.md", "张 三", "李四"]);
 
+    const phone = page.getByTestId("archive-fields").getByLabel("电话");
+    await expect(phone).toHaveValue("123");
     const disk = path.join(vault, newPath);
     writeFileSync(disk, readFileSync(disk, "utf8").replace("123", "987") + "\n外部写入同一档案。\n");
-    await expect(page.getByTestId("archive-fields").getByLabel("电话")).toHaveValue("987", { timeout: 20_000 });
+    await expect.poll(async () => (await call("notes.read", { path: newPath })).data?.text).toContain("外部写入同一档案。");
+    await expect(phone).toHaveValue("987", { timeout: 20_000 });
     await expect(page.getByTestId("archive-body")).toContainText("外部写入同一档案。");
     await markdownTab.click();
     await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toContainText("外部写入同一档案。");
     await expect(page.getByTestId("editor-properties")).toContainText("987");
     rmSync(path.dirname(disk), { recursive: true });
+    await expect.poll(async () => (await call("notes.list", { filter: "all" })).data.some((note: { path: string }) => note.path === newPath), { timeout: 20_000 }).toBe(false);
     await expect(markdownTab).toHaveCount(0, { timeout: 20_000 });
     await expect(recordTab).toHaveCount(0, { timeout: 20_000 });
     expect(readdirSync(path.join(vault, base)).sort()).toEqual(["index.md", "李四"]);
