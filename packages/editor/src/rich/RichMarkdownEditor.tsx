@@ -22,7 +22,7 @@ import { PropertyPanel } from "@/components/PropertyPanel";
 import { SourceEditor } from "@/editor/SourceEditor";
 import { TiptapEditor } from "@/editor/TiptapEditor";
 import { replaceRawBody } from "../vendor/open-knowledge/server-bridge/bridge-intake";
-import { acquireProvider, releaseProvider } from "../host/provider-pool";
+import { acquireProvider } from "../host/provider-pool";
 import { registerAtReference, type ReferenceCandidate } from "./at-reference";
 import { EditorAssetMenu, type EditorAssetActions } from "./EditorAssetMenu";
 import { FILE_LOAD_ORIGIN } from "../host/doc-source";
@@ -194,7 +194,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   // 创建 / 销毁 provider（每个 docName 一个；park 的编辑器 DOM 由 vendor 的 editor-cache 管）
   useEffect(() => {
-    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === "source" });
+    const pooled = acquireProvider(docName, () => valueRef.current, { lazyRich: modeRef.current === "source", park: variant === "document" });
     const p = pooled.provider;
     providerRef.current = p;
     let disposeObserve: (() => void) | null = null;
@@ -232,9 +232,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       ytextRef.current = null;
       setProvider(null);
       setRichReady(false);
-      releaseProvider(docName); // provider 留在池里，直到 editor-cache 一起驱逐
+      pooled.release();
     };
-  }, [docName, emitNow]);
+  }, [docName, emitNow, variant]);
 
   // 需要富文本（非源码模式，或已构建过）时确保富文本表示就绪后再挂 Tiptap
   useEffect(() => {

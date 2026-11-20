@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "1b1b470a017ea55a0754dce5f07a25b358d70e1f6e095f7b8186c742a8b4e2b9",
+      "sha256": "00b407f58599e059891685b6331c5a167390bad5f6c3f14dd040441ad09578eb",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -2970,9 +2970,9 @@
       "target": "app/src/editor/editor-cache.ts",
       "upstream": "packages/app/src/editor/editor-cache.ts",
       "blob": "daf2231fa470fa4e6af51e571d6435add8426229",
-      "sha256": "36462d267f7e8ba9d73cb5696c3e3ea825d0af3cbddefbce522e7948077f17bf",
+      "sha256": "b9a64c9c7580a8a8ad359c6567d46886b6e85abd897955e22c18a9d8aeabe4f8",
       "method": "patch",
-      "description": "PATCHES.md:11 - P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。"
+      "description": "PATCHES.md:11 - P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。H06：LRU 驱逐只释放 Tiptap / CodeMirror 视图与撤销资源，provider 与 Y.Doc 由宿主池释放。"
     },
     {
       "target": "app/src/editor/editor-panes.ts",
