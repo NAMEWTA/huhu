@@ -96,6 +96,44 @@ test("concurrent same-key different intent conflicts before a second run", async
   expect(fake.tries).toBe(1);
 });
 
+test("services sharing one Vault writer can claim a durable launch only once", async () => {
+  const { fake, target, reopen, terminals } = fixture();
+  let connected!: () => void;
+  let resume!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    connected = resolve;
+  });
+  const blocked = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const old = reopen({
+    core: async () => {
+      connected();
+      await blocked;
+      throw new Error("first connection failed after the replacement was bound");
+    },
+  }).launch(target);
+  await entered;
+  let current;
+  try {
+    current = await reopen().launch(target);
+  } finally {
+    resume();
+  }
+  expect(await old).toEqual(current);
+  expect(await reopen().launch(target)).toEqual(current);
+  expect(fake.tries).toBe(1);
+  expect(terminals).toHaveLength(1);
+});
+
+test("concurrent active services sharing one request do not each submit a Core run", async () => {
+  const { fake, target, reopen, terminals } = fixture();
+  const [first, second] = await Promise.all([reopen().launch(target), reopen().launch(target)]);
+  expect(first).toEqual(second);
+  expect(fake.tries).toBe(1);
+  expect(terminals).toHaveLength(1);
+});
+
 test("a candidate needs an explicit lifecycle compatible with its exit fields", async () => {
   const { fake, target, terminals, reopen } = fixture();
   fake.fail = "lost";

@@ -1,6 +1,6 @@
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
-import { errors } from "@huhu/contracts";
+import { errors, HuhuError } from "@huhu/contracts";
 import { machineId } from "@huhu/vault";
 import path from "node:path";
 import { z } from "zod";
@@ -59,13 +59,24 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   };
   const mid = machineId();
   const vaultId = api.vault.vaultId;
+  const lifetime = new AbortController();
   const dispatchStore = new AgentDispatchStore(api.vault.stateDir, api.vault.files, { vaultId, machineId: mid });
   const ownership = new InputOwnership(
     (id) => dispatchStore.owner(id),
     (id) => sessions.reviewInputPending(id),
   );
-  const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr") });
-  ctx.effect(() => () => core.dispose()); // 停用只断开连接，不结束 Core
+  const core = new HerdrCore({
+    bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core",
+    vaultId,
+    machineId: mid,
+    runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr"),
+    signal: lifetime.signal,
+  });
+  ctx.effect(() => () => {
+    const { code, message, details, recovery } = errors.pluginDisabled("agent-cli");
+    lifetime.abort(new HuhuError(code, message, { ...(details && { details }), ...(recovery && { recovery }), retryable: true }));
+    core.dispose();
+  });
   const sessions: SessionsService = new SessionsService({
     dir: path.join(api.vault.stateDir, "agent-cli", "sessions"),
     vaultId: api.vault.vaultId,
@@ -74,6 +85,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     peekCore: () => core.peek(),
     resolve,
     now: () => new Date(),
+    signal: lifetime.signal,
     inputOwnership: ownership,
   });
   registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers: opts.dispatchProviders ?? {} }));
@@ -85,6 +97,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     sessions,
     ...(opts.waitingBackoffMs ? { backoffMs: opts.waitingBackoffMs } : {}),
     onBlocked: async (sess) => {
+      lifetime.signal.throwIfAborted();
       const w = sess.waiting;
       if (!w) return;
       const what = w.kind === "permission" ? "需要批准" : w.kind === "question" ? "有问题要回答" : w.kind === "auth" ? "需要登录授权" : "需要你操作";
@@ -99,6 +112,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
             { idempotencyKey: `session-task-${sess.id}` },
           )) as { id: string });
       if (!w.taskId) sessions.setWaitingTask(sess.id, created.id);
+      lifetime.signal.throwIfAborted();
       const commentId = `session-${sess.id}-w-${w.n}`;
       await api.call("tasks.comments.add", { taskId: created.id, id: commentId, source: "agent", author: sess.name, session: sess.id, event: "waiting", body: `${what}${w.msg ? `：${w.msg}` : ""}` }, { idempotencyKey: commentId });
     },
@@ -283,7 +297,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
             for (const [k, ref] of Object.entries(i.envRefs)) env[k] = su.resolve(ref, { plugin: c.caller.slice("plugin:".length), purpose: "terminal" });
           }
         }
-        const s = await sessions.launch({ ...i, ...(env ? { env } : {}) });
+        const s = await sessions.launch({ ...i, ...(env ? { env } : {}) }, c.signal);
         waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
         return publicSession(s);
       },
@@ -477,7 +491,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         if (resuming.has(key) || sessions.list(sp.id).some((x) => (x.state === "running" || x.state === "launching") && x.provider === i.provider && x.nativeSessionId === i.nativeSessionId)) throw errors.invalidInput("这个会话已经在运行");
         resuming.add(key);
         return sessions
-          .launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd })
+          .launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd }, _c.signal)
           .then(publicSession)
           .finally(() => resuming.delete(key));
       },

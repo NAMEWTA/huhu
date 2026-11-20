@@ -2,8 +2,9 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PluginManifestSchema } from "@huhu/contracts";
 import { HerdrClient } from "@huhu/herdr-client";
-import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, createHuhuContext, type VaultServices } from "@huhu/kernel";
+import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PluginManager, createHuhuContext, type VaultServices } from "@huhu/kernel";
 import { Vault, machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { apply } from "../src/engine/index.js";
@@ -60,30 +61,36 @@ test.skipIf(process.platform !== "win32" || !bin)(
       emptyEndpoint = true;
 
       let dispatcher: Dispatcher;
+      let manager!: PluginManager;
       async function openEngine() {
         const registry = new CapabilityRegistry();
+        const events = new EventBus(() => vault.id);
         dispatcher = new Dispatcher({
           registry,
           audit: new GatewayAudit(),
           idempotency: new IdempotencyStore(),
-          isPluginEnabled: () => true,
+          isPluginEnabled: (id) => manager.isEnabled(id),
           exposureOverride: () => undefined,
           grantedPermissions: () => [],
           pluginOrigin: () => "builtin",
         });
         const { root, facade } = createHuhuContext({
           registry,
-          events: new EventBus(() => vault.id),
+          events,
           vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
           call: async () => {
             throw new Error("The launch probe does not call other plugins");
           },
         });
-        const running = root.plugin((ctx) => {
-          apply(ctx, facade("agent-cli", ctx), { herdrBin: bin! });
+        manager = new PluginManager(root, facade, events);
+        manager.register({
+          manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "1.0.0", origin: "builtin" }),
+          apply: (ctx, api) => {
+            apply(ctx, api, { herdrBin: bin!, history: { home: sandbox, env: {} } });
+          },
         });
-        dispose = () => running.dispose();
-        await running.await?.();
+        dispose = () => manager.disposeAll();
+        expect(await manager.enable("agent-cli")).toBe("active");
       }
       await openEngine();
       const request = (capability: string, input: unknown, idempotencyKey = crypto.randomUUID()) => {
@@ -297,6 +304,78 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await call("agent.sessions.kill", { id: junctionLaunch.id });
       console.info(JSON.stringify({ scenario: "junction", kept: junctionLaunch.terminalId, retargeted: "IDEMPOTENCY_MISMATCH" }));
       console.info(JSON.stringify({ isolatedId, launchId, sessionId, attemptId, address: original.address, pid: original.pid, createdMs: original.created_ms }));
+
+      for (const phase of ["before_run", "late_run_reply"] as const) {
+        const input = { ...launch, requestId: crypto.randomUUID() };
+        let enter!: () => void;
+        let resume!: () => void;
+        const entered = new Promise<void>((resolve) => {
+          enter = resolve;
+        });
+        const blocked = new Promise<void>((resolve) => {
+          resume = resolve;
+        });
+        let first = true;
+        const ensure = HerdrCore.prototype.ensure;
+        const delayed =
+          phase === "before_run"
+            ? vi.spyOn(HerdrCore.prototype, "ensure").mockImplementation(async function (this: HerdrCore) {
+                if (first && this.endpoint === expectedCore.endpoint) {
+                  first = false;
+                  enter();
+                  await blocked;
+                }
+                return ensure.call(this);
+              })
+            : vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
+                const result = (await realCall.call(this, method, params)) as T;
+                if (method === "terminal.run" && (params as { labels?: Record<string, string> }).labels?.["huhu.launch"] === input.requestId) {
+                  enter();
+                  await blocked;
+                }
+                return result;
+              });
+        const pending = request("agent.sessions.launch", input);
+        let replacement;
+        try {
+          expect(await Promise.race([entered.then(() => "paused"), pending.then(() => "finished")])).toBe("paused");
+          await manager.disable("agent-cli");
+          expect(await request("agent.sessions.launch", input)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+          expect(await manager.enable("agent-cli")).toBe("active");
+          replacement = await request("agent.sessions.launch", input);
+        } finally {
+          resume();
+          delayed.mockRestore();
+        }
+        const old = await pending;
+        const truth = new HerdrClient({ endpoint: expectedCore.endpoint });
+        await truth.connect();
+        const matches = await truth
+          .call<{ terminals: Terminal[] }>("terminal.list", { all: true })
+          .then(({ terminals }) => terminals.filter((terminal) => terminal.labels?.["huhu.launch"] === input.requestId))
+          .finally(() => truth.close());
+        expect(matches).toHaveLength(1);
+        const match = matches[0]!;
+        const file = path.join(vault.stateDir, "agent-cli", "sessions", match.labels["huhu.session"] + ".json");
+        const recorded = JSON.parse(readFileSync(file, "utf8"));
+        const retry = await request("agent.sessions.launch", input);
+        console.info(
+          JSON.stringify({
+            phase,
+            old: old.ok ? "ok" : old.error.code,
+            replacement,
+            retry,
+            recorded: { terminalId: recorded.terminalId, attempt: recorded.launchReceipt?.attempt?.id },
+            core: matches.map(({ address, pid, labels }) => ({ address, pid, attempt: labels["huhu.launch.generation"] })),
+          }),
+        );
+        expect(replacement).toMatchObject({ ok: true, data: { terminalId: match.address } });
+        expect(retry).toMatchObject({ ok: true, data: { terminalId: match.address } });
+        expect(recorded).toMatchObject({ terminalId: match.address, launchReceipt: { attempt: { id: match.labels["huhu.launch.generation"], binding: { pid: match.pid } } } });
+        expect(old).toMatchObject({ ok: false, error: { code: phase === "before_run" ? "PLUGIN_DISABLED" : "RUN_UNKNOWN" } });
+        await call("agent.sessions.kill", { id: recorded.id });
+        expect(JSON.parse(cli("wait", match.address, "--timeout", "10", "--json").stdout)).toMatchObject({ ended: true });
+      }
     } finally {
       await closeEngine();
       try {
@@ -308,7 +387,9 @@ test.skipIf(process.platform !== "win32" || !bin)(
             expect(current).not.toBe("346bd5608735e3fcb27f9d01f5c8008e");
             if (isolatedId) expect(current).toBe(isolatedId);
             expect(cli("server", "stop").status).toBe(0);
-            expect(cli("server", "status").status).toBe(5);
+            const stopped = cli("server", "status").status;
+            console.info(JSON.stringify({ endpoint: expectedCore.endpoint, stopped }));
+            expect(stopped).toBe(5);
           }
         }
       } finally {

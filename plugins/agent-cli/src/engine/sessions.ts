@@ -137,6 +137,7 @@ export interface SessionsDeps {
   resolve(input: ResolveInput): Promise<ResolvedLaunch>;
   now(): Date;
   inputOwnership?: InputOwnership;
+  signal?: AbortSignal;
 }
 
 /** 交互会话：先持久化记录，再 terminal.run；响应丢失时按 huhu.launch 标签找回，绝不重复 run。 */
@@ -147,6 +148,7 @@ export class SessionsService {
     return path.join(this.d.dir, `${id}.json`);
   }
   private save(s: SessionRecord): void {
+    this.d.signal?.throwIfAborted();
     mkdirSync(this.d.dir, { recursive: true });
     const tmp = `${this.file(s.id)}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(s, null, 2), { flush: true });
@@ -268,7 +270,7 @@ export class SessionsService {
     return s;
   }
 
-  private readonly inflight = new Map<string, { intent: LaunchIntent; executionHash: string | undefined; result: Promise<SessionRecord> }>();
+  private readonly inflight = new Map<string, { intent: LaunchIntent; executionHash: string | undefined; signal: AbortSignal | undefined; result: Promise<SessionRecord> }>();
 
   private launchIntent({ requestId: _requestId, env: _env, cwd, ...intent }: LaunchInput, preparedCwd?: string): LaunchIntent {
     const literal = cwd && path.isAbsolute(cwd) ? localDrivePath(path.normalize(cwd)) : cwd;
@@ -284,7 +286,9 @@ export class SessionsService {
     return { literalHash, resolvedHash: literalHash };
   }
 
-  async launch(input: LaunchInput): Promise<SessionRecord> {
+  async launch(input: LaunchInput, callerSignal?: AbortSignal): Promise<SessionRecord> {
+    const signal = callerSignal && this.d.signal ? AbortSignal.any([callerSignal, this.d.signal]) : (callerSignal ?? this.d.signal);
+    signal?.throwIfAborted();
     const intent = this.launchIntent(input);
     const previous = this.recordedLaunch(input.requestId);
     if (previous) this.verifyIntent(previous, intent);
@@ -296,6 +300,7 @@ export class SessionsService {
       // A sent operation remains queryable even when its old directory or executable is gone.
       if (!previous?.launchReceipt?.attempt) throw error;
     }
+    signal?.throwIfAborted();
     if (prepared && input.cwd !== undefined && this.launchIntent(input, prepared.cwd).resolvedHash !== intent.resolvedHash) {
       throw new HuhuError("VERSION_CONFLICT", "预检期间工作目录发生变化，请重新选择");
     }
@@ -308,10 +313,12 @@ export class SessionsService {
     if (running) {
       const sameIntent = intent.resolvedHash === null ? running.intent.literalHash === intent.literalHash : running.intent.resolvedHash === intent.resolvedHash;
       if (!sameIntent || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
-      return running.result;
+      if (!running.signal?.aborted) return running.result;
     }
-    const result = this.doLaunch(input, intent, executionHash, prepared).finally(() => this.inflight.delete(input.requestId));
-    this.inflight.set(input.requestId, { intent, executionHash, result });
+    const result = this.doLaunch(input, intent, executionHash, prepared, signal).finally(() => {
+      if (this.inflight.get(input.requestId)?.result === result) this.inflight.delete(input.requestId);
+    });
+    this.inflight.set(input.requestId, { intent, executionHash, result, signal });
     return result;
   }
 
@@ -393,13 +400,13 @@ export class SessionsService {
     return receipt;
   }
 
-  private async doLaunch(input: LaunchInput, intent: LaunchIntent, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined): Promise<SessionRecord> {
+  private async doLaunch(input: LaunchInput, intent: LaunchIntent, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined, signal: AbortSignal | undefined): Promise<SessionRecord> {
     const previous = this.recordedLaunch(input.requestId);
     const priorReceipt = previous && this.verifyIntent(previous, intent, executionHash);
     if (previous && priorReceipt?.attempt) {
       this.recordLaunchRequest(previous, priorReceipt);
       if (previous.state === "exited") return previous;
-      return this.findLaunch(previous);
+      return this.findLaunch(previous, signal);
     }
     if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
 
@@ -434,23 +441,38 @@ export class SessionsService {
     let core: Awaited<ReturnType<typeof identifyCore>>;
     try {
       client = await this.d.core();
+      signal?.throwIfAborted();
       core = await identifyCore(client);
     } catch {
-      throw this.confirmNotCreated(session, receipt, "connect", "连接 Herdr Core 失败，启动请求尚未发送");
+      signal?.throwIfAborted();
+      const current = this.currentLaunch(session, intent, executionHash);
+      if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+      throw this.confirmNotCreated(current, receipt, "connect", "连接 Herdr Core 失败，启动请求尚未发送");
     }
+    signal?.throwIfAborted();
+    // The Vault writer makes this read, claim and synchronous RPC submission a single turn.
+    // Another service may have claimed the same request while this connection was opening.
+    const current = this.currentLaunch(session, intent, executionHash);
+    if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
     const attempt = { id: randomUUID(), core };
-    const pending: SessionRecord = { ...session, state: "launching", launchReceipt: { ...receipt, attempt } };
+    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, attempt } };
     delete pending.error;
     this.save(pending);
     if (env) this.secrets.set(session.id, Object.values(env));
     let terminal: Terminal | undefined;
+    let rejectedBeforeCreation = false;
     try {
       terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
     } catch (error) {
       // JSON-RPC parameter rejection happens before terminal.run. spawn_failed also covers holder timeouts.
-      if (error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params") {
-        throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
-      }
+      rejectedBeforeCreation = error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params";
+    }
+    if (signal?.aborted) throw this.unknown(pending, "launch_scope_ended");
+    pending = this.currentLaunch(pending, intent, executionHash);
+    if (pending.launchReceipt?.attempt?.id !== attempt.id) throw this.unknown(pending, "attempt_changed");
+    if (pending.launchReceipt.attempt.binding && (pending.state === "running" || pending.state === "exited")) return pending;
+    if (rejectedBeforeCreation) {
+      throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
     }
     const binding = terminal && this.verifyTerminal(pending, terminal);
     if (terminal && binding) return this.bind(pending, terminal, binding);
@@ -459,12 +481,29 @@ export class SessionsService {
       this.save(pending);
     }
 
-    return this.findLaunch(pending);
+    return this.findLaunch(pending, signal);
   }
 
-  private async findLaunch(session: SessionRecord): Promise<SessionRecord> {
+  private currentLaunch(session: SessionRecord, intent: LaunchIntent, executionHash: string | undefined): SessionRecord {
+    const current = this.recordedLaunch(session.requestId);
+    if (current?.id !== session.id) throw this.unknown(session, "launch_receipt_unavailable");
+    this.verifyIntent(current, intent, executionHash);
+    return current;
+  }
+
+  private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
+    if (session.state === "exited") return session;
     const snapshot = await this.snapshot();
-    const updated = this.applySnapshot(session, snapshot);
+    if (signal?.aborted) throw this.unknown(session, "launch_scope_ended");
+    const current = this.recordedLaunch(session.requestId);
+    const attempt = session.launchReceipt?.attempt;
+    if (current?.id !== session.id || current.launchReceipt?.attempt?.id !== attempt?.id) throw this.unknown(session, "attempt_changed");
+    if (current.state === "exited") return current;
+    if (launchHash(current.launchReceipt?.attempt) !== launchHash(attempt)) {
+      if (current.state === "running" && current.launchReceipt?.attempt?.binding) return current;
+      throw this.unknown(current, current.launchReceipt?.attempt?.issue ?? "attempt_changed");
+    }
+    const updated = this.applySnapshot(current, snapshot);
     if (snapshot.kind === "unavailable") throw this.unknown(updated, "snapshot_unavailable");
     if (updated.state === "running" || updated.state === "exited") return updated;
     throw this.unknown(updated, updated.launchReceipt?.attempt?.issue ?? "snapshot_unavailable");
@@ -517,10 +556,12 @@ export class SessionsService {
   }
 
   private async snapshot(): Promise<TerminalSnapshot> {
+    if (this.d.signal?.aborted) return { kind: "unavailable" };
     try {
       const client = this.d.peekCore ? await this.d.peekCore() : await this.d.core();
       if (client === "absent") return { kind: "absent" };
       if (!client) return { kind: "unavailable" };
+      this.d.signal?.throwIfAborted();
       const core = await identifyCore(client);
       const { terminals } = await client.call<{ terminals: Terminal[] }>("terminal.list", { all: true, labels: { "huhu.vault": this.d.vaultId } });
       return Array.isArray(terminals) ? { kind: "available", client, core, terminals } : { kind: "unavailable" };
@@ -570,7 +611,9 @@ export class SessionsService {
   }
 
   private async terminalClient(session: SessionRecord): Promise<HerdrClient> {
-    return (await this.verifiedTerminal(session)).client;
+    const { client } = await this.verifiedTerminal(session);
+    this.d.signal?.throwIfAborted();
+    return client;
   }
 
   async executionSession(id: string): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string } | null> {
@@ -617,6 +660,7 @@ export class SessionsService {
   private async controlTerminal(session: SessionRecord, method: string): Promise<void> {
     if (this.d.inputOwnership?.hasTask(session.id)) throw errors.invalidInput("该会话由任务持有输入权");
     const client = await this.terminalClient(session);
+    this.d.signal?.throwIfAborted();
     if (this.d.inputOwnership?.hasTask(session.id)) throw errors.invalidInput("该会话由任务持有输入权");
     await client.call(method, { terminal: session.terminalId });
   }

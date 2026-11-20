@@ -12,6 +12,7 @@ export interface HerdrCoreOptions {
   machineId: string;
   /** `<Vault>/.huhu/runtime/<machineId>/herdr`。 */
   runtimeDir: string;
+  signal?: AbortSignal;
 }
 
 /** 实例隔离的 Herdr Core（interfaces.md §7）：独立 session、状态与配置目录、短路径 socket。 */
@@ -37,6 +38,7 @@ export class HerdrCore {
 
   /** 确保 Core 在运行并返回已连接的客户端；二进制缺失或启动失败 → HERDR_UNAVAILABLE。 */
   async ensure(): Promise<HerdrClient> {
+    this.o.signal?.throwIfAborted();
     if (this.client) return this.client;
     // 并发的 ensure（打开终端与健康诊断同时发生）共用同一次启动，不各自 spawn `server start`
     this.starting ??= this.start().finally(() => {
@@ -65,6 +67,11 @@ export class HerdrCore {
         else reject(new HuhuError("HERDR_UNAVAILABLE", `Herdr Core 启动退出码 ${code}`));
       });
     });
+    return this.connect();
+  }
+
+  private async connect(): Promise<HerdrClient> {
+    this.o.signal?.throwIfAborted();
     const c: HerdrClient = new HerdrClient({
       endpoint: this.endpoint,
       onClose: () => {
@@ -72,6 +79,10 @@ export class HerdrCore {
       },
     });
     await c.connect();
+    if (this.o.signal?.aborted) {
+      c.close();
+      this.o.signal.throwIfAborted();
+    }
     if (this.client) {
       c.close();
       return this.client;
@@ -85,22 +96,11 @@ export class HerdrCore {
    * "absent" = 确认没有 Core 在监听（套接字不存在 / 拒绝连接）；null = 暂时判断不了（其他连接错误）。
    */
   async peek(): Promise<HerdrClient | "absent" | null> {
+    if (this.o.signal?.aborted) return null;
     if (this.client) return this.client;
     if (process.platform !== "win32" && !existsSync(this.endpoint)) return "absent"; // Unix 套接字文件都不存在：确定没有 Core
     try {
-      const c: HerdrClient = new HerdrClient({
-        endpoint: this.endpoint,
-        onClose: () => {
-          if (this.client === c) this.client = null;
-        },
-      }); // 只清掉自己：被丢弃的重复连接关闭时不能把保留的那个也清掉
-      await c.connect();
-      if (this.client) {
-        c.close();
-        return this.client;
-      } // 与 ensure() 并发时只保留先建好的那一个
-      this.client = c;
-      return c;
+      return await this.connect();
     } catch (e) {
       // HerdrClient.connect 把底层错误包装成 HuhuError，errno 只留在消息里；套接字文件残留但没有进程监听 = ECONNREFUSED
       const text = `${(e as { code?: string }).code ?? ""} ${e instanceof Error ? e.message : String(e)}`;
@@ -125,6 +125,7 @@ export class HerdrCore {
 
   /** 结束 Core（测试与"重启 Core"使用）。 */
   async stop(): Promise<void> {
+    this.o.signal?.throwIfAborted();
     this.dispose();
     await new Promise<void>((resolve) => {
       const p = spawn(this.o.bin, ["server", "stop"], { env: this.env(), stdio: "ignore" });
