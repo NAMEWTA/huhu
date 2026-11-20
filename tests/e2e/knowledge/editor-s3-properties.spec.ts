@@ -117,3 +117,87 @@ test("S3：坏 YAML 不被清空——面板给出诊断，源码里的原文保
     await close();
   }
 });
+
+const titleInput = (panel: ReturnType<Page["getByTestId"]>) => panel.locator("textarea, input[type=text], input:not([type])").first();
+
+for (const [name, bom, eol] of [
+  ["BOM", "\uFEFF", "\n"],
+  ["CRLF", "", "\r\n"],
+  ["BOM + CRLF", "\uFEFF", "\r\n"],
+] as const) {
+  test(`C01–C03：${name} 属性同步、只读及磁盘字节保真`, async () => {
+    const { page, vault, close } = await openApp();
+    try {
+      const file = path.join(vault, "属性保真.md");
+      const original = bom + ["---", "title: 原题", "when: 2026-11", "zip: 007", "---", "", "# 正文", "", "段落", ""].join(eol);
+      const read = () => readFileSync(file);
+      writeFileSync(file, original);
+      await gotoNotes(page);
+      await treeItem(page, "属性保真.md").click();
+      await expect(prose(page)).toContainText("段落");
+      const top = page.getByTestId("editor-properties");
+      await expect(titleInput(top)).toHaveValue("原题");
+      await page.getByRole("button", { name: "文档详情", exact: true }).click();
+      const detail = page.getByTestId("inspector-properties");
+      await expect(titleInput(detail)).toHaveValue("原题");
+
+      await titleInput(top).fill("顶栏改");
+      await titleInput(top).blur();
+      await expect(titleInput(detail)).toHaveValue("顶栏改");
+      await expect.poll(read).toEqual(Buffer.from(original.replace("原题", "顶栏改")));
+
+      await titleInput(detail).fill("详情改");
+      await titleInput(detail).blur();
+      await expect(titleInput(top)).toHaveValue("详情改");
+      const afterProperty = original.replace("原题", "详情改");
+      await expect.poll(read).toEqual(Buffer.from(afterProperty));
+
+      await prose(page).click();
+      await page.keyboard.press("ControlOrMeta+End");
+      await page.keyboard.insertText("补");
+      const afterBody = afterProperty.replace("段落", "段落补");
+      await expect.poll(read).toEqual(Buffer.from(afterBody));
+
+      await page.getByRole("tab", { name: "阅读" }).click();
+      for (const panel of [top, detail]) {
+        await expect(panel.getByTestId("readonly-property-value").and(panel.locator('[data-key="title"]'))).toHaveText("详情改");
+        await expect(panel.getByTestId("readonly-property-value").and(panel.locator('[data-key="when"]'))).toHaveText("2026-11");
+        await expect(panel.locator("textarea, input, [contenteditable=true]")).toHaveCount(0);
+      }
+      expect(read()).toEqual(Buffer.from(afterBody));
+    } finally {
+      await close();
+    }
+  });
+}
+
+test("B10：大纲只列解析树标题，并跳到第二个同名标题的实际位置", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(path.join(vault, "大纲.md"), "\uFEFF---\n# YAML 伪标题\ntitle: 目录\n---\n\n## 重复\n\n```md\n# 围栏伪标题\n```\n\n**短标题**\n------\n\n## 重复\n");
+    await gotoNotes(page);
+    await treeItem(page, "大纲.md").click();
+    const editor = prose(page);
+    await expect(editor.getByRole("heading", { name: "重复" })).toHaveCount(2);
+    await page.getByRole("button", { name: "文档详情", exact: true }).click();
+    const inspector = page.getByTestId("note-inspector");
+    await inspector.getByRole("tab", { name: "大纲" }).click();
+    const outline = inspector.locator(".notes-outline");
+    await expect(outline.getByRole("button")).toHaveText(["重复", "短标题", "重复"]);
+    await outline.getByRole("button", { name: "重复" }).last().click();
+    await expect
+      .poll(() =>
+        editor.evaluate((el) => {
+          const anchor = window.getSelection()?.anchorNode;
+          return !!anchor && el.querySelectorAll("h2")[2]?.contains(anchor);
+        }),
+      )
+      .toBe(true);
+
+    await page.getByRole("tab", { name: "源码" }).click();
+    await outline.getByRole("button", { name: "短标题" }).click();
+    await expect.poll(() => page.locator(".cm-activeLine").filter({ hasText: "**短标题**" }).count()).toBe(1);
+  } finally {
+    await close();
+  }
+});

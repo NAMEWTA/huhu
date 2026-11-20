@@ -1,66 +1,26 @@
+import { type Document, type Pair } from 'yaml';
 import {
-  Document,
-  isMap,
-  isSeq,
-  type Pair,
-  parseDocument,
-  type Scalar,
-  type ScalarTag,
-  type SchemaOptions,
-  type ToStringOptions,
-  type YAMLMap,
-  type YAMLSeq,
-} from 'yaml';
-import { type StringifyContext, stringifyString } from 'yaml/util';
+  createFrontmatterDocument,
+  decodeFrontmatterYaml,
+  encodeFrontmatterYaml,
+  setFrontmatterValue,
+} from '@huhu/vault/frontmatter-codec';
 import { type FrontmatterMap, FrontmatterMapSchema, FrontmatterPatchSchema } from './schema.ts';
-
-/**
- * HUHU P-S3-04（spec C02）：带前导零的数字样文本（`007`、`0123`）按**文本**读写并原样保留。
- * 上游的 `yaml` core schema 把 `007` 读成整数 7，用户只改了别的键，保存时它被悄悄改写成 `7`。
- */
-const LEADING_ZERO_TEXT = /^[-+]?0[0-9]+$/;
-const leadingZeroText = {
-  tag: 'tag:yaml.org,2002:int',
-  default: true,
-  identify: (value: unknown) => typeof value === 'string' && LEADING_ZERO_TEXT.test(value),
-  test: LEADING_ZERO_TEXT,
-  resolve: (str: string) => str,
-  // 作者显式加了引号（"007" / '007'）的标量保持原引号写法：去掉引号会让别的 YAML 读取器把它读成整数 7
-  stringify: (
-    item: Scalar,
-    ctx: StringifyContext,
-    onComment?: () => void,
-    onChompKeep?: () => void,
-  ) =>
-    item.type === 'QUOTE_DOUBLE' || item.type === 'QUOTE_SINGLE'
-      ? stringifyString(item, ctx, onComment, onChompKeep)
-      : String(item.value),
-};
-export const CODEC_SCHEMA_OPTIONS: SchemaOptions = {
-  // 放在核心 schema 之前：核心的 int 标签会先匹配 `007`
-  customTags: (tags) => [leadingZeroText as unknown as ScalarTag, ...tags],
-};
-
-export const STRINGIFY_OPTIONS: ToStringOptions = {
-  defaultKeyType: 'PLAIN',
-  defaultStringType: 'PLAIN',
-  lineWidth: 0,
-};
 
 export type ParsedFrontmatter =
   | { doc: Document; map: FrontmatterMap; parseError?: never }
   | { doc: Document; map: null; parseError: string };
 
-export function parseFrontmatterYaml(yaml: string): ParsedFrontmatter {
+export function parseFrontmatterYaml(yaml: string, uniqueKeys = true): ParsedFrontmatter {
   if (yaml.trim() === '') {
-    return { doc: new Document({}), map: {} };
+    return { doc: createFrontmatterDocument(), map: {} };
   }
   let doc: Document;
   try {
-    doc = parseDocument(yaml, CODEC_SCHEMA_OPTIONS);
+    doc = decodeFrontmatterYaml(yaml, uniqueKeys);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { doc: new Document({}), map: null, parseError: `parse threw: ${msg}` };
+    return { doc: createFrontmatterDocument(), map: null, parseError: `parse threw: ${msg}` };
   }
   if (doc.errors.length > 0) {
     return { doc, map: null, parseError: doc.errors[0]?.message ?? 'yaml parse errors' };
@@ -93,8 +53,7 @@ export function parseFrontmatterYaml(yaml: string): ParsedFrontmatter {
 
 export function serializeFrontmatterMap(map: FrontmatterMap): string {
   if (Object.keys(map).length === 0) return '';
-  const doc = new Document(map, CODEC_SCHEMA_OPTIONS);
-  return doc.toString(STRINGIFY_OPTIONS);
+  return encodeFrontmatterYaml(createFrontmatterDocument(map));
 }
 
 export function applyPatchToDocument(doc: Document, patch: Record<string, unknown>): string {
@@ -107,29 +66,9 @@ export function applyPatchToDocument(doc: Document, patch: Record<string, unknow
       doc.delete(key);
       continue;
     }
-    doc.set(key, buildValueNode(doc, doc.get(key, true), value));
+    setFrontmatterValue(doc, [key], value);
   }
-  return doc.toString(STRINGIFY_OPTIONS);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export function buildValueNode(doc: Document, existing: unknown, data: unknown): unknown {
-  if (Array.isArray(data)) {
-    const node = doc.createNode(data) as YAMLSeq;
-    const flow = isSeq(existing) ? (existing as YAMLSeq).flow : undefined;
-    if (flow !== undefined) node.flow = flow;
-    return node;
-  }
-  if (isPlainObject(data)) {
-    const node = doc.createNode(data) as YAMLMap;
-    const flow = isMap(existing) ? (existing as YAMLMap).flow : undefined;
-    if (flow !== undefined) node.flow = flow;
-    return node;
-  }
-  return data;
+  return encodeFrontmatterYaml(doc);
 }
 
 export function withFences(yamlBody: string): string {

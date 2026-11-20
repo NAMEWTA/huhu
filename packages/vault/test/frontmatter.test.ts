@@ -28,7 +28,7 @@ describe("frontmatter", () => {
   });
   test("只改变化的键，保留注释/顺序/未知键/正文", () => {
     const out = patchFrontmatter(SRC, { status: "completed" });
-    expect(out).toBe(SRC.replace("status: not_started   # 行尾注释", "status: completed # 行尾注释"));
+    expect(out).toBe(SRC.replace("status: not_started   # 行尾注释", "status: completed   # 行尾注释"));
   });
   test("新增与删除键", () => {
     const out = patchFrontmatter(SRC, { priority: "high", custom: undefined });
@@ -43,7 +43,7 @@ describe("frontmatter", () => {
     const out = patchFrontmatter(crlf, { status: "completed" });
     expect(out.startsWith("﻿---\r\n")).toBe(true);
     expect(out.includes("\n") && !/[^\r]\n/.test(out)).toBe(true);
-    expect(out).toBe(crlf.replace("status: not_started   #", "status: completed #"));
+    expect(out).toBe(crlf.replace("status: not_started   #", "status: completed   #"));
   });
   test("无 frontmatter 的文件加键", () => {
     const out = patchFrontmatter("# 标题\n", { a: 1 });
@@ -66,7 +66,7 @@ describe("档案用的 frontmatter 辅助", () => {
   test("frontmatterScalarSources：取 YAML 原文，0123 不会变成 123", async () => {
     const { frontmatterScalarSources, parseFrontmatter } = await import("../src/semantic/frontmatter.js");
     const text = '---\n电话: 0123\n手机: "0456"\n生日: 1990-05-01\n列表: [1, 2]\n---\n正文\n';
-    expect(parseFrontmatter(text).data["电话"]).toBe(123);
+    expect(parseFrontmatter(text).data["电话"]).toBe("0123");
     expect(frontmatterScalarSources(text)).toEqual({ 电话: "0123", 手机: "0456", 生日: "1990-05-01" });
   });
   test("patchFrontmatter quoted：文本字段加双引号；renameFrontmatterKeys 保持位置与其他键", async () => {

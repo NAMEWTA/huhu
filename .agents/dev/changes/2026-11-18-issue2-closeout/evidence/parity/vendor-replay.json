@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "5c06bc1fa54c56418031d8823d35b16ae1b6f4ac2ef50b3e0ab73704b7dbf2f6",
+      "sha256": "cc0913db8febbaeb47f9074e9a864faf3471e52a7f9d903319d270b645d56d7d",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -560,7 +560,7 @@
       "target": "app/src/components/FileTree.tsx",
       "upstream": "packages/app/src/components/FileTree.tsx",
       "blob": "49eda5b8d8f398d63804162d3eaf850080b797b2",
-      "sha256": "38c4638e62e3abcb6d5ba58f54f61dd9e98e887987fdda9ed85c0cb234369e5b",
+      "sha256": "546402028087be4b1906e4fd8a5bc573cab92dd95e68641c754aa8cc39506039",
       "method": "patch",
       "description": "PATCHES.md:55 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
@@ -712,6 +712,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/PropertyDisplayRow.tsx",
+      "upstream": "packages/app/src/components/PropertyDisplayRow.tsx",
+      "blob": "3a55f98350d3413945c2d92d1d3387ab2bd68486",
+      "sha256": "4b28430e65e5d8dc62986b505530b3cef04b0bc3b4d80254882a13262e485c35",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/PropertyInlineLinks.dom.test.tsx",
       "upstream": "packages/app/src/components/PropertyInlineLinks.dom.test.tsx",
       "blob": "60794e307fa2070e6b9e72b275bb7311b2445102",
@@ -746,6 +753,13 @@
       "sha256": "ad97f036c9f1fe6af2d0d240e67393d0089f5c433810055fab5c855c584609f0",
       "method": "patch",
       "description": "PATCHES.md:258 - `app/src/editor/extensions/tag-click-plugin.ts`、`app/src/components/PropertyWidgets.tsx`：随标签事件携带点击元素，隔离多个编辑面并支持关闭后焦点恢复。"
+    },
+    {
+      "target": "app/src/components/ReadonlyPropertyPanel.tsx",
+      "upstream": "packages/app/src/components/ReadonlyPropertyPanel.tsx",
+      "blob": "cca2ca4f36db83328800b6caaa09dc2ca0184a0e",
+      "sha256": "bf5e6fe7a390606a232b82406b69c9ddd0f11c32bf02e52b64557f0e74010993",
+      "method": "copy"
     },
     {
       "target": "app/src/components/RestartServerButton.tsx",
@@ -6236,8 +6250,9 @@
       "target": "core/src/bridge/bind-frontmatter-doc.ts",
       "upstream": "packages/core/src/bridge/bind-frontmatter-doc.ts",
       "blob": "29a0e5675f7b7ed7e0aff65f21a84d972533d24b",
-      "sha256": "a59e58965973ed918548ddd4df029ef52dfec2a21449ae1e987e40eb9fc30d84",
-      "method": "copy"
+      "sha256": "c7c9d0867a9b8db2689c37b6aad86e55a7c9778da5c721d12bbfdcec9afef7a3",
+      "method": "patch",
+      "description": "PATCHES.md:331 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。"
     },
     {
       "target": "core/src/bridge/bridge-invariant.ts",
@@ -6278,7 +6293,7 @@
       "target": "core/src/bridge/frontmatter-region.ts",
       "upstream": "packages/core/src/bridge/frontmatter-region.ts",
       "blob": "8b66f34a05ab33492cf307138a7527350dad03d7",
-      "sha256": "1de4b777abb28b4270d9b3752a6c2c0d2cd0fd9ec62dd6059e4a6ec3e688e084",
+      "sha256": "0631e5ba597ff1b840b8a7e69fe20a63a23dfa55523aef2d0bd85f9c573b6e54",
       "method": "patch",
       "description": "PATCHES.md:73 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `\"007\"` 保持引号。spec C02。"
     },
@@ -6994,8 +7009,9 @@
       "target": "core/src/extensions/frontmatter.ts",
       "upstream": "packages/core/src/extensions/frontmatter.ts",
       "blob": "275b1a245271341d8a95fb497c91cb2752e31c30",
-      "sha256": "9bb833003976975c87c9eb343f88f830ea4a8db3431c36dbfc7cf35b6f51eb80",
-      "method": "copy"
+      "sha256": "58de0e5f9fefaa9e086d99d071bd08b62465d148a46bddeae67d89eb9b6bd845",
+      "method": "patch",
+      "description": "PATCHES.md:331 - `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。"
     },
     {
       "target": "core/src/extensions/hard-break-fidelity.ts",
@@ -7302,7 +7318,7 @@
       "target": "core/src/frontmatter/yaml-codec.ts",
       "upstream": "packages/core/src/frontmatter/yaml-codec.ts",
       "blob": "3eb7a17f7afc3d41e09f04d001a6ef7d569a8d24",
-      "sha256": "ec1fa2011236d81419faec6a90c2af005c216f9e85931f7b39b975158a7aeb38",
+      "sha256": "e8edbb5c0773ad5c54af65bd73c3a2fc004115ebf1771a03e48027c82b835dc7",
       "method": "patch",
       "description": "PATCHES.md:73 - P-S3-04 `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：带前导零的数字样文本（`007`）按文本读写并原样保留（上游 `yaml` core schema 读成整数 7，改别的键时被悄悄改写）；显式加引号的 `\"007\"` 保持引号。spec C02。"
     },

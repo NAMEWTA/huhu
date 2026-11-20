@@ -1,4 +1,5 @@
-import { parseDocument, isMap, isScalar, type Document } from "yaml";
+import { isMap, isScalar } from "yaml";
+import { decodeFrontmatterYaml, encodeFrontmatterYaml, encodePatchedFrontmatterYaml, FRONTMATTER_RE, replaceFencedYaml, setFrontmatterValue } from "./frontmatter-codec.js";
 
 export interface SplitDoc {
   bom: string;
@@ -14,18 +15,14 @@ export function splitDocument(text: string): SplitDoc {
   const bom = text.startsWith("﻿") ? "﻿" : "";
   const src = bom ? text.slice(1) : text;
   const eol: "\n" | "\r\n" = src.includes("\r\n") ? "\r\n" : "\n";
-  const m = /^---[ \t]*\r?\n/.exec(src);
-  if (!m) return { bom, eol, yaml: null, body: src };
-  const rest = src.slice(m[0].length);
-  const end = /^---[ \t]*(\r?\n|$)/m.exec(rest);
-  if (!end) return { bom, eol, yaml: null, body: src };
-  return { bom, eol, yaml: rest.slice(0, end.index), body: rest.slice(end.index + end[0].length) };
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) return { bom, eol, yaml: null, body: src };
+  return { bom, eol, yaml: match[2] ?? "", body: text.slice(match[0].length) };
 }
 
 export function joinDocument(d: SplitDoc): string {
   if (d.yaml === null) return d.bom + d.body;
-  const y = d.yaml.endsWith("\n") || d.yaml === "" ? d.yaml : d.yaml + d.eol;
-  return `${d.bom}---${d.eol}${y}---${d.eol}${d.body}`;
+  return d.bom + replaceFencedYaml(d.yaml, "", d.eol) + d.body;
 }
 
 export interface ParsedFrontmatter {
@@ -38,21 +35,11 @@ export interface ParsedFrontmatter {
 export function parseFrontmatter(text: string): ParsedFrontmatter {
   const doc = splitDocument(text);
   if (doc.yaml === null) return { doc, data: {}, errors: [] };
-  const ydoc = parseDocument(doc.yaml);
+  const ydoc = decodeFrontmatterYaml(doc.yaml);
   const errors = ydoc.errors.map((e) => e.message);
   const js = errors.length ? {} : (ydoc.toJS() as unknown);
   const data = js && typeof js === "object" && !Array.isArray(js) ? (js as Record<string, unknown>) : {};
   return { doc, data, errors };
-}
-
-function setPath(ydoc: Document, keyPath: string[], value: unknown): void {
-  if (value === undefined) ydoc.deleteIn(keyPath);
-  else {
-    const node = ydoc.getIn(keyPath, true);
-    // 标量原地改值，保留行尾注释与样式
-    if (isScalar(node) && (value === null || typeof value !== "object")) node.value = value;
-    else ydoc.setIn(keyPath, ydoc.createNode(value));
-  }
 }
 
 function sameJson(a: unknown, b: unknown): boolean {
@@ -65,25 +52,20 @@ function sameJson(a: unknown, b: unknown): boolean {
  */
 export function patchFrontmatter(text: string, changes: Record<string, unknown>, opts: { quoted?: readonly string[] } = {}): string {
   const split = splitDocument(text);
-  const ydoc = parseDocument(split.yaml ?? "");
+  const ydoc = decodeFrontmatterYaml(split.yaml ?? "");
   if (ydoc.errors.length) throw new Error(`frontmatter 无法解析：${ydoc.errors[0]?.message}`);
   const current = (ydoc.toJS() ?? {}) as Record<string, unknown>;
-  let changed = false;
+  const changed: string[] = [];
   for (const [k, v] of Object.entries(changes)) {
-    if (v === undefined ? !(k in current) : sameJson(current[k], v)) continue;
+    if (v === undefined ? !Object.hasOwn(current, k) : sameJson(current[k], v)) continue;
     if (!isMap(ydoc.contents) && split.yaml !== null && split.yaml.trim() !== "") throw new Error("frontmatter 顶层不是映射");
-    setPath(ydoc, [k], v);
-    // 文本字段一律加引号：`0123` 不能被下次读取当成数字 123
-    if (typeof v === "string" && opts.quoted?.includes(k)) {
-      const node = ydoc.getIn([k], true);
-      if (isScalar(node)) node.type = "QUOTE_DOUBLE";
-    }
-    changed = true;
+    if (v === undefined) ydoc.delete(k);
+    else setFrontmatterValue(ydoc, [k], v, typeof v === "string" && opts.quoted?.includes(k));
+    changed.push(k);
   }
-  if (!changed) return text;
-  let out = ydoc.toString({ lineWidth: 0 });
-  if (split.eol === "\r\n") out = out.replace(/\r?\n/g, "\r\n");
-  return joinDocument({ ...split, yaml: out });
+  if (changed.length === 0) return text;
+  const yaml = encodePatchedFrontmatterYaml(ydoc, split.yaml ?? "", changed, split.eol);
+  return rewriteYaml(text, split, yaml);
 }
 
 /** 替换正文，保留 frontmatter 字节。 */
@@ -98,7 +80,7 @@ export function replaceBody(text: string, body: string): string {
 export function frontmatterScalarSources(text: string): Record<string, string> {
   const split = splitDocument(text);
   if (split.yaml === null) return {};
-  const ydoc = parseDocument(split.yaml);
+  const ydoc = decodeFrontmatterYaml(split.yaml);
   const out: Record<string, string> = {};
   if (ydoc.errors.length || !isMap(ydoc.contents)) return out;
   for (const pair of ydoc.contents.items) if (isScalar(pair.key) && isScalar(pair.value) && pair.value.source !== undefined) out[String(pair.key.value)] = pair.value.source;
@@ -109,7 +91,7 @@ export function frontmatterScalarSources(text: string): Record<string, string> {
 export function renameFrontmatterKeys(text: string, renames: readonly { from: string; to: string }[]): string {
   const split = splitDocument(text);
   if (split.yaml === null) return text;
-  const ydoc = parseDocument(split.yaml);
+  const ydoc = decodeFrontmatterYaml(split.yaml);
   if (ydoc.errors.length) throw new Error(`frontmatter 无法解析：${ydoc.errors[0]?.message}`);
   if (!isMap(ydoc.contents)) return text;
   const pairs = ydoc.contents.items;
@@ -123,7 +105,11 @@ export function renameFrontmatterKeys(text: string, renames: readonly { from: st
     changed = true;
   }
   if (!changed) return text;
-  let out = ydoc.toString({ lineWidth: 0 });
-  if (split.eol === "\r\n") out = out.replace(/\r?\n/g, "\r\n");
-  return joinDocument({ ...split, yaml: out });
+  const yaml = encodeFrontmatterYaml(ydoc);
+  return rewriteYaml(text, split, split.eol === "\r\n" ? yaml.replace(/\n/g, "\r\n") : yaml);
+}
+
+function rewriteYaml(text: string, split: SplitDoc, yaml: string): string {
+  if (split.yaml === null) return joinDocument({ ...split, yaml });
+  return replaceFencedYaml(yaml, text, split.eol) + split.body;
 }
