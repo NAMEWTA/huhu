@@ -15,8 +15,10 @@ const Item = z.object({ id: z.string(), name: z.string(), type: z.enum(["passwor
 const Ok = z.object({ ok: z.literal(true) });
 
 export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kdfParams?: { N: number; r: number; p: number } } = {}): Safe {
-  const safe = new Safe({ dir: path.join(api.vault.stateDir, "safe"), now: opts.now ?? Date.now, publish: (t, p) => api.events.publish(t, p), ...(opts.kdfParams ? { kdfParams: opts.kdfParams } : {}) });
-  // Vault 关闭 / 插件停用：清零 DK
+  const safe = new Safe({ dir: path.join(api.vault.files.root, ".huhu", "safe"), files: api.vault.files, now: opts.now ?? Date.now, publish: (t, p) => api.events.publish(t, p), ...(opts.kdfParams ? { kdfParams: opts.kdfParams } : {}) });
+  api.events.subscribe((event) => {
+    if (event.type === "engine.closing") safe.lock("close");
+  });
   ctx.effect(() => () => safe.lock("close"));
   api.provide("secretUse", { resolve: (ref, c) => safe.resolve(ref, c) } satisfies SecretUse);
 
@@ -28,13 +30,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
       scope: "admin",
       ...desktopOnly,
       input: z.object({}),
-      output: z.object({ initialized: z.boolean(), locked: z.boolean(), corrupt: z.boolean(), autoLockMinutes: z.number(), lockOnLeave: z.boolean(), cooldownSeconds: z.number() }),
+      output: z.object({
+        initialized: z.boolean(),
+        locked: z.boolean(),
+        corrupt: z.boolean(),
+        corruptFile: z.enum(["keyring.json", "manifest.json"]).optional(),
+        autoLockMinutes: z.number(),
+        lockOnLeave: z.boolean(),
+        cooldownSeconds: z.number(),
+        instanceId: z.uuid(),
+        generation: z.int().nonnegative(),
+      }),
       handler: () => safe.status(),
     }),
   );
-  api.defineCapability(def({ name: "safe.setup", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ password: z.string() }), output: Ok, handler: async (_c, i) => (await safe.setup(i.password), { ok: true as const }) }));
-  api.defineCapability(def({ name: "safe.unlock", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ password: z.string() }), output: Ok, handler: async (_c, i) => (await safe.unlock(i.password), { ok: true as const }) }));
-  api.defineCapability(def({ name: "safe.lock", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({}), output: Ok, handler: () => (safe.lock("manual"), { ok: true as const }) }));
+  api.defineCapability(
+    def({ name: "safe.setup", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ password: z.string() }), output: Ok, handler: async (c, i) => (await safe.setup(i.password, c.signal), { ok: true as const }) }),
+  );
+  api.defineCapability(
+    def({ name: "safe.unlock", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ password: z.string() }), output: Ok, handler: async (c, i) => (await safe.unlock(i.password, c.signal), { ok: true as const }) }),
+  );
+  api.defineCapability(def({ name: "safe.lock", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ reason: z.literal("leave").optional() }), output: Ok, handler: (_c, i) => (safe.lock(i.reason), { ok: true as const }) }));
   api.defineCapability(
     def({
       name: "safe.changePassword",
@@ -43,7 +59,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
       ...desktopOnly,
       input: z.object({ oldPassword: z.string(), newPassword: z.string() }),
       output: Ok,
-      handler: async (_c, i) => (await safe.changePassword(i.oldPassword, i.newPassword), { ok: true as const }),
+      handler: async (c, i) => (await safe.changePassword(i.oldPassword, i.newPassword, c.signal), { ok: true as const }),
     }),
   );
   api.defineCapability(
@@ -54,10 +70,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
       ...desktopOnly,
       input: z.object({ autoLockMinutes: z.number().optional(), lockOnLeave: z.boolean().optional() }),
       output: Ok,
-      handler: (_c, i) => (safe.updateSettings({ ...(i.autoLockMinutes !== undefined ? { autoLockMinutes: i.autoLockMinutes } : {}), ...(i.lockOnLeave !== undefined ? { lockOnLeave: i.lockOnLeave } : {}) }), { ok: true as const }),
+      handler: async (c, i) => (
+        await safe.updateSettings({ ...(i.autoLockMinutes !== undefined ? { autoLockMinutes: i.autoLockMinutes } : {}), ...(i.lockOnLeave !== undefined ? { lockOnLeave: i.lockOnLeave } : {}) }, c.signal),
+        { ok: true as const }
+      ),
     }),
   );
-  api.defineCapability(def({ name: "safe.items.list", plugin: "safe", scope: "read", ...desktopOnly, input: z.object({}), output: z.array(Item), handler: () => safe.itemsList() }));
+  api.defineCapability(def({ name: "safe.items.list", plugin: "safe", scope: "read", ...desktopOnly, input: z.object({}), output: z.array(Item), handler: () => safe.withSession(() => safe.itemsList()) }));
   api.defineCapability(
     def({
       name: "safe.items.save",
@@ -86,7 +105,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
       ...desktopOnly,
       input: z.object({ id: z.string(), purpose: z.enum(["reveal", "copy"]).default("reveal") }),
       output: z.object({ value: z.string() }),
-      handler: (_c, i) => ({ value: safe.reveal(i.id, i.purpose) }),
+      handler: (_c, i) => safe.withSession(() => ({ value: safe.reveal(i.id, i.purpose) })),
     }),
   );
   api.defineCapability(

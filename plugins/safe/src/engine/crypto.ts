@@ -34,6 +34,10 @@ export function seal(key: Buffer, plaintext: Buffer, aad: string): Buffer {
 
 /** 解封；认证失败（密码错误、被篡改、AAD 不符）抛出 SealError。 */
 export class SealError extends Error {}
+export function isSealedSize(sealed: Buffer, plaintextLength: number): boolean {
+  return sealed.length === MAGIC.length + IV_LEN + TAG_LEN + plaintextLength && sealed.subarray(0, MAGIC.length).equals(MAGIC);
+}
+
 export function open(key: Buffer, sealed: Buffer, aad: string): Buffer {
   if (sealed.length < MAGIC.length + IV_LEN + TAG_LEN || !sealed.subarray(0, MAGIC.length).equals(MAGIC)) throw new SealError("格式无效");
   const iv = sealed.subarray(MAGIC.length, MAGIC.length + IV_LEN);

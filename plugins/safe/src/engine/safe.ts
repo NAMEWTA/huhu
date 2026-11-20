@@ -1,8 +1,10 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { parseSecretRef } from "../shared/secret-ref.js";
-import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError, type Kdf } from "./crypto.js";
+import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
+import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
 export type SecretType = "password" | "ssh-key" | "token" | "env";
 
@@ -13,15 +15,6 @@ export interface ItemMeta {
   account: string;
   allowedModules: string[];
   updatedAt: string;
-}
-
-interface Keyring {
-  kdf: Kdf;
-  wrappedKey: string;
-  keyCheck: string;
-  createdAt: string;
-  autoLockMinutes: number;
-  lockOnLeave: boolean;
 }
 
 export interface AuditEntry {
@@ -35,6 +28,7 @@ export interface AuditEntry {
 export interface SafeDeps {
   /** Vault 根目录下的 safe 目录（`<Vault>/.huhu/safe`）。 */
   dir: string;
+  files: SafeFiles;
   now(): number;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   /** 测试可降低 scrypt 成本；生产为 N=2^17。 */
@@ -46,50 +40,78 @@ export interface SafeDeps {
 const MAX_FAILURES = 5;
 const COOLDOWN_MS = 30_000;
 
-/** 保险箱（modules/safe.md）：数据密钥只在内存，锁定即清零；密文与元数据分离存放。 */
+function locked(): HuhuError {
+  return new HuhuError("SAFE_LOCKED", "保险箱已锁定或会话已失效", { recovery: [{ action: "unlock-safe", label: "解锁保险箱" }] });
+}
+
+/** 数据密钥随解锁代持有，代失效时清零。 */
 export class Safe {
-  private dk: Buffer | null = null;
+  private readonly store: SafeStore;
+  private readonly instanceId = randomUUID();
+  private session: { key: Buffer; identity: string } | null = null;
+  private damagedManifest: string | null = null;
+  private generation = 0;
+  private stopped = false;
+  private keyOperationPending = false;
   private failures = 0;
   private cooldownUntil = 0;
-  private timer: unknown = null;
+  private timer: { handle: unknown } | null = null;
 
-  constructor(private readonly d: SafeDeps) {}
+  constructor(private readonly d: SafeDeps) {
+    this.store = new SafeStore(d.files, d.dir);
+  }
 
   private p(...parts: string[]): string {
     return path.join(this.d.dir, ...parts);
   }
-  private keyring(): Keyring | null {
-    try {
-      return existsSync(this.p("keyring.json")) ? (JSON.parse(readFileSync(this.p("keyring.json"), "utf8")) as Keyring) : null;
-    } catch {
-      return null;
+  private storageState(): ReturnType<SafeStore["load"]> {
+    const state = this.store.load();
+    if (state.kind === "ready" && state.manifest?.checksum === this.damagedManifest) {
+      if (this.session) this.invalidate();
+      return { kind: "corrupt", file: "manifest.json" };
     }
-  }
-  private keyringCorrupt(): boolean {
-    if (!existsSync(this.p("keyring.json"))) return false;
+    if (!this.session) return state;
+    if (state.kind !== "ready" || this.session.identity !== state.ring.keyCheck) {
+      this.invalidate();
+      return state;
+    }
     try {
-      const k = JSON.parse(readFileSync(this.p("keyring.json"), "utf8")) as Keyring;
-      return !k.kdf || !k.wrappedKey;
+      this.checkManifest(state, this.session.key);
+      return state;
     } catch {
-      return true;
+      this.invalidate();
+      return { kind: "corrupt", file: "manifest.json" };
     }
   }
 
-  status(): { initialized: boolean; locked: boolean; corrupt: boolean; autoLockMinutes: number; lockOnLeave: boolean; cooldownSeconds: number } {
-    const k = this.keyring();
+  status() {
+    const state = this.storageState();
+    const ring = state.kind === "ready" ? state.ring : null;
     return {
-      initialized: k !== null,
-      locked: this.dk === null,
-      corrupt: this.keyringCorrupt(),
-      autoLockMinutes: k?.autoLockMinutes ?? 5,
-      lockOnLeave: k?.lockOnLeave ?? false,
-      cooldownSeconds: Math.max(0, Math.ceil((this.cooldownUntil - this.d.now()) / 1000)),
+      initialized: state.kind !== "empty",
+      locked: this.session === null,
+      corrupt: state.kind === "corrupt",
+      ...(state.kind === "corrupt" ? { corruptFile: state.file } : {}),
+      autoLockMinutes: ring?.autoLockMinutes ?? 5,
+      lockOnLeave: ring?.lockOnLeave ?? false,
+      cooldownSeconds: this.cooldownRemaining(),
+      instanceId: this.instanceId,
+      generation: this.generation,
     };
   }
 
   private audit(a: Omit<AuditEntry, "at">): void {
+    if (this.d.files.readOnly) return;
     mkdirSync(this.d.dir, { recursive: true });
     appendFileSync(this.p("audit.ndjson"), JSON.stringify({ at: new Date(this.d.now()).toISOString(), ...a }) + "\n"); // 不含秘密值
+  }
+
+  private auditLifecycle(action: "setup" | "unlock" | "unlock-failed" | "lock" | "change-password", subject = "desktop"): void {
+    try {
+      this.audit({ action, itemId: null, subject, result: action === "unlock-failed" ? "failed" : "ok" });
+    } catch {
+      // A failed audit append cannot block invalidation or reverse a published keyring.
+    }
   }
 
   auditList(limit = 200): AuditEntry[] {
@@ -102,104 +124,218 @@ export class Safe {
       .reverse();
   }
 
-  async setup(password: string): Promise<void> {
-    if (this.keyring() || this.keyringCorrupt()) throw errors.invalidInput("保险箱已经设置过");
-    if ([...password].length < 10) throw errors.invalidInput("主密码至少 10 个字符");
-    const kdf = newKdf(this.d.kdfParams);
-    const kek = await deriveKek(password, kdf);
-    const dk = newDataKey();
-    const ring: Keyring = { kdf, wrappedKey: seal(kek, dk, "huhu-safe/dk").toString("base64"), keyCheck: keyCheck(dk), createdAt: new Date(this.d.now()).toISOString(), autoLockMinutes: 5, lockOnLeave: false };
-    kek.fill(0);
-    mkdirSync(this.p("items"), { recursive: true });
-    mkdirSync(this.p("sealed"), { recursive: true });
-    writeFileSync(this.p("keyring.json"), JSON.stringify(ring, null, 2));
-    this.dk = dk;
-    this.audit({ action: "setup", itemId: null, subject: "desktop", result: "ok" });
-    this.armTimer();
-    this.d.publish("plugin.stateChanged", { id: "safe", state: "active" });
+  async setup(password: string, signal?: AbortSignal): Promise<void> {
+    await this.withKeyOperation(signal, async (guard) => {
+      const state = this.storageState();
+      if (state.kind === "corrupt") throw corruptStore(state.file);
+      if (state.kind === "ready") throw errors.invalidInput("保险箱已经设置过");
+      if ([...password].length < 10) throw errors.invalidInput("主密码至少 10 个字符");
+      this.d.files.assertWritable();
+      const kdf = newKdf(this.d.kdfParams);
+      const kek = await deriveKek(password, kdf);
+      const dk = newDataKey();
+      try {
+        guard();
+        const identity = { format: SAFE_FORMAT, vaultKeyId: randomUUID() } as const;
+        const ring = {
+          ...identity,
+          kdf,
+          wrappedKey: seal(kek, dk, wrappingContext(identity)).toString("base64"),
+          keyCheck: keyCheck(dk),
+          createdAt: new Date(this.d.now()).toISOString(),
+          autoLockMinutes: 5,
+          lockOnLeave: false,
+        };
+        await this.store.initialize(ring, dk, guard);
+        guard();
+        this.activate(dk, ring);
+        this.auditLifecycle("setup");
+        this.d.publish("plugin.stateChanged", { id: "safe", state: "active" });
+      } finally {
+        kek.fill(0);
+        if (this.session?.key !== dk) dk.fill(0);
+      }
+    });
   }
 
-  async unlock(password: string): Promise<void> {
-    const ring = this.keyring();
-    if (this.keyringCorrupt()) throw new HuhuError("INTERNAL", "keyring 文件损坏，保险箱不可用（原文件未被修改）");
-    if (!ring) throw errors.invalidInput("保险箱尚未设置");
-    if (this.d.now() < this.cooldownUntil)
-      throw new HuhuError("SAFE_BAD_PASSWORD", `尝试过多，请 ${Math.ceil((this.cooldownUntil - this.d.now()) / 1000)} 秒后再试`, { details: { cooldownSeconds: Math.ceil((this.cooldownUntil - this.d.now()) / 1000) } });
-    const kek = await deriveKek(password, ring.kdf);
+  async unlock(password: string, signal?: AbortSignal): Promise<void> {
+    await this.withKeyOperation(signal, async (guard) => {
+      const store = this.requireStore();
+      const dk = await this.unwrap(password, store, guard);
+      try {
+        guard();
+        this.activate(dk, store.ring);
+        this.auditLifecycle("unlock");
+        this.d.publish("safe.unlocked", {});
+      } finally {
+        if (this.session?.key !== dk) dk.fill(0);
+      }
+    });
+  }
+
+  async changePassword(oldPassword: string, newPassword: string, signal?: AbortSignal): Promise<void> {
+    await this.withKeyOperation(signal, async (guard) => {
+      const store = this.requireStore();
+      if ([...newPassword].length < 10) throw errors.invalidInput("新主密码至少 10 个字符");
+      this.d.files.assertWritable();
+      const dk = await this.unwrap(oldPassword, store, guard);
+      try {
+        guard();
+        const kdf = newKdf(this.d.kdfParams);
+        const kek = await deriveKek(newPassword, kdf);
+        try {
+          guard();
+          const next: Keyring = { ...store.ring, kdf, wrappedKey: seal(kek, dk, wrappingContext(store.ring)).toString("base64") };
+          await this.store.replaceRing(store, next, guard);
+          guard();
+          this.auditLifecycle("change-password");
+        } finally {
+          kek.fill(0);
+        }
+      } finally {
+        dk.fill(0);
+      }
+    });
+  }
+
+  async updateSettings(s: { autoLockMinutes?: number; lockOnLeave?: boolean }, signal?: AbortSignal): Promise<void> {
+    await this.withKeyOperation(signal, async (guard) => {
+      const store = this.requireStore();
+      const autoLockMinutes = s.autoLockMinutes ?? store.ring.autoLockMinutes;
+      if (!AUTO_LOCK_MINUTES.some((minutes) => minutes === autoLockMinutes)) throw errors.invalidInput("自动锁定时间只能是 1/5/15/30 分钟");
+      await this.store.replaceRing(store, { ...store.ring, autoLockMinutes, lockOnLeave: s.lockOnLeave ?? store.ring.lockOnLeave }, guard);
+      guard();
+      if (this.session) this.armTimer(autoLockMinutes);
+    });
+  }
+
+  private requireStore(): LoadedSafe {
+    const state = this.storageState();
+    if (state.kind === "corrupt") throw corruptStore(state.file);
+    if (state.kind === "empty") throw errors.invalidInput("保险箱尚未设置");
+    return state;
+  }
+
+  private checkManifest(store: LoadedSafe, dk: Buffer): void {
     try {
-      const dk = open(kek, Buffer.from(ring.wrappedKey, "base64"), "huhu-safe/dk");
-      if (!checkMatches(dk, ring.keyCheck)) throw new SealError("keyCheck");
-      this.dk = dk;
-      this.failures = 0;
-      this.audit({ action: "unlock", itemId: null, subject: "desktop", result: "ok" });
-      this.armTimer();
-      this.d.publish("safe.unlocked", {});
-    } catch (e) {
-      if (!(e instanceof SealError)) throw e;
+      authenticateManifest(store, dk);
+    } catch (error) {
+      this.damagedManifest = store.manifest?.checksum ?? null;
+      throw error;
+    }
+  }
+
+  private async withKeyOperation(signal: AbortSignal | undefined, operation: (guard: () => void) => Promise<void>): Promise<void> {
+    const generation = this.generation;
+    const guard = () => {
+      if (this.stopped || this.generation !== generation) throw locked();
+      signal?.throwIfAborted();
+    };
+    guard();
+    if (this.keyOperationPending) throw errors.invalidInput("保险箱操作正在进行，请稍后重试");
+    this.keyOperationPending = true;
+    try {
+      await operation(guard);
+    } finally {
+      this.keyOperationPending = false;
+    }
+  }
+
+  private cooldownRemaining(): number {
+    return Math.max(0, Math.ceil((this.cooldownUntil - this.d.now()) / 1000));
+  }
+
+  private async unwrap(password: string, store: LoadedSafe, guard: () => void): Promise<Buffer> {
+    const cooldownSeconds = this.cooldownRemaining();
+    if (cooldownSeconds) throw new HuhuError("SAFE_BAD_PASSWORD", `尝试过多，请 ${cooldownSeconds} 秒后再试`, { details: { cooldownSeconds } });
+    const { ring } = store;
+    const kek = await deriveKek(password, ring.kdf);
+    let dk: Buffer;
+    try {
+      guard();
+      this.store.assertVersion(store);
+      dk = open(kek, Buffer.from(ring.wrappedKey, "base64"), wrappingContext(ring));
+    } catch (error) {
+      if (!(error instanceof SealError)) throw error;
       this.failures++;
       if (this.failures >= MAX_FAILURES) {
         this.cooldownUntil = this.d.now() + COOLDOWN_MS;
         this.failures = 0;
       }
-      this.audit({ action: "unlock-failed", itemId: null, subject: "desktop", result: "failed" });
+      this.auditLifecycle("unlock-failed");
       throw new HuhuError("SAFE_BAD_PASSWORD", "主密码不正确");
     } finally {
       kek.fill(0);
     }
+    try {
+      if (!checkMatches(dk, ring.keyCheck)) throw corruptStore("keyring.json");
+      this.checkManifest(store, dk);
+      this.failures = 0;
+      this.cooldownUntil = 0;
+      return dk;
+    } catch (error) {
+      dk.fill(0);
+      throw error;
+    }
   }
 
   lock(reason: "manual" | "auto" | "leave" | "close" = "manual"): void {
-    if (this.dk) {
-      this.dk.fill(0); // 清零后丢弃
-      this.dk = null;
-      this.audit({ action: "lock", itemId: null, subject: reason, result: "ok" });
-    }
+    if (this.stopped || (reason === "leave" && !this.status().lockOnLeave)) return;
+    if (reason === "close") this.stopped = true;
+    const wasUnlocked = this.session !== null;
+    this.invalidate();
+    if (wasUnlocked) this.auditLifecycle("lock", reason);
+  }
+
+  private invalidate(): void {
+    this.generation++;
+    this.session?.key.fill(0);
+    this.session = null;
     this.disarmTimer();
   }
 
-  private armTimer(): void {
-    this.disarmTimer();
-    const mins = this.keyring()?.autoLockMinutes ?? 5;
-    this.timer = (this.d.setTimer ?? setTimeout)(() => this.lock("auto"), mins * 60_000);
+  private activate(key: Buffer, ring: Keyring): void {
+    this.invalidate();
+    this.session = { key, identity: ring.keyCheck };
+    this.armTimer(ring.autoLockMinutes);
   }
+
+  private armTimer(minutes: number): void {
+    this.disarmTimer();
+    const timer: { handle: unknown } = { handle: undefined };
+    this.timer = timer;
+    timer.handle = (this.d.setTimer ?? setTimeout)(() => {
+      if (this.timer === timer) this.lock("auto");
+    }, minutes * 60_000);
+  }
+
   private disarmTimer(): void {
-    if (this.timer !== null) (this.d.clearTimer ?? clearTimeout)(this.timer as never);
+    const timer = this.timer;
     this.timer = null;
+    if (timer) (this.d.clearTimer ?? clearTimeout)(timer.handle as never);
   }
 
   private key(): Buffer {
-    if (!this.dk) throw new HuhuError("SAFE_LOCKED", "保险箱已锁定", { recovery: [{ action: "unlock-safe", label: "解锁保险箱" }] });
-    this.armTimer(); // 任何保险箱操作都会重置计时
-    return this.dk;
+    if (!this.session) throw locked();
+    const state = this.storageState();
+    if (state.kind === "corrupt") throw corruptStore(state.file);
+    if (state.kind !== "ready" || !this.session) throw locked();
+    this.armTimer(state.ring.autoLockMinutes);
+    return this.session.key;
   }
 
-  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
-    const ring = this.keyring();
-    if (!ring) throw errors.invalidInput("保险箱尚未设置");
-    if ([...newPassword].length < 10) throw errors.invalidInput("新主密码至少 10 个字符");
-    const oldKek = await deriveKek(oldPassword, ring.kdf);
-    let dk: Buffer;
-    try {
-      dk = open(oldKek, Buffer.from(ring.wrappedKey, "base64"), "huhu-safe/dk");
-    } catch {
-      throw new HuhuError("SAFE_BAD_PASSWORD", "主密码不正确");
-    } finally {
-      oldKek.fill(0);
-    }
-    const kdf = newKdf(this.d.kdfParams);
-    const kek = await deriveKek(newPassword, kdf);
-    const next: Keyring = { ...ring, kdf, wrappedKey: seal(kek, dk, "huhu-safe/dk").toString("base64") };
-    kek.fill(0);
-    writeFileSync(this.p("keyring.json"), JSON.stringify(next, null, 2)); // 秘密文件不变
-    this.audit({ action: "change-password", itemId: null, subject: "desktop", result: "ok" });
-  }
-
-  updateSettings(s: { autoLockMinutes?: number; lockOnLeave?: boolean }): void {
-    const ring = this.keyring();
-    if (!ring) throw errors.invalidInput("保险箱尚未设置");
-    if (s.autoLockMinutes !== undefined && ![1, 5, 15, 30].includes(s.autoLockMinutes)) throw errors.invalidInput("自动锁定时间只能是 1/5/15/30 分钟");
-    writeFileSync(this.p("keyring.json"), JSON.stringify({ ...ring, ...(s.autoLockMinutes !== undefined ? { autoLockMinutes: s.autoLockMinutes } : {}), ...(s.lockOnLeave !== undefined ? { lockOnLeave: s.lockOnLeave } : {}) }, null, 2));
-    if (this.dk) this.armTimer();
+  async withSession<T>(operation: (assertCurrent: () => void) => T | Promise<T>): Promise<T> {
+    this.key();
+    const generation = this.generation;
+    const assertCurrent = () => {
+      if (this.generation !== generation) throw locked();
+      const state = this.storageState();
+      if (state.kind === "corrupt") throw corruptStore(state.file);
+      if (this.generation !== generation) throw locked();
+    };
+    const result = await operation(assertCurrent);
+    assertCurrent();
+    return result;
   }
 
   // ---- 条目 ----
@@ -223,6 +359,7 @@ export class Safe {
 
   itemSave(input: { id?: string; name: string; type: SecretType; account?: string; allowedModules?: string[]; value?: string }): ItemMeta {
     const dk = this.key();
+    this.d.files.assertWritable();
     if (!input.name.trim()) throw errors.invalidInput("名称必填");
     const existing = input.id ? this.meta(input.id) : null;
     if (input.id && !existing) throw errors.notFound("条目不存在");
@@ -239,6 +376,7 @@ export class Safe {
 
   itemDelete(id: string): void {
     this.key();
+    this.d.files.assertWritable();
     if (!this.meta(id)) throw errors.notFound("条目不存在");
     rmSync(this.p("items", `${id}.json`), { force: true });
     rmSync(this.p("sealed", `${id}.bin`), { force: true });
@@ -267,7 +405,7 @@ export class Safe {
   resolve(ref: string, ctx: { plugin: string; purpose: string }): string {
     const id = parseSecretRef(ref);
     if (!id) throw new HuhuError("SECRET_REF_INVALID", "凭据引用格式无效");
-    if (!this.dk) throw new HuhuError("SAFE_LOCKED", "保险箱已锁定", { recovery: [{ action: "unlock-safe", label: "解锁保险箱" }] });
+    if (!this.session) throw locked();
     const meta = this.meta(id);
     if (!meta || !meta.allowedModules.includes(ctx.plugin)) {
       this.audit({ action: "use-denied", itemId: meta ? id : null, subject: ctx.plugin, result: "denied" });
