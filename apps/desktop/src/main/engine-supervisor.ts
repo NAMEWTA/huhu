@@ -3,6 +3,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 
+const mailGoogleClientSecret = process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
+delete process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
+
 /** 随应用打包的 Herdr Core：`resources/herdr/<platform>-<arch>/herdr-core(.exe)`；开发时用 HUHU_HERDR_BIN。 */
 export function bundledHerdrBin(resourcesPath: string = process.resourcesPath, platform: string = process.platform, arch: string = process.arch): string | null {
   const exe = path.join(resourcesPath, "herdr", `${platform}-${arch}`, platform === "win32" ? "herdr-core.exe" : "herdr-core");
@@ -133,6 +136,7 @@ export class EngineSupervisor {
       serviceName: "huhu-engine",
       env: {
         ...inheritedEnv,
+        ...(mailGoogleClientSecret && { HUHU_MAIL_GOOGLE_CLIENT_SECRET: mailGoogleClientSecret }),
         HUHU_EXAMPLES_DIR: examplesDir(),
         HUHU_WEB_ASSETS_DIR: path.join(import.meta.dirname, "../renderer"),
         HUHU_DESKTOP_USER_DATA: app.getPath("userData"),

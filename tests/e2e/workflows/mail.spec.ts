@@ -21,7 +21,11 @@ async function desktopMailCalls(page: Page) {
 }
 
 test("桌面邮箱授权经主进程浏览器入口，取消后释放原回调", async () => {
-  const { app, page, close } = await openApp({ HUHU_MAIL_GOOGLE_CLIENT_ID: "synthetic-desktop-client", HUHU_MAIL_MICROSOFT_CLIENT_ID: "" });
+  const { app, page, close } = await openApp({
+    HUHU_MAIL_GOOGLE_CLIENT_ID: "synthetic-desktop-client",
+    HUHU_MAIL_GOOGLE_CLIENT_SECRET: "synthetic-configured-secret",
+    HUHU_MAIL_MICROSOFT_CLIENT_ID: "",
+  });
   try {
     const call = await desktopMailCalls(page);
     type HostProbe = typeof globalThis & { mailAuthorization?: string };
@@ -30,6 +34,7 @@ test("桌面邮箱授权经主进程浏览器入口，取消后释放原回调",
         (globalThis as HostProbe).mailAuthorization = url;
       };
     });
+    expect(await app.evaluate(() => process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"] !== undefined)).toBe(false);
     expect(await call("mail.oauth.availability")).toMatchObject({ gmail: true, outlook: false });
     const setup = await call<{ sessionId: string; phase: string }>("mail.oauth.begin", { provider: "gmail", email: "fixture@example.test" });
     expect(setup.phase).toBe("waiting");
@@ -38,6 +43,7 @@ test("桌面邮箱授权经主进程浏览器入口，取消后释放原回调",
     const url = new URL(address!);
     expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
     expect(url.searchParams.get("client_id")).toBe("synthetic-desktop-client");
+    expect(url.searchParams.has("client_secret")).toBe(false);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     const local = new URL(url.searchParams.get("redirect_uri")!);
     expect(local.hostname).toBe("127.0.0.1");

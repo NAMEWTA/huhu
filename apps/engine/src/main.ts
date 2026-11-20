@@ -4,6 +4,9 @@ import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "
 import { createMailOAuth } from "@huhu/plugin-mail/engine";
 import { boot } from "./boot.js";
 
+const mailGoogleClientSecret = process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
+delete process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
+
 interface AttachmentReplyPort {
   on(event: "close", cb: () => void): void;
   start(): void;
@@ -18,8 +21,6 @@ interface ParentPort {
 
 function mailOAuthWithBrowser(port: ParentPort) {
   const googleId = process.env["HUHU_MAIL_GOOGLE_CLIENT_ID"]?.trim();
-  const googleSecret = process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
-  delete process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
   const microsoftId = process.env["HUHU_MAIL_MICROSOFT_CLIENT_ID"]?.trim();
   if (!googleId && !microsoftId) return {};
   const pending = new Map<string, (opened: boolean) => void>();
@@ -30,7 +31,7 @@ function mailOAuthWithBrowser(port: ParentPort) {
   });
   return {
     mailOAuth: createMailOAuth(
-      { ...(googleId && { google: { clientId: googleId, ...(googleSecret && { clientSecret: googleSecret }) } }), ...(microsoftId && { microsoft: { clientId: microsoftId } }) },
+      { ...(googleId && { google: { clientId: googleId, ...(mailGoogleClientSecret && { clientSecret: mailGoogleClientSecret }) } }), ...(microsoftId && { microsoft: { clientId: microsoftId } }) },
       {
         hostLabel: hostname(),
         openBrowser: (url) =>
