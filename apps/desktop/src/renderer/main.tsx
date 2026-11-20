@@ -202,10 +202,12 @@ function App() {
   // 引擎就绪后应用该 Vault 保存的外观设置
   useEffect(() => {
     if (!client) return;
-    void client.call<{ appearance: Record<string, unknown> }>("settings.get")
+    void client
+      .call<{ appearance: Record<string, unknown> }>("settings.get")
       .then((settings) => appearanceController().set(settings.appearance))
       .catch(() => undefined);
-    void client.call<{ name: string }>("vault.info")
+    void client
+      .call<{ name: string }>("vault.info")
       .then((vault) => setVaultName(vault.name))
       .catch(() => undefined);
   }, [client]);
@@ -273,6 +275,7 @@ function connectWindowExit(): () => void {
     const attempt: NonNullable<typeof active> = { id, controller };
     active = attempt;
     const { signal } = controller;
+    report("checking");
     const leave = await checkExitParticipants({
       signal,
       async waitForUser(decision) {

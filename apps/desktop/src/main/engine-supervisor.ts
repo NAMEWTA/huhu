@@ -151,6 +151,15 @@ export class EngineSupervisor {
     this.start();
   }
 
+  /** 退出撤销时恢复原 Engine。若 stop 等到了强制结束时限，等原进程实际退出再启动。 */
+  restartAfterStop(): void {
+    if (this.child && this.stopping) {
+      this.child.once("exit", () => this.restart());
+      return;
+    }
+    this.restart();
+  }
+
   /** 发送关闭请求并等待退出；超过 15 秒强制结束。 */
   async stop(timeoutMs = 15_000): Promise<void> {
     const child = this.child;

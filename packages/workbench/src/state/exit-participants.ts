@@ -16,11 +16,9 @@ export function registerExitParticipant(participant: ExitParticipant): () => voi
 
 /** 按登记顺序取得许可，同一窗口一次仅显示一项离场提示。 */
 export async function checkExitParticipants(request: ExitRequest): Promise<boolean> {
-  // 等待当前页面决定时，新登记的参与者留给下一轮。
-  const current = [...participants];
-  for (const participant of current) {
+  for (const participant of participants) {
     request.signal.throwIfAborted();
-    if (participants.has(participant) && !(await participant(request))) return false;
+    if (!(await participant(request))) return false;
   }
   request.signal.throwIfAborted();
   return true;

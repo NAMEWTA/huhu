@@ -386,51 +386,54 @@ test("TB-15 应用退出接管在途关窗，另一窗口取消时保留已确�
   try {
     writeFileSync(file, original);
     await engineReady(page);
-    const result = await app.evaluate(async ({ app: nativeApp, BrowserWindow, ipcMain }, preload) => {
-      const first = BrowserWindow.getAllWindows()[0]!;
-      const origin = first.webContents;
-      const fixture = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true } });
-      await fixture.loadURL(origin.getURL());
-      const originalSend = origin.send;
-      const awaitingChoice = Promise.withResolvers<number>();
-      const acknowledged = Promise.withResolvers<boolean>();
-      const onReply = (event: Electron.IpcMainEvent, _id: number, saved: boolean) => {
-        if (event.sender === origin) acknowledged.resolve(saved);
-      };
-      let requests = 0;
-      origin.send = (channel, ...args) => {
-        if (channel === "huhu:flush") requests++;
-        originalSend.call(origin, channel, ...args);
-      };
-      const other = fixture.webContents;
-      const otherSend = other.send;
-      const reply = { sender: other, senderFrame: other.mainFrame };
-      other.send = (channel, ...args) => {
-        if (channel !== "huhu:flush") {
-          otherSend.call(other, channel, ...args);
-          return;
+    const result = await app.evaluate(
+      async ({ app: nativeApp, BrowserWindow, ipcMain }, preload) => {
+        const first = BrowserWindow.getAllWindows()[0]!;
+        const origin = first.webContents;
+        const fixture = new BrowserWindow({ show: false, webPreferences: { preload, sandbox: true } });
+        await fixture.loadURL(origin.getURL());
+        const originalSend = origin.send;
+        const awaitingChoice = Promise.withResolvers<number>();
+        const acknowledged = Promise.withResolvers<boolean>();
+        const onReply = (event: Electron.IpcMainEvent, _id: number, saved: boolean) => {
+          if (event.sender === origin) acknowledged.resolve(saved);
+        };
+        let requests = 0;
+        origin.send = (channel, ...args) => {
+          if (channel === "huhu:flush") requests++;
+          originalSend.call(origin, channel, ...args);
+        };
+        const other = fixture.webContents;
+        const otherSend = other.send;
+        const reply = { sender: other, senderFrame: other.mainFrame };
+        other.send = (channel, ...args) => {
+          if (channel !== "huhu:flush") {
+            otherSend.call(other, channel, ...args);
+            return;
+          }
+          const id = args[0] as number;
+          ipcMain.emit("huhu:exit-progress", reply, id, "waiting");
+          awaitingChoice.resolve(id);
+        };
+        ipcMain.on("huhu:flushed", onReply);
+        try {
+          first.close();
+          nativeApp.quit();
+          const id = await awaitingChoice.promise;
+          const saved = await acknowledged.promise;
+          const during = !first.isDestroyed() && !fixture.isDestroyed();
+          const frozen = (await origin.executeJavaScript("document.body.inert")) as boolean;
+          ipcMain.emit("huhu:flushed", reply, id, "stay");
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          return { saved, requests, during, frozen, after: !first.isDestroyed() && !fixture.isDestroyed() };
+        } finally {
+          ipcMain.off("huhu:flushed", onReply);
+          if (!first.isDestroyed()) origin.send = originalSend;
+          fixture.destroy();
         }
-        const id = args[0] as number;
-        ipcMain.emit("huhu:exit-progress", reply, id, "waiting");
-        awaitingChoice.resolve(id);
-      };
-      ipcMain.on("huhu:flushed", onReply);
-      try {
-        first.close();
-        nativeApp.quit();
-        const id = await awaitingChoice.promise;
-        const saved = await acknowledged.promise;
-        const during = !first.isDestroyed() && !fixture.isDestroyed();
-        const frozen = (await origin.executeJavaScript("document.body.inert")) as boolean;
-        ipcMain.emit("huhu:flushed", reply, id, "stay");
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        return { saved, requests, during, frozen, after: !first.isDestroyed() && !fixture.isDestroyed() };
-      } finally {
-        ipcMain.off("huhu:flushed", onReply);
-        if (!first.isDestroyed()) origin.send = originalSend;
-        fixture.destroy();
-      }
-    }, path.join(root, "out/preload/index.cjs"));
+      },
+      path.join(root, "out/preload/index.cjs"),
+    );
     expect(result).toEqual({ saved: true, requests: 1, during: true, frozen: true, after: true });
     await expect.poll(() => page.evaluate(() => document.body.inert)).toBe(false);
     expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
@@ -477,6 +480,7 @@ test("TB-15 参与者失败或超时保留窗口，旧许可不能结束当前�
               ipcMain.emit("huhu:exit-progress", frame, previous, "flushing");
               ipcMain.emit("huhu:flushed", frame, previous, true);
             }
+            ipcMain.emit("huhu:exit-progress", frame, id, "checking");
             if (mode !== "timeout") ipcMain.emit("huhu:flushed", frame, id, mode === "stay" ? "stay" : false);
           };
           win.close();
@@ -491,6 +495,47 @@ test("TB-15 参与者失败或超时保留窗口，旧许可不能结束当前�
     });
     expect(outcomes).toEqual({ outcomes: ["stay", "failure", "timeout"], prompts: 0 });
     expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
+  } finally {
+    await close();
+  }
+});
+
+test("TB-15 工作台失联时可重新加载，仍保留窗口和 Vault", async () => {
+  const { app, page, close } = await openApp();
+  try {
+    await engineReady(page);
+    await app.evaluate(({ BrowserWindow, dialog }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      const sender = win.webContents;
+      const send = sender.send;
+      const prompt = dialog.showMessageBox;
+      sender.send = (channel, ...args) => {
+        if (channel !== "huhu:flush") send.call(sender, channel, ...args);
+      };
+      dialog.showMessageBox = (async (_win: Electron.BrowserWindow, options: Electron.MessageBoxOptions) => {
+        sender.send = send;
+        dialog.showMessageBox = prompt;
+        if (options.title !== "无法确认退出") throw new Error(`Unexpected dialog: ${options.title}`);
+        return { response: 1, checkboxChecked: false };
+      }) as typeof prompt;
+      win.close();
+    });
+    await page.waitForEvent("framenavigated", (frame) => frame === page.mainFrame());
+    await engineReady(page);
+    expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
+  } finally {
+    await close();
+  }
+});
+
+test("TB-15 启动页资源加载失败且无 Vault 时可关闭", async () => {
+  const { app, close } = await openApp({ HUHU_VAULT: "" });
+  try {
+    await app.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      await win.loadURL("data:text/html,Startup%20failure%20fixture");
+    });
+    await Promise.all([app.waitForEvent("close"), app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())]);
   } finally {
     await close();
   }

@@ -55,7 +55,7 @@ function assertTrusted(url: string | undefined): void {
   if (!isTrustedUrl(url)) throw new Error("untrusted sender");
 }
 
-type FlushResult = "saved" | "failed" | "timeout" | "stay";
+type FlushResult = "saved" | "failed" | "timeout" | "stay" | "unavailable";
 let flushRequestId = 0;
 
 interface WindowExit {
@@ -74,21 +74,22 @@ function requestWindowExit(win: BrowserWindow) {
   const result = new Promise<FlushResult>((resolve) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let phase: ExitPhase = "checking";
+    let receivedProgress = false;
     const finish = (result: FlushResult) => {
       clearTimeout(timer);
       ipcMain.off("huhu:exit-progress", onProgress);
       ipcMain.off("huhu:flushed", onReply);
       resolve(result);
     };
-    const matches = (event: Electron.IpcMainEvent, replyId: unknown) =>
-      event.sender === sender && !sender.isDestroyed() && event.senderFrame === frame && replyId === requestId && isTrustedUrl(event.senderFrame?.url);
+    const matches = (event: Electron.IpcMainEvent, replyId: unknown) => event.sender === sender && !sender.isDestroyed() && event.senderFrame === frame && replyId === requestId && isTrustedUrl(event.senderFrame?.url);
     const setDeadline = () => {
       clearTimeout(timer);
-      if (phase !== "waiting") timer = setTimeout(() => finish(phase === "flushing" ? "timeout" : "stay"), 3000);
+      if (phase !== "waiting") timer = setTimeout(() => finish(phase === "flushing" ? "timeout" : receivedProgress ? "stay" : "unavailable"), 3000);
     };
     const onProgress = (event: Electron.IpcMainEvent, replyId: unknown, next: unknown) => {
       if (!matches(event, replyId) || phase === "flushing") return;
       if (next !== "checking" && next !== "waiting" && next !== "flushing") return;
+      receivedProgress = true;
       phase = next;
       setDeadline();
     };
@@ -101,12 +102,12 @@ function requestWindowExit(win: BrowserWindow) {
     const onNavigation = ({ isMainFrame, isSameDocument }: Electron.WebContentsDidStartNavigationEventParams) => {
       if (isMainFrame && !isSameDocument) release();
     };
-    release = () => {
+    const invalidate = (result: FlushResult) => {
       if (controller.signal.aborted) return;
       controller.abort();
-      finish("stay");
+      finish(result);
       sender.off("did-start-navigation", onNavigation);
-      sender.off("render-process-gone", release);
+      sender.off("render-process-gone", onRendererGone);
       sender.off("destroyed", release);
       if (!sender.isDestroyed() && sender.mainFrame === frame && isTrustedUrl(frame.url)) {
         try {
@@ -116,19 +117,39 @@ function requestWindowExit(win: BrowserWindow) {
         }
       }
     };
+    release = () => invalidate("stay");
+    const onRendererGone = () => invalidate("unavailable");
     setDeadline();
     ipcMain.on("huhu:exit-progress", onProgress);
     ipcMain.on("huhu:flushed", onReply);
     sender.on("did-start-navigation", onNavigation);
-    sender.once("render-process-gone", release);
+    sender.once("render-process-gone", onRendererGone);
     sender.once("destroyed", release);
     try {
       sender.send("huhu:flush", requestId);
     } catch {
-      release();
+      onRendererGone();
     }
   });
   return { result, signal: controller.signal, release };
+}
+
+function rendererAddress(): string {
+  return process.env["ELECTRON_RENDERER_URL"] ?? `${APP_ORIGIN}/index.html`;
+}
+
+async function recoverUnresponsiveWindow(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return;
+  const answer = await dialog.showMessageBox(win, {
+    type: "warning",
+    title: "无法确认退出",
+    message: "工作台没有响应关闭请求",
+    detail: "可以保留窗口，或重新加载工作台后再检查未处理的内容。",
+    buttons: ["保留窗口", "重新加载工作台"],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (answer.response === 1 && !win.isDestroyed()) await win.loadURL(rendererAddress());
 }
 
 const exitDecisions = new WeakMap<BrowserWindow, WindowExit>();
@@ -138,6 +159,10 @@ function canCloseWindow(win: BrowserWindow): WindowExit {
   const request = requestWindowExit(win);
   const decision = (async () => {
     const result = await request.result;
+    if (result === "unavailable") {
+      await recoverUnresponsiveWindow(win);
+      return false;
+    }
     if (request.signal.aborted || result === "stay") return false;
     if (result === "timeout") console.warn("退出前保存未在 3 秒内回执");
     if (result === "saved") return true;
@@ -190,7 +215,7 @@ function createWindow(): BrowserWindow {
   // 点窗口 X：窗口销毁后 before-quit 已经没有可通知的界面了，所以在这里先落盘再关
   let closing = false;
   win.on("close", (event) => {
-    if (flushedForQuit) return;
+    if (flushedForQuit || (!supervisor && !quitting)) return;
     event.preventDefault();
     if (closing || quitting) return;
     closing = true;
@@ -213,8 +238,7 @@ function createWindow(): BrowserWindow {
     if (!isMainFrame) return;
     void win.loadURL(errorPage(`${desc} (${code})`));
   });
-  const dev = process.env["ELECTRON_RENDERER_URL"];
-  void win.loadURL(dev ?? `${APP_ORIGIN}/index.html`);
+  void win.loadURL(rendererAddress());
   return win;
 }
 
@@ -504,22 +528,32 @@ if (!gotLock) {
       for (const exit of exits) exit.release();
     };
     for (const exit of exits) exit.signal.addEventListener("abort", cancel, { once: true });
-    void Promise.all(exits.map(async (exit) => {
-      const allowed = await exit.decision;
-      if (!allowed) cancel();
-      return allowed && !exit.signal.aborted;
-    })).then(async (allowed) => {
+    void Promise.all(
+      exits.map(async (exit) => {
+        const allowed = await exit.decision;
+        if (!allowed) cancel();
+        return allowed && !exit.signal.aborted;
+      }),
+    ).then(async (allowed) => {
       if (!allowed.every(Boolean) || exits.some((exit) => exit.signal.aborted)) {
         cancel();
         quitting = false;
         return;
       }
-      for (const exit of exits) exit.signal.removeEventListener("abort", cancel);
+      const engine = supervisor;
+      const resume = engine?.current === "ready" || engine?.current === "starting";
       try {
-        await supervisor?.stop();
+        await engine?.stop();
       } catch (error) {
         console.error("退出时停止引擎失败", error);
       }
+      if (supervisor !== engine || exits.some((exit) => exit.signal.aborted)) {
+        cancel();
+        quitting = false;
+        if (resume && supervisor === engine) engine?.restartAfterStop();
+        return;
+      }
+      for (const exit of exits) exit.signal.removeEventListener("abort", cancel);
       flushedForQuit = true;
       app.quit();
     });

@@ -58,3 +58,19 @@ test("取消后的迟到许可无法放行，业务失败也会传回宿主", as
     unregisterFailure();
   }
 });
+
+test("等待中登记的新参与者也可要求留在当前窗口", async () => {
+  const choice = pendingChoice();
+  const unregister = registerExitParticipant(() => choice.promise);
+  const pending = checkExitParticipants(request());
+  const added = vi.fn(() => false);
+  const unregisterAdded = registerExitParticipant(added);
+  try {
+    choice.decide(true);
+    await expect(pending).resolves.toBe(false);
+    expect(added).toHaveBeenCalledOnce();
+  } finally {
+    unregister();
+    unregisterAdded();
+  }
+});
