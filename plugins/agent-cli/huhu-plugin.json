@@ -55,6 +55,11 @@
       "agent.workspace.get",
       "agent.workspace.launch",
       "agent.workspace.launchProtected",
+      "agent.workspace.files.list",
+      "agent.workspace.files.open",
+      "agent.workspace.worktrees.list",
+      "agent.workspace.worktrees.open",
+      "agent.workspace.worktrees.create",
       "agent.workspace.save"
     ],
     "fileKinds": []

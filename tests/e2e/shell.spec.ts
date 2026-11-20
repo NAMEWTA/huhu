@@ -1902,6 +1902,74 @@ test("Agent 受保护启动在 Safe 未初始化、锁定和停用时接入真�
   }
 });
 
+test("Agent 文件面板按两个 Space 开文件，并从授权仓库建立和打开 worktree", async () => {
+  test.skip(!existsSync(HERDR), "需要本机 Herdr Core");
+  test.setTimeout(65_000);
+  const base = mkdtempSync(path.join(tmpdir(), "huhu-agent-files-"));
+  const vault = path.join(base, "vault");
+  const first = path.join(base, "first");
+  const second = path.join(base, "second");
+  const checkout = path.join(base, "checkout");
+  for (const directory of [vault, first, second, checkout]) mkdirSync(directory);
+  writeFileSync(path.join(first, "same.txt"), "第一 Space 的实际内容");
+  writeFileSync(path.join(second, "same.txt"), "第二 Space 的实际内容");
+  execFileSync("git", ["-C", first, "init", "--initial-branch=main", "-q"]);
+  execFileSync("git", ["-C", first, "add", "--", "same.txt"]);
+  execFileSync("git", ["-C", first, "-c", "user.name=HUHU Fixture", "-c", "user.email=huhu@example.test", "commit", "-qm", "file fixture"]);
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20000 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    const add = async (name: string, directory: string) => {
+      await page.getByTestId("space-new").click();
+      await page.getByLabel("Space 名称").fill(name);
+      await page.getByLabel("工作目录").fill(directory);
+      await page.getByTestId("space-save").click();
+      await expect(page.getByTestId("agent-space-item").filter({ hasText: name })).toHaveAttribute("aria-pressed", "true");
+    };
+    const trigger = page.getByRole("button", { name: "工作区文件", exact: true });
+    const dialog = page.getByRole("dialog", { name: "工作区文件" });
+    const verify = async (directory: string, contents: string) => {
+      await trigger.click();
+      await dialog.getByRole("button", { name: "same.txt", exact: true }).click();
+      await expect(dialog.getByRole("region", { name: "所选文件" })).toContainText(path.join(directory, "same.txt"));
+      await expect(dialog.locator("pre")).toHaveText(contents);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(trigger).toBeFocused();
+    };
+    await add("第一仓库", first);
+    await verify(first, "第一 Space 的实际内容");
+    await add("第二目录", second);
+    await verify(second, "第二 Space 的实际内容");
+
+    await page.getByTestId("agent-space-item").filter({ hasText: "第一仓库" }).click();
+    await trigger.click();
+    await dialog.getByRole("button", { name: "Git worktree", exact: true }).click();
+    await expect(dialog.getByRole("region", { name: "Git worktree" })).toContainText(first);
+    await stubPick(app, checkout);
+    await dialog.getByRole("button", { name: "选择空目录" }).click();
+    await dialog.getByLabel("新分支").fill("review-fixture");
+    await dialog.getByRole("button", { name: "建立 worktree" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "review-fixture" })).toHaveAttribute("aria-pressed", "true");
+    expect(execFileSync("git", ["-C", first, "worktree", "list", "--porcelain"], { encoding: "utf8" })).toContain("branch refs/heads/review-fixture");
+    await verify(checkout, "第一 Space 的实际内容");
+
+    await page.getByTestId("agent-space-item").filter({ hasText: "第一仓库" }).click();
+    await trigger.click();
+    await dialog.getByRole("button", { name: "Git worktree", exact: true }).click();
+    await dialog.getByRole("button", { name: "打开工作区", exact: true }).last().click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "review-fixture" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "review-fixture" })).toHaveCount(1);
+  } finally {
+    await app.close();
+    rmTree(base);
+  }
+});
+
 test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收起的会话在重开后保留", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   test.setTimeout(120_000);

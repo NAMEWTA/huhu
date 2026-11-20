@@ -39,9 +39,11 @@ export const LIMITS = { files: 500, filePatchBytes: 256 * 1024, totalPatchBytes:
 const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const EMPTY_TREE_SHA256 = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
 
-function git(root: string, args: string[]): Promise<{ code: number; stdout: string }> {
+function git(root: string, args: string[], signal?: AbortSignal): Promise<{ code: number; stdout: string }> {
+  const env = { ...process.env };
+  for (const name of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"]) delete env[name];
   return new Promise((resolve) => {
-    // 仓库配置里的 diff.external / textconv / pager 可能执行任意程序：一律关掉；只读命令，不取可选锁
+    // 固定仓库目录，禁用外部 diff 和分页器。工作树写入仍由 Git 获取所需锁。
     execFile(
       "git",
       ["--literal-pathspecs", "-C", root, "-c", "core.quotepath=false", "-c", "core.fsmonitor=false", ...args],
@@ -51,7 +53,8 @@ function git(root: string, args: string[]): Promise<{ code: number; stdout: stri
         timeout: 30_000,
         maxBuffer: 32 * 1024 * 1024,
         windowsHide: true,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_EXTERNAL_DIFF: "" },
+        ...(signal && { signal }),
+        env: { ...env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", GIT_EXTERNAL_DIFF: "" },
       },
       (err, stdout) => {
         const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 1) : 0;
@@ -60,6 +63,8 @@ function git(root: string, args: string[]): Promise<{ code: number; stdout: stri
     );
   });
 }
+
+export { git as runWorkspaceGit };
 
 /** 解析 unified diff（单个文件的 patch）为 hunk/行。 */
 export function parsePatch(patch: string): Hunk[] {

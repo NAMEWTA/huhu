@@ -31,6 +31,8 @@ import { WORKSPACE_DOCUMENT, WorkspaceLaunchViewSchema, WorkspaceTargetSchema } 
 import { registerWorkspaceLayout } from "./workspace-layout.js";
 import { InteractiveEnvironment } from "./interactive-environment.js";
 import { SpaceSchema, spaceCanLaunch } from "../shared/space.js";
+import { registerWorkspaceFiles } from "./workspace-files.js";
+import { registerWorkspaceWorktrees } from "./workspace-worktrees.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -67,6 +69,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const root = api.vault.files.root;
   const spaces = new SpaceStore(path.join(api.vault.stateDir, "agent-cli", "spaces"), machineId(), undefined, { vaultRoot: root, readOnly: api.vault.files.readOnly });
   spaces.ensureDefault(root); // 首次进入：默认以 Vault 根为目录的 Space
+  registerWorkspaceFiles(api, spaces);
+  registerWorkspaceWorktrees(api, spaces);
   const settingsStore = new AgentSettingsStore(path.join(api.vault.stateDir, "agent-cli", "agents.json"));
   const codex = opts.codexDispatch && new CodexDispatch(opts.codexDispatch, () => settingsStore.get());
   const detector = new AgentDetector({ settings: () => settingsStore.get() });

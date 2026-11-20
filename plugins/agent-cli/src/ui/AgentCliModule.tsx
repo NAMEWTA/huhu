@@ -8,6 +8,7 @@ import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { ProtectedLaunchDialog } from "./ProtectedLaunchDialog.js";
 import { SpaceDirectoryNotice } from "./SpaceDirectoryNotice.js";
+import { WorkspaceFilesDialog } from "./WorkspaceFilesDialog.js";
 import { spaceCanLaunch, type Space } from "../shared/space.js";
 import { WorkspaceCanvas, type WorkspaceSession as Session } from "./WorkspaceCanvas.js";
 import {
@@ -72,6 +73,8 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const [spaceDelete, setSpaceDelete] = useState<Space | null>(null);
   const [spaceError, setSpaceError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(true); // 原型：会话历史在桌面宽度下常驻右侧
+  const [showFiles, setShowFiles] = useState(false);
+  const [filesDestination, setFilesDestination] = useState<Space | null>(null);
   const [showReview, setShowReview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
@@ -82,6 +85,15 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const agentSettings = useCapability<{ settings: AgentSettingsFile }>("agent.settings.get", {});
   const core = useCapability<{ state: string; version: string | null }>("agent.core.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
+  useEffect(() => {
+    if (showFiles || !filesDestination) return;
+    ++navigation.current;
+    setSpaceId(filesDestination.id);
+    setActive(null);
+    setMoveSource(null);
+    setFilesDestination(null);
+    void qc.invalidateQueries({ predicate: (query) => query.queryKey[0] === engine.vaultId && String(query.queryKey[1]).startsWith("agent.") });
+  }, [engine.vaultId, filesDestination, qc, showFiles]);
   const view = workspace.data;
   const recovery = space ? recoveries[space.id] : null;
   const inSpace = space ? selections[space.id] : null;
@@ -455,6 +467,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             <strong>{space?.name ?? t.title}</strong>
             <span className="agent-cwd">{space?.root || "先选择一个工作目录"}</span>
           </div>
+          <IconButton icon={Folder} label="工作区文件" disabled={!boundSpace} onClick={() => setShowFiles(true)} />
           <button
             type="button"
             className="agent-history-toggle"
@@ -467,6 +480,19 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             <History size={15} aria-hidden />
           </button>
         </header>
+        {space && boundSpace ? (
+          <WorkspaceFilesDialog
+            key={space.id}
+            space={space}
+            open={showFiles}
+            writable={view?.writable === true}
+            onClose={() => setShowFiles(false)}
+            onSpace={(opened) => {
+              setShowFiles(false);
+              setFilesDestination(opened);
+            }}
+          />
+        ) : null}
         {space ? <SpaceDirectoryNotice space={space} onBind={view?.writable ? () => setSpaceForm({ id: space.id, revision: space.revision, name: space.name, folder: "" }) : undefined} /> : null}
         {error ? (
           <div role="alert" className="hu-callout danger">
