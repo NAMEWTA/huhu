@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { HuhuError, errors, newId } from "@huhu/contracts";
+import { HuhuError, errors, newId, type ExecutionBinding } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { isValidNativeId, isWithin } from "./history/scanner.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
@@ -9,6 +9,7 @@ import { redactSecrets, shellCommand, type ShellName } from "../shared/shell.js"
 import type { ResolvedLaunch, ResolveInput } from "./launch.js";
 import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
+import type { InputOwnership } from "./input-ownership.js";
 
 export interface SessionRecord {
   id: string;
@@ -118,6 +119,7 @@ export interface LaunchInput {
   /** 已由调用方（引擎侧）从保险箱解析好的环境变量；只传给 terminal.run，不落盘、不回显。 */
   env?: Record<string, string> | undefined;
   envRefs?: Record<string, string> | undefined;
+  expectedConfigurationId?: string;
 }
 
 type TerminalSnapshot = { kind: "available"; client: HerdrClient; core: Awaited<ReturnType<typeof identifyCore>>; terminals: Terminal[] } | { kind: "absent" | "unavailable" };
@@ -134,6 +136,7 @@ export interface SessionsDeps {
   /** 合成启动命令（agent-cli 的 resolveAgentLaunch，已绑定当前 Vault 的设置与检测结果）。 */
   resolve(input: ResolveInput): Promise<ResolvedLaunch>;
   now(): Date;
+  inputOwnership?: InputOwnership;
 }
 
 /** 交互会话：先持久化记录，再 terminal.run；响应丢失时按 huhu.launch 标签找回，绝不重复 run。 */
@@ -296,14 +299,11 @@ export class SessionsService {
     if (prepared && input.cwd !== undefined && this.launchIntent(input, prepared.cwd).resolvedHash !== intent.resolvedHash) {
       throw new HuhuError("VERSION_CONFLICT", "预检期间工作目录发生变化，请重新选择");
     }
-    const executionHash =
-      prepared &&
-      launchHash({
-        machineId: prepared.space.machineId,
-        cwd: prepared.cwd,
-        argv: prepared.argv,
-        envNames: Object.keys(prepared.env ?? {}).sort(),
-      });
+    const executionHash = prepared && this.configurationId(prepared);
+    if (input.expectedConfigurationId && prepared?.env) this.rejectDispatchEnvironment();
+    if (input.expectedConfigurationId && executionHash && input.expectedConfigurationId !== executionHash) {
+      throw new HuhuError("VERSION_CONFLICT", "已冻结的启动配置发生变化");
+    }
     const running = this.inflight.get(input.requestId);
     if (running) {
       const sameIntent = intent.resolvedHash === null ? running.intent.literalHash === intent.literalHash : running.intent.resolvedHash === intent.resolvedHash;
@@ -357,6 +357,25 @@ export class SessionsService {
     const { space, cwd, argv } = await this.prepareLaunch(input);
     const [command, ...args] = argv ?? [];
     return { machineId: space.machineId, cwd, command: command ?? null, argv: args };
+  }
+
+  async freezeLaunch(input: Omit<LaunchInput, "requestId">): Promise<string> {
+    const prepared = await this.prepareLaunch(input);
+    if (prepared.env) this.rejectDispatchEnvironment();
+    return this.configurationId(prepared);
+  }
+
+  private rejectDispatchEnvironment(): never {
+    throw errors.invalidInput("受控派遣暂不支持额外环境变量", { reason: "dispatch_environment_unavailable" });
+  }
+
+  private configurationId(prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>): string {
+    return launchHash({
+      machineId: prepared.space.machineId,
+      cwd: prepared.cwd,
+      argv: prepared.argv,
+      envNames: Object.keys(prepared.env ?? {}).sort(),
+    });
   }
 
   private unknown(session: { requestId: string; id?: string }, reason: string): HuhuError {
@@ -534,7 +553,7 @@ export class SessionsService {
   /** Only the process that received the actual launch can be used to redact its output. */
   private readonly secrets = new Map<string, string[]>();
 
-  private async terminalClient(session: SessionRecord): Promise<HerdrClient> {
+  private async verifiedTerminal(session: SessionRecord): Promise<{ client: HerdrClient; terminal: Terminal }> {
     const attempt = session.launchReceipt?.attempt;
     const snapshot = await this.snapshot();
     if (snapshot.kind !== "available") throw this.unknown(session, "snapshot_unavailable");
@@ -547,7 +566,59 @@ export class SessionsService {
       const binding = this.verifyTerminal(session, terminal);
       if (!binding || !sameProcess(attempt.binding, binding)) throw this.unknown(session, "binding_lost");
     }
-    return snapshot.client;
+    return { client: snapshot.client, terminal };
+  }
+
+  private async terminalClient(session: SessionRecord): Promise<HerdrClient> {
+    return (await this.verifiedTerminal(session)).client;
+  }
+
+  async executionSession(id: string): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string } | null> {
+    const session = this.list().find((item) => item.id === id);
+    const attempt = session?.launchReceipt?.attempt;
+    if (!session?.terminalId || session.provider === "shell" || !attempt?.binding) return null;
+    const verified = await this.verifiedTerminal(session).catch(() => null);
+    if (!verified) return null;
+    return {
+      spaceId: session.spaceId,
+      finished: verified.terminal.state === "finished" || verified.terminal.finished_ms != null,
+      binding: {
+        machineId: this.d.spaces.machineId,
+        sessionId: session.id,
+        coreId: attempt.core.id,
+        coreAddress: attempt.binding.address,
+        processGeneration: launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding }),
+        provider: session.provider,
+        nativeSessionId: null,
+      },
+    };
+  }
+
+  async writeExecutionInput({ sessionBinding: binding, dispatchId, vaultId }: ExecutionBinding, text: string): Promise<"core_written" | "not_sent" | "unknown"> {
+    const session = this.get(binding.sessionId);
+    const verified = await this.verifiedTerminal(session).catch(() => null);
+    const attempt = session.launchReceipt?.attempt;
+    if (!verified || !attempt?.binding || !this.d.inputOwnership?.hasTask(session.id, dispatchId) || verified.terminal.state === "finished" || verified.terminal.finished_ms != null) return "not_sent";
+    const generation = launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding });
+    if (vaultId !== this.d.vaultId || binding.machineId !== this.d.spaces.machineId || binding.nativeSessionId !== null) return "not_sent";
+    if (generation !== binding.processGeneration || session.terminalId !== binding.coreAddress || attempt.core.id !== binding.coreId || session.provider !== binding.provider) return "not_sent";
+    try {
+      await verified.client.call("terminal.send", { terminal: binding.coreAddress, text });
+      return "core_written";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  reviewInputPending(id: string): boolean {
+    return this.list().some((s) => s.id === id && s.reviewComments?.some((comment) => comment.sending));
+  }
+
+  private async controlTerminal(session: SessionRecord, method: string): Promise<void> {
+    if (this.d.inputOwnership?.hasTask(session.id)) throw errors.invalidInput("该会话由任务持有输入权");
+    const client = await this.terminalClient(session);
+    if (this.d.inputOwnership?.hasTask(session.id)) throw errors.invalidInput("该会话由任务持有输入权");
+    await client.call(method, { terminal: session.terminalId });
   }
 
   /**
@@ -578,19 +649,19 @@ export class SessionsService {
     const s = this.get(id);
     this.secrets.delete(id);
     if (!s.terminalId) return;
-    await (await this.terminalClient(s)).call("terminal.rm", { terminal: s.terminalId });
+    await this.controlTerminal(s, "terminal.rm");
   }
 
   async interrupt(id: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    await (await this.terminalClient(s)).call("terminal.interrupt", { terminal: s.terminalId });
+    await this.controlTerminal(s, "terminal.interrupt");
   }
 
   async kill(id: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    await (await this.terminalClient(s)).call("terminal.kill", { terminal: s.terminalId });
+    await this.controlTerminal(s, "terminal.kill");
   }
 
   private lastReconcile = 0;
@@ -718,6 +789,8 @@ export class SessionsService {
     if (chosen.length === 0) throw errors.invalidInput("没有待发送的意见");
     const text = ["请根据以下审查意见继续工作：", ...chosen.map((c) => `${safePath(c.path)}:${c.side === "new" ? "新" : "旧"}${c.line} — ${c.text}`)].join("\n");
     if (dryRun) return { sent: 0, text };
+    const release = this.d.inputOwnership?.take(id, "review");
+    if (this.d.inputOwnership && !release) throw errors.invalidInput("该会话的输入权当前已被占用");
     this.sending.add(id);
     try {
       const client = await this.terminalClient(s);
@@ -748,6 +821,7 @@ export class SessionsService {
       return { sent: chosen.length, text };
     } finally {
       this.sending.delete(id);
+      release?.();
     }
   }
 

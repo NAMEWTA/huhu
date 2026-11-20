@@ -2,6 +2,7 @@ import { attachTerminal } from "@huhu/herdr-client";
 import type { WebSocket } from "ws";
 import type { HerdrCore } from "./herdr-core.js";
 import type { SessionsService } from "./sessions.js";
+import type { InputOwnership } from "./input-ownership.js";
 
 export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: number; rows: number; observe: boolean }) => Promise<boolean>;
 
@@ -11,7 +12,7 @@ export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: nu
  * 客户端 → 服务端：二进制 = 键盘输入；文本 JSON `{type:"resize",cols,rows}`。
  * 关闭 WebSocket 只是 detach，进程继续运行（可从历史重新打开同一个终端）。
  */
-export function createTerminalBridge(d: { sessions: SessionsService; core: HerdrCore }): TerminalBridge {
+export function createTerminalBridge(d: { sessions: SessionsService; core: HerdrCore; ownership?: InputOwnership }): TerminalBridge {
   /** 每个会话同一时刻只有一个视图可以输入（ACC-AG-09）：后来的视图自动成为观察者，不能输入、不改变终端尺寸。 */
   const controllers = new Map<string, WebSocket>();
   const demoted = new Map<string, WebSocket[]>(); // 被降级的视图：控制者离开后通知第一个重新连接以接管输入
@@ -20,22 +21,25 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     if (!s?.terminalId) return false;
     const holder = controllers.get(sessionId);
     const taken = holder !== undefined && holder.readyState === holder.OPEN;
-    const opts = { ...requested, observe: requested.observe || taken };
+    const release = !requested.observe && !taken ? d.ownership?.take(sessionId, "manual") : undefined;
+    const opts = { ...requested, observe: requested.observe || taken || (d.ownership !== undefined && !release) };
     if (!opts.observe) controllers.set(sessionId, ws);
     else if (!requested.observe && ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: "mode", mode: "observe" })); // 告诉客户端它被降级为观察者
       demoted.set(sessionId, [...(demoted.get(sessionId) ?? []), ws]);
     }
-    ws.on("close", () => {
+    const releaseControl = () => {
       demoted.set(
         sessionId,
         (demoted.get(sessionId) ?? []).filter((x) => x !== ws),
       );
       if (controllers.get(sessionId) !== ws) return;
       controllers.delete(sessionId);
+      release?.();
       const next = (demoted.get(sessionId) ?? []).find((x) => x.readyState === x.OPEN);
       if (next) next.send(JSON.stringify({ type: "mode", mode: "control-free" })); // 客户端据此重新连接，成为控制者
-    });
+    };
+    ws.on("close", releaseControl);
     // attach 是异步的：客户端可能在连上后立刻发送输入，先收进队列，attach 完成后再按序写入
     const queue: { data: Buffer; isBinary: boolean }[] = [];
     let term: Awaited<ReturnType<typeof attachTerminal>> | null = null;
@@ -56,9 +60,15 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
       wsClosed = true;
       term?.close();
     });
-    await d.core.ensure();
     // 发送缓冲超过 4 MiB 时暂停回报 CREDIT（interfaces.md §7）
-    const t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe, canSend: () => ws.bufferedAmount < 4 * 1024 * 1024 });
+    let t: Awaited<ReturnType<typeof attachTerminal>>;
+    try {
+      await d.core.ensure();
+      t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe, canSend: () => ws.bufferedAmount < 4 * 1024 * 1024 });
+    } catch (error) {
+      releaseControl();
+      throw error;
+    }
     if (wsClosed) {
       t.close();
       return true;

@@ -27,6 +27,8 @@
       "agent.review.comments",
       "agent.review.diff",
       "agent.review.send",
+      "agent.runs.dispatch",
+      "agent.runs.inspect",
       "agent.sessions.interrupt",
       "agent.sessions.kill",
       "agent.sessions.launch",
@@ -38,7 +40,8 @@
       "agent.settings.update",
       "agent.spaces.delete",
       "agent.spaces.list",
-      "agent.spaces.save"
+      "agent.spaces.save",
+      "agent.targets.list"
     ],
     "fileKinds": []
   }

@@ -17,6 +17,11 @@ import { WaitingWatcher } from "./waiting.js";
 import { publicSession, SessionsService } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
 import { SpaceStore } from "./spaces.js";
+import { AgentDispatch, type DispatchProvider } from "./dispatch.js";
+import { AgentDispatchStore } from "./dispatch-store.js";
+import { registerDispatch } from "./dispatch-capabilities.js";
+import { InputOwnership } from "./input-ownership.js";
+import type { AgentId } from "../shared/catalog.js";
 
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
@@ -37,6 +42,8 @@ export interface AgentCliOptions {
   notify?: (n: { title: string; module: string }) => void;
   /** 测试用：缩短订阅的重连间隔。 */
   waitingBackoffMs?: { min: number; max: number };
+  /** Engine-owned provider protocols. Omit a provider that cannot prove input acceptance. */
+  dispatchProviders?: Partial<Record<AgentId, DispatchProvider>>;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
@@ -51,9 +58,15 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return resolveAgentLaunch({ settings, locatedCommand }, input);
   };
   const mid = machineId();
+  const vaultId = api.vault.vaultId;
+  const dispatchStore = new AgentDispatchStore(api.vault.stateDir, api.vault.files, { vaultId, machineId: mid });
+  const ownership = new InputOwnership(
+    (id) => dispatchStore.owner(id),
+    (id) => sessions.reviewInputPending(id),
+  );
   const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr") });
   ctx.effect(() => () => core.dispose()); // 停用只断开连接，不结束 Core
-  const sessions = new SessionsService({
+  const sessions: SessionsService = new SessionsService({
     dir: path.join(api.vault.stateDir, "agent-cli", "sessions"),
     vaultId: api.vault.vaultId,
     spaces,
@@ -61,7 +74,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     peekCore: () => core.peek(),
     resolve,
     now: () => new Date(),
+    inputOwnership: ownership,
   });
+  registerDispatch(api, new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers: opts.dispatchProviders ?? {} }));
 
   // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
   const waiting = new WaitingWatcher({
@@ -535,6 +550,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     }),
   );
   api.provide("agentCli", { spaces, detector, core });
-  api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core }));
+  api.provide("terminalBridge:agent", createTerminalBridge({ sessions, core, ownership }));
   return { spaces, detector, sessions, core };
 }

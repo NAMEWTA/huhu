@@ -1,0 +1,357 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { setTimeout as pause } from "node:timers/promises";
+import { HerdrClient } from "@huhu/herdr-client";
+import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PERMISSION_TABLE, createHuhuContext, type VaultServices } from "@huhu/kernel";
+import { Vault, machineId } from "@huhu/vault";
+import { expect, test, vi } from "vitest";
+import type { ExecutionBinding } from "@huhu/contracts";
+import { apply } from "../src/engine/index.js";
+import type { DispatchProvider } from "../src/engine/dispatch.js";
+import type { DispatchInput, DispatchLookup } from "../src/engine/dispatch-store.js";
+import { HerdrCore } from "../src/engine/herdr-core.js";
+import type { TerminalBridge } from "../src/engine/terminal-bridge.js";
+
+const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+const caps = ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect"];
+
+class FixtureViewer extends EventEmitter {
+  OPEN = 1;
+  readyState = this.OPEN;
+  bufferedAmount = 0;
+  messages: string[] = [];
+  send(message: string | Buffer) {
+    if (typeof message === "string") this.messages.push(message);
+  }
+  close() {
+    if (this.readyState !== this.OPEN) return;
+    this.readyState = 3;
+    this.emit("close");
+  }
+}
+
+type Target = { mode: string; provider: string; available: boolean; reason: string | null; configurationId: string | null; binding: ExecutionBinding["sessionBinding"] | null };
+type Result = { status: string; reason: string | null; acceptedAt: string | null; execution: ExecutionBinding | null; coreWrite: string; providerAcceptance: unknown; ownerActive: boolean };
+type Reading = { pid: number; dispatchId: string; sha256: string; proof: boolean };
+function read<T>(file: string): T | null {
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as T;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+test.skipIf(process.platform !== "win32" || !bin)(
+  "locked Windows Core keeps durable task ownership and independent provider evidence",
+  async () => {
+    const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w61-")));
+    let vault = await Vault.open(mkdirSync(path.join(sandbox, "vault"), { recursive: true })!, { create: true });
+    const scope = { vaultId: vault.id, machineId: machineId() };
+    const runtimeDir = path.join(vault.stateDir, "runtime", scope.machineId, "herdr");
+    const core = new HerdrCore({ bin: bin!, ...scope, runtimeDir });
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HC_SESSION: "huhu",
+      HC_SOCKET: core.endpoint,
+      XDG_STATE_HOME: path.join(runtimeDir, "state"),
+      XDG_CONFIG_HOME: path.join(runtimeDir, "config"),
+    };
+    for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
+    const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+    const proofDir = path.join(sandbox, "proof");
+    mkdirSync(proofDir);
+    const script = path.join(sandbox, "synthetic.mjs");
+    writeFileSync(
+      script,
+      `
+    import { createHash } from "node:crypto";
+    import { appendFileSync, writeFileSync } from "node:fs";
+    import { createInterface } from "node:readline";
+    import path from "node:path";
+    const dir = process.argv[2];
+    const address = process.env.HC_TERMINAL_ID;
+    const line = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    writeFileSync(path.join(dir, address + ".ready.json"), JSON.stringify({ pid: process.pid }));
+    for await (const text of line) {
+      let message;
+      try { message = JSON.parse(text); } catch { continue; }
+      if (message.kind !== "fixture-task") continue;
+      appendFileSync(path.join(dir, address + ".jsonl"), JSON.stringify({
+        pid: process.pid, dispatchId: message.dispatchId, sha256: createHash("sha256").update(text).digest("hex"), proof: !message.exitWithoutProof
+      }) + "\\n");
+      if (message.exitWithoutProof) process.exit(0);
+    }
+  `,
+    );
+    const readers = (address: string): Reading[] => {
+      try {
+        return readFileSync(path.join(proofDir, address + ".jsonl"), "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Reading);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw error;
+      }
+    };
+    const pidOf = (address: string): number | undefined => {
+      const result = cli("get", address);
+      return result.status === 0 ? (JSON.parse(result.stdout) as { pid?: number }).pid : undefined;
+    };
+    let allowProof = true;
+    let allowReady = true;
+    const adapter: DispatchProvider = {
+      id: "isolated-node-line-protocol-v1",
+      modes: ["new", "existing"],
+      async ready(binding, signal) {
+        if (!allowReady) return false;
+        const pid = pidOf(binding.coreAddress);
+        if (!pid) return false;
+        for (let i = 0; i < 60; i++) {
+          if (read<{ pid: number }>(path.join(proofDir, binding.coreAddress + ".ready.json"))?.pid === pid) return true;
+          await pause(40, undefined, { signal });
+        }
+        return false;
+      },
+      async acceptance(execution, inputSha256, signal) {
+        if (!allowProof) return null;
+        const address = execution.sessionBinding.coreAddress;
+        const pid = pidOf(address);
+        for (let i = 0; i < 30; i++) {
+          const match = readers(address).find((entry) => entry.proof && entry.pid === pid && entry.dispatchId === execution.dispatchId && entry.sha256 === inputSha256);
+          if (match) return { id: execution.dispatchId + "-received", execution, inputSha256 };
+          await pause(25, undefined, { signal });
+        }
+        return null;
+      },
+    };
+    const permission = "test.agent.dispatch";
+    const permissions = PERMISSION_TABLE as Record<string, readonly string[]>;
+    const openViewers: FixtureViewer[] = [];
+    let dispatcher: Dispatcher;
+    let bridge: TerminalBridge | undefined;
+    let dispose: (() => void) | undefined;
+    let started = false;
+    const engine = async (withAdapter: boolean) => {
+      const registry = new CapabilityRegistry();
+      dispatcher = new Dispatcher({
+        registry,
+        audit: new GatewayAudit(),
+        idempotency: new IdempotencyStore(),
+        isPluginEnabled: () => true,
+        exposureOverride: () => undefined,
+        grantedPermissions: () => [permission],
+        pluginOrigin: () => "builtin",
+        log: (_level, message, extra) => console.error(message, extra),
+      });
+      const { root, facade, getService } = createHuhuContext({
+        registry,
+        events: new EventBus(() => vault.id),
+        vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
+        call: async () => {
+          throw new Error("isolated fixture does not call other plugins");
+        },
+      });
+      const plugin = root.plugin((ctx) => {
+        apply(ctx, facade("agent-cli", ctx), { herdrBin: bin!, history: { home: sandbox, env: {} }, ...(withAdapter ? { dispatchProviders: { claude: adapter } } : {}) });
+      });
+      dispose = () => plugin.dispose();
+      await plugin.await?.();
+      bridge = getService<TerminalBridge>("terminalBridge:agent")!;
+    };
+    const request = (name: string, input: unknown, caller: "plugin:tasks" | "plugin:automations" | "desktop" = "plugin:tasks") => {
+      const requestId = crypto.randomUUID();
+      return dispatcher.call(caller, { capability: name, input, requestId, idempotencyKey: requestId });
+    };
+    async function call<T>(name: string, input: unknown, caller?: "desktop"): Promise<T> {
+      const reply = await request(name, input, caller);
+      if (!reply.ok) throw new Error(name + " " + JSON.stringify(reply.error));
+      return reply.data as T;
+    }
+    const body = (dispatchId: string, exitWithoutProof = false) => JSON.stringify({ kind: "fixture-task", dispatchId, text: "isolated input", exitWithoutProof });
+    const recordFile = (id: string) => path.join(vault.stateDir, "agent-cli", "dispatches", createHash("sha256").update(JSON.stringify(id)).digest("hex") + ".json");
+    const key = (dispatchId: string): DispatchLookup => ({ ...scope, taskId: "task-" + dispatchId, runId: "run-" + dispatchId, attempt: 1, dispatchId });
+    const work = (dispatchId: string, target: DispatchInput["target"], exitWithoutProof = false): DispatchInput => ({
+      ...key(dispatchId),
+      target,
+      eventIds: ["event-1", "event-2"],
+      inputSnapshotRef: "snapshot-" + dispatchId,
+      inputSnapshotHash: "a".repeat(64),
+      input: body(dispatchId, exitWithoutProof),
+    });
+    try {
+      expect(cli("server", "status").status).toBe(5);
+      started = true;
+      permissions[permission] = caps;
+      await engine(false);
+      const [space] = await call<{ id: string; revision: number }[]>("agent.spaces.list", {}, "desktop");
+      const listing = { ...scope, spaceId: space!.id };
+      const disabled = await call<Target[]>("agent.targets.list", listing);
+      expect(disabled).toHaveLength(6);
+      expect(disabled.every((item) => !item.available && item.reason)).toBe(true);
+      expect(await request("agent.targets.list", listing, "desktop")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      expect(await request("agent.targets.list", listing, "plugin:automations")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      expect(await request("agent.targets.list", { ...listing, vaultId: "foreign" })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      delete permissions[permission];
+      expect(await request("agent.targets.list", listing)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      permissions[permission] = caps;
+      await dispose?.();
+      await engine(true);
+      await call(
+        "agent.settings.update",
+        {
+          expectedRevision: 0,
+          defaultAgent: "claude",
+          waitingTasks: false,
+          agents: { claude: { command: process.execPath, args: [script, proofDir] }, codex: { enabled: false }, pi: { enabled: false } },
+        },
+        "desktop",
+      );
+      const targets = await call<Target[]>("agent.targets.list", listing);
+      expect(targets.find((target) => target.mode === "resume")).toMatchObject({ available: false, reason: "native_resume_evidence_unavailable" });
+      const configured = targets.find((target) => target.mode === "new" && target.provider === "claude");
+      expect(configured).toMatchObject({ available: true, configurationId: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      expect(cli("server", "status").status).toBe(5);
+      const target = { mode: "new", provider: "claude", configurationId: configured!.configurationId!, spaceId: space!.id, spaceRevision: space!.revision } as const;
+      const launchOnly = work("launch-only", target);
+      allowReady = false;
+      expect(await call<Result>("agent.runs.dispatch", launchOnly)).toMatchObject({ status: "not_sent", reason: "provider_not_ready", coreWrite: "not_sent" });
+      const [launchOnlySession] = await call<{ id: string; terminalId: string }[]>("agent.sessions.list", {}, "desktop");
+      const sessionFile = path.join(vault.stateDir, "agent-cli", "sessions", launchOnlySession!.id + ".json");
+      const sessionBytes = readFileSync(sessionFile);
+      const launchOnlyPid = pidOf(launchOnlySession!.terminalId);
+      try {
+        writeFileSync(sessionFile, '{"id":');
+        allowReady = true;
+        expect(await call<Result>("agent.runs.dispatch", launchOnly)).toMatchObject({ status: "not_sent", reason: "launch_unverified", coreWrite: "not_sent" });
+        expect(JSON.parse(cli("ls", "--all").stdout).terminals).toHaveLength(1);
+        expect(pidOf(launchOnlySession!.terminalId)).toBe(launchOnlyPid);
+        expect(readers(launchOnlySession!.terminalId)).toEqual([]);
+      } finally {
+        writeFileSync(sessionFile, sessionBytes);
+      }
+      const first = work("first", target);
+      allowProof = false;
+      const written = await call<Result>("agent.runs.dispatch", first);
+      expect(written).toMatchObject({ status: "unknown", reason: "provider_acceptance_unconfirmed", acceptedAt: expect.any(String), coreWrite: "core_written", providerAcceptance: null, ownerActive: true });
+      const firstAddress = written.execution!.sessionBinding.coreAddress;
+      expect(await call<Result>("agent.runs.dispatch", first)).toMatchObject({ acceptedAt: written.acceptedAt, execution: written.execution });
+      expect(await request("agent.runs.dispatch", { ...first, eventIds: ["event-2", "event-1"] })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      expect(await request("agent.runs.dispatch", { ...first, input: body("changed") })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      expect(await request("agent.runs.dispatch", { ...first, vaultId: "foreign" })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      expect(await request("agent.runs.inspect", { ...key("first"), attempt: 2 })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      allowProof = true;
+      expect(await call<Result>("agent.runs.inspect", key("first"))).toMatchObject({ status: "accepted", coreWrite: "core_written", providerAcceptance: { id: "first-received" } });
+      expect(readers(firstAddress).map(({ dispatchId }) => dispatchId)).toEqual(["first"]);
+      const firstRecord = readFileSync(recordFile("first"));
+      try {
+        rmSync(recordFile("first"));
+        expect(await request("agent.runs.dispatch", first)).toMatchObject({ ok: false, error: { code: "RUN_UNKNOWN", details: { reason: "dispatch_receipt_unavailable" } } });
+        const alreadyOwned = { mode: "existing", spaceId: space!.id, binding: written.execution!.sessionBinding } as const;
+        expect(await call<Result>("agent.runs.dispatch", work("during-loss", alreadyOwned))).toMatchObject({ status: "busy", coreWrite: "not_sent" });
+        expect(readers(firstAddress).map(({ dispatchId }) => dispatchId)).toEqual(["first"]);
+      } finally {
+        writeFileSync(recordFile("first"), firstRecord);
+      }
+
+      const lost = work("lost", target);
+      allowProof = false;
+      const originalCall = HerdrClient.prototype.call;
+      const fault = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
+        const result = (await originalCall.call(this, method, params)) as T;
+        if (method === "terminal.send" && (params as { text?: string }).text === lost.input) {
+          this.close();
+          throw new Error("isolated writer discarded the reply");
+        }
+        return result;
+      });
+      let lostReceipt: Result;
+      try {
+        lostReceipt = await call<Result>("agent.runs.dispatch", lost);
+        expect(lostReceipt).toMatchObject({ status: "unknown", coreWrite: "unknown", providerAcceptance: null, ownerActive: true });
+      } finally {
+        fault.mockRestore();
+      }
+      await dispose?.();
+      dispose = undefined;
+      const rootPath = vault.root;
+      await vault.close();
+      // Simulate an abrupt Engine exit after the committed sending state and before saving the result.
+      writeFileSync(recordFile("lost"), JSON.stringify({ ...read<object>(recordFile("lost")), write: "sending" }));
+      vault = await Vault.open(rootPath);
+      await engine(true);
+      allowProof = true;
+      const recovered = await call<Result>("agent.runs.dispatch", lost);
+      expect(recovered).toMatchObject({ status: "accepted", coreWrite: "unknown", providerAcceptance: { id: "lost-received" }, execution: lostReceipt.execution });
+      expect(readers(recovered.execution!.sessionBinding.coreAddress).map(({ dispatchId }) => dispatchId)).toEqual(["lost"]);
+
+      const manualSession = await call<{ id: string }>("agent.sessions.launch", { spaceId: space!.id, spaceRevision: space!.revision, provider: "claude", requestId: "isolated-manual" }, "desktop");
+      const existingOptions = await call<Target[]>("agent.targets.list", listing);
+      const existing = existingOptions.find((item) => item.binding?.sessionId === manualSession.id);
+      expect(existing).toMatchObject({ available: true, mode: "existing" });
+      const selected = { mode: "existing", spaceId: space!.id, binding: existing!.binding! } as const;
+      const direct = new FixtureViewer();
+      openViewers.push(direct);
+      expect(await bridge!(manualSession.id, direct as never, { cols: 80, rows: 24, observe: false })).toBe(true);
+      expect(await call<Result>("agent.runs.dispatch", work("competing-a", selected))).toMatchObject({ status: "busy", coreWrite: "not_sent" });
+      direct.close();
+      const outcomes = await Promise.all(["competing-a", "competing-b"].map((id) => call<Result>("agent.runs.dispatch", work(id, selected))));
+      expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(["accepted", "busy"]);
+      const winner = outcomes.find((outcome) => outcome.status === "accepted")!;
+      const observer = new FixtureViewer();
+      openViewers.push(observer);
+      await bridge!(manualSession.id, observer as never, { cols: 80, rows: 24, observe: false });
+      expect(observer.messages).toContain(JSON.stringify({ type: "mode", mode: "observe" }));
+      observer.emit("message", Buffer.from(body("unowned") + "\r"), true);
+      await call("agent.review.comment.add", { sessionId: manualSession.id, path: "synthetic.md", side: "new", line: 1, text: "isolated review" }, "desktop");
+      expect(await request("agent.review.send", { sessionId: manualSession.id }, "desktop")).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(await request("agent.sessions.kill", { id: manualSession.id }, "desktop")).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(readers(selected.binding.coreAddress).map(({ dispatchId }) => dispatchId)).toEqual([winner.execution!.dispatchId]);
+
+      const stale = { ...selected, binding: { ...selected.binding, processGeneration: "different-generation" } };
+      expect(await request("agent.runs.dispatch", work("stale", stale))).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT", details: { reason: "binding_changed" } } });
+      const changedAddress = { ...selected, binding: { ...selected.binding, coreAddress: firstAddress } };
+      expect(await request("agent.runs.dispatch", work("address", changedAddress))).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT", details: { reason: "binding_changed" } } });
+      expect(cli("label", selected.binding.coreAddress, "huhu.launch.generation=changed-in-isolated-core").status).toBe(0);
+      expect(await call<Result>("agent.runs.inspect", key(winner.execution!.dispatchId))).toMatchObject({ status: "unknown", reason: "binding_changed", ownerActive: true });
+      expect(await call<Result>("agent.runs.dispatch", work("after-generation-change", selected))).toMatchObject({ status: "not_sent", reason: "binding_unverified" });
+      expect(readers(selected.binding.coreAddress)).toHaveLength(1);
+
+      const exits = work("zeroExit", target, true);
+      const exited = await call<Result>("agent.runs.dispatch", exits);
+      const exitAddress = exited.execution!.sessionBinding.coreAddress;
+      const wait = cli("wait", exitAddress, "--timeout", "10", "--json");
+      expect(wait.status).toBe(0);
+      expect(JSON.parse(wait.stdout)).toMatchObject({ ended: true, exit_code: 0 });
+      expect(await call<Result>("agent.runs.inspect", key("zeroExit"))).toMatchObject({ status: "unknown", coreWrite: "core_written", providerAcceptance: null, ownerActive: false });
+      expect(readers(exitAddress)).toHaveLength(1);
+
+      const records = path.join(vault.stateDir, "agent-cli", "dispatches");
+      for (const file of readdirSync(records)) expect(readFileSync(path.join(records, file), "utf8")).not.toContain("isolated input");
+      const coreInfo = JSON.parse(cli("server", "status").stdout) as { core: { id: string }; version: string };
+      expect(coreInfo.version).toBe("0.1.19");
+      expect(coreInfo.core.id).not.toBe("346bd5608735e3fcb27f9d01f5c8008e");
+      console.info(JSON.stringify({ core: coreInfo, endpoint: core.endpoint, first: written.execution, recovered: recovered.execution, winner: winner.execution, exitAddress }));
+    } finally {
+      for (const viewer of openViewers) viewer.close();
+      await dispose?.();
+      delete permissions[permission];
+      try {
+        if (started && cli("server", "status").status === 0) {
+          expect(cli("server", "stop").status).toBe(0);
+          expect(cli("server", "status").status).toBe(5);
+        }
+      } finally {
+        await vault.close();
+        if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-w61-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 4, retryDelay: 150 });
+      }
+    }
+  },
+  60_000,
+);
