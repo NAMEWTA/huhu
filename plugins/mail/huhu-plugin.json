@@ -26,6 +26,7 @@
       "mail.drafts.get",
       "mail.drafts.save",
       "mail.drafts.discard",
+      "mail.drafts.removeAttachment",
       "mail.outbox.submit",
       "mail.outbox.status",
       "mail.outbox.list",

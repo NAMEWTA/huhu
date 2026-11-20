@@ -6,6 +6,7 @@
   "exports": {
     "./engine": "./src/engine/index.ts",
     "./ui": "./src/ui/index.tsx",
+    "./desktop-attachments": "./src/desktop-attachments.ts",
     "./manifest": "./huhu-plugin.json"
   },
   "scripts": {

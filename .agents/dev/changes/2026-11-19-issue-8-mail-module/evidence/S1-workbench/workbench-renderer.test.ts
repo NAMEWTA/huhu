@@ -1,17 +1,40 @@
-import { randomUUID } from "node:crypto";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium, expect as browserExpect } from "@playwright/test";
 import { ModuleCredentials } from "@huhu/kernel";
-import { assert, expect, test } from "vitest";
+import { assert, expect, test, vi } from "vitest";
 import { boot } from "../../../apps/engine/src/boot.js";
+import type { SelectDraftAttachment, SelectDraftAttachmentResult } from "../src/desktop-attachments.js";
 import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
+import { MAX_DRAFT_ATTACHMENT_BYTES, type MailDraftAttachments } from "../src/engine/index.js";
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、草稿和投递", async () => {
+const attachmentServices = vi.hoisted(() => new Map<string, MailDraftAttachments>());
+vi.mock("@huhu/plugin-mail/engine", async (original) => {
+  const mail = await original<typeof import("../src/engine/index.js")>();
+  return {
+    ...mail,
+    apply: ((ctx, api, owner, transport) =>
+      mail.apply(
+        ctx,
+        {
+          ...api,
+          provide(name, service) {
+            api.provide(name, service);
+            if (name === mail.MAIL_DRAFT_ATTACHMENTS_SERVICE) attachmentServices.set(api.vault.files.root, service as MailDraftAttachments);
+          },
+        },
+        owner,
+        transport,
+      )) satisfies typeof mail.apply,
+  };
+});
+
+test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、草稿附件和投递", async () => {
   const repo = path.resolve(import.meta.dirname, "../../..");
   const desktop = path.join(repo, "apps/desktop");
   const entry = path.join(desktop, "src/renderer/mail-proof-entry.tsx");
@@ -20,9 +43,10 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、�
   const bundleEntry = [
     'import { createRoot } from "react-dom/client";',
     'import "@huhu/ui/styles.css";',
-    'import { EngineProvider } from "@huhu/workbench";',
+    'import { EngineProvider, checkExitParticipants } from "@huhu/workbench";',
     "import { contributions } from " + JSON.stringify(absolute("plugins/mail/src/ui/index.tsx")) + ";",
     "const Mail = contributions.modules[0].component;",
+    'window.checkMailProofExit = () => checkExitParticipants({ reason: "window", signal: new AbortController().signal, waitForUser: (decision) => decision });',
     'createRoot(document.getElementById("root")).render(<EngineProvider endpoint={window.testEndpoint}><div className="hu-app" data-theme="claude" data-mode="light" style={{display:"flex", height:"100dvh"}}><Mail /></div></EngineProvider>);',
   ].join("\n");
   const vite = await import(pathToFileURL(path.join(desktop, "node_modules/vite/dist/node/index.js")).href);
@@ -125,6 +149,28 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、�
   });
   const smtp = await loopbackSmtp(password);
   const engine = await boot({ vaultPath, desktopUserData, create: true });
+  const managed = attachmentServices.get(engine.vault.root);
+  assert(managed);
+  const attachmentsPath = path.join(vaultPath, ".huhu/mail/attachments");
+  const selectedFile = path.join(root, "selected.bin");
+  const duplicateFile = path.join(root, "duplicate.bin");
+  const overLimitFile = path.join(root, "large.bin");
+  const fileBytes = Buffer.from([0, 255, 8, 0, 91, 252]);
+  const fileDigest = createHash("sha256").update(fileBytes).digest("hex");
+  writeFileSync(selectedFile, fileBytes);
+  writeFileSync(duplicateFile, fileBytes);
+  writeFileSync(overLimitFile, "");
+  truncateSync(overLimitFile, MAX_DRAFT_ATTACHMENT_BYTES + 1);
+  let selected: { file: string; size: number } | null = null;
+  let holdSelection = false;
+  const selectionReady = Promise.withResolvers<void>();
+  const deliverSelection = Promise.withResolvers<void>();
+  const selectionSettled = Promise.withResolvers<void>();
+  const selections: SelectDraftAttachment[] = [];
+  const cancellations: string[] = [];
+  const pendingSelections = new Map<string, AbortController>();
+  let importCalls = 0;
+  let fileReads = 0;
   const origin = "http://mail-workbench.test";
   const shell = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const pageErrors: string[] = [];
@@ -148,9 +194,58 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、�
     return reply.data;
   }
   try {
+    await shell.exposeFunction("fixtureSelectAndAdd", async (input: SelectDraftAttachment): Promise<SelectDraftAttachmentResult> => {
+      expect(Object.keys(input).sort()).toEqual(["draftId", "expectedRevision", "operationId", "vaultId"]);
+      expect(input.vaultId).toBe(engine.vault.id);
+      expect(await direct("mail.drafts.get", { draftId: input.draftId })).toMatchObject({ draft: { revision: input.expectedRevision } });
+      selections.push(input);
+      const controller = new AbortController();
+      pendingSelections.set(input.operationId, controller);
+      const chosen = selected;
+      const delayed = holdSelection;
+      try {
+        if (delayed) {
+          selectionReady.resolve();
+          await deliverSelection.promise;
+        }
+        if (controller.signal.aborted) return { status: "failed", reason: "interrupted" };
+        if (!chosen) return { status: "cancelled" };
+        importCalls++;
+        const { draft, deduped } = await managed.addAttachment(
+          { draftId: input.draftId, expectedRevision: input.expectedRevision },
+          {
+            name: path.basename(chosen.file),
+            size: chosen.size,
+            read(signal) {
+              fileReads++;
+              return createReadStream(chosen.file, { signal, highWaterMark: 2 });
+            },
+          },
+          controller.signal,
+        );
+        const { draftId, revision, attachments } = draft;
+        return { status: "attached", draft: { draftId, revision, ...(attachments && { attachments }) }, deduped };
+      } catch (err) {
+        const reason = (err as { details?: { reason?: unknown } }).details?.reason;
+        return { status: "failed", reason: reason === "attachment-too-large" ? "too-large" : reason === "attachment-source-missing" ? "source-missing" : "failed" };
+      } finally {
+        pendingSelections.delete(input.operationId);
+        if (delayed) selectionSettled.resolve();
+      }
+    });
+    await shell.exposeFunction("fixtureCancelAttachment", (operationId: string) => {
+      cancellations.push(operationId);
+      pendingSelections.get(operationId)?.abort();
+    });
     await shell.addInitScript(
       (endpoint) => {
         Reflect.set(window, "testEndpoint", endpoint);
+        Reflect.set(window, "huhuHost", {
+          mailDraftAttachments: {
+            selectAndAdd: (input: SelectDraftAttachment) => Reflect.get(window, "fixtureSelectAndAdd")(input),
+            cancel: (id: string) => Reflect.get(window, "fixtureCancelAttachment")(id),
+          },
+        });
       },
       { baseUrl: origin, token: engine.rendererToken, vaultId: engine.vault.id },
     );
@@ -281,6 +376,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、�
 
     smtp.configure("partial");
     await shell.getByRole("button", { name: "发送邮件" }).click();
+    await browserExpect(body).toBeHidden();
     const recipients = shell.getByRole("group", { name: "选择明确未投递的收件人" });
     await browserExpect(recipients.getByRole("checkbox")).toHaveCount(1);
     await recipients.getByRole("checkbox", { name: "refused@example.invalid" }).check();
@@ -441,8 +537,119 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、�
     await shell.getByRole("button", { name: "同步目录", exact: true }).click();
     expect(await (await synced).json()).toMatchObject({ ok: true, data: { message: { subject } } });
     await browserExpect(openedMessage).toBeVisible();
+
+    const attachmentSubject = "附件回环草稿";
+    const attachmentDataBefore = smtp.counts.data;
+    await shell.getByRole("button", { name: "写信", exact: true }).click();
+    const attachmentComposer = shell.getByRole("region", { name: "写信", exact: true });
+    const attachmentEditor = attachmentComposer.getByRole("textbox", { name: "正文", exact: true });
+    await attachmentComposer.getByLabel("主题", { exact: true }).fill(attachmentSubject);
+    await attachmentEditor.pressSequentially("Local attachment draft");
+    const addFile = attachmentComposer.getByRole("button", { name: "添加附件", exact: true });
+    const list = attachmentComposer.getByRole("list", { name: "已有附件" });
+    const closeAttachmentDraft = attachmentComposer.getByRole("button", { name: "关闭写信", exact: true });
+    failDraftSave = true;
+    await addFile.press("Enter");
+    await browserExpect(attachmentComposer.getByRole("alert")).toContainText("暂时无法确认操作结果");
+    expect(selections).toHaveLength(0);
+    await browserExpect(attachmentEditor).toHaveText("Local attachment draft");
+
+    await addFile.press("Enter");
+    await browserExpect(addFile).toBeEnabled();
+    await browserExpect(addFile).toBeFocused();
+    expect(selections).toHaveLength(1);
+    expect(importCalls).toBe(0);
+    expect(fileReads).toBe(0);
+    expect(existsSync(attachmentsPath)).toBe(false);
+    const { draftId } = selections[0]!;
+    const getAttachmentDraft = async () => (await direct("mail.drafts.get", { draftId })).draft;
+    expect(await getAttachmentDraft()).toMatchObject({ draftId, subject: attachmentSubject, revision: selections[0]!.expectedRevision });
+
+    selected = { file: selectedFile, size: fileBytes.length };
+    await addFile.click();
+    await browserExpect(list.getByRole("listitem")).toHaveCount(1);
+    await browserExpect(list).toContainText("selected.bin · 6 字节 · 已保存");
+    const attachedDraft = await getAttachmentDraft();
+    expect(attachedDraft.attachments).toEqual([{ digest: fileDigest, name: "selected.bin", size: fileBytes.length, state: "ready" }]);
+    selected = { file: duplicateFile, size: fileBytes.length };
+    await addFile.click();
+    await browserExpect(shell.getByText("此附件已存在。", { exact: true })).toBeVisible();
+    expect(await getAttachmentDraft()).toEqual(attachedDraft);
+    expect(fileReads).toBe(2);
+
+    selected = { file: overLimitFile, size: MAX_DRAFT_ATTACHMENT_BYTES + 1 };
+    await addFile.click();
+    await browserExpect(attachmentComposer.getByRole("alert")).toContainText("单个附件不能超过 25 MiB");
+    expect(fileReads).toBe(2);
+    expect(await getAttachmentDraft()).toEqual(attachedDraft);
+    renameSync(selectedFile, `${selectedFile}.moved`);
+    selected = { file: selectedFile, size: fileBytes.length };
+    await addFile.click();
+    await browserExpect(attachmentComposer.getByRole("alert")).toContainText("所选文件已不存在");
+    expect(await getAttachmentDraft()).toEqual(attachedDraft);
+    await browserExpect(attachmentEditor).toHaveText("Local attachment draft");
+
+    const openAttachmentDraft = async () => {
+      await shell.getByRole("button", { name: "草稿", exact: true }).click();
+      await shell.getByRole("button", { name: attachmentSubject, exact: true }).click();
+      await shell.getByRole("button", { name: "继续编辑", exact: true }).click();
+      await browserExpect(attachmentEditor).toHaveText("Local attachment draft");
+    };
+    await closeAttachmentDraft.press("Enter");
+    await browserExpect(attachmentComposer).toBeHidden();
+    await openAttachmentDraft();
+    await browserExpect(list).toContainText("selected.bin · 6 字节 · 已保存");
+    const objectFile = path.join(attachmentsPath, fileDigest);
+    expect(readFileSync(objectFile)).toEqual(fileBytes);
+    expect(managed.readAttachment({ draftId, digest: fileDigest })).toMatchObject({ state: "ready", bytes: fileBytes });
+    if (screenshots) {
+      await browserExpect(shell.getByText("此附件已存在。", { exact: true })).toBeHidden();
+      await list.scrollIntoViewIfNeeded();
+      await shell.screenshot({ path: path.join(screenshots, "mail-attachments-390.png"), animations: "disabled" });
+    }
+    await closeAttachmentDraft.click();
+    await browserExpect(attachmentComposer).toBeHidden();
+    rmSync(objectFile);
+    await openAttachmentDraft();
+    await browserExpect(list).toContainText("字节缺失");
+    selected = { file: duplicateFile, size: fileBytes.length };
+    await addFile.click();
+    await browserExpect(list).toContainText("selected.bin · 6 字节 · 已保存");
+    expect(readFileSync(objectFile)).toEqual(fileBytes);
+
+    const removeFile = list.getByRole("button", { name: "移除附件 selected.bin", exact: true });
+    await removeFile.press("Enter");
+    await browserExpect(list).toBeHidden();
+    await browserExpect(addFile).toBeFocused();
+    expect(existsSync(objectFile)).toBe(false);
+    const removedDraft = await getAttachmentDraft();
+    expect(removedDraft.attachments).toBeUndefined();
+    expect(removedDraft.revision).not.toBe(attachedDraft.revision);
+
+    const importsBeforeClose = importCalls;
+    holdSelection = true;
+    await addFile.click();
+    await expect.poll(() => pendingSelections.size).toBe(1);
+    await selectionReady.promise;
+    expect(await shell.evaluate(() => Reflect.get(window, "checkMailProofExit")())).toBe(true);
+    await browserExpect(attachmentComposer).toBeHidden();
+    await expect.poll(() => cancellations).toEqual([selections.at(-1)!.operationId]);
+    await openAttachmentDraft();
+    deliverSelection.resolve();
+    await selectionSettled.promise;
+    await browserExpect(addFile).toBeEnabled();
+    await browserExpect(list).toBeHidden();
+    await browserExpect(attachmentComposer.getByRole("alert")).toHaveCount(0);
+    expect(importCalls).toBe(importsBeforeClose);
+    expect(await getAttachmentDraft()).toEqual(removedDraft);
+    expect(existsSync(objectFile)).toBe(false);
+    expect(smtp.counts.data).toBe(attachmentDataBefore);
     expect(pageErrors).toEqual([]);
+  } catch (error) {
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-probe-failure.png"), style: 'input[type="password"] { visibility: hidden; }' });
+    throw error;
   } finally {
+    deliverSelection.resolve();
     deliverRepairReply.resolve();
     await browser.close();
     try {

@@ -157,7 +157,15 @@ testWindows(
         }),
       ]);
       const revision = (beforeClose.data as { revision: string }).revision;
-      const removing = managed.removeAttachment({ draftId: first.draftId, expectedRevision: revision, digest });
+      const removeInput = { draftId: first.draftId, expectedRevision: revision, digest };
+      for (const caller of ["web:fixture", "cli"] as const) {
+        expect(await engine.dispatcher.call(caller, { capability: "mail.drafts.removeAttachment", input: removeInput, requestId: randomUUID(), idempotencyKey: randomUUID() })).toMatchObject({
+          ok: false,
+          error: { code: caller === "cli" ? "CAPABILITY_NOT_EXPOSED" : "PERMISSION_DENIED" },
+        });
+      }
+      expect(await call(engine, "mail.drafts.removeAttachment", { ...removeInput, path: firstFile })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      const removing = call(engine, "mail.drafts.removeAttachment", removeInput);
       const sweeping = managed.sweepUnreferenced();
       let settled = false;
       void sweeping.then(() => {
@@ -169,8 +177,8 @@ testWindows(
       expect(settled).toBe(false);
       const exportedZip = await exported;
       expect(exportedZip).toMatchObject({ ok: true, data: { path: archive, sha256: hash(readFileSync(archive)), vaultId: engine.vault.id } });
-      const remaining = await removing;
-      expect(remaining.attachments?.map((ref) => ref.digest)).toEqual([otherDigest]);
+      expect(await removing).toMatchObject({ ok: true, data: { attachments: [{ digest: otherDigest }] } });
+      expect(await call(engine, "mail.drafts.removeAttachment", removeInput)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
       expect(await sweeping).toEqual({ removed: [], failed: [] });
       expect(importPackage(archive, destination).vaultId).toBe(engine.vault.id);
       const restored = await open({ vaultPath: destination, readOnly: true });
@@ -178,6 +186,7 @@ testWindows(
       expect(await call(restored, "mail.drafts.get", { draftId: first.draftId })).toEqual({ ok: true, data: { draft: beforeClose.data } });
       expect(restoredAttachments.readAttachment({ draftId: first.draftId, digest })).toEqual({ ...firstRef, bytes });
       await expect(restoredAttachments.addAttachment({ draftId: first.draftId, expectedRevision: revision }, source("a.bin", bytes))).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
+      expect(await call(restored, "mail.drafts.removeAttachment", removeInput)).toMatchObject({ ok: false, error: { code: "READ_ONLY_VAULT" } });
       expect(() => restoredAttachments.sweepUnreferenced()).toThrow(expect.objectContaining({ code: "READ_ONLY_VAULT" }));
       expect(() => managed.readAttachment({ draftId: first.draftId, digest })).toThrow(expect.objectContaining({ code: "NOT_FOUND" }));
       expect(managed.readAttachment({ draftId: second.draftId, digest })).toMatchObject({ state: "ready", bytes });

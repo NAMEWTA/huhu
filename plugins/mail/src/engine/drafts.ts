@@ -407,6 +407,24 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
       },
     }),
   );
+  api.defineCapability(
+    defineCapability({
+      ...workbenchDraft,
+      name: "mail.drafts.removeAttachment",
+      desktopOnly: true,
+      scope: "write",
+      idempotency: "handler",
+      input: removeInput,
+      output: draftDetails,
+      async handler({ caller, signal }, input) {
+        if (caller !== "desktop") throw errors.permissionDenied("mail.drafts.removeAttachment");
+        const result = await drafts.removeAttachment(input, signal);
+        // The reference is committed. A failed sweep can be retried without repeating the removal.
+        await drafts.sweepUnreferenced(() => outbox.attachmentDigests()).catch(() => undefined);
+        return result;
+      },
+    }),
+  );
   return async () => {
     await drafts.drain();
     await outbox.drain();
