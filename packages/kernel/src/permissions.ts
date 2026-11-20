@@ -13,7 +13,6 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
   "tasks.comment": ["tasks.comments.add"],
   // ---- 仅内置插件可用（外部插件的清单里声明这些权限会被拒绝；外部入口也不能调用）----
   /** 派发联动：把任务改为进行中（条件写）。 */
-  "tasks.dispatch": ["tasks.markDispatched"],
   /** 以 agent / system 来源写评论（事件派生 id、运行事实）。 */
   "tasks.comment.system": ["tasks.comments.add"],
   "tasks.receipt-consume": ["tasks.receipts.consume"],
@@ -21,7 +20,6 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
   "agent.run": ["agent.launch.resolve"],
   "agent.task-input": ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect", "agent.runs.answer", "agent.runs.answer.inspect", "agent.runs.stop", "agent.runs.stop.inspect"],
   /** 查询任务是否有活动运行。 */
-  "automations.runs.internal": ["automations.runs.activeFor"],
   /** 终端命令：启动命令会话、读取输出、结束会话（automations 的 terminal 动作）。 */
   "agent.terminal": ["agent.sessions.launch", "agent.sessions.list", "agent.sessions.output", "agent.sessions.release", "agent.sessions.kill", "agent.spaces.list"],
   "archives.read": ["archives.list", "archives.read"],
@@ -33,7 +31,7 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** 只有内置插件可以声明和使用的权限组。 */
-export const BUILTIN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set(["tasks.dispatch", "tasks.comment.system", "tasks.receipt-consume", "agent.run", "agent.task-input", "automations.runs.internal", "agent.terminal"]);
+export const BUILTIN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set(["tasks.comment.system", "tasks.receipt-consume", "agent.run", "agent.task-input", "agent.terminal"]);
 
 export function isGrantable(scope: CapabilityScope): boolean {
   return scope === "read" || scope === "write";

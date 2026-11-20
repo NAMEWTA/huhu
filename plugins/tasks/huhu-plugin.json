@@ -22,7 +22,6 @@
       "tasks.duplicate",
       "tasks.delete",
       "tasks.setStatus",
-      "tasks.markDispatched",
       "tasks.comments.add",
       "tasks.runs",
       "tasks.dispatch",

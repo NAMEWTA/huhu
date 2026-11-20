@@ -86,7 +86,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     publish: (t, p) => api.events.publish(t, p),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
     now,
-    hasActiveRun: (id) => api.service<{ activeFor(ids: string[]): Record<string, boolean> }>("automations")?.activeFor([id])[id],
     hasDispatchHold: (id) => dispatch.hasHold(id),
     hasStartedDispatch: (id) => dispatch.hasActiveRun(id),
     pathKind: (rel) => {
@@ -468,21 +467,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   );
   api.defineCapability(
     def({
-      name: "tasks.markDispatched",
-      plugin: "tasks",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: Id.extend({ runId: z.string(), inputRevision: z.number().int(), inputHash: z.string() }),
-      output: TaskDtoSchema,
-      handler: (c, i) => {
-        if (c.caller !== "plugin:automations") throw errors.permissionDenied("派发联动（仅 automations 可用）");
-        return svc.markDispatched(i.id, { inputRevision: i.inputRevision, inputHash: i.inputHash }, i.runId, { legacy: true });
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
       name: "tasks.comments.add",
       plugin: "tasks",
       scope: "write",
@@ -533,7 +517,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       defaultExposed: true,
       input: Id,
       output: z.array(TaskRunSummary),
-      handler: (_c, i) => [...svc.runs(i.id), ...dispatch.runs(i.id)],
+      handler: (_c, i) => {
+        svc.read(i.id);
+        return dispatch.runs(i.id);
+      },
     }),
   );
 

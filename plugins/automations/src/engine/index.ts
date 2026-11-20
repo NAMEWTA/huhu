@@ -12,10 +12,8 @@ import { HoldStore } from "./holds.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type ActivationRecord, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
-import { hasRunDir, killRound, roundActive } from "./supervised.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
-import { processWorker, roundDir, type ResolveLaunch } from "./worker.js";
 
 export { AutomationsService } from "./service.js";
 export { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "./default-task-scan.js";
@@ -41,7 +39,7 @@ const Rule = z.object({
 
 export interface AutomationsOptions {
   zone?: () => string;
-  /** 注入 worker（测试用替身）；默认以 provider 无界面模式启动外部进程。 */
+  /** 旧执行器测试用替身。生产 Agent 规则统一交 Tasks。 */
   worker?: (i: WorkerInput) => Promise<RunOutcome | null>;
   /** 注入接管函数（测试用替身）。 */
   adopt?: AutomationsDeps["adopt"];
@@ -51,8 +49,6 @@ export interface AutomationsOptions {
   spaceState?: (spaceId: string) => { state: "ok" | "missing" | "inaccessible"; root?: string };
   /** CLI 是否已检测到（来自智能体目录的检测结果）。 */
   cliAvailable?: (provider: string) => boolean;
-  /** 启动合成：由 agent-cli 的 agent.launch.resolve 提供；默认经能力调用。 */
-  resolveLaunch?: ResolveLaunch;
   /** 扫描前刷新 CLI 可用性（见 AutomationsDeps.refreshClis）。 */
   refreshClis?: () => Promise<void>;
   schedule?: boolean;
@@ -64,20 +60,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const now = opts.now ?? (() => new Date());
   const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const cliAvailable = opts.cliAvailable ?? (() => false);
-  const runsDir = path.join(api.vault.stateDir, "runtime", mid, "runs");
-  const resolveLaunch: ResolveLaunch = opts.resolveLaunch ?? ((i) => api.call("agent.launch.resolve", i) as ReturnType<ResolveLaunch>);
-  const realWorker = processWorker({ runsDir, resolveLaunch });
   const holdStore = new HoldStore(path.join(api.vault.stateDir, "automations", "holds.json"));
   const svc = new AutomationsService({
     repo: api.vault.repo,
     claims: new ClaimStore(path.join(api.vault.stateDir, "automations", "claims")),
     activationsDir: path.join(api.vault.stateDir, "automations", "activations"),
     taskQuery: () => api.service<TaskQueryLike>("taskQuery"),
-    worker: opts.worker ?? realWorker.run,
-    ...(opts.worker ? (opts.adopt ? { adopt: opts.adopt } : {}) : { adopt: realWorker.adopt }),
-    runAlive: (runId, round) => roundActive(roundDir(runsDir, runId, round)),
-    killRound: (runId, round) => killRound(roundDir(runsDir, runId, round)),
-    hasRound: (runId, round) => hasRunDir(roundDir(runsDir, runId, round)),
+    worker: opts.worker ?? (() => Promise.reject(errors.invalidInput("Agent 规则由 Tasks 接受派遣"))),
+    ...(opts.adopt ? { adopt: opts.adopt } : {}),
     spaceState: opts.spaceState ?? (() => ({ state: "missing" })),
     cliAvailable,
     ...(opts.refreshClis ? { refreshClis: opts.refreshClis } : {}),
@@ -169,7 +159,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       return occurrence ? scans.activation(occurrence) : null;
     }
     if (action.kind === "reminder" && reminders) return reminders.activate(ruleId, at);
-    return svc.activate(ruleId, at ? "schedule" : "manual", at);
+    return svc.activateNonAgent(ruleId, at ? "schedule" : "manual", at);
   };
   const scheduler = new Scheduler({
     activate: async (ruleId, at) => {
@@ -186,7 +176,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes, updatedAt: r.data.updatedAt })));
   // 能力在启动对账完成后才开始服务；对账失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
   const ready = svc
-    .reconcile()
+    .reconcileTerminals()
     .catch(() => 0)
     .then(() => {
       if (opts.schedule !== false) sync();
@@ -205,7 +195,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     const p = e.payload as { path?: string; kind?: string };
     if ((e.type === "vault.fileChanged" && p.path?.startsWith("Automations/")) || (e.type === "entity.changed" && p.kind === "automation-rule")) resync();
   });
-  api.provide("automations", { activeFor: (ids: string[]) => svc.activeFor(ids), holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
+  api.provide("automations", { holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
 
   const Id = z.object({ id: z.string() });
   api.defineCapability(
@@ -251,18 +241,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("取消任务跟进");
         return followUps.cancel(input);
       },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.runs.activeFor",
-      plugin: "automations",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ taskIds: z.array(z.string()).max(1000) }),
-      output: z.record(z.string(), z.boolean()),
-      handler: (_c, i) => svc.activeFor(i.taskIds),
     }),
   );
   api.defineCapability(
@@ -436,7 +414,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.array(RunRow),
       handler: async (_c, i) => {
         await ready;
-        return svc.runs(i.limit);
+        return svc.runs(i.limit, true);
       },
     }),
   );
@@ -451,28 +429,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.object({ id: z.string(), kind: z.enum(["task-run", "automation-run"]), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean(), canRetry: z.boolean() }),
       handler: async (_c, i) => {
         await ready;
-        return svc.runDetail(i.runId);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.runs.answer",
-      plugin: "automations",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({
-        runId: z.string(),
-        answers: z
-          .array(z.object({ id: z.string(), answer: z.string() }))
-          .min(1)
-          .max(20),
-      }),
-      output: z.object({ resumed: z.boolean() }),
-      handler: async (_c, i) => {
-        await ready;
-        return svc.answerRun(i.runId, i.answers);
+        return svc.runDetail(i.runId, true);
       },
     }),
   );
@@ -487,22 +444,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.object({ cancelled: z.boolean() }),
       handler: async (_c, i) => {
         await ready;
-        return svc.cancelRunById(i.runId);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.runs.retry",
-      plugin: "automations",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ runId: z.string() }),
-      output: z.object({ runId: z.string() }),
-      handler: async (_c, i) => {
-        await ready;
-        return svc.retryRun(i.runId);
+        svc.runDetail(i.runId, true);
+        return { cancelled: svc.cancelRun(i.runId) };
       },
     }),
   );

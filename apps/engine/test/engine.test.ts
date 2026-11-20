@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { OperationLog, SemanticRepository } from "@huhu/vault";
 import { afterEach, describe, expect, test } from "vitest";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
@@ -535,6 +536,61 @@ describe("Engine 启动与关闭", () => {
     expect(existsSync(path.join(dir, "Task Runs"))).toBe(false);
     expect(await call("agent.sessions.list", { spaceId: space!.id })).toMatchObject({ ok: true, data: [] });
   }, 30_000);
+  test("恢复 Engine 时只查询新任务派遣，旧监督记录保留原字节", async () => {
+    const dir = tmp();
+    let engine = await boot({ vaultPath: dir, create: true });
+    engines.push(engine);
+    const call = (capability: string, input: unknown) => post(engine, engine.rendererToken, { capability, input, requestId: "cutover", idempotencyKey: `cutover-${Math.random().toString(36)}` });
+    const [space] = (await call("agent.spaces.list", {})).data as unknown as { id: string }[];
+    const { data } = await call("tasks.create", {
+      title: "已有旧记录的任务",
+      type: "agent",
+      body: "按这份测试输入受理一次派遣",
+      execution: { spaceId: space!.id, target: { mode: "existing", sessionId: "fixture-original" } },
+    });
+    const task = data as unknown as { id: string; inputRevision: number; inputHash: string };
+    const { data: rule } = await call("automations.create", {
+      title: "持久派遣规则",
+      trigger: { preset: "every5", cron: "*/5 * * * *", zone: "UTC" },
+      action: { kind: "agent", input: { source: "tasks" } },
+    });
+    const processingKey = `${task.id}:${task.inputRevision}:${task.inputHash}`;
+    const { files, stateDir } = engine.vault;
+    const repo = new SemanticRepository(files, new OperationLog(files, path.join(stateDir, "operations")));
+    const { id: runId, path: runPath } = await repo.create("task-run", {
+      taskId: task.id,
+      ruleId: rule.id,
+      processingKey,
+      state: "queued",
+      attempt: 1,
+      provider: "codex",
+      spaceId: space!.id,
+      cwd: dir,
+      machineId: "historic",
+    });
+    const legacyDir = path.join(engine.vault.stateDir, "automations", "claims");
+    mkdirSync(legacyDir, { recursive: true });
+    const claimPath = path.join(legacyDir, processingKey.replaceAll(":", "_") + ".json");
+    const claim = JSON.stringify({ processingKey, taskId: task.id, runId, state: "queued", claimedAt: "2026-10-21T00:00:00Z" });
+    writeFileSync(claimPath, claim);
+    const before = readFileSync(path.join(dir, runPath));
+    await engine.shutdown();
+    engines.pop();
+    engine = await boot({ vaultPath: dir });
+    engines.push(engine);
+    expect(await call("automations.runs.list", {})).toMatchObject({ ok: true, data: [] });
+    expect(await call("automations.runs.read", { runId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    for (const capability of ["automations.runs.answer", "automations.runs.retry", "automations.runs.activeFor", "tasks.markDispatched"]) {
+      expect(await call(capability, { runId })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_FOUND" } });
+    }
+    expect(await call("tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [] });
+    const preview = await call("automations.preview", { id: rule.id });
+    expect(preview, JSON.stringify(preview)).toMatchObject({ ok: true, data: { candidates: [{ taskId: task.id }] } });
+    expect(await call("automations.runNow", { id: rule.id })).toMatchObject({ ok: true, data: { summary: { processed: 1, skipped: 0 } } });
+    expect(await call("tasks.dispatch.recent", {})).toMatchObject({ ok: true, data: [{ dispatch: { taskId: task.id, runId: expect.not.stringMatching(runId) } }] });
+    expect(readFileSync(claimPath, "utf8")).toBe(claim);
+    expect(readFileSync(path.join(dir, runPath))).toEqual(before);
+  }, 60_000);
   test("versioning：命名版本、时间线、读取、恢复（经 HTTP）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

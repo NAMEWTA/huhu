@@ -531,7 +531,7 @@ export class TaskDispatch {
         const acceptedAt = this.now();
         const { outcomes } = this.receipts.history(task.id, this.matchesExecution, this.onError);
         const existing = this.store.list().find((record) => record.receipt.taskId === task.id && holdsRun(record, outcomes, task));
-        if (existing || this.tasks.hasLegacyRun(task.id)) rejectDispatch("task_occupied", "该任务已有待派或活动运行", existing?.receipt);
+        if (existing) rejectDispatch("task_occupied", "该任务已有待派或活动运行", existing.receipt);
         if (!sameInput(task, input)) rejectDispatch("stale_input", "任务输入已变化，请重新读取任务");
         const execution = this.dispatchable(task);
         if (!execution) rejectDispatch("task_unavailable", "只有配置齐全且未开始的 Agent 任务可以派遣");
@@ -871,7 +871,6 @@ export class TaskDispatch {
       else if (!task || (continuation === null ? !this.dispatchable(task) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
       else if (continuation === "waiting") next.reason = "waiting_resource";
       else if (validateInput && !maySend(task, receipt, now)) next.reason = "waiting_schedule";
-      else if (this.tasks.hasLegacyRun(taskId)) next.reason = "task_occupied";
       else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
       else if (state === "busy" || state === "ready") {
         if (typeof readiness === "object") agentTarget ??= readiness.target;
@@ -899,7 +898,7 @@ export class TaskDispatch {
       // 任务编辑可以在领取落盘与本步骤之间取得写锁。
       const task = this.task(taskId);
       const source = record.snapshot.source;
-      if (!task || this.tasks.hasLegacyRun(taskId)) return false;
+      if (!task) return false;
       if (hasParent(source) ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !this.dispatchable(task)) return false;
       const validateInput = !hasParent(source) || source.kind === "follow-up";
       const now = this.now();

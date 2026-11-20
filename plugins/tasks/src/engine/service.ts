@@ -332,7 +332,7 @@ export class TasksService {
     if (cur.status === status) return cur;
     if (cur.type === "agent" && status === "in_progress" && cur.status === "not_started") throw errors.invalidInput("Agent 任务由自动化派发后进入进行中，不能手动开始");
     const now = this.d.now();
-    const active = cur.type === "agent" && status !== "completed" && (this.d.hasStartedDispatch?.(id) || this.hasLegacyRun(id));
+    const active = cur.type === "agent" && status !== "completed" && (this.d.hasStartedDispatch ? this.d.hasStartedDispatch(id) : this.hasLegacyRun(id));
     let next: TaskStatus = status;
     const changes: Record<string, unknown> = { status: next, updatedAt: iso(now) };
     let event: "start" | "close" | "reopen" | null = null;
