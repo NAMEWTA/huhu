@@ -5,34 +5,39 @@ import type { CapabilityDiscoveryEntry, CapabilityOperationLookup, CapabilityRes
 import { MAX_BODY_BYTES } from "@huhu/kernel";
 import { ConnectError, type Connection } from "../connect.js";
 
-export async function readCallFile(path: string): Promise<{ text: string } | { error: string }> {
-  let bytes: Buffer;
+type CallInput = { text: string } | { error: string };
+const tooLarge = { error: `--input-file 超过 ${MAX_BODY_BYTES / (1024 * 1024)} MiB 输入上限` };
+
+async function decodeCallInput(stream: AsyncIterable<Buffer>): Promise<CallInput> {
+  const chunks: Buffer[] = [];
+  let length = 0;
+  for await (const chunk of stream) {
+    length += chunk.length;
+    if (length > MAX_BODY_BYTES) return tooLarge;
+    chunks.push(chunk);
+  }
   try {
+    return { text: new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, length)) };
+  } catch {
+    return { error: "--input-file 必须使用 UTF-8 编码" };
+  }
+}
+
+export async function readCallFile(path: string): Promise<CallInput> {
+  try {
+    if (path === "-") return await decodeCallInput(process.stdin as AsyncIterable<Buffer>);
     const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
     try {
       const stat = await file.stat();
       if (!stat.isFile()) return { error: "--input-file 必须指向普通文件" };
-      const tooLarge = { error: `--input-file 超过 ${MAX_BODY_BYTES / (1024 * 1024)} MiB 输入上限` };
       if (stat.size > MAX_BODY_BYTES) return tooLarge;
       // end 含上界。即使文件在读取期间变大，也最多读网关上限再加一个字节。
-      const chunks: Buffer[] = [];
-      let total = 0;
-      for await (const chunk of file.createReadStream({ start: 0, end: MAX_BODY_BYTES, autoClose: false }) as AsyncIterable<Buffer>) {
-        total += chunk.length;
-        if (total > MAX_BODY_BYTES) return tooLarge;
-        chunks.push(chunk);
-      }
-      bytes = Buffer.concat(chunks, total);
+      return await decodeCallInput(file.createReadStream({ start: 0, end: MAX_BODY_BYTES, autoClose: false }) as AsyncIterable<Buffer>);
     } finally {
       await file.close();
     }
   } catch {
-    return { error: "无法读取 --input-file 指定的文件" };
-  }
-  try {
-    return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
-  } catch {
-    return { error: "--input-file 必须使用 UTF-8 编码" };
+    return { error: path === "-" ? "无法读取标准输入" : "无法读取 --input-file 指定的文件" };
   }
 }
 

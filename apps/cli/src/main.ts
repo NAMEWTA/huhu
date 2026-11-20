@@ -27,7 +27,7 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
     .command("call <capability>")
     .description("通用能力调用")
     .option("--input-json <json>", "输入 JSON", "{}")
-    .addOption(new Option("--input-file <path>", "从 UTF-8 文件读取 JSON（与 --input-json 互斥）").conflicts("inputJson"))
+    .addOption(new Option("--input-file <path>", "从 UTF-8 文件读取 JSON，- 表示标准输入（与 --input-json 互斥）").conflicts("inputJson"))
     .option("--vault <path>", "Vault 路径")
     .option("--intent-key <key>", "在支持的能力中用原意图键提交或重试")
     .option("--json", "输出 CapabilityResult JSON")

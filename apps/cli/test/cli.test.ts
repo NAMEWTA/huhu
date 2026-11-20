@@ -51,6 +51,32 @@ async function setMcp(e: RunningEngine, enabled: boolean, transport: "stdio" | "
 }
 
 describe("CLI", () => {
+  test("从标准输入读取 UTF-8 JSON 并经真实 CLI 创建任务", async () => {
+    const { spawn } = await import("node:child_process");
+    const dir = tmp();
+    const e = await boot({ vaultPath: dir, create: true });
+    engines.push(e);
+    await allowTools(e, "tasks.create");
+    const tsx = createRequire(import.meta.url).resolve("tsx/cli");
+    const cli = spawn(process.execPath, [tsx, path.resolve(import.meta.dirname, "../src/bin.ts"), "call", "tasks.create", "--input-file", "-", "--vault", dir, "--json"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      timeout: 15_000,
+    });
+    const closed = new Promise<number | null>((resolve, reject) => {
+      cli.once("close", resolve);
+      cli.once("error", reject);
+    });
+    let out = "",
+      err = "";
+    cli.stdout.setEncoding("utf8").on("data", (text) => (out += text));
+    cli.stderr.setEncoding("utf8").on("data", (text) => (err += text));
+    cli.stdin.end(Buffer.from('\uFEFF{"title":"从标准输入"}', "utf8"));
+    const code = await closed;
+    expect(code, err).toBe(0);
+    expect(JSON.parse(out)).toMatchObject({ ok: true, data: { title: "从标准输入" } });
+  }, 25_000);
+
   test("受权 CLI 和两种 MCP 复用持久意图，同 Vault 不同身份不能读同一次调用", async () => {
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
     const { createMcpServer } = await import("../src/mcp.js");
