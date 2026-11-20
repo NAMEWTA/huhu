@@ -202,6 +202,39 @@ describe("agent 动作：任务输入", () => {
     expect(existsSync(path.join(d, "claims"))).toBe(false);
   });
 
+  test("台北规则的预览与运行一次共享窗口和入选任务，未排期与逾期可独立调整", async () => {
+    const tasks = [
+      task("yesterday", { availableAt: "2026-11-09T10:00:00Z", execution: exec(1) }),
+      task("today", { availableAt: "2026-11-10T01:00:00Z", execution: exec(2) }),
+      task("tomorrow", { availableAt: "2026-11-11T01:00:00Z", execution: exec(3) }),
+      task("unscheduled", { availableAt: null, execution: exec(4) }),
+    ];
+    const { svc, d, workerCalls } = setup({ tasks });
+    const trigger = { ...every5, zone: "Asia/Taipei" };
+    const coreInput = { source: "tasks" as const, tags: [], maxConcurrent: 1 };
+    const stored = await svc.create({
+      title: "台北今天任务",
+      trigger,
+      action: { kind: "agent", input: { ...coreInput, window: { kind: "today" }, includeOverdue: true, includeUnscheduled: false } },
+    });
+    expect(svc.preview(stored.id).candidates.map(({ taskId }) => taskId)).toEqual(["yesterday", "today"]);
+    const rule = await svc.update(stored.id, stored.version, { action: { kind: "agent", input: { ...coreInput, includeOverdue: false, includeUnscheduled: true } } });
+    expect(rule.data.action).toMatchObject({ input: { window: { kind: "today" }, includeOverdue: false, includeUnscheduled: true } });
+    const before = readdirSync(d).sort();
+    const preview = svc.preview(rule.id);
+    expect(readdirSync(d).sort()).toEqual(before);
+    expect(preview.candidates.map(({ taskId }) => taskId)).toEqual(["today", "unscheduled"]);
+    expect(preview.skipped).toMatchObject([
+      { taskId: "yesterday", reason: "outside-window" },
+      { taskId: "tomorrow", reason: "not-due" },
+    ]);
+    expect(await svc.activate(rule.id, "manual")).toMatchObject({ summary: { processed: 2, skipped: 2 } });
+    expect(workerCalls.map(({ task }) => task.id)).toEqual(preview.candidates.map(({ taskId }) => taskId));
+    expect(svc.preview(rule.id).next).toEqual(preview.next);
+    expect(svc.rule(rule.id).version).toBe(rule.version);
+    expect(svc.lastActivatedFor(rule.id)).toBeNull();
+  });
+
   test("立即运行：每个候选一个 task-run；先 markDispatched（幂等键 = runId）再启动 worker；再次运行不重复；重开后才再处理", async () => {
     const ctx = setup({ tasks: four() });
     const { svc, tasks, workerCalls, calls } = ctx;

@@ -14,7 +14,22 @@ export interface SnapshotTask {
   dispatchBlockers: string[];
 }
 
-export type SkipReason = "not-open" | "not-agent" | "tag-mismatch" | "not-due" | "task-blocked" | "missing-space" | "space-inaccessible" | "space-busy" | "cli-missing" | "succeeded" | "retryable" | "running" | "held-after-restore";
+export type SkipReason =
+  | "not-open"
+  | "not-agent"
+  | "tag-mismatch"
+  | "not-due"
+  | "outside-window"
+  | "unscheduled"
+  | "task-blocked"
+  | "missing-space"
+  | "space-inaccessible"
+  | "space-busy"
+  | "cli-missing"
+  | "succeeded"
+  | "retryable"
+  | "running"
+  | "held-after-restore";
 
 export interface Claim {
   processingKey: string;
@@ -50,13 +65,21 @@ export interface Skipped {
   detail?: string;
 }
 
+export interface ScanFilter {
+  tags?: string[];
+  now?: Date;
+  window?: { start: number; end: number };
+  includeOverdue?: boolean;
+  includeUnscheduled?: boolean;
+}
+
 export const processingKeyOf = (t: Pick<SnapshotTask, "id" | "inputRevision" | "inputHash">): string => `${t.id}:${t.inputRevision}:${t.inputHash}`;
 
 /**
  * 只读分类：候选与跳过原因。预览和真实扫描共用，保证两者一致。
  * 只有 type=agent、status=not_started 且符合标签筛选的任务才可能成为候选。
  */
-export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: { tags?: string[]; now?: Date } = {}): { candidates: Candidate[]; skipped: Skipped[] } {
+export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: ScanFilter = {}): { candidates: Candidate[]; skipped: Skipped[] } {
   const candidates: Candidate[] = [];
   const skipped: Skipped[] = [];
   const usedSpaces = new Set<string>(); // 一次扫描里同一 Space 只选一个候选
@@ -78,6 +101,17 @@ export function classify(tasks: SnapshotTask[], env: ScanEnv, filter: { tags?: s
     if (!isTaskAvailable(task.availableAt, now)) {
       skip("not-due", task.availableAt ?? undefined);
       continue;
+    }
+    if (task.availableAt == null && filter.includeUnscheduled === false) {
+      skip("unscheduled");
+      continue;
+    }
+    if (task.availableAt != null && filter.window) {
+      const instant = Date.parse(task.availableAt);
+      if (instant >= filter.window.end || (instant < filter.window.start && !filter.includeOverdue)) {
+        skip("outside-window", task.availableAt);
+        continue;
+      }
     }
     if (task.dispatchBlockers.length > 0) {
       skip("task-blocked", task.dispatchBlockers.join("；"));

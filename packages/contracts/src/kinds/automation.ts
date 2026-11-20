@@ -1,10 +1,23 @@
 import { z } from "zod";
 import { HuhuHeaderSchema, IsoTime, RunState, dateLike } from "./common.js";
+import { TaskAvailableAtSchema } from "./task.js";
+
+const TaskDispatchWindowSchema = z
+  .discriminatedUnion("kind", [z.strictObject({ kind: z.enum(["today", "week", "month", "next-seven-days"]) }), z.strictObject({ kind: z.literal("custom"), start: TaskAvailableAtSchema, end: TaskAvailableAtSchema })])
+  .refine((window) => window.kind !== "custom" || Date.parse(window.start) < Date.parse(window.end), "派遣窗口的结束时刻必须晚于开始时刻");
+export type TaskDispatchWindow = z.infer<typeof TaskDispatchWindowSchema>;
 
 /** 自动化只有三类动作：agent（输入来自任务或一条提示词）、terminal（运行命令）、reminder（提醒或建任务）。 */
 export const AgentInputSchema = z.discriminatedUnion("source", [
   /** 扫描 type=agent、status=not_started 的任务；`tags` 是全部匹配的标签筛选（空表示不限）。 */
-  z.object({ source: z.literal("tasks"), tags: z.array(z.string()).default([]), maxConcurrent: z.number().int().min(1).max(4).default(1) }),
+  z.object({
+    source: z.literal("tasks"),
+    tags: z.array(z.string()).default([]),
+    maxConcurrent: z.number().int().min(1).max(4).default(1),
+    window: TaskDispatchWindowSchema.nullable().optional(),
+    includeOverdue: z.boolean().optional(),
+    includeUnscheduled: z.boolean().optional(),
+  }),
   /** 一条固定提示词（规则正文就是提示词），不涉及任务与 claim。 */
   z.object({
     source: z.literal("prompt"),

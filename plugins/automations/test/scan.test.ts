@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { ClaimStore } from "../src/engine/claims.js";
+import { dispatchWindow } from "../src/engine/dispatch-window.js";
 import { classify, processingKeyOf, type Claim, type ScanEnv, type SnapshotTask } from "../src/engine/scan.js";
 
 const dirs: string[] = [];
@@ -25,6 +26,26 @@ const agent = (id: string, over: Partial<SnapshotTask> = {}): SnapshotTask => ({
 function env(over: Partial<ScanEnv> = {}, claims: Claim[] = []): ScanEnv {
   return { claims: (k) => claims.find((c) => c.processingKey === k) ?? null, holds: () => false, spaceAccessible: () => "ok", spaceBusy: () => false, cliAvailable: () => true, ...over };
 }
+
+test("窗口使用规则当地日历的半开边界，含周一、跨月和 DST", () => {
+  const bounds = (...args: Parameters<typeof dispatchWindow>) => {
+    const { start, end } = dispatchWindow(...args);
+    return [new Date(start).toISOString(), new Date(end).toISOString()];
+  };
+  const monday = new Date("2026-11-16T02:00:00Z");
+  expect(bounds({ kind: "today" }, "Asia/Taipei", monday)).toEqual(["2026-11-15T16:00:00.000Z", "2026-11-16T16:00:00.000Z"]);
+  expect(bounds({ kind: "week" }, "Asia/Taipei", monday)).toEqual(["2026-11-15T16:00:00.000Z", "2026-11-22T16:00:00.000Z"]);
+  expect(bounds({ kind: "month" }, "Asia/Taipei", monday)).toEqual(["2026-10-31T16:00:00.000Z", "2026-11-30T16:00:00.000Z"]);
+  expect(bounds({ kind: "next-seven-days" }, "Asia/Taipei", monday)).toEqual(["2026-11-15T16:00:00.000Z", "2026-11-22T16:00:00.000Z"]);
+  expect(bounds({ kind: "next-seven-days" }, "Asia/Taipei", new Date("2026-11-30T02:00:00Z"))).toEqual(["2026-11-29T16:00:00.000Z", "2026-12-06T16:00:00.000Z"]);
+  expect(bounds({ kind: "today" }, "America/New_York", new Date("2026-03-08T16:00:00Z"))).toEqual(["2026-03-08T05:00:00.000Z", "2026-03-09T04:00:00.000Z"]);
+  expect(bounds({ kind: "today" }, "America/New_York", new Date("2026-11-01T16:00:00Z"))).toEqual(["2026-11-01T04:00:00.000Z", "2026-11-02T05:00:00.000Z"]);
+  expect(bounds({ kind: "custom", start: "2026-11-20T09:00:00+08:00", end: "2026-11-20T10:00:00+08:00" }, "Asia/Taipei", monday)).toEqual(["2026-11-20T01:00:00.000Z", "2026-11-20T02:00:00.000Z"]);
+  const window = dispatchWindow({ kind: "today" }, "Asia/Taipei", monday);
+  const setup = (now: Date) => classify([agent("开始", { availableAt: new Date(window.start).toISOString() }), agent("终点", { availableAt: new Date(window.end).toISOString() })], env(), { window, now });
+  expect(setup(new Date(window.start)).candidates.map(({ task }) => task.id)).toEqual(["开始"]);
+  expect(setup(new Date(window.end)).skipped.map(({ task, reason }) => [task.id, reason])).toEqual([["终点", "outside-window"]]);
+});
 
 describe("classify（预览与扫描共用）", () => {
   test("只有 type=agent 且 status=not_started 的任务才是候选；跳过项带原因", () => {

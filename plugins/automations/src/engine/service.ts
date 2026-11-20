@@ -6,7 +6,8 @@ import type { Entity, SemanticRepository } from "@huhu/vault";
 import { nextRuns, validateSchedule } from "../shared/cron.js";
 import { redactSecrets } from "../shared/redact.js";
 import type { ClaimStore } from "./claims.js";
-import { ACTIVE_CLAIM, classify, type ScanEnv, type SnapshotTask } from "./scan.js";
+import { dispatchWindow } from "./dispatch-window.js";
+import { ACTIVE_CLAIM, classify, type ScanEnv, type ScanFilter, type SnapshotTask } from "./scan.js";
 
 /** 两个目录是否是同一个目录（macOS 上临时目录 /var 是 /private/var 的符号链接，Windows 上大小写不敏感）：优先比 realpath。 */
 function sameDir(a: string, b: string): boolean {
@@ -130,6 +131,17 @@ const resumePrompt = (qs: { id: string; text: string; answer: string | null }[])
   ].join("\n");
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 type RuleData = AutomationRuleFrontmatter;
+type TaskScanInput = Extract<Extract<RuleData["action"], { kind: "agent" }>["input"], { source: "tasks" }>;
+
+function taskScanFilter(input: TaskScanInput, zone: string, now: Date): ScanFilter {
+  return {
+    tags: input.tags,
+    now,
+    ...(input.window && { window: dispatchWindow(input.window, zone, now) }),
+    includeOverdue: input.includeOverdue ?? false,
+    includeUnscheduled: input.includeUnscheduled ?? !input.window,
+  };
+}
 
 export class AutomationsService {
   private running = new Set<string>();
@@ -226,6 +238,11 @@ export class AutomationsService {
   async update(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>, body?: string) {
     const cur = this.rule(id);
     if (patch.trigger) validateSchedule(patch.trigger.cron, patch.trigger.zone);
+    const currentAction = cur.data.action;
+    const action = patch.action;
+    if (action?.kind === "agent" && action.input.source === "tasks" && currentAction.kind === "agent" && currentAction.input.source === "tasks") {
+      patch = { ...patch, action: { ...action, input: { ...currentAction.input, ...action.input } } };
+    }
     // 正文只有“agent + 提示词”的规则才有意义（它就是提示词）：其他动作不接受非空正文；改成别的动作时清空，避免旧提示词留在文件里被误用
     const hasPrompt = (a: RuleData["action"]) => a.kind === "agent" && a.input.source === "prompt";
     const next = patch.action ?? cur.data.action;
@@ -292,7 +309,7 @@ export class AutomationsService {
     const a = r.data.action;
     if (a.kind !== "agent" || a.input.source !== "tasks") return { next, tasksDisabled: false, candidates: [], skipped: [] };
     if (!this.d.taskQuery()) return { next, tasksDisabled: true, candidates: [], skipped: [] };
-    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), { tags: a.input.tags, now }); // 含非 agent / 已开始 / 标签不符的跳过项
+    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), taskScanFilter(a.input, r.data.trigger.zone, now));
     return {
       next,
       tasksDisabled: false,
@@ -344,13 +361,16 @@ export class AutomationsService {
     if (this.running.has(ruleId)) throw errors.invalidInput("这条规则正在执行");
     this.running.add(ruleId);
     this.ruleAbort.set(ruleId, new AbortController());
-    const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: scheduledFor ? iso(scheduledFor) : null, startedAt: iso(this.d.now()) };
+    const now = this.d.now();
+    const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: scheduledFor ? iso(scheduledFor) : null, startedAt: iso(now) };
     this.writeActivation(rec);
     this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger });
     try {
       let summary: ActivationRecord["summary"];
       const a = rule.data.action;
-      if (a.kind === "agent") summary = a.input.source === "tasks" ? await this.scan(rule.id, a.input.maxConcurrent, a.input.tags, rule.body) : await this.runPromptAction(rule.id, rule.data.title, rule.body, a.input, trigger);
+      if (a.kind === "agent")
+        summary =
+          a.input.source === "tasks" ? await this.scan(rule.id, a.input.maxConcurrent, taskScanFilter(a.input, rule.data.trigger.zone, now), rule.body) : await this.runPromptAction(rule.id, rule.data.title, rule.body, a.input, trigger);
       else if (a.kind === "terminal") summary = await this.runTerminalAction(rule.id, rule.data.title, a, trigger);
       else if (a.kind === "reminder") summary = await this.runReminderAction(rule.data.title, a);
       else summary = { state: "unsupported" };
@@ -509,17 +529,17 @@ export class AutomationsService {
     this.d.publish("run.stateChanged", { runId, kind: "automation-run", state: outcome.state });
   }
 
-  private async scan(ruleId: string, maxConcurrent: number, tags: string[], instruction: string): Promise<{ processed: number; skipped: number } | { state: string }> {
+  private async scan(ruleId: string, maxConcurrent: number, filter: ScanFilter, instruction: string): Promise<{ processed: number; skipped: number } | { state: string }> {
     if (!this.d.taskQuery()) return { state: "tasks-disabled" }; // ACC-AU-10：任务插件已停用，跳过
     await this.d.refreshClis?.().catch(() => undefined);
-    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), { tags, now: this.d.now() });
+    const { candidates, skipped } = classify(this.allTasks(), this.scanEnv(), filter);
     let next = 0;
     let processed = 0;
     const worker = async () => {
       for (;;) {
         const c = candidates[next++];
         if (!c) return;
-        if (await this.process(ruleId, c.task, c.processingKey, instruction)) processed++;
+        if (await this.process(ruleId, c.task, c.processingKey, instruction, filter)) processed++;
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, Math.min(4, maxConcurrent)) }, worker));
@@ -546,13 +566,13 @@ export class AutomationsService {
    * （幂等键是本次 claim 的 runId；条件：任务仍是未开始且完整 processingKey 一致）→ 释放互斥 → 启动 worker。
    * markDispatched 失败：撤回 claim 与 task-run，记录跳过；下一次触发生成新的 claim 和 runId，自然重试。
    */
-  private async process(ruleId: string, snap: SnapshotTask, processingKey: string, instruction: string): Promise<boolean> {
+  private async process(ruleId: string, snap: SnapshotTask, processingKey: string, instruction: string, filter: ScanFilter): Promise<boolean> {
     if (this.abort.signal.aborted) return false; // 插件已停用/引擎关闭：不再启动新的 Agent 进程
     const dispatched = await withDispatchLock(async () => {
       const task = this.d.taskQuery()?.snapshot(snap.id);
       if (!task || task.type !== "agent" || !task.execution?.spaceId || !task.execution.provider) return null;
       if (task.inputHash !== snap.inputHash || task.inputRevision !== snap.inputRevision) return null; // 快照后任务又被编辑：本次不处理
-      if (classify([this.snapshotOf(task)], this.scanEnv(), { now: this.d.now() }).candidates.length === 0) return null; // 互斥内重新预检：Space 已被占用、已有 claim、任务已不是未开始……
+      if (classify([this.snapshotOf(task)], this.scanEnv(), { ...filter, now: this.d.now() }).candidates.length === 0) return null; // 互斥内重新预检
       const space = this.d.spaceState(task.execution.spaceId);
       if (space.state !== "ok" || !space.root) return null;
       const snapshotText = this.d.readVaultFile(task.path);
