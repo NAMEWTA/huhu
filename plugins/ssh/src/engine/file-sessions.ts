@@ -49,8 +49,10 @@ export class FileSessions {
     return { ...session, signal: controller.signal };
   }
 
-  close(id: string): void {
-    this.bindings.get(id)?.controller.abort();
+  close(id: string, attached = false): void {
+    const binding = this.bindings.get(id);
+    if (attached && binding?.detached) return;
+    binding?.controller.abort();
     this.bindings.delete(id);
   }
 

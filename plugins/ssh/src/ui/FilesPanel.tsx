@@ -5,6 +5,7 @@ import type { FileDirectory, FileDocument, FileEntry, FileSearch, FileSession } 
 import type { TransferRequest } from "../shared/transfers.js";
 import { FileTable } from "./FileTable.js";
 import { RemoteTextEditor } from "./RemoteTextEditor.js";
+import { RemoteCopyDialog } from "./RemoteCopyDialog.js";
 import { t } from "./i18n.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
@@ -18,7 +19,7 @@ const bridge = (): HostBridge => (globalThis as { huhuHost?: HostBridge }).huhuH
 const join = (dir: string, name: string) => (dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`);
 
 /** SSH → 文件（SFTP）：浏览、文本预览、上传、下载、新建文件夹、重命名、删除；覆盖与删除都要先确认。 */
-export function FilesPanel({ session, toolbar, title = t.files.title, search = false }: { session: FileSession; toolbar?: ReactNode; title?: string | undefined; search?: boolean }) {
+export function FilesPanel({ session, toolbar, title = t.files.title, search = false, focus }: { session: FileSession; toolbar?: ReactNode; title?: string | undefined; search?: boolean; focus?: { path: string } | undefined }) {
   const engine = useEngine();
   const [cwd, setCwd] = useState("");
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
@@ -27,6 +28,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [pending, setPending] = useState<Pending | null>(null);
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
   const [document, setDocument] = useState<FileDocument>();
+  const [copyEntry, setCopyEntry] = useState<{ name: string; path: string }>();
   const [folder, setFolder] = useState("");
   const [upFrom, setUpFrom] = useState("");
   const [field, setField] = useState("");
@@ -68,6 +70,16 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
     void load("");
     return () => request.current?.abort();
   }, [load]);
+  useEffect(() => {
+    if (!focus) return;
+    const index = focus.path.lastIndexOf("/");
+    void load(focus.path.slice(0, index) || "/").then((dir) => {
+      if (dir !== undefined) {
+        setFilter("");
+        setLocated(focus.path.slice(index + 1));
+      }
+    });
+  }, [load, focus]);
 
   async function navigate(dir: string, name?: string) {
     const next = await load(dir);
@@ -114,16 +126,18 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
     await go(false);
   }
 
-  async function enqueue(input: TransferRequest, after: () => void) {
+  async function enqueue(input: TransferRequest, after?: () => void): Promise<boolean> {
     setBusy(true);
     setError(null);
     setNote(null);
     try {
       await engine.call("ssh.transfers.start", input, { write: true });
       setNote("已加入传输中心");
-      after();
+      after?.();
+      return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -350,6 +364,18 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
           onOpen={(entry) => void openEntry(entry)}
           actions={(e) => (
             <>
+              {queuedTransfers && e.type === "file" && (
+                <Button
+                  disabled={!ready}
+                  aria-label={`跨 SSH 复制 ${e.name}`}
+                  onClick={() => {
+                    setError(null);
+                    setCopyEntry({ name: e.name, path: join(cwd, e.name) });
+                  }}
+                >
+                  跨 SSH 复制
+                </Button>
+              )}
               {e.type === "file" && (
                 <Button disabled={!ready} aria-label={`编辑 ${e.name}`} onClick={() => void editEntry(e)}>
                   编辑
@@ -395,6 +421,20 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
         </>
       ) : null}
       {document && <RemoteTextEditor key={document.path} initial={document} session={session} onClose={() => setDocument(undefined)} />}
+      {copyEntry && (
+        <RemoteCopyDialog
+          source={session}
+          name={copyEntry.name}
+          error={error}
+          onClose={() => setCopyEntry(undefined)}
+          onCopy={(to, path) =>
+            enqueue({
+              source: { kind: "remote", fileSessionId, path: copyEntry.path },
+              target: { kind: "remote", fileSessionId: to, path },
+            })
+          }
+        />
+      )}
 
       <form
         className="hu-form"

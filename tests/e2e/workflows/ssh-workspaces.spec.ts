@@ -5,7 +5,7 @@ import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
 import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
-import type { TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
+import type { TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
 
 async function sshCall<T>(page: Page, capability: string, input: unknown = {}): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
@@ -608,6 +608,19 @@ test("H7.1/H7.2 传输中心保留任务和来源，拒绝或确认覆盖后核�
     await openCenter();
     await expect(rows.first()).toHaveAttribute("data-state", "completed");
     expect(readFileSync(download).toString()).toBe("等待确认时改写的目标");
+    await rows.first().getByRole("button", { name: "返回原文件会话" }).click();
+    await expect(panel.getByRole("button", { name: "transfer.txt", exact: true })).toHaveAttribute("aria-current", "location");
+    writeFileSync(download, "本机旧目标");
+    await panel.getByRole("button", { name: "下载 transfer.txt" }).click();
+    await panel.getByTestId("files-save-to").fill(download);
+    await panel.getByTestId("files-download-go").click();
+    await expect(panel.getByTestId("files-note")).toHaveText("已加入传输中心");
+    await openCenter();
+    await expect(rows.first()).toHaveAttribute("data-state", "waiting");
+    await rows.first().getByRole("button", { name: "处理冲突" }).click();
+    await modal.getByRole("button", { name: "确认覆盖" }).click();
+    await expect(rows.first()).toHaveAttribute("data-state", "completed");
+    expect(readFileSync(download).toString()).toBe("等待确认时改写的目标");
     const listed = await sshCall<TransferQueue>(page, "ssh.transfers.list");
     expect(listed.data.jobs.find(({ transferId }) => transferId === confirmed)?.target).toMatchObject({ fileSessionId: originalFileSession });
     await page.getByRole("button", { name: "清理已结束记录" }).click();
@@ -617,5 +630,175 @@ test("H7.1/H7.2 传输中心保留任务和来源，拒绝或确认覆盖后核�
   } finally {
     await fixture.close();
     await remote.close();
+  }
+});
+
+test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保留原目标", async () => {
+  test.setTimeout(90_000);
+  const password = randomUUID();
+  let ended = Promise.withResolvers<void>();
+  let held = false;
+  let delay = true;
+  let failInstall = false;
+  const retryPath = "/home/test/retry.bin";
+  const cancelPath = "/home/test/cancel.bin";
+  const source = await startFakeSsh({ password });
+  const destination = await startFakeSsh({
+    password,
+    waitWriteFile: (file) => {
+      if (!delay || !file.endsWith(".part")) return undefined;
+      held = true;
+      return ended.promise;
+    },
+    failRename: (from, to) => {
+      if (!failInstall || to !== retryPath || !from.endsWith(".part")) return false;
+      failInstall = false;
+      return true;
+    },
+  });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    const prefix = Buffer.from("一段可校验前缀\r\n");
+    const bytes = Buffer.concat([prefix, Buffer.alloc(192 * 1024, 0x61)]);
+    const name = "/home/test/cross.bin";
+    const bad = "/home/test/bad.bin";
+    source.fs.files.set(name, bytes);
+    source.fs.permissions.set(name, 0o640);
+    source.fs.timestamps.set(name, 1_650_000_123);
+    destination.fs.files.set(name, prefix);
+    destination.fs.files.set(bad, Buffer.from("错误前缀"));
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "跨端源", source.port, password);
+    const b = await configureLoopback(page, "跨端目标", destination.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "跨端验证",
+      layout: { kind: "tabs" },
+      panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+    });
+    expect(started.ok).toBe(true);
+    await page.getByRole("button", { name: /跨端验证.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const attached = run.getByTestId("files-panel");
+    const selected = page.getByTestId("ssh-independent-files").filter({ visible: true });
+    const center = page.getByRole("button", { name: "传输中心", exact: true });
+    async function createFileView() {
+      await run.getByRole("button", { name: "信任并连接" }).click();
+      await run.getByRole("button", { name: "分栏文件" }).click();
+      await attached.getByRole("button", { name: "打开独立双栏" }).click();
+      return (await selected.getAttribute("data-file-session-id"))!;
+    }
+    const origin = await createFileView();
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await run.getByRole("button", { name: "跨端目标", exact: true }).click();
+    const target = await createFileView();
+    await page
+      .getByRole("complementary", { name: "独立文件会话" })
+      .getByRole("button", { name: /跨端源.*原连接在线/ })
+      .click();
+    const rows = page.getByTestId("ssh-transfer-row");
+    const rowById = (id: string) => rows.and(page.locator(`[data-transfer-id="${id}"]`));
+    async function copy(to: string) {
+      await selected.getByRole("button", { name: "跨 SSH 复制 cross.bin" }).click();
+      const dialog = page.getByRole("dialog", { name: "复制到另一 SSH 会话" });
+      await dialog.getByLabel("目标文件会话", { exact: true }).selectOption(target);
+      await dialog.getByLabel("远端目标绝对文件路径").fill(to);
+      await dialog.getByRole("button", { name: "加入传输中心" }).click();
+      await expect(dialog).toHaveCount(0);
+      await center.click();
+      const first = rows.first();
+      await expect(first).toHaveAttribute("data-state", "waiting");
+      return (await first.getAttribute("data-transfer-id"))!;
+    }
+    const id = await copy(name);
+    const job = rowById(id);
+    await job.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("button", { name: "校验后续传" }).click();
+    await expect.poll(() => held).toBe(true);
+    await job.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect(job).toHaveAttribute("data-state", "paused");
+    delay = false;
+    ended.resolve();
+    expect(destination.fs.files.get(name)).toEqual(prefix);
+    await job.getByRole("button", { name: "继续", exact: true }).click();
+    await expect(job).toHaveAttribute("data-state", "completed");
+    expect(destination.fs.files.get(name)).toEqual(bytes);
+    expect(source.fs.files.get(name)).toEqual(bytes);
+    expect(destination.fs.timestamps.get(name)).toBe(1_650_000_123);
+    expect(destination.fs.permissions.get(name)).toBe(0o640);
+    await job.getByRole("button", { name: "返回原文件会话" }).click();
+    await expect(selected).toHaveAttribute("data-file-session-id", origin);
+    const mismatch = rowById(await copy(bad));
+    await mismatch.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("button", { name: "校验后续传" }).click();
+    await expect(mismatch).toHaveAttribute("data-state", "failed");
+    await expect(mismatch).toContainText("续传前缀不匹配");
+    expect(destination.fs.files.get(bad)?.toString()).toBe("错误前缀");
+    expect([...destination.fs.files.keys()].sort()).toEqual([bad, name].sort());
+    await mismatch.getByRole("button", { name: "返回原文件会话" }).click();
+    destination.fs.files.set(retryPath, Buffer.from("原可恢复目标"));
+    const retryId = await copy(retryPath);
+    const retry = rowById(retryId);
+    failInstall = true;
+    await retry.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("button", { name: "确认覆盖" }).click();
+    await expect(retry).toHaveAttribute("data-state", "failed");
+    expect(destination.fs.files.get(retryPath)?.toString()).toBe("原可恢复目标");
+    expect([...destination.fs.files.keys()].filter((file) => file.includes(".huhu-transfer-"))).toEqual([]);
+    await retry.getByRole("button", { name: "重试原任务" }).click();
+    await expect(retry).toHaveAttribute("data-state", "completed");
+    expect(destination.fs.files.get(retryPath)).toEqual(bytes);
+
+    await retry.getByRole("button", { name: "返回原文件会话" }).click();
+    destination.fs.files.set(cancelPath, Buffer.from("取消时的原目标"));
+    ended = Promise.withResolvers<void>();
+    delay = true;
+    held = false;
+    const cancelling = rowById(await copy(cancelPath));
+    await cancelling.getByRole("button", { name: "处理冲突" }).click();
+    await page.getByRole("button", { name: "确认覆盖" }).click();
+    await expect.poll(() => held).toBe(true);
+    await cancelling.getByRole("button", { name: "取消传输" }).click();
+    delay = false;
+    ended.resolve();
+    await expect(cancelling).toHaveAttribute("data-state", "cancelled");
+    expect(destination.fs.files.get(cancelPath)?.toString()).toBe("取消时的原目标");
+    expect([...destination.fs.files.keys()].filter((file) => file.includes(".huhu-transfer-"))).toEqual([]);
+
+    const input = { source: { kind: "remote", fileSessionId: origin, path: name }, target: { kind: "remote", fileSessionId: target, path: bad } };
+    const linkPath = "/home/test/linked-target";
+    destination.fs.links.set(linkPath, retryPath);
+    const linked = await sshCall<TransferJob>(page, "ssh.transfers.start", { ...input, target: { ...input.target, path: linkPath } });
+    expect(linked.ok).toBe(true);
+    await expect(rowById(linked.data.transferId)).toHaveAttribute("data-state", "failed");
+    await expect(rowById(linked.data.transferId)).toContainText("链接和目录不得覆盖");
+    expect(destination.fs.links.get(linkPath)).toBe(retryPath);
+    expect(destination.fs.files.get(retryPath)).toEqual(bytes);
+    const capacity = (await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.liveLimit;
+    const jobs: string[] = [];
+    for (let index = 0; index < capacity; index++) {
+      const queued = await sshCall<TransferJob>(page, "ssh.transfers.start", input);
+      expect(queued.ok).toBe(true);
+      jobs.push(queued.data.transferId);
+    }
+    const full = await sshCall<TransferJob>(page, "ssh.transfers.start", input);
+    expect(full.error?.message).toContain("队列已满");
+    expect((await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.canQueue).toBe(false);
+    const cancelled = await sshCall<TransferJob>(page, "ssh.transfers.cancel", { transferId: jobs.at(-1) });
+    expect(cancelled.data.state).toBe("cancelled");
+    expect((await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.canQueue).toBe(true);
+    expect((await sshCall(page, "ssh.disconnect", { hostId: a.hostId })).ok).toBe(true);
+    await expect
+      .poll(async () => {
+        const list = await sshCall<TransferQueue>(page, "ssh.transfers.list");
+        const original = list.data.jobs.filter(({ transferId }) => jobs.includes(transferId));
+        return original.length === jobs.length && original.every(({ state }) => state === "failed" || state === "cancelled");
+      })
+      .toBe(true);
+    expect(destination.fs.files.get(bad)?.toString()).toBe("错误前缀");
+  } finally {
+    ended.resolve();
+    await fixture.close();
+    await Promise.all([source.close(), destination.close()]);
   }
 });

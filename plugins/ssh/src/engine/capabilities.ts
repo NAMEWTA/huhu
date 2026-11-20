@@ -6,7 +6,7 @@ import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-sche
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import { EDIT_MAX_BYTES, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileSearch, FileSession, FileSessionId } from "../shared/files.js";
-import { TransferChoice, TransferId, TransferJob, TransferQueue, TransferRequest } from "../shared/transfers.js";
+import { TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 
@@ -63,6 +63,39 @@ export const sshCapabilityDescriptors = {
     input: TransferId,
     output: TransferJob,
   }),
+  transferPause: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.pause",
+    title: "暂停文件传输",
+    description: "暂停排队或正在写入暂存的任务。",
+    scope: "execute",
+    risk: "normal",
+    input: TransferId,
+    output: TransferJob,
+  }),
+  transferResume: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.resume",
+    title: "继续文件传输",
+    description: "恢复原任务与原端点，不重新取目标。",
+    scope: "execute",
+    risk: "normal",
+    input: TransferId,
+    output: TransferJob,
+  }),
+  transferRetry: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.transfers.retry",
+    title: "重试文件传输",
+    description: "沿用原任务、原连接及已核对的快照重试。",
+    scope: "execute",
+    risk: "high",
+    input: TransferId,
+    output: TransferJob,
+  }),
   transferOrigin: defineCapabilityDescriptor({
     ...ssh,
     desktopOnly: true,
@@ -72,7 +105,7 @@ export const sshCapabilityDescriptors = {
     scope: "execute",
     risk: "normal",
     input: TransferId,
-    output: FileSession,
+    output: TransferLocation,
   }),
   transferClear: defineCapabilityDescriptor({
     ...ssh,
@@ -361,7 +394,7 @@ export const sshCapabilityDescriptors = {
     description: "取消此文件会话中的工作并移除绑定。",
     scope: "execute",
     risk: "normal",
-    input: FileSessionId,
+    input: FileSessionId.extend({ attached: z.boolean().optional() }),
     output: Ok,
   }),
   fileSessionsLocalList: defineCapabilityDescriptor({

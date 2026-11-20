@@ -1,14 +1,14 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useEffect, useState } from "react";
-import type { FileSession } from "../shared/files.js";
-import type { TransferJob, TransferOrigin, TransferQueue } from "../shared/transfers.js";
+import type { TransferJob, TransferLocation, TransferOrigin, TransferQueue } from "../shared/transfers.js";
 
 const labels: Record<TransferJob["state"], string> = {
   queued: "排队中",
   checking: "核对文件",
   waiting: "等待处理同名文件",
   running: "传输中",
+  paused: "已暂停",
   committing: "校验完成，提交目标",
   cancelling: "正在取消",
   completed: "已完成",
@@ -19,7 +19,7 @@ const labels: Record<TransferJob["state"], string> = {
 const describe = (entry: TransferOrigin) => (entry.kind === "remote" ? `${entry.session.name} · ${entry.session.user}@${entry.session.host}:${entry.session.port}` : "本机");
 const leaf = (entry: TransferOrigin) => entry.path.split(/[\\/]/).at(-1);
 
-export function TransferCenter({ onOrigin }: { onOrigin: (session: FileSession) => void }) {
+export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocation) => void }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const queue = useCapability<TransferQueue>("ssh.transfers.list");
@@ -30,7 +30,7 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: FileSession) 
     void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.transfers.list"] });
   }, [qc, engine.vaultId]);
   useEngineEvents((event) => {
-    if (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-transfer") {
+    if (event.type === "ssh.connectionChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-transfer")) {
       void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.transfers.list"] });
     }
   });
@@ -51,7 +51,7 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: FileSession) 
   async function returnOrigin(transferId: string) {
     setError("");
     try {
-      onOrigin(await engine.call<FileSession>("ssh.transfers.origin", { transferId }, { write: true }));
+      onOrigin(await engine.call<TransferLocation>("ssh.transfers.origin", { transferId }, { write: true }));
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     }
@@ -97,7 +97,22 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: FileSession) 
                   处理冲突
                 </Button>
               )}
-              {["queued", "checking", "waiting", "running"].includes(job.state) && (
+              {(job.state === "queued" || job.state === "running") && (
+                <Button disabled={saving} onClick={() => void action("ssh.transfers.pause", { transferId: job.transferId })}>
+                  暂停
+                </Button>
+              )}
+              {job.state === "paused" && (
+                <Button disabled={saving} onClick={() => void action("ssh.transfers.resume", { transferId: job.transferId })}>
+                  继续
+                </Button>
+              )}
+              {job.state === "failed" && job.errorCode !== "VERSION_CONFLICT" && job.errorCode !== "SSH_DISCONNECTED" && (
+                <Button disabled={saving} onClick={() => void action("ssh.transfers.retry", { transferId: job.transferId })}>
+                  重试原任务
+                </Button>
+              )}
+              {["queued", "checking", "waiting", "running", "paused"].includes(job.state) && (
                 <Button disabled={saving} onClick={() => void action("ssh.transfers.cancel", { transferId: job.transferId })}>
                   取消传输
                 </Button>
@@ -123,6 +138,9 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: FileSession) 
               <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "skip" }, () => select(undefined))}>
                 跳过
               </Button>
+              <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "resume" }, () => select(undefined))}>
+                校验后续传
+              </Button>
               <Button variant="danger" disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "replace" }, () => select(undefined))}>
                 确认覆盖
               </Button>
@@ -132,7 +150,7 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: FileSession) 
           <p>
             {describe(selection.target)} <code>{selection.target.path}</code>
           </p>
-          <p>确认覆盖后会重新核对目标，暂存通过校验后才提交。</p>
+          <p>覆盖和续传都会重新核对目标。续传还会验证已有字节是源文件的完整前缀。</p>
         </Dialog>
       )}
     </section>

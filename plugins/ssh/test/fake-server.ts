@@ -11,6 +11,7 @@ export interface FakeFs {
   dirs: Set<string>;
   links: Map<string, string>;
   permissions: Map<string, number>;
+  timestamps: Map<string, number>;
 }
 
 export interface FakeSshOptions {
@@ -25,6 +26,8 @@ export interface FakeSshOptions {
   onShellInput?: (text: string) => void;
   holdReadDirectory?: (dir: string) => boolean;
   onWriteFile?: (file: string) => void;
+  waitWriteFile?: (file: string) => Promise<void> | undefined;
+  failRename?: (from: string, to: string) => boolean;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -44,7 +47,7 @@ export function genHostKey(): string {
 export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: number; fingerprint: string; close(): Promise<void>; conns: Connection[]; closed(): number; fs: FakeFs }> {
   const publicKey = o.publicKey === undefined ? undefined : utils.parseKey(o.publicKey);
   if (publicKey instanceof Error) throw new Error("测试公钥无法解析");
-  const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map(), permissions: new Map() };
+  const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map(), permissions: new Map(), timestamps: new Map() };
   let writes = 0;
   const conns: Connection[] = [];
   let closed = 0;
@@ -108,6 +111,8 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
               return false;
             },
             o.holdReadDirectory,
+            o.waitWriteFile,
+            o.failRename,
           );
         });
         session.on("exec", (acceptExec, _rej, info) => {
@@ -181,10 +186,21 @@ const norm = (p: string): string => {
 const parent = (p: string): string => norm(p.split("/").slice(0, -1).join("/") || "/");
 
 /** 极简内存 SFTP 服务端（协议 v3 语义：RENAME 目标已存在则失败，没有 posix-rename 扩展）。 */
-function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file: string) => boolean, holdReadDirectory?: (dir: string) => boolean): void {
+function serveSftp(
+  sftp: import("ssh2").SFTPWrapper,
+  fs: FakeFs,
+  onWrite: (file: string) => boolean,
+  holdReadDirectory?: (dir: string) => boolean,
+  waitWriteFile?: (file: string) => Promise<void> | undefined,
+  failRename?: (from: string, to: string) => boolean,
+): void {
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
   let next = 1;
+  let closed = false;
+  sftp.once("close", () => {
+    closed = true;
+  });
   const newHandle = (h: H): Buffer => {
     const id = next++;
     handles.set(id, h);
@@ -196,7 +212,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file:
   const attrsOf = (p: string) => {
     const isDir = fs.dirs.has(p);
     const f = fs.files.get(p);
-    return { mode: isDir ? 0o040755 : fs.links.has(p) ? 0o120777 : 0o100000 | (fs.permissions.get(p) ?? 0o644), size: f?.length ?? 0, uid: 1000, gid: 1000, atime: 1_700_000_000, mtime: 1_700_000_000 };
+    return { mode: isDir ? 0o040755 : fs.links.has(p) ? 0o120777 : 0o100000 | (fs.permissions.get(p) ?? 0o644), size: f?.length ?? 0, uid: 1000, gid: 1000, atime: 1_700_000_000, mtime: fs.timestamps.get(p) ?? 1_700_000_000 };
   };
   const exists = (p: string) => fs.dirs.has(p) || fs.files.has(p) || fs.links.has(p);
   const st = (id: number, code: number) => sftp.status(id, code);
@@ -216,6 +232,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file:
     const n = norm(p);
     if (!fs.files.has(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     if (typeof attrs.mode === "number") fs.permissions.set(n, attrs.mode & 0o7777);
+    if (typeof attrs.mtime === "number") fs.timestamps.set(n, attrs.mtime);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("OPENDIR", (id, p) => {
@@ -262,12 +279,21 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file:
     const f = get(h);
     if (!f || f.kind !== "file") return st(id, STATUS_CODE.FAILURE);
     if (onWrite(f.path)) return; // 模拟中途断线：不再回复
-    const cur = fs.files.get(f.path) ?? Buffer.alloc(0);
-    const out = Buffer.alloc(Math.max(cur.length, offset + data.length));
-    cur.copy(out);
-    data.copy(out, offset);
-    fs.files.set(f.path, out);
-    st(id, STATUS_CODE.OK);
+    const write = () => {
+      if (closed) return;
+      const cur = fs.files.get(f.path) ?? Buffer.alloc(0);
+      const out = Buffer.alloc(Math.max(cur.length, offset + data.length));
+      cur.copy(out);
+      data.copy(out, offset);
+      fs.files.set(f.path, out);
+      st(id, STATUS_CODE.OK);
+    };
+    const waiting = waitWriteFile?.(f.path);
+    if (waiting)
+      void waiting.then(write, () => {
+        if (!closed) st(id, STATUS_CODE.FAILURE);
+      });
+    else write();
   });
   sftp.on("CLOSE", (id, h) => {
     handles.delete(h.readUInt32BE(0));
@@ -277,6 +303,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file:
     const n = norm(p);
     if (!fs.files.delete(n) && !fs.links.delete(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     fs.permissions.delete(n);
+    fs.timestamps.delete(n);
     st(id, STATUS_CODE.OK);
   });
   sftp.on("MKDIR", (id, p) => {
@@ -296,6 +323,7 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file:
   sftp.on("RENAME", (id, from, to) => {
     const a = norm(from);
     const b = norm(to);
+    if (failRename?.(a, b)) return st(id, STATUS_CODE.FAILURE);
     if (!exists(a)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     if (exists(b)) return st(id, STATUS_CODE.FAILURE); // SFTP v3：目标已存在则失败
     const f = fs.files.get(a);
@@ -305,6 +333,9 @@ function serveSftp(sftp: import("ssh2").SFTPWrapper, fs: FakeFs, onWrite: (file:
       const mode = fs.permissions.get(a);
       if (mode !== undefined) fs.permissions.set(b, mode);
       fs.permissions.delete(a);
+      const mtime = fs.timestamps.get(a);
+      if (mtime !== undefined) fs.timestamps.set(b, mtime);
+      fs.timestamps.delete(a);
     } else if (fs.dirs.has(a)) {
       fs.dirs.delete(a);
       fs.dirs.add(b);

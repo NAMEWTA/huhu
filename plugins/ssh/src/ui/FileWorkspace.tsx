@@ -27,7 +27,7 @@ export function AttachedFiles({ hostId, shellId, onOpen, title }: { hostId: stri
   useEffect(() => {
     let closed = false;
     let id: string | undefined;
-    const close = (fileSessionId: string) => void engine.call("ssh.fileSessions.close", { fileSessionId }, { write: true }).catch(() => undefined);
+    const close = (fileSessionId: string) => void engine.call("ssh.fileSessions.close", { fileSessionId, attached: true }, { write: true }).catch(() => undefined);
     void engine.call<FileSession>("ssh.fileSessions.open", { hostId, ...(shellId ? { shellId } : {}), attached: true }, { write: true }).then(
       (value) => {
         if (closed) close(value.fileSessionId);
@@ -180,6 +180,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
   const [error, setError] = useState("");
   const [reversed, setReversed] = useState<Record<string, boolean>>({});
   const [transfers, showTransfers] = useState(false);
+  const [fileFocus, setFileFocus] = useState<{ id: string; path: string }>();
   const current = sessions.data?.find(({ fileSessionId }) => fileSessionId === selectedId) ?? (sessions.isFetching && seed?.fileSessionId === selectedId ? seed : undefined);
   useEffect(() => {
     if (active) void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
@@ -237,6 +238,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
             {active && transfers && (
               <TransferCenter
                 onOrigin={(session) => {
+                  setFileFocus({ id: session.fileSessionId, path: session.transferPath });
                   select(session.fileSessionId);
                   showTransfers(false);
                   void sessions.refetch();
@@ -245,7 +247,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
             )}
             {!transfers && !current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
             {sessions.data?.map((session) => {
-              const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} />];
+              const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} focus={fileFocus?.id === session.fileSessionId ? fileFocus : undefined} />];
               if (reversed[session.fileSessionId]) panes.reverse();
               return (
                 <section
