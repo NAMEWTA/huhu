@@ -2,9 +2,9 @@ import { once } from "node:events";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { openApp } from "../../../tests/e2e/helpers/launch.js";
-import { FORWARD_BIND, forwardLabels, ForwardMode } from "../src/shared/forwarding.js";
-import { startFakeSsh } from "../test/fake-server.js";
+import { openApp } from "../helpers/launch.js";
+import { FORWARD_BIND, forwardLabels, ForwardMode } from "../../../plugins/ssh/src/shared/forwarding.js";
+import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 
 async function createHost(page: Page, port: number, password: string) {
   const result = await page.evaluate(
