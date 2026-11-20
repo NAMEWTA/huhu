@@ -9,7 +9,7 @@
 | Issue | 本轮产物与状态 | 下一交付点 |
 | --- | --- | --- |
 | #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。新增关窗入口的故障注入回归，待 Windows 桌面依赖完成后执行。 | S1a-01 保存回归；S1a-02/S1a-03 故障反馈、请求世代和退出与看板离场的契约。 |
-| #4 | W6.0 派至 Core `t19`，已观察实际工作。 | 独立审查后交 Agent 与 Tasks 消费。W8.3 等 #5 T7.1，再用同包分别执行 W8.2 和 T7.2。 |
+| #4 | W6.0 候选 `3804140` 已由 `t20` 独立复核。确认评论 ID 往返可破坏补送去重、原生暂停 JSON Schema 导出缺口以及浏览器与 Node 的导出边界。 | `t19/task02` 返工后由 `t20` 复审，沿同一合同接 Agent 与 Tasks。W8.3 等 #5 T7.1，再同包分别执行 W8.2 和 T7.2。 |
 | #5 | [T0.1](../2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md) 已从 Codex 及 Pi 实际读取一轮结果和原生 ID；原生问答与恢复待实测。 | T1.1 的条件写与保存后零启动；体验按原型确认范围推进。 |
 | #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)，覆盖 209 项定义和三条隔离样本。 | `t1c/task02` 实施 G1.2 静态目录；后续 G2 用同一 Engine Dispatcher 接入授权。 |
 | #7 | [H1.1 源码核对](../2026-11-19-issue-7-ssh-module/evidence/H1.1-upstream-map.md)记录四条入口和两份上游许可证。 | H1.2 核对执行组件、分发与授权测试主机。 |
@@ -20,8 +20,12 @@
 ## 平台与运行证据
 
 - Windows x64，构建号 26300，Node 24.21.0，pnpm 12.10.1。锁定 pnpm.exe 运行 `install --frozen-lockfile`，Core `t1d` 退出 0。Electron 可执行文件版本 44.9.1。项目锁定的 Herdr Core 是 0.1.19，Windows x64 的发布压缩包经 fetch-herdr.mjs 校验，调度用的本机 hc 为 0.1.21。
-- `173baab` 上 `lint` 与 `typecheck` 退出 0。Engine/Home 回归中的 W02-01 两项通过。旧备份夹具改用 Windows 目录联接后保留同一悬空目录安全检查，已通过 ACC-SY-08。现有 ACC-AG-10 的业务断言执行后，Windows 偶有进程尚持有退出的临时 Vault；`7f012b0` 按现有 e2e 清理范式加入有界重试，运行结果待 `t29`。
+- `173baab` 上 `lint` 与 `typecheck` 退出 0。旧备份夹具改用 Windows 目录联接后保留同一悬空目录安全检查，ACC-SY-08 通过。`7f012b0` 为已退出进程的测试目录引入有界清理重试。随后 `t29` 的 Engine/Home 两文件共 51 通过、6 跳过，含 W02-01 的两个 HTTP 用例和真实 Herdr shell 路径。
+- `6e820fa` 上全量 `pnpm test` 观察到 936 通过、21 失败、52 跳过。失败包括 Windows 符号链接权限、Git/Vault 测试超时、索引和监听顺序。原始输出位于原工作区 `temp/issue-baseline/windows-unit-t2c.log`。
+- `t28` 在 Windows 完成桌面编译，生成 Electron 44.9.1 的应用。CSS 守护把平台路径误认为自有 CSS，报告 A 304、B 12、C 0 并退出 1。`76862e6` 以项目相对路径和本机分隔符识别上游目录，同一产物重跑守护后恢复到已登记的 A 10、B 12、C 0，18 个守护单测通过。
+- `t2h` 初次桌面用例在等待进入编辑器设置时超时。保全了 Playwright trace。`ea1acc3` 直接在自动保存模式验证关窗阻塞与恢复，当前实际复跑为 `t2w`。
 - `ubuntu26` 已经 Core 连接并只读核对，报告 Linux x86_64、Wayland，可用 Xvfb 与 dpkg。macOS 尚无实机证据。
 - 任务与报告见原工作区 `.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/topic.md`。当前报告、独立审查和合入以实际终稿、候选提交及检查输出为准。
+- 已归档并关闭 22 个用完的 Core 命令 pane，以及已完成分析、不再复用的 `t1b`。命令退出状态及输出保存在原工作区 `temp/issue-baseline/core-finished/`，分析报告留在主题目录。`t20` 等待复审，实施终端按 manifest 当前任务继续。
 
 同一组合候选的安装包、八项验收与三条联验路径仍待交付。
