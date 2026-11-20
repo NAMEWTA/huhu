@@ -12,6 +12,8 @@ import { hostFetch, registerHostRoutes } from "../src/host/host-fetch";
 import { filesRoutes } from "../src/host/routes/files";
 import { coreRoutes } from "../src/host/routes/core";
 import { commentRoutes, type HuhuComment } from "../src/host/routes/comments";
+import { CommentsBoundary } from "../src/vendor/open-knowledge/app/src/comments/CommentsBoundary";
+import { CommentedDocProvider, useCommentedDocName } from "../src/vendor/open-knowledge/app/src/comments/CommentedDocContext";
 import { CommentsPanel } from "../src/vendor/open-knowledge/app/src/comments/CommentsPanel";
 import { createFileThread, deleteThread, reopenThread, replaceOrphan, replyToThread, resolveThread } from "../src/vendor/open-knowledge/app/src/comments/store";
 import { TagDialog } from "../src/vendor/open-knowledge/app/src/editor/components/TagDialog";
@@ -520,5 +522,39 @@ test.each(["missing", "rejected"] as const)("H04 image clipboard fallback report
     vi.unstubAllGlobals();
     if (original) Object.defineProperty(navigator, "clipboard", original);
     else Reflect.deleteProperty(navigator, "clipboard");
+
+test("B01 批注上下文取当前文档，边界隔离批注渲染故障并保留正文", () => {
+  function Comment({ fail }: { fail: boolean }) {
+    const docName = useCommentedDocName();
+    if (fail) throw new Error("批注渲染故障");
+    return <p>批注属于 {docName}</p>;
+  }
+
+  function Note({ docName, fail = false }: { docName: string; fail?: boolean }) {
+    return (
+      <>
+        <p>可编辑正文</p>
+        <CommentsBoundary>
+          <CommentedDocProvider docName={docName}>
+            <Comment fail={fail} />
+          </CommentedDocProvider>
+        </CommentsBoundary>
+      </>
+    );
+  }
+
+  const report = vi.spyOn(console, "error").mockImplementation(() => {});
+  const view = render(<Note docName="甲" />);
+  try {
+    expect(screen.getByText("批注属于 甲")).toBeDefined();
+    view.rerender(<Note docName="乙" />);
+    expect(screen.queryByText("批注属于 甲")).toBeNull();
+    expect(screen.getByText("批注属于 乙")).toBeDefined();
+    view.rerender(<Note docName="乙" fail />);
+    expect(screen.queryByText("批注属于 乙")).toBeNull();
+    expect(screen.getByText("可编辑正文")).toBeDefined();
+  } finally {
+    report.mockRestore();
+    view.unmount();
   }
 });

@@ -256,6 +256,10 @@ test("矩阵·`/` 菜单逐项：36 个选项各从独立文档触发并验证�
     }
     await gotoNotes(page);
     const catalog = await openSlashFixture(page, 0);
+    for (const category of ["基础块", "插入", "组件", "媒体", "嵌入预览"]) {
+      await expect(catalog.listbox.getByRole("group", { name: category, exact: true }).getByRole("option").first()).toBeVisible();
+    }
+    await expect(catalog.listbox.getByRole("group", { name: /^(Skills|技能)$/ })).toHaveCount(0);
     const labels = (await catalog.listbox.getByRole("option").allTextContents()).map((label) => label.trim());
     expect(labels).toHaveLength(SLASH_ITEM_COUNT);
     expect(new Set(labels).size).toBe(SLASH_ITEM_COUNT);

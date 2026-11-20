@@ -600,3 +600,21 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/comments/CommentListPanel.tsx`：列表正文可显示读取状态，与已有线程同时呈现。
 - `app/src/editor/clipboard/copy-image.ts`：浏览器剪贴板回退失败时经已有通知组件显示错误。
 - `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：补齐批注读取、重试和图片复制失败文案。
+
+## B01 复刻矩阵补证
+
+- `app/src/components/FileTree.tsx`：只有桌面桥提供系统回收方法时才调用系统回收。Huhu 的部分桌面桥通过宿主文件路由使用 Vault 回收站。
+- `app/src/components/AddPropertyRow.add-property-focus.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/FrontmatterRow.enum.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/PropertyDisplayRow.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/ReadonlyPropertyPanel.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/file-tree-problem-indicators.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/file-tree-refresh.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/editor-cache-visible-scroll-container.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/link-preview/ExternalLinkPreviewCard.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/observer-sync.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/auto-open-flag.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/focus-inserted-component.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/mirror-source-insert.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
