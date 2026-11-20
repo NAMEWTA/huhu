@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -25,6 +25,68 @@ const tmp = () => {
 };
 const post = (e: RunningEngine, token: string, body: unknown) =>
   fetch(`http://127.0.0.1:${e.port}/api/v1/call`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<Reply>);
+
+describe("首页布局读取", () => {
+  const board = { schemaVersion: 1, boardId: "home", revision: "r1", updatedAt: "2026-11-19T00:00:00Z", instances: [], layout: [] };
+  const focus = { instanceId: "focus-a", widgetType: "widget:kernel:focus", config: {}, hidden: false };
+  const withCard = { ...board, instances: [focus], layout: [{ instanceId: focus.instanceId, x: 0, y: 0, w: 3, h: 2 }] };
+  const getBoard = (e: RunningEngine) => post(e, e.rendererToken, { capability: "home.dashboard.get", input: {}, requestId: "dashboard" });
+
+  test("W02-01 缺文件重复读保持默认；空板、大纲与不可识别的原件按实际来源返回", async () => {
+    const e = await boot({ vaultPath: tmp(), create: true });
+    engines.push(e);
+    const home = path.join(e.vault.root, ".huhu", "home");
+    const file = path.join(home, "widgets.json");
+    const first = await getBoard(e);
+    expect(first).toMatchObject({ ok: true, data: { source: "default", writable: true, vaultId: e.vault.id, board: { revision: "0", instances: [{ instanceId: "default-focus" }] } } });
+    expect(await getBoard(e)).toEqual(first);
+    expect(existsSync(file)).toBe(false);
+
+    mkdirSync(home, { recursive: true });
+    for (const saved of [board, withCard]) {
+      const bytes = JSON.stringify(saved);
+      writeFileSync(file, bytes);
+      for (let i = 0; i < 2; i++) {
+        expect(await getBoard(e)).toMatchObject({ ok: true, data: { source: "stored", writable: true, vaultId: e.vault.id, board: saved } });
+      }
+      expect(readFileSync(file, "utf8")).toBe(bytes);
+    }
+    const oldWrite = await post(e, e.rendererToken, { capability: "home.widgets.update", input: { hidden: [] }, requestId: "old-dashboard", idempotencyKey: "old-dashboard" });
+    expect(oldWrite).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(readFileSync(file, "utf8")).toBe(JSON.stringify(withCard));
+
+    const samples = [
+      [JSON.stringify({ hidden: ["focus"] }), "unrecognized"],
+      [JSON.stringify({ ...board, schemaVersion: 2 }), "unrecognized"],
+      [JSON.stringify({ ...withCard, layout: [{ ...withCard.layout[0], x: 5 }] }), "invalid"],
+      [JSON.stringify({ ...withCard, instances: [focus, focus] }), "invalid"],
+      ["{", "invalid"],
+    ];
+    for (const [bytes, source] of samples) {
+      writeFileSync(file, bytes!);
+      expect(await getBoard(e)).toMatchObject({ ok: true, data: { source, writable: false } });
+      expect(readFileSync(file, "utf8")).toBe(bytes);
+    }
+  });
+
+  test("W02-01 只读从原 Vault 读板，区分找不到文件与无法读取", async () => {
+    const dir = tmp();
+    const writer = await boot({ vaultPath: dir, create: true });
+    await writer.shutdown();
+    const file = path.join(dir, ".huhu", "home", "widgets.json");
+    const readonlyEngine = await boot({ vaultPath: dir, readOnly: true });
+    engines.push(readonlyEngine);
+    expect(await getBoard(readonlyEngine)).toMatchObject({ ok: true, data: { source: "default", writable: false, vaultId: readonlyEngine.vault.id } });
+    expect(existsSync(file)).toBe(false);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(withCard));
+    expect(await getBoard(readonlyEngine)).toMatchObject({ ok: true, data: { source: "stored", writable: false, vaultId: readonlyEngine.vault.id, board: withCard } });
+    expect(readFileSync(file, "utf8")).toBe(JSON.stringify(withCard));
+    rmSync(file);
+    mkdirSync(file);
+    expect(await getBoard(readonlyEngine)).toMatchObject({ ok: true, data: { source: "unreadable", writable: false } });
+  });
+});
 
 describe("Engine 启动与关闭", () => {
   test("Renderer 与 CLI 令牌经同一 Dispatcher 调用 vault.info", async () => {

@@ -1,9 +1,11 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, WidgetsStateSchema, errors, isKnownCard } from "@huhu/contracts";
+import { DashboardViewSchema, FOCUS_SECONDS, FocusActionSchema, FocusStateSchema, FocusViewSchema, HabitsActionSchema, HabitsStateSchema, HabitsViewSchema, WidgetsStateSchema, errors, isKnownCard } from "@huhu/contracts";
+import type { Vault } from "@huhu/vault";
 import type { FocusState, FocusView, HabitsState, HabitsView, WidgetsState } from "@huhu/contracts";
 import { z } from "zod";
 import { defineCapability, type CapabilityRegistry } from "./define.js";
+import { hasDashboardVersion, readDashboard } from "./home-dashboard.js";
 
 export interface HomeDeps {
   /** `.huhu/home/`。 */
@@ -137,6 +139,7 @@ export class HomeStore {
     });
   }
   setWidgets(w: z.infer<typeof WidgetsUpdateSchema>): WidgetsState {
+    if (this.read("widgets.json", hasDashboardVersion)) throw errors.invalidInput("旧版首页设置不能修改看板布局");
     const next = WidgetsStateSchema.parse({ hidden: knownCards(w.hidden), order: knownCards(w.order ?? []) });
     this.write("widgets.json", next);
     return next;
@@ -144,7 +147,7 @@ export class HomeStore {
 }
 
 /** home.focus.* / home.habits.* / home.widgets.*（kernel 能力，仅桌面可用）。 */
-export function registerHomeCapabilities(registry: CapabilityRegistry, store: HomeStore): () => void {
+export function registerHomeCapabilities(registry: CapabilityRegistry, store: HomeStore, vault: Vault): () => void {
   const desktop = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
   const none = z.object({});
   const offs = [
@@ -154,6 +157,7 @@ export function registerHomeCapabilities(registry: CapabilityRegistry, store: Ho
     registry.register(defineCapability({ name: "home.habits.update", ...desktop, scope: "write", input: HabitsActionSchema, output: HabitsViewSchema, handler: (_c, i) => store.habitsAction(i) })),
     registry.register(defineCapability({ name: "home.widgets.get", ...desktop, scope: "read", input: none, output: WidgetsStateSchema, handler: () => store.widgets() })),
     registry.register(defineCapability({ name: "home.widgets.update", ...desktop, scope: "write", input: WidgetsUpdateSchema, output: WidgetsStateSchema, handler: (_c, i) => store.setWidgets(i) })),
+    registry.register(defineCapability({ name: "home.dashboard.get", ...desktop, scope: "read", input: none, output: DashboardViewSchema, handler: () => readDashboard(vault) })),
   ];
   return () => offs.forEach((o) => o());
 }

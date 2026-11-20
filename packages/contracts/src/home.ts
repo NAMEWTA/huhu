@@ -69,3 +69,41 @@ export const WidgetsStateSchema = z.object({
     .optional(),
 });
 export type WidgetsState = z.infer<typeof WidgetsStateSchema>;
+
+export const DASHBOARD_SCHEMA_VERSION = 1;
+export const DASHBOARD_COLUMNS = 6;
+
+const DashboardInstanceIdSchema = z.string().min(1).regex(/^\S(?:.*\S)?$/u);
+const DashboardInstanceSchema = z.strictObject({
+  instanceId: DashboardInstanceIdSchema,
+  widgetType: z.string().regex(WIDGET_ID),
+  title: z.string().optional(),
+  config: z.record(z.string(), z.json()),
+  hidden: z.boolean(),
+});
+
+const DashboardPlacementSchema = z.strictObject({
+  instanceId: DashboardInstanceIdSchema,
+  x: z.int().nonnegative(),
+  y: z.int().nonnegative(),
+  w: z.int().positive(),
+  h: z.int().positive(),
+});
+
+export const DashboardBoardSchema = z.strictObject({
+  schemaVersion: z.literal(DASHBOARD_SCHEMA_VERSION),
+  boardId: z.literal("home"),
+  revision: z.string().min(1),
+  updatedAt: z.iso.datetime().nullable(),
+  instances: z.array(DashboardInstanceSchema),
+  layout: z.array(DashboardPlacementSchema),
+});
+export type DashboardBoard = z.infer<typeof DashboardBoardSchema>;
+
+export const DashboardViewSchema = z.strictObject({
+  vaultId: z.string(),
+  board: DashboardBoardSchema,
+  writable: z.boolean(),
+  source: z.enum(["stored", "default", "unreadable", "unrecognized", "invalid"]),
+});
+export type DashboardView = z.infer<typeof DashboardViewSchema>;

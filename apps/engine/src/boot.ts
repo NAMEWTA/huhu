@@ -276,7 +276,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
-  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }));
+  registerHomeCapabilities(registry, new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }), vault);
   registerSystemCapabilities(
     registry,
     plugins,
