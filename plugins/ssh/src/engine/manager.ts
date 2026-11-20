@@ -259,7 +259,7 @@ export class SshManager {
       closeOpened();
       this.audit({ hostId, action: "connect", result: "failed", detail: e instanceof HuhuError ? e.code : "error" });
       if (current()) {
-        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed, ...(attempt.expectedTarget && { workspace: true as const }) });
+        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) });
         else this.update({ hostId, attemptId, state: "failed", message: e instanceof HuhuError ? e.message : "SSH 连接失败", ...stage });
       }
       throw e;
@@ -371,7 +371,7 @@ export class SshManager {
                   });
               },
             };
-            this.update({ hostId, attemptId, state: "waiting", prompt, ...(attempt.expectedTarget && { workspace: true as const }) });
+            this.update({ hostId, attemptId, state: "waiting", prompt, ...(this.connecting.get(hostId)?.workspaces && { workspace: true as const }) });
             publishKey(prompt, "first");
           },
         } as never);
@@ -395,6 +395,8 @@ export class SshManager {
     signal.throwIfAborted();
     const dial = this.begin(hostId, undefined, true, target);
     dial.workspaces++;
+    const status = this.statuses.get(hostId);
+    if (status?.attemptId === dial.attempt.id && (status.state === "waiting" || status.state === "key-changed") && !status.workspace) this.update({ ...status, workspace: true });
     let released = false;
     const release = () => {
       if (released) return;

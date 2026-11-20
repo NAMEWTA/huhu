@@ -221,7 +221,9 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           if (history.length) next.history = history;
         }
         await write(input, next, before.version, cancelled);
-        return { message: next.message && !next.message.deleted ? next.message.summary : null, mailboxChanged: before.snapshot !== null && before.snapshot.uidValidity !== validity };
+        const mailboxChanged = before.snapshot !== null && before.snapshot.uidValidity !== validity;
+        if (mailboxChanged) api.events.publish("entity.changed", { kind: "mail-mailbox", id: input.accountId, op: "updated" });
+        return { message: next.message && !next.message.deleted ? next.message.summary : null, mailboxChanged };
       });
     }),
   );

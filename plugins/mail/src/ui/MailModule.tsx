@@ -103,9 +103,15 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
 
   const refetchAccounts = accounts.refetch;
   useEngineEvents((event) => {
-    if (event.type !== "entity.changed" || !("kind" in event.payload) || event.payload.kind !== "mail-account") return;
-    setAccountEpoch((epoch) => epoch + 1);
-    void refetchAccounts();
+    if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
+    if (event.payload.kind === "mail-account") {
+      setAccountEpoch((epoch) => epoch + 1);
+      void refetchAccounts();
+    }
+    if (event.payload.kind === "mail-mailbox") {
+      setAccountEpoch((epoch) => epoch + 1);
+      void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && (entry.queryKey[1] === "mail.messages.latest" || String(entry.queryKey[1]).startsWith("mail.conversations.")) });
+    }
   });
   useEffect(() => {
     if (!readingMessage && !searchOpen) return;
