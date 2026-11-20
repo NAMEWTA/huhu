@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
-import { machineId, VaultFiles } from "@huhu/vault";
+import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
 import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
 import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
@@ -55,6 +57,15 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const now = opts.now ?? (() => new Date());
   const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const cliAvailable = opts.cliAvailable ?? (() => false);
+  const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
+  const stateStat = statSync(stateFiles.root, { bigint: true });
+  const rootIdentity = filesystemIdentity(stateStat);
+  const terminalOwner =
+    rootIdentity && stateStat.birthtimeNs > 0n
+      ? createHash("sha256")
+          .update(JSON.stringify([api.vault.vaultId, mid, rootIdentity, String(stateStat.birthtimeNs)]))
+          .digest("hex")
+      : null;
   const holdStore = new HoldStore(path.join(api.vault.stateDir, "automations", "holds.json"));
   const svc = new AutomationsService({
     repo: api.vault.repo,
@@ -65,6 +76,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     ...(opts.refreshClis ? { refreshClis: opts.refreshClis } : {}),
     holds: (t, h) => holdStore.isHeld(t, h),
     vaultRoot: api.vault.files.root,
+    terminalOwner,
     call: (capability, input, idempotencyKey) => api.call(capability, input, idempotencyKey ? { idempotencyKey } : undefined),
     launchTerminal: (ruleId, action, input, signal) =>
       terminalEnvironments.use(ruleId, action, input, async (env) => {
@@ -81,7 +93,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
   const terminalEnvironments = registerTerminalEnvironments(api, svc, opts.credentialHost);
 
-  const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
   const publishActivation = ({ ruleId, activationId, trigger, finishedAt }: ActivationRecord) => {
     if (finishedAt) api.events.publish("entity.changed", { kind: "automation-activation", id: activationId, op: "updated" });
     else api.events.publish("automation.activated", { ruleId, activationId, trigger });
@@ -123,6 +134,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       void followUps.tick().catch(() => undefined);
       void reminders?.recover().catch(() => undefined);
       if (!stateFiles.readOnly) void scans.recover().catch(() => undefined);
+      if (!stateFiles.readOnly) void svc.reconcileTerminals().catch(() => undefined);
     };
     const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
     if (timer) check();
