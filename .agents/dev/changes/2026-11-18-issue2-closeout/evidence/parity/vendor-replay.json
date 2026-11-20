@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "1b1b470a017ea55a0754dce5f07a25b358d70e1f6e095f7b8186c742a8b4e2b9",
+      "sha256": "a4931635055a1a1526535c140e8da0be107089f1754935cacc216083988ebd7e",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -4149,8 +4149,9 @@
       "target": "app/src/editor/link-preview/internal-doc-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/internal-doc-preview.ts",
       "blob": "480d80209a56977fe4a988db5a630425d1e21d86",
-      "sha256": "7f76e4be4b4eec72b06b585fb03c7e76ef7349a9ed4c233852f497a5e8f157ae",
-      "method": "copy"
+      "sha256": "3dc8e39122d2bbf1ed6e8b30d975fe2164238ee190d6520f6e3cc2d2c3c44e61",
+      "method": "patch",
+      "description": "PATCHES.md:325 - P-WP6-02 `app/src/editor/link-preview/internal-doc-preview.ts`：随 OK 根切换 Vault 清空内容及反链缓存，迟到的旧 Vault 请求不填入新缓存。宿主复用本地笔记读取及反链路由。"
     },
     {
       "target": "app/src/editor/link-preview/use-external-link-preview.ts",
@@ -4892,7 +4893,7 @@
       "blob": "500f40d9ead4aab2a02bc3e9842c02688bd1358f",
       "sha256": "75fedac52f32c18f6fd2904abaddd10fae1af4483432f2b46a81744efb5c4bae",
       "method": "patch",
-      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
+      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
     },
     {
       "target": "app/src/fontsource.d.ts",
@@ -4907,7 +4908,7 @@
       "blob": "8324f5ef9b5b1e31de4ae5ac6e654fbd828c5d64",
       "sha256": "1510272c39137c2c3aa8bc162bbf0853dfff10d17342533be67b36733f793f1f",
       "method": "patch",
-      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
+      "description": "PATCHES.md:31 - P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。"
     },
     {
       "target": "app/src/hooks/use-conflicts.tsx",

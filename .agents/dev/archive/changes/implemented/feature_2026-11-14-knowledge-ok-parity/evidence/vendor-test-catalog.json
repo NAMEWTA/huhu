@@ -1,0 +1,44 @@
+{
+  "summary": {
+    "open-knowledge": {
+      "outside-product": 1268,
+      "not-applicable": 582,
+      "copy": 302,
+      "unreviewed": 1296,
+      "patch": 27,
+      "partial": 1
+    },
+    "orca": {
+      "outside-product": 9992,
+      "unreviewed": 9,
+      "not-applicable": 4,
+      "patch": 3
+    }
+  },
+  "skips": [
+    {
+      "file": "packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/shared.dom.test.tsx",
+      "test": "sharedExtensions module graph no menu accelerator is claimed by the editor keymap",
+      "status": "skipped",
+      "line": null
+    },
+    {
+      "file": "packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/trailing-affordance.dom.test.ts",
+      "test": "trailing zone interaction the composer's reserved band is not part of the zone",
+      "status": "skipped",
+      "line": null
+    },
+    {
+      "file": "packages/editor/src/vendor/open-knowledge/core/src/handoff/terminal-launch.test.ts",
+      "test": "psQuoteArg output read back by a real PowerShell parser reads back every name exactly, as a value and as a command argument",
+      "status": "skipped",
+      "line": null
+    },
+    {
+      "file": "packages/editor/src/vendor/open-knowledge/core/src/handoff/terminal-launch.test.ts",
+      "test": "PowerShell launch composition read back by a real PowerShell parser reads the call back as one string per launch token, with and without environment variables",
+      "status": "skipped",
+      "line": null
+    }
+  ]
+}

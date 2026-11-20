@@ -63,5 +63,5 @@ HUHU Workbench 是一个本地优先、插件化的个人全能工作台：在�
 - 内置大模型对话界面（Agent 交互通过成熟 CLI 的终端完成）。
 - 系统通知、IM、短信、邮件渠道（界面中显示“暂不支持”）。
 - 任务优先级、子任务、重复任务（定时工作由自动化承担）。
-- 白板、可视化 WYSIWYG（ProseMirror）编辑。
+- 白板、可视化 WYSIWYG（ProseMirror）编辑。知识库编辑器范围由[后继决定 OP-D01](../../../../notes/decisions/2026-11-15-knowledge-editor-ok.md)替代，现采用 OK 的 Tiptap/ProseMirror 富文本与 CodeMirror 源码模式。
 - 应用签名、公证、自动更新；三个目标以外的平台。

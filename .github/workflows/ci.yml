@@ -48,3 +48,16 @@ jobs:
         with:
           name: playwright-trace-${{ matrix.os }}
           path: test-results
+
+  test-vendor:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/ok-patches.mjs --check-vendor-directories
+      - run: pnpm test:vendor

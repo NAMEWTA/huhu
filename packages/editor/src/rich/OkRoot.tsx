@@ -4,12 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@lingui/react";
 import { t } from "@lingui/core/macro";
 import { ThemeProvider } from "next-themes";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "../ok/ok-globals.css";
 import "../editor.css";
 import { PageListProvider } from "@/components/PageListContext";
 import { PropertyProvider } from "@/components/PropertyContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { resetInternalDocPreviewCache } from "@/editor/link-preview/internal-doc-preview";
 import { linkLabel } from "@/editor/registry/block-labels";
 import { dynamicActivate, getRequestedLocale } from "@/lib/activate-locale";
 import { assetPathFromHash, clearHashWithoutNavigation, docNameFromHash } from "@/lib/doc-hash";
@@ -87,10 +88,13 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
     return () => window.removeEventListener("hashchange", onHash);
   }, [documentHost]);
   // 池跨 OkRoot 实例存活（每篇笔记一个 OkRoot）：只有 poolKey（Vault）变了才销毁
-  useEffect(() => {
+  useLayoutEffect(() => {
     // 没有 poolKey 的 OkRoot（如详情栏的批注页）不参与池的所有权：否则它挂载就会把另一处正在编辑的编辑器销毁
     if (poolKey === undefined) return;
-    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) resetProviderPool();
+    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) {
+      resetInternalDocPreviewCache();
+      resetProviderPool();
+    }
     lastPoolKey = poolKey;
   }, [poolKey]);
   useEffect(() => {

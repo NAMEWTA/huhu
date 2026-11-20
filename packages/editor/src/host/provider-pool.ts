@@ -84,7 +84,3 @@ export function resetProviderPool(): void {
 export function dropProvider(docName: string): void {
   destroy(docName);
 }
-
-export function __poolSize(): number {
-  return entries.size;
-}

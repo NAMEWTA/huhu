@@ -44,8 +44,9 @@ export default function okScopePlugin() {
       const wrap = new AtRule({ name: "layer", params: "vendor.ok-rules" });
       root.each((node) => {
         if (node.type === "atrule" && node.name === "layer" && node.nodes) {
-          // Keep each layer in its original top-level cascade position.
-          if (!node.params.startsWith("vendor.ok-")) node.params += ".huhu-ok";
+          if (node.params === "base" || node.params === "components") node.params = `vendor.ok-${node.params}`;
+          // Tailwind emits its custom property defaults in a separate layer.
+          else if (node.params === "properties") node.params = "properties.huhu-ok";
         } else if (node.type === "rule" || (node.type === "atrule" && node.nodes && !node.name.endsWith("keyframes") && node.name !== "property")) {
           wrap.append(node);
         }

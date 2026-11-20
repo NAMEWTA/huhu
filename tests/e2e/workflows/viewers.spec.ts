@@ -171,8 +171,10 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await expect.poll(async () => parseInt((await page.getByTestId("pdf-zoom").textContent()) ?? "0", 10)).toBeGreaterThan(z0);
     await page.getByRole("button", { name: "适应宽度" }).click();
     await expect.poll(async () => parseInt((await page.getByTestId("pdf-zoom").textContent()) ?? "0", 10)).toBe(z0);
-    // 查找
-    await page.getByRole("button", { name: "在 PDF 中查找" }).click();
+    // 查找快捷键归属当前聚焦的 PDF。
+    await page.getByTestId("pdf-view").focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(page.getByTestId("pdf-find-input")).toBeFocused();
     await page.getByTestId("pdf-find-input").fill("Bravo");
     await expect(page.getByTestId("pdf-find-count")).toContainText("1 / 1", { timeout: 15_000 });
     await page.getByTestId("pdf-find-input").press("Escape");
@@ -328,6 +330,49 @@ for (const mode of MODES)
       await close();
     }
   });
+
+test("F05：HTML 预览无 Engine 凭据，预览来源的下载由主进程取消", async () => {
+  const { app, page, vault, close } = await launch();
+  try {
+    writeFileSync(path.join(vault, "边界.html"), "<!doctype html><h1>预览边界</h1>");
+    await openKnowledge(page);
+    await openFile(page, "边界");
+    await expect(page.frameLocator('[data-testid="html-preview-frame"]').getByRole("heading")).toHaveText("预览边界");
+    const frame = await previewFrame(page);
+    const visible = await frame.evaluate(() => {
+      const ownBridge = typeof Reflect.get(window, "huhuHost") !== "undefined";
+      let canReadParent = false;
+      try {
+        canReadParent = Reflect.has(parent, "huhuHost");
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "SecurityError")) throw error;
+      }
+      return { ownBridge, canReadParent, url: location.href, referrer: document.referrer };
+    });
+    expect(visible.ownBridge).toBe(false);
+    expect(visible.canReadParent).toBe(false);
+    // The token remains in the trusted workbench and stays outside both URLs.
+    const trusted = await page.evaluate(async ({ url, referrer }) => {
+      const host = Reflect.get(window, "huhuHost") as { engine(): Promise<{ baseUrl: string; token: string }> };
+      const { token, baseUrl } = await host.engine();
+      return { present: Boolean(token && baseUrl), exposed: [url, referrer].some((value) => value.includes(token) || value.includes(baseUrl)) };
+    }, visible);
+    expect(trusted).toEqual({ present: true, exposed: false });
+
+    const canceled = await app.evaluate(({ BrowserWindow }, url) => {
+      const contents = BrowserWindow.getAllWindows()[0]!.webContents;
+      return new Promise<boolean>((resolve) => {
+        // Observe the actual Session event after the production handler runs.
+        contents.session.once("will-download", (event, item) => resolve(item.getURL() === url && event.defaultPrevented));
+        contents.downloadURL(url);
+      });
+    }, visible.url);
+    expect(canceled).toBe(true);
+    expect(readFileSync(path.join(vault, "边界.html"), "utf8")).toBe("<!doctype html><h1>预览边界</h1>");
+  } finally {
+    await close();
+  }
+});
 
 for (const mode of MODES)
   test(`F05：恶意 HTML 在隔离预览里的越权尝试全部被拦（fetch / XHR / import() / postMessage / top 导航 / 自导航 / window.open / WebRTC / 权限 / file:// / 路径穿越 / 符号链接 / 受保护目录） [${mode}]`, async () => {

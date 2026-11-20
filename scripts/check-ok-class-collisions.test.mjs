@@ -113,3 +113,12 @@ test("ignores host CSS even in a chunk named rich", () => {
   const { status, output } = check("@layer modules { :root { --host: red } .hu-page-head { color: red } }", "rich-decoy.css");
   assert.equal(status, 0, output);
 });
+
+test("keeps OK base and component rules within vendor sublayers", async () => {
+  const result = await postcss([okScopePlugin()]).process("@layer base { input { color: inherit } } @layer components { .widget { color: inherit } }", { from: "ok-globals.css" });
+  assert.deepEqual(
+    result.root.nodes.map((node) => node.params),
+    ["vendor.ok-base", "vendor.ok-components", "vendor.ok-rules"],
+  );
+  assert.match(result.css, /input:where\(\.ok-root, \.ok-root \*\)/);
+});

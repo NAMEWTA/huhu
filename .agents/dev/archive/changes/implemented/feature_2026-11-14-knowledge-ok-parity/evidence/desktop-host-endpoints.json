@@ -1,0 +1,720 @@
+{
+  "renderer": "Electron production",
+  "rows": [
+    {
+      "kind": "api",
+      "path": "/api/agent-integrations/apply",
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent 集成",
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 465167,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/asset",
+      "state": "unresolved",
+      "evidence": null,
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1740043,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1740698,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/audit",
+      "state": "excluded",
+      "evidence": "Q2 服务端审计",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2126683,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/backlink-counts",
+      "state": "unresolved",
+      "evidence": null,
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 3980489,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/backlinks",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/backlinks → packages/editor/src/host/routes/core.ts:88"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2662679,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/comment",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/comment → packages/editor/src/host/routes/comments.ts:140",
+        "DELETE /api/comment → packages/editor/src/host/routes/comments.ts:166"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1653995,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1656026,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/comments",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/comments → packages/editor/src/host/routes/comments.ts:117",
+        "POST /api/comments → packages/editor/src/host/routes/comments.ts:122"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1654866,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1654884,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1655019,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/config",
+      "state": "excluded",
+      "evidence": "上游协作和单文件配置入口（Q2/Q10）。Huhu 提供 HostConfigProvider，工作台未挂上游 SingleFileModeProvider",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1748949,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/create-folder",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/create-folder → packages/editor/src/host/routes/files.ts:218"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 657799,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/create-page",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/create-page → packages/editor/src/host/routes/files.ts:211"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 526852,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 656421,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2129510,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/delete-path",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/delete-path → packages/editor/src/host/routes/files.ts:173"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 638179,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 675532,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/document",
+      "state": "unresolved",
+      "evidence": null,
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 3980223,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/documents",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/documents → packages/editor/src/host/host-fetch.ts:13",
+        "GET /api/documents → packages/editor/src/host/routes/core.ts:100",
+        "GET /api/documents → packages/editor/src/host/routes/files.ts:138"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 589893,
+          "kind": "literal"
+        },
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 665408,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 673131,
+          "kind": "literal"
+        },
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 673277,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/duplicate-path",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/duplicate-path → packages/editor/src/host/routes/files.ts:168"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 634616,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/folder-config",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/folder-config → packages/editor/src/host/routes/files.ts:182"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 525592,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/forward-links",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/forward-links → packages/editor/src/host/routes/core.ts:74"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2662099,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/handoff",
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent handoff",
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 2872738,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/installed-agents",
+      "state": "excluded",
+      "evidence": "Q2 OpenWithAi 路由",
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 568534,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/link-preview",
+      "state": "unresolved",
+      "evidence": null,
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 3972935,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/lint/config",
+      "state": "excluded",
+      "evidence": "Q2 上游 lint",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1786788,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/local-emoji",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/local-emoji/en/data.json → packages/editor/src/host/offline-emoji.ts:17",
+        "GET /api/local-emoji/en/messages.json → packages/editor/src/host/offline-emoji.ts:18",
+        "GET /api/local-emoji/zh/data.json → packages/editor/src/host/offline-emoji.ts:19",
+        "GET /api/local-emoji/zh/messages.json → packages/editor/src/host/offline-emoji.ts:20"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1460341,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/page-headings",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/page-headings → packages/editor/src/host/routes/core.ts:62"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2661360,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2661726,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/pages",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/pages → packages/editor/src/host/host-fetch.ts:12",
+        "GET /api/pages → packages/editor/src/host/routes/core.ts:98"
+      ],
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 672717,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 672836,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2659157,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2659468,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/rename-path",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/rename-path → packages/editor/src/host/routes/files.ts:155"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 647008,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 650842,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/share/construct-url",
+      "state": "excluded",
+      "evidence": "Q2 上游分享",
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 563999,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/skill/install-state",
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent 安装",
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 2869444,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/skills",
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent skill",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2733374,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2733405,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/skills/resolve-ref",
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent skill",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2733767,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/sync/status",
+      "state": "excluded",
+      "evidence": "Q2 云同步",
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 559571,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/tag-documents",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/tag-documents → packages/editor/src/host/routes/core.ts:48"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1466118,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/tags",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/tags → packages/editor/src/host/routes/core.ts:40"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 4152812,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 4152854,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/template/import",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/template/import → packages/editor/src/host/routes/files.ts:200"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 562117,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/trash/cleanup",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/trash/cleanup → packages/editor/src/host/routes/files.ts:179"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 677581,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/upload",
+      "state": "handler-path",
+      "evidence": [
+        "POST /api/upload → packages/editor/src/host/routes/files.ts:217",
+        "POST /api/upload → packages/editor/src/host/routes/upload.ts:40"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 652911,
+          "kind": "call-argument"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1746629,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 3261837,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/workspace",
+      "state": "handler-path",
+      "evidence": [
+        "GET /api/workspace → packages/editor/src/host/routes/files.ts:151"
+      ],
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 640243,
+          "kind": "call-argument"
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "appVersion",
+      "state": "documented",
+      "evidence": "上游 cowork 安装记录（Q2），读取失败回退 unknown",
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 2871797
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "cliCommandName",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts，Q2 不提供上游 CLI 命令",
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 545958
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "clipboard",
+      "state": "documented",
+      "evidence": "app/src/lib/copy-image.ts 使用 navigator.clipboard.write 回退",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 2687880
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "config.mode",
+      "state": "documented",
+      "evidence": "Q10 不启用 OK 独立笔记窗口，undefined 与默认工作台模式对齐",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 258540
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "mcpServerName",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts，Q2 不提供上游 MCP 服务名",
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 320714
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "noteWindow.dispatchToMain",
+      "state": "documented",
+      "evidence": "Q2/Q10 不启用 OK 独立笔记窗口",
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 258839
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "platform",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts 根据宿主 navigator.platform 映射",
+      "calls": [
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 550739
+        },
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 678767
+        },
+        {
+          "chunk": "explorer-CTGLrcZa.js",
+          "offset": 693656
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "shell.openExternal",
+      "state": "unresolved",
+      "evidence": null,
+      "calls": [
+        {
+          "chunk": "rich-CftOykLU.js",
+          "offset": 1681274
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "skill",
+      "state": "documented",
+      "evidence": "Q2 上游 Agent skill",
+      "calls": [
+        {
+          "chunk": "host-fetch-DbeG6I6z.js",
+          "offset": 2869087
+        }
+      ]
+    }
+  ]
+}
