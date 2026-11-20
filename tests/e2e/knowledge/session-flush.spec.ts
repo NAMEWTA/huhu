@@ -246,6 +246,7 @@ for (const phase of ["notes.draft.save", "notes.read"] as const) {
       expect(readFileSync(file, "utf8")).toBe(original);
     } finally {
       release.resolve();
+      await page.unrouteAll({ behavior: "wait" });
       await close();
     }
   });
