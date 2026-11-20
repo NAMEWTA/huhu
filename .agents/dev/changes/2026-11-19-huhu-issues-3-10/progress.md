@@ -8,10 +8,10 @@
 
 | Issue | 本轮产物与状态 | 下一交付点 |
 | --- | --- | --- |
-| #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`f193612` 绑定窗口主文档。`3f45c00` 上[两窗退出、自动保存与草稿恢复](../2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)均在 Windows Electron 通过。 | 模拟草稿写失败、故障反馈选项、退出参与者与菜单。 |
+| #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`f193612` 绑定窗口主文档。`3f45c00` 构建使用 `2c779bf` 的测试夹具跑完[两窗退出、自动保存与草稿恢复](../2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)，13 项通过。 | 故障反馈选项、退出参与者及菜单。 |
 | #4 | W6.0 经三轮独立审查合入 `1b3b385`，回执合同及 Markdown 回归 55 项通过。[Windows Core](../2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md)实测子进程、握手 generation 与 doc/CAS。W1.1 `ce5289d` 已用锁定 Core 和合成 `.cmd` 实跑。 | `t54` 独立核对 W1.1，再接 W1.2 的持久启动对账。W8.3 等 #5 T7.1，同包分别执行 W8.2 和 T7.2。 |
 | #5 | [T0.1](../2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md)已从 Codex 及 Pi 实际读取结果和原生 ID。T1.1 `a5d82cb` 复现并修复过期编辑覆盖，验证保存和重开均未启动 CLI。 | `t54` 独立核对。真实原生问答、恢复和 Agent 派遣接线待后续。 |
-| #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。`t4x` 核对 `cc736e5`，确认两项返工和 G2.1 默认关闭、逐项授权、撤销、坏格式保护。 | 同一 Engine 的安装失败回滚仍留临时名称占位。修复并复核后合入整个目录和授权切片。 |
+| #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。`t4x` 核对 `cc736e5`，确认两项返工和 G2.1 默认关闭、逐项授权、撤销、坏格式保护。[G6.1 监听生命周期](../2026-11-19-issue-6-unified-tools-web/evidence/G6.1-windows-listener.md)在 Windows 核对端口冲突和停止分享时控制端仍可调用。 | 复核安装回滚名称释放并合入目录和授权。G6.1 接入 Engine 和桌面，继续打包 Web、邀请和撤销。 |
 | #7 | [H1.1 来源](../2026-11-19-issue-7-ssh-module/evidence/H1.1-upstream-map.md)与 [H1.2 Windows 构建](../2026-11-19-issue-7-ssh-module/evidence/H1.2-windows-executor-reference.md)有证据。Motty 参考二进制验证同级 Viva 和三项回环权限用例。 | 核对单一执行端接入、分发错误与实际授权 SSH 主机。 |
 | #8 | [S0.1 来源](../2026-11-19-issue-8-mail-module/evidence/S0.1-source-baseline.md)与 [S0.2 TS/Rust 对照](../2026-11-19-issue-8-mail-module/evidence/S0.2-transport-probe.md)已实测同一 IMAP/API 和 SMTP 确认中断，分别关闭连接并在新进程读回投递身份。已选 TS Engine 路径。 | S1a.1 等 #9 模块凭据合同和生产接入。应用认证、真实邮箱和包内 Mail 待实测。 |
 | #9 | `t1b` 实跑 Windows 本机保护。`t4z` 复验 `7174fc8` 的同进程事务、真实独立进程原生保护和故障窗口。 | 返工待重配实体阻塞回收及独立进程取用竞态，之后再做正式驱动装配和 P10.2。 |

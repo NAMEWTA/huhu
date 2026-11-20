@@ -1,8 +1,10 @@
 import { request as httpRequest } from "node:http";
+import type { NetworkInterfaceInfo } from "node:os";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, defineCapability, startEngineServer, type RunningServer, EventReplay } from "../src/index.js";
+import { WebListener, type WebListenerConfig } from "../src/server/web-listener.js";
 
 let running: RunningServer | undefined;
 afterEach(async () => {
@@ -23,6 +25,82 @@ async function boot() {
 const call = (base: string, token: string | null, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`${base}/api/v1/call`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
 const REQ = { capability: "vault.info", input: {}, requestId: "r1" };
+
+describe("独立 Web 监听器", () => {
+  test("默认关闭，使用本机自动端口，停止后断开分享并保留 Engine 控制端", async () => {
+    const { base, port, tokens } = await boot();
+    let requestArrived!: () => void;
+    const received = new Promise<void>((resolve) => { requestArrived = resolve; });
+    const web = new WebListener((req, res) => {
+      if (req.url === "/hold") {
+        requestArrived();
+        return;
+      }
+      res.end("desktop share");
+    });
+    try {
+      expect(web.status()).toEqual({ state: "stopped" });
+      await expect(web.start({ mode: "other", port: 0 } as unknown as WebListenerConfig)).rejects.toThrow("Web 监听范围无效");
+      await expect(web.start({ mode: "local", port: -1 })).rejects.toThrow("Web 服务端口无效");
+      expect(web.status()).toEqual({ state: "stopped" });
+      const failed = await web.start({ mode: "local", port });
+      expect(failed).toEqual({ state: "error", config: { mode: "local", port }, reason: "port-in-use" });
+
+      const config = { mode: "local", port: 0 } as const;
+      const first = await web.start(config);
+      expect(first.state).toBe("running");
+      if (first.state !== "running") throw new Error("Web listener did not start");
+      expect(first.port).toBeGreaterThan(0);
+      const url = `http://127.0.0.1:${first.port}`;
+      expect(first.addresses).toEqual([{ url, interfaceName: null }]);
+      expect(await web.start(config)).toEqual(first);
+      expect(await (await fetch(url)).text()).toBe("desktop share");
+
+      const held = fetch(`${url}/hold`).then(() => "completed", () => "disconnected");
+      await received;
+      expect(await web.stop()).toEqual({ state: "stopped" });
+      expect(await held).toBe("disconnected");
+      await expect(fetch(url)).rejects.toThrow();
+      expect((await call(base, tokens.issue("desktop"), REQ)).status).toBe(200);
+
+      const rebound = await web.start({ mode: "local", port: first.port });
+      expect(rebound).toMatchObject({ state: "running", port: first.port, addresses: first.addresses });
+      expect(rebound).not.toMatchObject({ generation: first.generation });
+    } finally {
+      await web.stop();
+    }
+  });
+
+  test("显式开启 LAN 后按实际协议列出地址和接口，网卡消失后移除地址", async () => {
+    let entries: NetworkInterfaceInfo[] = [
+      { address: "192.0.2.10", family: "IPv4", internal: false, netmask: "255.255.255.0", mac: "00:00:00:00:00:00", cidr: "192.0.2.10/24" },
+      { address: "2001:db8::20", family: "IPv6", internal: false, netmask: "ffff:ffff:ffff:ffff::", mac: "00:00:00:00:00:00", cidr: "2001:db8::20/64", scopeid: 0 },
+      { address: "fe80::30", family: "IPv6", internal: false, netmask: "ffff:ffff:ffff:ffff::", mac: "00:00:00:00:00:00", cidr: "fe80::30/64", scopeid: 1 },
+    ];
+    const web = new WebListener((_req, res) => res.end("LAN share"), () => ({ Ethernet: entries }));
+    try {
+      const local = await web.start({ mode: "local", port: 0 });
+      expect(local).toMatchObject({ state: "running", addresses: [{ interfaceName: null }] });
+      const lan = await web.start({ mode: "lan", port: 0 });
+      expect(lan.state).toBe("running");
+      if (lan.state !== "running") throw new Error("LAN listener did not start");
+      const { port } = lan;
+      expect(lan.addresses).toContainEqual({ url: `http://192.0.2.10:${port}`, interfaceName: "Ethernet" });
+      expect(lan.addresses.some(({ url }) => url.includes("fe80::30"))).toBe(false);
+      expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe("LAN share");
+      if (lan.addresses.some(({ url }) => url.includes("[::1]"))) {
+        expect(lan.addresses).toContainEqual({ url: `http://[2001:db8::20]:${port}`, interfaceName: "Ethernet" });
+        expect(await (await fetch(`http://[::1]:${port}`)).text()).toBe("LAN share");
+      } else {
+        expect(lan.addresses.some(({ url }) => url.includes("2001:db8"))).toBe(false);
+      }
+      entries = [];
+      expect(web.status()).toEqual({ ...lan, addresses: lan.addresses.filter(({ interfaceName }) => interfaceName === null) });
+    } finally {
+      await web.stop();
+    }
+  });
+});
 
 describe("HTTP", () => {
   test("healthz 无需令牌", async () => {
