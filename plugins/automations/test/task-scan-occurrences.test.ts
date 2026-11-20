@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskDto } from "@huhu/contracts";
+import { NotificationStore } from "@huhu/kernel";
 import { exportPackage, importPackage, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -12,10 +13,12 @@ import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dis
 import type { TaskRuleDispatch } from "../../tasks/src/engine/index.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 import type { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
+import type { ReminderDeliveries } from "../src/engine/reminder-deliveries.js";
 
 const fixture = {
   now: new Date(),
   scans: undefined as TaskScanOccurrences | undefined,
+  reminders: undefined as ReminderDeliveries | undefined,
   ready: vi.fn<TaskDispatchExecutor["ready"]>(),
   dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>(),
   accept: vi.fn<TaskRuleDispatch["acceptRule"]>(),
@@ -35,6 +38,7 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
           provide(name, service) {
             api.provide(name, service);
             if (name === "taskScanOccurrences") fixture.scans = service as TaskScanOccurrences;
+            if (name === "automationReminderDeliveries") fixture.reminders = service as ReminderDeliveries;
           },
         },
         { ...opts, schedule: false, now: () => fixture.now, refreshClis: fixture.refresh, cliAvailable: () => true, worker: fixture.legacyWorker },
@@ -88,6 +92,7 @@ afterEach(async () => {
   for (const engine of engines.splice(0)) await engine.shutdown();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   fixture.scans = undefined;
+  fixture.reminders = undefined;
   vi.restoreAllMocks();
 });
 
@@ -98,10 +103,11 @@ async function start(vaultPath?: string) {
     dirs.push(vaultPath);
   }
   fixture.scans = undefined;
+  fixture.reminders = undefined;
   const engine = await boot({ vaultPath, create });
   engines.push(engine);
   expect(fixture.scans).toBeDefined();
-  return { engine, scans: fixture.scans! };
+  return { engine, scans: fixture.scans!, reminders: fixture.reminders! };
 }
 
 async function stop(engine: RunningEngine) {
@@ -140,6 +146,92 @@ async function createRule(engine: RunningEngine, title: string) {
   });
   return invoke<Rule>(engine, "automations.setEnabled", { id: rule.id, enabled: true });
 }
+
+async function createReminder(engine: RunningEngine, text: string, mode: "notification" | "task" | "both") {
+  const rule = await invoke<Rule>(engine, "automations.create", { title: text, trigger, action: { kind: "reminder", mode, text } });
+  return invoke<Rule>(engine, "automations.setEnabled", { id: rule.id, enabled: true });
+}
+
+test("三种提醒效果对同一发生各自至多一次，重启保持任务、通知及发生关联", async () => {
+  const { engine, reminders } = await start();
+  const rules = await Promise.all([createReminder(engine, "仅通知", "notification"), createReminder(engine, "仅建任务", "task"), createReminder(engine, "两种提醒", "both")]);
+  const root = engine.vault.root;
+  const slot = (fixture.now = at("01:15:00"));
+  for (const rule of rules) {
+    const [first, duplicate] = await Promise.all([reminders.activate(rule.id, slot), reminders.activate(rule.id, slot)]);
+    expect(first).toEqual(duplicate);
+    expect(first?.summary).toMatchObject({ state: "succeeded" });
+  }
+  await stop(engine);
+  const reopened = await start(root);
+  await reopened.reminders.recover();
+  const rows = await invoke<{ ruleId: string; activationId: string; summary: unknown }[]>(reopened.engine, "automations.activations", {});
+  const [notification, task, both] = rules.map((rule) => rows.find(({ ruleId }) => ruleId === rule.id));
+  expect(notification?.summary).toMatchObject({ notification: "sent", task: "disabled", notificationId: expect.any(String) });
+  expect(task?.summary).toMatchObject({ notification: "disabled", task: "created", taskId: expect.any(String) });
+  expect(both?.summary).toMatchObject({ notification: "sent", task: "created", notificationId: expect.any(String), taskId: expect.any(String) });
+  const tasks = await invoke<TaskDto[]>(reopened.engine, "tasks.list", {});
+  expect(tasks).toHaveLength(2);
+  for (const row of [task, both])
+    expect(tasks).toContainEqual(
+      expect.objectContaining({
+        type: "human",
+        status: "not_started",
+        origin: { kind: "automation", ruleId: row!.ruleId, activationId: row!.activationId },
+      }),
+    );
+  const alerts = await invoke<{ title: string }[]>(reopened.engine, "notifications.list", {});
+  expect(alerts.map(({ title }) => title).sort()).toEqual(["仅通知", "两种提醒"].sort());
+  const manual = await invoke<{ activationId: string; summary: unknown }>(reopened.engine, "automations.runNow", { id: rules[0]!.id });
+  expect(manual).toMatchObject({ activationId: expect.stringMatching(/^rem-/), summary: { state: "succeeded", notification: "sent", task: "disabled" } });
+  expect(manual.activationId).not.toBe(notification!.activationId);
+});
+
+test("提醒任务创建后落盘失败，重启只读回原任务和已发通知", async () => {
+  const { engine, reminders } = await start();
+  const rule = await createReminder(engine, "保留确认身份", "both");
+  const root = engine.vault.root;
+  const slot = (fixture.now = at("01:15:00"));
+  const original = VaultFiles.prototype.write;
+  const write = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(function (this: VaultFiles, name, bytes, options) {
+    if (name.startsWith("automations/reminder-deliveries/") && JSON.parse(Buffer.from(bytes).toString("utf8")).task === "created") {
+      throw new Error("合成中断：提醒任务已创建，确认未写入");
+    }
+    return original.call(this, name, bytes, options);
+  });
+  try {
+    await expect(reminders.activate(rule.id, slot)).rejects.toThrow("确认未写入");
+  } finally {
+    write.mockRestore();
+  }
+  const [first] = await invoke<TaskDto[]>(engine, "tasks.list", {});
+  expect(first).toMatchObject({ title: "保留确认身份", type: "human" });
+  await stop(engine);
+  const reopened = await start(root);
+  await reopened.reminders.recover();
+  expect((await reopened.reminders.activate(rule.id, slot))?.summary).toMatchObject({ notification: "sent", task: "created", taskId: first!.id });
+  expect((await invoke<TaskDto[]>(reopened.engine, "tasks.list", {})).map(({ id }) => id)).toEqual([first!.id]);
+  expect(await invoke(reopened.engine, "notifications.list", {})).toEqual([expect.objectContaining({ title: "保留确认身份" })]);
+});
+
+test("通知尝试无确认时只记录未知，并允许独立的建任务效果完成", async () => {
+  const { engine, reminders } = await start();
+  const rule = await createReminder(engine, "通知待核实", "both");
+  const root = engine.vault.root;
+  const slot = (fixture.now = at("01:15:00"));
+  const notify = vi.spyOn(NotificationStore.prototype, "create").mockImplementationOnce(() => {
+    throw new Error("无可读回的通知确认");
+  });
+  const first = await reminders.activate(rule.id, slot);
+  expect(first?.summary).toMatchObject({ state: "unknown", notification: "unknown", task: "created", taskId: expect.any(String) });
+  expect(notify).toHaveBeenCalledTimes(1);
+  await stop(engine);
+  const reopened = await start(root);
+  await reopened.reminders.recover();
+  expect(await reopened.reminders.activate(rule.id, slot)).toEqual(first);
+  expect(await invoke(reopened.engine, "notifications.list", {})).toEqual([]);
+  expect(notify).toHaveBeenCalledTimes(1);
+});
 
 function dispatchRecords(engine: RunningEngine): DispatchRecord[] {
   const dir = path.join(engine.vault.stateDir, "tasks", "dispatches");

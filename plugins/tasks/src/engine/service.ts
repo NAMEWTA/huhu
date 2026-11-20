@@ -38,7 +38,7 @@ export interface TasksDeps {
   hasStartedDispatch?(taskId: string): boolean;
 }
 
-export type RuleTemplateTask = { taskId: string; ruleId: string; occurrenceId: string; title: string; body: string; execution: NonNullable<TaskDto["execution"]> };
+export type RuleTemplateTask = { taskId: string; ruleId: string; occurrenceId: string; title: string; body: string; execution: TaskDto["execution"] };
 
 type TaskData = {
   title: string;
@@ -238,7 +238,8 @@ export class TasksService {
   }
 
   createFromRule({ taskId, ruleId, occurrenceId, title, body, execution }: RuleTemplateTask): Promise<TaskDto> {
-    const input = TaskWritableSchema.parse({ type: "agent", title, body, execution });
+    const type = execution === null ? "human" : "agent";
+    const input = TaskWritableSchema.parse({ type, title, body, execution });
     const origin = { kind: "automation", ruleId, activationId: occurrenceId } as const;
     return this.withTaskWrite(taskId, async () => {
       let existing: TaskDto | undefined;
@@ -253,8 +254,9 @@ export class TasksService {
           existing.origin.kind !== "automation" ||
           existing.origin.ruleId !== ruleId ||
           existing.origin.activationId !== occurrenceId ||
+          existing.type !== type ||
           existing.inputRevision !== 1 ||
-          existing.inputHash !== taskInputHash(expectedBody, executionWithDefault("agent", input.execution))
+          existing.inputHash !== taskInputHash(expectedBody, executionWithDefault(type, input.execution))
         ) {
           throw new HuhuError("VERSION_CONFLICT", "模板任务已变化，请查看原任务", { details: { reason: "stale_input" } });
         }

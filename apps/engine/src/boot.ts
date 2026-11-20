@@ -356,6 +356,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
           return s ? (existsSync(s.root) ? { state: "ok", root: s.root } : { state: "inaccessible" }) : { state: "missing" };
         },
         notify: (n) => void notifications.create(n),
+        reminderNotifications: { send: ({ id, ...notification }) => void notifications.create(notification, id), has: (id) => notifications.has(id) },
       });
     },
   });

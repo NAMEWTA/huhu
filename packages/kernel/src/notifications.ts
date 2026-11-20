@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { errors } from "@huhu/contracts";
 
 export interface Notification {
   id: string;
@@ -42,35 +43,42 @@ export class NotificationStore {
     return this.items;
   }
 
-  private rewrite(): void {
+  private rewrite(items = this.load()): void {
     mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
-    writeFileSync(
-      tmp,
-      this.load()
-        .map((n) => JSON.stringify(n))
-        .join("\n") + (this.load().length ? "\n" : ""),
-    );
+    writeFileSync(tmp, items.map((n) => JSON.stringify(n)).join("\n") + (items.length ? "\n" : ""));
     renameSync(tmp, this.file); // 原子替换：崩溃不会留下被截断的文件
   }
 
-  create(input: { title: string; module: string; body?: string }): Notification {
+  has(id: string): boolean {
+    return this.load().some((notification) => notification.id === id);
+  }
+
+  create(input: { title: string; module: string; body?: string }, reservedId?: string): Notification {
+    const list = this.load();
+    const existing = reservedId ? list.find(({ id }) => id === reservedId) : undefined;
+    if (existing) {
+      if (existing.title !== input.title || existing.module !== input.module || existing.body !== (input.body || undefined)) throw errors.idempotencyMismatch();
+      return existing;
+    }
     const n: Notification = {
       // 通知可能在同一毫秒批量产生，newId 的 4 位随机后缀会碰撞；这里用完整 UUID
-      id: `ntf-${randomUUID()}`,
+      id: reservedId ?? `ntf-${randomUUID()}`,
       title: input.title,
       module: input.module,
       ...(input.body ? { body: input.body } : {}),
       at: this.now().toISOString(),
       read: false,
     };
-    const list = this.load();
-    list.push(n);
     mkdirSync(path.dirname(this.file), { recursive: true });
-    if (list.length > MAX) {
-      list.splice(0, list.length - MAX);
-      this.rewrite();
-    } else appendFileSync(this.file, JSON.stringify(n) + "\n");
+    if (list.length >= MAX) {
+      const retained = [...list.slice(1), n];
+      this.rewrite(retained);
+      this.items = retained;
+    } else {
+      appendFileSync(this.file, JSON.stringify(n) + "\n");
+      list.push(n);
+    }
     this.onCreated?.(n);
     return n;
   }

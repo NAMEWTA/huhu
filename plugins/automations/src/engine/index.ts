@@ -9,6 +9,7 @@ import { ClaimStore } from "./claims.js";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
+import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
 import { hasRunDir, killRound, roundActive } from "./supervised.js";
@@ -43,6 +44,7 @@ export interface AutomationsOptions {
   /** 注入接管函数（测试用替身）。 */
   adopt?: AutomationsDeps["adopt"];
   notify?: (n: { title: string; module: string }) => void;
+  reminderNotifications?: ReminderNotifications;
   spaceState?: (spaceId: string) => { state: "ok" | "missing" | "inaccessible"; root?: string };
   /** CLI 是否已检测到（来自智能体目录的检测结果）。 */
   cliAvailable?: (provider: string) => boolean;
@@ -106,13 +108,37 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     now,
   );
   api.provide("taskFollowUps", followUps);
+  const reminders = opts.reminderNotifications
+    ? new ReminderDeliveries(
+        stateFiles,
+        api.vault.vaultId,
+        mid,
+        svc,
+        () => api.service("taskDispatch"),
+        (taskId) => {
+          try {
+            return api.service<TaskQueryLike>("taskQuery")?.snapshot(taskId).path;
+          } catch {
+            return undefined;
+          }
+        },
+        opts.reminderNotifications,
+        now,
+        ({ ruleId, activationId, trigger }) => api.events.publish("automation.activated", { ruleId, activationId, trigger }),
+      )
+    : undefined;
+  if (reminders) api.provide("automationReminderDeliveries", reminders);
   ctx.effect(() => {
-    const check = () => void followUps.tick().catch(() => undefined);
+    const check = () => {
+      void followUps.tick().catch(() => undefined);
+      void reminders?.recover().catch(() => undefined);
+    };
     const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
     if (timer) check();
     return () => {
       clearInterval(timer);
       followUps.close();
+      return reminders?.close();
     };
   });
   const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
@@ -121,9 +147,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
 
   const scheduler = new Scheduler({
     activate: async (ruleId, at, trigger) => {
-      await svc.activate(ruleId, trigger, at);
+      if (reminders && svc.rule(ruleId).data.action.kind === "reminder") await reminders.activate(ruleId, at);
+      else await svc.activate(ruleId, trigger, at);
     },
-    lastActivatedFor: (id) => svc.lastActivatedFor(id),
+    lastActivatedFor: (id) => {
+      const last = svc.lastActivatedFor(id);
+      const reminder = reminders?.lastScheduledFor(id);
+      return reminder && (!last || reminder > last) ? reminder : last;
+    },
     now,
   });
   const sync = () => scheduler.sync(svc.rules().map((r) => ({ id: r.id, enabled: r.data.enabled, cron: r.data.trigger.cron, zone: r.data.trigger.zone, missedRunGraceMinutes: r.data.missedRunGraceMinutes, updatedAt: r.data.updatedAt })));
@@ -336,7 +367,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: Id,
       output: z.object({ activationId: z.string(), summary: z.unknown() }),
       handler: async (_c, i) => {
-        const a = await svc.activate(i.id, "manual");
+        const a = reminders && svc.rule(i.id).data.action.kind === "reminder" ? await reminders.activate(i.id, null) : await svc.activate(i.id, "manual");
+        if (!a) throw errors.notFound("未找到提醒规则");
         return { activationId: a.activationId, summary: a.summary };
       },
     }),
@@ -353,7 +385,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       defaultExposed: true,
       input: z.object({}),
       output: z.array(z.object({ activationId: z.string(), ruleId: z.string(), trigger: z.string(), scheduledFor: z.string().nullable(), startedAt: z.string(), finishedAt: z.string().optional(), summary: z.unknown().optional() })),
-      handler: () => svc.activations() as never,
+      handler: () => [...svc.activations(), ...(reminders?.list() ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
     }),
   );
   const RunRow = z.object({
