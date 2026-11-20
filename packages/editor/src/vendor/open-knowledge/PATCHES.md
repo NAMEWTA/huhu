@@ -319,3 +319,7 @@
 - P-H02-02 `app/src/globals.css` 与 P-H02-01 的八个浮层文件：深色变体和图片遮罩接受宿主 `data-mode="dark"`，保留独立预览的 `.dark`；图片缩放库样式由宿主 CSS 生成器按 OK 作用域导入。浮层追加 `editor-ok-portal` 标记，供宿主映射其 UI 字体，拖拽预览继续沿用正文计算样式。
 
 - P-H02-03 `app/src/lib/ok-portal.ts`、`app/src/editor/bubble-menu/BubbleMenuBar.tsx`：共享 Radix 浮层容器标记为宿主浮层，气泡使用专用类映射宿主的浮层圆角与阴影。快捷键标签的字体映射在宿主 token-map 中通过既有部件标识应用。
+
+## H06 编辑资源释放
+
+- P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。

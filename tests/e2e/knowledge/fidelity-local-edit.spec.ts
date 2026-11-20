@@ -49,7 +49,7 @@ test("H07：首次与后续富文本单字替换只改变目标字节，关闭�
     });
     writeFileSync(file, original);
     git("init", "--quiet");
-    writeFileSync(path.join(vault, ".git", "info", "exclude"), "/.huhu/\n");
+    writeFileSync(path.join(vault, ".git", "info", "exclude"), "/.huhu/\n/.agents/skills/huhu/\n");
     commit();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();

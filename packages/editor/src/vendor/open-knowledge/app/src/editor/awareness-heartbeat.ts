@@ -43,7 +43,7 @@ export class AwarenessHeartbeat {
   }
 
   clearAwareness(awareness: Awareness): void {
-    if (this.awareness === awareness) this.awareness = null;
+    if (this.awareness === awareness) this.stop();
   }
 
   renewIfStale(): void {

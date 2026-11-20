@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "00b407f58599e059891685b6331c5a167390bad5f6c3f14dd040441ad09578eb",
+      "sha256": "0e19a9130cc1ad1958e8244579885e13efccd924740189ec76bcc2601e139003",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -1896,8 +1896,9 @@
       "target": "app/src/editor/awareness-heartbeat.ts",
       "upstream": "packages/app/src/editor/awareness-heartbeat.ts",
       "blob": "533db2757133934371abd966746659ffa9c7fbf0",
-      "sha256": "d4292e3b951d20460854d6b7ba38e682bbd42319355d13437dd47c6f97245e2b",
-      "method": "copy"
+      "sha256": "5f1be8558b156e7a8b5e60f26e2e6684b3a41048808710d1d1816ee77eb38d7e",
+      "method": "patch",
+      "description": "PATCHES.md:325 - P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。"
     },
     {
       "target": "app/src/editor/awareness-heartbeat.worker.ts",

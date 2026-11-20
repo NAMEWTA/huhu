@@ -105,8 +105,10 @@ test(`H06 / F10：逐轮打开、切换并关闭笔记和预览（${rounds} 轮�
     await expect(prose).toContainText(characters);
     await expect.poll(() => readFileSync(path.join(vault, `${first}.md`), "utf8")).toContain(characters);
 
+    const beforePdf = await probes();
     await open("预览甲.pdf");
     await expect(page.locator(".pdfViewer .textLayer")).toContainText("One", { timeout: 30_000 });
+    await expect.poll(async () => (await probes()).workersCreated).toBeGreaterThan(beforePdf.workersCreated);
     await expect(prose).toHaveCount(0);
     // 真正切后台仍可恢复编辑器；关闭后台标签才应释放资源。
     expect(await resourceCounts()).toMatchObject({ yDocs: 1, tiptap: 1, cm: 1 });
@@ -114,6 +116,7 @@ test(`H06 / F10：逐轮打开、切换并关闭笔记和预览（${rounds} 轮�
     const released = { yDocs: 0, tiptap: 0, cm: 0, yObservers: 0 };
     await expect.poll(resourceCounts, { timeout: 10_000 }).toEqual(released);
     await closeTab("预览甲.pdf");
+    await expect.poll(async () => (await probes()).workersLive).toBe(baseline.workersLive);
 
     const samples = [];
     for (let round = 1; round <= rounds; round++) {

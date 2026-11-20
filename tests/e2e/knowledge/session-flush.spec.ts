@@ -175,9 +175,9 @@ test("A08：移父目录前结算活动 TXT，后台 Markdown 与 JSON 草稿迁
   let failSave = true;
   try {
     mkdirSync(path.join(vault, before));
-    mkdirSync(path.join(vault, "目的地"));
     for (const [filename, text] of Object.entries(files)) writeFileSync(path.join(vault, before, filename), text);
     await engineReady(page);
+    await call(page, "folders.create", { path: "目的地" });
     await manualSave(page);
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
     await treeFolder(page, before).click();
@@ -264,7 +264,7 @@ for (const removal of ["移动", "删除"] as const) {
       await expect.poll(async () => (await call<{ text: string } | null>(page, "notes.draft.get", { path: name }))?.text).toBe(written.replace(last, last + "外移前的脏稿"));
       expect(existsSync(file)).toBe(false);
       if (removal === "移动") expect(readFileSync(moved, "utf8")).toBe(written);
-      await page.getByRole("button", { name: "关闭 退出交付", exact: true }).click();
+      await expect(page.getByRole("button", { name: "关闭 退出交付", exact: true })).toHaveCount(0);
       writeFileSync(file, written);
       await treeSettled(page);
       await openNote(page);
