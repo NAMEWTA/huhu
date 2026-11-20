@@ -12,6 +12,7 @@ declare global {
       onPreviewBlocked(cb: (e: { nonce: string; count: number }) => void): () => void;
       pickSavePath(defaultName: string): Promise<string | null>;
       pickOpenPath(kind: "zip" | "directory" | "file"): Promise<string | null>;
+      mailDraftAttachments: import("@huhu/plugin-mail/desktop-attachments").DesktopDraftAttachmentHost;
       cliStatus(): Promise<unknown>;
       cliInstall(): Promise<unknown>;
       cliUninstall(): Promise<unknown>;

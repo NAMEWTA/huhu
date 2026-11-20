@@ -1,6 +1,7 @@
-import { app, utilityProcess, type UtilityProcess } from "electron";
+import { app, MessageChannelMain, utilityProcess, type UtilityProcess } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 
 /** 随应用打包的 Herdr Core：`resources/herdr/<platform>-<arch>/herdr-core(.exe)`；开发时用 HUHU_HERDR_BIN。 */
 export function bundledHerdrBin(resourcesPath: string = process.resourcesPath, platform: string = process.platform, arch: string = process.arch): string | null {
@@ -50,6 +51,40 @@ export class EngineSupervisor {
 
   get current(): EngineState {
     return this.state;
+  }
+
+  mailAttachmentEndpoint(vaultId: string): EngineEndpoint | null {
+    return this.state === "ready" && !this.stopping && !this.flags.readOnly && this.endpoint?.vaultId === vaultId ? this.endpoint : null;
+  }
+
+  addMailDraftAttachment(request: PrivateMailAttachmentRequest, signal: AbortSignal): Promise<SelectDraftAttachmentResult> {
+    const child = this.child;
+    const unavailable = { status: "failed", reason: "unavailable" } as const;
+    if (!child || !this.mailAttachmentEndpoint(request.vaultId)) return Promise.resolve(unavailable);
+    if (signal.aborted) return Promise.resolve({ status: "cancelled" });
+    return new Promise((resolve) => {
+      const { port1, port2 } = new MessageChannelMain();
+      const finish = (result: SelectDraftAttachmentResult) => {
+        signal.removeEventListener("abort", cancel);
+        child.off("exit", exited);
+        port1.removeAllListeners();
+        port1.close();
+        resolve(result);
+      };
+      const cancel = () => finish({ status: "cancelled" });
+      const exited = () => finish(unavailable);
+      signal.addEventListener("abort", cancel, { once: true });
+      child.once("exit", exited);
+      port1.once("close", exited);
+      port1.once("message", (event) => finish(event.data as SelectDraftAttachmentResult));
+      port1.start();
+      try {
+        child.postMessage(request, [port2]);
+      } catch {
+        port2.close();
+        finish(unavailable);
+      }
+    });
   }
 
   private set(s: EngineState): void {

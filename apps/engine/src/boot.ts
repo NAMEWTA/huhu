@@ -45,6 +45,7 @@ import automationsManifest from "@huhu/plugin-automations/manifest" with { type:
 import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "json" };
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { PluginManifestSchema } from "@huhu/contracts";
+import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 import { OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
@@ -59,6 +60,7 @@ import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
 import { createModuleCredentialHost, type ModuleCredentialHost } from "./module-credential-host.js";
+import { addDesktopMailAttachment } from "./mail-desktop-attachment.js";
 
 export interface EndpointDescriptor {
   pid: number;
@@ -96,6 +98,7 @@ export interface RunningEngine {
   events: EventBus;
   /** 仅供 Engine 进程内受信模块和验证入口使用。 */
   moduleCredentialHost?: ModuleCredentialHost;
+  addMailDraftAttachment(request: PrivateMailAttachmentRequest, signal: AbortSignal): Promise<SelectDraftAttachmentResult>;
   /** 按顺序关闭：拒绝新写 → 通知客户端 → 停服务 → 释放锁 → 删除端点描述。 */
   shutdown(): Promise<void>;
 }
@@ -506,5 +509,23 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       }
     })());
 
-  return { vault, port: server.port, rendererToken, cliToken, mcpToken, descriptorPath, server, index, dispatcher: real, registry, events, ...(moduleCredentialHost ? { moduleCredentialHost } : {}), shutdown };
+  return {
+    vault,
+    port: server.port,
+    rendererToken,
+    cliToken,
+    mcpToken,
+    descriptorPath,
+    server,
+    index,
+    dispatcher: real,
+    registry,
+    events,
+    ...(moduleCredentialHost ? { moduleCredentialHost } : {}),
+    addMailDraftAttachment: (request, signal) => {
+      if (request.vaultId !== vault.id || vault.readOnly) return Promise.resolve({ status: "failed", reason: "unavailable" });
+      return addDesktopMailAttachment(getService<mail.MailDraftAttachments>(mail.MAIL_DRAFT_ATTACHMENTS_SERVICE), request, signal);
+    },
+    shutdown,
+  };
 }

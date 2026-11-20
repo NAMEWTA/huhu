@@ -1,8 +1,16 @@
+import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 import { boot } from "./boot.js";
+
+interface AttachmentReplyPort {
+  on(event: "close", cb: () => void): void;
+  start(): void;
+  close(): void;
+  postMessage(result: SelectDraftAttachmentResult): void;
+}
 
 interface ParentPort {
   postMessage(m: unknown): void;
-  on(event: "message", cb: (e: { data?: { type?: string } }) => void): void;
+  on(event: "message", cb: (e: { data?: { type?: string } | PrivateMailAttachmentRequest; ports?: AttachmentReplyPort[] }) => void): void;
 }
 
 function arg(name: string): string | undefined {
@@ -42,6 +50,20 @@ async function main(): Promise<void> {
   // Renderer 令牌只经 IPC 通道交给 Main；独立运行（无 IPC）时不输出任何令牌
   const ready = { type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id };
   const parentPort = (process as unknown as { parentPort?: ParentPort }).parentPort; // Electron utilityProcess
+  parentPort?.on("message", ({ data, ports }) => {
+    if (data?.type !== "mail-attachment:add" || ports?.length !== 1) return;
+    const port = ports[0]!;
+    const controller = new AbortController();
+    port.on("close", () => controller.abort());
+    port.start();
+    void Promise.resolve()
+      .then(() => engine.addMailDraftAttachment(data as PrivateMailAttachmentRequest, controller.signal))
+      .catch((): SelectDraftAttachmentResult => ({ status: "failed", reason: "failed" }))
+      .then((result) => {
+        if (!controller.signal.aborted) port.postMessage(result);
+        port.close();
+      });
+  });
   if (parentPort) parentPort.postMessage(ready);
   else if (process.send) process.send(ready);
   else process.stdout.write(JSON.stringify({ type: "ready", port: engine.port, vaultId: engine.vault.id }) + "\n");

@@ -7,6 +7,7 @@ import type { ExitPhase } from "../exit-ipc.js";
 import { installAppMenu } from "./app-menu.js";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
+import { registerMailAttachmentPicker } from "./mail-attachment-picker.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
@@ -460,6 +461,12 @@ if (!gotLock) {
       writeFileSync(r.filePath, content);
       return true;
     });
+    const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
+    const rendererOrigin = rendererUrl ? URL.parse(rendererUrl)?.origin : undefined;
+    registerMailAttachmentPicker(
+      () => supervisor,
+      (origin) => origin !== "null" && (origin === APP_ORIGIN || origin === rendererOrigin),
+    );
     ipcMain.handle("huhu:pickOpenPath", async (event, kind: unknown) => {
       assertTrusted(event.senderFrame?.url);
       const win = BrowserWindow.fromWebContents(event.sender);

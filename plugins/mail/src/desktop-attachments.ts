@@ -18,3 +18,23 @@ export interface DesktopDraftAttachmentHost {
   selectAndAdd(input: SelectDraftAttachment): Promise<SelectDraftAttachmentResult>;
   cancel(operationId: string): Promise<void>;
 }
+
+/** Main-to-Engine input sent only over the private utility process channel. */
+export interface SelectedAttachmentFile {
+  path: string;
+  name: string;
+  size: number;
+  fingerprint: string;
+}
+
+export interface PrivateMailAttachmentRequest {
+  type: "mail-attachment:add";
+  vaultId: string;
+  draftId: string;
+  expectedRevision: string;
+  file: SelectedAttachmentFile;
+}
+
+export function selectedFileFingerprint(stat: { dev: bigint; ino: bigint; ctimeNs: bigint; mtimeNs: bigint }): string {
+  return `${stat.dev}:${stat.ino}:${stat.ctimeNs}:${stat.mtimeNs}`;
+}

@@ -17,9 +17,15 @@ Main 可沿用 `dialog.showOpenDialog`，Engine 侧复用已经存在的 `mail.d
 
 状态映射按 `attachment-too-large`、`draft-attachment-limit`、`attachment-source-missing`、`attachment-import-interrupted`、`VERSION_CONFLICT`、无权限／不可用状态分别返回 `too-large`、`draft-limit`、`source-missing`、`interrupted`、`conflict`、`unavailable`。其余失败用 `failed`，例如内部读取错误。未接入宿主时写信区显示当前桌面宿主暂不支持选择附件，已有附件仍能显示。Web 与只读 Vault 上没有附件写入操作。
 
+## 整合后的桌面验证
+
+Main 在系统选择前后核对主 frame 来源和当前 Engine 实例，把本次选择的绝对路径、文件身份和草稿版本发送给随应用启动的 utilityProcess。单次 MessagePort 回传附件元数据，在取消时关闭。Engine 在核对草稿版本后才打开文件并核对文件身份，按字节摘要纳入同一受管附件服务。路径和原始字节留在两个受信桌面进程。 [选择处理](../../../../../apps/desktop/src/main/mail-attachment-picker.ts) · [Engine 读取](../../../../../apps/engine/src/mail-desktop-attachment.ts)
+
+Windows Electron 44.9.1 的 Playwright 通过实际 Mail、preload、Main 和 Engine，仅替换系统对话框的返回值。取消时无附件对象，带路径的渲染请求被拒绝。第二次选择后移走合成源文件，重开草稿仍可看到并删除附件，最后一个引用移除后对象回收。真实操作系统选择对话框界面由 Electron 提供，本次自动化记录的是进程间链路。 [桌面测试](../../../../../tests/e2e/workflows/mail.spec.ts) · [日志](/D:/Document/code/huhu/temp/issue-baseline/mail-desktop-attachments.log)
+
 ## 重跑
 
-用现有 Windows 固定 pnpm 12.10.1 运行 Mail 工区测试。Edge 探针只在测试页面安装可撤销的 `huhuHost` 选择桥。选择源由测试侧限定为隔离临时目录的合成文件，真文件字节进入现有 Engine 附件服务，HTTP 移除调用进入真实分发器。真实 Windows 原生系统选择、preload、Main 到 utilityProcess 传输需 Lead 完成接线后组合验收。 [复跑方式](S1-workbench.md#重跑) · [Edge 探针](S1-workbench/workbench-renderer.test.ts) · [Engine 回归](../../../../../plugins/mail/test/draft-attachments-engine.test.ts)
+用现有 Windows 固定 pnpm 12.10.1 运行 Mail 工区测试。Edge 探针只在测试页面安装可撤销的 `huhuHost` 选择桥。选择源由测试侧限定为隔离临时目录的合成文件，真文件字节进入现有 Engine 附件服务，HTTP 移除调用进入真实分发器。 [复跑方式](S1-workbench.md#重跑) · [Edge 探针](S1-workbench/workbench-renderer.test.ts) · [Engine 回归](../../../../../plugins/mail/test/draft-attachments-engine.test.ts)
 
 | 场景 | 断言 |
 | --- | --- |

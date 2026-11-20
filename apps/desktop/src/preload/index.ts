@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DesktopDraftAttachmentHost } from "@huhu/plugin-mail/desktop-attachments";
 import type { AppMenuAction, AppMenuHost } from "@huhu/workbench";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
 
@@ -41,6 +42,10 @@ contextBridge.exposeInMainWorld("huhuHost", {
   },
   pickSavePath: (defaultName: string): Promise<string | null> => ipcRenderer.invoke("huhu:pickSavePath", defaultName),
   pickOpenPath: (kind: "zip" | "directory" | "file"): Promise<string | null> => ipcRenderer.invoke("huhu:pickOpenPath", kind),
+  mailDraftAttachments: {
+    selectAndAdd: (input) => ipcRenderer.invoke("huhu:mail-draft-attachment:select", input),
+    cancel: (operationId) => ipcRenderer.invoke("huhu:mail-draft-attachment:cancel", operationId),
+  } satisfies DesktopDraftAttachmentHost,
   vault: {
     state: (): Promise<unknown> => ipcRenderer.invoke("huhu:vault:state"),
     open: (target: string, opts?: { kind?: "open" | "new"; readOnly?: boolean }): Promise<unknown> => ipcRenderer.invoke("huhu:vault:open", target, opts),
