@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
 import { ExecutionBindingSchema, HuhuError, isHuhuError, isId, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
-import { AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
+import { AgentDispatchTargetSchema, AgentNativeStopInputSchema, AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { canonicalJson } from "../shared/input.js";
@@ -11,6 +11,14 @@ const Instant = z.iso.datetime();
 const InputIdentity = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
 export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional() }).strict();
 export const DispatchLookup = DispatchInput.pick({ taskId: true, dispatchId: true });
+const StopRecord = z.strictObject({
+  stopId: AgentNativeStopInputSchema.shape.stopId,
+  status: z.enum(["pending", "sending", ...AgentNativeStopStatusSchema.options]),
+  acceptedAt: Instant,
+  updatedAt: Instant,
+});
+export const StopLookup = DispatchLookup.extend({ runId: Id, stopId: StopRecord.shape.stopId });
+export const StopReceipt = StopLookup.extend(StopRecord.shape);
 export const RuleSource = z.strictObject({
   kind: z.literal("automation"),
   ruleId: Id,
@@ -48,6 +56,7 @@ const RecordFields = z.object({
   snapshotHash: z.string(),
   agentTarget: AgentDispatchTargetSchema.optional(),
   boundExecution: ExecutionBindingSchema.optional(),
+  stop: StopRecord.optional(),
   claim: z.object({ machineId: z.string(), at: Instant }).nullable(),
   startedAt: Instant.nullable(),
   finishedAt: Instant.nullable(),
@@ -67,6 +76,8 @@ export type RuleSource = z.infer<typeof RuleSource>;
 export type DispatchSource = z.infer<typeof Source>;
 export type DispatchSnapshot = z.infer<typeof Snapshot>;
 export type DispatchReceipt = z.infer<typeof DispatchReceipt>;
+export type StopLookup = z.infer<typeof StopLookup>;
+export type StopReceipt = z.infer<typeof StopReceipt>;
 export type DispatchRecord = z.infer<typeof DispatchRecord>;
 export type OwnedRecord = z.infer<typeof OwnedRecord>;
 type UnsealedRecord = Omit<OwnedRecord, "seal">;
@@ -159,6 +170,7 @@ export class DispatchStore {
       if (fingerprint(snapshot) !== snapshotHash || fingerprint({ input, source }) !== requestHash) throw new Error("请求或快照校验失败");
       if ((receipt.state === "pending" && claim) || (["claimed", "sending", "running", "unknown"].includes(receipt.state) && !claim)) throw new Error("领取状态与记录不符");
       const execution = record.boundExecution;
+      if (record.stop && (!execution || receipt.state !== "running")) throw new Error("停止意图的原执行绑定无效");
       if (
         execution &&
         (record.schema !== 2 ||

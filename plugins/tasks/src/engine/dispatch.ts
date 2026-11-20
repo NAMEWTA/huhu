@@ -1,4 +1,5 @@
 import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
+import type { AgentNativeStopInputSchema, AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import {
   DispatchInput,
   DispatchLookup,
@@ -13,10 +14,12 @@ import {
   type DispatchSnapshot,
   type DispatchSource,
   type OwnedRecord,
+  type StopLookup,
+  type StopReceipt,
 } from "./dispatch-store.js";
 import type { TasksService } from "./service.js";
 import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
-import { type AgentReplyInput, type AgentReplyResult, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup } from "./native-replies.js";
+import { type AgentReplyInput, type AgentReplyResult, type ReplyAvailability, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup } from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
 import type { z } from "zod";
 
@@ -32,6 +35,9 @@ export type TaskDispatchWork = Readonly<{
 
 export type TaskDispatchReadiness = "ready" | "busy" | "unavailable" | "unsupported" | { state: "ready" | "busy"; target: NonNullable<DispatchRecord["agentTarget"]> };
 export type TaskDispatchResult = "accepted" | "not_sent" | "unknown" | "unsupported" | { state: "accepted"; execution: ExecutionBinding };
+type NativeStopInput = z.infer<typeof AgentNativeStopInputSchema>;
+type NativeStopStatus = z.infer<typeof AgentNativeStopStatusSchema>;
+type StopRecord = NonNullable<OwnedRecord["stop"]>;
 
 export interface TaskDispatchExecutor {
   /** 只读目标/资源预检。实际输入所有权仍须由执行者在派遣时核验。 */
@@ -42,6 +48,8 @@ export interface TaskDispatchExecutor {
   inspect(work: TaskDispatchWork, signal: AbortSignal): Promise<Exclude<TaskDispatchResult, "unsupported">>;
   answer?(input: AgentReplyInput, signal: AbortSignal): Promise<AgentReplyResult>;
   inspectAnswer?(input: AgentReplyInput, signal: AbortSignal): Promise<AgentReplyResult>;
+  stop?(input: NativeStopInput, signal: AbortSignal): Promise<NativeStopStatus>;
+  inspectStop?(input: NativeStopInput, signal: AbortSignal): Promise<NativeStopStatus>;
 }
 
 type Rejection = NonNullable<DispatchReceipt["reason"]> | "stale_input" | "not_due" | "expired" | ReturnType<DispatchStore["ownerIssue"]>;
@@ -58,9 +66,14 @@ function maySend(task: TaskDto, receipt: DispatchReceipt, now: Date): boolean {
 function holdsRun(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutcome>, task: TaskDto | null): boolean {
   if (!holdsTask(record.receipt)) return false;
   const outcome = outcomes.get(record.receipt.runId);
-  if (record.receipt.state !== "running" || !outcome || outcome.state === "unknown") return true;
+  if (record.receipt.state !== "running" || (record.stop?.status !== "stopped" && !outcome?.finishedAt)) return true;
   // The terminal receipt can race the initial task link. Keep that accepted input occupied until linked.
   return task !== null && task.status === "not_started" && sameInput(task, record.snapshot);
+}
+
+function stopView({ receipt }: DispatchRecord, stop: StopRecord): StopReceipt {
+  const { taskId, dispatchId, runId } = receipt;
+  return { taskId, dispatchId, runId, ...stop };
 }
 
 export class TaskDispatch {
@@ -95,11 +108,38 @@ export class TaskDispatch {
   }
 
   reply(input: z.infer<typeof TaskReplyInput>, signal: AbortSignal) {
-    return this.replies.accept(input, this.matchesExecution, AbortSignal.any([signal, this.abort.signal]));
+    return this.replies.accept(input, this.matchesExecution, this.replyAvailability, AbortSignal.any([signal, this.abort.signal]));
   }
 
   readReply(input: z.infer<typeof TaskReplyLookup>) {
     return this.replies.readReply(input, this.matchesExecution);
+  }
+
+  async acceptStop(input: StopLookup, signal: AbortSignal): Promise<StopReceipt> {
+    return this.tasks.withTaskWrite(input.taskId, async () => {
+      AbortSignal.any([signal, this.abort.signal]).throwIfAborted();
+      const { record, version } = this.lookup(input);
+      if (record.receipt.runId !== input.runId) throw errors.notFound("没有这条任务运行");
+      if (record.stop) {
+        if (record.stop.stopId !== input.stopId) throw new HuhuError("VERSION_CONFLICT", "该任务运行已有停止记录");
+        return stopView(record, record.stop);
+      }
+      this.store.assertWritable();
+      if (!this.store.owns(record) || !record.boundExecution || !this.matchesExecution(record.boundExecution) || record.receipt.state !== "running") {
+        throw new HuhuError("RUN_UNKNOWN", "现有记录无法确认原任务执行");
+      }
+      const now = this.now().toISOString();
+      const { outcomes } = this.receipts.history(input.taskId, this.matchesExecution, this.onError);
+      const stop: StopRecord = { stopId: input.stopId, status: outcomes.get(input.runId)?.finishedAt ? "completed" : "pending", acceptedAt: now, updatedAt: now };
+      const saved = await this.store.write({ ...record, stop }, version);
+      return stopView(saved, stop);
+    });
+  }
+
+  readStop(input: StopLookup): StopReceipt {
+    const { record } = this.lookup(input);
+    if (record.receipt.runId !== input.runId || record.stop?.stopId !== input.stopId) throw errors.notFound("没有这条停止记录");
+    return stopView(record, record.stop);
   }
 
   private boundExecution({ dispatchId, taskId }: ExecutionBinding): ExecutionBinding | undefined {
@@ -113,6 +153,13 @@ export class TaskDispatch {
     return expected !== undefined && fingerprint(expected) === fingerprint(execution);
   };
 
+  private replyAvailability = (execution: ExecutionBinding): ReplyAvailability => {
+    const status = this.store.read(eventIdOf(execution.dispatchId))?.record.stop?.status;
+    if (status === "stopped" || status === "completed") return "closed";
+    if (status === "pending" || status === "sending" || status === "unknown") return "stopping";
+    return "open";
+  };
+
   questions(taskId: string) {
     this.tasks.read(taskId);
     return this.history(taskId).questions;
@@ -121,9 +168,16 @@ export class TaskDispatch {
   private history(taskId: string) {
     const replies = this.replies.list(taskId, this.matchesExecution);
     const history = this.receipts.history(taskId, this.matchesExecution, this.onError);
+    const closed = new Set(
+      this.store
+        .list()
+        .filter(({ receipt, stop }) => receipt.taskId === taskId && (stop?.status === "stopped" || stop?.status === "completed"))
+        .map(({ receipt }) => receipt.runId),
+    );
     const questions = history.questions.map((question) => {
       const reply = replies.find((reply) => reply.runId === question.runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion);
-      return { ...question, ...(reply && { reply }) };
+      const status = question.mode === "native_deferred" && closed.has(question.runId) ? "closed" : question.status;
+      return { ...question, status, ...(reply && { reply }) };
     });
     return { ...history, questions };
   }
@@ -140,21 +194,32 @@ export class TaskDispatch {
     const running = this.store.list().filter((record) => record.receipt.taskId === taskId && record.receipt.state === "running" && this.store.owns(record));
     if (!running.length) return false;
     const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
-    return running.some(({ receipt }) => !outcomes.get(receipt.runId)?.finishedAt);
+    return running.some(({ receipt, stop }) => stop?.status !== "stopped" && !outcomes.get(receipt.runId)?.finishedAt);
   }
 
   runs(taskId: string): ReturnType<TasksService["runs"]> {
     const { questions, outcomes } = this.history(taskId);
-    return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt }) => {
+    return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt, stop }) => {
       if (receipt.taskId !== taskId || !claim) return [];
       const open = questions.filter(({ runId, status }) => runId === receipt.runId && status === "awaiting");
       const outcome = outcomes.get(receipt.runId);
       let state = "queued";
-      if (outcome) state = outcome.state;
+      if (stop?.status === "stopped" && !outcome) state = "cancelled";
+      else if (outcome) state = outcome.state;
+      else if (stop?.status === "unknown" || stop?.status === "completed") state = "unknown";
       else if (receipt.state === "running") state = open.some(({ reply }) => reply?.status !== "accepted") ? "waiting_input" : "running";
       else if (receipt.state === "unknown") state = "unknown";
       else if (["cancelled", "stale_input", "expired", "blocked"].includes(receipt.state)) state = "cancelled";
-      return [{ id: receipt.runId, state, startedAt, finishedAt: outcome ? outcome.finishedAt : finishedAt, model: snapshot.execution.model, questions: open.filter(({ reply }) => !reply).length }];
+      return [
+        {
+          id: receipt.runId,
+          state,
+          startedAt,
+          finishedAt: outcome ? outcome.finishedAt : stop?.status === "stopped" ? stop.updatedAt : finishedAt,
+          model: snapshot.execution.model,
+          questions: open.filter(({ reply }) => !reply).length,
+        },
+      ];
     });
   }
 
@@ -259,7 +324,7 @@ export class TaskDispatch {
         }
       }
       await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
-      await this.replies.replay(this.matchesExecution, this.abort.signal, this.onError);
+      await this.replies.replay(this.matchesExecution, this.replyAvailability, this.abort.signal, this.onError);
     } catch (error) {
       this.onError?.(error);
     } finally {
@@ -306,6 +371,7 @@ export class TaskDispatch {
     const executor = this.executor;
     if (receipt.state === "running") {
       await this.linkTask(record);
+      await this.advanceStop(record);
       return;
     }
     const work: TaskDispatchWork = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash, ...(agentTarget && { agentTarget }) };
@@ -323,6 +389,44 @@ export class TaskDispatch {
       return;
     }
     if (executor && (receipt.state === "sending" || receipt.state === "unknown")) await this.finishSending(record, () => executor.inspect(work, signal));
+  }
+
+  private async advanceStop(record: OwnedRecord): Promise<void> {
+    const { stop, boundExecution: execution, receipt } = record;
+    const signal = this.abort.signal;
+    if (!stop || !execution || signal.aborted) return;
+    const send = stop.status === "pending";
+    if (!send && stop.status !== "sending" && stop.status !== "unknown") return;
+    const executor = this.executor;
+    const started = send
+      ? await this.writeStop(record, stop.status, () => {
+          const { outcomes } = this.receipts.history(receipt.taskId, this.matchesExecution, this.onError);
+          if (outcomes.get(receipt.runId)?.finishedAt) return "completed";
+          return executor?.stop ? "sending" : "unsupported";
+        })
+      : stop.status;
+    if (signal.aborted || (started !== "sending" && started !== "unknown")) return;
+    let status: NativeStopStatus = "unknown";
+    try {
+      const request = { execution, stopId: stop.stopId };
+      const operation = send ? executor?.stop : executor?.inspectStop;
+      if (operation) status = await operation(request, signal);
+    } catch {
+      // Reopen and inspect the original intent when the transport cannot prove its result.
+    }
+    await this.writeStop(record, started, () => status);
+  }
+
+  private writeStop(record: OwnedRecord, previous: StopRecord["status"], decide: () => StopRecord["status"]): Promise<StopRecord["status"] | undefined> {
+    return this.tasks.withTaskWrite(record.receipt.taskId, async () => {
+      if (this.abort.signal.aborted) return;
+      const current = this.current(record);
+      const stop = current?.record.stop;
+      if (!current || !stop || stop.stopId !== record.stop?.stopId || stop.status !== previous) return;
+      const status = decide();
+      if (status !== stop.status) await this.store.write({ ...current.record, stop: { ...stop, status, updatedAt: this.now().toISOString() } }, current.version);
+      return status;
+    });
   }
 
   private async prepare(event: OwnedRecord, readiness: "check" | TaskDispatchReadiness): Promise<boolean> {

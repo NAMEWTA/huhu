@@ -610,6 +610,47 @@ test("原生回答先落盘，竞争只保存一个回答，确认丢失后只�
   expect(await call(recovered, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [expect.objectContaining({ id: run.runId, questions: 1 })] });
 });
 
+test("原轮停止先保存意图，重开只核实同一次停止", { timeout: 60_000 }, async () => {
+  const { root, fake, engine, task, run, execution } = await startBoundRun();
+  const input = { taskId: task.id, dispatchId: run.dispatchId, runId: run.runId, stopId: "user-stop-bound" };
+  const requestStop = (running: RunningEngine, request = input) => call(running, "tasks.dispatch.stop", request);
+  const readStop = (running: RunningEngine) => call(running, "tasks.dispatch.stop.read", input);
+  const interrupt = vi.fn<NonNullable<TaskDispatchExecutor["stop"]>>().mockRejectedValue(new Error("停止请求的回包丢失"));
+  const inspect = vi.fn<NonNullable<TaskDispatchExecutor["inspectStop"]>>().mockResolvedValue("unknown");
+  fake.stop = interrupt;
+  fake.inspectStop = inspect;
+  const choice = { taskId: task.id, runId: run.runId, sessionId: execution.sessionBinding.sessionId, requestId: "open-before-stop", requestVersion: 1, replyId: "reply-after-stop", answer: "一" };
+  await submitReceipt(engine, {
+    version: 1,
+    kind: "question",
+    receiptId: "stop-native-question",
+    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } },
+    payload: { mode: "native_deferred", requestId: choice.requestId, requestVersion: 1, options: ["一"], text: "原轮问题", nativeRequestId: "stop-private-route" },
+  });
+  expect(await call(engine, "tasks.dispatch.stop", input, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  expect(await requestStop(engine, { ...input, runId: "another-run" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  const accepted = await requestStop(engine);
+  expect(accepted).toMatchObject({ ok: true, data: { ...input, status: "pending" } });
+  expect(recordOf(engine, run).stop).toMatchObject({ stopId: input.stopId, acceptedAt: expect.any(String) });
+  expect(await requestStop(engine, { ...input, stopId: "different-stop" })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  await vi.waitFor(async () => expect(await readStop(engine)).toMatchObject({ ok: true, data: { status: "unknown" } }));
+  expect(await call(engine, "tasks.reply", choice)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect((await requestStop(engine)).data).toEqual((await readStop(engine)).data);
+  expect(interrupt).toHaveBeenCalledExactlyOnceWith({ execution, stopId: input.stopId }, expect.any(AbortSignal));
+  await stop(engine);
+
+  inspect.mockClear();
+  inspect.mockResolvedValue("stopped");
+  const reopened = await start(root);
+  await vi.waitFor(async () => expect(await readStop(reopened)).toMatchObject({ ok: true, data: { ...input, status: "stopped" } }));
+  expect(inspect).toHaveBeenCalledExactlyOnceWith({ execution, stopId: input.stopId }, expect.any(AbortSignal));
+  expect(interrupt).toHaveBeenCalledTimes(1);
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect(await call(reopened, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, state: "cancelled", finishedAt: expect.any(String), questions: 0 }] });
+  expect(await call(reopened, "tasks.questions.list", { taskId: task.id })).toMatchObject({ ok: true, data: [{ requestId: choice.requestId, status: "closed" }] });
+  expect(await call<TaskDto>(reopened, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: { status: "in_progress" } });
+});
+
 test("Automations 停用后，人工受理、两规则竞争及任务正文快照在重开后沿用一个 run", { timeout: 60_000 }, async () => {
   const root = tempVault();
   const engine = await start(root, true);

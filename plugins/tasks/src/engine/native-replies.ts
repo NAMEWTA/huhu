@@ -22,6 +22,7 @@ export const AgentReplyResult = z.strictObject({
   status: z.enum(["accepted", "not_sent", "unknown", "stale", "unsupported"]),
 });
 export type AgentReplyResult = z.infer<typeof AgentReplyResult>;
+export type ReplyAvailability = "open" | "stopping" | "closed";
 export type AgentReplyInput = {
   execution: ExecutionBinding;
   requestId: string;
@@ -103,7 +104,7 @@ export class TaskNativeReplies {
       .map(view);
   }
 
-  async accept(input: Input, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal): Promise<View> {
+  async accept(input: Input, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal): Promise<View> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       signal.throwIfAborted();
       const task = this.tasks.read(input.taskId);
@@ -123,6 +124,7 @@ export class TaskNativeReplies {
       if (entries.some((entry) => sameQuestion(entry.input, input))) throw new HuhuError("VERSION_CONFLICT", "该任务问题已有一条回答");
       const { execution, payload } = question.receipt;
       if (payload.mode !== "native_deferred") throw errors.invalidInput("普通问题需要通过后续轮次回答");
+      if (availability(execution) !== "open") throw new HuhuError("VERSION_CONFLICT", "原任务运行正在停止或已经结束");
       if (!payload.options.includes(input.answer)) throw errors.invalidInput("回答必须匹配原问题的选项");
       const entry: Entry = { input, execution, nativeRequestId: payload.nativeRequestId, acceptedAt: this.now().toISOString(), status: "pending" };
       await this.write(file, [...entries, entry], version);
@@ -141,13 +143,13 @@ export class TaskNativeReplies {
     }
   }
 
-  async replay(bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {
+  async replay(bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {
     for (const file of this.filesInLedger()) {
       if (signal.aborted) return;
       try {
         for (const entry of this.read(file).entries) {
           if (signal.aborted) return;
-          if (bound(entry.execution) && (entry.status === "pending" || entry.status === "sending" || entry.status === "unknown")) await this.advance(file, entry, bound, signal);
+          if (bound(entry.execution) && (entry.status === "pending" || entry.status === "sending" || entry.status === "unknown")) await this.advance(file, entry, bound, availability, signal);
         }
       } catch (error) {
         if (!signal.aborted) onError?.(error);
@@ -155,7 +157,7 @@ export class TaskNativeReplies {
     }
   }
 
-  private async advance(file: string, entry: Entry, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal): Promise<void> {
+  private async advance(file: string, entry: Entry, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal): Promise<void> {
     const { input, execution, nativeRequestId, acceptedAt, status } = entry;
     const { taskId, runId, requestId, requestVersion, sessionId, replyId, answer } = input;
     const pending = status === "pending";
@@ -178,6 +180,9 @@ export class TaskNativeReplies {
         return;
       }
       const sending = await this.change(file, entry, signal, () => {
+        const route = availability(execution);
+        if (route === "stopping") return "pending";
+        if (route === "closed") return "expired";
         try {
           if (this.tasks.read(taskId).status === "completed") return "expired";
         } catch (error) {

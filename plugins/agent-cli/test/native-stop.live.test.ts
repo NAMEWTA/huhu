@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, ExecutionBinding, TaskDto } from "@huhu/contracts";
 import { HerdrClient } from "@huhu/herdr-client";
-import { PERMISSION_TABLE } from "@huhu/kernel";
 import { AgentDetector, HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
@@ -44,7 +43,7 @@ async function call<T = unknown>(engine: RunningEngine, capability: string, inpu
 }
 
 type Event = { event: string; threadId?: string; turnId?: string; params?: { threadId: string; turnId: string } };
-type Phase = "held-interrupt" | "natural-before" | "failed-before" | "raced-natural" | "reused-pending" | "reused-unsent";
+type Phase = "held-interrupt" | "workbench-stop" | "natural-before" | "failed-before" | "raced-natural" | "reused-pending" | "reused-unsent";
 
 test.skipIf(process.platform !== "win32" || !bin)(
   "Windows Engine sends one native interrupt and reconciles only the original turn across races and Core replacement",
@@ -64,9 +63,6 @@ test.skipIf(process.platform !== "win32" || !bin)(
     vi.stubEnv("HUHU_CODEX_DISPATCH_HOME", makeDir("provider-home"));
     vi.stubEnv("HUHU_CODEX_DISPATCH_HELPER", path.resolve(import.meta.dirname, "../src/engine/codex-dispatch-helper.cjs"));
     const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
-    const grants = PERMISSION_TABLE as Record<string, readonly string[]>;
-    const oldGrant = grants["agent.task-input"]!;
-    grants["agent.task-input"] = [...new Set([...oldGrant, "agent.runs.stop", "agent.runs.stop.inspect"])];
     let engine!: RunningEngine;
     let stopCore: (() => void) | undefined;
     const gate = createFixtureGate();
@@ -201,6 +197,23 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(interrupts("raced-natural")).toHaveLength(1);
       console.info(JSON.stringify({ phase: "natural-terminal-before-and-after-stop", prefinishedInterrupts: 0, racedInterrupts: 1, status: "completed" }));
 
+      const workbench = await run("workbench-stop");
+      const { taskId, dispatchId, runId } = workbench.execution;
+      const selection = { taskId, dispatchId, runId, stopId: workbench.stopId };
+      await expect.poll(() => call(engine, "tasks.dispatch.read", { taskId, dispatchId }), { timeout: 12_000 }).toMatchObject({ runId, state: "running" });
+      expect(await call(engine, "tasks.dispatch.stop", selection)).toMatchObject({ ...selection, status: "pending" });
+      await expect.poll(() => call(engine, "tasks.dispatch.stop.read", selection), { timeout: 15_000 }).toMatchObject({ status: "unknown" });
+      expect(interrupts("workbench-stop")).toHaveLength(1);
+      await engine.shutdown();
+      signalFixture("workbench-stop.finish");
+      engine = await boot({ vaultPath, desktopUserData });
+      await expect.poll(() => call(engine, "tasks.dispatch.stop.read", selection), { timeout: 15_000 }).toMatchObject({ ...selection, status: "stopped" });
+      expect(await call(engine, "tasks.dispatch.stop", selection)).toMatchObject({ ...selection, status: "stopped" });
+      expect(await call(engine, "tasks.runs", { id: taskId })).toMatchObject([{ id: runId, state: "cancelled" }]);
+      expect(await call(engine, "tasks.read", { id: taskId })).toMatchObject({ status: "in_progress" });
+      expect(interrupts("workbench-stop")).toHaveLength(1);
+      console.info(JSON.stringify({ phase: "workbench-original-stop", nativeInterrupts: 1, originalRun: runId, taskStatus: "in_progress", stopStatus: "stopped" }));
+
       const pending = await run("reused-pending");
       const unsent = await run("reused-unsent");
       const get = (address: string) => {
@@ -250,7 +263,6 @@ test.skipIf(process.platform !== "win32" || !bin)(
           connectSpy.mockRestore();
           coreSpy.mockRestore();
           detect.mockRestore();
-          grants["agent.task-input"] = oldGrant;
           vi.unstubAllEnvs();
           if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-native-stop-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
         }

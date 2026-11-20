@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { HuhuApi } from "@huhu/kernel";
-import { AgentDispatchInputSchema, AgentDispatchResponseSchema, AgentDispatchTargetInfoSchema, AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
+import { AgentDispatchInputSchema, AgentDispatchResponseSchema, AgentDispatchTargetInfoSchema, AgentDispatchTargetSchema, AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import { z } from "zod";
 import type { TaskDispatchExecutor, TaskDispatchResult, TaskDispatchWork } from "./dispatch.js";
 import { fingerprint } from "./dispatch-store.js";
@@ -9,6 +9,7 @@ import { AgentReplyResult } from "./native-replies.js";
 const Targets = z.array(AgentDispatchTargetInfoSchema);
 const InputText = AgentDispatchInputSchema.shape.input;
 const Unsupported = new Set(["provider_acceptance_unavailable", "provider_generation_unavailable", "native_resume_evidence_unavailable"]);
+const StopResult = z.strictObject({ status: AgentNativeStopStatusSchema });
 
 function textOf({ snapshot }: TaskDispatchWork): string {
   const instructions = snapshot.source.kind === "automation" ? snapshot.source.instructions : undefined;
@@ -116,6 +117,14 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
 
     async inspectAnswer(input, signal) {
       return AgentReplyResult.parse(await api.call("agent.runs.answer.inspect", input, { signal }));
+    },
+
+    async stop(input, signal) {
+      return StopResult.parse(await api.call("agent.runs.stop", input, { idempotencyKey: input.stopId, signal })).status;
+    },
+
+    async inspectStop(input, signal) {
+      return StopResult.parse(await api.call("agent.runs.stop.inspect", input, { signal })).status;
     },
   };
 }

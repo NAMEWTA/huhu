@@ -21,7 +21,7 @@ import { statSync } from "node:fs";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
-import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore } from "./dispatch-store.js";
+import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, StopLookup, StopReceipt } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { TasksService } from "./service.js";
@@ -210,6 +210,39 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: (c, i) => {
         if (c.caller !== "desktop") throw errors.permissionDenied("取消任务派遣");
         return dispatch.cancel(i);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.stop",
+      plugin: "tasks",
+      scope: "execute",
+      exposable: false,
+      defaultExposed: false,
+      idempotency: "handler",
+      input: StopLookup,
+      output: StopReceipt,
+      handler: async ({ caller, signal }, input) => {
+        if (caller !== "desktop") throw errors.permissionDenied("停止任务运行");
+        const receipt = await dispatch.acceptStop(input, signal);
+        void dispatch.check();
+        return receipt;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.stop.read",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: StopLookup,
+      output: StopReceipt,
+      handler: ({ caller }, input) => {
+        if (caller !== "desktop") throw errors.permissionDenied("查看任务停止记录");
+        return dispatch.readStop(input);
       },
     }),
   );

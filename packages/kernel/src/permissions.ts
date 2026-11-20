@@ -19,7 +19,7 @@ export const PERMISSION_TABLE: Readonly<Record<string, readonly string[]>> = {
   "tasks.receipt-consume": ["tasks.receipts.consume"],
   /** 合成并启动 Agent CLI 的命令行。 */
   "agent.run": ["agent.launch.resolve"],
-  "agent.task-input": ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect", "agent.runs.answer", "agent.runs.answer.inspect"],
+  "agent.task-input": ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect", "agent.runs.answer", "agent.runs.answer.inspect", "agent.runs.stop", "agent.runs.stop.inspect"],
   /** 查询任务是否有活动运行。 */
   "automations.runs.internal": ["automations.runs.activeFor"],
   /** 终端命令：启动命令会话、读取输出、结束会话（automations 的 terminal 动作）。 */

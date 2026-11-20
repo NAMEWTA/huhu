@@ -43,13 +43,13 @@ if (process.argv.includes("--version")) {
       stopEvent("turn-start", { threadId, turnId });
       send({ id: message.id, result: { turn: { id: turnId } } });
       waitFor(stopScenario + ".finish", () => {
-        const status = stopScenario === "held-interrupt" ? "interrupted" : stopScenario === "failed-before" ? "failed" : "completed";
+        const status = stopScenario === "held-interrupt" || stopScenario === "workbench-stop" ? "interrupted" : stopScenario === "failed-before" ? "failed" : "completed";
         finishTurn(threadId, turnId, status);
         stopEvent("terminal", { status });
       });
     } else if (stopFixture && stopScenario && message.method === "turn/interrupt") {
       stopEvent("interrupt", { params: message.params });
-      if (stopScenario !== "held-interrupt") return;
+      if (stopScenario !== "held-interrupt" && stopScenario !== "workbench-stop") return;
       send({ id: message.id, result: {} });
       stopEvent("interrupt-rpc-returned");
       finishTurn(threadId, "foreign-turn", "interrupted");
