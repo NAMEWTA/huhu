@@ -112,6 +112,7 @@ testWindows(
     await live.client.call("plugins.setEnabled", { id: "safe", enabled: false }, { write: true });
     expect(await connect(live.client, live.engine, saved.hostId)).toBe("OK");
 
+    await live.client.call("gateway.mcp.update", { enabled: true, transport: "stdio" }, { write: true });
     for (const token of [live.engine.cliToken, live.engine.mcpToken]) {
       const caller = new EngineClient({ ...live.client.endpoint, token });
       expect(await code(caller.call("ssh.hosts.configure", input))).toBe("CAPABILITY_NOT_EXPOSED");

@@ -200,6 +200,7 @@ testWindows(
         });
         const routed = await engine.dispatcher.call("web:mail-draft-fixture", { capability: "mail.drafts.get", input: { draftId: id }, requestId: randomUUID() });
         expect(routed).toEqual({ ok: true, data: { draft: switched } });
+        expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" })).toMatchObject({ ok: true });
         expect(await call(engine, "mail.drafts.get", { draftId: id }, engine.mcpToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
         expect(await call(engine, "mail.drafts.save", saveInput(id, switched.revision), engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
         const privateRuntimeFile = path.join(engine.vault.runtimeDir, "idempotency.ndjson");

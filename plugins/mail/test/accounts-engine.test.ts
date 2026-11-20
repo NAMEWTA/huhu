@@ -72,6 +72,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("邮件账�
     const list = await call(engine, "mail.accounts.list");
     expect(list).toMatchObject({ ok: true, data: { available: true, accounts: [saved] } });
     expect(JSON.stringify(list).includes(password)).toBe(false);
+    expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" })).toMatchObject({ ok: true });
     expect(await call(engine, "mail.accounts.list", {}, engine.mcpToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     await exportPackage(vaultPath, archive);
     expect(importPackage(archive, restoredPath).vaultId).toBe(engine.vault.id);

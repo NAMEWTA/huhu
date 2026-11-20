@@ -184,6 +184,7 @@ test("首次及后续并发写入只有一个胜者，并沿用静态目录与�
     const descriptor = { name: "ssh.hosts.organize", scope: "write" };
     expect(catalog.parse(await data(live, "capabilities.list", { includeInactive: true }))).toContainEqual({ ...descriptor, availability: "active" });
     expect(await call(live, "ssh.hosts.directory", {}, live.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    expect(await call(live, "gateway.mcp.update", { enabled: true, transport: "stdio" })).toMatchObject({ ok: true });
     expect(await call(live, "ssh.hosts.organize", {}, live.mcpToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
 
     async function compete(expectedVersion: string) {
