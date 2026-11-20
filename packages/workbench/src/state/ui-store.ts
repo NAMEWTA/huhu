@@ -12,7 +12,7 @@ export interface UiState {
   /** 各模块当前分区（外壳导航 / 顶部标签用）。 */
   sections: Record<string, string>;
   setSection(module: string, id: string): void;
-  openModule(id: string): void;
+  openModule(id: string): boolean | Promise<boolean>;
   closeTab(id: string): void;
   toggleSidebar(): void;
   setSidebarWidth(w: number): void;
@@ -44,14 +44,13 @@ export function registerModuleLeaveGuard(store: StoreApi<UiState>, module: strin
  */
 export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s: UiPersisted) => void): StoreApi<UiState> {
   const leave = (from: string | null, action: () => void) => {
-    const result = from ? leaveGuards.get(store)?.get(from)?.(localExitRequest("navigation")) : undefined;
-    if (result instanceof Promise) {
-      void result.then((allowed) => {
-        if (allowed && store.getState().activeModule === from) action();
-      });
-    } else if (result !== false) {
+    const proceed = (allowed: boolean) => {
+      if (!allowed || store.getState().activeModule !== from) return false;
       action();
-    }
+      return true;
+    };
+    const result = from ? leaveGuards.get(store)?.get(from)?.(localExitRequest("navigation")) : undefined;
+    return result instanceof Promise ? result.then(proceed, () => false) : proceed(result !== false);
   };
   const store: StoreApi<UiState> = createStore<UiState>((set, get) => ({
     activeModule: initial.activeModule ?? null,
@@ -65,8 +64,11 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
     setSection: (module, id) => set({ sections: { ...get().sections, [module]: id } }),
     openModule: (id) => {
       const s = get();
-      if (s.activeModule === id) return set({ sidebarCollapsed: !s.sidebarCollapsed });
-      leave(s.activeModule, () => {
+      if (s.activeModule === id) {
+        set({ sidebarCollapsed: !s.sidebarCollapsed });
+        return true;
+      }
+      return leave(s.activeModule, () => {
         const { openTabs } = get();
         set({ activeModule: id, openTabs: openTabs.includes(id) ? openTabs : [...openTabs, id], detailOpen: false });
       });

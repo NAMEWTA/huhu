@@ -68,6 +68,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [collapsed, setCollapsed] = useState<Set<MailProvider>>(() => new Set());
   const [composer, setComposer] = useState<{ draft: Draft | null; seed?: DraftContent } | null>(null);
   const [readingMessage, setReadingMessage] = useState<string | null>(null);
+  const [accountEpoch, setAccountEpoch] = useState(0);
   const composing = useRef(false);
   const composerSender = useRef<string | null>(null);
   const feedbackScope = `mail-${engine.vaultId}`;
@@ -102,13 +103,15 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
 
   const refetchAccounts = accounts.refetch;
   useEngineEvents((event) => {
-    if (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "mail-account") void refetchAccounts();
+    if (event.type !== "entity.changed" || !("kind" in event.payload) || event.payload.kind !== "mail-account") return;
+    setAccountEpoch((epoch) => epoch + 1);
+    void refetchAccounts();
   });
   useEffect(() => {
-    if (!readingMessage) return;
+    if (!readingMessage && !searchOpen) return;
     const timer = setInterval(() => void refetchAccounts(), 1500);
     return () => clearInterval(timer);
-  }, [readingMessage, refetchAccounts]);
+  }, [readingMessage, refetchAccounts, searchOpen]);
   useEffect(() => {
     void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && String(entry.queryKey[1]).startsWith("mail.conversations.") });
   }, [accountVersions, engine, query]);
@@ -277,6 +280,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
         open={searchOpen}
         zone={zone}
         accounts={rows}
+        sourceRevision={`${accountEpoch}:${accountVersions}`}
         onClose={(located) => {
           setSearchOpen(false);
           if (!located)

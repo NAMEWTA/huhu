@@ -18,12 +18,14 @@ export function MailSearch({
   open,
   zone,
   accounts,
+  sourceRevision,
   onClose,
   onLocate,
 }: {
   open: boolean;
   zone: string;
   accounts: MailAccount[];
+  sourceRevision: string;
   onClose(located: boolean): void;
   onLocate(target: MailLocationTarget, signal: AbortSignal): Promise<boolean>;
 }) {
@@ -35,8 +37,8 @@ export function MailSearch({
   const [selection, setSelection] = useState(0);
   const [loadingTarget, setLoadingTarget] = useState(false);
   const [locationError, setLocationError] = useState("");
-  const [response, setResponse] = useState<{ query: typeof emptyQuery; page: MailSearchPage | null }>();
-  const current = response?.query === query ? response : undefined;
+  const [response, setResponse] = useState<{ query: typeof emptyQuery; sourceRevision: string; page: MailSearchPage | null }>();
+  const current = response?.query === query && response.sourceRevision === sourceRevision ? response : undefined;
   const { text, offset } = query;
   const match = text.trim().replace(/\s+/g, " ");
   const page = current?.page;
@@ -51,10 +53,10 @@ export function MailSearch({
         engine
           .call<MailSearchPage>("mail.conversations.search", { text: match, offset, limit: searchLimit }, { signal: request.signal })
           .then((page) => {
-            if (!request.signal.aborted) setResponse({ query, page });
+            if (!request.signal.aborted) setResponse({ query, sourceRevision, page });
           })
           .catch(() => {
-            if (!request.signal.aborted) setResponse({ query, page: null });
+            if (!request.signal.aborted) setResponse({ query, sourceRevision, page: null });
           });
       },
       offset ? 0 : 250,
@@ -63,7 +65,15 @@ export function MailSearch({
       clearTimeout(timer);
       request.abort();
     };
-  }, [engine, match, offset, open, query]);
+  }, [engine, match, offset, open, query, sourceRevision]);
+  useEffect(() => {
+    locate.current?.abort();
+    locate.current = null;
+    setLocationError("");
+    setLoadingTarget(false);
+    setSelection(0);
+    setQuery((previous) => (previous.offset ? { ...previous, offset: 0 } : previous));
+  }, [sourceRevision]);
   useEffect(() => () => locate.current?.abort(), [engine]);
 
   function close(located = false) {
