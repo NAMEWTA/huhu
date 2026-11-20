@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { CredentialError, LocalProtectionError, newDataKey, open, seal, type LocalCredentialProtection } from "./protection.js";
@@ -12,6 +12,7 @@ export type Reference = z.infer<typeof reference>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 const scopeHash = z.string().regex(/^[0-9a-f]{64}$/);
 const unboundSchema = z.strictObject({ format: z.literal(1), scope: scopeHash, entries: z.array(scopeHash) });
+const unboundFile = "initially-unbound.json";
 
 export function identityHash(...parts: string[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
@@ -62,16 +63,28 @@ export class LocalVersions {
   }
 
   recordInitiallyUnbound(entries: readonly Pick<Snapshot, "entityId" | "revision">[]): void {
-    if (entries.length === 0 || existsAs(this.#directory, "directory")) return;
-    // Only a fresh local scope proves that these exact portable revisions have no local references.
-    mkdirSync(this.#directory, { mode: 0o700 });
+    if (existsAs(this.#directory, "directory")) return;
+    const staging = `${this.#directory}.initializing`;
+    const file = path.join(staging, unboundFile);
+    // The Vault writer can discard an unpublished attempt and rebuild the proof from current definitions.
+    if (existsAs(staging, "directory")) {
+      if (existsAs(file, "file")) unlinkSync(file);
+      rmdirSync(staging);
+    }
+    if (entries.length === 0) return;
+
     const record = { format: 1, scope: this.#scope, entries: entries.map(({ entityId, revision }) => identityHash(entityId, revision)) };
-    writeFileSync(path.join(this.#directory, "initially-unbound.json"), JSON.stringify(record), { flag: "wx", mode: 0o600, flush: true });
+    const bytes = Buffer.from(JSON.stringify(record));
+    mkdirSync(staging, { mode: 0o700 });
+    writeFileSync(file, bytes, { flag: "wx", mode: 0o600, flush: true });
+    if (!readFileSync(file).equals(bytes)) throw new CredentialError("corrupt");
+    // Publish the scope and its proof together before creating any local credential material.
+    renameSync(staging, this.#directory);
   }
 
   initiallyUnbound(): ReadonlySet<string> {
     if (!existsAs(this.#directory, "directory")) return new Set();
-    const file = path.join(this.#directory, "initially-unbound.json");
+    const file = path.join(this.#directory, unboundFile);
     if (!existsAs(file, "file")) return new Set();
     const record = unboundSchema.safeParse(readJson(readFileSync(file)));
     if (!record.success || record.data.scope !== this.#scope) throw new CredentialError("corrupt");
