@@ -899,7 +899,7 @@
       "target": "app/src/components/file-tree-extension-badge.ts",
       "upstream": "packages/app/src/components/file-tree-extension-badge.ts",
       "blob": "bdf5e3af2ebd4cc01ab403d8a7b49dd287698fb0",
-      "sha256": "0612520dd0811692f7f19224e47261853fa7b4929c0d4bd0c95cd5d2caf02feb",
+      "sha256": "c758a944c7de9e04aa5e78d1d337cd6bd770fc49c46db7bf6e27722d5bb0c573",
       "method": "patch",
       "description": "PATCHES.md:65 - P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。"
     },

@@ -58,7 +58,7 @@ export function applyExtensionBadges(root: ParentNode): void {
     row.removeAttribute(OK_FULLNAME_ROW_ATTR);
     trimTrailingDotInBasenameSegment(basenameSeg);
 
-    if (kind === 'markdown') {
+    if (ext === 'md') {
       removeStaleBadge(row);
       continue;
     }
