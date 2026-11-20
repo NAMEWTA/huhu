@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, test, vi } from "vitest";
-import { CapabilityError, EngineClient, EventStream, invalidateForEvent, queryKey } from "../src/index.js";
+import { CapabilityError, EngineClient, EventStream, createRequestId, invalidateForEvent, queryKey } from "../src/index.js";
 
 const endpoint = { baseUrl: "http://127.0.0.1:1", token: "t", vaultId: "vault-a" };
 
@@ -23,6 +23,27 @@ describe("EngineClient", () => {
   test("401 → UNAUTHENTICATED", async () => {
     const c = new EngineClient(endpoint, (async () => new Response("{}", { status: 401 })) as unknown as typeof fetch);
     await expect(c.call("x")).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
+  test("普通 HTTP 生成请求 ID，重试同一次写入可带回原键", async () => {
+    const source = crypto;
+    const calls: { requestId: string; idempotencyKey?: string }[] = [];
+    vi.stubGlobal("crypto", { getRandomValues: source.getRandomValues.bind(source) });
+    try {
+      const c = new EngineClient(endpoint, async (_url, init) => {
+        calls.push(JSON.parse(String(init?.body)) as (typeof calls)[number]);
+        return Response.json({ ok: true, data: {} });
+      });
+      const idempotencyKey = createRequestId();
+      expect(idempotencyKey).toMatch(/^[0-9a-f]{32}$/);
+      await c.call("x.write", {}, { write: true, idempotencyKey });
+      await c.call("x.write", {}, { write: true, idempotencyKey });
+      expect(calls.map((call) => call.idempotencyKey)).toEqual([idempotencyKey, idempotencyKey]);
+      expect(calls.every((call) => /^[0-9a-f]{32}$/.test(call.requestId))).toBe(true);
+      expect(calls[0]?.requestId).not.toBe(calls[1]?.requestId);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

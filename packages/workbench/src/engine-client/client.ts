@@ -6,6 +6,18 @@ export interface EngineEndpoint {
   vaultId: string;
 }
 
+/** 同一工作台也会运行在普通 LAN HTTP，`randomUUID` 在那里不可用。 */
+export function createRequestId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export interface CallOptions {
+  write?: boolean;
+  /** 失败后核实或重交同一次操作时复用原键。 */
+  idempotencyKey?: string;
+}
+
 export class CapabilityError extends Error {
   constructor(
     readonly code: string,
@@ -28,8 +40,9 @@ export class EngineClient {
     return this.endpoint.vaultId;
   }
 
-  async call<T>(capability: string, input: unknown = {}, opts: { write?: boolean } = {}): Promise<T> {
-    const body = { capability, input, requestId: crypto.randomUUID(), ...(opts.write ? { idempotencyKey: crypto.randomUUID() } : {}) };
+  async call<T>(capability: string, input: unknown = {}, opts: CallOptions = {}): Promise<T> {
+    const idempotencyKey = opts.idempotencyKey ?? (opts.write ? createRequestId() : undefined);
+    const body = { capability, input, requestId: createRequestId(), idempotencyKey };
     const res = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/call`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.endpoint.token}`, "content-type": "application/json" },

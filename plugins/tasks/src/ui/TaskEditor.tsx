@@ -2,7 +2,7 @@ import type { RichEditorPort } from "@huhu/editor/rich";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { normalizeTag, type TaskDto } from "@huhu/contracts";
 import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
-import { host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { createRequestId, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Bell, FileText, FolderOpen, Plus, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { draftFromTask, draftToWritable, emptyDraft, validateDraft, type TaskDraft } from "../shared/draft.js";
@@ -22,7 +22,7 @@ interface Detected {
   headless: boolean;
 }
 
-const newId = (): string => `rem-${globalThis.crypto.randomUUID()}`;
+const newId = (): string => `rem-${createRequestId()}`;
 
 /** 新建 / 编辑任务（原型 TaskEditor）：左栏 名称 / 内容 / 截止日 / 项目 / 关联资料；右栏 执行方式 / 提醒。保存永远不会启动 Agent。 */
 export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task: TaskDto | null; initial?: Partial<TaskDraft>; projects: string[]; onClose(): void; onSaved(saved: TaskDto): void }) {

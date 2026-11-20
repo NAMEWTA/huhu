@@ -180,6 +180,7 @@ function App() {
     return r;
   }, []);
   const ui = useMemo(() => createUiStore({ activeModule: "home", openTabs: ["home"] }), []);
+  const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
 
   useEffect(() => {
     const off = window.huhuHost.onEngineState((s) => {
@@ -200,28 +201,14 @@ function App() {
 
   // 引擎就绪后应用该 Vault 保存的外观设置
   useEffect(() => {
-    if (!endpoint) return;
-    void fetch(`${endpoint.baseUrl}/api/v1/call`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ capability: "settings.get", input: {}, requestId: crypto.randomUUID() }),
-    })
-      .then((r) => r.json() as Promise<{ ok: boolean; data?: { appearance: Record<string, unknown> } }>)
-      .then((r) => {
-        if (r.ok && r.data) appearanceController().set(r.data.appearance);
-      })
+    if (!client) return;
+    void client.call<{ appearance: Record<string, unknown> }>("settings.get")
+      .then((settings) => appearanceController().set(settings.appearance))
       .catch(() => undefined);
-    void fetch(`${endpoint.baseUrl}/api/v1/call`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ capability: "vault.info", input: {}, requestId: crypto.randomUUID() }),
-    })
-      .then((r) => r.json() as Promise<{ ok: boolean; data?: { name: string } }>)
-      .then((r) => {
-        if (r.ok && r.data) setVaultName(r.data.name);
-      })
+    void client.call<{ name: string }>("vault.info")
+      .then((vault) => setVaultName(vault.name))
       .catch(() => undefined);
-  }, [endpoint]);
+  }, [client]);
 
   const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
   const shell = (
@@ -241,7 +228,6 @@ function App() {
       {...(version ? { version } : {})}
     />
   );
-  const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
   const withFilter = (
     <>
       {shell}

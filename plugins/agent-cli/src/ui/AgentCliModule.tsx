@@ -1,7 +1,7 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
 import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
-import { CapabilityError, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { agentById, emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useRef, useState } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
@@ -75,7 +75,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     if (!space) return;
     setError(null);
     try {
-      const s = await engine.call<Session>("agent.sessions.launch", { spaceId: space.id, spaceRevision: space.revision, provider, ...o, requestId: crypto.randomUUID() }, { write: true });
+      const s = await engine.call<Session>("agent.sessions.launch", { spaceId: space.id, spaceRevision: space.revision, provider, ...o, requestId: createRequestId() }, { write: true });
       setActive(s.id);
       setMenu(false);
       await refresh();

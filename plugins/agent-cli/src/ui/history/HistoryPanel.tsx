@@ -1,5 +1,5 @@
 import { Button, Dialog } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { createRequestId, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Eye, History, Pin, Search } from "lucide-react";
 import { useState } from "react";
 import { t } from "../i18n.js";
@@ -59,7 +59,7 @@ export function HistoryPanel({ space, installed, onResumed }: { space: { id: str
     setBusy(e.nativeSessionId);
     setError(null);
     try {
-      const s = await engine.call<Session>("agent.history.resume", { spaceId: space.id, spaceRevision: space.revision, provider: e.provider, nativeSessionId: e.nativeSessionId, requestId: crypto.randomUUID() }, { write: true });
+      const s = await engine.call<Session>("agent.history.resume", { spaceId: space.id, spaceRevision: space.revision, provider: e.provider, nativeSessionId: e.nativeSessionId, requestId: createRequestId() }, { write: true });
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("agent.") });
       onResumed(s.id);
     } catch (err) {
