@@ -69,8 +69,10 @@ export class CapabilityRegistry {
   private readonly map = new Map<string, CapabilityDefinition>();
   /** 清单身份和静态描述独立于活动 handler 的生命周期。 */
   private readonly known = new Map<string, KnownCapability>();
-  // 旧 MCP 名只能指向首次声明的能力和插件。在同一个 Engine 内保留归属，卸载时仅移除目录项。
+  // 待确认和已确认的归属都阻止同名注册。已确认的归属在同一个 Engine 内保留。
   private readonly toolOwners = new Map<string, { name: string; plugin: string }>();
+  /** 每次安装只跟踪它新增的占位，已有历史归属仍由 toolOwners 保留。 */
+  private readonly pendingInstalls = new Map<string, Set<string>>();
 
   declareDescriptors(plugin: string, descriptors: readonly CapabilityDescriptor[]): void {
     const additions = new Map<string, KnownCapability>();
@@ -101,9 +103,13 @@ export class CapabilityRegistry {
   }
 
   /** 清单声明的能力（插件尚未启用时也能区分"插件已停用"与"能力不存在"）。 */
-  declare(plugin: string, names: readonly string[]): void {
-    this.reserveNames(plugin, names);
+  declare(plugin: string, names: readonly string[], pendingInstall = false): void {
+    this.reserveNames(plugin, names, pendingInstall);
     for (const n of names) if (!this.known.has(n)) this.known.set(n, { plugin });
+  }
+
+  confirmPluginInstall(plugin: string): void {
+    this.pendingInstalls.delete(plugin);
   }
 
   forgetPlugin(plugin: string): void {
@@ -112,9 +118,15 @@ export class CapabilityRegistry {
       this.map.delete(name);
       this.known.delete(name);
     }
+    // PluginManager 在停用和作用域清理完成后注销，期间待确认的归属仍阻止其他插件占用。
+    const pending = this.pendingInstalls.get(plugin);
+    if (pending) {
+      for (const tool of pending) this.toolOwners.delete(tool);
+      this.pendingInstalls.delete(plugin);
+    }
   }
 
-  private reserveNames(plugin: string, names: Iterable<string>): void {
+  private reserveNames(plugin: string, names: Iterable<string>, pendingInstall = false): void {
     const additions = new Map<string, { name: string; plugin: string }>();
     for (const name of names) {
       const tool = mcpToolName(name);
@@ -124,7 +136,12 @@ export class CapabilityRegistry {
       }
       if (!owner) additions.set(tool, { name, plugin });
     }
-    for (const [tool, owner] of additions) this.toolOwners.set(tool, owner);
+    if (pendingInstall) this.pendingInstalls.set(plugin, new Set());
+    const pending = this.pendingInstalls.get(plugin);
+    for (const [tool, owner] of additions) {
+      this.toolOwners.set(tool, owner);
+      pending?.add(tool);
+    }
   }
 
   /** 曾注册或在清单中声明过的全部能力名（含已停用插件的）。 */

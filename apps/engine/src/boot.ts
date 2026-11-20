@@ -141,7 +141,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);
-  plugins.onRegister = (m) => registry.declare(m.id, m.contributes.capabilities);
+  plugins.onRegister = (m, pendingInstall) => registry.declare(m.id, m.contributes.capabilities, pendingInstall);
+  plugins.onInstallConfirmed = (id) => registry.confirmPluginInstall(id);
   plugins.onUnregister = (id) => registry.forgetPlugin(id);
   const serverRef: { current?: RunningServer } = {};
   const gatewayTokens = new GatewayTokens(

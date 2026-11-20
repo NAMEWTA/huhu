@@ -243,6 +243,56 @@ describe("PluginManager", () => {
     await pm.unregister("slow");
   });
 
+  test("失败安装的作用域释放期间，另一插件不能取得 canonical 或 MCP 名", async () => {
+    const { registry, pm } = setup();
+    pm.onRegister = (m, installing) => registry.declare(m.id, m.contributes.capabilities, installing);
+    pm.onInstallConfirmed = (id) => registry.confirmPluginInstall(id);
+    pm.onUnregister = (id) => registry.forgetPlugin(id);
+    let enter!: () => void;
+    let finish!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const name = "fixture.concurrent.read";
+    const entry = (id: string, capability: string): PluginEntry => ({
+      manifest: PluginManifestSchema.parse({ ...manifest(id), origin: "external", contributes: { capabilities: [capability] } }),
+      apply: () => undefined,
+    });
+    const rollback = pm
+      .activateInstall({
+        ...entry("failed", name),
+        apply: (ctx, api) => {
+          api.defineCapability(cap(name, "failed"));
+          ctx.effect(() => async () => {
+            enter();
+            await release;
+          });
+          throw new Error("fixture activation failed");
+        },
+      })
+      .then(async (state) => {
+        expect(state).toBe("failed");
+        await pm.unregister("failed");
+      });
+    const challenger = entry("challenger", name);
+    try {
+      await Promise.race([entered, rollback]);
+      expect(registry.knownPlugin(name)).toBe("failed");
+      await expect(pm.activateInstall(challenger)).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+      await expect(pm.activateInstall(entry("alias", "fixture.concurrent_read"))).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+    } finally {
+      finish();
+      await rollback;
+    }
+    expect(registry.get(name)).toBeUndefined();
+    expect(registry.knownPlugin(name)).toBeUndefined();
+    expect(await pm.activateInstall(challenger)).toBe("active");
+    await pm.unregister("challenger");
+  });
+
   test("provide/service：服务随提供者作用域注册与注销", async () => {
     const { pm } = setup();
     let seen: unknown;

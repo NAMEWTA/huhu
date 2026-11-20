@@ -29,13 +29,22 @@ export class PluginManager {
     private readonly events: EventBus,
   ) {}
 
-  register(entry: PluginEntry): void {
+  register(entry: PluginEntry, pendingInstall = false): void {
     const id = entry.manifest.id;
     if (this.plugins.has(id)) throw new Error(`插件重复：${id}`);
     const cycle = findDependencyCycle([...[...this.plugins.values()].map((p) => p.entry.manifest), entry.manifest]);
     if (cycle) throw new Error(`插件依赖成环：${cycle.join(" → ")}`);
-    this.onRegister?.(entry.manifest);
+    this.onRegister?.(entry.manifest, pendingInstall);
     this.plugins.set(id, { entry, state: "disabled" });
+  }
+
+  /** 新安装先登记并保留名称，启动成功后确认归属。失败由安装方注销。 */
+  async activateInstall(entry: PluginEntry): Promise<PluginState> {
+    this.register(entry, true);
+    const id = entry.manifest.id;
+    const state = await this.enable(id);
+    if (state === "active") this.onInstallConfirmed?.(id);
+    return state;
   }
 
   state(id: string): PluginState | undefined {
@@ -169,14 +178,15 @@ export class PluginManager {
     return this.plugins.has(id);
   }
 
-  /** 按依赖顺序启用全部 activation=vault-open 的插件。 */
   /** 注册时回调（Engine 用它把清单声明的能力登记给注册表）。 */
-  onRegister?: (manifest: PluginManifest) => void;
+  onRegister?: (manifest: PluginManifest, pendingInstall: boolean) => void;
+  onInstallConfirmed?: (id: string) => void;
   onUnregister?: (id: string) => void;
 
   /** 返回 false 的插件在 enableAll 时保持停用（用户偏好）。 */
   shouldEnable: (id: string) => boolean = () => true;
 
+  /** 按依赖顺序启用全部 activation=vault-open 的插件。 */
   async enableAll(): Promise<void> {
     for (const [id, rt] of this.plugins) if (rt.entry.manifest.activation === "vault-open" && this.shouldEnable(id)) await this.enable(id);
   }

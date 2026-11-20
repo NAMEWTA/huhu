@@ -169,6 +169,60 @@ describe("外部扩展（W16.2）", () => {
     expect(existsSync(keep)).toBe(true);
   });
 
+  test("启动失败后另一扩展可在同一 Engine 安装尚无历史归属的能力名", async () => {
+    const vault = tmp();
+    const e = await start(vault);
+    const id = "failed-owner";
+    const capability = "fixture.rollback.read";
+    const extra = { contributes: { capabilities: [capability] } };
+    const failed = fixture(id, [], "export function activate() { throw new Error('fixture activation failed'); }", extra);
+    const replacement = fixture("replacement-owner", [], "export function activate() {}", extra);
+    const data = path.join(vault, ".huhu/plugins/data", id);
+    mkdirSync(data, { recursive: true });
+    writeFileSync(path.join(data, "keep.txt"), "保留");
+
+    expect(await call(e, "plugins.install", { source: failed, grants: [] })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT", message: expect.stringContaining("fixture activation failed") },
+    });
+    expect(existsSync(path.join(vault, ".huhu/plugins/external", id))).toBe(false);
+    for (const file of [".huhu/plugins/external.json", ".huhu/local/external-trust.json"]) {
+      expect(JSON.parse(readFileSync(path.join(vault, file), "utf8"))).not.toHaveProperty(id);
+    }
+    expect(readFileSync(path.join(data, "keep.txt"), "utf8")).toBe("保留");
+    expect((await call(e, "plugins.list")).data).not.toEqual(expect.arrayContaining([expect.objectContaining({ id })]));
+    expect((await call(e, "capabilities.list", { includeInactive: true })).data).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: capability })]));
+    expect(await call(e, "gateway.check", { capability })).toMatchObject({ ok: true, data: { found: false, availability: "not-found" } });
+
+    expect(await call(e, "plugins.install", { source: replacement, grants: [] })).toMatchObject({ ok: true, data: { id: "replacement-owner" } });
+    expect((await call(e, "capabilities.list", { includeInactive: true })).data).toEqual(expect.arrayContaining([expect.objectContaining({ name: capability, plugin: "replacement-owner", availability: "handler-missing" })]));
+  });
+
+  test("失败的复装保留已安装过的归属，并释放复装时新声明的名称", async () => {
+    const e = await start(tmp());
+    const id = "historical-owner";
+    const oldName = "fixture.history.read";
+    const newName = "fixture.history.write";
+    const install = (source: string) => call(e, "plugins.install", { source, grants: [] });
+    const good = (owner: string, name: string) => fixture(owner, [], "export function activate() {}", { contributes: { capabilities: [name] } });
+    const original = good(id, oldName);
+    const conflict = { ok: false, error: { code: "NAME_CONFLICT" } };
+    const canonical = good("canonical-challenger", oldName);
+    const alias = good("mcp-challenger", "fixture.history_read");
+
+    expect(await install(original)).toMatchObject({ ok: true });
+    expect(await install(canonical)).toMatchObject(conflict);
+    expect(await install(alias)).toMatchObject(conflict);
+    expect(await call(e, "plugins.uninstall", { id })).toMatchObject({ ok: true });
+
+    const failed = fixture(id, [], "export function activate() { throw new Error('failed reinstall'); }", { contributes: { capabilities: [oldName, newName] } });
+    expect(await install(failed)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", message: expect.stringContaining("failed reinstall") } });
+    expect(await install(canonical)).toMatchObject(conflict);
+    expect(await install(alias)).toMatchObject(conflict);
+    expect(await install(good("new-owner", newName))).toMatchObject({ ok: true });
+    expect(await install(original)).toMatchObject({ ok: true });
+  });
+
   test("ACC-PL-02：内置插件没有卸载入口；直接调用 plugins.uninstall 返回错误且无副作用", async () => {
     const vault = tmp();
     const e = await start(vault);

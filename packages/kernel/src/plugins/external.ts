@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { errors, PluginManifestSchema, type PluginManifest } from "@huhu/contracts";
 import { unzipSync } from "fflate";
-import type { PluginManager } from "../plugin-manager.js";
+import type { PluginEntry, PluginManager } from "../plugin-manager.js";
 import { BUILTIN_ONLY_PERMISSIONS, PERMISSION_TABLE } from "../permissions.js";
 import type { TokenTable } from "../server/tokens.js";
 import { PLUGIN_HOST_SCRIPT } from "./host-script.js";
@@ -271,23 +271,23 @@ export class ExternalPlugins {
     for (const [id, r] of Object.entries(this.records())) {
       try {
         const info = this.inspect(this.pkgDir(id, r.version));
-        this.register(info);
+        this.d.plugins.register(this.entry(info));
       } catch {
         // 包损坏：不登记，插件中心不显示；用户可重新安装
       }
     }
   }
 
-  private register(info: ExternalInfo): void {
+  private entry(info: ExternalInfo): PluginEntry {
     const { manifest, main } = info;
     const dir = this.pkgDir(manifest.id, manifest.version);
-    this.d.plugins.register({
+    return {
       manifest,
       apply: async (ctx) => {
         const handle = await this.spawnHost(manifest.id, dir, main);
         ctx.effect(() => () => this.stopHost(manifest.id, handle));
       },
-    });
+    };
   }
 
   async install(source: string, grants: string[]): Promise<{ id: string }> {
@@ -305,8 +305,7 @@ export class ExternalPlugins {
         cpSync(info.dir, target, { recursive: true, dereference: false });
         this.writeJson(this.recordFile, { ...this.records(), [id]: { version: info.manifest.version, enabled: true } });
         this.writeJson(this.trustFile, { ...this.trusted(), [id]: this.trustKey(id, info.manifest.version) });
-        this.register(this.inspect(target));
-        const state = await this.d.plugins.enable(id);
+        const state = await this.d.plugins.activateInstall(this.entry(this.inspect(target)));
         if (state !== "active") throw errors.invalidInput(`扩展未能启动：${this.d.plugins.error(id) ?? "未知原因"}`);
       } catch (e) {
         await this.rollback(id, !hadData); // 任何一步失败都不留半安装状态（可直接再试）
