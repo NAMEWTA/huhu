@@ -15,6 +15,7 @@ export function createRequestId(): string {
 
 export interface CallOptions {
   write?: boolean;
+  signal?: AbortSignal;
   /** 失败后核实或重交同一次操作时复用原键。 */
   idempotencyKey?: string;
 }
@@ -50,6 +51,7 @@ export class EngineClient {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
     if (res.status === 401) throw new CapabilityError("UNAUTHENTICATED", this.endpoint.token ? "引擎令牌失效" : "浏览器会话已失效");
     let json: CapabilityResult<T>;

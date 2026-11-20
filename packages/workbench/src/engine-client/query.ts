@@ -15,6 +15,12 @@ const ENTITY_CAPS: Record<string, string[]> = {
 
 /** 事件到达时让相关查询失效。 */
 export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<HuhuEvent, "type" | "payload">): Promise<void> {
+  if (e.type === "safe.locked") {
+    qc.removeQueries({
+      predicate: ({ queryKey: [id, capability] }) => id === vaultId && typeof capability === "string" && ["safe.items.", "safe.entries.", "safe.accounts."].some((prefix) => capability.startsWith(prefix)),
+    });
+  }
+  if (e.type === "safe.locked" || e.type === "safe.unlocked") return qc.invalidateQueries({ queryKey: queryKey(vaultId, "safe.status"), exact: true });
   const prefixes: string[] = [];
   const p = e.payload as Record<string, unknown>;
   if (e.type === "entity.changed") prefixes.push(...(ENTITY_CAPS[String(p["kind"])] ?? []));

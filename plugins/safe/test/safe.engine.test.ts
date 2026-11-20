@@ -43,6 +43,10 @@ async function status(engine: RunningEngine) {
 
 test("桌面 HTTP 入口设置、离开锁定、切换 Vault 和重开；损坏清单原字节保留", async () => {
   const engine = await start();
+  const locks: unknown[] = [];
+  engine.events.subscribe((event) => {
+    if (event.type === "safe.locked") locks.push(event.payload);
+  });
   const uninitialized = await status(engine);
   expect(uninitialized).toMatchObject({ initialized: false, locked: true });
   expect(await call(engine, "safe.setup", { password: PASSWORD })).toMatchObject({ ok: true });
@@ -50,9 +54,11 @@ test("桌面 HTTP 入口设置、离开锁定、切换 Vault 和重开；损坏�
   expect(active).toMatchObject({ instanceId: uninitialized.instanceId, generation: uninitialized.generation + 1, locked: false });
   expect(await call(engine, "safe.lock", { reason: "leave" })).toMatchObject({ ok: true });
   expect(await status(engine)).toEqual(active);
+  expect(locks).toEqual([]);
   expect(await call(engine, "safe.settings.update", { lockOnLeave: true, autoLockMinutes: 1 })).toMatchObject({ ok: true });
   expect(await call(engine, "safe.lock", { reason: "leave" })).toMatchObject({ ok: true });
   expect(await status(engine)).toMatchObject({ locked: true, lockOnLeave: true, generation: active.generation + 1 });
+  expect(locks).toEqual([{ instanceId: active.instanceId, generation: active.generation + 1, reason: "leave" }]);
   await engine.shutdown();
 
   const other = await start();

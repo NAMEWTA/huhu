@@ -67,19 +67,19 @@ export class Safe {
   private storageState(): ReturnType<SafeStore["load"]> {
     const state = this.store.load();
     if (state.kind === "ready" && state.manifest?.checksum === this.damagedManifest) {
-      if (this.session) this.invalidate();
+      if (this.session) this.invalidate("corrupt");
       return { kind: "corrupt", file: "manifest.json" };
     }
     if (!this.session) return state;
     if (state.kind !== "ready" || this.session.identity !== state.ring.keyCheck) {
-      this.invalidate();
+      this.invalidate("corrupt");
       return state;
     }
     try {
       this.checkManifest(state, this.session.key);
       return state;
     } catch {
-      this.invalidate();
+      this.invalidate("corrupt");
       return { kind: "corrupt", file: "manifest.json" };
     }
   }
@@ -279,19 +279,20 @@ export class Safe {
     }
   }
 
-  lock(reason: "manual" | "auto" | "leave" | "close" = "manual"): void {
+  lock(reason: Exclude<EventPayload<"safe.locked">["reason"], "corrupt"> = "manual"): void {
     if (this.stopped || (reason === "leave" && !this.status().lockOnLeave)) return;
     if (reason === "close") this.stopped = true;
     const wasUnlocked = this.session !== null;
-    this.invalidate();
+    this.invalidate(reason);
     if (wasUnlocked) this.auditLifecycle("lock", reason);
   }
 
-  private invalidate(): void {
+  private invalidate(reason?: EventPayload<"safe.locked">["reason"]): void {
     this.generation++;
     this.session?.key.fill(0);
     this.session = null;
     this.disarmTimer();
+    if (reason) this.d.publish("safe.locked", { instanceId: this.instanceId, generation: this.generation, reason });
   }
 
   private activate(key: Buffer, ring: Keyring): void {

@@ -670,6 +670,31 @@ test("保险箱：设置主密码、新增凭据、显示、锁定后需要解�
     await page.getByRole("button", { name: "解锁保险箱" }).click();
     await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
 
+    await page.getByTestId("safe-item").click();
+    const fetched = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    await page.route("**/api/v1/call", async (route) => {
+      if (route.request().postDataJSON()?.capability !== "safe.items.reveal") return route.continue();
+      const response = await route.fetch();
+      fetched.resolve();
+      await release.promise;
+      await route.fulfill({ response }).catch(() => undefined);
+    });
+    try {
+      await page.getByRole("button", { name: "显示" }).click();
+      await fetched.promise;
+      const endpoint = await page.evaluate(() => window.huhuHost.engine());
+      const response = await page.request.post(`${endpoint.baseUrl}/api/v1/call`, {
+        headers: { authorization: `Bearer ${endpoint.token}` },
+        data: { capability: "safe.lock", input: {}, requestId: "external-safe-lock" },
+      });
+      expect(await response.json()).toMatchObject({ ok: true });
+      await expect(page.getByTestId("safe-locked")).toBeVisible({ timeout: 2500 });
+    } finally {
+      release.resolve();
+    }
+    await expect(page.getByTestId("secret-value")).toHaveCount(0);
+
     const all: string[] = [];
     const walk = (d: string) => {
       for (const n of readdirSync(d)) {

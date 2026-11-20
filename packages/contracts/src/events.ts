@@ -11,6 +11,7 @@ export const EVENT_PAYLOADS = {
   "entity.changed": z.object({ kind: z.string(), id: z.string(), op, /** 档案等按路径标识的实体：文件夹路径与其 index.md 的笔记 id。 */ path: z.string().optional(), noteId: z.string().nullable().optional() }),
   /** 保险箱解锁成功（依赖保险箱凭据而暂停的功能据此恢复）。 */
   "safe.unlocked": z.object({}),
+  "safe.locked": z.object({ instanceId: z.uuid(), generation: z.int().nonnegative(), reason: z.enum(["manual", "auto", "leave", "close", "corrupt"]) }),
   "plugin.stateChanged": z.object({ id: z.string(), state: z.enum(["active", "disabled", "failed"]), error: z.string().optional() }),
   "task.statusChanged": z.object({ taskId: z.string(), status: z.enum(["not_started", "in_progress", "completed"]), previous: z.enum(["not_started", "in_progress", "completed"]) }),
   "task.inputChanged": z.object({ taskId: z.string(), inputRevision: z.number().int(), inputHash: z.string() }),

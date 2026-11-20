@@ -1,6 +1,7 @@
 import type { ModuleProps } from "@huhu/workbench";
+import { EVENT_PAYLOADS, type EventPayload } from "@huhu/contracts";
 import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox } from "@huhu/ui";
-import { CapabilityError, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { ChevronRight, Copy, Eye, EyeOff, History, KeyRound, Lock, Plus, Settings, Trash2, Unlock as UnlockIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formatSecretRef } from "../shared/secret-ref.js";
@@ -13,6 +14,14 @@ interface Status {
   cooldownSeconds: number;
   autoLockMinutes: number;
   lockOnLeave: boolean;
+  corruptFile?: "keyring.json" | "manifest.json";
+  instanceId: string;
+  generation: number;
+}
+type Session = Pick<Status, "instanceId" | "generation">;
+
+function invalidates(session: Session, locked: EventPayload<"safe.locked">): boolean {
+  return session.instanceId === locked.instanceId && session.generation <= locked.generation;
 }
 interface Item {
   id: string;
@@ -50,8 +59,15 @@ export function SafeModule({ section, onNavigate }: ModuleProps) {
   const status = useCapability<Status>("safe.status", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
   const [error, setError] = useState<string | null>(null);
-  // 自动锁定发生在引擎里（没有事件）：已解锁时定期刷新状态，锁定后界面立即回到锁屏并销毁已显示的明文
-  const unlockedNow = status.data ? status.data.initialized && !status.data.locked : false;
+  const [lastLock, setLastLock] = useState<EventPayload<"safe.locked"> | null>(null);
+  useEngineEvents((event) => {
+    if (event.type !== "safe.locked" || event.vaultId !== engine.vaultId || !status.data) return;
+    const lock = EVENT_PAYLOADS["safe.locked"].safeParse(event.payload);
+    if (lock.success && invalidates(status.data, lock.data)) setLastLock(lock.data);
+  });
+  const locked = !status.data || status.data.locked || (lastLock !== null && invalidates(status.data, lastLock));
+  const unlockedNow = !!status.data?.initialized && !locked;
+  // 事件流断开时仍定期读取真实锁定状态。
   useEffect(() => {
     if (!unlockedNow) return;
     const id = setInterval(() => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "safe.status" }), 5000);
@@ -64,7 +80,7 @@ export function SafeModule({ section, onNavigate }: ModuleProps) {
     () => () => {
       if (leaveRef.current)
         void engine
-          .call("safe.lock", {}, { write: true })
+          .call("safe.lock", { reason: "leave" }, { write: true })
           .then(() => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId }))
           .catch(() => undefined);
     },
@@ -85,7 +101,7 @@ export function SafeModule({ section, onNavigate }: ModuleProps) {
   }
   if (!status.data) return <div className="hu-module-layout" data-testid="safe-module" />;
   const st = status.data;
-  const usable = st.initialized && !st.locked && !st.corrupt;
+  const usable = unlockedNow && !st.corrupt;
   return (
     <div className="hu-module-layout" data-testid="safe-module">
       <div className="hu-view-content">
@@ -111,16 +127,16 @@ export function SafeModule({ section, onNavigate }: ModuleProps) {
         <div className="shell-system-scroll hu-scroll">
           {st.corrupt ? (
             <div role="alert" className="hu-callout danger">
-              <p>keyring 文件损坏，保险箱不可用。</p>
+              <p>{st.corruptFile ?? "keyring.json"} 文件损坏，保险箱不可用。</p>
             </div>
           ) : !st.initialized ? (
             <Setup onSetup={(password) => act("safe.setup", { password })} error={error} />
           ) : section === "audit" ? (
             <Audit />
-          ) : st.locked ? (
+          ) : locked ? (
             <UnlockScreen onUnlock={(password) => act("safe.unlock", { password })} error={error} cooldown={st.cooldownSeconds} />
           ) : (
-            <Unlocked act={act} error={error} />
+            <Unlocked key={`${st.instanceId}:${st.generation}`} session={st} act={act} error={error} />
           )}
         </div>
       </div>
@@ -200,8 +216,22 @@ function UnlockScreen({ onUnlock, error, cooldown }: { onUnlock(p: string): void
   );
 }
 
-function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | null>; error: string | null }) {
+function Unlocked({ act, error, session }: { act<T>(c: string, i: unknown): Promise<T | null>; error: string | null; session: Session }) {
   const engine = useEngine();
+  const reads = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    reads.current = controller;
+    return () => {
+      controller.abort();
+      if (reads.current === controller) reads.current = null;
+    };
+  }, []);
+  useEngineEvents((event) => {
+    if (event.type !== "safe.locked" || event.vaultId !== engine.vaultId) return;
+    const lock = EVENT_PAYLOADS["safe.locked"].safeParse(event.payload);
+    if (lock.success && invalidates(session, lock.data)) reads.current?.abort();
+  });
   const items = useCapability<Item[]>("safe.items.list", {});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -258,7 +288,16 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
                   <Button
                     onClick={() => {
                       if (reveal !== undefined) setShown(({ [current.id]: _gone, ...rest }) => rest);
-                      else void engine.call<{ value: string }>("safe.items.reveal", { id: current.id }).then((r) => setShown((s) => ({ ...s, [current.id]: r.value })));
+                      else {
+                        const signal = reads.current?.signal;
+                        if (!signal || signal.aborted) return;
+                        void engine
+                          .call<{ value: string }>("safe.items.reveal", { id: current.id }, { signal })
+                          .then((r) => {
+                            if (!signal.aborted) setShown((s) => ({ ...s, [current.id]: r.value }));
+                          })
+                          .catch(() => undefined);
+                      }
                     }}
                     icon={reveal !== undefined ? EyeOff : Eye}
                   >
@@ -269,17 +308,23 @@ function Unlocked({ act, error }: { act<T>(c: string, i: unknown): Promise<T | n
                     data-testid="secret-copy"
                     onClick={() => {
                       // 复制走独立的审计动作；值只经 huhuHost.copyText 进剪贴板，30 秒后若仍是这段文本则清除
+                      const signal = reads.current?.signal;
+                      if (!signal || signal.aborted) return;
                       void engine
-                        .call<{ value: string }>("safe.items.reveal", { id: current.id, purpose: "copy" })
+                        .call<{ value: string }>("safe.items.reveal", { id: current.id, purpose: "copy" }, { signal })
                         .then(async (r) => {
+                          if (signal.aborted) return;
                           const bridge = (globalThis as { huhuHost?: { copyText?(v: string, o?: { clearAfterMs?: number }): Promise<void> } }).huhuHost;
                           if (bridge?.copyText) await bridge.copyText(r.value, { clearAfterMs: 30_000 });
                           else await navigator.clipboard.writeText(r.value);
+                          if (signal.aborted) return;
                           setCopyError(null);
                           setCopied(current.id);
                           setTimeout(() => setCopied((c) => (c === current.id ? null : c)), 30_000);
                         })
-                        .catch((e: unknown) => setCopyError(e instanceof Error ? e.message : String(e)));
+                        .catch((e: unknown) => {
+                          if (!signal.aborted) setCopyError(e instanceof Error ? e.message : String(e));
+                        });
                     }}
                   >
                     {copied === current.id ? t.copied : t.copy}
