@@ -191,6 +191,11 @@ test("E04：树改名同步两个标签，外部改写和删除更新同一档�
     const markdownTab = page.locator('[data-tab-kind="file"]').getByTestId("document-tab");
     await expect(recordTab).toHaveAttribute("title", oldPath);
     await page.getByTestId("notes-section-all").click();
+    for (const parent of ["Archives/", base]) {
+      const folder = root.locator(`[data-item-path="${parent}"]`);
+      await expect(folder).toBeVisible();
+      if ((await folder.getAttribute("aria-expanded")) !== "true") await folder.click();
+    }
     const oldFolder = root.locator(`[data-item-path="${base}张三/"]`);
     await treeRename(page, oldFolder, "张 三");
     await expect(markdownTab).toHaveAttribute("title", newPath);

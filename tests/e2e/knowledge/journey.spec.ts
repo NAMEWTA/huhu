@@ -257,6 +257,7 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
 
 test("A02/A03/OP-D11：隐藏后原标签、双链和搜索仍可访问，重启后从管理恢复", async () => {
   const { app, page, vault } = await openApp();
+  const initialProcess = app.process();
   const dir = path.join(vault, "隐藏目录");
   const target = "隐藏目录/隐蔽目标.md";
   const preference = path.join(vault, ".huhu/notes/ui-preferences.json");
@@ -315,7 +316,7 @@ test("A02/A03/OP-D11：隐藏后原标签、双链和搜索仍可访问，重启
       await reopened.close();
     }
   } finally {
-    if (app.process().exitCode === null) await app.close();
+    if (initialProcess.exitCode === null && initialProcess.signalCode === null) await app.close();
     rmTree(vault);
   }
 });
