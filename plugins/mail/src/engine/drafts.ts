@@ -6,8 +6,11 @@ import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, attachmentObjectPath, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
 import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
+import { missingForwardAttachments, sameForwardSource, type ForwardContext } from "./forward-context.js";
+import { requireCachedMessage } from "./message-cache.js";
 import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outboxStatusInput, outboxSubmitInput, outboxSummary, outboxView, type MailOutboxService } from "./outbox.js";
 import { OutboxStorage } from "./outbox-storage.js";
+import { forwardSource, sourceDigest } from "./prepare-forward.js";
 import type { MailSmtpTransport } from "./smtp.js";
 
 const draftKey = z.strictObject({ draftId: uuid });
@@ -145,16 +148,51 @@ export class MailDrafts {
   async save({ draftId, expectedRevision, draft: content }: z.infer<typeof saveInput>, signal: AbortSignal): Promise<Draft> {
     const draft = normalizeDraft(content);
     if (draft.reply && draft.accountId !== draft.reply.accountId) throw errors.invalidInput("回复必须使用原邮件所属的邮箱。");
+    if (draft.reply && draft.forward) throw errors.invalidInput("一封草稿只能使用一种原邮件关联。");
     const record = await this.change(
       draftId,
       expectedRevision,
       () => signal.throwIfAborted(),
-      (previous) => {
+      async (previous) => {
         if (previous && JSON.stringify(previous.reply) !== JSON.stringify(draft.reply)) throw errors.invalidInput("已保存草稿的原邮件关联不能更改。");
+        if (previous && !sameForwardSource(previous.forward, draft.forward)) throw errors.invalidInput("已保存草稿的转发来源不能更改。");
+        if (!previous && draft.forward) return { ...draft, attachments: await this.importForwardAttachments(draft.forward, signal) };
         return { ...draft, attachments: previous?.attachments };
       },
     );
     return this.details(draftId, record);
+  }
+
+  private async importForwardAttachments(context: ForwardContext, signal: AbortSignal) {
+    const { accountId, folder, localMessageId, omitted } = context;
+    this.removals.assertActive(accountId);
+    const identity = { accountId, folder, localMessageId };
+    const message = requireCachedMessage(this.files, identity);
+    const bytes = Buffer.from(message.source, "base64");
+    if (sourceDigest(bytes) !== context.sourceDigest) throw errors.invalidInput("原邮件缓存已变化，请重新打开后转发。");
+    const { forward, parts } = await forwardSource(bytes, identity, message.summary.subject);
+    if (!sameForwardSource(forward, context)) throw errors.invalidInput("转发来源与当前原邮件不一致。");
+    const excluded = new Set(omitted);
+    const refs: NonNullable<StoredDraftContent["attachments"]> = [];
+    for (const [index, { name, data }] of parts.entries()) {
+      if (!data || excluded.has(index)) continue;
+      const { ref, bytes: managed } = await readAttachmentSource(
+        {
+          name,
+          size: data.length,
+          read: async function* () {
+            yield data;
+          },
+        },
+        signal,
+      );
+      if (refs.some(({ digest }) => digest === ref.digest)) continue;
+      assertAttachmentCapacity(refs, ref);
+      assertImportActive(signal);
+      await this.objects.publish(ref, managed);
+      refs.push(ref);
+    }
+    return refs;
   }
 
   async discard({ draftId, expectedRevision }: z.infer<typeof discardInput>, signal: AbortSignal) {
@@ -217,6 +255,8 @@ export class MailDrafts {
     const record = readDraftSnapshot(this.files).snapshot.drafts[draftId];
     if (record && record.revision !== expectedRevision) throw errors.versionConflict(record.revision);
     const draft = this.requireDraft(record?.draft);
+    if (draft.reply && draft.forward) throw errors.invalidInput("一封草稿只能使用一种原邮件关联。");
+    if (missingForwardAttachments(draft.forward, draft.attachments ?? []).length) throw errors.invalidInput("请补选同名文件，或选择不转发缺少字节的附件。");
     const attachments = (draft.attachments ?? []).map((ref) => {
       const attachment = this.objects.read(ref);
       if (attachment.state !== "ready") {

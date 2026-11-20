@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { attachmentRefs } from "./draft-attachments.js";
+import { forwardContext } from "./forward-context.js";
 import { replyContext } from "./reply-context.js";
 
 export const uuid = z.uuidv4().toLowerCase();
@@ -38,6 +39,7 @@ export const draftContent = z.strictObject({
   subject: z.string().max(8192),
   body: editorDocument,
   reply: replyContext.optional(),
+  forward: forwardContext.optional(),
 });
 export const storedDraftContent = draftContent.extend({ attachments: attachmentRefs.optional() });
 export type DraftContent = z.infer<typeof draftContent>;

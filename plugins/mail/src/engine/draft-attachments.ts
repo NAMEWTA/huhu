@@ -9,7 +9,7 @@ const maxDraftBytes = 2 * MAX_DRAFT_ATTACHMENT_BYTES;
 const maxDraftAttachments = 100;
 const objectsDir = ".huhu/mail/attachments";
 export const attachmentDigest = z.hash("sha256", { enc: "hex" }).regex(/^[0-9a-f]+$/);
-const attachmentName = z
+export const attachmentName = z
   .string()
   .trim()
   .min(1)

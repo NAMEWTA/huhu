@@ -15,7 +15,7 @@ export const replySeed = z.strictObject({
 });
 export type ReplySeed = z.infer<typeof replySeed>;
 
-async function rootHeaders(source: Buffer) {
+export async function rootHeaders(source: Buffer) {
   const stream = new Splitter({ ignoreEmbedded: true, maxHeadSize: 128 * 1024 });
   stream.end(source);
   for await (const part of stream as AsyncIterable<SplitterChunk>) {
@@ -24,7 +24,7 @@ async function rootHeaders(source: Buffer) {
   throw new Error("Missing mail headers");
 }
 
-function addresses(headers: Headers, field: string) {
+export function addresses(headers: Headers, field: string) {
   return headers.getDecoded(field).flatMap(({ value }) =>
     addressParser(value, { flatten: true }).flatMap(({ address }) => {
       const checked = draftRecipient.safeParse(address);

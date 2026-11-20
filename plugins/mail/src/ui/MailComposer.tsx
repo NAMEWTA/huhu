@@ -6,6 +6,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { z } from "zod";
 import type { DesktopDraftAttachmentHost, DraftAttachmentError, DraftAttachmentState } from "../desktop-attachments.js";
 import type { DraftContent } from "../engine/draft-content.js";
+import { missingForwardAttachments } from "../engine/forward-context.js";
 import { MailField } from "./MailAccountDialog.js";
 import type { Draft, MailAccount } from "./mail-types.js";
 
@@ -43,8 +44,8 @@ function newDraftId() {
 }
 
 function sameContent(saved: Draft, outgoing: DraftContent) {
-  const { accountId, to, cc, bcc, subject, body, reply } = saved;
-  return JSON.stringify({ accountId, to, cc, bcc, subject, body, reply }) === JSON.stringify(outgoing);
+  const { accountId, to, cc, bcc, subject, body, reply, forward } = saved;
+  return JSON.stringify({ accountId, to, cc, bcc, subject, body, reply, forward }) === JSON.stringify(outgoing);
 }
 
 export function MailComposer({
@@ -79,12 +80,17 @@ export function MailComposer({
   const recipientsId = useId();
   const attachmentsId = useId();
   const senderControl = useRef<HTMLSelectElement>(null);
+  const recipientControl = useRef<HTMLInputElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const attachmentsGroup = useRef<HTMLElement>(null);
   const restoreAttachmentFocus = useRef(false);
   const selection = useRef<AbortController | null>(null);
   const initial = draft ?? seed;
   const reply = initial?.reply;
+  const [forward, setForward] = useState(initial?.forward);
+  const forwarding = !!forward;
+  const newTopic = !!seed && !reply && !forwarding;
+  const explicitSend = !!reply || forwarding || newTopic;
   const [draftId] = useState(() => draft?.draftId ?? newDraftId());
   const [revision, setRevision] = useState(draft?.revision ?? null);
   const revisionRef = useRef(revision);
@@ -130,8 +136,9 @@ export function MailComposer({
   }, [editor, readOnly, busy, editorError]);
   useLayoutEffect(() => {
     if (readOnly) title.current?.focus();
+    else if (forwarding || newTopic) recipientControl.current?.focus();
     else if (!reply) senderControl.current?.focus();
-  }, [readOnly, reply]);
+  }, [readOnly, reply, forwarding, newTopic]);
   useEffect(() => {
     if (reply && !readOnly) editor?.commands.focus("start");
   }, [editor, readOnly, reply]);
@@ -141,8 +148,8 @@ export function MailComposer({
     restoreAttachmentFocus.current = false;
     if (document.activeElement !== document.body) return;
     const group = attachmentsGroup.current;
-    (group?.querySelector<HTMLButtonElement>("button:not([disabled])") ?? group)?.focus();
-  }, [busy]);
+    (group?.querySelector<HTMLButtonElement>("button:not([disabled])") ?? group ?? recipientControl.current)?.focus();
+  }, [busy, forward]);
 
   const desktop = !!engine.endpoint.token;
   const picker = desktop ? (host() as { mailDraftAttachments?: DesktopDraftAttachmentHost } | undefined)?.mailDraftAttachments : undefined;
@@ -168,7 +175,7 @@ export function MailComposer({
           seen.add(address);
           return true;
         });
-    const outgoing = { accountId: accountId || null, to: destination("to"), cc: destination("cc"), bcc: destination("bcc"), subject, body: body.current, reply };
+    const outgoing = { accountId: accountId || null, to: destination("to"), cc: destination("cc"), bcc: destination("bcc"), subject, body: body.current, reply, forward };
     let saved: Draft;
     try {
       saved = await engine.call<Draft>("mail.drafts.save", { draftId, expectedRevision: revisionRef.current, draft: outgoing }, { write: true, ...(signal && { signal }) });
@@ -307,9 +314,25 @@ export function MailComposer({
   const sender = accounts.find((account) => account.accountId === accountId);
   const canSend = sender?.definition.settings.smtpEnabled && sender.authState["account-password"] === "configured";
   const attachmentIssue = attachments.some(({ state }) => state !== "ready");
+  const missingSource = missingForwardAttachments(
+    forward,
+    attachments.filter(({ state }) => state === "ready"),
+  );
+  const originalAttachments = (forward?.sourceAttachments ?? []).flatMap((item, index) => {
+    if (forward?.omitted.includes(index)) return [];
+    if (item.available ? revision !== null : !missingSource.includes(item)) return [];
+    return [{ ...item, index }];
+  });
   const senderOptions = accounts.filter((account) => (reply ? account.accountId === accountId : account.definition.settings.smtpEnabled));
   const senderInList = senderOptions.some((account) => account.accountId === accountId);
-  const blocked = !canSend || previousDelivery || attachmentIssue || !subject.trim() || ![addresses.to, addresses.cc, addresses.bcc].some((value) => value.trim());
+  const blocked = !canSend || previousDelivery || attachmentIssue || missingSource.length > 0 || !subject.trim() || ![addresses.to, addresses.cc, addresses.bcc].some((value) => value.trim());
+
+  function omitSourceAttachment(index: number) {
+    if (!forward || readOnly || busyRef.current) return;
+    restoreAttachmentFocus.current = true;
+    setForward({ ...forward, omitted: [...forward.omitted, index] });
+    setEdited();
+  }
 
   function applyLink() {
     try {
@@ -341,12 +364,12 @@ export function MailComposer({
         method="post"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!reply && !blocked) void run("send");
+          if (!explicitSend && !blocked) void run("send");
         }}
       >
         <header className="hu-mail-row hu-mail-spread">
           <h2 id={titleId} ref={title} tabIndex={-1}>
-            {reply ? (reply.mode === "reply-all" ? "回复全部" : "回复邮件") : "写信"}
+            {reply ? (reply.mode === "reply-all" ? "回复全部" : "回复邮件") : forward ? "转发邮件" : newTopic ? "新话题" : "写信"}
           </h2>
           <div className="hu-mail-row">
             {!inline && (
@@ -360,6 +383,7 @@ export function MailComposer({
           </div>
         </header>
         {reply && <p className="hu-mail-help">回复原邮件「{reply.subject || "无主题"}」，发件人沿用来源邮箱。</p>}
+        {forward && <p className="hu-mail-help">转发原邮件「{forward.subject || "无主题"}」</p>}
         {readOnly && <Banner>当前 Vault 为只读，草稿可查看。</Banner>}
         {previousDelivery && <Banner>这份草稿已有投递记录。请在发件箱核对或重试明确未投递的收件人。</Banner>}
         {sender && !canSend && <Banner>{sender.definition.settings.smtpEnabled ? "发件邮箱需要重新配置凭据。" : reply ? "原邮箱只接收邮件，回复可以保存为草稿。" : "该账号只接收邮件。请选择可发送的发件人。"}</Banner>}
@@ -407,6 +431,7 @@ export function MailComposer({
                 control={(id) => (
                   <input
                     id={id}
+                    ref={key === "to" ? recipientControl : undefined}
                     name={key}
                     inputMode="email"
                     aria-describedby={recipientsId}
@@ -453,7 +478,7 @@ export function MailComposer({
           )}
           {editorError && <Banner>此草稿的正文格式无法在当前编辑器中修改，原正文仍保留。</Banner>}
           <EditorContent className="hu-mail-editor" editor={editor} />
-          {(attachments.length > 0 || (desktop && !readOnly)) && (
+          {(attachments.length > 0 || originalAttachments.length > 0 || (desktop && !readOnly)) && (
             <section className="hu-mail-attachments" aria-labelledby={attachmentsId} tabIndex={-1} ref={attachmentsGroup}>
               <div className="hu-mail-row">
                 <h3 id={attachmentsId}>附件</h3>
@@ -483,10 +508,27 @@ export function MailComposer({
                   ))}
                 </ul>
               )}
+              {originalAttachments.length > 0 && (
+                <ul aria-label="原邮件附件" role="list">
+                  {originalAttachments.map(({ name, available, index }) => (
+                    <li className="hu-mail-row" key={index}>
+                      <span>
+                        {name} · {available ? "保存后携带" : "仅有名称 · 未携带字节"}
+                      </span>
+                      {!readOnly && (
+                        <Button type="button" variant="ghost" aria-label={`不转发 ${name}`} onClick={() => omitSourceAttachment(index)}>
+                          不转发
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           )}
         </fieldset>
         {attachmentIssue && <Banner>请先处理无法读取的附件。</Banner>}
+        {missingSource.length > 0 && <Banner>请补选同名文件，或选择不转发缺少字节的附件。</Banner>}
         <footer className="hu-mail-row">
           <Button disabled={readOnly || busy !== null || (!dirty && revision !== null)} loading={busy === "save"} onClick={() => void run("save")}>
             保存草稿
@@ -494,7 +536,7 @@ export function MailComposer({
           <Button variant="danger" disabled={readOnly || busy !== null} onClick={() => setDiscard(true)}>
             丢弃
           </Button>
-          <Button type={reply ? "button" : "submit"} onClick={reply ? () => void run("send") : undefined} variant="primary" disabled={readOnly || busy !== null || !!blocked} loading={busy === "send"}>
+          <Button type={explicitSend ? "button" : "submit"} onClick={explicitSend ? () => void run("send") : undefined} variant="primary" disabled={readOnly || busy !== null || !!blocked} loading={busy === "send"}>
             发送邮件
           </Button>
         </footer>

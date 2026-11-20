@@ -34,7 +34,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
   };
 });
 
-test("Mail 实际组件经本机 Engine 走通阅读、回复、账号维护、草稿附件和投递", async () => {
+test("Mail 实际组件经本机 Engine 走通阅读、回复、转发、新话题、账号维护和投递", async () => {
   const repo = path.resolve(import.meta.dirname, "../../..");
   const desktop = path.join(repo, "apps/desktop");
   const entry = path.join(desktop, "src/renderer/mail-proof-entry.tsx");
@@ -137,6 +137,10 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号维护、�
       'Content-Disposition: attachment; filename="fixture.txt"',
       "",
       "attachment bytes",
+      "--mixed",
+      'Content-Type: application/octet-stream; name="missing-note.bin"',
+      'Content-Disposition: attachment; filename="missing-note.bin"',
+      "",
       "--mixed--",
       "",
     ].join("\r\n"),
@@ -144,7 +148,7 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号维护、�
   const imap = await openImapFixture({ message, acceptPassword: (value) => value === acceptedPassword });
   const otherPassword = randomUUID();
   const other = await openImapFixture({
-    acceptPassword: (value) => value === otherPassword,
+    acceptPassword: (value) => value === otherPassword || value === password,
     message: { uidValidity: 12, subject: "Other mailbox fixture", source: "From: author@example.invalid\r\nSubject: Other mailbox fixture\r\n\r\nOther account\r\n" },
   });
   const smtp = await loopbackSmtp(password);
@@ -644,6 +648,97 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号维护、�
     expect(await getAttachmentDraft()).toEqual(removedDraft);
     expect(existsSync(objectFile)).toBe(false);
     expect(smtp.counts.data).toBe(attachmentDataBefore);
+
+    const alternate = await direct("mail.accounts.testConnection", {
+      settings: {
+        provider: "custom_imap",
+        email: "topic-sender@example.invalid",
+        label: "第二发件账号",
+        auth: "password",
+        imap: { host: "127.0.0.1", port: other.port, security: "none" },
+        smtpEnabled: true,
+        smtp: { host: "127.0.0.1", port: smtp.port, security: "none" },
+      },
+      password,
+    });
+    const alternateSender = await direct("mail.accounts.save", { setupId: alternate.setupId, folders: ["INBOX"] });
+    await closeAttachmentDraft.click();
+    await browserExpect(attachmentComposer).toBeHidden();
+    await shell.getByRole("button", { name: "邮箱", exact: true }).click();
+    await openedMessage.press("Enter");
+    const forwardAction = mailReader.getByRole("button", { name: "转发", exact: true });
+    await forwardAction.press("Enter");
+    const forwarding = shell.getByRole("region", { name: "转发邮件", exact: true });
+    const forwardedEditor = forwarding.getByRole("textbox", { name: "正文", exact: true });
+    await browserExpect(forwarding.getByLabel("收件人", { exact: true })).toBeFocused();
+    await browserExpect(forwardedEditor).toContainText("> 纯文本正文");
+    await browserExpect(forwardedEditor).toContainText("转发自 author@example.invalid");
+    await browserExpect(forwarding.getByLabel("收件人", { exact: true })).toHaveValue("");
+    await browserExpect(forwarding.getByLabel("密送", { exact: true })).toHaveValue("");
+    const sourceAttachments = forwarding.getByRole("list", { name: "原邮件附件", exact: true });
+    await browserExpect(sourceAttachments).toContainText("fixture.txt · 保存后携带");
+    await browserExpect(sourceAttachments).toContainText("missing-note.bin · 仅有名称 · 未携带字节");
+    await forwardedEditor.pressSequentially("Edited forward");
+    await forwarding.getByLabel("收件人", { exact: true }).fill("a-forward-reader@example.invalid");
+    const closeForward = forwarding.getByRole("button", { name: "关闭写信", exact: true });
+    failDraftSave = true;
+    await closeForward.click();
+    await browserExpect(forwarding.getByRole("alert")).toContainText("暂时无法确认操作结果");
+    await browserExpect(forwardedEditor).toContainText("Edited forward");
+    await closeForward.click();
+    await browserExpect(forwarding).toBeHidden();
+    await browserExpect(forwardAction).toBeFocused();
+    await shell.getByRole("button", { name: "草稿", exact: true }).click();
+    await shell.getByRole("button", { name: `转发：${subject}`, exact: true }).click();
+    await shell.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await browserExpect(forwardedEditor).toContainText("Edited forward");
+    await browserExpect(forwardedEditor).toContainText("> 纯文本正文");
+    const managedForward = forwarding.getByRole("list", { name: "已有附件", exact: true });
+    await browserExpect(managedForward).toContainText(/fixture\.txt.+已保存/);
+    await browserExpect(managedForward.getByRole("listitem")).toHaveCount(1);
+    await browserExpect(sourceAttachments).toContainText("missing-note.bin · 仅有名称 · 未携带字节");
+    if (screenshots) {
+      await sourceAttachments.scrollIntoViewIfNeeded();
+      await shell.screenshot({ path: path.join(screenshots, "mail-forward-390.png"), animations: "disabled", style: "[data-sonner-toast] { visibility: hidden; }" });
+    }
+    selected = null;
+    holdSelection = false;
+    const importsBeforeForwardCancel = importCalls;
+    const chooseReplacement = forwarding.getByRole("button", { name: "添加附件", exact: true });
+    await chooseReplacement.press("Enter");
+    await browserExpect(chooseReplacement).toBeFocused();
+    expect(importCalls).toBe(importsBeforeForwardCancel);
+    await browserExpect(sourceAttachments).toContainText("未携带字节");
+    await browserExpect(forwarding.getByRole("button", { name: "发送邮件", exact: true })).toBeDisabled();
+    await sourceAttachments.getByRole("button", { name: "不转发 missing-note.bin", exact: true }).press("Enter");
+    await browserExpect(sourceAttachments).toBeHidden();
+    await browserExpect(forwarding.getByRole("button", { name: "发送邮件", exact: true })).toBeEnabled();
+    await closeForward.click();
+    await browserExpect(forwarding).toBeHidden();
+
+    await shell.getByRole("button", { name: "邮箱", exact: true }).click();
+    await openedMessage.press("Enter");
+    await mailReader.getByRole("button", { name: "新话题", exact: true }).press("Enter");
+    const topic = shell.getByRole("region", { name: "新话题", exact: true });
+    const topicSubject = topic.getByLabel("主题", { exact: true });
+    await browserExpect(topic.getByLabel("收件人", { exact: true })).toBeFocused();
+    await browserExpect(topicSubject).toHaveValue("");
+    await browserExpect(topic.getByLabel("收件人", { exact: true })).toHaveValue(`author@example.invalid, ${participant}, ${replyRoute}`);
+    await browserExpect(topic.getByLabel("抄送", { exact: true })).toHaveValue("");
+    await browserExpect(topic.getByLabel("密送", { exact: true })).toHaveValue("");
+    await browserExpect(topic.getByRole("textbox", { name: "正文", exact: true })).toHaveText("");
+    const changeSender = topic.getByLabel("发件人", { exact: true });
+    await changeSender.selectOption(alternateSender.accountId);
+    await browserExpect(changeSender).toHaveValue(alternateSender.accountId);
+    await topicSubject.fill("Independent topic");
+    await topicSubject.press("Enter");
+    await browserExpect(topic).toBeVisible();
+    await topic.getByRole("button", { name: "丢弃", exact: true }).click();
+    await shell.getByRole("dialog", { name: "丢弃草稿？" }).getByRole("button", { name: "丢弃草稿", exact: true }).click();
+    await browserExpect(topic).toBeHidden();
+    expect(smtp.counts.data).toBe(attachmentDataBefore);
+    expect(externalRequests).toEqual([]);
+    await openAttachmentDraft();
 
     await shell.getByRole("button", { name: "邮箱", exact: true }).click();
     const removeMailbox = shell.getByRole("button", { name: "删除邮箱", exact: true });

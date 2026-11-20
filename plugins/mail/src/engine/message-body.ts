@@ -1,6 +1,7 @@
 import { buffer } from "node:stream/consumers";
 import { Splitter, type MimeNode, type SplitterChunk } from "@zone-eu/mailsplit";
 import { z } from "zod";
+import { attachmentName } from "./draft-attachments.js";
 
 const attachment = z.strictObject({ name: z.string(), mediaType: z.string() });
 export const messageBody = z.strictObject({ text: z.string().nullable(), untrustedHtml: z.string().nullable(), attachments: z.array(attachment) });
@@ -13,15 +14,22 @@ function decodeCharset(bytes: Buffer, charset: MimeNode["charset"]) {
   }
 }
 
-export async function parseMessageBody(source: Buffer): Promise<z.infer<typeof messageBody>> {
+async function parse(source: Buffer, includeBytes: boolean) {
   const stream = new Splitter({ ignoreEmbedded: true, maxHeadSize: 128 * 1024 });
   stream.end(source);
   let node: MimeNode | undefined;
   let chunks: Buffer[] = [];
   let count = 0;
-  const attachments: z.infer<typeof attachment>[] = [];
+  const attachments: (z.infer<typeof attachment> & { bytes?: Buffer })[] = [];
   let text: string | null = null;
   let untrustedHtml: string | null = null;
+
+  function decodePart(part: MimeNode) {
+    const decoder = part.getDecoder();
+    const decoded = buffer(decoder);
+    decoder.end(Buffer.concat(chunks));
+    return decoded;
+  }
 
   async function finishPart() {
     if (!node) return;
@@ -30,14 +38,19 @@ export async function parseMessageBody(source: Buffer): Promise<z.infer<typeof m
     }
     const mediaType = node.contentType || "text/plain";
     if (node.disposition === "attachment" || node.filename || (!node.multipart && !["text/plain", "text/html"].includes(mediaType))) {
-      attachments.push({ name: node.filename || "未命名附件", mediaType });
+      const name = node.filename || "未命名附件";
+      const inlineResource = node.disposition === "inline" || (node.disposition !== "attachment" && node.headers && !!node.headers.getFirst("Content-ID"));
+      const canDecode = includeBytes && !node.multipart && !inlineResource && mediaType !== "message/external-body" && attachmentName.safeParse(name).success;
+      let bytes: Buffer | undefined;
+      if (canDecode) {
+        const decoded = await decodePart(node);
+        if (decoded.length > 0) bytes = decoded;
+      }
+      attachments.push({ name, mediaType, ...(bytes && { bytes }) });
       return;
     }
     if (node.multipart || (mediaType === "text/plain" ? text !== null : untrustedHtml !== null)) return;
-    const decoder = node.getDecoder();
-    const decoded = buffer(decoder);
-    decoder.end(Buffer.concat(chunks));
-    const body = decodeCharset(await decoded, node.charset);
+    const body = decodeCharset(await decodePart(node), node.charset);
     if (mediaType === "text/plain") text = body;
     else untrustedHtml = body;
   }
@@ -54,4 +67,12 @@ export async function parseMessageBody(source: Buffer): Promise<z.infer<typeof m
   }
   await finishPart();
   return { text, untrustedHtml, attachments };
+}
+
+export async function parseMessageBody(source: Buffer): Promise<z.infer<typeof messageBody>> {
+  return parse(source, false);
+}
+
+export async function parseForwardAttachments(source: Buffer) {
+  return (await parse(source, true)).attachments;
 }

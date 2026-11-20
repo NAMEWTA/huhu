@@ -10,6 +10,7 @@ import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { mailAttachmentPackagePaths, openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
 import { outboxReceipt } from "../src/engine/outbox.js";
+import { forwardSeed, newTopicSeed } from "../src/engine/prepare-forward.js";
 import { replySeed, type ReplySeed } from "../src/engine/prepare-reply.js";
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
@@ -316,6 +317,193 @@ testWindows(
         imapRelease.resolve();
         smtpRelease.resolve();
         await Promise.all([imapA.close(), imapB.close()]);
+      }
+    });
+  },
+  90_000,
+);
+
+testWindows(
+  "真实 IMAP 转发只发送纳入草稿的字节，新话题换账号且不沿用线程",
+  async () => {
+    await fixture(async ({ smtp, password, open }) => {
+      const author = "author@example.invalid";
+      const second = "other-sender@example.invalid";
+      const publicCc = "public@example.invalid";
+      const blind = "historical-bcc@example.invalid";
+      const originalId = "<origin-forward@example.invalid>";
+      const actual = Buffer.from([0, 1, 2, 100, 254, 255]);
+      const mime = (namesOnly: boolean) =>
+        [
+          `From: Original <${author}>`,
+          `Reply-To: reply-only@example.invalid`,
+          `To: ${sender}, ${second}, ${publicCc}`,
+          `Cc: ${author.toUpperCase()}, ${publicCc.toUpperCase()}`,
+          `Bcc: ${blind}`,
+          `Message-ID: ${originalId}`,
+          "In-Reply-To: <prior@example.invalid>",
+          "References: <old@example.invalid> <prior@example.invalid>",
+          "MIME-Version: 1.0",
+          'Content-Type: multipart/mixed; boundary="forward-fixture"',
+          "",
+          "--forward-fixture",
+          "Content-Type: text/html; charset=utf-8",
+          "",
+          '<p>Original message</p><img src="https://mail-resource.invalid/pixel">',
+          ...(!namesOnly
+            ? ["--forward-fixture", 'Content-Type: application/octet-stream; name="actual.bin"', 'Content-Disposition: attachment; filename="actual.bin"', "Content-Transfer-Encoding: base64", "", actual.toString("base64")]
+            : []),
+          "--forward-fixture",
+          `Content-Type: application/octet-stream; name="${namesOnly ? "other-only.bin" : "missing.bin"}"`,
+          `Content-Disposition: attachment; filename="${namesOnly ? "other-only.bin" : "missing.bin"}"`,
+          "",
+          ...(!namesOnly
+            ? [
+                "--forward-fixture",
+                'Content-Type: image/png; name="inline.png"',
+                "Content-ID: <picture@example.invalid>",
+                "Content-Transfer-Encoding: base64",
+                "",
+                "aW5saW5lLWJ5dGVz",
+                "--forward-fixture",
+                'Content-Type: message/external-body; access-type=URL; URL="https://mail-resource.invalid/external"',
+                'Content-Disposition: attachment; filename="external.bin"',
+                "",
+                "Content-Type: application/octet-stream",
+                "",
+                "https://mail-resource.invalid/external",
+              ]
+            : []),
+          "--forward-fixture--",
+          "",
+        ].join("\r\n");
+      const originalSource = mime(false);
+      const incoming = { uidValidity: 21, subject: "Forward fixture", source: originalSource };
+      const imap = await openImapFixture({ message: incoming });
+      const other = await openImapFixture({ message: { uidValidity: 21, subject: "Names only", source: mime(true) } });
+      try {
+        let engine = await open({ create: true });
+        async function add(email: string, port: number) {
+          const tested = await call(engine, "mail.accounts.testConnection", {
+            settings: { provider: "custom_imap", email, label: "", auth: "password", imap: { host: "127.0.0.1", port, security: "none" }, smtpEnabled: true, smtp: { host: "127.0.0.1", port: smtp.port, security: "none" } },
+            password,
+          });
+          assert(tested.ok);
+          const saved = await call(engine, "mail.accounts.save", { setupId: (tested.data as { setupId: string }).setupId, folders: ["INBOX"] });
+          assert(saved.ok);
+          const accountId = (saved.data as { accountId: string }).accountId;
+          const fetched = await call(engine, "mail.sync.refresh", { accountId, folder: "INBOX" });
+          assert(fetched.ok);
+          return { accountId, folder: "INBOX", localMessageId: (fetched.data as { message: { localMessageId: string } }).message.localMessageId };
+        }
+        const a = await add(sender, imap.port);
+        const b = await add(second, other.port);
+        const fetchCounts = [imap.fetchRequests.length, other.fetchRequests.length];
+        for (const capability of ["mail.messages.prepareForward", "mail.messages.prepareNewTopic"]) {
+          expect(await call(engine, capability, { ...a, accountId: b.accountId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+        }
+        async function prepare(identity: typeof a) {
+          const reply = await call(engine, "mail.messages.prepareForward", identity);
+          assert(reply.ok, reply.ok ? undefined : reply.error.message);
+          return forwardSeed.parse(reply.data);
+        }
+        const seed = await prepare(a);
+        const onlyNames = await prepare(b);
+        expect(seed).toMatchObject({
+          accountId: a.accountId,
+          subject: "转发：Forward fixture",
+          forward: {
+            ...a,
+            from: author,
+            sourceAttachments: [
+              { name: "actual.bin", available: true },
+              { name: "missing.bin", available: false },
+              { name: "inline.png", available: false },
+              { name: "external.bin", available: false },
+            ],
+          },
+        });
+        expect(onlyNames.forward.sourceAttachments).toEqual([{ name: "other-only.bin", available: false }]);
+        expect(JSON.stringify(seed)).not.toContain(blind);
+        const topic = await call(engine, "mail.messages.prepareNewTopic", a);
+        assert(topic.ok);
+        expect(newTopicSeed.parse(topic.data)).toEqual({ accountId: a.accountId, to: [author, publicCc] });
+        expect([imap.fetchRequests.length, other.fetchRequests.length]).toEqual(fetchCounts);
+        expect(await call(engine, "mail.drafts.list", {})).toEqual({ ok: true, data: { drafts: [] } });
+        expect(smtp.counts.data).toBe(0);
+
+        const draftId = randomUUID();
+        const forwarded = { ...content, ...seed, to: [to], cc: [], bcc: [] };
+        const saveForward = (draft: typeof forwarded, expectedRevision: string | null = null, id = draftId) => call(engine, "mail.drafts.save", { draftId: id, expectedRevision, draft });
+        const forged = { ...forwarded, forward: { ...seed.forward, accountId: b.accountId } };
+        expect(await saveForward(forged)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+        incoming.source = originalSource.replace("Original message", "Replaced message with same UID");
+        expect(await call(engine, "mail.sync.refresh", { accountId: a.accountId, folder: "INBOX" })).toMatchObject({ ok: true, data: { message: { localMessageId: a.localMessageId } } });
+        expect(await saveForward(forwarded)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        incoming.source = originalSource;
+        await call(engine, "mail.sync.refresh", { accountId: a.accountId, folder: "INBOX" });
+
+        const saved = await saveForward(forwarded);
+        assert(saved.ok, saved.ok ? undefined : saved.error.message);
+        const savedDraft = saved.data as { revision: string; attachments: { digest: string; name: string; state: string }[] };
+        expect(savedDraft.attachments).toEqual([{ digest: createHash("sha256").update(actual).digest("hex"), name: "actual.bin", size: actual.length, state: "ready" }]);
+        const namesId = randomUUID();
+        const savedNames = await saveForward({ ...forwarded, ...onlyNames }, null, namesId);
+        assert(savedNames.ok);
+        const namesDraft = savedNames.data as { revision: string; attachments?: unknown };
+        expect(namesDraft.attachments).toBeUndefined();
+        const submit = (id: string, revision: string) => call(engine, "mail.outbox.submit", { draftId: id, expectedRevision: revision });
+        for (const [id, revision] of [
+          [draftId, savedDraft.revision],
+          [namesId, namesDraft.revision],
+        ] as const) {
+          expect(await submit(id, revision)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        }
+        expect(smtp.counts.data).toBe(0);
+
+        await engine.shutdown();
+        engine = await open();
+        expect(await call(engine, "mail.drafts.get", { draftId })).toEqual({ ok: true, data: { draft: saved.data } });
+        expect(await call(engine, "mail.drafts.get", { draftId: namesId })).toEqual({ ok: true, data: { draft: savedNames.data } });
+        expect(services(engine).attachments.readAttachment({ draftId, digest: savedDraft.attachments[0]!.digest })).toMatchObject({ state: "ready", bytes: actual });
+        expect(await saveForward({ ...forwarded, ...onlyNames }, savedDraft.revision)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        const skip = await saveForward({ ...forwarded, forward: { ...seed.forward, omitted: [1, 2, 3] } }, savedDraft.revision);
+        assert(skip.ok);
+        const accepted = await submit(draftId, (skip.data as { revision: string }).revision);
+        assert(accepted.ok);
+        await expect.poll(() => smtp.messages.length).toBe(1);
+        expect(smtp.messages[0]).toMatchObject({ sender, recipients: [to] });
+        const wire = smtp.messages[0]!.wire;
+        expect(wire).toContain("actual.bin");
+        expect(wire).toContain(actual.toString("base64"));
+        expect(wire).not.toMatch(/missing\.bin|other-only\.bin|inline\.png|external\.bin|mail-resource\.invalid|historical-bcc|^In-Reply-To:|^References:|^Reply-To:/im);
+
+        const fresh = await save(engine, b.accountId, randomUUID(), null, { subject: "Independent topic", to: [author, publicCc], bcc: [] });
+        expect(await submit(fresh.draftId, fresh.expectedRevision)).toMatchObject({ ok: true });
+        await expect.poll(() => smtp.messages.length).toBe(2);
+        expect(smtp.messages[1]).toMatchObject({ sender: second, recipients: [author, publicCc] });
+        expect(smtp.messages[1]!.wire).toContain("Subject: Independent topic");
+        expect(smtp.messages[1]!.wire).not.toMatch(/historical-bcc|^In-Reply-To:|^References:|^Reply-To:|multipart\/mixed|actual\.bin/im);
+        const replacement = Buffer.from([5, 0, 244, 7, 82]);
+        const supplemented = await services(engine).attachments.addAttachment(
+          { draftId: namesId, expectedRevision: namesDraft.revision },
+          {
+            name: "other-only.bin",
+            size: replacement.length,
+            async *read() {
+              yield replacement;
+            },
+          },
+        );
+        expect(await submit(namesId, supplemented.draft.revision)).toMatchObject({ ok: true });
+        await expect.poll(() => smtp.messages.length).toBe(3);
+        expect(smtp.messages[2]).toMatchObject({ sender: second, recipients: [to] });
+        expect(smtp.messages[2]!.wire).toContain("other-only.bin");
+        expect(smtp.messages[2]!.wire).toContain(replacement.toString("base64"));
+        expect(smtp.messages[2]!.wire).not.toMatch(/actual\.bin|historical-bcc|^In-Reply-To:|^References:|^Reply-To:/im);
+        expect([imap.commands.includes("DELETE"), other.commands.includes("DELETE")]).toEqual([false, false]);
+      } finally {
+        await Promise.all([imap.close(), other.close()]);
       }
     });
   },

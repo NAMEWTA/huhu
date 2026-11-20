@@ -7,8 +7,10 @@ import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
 import type { MailDrafts } from "./drafts.js";
+import { forwardContext } from "./forward-context.js";
 import { MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
 import { messageBody, parseMessageBody } from "./message-body.js";
+import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDigest } from "./prepare-forward.js";
 import { prepareReply, replyMode, replySeed } from "./prepare-reply.js";
 import { sourceMessage } from "./reply-context.js";
 
@@ -82,6 +84,12 @@ function readSnapshot(files: Files, input: Mailbox): { snapshot: Snapshot | null
   return { snapshot: null, version: current.version };
 }
 
+export function requireCachedMessage(files: Files, input: z.infer<typeof sourceMessage>) {
+  const message = readSnapshot(files, input).snapshot?.message;
+  if (!message || message.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
+  return message;
+}
+
 export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal, removals: AccountRemovals, writer: Pick<MailDrafts, "serialize">) {
   const files = api.vault.files;
   const writes = new Map<string, { accountId: string; task: Promise<unknown> }>();
@@ -102,6 +110,29 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       removals.assertActive(input.accountId);
       return files.write(cachePath(input), Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion });
     });
+  }
+
+  async function prepareRelated<T>(input: z.infer<typeof sourceMessage>, signal: AbortSignal, prepare: (bytes: Buffer, subject: string, sender: string | null, own: string[]) => Promise<T>) {
+    const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
+    cancelled.throwIfAborted();
+    const message = requireCachedMessage(files, input);
+    const available = await accounts?.list();
+    const sourceAccount = available?.find(({ accountId }) => accountId === input.accountId);
+    if (!sourceAccount || !available) throw errors.notFound("原邮件所属邮箱不可用。");
+    let seed: T;
+    try {
+      seed = await prepare(
+        Buffer.from(message.source, "base64"),
+        message.summary.subject,
+        sourceAccount.definition.settings.smtpEnabled ? sourceAccount.accountId : null,
+        available.map(({ definition }) => definition.settings.email),
+      );
+    } catch {
+      throw errors.invalidInput("无法解析原邮件。");
+    }
+    cancelled.throwIfAborted();
+    if (requireCachedMessage(files, input).source !== message.source) throw errors.notFound("原邮件缓存已变化，请重新打开。");
+    return seed;
   }
   api.defineCapability(
     bindCapability(mailRefreshDescriptor, ({ caller, signal }, input) => {
@@ -161,29 +192,38 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       scope: "read",
       input: messageKey.extend({ mode: replyMode }),
       output: replySeed,
-      handler: async ({ caller, signal }, { mode, ...input }) => {
+      handler: ({ caller, signal }, { mode, ...input }) => {
         authorize(caller, "mail.messages.prepareReply");
-        const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
-        cancelled.throwIfAborted();
-        const message = readSnapshot(files, input).snapshot?.message;
-        if (!message || message.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
-        const available = await accounts?.list();
-        if (!available?.some(({ accountId }) => accountId === input.accountId)) throw errors.notFound("原邮件所属邮箱不可用。");
-        let seed: Awaited<ReturnType<typeof prepareReply>>;
-        try {
-          seed = await prepareReply(
-            Buffer.from(message.source, "base64"),
-            input,
-            message.summary.subject,
-            mode,
-            available.map(({ definition }) => definition.settings.email),
-          );
-        } catch {
-          throw errors.invalidInput("无法解析原邮件的回复信息。");
-        }
-        cancelled.throwIfAborted();
-        if (readSnapshot(files, input).snapshot?.message?.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
-        return seed;
+        return prepareRelated(input, signal, (bytes, subject, _sender, own) => prepareReply(bytes, input, subject, mode, own));
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...internal,
+      name: "mail.messages.prepareForward",
+      scope: "read",
+      input: messageKey,
+      output: forwardSeed,
+      handler: ({ caller, signal }, input) => {
+        authorize(caller, "mail.messages.prepareForward");
+        return prepareRelated(input, signal, async (bytes, subject, accountId) => {
+          const { forward } = await forwardSource(bytes, input, subject);
+          return { accountId, subject: `转发：${forward.subject}`.slice(0, 8192), forward };
+        });
+      },
+    }),
+  );
+  api.defineCapability(
+    defineCapability({
+      ...internal,
+      name: "mail.messages.prepareNewTopic",
+      scope: "read",
+      input: messageKey,
+      output: newTopicSeed,
+      handler: ({ caller, signal }, input) => {
+        authorize(caller, "mail.messages.prepareNewTopic");
+        return prepareRelated(input, signal, async (bytes, _subject, accountId, own) => ({ accountId, to: await newTopicRecipients(bytes, own) }));
       },
     }),
   );
@@ -195,7 +235,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       name: "mail.messages.loadBody",
       scope: "read",
       input: messageKey,
-      output: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody }), z.strictObject({ state: z.literal("needs-refresh") })]),
+      output: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody, sourceDigest: forwardContext.shape.sourceDigest }), z.strictObject({ state: z.literal("needs-refresh") })]),
       handler: async ({ caller, signal }, input) => {
         authorize(caller, "mail.messages.loadBody");
         if (removals.read(input.accountId)) return { state: "needs-refresh" as const };
@@ -203,15 +243,17 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
         cancelled.throwIfAborted();
         const message = readSnapshot(files, input).snapshot?.message;
         if (!message || message.summary.localMessageId !== input.localMessageId) return { state: "needs-refresh" as const };
+        const bytes = Buffer.from(message.source, "base64");
         let body: Awaited<ReturnType<typeof parseMessageBody>>;
         try {
-          body = await parseMessageBody(Buffer.from(message.source, "base64"));
+          body = await parseMessageBody(bytes);
         } catch {
           throw new HuhuError("INVALID_INPUT", "无法解析邮件正文。仍可查看原文。", { details: { reason: "mime" } });
         }
         cancelled.throwIfAborted();
-        if (readSnapshot(files, input).snapshot?.message?.summary.localMessageId !== input.localMessageId) return { state: "needs-refresh" as const };
-        return { state: "ready" as const, body };
+        const current = readSnapshot(files, input).snapshot?.message;
+        if (current?.summary.localMessageId !== input.localMessageId || current.source !== message.source) return { state: "needs-refresh" as const };
+        return { state: "ready" as const, body, sourceDigest: sourceDigest(bytes) };
       },
     }),
   );

@@ -2,11 +2,20 @@ import { Banner, Button, Dialog } from "@huhu/ui";
 import { CapabilityError, host, useEngine } from "@huhu/workbench";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReplySeed } from "../engine/prepare-reply.js";
+import type { ForwardSeed, NewTopicSeed } from "../engine/prepare-forward.js";
 import { prepareMailHtml } from "./mail-html.js";
 
 export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; readState?: "unread" | "local" | "synced" };
+export type RelatedDraft = { kind: "reply"; seed: ReplySeed } | { kind: "forward"; seed: ForwardSeed } | { kind: "new-topic"; seed: NewTopicSeed };
+const composeActions = [
+  { id: "reply", title: "引用回复" },
+  { id: "reply-all", title: "回复全部" },
+  { id: "forward", title: "转发" },
+  { id: "new-topic", title: "新话题" },
+] as const;
+type ComposeAction = (typeof composeActions)[number]["id"];
 type Body = { text: string | null; untrustedHtml: string | null; attachments: { name: string; mediaType: string }[] };
-type BodyReply = { state: "ready"; body: Body } | { state: "needs-refresh" };
+type BodyReply = { state: "ready"; body: Body; sourceDigest: string } | { state: "needs-refresh" };
 type ReadState = "local" | "synced" | "needs-refresh";
 const readLabels = { unknown: "已读状态尚未核实", unread: "未读", local: "本机已读 · 待同步", synced: "已读 · 服务器已确认", "needs-refresh": "邮件定位已变化" };
 
@@ -30,19 +39,19 @@ export function MailReader({
   readOnly,
   onRead,
   onRefresh,
-  onReply,
+  onCompose,
 }: {
   message: MessageSummary;
   readOnly: boolean;
   onRead(): Promise<{ isError: boolean }>;
   onRefresh(): Promise<void>;
-  onReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null): void;
+  onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
 }) {
   const engine = useEngine();
   const { accountId, folder, localMessageId } = message;
   const identity = useMemo(() => ({ accountId, folder, localMessageId }), [accountId, folder, localMessageId]);
   const [attempt, setAttempt] = useState(0);
-  const [body, setBody] = useState<Body | null>(null);
+  const [body, setBody] = useState<(Body & { sourceDigest: string }) | null>(null);
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const [source, setSource] = useState<string | null>(null);
@@ -56,11 +65,11 @@ export function MailReader({
   const [marking, setMarking] = useState(false);
   const [markError, setMarkError] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
-  const [replyMenu, setReplyMenu] = useState(false);
-  const [preparingReply, setPreparingReply] = useState(false);
-  const [replyError, setReplyError] = useState("");
-  const replyRequest = useRef<AbortController | null>(null);
-  const replyActions = useRef<HTMLDivElement>(null);
+  const [composeMenu, setComposeMenu] = useState(false);
+  const [preparing, setPreparing] = useState<ComposeAction | null>(null);
+  const [composeError, setComposeError] = useState("");
+  const composeRequest = useRef<AbortController | null>(null);
+  const composeButtons = useRef<HTMLDivElement>(null);
   const marked = useRef(false);
   const activeWrite = useRef<AbortController | null>(null);
   const readingArea = useRef<HTMLDivElement>(null);
@@ -73,8 +82,10 @@ export function MailReader({
     void engine.call<BodyReply>("mail.messages.loadBody", identity, { signal: controller.signal }).then(
       (result) => {
         if (controller.signal.aborted) return;
-        if (result.state === "ready") setBody(result.body);
-        else setStale(true);
+        if (result.state === "ready") {
+          setBody({ ...result.body, sourceDigest: result.sourceDigest });
+          setStale(false);
+        } else setStale(true);
       },
       (error: unknown) => {
         if (!controller.signal.aborted) setBodyError(error instanceof CapabilityError ? error.message : "无法读取邮件正文。");
@@ -87,7 +98,7 @@ export function MailReader({
     () => () => {
       activeWrite.current?.abort();
       sourceRequest.current?.abort();
-      replyRequest.current?.abort();
+      composeRequest.current?.abort();
     },
     [engine, identity],
   );
@@ -196,23 +207,35 @@ export function MailReader({
   const state = readResult ?? message.readState;
   const changed = stale || state === "needs-refresh";
   const currentText = body?.text ?? prepared?.text ?? "";
-  const canReply = !!body && !changed && !readOnly;
+  const canCompose = !!body && !changed && !readOnly;
 
-  async function startReply(mode: ReplySeed["reply"]["mode"], trigger: HTMLElement | null) {
-    if (!canReply || replyRequest.current) return;
-    setReplyMenu(false);
-    setReplyError("");
+  async function startCompose(action: ComposeAction, trigger: HTMLElement | null) {
+    if (!canCompose || composeRequest.current) return;
+    setComposeMenu(false);
+    setComposeError("");
     const controller = new AbortController();
-    replyRequest.current = controller;
-    setPreparingReply(true);
+    composeRequest.current = controller;
+    setPreparing(action);
+    const { signal } = controller;
     try {
-      const seed = await engine.call<ReplySeed>("mail.messages.prepareReply", { ...identity, mode }, { signal: controller.signal });
-      if (!controller.signal.aborted) onReply(seed, currentText, trigger);
+      let draft: RelatedDraft;
+      if (action === "forward") {
+        const seed = await engine.call<ForwardSeed>("mail.messages.prepareForward", identity, { signal });
+        if (signal.aborted) return;
+        if (seed.forward.sourceDigest !== body?.sourceDigest) {
+          setComposeError("原邮件刚更新，请核对正文后再转发。");
+          setAttempt((value) => value + 1);
+          return;
+        }
+        draft = { kind: action, seed };
+      } else if (action === "new-topic") draft = { kind: action, seed: await engine.call<NewTopicSeed>("mail.messages.prepareNewTopic", identity, { signal }) };
+      else draft = { kind: "reply", seed: await engine.call<ReplySeed>("mail.messages.prepareReply", { ...identity, mode: action }, { signal }) };
+      if (!signal.aborted) onCompose(draft, currentText, trigger);
     } catch (err) {
-      if (!controller.signal.aborted) setReplyError(err instanceof CapabilityError ? err.message : "无法准备回复，请重试。");
+      if (!signal.aborted) setComposeError(err instanceof CapabilityError ? err.message : "无法从当前邮件准备草稿，请重试。");
     } finally {
-      if (replyRequest.current === controller) replyRequest.current = null;
-      if (!controller.signal.aborted) setPreparingReply(false);
+      if (composeRequest.current === controller) composeRequest.current = null;
+      if (!signal.aborted) setPreparing(null);
     }
   }
   let status = readLabels[state ?? "unknown"];
@@ -225,9 +248,9 @@ export function MailReader({
       className="hu-mail-reader"
       aria-label="邮件阅读"
       onContextMenu={(event) => {
-        if (!canReply || preparingReply || (event.target instanceof Element && event.target.closest("a,button,input"))) return;
+        if (!canCompose || preparing || (event.target instanceof Element && event.target.closest("a,button,input"))) return;
         event.preventDefault();
-        setReplyMenu(true);
+        setComposeMenu(true);
       }}
     >
       <div className="hu-mail-row">
@@ -316,29 +339,31 @@ export function MailReader({
           )}
         </div>
       )}
-      {replyError && <Banner tone="danger">{replyError}</Banner>}
-      {canReply && (
-        <div className="hu-mail-row" ref={replyActions}>
-          <Button loading={preparingReply} onClick={(event) => void startReply("reply", event.currentTarget)}>
-            引用回复
-          </Button>
-          <Button disabled={preparingReply} onClick={(event) => void startReply("reply-all", event.currentTarget)}>
-            回复全部
-          </Button>
+      {composeError && <Banner tone="danger">{composeError}</Banner>}
+      {canCompose && (
+        <div className="hu-mail-row" ref={composeButtons}>
+          {composeActions.map(({ id, title }) => (
+            <Button key={id} type="button" data-mail-compose-action={id} loading={preparing === id} disabled={preparing !== null} onClick={(event) => void startCompose(id, event.currentTarget)}>
+              {title}
+            </Button>
+          ))}
         </div>
       )}
-      {replyMenu && canReply && (
+      {composeMenu && canCompose && (
         <Dialog
           open
           title="邮件操作"
           onClose={() => {
-            setReplyMenu(false);
-            requestAnimationFrame(() => replyActions.current?.querySelector("button")?.focus());
+            setComposeMenu(false);
+            requestAnimationFrame(() => composeButtons.current?.querySelector("button")?.focus());
           }}
         >
           <div className="hu-mail-row">
-            <Button onClick={() => void startReply("reply", replyActions.current?.querySelector("button") ?? null)}>引用回复</Button>
-            <Button onClick={() => void startReply("reply-all", replyActions.current?.querySelector("button") ?? null)}>回复全部</Button>
+            {composeActions.map(({ id, title }) => (
+              <Button key={id} type="button" onClick={() => void startCompose(id, composeButtons.current?.querySelector<HTMLElement>(`[data-mail-compose-action="${id}"]`) ?? null)}>
+                {title}
+              </Button>
+            ))}
           </div>
         </Dialog>
       )}

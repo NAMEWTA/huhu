@@ -2,13 +2,12 @@ import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from
 import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
-import type { ReplySeed } from "../engine/prepare-reply.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailComposer } from "./MailComposer.js";
-import { MailReader, type MessageSummary } from "./MailReader.js";
+import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
 
@@ -21,13 +20,16 @@ const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
 type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount } | { kind: "remove"; target: RemovalTarget };
 
-function replyDraft(seed: ReplySeed, original: string): DraftContent {
+function relatedDraft({ kind, seed }: RelatedDraft, original: string): DraftContent {
+  const empty: DraftContent = { accountId: seed.accountId, to: [], cc: [], bcc: [], subject: "", body: { type: "doc", content: [{ type: "paragraph" }] } };
+  if (kind === "new-topic") return { ...empty, ...seed };
   const excerpt = original.trimEnd().slice(0, 24_000).split(/\r?\n/);
   const lines = excerpt.slice(0, 300);
   if (original.length > 24_000 || excerpt.length > 300) lines.push("…（引用已截短）");
   const makeParagraph = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
-  const quoted = original.trim() ? [makeParagraph("引用原邮件"), ...lines.map((line) => makeParagraph(`> ${line}`))] : [];
-  return { ...seed, bcc: [], body: { type: "doc", content: [{ type: "paragraph" }, ...quoted] } };
+  const attribution = kind === "forward" ? (seed.forward.from ? `转发自 ${seed.forward.from}` : "转发的原邮件") : "引用原邮件";
+  const quoted = original.trim() ? [makeParagraph(attribution), ...lines.map((line) => makeParagraph(`> ${line}`))] : [];
+  return { ...empty, ...seed, body: { type: "doc", content: [{ type: "paragraph" }, ...quoted] } };
 }
 
 export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
@@ -138,8 +140,8 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     setComposer({ draft, ...(seed && { seed }) });
   }
 
-  function showReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null) {
-    showComposer(null, replyDraft(seed, quote), trigger);
+  function composeFromMessage(draft: RelatedDraft, quote: string, trigger: HTMLElement | null) {
+    showComposer(null, relatedDraft(draft, quote), trigger);
   }
 
   async function resume(id: string) {
@@ -266,7 +268,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               key={account.accountId}
               account={account}
               readOnly={readOnly}
-              onReply={showReply}
+              onCompose={composeFromMessage}
               onReading={setReadingMessage}
               backAccounts={backAccounts}
               onBack={returnToAccounts}
@@ -440,7 +442,7 @@ function Mailbox({
   backAccounts,
   onBack,
   onReading,
-  onReply,
+  onCompose,
   onAccountAction,
 }: {
   account: MailAccount;
@@ -448,7 +450,7 @@ function Mailbox({
   backAccounts: Ref<HTMLButtonElement>;
   onBack(): void;
   onReading(id: string | null): void;
-  onReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null): void;
+  onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
   onAccountAction?(kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement): void;
 }) {
   const engine = useEngine();
@@ -585,7 +587,7 @@ function Mailbox({
               </Button>
               {message.readState === "unread" && <span>未读</span>}
             </div>
-            {opened === message.localMessageId && <MailReader key={message.localMessageId} message={message} readOnly={readOnly} onRead={latest.refetch} onRefresh={refresh} onReply={onReply} />}
+            {opened === message.localMessageId && <MailReader key={message.localMessageId} message={message} readOnly={readOnly} onRead={latest.refetch} onRefresh={refresh} onCompose={onCompose} />}
           </div>
         ) : (
           <p>此目录暂无已缓存的邮件。</p>
