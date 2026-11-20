@@ -3,6 +3,7 @@ import { bindCapability, defineCapabilityDescriptor, type Context, type HuhuApi 
 import { z } from "zod";
 import { mailAccountDefinitionSchema } from "./account-definition.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
+import { registerDrafts } from "./drafts.js";
 import { registerMessageCache } from "./message-cache.js";
 
 const accountSummary = z.strictObject({
@@ -37,4 +38,5 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
     }),
   );
   registerMessageCache(api, accounts, lifetime.signal);
+  registerDrafts(api, accounts, lifetime.signal);
 }

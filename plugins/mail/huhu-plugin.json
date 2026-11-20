@@ -10,7 +10,7 @@
     "settingsPages": [],
     "homeWidgets": [],
     "commands": [],
-    "capabilities": ["mail.accounts.list", "mail.sync.refresh", "mail.messages.latest", "mail.messages.loadSource"],
+    "capabilities": ["mail.accounts.list", "mail.sync.refresh", "mail.messages.latest", "mail.messages.loadSource", "mail.drafts.list", "mail.drafts.get", "mail.drafts.save", "mail.drafts.discard"],
     "fileKinds": []
   }
 }
