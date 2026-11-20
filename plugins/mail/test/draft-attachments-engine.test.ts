@@ -5,7 +5,7 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { importPackage } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
-import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
 
 const shared = vi.hoisted(() => ({ services: new Map<string, MailDraftAttachments>(), beforeExport: new Map<string, () => Promise<void>>() }));

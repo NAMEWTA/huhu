@@ -6,7 +6,7 @@ import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { exportPackage, importPackage } from "@huhu/vault";
 import { assert, expect, test, vi } from "vitest";
-import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { mailAttachmentPackagePaths, openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
 import { outboxReceipt } from "../src/engine/outbox.js";

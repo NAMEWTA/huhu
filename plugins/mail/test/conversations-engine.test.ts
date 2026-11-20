@@ -5,7 +5,7 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { assert, expect, test } from "vitest";
-import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
 import type { ConversationMessagesPage, ConversationsPage, LocatedMessage, MailSearchPage } from "../src/engine/conversations.js";

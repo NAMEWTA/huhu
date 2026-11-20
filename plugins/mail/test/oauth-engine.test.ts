@@ -6,7 +6,7 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { NotificationStore } from "@huhu/kernel";
 import { assert, expect, test, vi } from "vitest";
-import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { openMailAccounts, type MailAccount } from "../src/engine/accounts.js";
 import type { MailLocationTarget, MailSearchPage } from "../src/engine/conversations.js";
 import type { ReplySeed } from "../src/engine/prepare-reply.js";
@@ -738,6 +738,24 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(await statusOf(a.token, "mail.oauth.cancel", sessionA, cancelKey)).toMatchObject({ ...sessionA, phase: "expired", reason: "expired" });
       expect(await statusOf(b.token, "mail.oauth.begin", inputB, sharedKey)).toMatchObject({ ...sessionB, phase: "expired", reason: "expired" });
       expect(opened).toHaveLength(beforeReplay + 2);
+
+      const generationKey = randomUUID();
+      const [generation, concurrentReplay] = await Promise.all([statusOf(a.token, "mail.oauth.begin", inputA, generationKey), statusOf(a.token, "mail.oauth.begin", inputA, generationKey)]);
+      expect(generation.phase).toBe("waiting");
+      expect(concurrentReplay).toEqual(generation);
+      expect(opened).toHaveLength(beforeReplay + 3);
+      const oldListener = opened.at(-1)!;
+      expect(await call("plugins.setEnabled", { id: "mail", enabled: false })).toMatchObject({ state: "disabled" });
+      expect(await http(a.token, "mail.oauth.begin", inputA, generationKey)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+      expect(await call("plugins.setEnabled", { id: "mail", enabled: true })).toMatchObject({ state: "active" });
+      expect(await statusOf(a.token, "mail.oauth.begin", inputA, generationKey)).toMatchObject({ sessionId: generation.sessionId, phase: "expired", reason: "expired" });
+      expect(
+        await callback(oldListener, { code: "late" }).then(
+          (response) => response.status,
+          () => "closed",
+        ),
+      ).not.toBe(200);
+      expect(opened).toHaveLength(beforeReplay + 3);
 
       rejectRefresh = true;
       now += 100_000;

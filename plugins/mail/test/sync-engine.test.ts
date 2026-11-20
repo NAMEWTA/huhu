@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { NotificationStore } from "@huhu/kernel";
 import { assert, expect, test, vi } from "vitest";
-import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
 import type { MailLocationTarget } from "../src/engine/conversations.js";
 import type { MailSyncOptions } from "../src/engine/sync-schedule.js";
