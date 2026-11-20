@@ -30,3 +30,5 @@ Mail 为每封信建立 localMessageId 和账号、目录、UIDVALIDITY、UID �
 把其中一个合成目录切到 UIDVALIDITY 13 后刷新，结果标记目录换代，旧 ID 返回 `needs-refresh`。另一账号保留原 ID 和字节，远端调用计数不变。Vault ZIP 不收集 `.huhu/cache/mail`。实际 Engine 验证同账号、目录、UIDVALIDITY 和 UID，当前切片保存所选目录的最新摘要和 RFC822 原文。真实阅读页、MIME 正文、联系人聚合与多页同步继续分片。 [ImapFlow Fetch 文档](https://imapflow.com/docs/guides/fetching-messages/) · [实际 Windows 用例](../../../../../plugins/mail/test/messages-engine.test.ts)
 
 Windows 三文件 24 项通过，原工作区日志 `temp/issue-baseline/core-finished/t14j.log`。
+
+t17c 在已保存账号上补验同步、选择首封和 MIME 阅读。目录换代回执也经 Engine 请求验证。 [回环证据](../evidence/S1-S2-mail-reader.md)

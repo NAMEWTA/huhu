@@ -11,7 +11,7 @@ import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/accou
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-test("Mail 实际组件经本机 Engine 走通添加、草稿保存、部分接受与未知核对", async () => {
+test("Mail 实际组件经本机 Engine 走通添加、阅读与标读、草稿和投递", async () => {
   const repo = path.resolve(import.meta.dirname, "../../..");
   const desktop = path.join(repo, "apps/desktop");
   const entry = path.join(desktop, "src/renderer/mail-proof-entry.tsx");
@@ -70,13 +70,50 @@ test("Mail 实际组件经本机 Engine 走通添加、草稿保存、部分接�
   mkdirSync(vaultPath);
   mkdirSync(desktopUserData);
   const password = randomUUID();
-  const imap = await openImapFixture();
+  const subject = "Mail reading fixture";
+  const message = {
+    uidValidity: 12,
+    subject,
+    ignoreRead: true,
+    source: [
+      `Subject: ${subject}`,
+      "MIME-Version: 1.0",
+      'Content-Type: multipart/mixed; boundary="mixed"',
+      "",
+      "--mixed",
+      'Content-Type: multipart/alternative; boundary="alternative"',
+      "",
+      "--alternative",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "纯文本正文",
+      "> 合成引用",
+      "--alternative",
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      '<p>HTML 正文 <strong>可见内容</strong></p><blockquote><p>合成 HTML 引用</p></blockquote><img src="https://mail-images.invalid/pixel" alt="外部图">' +
+        '<script>globalThis.mailFixtureRan=true</script><style>p{background-image:url(https://mail-style.invalid/pixel)}</style><iframe src="https://mail-frame.invalid/"></iframe>' +
+        Array.from({ length: 12 }, (_, index) => `<p>合成长段落 ${index + 1}</p>`).join(""),
+      "--alternative--",
+      "--mixed",
+      'Content-Type: text/plain; name="fixture.txt"',
+      'Content-Disposition: attachment; filename="fixture.txt"',
+      "",
+      "attachment bytes",
+      "--mixed--",
+      "",
+    ].join("\r\n"),
+  };
+  const imap = await openImapFixture({ message });
   const smtp = await loopbackSmtp(password);
   const engine = await boot({ vaultPath, desktopUserData, create: true });
   const origin = "http://mail-workbench.test";
   const shell = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const pageErrors: string[] = [];
   let failDraftSave = true;
+  let failBodyRead = true;
+  let markCalls = 0;
+  const externalRequests: string[] = [];
   shell.on("pageerror", (error) => pageErrors.push(error.message));
   try {
     await shell.addInitScript(
@@ -88,12 +125,21 @@ test("Mail 实际组件经本机 Engine 走通添加、草稿保存、部分接�
     await shell.routeWebSocket("**/*", () => {});
     await shell.route("**/*", async (route) => {
       const url = new URL(route.request().url());
-      if (url.origin !== origin) return route.abort();
+      if (url.origin !== origin) {
+        externalRequests.push(url.origin);
+        return route.abort();
+      }
       if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<!doctype html><html lang="zh-CN"><meta charset="UTF-8">' + css + '<div id="root"></div><script type="module" src="/mail.js"></script>' });
       if (url.pathname.startsWith("/api/")) {
         const request = route.request();
         const payload = request.postData();
-        if (failDraftSave && payload && JSON.parse(payload).capability === "mail.drafts.save") {
+        const capability = payload ? JSON.parse(payload).capability : undefined;
+        if (capability === "mail.messages.markRead") markCalls++;
+        if (failBodyRead && capability === "mail.messages.loadBody") {
+          failBodyRead = false;
+          return route.abort("failed");
+        }
+        if (failDraftSave && capability === "mail.drafts.save") {
           failDraftSave = false;
           return route.abort("failed");
         }
@@ -134,6 +180,47 @@ test("Mail 实际组件经本机 Engine 走通添加、草稿保存、部分接�
     await browserExpect(dialog).toBeHidden();
     await browserExpect(add).toBeFocused();
     await browserExpect(shell.getByRole("button", { name: "回环邮箱已修改" })).toBeVisible();
+
+    await shell.getByRole("button", { name: "同步目录", exact: true }).click();
+    const received = shell.getByRole("button", { name: subject, exact: true });
+    await browserExpect(received).toBeVisible();
+    expect(markCalls).toBe(0);
+    const offscreen = await shell.addStyleTag({ content: ".hu-mail-body-viewport { margin-block-start: 1200px; }" });
+    await received.click();
+    await browserExpect(shell.getByText("无法读取邮件正文。", { exact: true })).toBeVisible();
+    expect(markCalls).toBe(0);
+    await shell.getByRole("button", { name: "重试加载正文" }).click();
+    const reading = shell.getByRole("region", { name: "正文", exact: true });
+    await browserExpect(reading).toContainText("HTML 正文");
+    expect(await reading.evaluate((element) => element.getBoundingClientRect().top)).toBeGreaterThan(900);
+    expect(markCalls).toBe(0);
+    expect(imap.storeRequests).toHaveLength(0);
+    await reading.scrollIntoViewIfNeeded();
+    await browserExpect(shell.getByText("本机已读 · 待同步", { exact: true })).toBeVisible();
+    expect(imap.storeRequests).toHaveLength(1);
+    message.ignoreRead = false;
+    await offscreen.evaluate((element) => element.remove());
+    await shell.getByRole("button", { name: "重试同步已读" }).click();
+    await browserExpect(shell.getByText("已读 · 服务器已确认", { exact: true })).toBeVisible();
+    expect(imap.storeRequests).toHaveLength(2);
+    await browserExpect(reading.locator("img, iframe, script, style")).toHaveCount(0);
+    await browserExpect(shell.getByRole("list", { name: "邮件附件" })).toContainText("fixture.txt · text/plain · 仅有元数据");
+    await shell.getByRole("button", { name: "查看原文" }).click();
+    await browserExpect(shell.locator(".hu-mail-source")).toContainText('<img src="https://mail-images.invalid/pixel"');
+    await shell.getByRole("button", { name: "收起原文" }).click();
+    await shell.getByRole("button", { name: "纯文本显示" }).click();
+    await browserExpect(reading).toContainText("纯文本正文");
+    await reading.getByText("展开引用与签名").click();
+    await browserExpect(reading.getByText("> 合成引用")).toBeVisible();
+    await shell.getByRole("button", { name: "HTML 显示" }).click();
+    const expandBody = shell.getByRole("button", { name: "展开全文" });
+    await browserExpect(expandBody).toHaveAttribute("aria-expanded", "false");
+    await expandBody.click();
+    await browserExpect(shell.getByRole("button", { name: "收起正文" })).toHaveAttribute("aria-expanded", "true");
+    await shell.getByRole("button", { name: "收起正文" }).click();
+    expect(externalRequests).toEqual([]);
+    expect(await shell.evaluate(() => Reflect.get(globalThis, "mailFixtureRan"))).toBeUndefined();
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-reader-1440.png") });
 
     await shell.getByRole("button", { name: "写信", exact: true }).click();
     await shell.getByLabel("收件人", { exact: true }).fill("accepted@example.invalid, refused@example.invalid");

@@ -15,7 +15,7 @@ import {
 } from "./account-definition.js";
 import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { discoverImapFolders } from "./imap-discovery.js";
-import { fetchLatestImapMessage } from "./imap-message.js";
+import { fetchLatestImapMessage, markImapMessageRead } from "./imap-message.js";
 import type { MailEndpoint } from "./presets.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
@@ -65,6 +65,19 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       });
       if (result.error) throw result.error;
       return result.data;
+    },
+    async markRead(accountId: string, folder: string, validity: string, uid: number, signal: AbortSignal) {
+      return credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
+        if (!folders.some(({ path }) => path === folder)) return "needs-refresh" as const;
+        const password = values.get(accountPasswordPurpose);
+        if (!password) return "local" as const;
+        try {
+          return await markImapMessageRead({ endpoint: settings.imap, email: settings.email, password, signal }, folder, validity, uid);
+        } catch (error) {
+          if (signal.aborted) throw error;
+          return "local" as const;
+        }
+      });
     },
   };
 }

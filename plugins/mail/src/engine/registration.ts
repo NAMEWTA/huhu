@@ -39,10 +39,10 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
     }),
   );
   const drainSetup = registerAccountSetup(api, accounts, lifetime.signal);
-  registerMessageCache(api, accounts, lifetime.signal);
+  const drainMessages = registerMessageCache(api, accounts, lifetime.signal);
   const drainDrafts = registerDrafts(api, accounts, lifetime.signal, transport);
   ctx.effect(() => async () => {
     lifetime.abort();
-    await Promise.all([drainSetup(), drainDrafts()]);
+    await Promise.all([drainSetup(), drainDrafts(), drainMessages()]);
   });
 }

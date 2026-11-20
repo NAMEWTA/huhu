@@ -3,6 +3,7 @@ import { CapabilityError, useCapability, useEngine, useQueryClient, type ModuleP
 import { useCallback, useRef, useState } from "react";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailComposer } from "./MailComposer.js";
+import { MailReader, type MessageSummary } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
 import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
 
@@ -267,37 +268,23 @@ function Mailbox({ account, readOnly }: { account: MailAccount; readOnly: boolea
   const [selected, setSelected] = useState("INBOX");
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [source, setSource] = useState<{ id: string; text: string } | null>(null);
+  const [opened, setOpened] = useState<string | null>(null);
   const folder = account.definition.folders.some(({ path }) => path === selected) ? selected : "INBOX";
   const input = { accountId: account.accountId, folder };
-  const latest = useCapability<{ message: { localMessageId: string; subject: string } | null }>("mail.messages.latest", input);
+  const latest = useCapability<{ message: MessageSummary | null }>("mail.messages.latest", input);
   const { message } = latest.data ?? {};
 
   async function refresh() {
     setRefreshing(true);
     setError("");
     try {
-      await engine.call("mail.sync.refresh", input, { write: true });
+      const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", input, { write: true });
       await latest.refetch();
+      if (result.mailboxChanged) setOpened(null);
     } catch (err) {
       setError(err instanceof CapabilityError ? err.message : "无法刷新此目录。");
     } finally {
       setRefreshing(false);
-    }
-  }
-
-  async function loadSource(id: string) {
-    setError("");
-    try {
-      const data = await engine.call<{ state: "ready"; source: string } | { state: "needs-refresh" }>("mail.messages.loadSource", { ...input, localMessageId: id });
-      if (data.state !== "ready") {
-        setError("本机缓存已变化，请刷新目录。");
-        return;
-      }
-      const bytes = Uint8Array.from(atob(data.source), (character) => character.charCodeAt(0));
-      setSource({ id, text: new TextDecoder().decode(bytes) });
-    } catch {
-      setError("无法读取本机邮件原文。");
     }
   }
 
@@ -316,7 +303,7 @@ function Mailbox({ account, readOnly }: { account: MailAccount; readOnly: boolea
             onChange={(e) => {
               setSelected(e.target.value);
               setError("");
-              setSource(null);
+              setOpened(null);
             }}
             disabled={refreshing}
           >
@@ -326,20 +313,26 @@ function Mailbox({ account, readOnly }: { account: MailAccount; readOnly: boolea
           </select>
         </label>
         <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
-          刷新目录
+          同步目录
         </Button>
       </div>
       {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
       {error && <Banner tone="danger">{error}</Banner>}
-      {latest.isError && <Banner tone="danger">无法读取本机邮件缓存。</Banner>}
+      {latest.isError && (
+        <Banner tone="danger" action={<Button onClick={() => void latest.refetch()}>重试读取</Button>}>
+          无法读取本机邮件缓存。
+        </Banner>
+      )}
       {latest.data &&
         (message ? (
           <div className="hu-mail-detail">
-            <h3>{message.subject || "无主题"}</h3>
-            <div>
-              <Button onClick={() => void loadSource(message.localMessageId)}>查看缓存原文</Button>
+            <div className="hu-mail-row">
+              <Button aria-expanded={opened === message.localMessageId} onClick={() => setOpened(opened === message.localMessageId ? null : message.localMessageId)}>
+                {message.subject || "无主题"}
+              </Button>
+              {message.readState === "unread" && <span>未读</span>}
             </div>
-            {source?.id === message.localMessageId && <pre className="hu-mail-source">{source.text}</pre>}
+            {opened === message.localMessageId && <MailReader key={message.localMessageId} message={message} readOnly={readOnly} onRead={latest.refetch} onRefresh={refresh} />}
           </div>
         ) : (
           <p>此目录暂无已缓存的邮件。</p>

@@ -9,12 +9,13 @@ export async function openImapFixture(
     rejectList?: boolean;
     disconnectDuringList?: boolean;
     namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
-    message?: { uidValidity: number; subject: string; source: string };
+    message?: { uidValidity: number; subject: string; source: string; seen?: boolean; refuseRead?: boolean; ignoreRead?: boolean };
   } = {},
 ) {
   const commands: string[] = [];
   const listRequests: string[] = [];
   const fetchRequests: string[] = [];
+  const storeRequests: string[] = [];
   const sockets = new Set<Socket>();
   const listed = Promise.withResolvers<void>();
   const disconnected = Promise.withResolvers<void>();
@@ -57,21 +58,34 @@ export async function openImapFixture(
         }
         case "LSUB":
           return socket.write(`${tag} OK LSUB\r\n`);
-        case "EXAMINE": {
+        case "EXAMINE":
+        case "SELECT": {
           const message = options.message;
           if (!message) return socket.write(`${tag} BAD mailbox not configured\r\n`);
-          return socket.write(`* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${message.uidValidity}] stable\r\n* OK [UIDNEXT 43] next\r\n${tag} OK [READ-ONLY] examine\r\n`);
+          const mode = command === "SELECT" ? "READ-WRITE" : "READ-ONLY";
+          return socket.write(`* FLAGS (\\Seen)\r\n* 1 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY ${message.uidValidity}] stable\r\n* OK [UIDNEXT 43] next\r\n${tag} OK [${mode}] mailbox selected\r\n`);
         }
         case "FETCH": {
           const message = options.message;
           if (!message) return socket.write(`${tag} BAD message not configured\r\n`);
           fetchRequests.push(line);
           const size = Buffer.byteLength(message.source);
-          return socket.write(`* 1 FETCH (UID 42 RFC822.SIZE ${size} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n${tag} OK FETCH\r\n`);
+          return socket.write(`* 1 FETCH (UID 42 FLAGS (${message.seen ? "\\Seen" : ""}) RFC822.SIZE ${size} ENVELOPE (NIL "${message.subject}" NIL NIL NIL NIL NIL NIL NIL NIL))\r\n${tag} OK FETCH\r\n`);
         }
         case "UID": {
           const message = options.message;
-          if (!message || !/UID FETCH 42 .*BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
+          if (!message) return socket.write(`${tag} BAD unsupported UID command\r\n`);
+          if (/UID STORE 42 \+FLAGS(?:\.SILENT)? \(\\Seen\)/i.test(line)) {
+            storeRequests.push(line);
+            if (message.refuseRead) return socket.write(`${tag} NO read update denied\r\n`);
+            if (!message.ignoreRead) message.seen = true;
+            return socket.write(`${tag} OK STORE\r\n`);
+          }
+          if (/UID FETCH 42 .*\bFLAGS\b/i.test(line) && !/BODY\.PEEK/i.test(line)) {
+            fetchRequests.push(line);
+            return socket.write(`* 1 FETCH (UID 42 FLAGS (${message.seen ? "\\Seen" : ""}))\r\n${tag} OK FLAGS\r\n`);
+          }
+          if (!/UID FETCH 42 .*BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
           fetchRequests.push(line);
           socket.write(`* 1 FETCH (UID 42 BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
           socket.write(message.source);
@@ -95,6 +109,7 @@ export async function openImapFixture(
     commands,
     listRequests,
     fetchRequests,
+    storeRequests,
     listed: listed.promise,
     disconnected: disconnected.promise,
     close: () =>

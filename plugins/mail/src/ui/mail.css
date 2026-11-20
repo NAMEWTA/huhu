@@ -151,6 +151,49 @@
     overflow-wrap: anywhere;
   }
 
+  .hu-mail-reader {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .hu-mail-body-viewport {
+    max-block-size: 280px;
+    overflow: auto;
+  }
+
+  .hu-mail-body-viewport[data-expanded="true"] {
+    max-block-size: none;
+  }
+
+  .hu-mail-body-content {
+    display: flow-root;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+  }
+
+  .hu-mail-body-content p {
+    margin-block: 0 0.6em;
+  }
+
+  .hu-mail-body-content blockquote {
+    margin-inline: 0;
+    padding-inline-start: 12px;
+    border-inline-start: 2px solid var(--line);
+  }
+
+  .hu-mail-plain {
+    white-space: pre-wrap;
+  }
+
+  .hu-mail-copy-link {
+    color: var(--accent-text);
+    background: transparent;
+    text-decoration: underline;
+    word-break: break-word;
+  }
+
   @container (min-width: 581px) {
     .hu-mail-columns {
       grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);

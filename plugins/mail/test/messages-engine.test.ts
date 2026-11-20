@@ -18,7 +18,13 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("两个邮�
   const desktopUserData = path.join(root, "app");
   mkdirSync(vaultPath);
   mkdirSync(desktopUserData);
-  const synthA = { uidValidity: 12, subject: "Alpha", source: "Subject: Alpha\r\n\r\nfirst account fixture\r\n" };
+  const synthA = {
+    uidValidity: 12,
+    subject: "Alpha",
+    source: "Subject: Alpha\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nfirst account =E9=82=AE=E4=BB=B6\r\n",
+    seen: false,
+    ignoreRead: true,
+  };
   const synthB = { uidValidity: 12, subject: "Beta", source: "Subject: Beta\r\n\r\nsecond account fixture\r\n" };
   const imapA = await openImapFixture({ message: synthA });
   const imapB = await openImapFixture({ message: synthB });
@@ -79,6 +85,10 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("两个邮�
     expect(first.message.localMessageId).not.toBe(other.message.localMessageId);
     await checkSource(engine, first.message, synthA.source);
     await checkSource(engine, other.message, synthB.source);
+    const key = (message: typeof first.message) => ({ accountId: message.accountId, folder: message.folder, localMessageId: message.localMessageId });
+    const mark = (running: RunningEngine, message: typeof first.message) => call(running, "mail.messages.markRead", key(message));
+    expect(await call(engine, "mail.messages.loadBody", key(first.message))).toMatchObject({ ok: true, data: { state: "ready", body: { text: "first account 邮件\r\n", untrustedHtml: null, attachments: [] } } });
+    expect(synthA.seen).toBe(false);
     expect(await call(engine, mailMessageSourceDescriptor.name, { ...a, localMessageId: other.message.localMessageId })).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
     const manifest = await exportPackage(vaultPath, path.join(root, "mail.zip"));
     expect(manifest.files.some(({ path: file }) => file.startsWith(".huhu/cache/mail/"))).toBe(false);
@@ -94,22 +104,43 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("两个邮�
     expect(await call(readOnly, mailRefreshDescriptor.name, a)).toMatchObject({ ok: false, error: { code: "READ_ONLY_VAULT" } });
     expect(imapA.fetchRequests).toHaveLength(receivedA);
     expect(imapB.fetchRequests).toHaveLength(receivedB);
-
-    synthA.uidValidity = 13;
-    synthA.source = "Subject: Alpha\r\n\r\ncurrent account generation\r\n";
-    const changed = await refresh(engine, a);
-    expect(changed).toMatchObject({ mailboxChanged: true, message: { uidValidity: "13", uid: 42 } });
-    expect(changed.message.localMessageId).not.toBe(first.message.localMessageId);
-    expect(await call(engine, mailMessageSourceDescriptor.name, { ...a, localMessageId: first.message.localMessageId })).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
-    await checkSource(engine, changed.message, synthA.source);
-    await checkSource(engine, other.message, synthB.source);
-    expect(imapB.fetchRequests).toHaveLength(receivedB);
     for (const imap of [imapA, imapB]) {
       expect(imap.commands).toContain("EXAMINE");
       expect(imap.commands).not.toContain("SELECT");
-      expect(imap.commands).not.toContain("STORE");
+      expect(imap.storeRequests).toHaveLength(0);
       expect(imap.fetchRequests.some((line) => /UID FETCH 42 .*BODY\.PEEK\[\]/i.test(line))).toBe(true);
     }
+    expect(await mark(readOnly, first.message)).toMatchObject({ ok: false, error: { code: "READ_ONLY_VAULT" } });
+    expect(imapA.storeRequests).toHaveLength(0);
+    expect(await mark(engine, first.message)).toMatchObject({ ok: true, data: { state: "local" } });
+    expect(imapA.storeRequests).toHaveLength(1);
+    expect(imapA.fetchRequests).toContainEqual(expect.stringMatching(/UID FETCH 42 .*FLAGS/i));
+    expect((await refresh(engine, a)).message.readState).toBe("local");
+    await engine.shutdown();
+    engine = await boot({ vaultPath, desktopUserData });
+    expect(await call(engine, "mail.messages.latest", a)).toMatchObject({ ok: true, data: { message: { readState: "local" } } });
+    synthA.ignoreRead = false;
+    const [, marked] = await Promise.all([refresh(engine, a), mark(engine, first.message)]);
+    expect(marked).toMatchObject({ ok: true, data: { state: "synced" } });
+    expect(await mark(engine, first.message)).toMatchObject({ ok: true, data: { state: "synced" } });
+    expect(imapA.storeRequests).toHaveLength(2);
+    expect(synthA.seen).toBe(true);
+    synthA.seen = false;
+    expect((await refresh(engine, a)).message.readState).toBe("local");
+
+    synthA.uidValidity = 13;
+    synthA.source = "Subject: Alpha\r\n\r\ncurrent account generation\r\n";
+    expect(await mark(engine, first.message)).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
+    expect(imapA.storeRequests).toHaveLength(2);
+    const changed = await refresh(engine, a);
+    expect(changed).toMatchObject({ mailboxChanged: true, message: { uidValidity: "13", uid: 42, readState: "unread" } });
+    expect(changed.message.localMessageId).not.toBe(first.message.localMessageId);
+    expect(await call(engine, mailMessageSourceDescriptor.name, { ...a, localMessageId: first.message.localMessageId })).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
+    expect(await call(engine, "mail.messages.loadBody", key(first.message))).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
+    await checkSource(engine, changed.message, synthA.source);
+    await checkSource(engine, other.message, synthB.source);
+    expect(imapB.fetchRequests).toHaveLength(receivedB);
+    expect(imapB.storeRequests).toHaveLength(0);
   } finally {
     try {
       if (engine?.moduleCredentialHost) {
