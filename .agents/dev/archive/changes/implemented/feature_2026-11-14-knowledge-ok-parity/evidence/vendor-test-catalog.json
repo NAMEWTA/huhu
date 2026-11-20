@@ -2,17 +2,18 @@
   "summary": {
     "open-knowledge": {
       "outside-product": 1268,
-      "not-applicable": 582,
+      "not-applicable": 811,
       "copy": 302,
-      "unreviewed": 1296,
+      "unreviewed": 1065,
       "patch": 27,
-      "partial": 1
+      "partial": 3
     },
     "orca": {
       "outside-product": 9992,
-      "unreviewed": 9,
-      "not-applicable": 4,
-      "patch": 3
+      "not-applicable": 6,
+      "unreviewed": 4,
+      "patch": 3,
+      "partial": 3
     }
   },
   "skips": [
