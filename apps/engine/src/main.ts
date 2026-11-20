@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
+import { createMailOAuth } from "@huhu/plugin-mail/engine";
 import { boot } from "./boot.js";
 
 interface AttachmentReplyPort {
@@ -11,6 +14,45 @@ interface AttachmentReplyPort {
 interface ParentPort {
   postMessage(m: unknown): void;
   on(event: "message", cb: (e: { data?: { type?: string } | PrivateMailAttachmentRequest; ports?: AttachmentReplyPort[] }) => void): void;
+}
+
+function mailOAuthWithBrowser(port: ParentPort) {
+  const googleId = process.env["HUHU_MAIL_GOOGLE_CLIENT_ID"]?.trim();
+  const googleSecret = process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
+  delete process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
+  const microsoftId = process.env["HUHU_MAIL_MICROSOFT_CLIENT_ID"]?.trim();
+  if (!googleId && !microsoftId) return {};
+  const pending = new Map<string, (opened: boolean) => void>();
+  port.on("message", ({ data }) => {
+    if (data?.type !== "mail-oauth:opened") return;
+    const { id, opened } = data as { id?: unknown; opened?: unknown };
+    if (typeof id === "string" && typeof opened === "boolean") pending.get(id)?.(opened);
+  });
+  return {
+    mailOAuth: createMailOAuth(
+      { ...(googleId && { google: { clientId: googleId, ...(googleSecret && { clientSecret: googleSecret }) } }), ...(microsoftId && { microsoft: { clientId: microsoftId } }) },
+      {
+        hostLabel: hostname(),
+        openBrowser: (url) =>
+          new Promise<void>((resolve, reject) => {
+            const id = randomUUID();
+            const finish = (opened: boolean) => {
+              clearTimeout(deadline);
+              pending.delete(id);
+              if (opened) resolve();
+              else reject(new Error("System browser unavailable"));
+            };
+            const deadline = setTimeout(() => finish(false), 5_000);
+            pending.set(id, finish);
+            try {
+              port.postMessage({ type: "mail-oauth:open", id, url });
+            } catch {
+              finish(false);
+            }
+          }),
+      },
+    ),
+  };
 }
 
 function arg(name: string): string | undefined {
@@ -46,6 +88,7 @@ async function main(): Promise<void> {
     idleExitMs: idle,
     ...(webAssetsDir ? { webAssetsDir } : {}),
     ...(desktopUserData ? { desktopUserData } : {}),
+    ...(earlyPort ? mailOAuthWithBrowser(earlyPort) : {}),
   });
   // Renderer 令牌只经 IPC 通道交给 Main；独立运行（无 IPC）时不输出任何令牌
   const ready = { type: "ready", port: engine.port, rendererToken: engine.rendererToken, vaultId: engine.vault.id };

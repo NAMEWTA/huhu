@@ -1,10 +1,60 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openImapFixture, type FixtureImapMessage } from "../../../plugins/mail/test/fixtures/imap.js";
 import { openApp } from "../helpers/launch.js";
+
+async function desktopMailCalls(page: Page) {
+  await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+  const endpoint = await page.evaluate(() => window.huhuHost.engine());
+  return async <T>(capability: string, input: unknown = {}) => {
+    const result = await fetch(`${endpoint.baseUrl}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+    }).then((response) => response.json());
+    expect(result, capability).toMatchObject({ ok: true });
+    return result.data as T;
+  };
+}
+
+test("桌面邮箱授权经主进程浏览器入口，取消后释放原回调", async () => {
+  const { app, page, close } = await openApp({ HUHU_MAIL_GOOGLE_CLIENT_ID: "synthetic-desktop-client", HUHU_MAIL_MICROSOFT_CLIENT_ID: "" });
+  try {
+    const call = await desktopMailCalls(page);
+    type HostProbe = typeof globalThis & { mailAuthorization?: string };
+    await app.evaluate(({ shell }) => {
+      shell.openExternal = async (url) => {
+        (globalThis as HostProbe).mailAuthorization = url;
+      };
+    });
+    expect(await call("mail.oauth.availability")).toMatchObject({ gmail: true, outlook: false });
+    const setup = await call<{ sessionId: string; phase: string }>("mail.oauth.begin", { provider: "gmail", email: "fixture@example.test" });
+    expect(setup.phase).toBe("waiting");
+    const address = await app.evaluate(() => (globalThis as HostProbe).mailAuthorization);
+    expect(address).toBeTruthy();
+    const url = new URL(address!);
+    expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(url.searchParams.get("client_id")).toBe("synthetic-desktop-client");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    const local = new URL(url.searchParams.get("redirect_uri")!);
+    expect(local.hostname).toBe("127.0.0.1");
+    expect((await fetch(local)).status).toBe(400);
+    expect(await call("mail.oauth.cancel", { sessionId: setup.sessionId })).toMatchObject({ phase: "cancelled" });
+    await expect
+      .poll(() =>
+        fetch(local, { signal: AbortSignal.timeout(500) }).then(
+          () => true,
+          () => false,
+        ),
+      )
+      .toBe(false);
+  } finally {
+    await close();
+  }
+});
 
 test("新邮件通知从桌面铃铛定位到原账号的邮件并交接焦点", async () => {
   const message = (uid: number, subject: string): FixtureImapMessage => ({
@@ -18,17 +68,7 @@ test("新邮件通知从桌面铃铛定位到原账号的邮件并交接焦点",
   try {
     const { page, close } = await openApp();
     try {
-      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-      const endpoint = await page.evaluate(() => window.huhuHost.engine());
-      const call = async <T>(capability: string, input: unknown = {}) => {
-        const result = await fetch(`${endpoint.baseUrl}/api/v1/call`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
-          body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
-        }).then((response) => response.json());
-        expect(result, capability).toMatchObject({ ok: true });
-        return result.data as T;
-      };
+      const call = await desktopMailCalls(page);
       const connection = { host: "127.0.0.1", port: imap.port, security: "none" };
       const { setupId } = await call<{ setupId: string }>("mail.accounts.testConnection", {
         settings: { provider: "custom_imap", email: "fixture@example.test", label: "通知测试", auth: "password", imap: connection, smtpEnabled: false, smtp: connection },

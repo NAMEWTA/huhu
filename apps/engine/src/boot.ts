@@ -80,6 +80,8 @@ export interface BootOptions {
   webAssetsDir?: string;
   /** 桌面宿主提供的当前用户应用数据目录。 */
   desktopUserData?: string;
+  /** 当前桌面宿主的邮箱授权配置与可信浏览器入口。 */
+  mailOAuth?: mail.MailOAuthRuntime;
   /** 无界面模式：最后一个客户端离开后空闲这么久自行退出（毫秒，0 = 不自动退出）。 */
   idleExitMs?: number;
 }
@@ -209,9 +211,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(mailManifest),
     apply: (ctx, api) =>
-      mail.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, mail.createMailSmtpTransport({ SMTPConnection, MailComposer }), {
-        notify: ({ id, ...notice }) => void notifications.create(notice, id),
-      }),
+      mail.apply(
+        ctx,
+        api,
+        moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined,
+        mail.createMailSmtpTransport({ SMTPConnection, MailComposer }),
+        { notify: ({ id, ...notice }) => void notifications.create(notice, id) },
+        opts.mailOAuth,
+      ),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),

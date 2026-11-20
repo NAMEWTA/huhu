@@ -1,4 +1,4 @@
-import { app, MessageChannelMain, utilityProcess, type UtilityProcess } from "electron";
+import { app, MessageChannelMain, shell, utilityProcess, type UtilityProcess } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
@@ -28,6 +28,25 @@ interface ReadyMessage {
   port: number;
   rendererToken: string;
   vaultId: string;
+}
+
+interface OAuthOpenMessage {
+  type: "mail-oauth:open";
+  id: string;
+  url: string;
+}
+
+function mailAuthorizationUrl(value: string): URL | undefined {
+  if (typeof value !== "string" || value.length > 8_192 || !URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.port || url.username || url.password || url.hash) return undefined;
+  const host = url.hostname === "accounts.google.com" && url.pathname === "/o/oauth2/v2/auth" ? "127.0.0.1" : url.hostname === "login.microsoftonline.com" && url.pathname === "/common/oauth2/v2.0/authorize" ? "localhost" : null;
+  if (!host || url.searchParams.get("response_type") !== "code" || url.searchParams.get("code_challenge_method") !== "S256") return undefined;
+  const [target, extra] = url.searchParams.getAll("redirect_uri");
+  if (!target || extra !== undefined || !URL.canParse(target)) return undefined;
+  const callback = new URL(target);
+  if (callback.protocol !== "http:" || callback.hostname !== host || !callback.port || callback.pathname !== "/mail/oauth/callback" || callback.username || callback.password || callback.search || callback.hash) return undefined;
+  return url;
 }
 
 /** 监管 Engine utilityProcess：启动、崩溃通知、重启、有序关闭（最多等 15 秒）。 */
@@ -142,7 +161,27 @@ export class EngineSupervisor {
         }
       }
     });
-    child.on("message", (m: ReadyMessage) => {
+    child.on("message", (m: ReadyMessage | OAuthOpenMessage) => {
+      if (this.child !== child || !m || typeof m !== "object") return;
+      if (m.type === "mail-oauth:open") {
+        const url = this.state === "ready" && !this.stopping ? mailAuthorizationUrl(m.url) : undefined;
+        void (
+          url
+            ? shell.openExternal(url.href).then(
+                () => true,
+                () => false,
+              )
+            : Promise.resolve(false)
+        ).then((opened) => {
+          if (this.child !== child) return;
+          try {
+            child.postMessage({ type: "mail-oauth:opened", id: m.id, opened });
+          } catch {
+            // The old Engine may exit before the browser result returns.
+          }
+        });
+        return;
+      }
       if (m.type !== "ready") return;
       this.endpoint = { baseUrl: `http://127.0.0.1:${m.port}`, token: m.rendererToken, vaultId: m.vaultId };
       this.set("ready");
