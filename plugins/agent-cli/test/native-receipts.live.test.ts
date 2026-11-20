@@ -106,8 +106,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const deliveries: ExecutionReceipt[] = [];
     let answer: "drop" | "wrong-digest" | "exact" = "drop";
     function mountReceiver(expected: ExecutionBinding): void {
-      register.call(
-        engine.registry,
+      const registerFixture = register.bind(engine.registry);
+      registerFixture(
         defineCapability({
           name: TASKS_RECEIPTS_CONSUME,
           plugin: "tasks",
