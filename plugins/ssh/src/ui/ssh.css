@@ -375,15 +375,13 @@
   .ssh-pane-foot .small {
     font-size: 12px;
   }
-  .hu-execution-module .hu-resource-list {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
+  .hu-execution-module > .hu-resource-pane > .hu-resource-list {
+    flex: 1 0 auto;
+    overflow: visible;
   }
-  .hu-execution-module .hu-resource-pane {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+  .hu-execution-module > .hu-resource-pane {
+    overflow: auto;
+    overscroll-behavior: contain;
   }
   .hu-execution-module .hu-view-content {
     display: flex;
