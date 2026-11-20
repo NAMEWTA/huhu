@@ -22,7 +22,8 @@ const AccountInput = AccountFields.extend({
 });
 const StoredAccount = AccountFields.extend({ accountId: z.uuid(), createdAt: Timestamp, updatedAt: Timestamp });
 
-export const SafeSession = z.object({ instanceId: z.uuid(), generation: z.int().nonnegative() });
+export const SafeCallerProof = z.hash("sha256", { enc: "hex" });
+export const SafeSession = z.object({ instanceId: z.uuid(), generation: z.int().nonnegative(), callerProof: SafeCallerProof.optional() });
 export const ListEntries = z.object({ session: SafeSession });
 export const TagFields = z.strictObject({ name: RequiredText, color: z.enum(SAFE_TAG_COLORS) });
 export const Tag = TagFields.extend({ tagId: z.uuid() });

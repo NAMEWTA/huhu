@@ -70,7 +70,8 @@ test("桌面 HTTP 入口设置、离开锁定、切换 Vault 和重开；损坏�
   expect(reopenedStatus).toMatchObject({ initialized: true, locked: true, lockOnLeave: true, autoLockMinutes: 1 });
   expect(reopenedStatus.instanceId).not.toBe(active.instanceId);
   expect(await call(reopened, "safe.unlock", { password: PASSWORD })).toMatchObject({ ok: true });
-  expect(await call(reopened, "safe.items.list")).toEqual({ ok: true, data: [] });
+  const { instanceId, generation } = await status(reopened);
+  expect(await call(reopened, "safe.entries.list", { session: { instanceId, generation } })).toEqual({ ok: true, data: { revision: 0, entries: [] } });
   expect(await call(reopened, "safe.lock")).toMatchObject({ ok: true });
 
   const file = path.join(reopened.vault.root, ".huhu", "safe", "current", "manifest.json");

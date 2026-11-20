@@ -1,140 +1,210 @@
+import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
-import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type CapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
-import { CreateEntry, CreateEntryReceipt, EntryDetail, EntryIndex, GetEntry, ListEntries, RevealAccount, UpdateAccount, UpdateAccountReceipt, UpdateEntry, UpdateEntryReceipt } from "./personal.js";
-import { CreateTag, CreateTagReceipt, DeleteTag, TagList, TagReceipt, UpdateTag } from "./personal.js";
-import { Safe, type ItemMeta } from "./safe.js";
+import {
+  CreateEntry,
+  CreateEntryReceipt,
+  CreateTag,
+  CreateTagReceipt,
+  DeleteTag,
+  EntryDetail,
+  EntryIndex,
+  GetEntry,
+  ListEntries,
+  RevealAccount,
+  SafeCallerProof,
+  SafeSession,
+  TagList,
+  TagReceipt,
+  UpdateAccount,
+  UpdateAccountReceipt,
+  UpdateEntry,
+  UpdateEntryReceipt,
+  UpdateTag,
+} from "./personal.js";
+import { Safe, type SafeAccess } from "./safe.js";
 
 export { Safe } from "./safe.js";
 
-/** 其他插件通过 `api.service<SecretUse>("secretUse")` 使用。 */
-export interface SecretUse {
-  resolve(ref: string, ctx: { plugin: string; purpose: string }): string;
+const Ok = z.strictObject({ ok: z.literal(true) });
+const Empty = z.strictObject({});
+const Lifecycle = z.strictObject({ session: SafeSession.optional() });
+const Password = Lifecycle.extend({ password: z.string() });
+const Status = z.strictObject({
+  initialized: z.boolean(),
+  locked: z.boolean(),
+  corrupt: z.boolean(),
+  corruptFile: z.enum(["keyring.json", "manifest.json"]).optional(),
+  autoLockMinutes: z.number(),
+  lockOnLeave: z.boolean(),
+  cooldownSeconds: z.number(),
+  instanceId: z.uuid(),
+  generation: z.int().nonnegative(),
+  callerProof: SafeCallerProof.optional(),
+});
+
+function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { exposable?: false; high?: true } = {}) {
+  return defineCapabilityDescriptor({
+    name: `safe.${name}`,
+    title,
+    description: title,
+    plugin: "safe",
+    scope,
+    input,
+    output,
+    risk: options.high || scope !== "read" ? "high" : "normal",
+    exposable: options.exposable ?? true,
+    defaultExposed: false,
+    ...(scope === "write" && { idempotency: "handler" }),
+  });
 }
 
-const Item = z.object({ id: z.string(), name: z.string(), type: z.enum(["password", "ssh-key", "token", "env"]), account: z.string(), allowedModules: z.array(z.string()), updatedAt: z.string() });
-const Ok = z.object({ ok: z.literal(true) });
+const caps = {
+  createEntry: tool("entries.create", "新建保险箱条目", "write", CreateEntry, CreateEntryReceipt),
+  updateEntry: tool("entries.update", "编辑保险箱条目", "write", UpdateEntry, UpdateEntryReceipt),
+  listEntries: tool("entries.list", "列出保险箱条目索引", "read", ListEntries, EntryIndex),
+  getEntry: tool("entries.get", "读取保险箱条目摘要", "read", GetEntry, EntryDetail),
+  updateAccount: tool("accounts.update", "编辑指定账号", "write", UpdateAccount, UpdateAccountReceipt),
+  reveal: tool("accounts.reveal", "显式查看指定账号的明文密码", "read", RevealAccount, z.strictObject({ password: z.string() }), { high: true }),
+  listTags: tool("tags.list", "列出保险箱标签", "read", ListEntries, TagList),
+  createTag: tool("tags.create", "新建保险箱标签", "write", CreateTag, CreateTagReceipt),
+  updateTag: tool("tags.update", "编辑保险箱标签", "write", UpdateTag, TagReceipt),
+  deleteTag: tool("tags.delete", "删除保险箱标签", "write", DeleteTag, TagReceipt),
+  status: tool("status", "读取保险箱状态与会话代", "read", Empty, Status),
+  setup: tool("setup", "设置保险箱主密码", "admin", Password, Ok),
+  unlock: tool("unlock", "以主密码解锁保险箱", "admin", Password, Ok),
+  lock: tool("lock", "锁定保险箱", "admin", Lifecycle.extend({ reason: z.literal("leave").optional() }), Ok),
+  changePassword: tool("changePassword", "修改保险箱主密码", "admin", Lifecycle.extend({ oldPassword: z.string(), newPassword: z.string() }), Ok),
+  settings: tool("settings.update", "修改保险箱锁定设置", "admin", Lifecycle.extend({ autoLockMinutes: z.number().optional(), lockOnLeave: z.boolean().optional() }), Ok),
+  audit: tool(
+    "audit.list",
+    "读取保险箱访问记录",
+    "read",
+    z.strictObject({ limit: z.number().int().min(1).max(1000).default(200) }),
+    z.array(z.strictObject({ at: z.string(), action: z.string(), itemId: z.string().nullable(), subject: z.string(), result: z.string() })),
+    { exposable: false },
+  ),
+};
 
-export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kdfParams?: { N: number; r: number; p: number } } = {}): Safe {
+export const safeCapabilityDescriptors: readonly CapabilityDescriptor[] = Object.values(caps);
+
+export function apply(
+  ctx: Context,
+  api: HuhuApi,
+  opts: {
+    now?: () => number;
+    kdfParams?: { N: number; r: number; p: number };
+    catalogDeclared?: true;
+  } = {},
+): Safe {
   const safe = new Safe({ dir: path.join(api.vault.files.root, ".huhu", "safe"), files: api.vault.files, now: opts.now ?? Date.now, publish: (t, p) => api.events.publish(t, p), ...(opts.kdfParams ? { kdfParams: opts.kdfParams } : {}) });
+  const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
+  const proofKey = randomBytes(32);
+  const proof = (context: CapabilityContext, { instanceId, generation }: SafeSession) =>
+    createHmac("sha256", proofKey)
+      .update(JSON.stringify([context.caller, context.subject ?? context.caller, instanceId, generation]))
+      .digest();
   api.events.subscribe((event) => {
     if (event.type === "engine.closing") safe.lock("close");
   });
-  ctx.effect(() => () => safe.lock("close"));
-  api.provide("secretUse", { resolve: (ref, c) => safe.resolve(ref, c) } satisfies SecretUse);
+  ctx.effect(() => () => {
+    proofKey.fill(0);
+    safe.lock("close");
+  });
 
-  const desktopOnly = { exposable: false, defaultExposed: false } as const;
-  const privateTags = { ...desktopOnly, desktopOnly: true } as const;
-  // Personal edits use the session and revisions for replay protection before touching encrypted data.
-  // The shared idempotency store does not hash sensitive inputs or bypass the session check.
-  api.defineCapability(def({ name: "safe.entries.create", plugin: "safe", scope: "admin", ...desktopOnly, input: CreateEntry, output: CreateEntryReceipt, handler: (c, i) => safe.createEntry(i, c.signal) }));
-  api.defineCapability(def({ name: "safe.entries.update", plugin: "safe", scope: "admin", ...desktopOnly, input: UpdateEntry, output: UpdateEntryReceipt, handler: (c, i) => safe.updateEntry(i, c.signal) }));
-  api.defineCapability(def({ name: "safe.accounts.update", plugin: "safe", scope: "admin", ...desktopOnly, input: UpdateAccount, output: UpdateAccountReceipt, handler: (c, i) => safe.updateAccount(i, c.signal) }));
-  api.defineCapability(def({ name: "safe.entries.list", plugin: "safe", scope: "read", ...desktopOnly, input: ListEntries, output: EntryIndex, handler: (c, i) => safe.listEntries(i.session, c.signal) }));
-  api.defineCapability(def({ name: "safe.entries.get", plugin: "safe", scope: "read", ...desktopOnly, input: GetEntry, output: EntryDetail, handler: (c, i) => safe.getEntry(i.session, i.entryId, c.signal) }));
-  api.defineCapability(def({ name: "safe.tags.list", plugin: "safe", scope: "read", ...privateTags, input: ListEntries, output: TagList, handler: (c, i) => safe.listTags(i.session, c.signal) }));
-  api.defineCapability(def({ name: "safe.tags.create", plugin: "safe", scope: "admin", ...privateTags, input: CreateTag, output: CreateTagReceipt, handler: (c, i) => safe.createTag(i, c.signal) }));
-  api.defineCapability(def({ name: "safe.tags.update", plugin: "safe", scope: "admin", ...privateTags, input: UpdateTag, output: TagReceipt, handler: (c, i) => safe.updateTag(i, c.signal) }));
-  api.defineCapability(def({ name: "safe.tags.delete", plugin: "safe", scope: "admin", ...privateTags, input: DeleteTag, output: TagReceipt, handler: (c, i) => safe.deleteTag(i, c.signal) }));
-  api.defineCapability(
-    def({ name: "safe.accounts.reveal", plugin: "safe", scope: "admin", ...desktopOnly, input: RevealAccount, output: z.object({ password: z.string() }), handler: (c, i) => safe.revealAccount(i.session, i.entryId, i.accountId, c.signal) }),
-  );
-  api.defineCapability(
-    def({
-      name: "safe.status",
-      plugin: "safe",
-      scope: "admin",
-      ...desktopOnly,
-      input: z.object({}),
-      output: z.object({
-        initialized: z.boolean(),
-        locked: z.boolean(),
-        corrupt: z.boolean(),
-        corruptFile: z.enum(["keyring.json", "manifest.json"]).optional(),
-        autoLockMinutes: z.number(),
-        lockOnLeave: z.boolean(),
-        cooldownSeconds: z.number(),
-        instanceId: z.uuid(),
-        generation: z.int().nonnegative(),
-      }),
-      handler: () => safe.status(),
-    }),
-  );
-  api.defineCapability(
-    def({ name: "safe.setup", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ password: z.string() }), output: Ok, handler: async (c, i) => (await safe.setup(i.password, c.signal), { ok: true as const }) }),
-  );
-  api.defineCapability(
-    def({ name: "safe.unlock", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ password: z.string() }), output: Ok, handler: async (c, i) => (await safe.unlock(i.password, c.signal), { ok: true as const }) }),
-  );
-  api.defineCapability(def({ name: "safe.lock", plugin: "safe", scope: "admin", ...desktopOnly, input: z.object({ reason: z.literal("leave").optional() }), output: Ok, handler: (_c, i) => (safe.lock(i.reason), { ok: true as const }) }));
-  api.defineCapability(
-    def({
-      name: "safe.changePassword",
-      plugin: "safe",
-      scope: "admin",
-      ...desktopOnly,
-      input: z.object({ oldPassword: z.string(), newPassword: z.string() }),
-      output: Ok,
-      handler: async (c, i) => (await safe.changePassword(i.oldPassword, i.newPassword, c.signal), { ok: true as const }),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "safe.settings.update",
-      plugin: "safe",
-      scope: "admin",
-      ...desktopOnly,
-      input: z.object({ autoLockMinutes: z.number().optional(), lockOnLeave: z.boolean().optional() }),
-      output: Ok,
-      handler: async (c, i) => (
-        await safe.updateSettings({ ...(i.autoLockMinutes !== undefined ? { autoLockMinutes: i.autoLockMinutes } : {}), ...(i.lockOnLeave !== undefined ? { lockOnLeave: i.lockOnLeave } : {}) }, c.signal),
-        { ok: true as const }
-      ),
-    }),
-  );
-  api.defineCapability(def({ name: "safe.items.list", plugin: "safe", scope: "read", ...desktopOnly, input: z.object({}), output: z.array(Item), handler: () => safe.withSession(() => safe.itemsList()) }));
-  api.defineCapability(
-    def({
-      name: "safe.items.save",
-      plugin: "safe",
-      scope: "write",
-      ...desktopOnly,
-      input: z.object({ id: z.string().optional(), name: z.string(), type: z.enum(["password", "ssh-key", "token", "env"]), account: z.string().optional(), allowedModules: z.array(z.string()).optional(), value: z.string().optional() }),
-      output: Item,
-      handler: (_c, i) =>
-        safe.itemSave({
-          name: i.name,
-          type: i.type,
-          ...(i.id ? { id: i.id } : {}),
-          ...(i.account !== undefined ? { account: i.account } : {}),
-          ...(i.allowedModules ? { allowedModules: i.allowedModules } : {}),
-          ...(i.value !== undefined ? { value: i.value } : {}),
-        }) satisfies ItemMeta,
-    }),
-  );
-  api.defineCapability(def({ name: "safe.items.delete", plugin: "safe", scope: "write", ...desktopOnly, input: z.object({ id: z.string() }), output: Ok, handler: (_c, i) => (safe.itemDelete(i.id), { ok: true as const }) }));
-  api.defineCapability(
-    def({
-      name: "safe.items.reveal",
-      plugin: "safe",
-      scope: "admin",
-      ...desktopOnly,
-      input: z.object({ id: z.string(), purpose: z.enum(["reveal", "copy"]).default("reveal") }),
-      output: z.object({ value: z.string() }),
-      handler: (_c, i) => safe.withSession(() => ({ value: safe.reveal(i.id, i.purpose) })),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "safe.audit.list",
-      plugin: "safe",
-      scope: "read",
-      ...desktopOnly,
-      input: z.object({ limit: z.number().int().min(1).max(1000).default(200) }),
-      output: z.array(z.object({ at: z.string(), action: z.string(), itemId: z.string().nullable(), subject: z.string(), result: z.string() })),
-      handler: (_c, i) => safe.auditList(i.limit),
-    }),
-  );
+  function register<I, O>(descriptor: CapabilityDescriptor<I, O>, run: (access: SafeAccess, input: I, context: CapabilityContext) => O | Promise<O>, recheck?: (context: CapabilityContext, input: I) => void) {
+    const handler = async (context: CapabilityContext, input: I) => {
+      const external = !isWorkbenchCaller(context.caller);
+      const access: SafeAccess = {
+        subject: context.caller.startsWith("web:") ? "web" : context.caller,
+        check() {
+          context.signal.throwIfAborted();
+          if (!external) return;
+          if (!["cli", "mcp", "http"].includes(context.caller)) throw errors.permissionDenied(descriptor.name);
+          if (!descriptor.exposable || toolSelection(exposure.snapshot(), descriptor.name) !== true) throw errors.capabilityNotExposed(descriptor.name);
+        },
+      };
+      access.check();
+      const data = await run(access, input, context);
+      access.check();
+      recheck?.(context, input);
+      return data;
+    };
+    if (opts.catalogDeclared) {
+      api.defineCapability(bindCapability(descriptor, handler));
+    } else {
+      // The old registry infers risk from scope. Keep reveal out of its bulk read selection.
+      const scope = descriptor.name === caps.reveal.name ? "admin" : descriptor.scope;
+      api.defineCapability(defineCapability({ ...descriptor, scope, handler }));
+    }
+  }
+
+  function checkSession(context: CapabilityContext, session: SafeSession | undefined, unlocked: boolean) {
+    if (context.caller !== "desktop" && !session) throw errors.invalidInput("需要当前 Vault 的保险箱会话代，请先读取保险箱状态");
+    safe.assertSession(session, unlocked);
+    if (!session) return;
+    if (!isWorkbenchCaller(context.caller) || session.callerProof) {
+      if (!session.callerProof || !timingSafeEqual(Buffer.from(session.callerProof, "hex"), proof(context, session))) throw errors.permissionDenied("保险箱会话不属于当前工具身份");
+    }
+  }
+
+  function personal<I extends { session: SafeSession }, O>(descriptor: CapabilityDescriptor<I, O>, run: (access: SafeAccess, input: I) => O | Promise<O>) {
+    const check = (context: CapabilityContext, input: I) => checkSession(context, input.session, true);
+    register(
+      descriptor,
+      (access, input, context) => {
+        check(context, input);
+        return run(access, input);
+      },
+      check,
+    );
+  }
+
+  personal(caps.createEntry, (access, input) => safe.createEntry(input, access));
+  personal(caps.updateEntry, (access, input) => safe.updateEntry(input, access));
+  personal(caps.listEntries, (access, input) => safe.listEntries(input.session, access));
+  personal(caps.getEntry, (access, input) => safe.getEntry(input.session, input.entryId, access));
+  personal(caps.updateAccount, (access, input) => safe.updateAccount(input, access));
+  personal(caps.reveal, (access, input) => safe.revealAccount(input.session, input.entryId, input.accountId, access));
+  personal(caps.listTags, (access, input) => safe.listTags(input.session, access));
+  personal(caps.createTag, (access, input) => safe.createTag(input, access));
+  personal(caps.updateTag, (access, input) => safe.updateTag(input, access));
+  personal(caps.deleteTag, (access, input) => safe.deleteTag(input, access));
+
+  register(caps.status, (_access, _input, context) => {
+    safe.assertSession();
+    const state = safe.status();
+    return isWorkbenchCaller(context.caller) ? state : { ...state, callerProof: proof(context, state).toString("hex") };
+  });
+  register(caps.setup, async (access, input, context) => {
+    checkSession(context, input.session, false);
+    await safe.setup(input.password, access);
+    return { ok: true };
+  });
+  register(caps.unlock, async (access, input, context) => {
+    checkSession(context, input.session, false);
+    await safe.unlock(input.password, access);
+    return { ok: true };
+  });
+  register(caps.lock, (access, input, context) => {
+    checkSession(context, input.session, false);
+    safe.lock(input.reason, access.subject);
+    return { ok: true };
+  });
+  register(caps.changePassword, async (access, input, context) => {
+    checkSession(context, input.session, true);
+    await safe.changePassword(input.oldPassword, input.newPassword, access);
+    return { ok: true };
+  });
+  register(caps.settings, async (access, input, context) => {
+    checkSession(context, input.session, true);
+    const { autoLockMinutes, lockOnLeave } = input;
+    await safe.updateSettings({ ...(autoLockMinutes !== undefined && { autoLockMinutes }), ...(lockOnLeave !== undefined && { lockOnLeave }) }, access);
+    return { ok: true };
+  });
+  register(caps.audit, (_access, input) => safe.auditList(input.limit));
   return safe;
 }

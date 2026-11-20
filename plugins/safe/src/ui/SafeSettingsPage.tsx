@@ -4,6 +4,8 @@ import { Info, Settings } from "lucide-react";
 import { useState } from "react";
 
 interface Status {
+  instanceId: string;
+  generation: number;
   initialized: boolean;
   locked: boolean;
   corrupt: boolean;
@@ -17,10 +19,12 @@ export function SafeSettingsPage() {
   const qc = useQueryClient();
   const status = useCapability<Status>("safe.status", {});
   const [error, setError] = useState<string | null>(null);
-  async function act<T>(capability: string, input: unknown): Promise<T | null> {
+  async function act<T>(capability: string, input: Record<string, unknown>): Promise<T | null> {
+    if (!status.data) return null;
+    const { instanceId, generation } = status.data;
     setError(null);
     try {
-      const r = await engine.call<T>(capability, input, { write: true });
+      const r = await engine.call<T>(capability, { ...input, session: { instanceId, generation } }, { write: true });
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
       return r;
     } catch (e) {
@@ -40,10 +44,10 @@ export function SafeSettingsPage() {
         </div>
       </div>
     );
-  return <LockSettings st={st} act={act} error={error} />;
+  return <LockSettings key={`${st.instanceId}:${st.generation}`} st={st} act={act} error={error} />;
 }
 
-function LockSettings({ st, act, error }: { st: Status; act<T>(c: string, i: unknown): Promise<T | null>; error: string | null }) {
+function LockSettings({ st, act, error }: { st: Status; act<T>(c: string, i: Record<string, unknown>): Promise<T | null>; error: string | null }) {
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [note, setNote] = useState<string | null>(null);

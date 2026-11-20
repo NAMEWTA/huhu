@@ -1,21 +1,14 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
-import { parseSecretRef } from "../shared/secret-ref.js";
+import { HuhuError, errors, type EventPayload, type EventType } from "@huhu/contracts";
 import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
 import type { CreateEntry, CreateTag, DeleteTag, EditTarget, SafeSession, StoredEntry, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateTag } from "./personal.js";
 import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type EntryPrecondition, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
-export type SecretType = "password" | "ssh-key" | "token" | "env";
-
-export interface ItemMeta {
-  id: string;
-  name: string;
-  type: SecretType;
-  account: string;
-  allowedModules: string[];
-  updatedAt: string;
+export interface SafeAccess {
+  check(): void;
+  subject: string;
 }
 
 export interface AuditEntry {
@@ -147,8 +140,8 @@ export class Safe {
       .reverse();
   }
 
-  async setup(password: string, signal?: AbortSignal): Promise<void> {
-    await this.withKeyOperation(signal, async (guard) => {
+  async setup(password: string, access?: SafeAccess): Promise<void> {
+    await this.withKeyOperation(access, async (guard) => {
       const state = this.storageState();
       if (state.kind === "corrupt") throw corruptStore(state.file);
       if (state.kind === "ready") throw errors.invalidInput("保险箱已经设置过");
@@ -172,7 +165,7 @@ export class Safe {
         await this.store.initialize(ring, dk, guard);
         guard();
         this.activate(dk, ring);
-        this.auditLifecycle("setup");
+        this.auditLifecycle("setup", access?.subject);
         this.d.publish("plugin.stateChanged", { id: "safe", state: "active" });
       } finally {
         kek.fill(0);
@@ -181,14 +174,14 @@ export class Safe {
     });
   }
 
-  async unlock(password: string, signal?: AbortSignal): Promise<void> {
-    await this.withKeyOperation(signal, async (guard) => {
+  async unlock(password: string, access?: SafeAccess): Promise<void> {
+    await this.withKeyOperation(access, async (guard) => {
       const store = this.requireStore();
-      const dk = await this.unwrap(password, store, guard);
+      const dk = await this.unwrap(password, store, guard, access?.subject);
       try {
         guard();
         this.activate(dk, store.ring);
-        this.auditLifecycle("unlock");
+        this.auditLifecycle("unlock", access?.subject);
         this.d.publish("safe.unlocked", {});
       } finally {
         if (this.session?.key !== dk) dk.fill(0);
@@ -196,12 +189,12 @@ export class Safe {
     });
   }
 
-  async changePassword(oldPassword: string, newPassword: string, signal?: AbortSignal): Promise<void> {
-    await this.withKeyOperation(signal, async (guard) => {
+  async changePassword(oldPassword: string, newPassword: string, access?: SafeAccess): Promise<void> {
+    await this.withKeyOperation(access, async (guard) => {
       const store = this.requireStore();
       if ([...newPassword].length < 10) throw errors.invalidInput("新主密码至少 10 个字符");
       this.d.files.assertWritable();
-      const dk = await this.unwrap(oldPassword, store, guard);
+      const dk = await this.unwrap(oldPassword, store, guard, access?.subject);
       try {
         guard();
         const kdf = newKdf(this.d.kdfParams);
@@ -211,7 +204,7 @@ export class Safe {
           const next: Keyring = { ...store.ring, kdf, wrappedKey: seal(kek, dk, wrappingContext(store.ring)).toString("base64") };
           await this.store.replaceRing(store, next, guard);
           guard();
-          this.auditLifecycle("change-password");
+          this.auditLifecycle("change-password", access?.subject);
         } finally {
           kek.fill(0);
         }
@@ -221,8 +214,8 @@ export class Safe {
     });
   }
 
-  async updateSettings(s: { autoLockMinutes?: number; lockOnLeave?: boolean }, signal?: AbortSignal): Promise<void> {
-    await this.withKeyOperation(signal, async (guard) => {
+  async updateSettings(s: { autoLockMinutes?: number; lockOnLeave?: boolean }, access?: SafeAccess): Promise<void> {
+    await this.withKeyOperation(access, async (guard) => {
       const store = this.requireStore();
       const autoLockMinutes = s.autoLockMinutes ?? store.ring.autoLockMinutes;
       if (!AUTO_LOCK_MINUTES.some((minutes) => minutes === autoLockMinutes)) throw errors.invalidInput("自动锁定时间只能是 1/5/15/30 分钟");
@@ -248,11 +241,11 @@ export class Safe {
     }
   }
 
-  private async withKeyOperation(signal: AbortSignal | undefined, operation: (guard: () => void) => Promise<void>): Promise<void> {
+  private async withKeyOperation(access: SafeAccess | undefined, operation: (guard: () => void) => Promise<void>): Promise<void> {
     const generation = this.generation;
     const guard = () => {
       if (this.stopped || this.generation !== generation) throw locked();
-      signal?.throwIfAborted();
+      access?.check();
     };
     guard();
     if (this.keyOperationPending) throw errors.invalidInput("保险箱操作正在进行，请稍后重试");
@@ -268,7 +261,7 @@ export class Safe {
     return Math.max(0, Math.ceil((this.cooldownUntil - this.d.now()) / 1000));
   }
 
-  private async unwrap(password: string, store: LoadedSafe, guard: () => void): Promise<Buffer> {
+  private async unwrap(password: string, store: LoadedSafe, guard: () => void, subject?: string): Promise<Buffer> {
     const cooldownSeconds = this.cooldownRemaining();
     if (cooldownSeconds) throw new HuhuError("SAFE_BAD_PASSWORD", `尝试过多，请 ${cooldownSeconds} 秒后再试`, { details: { cooldownSeconds } });
     const { ring } = store;
@@ -285,7 +278,7 @@ export class Safe {
         this.cooldownUntil = this.d.now() + COOLDOWN_MS;
         this.failures = 0;
       }
-      this.auditLifecycle("unlock-failed");
+      this.auditLifecycle("unlock-failed", subject);
       throw new HuhuError("SAFE_BAD_PASSWORD", "主密码不正确");
     } finally {
       kek.fill(0);
@@ -302,12 +295,12 @@ export class Safe {
     }
   }
 
-  lock(reason: Exclude<EventPayload<"safe.locked">["reason"], "corrupt"> = "manual"): void {
+  lock(reason: Exclude<EventPayload<"safe.locked">["reason"], "corrupt"> = "manual", subject: string = reason): void {
     if (this.stopped || (reason === "leave" && !this.status().lockOnLeave)) return;
     if (reason === "close") this.stopped = true;
     const wasUnlocked = this.session !== null;
     this.invalidate(reason);
-    if (wasUnlocked) this.auditLifecycle("lock", reason);
+    if (wasUnlocked) this.auditLifecycle("lock", subject);
   }
 
   private invalidate(reason?: EventPayload<"safe.locked">["reason"]): void {
@@ -348,12 +341,12 @@ export class Safe {
     return this.session.key;
   }
 
-  async withSession<T>(operation: (assertCurrent: () => void) => T | Promise<T>): Promise<T> {
-    return this.runSession(operation);
+  assertSession(expected?: SafeSession, unlocked = false): void {
+    if (this.stopped || (unlocked && !this.session) || (expected && (expected.instanceId !== this.instanceId || expected.generation !== this.generation))) throw locked();
   }
 
-  private async runSession<T>(operation: (assertCurrent: () => void, key: Buffer) => T | Promise<T>, expected?: SafeSession): Promise<T> {
-    if (expected && (expected.instanceId !== this.instanceId || expected.generation !== this.generation)) throw locked();
+  private async runSession<T>(operation: (assertCurrent: () => void, key: Buffer) => T | Promise<T>, expected: SafeSession): Promise<T> {
+    this.assertSession(expected, true);
     const key = this.key();
     const generation = this.generation;
     const assertCurrent = () => {
@@ -367,20 +360,23 @@ export class Safe {
     return result;
   }
 
-  private withPersonalSession<T>(session: SafeSession, signal: AbortSignal, operation: (store: CurrentSafe, dk: Buffer, guard: () => void) => T | Promise<T>): Promise<T> {
-    return this.runSession((assertCurrent, dk) => {
-      signal.throwIfAborted();
+  private withPersonalSession<T>(session: SafeSession, access: SafeAccess, operation: (store: CurrentSafe, dk: Buffer, guard: () => void) => T | Promise<T>): Promise<T> {
+    return this.runSession(async (assertCurrent, dk) => {
+      access.check();
       const store = this.requireStore();
       if (!store.manifest) throw errors.invalidInput("个人条目需要当前格式的保险箱");
-      return operation({ ...store, manifest: store.manifest }, dk, () => {
+      const guard = () => {
+        access.check();
         assertCurrent();
-        signal.throwIfAborted();
-      });
+      };
+      const result = await operation({ ...store, manifest: store.manifest }, dk, guard);
+      guard();
+      return result;
     }, session);
   }
 
-  createEntry(input: CreateEntry, signal: AbortSignal) {
-    return this.withPersonalSession(input.session, signal, async (_store, dk, guard) => {
+  createEntry(input: CreateEntry, access: SafeAccess) {
+    return this.withPersonalSession(input.session, access, async (_store, dk, guard) => {
       const now = new Date(this.d.now()).toISOString();
       const entry = {
         entryId: randomUUID(),
@@ -392,7 +388,7 @@ export class Safe {
         accounts: input.accounts.map((fields) => ({ ...fields, accountId: randomUUID(), createdAt: now, updatedAt: now })),
       };
       const revision = await this.savePersonalEntry(dk, entry, { kind: "create", expectedRevision: input.expectedRevision }, guard, input.newTags);
-      this.auditBestEffort({ action: "create-entry", itemId: entry.entryId, subject: "desktop", result: "ok" });
+      this.auditBestEffort({ action: "create-entry", itemId: entry.entryId, subject: access.subject, result: "ok" });
       return { entryId: entry.entryId, revision, accountIds: entry.accounts.map((account) => account.accountId), status: "saved" as const };
     });
   }
@@ -406,23 +402,23 @@ export class Safe {
     }
   }
 
-  private editEntry(input: EditTarget, signal: AbortSignal, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account"; itemId: string }, newTags?: TagFields[]) {
-    return this.withPersonalSession(input.session, signal, async (store, dk, guard) => {
+  private editEntry(input: EditTarget, access: SafeAccess, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account"; itemId: string }, newTags?: TagFields[]) {
+    return this.withPersonalSession(input.session, access, async (store, dk, guard) => {
       const currentRevision = store.manifest.entries[input.entryId];
       if (currentRevision === undefined) throw errors.notFound("条目不存在");
       if (currentRevision !== input.expectedRevision) throw errors.versionConflict(String(currentRevision));
       const now = new Date(this.d.now()).toISOString();
       const edited = { ...update(this.store.readEntry(store, dk, input.entryId), now), updatedAt: now };
       const revision = await this.savePersonalEntry(dk, edited, { kind: "update", expectedRevision: currentRevision }, guard, newTags);
-      this.auditBestEffort({ ...audit, subject: "desktop", result: "ok" });
+      this.auditBestEffort({ ...audit, subject: access.subject, result: "ok" });
       return { ...edited, revision };
     });
   }
 
-  async updateEntry(input: UpdateEntry, signal: AbortSignal) {
+  async updateEntry(input: UpdateEntry, access: SafeAccess) {
     const { entryId, revision } = await this.editEntry(
       input,
-      signal,
+      access,
       (entry) => ({ ...entry, name: input.name ?? entry.name, url: input.url ?? entry.url, tagIds: input.tagIds ?? entry.tagIds }),
       { action: "update-entry", itemId: input.entryId },
       input.newTags,
@@ -430,11 +426,11 @@ export class Safe {
     return { entryId, revision };
   }
 
-  async updateAccount(input: UpdateAccount, signal: AbortSignal) {
+  async updateAccount(input: UpdateAccount, access: SafeAccess) {
     const { accountId } = input;
     const { entryId, revision, accounts } = await this.editEntry(
       input,
-      signal,
+      access,
       (entry, now) => {
         const existing = entry.accounts.find((account) => account.accountId === accountId);
         if (!existing) throw errors.notFound("账号不存在");
@@ -458,19 +454,19 @@ export class Safe {
     return { entryId, accountId, revision, hasPassword };
   }
 
-  listEntries(session: SafeSession, signal: AbortSignal) {
-    return this.withPersonalSession(session, signal, ({ manifest }) => ({
+  listEntries(session: SafeSession, access: SafeAccess) {
+    return this.withPersonalSession(session, access, ({ manifest }) => ({
       revision: manifest.revision,
       entries: Object.entries(manifest.entries).map(([entryId, revision]) => ({ entryId, revision })),
     }));
   }
 
-  listTags(session: SafeSession, signal: AbortSignal) {
-    return this.withPersonalSession(session, signal, (store, dk) => ({ revision: store.manifest.revision, tags: this.store.readTags(store, dk) }));
+  listTags(session: SafeSession, access: SafeAccess) {
+    return this.withPersonalSession(session, access, (store, dk) => ({ revision: store.manifest.revision, tags: this.store.readTags(store, dk) }));
   }
 
-  createTag(input: CreateTag, signal: AbortSignal) {
-    return this.withTags(input, signal, async (tags, commit) => {
+  createTag(input: CreateTag, access: SafeAccess) {
+    return this.withTags(input, access, async (tags, commit) => {
       const existing = tags.find((tag) => tag.name === input.name);
       if (existing) return { tagId: existing.tagId, revision: input.expectedRevision, status: "reused" as const };
       const tag = { tagId: randomUUID(), name: input.name, color: input.color };
@@ -479,8 +475,8 @@ export class Safe {
     });
   }
 
-  updateTag(input: UpdateTag, signal: AbortSignal) {
-    return this.withTags(input, signal, async (tags, commit) => {
+  updateTag(input: UpdateTag, access: SafeAccess) {
+    return this.withTags(input, access, async (tags, commit) => {
       if (!tags.some((tag) => tag.tagId === input.tagId)) throw errors.notFound("标签不存在");
       if (tags.some((tag) => tag.tagId !== input.tagId && tag.name === input.name)) throw new HuhuError("NAME_CONFLICT", "已有同名标签，请改用其他名称");
       const updated = tags.map((tag) => (tag.tagId === input.tagId ? { tagId: tag.tagId, name: input.name, color: input.color } : tag));
@@ -488,8 +484,8 @@ export class Safe {
     });
   }
 
-  deleteTag(input: DeleteTag, signal: AbortSignal) {
-    return this.withTags(input, signal, async (tags, commit) => {
+  deleteTag(input: DeleteTag, access: SafeAccess) {
+    return this.withTags(input, access, async (tags, commit) => {
       const next = tags.filter((tag) => tag.tagId !== input.tagId);
       if (next.length === tags.length) throw errors.notFound("标签不存在");
       return { tagId: input.tagId, revision: await commit(next, "delete-tag", input.tagId) };
@@ -498,10 +494,10 @@ export class Safe {
 
   private withTags<T>(
     input: { session: SafeSession; expectedRevision: number },
-    signal: AbortSignal,
+    access: SafeAccess,
     edit: (tags: Tag[], commit: (next: Tag[], action: "create-tag" | "update-tag" | "delete-tag", tagId: string) => Promise<number>) => Promise<T>,
   ) {
-    return this.withPersonalSession(input.session, signal, (store, dk, guard) => {
+    return this.withPersonalSession(input.session, access, (store, dk, guard) => {
       if (store.manifest.revision !== input.expectedRevision) throw errors.versionConflict(String(store.manifest.revision));
       return edit(this.store.readTags(store, dk), async (next, action, tagId) => {
         const entries: StoredEntry[] = [];
@@ -520,103 +516,25 @@ export class Safe {
           if (error instanceof HuhuError) throw error;
           throw new HuhuError("INTERNAL", "保险箱标签写入失败，请重试");
         }
-        this.auditBestEffort({ action, itemId: tagId, subject: "desktop", result: "ok" });
+        this.auditBestEffort({ action, itemId: tagId, subject: access.subject, result: "ok" });
         return revision;
       });
     });
   }
 
-  getEntry(session: SafeSession, entryId: string, signal: AbortSignal) {
-    return this.withPersonalSession(session, signal, (store, dk) => {
+  getEntry(session: SafeSession, entryId: string, access: SafeAccess) {
+    return this.withPersonalSession(session, access, (store, dk) => {
       const { accounts, ...entry } = this.store.readEntry(store, dk, entryId);
       return { ...entry, accounts: accounts.map(({ password, ...fields }) => ({ ...fields, hasPassword: password.length > 0 })) };
     });
   }
 
-  revealAccount(session: SafeSession, entryId: string, accountId: string, signal: AbortSignal) {
-    return this.withPersonalSession(session, signal, (store, dk) => {
+  revealAccount(session: SafeSession, entryId: string, accountId: string, access: SafeAccess) {
+    return this.withPersonalSession(session, access, (store, dk) => {
       const account = this.store.readEntry(store, dk, entryId).accounts.find((item) => item.accountId === accountId);
       if (!account) throw errors.notFound("账号不存在");
-      this.auditBestEffort({ action: "reveal-account", itemId: accountId, subject: "desktop", result: "ok" });
+      this.auditBestEffort({ action: "reveal-account", itemId: accountId, subject: access.subject, result: "ok" });
       return { password: account.password };
     });
-  }
-
-  // ---- 条目 ----
-  private meta(id: string): ItemMeta | null {
-    try {
-      return JSON.parse(readFileSync(this.p("items", `${id}.json`), "utf8")) as ItemMeta;
-    } catch {
-      return null;
-    }
-  }
-
-  itemsList(): ItemMeta[] {
-    this.key();
-    const dir = this.p("items");
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => JSON.parse(readFileSync(path.join(dir, f), "utf8")) as ItemMeta)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  itemSave(input: { id?: string; name: string; type: SecretType; account?: string; allowedModules?: string[]; value?: string }): ItemMeta {
-    const dk = this.key();
-    this.d.files.assertWritable();
-    if (!input.name.trim()) throw errors.invalidInput("名称必填");
-    const existing = input.id ? this.meta(input.id) : null;
-    if (input.id && !existing) throw errors.notFound("条目不存在");
-    if (!existing && (input.value === undefined || input.value === "")) throw errors.invalidInput("新条目必须提供秘密值");
-    const id = existing?.id ?? newId("item");
-    const meta: ItemMeta = { id, name: input.name.trim(), type: input.type, account: input.account ?? "", allowedModules: input.allowedModules ?? existing?.allowedModules ?? [], updatedAt: new Date(this.d.now()).toISOString() };
-    mkdirSync(this.p("items"), { recursive: true });
-    mkdirSync(this.p("sealed"), { recursive: true });
-    if (input.value !== undefined && input.value !== "") writeFileSync(this.p("sealed", `${id}.bin`), seal(dk, Buffer.from(input.value), `item:${id}`)); // AAD 绑定 itemId
-    writeFileSync(this.p("items", `${id}.json`), JSON.stringify(meta, null, 2));
-    this.audit({ action: "update", itemId: id, subject: "desktop", result: "ok" });
-    return meta;
-  }
-
-  itemDelete(id: string): void {
-    this.key();
-    this.d.files.assertWritable();
-    if (!this.meta(id)) throw errors.notFound("条目不存在");
-    rmSync(this.p("items", `${id}.json`), { force: true });
-    rmSync(this.p("sealed", `${id}.bin`), { force: true });
-    this.audit({ action: "delete", itemId: id, subject: "desktop", result: "ok" });
-  }
-
-  private readValue(id: string): string {
-    const dk = this.key();
-    const f = this.p("sealed", `${id}.bin`);
-    if (!existsSync(f)) throw errors.notFound("秘密值不存在");
-    try {
-      return open(dk, readFileSync(f), `item:${id}`).toString("utf8");
-    } catch {
-      throw new HuhuError("INTERNAL", "秘密值无法解封（文件被篡改或损坏）");
-    }
-  }
-
-  /** 桌面显示/复制；记录审计，不记值。 */
-  reveal(id: string, purpose: "reveal" | "copy" = "reveal"): string {
-    const v = this.readValue(id);
-    this.audit({ action: purpose, itemId: id, subject: "desktop", result: "ok" });
-    return v;
-  }
-
-  /** 其他模块按引用使用秘密（SecretUse）：校验格式、存在、允许模块、已解锁。 */
-  resolve(ref: string, ctx: { plugin: string; purpose: string }): string {
-    const id = parseSecretRef(ref);
-    if (!id) throw new HuhuError("SECRET_REF_INVALID", "凭据引用格式无效");
-    if (!this.session) throw locked();
-    const meta = this.meta(id);
-    if (!meta || !meta.allowedModules.includes(ctx.plugin)) {
-      this.audit({ action: "use-denied", itemId: meta ? id : null, subject: ctx.plugin, result: "denied" });
-      throw new HuhuError("SECRET_REF_INVALID", "引用的凭据不存在或不允许本模块使用");
-    }
-    const v = this.readValue(id);
-    this.audit({ action: "use", itemId: id, subject: ctx.plugin, result: "ok" });
-    return v;
   }
 }

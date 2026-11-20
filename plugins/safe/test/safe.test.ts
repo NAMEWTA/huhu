@@ -6,8 +6,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { VaultFiles } from "../../../packages/vault/src/write.js";
 import * as crypto from "../src/engine/crypto.js";
 import { deriveKek, keyCheck, newKdf, open, seal, SealError } from "../src/engine/crypto.js";
+import { CreateEntry } from "../src/engine/personal.js";
 import { Safe } from "../src/engine/safe.js";
-import { formatSecretRef, parseSecretRef } from "../src/shared/secret-ref.js";
+import { writeLegacyItem } from "./legacy-fixture.js";
 import { signal } from "./signal.js";
 
 const dirs: string[] = [];
@@ -18,6 +19,16 @@ afterEach(() => {
 const FAST = { N: 2 ** 10, r: 8, p: 1 }; // 测试用低成本参数；生产为 N=2^17
 const PW = "correct horse battery";
 const deriveWithoutGate = deriveKek;
+const local = { subject: "desktop", check: () => undefined };
+
+function currentSession(safe: Safe) {
+  const { instanceId, generation } = safe.status();
+  return { instanceId, generation };
+}
+
+function personalEntry(safe: Safe, password: string) {
+  return CreateEntry.parse({ session: currentSession(safe), expectedRevision: 0, name: "Synthetic account", accounts: [{ account: "fixture", password }] });
+}
 
 function setup() {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-s-"));
@@ -81,11 +92,6 @@ describe("密码学", () => {
   test("每次封装 IV 不同", async () => {
     const key = Buffer.alloc(32, 7);
     expect(seal(key, Buffer.from("x"), "a").equals(seal(key, Buffer.from("x"), "a"))).toBe(false);
-  });
-  test("引用格式", () => {
-    expect(parseSecretRef("safe://item-abc123")).toBe("item-abc123");
-    for (const bad of ["item-abc123", "safe://", "safe://../x", "safe://item-abc123/extra", "http://item-1"]) expect(parseSecretRef(bad)).toBeNull();
-    expect(formatSecretRef("item-1")).toBe("safe://item-1");
   });
 });
 
@@ -192,7 +198,7 @@ describe("设置与解锁", () => {
     const file = path.join(dir, "keyring.json");
     writeFileSync(file, ring);
     await safe.unlock(PW);
-    expect(safe.itemsList()).toEqual([]);
+    expect(safe.status()).toMatchObject({ locked: false, initialized: true });
     expect(readFileSync(file, "utf8")).toBe(ring);
     expect(existsSync(path.join(dir, "current"))).toBe(false);
   });
@@ -222,13 +228,7 @@ describe("设置与解锁", () => {
     const { safe } = setup();
     await safe.setup(PW);
     safe.lock();
-    expect(() => safe.itemsList()).toThrowError(/已锁定/);
-    try {
-      safe.itemsList();
-    } catch (e) {
-      expect((e as { code: string; recovery: unknown }).code).toBe("SAFE_LOCKED");
-      expect((e as { recovery: unknown[] }).recovery).toHaveLength(1);
-    }
+    await expect(safe.listEntries(currentSession(safe), local)).rejects.toMatchObject({ code: "SAFE_LOCKED", recovery: [{ action: "unlock-safe", label: "解锁保险箱" }] });
   });
   test("keyring 损坏 → 不可用且不覆盖文件", async () => {
     const { safe, dir } = setup();
@@ -262,7 +262,7 @@ describe("自动锁定（ACC-SF-05）", () => {
     await safe.setup(PW);
     await safe.updateSettings({ autoLockMinutes: 1 });
     advance(50_000);
-    safe.itemsList(); // 操作重置计时
+    await safe.listEntries(currentSession(safe), local);
     advance(50_000);
     expect(safe.status().locked).toBe(false);
     advance(15_000);
@@ -277,82 +277,61 @@ describe("自动锁定（ACC-SF-05）", () => {
     expect(timers()).toBe(0);
   });
   test("离开遵循设置；旧会话在重开后也不能返回迟到数据或提交写入", async () => {
-    const { safe } = setup();
+    const { safe, files } = setup();
     await safe.setup(PW);
     const original = safe.status().generation;
     safe.lock("leave");
     expect(safe.status()).toMatchObject({ locked: false, generation: original });
     await safe.updateSettings({ lockOnLeave: true });
-    const gate = signal();
-    const read = expect(
-      safe.withSession(async () => {
-        const list = safe.itemsList();
-        await gate.promise;
-        return list;
-      }),
-    ).rejects.toMatchObject({ code: "SAFE_LOCKED" });
-    const write = expect(
-      safe.withSession(async (assertCurrent) => {
-        await gate.promise;
-        assertCurrent();
-        return safe.itemSave({ name: "late test", type: "token", value: "synthetic" });
-      }),
-    ).rejects.toMatchObject({ code: "SAFE_LOCKED" });
+    const reached = signal(),
+      release = signal();
+    const writeFile = files.write.bind(files);
+    vi.spyOn(files, "write").mockImplementation(async (...args) => {
+      if (args[0].endsWith("/entry.bin")) {
+        reached.resolve();
+        await release.promise;
+      }
+      return writeFile(...args);
+    });
+    const write = expect(safe.createEntry(personalEntry(safe, "synthetic"), local)).rejects.toMatchObject({ code: "SAFE_LOCKED" });
+    await reached.promise;
+    const read = expect(safe.listEntries(currentSession(safe), local)).rejects.toMatchObject({ code: "SAFE_LOCKED" });
     safe.lock("leave");
     expect(safe.status()).toMatchObject({ locked: true, generation: original + 1 });
     await safe.unlock(PW);
-    gate.resolve();
+    release.resolve();
     await Promise.all([read, write]);
-    expect(safe.itemsList()).toEqual([]);
+    expect(await safe.listEntries(currentSession(safe), local)).toEqual({ revision: 0, entries: [] });
     expect(safe.auditList()).toContainEqual(expect.objectContaining({ action: "lock", subject: "leave" }));
   });
 });
 
-describe("条目与秘密", () => {
-  test("ACC-SF-01 整个 Vault 目录里找不到明文标记，元数据与密文分离", async () => {
-    const { safe, root, dir } = setup();
+describe("个人条目与旧数据保全", () => {
+  test("个人账号只经显式读取取密码，账号内容与名字不进入明文存储", async () => {
+    const { safe, root } = setup();
     await safe.setup(PW);
-    const item = safe.itemSave({ name: "GitHub", type: "token", account: "me", allowedModules: ["ssh"], value: "HUHU-MARKER-7f3a" });
-    expect(safe.reveal(item.id)).toBe("HUHU-MARKER-7f3a");
+    const value = "synthetic-personal-marker";
+    const created = await safe.createEntry(personalEntry(safe, value), local);
+    const session = currentSession(safe);
+    expect(await safe.revealAccount(session, created.entryId, created.accountIds[0]!, local)).toEqual({ password: value });
+    const detail = await safe.getEntry(session, created.entryId, local);
+    expect(detail.accounts[0]?.hasPassword).toBe(true);
+    expect(JSON.stringify(detail)).not.toContain(value);
     safe.lock();
-    const hits: string[] = [];
-    const walk = (d: string) => {
-      for (const n of readdirSync(d)) {
-        const p = path.join(d, n);
-        if (statSync(p).isDirectory()) walk(p);
-        else if (readFileSync(p).includes("HUHU-MARKER-7f3a")) hits.push(p);
-      }
-    };
-    walk(root);
-    expect(hits).toEqual([]);
-    expect(readdirSync(path.join(dir, "sealed"))).toEqual([`${item.id}.bin`]);
-    expect(readFileSync(path.join(dir, "items", `${item.id}.json`), "utf8")).not.toContain("HUHU-MARKER");
+    const contains = (dir: string): boolean =>
+      readdirSync(dir).some((name) => {
+        const file = path.join(dir, name);
+        return statSync(file).isDirectory() ? contains(file) : readFileSync(file).includes(value);
+      });
+    expect(contains(root)).toBe(false);
   });
-  test("密文文件被互换（AAD 绑定 itemId）→ 无法解封", async () => {
+
+  test("主密码轮换只替换包裹，同一账号密文及清单字节保留", async () => {
     const { safe, dir } = setup();
     await safe.setup(PW);
-    const a = safe.itemSave({ name: "A", type: "password", value: "aaa" });
-    const b = safe.itemSave({ name: "B", type: "password", value: "bbb" });
-    const fa = readFileSync(path.join(dir, "sealed", `${a.id}.bin`));
-    writeFileSync(path.join(dir, "sealed", `${b.id}.bin`), fa);
-    expect(() => safe.reveal(b.id)).toThrowError(/无法解封/);
-    expect(safe.reveal(a.id)).toBe("aaa");
-  });
-  test("编辑时不提供新值则保留旧值；删除条目同时删密文；审计不含值", async () => {
-    const { safe, dir } = setup();
-    await safe.setup(PW);
-    const it = safe.itemSave({ name: "A", type: "password", value: "sEcReT-9f3a" });
-    safe.itemSave({ id: it.id, name: "A2", type: "password", account: "u" });
-    expect(safe.reveal(it.id)).toBe("sEcReT-9f3a");
-    safe.itemDelete(it.id);
-    expect(readdirSync(path.join(dir, "sealed"))).toEqual([]);
-    expect(readFileSync(path.join(dir, "audit.ndjson"), "utf8")).not.toContain("sEcReT-9f3a"); // 用不会出现在随机 id 里的值，避免偶发误报
-  });
-  test("ACC-SF-03 修改主密码：新密码可解锁，旧密码不行，秘密文件不变", async () => {
-    const { safe, dir } = setup();
-    await safe.setup(PW);
-    const it = safe.itemSave({ name: "A", type: "token", value: "keep-me" });
-    const dataFile = path.join(dir, "sealed", `${it.id}.bin`);
+    const value = "synthetic-rotation-fixture";
+    const it = await safe.createEntry(personalEntry(safe, value), local);
+    const dataFile = path.join(dir, "current", "entries", it.entryId + "-1.bin");
     const manifestFile = path.join(dir, "current", "manifest.json");
     const ringFile = path.join(dir, "current", "keyring.json");
     const before = [dataFile, manifestFile, ringFile].map((file) => readFileSync(file));
@@ -361,36 +340,23 @@ describe("条目与秘密", () => {
     safe.lock();
     await expect(safe.unlock(PW)).rejects.toMatchObject({ code: "SAFE_BAD_PASSWORD" });
     await safe.unlock("brand-new-password");
-    expect(safe.reveal(it.id)).toBe("keep-me");
+    expect(await safe.revealAccount(currentSession(safe), it.entryId, it.accountIds[0]!, local)).toEqual({ password: value });
     expect(readFileSync(dataFile)).toEqual(before[0]);
     expect(readFileSync(manifestFile)).toEqual(before[1]);
     expect(readFileSync(ringFile)).not.toEqual(before[2]);
   });
-});
 
-describe("SecretUse（ACC-SF-04）", () => {
-  test("允许的模块可解析；其他模块 SECRET_REF_INVALID 且有拒绝审计；锁定时 SAFE_LOCKED", async () => {
-    const { safe } = setup();
-    await safe.setup(PW);
-    const it = safe.itemSave({ name: "K", type: "ssh-key", allowedModules: ["ssh"], value: "KEY" });
-    const ref = formatSecretRef(it.id);
-    expect(safe.resolve(ref, { plugin: "ssh", purpose: "connect" })).toBe("KEY");
-    expect(() => safe.resolve(ref, { plugin: "automations", purpose: "script env" })).toThrowError(/不允许/);
-    try {
-      safe.resolve(ref, { plugin: "automations", purpose: "x" });
-    } catch (e) {
-      expect((e as { code: string }).code).toBe("SECRET_REF_INVALID");
-    }
-    expect(() => safe.resolve("safe://item-missing1", { plugin: "ssh", purpose: "x" })).toThrow();
-    expect(() => safe.resolve("not-a-ref", { plugin: "ssh", purpose: "x" })).toThrow();
-    const log = safe.auditList();
-    expect(log.filter((a) => a.action === "use-denied").length).toBeGreaterThanOrEqual(2);
-    expect(log.find((a) => a.action === "use")).toMatchObject({ subject: "ssh", itemId: it.id });
+  test("退役保险箱仍能校验原主密码，启动、锁定、失败的个人条目读取均保全旧文件", async () => {
+    const { safe, dir, root } = setup();
+    const item = await writeLegacyItem(root, { masterPassword: PW, value: "synthetic-retired-marker", type: "token", allowedModules: ["ssh"] });
+    const files = [path.join(dir, "keyring.json"), item.metadataPath, item.sealedPath];
+    const original = files.map((file) => readFileSync(file));
+    await safe.unlock(PW);
+    expect(safe.status()).toMatchObject({ initialized: true, locked: false, corrupt: false });
+    await expect(safe.listEntries(currentSession(safe), local)).rejects.toMatchObject({ code: "INVALID_INPUT" });
     safe.lock();
-    try {
-      safe.resolve(ref, { plugin: "ssh", purpose: "x" });
-    } catch (e) {
-      expect((e as { code: string }).code).toBe("SAFE_LOCKED");
-    }
+    await expect(safe.setup(PW)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(files.map((file) => readFileSync(file))).toEqual(original);
+    expect(existsSync(path.join(dir, "current"))).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
-import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
+import { CapabilityError, EngineClient, type CallOptions } from "../../../packages/workbench/src/engine-client/client.js";
 import { signal } from "./signal.js";
 
 type Session = { instanceId: string; generation: number };
@@ -16,6 +16,13 @@ type TaggedDetail = Detail & { tagIds: string[] };
 type TagDirectory = { revision: number; tags: Array<{ tagId: string; name: string; color: string }> };
 const vaults: string[] = [];
 const engines: RunningEngine[] = [];
+
+class SafeTestClient extends EngineClient {
+  override call<T>(capability: string, input?: unknown, opts: CallOptions = {}) {
+    const write = /^safe\.(entries\.(create|update)|accounts\.update|tags\.(create|update|delete))$/.test(capability);
+    return super.call<T>(capability, input, { write, ...opts });
+  }
+}
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -29,7 +36,7 @@ async function openEngine(root?: string) {
   if (create) vaults.push(root);
   const engine = await boot({ vaultPath: root, create });
   engines.push(engine);
-  const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
+  const client = new SafeTestClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   return { engine, client, root, current: path.join(root, ".huhu", "safe", "current") };
 }
 
@@ -250,7 +257,7 @@ test("只更新指定账号并显式设置、保留、清空密码，重开后�
 
 test("同条目并发修改报告当前版本，不同条目可并发提交", async () => {
   const { client } = await openEngine();
-  const other = new EngineClient(client.endpoint);
+  const other = new SafeTestClient(client.endpoint);
   const data = fixture();
   await client.call("safe.setup", { password: data.password });
   const scope = await session(client);
@@ -350,8 +357,8 @@ test("桌面工作台一次保存三个账号，重开逐项读回且磁盘与�
   expect(receipt).toMatchObject({ revision: 1, status: "saved" });
   expect(new Set(receipt.accountIds).size).toBe(3);
   expect(await client.call<EntryIndex>("safe.entries.list", { session: scope })).toEqual({ revision: 1, entries: [{ entryId: receipt.entryId, revision: 1 }] });
-  expect(await client.call("safe.items.list")).toEqual([]);
-  expect(await codeOf(client.call("safe.items.reveal", { id: receipt.entryId }))).toBe("NOT_FOUND");
+  expect(await codeOf(client.call("safe.items.list"))).toBe("CAPABILITY_NOT_FOUND");
+  expect(await codeOf(client.call("safe.items.reveal", { id: receipt.entryId }))).toBe("CAPABILITY_NOT_FOUND");
   expect((await client.call<{ hits: unknown[] }>("vault.search", { query: data.marker })).hits).toEqual([]);
   expect(existsSync(path.join(current, "entries", `${receipt.entryId}-1.bin`))).toBe(true);
 

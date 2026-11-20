@@ -4,7 +4,6 @@ import { Badge, Button, DataTable, EmptyState, Field, PageHead } from "@huhu/ui"
 import { CapabilityError, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { History, Lock, Settings, Unlock as UnlockIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { formatSecretRef } from "../shared/secret-ref.js";
 import { PersonalWorkspace } from "./PersonalWorkspace.js";
 import { t } from "./i18n.js";
 
@@ -56,24 +55,10 @@ const ACTION_TEXT: Record<string, string> = {
 /** 保险箱（原型 Safe）：凭据双栏 / 访问记录；锁定策略与主密码在设置页的“保险箱”里；未初始化或锁定时是居中的锁屏。 */
 export function SafeModule(props: ModuleProps) {
   const engine = useEngine();
-  if (!engine.endpoint.token) {
-    return (
-      <div className="hu-module-layout" data-testid="safe-module">
-        <div className="hu-view-content">
-          <PageHead title="保险箱" />
-          <div className="shell-system-scroll hu-scroll">
-            <div className="hu-callout shell-system-note" role="note">
-              <p>请在桌面工作台管理个人账号。</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return <DesktopSafe key={`${engine.vaultId}:${engine.endpoint.baseUrl}`} {...props} />;
+  return <SafeWorkspace key={`${engine.vaultId}:${engine.endpoint.baseUrl}`} {...props} />;
 }
 
-function DesktopSafe({ section, onNavigate }: ModuleProps) {
+function SafeWorkspace({ section, onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const status = useCapability<Status>("safe.status", {});
@@ -95,13 +80,13 @@ function DesktopSafe({ section, onNavigate }: ModuleProps) {
     return () => clearInterval(id);
   }, [unlockedNow, qc, engine.vaultId]);
   // “离开页面时锁定”：离开保险箱模块（组件卸载）时锁定
-  const leaveRef = useRef(false);
-  leaveRef.current = unlockedNow && (status.data?.lockOnLeave ?? false);
+  const leaveRef = useRef<Session | null>(null);
+  leaveRef.current = unlockedNow && status.data?.lockOnLeave ? { instanceId: status.data.instanceId, generation: status.data.generation } : null;
   useEffect(
     () => () => {
       if (leaveRef.current)
         void engine
-          .call("safe.lock", { reason: "leave" }, { write: true })
+          .call("safe.lock", { reason: "leave", session: leaveRef.current }, { write: true })
           .then(() => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId }))
           .catch(() => undefined);
     },
@@ -122,11 +107,12 @@ function DesktopSafe({ section, onNavigate }: ModuleProps) {
   }
   if (!status.data) return <div className="hu-module-layout" data-testid="safe-module" />;
   const st = status.data;
+  const session = { instanceId: st.instanceId, generation: st.generation };
   const usable = unlockedNow && !st.corrupt && !locking;
   async function lockNow() {
     setLocking(true);
     try {
-      await act("safe.lock", {});
+      await act("safe.lock", { session });
     } finally {
       setLocking(false);
     }
@@ -158,13 +144,13 @@ function DesktopSafe({ section, onNavigate }: ModuleProps) {
               <p>{st.corruptFile ?? "keyring.json"} 文件损坏，保险箱不可用。</p>
             </div>
           ) : !st.initialized ? (
-            <Setup onSetup={(password) => act("safe.setup", { password })} error={error} />
+            <Setup onSetup={(password) => act("safe.setup", { password, session })} error={error} />
           ) : locking ? (
             <p role="status">正在锁定保险箱…</p>
           ) : section === "audit" ? (
             <Audit />
           ) : locked ? (
-            <UnlockScreen onUnlock={(password) => act("safe.unlock", { password })} error={error} cooldown={st.cooldownSeconds} />
+            <UnlockScreen onUnlock={(password) => act("safe.unlock", { password, session })} error={error} cooldown={st.cooldownSeconds} />
           ) : (
             <>
               {error ? (
@@ -283,7 +269,7 @@ function Audit() {
               id: "item",
               header: "记录 ID",
               width: 260,
-              cell: (a) => <code>{a.itemId ? (a.action.endsWith("-entry") || a.action.endsWith("-account") || a.action.endsWith("-tag") ? a.itemId : formatSecretRef(a.itemId)) : "—"}</code>,
+              cell: (a) => <code>{a.itemId ?? "—"}</code>,
             },
             { id: "subject", header: "主体", width: 160, cell: (a) => a.subject },
             { id: "result", header: "结果", width: 100, cell: (a) => <Badge tone={a.result === "ok" ? "success" : "danger"}>{a.result === "ok" ? "成功" : a.result === "denied" ? "被拒绝" : "失败"}</Badge> },
