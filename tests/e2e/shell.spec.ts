@@ -1834,6 +1834,63 @@ test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收
   }
 });
 
+test("Agent CLI 跨标签移动分栏与重排标签保留实际终端", async () => {
+  test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
+  test.setTimeout(120_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.setViewportSize({ width: 1560, height: 900 });
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    const panes = page.getByTestId("workspace-pane");
+    const tabs = page.getByTestId("workspace-tab");
+    const shell = async (trigger: ReturnType<Page["getByTestId"]>) => {
+      await trigger.click();
+      await page.getByTestId("launch-shell").click();
+    };
+    await shell(page.getByTestId("workspace-pane-launch"));
+    await expect(panes.first().getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 20_000 });
+    const sourceId = (await panes.first().getAttribute("data-pane-id"))!;
+    const source = page.locator(`[data-pane-id="${sourceId}"]`);
+    await shell(source.getByTestId("workspace-split-right"));
+    await expect(panes).toHaveCount(2);
+    await shell(page.getByRole("button", { name: "新终端", exact: true }));
+    await expect(tabs).toHaveCount(2);
+    const order = await tabs.evaluateAll((items) => items.map((item) => item.getAttribute("data-tab-id")));
+    const other = page.locator(`[data-tab-id="${order[1]}"]`);
+    await tabs.first().click();
+    await expect(source.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 20_000 });
+    const terminal = await source.getByTestId("terminal-view").elementHandle();
+    const sessionId = await source.getAttribute("data-session-id");
+    await source.getByTestId("workspace-pane-move").click();
+    await other.click();
+    await expect(source).toBeHidden();
+    const targetId = await panes.first().getAttribute("data-pane-id");
+    await panes.first().getByRole("button", { name: "向左移动" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(source).toBeVisible();
+    expect(await terminal?.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(source).toHaveAttribute("data-session-id", sessionId!);
+    expect(await panes.evaluateAll((items) => items.map((item) => item.getAttribute("data-pane-id")))).toEqual([sourceId, targetId]);
+    await expect(page.getByTestId("session-tab")).toHaveCount(3);
+    await page.getByRole("button", { name: "左移当前标签" }).click();
+    await expect(tabs.first()).toHaveAttribute("data-tab-id", order[1]!);
+    await app.close();
+
+    app = await launch(vault);
+    const reopened = await app.firstWindow();
+    await expect(reopened.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await reopened.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(reopened.getByTestId("workspace-tab").first()).toHaveAttribute("data-tab-id", order[1]!);
+    await expect(reopened.locator(`[data-pane-id="${sourceId}"]`)).toHaveAttribute("data-session-id", sessionId!);
+  } finally {
+    await app.close();
+    rmTree(vault);
+  }
+});
+
 test("Agent CLI 的启动响应丢失后，用原请求找回原终端及目标分栏", async () => {
   test.skip(!existsSync(HERDR), "需要 Herdr Core：先运行 node scripts/fetch-herdr.mjs");
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));

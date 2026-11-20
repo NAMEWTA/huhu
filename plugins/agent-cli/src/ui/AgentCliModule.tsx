@@ -1,13 +1,26 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
-import { ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
 import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { HistoryPanel } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { WorkspaceCanvas, type WorkspaceSession as Session } from "./WorkspaceCanvas.js";
-import { leaves, placeSession, replacePane, sessionPlacement, type PaneLeaf, type SpaceLayout, type WorkspaceLaunchView, type WorkspaceTarget, type WorkspaceView } from "../shared/workspace-layout.js";
+import {
+  leaves,
+  movePane,
+  moveTab,
+  placeSession,
+  replacePane,
+  sessionPlacement,
+  type PaneLeaf,
+  type SpaceLayout,
+  type SplitDirection,
+  type WorkspaceLaunchView,
+  type WorkspaceTarget,
+  type WorkspaceView,
+} from "../shared/workspace-layout.js";
 import { t } from "./i18n.js";
 
 interface Space {
@@ -53,6 +66,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const [selections, setSelections] = useState<Record<string, ViewSelection | null>>({});
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const [closing, setClosing] = useState<{ view: WorkspaceView; tab: string; leaf: string; session: Session; navigation: number } | null>(null);
+  const [moveSource, setMoveSource] = useState<{ spaceId: string; tab: string; leaf: PaneLeaf; version: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
   const navigation = useRef(0);
@@ -75,13 +89,30 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
   const tab = view?.layout.tabs.find(({ id }) => id === inSpace?.tab) ?? view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId !== null)) ?? view?.layout.tabs[0];
   const openLeaves = tab ? leaves(tab.pane) : [];
   const currentLeaf = openLeaves.find(({ id }) => id === inSpace?.leaf) ?? openLeaves[0];
+  const moving = moveSource?.spaceId === space?.id ? moveSource : null;
   const zoom = openLeaves.find(({ id }) => id === inSpace?.zoom)?.id ?? null;
   const editable = Boolean(view?.writable && !busy && !workspace.isFetching && !workspace.isError);
+  const tabOrder = view?.layout.tabs ?? [];
+  const currentTabIndex = tabOrder.findIndex(({ id }) => id === tab?.id);
+
+  useEffect(() => {
+    if (!moving) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || working.current) return;
+      event.preventDefault();
+      setMoveSource(null);
+      setSelections((previous) => ({ ...previous, [moving.spaceId]: { tab: moving.tab, leaf: moving.leaf.id, zoom: null } }));
+      setActive(moving.leaf.sessionId);
+      setFocusTarget(moving.leaf.id);
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [moving]);
 
   useLayoutEffect(() => {
     if (!focusTarget) return;
     const pane = document.querySelector<HTMLElement>(`[data-pane-id="${CSS.escape(focusTarget)}"]`);
-    if (pane) {
+    if (pane && !pane.hidden) {
       (pane.querySelector<HTMLElement>(".xterm-helper-textarea") ?? pane).focus();
       setFocusTarget(null);
     }
@@ -110,6 +141,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
         setRequestedSession(request);
         setSpaceId(request.spaceId);
         setMenu(null);
+        setMoveSource(null);
         setError(null);
         void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && ["agent.sessions.list", "agent.workspace.get"].includes(String(q.queryKey[1])) });
       }),
@@ -295,10 +327,29 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
     ++navigation.current;
     setShowReview(false);
     dismissMenu(false);
+    setMoveSource(null);
     setActive(session.id);
     const owner = view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId === session.id));
     const leaf = owner && leaves(owner.pane).find(({ sessionId }) => sessionId === session.id);
     if (owner && leaf) tabFocus(owner.id, leaf.id, session.id);
+  }
+
+  function moveTo(leaf: string, direction: SplitDirection) {
+    if (!view || !tab || !moving || working.current) return;
+    if (moving.version !== view.version) {
+      setError("工作区布局已更新，请重新选择要移动的分栏。");
+      setMoveSource(null);
+      return;
+    }
+    const next = movePane(view.layout, { tab: moving.tab, leaf: moving.leaf.id }, { tab: tab.id, leaf }, direction, createRequestId());
+    if (next === view.layout) return;
+    void edit(view, next, { tab: tab.id, leaf: moving.leaf }).finally(() => setMoveSource(null));
+  }
+
+  function reorderTab(by: -1 | 1) {
+    const neighbor = tabOrder[currentTabIndex + by];
+    if (!view || !tab || !neighbor || moving) return;
+    void edit(view, moveTab(view.layout, tab.id, neighbor.id));
   }
 
   return (
@@ -330,6 +381,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
                 setActive(null);
                 setRequestedSession(null);
                 setClosing(null);
+                setMoveSource(null);
                 dismissMenu(false);
                 setError(null);
               }}
@@ -419,7 +471,13 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
           </div>
         ) : null}
         <div className="agent-workspace-tabs" role="group" aria-label="工作区标签">
-          {view?.layout.tabs.map((entry, index) => {
+          {tabOrder.length > 1 ? (
+            <div className="agent-workspace-tab-order">
+              <IconButton icon={ArrowLeft} label="左移当前标签" disabled={!editable || !!moving || currentTabIndex <= 0} onClick={() => reorderTab(-1)} />
+              <IconButton icon={ArrowRight} label="右移当前标签" disabled={!editable || !!moving || currentTabIndex < 0 || currentTabIndex >= tabOrder.length - 1} onClick={() => reorderTab(1)} />
+            </div>
+          ) : null}
+          {tabOrder.map((entry, index) => {
             const first = leaves(entry.pane)[0]!;
             const name = list.find(({ id }) => id === first.sessionId)?.name;
             return (
@@ -427,6 +485,7 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
                 key={entry.id}
                 aria-pressed={entry.id === tab?.id && !preview}
                 data-testid="workspace-tab"
+                data-tab-id={entry.id}
                 onClick={() => {
                   ++navigation.current;
                   dismissMenu(false);
@@ -439,6 +498,21 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
             );
           })}
         </div>
+        {moving ? (
+          <div className="agent-workspace-move" role="status">
+            <span>选择移入方向，或拖到目标分栏的边缘。</span>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setMoveSource(null);
+                tabFocus(moving.tab, moving.leaf.id, moving.leaf.sessionId);
+                setFocusTarget(moving.leaf.id);
+              }}
+            >
+              取消移动
+            </Button>
+          </div>
+        ) : null}
         {workspace.isError ? (
           <div role="alert" className="hu-callout danger">
             <p>{workspace.error?.message ?? "工作区布局当前无法读取"}</p>
@@ -478,10 +552,11 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
           </div>
         ) : tab ? (
           <WorkspaceCanvas
-            key={tab.id}
+            key={space?.id}
             pane={tab.pane}
             active={currentLeaf?.id ?? null}
             zoom={zoom}
+            retained={moving?.leaf ?? null}
             sessions={list}
             endpoint={engine.endpoint}
             editable={editable}
@@ -491,7 +566,19 @@ export function AgentCliModule({ onNavigate }: ModuleProps) {
               if (working.current && leafId !== currentLeaf?.id) ++navigation.current;
               tabFocus(tab.id, leafId, sessionId, zoom);
             }}
-            onRequest={(event, leaf, direction) => setMenu(startTarget({ kind: "leaf", tab: tab.id, leaf, ...(direction ? { direction } : {}) }, event))}
+            onRequest={(event, leaf, direction) => {
+              if (moving && direction) moveTo(leaf, direction);
+              else setMenu(startTarget({ kind: "leaf", tab: tab.id, leaf, ...(direction ? { direction } : {}) }, event));
+            }}
+            onMoveStart={(leaf) => {
+              if (!view) return;
+              dismissMenu(false);
+              setMoveSource({ spaceId: view.spaceId, tab: tab.id, leaf, version: view.version });
+            }}
+            onMoveDrop={moveTo}
+            onMoveCancel={() => {
+              if (!working.current) setMoveSource(null);
+            }}
             onClose={(leafId) => {
               if (!view) return;
               const leaf = openLeaves.find(({ id }) => id === leafId);

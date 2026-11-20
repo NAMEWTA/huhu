@@ -368,6 +368,15 @@
   .agent-workspace-tabs [aria-pressed="true"] {
     border-color: var(--focus);
   }
+  .agent-workspace-tab-order,
+  .agent-workspace-move {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .agent-workspace-move {
+    padding: 3px 12px;
+  }
   .agent-workspace-canvas {
     flex: 1 1 auto;
     min-block-size: 0;
@@ -392,6 +401,18 @@
   }
   .agent-workspace-leaf[data-active="true"] {
     border-color: var(--focus);
+  }
+  .agent-workspace-leaf[data-drop-edge="left"] {
+    border-inline-start: 4px solid var(--focus);
+  }
+  .agent-workspace-leaf[data-drop-edge="right"] {
+    border-inline-end: 4px solid var(--focus);
+  }
+  .agent-workspace-leaf[data-drop-edge="up"] {
+    border-block-start: 4px solid var(--focus);
+  }
+  .agent-workspace-leaf[data-drop-edge="down"] {
+    border-block-end: 4px solid var(--focus);
   }
   .agent-workspace-divider {
     position: absolute;

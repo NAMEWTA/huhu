@@ -1,6 +1,6 @@
 import { Button, EmptyState, IconButton, TerminalView } from "@huhu/ui";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Maximize, Minimize, Plus, X } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Maximize, Minimize, Move, Plus, X } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { leaves, type Pane, type PaneLeaf, type SplitDirection } from "../shared/workspace-layout.js";
 import { t } from "./i18n.js";
 
@@ -24,6 +24,7 @@ const directions = [
 ] as const;
 
 const gap = 6;
+const paneDrag = "application/x-huhu-agent-pane";
 const minPane = { width: 230, height: 174 };
 type Size = { width: number; height: number };
 type Bounds = Size & { left: number; top: number };
@@ -63,16 +64,27 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function dropDirection(event: DragEvent<HTMLElement>): SplitDirection {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const x = (event.clientX - bounds.left) / bounds.width - 0.5;
+  const y = (event.clientY - bounds.top) / bounds.height - 0.5;
+  return Math.abs(x) >= Math.abs(y) ? (x < 0 ? "left" : "right") : y < 0 ? "up" : "down";
+}
+
 interface CanvasProps {
   pane: Pane;
   active: string | null;
   zoom: string | null;
+  retained: PaneLeaf | null;
   sessions: WorkspaceSession[];
   endpoint: { baseUrl: string; token?: string | undefined };
   editable: boolean;
   showReview: boolean;
   onFocus(id: string, sessionId: string | null): void;
   onRequest(event: MouseEvent<HTMLButtonElement>, id: string, direction?: SplitDirection): void;
+  onMoveStart(leaf: PaneLeaf): void;
+  onMoveDrop(id: string, direction: SplitDirection): void;
+  onMoveCancel(): void;
   onClose(id: string): void;
   onZoom(id: string): void;
   onResize(id: string, ratio: number): void;
@@ -81,10 +93,11 @@ interface CanvasProps {
   status(session: WorkspaceSession): ReactNode;
 }
 
-export function WorkspaceCanvas({ pane, active, zoom, sessions, endpoint, editable, showReview, onFocus, onRequest, onClose, onZoom, onResize, onReview, onInterrupt, status }: CanvasProps) {
+export function WorkspaceCanvas({ pane, active, zoom, retained, sessions, endpoint, editable, showReview, onFocus, onRequest, onMoveStart, onMoveDrop, onMoveCancel, onClose, onZoom, onResize, onReview, onInterrupt, status }: CanvasProps) {
   const host = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState<Size>(minPane);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [drop, setDrop] = useState<{ id: string; direction: SplitDirection } | null>(null);
   const drag = useRef<{ divider: Divider; start: number; pointer: number; ratio: number; commit: CanvasProps["onResize"] } | null>(null);
   useLayoutEffect(() => {
     const element = host.current;
@@ -103,6 +116,8 @@ export function WorkspaceCanvas({ pane, active, zoom, sessions, endpoint, editab
   if (zoom) {
     for (const leaf of leaves(pane)) cells.push({ pane: leaf, bounds });
   } else positions(pane, bounds, cells, dividers, preview);
+  const paneCount = cells.length;
+  if (retained && !cells.some(({ pane }) => pane.id === retained.id)) cells.push({ pane: retained, bounds });
 
   function cancelDrag() {
     drag.current = null;
@@ -118,6 +133,8 @@ export function WorkspaceCanvas({ pane, active, zoom, sessions, endpoint, editab
         {cells.map(({ pane: leaf, bounds }, index) => {
           const session = sessions.find(({ id }) => id === leaf.sessionId);
           const name = session?.name ?? (leaf.sessionId ? "原会话" : "空分栏");
+          const hidden = index >= paneCount || Boolean(zoom && zoom !== leaf.id);
+          const isSource = retained?.id === leaf.id;
           return (
             <section
               key={leaf.id}
@@ -125,24 +142,58 @@ export function WorkspaceCanvas({ pane, active, zoom, sessions, endpoint, editab
               style={bounds}
               aria-label={`${index + 1} · ${name}`}
               data-active={active === leaf.id}
-              data-testid="workspace-pane"
+              data-testid={index < paneCount ? "workspace-pane" : undefined}
               data-pane-id={leaf.id}
               data-session-id={leaf.sessionId ?? undefined}
               tabIndex={-1}
-              hidden={Boolean(zoom && zoom !== leaf.id)}
+              hidden={hidden}
+              data-drop-edge={drop?.id === leaf.id ? drop.direction : undefined}
               onFocusCapture={() => onFocus(leaf.id, leaf.sessionId)}
               onPointerDown={() => onFocus(leaf.id, leaf.sessionId)}
+              onDragOver={(event) => {
+                if (!retained || isSource || !editable || !event.dataTransfer.types.includes(paneDrag)) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDrop({ id: leaf.id, direction: dropDirection(event) });
+              }}
+              onDragLeave={(event) => {
+                if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDrop(null);
+              }}
+              onDrop={(event) => {
+                if (isSource || !retained || !editable || event.dataTransfer.getData(paneDrag) !== retained.id) return;
+                event.preventDefault();
+                setDrop(null);
+                onMoveDrop(leaf.id, dropDirection(event));
+              }}
             >
               <div className="agent-workspace-pane-header">
                 <strong title={name}>{name}</strong>
                 {session ? status(session) : null}
                 <span className="grow" />
-                {cells.length > 1 ? <IconButton icon={zoom ? Minimize : Maximize} label={zoom ? "还原分栏" : "放大分栏"} onClick={() => onZoom(leaf.id)} /> : null}
+                {paneCount > 1 ? <IconButton icon={zoom ? Minimize : Maximize} label={zoom ? "还原分栏" : "放大分栏"} onClick={() => onZoom(leaf.id)} /> : null}
                 <IconButton icon={X} label="关闭分栏" data-testid="workspace-pane-close" disabled={!editable} onClick={() => onClose(leaf.id)} />
               </div>
               <div className="agent-workspace-pane-controls">
+                <IconButton
+                  icon={Move}
+                  label="移动分栏"
+                  aria-pressed={isSource}
+                  disabled={!editable}
+                  draggable={editable}
+                  data-testid="workspace-pane-move"
+                  onClick={() => (isSource ? onMoveCancel() : onMoveStart(leaf))}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData(paneDrag, leaf.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    onMoveStart(leaf);
+                  }}
+                  onDragEnd={() => {
+                    setDrop(null);
+                    onMoveCancel();
+                  }}
+                />
                 {directions.map(({ id, label, icon }) => (
-                  <IconButton key={id} icon={icon} label={label} data-testid={`workspace-split-${id}`} disabled={!editable} onClick={(e) => onRequest(e, leaf.id, id)} />
+                  <IconButton key={id} icon={icon} label={retained ? label.replace("分栏", "移动") : label} data-testid={`workspace-split-${id}`} disabled={!editable || isSource} onClick={(e) => onRequest(e, leaf.id, id)} />
                 ))}
                 {session?.state === "running" ? (
                   <>
@@ -155,7 +206,7 @@ export function WorkspaceCanvas({ pane, active, zoom, sessions, endpoint, editab
               </div>
               <div className="agent-workspace-pane-body">
                 {session?.state === "running" ? (
-                  <TerminalView key={session.id} baseUrl={endpoint.baseUrl} token={endpoint.token} sessionId={session.id} ariaLabel={cells.length === 1 ? t.terminalLabel : `${t.terminalLabel} ${session.name}`} />
+                  <TerminalView key={session.id} baseUrl={endpoint.baseUrl} token={endpoint.token} sessionId={session.id} ariaLabel={paneCount === 1 ? t.terminalLabel : `${t.terminalLabel} ${session.name}`} />
                 ) : leaf.sessionId ? (
                   <EmptyState title={session?.state === "exited" ? t.exitedTitle(session.exitCode ?? null) : (session?.error ?? "原会话当前不可用")} />
                 ) : (

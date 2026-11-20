@@ -6,6 +6,7 @@ export const MAX_PANES = 32;
 const maxDepth = 16;
 
 export type SplitDirection = "up" | "down" | "left" | "right";
+export type PaneLocation = { tab: string; leaf: string };
 export type PaneLeaf = { kind: "leaf"; id: string; sessionId: string | null };
 export type PaneBranch = { kind: "split"; id: string; axis: "columns" | "rows"; ratio: number; first: Pane; second: Pane };
 export type Pane = PaneLeaf | PaneBranch;
@@ -101,6 +102,34 @@ export function removePane(pane: Pane, id: string): Pane | null {
   if (first === null) return second;
   if (second === null) return first;
   return first === pane.first && second === pane.second ? pane : { ...pane, first, second };
+}
+
+export function movePane(layout: SpaceLayout, source: PaneLocation, target: PaneLocation, direction: SplitDirection, dividerId: string): SpaceLayout {
+  if (source.tab === target.tab && source.leaf === target.leaf) return layout;
+  const from = layout.tabs.find(({ id }) => id === source.tab);
+  const into = layout.tabs.find(({ id }) => id === target.tab);
+  if (!from || !into) return layout;
+  const moved = leaves(from.pane).find(({ id }) => id === source.leaf);
+  if (!moved || !leaves(into.pane).some(({ id }) => id === target.leaf)) return layout;
+  return {
+    tabs: layout.tabs.flatMap((tab) => {
+      if (tab.id !== source.tab && tab.id !== target.tab) return [tab];
+      let pane = tab.id === source.tab ? removePane(tab.pane, source.leaf) : tab.pane;
+      if (!pane) return [];
+      if (tab.id === target.tab) pane = splitPane(pane, target.leaf, direction, dividerId, moved);
+      return [{ ...tab, pane }];
+    }),
+  };
+}
+
+export function moveTab(layout: SpaceLayout, tabId: string, targetId: string): SpaceLayout {
+  const from = layout.tabs.findIndex(({ id }) => id === tabId);
+  const to = layout.tabs.findIndex(({ id }) => id === targetId);
+  if (from < 0 || to < 0 || from === to) return layout;
+  const tabs = [...layout.tabs];
+  const [tab] = tabs.splice(from, 1);
+  tabs.splice(to, 0, tab!);
+  return { tabs };
 }
 
 export function sessionPlacement(layout: SpaceLayout, sessionId: string): { tab: string; leaf: string } | null {

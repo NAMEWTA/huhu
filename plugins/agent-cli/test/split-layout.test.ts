@@ -1,7 +1,29 @@
 import { expect, test } from "vitest";
-import { emptyLayout, leaves, removePane, SpaceLayoutSchema, splitPane, type Pane, type PaneLeaf, type SplitDirection } from "../src/shared/workspace-layout.js";
+import { emptyLayout, leaves, movePane, moveTab, removePane, SpaceLayoutSchema, splitPane, type Pane, type PaneLeaf, type SplitDirection } from "../src/shared/workspace-layout.js";
 
 const leaf = (id: string, sessionId: string | null = id): PaneLeaf => ({ kind: "leaf", id, sessionId });
+
+test("跨标签移动保持分栏和会话身份，目标缺失或朝自身移动不改变布局", () => {
+  const a = leaf("a");
+  const b = leaf("b");
+  const c = leaf("c");
+  const layout = {
+    tabs: [
+      { id: "first", pane: splitPane(a, a.id, "right", "old", b) },
+      { id: "second", pane: c },
+    ],
+  };
+  const source = { tab: "first", leaf: a.id };
+  expect(movePane(layout, source, source, "up", "new")).toBe(layout);
+  expect(movePane(layout, source, { tab: "second", leaf: "missing" }, "up", "new")).toBe(layout);
+  const moved = movePane(layout, source, { tab: "second", leaf: c.id }, "down", "new");
+  expect(moved.tabs[0]?.pane).toBe(b);
+  expect(leaves(moved.tabs[1]!.pane)).toEqual([c, a]);
+  expect(leaves(moved.tabs[1]!.pane)[1]).toBe(a);
+  const reordered = moveTab(moved, "second", "first");
+  expect(reordered.tabs).toEqual([moved.tabs[1], moved.tabs[0]]);
+  expect(reordered.tabs[0]).toBe(moved.tabs[1]);
+});
 
 test.each([
   ["left", "columns", ["b", "a"]],
