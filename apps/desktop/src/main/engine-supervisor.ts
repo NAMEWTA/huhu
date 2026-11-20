@@ -36,6 +36,7 @@ export class EngineSupervisor {
   private endpoint: EngineEndpoint | null = null;
   private waiters: ((e: EngineEndpoint) => void)[] = [];
   private stopping = false;
+  private restartWhenStopped = false;
   /** 最近一次启动失败的原因（Engine 在 stderr 上输出的 {"type":"error"} 行）。 */
   lastError: { code: string; message: string } | null = null;
 
@@ -58,6 +59,7 @@ export class EngineSupervisor {
 
   start(): void {
     this.stopping = false;
+    this.restartWhenStopped = false;
     this.endpoint = null;
     this.lastError = null;
     this.set("starting");
@@ -101,6 +103,7 @@ export class EngineSupervisor {
       this.child = null;
       this.endpoint = null;
       this.set(this.stopping ? "stopped" : "crashed");
+      if (this.restartWhenStopped) this.restart();
     });
   }
 
@@ -154,7 +157,7 @@ export class EngineSupervisor {
   /** 退出撤销时恢复原 Engine。若 stop 等到了强制结束时限，等原进程实际退出再启动。 */
   restartAfterStop(): void {
     if (this.child && this.stopping) {
-      this.child.once("exit", () => this.restart());
+      this.restartWhenStopped = true;
       return;
     }
     this.restart();
@@ -162,6 +165,7 @@ export class EngineSupervisor {
 
   /** 发送关闭请求并等待退出；超过 15 秒强制结束。 */
   async stop(timeoutMs = 15_000): Promise<void> {
+    this.restartWhenStopped = false;
     const child = this.child;
     if (!child) return;
     this.stopping = true;
