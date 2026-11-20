@@ -3,6 +3,7 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import { type AddressInfo } from "node:net";
 import { networkInterfaces } from "node:os";
 import { errors } from "@huhu/contracts";
+import { BlockedHttpPort, closeHttp, listenHttp } from "./listen-http.js";
 
 export interface WebListenerConfig {
   mode: "local" | "lan";
@@ -15,7 +16,7 @@ interface WebAddress {
   interfaceName: string | null;
 }
 
-type ListenerError = "port-in-use" | "address-unavailable" | "permission-denied" | "bind-failed";
+type ListenerError = "port-in-use" | "address-unavailable" | "permission-denied" | "browser-blocked-port" | "bind-failed";
 
 export type WebListenerStatus = { state: "stopped" } | { state: "error"; config: WebListenerConfig; reason: ListenerError } | { state: "running"; config: WebListenerConfig; generation: string; port: number; addresses: WebAddress[] };
 
@@ -26,18 +27,14 @@ interface Binding {
   address: AddressInfo;
 }
 
-function bind(handler: RequestListener, port: number, host: string): Promise<Server> {
+async function bind(handler: RequestListener, port: number, host: string): Promise<Pick<Binding, "server" | "address">> {
   const server = createServer(handler);
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen({ port, host }, () => {
-      server.off("error", reject);
-      resolve(server);
-    });
-  });
+  const address = await listenHttp(server, host, port);
+  return { server, address };
 }
 
 function bindError(error: unknown): ListenerError {
+  if (error instanceof BlockedHttpPort) return "browser-blocked-port";
   switch ((error as NodeJS.ErrnoException).code) {
     case "EADDRINUSE":
       return "port-in-use";
@@ -50,13 +47,6 @@ function bindError(error: unknown): ListenerError {
     default:
       return "bind-failed";
   }
-}
-
-function close(server: Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-    server.closeAllConnections();
-  });
 }
 
 /** Web 监听与回环控制端口独立。宿主提供 Web 路由，启用和关闭均按请求序列执行。 */
@@ -97,8 +87,8 @@ export class WebListener {
       if (active?.config.mode === options.mode && active.config.port === options.port) return this.status();
       await this.stopBinding();
       try {
-        const server = await this.bindMode(options);
-        this.binding = { server, config: options, address: server.address() as AddressInfo, generation: randomUUID() };
+        const bound = await this.bindMode(options);
+        this.binding = { ...bound, config: options, generation: randomUUID() };
       } catch (error) {
         this.failure = { config: options, reason: bindError(error) };
       }
@@ -113,7 +103,7 @@ export class WebListener {
     });
   }
 
-  private async bindMode(config: WebListenerConfig): Promise<Server> {
+  private async bindMode(config: WebListenerConfig): Promise<Pick<Binding, "server" | "address">> {
     if (config.mode === "local") return bind(this.handler, config.port, "127.0.0.1");
     try {
       return await bind(this.handler, config.port, "::");
@@ -128,7 +118,7 @@ export class WebListener {
     if (!this.binding) return;
     const binding = this.binding;
     this.binding = undefined;
-    await close(binding.server);
+    await closeHttp(binding.server);
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {

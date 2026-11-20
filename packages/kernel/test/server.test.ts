@@ -1,10 +1,11 @@
-import { request as httpRequest } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import type { NetworkInterfaceInfo } from "node:os";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
 import { z } from "zod";
 import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, defineCapability, startEngineServer, type RunningServer, EventReplay } from "../src/index.js";
 import { WebListener, type WebListenerConfig } from "../src/server/web-listener.js";
+import { closeHttp, listenHttp } from "../src/server/listen-http.js";
 
 let running: RunningServer | undefined;
 afterEach(async () => {
@@ -35,6 +36,23 @@ const call = (base: string, token: string | null, body: unknown, headers: Record
 const REQ = { capability: "vault.info", input: {}, requestId: "r1" };
 
 describe("独立 Web 监听器", () => {
+  test("自动分配尝试跳过 Fetch 禁用的端口，指定禁用端口有明确结果", async () => {
+    const server = createServer((_request, response) => response.end("listening"));
+    const listen = vi.spyOn(server, "listen");
+    vi.spyOn(server, "address").mockReturnValueOnce({ address: "127.0.0.1", family: "IPv4", port: 10080 });
+    const web = new WebListener((_request, response) => response.end());
+    try {
+      const active = await listenHttp(server, "127.0.0.1", 0);
+      expect(listen.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(active.port).not.toBe(10080);
+      expect(await (await fetch(`http://127.0.0.1:${active.port}`)).text()).toBe("listening");
+      expect(await web.start({ mode: "local", port: 10080 })).toEqual({ state: "error", config: { mode: "local", port: 10080 }, reason: "browser-blocked-port" });
+    } finally {
+      if (server.listening) await closeHttp(server);
+      await web.stop();
+    }
+  });
+
   test("默认关闭，使用本机自动端口，停止后断开分享并保留 Engine 控制端", async () => {
     const { base, port, tokens } = await boot();
     let requestArrived!: () => void;
