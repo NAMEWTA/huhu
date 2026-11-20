@@ -4,21 +4,13 @@ import { CapabilityError, createRequestId, requestOpenAgentSession, useCapabilit
 import { History } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { z } from "zod";
-import type { DispatchInput, DispatchReceipt, TaskDispatchView } from "../engine/dispatch-store.js";
+import type { DispatchInput, DispatchReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
 import type { TaskQuestionView } from "../engine/receipt-inbox.js";
 import { TaskMarkdownView } from "./compact.js";
 import { t } from "./i18n.js";
 import { useReferenceIndex } from "./references.js";
 
-export type RunRow = {
-  id: string;
-  state: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  model: string | null;
-  questions: number;
-};
 type Reply = z.infer<typeof TaskReplyView>;
 type Question = z.infer<typeof TaskQuestionView> & { reply?: Reply };
 type Supplement = z.infer<typeof TaskSupplementView>;
@@ -55,11 +47,13 @@ const inputState: Record<Reply["status"], string> = {
   unsupported: "原会话不支持此操作",
 };
 
-export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate }: { task: TaskDto; zone: string | undefined; runs: RunRow[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
+export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null | undefined) {
+  return (run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state];
+}
+
+export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate }: { task: TaskDto; zone: string | undefined; runs: TaskRunSummary[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
   const engine = useEngine();
   const qc = useQueryClient();
-  const questions = useCapability<Question[]>("tasks.questions.list", { taskId: task.id });
-  const refs = useReferenceIndex();
   const [opened, setOpened] = useState<string | null>(null);
   const [request, setRequest] = useState<DispatchInput | null>(null);
   const [earlyDialog, setEarlyDialog] = useState(false);
@@ -104,16 +98,6 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
     }
   }
 
-  async function cancel(row: TaskDispatchView) {
-    setError("");
-    try {
-      await engine.call("tasks.dispatch.cancel", { taskId: task.id, dispatchId: row.dispatchId }, { write: true, idempotencyKey: row.dispatchId });
-      await refresh();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
-  }
-
   return (
     <section className="hu-tw-detail-section" aria-label="Agent 派遣">
       <h3>
@@ -141,48 +125,18 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
       {rows?.map((row) => {
         const run = runs.find(({ id }) => id === row.runId);
         const expanded = opened === row.runId;
-        const messages = task.comments.filter((comment) => comment.run === row.runId && (comment.event === "result" || comment.event === "failed"));
         return (
           <article key={row.runId} className="tasks-task-run" data-testid="managed-task-run" data-run-id={row.runId}>
             <header>
-              <Badge tone={row.state === "unknown" ? "warning" : "neutral"}>{run ? (t.detail.runState[run.state] ?? receiptState[row.state]) : receiptState[row.state]}</Badge>
+              <Badge tone={row.state === "unknown" ? "warning" : "neutral"}>{taskRunLabel(row, run)}</Badge>
               <time dateTime={row.acceptedAt}>{new Date(row.acceptedAt).toLocaleString(undefined, zone ? { timeZone: zone } : {})}</time>
               <button type="button" aria-expanded={expanded} onClick={() => setOpened(expanded ? null : row.runId)}>
                 {expanded ? t.detail.collapse : t.detail.expand}
               </button>
             </header>
             {row.reason ? <p role="status">{receiptReason[row.reason]}</p> : null}
-            {row.state === "pending" || row.state === "claimed" ? (
-              <Button disabled={task.readOnly || row.cancelRequested || row.reason === "foreign_machine"} onClick={() => void cancel(row)}>
-                取消排队
-              </Button>
-            ) : null}
-            {expanded ? (
-              <>
-                {row.session ? (
-                  <Button
-                    onClick={() => {
-                      if (!row.session) return;
-                      requestOpenAgentSession({ vaultId: engine.vaultId, spaceId: row.session.spaceId, sessionId: row.session.id });
-                      onNavigate();
-                    }}
-                  >
-                    定位原会话
-                  </Button>
-                ) : null}
-                {(questions.data ?? [])
-                  .filter((question) => question.runId === row.runId)
-                  .map((question) => (
-                    <RunQuestion key={`${question.requestId}:${question.requestVersion}`} task={task} question={question} refresh={refresh} />
-                  ))}
-                {row.session && task.status === "in_progress" && run?.state === "running" && !task.readOnly ? <RunSupplement task={task} row={row} refresh={refresh} /> : null}
-                {run?.finishedAt ? (
-                  <div data-testid="managed-run-result">
-                    {messages.length ? messages.map((message) => <TaskMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />) : <p>结果正文尚未写入，或本轮没有正文。</p>}
-                  </div>
-                ) : null}
-              </>
-            ) : null}
+            <CancelQueuedRun task={task} row={row} refresh={refresh} />
+            {expanded ? <TaskRunDetails task={task} row={row} run={run} onOpenAgent={onNavigate} /> : null}
           </article>
         );
       })}
@@ -202,6 +156,75 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
         <p>最早派遣时间为 {task.availableAt ? new Date(task.availableAt).toLocaleString(undefined, zone ? { timeZone: zone } : {}) : "未设置"}。确认后仅对此次派遣提前。</p>
       </Dialog>
     </section>
+  );
+}
+
+function CancelQueuedRun({ task, row, refresh }: { task: TaskDto; row: TaskDispatchView; refresh(): Promise<void> }) {
+  const engine = useEngine();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (row.state !== "pending" && row.state !== "claimed") return null;
+  async function cancel() {
+    setError("");
+    setBusy(true);
+    try {
+      await engine.call("tasks.dispatch.cancel", { taskId: task.id, dispatchId: row.dispatchId }, { write: true, idempotencyKey: row.dispatchId });
+      await refresh();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <Button loading={busy} disabled={busy || task.readOnly || row.cancelRequested || row.reason === "foreign_machine"} onClick={() => void cancel()}>
+        取消排队
+      </Button>
+      {error ? <p role="alert">{error}</p> : null}
+    </>
+  );
+}
+
+export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent }: { task: TaskDto; row: TaskDispatchView; run: TaskRunSummary | null | undefined; showQueue?: boolean; onOpenAgent?: (() => void) | undefined }) {
+  const engine = useEngine();
+  const qc = useQueryClient();
+  const refs = useReferenceIndex();
+  const questions = useCapability<Question[]>("tasks.questions.list", { taskId: task.id });
+  const refresh = () => qc.invalidateQueries({ predicate: ({ queryKey: [vault, capability] }) => vault === engine.vaultId && String(capability).startsWith("tasks.") });
+  const session = row.session;
+  const messages = task.comments.filter((comment) => comment.run === row.runId && (comment.event === "result" || comment.event === "failed"));
+  return (
+    <>
+      {showQueue && row.reason ? <p role="status">{receiptReason[row.reason]}</p> : null}
+      {showQueue ? <CancelQueuedRun task={task} row={row} refresh={refresh} /> : null}
+      {session && onOpenAgent ? (
+        <Button
+          onClick={() => {
+            requestOpenAgentSession({ vaultId: engine.vaultId, spaceId: session.spaceId, sessionId: session.id });
+            onOpenAgent();
+          }}
+        >
+          定位原会话
+        </Button>
+      ) : null}
+      {questions.error ? (
+        <p role="alert" className="hu-field-error">
+          {questions.error.message}
+        </p>
+      ) : null}
+      {(questions.data ?? [])
+        .filter((question) => question.runId === row.runId)
+        .map((question) => (
+          <RunQuestion key={`${question.requestId}:${question.requestVersion}`} task={task} question={question} refresh={refresh} />
+        ))}
+      {session && task.status === "in_progress" && run?.state === "running" && !task.readOnly ? <RunSupplement task={task} row={row} refresh={refresh} /> : null}
+      {run?.finishedAt ? (
+        <div data-testid="managed-run-result">
+          {messages.length ? messages.map((message) => <TaskMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />) : <p>结果正文尚未写入，或本轮没有正文。</p>}
+        </div>
+      ) : null}
+    </>
   );
 }
 

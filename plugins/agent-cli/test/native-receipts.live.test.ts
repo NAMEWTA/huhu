@@ -412,6 +412,11 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await expect.poll(acks).toHaveLength(4);
       expect(acks().find(({ receipt }) => receipt.execution.runId === child.followUpRunId)?.receipt.execution.sessionBinding).toEqual(bindings[0]!.sessionBinding);
       expect(await call(engine, "tasks.runs", { id: next.id })).toEqual(expect.arrayContaining([expect.objectContaining({ id: child.followUpRunId, parentRunId: nextRun.runId, state: "succeeded" })]));
+      expect(await call(engine, "tasks.dispatch.recent", { limit: 3 })).toMatchObject([
+        { title: next.title, dispatch: { runId: child.followUpRunId, session: { id: sessionId, spaceId: space!.id } }, run: { state: "succeeded", parentRunId: nextRun.runId } },
+        { title: next.title, dispatch: { runId: nextRun.runId, session: { id: sessionId, spaceId: space!.id } }, run: { state: "succeeded" } },
+        { title: task.title, dispatch: { runId, session: { id: sessionId, spaceId: space!.id } }, run: { state: "succeeded" } },
+      ]);
       expect(await timeline()).toEqual(originalTimeline);
       expect(acks()).toEqual(expect.arrayContaining(originalAcks));
       console.info(JSON.stringify({ phase: "production-tasks-consumed", sameSession: true, inputCount: 3, nativeAnswerCount: 1, ordinaryAnswerCount: 1, timelineComments: originalTimeline.length, durableAcks: acks().length }));

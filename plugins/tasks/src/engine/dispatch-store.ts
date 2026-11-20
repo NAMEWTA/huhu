@@ -72,6 +72,18 @@ export const DispatchReceipt = DispatchLookup.extend({
 export const TaskDispatchView = DispatchReceipt.extend({
   session: z.strictObject({ id: Id, spaceId: Id }).nullable(),
 });
+export const TaskRunSummary = z.object({
+  id: z.string(),
+  state: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  model: z.string().nullable(),
+  questions: z.number(),
+  parentRunId: z.string().optional(),
+});
+export const RecentTaskRun = z.object({ dispatch: TaskDispatchView, run: TaskRunSummary.nullable(), title: z.string() });
+export type TaskRunSummary = z.infer<typeof TaskRunSummary>;
+export type RecentTaskRun = z.infer<typeof RecentTaskRun>;
 const RecordFields = z.object({
   receipt: DispatchReceipt,
   requestHash: z.string(),
@@ -145,6 +157,7 @@ export class DispatchStore {
     private readonly files: VaultFiles,
     private readonly vaultId: string,
     machineId: string,
+    private readonly changed?: (receipt: DispatchReceipt, op: "created" | "updated") => void,
   ) {
     // 用当前实际目录的文件系统身份定位密钥。复制运行目录也不会用到原目录的密钥。
     const { dev, ino, birthtimeNs } = statSync(files.root, { bigint: true });
@@ -271,6 +284,7 @@ export class DispatchStore {
   private async writeSealed(unsigned: UnsealedRecord, key: Buffer, expectedVersion: string | null): Promise<OwnedRecord> {
     const record = { ...unsigned, seal: seal(unsigned, key) };
     await this.files.write(`${this.dir}/${record.receipt.eventId}.json`, Buffer.from(`${JSON.stringify(record, null, 2)}\n`), { expectedVersion });
+    this.changed?.(record.receipt, expectedVersion === null ? "created" : "updated");
     return record;
   }
 }

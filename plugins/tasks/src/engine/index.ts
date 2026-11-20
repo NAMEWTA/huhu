@@ -24,7 +24,7 @@ import { statSync } from "node:fs";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
-import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, StopLookup, StopReceipt, TaskDispatchView } from "./dispatch-store.js";
+import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, RecentTaskRun, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { agentDispatchBlocker, TasksService } from "./service.js";
@@ -101,7 +101,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   });
   const machine = machineId();
   const files = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
-  const store = new DispatchStore(files, api.vault.vaultId, machine);
+  const publishRun = (runId: string, op: "created" | "updated" = "updated") => api.events.publish("entity.changed", { kind: "task-run", id: runId, op });
+  const store = new DispatchStore(files, api.vault.vaultId, machine, ({ runId }, op) => publishRun(runId, op));
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
   const inbox = new TaskReceiptInbox(files, now);
   const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined);
@@ -117,9 +118,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       idempotency: "handler",
       input: ExecutionReceiptSchema,
       output: ExecutionReceiptAckSchema,
-      handler: ({ caller, signal }, input) => {
+      handler: async ({ caller, signal }, input) => {
         if (caller !== "plugin:agent-cli") throw errors.permissionDenied("接收 Agent 任务回执");
-        return dispatch.consumeReceipt(input, signal);
+        const result = await dispatch.consumeReceipt(input, signal);
+        if (result.stage === "tasks_consumed") publishRun(input.execution.runId);
+        return result;
       },
     }),
   );
@@ -265,6 +268,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: ({ caller }, { taskId }) => {
         if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务派遣");
         return dispatch.list(taskId);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.recent",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: z.strictObject({ limit: z.int().min(1).max(200).default(200) }),
+      output: z.array(RecentTaskRun),
+      handler: ({ caller }, { limit }) => {
+        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看最近的任务运行");
+        return dispatch.recent(limit);
       },
     }),
   );
@@ -514,7 +532,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       exposable: true,
       defaultExposed: true,
       input: Id,
-      output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number(), parentRunId: z.string().optional() })),
+      output: z.array(TaskRunSummary),
       handler: (_c, i) => [...svc.runs(i.id), ...dispatch.runs(i.id)],
     }),
   );

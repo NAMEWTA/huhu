@@ -18,9 +18,11 @@ import {
   type DispatchSnapshot,
   type DispatchSource,
   type OwnedRecord,
+  type RecentTaskRun,
   type StopLookup,
   type StopReceipt,
   type TaskDispatchView,
+  type TaskRunSummary,
 } from "./dispatch-store.js";
 import { agentDispatchBlocker, type TasksService } from "./service.js";
 import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
@@ -413,19 +415,11 @@ export class TaskDispatch {
     return this.history(taskId).questions;
   }
 
-  private history(taskId: string) {
-    const normal = this.store
-      .list()
-      .filter((record) => record.receipt.taskId === taskId && this.store.owns(record))
-      .flatMap((record) => normalReplyView(record) ?? []);
+  private history(taskId: string, records = this.recordsFor(taskId)) {
+    const normal = records.filter((record) => this.store.owns(record)).flatMap((record) => normalReplyView(record) ?? []);
     const replies = [...this.replies.list(taskId, this.matchesExecution), ...normal];
     const history = this.receipts.history(taskId, this.matchesExecution, this.onError);
-    const closed = new Set(
-      this.store
-        .list()
-        .filter(({ receipt, stop }) => receipt.taskId === taskId && (stop?.status === "stopped" || stop?.status === "completed"))
-        .map(({ receipt }) => receipt.runId),
-    );
+    const closed = new Set(records.filter(({ stop }) => stop?.status === "stopped" || stop?.status === "completed").map(({ receipt }) => receipt.runId));
     const questions = history.questions.map((question) => {
       const reply = replies.find((reply) => reply.runId === question.runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion);
       const status = question.mode === "native_deferred" && closed.has(question.runId) ? "closed" : question.status;
@@ -449,10 +443,14 @@ export class TaskDispatch {
     return running.some(({ receipt, stop }) => stop?.status !== "stopped" && !outcomes.get(receipt.runId)?.finishedAt);
   }
 
-  runs(taskId: string): Array<ReturnType<TasksService["runs"]>[number] & { parentRunId?: string }> {
-    const { questions, outcomes } = this.history(taskId);
-    return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt, stop }) => {
-      if (receipt.taskId !== taskId || (!claim && !receipt.parentRunId)) return [];
+  private recordsFor(taskId: string): DispatchRecord[] {
+    return this.store.list().filter(({ receipt }) => receipt.taskId === taskId);
+  }
+
+  runs(taskId: string, records = this.recordsFor(taskId)): TaskRunSummary[] {
+    const { questions, outcomes } = this.history(taskId, records);
+    return records.flatMap(({ receipt, claim, snapshot, startedAt, finishedAt, stop }) => {
+      if (!claim && !receipt.parentRunId) return [];
       const open = questions.filter(({ runId, status }) => runId === receipt.runId && status === "awaiting");
       const outcome = outcomes.get(receipt.runId);
       let state = "queued";
@@ -580,16 +578,35 @@ export class TaskDispatch {
 
   list(taskId: string): TaskDispatchView[] {
     this.tasks.read(taskId);
-    return this.store
-      .list()
-      .filter(({ receipt }) => receipt.taskId === taskId)
-      .map((record) => {
-        const { boundExecution, snapshot } = record;
-        const spaceId = snapshot.execution.spaceId;
-        const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? { id: boundExecution.sessionBinding.sessionId, spaceId } : null;
-        return { ...this.dispatchView(record), session };
-      })
+    return this.recordsFor(taskId)
+      .map((record) => this.viewWithSession(record))
       .sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt) || b.runId.localeCompare(a.runId));
+  }
+
+  recent(limit: number): RecentTaskRun[] {
+    const records = this.store.list();
+    const recent = [...records].sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt) || b.receipt.runId.localeCompare(a.receipt.runId)).slice(0, limit);
+    const tasks = new Map<string, { title: string; runs: Map<string, TaskRunSummary> }>();
+    return recent.map((record) => {
+      const { taskId, runId } = record.receipt;
+      let task = tasks.get(taskId);
+      if (!task) {
+        const runs = this.runs(
+          taskId,
+          records.filter(({ receipt }) => receipt.taskId === taskId),
+        );
+        task = { title: this.task(taskId)?.title ?? taskId, runs: new Map(runs.map((run) => [run.id, run])) };
+        tasks.set(taskId, task);
+      }
+      return { dispatch: this.viewWithSession(record), run: task.runs.get(runId) ?? null, title: task.title };
+    });
+  }
+
+  private viewWithSession(record: DispatchRecord): TaskDispatchView {
+    const { boundExecution, snapshot } = record;
+    const spaceId = snapshot.execution.spaceId;
+    const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? { id: boundExecution.sessionBinding.sessionId, spaceId } : null;
+    return { ...this.dispatchView(record), session };
   }
 
   private dispatchView(record: DispatchRecord): DispatchReceipt {

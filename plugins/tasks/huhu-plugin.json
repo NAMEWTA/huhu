@@ -28,6 +28,7 @@
       "tasks.dispatch",
       "tasks.dispatch.read",
       "tasks.dispatch.list",
+      "tasks.dispatch.recent",
       "tasks.dispatch.targets",
       "tasks.dispatch.cancel",
       "tasks.dispatch.stop",
@@ -35,7 +36,9 @@
       "tasks.receipts.consume",
       "tasks.questions.list",
       "tasks.reply",
-      "tasks.reply.read"
+      "tasks.reply.read",
+      "tasks.supplement",
+      "tasks.supplement.read"
     ],
     "fileKinds": ["task"]
   }

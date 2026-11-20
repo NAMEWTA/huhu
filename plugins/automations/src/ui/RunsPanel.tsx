@@ -1,234 +1,177 @@
-import { Badge, Button, EmptyState } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import type { TaskDto } from "@huhu/contracts";
+import { Badge, Button, Dialog, EmptyState } from "@huhu/ui";
+import { CapabilityError, requestOpenTask, useCapability, useEngine } from "@huhu/workbench";
 import { useState } from "react";
+import type { RecentTaskRun } from "../../../tasks/src/engine/dispatch-store.js";
+import { TaskRunDetails, taskRunLabel } from "../../../tasks/src/ui/TaskDispatchPanel.js";
 import { t } from "./i18n.js";
 
-interface RunRow {
+interface TerminalRunRow {
   id: string;
   kind: "task-run" | "automation-run";
   state: string;
   title: string;
   startedAt: string | null;
-  finishedAt: string | null;
-  attempt: number | null;
-  live: boolean;
 }
-interface Question {
+
+interface TerminalRunDetail {
   id: string;
-  text: string;
-  options: string[];
-  answer: string | null;
-}
-interface RunDetail {
-  id: string;
-  kind: "task-run" | "automation-run";
   body: string;
   title: string;
   live: boolean;
-  canRetry: boolean;
-  data: Record<string, unknown>;
+  data: { state: string; startedAt: string | null; finishedAt: string | null; exitCode?: number | null; sessionId?: string };
 }
 
-const fmt = (v: unknown): string => (typeof v === "string" && v ? new Date(v).toLocaleString() : "—");
+type Selection = { kind: "task"; id: string } | { kind: "terminal"; id: string };
+type Navigate = ((module: string) => void) | undefined;
 
-/** 运行列表 + 详情：状态、时间、Space、cwd、CLI、模型、会话 id、结果、问题与回答；取消 / 标记失败并重试。 */
-export function RunsPanel({ onNavigate }: { onNavigate?: (module: string) => void }) {
-  const engine = useEngine();
-  const qc = useQueryClient();
-  const runs = useCapability<RunRow[]>("automations.runs.list", {});
-  const [sel, setSel] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
+const fmt = (v: string | null): string => (v ? new Date(v).toLocaleString() : "—");
+const disabled = (error: Error | null) => error instanceof CapabilityError && error.code === "PLUGIN_DISABLED";
 
-  async function act(cap: string, input: unknown): Promise<boolean> {
-    setError(null);
-    try {
-      await engine.call(cap, input, { write: true });
-      await refresh();
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    }
-  }
-
+export function RunsPanel({ onNavigate }: { onNavigate?: Navigate }) {
+  const tasks = useCapability<RecentTaskRun[]>("tasks.dispatch.recent");
+  const terminal = useCapability<TerminalRunRow[]>("automations.runs.list");
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const taskRows = (tasks.data ?? []).map(({ dispatch, run, title }) => ({
+    id: dispatch.runId,
+    kind: "task" as const,
+    title,
+    state: taskRunLabel(dispatch, run),
+    at: dispatch.acceptedAt,
+  }));
+  const terminalRows = (terminal.data ?? [])
+    .filter(({ kind }) => kind === "automation-run")
+    .map((row) => ({
+      id: row.id,
+      kind: "terminal" as const,
+      title: row.title,
+      state: t.runs.state[row.state] ?? row.state,
+      at: row.startedAt,
+    }));
+  const rows = [...taskRows, ...terminalRows].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+  const task = tasks.data?.find(({ dispatch }) => dispatch.runId === selection?.id);
+  const selected = rows.find(({ id, kind }) => id === selection?.id && kind === selection.kind);
+  const error = terminal.error ?? (disabled(tasks.error) ? null : tasks.error);
   return (
     <>
-      <h1>{t.nav.runs}</h1>
       {error ? (
-        <div role="alert" className="hu-overdue">
-          {error}
-        </div>
+        <p role="alert" className="hu-field-error">
+          {error.message}
+        </p>
       ) : null}
-      {(runs.data ?? []).length === 0 ? (
-        <EmptyState title={t.runs.none} />
-      ) : (
+      {disabled(tasks.error) ? <p role="status">任务插件已停用，暂时无法查看任务运行。</p> : null}
+      {rows.length ? (
         <div role="list" aria-label={t.nav.runs}>
-          {(runs.data ?? []).map((r) => (
-            <div key={r.id} role="listitem" className="hu-row" data-testid="run-row">
-              <button type="button" className="hu-nav-item" aria-current={sel === r.id} onClick={() => setSel(r.id)}>
-                <span>{r.title}</span>
+          {rows.map((row) => (
+            <div key={`${row.kind}:${row.id}`} role="listitem" className="hu-row" data-testid="run-row">
+              <button type="button" className="hu-nav-item" aria-haspopup="dialog" onClick={() => setSelection(row)}>
+                {row.title}
               </button>
-              <Badge>{t.runs.state[r.state] ?? r.state}</Badge>
-              {r.attempt && r.attempt > 1 ? <span>{t.runs.attempt(r.attempt)}</span> : null}
-              <span>{fmt(r.startedAt)}</span>
+              <Badge>{row.state}</Badge>
+              <span>{fmt(row.at)}</span>
             </div>
           ))}
         </div>
-      )}
-      {sel ? <RunDetailView key={sel} runId={sel} act={act} {...(onNavigate ? { onNavigate } : {})} /> : null}
+      ) : !error && !terminal.isPending && !tasks.isPending ? (
+        <EmptyState title={t.runs.none} />
+      ) : null}
+      <Dialog open={selection !== null} title={selected?.title ?? t.runs.detail} wide testId="run-detail" onClose={() => setSelection(null)}>
+        {selection?.kind === "task" && task ? <ManagedRun key={selection.id} row={task} onNavigate={onNavigate} /> : null}
+        {selection?.kind === "terminal" ? <TerminalRun key={selection.id} id={selection.id} onNavigate={onNavigate} /> : null}
+        {selection?.kind === "task" && !task ? <p role="status">当前查询中没有这条运行记录。</p> : null}
+      </Dialog>
     </>
   );
 }
 
-function RunDetailView({ runId, act, onNavigate }: { runId: string; act(cap: string, input: unknown): Promise<boolean>; onNavigate?: (module: string) => void }) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [confirmRetry, setConfirmRetry] = useState(false);
+function ManagedRun({ row, onNavigate }: { row: RecentTaskRun; onNavigate: Navigate }) {
+  const { dispatch, run } = row;
+  const task = useCapability<TaskDto>("tasks.read", { id: dispatch.taskId });
+  return (
+    <section data-run-id={dispatch.runId}>
+      <p role="status" data-testid="run-state">
+        {taskRunLabel(dispatch, run)}
+      </p>
+      {onNavigate ? (
+        <Button
+          onClick={() => {
+            requestOpenTask(dispatch.taskId);
+            onNavigate("tasks");
+          }}
+        >
+          打开原任务
+        </Button>
+      ) : null}
+      {task.error ? (
+        <p role="alert" className="hu-field-error">
+          {task.error.message}
+        </p>
+      ) : null}
+      {task.data ? <TaskRunDetails task={task.data} row={dispatch} run={run} showQueue onOpenAgent={onNavigate ? () => onNavigate("agent-cli") : undefined} /> : null}
+    </section>
+  );
+}
+
+function TerminalRun({ id, onNavigate }: { id: string; onNavigate: Navigate }) {
+  const detail = useCapability<TerminalRunDetail>("automations.runs.read", { runId: id });
+  const engine = useEngine();
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const detail = useCapability<RunDetail>("automations.runs.read", { runId });
-  const d = detail.data;
-  const data = d?.data ?? {};
-  const questions = (Array.isArray(data["questions"]) ? data["questions"] : []) as Question[];
-  const open = questions.filter((q) => q.answer === null);
-  const state = String(data["state"] ?? "");
+  const row = detail.data;
+  async function cancel() {
+    setBusy(true);
+    setError("");
+    try {
+      await engine.call("automations.runs.cancel", { runId: id }, { write: true });
+      await detail.refetch();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!row) return detail.error ? <p role="alert">{detail.error.message}</p> : <p role="status">正在读取运行结果…</p>;
+  const data = row.data;
   return (
     <>
-      {d ? (
-        <section aria-label={t.runs.detail} data-testid="run-detail" className="hu-card">
-          <h2>{d.title}</h2>
-          <dl>
-            <dt>{t.runs.status}</dt>
-            <dd data-testid="run-state">{t.runs.state[state] ?? state}</dd>
-            <dt>{t.runs.started}</dt>
-            <dd>{fmt(data["startedAt"])}</dd>
-            <dt>{t.runs.finished}</dt>
-            <dd>{fmt(data["finishedAt"])}</dd>
-            {d.kind === "task-run" ? (
-              <>
-                <dt>{t.runs.cwd}</dt>
-                <dd>{String(data["cwd"] ?? "—")}</dd>
-                <dt>{t.runs.cli}</dt>
-                <dd>
-                  {String(data["provider"] ?? "—")}
-                  {data["model"] ? ` · ${String(data["model"])}` : ""}
-                </dd>
-                <dt>{t.runs.attemptRound}</dt>
-                <dd>
-                  {String(data["attempt"] ?? 1)} / {String(data["round"] ?? 1)}
-                </dd>
-              </>
-            ) : null}
-            {d.kind === "task-run" ? (
-              <>
-                <dt>{t.runs.askMode}</dt>
-                <dd data-testid="run-ask-mode">{t.runs.askAfterExit}</dd>
-              </>
-            ) : null}
-            {d.kind === "automation-run" && data["sessionId"] ? (
-              <>
-                <dt>{t.runs.terminal}</dt>
-                <dd>
-                  <code>{String(data["sessionId"])}</code>{" "}
-                  {onNavigate ? (
-                    <button type="button" className="hu-btn hu-btn-ghost" data-testid="run-open-terminal" onClick={() => onNavigate("agent-cli")}>
-                      {t.runs.openTerminal}
-                    </button>
-                  ) : null}
-                </dd>
-              </>
-            ) : null}
-            <dt>{t.runs.session}</dt>
-            <dd data-testid="run-session">{data["nativeSessionId"] ? String(data["nativeSessionId"]) : "—"}</dd>
-            {data["exitCode"] !== null && data["exitCode"] !== undefined ? (
-              <>
-                <dt>{t.runs.exitCode}</dt>
-                <dd>{String(data["exitCode"])}</dd>
-              </>
-            ) : null}
-          </dl>
-          {questions.length > 0 ? (
-            <div data-testid="run-questions">
-              <h3>{t.runs.questions}</h3>
-              {questions.map((q) => (
-                <div key={q.id} className="hu-form">
-                  <p>{q.text}</p>
-                  {q.answer !== null ? (
-                    <p>
-                      {t.runs.answered}：{q.answer}
-                    </p>
-                  ) : state === "waiting_input" ? (
-                    <>
-                      {q.options.length > 0 ? (
-                        <div className="hu-row" role="group" aria-label={q.text}>
-                          {q.options.map((o) => (
-                            <Button key={o} aria-pressed={answers[q.id] === o} onClick={() => setAnswers({ ...answers, [q.id]: o })}>
-                              {o}
-                            </Button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <input className="hu-input" aria-label={t.runs.answerFor(q.id)} placeholder={t.runs.answerPlaceholder} value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
-                    </>
-                  ) : null}
-                </div>
-              ))}
-              {state === "waiting_input" && open.length > 0 ? (
-                <Button
-                  variant="primary"
-                  disabled={busy || open.every((q) => !(answers[q.id] ?? "").trim())}
-                  onClick={() => {
-                    setBusy(true);
-                    void act("automations.runs.answer", { runId: d.id, answers: open.filter((q) => (answers[q.id] ?? "").trim()).map((q) => ({ id: q.id, answer: (answers[q.id] ?? "").trim() })) })
-                      .then((ok) => {
-                        if (ok) setAnswers({});
-                      })
-                      .finally(() => setBusy(false));
-                  }}
-                >
-                  {t.runs.submitAnswers}
+      <dl>
+        <dt>{t.runs.status}</dt>
+        <dd data-testid="run-state">{t.runs.state[data.state] ?? data.state}</dd>
+        <dt>{t.runs.started}</dt>
+        <dd>{fmt(data.startedAt)}</dd>
+        <dt>{t.runs.finished}</dt>
+        <dd>{fmt(data.finishedAt)}</dd>
+        {data.exitCode != null ? (
+          <>
+            <dt>{t.runs.exitCode}</dt>
+            <dd>{data.exitCode}</dd>
+          </>
+        ) : null}
+        {data.sessionId ? (
+          <>
+            <dt>{t.runs.terminal}</dt>
+            <dd>
+              <code>{data.sessionId}</code>{" "}
+              {onNavigate ? (
+                <Button data-testid="run-open-terminal" onClick={() => onNavigate("agent-cli")}>
+                  {t.runs.openTerminal}
                 </Button>
               ) : null}
-            </div>
-          ) : null}
-          <h3>{t.runs.result}</h3>
-          <pre data-testid="run-body">{d.body.trim() || "—"}</pre>
-          <div className="hu-row">
-            {d.live || state === "waiting_input" ? (
-              <Button
-                variant="danger"
-                disabled={busy}
-                onClick={() => {
-                  setBusy(true);
-                  void act("automations.runs.cancel", { runId: d.id }).finally(() => setBusy(false));
-                }}
-              >
-                {t.runs.cancel}
-              </Button>
-            ) : null}
-            {d.canRetry ? (
-              confirmRetry ? (
-                <>
-                  <span>{state === "unknown" ? t.runs.retryUnknownConfirm : t.runs.retryConfirm}</span>
-                  <Button
-                    variant="primary"
-                    disabled={busy}
-                    onClick={() => {
-                      setBusy(true);
-                      void act("automations.runs.retry", { runId: d.id })
-                        .then(() => setConfirmRetry(false))
-                        .finally(() => setBusy(false));
-                    }}
-                  >
-                    {t.runs.retryDo}
-                  </Button>
-                  <Button onClick={() => setConfirmRetry(false)}>{t.runs.retryAbort}</Button>
-                </>
-              ) : (
-                <Button onClick={() => setConfirmRetry(true)}>{t.runs.retry}</Button>
-              )
-            ) : null}
-          </div>
-        </section>
+            </dd>
+          </>
+        ) : null}
+      </dl>
+      <h3>{t.runs.result}</h3>
+      <pre data-testid="run-body">{row.body.trim() || "—"}</pre>
+      {row.live ? (
+        <Button variant="danger" loading={busy} disabled={busy} onClick={() => void cancel()}>
+          {t.runs.cancel}
+        </Button>
+      ) : null}
+      {error ? (
+        <p role="alert" className="hu-field-error">
+          {error}
+        </p>
       ) : null}
     </>
   );

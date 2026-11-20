@@ -14,4 +14,6 @@
 
 ## 后续验收
 
-Linux 和 macOS 的系统菜单、系统快捷键与原生控件仍待对应平台验收。Windows 原生菜单的方向键、Escape 焦点返回与系统菜单互不干扰仍需实机证据。看板恢复能力已有 Engine 验证，恢复操作界面和其余未确认体验按各自的原型范围处理。八项共同候选包、同包联验和最终远端落地仍按批次计划验收。
+2026-11-21，`4f5cb1c8` 对应的 Windows 候选通过 23 项桌面回归。工作台导航取消上一轮加载时保留新的顶层页面，缺失启动资源仍能显示可关闭的错误页。评论回归通过有名称的「打开任务」按钮进入详情。Web 测试在 Edge 157.0.4341.60 验证两份邀请、三个独立浏览器会话、按邀请撤销及看板保存后重开。日志为 `temp/issue-baseline/windows-desktop-regressions.log`。 [关窗与启动失败测试](../../../../tests/e2e/knowledge/session-flush.spec.ts) · [紧凑评论测试](../../../../tests/e2e/knowledge/compact-submit.spec.ts) · [Web 分享测试](../../../../tests/e2e/workflows/web-share.spec.ts)
+
+Linux 和 macOS 的系统菜单、系统快捷键与原生控件仍缺对应平台证据。Windows 原生菜单的方向键、Escape 焦点返回与系统菜单互不干扰仍需取证。看板恢复能力已有 Engine 验证，恢复操作界面按已确认原型实施。八项共同候选包、同包联验和最终远端落地按批次计划验收。

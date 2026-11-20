@@ -6,6 +6,7 @@ export const queryKey = (vaultId: string, capability: string, input: unknown = {
 
 const ENTITY_CAPS: Record<string, string[]> = {
   task: ["tasks."],
+  "task-run": ["tasks."],
   note: ["notes.", "vault.", "archives."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新
   archive: ["archives.", "notes.", "vault."],
   capture: ["inbox."],
