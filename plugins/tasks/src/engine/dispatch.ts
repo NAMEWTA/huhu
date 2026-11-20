@@ -1,5 +1,19 @@
 import { HuhuError, errors, isHuhuError, newId, type TaskDto } from "@huhu/contracts";
-import { DispatchInput, DispatchLookup, DispatchStore, RuleSource, eventIdOf, fingerprint, holdsTask, sameInput, type DispatchReceipt, type DispatchRecord, type DispatchSnapshot, type DispatchSource } from "./dispatch-store.js";
+import {
+  DispatchInput,
+  DispatchLookup,
+  DispatchStore,
+  RuleSource,
+  eventIdOf,
+  fingerprint,
+  holdsTask,
+  sameInput,
+  type DispatchReceipt,
+  type DispatchRecord,
+  type DispatchSnapshot,
+  type DispatchSource,
+  type OwnedRecord,
+} from "./dispatch-store.js";
 import type { TasksService } from "./service.js";
 import { WriteQueue } from "./write-queue.js";
 
@@ -21,7 +35,7 @@ export interface TaskDispatchExecutor {
   inspect(work: Work, signal: AbortSignal): Promise<"accepted" | "not_sent" | "unknown">;
 }
 
-type Rejection = NonNullable<DispatchReceipt["reason"]> | "stale_input" | "not_due" | "expired";
+type Rejection = NonNullable<DispatchReceipt["reason"]> | "stale_input" | "not_due" | "expired" | ReturnType<DispatchStore["ownerIssue"]>;
 
 function rejectDispatch(reason: Rejection, message: string, existing?: DispatchReceipt): never {
   const code = reason === "stale_input" ? "VERSION_CONFLICT" : "INVALID_INPUT";
@@ -52,7 +66,7 @@ export class TaskDispatch {
   }
 
   hasActiveRun(taskId: string): boolean {
-    return this.store.list().some(({ receipt }) => receipt.taskId === taskId && receipt.state === "running");
+    return this.store.list().some((record) => record.receipt.taskId === taskId && record.receipt.state === "running" && this.store.owns(record));
   }
 
   runs(taskId: string): ReturnType<TasksService["runs"]> {
@@ -115,7 +129,7 @@ export class TaskDispatch {
           cancelRequested: false,
         };
         // 只要求旧版本的执行输入仍一致。评论或不参与执行的字段可在新文件版本上受理。
-        return (await this.store.write({ schema: 1, receipt, requestHash, snapshot, snapshotHash: fingerprint(snapshot), claim: null, startedAt: null, finishedAt: null }, null)).receipt;
+        return (await this.store.create({ receipt, requestHash, snapshot, snapshotHash: fingerprint(snapshot), claim: null, startedAt: null, finishedAt: null })).receipt;
       }),
     );
   }
@@ -132,6 +146,7 @@ export class TaskDispatch {
       const { record, version } = this.lookup(input);
       const { receipt } = record;
       if (receipt.cancelRequested || !holdsTask(receipt)) return receipt;
+      if (!this.store.owns(record)) rejectDispatch(this.store.ownerIssue(record), "该派遣记录只能作为历史查看");
       const canCancel = receipt.state === "pending" || (receipt.state === "claimed" && record.claim?.machineId === this.machineId);
       const next = { ...receipt, cancelRequested: true };
       if (canCancel) {
@@ -148,7 +163,7 @@ export class TaskDispatch {
     this.checking = true;
     try {
       const events = this.store
-        .list()
+        .list((error) => this.onError?.(error))
         .filter(({ receipt }) => holdsTask(receipt))
         .sort((a, b) => a.receipt.acceptedAt.localeCompare(b.receipt.acceptedAt) || a.receipt.eventId.localeCompare(b.receipt.eventId));
       for (const event of events) {
@@ -172,6 +187,12 @@ export class TaskDispatch {
     return stored;
   }
 
+  private current(event: OwnedRecord) {
+    const { record, version } = this.lookup(event.receipt);
+    if (!this.store.owns(record) || record.identityHash !== event.identityHash || (record.claim && record.claim.machineId !== this.machineId)) return null;
+    return { record, version };
+  }
+
   private dispatchable(task: TaskDto): DispatchSnapshot["execution"] | null {
     const config = task.execution;
     if (task.readOnly || task.type !== "agent" || task.status !== "not_started" || task.problems.length || !task.body.trim() || !config?.spaceId) return null;
@@ -190,35 +211,43 @@ export class TaskDispatch {
   }
 
   private async advance(event: DispatchRecord): Promise<void> {
-    const { receipt, snapshot, snapshotHash } = event;
+    if (!this.store.owns(event)) return;
+    const current = this.current(event);
+    if (!current) return;
+    const { record } = current;
+    const { receipt, snapshot, snapshotHash } = record;
     const signal = this.abort.signal;
     const executor = this.executor;
-    if (event.claim && event.claim.machineId !== this.machineId) return;
     if (receipt.state === "running") {
-      await this.linkTask(event);
+      await this.linkTask(record);
       return;
     }
     const work = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash };
     if (receipt.state === "pending" || receipt.state === "claimed") {
       // 重开后先检查原快照有效性，过期或已关闭的任务不做目标预检。
-      if (!(await this.prepare(receipt, "check")) || !executor) return;
+      if (!(await this.prepare(record, "check")) || !executor) return;
+      const next = this.current(record)?.record.receipt.state;
+      if (signal.aborted || (next !== "pending" && next !== "claimed")) return;
       const ready = await executor.ready(work, signal);
-      if (!(await this.prepare(receipt, ready))) return;
+      if (!(await this.prepare(record, ready))) return;
       // claimed 独立落盘。进程在此中断时，可以证明尚未开始派遣。
-      if (!(await this.beginSending(receipt))) return;
-      await this.finishSending(receipt, () => executor.dispatch(work, signal));
+      if (!(await this.beginSending(record))) return;
+      await this.finishSending(record, () => executor.dispatch(work, signal));
       return;
     }
-    if (executor) await this.finishSending(receipt, () => executor.inspect(work, signal));
+    if (executor && (receipt.state === "sending" || receipt.state === "unknown")) await this.finishSending(record, () => executor.inspect(work, signal));
   }
 
-  private async prepare(key: DispatchLookup, readiness: "check" | "ready" | "busy" | "unavailable"): Promise<boolean> {
-    return this.tasks.withTaskWrite(key.taskId, async () => {
+  private async prepare(event: OwnedRecord, readiness: "check" | "ready" | "busy" | "unavailable"): Promise<boolean> {
+    const { taskId } = event.receipt;
+    return this.tasks.withTaskWrite(taskId, async () => {
       if (this.abort.signal.aborted) return false;
-      const { record, version } = this.lookup(key);
+      const current = this.current(event);
+      if (!current) return false;
+      const { record, version } = current;
       const { receipt, snapshot } = record;
       if (receipt.state !== "pending" && receipt.state !== "claimed") return false;
-      const task = this.task(key.taskId);
+      const task = this.task(taskId);
       const now = this.now();
       const source = snapshot.source;
       const next = { ...receipt };
@@ -228,7 +257,7 @@ export class TaskDispatch {
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
       else if (task && !sameInput(task, snapshot)) Object.assign(next, { state: "stale_input", reason: null });
       else if (!task || !this.dispatchable(task)) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
-      else if (this.tasks.hasLegacyRun(key.taskId)) next.reason = "task_occupied";
+      else if (this.tasks.hasLegacyRun(taskId)) next.reason = "task_occupied";
       else if (readiness === "busy") next.reason = "waiting_resource";
       else if (readiness === "unavailable") Object.assign(next, { state: "blocked", reason: "target_unavailable" });
       else if (readiness === "ready") {
@@ -242,14 +271,17 @@ export class TaskDispatch {
     });
   }
 
-  private async beginSending(key: DispatchLookup): Promise<boolean> {
-    return this.tasks.withTaskWrite(key.taskId, async () => {
+  private async beginSending(event: OwnedRecord): Promise<boolean> {
+    const { taskId } = event.receipt;
+    return this.tasks.withTaskWrite(taskId, async () => {
       if (this.abort.signal.aborted) return false;
-      const { record, version } = this.lookup(key);
+      const current = this.current(event);
+      if (!current) return false;
+      const { record, version } = current;
       if (record.receipt.state !== "claimed" || record.receipt.cancelRequested) return false;
       // 任务编辑可以在领取落盘与本步骤之间取得写锁。
-      const task = this.task(key.taskId);
-      if (!task || !sameInput(task, record.snapshot) || !this.dispatchable(task) || this.tasks.hasLegacyRun(key.taskId)) return false;
+      const task = this.task(taskId);
+      if (!task || !sameInput(task, record.snapshot) || !this.dispatchable(task) || this.tasks.hasLegacyRun(taskId)) return false;
       const source = record.snapshot.source;
       if (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= this.now().getTime()) return false;
       await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version);
@@ -257,17 +289,21 @@ export class TaskDispatch {
     });
   }
 
-  private async finishSending(key: DispatchLookup, send: () => Promise<"accepted" | "not_sent" | "unknown">): Promise<void> {
+  private async finishSending(event: OwnedRecord, send: () => Promise<"accepted" | "not_sent" | "unknown">): Promise<void> {
     if (this.abort.signal.aborted) return;
+    const state = this.current(event)?.record.receipt.state;
+    if (state !== "sending" && state !== "unknown") return;
     let result: "accepted" | "not_sent" | "unknown";
     try {
       result = await send();
     } catch {
       result = "unknown";
     }
-    const record = await this.tasks.withTaskWrite(key.taskId, async () => {
+    const record = await this.tasks.withTaskWrite(event.receipt.taskId, async () => {
       if (this.abort.signal.aborted) return null;
-      const { record, version } = this.lookup(key);
+      const current = this.current(event);
+      if (!current) return null;
+      const { record, version } = current;
       const receipt = { ...record.receipt };
       if (receipt.state !== "sending" && receipt.state !== "unknown") return null;
       const now = this.now().toISOString();
@@ -289,8 +325,11 @@ export class TaskDispatch {
     if (record?.receipt.state === "running") await this.linkTask(record);
   }
 
-  private async linkTask({ receipt, snapshot }: DispatchRecord): Promise<void> {
+  private async linkTask(event: OwnedRecord): Promise<void> {
     if (this.abort.signal.aborted) return;
+    const record = this.current(event)?.record;
+    if (!record || record.receipt.state !== "running") return;
+    const { receipt, snapshot } = record;
     const task = this.task(receipt.taskId);
     if (task && sameInput(task, snapshot) && task.status === "not_started") await this.tasks.markDispatched(task.id, snapshot, receipt.runId, { signal: this.abort.signal });
   }

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isHuhuError, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type TaskDto } from "@huhu/contracts";
+import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type TaskDto } from "@huhu/contracts";
 import { VaultFiles } from "@huhu/vault";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -324,6 +324,12 @@ function intent(task: TaskDto, dispatchId = randomUUID()) {
   return { taskId: task.id, dispatchId, expectedVersion: task.version, inputHash: task.inputHash, inputRevision: task.inputRevision };
 }
 
+async function acceptDispatch(engine: RunningEngine, input: ReturnType<typeof intent>) {
+  const response = await call<DispatchReceipt>(engine, "tasks.dispatch", input);
+  expect(response).toMatchObject({ ok: true, data: { state: "pending", attempt: 1 } });
+  return response.data;
+}
+
 function rule(ruleId: string): RuleSource {
   return { kind: "automation", ruleId, ruleVersion: "v1", occurrenceId: `${ruleId}-occurrence`, instructions: "合成规则输入" };
 }
@@ -557,7 +563,28 @@ test("外部调用、只读受理及损坏记录都无法开始执行", { timeou
   const engine = await start(root, true);
   const task = await createDispatchable(engine);
   const input = intent(task);
-  expect(await call(engine, "tasks.dispatch", input, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  const lookup = { taskId: task.id, dispatchId: input.dispatchId };
+  const dispatchCapabilities = { "tasks.dispatch": input, "tasks.dispatch.read": lookup, "tasks.dispatch.cancel": lookup };
+  for (const [capability, args] of Object.entries(dispatchCapabilities)) {
+    expect(await call(engine, capability, args, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  }
+  expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  const mcp = async (method: string, params: unknown) => {
+    const response = await fetch(`http://127.0.0.1:${engine.port}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${engine.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { result: { tools?: { name: string }[]; isError?: boolean } }).result;
+  };
+  const { tools } = await mcp("tools/list", {});
+  expect(tools).toContainEqual(expect.objectContaining({ name: "tasks_list" }));
+  for (const [capability, args] of Object.entries(dispatchCapabilities)) {
+    const name = capability.replaceAll(".", "_");
+    expect(tools).not.toContainEqual(expect.objectContaining({ name }));
+    expect(await mcp("tools/call", { name, arguments: args })).toMatchObject({ isError: true });
+  }
   expect(await call(engine, "tasks.dispatch", { ...input, source: rule("forged") })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   await stop(engine);
   const readOnly = await start(root, false, true);
@@ -571,7 +598,226 @@ test("外部调用、只读受理及损坏记录都无法开始执行", { timeou
   writeFileSync(recordPath, '{"schema":1,"receipt":');
   fixture.executor = executor();
   const recovered = await start(root);
-  expect(await call(recovered, "tasks.dispatch.read", { taskId: task.id, dispatchId: input.dispatchId })).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL", details: { eventId: accepted.data.eventId } } });
+  expect(await call(recovered, "tasks.dispatch.read", lookup)).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL", details: { eventId: accepted.data.eventId } } });
   expect(await call(recovered, "tasks.dispatch", intent(task))).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL" } });
   expect(fixture.executor.dispatch).not.toHaveBeenCalled();
+});
+
+test("结构合法但身份损坏的记录报错，独立任务仍可重开恢复", { timeout: 60_000 }, async () => {
+  const root = tempVault();
+  const initial = executor();
+  fixture.executor = { ...initial, dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>().mockResolvedValue("unknown") };
+  const source = await start(root, true);
+  const damaged = [];
+  for (const patch of [{ runId: "", attempt: 2 }, { runId: newId("run") }, { attempt: 2 }, { state: "claimed" }]) {
+    const task = await createDispatchable(source);
+    const request = intent(task);
+    const receipt = await acceptDispatch(source, request);
+    await waitDispatch(source, receipt, { state: "unknown" });
+    damaged.push({ request, receipt, patch, file: recordFile(source, receipt.eventId), taskFile: path.join(root, task.path), record: recordOf(source, receipt) });
+  }
+  await stop(source);
+  delete fixture.executor;
+  const idle = await start(root);
+  const healthy = await createDispatchable(idle, "独立待派");
+  const pending = await acceptDispatch(idle, intent(healthy));
+  await stop(idle);
+  const corrupted = damaged.map(({ file, taskFile, record, patch }) => {
+    const bytes = JSON.stringify({ ...record, receipt: { ...record.receipt, ...patch } });
+    writeFileSync(file, bytes);
+    return { bytes, taskBytes: readFileSync(taskFile) };
+  });
+
+  const recovered = executor();
+  fixture.executor = recovered;
+  const reopened = await start(root);
+  const replies = await Promise.all(damaged.flatMap(({ request, receipt }) => [call(reopened, "tasks.dispatch.read", { taskId: receipt.taskId, dispatchId: receipt.dispatchId }), call(reopened, "tasks.dispatch", request)]));
+  await waitDispatch(reopened, pending, { state: "running", runId: pending.runId, attempt: 1 });
+  expect(replies.map((response) => [response.ok, response.error?.code])).toEqual(
+    damaged.flatMap(() => [
+      [false, "WRITE_PARTIAL"],
+      [false, "WRITE_PARTIAL"],
+    ]),
+  );
+  expect(recovered.inspect).not.toHaveBeenCalled();
+  expect(recovered.ready).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runId: pending.runId, attempt: 1 }), expect.any(AbortSignal));
+  expect(recovered.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ runId: pending.runId, attempt: 1 }), expect.any(AbortSignal));
+  damaged.forEach(({ file, taskFile }, i) => {
+    expect(readFileSync(file, "utf8")).toBe(corrupted[i]!.bytes);
+    expect(readFileSync(taskFile)).toEqual(corrupted[i]!.taskBytes);
+  });
+});
+
+test("ZIP 导入保留待派、待核实及已发历史，同 Vault 重开才会继续派遣", { timeout: 60_000 }, async () => {
+  const root = tempVault();
+  const importedRoot = tempVault();
+  const sameIdRoot = tempVault();
+  const archive = path.join(tempVault(), "backup.zip");
+  fixture.executor = { ...executor(), dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>().mockResolvedValue("unknown") };
+  const initial = await start(root, true);
+  const unknownTask = await createDispatchable(initial, "待核实");
+  const unknownRequest = intent(unknownTask);
+  const unknown = await acceptDispatch(initial, unknownRequest);
+  await waitDispatch(initial, unknown, { state: "unknown" });
+  const sentTask = await createDispatchable(initial, "已发但看板尚未更新");
+  const sentRequest = intent(sentTask);
+  fixture.executor.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockResolvedValue("accepted");
+  const write = VaultFiles.prototype.write;
+  const interrupted = new Error("中断：目标已接受，任务 Markdown 尚未写入");
+  const boundary = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(function (this: VaultFiles, rel, bytes, options) {
+    if (this.root === root && rel === sentTask.path) throw interrupted;
+    return write.call(this, rel, bytes, options);
+  });
+  const { source, pendingTask, pending, sent, history, before, imported } = await (async () => {
+    try {
+      const sent = await acceptDispatch(initial, sentRequest);
+      await waitDispatch(initial, sent, { state: "running" });
+      await vi.waitFor(() => expect(fixture.errors).toContain(interrupted));
+      await stop(initial);
+      delete fixture.executor;
+      const source = await start(root);
+      const pendingTask = await createDispatchable(source, "待派");
+      const pendingRequest = intent(pendingTask);
+      const pending = await acceptDispatch(source, pendingRequest);
+      const history = [
+        { task: pendingTask, request: pendingRequest, receipt: pending },
+        { task: unknownTask, request: unknownRequest, receipt: unknown },
+        { task: sentTask, request: sentRequest, receipt: sent },
+      ];
+      expect(await call(source, "tasks.read", { id: sentTask.id })).toMatchObject({ ok: true, data: { status: "not_started" } });
+      const before = history.map(({ task, receipt }) => ({
+        record: readFileSync(recordFile(source, receipt.eventId)),
+        task: readFileSync(path.join(root, task.path)),
+        reply: recordOf(source, receipt).receipt,
+      }));
+      expect(await call(source, "vault.exportPackage", { dest: archive, includeAttachments: false })).toMatchObject({ ok: true, data: { vaultId: source.vault.id } });
+      const imported = await call<{ vaultId: string }>(source, "vault.importPackage", { zipPath: archive, targetDir: importedRoot });
+      expect(imported.ok).toBe(true);
+      expect(imported.data.vaultId).not.toBe(source.vault.id);
+      await stop(source);
+      return { source, pendingTask, pending, sent, history, before, imported };
+    } finally {
+      boundary.mockRestore();
+    }
+  })();
+
+  const cloneExecutor = executor();
+  fixture.executor = cloneExecutor;
+  const clone = await start(importedRoot);
+  expect(clone.vault.info.id).toBe(imported.data.vaultId);
+  expect(await call(clone, "tasks.runs", { id: unknownTask.id })).toMatchObject({ ok: true, data: [{ id: unknown.runId, state: "unknown" }] });
+  expect(await call(clone, "tasks.runs", { id: sentTask.id })).toMatchObject({ ok: true, data: [{ id: sent.runId, state: "running" }] });
+  // Recover an independent local event to observe a complete scan in the imported Vault.
+  const own = await createDispatchable(clone, "副本自己的新任务");
+  const ownReceipt = await acceptDispatch(clone, intent(own));
+  await waitDispatch(clone, ownReceipt, { state: "running" });
+  const copied = await Promise.all(
+    history.map(async ({ request, receipt, task }) => {
+      const lookup = { taskId: task.id, dispatchId: receipt.dispatchId };
+      return {
+        read: await call(clone, "tasks.dispatch.read", lookup),
+        repeat: await call(clone, "tasks.dispatch", request),
+        mismatch: await call(clone, "tasks.dispatch", { ...request, expectedVersion: "different" }),
+        fresh: await call(clone, "tasks.dispatch", intent(task)),
+        cancel: await call(clone, "tasks.dispatch.cancel", lookup),
+        record: readFileSync(recordFile(clone, receipt.eventId)),
+        task: readFileSync(path.join(importedRoot, task.path)),
+      };
+    }),
+  );
+
+  await stop(clone);
+  delete fixture.executor;
+  const importer = await start(tempVault(), true);
+  // An unrelated importer preserves the archive's Vault ID. Its copy still has no local dispatch key.
+  expect(await call(importer, "vault.importPackage", { zipPath: archive, targetDir: sameIdRoot })).toMatchObject({ ok: true, data: { vaultId: source.vault.id } });
+  await stop(importer);
+
+  // Even a file-level copy of the original runtime key lacks the current directory identity.
+  const keyName = readdirSync(source.vault.runtimeDir).find((name) => /^task-dispatch-[a-f0-9]{32}\.key$/.test(name));
+  expect(keyName).toBeDefined();
+  const localRuntime = path.join(sameIdRoot, path.relative(root, source.vault.runtimeDir));
+  mkdirSync(localRuntime, { recursive: true });
+  writeFileSync(path.join(localRuntime, keyName!), readFileSync(path.join(source.vault.runtimeDir, keyName!)));
+
+  const sameIdExecutor = executor();
+  fixture.executor = sameIdExecutor;
+  const sameId = await start(sameIdRoot);
+  expect(sameId.vault.id).toBe(source.vault.id);
+  const sameIdLookup = { taskId: pending.taskId, dispatchId: pending.dispatchId };
+  expect(await call(sameId, "tasks.dispatch.read", sameIdLookup)).toMatchObject({ ok: true, data: pending });
+  expect(await call(sameId, "tasks.dispatch.cancel", sameIdLookup)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { reason: "unverified_owner" } } });
+  const ownInSameId = await createDispatchable(sameId, "同 ID 副本的新任务");
+  const sameIdReceipt = await acceptDispatch(sameId, intent(ownInSameId));
+  await waitDispatch(sameId, sameIdReceipt, { state: "running" });
+  expect(readdirSync(localRuntime).filter((name) => /^task-dispatch-[a-f0-9]{32}\.key$/.test(name))).toHaveLength(2);
+  expect(sameIdExecutor.ready).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: sameIdReceipt.eventId }), expect.any(AbortSignal));
+  expect(sameIdExecutor.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: sameIdReceipt.eventId }), expect.any(AbortSignal));
+  expect(sameIdExecutor.inspect).not.toHaveBeenCalled();
+  history.forEach(({ task, receipt }, i) => {
+    expect(readFileSync(recordFile(sameId, receipt.eventId))).toEqual(before[i]!.record);
+    expect(readFileSync(path.join(sameIdRoot, task.path))).toEqual(before[i]!.task);
+  });
+  await stop(sameId);
+
+  const sourceExecutor = executor();
+  fixture.executor = sourceExecutor;
+  const reopened = await start(root);
+  expect(reopened.vault.info.id).toBe(source.vault.info.id);
+  await waitDispatch(reopened, pending, { state: "running", runId: pending.runId, attempt: 1 });
+  expect(sourceExecutor.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: pending.eventId, runId: pending.runId, attempt: 1 }), expect.any(AbortSignal));
+  expect(sourceExecutor.inspect).toHaveBeenCalledWith(expect.objectContaining({ eventId: unknown.eventId, runId: unknown.runId, attempt: 1 }), expect.any(AbortSignal));
+
+  expect(cloneExecutor.ready).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: ownReceipt.eventId }), expect.any(AbortSignal));
+  expect(cloneExecutor.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: ownReceipt.eventId }), expect.any(AbortSignal));
+  expect(cloneExecutor.inspect).not.toHaveBeenCalled();
+  copied.forEach(({ read, repeat, mismatch, fresh, cancel, record, task }, i) => {
+    expect(read).toMatchObject({ ok: true, data: before[i]!.reply });
+    expect(repeat).toEqual(read);
+    expect(mismatch).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    expect(fresh).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { reason: "task_occupied" } } });
+    expect(cancel).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { reason: "foreign_vault" } } });
+    expect(record).toEqual(before[i]!.record);
+    expect(task).toEqual(before[i]!.task);
+  });
+  expect(readFileSync(recordFile(reopened, pending.eventId))).not.toEqual(before[0]!.record);
+  await vi.waitFor(() => expect(readFileSync(path.join(root, pendingTask.path))).not.toEqual(before[0]!.task));
+  expect(readFileSync(recordFile(reopened, unknown.eventId))).toEqual(before[1]!.record);
+  expect(readFileSync(path.join(root, unknownTask.path))).toEqual(before[1]!.task);
+  expect(readFileSync(recordFile(reopened, sent.eventId))).toEqual(before[2]!.record);
+  expect(await call(reopened, "tasks.read", { id: sentTask.id })).toMatchObject({ ok: true, data: { status: "in_progress", comments: [{ id: `sys-${sent.runId}-dispatched` }] } });
+  expect(readFileSync(path.join(root, sentTask.path))).not.toEqual(before[2]!.task);
+});
+
+test("身份未证实的旧版收据保留历史和占用，重开无需认领或补写", { timeout: 60_000 }, async () => {
+  const root = tempVault();
+  const source = await start(root, true);
+  const task = await createDispatchable(source, "旧版记录");
+  const request = intent(task);
+  const pending = await acceptDispatch(source, request);
+  const file = recordFile(source, pending.eventId);
+  const record = recordOf(source, pending);
+  await stop(source);
+  const { receipt, requestHash, snapshot, snapshotHash, claim, startedAt, finishedAt } = record;
+  const oldBytes = JSON.stringify({ schema: 1, receipt, requestHash, snapshot, snapshotHash, claim, startedAt, finishedAt });
+  writeFileSync(file, oldBytes);
+  const taskFile = path.join(root, task.path);
+  const taskBytes = readFileSync(taskFile);
+  const fake = executor();
+  fixture.executor = fake;
+  const reopened = await start(root);
+  const key = { taskId: pending.taskId, dispatchId: pending.dispatchId };
+  const read = await call(reopened, "tasks.dispatch.read", key);
+  expect(read).toMatchObject({ ok: true, data: pending });
+  expect(await call(reopened, "tasks.dispatch", request)).toEqual(read);
+  expect(await call(reopened, "tasks.dispatch", intent(task))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { reason: "task_occupied" } } });
+  expect(await call(reopened, "tasks.dispatch.cancel", key)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { reason: "unverified_owner" } } });
+  const own = await createDispatchable(reopened, "本 Vault 新记录");
+  const ownReceipt = await acceptDispatch(reopened, intent(own));
+  await waitDispatch(reopened, ownReceipt, { state: "running" });
+  expect(fake.ready).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: ownReceipt.eventId }), expect.any(AbortSignal));
+  expect(fake.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ eventId: ownReceipt.eventId }), expect.any(AbortSignal));
+  expect(fake.inspect).not.toHaveBeenCalled();
+  expect(readFileSync(file, "utf8")).toBe(oldBytes);
+  expect(readFileSync(taskFile)).toEqual(taskBytes);
 });

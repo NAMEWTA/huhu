@@ -77,7 +77,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       }
     },
   });
-  const dispatch: TaskDispatch = new TaskDispatch(svc, new DispatchStore(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly)), now, machineId(), opts.dispatchExecutor, opts.onError);
+  const machine = machineId();
+  const store = new DispatchStore(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly), api.vault.vaultId, machine);
+  const dispatch: TaskDispatch = new TaskDispatch(svc, store, now, machine, opts.dispatchExecutor, opts.onError);
 
   api.defineCapability(
     def({

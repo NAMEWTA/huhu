@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
-import { readdirSync } from "node:fs";
-import { HuhuError, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { readdirSync, statSync } from "node:fs";
+import { HuhuError, isHuhuError, isId, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { canonicalJson } from "../shared/input.js";
@@ -38,8 +38,7 @@ export const DispatchReceipt = DispatchLookup.extend({
   reason: z.enum(["waiting_resource", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "foreign_machine", "awaiting_confirmation"]).nullable(),
   cancelRequested: z.boolean(),
 });
-const DispatchRecord = z.object({
-  schema: z.literal(1),
+const RecordFields = z.object({
   receipt: DispatchReceipt,
   requestHash: z.string(),
   snapshot: Snapshot,
@@ -48,6 +47,14 @@ const DispatchRecord = z.object({
   startedAt: Instant.nullable(),
   finishedAt: Instant.nullable(),
 });
+const Digest = z.string().regex(/^[a-f0-9]{64}$/);
+const OwnedRecord = RecordFields.extend({
+  schema: z.literal(2),
+  owner: z.object({ vaultId: Id, storageId: Digest }),
+  identityHash: Digest,
+  seal: Digest,
+});
+const DispatchRecord = z.discriminatedUnion("schema", [RecordFields.extend({ schema: z.literal(1) }), OwnedRecord]);
 
 export type DispatchInput = z.infer<typeof DispatchInput>;
 export type DispatchLookup = z.infer<typeof DispatchLookup>;
@@ -56,6 +63,8 @@ export type DispatchSource = z.infer<typeof Source>;
 export type DispatchSnapshot = z.infer<typeof Snapshot>;
 export type DispatchReceipt = z.infer<typeof DispatchReceipt>;
 export type DispatchRecord = z.infer<typeof DispatchRecord>;
+export type OwnedRecord = z.infer<typeof OwnedRecord>;
+type UnsealedRecord = Omit<OwnedRecord, "seal">;
 type Stored = { record: DispatchRecord; version: string };
 
 export function fingerprint(value: unknown): string {
@@ -64,6 +73,19 @@ export function fingerprint(value: unknown): string {
 
 export function eventIdOf(dispatchId: string): string {
   return `evt-${fingerprint(dispatchId)}`;
+}
+
+function identityOf({ owner, receipt, requestHash, snapshotHash }: Omit<UnsealedRecord, "identityHash">): string {
+  const { taskId, dispatchId, eventId, runId, attempt, acceptedAt } = receipt;
+  return fingerprint({ owner, taskId, dispatchId, eventId, runId, attempt, acceptedAt, requestHash, snapshotHash });
+}
+
+function seal(record: UnsealedRecord, key: Buffer): string {
+  return createHmac("sha256", key).update(canonicalJson(record)).digest("hex");
+}
+
+function storageIdOf(key: Buffer): string {
+  return createHash("sha256").update(key).digest("hex");
 }
 
 export function holdsTask({ state }: DispatchReceipt): boolean {
@@ -77,8 +99,18 @@ export function sameInput(task: TaskDto, input: Pick<DispatchInput, "inputRevisi
 /** 受理事实、冻结输入和领取事实在同一原子文件中；同一 event 的 run 无须跨文件补写。 */
 export class DispatchStore {
   private readonly dir = "tasks/dispatches";
+  private readonly keyFile: string;
 
-  constructor(private readonly files: VaultFiles) {}
+  constructor(
+    private readonly files: VaultFiles,
+    private readonly vaultId: string,
+    machineId: string,
+  ) {
+    // 用当前实际目录的文件系统身份定位密钥。复制运行目录也不会用到原目录的密钥。
+    const { dev, ino, birthtimeNs } = statSync(files.root, { bigint: true });
+    const dirId = fingerprint([dev.toString(), ino.toString(), birthtimeNs.toString()]).slice(0, 32);
+    this.keyFile = `runtime/${machineId}/task-dispatch-${dirId}.key`;
+  }
 
   get readOnly(): boolean {
     return this.files.readOnly;
@@ -88,22 +120,52 @@ export class DispatchStore {
     this.files.assertWritable();
   }
 
+  owns(record: DispatchRecord): record is OwnedRecord {
+    return this.ownerKey(record) !== null;
+  }
+
+  ownerIssue(record: DispatchRecord): "foreign_vault" | "unverified_owner" {
+    return record.schema === 2 && record.owner.vaultId !== this.vaultId ? "foreign_vault" : "unverified_owner";
+  }
+
+  private readKey(): Buffer | null {
+    const key = this.files.read(this.keyFile)?.bytes;
+    if (!key) return null;
+    if (key.length !== 32) throw new HuhuError("WRITE_PARTIAL", "任务派遣存储凭据损坏");
+    return key;
+  }
+
+  private ownerKey(record: DispatchRecord | UnsealedRecord): Buffer | null {
+    if (record.schema === 1 || record.owner.vaultId !== this.vaultId) return null;
+    const key = this.readKey();
+    return key && storageIdOf(key) === record.owner.storageId ? key : null;
+  }
+
   read(eventId: string): Stored | null {
     const rel = `${this.dir}/${eventId}.json`;
     const file = this.files.read(rel);
     if (!file) return null;
     try {
       const record = DispatchRecord.parse(JSON.parse(file.bytes.toString("utf8")));
-      const { receipt, snapshot, claim } = record;
-      if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== snapshot.taskId || fingerprint(snapshot) !== record.snapshotHash) throw new Error("身份或快照校验失败");
+      const { receipt, snapshot, claim, requestHash, snapshotHash } = record;
+      const { taskId, inputHash, inputRevision, expectedVersion, source } = snapshot;
+      const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion };
+      if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run") || receipt.attempt !== 1) throw new Error("派遣身份校验失败");
+      if (fingerprint(snapshot) !== snapshotHash || fingerprint({ input, source }) !== requestHash) throw new Error("请求或快照校验失败");
       if ((receipt.state === "pending" && claim) || (["claimed", "sending", "running", "unknown"].includes(receipt.state) && !claim)) throw new Error("领取状态与记录不符");
+      if (record.schema === 2) {
+        const { seal: savedSeal, ...unsigned } = record;
+        if (identityOf(unsigned) !== unsigned.identityHash) throw new Error("受理身份校验失败");
+        const key = this.ownerKey(record);
+        if (key && !timingSafeEqual(Buffer.from(savedSeal, "hex"), Buffer.from(seal(unsigned, key), "hex"))) throw new Error("派遣记录签名校验失败");
+      }
       return { record, version: file.version };
     } catch {
       throw new HuhuError("WRITE_PARTIAL", "任务派遣记录损坏", { details: { path: rel, eventId } });
     }
   }
 
-  list(): DispatchRecord[] {
+  list(onDamaged?: (error: HuhuError) => void): DispatchRecord[] {
     let names: string[];
     try {
       names = readdirSync(this.files.abs(this.dir));
@@ -113,15 +175,46 @@ export class DispatchStore {
     }
     return names
       .filter((name) => /^evt-[a-f0-9]{64}\.json$/.test(name))
-      .map((name) => {
+      .flatMap((name) => {
         const eventId = name.slice(0, -5);
-        const stored = this.read(eventId);
-        if (!stored) throw new HuhuError("WRITE_PARTIAL", "任务派遣记录读取期间消失", { details: { eventId } });
-        return stored.record;
+        try {
+          const stored = this.read(eventId);
+          if (!stored) throw new HuhuError("WRITE_PARTIAL", "任务派遣记录读取期间消失", { details: { eventId } });
+          return [stored.record];
+        } catch (error) {
+          if (!onDamaged || !isHuhuError(error) || error.code !== "WRITE_PARTIAL") throw error;
+          onDamaged(error);
+          return [];
+        }
       });
   }
 
-  async write(record: DispatchRecord, expectedVersion: string | null): Promise<DispatchRecord> {
+  async create(fields: z.infer<typeof RecordFields>): Promise<OwnedRecord> {
+    // Vault ZIP 保留业务记录。只有同一 Vault 的本机 runtime 保存签名密钥。
+    let key = this.readKey();
+    if (!key) {
+      const generated = randomBytes(32);
+      try {
+        await this.files.write(this.keyFile, generated, { expectedVersion: null });
+        key = generated;
+      } catch (error) {
+        if (!isHuhuError(error) || error.code !== "NAME_CONFLICT") throw error;
+        key = this.readKey();
+        if (!key) throw error;
+      }
+    }
+    const record = { ...fields, schema: 2 as const, owner: { vaultId: this.vaultId, storageId: storageIdOf(key) } };
+    return this.writeSealed({ ...record, identityHash: identityOf(record) }, key, null);
+  }
+
+  async write({ seal: _priorSeal, ...record }: OwnedRecord, expectedVersion: string): Promise<OwnedRecord> {
+    const key = this.ownerKey(record);
+    if (!key) throw new HuhuError("WRITE_PARTIAL", "无法验证任务派遣存储所有者");
+    return this.writeSealed(record, key, expectedVersion);
+  }
+
+  private async writeSealed(unsigned: UnsealedRecord, key: Buffer, expectedVersion: string | null): Promise<OwnedRecord> {
+    const record = { ...unsigned, seal: seal(unsigned, key) };
     await this.files.write(`${this.dir}/${record.receipt.eventId}.json`, Buffer.from(`${JSON.stringify(record, null, 2)}\n`), { expectedVersion });
     return record;
   }
