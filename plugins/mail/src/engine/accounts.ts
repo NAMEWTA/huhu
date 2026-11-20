@@ -45,6 +45,13 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     list: async () => (await credentials.list()).map((entry) => mailAccount(entry, entry.definition)),
     recover: () => credentials.recover(),
     begin: (settings: MailAccountSettings, password?: string) => new MailAccountDraft(credentials, discover, settings, password),
+    withSmtpCredentials<R>(accountId: string, send: (settings: MailAccountDefinition["settings"], password: string) => Promise<R>) {
+      return credentials.use(accountId, [accountPasswordPurpose], ({ settings }, values) => {
+        const password = values.get(accountPasswordPurpose);
+        if (!password) throw new MailAccountError("credential-required");
+        return send(settings, password);
+      });
+    },
     async fetchLatest(accountId: string, folder: string, signal: AbortSignal) {
       const result = await credentials.use(accountId, [accountPasswordPurpose], async ({ settings, folders }, values) => {
         if (!folders.some(({ path }) => path === folder)) return { error: new MailAccountError("invalid-selection") };

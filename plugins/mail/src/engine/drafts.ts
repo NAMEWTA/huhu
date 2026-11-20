@@ -3,60 +3,24 @@ import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
-import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, attachmentRefs, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
+import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
+import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
+import { MAIL_OUTBOX_SERVICE, MailOutbox, type MailOutboxService } from "./outbox.js";
+import type { MailSmtpTransport } from "./smtp.js";
 
-const uuid = z.uuidv4().toLowerCase();
 const draftKey = z.strictObject({ draftId: uuid });
-const address = z.string().trim().toLowerCase().max(254).pipe(z.email());
-const recipients = z.array(address).max(1_000);
 const recipientFields = ["to", "cc", "bcc"] as const;
-const maxBodyBytes = 1024 * 1024;
-
-// Tiptap/ProseMirror document JSON. Preserve editor node and mark attributes as supplied.
-const editorAttributes = z.record(z.string(), z.json());
-const editorMark = z.strictObject({ type: z.string().min(1), attrs: editorAttributes.optional() });
-type EditorNode = {
-  type: string;
-  attrs?: z.infer<typeof editorAttributes> | undefined;
-  marks?: z.infer<typeof editorMark>[] | undefined;
-  text?: string | undefined;
-  content?: EditorNode[] | undefined;
-};
-const editorNode: z.ZodType<EditorNode> = z.lazy(() =>
-  z.strictObject({
-    type: z.string().min(1),
-    attrs: editorAttributes.optional(),
-    marks: z.array(editorMark).optional(),
-    text: z.string().optional(),
-    content: z.array(editorNode).optional(),
-  }),
-);
-const editorDocument = z
-  .strictObject({ type: z.literal("doc"), attrs: editorAttributes.optional(), content: z.array(editorNode).optional() })
-  .refine((doc) => Buffer.byteLength(JSON.stringify(doc)) <= maxBodyBytes, "富文本草稿不能超过 1 MiB");
-
-const draftContent = z.strictObject({
-  accountId: uuid.nullable(),
-  to: recipients,
-  cc: recipients,
-  bcc: recipients,
-  subject: z.string().max(8192),
-  body: editorDocument,
-});
 const draftMetadata = draftKey.extend({ revision: uuid, updatedAt: z.iso.datetime() });
-const storedContent = draftContent.extend({ attachments: attachmentRefs.optional() });
 const draftDetails = draftMetadata.extend(draftContent.shape).extend({ attachments: z.array(attachmentDetails).optional() });
 const draftSummary = draftMetadata.extend(draftContent.pick({ accountId: true, subject: true }).shape);
 const saveInput = draftKey.extend({ expectedRevision: uuid.nullable(), draft: draftContent });
 const discardInput = draftKey.extend({ expectedRevision: uuid });
 const attachmentKey = draftKey.extend({ digest: attachmentDigest });
 const removeInput = discardInput.extend({ digest: attachmentDigest });
-const storedDraft = draftMetadata.omit({ draftId: true }).extend({ draft: storedContent.nullable() });
+const storedDraft = draftMetadata.omit({ draftId: true }).extend({ draft: storedDraftContent.nullable() });
 const snapshotSchema = z.strictObject({ format: z.literal(1), drafts: z.record(uuid, storedDraft) });
 
 type Draft = z.infer<typeof draftDetails>;
-type DraftContent = z.infer<typeof draftContent>;
-type StoredContent = z.infer<typeof storedContent>;
 type StoredDraft = z.infer<typeof storedDraft>;
 type Snapshot = z.infer<typeof snapshotSchema>;
 type VaultFiles = HuhuApi["vault"]["files"];
@@ -66,7 +30,9 @@ type MailAccounts = ReturnType<typeof openMailAccounts>;
 const draftsPath = ".huhu/mail/drafts.json";
 const workbenchDraft = { plugin: "mail", exposable: false, defaultExposed: false } as const;
 export const MAIL_DRAFT_ATTACHMENTS_SERVICE = "mail.draftAttachments";
-export type MailDraftAttachments = Pick<MailDrafts, "addAttachment" | "removeAttachment" | "readAttachment" | "withSnapshot" | "sweepUnreferenced">;
+export type MailDraftAttachments = Pick<MailDrafts, "addAttachment" | "removeAttachment" | "readAttachment" | "withSnapshot"> & {
+  sweepUnreferenced(signal?: AbortSignal): ReturnType<MailDrafts["sweepUnreferenced"]>;
+};
 
 function authorize(caller: string, capability: string): void {
   if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(capability);
@@ -179,6 +145,20 @@ class MailDrafts {
     return { ...ref, ...this.objects.read(ref) };
   }
 
+  freezeForSend(draftId: string, expectedRevision: string) {
+    const record = this.read().snapshot.drafts[draftId];
+    if (record && record.revision !== expectedRevision) throw errors.versionConflict(record.revision);
+    const draft = this.requireDraft(record?.draft);
+    const attachments = (draft.attachments ?? []).map((ref) => {
+      const attachment = this.objects.read(ref);
+      if (attachment.state !== "ready") {
+        throw new HuhuError("INVALID_INPUT", "请重新绑定或移除无法读取的附件", { details: { reason: "attachment-unavailable", digest: ref.digest, state: attachment.state } });
+      }
+      return { filename: ref.name, content: attachment.bytes };
+    });
+    return { draft, attachments };
+  }
+
   /** Exporters use the same writer-side boundary from file enumeration through the last read. */
   withSnapshot<T>(run: (signal: AbortSignal) => Promise<T>, requestSignal?: AbortSignal): Promise<T> {
     const signal = requestSignal ? AbortSignal.any([requestSignal, this.lifetime]) : this.lifetime;
@@ -189,13 +169,14 @@ class MailDrafts {
   }
 
   /** Call only when every other exporter is quiescent or uses withSnapshot. */
-  sweepUnreferenced(requestSignal?: AbortSignal) {
+  sweepUnreferenced(outboxReferences: () => string[], requestSignal?: AbortSignal) {
     this.files.assertWritable();
     return this.withSnapshot(async () => {
       const { snapshot, version } = this.read();
       // A missing draft index cannot establish that existing objects are unreferenced.
       if (version === null) return { removed: [], failed: [] };
       const referenced = new Set(Object.values(snapshot.drafts).flatMap(({ draft }) => draft?.attachments?.map(({ digest }) => digest) ?? []));
+      for (const digest of outboxReferences()) referenced.add(digest);
       return this.objects.sweep(referenced);
     }, requestSignal);
   }
@@ -204,12 +185,12 @@ class MailDrafts {
     return this.tail;
   }
 
-  private requireDraft(draft: StoredContent | null | undefined): StoredContent {
+  private requireDraft(draft: StoredDraftContent | null | undefined): StoredDraftContent {
     if (!draft) throw errors.notFound("邮件草稿不存在");
     return draft;
   }
 
-  private requireAttachment(draft: StoredContent, digest: string) {
+  private requireAttachment(draft: StoredDraftContent, digest: string) {
     const ref = draft.attachments?.find((attachment) => attachment.digest === digest);
     if (!ref) throw errors.notFound("邮件草稿没有此附件");
     return ref;
@@ -237,7 +218,7 @@ class MailDrafts {
     }
   }
 
-  private change(draftId: string, expectedRevision: string | null, assertActive: () => void, edit: (previous: StoredContent | undefined) => StoredContent | null | Promise<StoredContent | null>): Promise<StoredDraft> {
+  private change(draftId: string, expectedRevision: string | null, assertActive: () => void, edit: (previous: StoredDraftContent | undefined) => StoredDraftContent | null | Promise<StoredDraftContent | null>): Promise<StoredDraft> {
     this.files.assertWritable();
     // Keep business CAS and replacement together. VaultFiles also checks the snapshot bytes at the atomic write.
     return this.serialize(async () => {
@@ -273,7 +254,7 @@ class MailDrafts {
     });
   }
 
-  private serialize<T>(run: () => Promise<T>): Promise<T> {
+  serialize<T>(run: () => Promise<T>): Promise<T> {
     const operation = this.tail.then(run);
     this.tail = operation.then(
       () => undefined,
@@ -283,15 +264,20 @@ class MailDrafts {
   }
 }
 
-export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal): () => Promise<void> {
+export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal, transport: MailSmtpTransport | undefined): () => Promise<void> {
   const drafts = new MailDrafts(api.vault.files, accounts, lifetime);
+  const outbox = new MailOutbox(api.vault.files, drafts, accounts, transport, lifetime);
   api.provide(MAIL_DRAFT_ATTACHMENTS_SERVICE, {
     addAttachment: drafts.addAttachment.bind(drafts),
     removeAttachment: drafts.removeAttachment.bind(drafts),
     readAttachment: drafts.readAttachment.bind(drafts),
     withSnapshot: drafts.withSnapshot.bind(drafts),
-    sweepUnreferenced: drafts.sweepUnreferenced.bind(drafts),
+    sweepUnreferenced: (signal) => drafts.sweepUnreferenced(() => outbox.attachmentDigests(), signal),
   } satisfies MailDraftAttachments);
+  api.provide(MAIL_OUTBOX_SERVICE, {
+    submit: outbox.submit.bind(outbox),
+    status: outbox.status.bind(outbox),
+  } satisfies MailOutboxService);
   api.defineCapability(
     defineCapability({
       ...workbenchDraft,
@@ -346,5 +332,8 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
       },
     }),
   );
-  return () => drafts.drain();
+  return async () => {
+    await drafts.drain();
+    await outbox.drain();
+  };
 }
