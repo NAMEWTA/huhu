@@ -21,6 +21,10 @@
 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。
 - P-S4-08 上游 app 非 dom 测试迁入（22 个，原样复制自上游 app 的 comments 目录，与被测源码同目录；`test:vendor` 经 `vitest.vendor.config.ts` 的 Lingui 宏管线与 `test/vendor-setup.ts`（激活 en）运行）：（逐文件清单见 evidence/tests-manifest.json，与上游 SHA-256 逐一相同）、、、、、、、、、、、、、、、、、、、、、。
 - P-S4-09 `app/src/comments/CommentMarginRail.tsx`：宿主中将评论边缘按钮挂到编辑器的 `.ok-root`。窄屏详情浮层遮住右侧留白时使用左侧留白，保留上游的引用定位与线程打开行为。
+- P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。
+- P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。
+- P-S4-12 `app/src/comments/comments-client.ts`、`app/src/comments/store.ts`：创建/重定位请求携带会话身份和 revision，文档详情切换后抑制迟到的自动揭示。
+- P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。
 
 ## 删除
 

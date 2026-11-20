@@ -21,6 +21,8 @@ export {
   notifyCommentsChanged,
   onCommentPosted,
   onCommentThreadOpened,
+  registerCommentSelectionSource,
+  useCommentsReadOnlySync,
   startComment,
   toThreadMeta,
   type CommentRouteDeps,

@@ -1,4 +1,4 @@
-import { contextEvidenceFloor, contextMatchScore, rewriteCeiling } from "./passage-match.js";
+import { contextEvidenceFloor, contextMatchScore, findAllPassages, markdownPassageText, rewriteCeiling } from "./passage-match.js";
 
 export interface Anchor {
   exact: string;
@@ -61,60 +61,30 @@ export function bestByContext<T extends Span>(body: string, hits: readonly T[], 
 }
 
 export function refind(body: string, anchor: Anchor): RefindResult {
-  const { exact, prefix, suffix, start } = anchor;
-  const end = start + exact.length;
-
-  if (end <= body.length && body.slice(start, end) === exact) {
-    return { status: "anchored", start, end };
-  }
+  const { exact, prefix, suffix } = anchor;
 
   if (prefix !== "" && suffix !== "" && !body.includes(prefix + exact + suffix) && body.includes(prefix + suffix)) {
     return { status: "orphaned" };
   }
 
-  const hits = allOccurrences(body, exact);
-  if (hits.length === 0) return refindBetweenBrackets(body, anchor);
-  const floor = contextEvidenceFloor(anchor, { syntaxInContext: true });
-  const evidence = (span: Span): boolean => floor === 0 || contextMatchScore(body, span, { prefix, suffix }, { syntaxIn: "haystack", syntaxInContext: true }) >= floor;
-  const only = hits[0];
-  if (hits.length === 1 && only !== undefined) {
-    const span = { start: only, end: only + exact.length };
-    if (!evidence(span)) return refindBetweenBrackets(body, anchor);
-    return { status: "anchored", start: span.start, end: span.end };
-  }
+  const literal = allOccurrences(body, exact).map((start) => ({ start, end: start + exact.length }));
+  const rendered = markdownPassageText(exact);
+  const byStart = new Map(findAllPassages(body, rendered).map((hit) => [hit.start, hit]));
+  for (const hit of literal) byStart.set(hit.start, hit);
+  if (byStart.size === 0) return refindBetweenBrackets(body, anchor);
 
-  const best = bestByContext(
-    body,
-    hits.map((h) => ({ start: h, end: h + exact.length })),
-    { prefix, suffix },
-    { contextIsMarkdown: true },
-  );
+  const best = bestByContext(body, [...byStart.values()], anchor, { contextIsMarkdown: true });
   const top = best[0];
-  if (top === undefined || !evidence(top)) return refindBetweenBrackets(body, anchor);
-  if (best.length === 1) {
-    return { status: "anchored", start: top.start, end: top.end };
-  }
-
-  let nearest: Span[] = [];
-  let nearestDist = Number.POSITIVE_INFINITY;
-  for (const h of best) {
-    const d = Math.abs(h.start - start);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = [h];
-    } else if (d === nearestDist) {
-      nearest.push(h);
-    }
-  }
-  const near = nearest[0];
-  if (nearest.length === 1 && near !== undefined) {
-    return { status: "anchored", start: near.start, end: near.end };
-  }
-  return { status: "orphaned" };
+  if (best.length !== 1 || top === undefined) return { status: "orphaned" };
+  const floor = contextEvidenceFloor(anchor, { syntaxInContext: true });
+  const score = contextMatchScore(body, top, anchor, { syntaxIn: "haystack", syntaxInContext: true });
+  if (score < floor) return { status: "orphaned" };
+  return { status: "anchored", start: top.start, end: top.end };
 }
 
 function refindBetweenBrackets(body: string, anchor: Anchor): RefindResult {
   const { prefix, suffix, exact } = anchor;
+  if (prefix === "" && suffix === "") return { status: "orphaned" };
   const starts = prefix === "" ? [0] : allOccurrences(body, prefix).map((i) => i + prefix.length);
   const ends = suffix === "" ? [body.length] : allOccurrences(body, suffix);
   if (starts.length !== 1 || ends.length !== 1) return { status: "orphaned" };

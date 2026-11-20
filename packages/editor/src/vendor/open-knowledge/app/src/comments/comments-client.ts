@@ -72,6 +72,14 @@ export async function listThreads(docName?: string): Promise<CommentThreadMeta[]
   return parseThreads(threads);
 }
 
+// HUHU: identity and revision of the buffer when the selection was captured.
+export interface CommentSelectionRevision {
+  vaultId: string;
+  path: string;
+  epoch: number;
+  revision: number;
+}
+
 export function createThread(input: {
   docName: string;
   quote?: string;
@@ -82,6 +90,7 @@ export function createThread(input: {
   propertyKey?: string;
   propertyPath?: (string | number)[];
   wholeFile?: boolean; // HUHU(P-S4-03)
+  selection?: CommentSelectionRevision;
   body: string;
   queue?: boolean;
 }): Promise<CommentThreadMeta> {
@@ -110,7 +119,7 @@ export function reopenThread(threadId: string): Promise<CommentThreadMeta> {
 
 export function replaceAnchor(
   threadId: string,
-  passage: { quote?: string; prefix?: string; suffix?: string; start?: number; end?: number },
+  passage: { quote?: string; prefix?: string; suffix?: string; start?: number; end?: number; selection?: CommentSelectionRevision },
 ): Promise<CommentThreadMeta> {
   return mutate<unknown>({ action: 'replace', id: threadId, ...passage }).then(parseThread);
 }

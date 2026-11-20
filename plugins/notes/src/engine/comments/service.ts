@@ -65,10 +65,11 @@ export interface RangeInput {
   quote?: string | undefined;
   prefix?: string | undefined;
   suffix?: string | undefined;
+  expectedSourceVersion?: string | undefined;
 }
 
 /**
- * 把选区解析成已保存文本里的 [start,end)：偏移直接用；引用文字先按字面查，再按“渲染文本”查（越过强调 / 链接等语法）；
+ * 把选区解析成已保存文本里的 [start,end)：偏移直接用；引用文字同时考虑字面与“渲染文本”命中（越过强调 / 链接等语法）；
  * 多处命中用 prefix/suffix 判优，仍并列则报错——不猜位置（D04 / D05）。
  */
 export function resolveRange(text: string, input: RangeInput): { start: number; end: number } {
@@ -78,7 +79,13 @@ export function resolveRange(text: string, input: RangeInput): { start: number; 
   const from = bodyStart(text);
   const literal: Span[] = [];
   for (let i = text.indexOf(quote, from); i !== -1; i = text.indexOf(quote, i + 1)) literal.push({ start: i, end: i + quote.length });
-  const hits: Span[] = literal.length > 0 ? literal : findAllPassages(text, quote).filter((h) => h.start >= from);
+  const candidates = new Map(
+    findAllPassages(text, quote)
+      .filter((hit) => hit.start >= from)
+      .map((hit) => [hit.start, hit]),
+  );
+  for (const hit of literal) candidates.set(hit.start, hit);
+  const hits = [...candidates.values()];
   if (hits.length === 0) throw errors.invalidInput("引用的文字不在文档里（可能已修改，请重新选择）");
   if (hits.length === 1) return hits[0] as Span;
   const best = bestByContext(text, hits, { ...(input.prefix !== undefined ? { prefix: input.prefix } : {}), ...(input.suffix !== undefined ? { suffix: input.suffix } : {}) });
@@ -112,9 +119,10 @@ export class CommentsService {
   constructor(private readonly d: CommentsDeps) {}
 
   /** 锚点偏移按编辑器看到的文本计算：CodeMirror 把 CRLF 归一为 LF，这里同样归一，偏移才对得上。 */
-  private docText(rel: string): { text: string; version: string } {
+  private docText(rel: string, expectedSourceVersion?: string): { text: string; version: string } {
     const f = this.d.files.read(rel);
     if (!f) throw errors.notFound(`笔记不存在：${rel}`);
+    if (expectedSourceVersion !== undefined && f.version !== expectedSourceVersion) throw errors.invalidInput("文档已改变，请重新选择");
     return { text: f.bytes.toString("utf8").replace(/\r\n?/g, "\n"), version: f.version };
   }
 
@@ -134,7 +142,7 @@ export class CommentsService {
     const text = input.text.trim();
     if (!text) throw errors.invalidInput("批注内容不能为空");
     if (input.target === "property" && !input.property?.trim()) throw errors.invalidInput("属性批注需要指定属性名");
-    const doc = this.docText(input.path);
+    const doc = this.docText(input.path, input.expectedSourceVersion);
     let anchor: CommentFrontmatter["anchor"] = null;
     if (input.target === "body") {
       if ((input.start === undefined || input.end === undefined) && !input.quote?.trim()) throw errors.invalidInput("正文批注需要选区");
@@ -146,6 +154,9 @@ export class CommentsService {
       }
     }
     const documentId = await this.d.ensureId(input.path);
+    if (input.expectedSourceVersion !== undefined && this.d.files.currentVersion(input.path) !== doc.version) {
+      throw errors.invalidInput("文档已改变，请重新选择");
+    }
     const now = iso(this.d.now());
     const e = await this.d.repo.create(
       "comment",
@@ -179,7 +190,7 @@ export class CommentsService {
     const cur = this.d.repo.read("comment", id);
     const data = cur.data as unknown as CommentFrontmatter;
     if (data.target !== "body") throw errors.invalidInput("只有正文批注可以重新选择位置");
-    const doc = this.docText(data.documentPath);
+    const doc = this.docText(data.documentPath, range.expectedSourceVersion);
     let anchor: CommentFrontmatter["anchor"];
     try {
       const r = resolveRange(doc.text, range);
@@ -206,7 +217,7 @@ export class CommentsService {
       if (c.resolved || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
       const r = refind(text, c.anchor);
       if (r.status === "anchored") {
-        if (r.start === c.anchor.start && r.end === c.anchor.end && c.state === "anchored") continue;
+        if (version === c.anchor.sourceVersion && c.state === "anchored") continue;
         const anchor = { ...createAnchor(text, r.start, r.end), sourceVersion: version };
         await this.patchQuiet(c, { anchor, state: "anchored" });
       } else if (c.state !== "orphaned") {

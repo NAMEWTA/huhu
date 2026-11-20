@@ -64,7 +64,7 @@ function buildDecorations(docName: string, doc: PMNode, draft: DraftRange | null
       segment.from,
       segment.to,
       segment.threadId === null
-        ? { style: segment.style }
+        ? { style: segment.style, 'data-comment-draft': 'true' }
         : { style: segment.style, 'data-comment-thread': segment.threadId },
     ),
   );

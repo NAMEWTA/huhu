@@ -148,6 +148,7 @@ export interface PassageInput {
   suffix?: string;
   start?: number;
   end?: number;
+  expectedSourceVersion?: string;
 }
 export interface CommentsPort {
   list(path?: string): Promise<HuhuComment[]>;
@@ -158,15 +159,24 @@ export interface CommentsPort {
   relocate(id: string, range: PassageInput): Promise<HuhuComment>;
   delete(id: string): Promise<void>;
 }
+interface CommentSelectionRevision {
+  vaultId: string;
+  path: string;
+  epoch: number;
+  revision: number;
+}
 export interface CommentRouteDeps {
   port: CommentsPort;
   pathOf(docName: string): string;
   docNameOf(path: string): string;
-  flush(docName: string): Promise<void>;
+  flush(docName: string, selectionPath?: string): Promise<void>;
+  selectionRevision?(path: string): (CommentSelectionRevision & { sourceVersion: string }) | undefined;
 }
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes;
 export function notifyCommentsChanged(): void;
 export function startComment(): void;
+export function registerCommentSelectionSource(docName: string, read: () => CommentSelectionRevision | undefined): () => void;
+export function useCommentsReadOnlySync(readOnly: boolean): void;
 export function onCommentPosted(handler: () => void): () => void;
 export function onCommentThreadOpened(handler: () => void): () => void;
 export function dismissOpenCommentThread(): void;

@@ -60,6 +60,27 @@ describe("锚点（R-24）", () => {
     const next = body.replace("第二句：一套能力。", "");
     expect(refind(next, a)).toEqual({ status: "orphaned" });
   });
+  test("删除第一段后，同偏移上的同文属于另一段", () => {
+    const original = "甲：同句。\n乙：同句。";
+    expect(refind("乙：同句。", createAnchor(original, 2, 4))).toEqual({ status: "orphaned" });
+  });
+  test("上下文同分时不能按距离选择", () => {
+    const original = "甲：同句。";
+    const next = "新增\n甲：同句。\n甲：同句。";
+    expect(refind(next, createAnchor(original, 2, 4))).toEqual({ status: "orphaned" });
+  });
+  test.each([
+    ["前缀：**同句**与下文。", "前缀：同句与下文。", "同句**与", "同句与"],
+    ["表头 | 描述\n--- | ---\n甲 | 同句和说明 |", "| 表头 | 描述 |\n| --- | --- |\n| 甲 | 同句**和**说明 |", "同句和说明", "同句**和**说明"],
+    ["之前：[同句](old)和说明。", "之前：[同句](new)和说明。", "同句](old)和", "同句](new)和"],
+  ])("格式改写后重新定位已有锚点 %s", async (original, next, quote, expected) => {
+    const { svc, write, version } = await setup(original);
+    const created = await svc.create({ path: "笔记.md", target: "body", ...at(original, quote), text: "已存线程", author: "我" });
+    write(next);
+    await svc.refind("笔记.md", next, version());
+    const thread = svc.list("笔记.md").find((row) => row.id === created.id);
+    expect(thread).toMatchObject({ state: "anchored", anchor: { ...at(next, expected), exact: expected, sourceVersion: version() } });
+  });
   test("emoji 与跨行选区", () => {
     const sel = at(body, "🎉 的一句");
     const a = createAnchor(body, sel.start, sel.end);
@@ -85,6 +106,13 @@ describe("CommentsService", () => {
     expect(c.path.startsWith("Comments/note-1--")).toBe(true);
     expect(readFileSync(path.join(root, c.path), "utf8")).toContain("### 2026-11-11T08:00:00Z · 我");
     expect(svc.list("笔记.md")).toHaveLength(1);
+  });
+  test("引擎拒绝 flush 后磁盘再次变化的选区", async () => {
+    const { svc, write, version } = await setup(DOC);
+    const expectedSourceVersion = version();
+    write("另一段：一套能力。");
+    await expect(svc.create({ path: "笔记.md", target: "body", quote: "一套能力", expectedSourceVersion, text: "过期选区", author: "我" })).rejects.toMatchObject({ code: "INVALID_INPUT", message: "文档已改变，请重新选择" });
+    expect(svc.list("笔记.md")).toEqual([]);
   });
   test("文件级与属性批注没有锚点；属性批注必须有属性名", async () => {
     const { svc } = await setup(DOC);

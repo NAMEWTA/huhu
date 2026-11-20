@@ -5,10 +5,12 @@ import { Kbd } from '@/components/ui/kbd';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatShortcut, formatShortcutLabel } from '@/lib/keyboard-shortcuts';
-import { emitStartComment } from './store';
+import { emitStartComment, useCommentsReadOnly } from './store';
 
 export function CommentBubbleButton() {
   const { t } = useLingui();
+  const readOnly = useCommentsReadOnly();
+  if (readOnly) return null;
   return (
     <>
       <Separator orientation="vertical" className="mx-0.5 h-5 data-vertical:self-center" />
