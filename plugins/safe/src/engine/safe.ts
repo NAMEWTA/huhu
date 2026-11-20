@@ -4,7 +4,8 @@ import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { parseSecretRef } from "../shared/secret-ref.js";
 import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
-import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
+import type { CreateEntry, SafeSession, StoredEntry } from "./personal.js";
+import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
 export type SecretType = "password" | "ssh-key" | "token" | "env";
 
@@ -19,7 +20,7 @@ export interface ItemMeta {
 
 export interface AuditEntry {
   at: string;
-  action: "setup" | "unlock" | "unlock-failed" | "lock" | "reveal" | "copy" | "use" | "use-denied" | "update" | "delete" | "change-password";
+  action: "setup" | "unlock" | "unlock-failed" | "lock" | "reveal" | "copy" | "use" | "use-denied" | "update" | "delete" | "change-password" | "create-entry" | "reveal-account";
   itemId: string | null;
   subject: string;
   result: "ok" | "denied" | "failed";
@@ -107,10 +108,14 @@ export class Safe {
   }
 
   private auditLifecycle(action: "setup" | "unlock" | "unlock-failed" | "lock" | "change-password", subject = "desktop"): void {
+    this.auditBestEffort({ action, itemId: null, subject, result: action === "unlock-failed" ? "failed" : "ok" });
+  }
+
+  private auditBestEffort(entry: Omit<AuditEntry, "at">): void {
     try {
-      this.audit({ action, itemId: null, subject, result: action === "unlock-failed" ? "failed" : "ok" });
+      this.audit(entry);
     } catch {
-      // A failed audit append cannot block invalidation or reverse a published keyring.
+      // Audit I/O cannot block session invalidation or reverse a published commit.
     }
   }
 
@@ -326,7 +331,12 @@ export class Safe {
   }
 
   async withSession<T>(operation: (assertCurrent: () => void) => T | Promise<T>): Promise<T> {
-    this.key();
+    return this.runSession(operation);
+  }
+
+  private async runSession<T>(operation: (assertCurrent: () => void, key: Buffer) => T | Promise<T>, expected?: SafeSession): Promise<T> {
+    if (expected && (expected.instanceId !== this.instanceId || expected.generation !== this.generation)) throw locked();
+    const key = this.key();
     const generation = this.generation;
     const assertCurrent = () => {
       if (this.generation !== generation) throw locked();
@@ -334,9 +344,69 @@ export class Safe {
       if (state.kind === "corrupt") throw corruptStore(state.file);
       if (this.generation !== generation) throw locked();
     };
-    const result = await operation(assertCurrent);
+    const result = await operation(assertCurrent, key);
     assertCurrent();
     return result;
+  }
+
+  private withPersonalSession<T>(session: SafeSession, signal: AbortSignal, operation: (store: CurrentSafe, dk: Buffer, guard: () => void) => T | Promise<T>): Promise<T> {
+    return this.runSession((assertCurrent, dk) => {
+      signal.throwIfAborted();
+      const store = this.requireStore();
+      if (!store.manifest) throw errors.invalidInput("个人条目需要当前格式的保险箱");
+      return operation({ ...store, manifest: store.manifest }, dk, () => {
+        assertCurrent();
+        signal.throwIfAborted();
+      });
+    }, session);
+  }
+
+  createEntry(input: CreateEntry, signal: AbortSignal) {
+    return this.withPersonalSession(input.session, signal, async (store, dk, guard) => {
+      if (input.expectedRevision !== store.manifest.revision) throw errors.versionConflict(String(store.manifest.revision));
+      const now = new Date(this.d.now()).toISOString();
+      const entry: StoredEntry = {
+        entryId: randomUUID(),
+        revision: 1,
+        name: input.name,
+        url: input.url,
+        tagIds: [],
+        createdAt: now,
+        updatedAt: now,
+        accounts: input.accounts.map((fields) => ({ ...fields, accountId: randomUUID(), createdAt: now, updatedAt: now })),
+      };
+      try {
+        await this.store.commitNewEntry(store, dk, entry, guard);
+      } catch (error) {
+        if (error instanceof HuhuError) throw error;
+        throw new HuhuError("INTERNAL", "保险箱条目写入失败，请重试");
+      }
+      this.auditBestEffort({ action: "create-entry", itemId: entry.entryId, subject: "desktop", result: "ok" });
+      return { entryId: entry.entryId, revision: entry.revision, accountIds: entry.accounts.map((account) => account.accountId), status: "saved" as const };
+    });
+  }
+
+  listEntries(session: SafeSession, signal: AbortSignal) {
+    return this.withPersonalSession(session, signal, ({ manifest }) => ({
+      revision: manifest.revision,
+      entries: Object.entries(manifest.entries).map(([entryId, revision]) => ({ entryId, revision })),
+    }));
+  }
+
+  getEntry(session: SafeSession, entryId: string, signal: AbortSignal) {
+    return this.withPersonalSession(session, signal, (store, dk) => {
+      const { accounts, ...entry } = this.store.readEntry(store, dk, entryId);
+      return { ...entry, accounts: accounts.map(({ password, ...fields }) => ({ ...fields, hasPassword: password.length > 0 })) };
+    });
+  }
+
+  revealAccount(session: SafeSession, entryId: string, accountId: string, signal: AbortSignal) {
+    return this.withPersonalSession(session, signal, (store, dk) => {
+      const account = this.store.readEntry(store, dk, entryId).accounts.find((item) => item.accountId === accountId);
+      if (!account) throw errors.notFound("账号不存在");
+      this.auditBestEffort({ action: "reveal-account", itemId: accountId, subject: "desktop", result: "ok" });
+      return { password: account.password };
+    });
   }
 
   // ---- 条目 ----

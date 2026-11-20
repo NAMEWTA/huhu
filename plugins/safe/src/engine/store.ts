@@ -5,10 +5,12 @@ import { HuhuError, errors } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { KDF_PARAMS, isSealedSize, open, seal } from "./crypto.js";
+import { StoredEntry } from "./personal.js";
 
 export const SAFE_FORMAT = 1;
 const KEYRING = "keyring.json";
 const MANIFEST = "manifest.json";
+const STAGED_ENTRY = "entry.bin";
 export const AUTO_LOCK_MINUTES = [1, 5, 15, 30] as const;
 
 function base64(value: string): Buffer | null {
@@ -50,7 +52,7 @@ const Manifest = z.strictObject({
   format: z.literal(SAFE_FORMAT),
   vaultKeyId: z.uuid(),
   revision: z.int().nonnegative(),
-  entries: z.record(z.string().regex(/^[a-z0-9-]+$/), z.int().positive()),
+  entries: z.record(z.uuid(), z.int().positive()),
   tags: z.int().positive().nullable(),
 });
 const StoredManifest = Manifest.extend({ authentication: z.string().refine((s) => sealedSize(s, 0)), checksum: Digest });
@@ -63,6 +65,7 @@ export type LoadedSafe = {
   version: string;
   manifest?: z.infer<typeof StoredManifest>;
 };
+export type CurrentSafe = LoadedSafe & { manifest: z.infer<typeof StoredManifest> };
 type SafeState = { kind: "empty" } | { kind: "corrupt"; file: typeof KEYRING | typeof MANIFEST } | ({ kind: "ready" } & LoadedSafe);
 
 export function corruptStore(file: string): HuhuError {
@@ -97,6 +100,15 @@ function encode(payload: object): Buffer {
 
 function encodeRing(ring: Keyring): Buffer {
   return encode("format" in ring ? { ...ring, checksum: checksum(CurrentRing.parse(ring)) } : ring);
+}
+
+function encodeManifest(manifest: z.infer<typeof Manifest>, dk: Buffer): Buffer {
+  const payload = { ...manifest, authentication: seal(dk, Buffer.alloc(0), manifestContext(manifest)).toString("base64") };
+  return encode({ ...payload, checksum: checksum(payload) });
+}
+
+function entryContext(manifest: CurrentSafe["manifest"], id: string, revision: number): string {
+  return `huhu-safe/v${manifest.format}/${manifest.vaultKeyId}/entry:${id}:${revision}`;
 }
 
 function entryAt(file: string) {
@@ -152,11 +164,11 @@ export class SafeStore {
 
   async initialize(ring: z.infer<typeof CurrentRing>, dk: Buffer, guard: () => void): Promise<void> {
     const manifest = { format: SAFE_FORMAT, vaultKeyId: ring.vaultKeyId, revision: 0, entries: {}, tags: null } as const;
-    const payload = { ...manifest, authentication: seal(dk, Buffer.alloc(0), manifestContext(manifest)).toString("base64") };
+    const manifestBytes = encodeManifest(manifest, dk);
     await this.stage(async (dir) => {
       await this.files.write(`${dir}/${KEYRING}`, encodeRing(ring), { expectedVersion: null });
       guard();
-      await this.files.write(`${dir}/${MANIFEST}`, encode({ ...payload, checksum: checksum(payload) }), { expectedVersion: null });
+      await this.files.write(`${dir}/${MANIFEST}`, manifestBytes, { expectedVersion: null });
       guard();
       const state = this.load();
       if (state.kind === "corrupt") throw corruptStore(state.file);
@@ -177,12 +189,72 @@ export class SafeStore {
     });
   }
 
+  readEntry(store: CurrentSafe, dk: Buffer, entryId: string): StoredEntry {
+    const revision = store.manifest.entries[entryId];
+    if (revision === undefined) throw errors.notFound("条目不存在");
+    try {
+      const file = this.entryFile(entryId, revision);
+      const entry = entryAt(this.files.abs(file))?.isFile() ? this.files.read(file) : null;
+      if (!entry) throw corruptStore("条目密文");
+      const cleartext = open(dk, entry.bytes, entryContext(store.manifest, entryId, revision));
+      try {
+        const data = StoredEntry.parse(JSON.parse(cleartext.toString("utf8")) as unknown);
+        if (data.entryId !== entryId || data.revision !== revision || new Set(data.accounts.map((account) => account.accountId)).size !== data.accounts.length) throw corruptStore("条目密文");
+        return data;
+      } finally {
+        cleartext.fill(0);
+      }
+    } catch {
+      throw corruptStore("条目密文");
+    }
+  }
+
+  async commitNewEntry(store: CurrentSafe, dk: Buffer, entry: StoredEntry, guard: () => void): Promise<void> {
+    const { authentication: _auth, checksum: _sum, ...previous } = store.manifest;
+    const next = { ...previous, revision: previous.revision + 1, entries: { ...previous.entries, [entry.entryId]: entry.revision } };
+    const manifest = encodeManifest(next, dk);
+    const cleartext = Buffer.from(JSON.stringify(entry));
+    let ciphertext: Buffer;
+    try {
+      ciphertext = seal(dk, cleartext, entryContext(store.manifest, entry.entryId, entry.revision));
+    } finally {
+      cleartext.fill(0);
+    }
+    await this.stage(async (dir) => {
+      const stagedEntry = `${dir}/${STAGED_ENTRY}`;
+      const stagedManifest = `${dir}/${MANIFEST}`;
+      await this.files.write(stagedEntry, ciphertext, { expectedVersion: null });
+      guard();
+      await this.files.write(stagedManifest, manifest, { expectedVersion: null });
+      guard();
+      this.assertVersion(store);
+      if (!this.files.read(stagedEntry)?.bytes.equals(ciphertext) || !this.files.read(stagedManifest)?.bytes.equals(manifest)) throw corruptStore("暂存文件");
+
+      const destination = this.files.abs(this.entryFile(entry.entryId, entry.revision));
+      const manifestPath = this.files.abs(`${this.relativeDir}/current/${MANIFEST}`);
+      if (entryAt(destination)) throw errors.nameConflict(entry.entryId);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      // The manifest is the visibility boundary. No async work can interleave the two renames.
+      renameSync(this.files.abs(stagedEntry), destination);
+      try {
+        renameSync(this.files.abs(stagedManifest), manifestPath);
+      } catch (error) {
+        rmSync(destination, { force: true });
+        throw error;
+      }
+    });
+  }
+
+  private entryFile(id: string, revision: number): string {
+    return `${this.relativeDir}/current/entries/${id}-${revision}.bin`;
+  }
+
   assertVersion(previous: LoadedSafe): void {
     const state = this.load();
     if (state.kind === "corrupt") throw corruptStore(state.file);
     if (state.kind !== "ready") throw corruptStore(KEYRING);
     if (state.file !== previous.file || state.version !== previous.version) throw errors.versionConflict(state.version);
-    if (state.manifest?.checksum !== previous.manifest?.checksum) throw errors.versionConflict(state.manifest?.checksum ?? state.version);
+    if (state.manifest?.checksum !== previous.manifest?.checksum) throw errors.versionConflict(String(state.manifest?.revision ?? state.version));
   }
 
   private async stage(operation: (dir: string) => Promise<void>): Promise<void> {
@@ -198,6 +270,7 @@ export class SafeStore {
       try {
         rmSync(path.join(local, KEYRING), { force: true });
         rmSync(path.join(local, MANIFEST), { force: true });
+        rmSync(path.join(local, STAGED_ENTRY), { force: true });
         if (entryAt(local)) rmdirSync(local);
       } catch {
         // Cleanup cannot change the result of an already published operation.
