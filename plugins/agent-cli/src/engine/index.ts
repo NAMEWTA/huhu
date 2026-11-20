@@ -5,7 +5,7 @@ import { machineId } from "@huhu/vault";
 import path from "node:path";
 import { z } from "zod";
 import { HerdrCore } from "./herdr-core.js";
-import { isValidNativeId, isWithin, scanHistory, type HistoryEntry } from "./history/scanner.js";
+import { isValidNativeId, isWithin, readSelectedHistory, scanHistory, type HistoryEntry } from "./history/scanner.js";
 import { readTranscript } from "./history/transcript.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
@@ -668,7 +668,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       output: z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string(), at: z.string().nullable() })), truncated: z.boolean() }),
       handler: (_c, i) => {
         const { selected: hit } = historyReference(i);
-        return readTranscript(hit.provider, hit.file);
+        const transcript = readSelectedHistory(hit.provider, hit.file, hit.nativeSessionId, hit.historyId, (fd) => readTranscript(hit.provider, fd));
+        if (!transcript) throw errors.notFound("历史文件已变化，请重新选择");
+        return transcript;
       },
     }),
   );

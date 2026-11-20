@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, lstatSync, openSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type BigIntStats } from "node:fs";
+import { filesystemIdentity } from "@huhu/vault";
 import os from "node:os";
 import path from "node:path";
 
@@ -60,17 +61,12 @@ function within(root: string, cwd: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-function headLines(file: string): string[] {
-  const fd = openSync(file, "r");
-  try {
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
-    const lines = buf.subarray(0, n).toString("utf8").split("\n");
-    if (n === HEAD_BYTES) lines.pop(); // 最后一行可能被截断
-    return lines.slice(0, HEAD_LINES);
-  } finally {
-    closeSync(fd);
-  }
+function headLines(fd: number): string[] {
+  const buf = Buffer.alloc(HEAD_BYTES);
+  const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
+  const lines = buf.subarray(0, n).toString("utf8").split("\n");
+  if (n === HEAD_BYTES) lines.pop(); // 最后一行可能被截断
+  return lines.slice(0, HEAD_LINES);
 }
 
 function parse(line: string): Record<string, unknown> | null {
@@ -111,10 +107,10 @@ interface Parsed {
   title: string | null;
 }
 
-function parseClaude(file: string): Parsed {
+function parseClaude(fd: number): Parsed {
   let cwd: string | null = null;
   let title: string | null = null;
-  for (const line of headLines(file)) {
+  for (const line of headLines(fd)) {
     const r = parse(line);
     if (!r) continue;
     cwd ??= str(r["cwd"]);
@@ -128,11 +124,11 @@ function parseClaude(file: string): Parsed {
   return { id: null, cwd, title }; // claude 的会话 id 以文件名为准：恢复出来的会话文件里会带着旧会话的 sessionId
 }
 
-function parseCodex(file: string): Parsed {
+function parseCodex(fd: number): Parsed {
   let id: string | null = null;
   let cwd: string | null = null;
   let title: string | null = null;
-  for (const line of headLines(file)) {
+  for (const line of headLines(fd)) {
     const r = parse(line);
     if (!r) continue;
     const p = obj(r["payload"]);
@@ -151,8 +147,8 @@ function parseCodex(file: string): Parsed {
   return { id, cwd, title };
 }
 
-function parsePi(file: string): Parsed {
-  const [first = "", ...entries] = headLines(file);
+function parsePi(fd: number): Parsed {
+  const [first = "", ...entries] = headLines(fd);
   const header = parse(first);
   const cwd = header?.["type"] === "session" ? str(header["cwd"]) : null;
   const id = cwd && path.isAbsolute(cwd) ? str(header?.["id"]) : null;
@@ -169,31 +165,58 @@ function parsePi(file: string): Parsed {
   return { id, cwd, title };
 }
 
-function sourceFile(file: string) {
-  const stat = lstatSync(file, { bigint: true });
-  if (!stat.isFile()) throw new Error("Expected a native history file");
-  const physical = [stat.dev, stat.ino, stat.birthtimeNs].map(String).join(":");
+const parsers = { claude: parseClaude, codex: parseCodex, pi: parsePi };
+
+function sourceStamp(stat: BigIntStats) {
+  const fileId = stat.isFile() && filesystemIdentity(stat);
+  if (!fileId) throw new Error("Native history file identity is unavailable");
+  const physical = `${fileId}:${stat.birthtimeNs}`;
   const revision = createHash("sha256").update([physical, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(":")).digest("hex");
-  return { physical, revision };
+  return { physical, revision, updatedAt: stat.mtime.toISOString() };
 }
 
-function historyIdentity(provider: HistoryEntry["provider"], id: string, file: string, cwd: string, physical: string) {
-  return createHash("sha256")
-    .update(JSON.stringify([provider, id, file, cwd, physical]))
-    .digest("hex");
-}
-
-export function isPiHistoryFile(file: string, nativeId: string, historyId: string, expectedRevision?: string): boolean {
+function useHistorySource<T>(file: string, inspect: (fd: number, stamp: ReturnType<typeof sourceStamp>) => T, expectedRevision?: string): T {
+  if (realpathSync(file) !== file) throw new Error("Native history path is no longer canonical");
+  const before = sourceStamp(lstatSync(file, { bigint: true }));
+  const fd = openSync(file, "r");
   try {
-    const before = sourceFile(file);
-    if (realpathSync(file) !== file || (expectedRevision && before.revision !== expectedRevision)) return false;
-    const { id, cwd } = parsePi(file);
-    return !!cwd && id === nativeId && historyIdentity("pi", nativeId, file, real(cwd), before.physical) === historyId && sourceFile(file).revision === before.revision;
-  } catch {
-    return false;
+    const opened = sourceStamp(fstatSync(fd, { bigint: true }));
+    if (opened.physical !== before.physical || (expectedRevision && opened.revision !== expectedRevision)) throw new Error("Native history source changed");
+    const result = inspect(fd, opened);
+    const after = sourceStamp(lstatSync(file, { bigint: true }));
+    if (opened.physical !== after.physical || (expectedRevision && after.revision !== expectedRevision)) throw new Error("Native history source changed");
+    return result;
+  } finally {
+    closeSync(fd);
   }
 }
 
+function historyIdentity(provider: HistoryEntry["provider"], id: string, file: string, rawCwd: string, cwd: string, physical: string) {
+  return createHash("sha256")
+    .update(JSON.stringify([provider, id, file, rawCwd, cwd, physical]))
+    .digest("hex");
+}
+
+export function readSelectedHistory<T>(provider: HistoryEntry["provider"], file: string, nativeId: string, historyId: string, project: (fd: number) => T, expectedRevision?: string): T | undefined {
+  try {
+    return useHistorySource(
+      file,
+      (fd, stamp) => {
+        const parsed = parsers[provider](fd);
+        const id = parsed.id ?? (provider === "claude" ? path.basename(file, ".jsonl") : null);
+        if (!parsed.cwd || id !== nativeId || historyIdentity(provider, id, file, parsed.cwd, real(parsed.cwd), stamp.physical) !== historyId) return undefined;
+        return project(fd);
+      },
+      expectedRevision,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function isPiHistoryFile(file: string, nativeId: string, historyId: string, expectedRevision?: string): boolean {
+  return readSelectedHistory("pi", file, nativeId, historyId, () => true, expectedRevision) === true;
+}
 function claudeRoot(env: NodeJS.ProcessEnv, home: string): string {
   return path.join(env["CLAUDE_CONFIG_DIR"] || path.join(home, ".claude"), "projects");
 }
@@ -238,10 +261,10 @@ export function scanHistory(o: ScanOptions): ScanResult {
   const limitedProviders: HistoryEntry["provider"][] = [];
   const seen = new Set<string>();
   let skipped = 0;
-  const accept = (provider: HistoryEntry["provider"], parser: (file: string) => Parsed, fallbackId: string | null, mtime: Date, file: string) => {
+  const accept = (provider: HistoryEntry["provider"], fallbackId: string | null, file: string, store: string) => {
     const location = real(file);
-    const before = sourceFile(location);
-    const p = parser(location);
+    if (!within(store, location)) return;
+    const [p, stamp] = useHistorySource(location, (fd, source) => [parsers[provider](fd), source] as const);
     const id = p.id ?? fallbackId;
     if (!id || !p.cwd || !isValidNativeId(id)) {
       skipped++;
@@ -250,20 +273,16 @@ export function scanHistory(o: ScanOptions): ScanResult {
     const cwd = real(p.cwd);
     if (!roots.some((r) => within(r, cwd))) return;
     if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
-    const after = sourceFile(location);
-    if (after.physical !== before.physical) {
-      skipped++;
-      return;
-    }
-    const historyId = historyIdentity(provider, id, location, cwd, before.physical);
+    const historyId = historyIdentity(provider, id, location, p.cwd, cwd, stamp.physical);
     if (seen.has(historyId)) return;
     seen.add(historyId);
-    entries.push({ provider, historyId, revision: after.revision, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: mtime.toISOString(), file: location });
+    entries.push({ provider, historyId, revision: stamp.revision, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: stamp.updatedAt, file: location });
   };
 
   // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件
   const cRoot = claudeRoot(env, home);
   if (existsSync(cRoot)) {
+    const store = real(cRoot);
     const prefixes = [...new Set([...o.roots, ...roots].map(encodeClaudeBucket))];
     const cFiles: { file: string; id: string; mtime: Date }[] = [];
     for (const b of readdirSafe(cRoot)) {
@@ -283,9 +302,9 @@ export function scanHistory(o: ScanOptions): ScanResult {
     }
     cFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || a.file.localeCompare(b.file));
     if (cFiles.length > MAX_FILES) limitedProviders.push("claude");
-    for (const { file, id, mtime } of cFiles.slice(0, MAX_FILES)) {
+    for (const { file, id } of cFiles.slice(0, MAX_FILES)) {
       try {
-        accept("claude", parseClaude, id, mtime, file);
+        accept("claude", id, file, store);
       } catch {
         skipped++;
       }
@@ -293,12 +312,12 @@ export function scanHistory(o: ScanOptions): ScanResult {
   }
 
   const nativeStores = [
-    { provider: "codex" as const, files: walkHistory(codexRoot(env, home), (name) => name.startsWith("rollout-"), 5), parse: parseCodex },
-    { provider: "pi" as const, files: walkHistory(piRoot(env, home), () => true, 1), parse: parsePi },
+    { provider: "codex" as const, root: real(codexRoot(env, home)), accepts: (name: string) => name.startsWith("rollout-"), depth: 5 },
+    { provider: "pi" as const, root: real(piRoot(env, home)), accepts: () => true, depth: 1 },
   ];
   for (const store of nativeStores) {
     const files: { file: string; mtime: Date }[] = [];
-    for (const file of store.files) {
+    for (const file of walkHistory(store.root, store.accepts, store.depth)) {
       try {
         files.push({ file, mtime: statSync(file).mtime });
       } catch {
@@ -307,9 +326,9 @@ export function scanHistory(o: ScanOptions): ScanResult {
     }
     files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || a.file.localeCompare(b.file));
     if (files.length > MAX_FILES) limitedProviders.push(store.provider);
-    for (const { file, mtime } of files.slice(0, MAX_FILES)) {
+    for (const { file } of files.slice(0, MAX_FILES)) {
       try {
-        accept(store.provider, store.parse, null, mtime, file);
+        accept(store.provider, null, file, store.root);
       } catch {
         skipped++;
       }

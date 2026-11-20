@@ -40,8 +40,8 @@ function meaningful(t: string): boolean {
   return s !== "" && !/^<(command-|local-command|system-reminder|environment_context|user_instructions)/.test(s) && !s.startsWith("# AGENTS.md") && !s.startsWith("Caveat:");
 }
 
-function readTail(file: string): { text: string; cut: boolean } {
-  const fd = openSync(file, "r");
+function readTail(file: string | number): { text: string; cut: boolean } {
+  const fd = typeof file === "number" ? file : openSync(file, "r");
   try {
     const size = fstatSync(fd).size;
     const len = Math.min(size, MAX_BYTES);
@@ -57,7 +57,7 @@ function readTail(file: string): { text: string; cut: boolean } {
     if (cut) text = text.slice(text.indexOf("\n") + 1); // 第一行可能被截断
     return { text, cut };
   } finally {
-    closeSync(fd);
+    if (typeof file === "string") closeSync(fd);
   }
 }
 
@@ -84,7 +84,7 @@ function piBranch(entries: Record<string, unknown>[]): { entries: Record<string,
   return { entries: branch.reverse(), incomplete: false };
 }
 
-export function readTranscript(provider: HistoryEntry["provider"], file: string): Transcript {
+export function readTranscript(provider: HistoryEntry["provider"], file: string | number): Transcript {
   const { text, cut } = readTail(file);
   const records: Record<string, unknown>[] = [];
   for (const line of text.split("\n")) {
