@@ -204,6 +204,9 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
   const refresh = () => qc.invalidateQueries({ predicate: ({ queryKey: [vault, capability] }) => vault === engine.vaultId && String(capability).startsWith("tasks.") });
   const session = row.session;
   const messages = task.comments.filter((comment) => comment.run === row.runId && (comment.event === "result" || comment.event === "failed"));
+  const result = run?.result;
+  const deliveryNotice =
+    result?.kind === "no_update" ? "原会话已结束，本轮没有结果正文。" : result?.delivery === "pending" ? "已保存原结果回执，正在核对任务时间线投递。" : result?.delivery === "target_missing" ? "原结果回执已保存，投递时未找到原任务。" : "";
   return (
     <>
       {showQueue && row.reason ? <p role="status">{receiptReason[row.reason]}</p> : null}
@@ -232,7 +235,10 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
       {session && task.status === "in_progress" && run?.state === "running" && !task.readOnly ? <RunSupplement task={task} row={row} refresh={refresh} /> : null}
       {run?.finishedAt ? (
         <div data-testid="managed-run-result">
-          {messages.length ? messages.map((message) => <TaskMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />) : <p>结果正文尚未写入，或本轮没有正文。</p>}
+          {deliveryNotice ? <p role="status">{deliveryNotice}</p> : null}
+          {messages.map((message) => (
+            <TaskMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />
+          ))}
         </div>
       ) : null}
     </>

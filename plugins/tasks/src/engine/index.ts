@@ -102,7 +102,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   const publishRun = (runId: string, op: "created" | "updated" = "updated") => api.events.publish("entity.changed", { kind: "task-run", id: runId, op });
   const store = new DispatchStore(files, api.vault.vaultId, machine, ({ runId }, op) => publishRun(runId, op));
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
-  const inbox = new TaskReceiptInbox(files, now);
+  const inbox = new TaskReceiptInbox(files, now, publishRun);
   const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined);
   const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError);
 

@@ -461,6 +461,7 @@ export class TaskDispatch {
           model: snapshot.execution.model,
           questions: open.filter(({ reply }) => !reply).length,
           ...(receipt.parentRunId && { parentRunId: receipt.parentRunId }),
+          ...(outcome && outcome.state !== "unknown" && { result: outcome.result }),
         },
       ];
     });

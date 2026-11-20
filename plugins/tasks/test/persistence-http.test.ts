@@ -527,6 +527,7 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     const messageId = durable().consumption.delivery.messageId;
     await vi.waitFor(async () => expect(await resultComments(engine)).toMatchObject([{ id: messageId, run: run.runId, body: input.payload.message }]));
     expect(durable().status).toBe("pending");
+    expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, result: { kind: "result", delivery: "pending" } }] });
     await stop(engine);
     fault = null;
     const reopened = await start(root);
@@ -538,7 +539,7 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     expect(afterResult.status).toBe("in_progress");
     expect(await call(reopened, "tasks.runs", { id: task.id })).toMatchObject({
       ok: true,
-      data: [{ id: run.runId, state: "succeeded", finishedAt: expect.any(String), questions: 0 }],
+      data: [{ id: run.runId, state: "succeeded", finishedAt: expect.any(String), questions: 0, result: { kind: "result", delivery: "delivered" } }],
     });
     const closed = await call<TaskDto>(reopened, "tasks.setStatus", { id: task.id, expectedVersion: afterResult.version, status: "completed" });
     expect(closed).toMatchObject({ ok: true, data: { status: "completed" } });

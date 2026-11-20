@@ -3,7 +3,7 @@ import { errors, ExecutionReceiptSchema, HuhuError, isHuhuError, TasksReceiptCon
 import { createExecutionReceiptAck, validateExecutionReceipt } from "@huhu/contracts/execution-receipt/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
-import { fingerprint } from "./dispatch-store.js";
+import { fingerprint, type TaskRunSummary } from "./dispatch-store.js";
 import type { TasksService } from "./service.js";
 
 const DIRECTORY = "tasks/receipts";
@@ -28,7 +28,7 @@ export const TaskQuestionView = z.strictObject({
 });
 type QuestionView = z.infer<typeof TaskQuestionView>;
 type StoredQuestion = { view: QuestionView; receipt: Extract<ExecutionReceipt, { kind: "question" }>; payloadHash: string };
-export type RunOutcome = { state: "succeeded" | "failed"; finishedAt: string } | { state: "unknown"; finishedAt: null };
+export type RunOutcome = { state: "succeeded" | "failed"; finishedAt: string; result: NonNullable<TaskRunSummary["result"]> } | { state: "unknown"; finishedAt: null };
 
 function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
@@ -39,6 +39,7 @@ export class TaskReceiptInbox {
   constructor(
     private readonly files: VaultFiles,
     private readonly now: () => Date,
+    private readonly changed: (runId: string) => void,
   ) {}
 
   private read(file: string) {
@@ -119,7 +120,7 @@ export class TaskReceiptInbox {
       try {
         const value = this.read(file);
         if (!value) continue;
-        const { receipt, at } = value.record;
+        const { receipt, at, status } = value.record;
         const { execution } = receipt;
         if (execution.taskId !== taskId || !bound(execution)) continue;
         if (receipt.kind !== "question") {
@@ -129,7 +130,7 @@ export class TaskReceiptInbox {
             if (previous && previous.payloadHash !== payloadHash) {
               terminal.set(execution.runId, { payloadHash: "", outcome: { state: "unknown", finishedAt: null } });
             } else if (!previous || (previous.outcome.finishedAt && at < previous.outcome.finishedAt)) {
-              terminal.set(execution.runId, { payloadHash, outcome: { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at } });
+              terminal.set(execution.runId, { payloadHash, outcome: { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at, result: { kind: receipt.kind, delivery: status } } });
             }
           }
           continue;
@@ -187,7 +188,10 @@ export class TaskReceiptInbox {
             status = "target_missing";
           }
         }
-        if (!signal.aborted) await this.files.write(file, encode({ ...record, status }), { expectedVersion: previous.version });
+        if (!signal.aborted) {
+          await this.files.write(file, encode({ ...record, status }), { expectedVersion: previous.version });
+          if (receipt.kind === "result" || receipt.kind === "failed") this.changed(receipt.execution.runId);
+        }
       } catch (error) {
         onError?.(error);
       }
