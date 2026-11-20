@@ -65,7 +65,8 @@ export type TaskDto = z.infer<typeof TaskDtoSchema>;
 const TaskFields = z.strictObject({
   title: z.string().min(1).max(200),
   type: TaskTypeSchema,
-  body: z.string(),
+  // 禁止 UTF-8 写盘时会被替换的孤立代理项，确保入参 JSON Schema 也有同一约束。
+  body: z.string().regex(/^(?:[^\uD800-\uDFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF])*$/, "正文包含不成对的 UTF-16 代理项"),
   tags: z.array(z.string()).transform((t) => normalizeTags(t)),
   due: z
     .string()

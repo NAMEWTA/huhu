@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isHuhuError, type TaskDto } from "@huhu/contracts";
+import { isHuhuError, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type TaskDto } from "@huhu/contracts";
 import { VaultFiles } from "@huhu/vault";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -130,6 +130,89 @@ test("完整编辑请求合并评论与区段外的 Markdown 字节", { timeout:
   expect(saved.includes(Buffer.from(prefix))).toBe(true);
   const commentsAndSuffix = Buffer.from(outside.slice(outside.indexOf("<comments>")));
   expect(saved.subarray(-commentsAndSuffix.length)).toEqual(commentsAndSuffix);
+});
+
+test("同一编辑快照并行提交不同正文时，一次成功且一次冲突", { timeout: 30_000 }, async () => {
+  const engine = await start(tempVault(), true);
+  const { data: task } = await call<TaskDto>(engine, "tasks.create", { title: "并行编辑", body: "旧正文" });
+  const base = { id: task.id, expectedVersion: task.version, baseEditHash: task.editHash };
+  const results = await Promise.all(["第一份正文", "第二份正文"].map((body) => call<TaskDto>(engine, "tasks.update", { ...base, patch: { body } })));
+  expect(results.filter((result) => result.ok)).toHaveLength(1);
+  expect(results.filter((result) => !result.ok)).toEqual([expect.objectContaining({ error: expect.objectContaining({ code: "VERSION_CONFLICT" }) })]);
+  const saved = results.find((result) => result.ok)!.data;
+  expect(saved.inputRevision).toBe(task.inputRevision + 1);
+  expect(saved.inputHash).not.toBe(task.inputHash);
+  expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: saved });
+  expect(readFileSync(path.join(engine.vault.root, task.path), "utf8")).toContain(saved.body);
+});
+
+test.each(["comment", "edit"])("正文和评论并行提交均持久保存（先发 %s）", { timeout: 30_000 }, async (first) => {
+  const engine = await start(tempVault(), true);
+  const { data: task } = await call<TaskDto>(engine, "tasks.create", { title: "并行评论", body: "旧正文" });
+  const edit = () => call<TaskDto>(engine, "tasks.update", { id: task.id, expectedVersion: task.version, baseEditHash: task.editHash, patch: { body: "并发更新的正文" } });
+  const comment = () => call(engine, "tasks.comments.add", { taskId: task.id, body: "并发追加的评论" });
+  const results = await Promise.all(first === "comment" ? [comment(), edit()] : [edit(), comment()]);
+  expect(results.every((result) => result.ok)).toBe(true);
+  expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: { body: "并发更新的正文", inputRevision: task.inputRevision + 1, comments: [{ body: "并发追加的评论" }] } });
+  const saved = readFileSync(path.join(engine.vault.root, task.path), "utf8");
+  expect(saved).toContain("并发更新的正文");
+  expect(saved).toContain("并发追加的评论");
+});
+
+const invalidBodies = ["\ud800", "\udfff", "\udc00\ud800"];
+
+test("创建时拒绝无效 UTF-16 正文，合法中文、emoji 与 CRLF 可重开", { timeout: 30_000 }, async () => {
+  const root = tempVault();
+  const engine = await start(root, true);
+  const { data: seed } = await call<TaskDto>(engine, "tasks.create", { title: "原任务", body: "原正文" });
+  const file = path.join(root, seed.path);
+  const before = readFileSync(file);
+  const files = readdirSync(path.dirname(file));
+  const rejected = await Promise.all(invalidBodies.map((invalid) => call(engine, "tasks.create", { title: "无效正文", body: invalid })));
+  expect(rejected).toEqual(invalidBodies.map(() => expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "INVALID_INPUT" }) })));
+  expect(readdirSync(path.dirname(file))).toEqual(files);
+  expect(readFileSync(file)).toEqual(before);
+  const body = "中文😀\r\n第二行🌱";
+  const created = await call<TaskDto>(engine, "tasks.create", { title: "UTF-8 创建", body });
+  expect(created).toMatchObject({ ok: true, data: { body, inputRevision: 1 } });
+  expect(readFileSync(path.join(root, created.data.path)).includes(Buffer.from(body))).toBe(true);
+  await stop(engine);
+  const reopened = await start(root);
+  expect(await call(reopened, "tasks.read", { id: created.data.id })).toMatchObject({ ok: true, data: created.data });
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+test("更新时拒绝无效 UTF-16 正文且保留全部字节和输入身份", { timeout: 30_000 }, async () => {
+  const root = tempVault();
+  const engine = await start(root, true);
+  const { data: task } = await call<TaskDto>(engine, "tasks.create", { title: "UTF-8 更新", body: "\ufffd" });
+  const file = path.join(root, task.path);
+  const before = readFileSync(file);
+  const update = (body: string) => call<TaskDto>(engine, "tasks.update", { id: task.id, expectedVersion: task.version, patch: { body } });
+  for (const body of invalidBodies) {
+    expect(await update(body)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(readFileSync(file)).toEqual(before);
+    expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: task });
+  }
+  const body = "修改😀\r\n保留 CRLF 和中文";
+  const changed = await update(body);
+  expect(changed).toMatchObject({ ok: true, data: { body, inputRevision: task.inputRevision + 1 } });
+  expect(changed.data.inputHash).not.toBe(task.inputHash);
+  expect(readFileSync(file).includes(Buffer.from(body))).toBe(true);
+  await stop(engine);
+  const reopened = await start(root);
+  expect(await call(reopened, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: changed.data });
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+test.each(["", "u"])("创建和更新的正文 JSON Schema 可校验 UTF-16（regex flags %j）", (flags) => {
+  for (const schema of [TaskWritableSchema, TaskPatchSchema]) {
+    const { pattern } = (toJsonSchema(schema) as { properties: { body: { pattern?: string } } }).properties.body;
+    expect(pattern).toEqual(expect.any(String));
+    const check = new RegExp(pattern!, flags);
+    for (const valid of ["", "中文😀\r\n合法正文", "\ufffd", "\r\n"]) expect(check.test(valid)).toBe(true);
+    for (const invalid of invalidBodies) expect(check.test(`${invalid}\r\n`)).toBe(false);
+  }
 });
 
 test("inputRevision 只随持久化后的任务正文变化", { timeout: 30_000 }, async () => {
