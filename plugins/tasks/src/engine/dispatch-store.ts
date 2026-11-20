@@ -29,7 +29,16 @@ export const RuleSource = z.strictObject({
   expiresAt: Instant.optional(),
   instructions: z.string().max(20_000).optional(),
 });
-const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), RuleSource]);
+export const ReplySource = z.strictObject({
+  kind: z.literal("reply"),
+  parent: ExecutionBindingSchema,
+  requestId: Id,
+  requestVersion: z.int().positive(),
+  replyId: Id,
+  answer: z.string().min(1).max(20_000),
+  messageIds: z.array(Id).max(32),
+});
+const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), RuleSource, ReplySource]);
 const Snapshot = InputIdentity.extend({
   taskId: Id,
   expectedVersion: z.string(),
@@ -49,6 +58,7 @@ export const DispatchReceipt = DispatchLookup.extend({
   reason: z.enum(["waiting_resource", "waiting_schedule", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "target_unsupported", "foreign_machine", "awaiting_confirmation"]).nullable(),
   cancelRequested: z.boolean(),
   overriddenAvailableAt: Instant.optional(),
+  parentRunId: Id.optional(),
 });
 const RecordFields = z.object({
   receipt: DispatchReceipt,
@@ -165,6 +175,7 @@ export class DispatchStore {
     try {
       const record = DispatchRecord.parse(JSON.parse(file.bytes.toString("utf8")));
       const { receipt, snapshot, claim, requestHash, snapshotHash } = record;
+      if (receipt.parentRunId !== (snapshot.source.kind === "reply" ? snapshot.source.parent.runId : undefined)) throw new Error("后续运行关联不一致");
       const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly } = snapshot;
       const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion, ...(allowEarly !== undefined && { allowEarly }) };
       if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run") || receipt.attempt !== 1) throw new Error("派遣身份校验失败");

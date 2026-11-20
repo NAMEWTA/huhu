@@ -497,6 +497,49 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
   }
 });
 
+test("普通回答重开后只派发一轮到原会话，保留父运行和明确选中的消息", { timeout: 60_000 }, async () => {
+  const { engine, task, root, fake, run, execution } = await startBoundRun();
+  await call(engine, "tasks.comments.add", { taskId: task.id, body: "选中的讨论" });
+  await call(engine, "tasks.comments.add", { taskId: task.id, body: "没有选中的讨论" });
+  const { data: before } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  const selected = before.comments.find(({ body }) => body === "选中的讨论")!;
+  const ask = { taskId: task.id, runId: run.runId, sessionId: execution.sessionBinding.sessionId, requestId: "normal-reply", requestVersion: 1 };
+  expect(await submitReceipt(engine, { version: 1, kind: "question", receiptId: "normal-reply-question", execution, payload: { mode: "normal", requestId: ask.requestId, requestVersion: 1, text: "等你的答复", options: [] } })).toMatchObject(
+    { ok: true },
+  );
+  const input = { ...ask, replyId: "normal-reply-once", answer: "明确答复", messageIds: [selected.id] };
+  const contenders = await Promise.all([input, { ...input, replyId: "normal-reply-contender" }].map((reply) => call<{ followUpRunId: string }>(engine, "tasks.reply", reply)));
+  expect(contenders.filter(({ ok }) => ok)).toHaveLength(1);
+  expect(contenders.find(({ ok }) => !ok)).toMatchObject({ error: { code: "VERSION_CONFLICT" } });
+  const accepted = contenders.find(({ ok }) => ok)!;
+  const original = contenders[0]!.ok ? input : { ...input, replyId: "normal-reply-contender" };
+  const { answer: _answer, messageIds: _messageIds, ...lookup } = original;
+  const nextRun = accepted.data.followUpRunId;
+  expect(accepted.data).toMatchObject({ status: "pending" });
+  expect(await call(engine, "tasks.reply.read", lookup)).toMatchObject({ ok: true, data: { status: "pending", followUpRunId: nextRun } });
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  await stop(engine);
+
+  const reopened = await start(root);
+  expect(await call(reopened, "tasks.reply", original)).toMatchObject({ ok: true, data: { status: "pending", followUpRunId: nextRun } });
+  expect(await call(reopened, "tasks.reply", { ...original, answer: "不同答复" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect(await submitReceipt(reopened, { version: 1, kind: "no_update", receiptId: "normal-reply-parent-done", execution, payload: {} })).toMatchObject({ ok: true });
+  await expect.poll(() => call(reopened, "tasks.reply.read", lookup)).toMatchObject({ ok: true, data: { status: "accepted", followUpRunId: nextRun } });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  expect(fake.dispatch).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      runId: nextRun,
+      snapshot: expect.objectContaining({ body: "明确答复\n\n附带的任务消息\n\n选中的讨论" }),
+      agentTarget: expect.objectContaining({ mode: "existing", binding: execution.sessionBinding }),
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(await call(reopened, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: nextRun, parentRunId: run.runId, state: "running" })]) });
+  const { data: saved } = await call<TaskDto>(reopened, "tasks.read", { id: task.id });
+  expect(saved.comments.filter(({ event }) => event === "answer")).toMatchObject([{ run: run.runId, session: ask.sessionId, body: "明确答复" }]);
+});
+
 test("同一轮只显示当代问题，完成后只关闭原生暂停", { timeout: 60_000 }, async () => {
   const { engine, task, run, execution } = await startBoundRun();
   const normal = {

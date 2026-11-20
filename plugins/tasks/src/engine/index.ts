@@ -417,7 +417,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       exposable: true,
       defaultExposed: true,
       input: Id,
-      output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number() })),
+      output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number(), parentRunId: z.string().optional() })),
       handler: (_c, i) => [...svc.runs(i.id), ...dispatch.runs(i.id)],
     }),
   );

@@ -17,7 +17,10 @@ const Question = z.strictObject({
   requestVersion: z.int().positive(),
 });
 export const TaskReplyLookup = Question.extend({ replyId: Id });
-export const TaskReplyInput = TaskReplyLookup.extend({ answer: z.string().min(1).max(20_000).regex(/\S/) });
+export const TaskReplyInput = TaskReplyLookup.extend({
+  answer: z.string().min(1).max(20_000).regex(/\S/),
+  messageIds: z.array(Id).max(32).optional(),
+});
 export const AgentReplyResult = z.strictObject({
   status: z.enum(["accepted", "not_sent", "unknown", "stale", "unsupported"]),
 });
@@ -34,6 +37,7 @@ export type AgentReplyInput = {
 export const TaskReplyView = TaskReplyLookup.extend({
   acceptedAt: z.iso.datetime(),
   status: z.enum(["pending", "sending", "unknown", "accepted", "expired", "not_sent", "unsupported"]),
+  followUpRunId: Id.optional(),
 });
 const Entry = z.strictObject({
   input: TaskReplyInput,
@@ -49,7 +53,7 @@ type Entry = z.infer<typeof Entry>;
 type View = z.infer<typeof TaskReplyView>;
 
 function view({ input, acceptedAt, status }: Entry): View {
-  const { answer: _answer, ...identity } = input;
+  const { answer: _answer, messageIds: _messageIds, ...identity } = input;
   return { ...identity, acceptedAt, status };
 }
 
@@ -124,6 +128,7 @@ export class TaskNativeReplies {
       if (entries.some((entry) => sameQuestion(entry.input, input))) throw new HuhuError("VERSION_CONFLICT", "该任务问题已有一条回答");
       const { execution, payload } = question.receipt;
       if (payload.mode !== "native_deferred") throw errors.invalidInput("普通问题需要通过后续轮次回答");
+      if (input.messageIds?.length) throw errors.invalidInput("原生问题只接收原问题的选项");
       if (availability(execution) !== "open") throw new HuhuError("VERSION_CONFLICT", "原任务运行正在停止或已经结束");
       if (!payload.options.includes(input.answer)) throw errors.invalidInput("回答必须匹配原问题的选项");
       const entry: Entry = { input, execution, nativeRequestId: payload.nativeRequestId, acceptedAt: this.now().toISOString(), status: "pending" };

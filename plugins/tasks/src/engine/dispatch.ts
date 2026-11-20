@@ -1,9 +1,10 @@
 import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
-import type { AgentNativeStopInputSchema, AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
+import { AgentDispatchInputSchema, type AgentNativeStopInputSchema, type AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import {
   DispatchInput,
   DispatchLookup,
   DispatchStore,
+  ReplySource,
   RuleSource,
   eventIdOf,
   fingerprint,
@@ -19,7 +20,7 @@ import {
 } from "./dispatch-store.js";
 import { agentDispatchBlocker, type TasksService } from "./service.js";
 import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
-import { type AgentReplyInput, type AgentReplyResult, type ReplyAvailability, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup } from "./native-replies.js";
+import { type AgentReplyInput, type AgentReplyResult, type ReplyAvailability, type TaskNativeReplies, type TaskReplyInput, type TaskReplyLookup, type TaskReplyView } from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
 import type { z } from "zod";
 
@@ -39,6 +40,41 @@ type NativeStopInput = z.infer<typeof AgentNativeStopInputSchema>;
 type NativeStopStatus = z.infer<typeof AgentNativeStopStatusSchema>;
 type StopRecord = NonNullable<OwnedRecord["stop"]>;
 type RuleSlots = Map<string, Set<string>>;
+type ReplyInput = z.infer<typeof TaskReplyInput>;
+type ReplyLookup = z.infer<typeof TaskReplyLookup>;
+type ReplyView = z.infer<typeof TaskReplyView>;
+
+const normalDispatchId = ({ taskId, replyId }: ReplyLookup) => `reply-${fingerprint([taskId, replyId])}`;
+
+function normalReplyView(record: DispatchRecord): ReplyView | undefined {
+  const {
+    receipt,
+    snapshot: { source },
+  } = record;
+  if (source.kind !== "reply") return undefined;
+  const statusByState: Record<DispatchReceipt["state"], ReplyView["status"]> = {
+    pending: "pending",
+    claimed: "pending",
+    sending: "sending",
+    running: "accepted",
+    unknown: "unknown",
+    cancelled: "expired",
+    stale_input: "expired",
+    expired: "expired",
+    blocked: receipt.reason === "target_unsupported" ? "unsupported" : "not_sent",
+  };
+  return {
+    taskId: receipt.taskId,
+    runId: source.parent.runId,
+    sessionId: source.parent.sessionBinding.sessionId,
+    requestId: source.requestId,
+    requestVersion: source.requestVersion,
+    replyId: source.replyId,
+    acceptedAt: receipt.acceptedAt,
+    status: statusByState[receipt.state],
+    followUpRunId: receipt.runId,
+  };
+}
 
 export interface TaskDispatchExecutor {
   /** 只读目标/资源预检。实际输入所有权仍须由执行者在派遣时核验。 */
@@ -108,12 +144,130 @@ export class TaskDispatch {
     });
   }
 
-  reply(input: z.infer<typeof TaskReplyInput>, signal: AbortSignal) {
-    return this.replies.accept(input, this.matchesExecution, this.replyAvailability, AbortSignal.any([signal, this.abort.signal]));
+  reply(input: ReplyInput, signal: AbortSignal): Promise<ReplyView> {
+    const stopped = AbortSignal.any([signal, this.abort.signal]);
+    const prior = this.store.read(eventIdOf(normalDispatchId(input)));
+    const question = this.receipts.question(input.taskId, input.runId, input.requestId, this.matchesExecution);
+    if (prior || question?.receipt.payload.mode === "normal") return this.acceptNormalReply(input, stopped);
+    return this.replies.accept(input, this.matchesExecution, this.replyAvailability, stopped);
   }
 
-  readReply(input: z.infer<typeof TaskReplyLookup>) {
+  readReply(input: ReplyLookup): ReplyView {
+    this.tasks.read(input.taskId);
+    const record = this.store.read(eventIdOf(normalDispatchId(input)))?.record;
+    const normal = record && normalReplyView(record);
+    if (
+      normal &&
+      record &&
+      record.snapshot.source.kind === "reply" &&
+      this.store.owns(record) &&
+      normal.runId === input.runId &&
+      normal.sessionId === input.sessionId &&
+      normal.requestId === input.requestId &&
+      normal.requestVersion === input.requestVersion
+    )
+      return normal;
     return this.replies.readReply(input, this.matchesExecution);
+  }
+
+  private acceptNormalReply(input: ReplyInput, signal: AbortSignal): Promise<ReplyView> {
+    return this.tasks.withTaskWrite(input.taskId, async () => {
+      signal.throwIfAborted();
+      const task = this.tasks.read(input.taskId);
+      const dispatchId = normalDispatchId(input);
+      const eventId = eventIdOf(dispatchId);
+      const messageIds = input.messageIds ?? [];
+      const prior = this.store.read(eventId)?.record;
+      if (prior) {
+        const source = prior.snapshot.source;
+        if (source.kind !== "reply" || !this.store.owns(prior)) throw new HuhuError("VERSION_CONFLICT", "后续任务轮次的归属不匹配");
+        const previous = normalReplyView(prior)!;
+        if (
+          previous.runId !== input.runId ||
+          previous.sessionId !== input.sessionId ||
+          previous.requestId !== input.requestId ||
+          previous.requestVersion !== input.requestVersion ||
+          source.answer !== input.answer ||
+          fingerprint(source.messageIds) !== fingerprint(messageIds)
+        )
+          throw errors.idempotencyMismatch();
+        return previous;
+      }
+      this.store.assertWritable();
+      if (this.replies.list(task.id, this.matchesExecution).some(({ replyId }) => replyId === input.replyId)) throw errors.idempotencyMismatch();
+      const question = this.receipts.question(task.id, input.runId, input.requestId, this.matchesExecution);
+      if (
+        task.type !== "agent" ||
+        task.status === "completed" ||
+        question?.receipt.payload.mode !== "normal" ||
+        question.view.status !== "awaiting" ||
+        question.view.requestVersion !== input.requestVersion ||
+        question.view.sessionId !== input.sessionId
+      ) {
+        throw new HuhuError("VERSION_CONFLICT", "任务问题已变化，请重新读取");
+      }
+      const parent = this.store.read(eventIdOf(question.receipt.execution.dispatchId))?.record;
+      const spaceId = parent?.snapshot.execution.spaceId;
+      if (!parent || !spaceId) throw new HuhuError("RUN_UNKNOWN", "缺少原会话的派遣记录");
+      const records = this.store.list().filter(({ receipt }) => receipt.taskId === task.id);
+      if (records.some(({ snapshot }) => snapshot.source.kind === "reply" && snapshot.source.parent.runId === input.runId && snapshot.source.requestId === input.requestId && snapshot.source.requestVersion === input.requestVersion)) {
+        throw new HuhuError("VERSION_CONFLICT", "该任务问题已有一条回答");
+      }
+      const { outcomes } = this.receipts.history(task.id, this.matchesExecution, this.onError);
+      if (records.some((record) => record.receipt.runId !== input.runId && holdsRun(record, outcomes, task))) rejectDispatch("task_occupied", "该任务已有待派或活动运行");
+
+      const selected = [...new Set(messageIds)].map((id) => task.comments.find((comment) => comment.id === id));
+      if (selected.length !== messageIds.length || selected.some((comment) => !comment)) throw errors.invalidInput("所选任务消息不存在或重复");
+      const context = selected.map((comment) => comment!.body).join("\n\n");
+      const body = context ? `${input.answer}\n\n附带的任务消息\n\n${context}` : input.answer;
+      if (!AgentDispatchInputSchema.shape.input.safeParse(body.replaceAll("\r\n", "\n")).success) throw errors.invalidInput("回答与所选消息不符合发送格式");
+      const source = ReplySource.parse({ kind: "reply", parent: question.receipt.execution, requestId: input.requestId, requestVersion: input.requestVersion, replyId: input.replyId, answer: input.answer, messageIds });
+      const acceptedAt = this.now();
+      const launch = parent.snapshot.execution;
+      const binding = source.parent.sessionBinding;
+      const snapshot: DispatchSnapshot = {
+        taskId: task.id,
+        expectedVersion: task.version,
+        taskVersion: task.version,
+        inputRevision: task.inputRevision,
+        inputHash: task.inputHash,
+        body,
+        execution: { ...launch, target: { mode: "existing", sessionId: binding.sessionId } },
+        references: [],
+        source,
+      };
+      const intent: DispatchInput = {
+        taskId: task.id,
+        dispatchId,
+        expectedVersion: task.version,
+        inputRevision: task.inputRevision,
+        inputHash: task.inputHash,
+      };
+      const receipt: DispatchReceipt = {
+        taskId: task.id,
+        dispatchId,
+        eventId,
+        runId: newId("run", acceptedAt.getTime()),
+        attempt: 1,
+        acceptedAt: acceptedAt.toISOString(),
+        state: "pending",
+        reason: null,
+        cancelRequested: false,
+        parentRunId: parent.receipt.runId,
+      };
+      const spaceRevision = parent.agentTarget?.mode === "resume" ? undefined : parent.agentTarget?.spaceRevision;
+      const record = await this.store.create({
+        receipt,
+        requestHash: fingerprint({ input: intent, source }),
+        snapshot,
+        snapshotHash: fingerprint(snapshot),
+        agentTarget: { mode: "existing", spaceId, ...(spaceRevision !== undefined && { spaceRevision }), binding },
+        claim: null,
+        startedAt: null,
+        finishedAt: null,
+      });
+      return normalReplyView(record)!;
+    });
   }
 
   async acceptStop(input: StopLookup, signal: AbortSignal): Promise<StopReceipt> {
@@ -167,7 +321,11 @@ export class TaskDispatch {
   }
 
   private history(taskId: string) {
-    const replies = this.replies.list(taskId, this.matchesExecution);
+    const normal = this.store
+      .list()
+      .filter((record) => record.receipt.taskId === taskId && this.store.owns(record))
+      .flatMap((record) => normalReplyView(record) ?? []);
+    const replies = [...this.replies.list(taskId, this.matchesExecution), ...normal];
     const history = this.receipts.history(taskId, this.matchesExecution, this.onError);
     const closed = new Set(
       this.store
@@ -198,10 +356,10 @@ export class TaskDispatch {
     return running.some(({ receipt, stop }) => stop?.status !== "stopped" && !outcomes.get(receipt.runId)?.finishedAt);
   }
 
-  runs(taskId: string): ReturnType<TasksService["runs"]> {
+  runs(taskId: string): Array<ReturnType<TasksService["runs"]>[number] & { parentRunId?: string }> {
     const { questions, outcomes } = this.history(taskId);
     return this.store.list().flatMap(({ receipt, claim, snapshot, startedAt, finishedAt, stop }) => {
-      if (receipt.taskId !== taskId || !claim) return [];
+      if (receipt.taskId !== taskId || (!claim && !receipt.parentRunId)) return [];
       const open = questions.filter(({ runId, status }) => runId === receipt.runId && status === "awaiting");
       const outcome = outcomes.get(receipt.runId);
       let state = "queued";
@@ -219,6 +377,7 @@ export class TaskDispatch {
           finishedAt: outcome ? outcome.finishedAt : stop?.status === "stopped" ? stop.updatedAt : finishedAt,
           model: snapshot.execution.model,
           questions: open.filter(({ reply }) => !reply).length,
+          ...(receipt.parentRunId && { parentRunId: receipt.parentRunId }),
         },
       ];
     });
@@ -418,6 +577,36 @@ export class TaskDispatch {
     }
   }
 
+  private continuation(source: z.infer<typeof ReplySource>): "ready" | "waiting" | "stale" {
+    const { parent, requestId, requestVersion } = source;
+    const route = this.replyAvailability(parent);
+    if (route === "closed") return "stale";
+    if (route === "stopping") return "waiting";
+    const question = this.receipts.question(parent.taskId, parent.runId, requestId, this.matchesExecution);
+    if (question?.receipt.payload.mode !== "normal" || question.view.status !== "awaiting" || question.view.requestVersion !== requestVersion || fingerprint(question.receipt.execution) !== fingerprint(parent)) return "stale";
+    const { outcomes } = this.receipts.history(parent.taskId, this.matchesExecution, this.onError);
+    return outcomes.get(parent.runId)?.finishedAt ? "ready" : "waiting";
+  }
+
+  private async projectNormalAnswer(record: OwnedRecord, source: z.infer<typeof ReplySource>): Promise<void> {
+    const { receipt } = record;
+    try {
+      await this.tasks.addComment(receipt.taskId, {
+        id: receipt.dispatchId,
+        at: receipt.acceptedAt,
+        source: "human",
+        author: "我",
+        run: source.parent.runId,
+        session: source.parent.sessionBinding.sessionId,
+        ask: source.requestId,
+        event: "answer",
+        body: source.answer,
+      });
+    } catch (error) {
+      if (!isHuhuError(error) || error.code !== "NOT_FOUND") throw error;
+    }
+  }
+
   private async advance(event: DispatchRecord, slots: RuleSlots): Promise<void> {
     if (!this.store.owns(event)) return;
     const current = this.current(event);
@@ -433,6 +622,7 @@ export class TaskDispatch {
     }
     const work: TaskDispatchWork = { eventId: receipt.eventId, dispatchId: receipt.dispatchId, runId: receipt.runId, attempt: receipt.attempt, snapshot, snapshotHash, ...(agentTarget && { agentTarget }) };
     if (receipt.state === "pending" || receipt.state === "claimed") {
+      if (snapshot.source.kind === "reply") await this.projectNormalAnswer(record, snapshot.source);
       // 重开后先检查原快照有效性，过期或已关闭的任务不做目标预检。
       if (!(await this.prepare(record, "check")) || !executor) return;
       const next = this.current(record)?.record.receipt.state;
@@ -502,6 +692,7 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const now = this.now();
       const source = snapshot.source;
+      const continuation = source.kind === "reply" ? this.continuation(source) : null;
       const next = { ...receipt };
       let claim = record.claim;
       let agentTarget = record.agentTarget;
@@ -509,9 +700,10 @@ export class TaskDispatch {
       if (receipt.cancelRequested) Object.assign(next, { state: "cancelled", reason: null });
       else if (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime()) Object.assign(next, { state: "expired", reason: null });
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
-      else if (task && !sameInput(task, snapshot)) Object.assign(next, { state: "stale_input", reason: null });
-      else if (!task || !this.dispatchable(task)) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
-      else if (!maySend(task, receipt, now)) next.reason = "waiting_schedule";
+      else if (continuation === "stale" || (continuation === null && task && !sameInput(task, snapshot))) Object.assign(next, { state: "stale_input", reason: null });
+      else if (!task || (continuation === null ? !this.dispatchable(task) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
+      else if (continuation === "waiting") next.reason = "waiting_resource";
+      else if (continuation === null && !maySend(task, receipt, now)) next.reason = "waiting_schedule";
       else if (this.tasks.hasLegacyRun(taskId)) next.reason = "task_occupied";
       else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
       else if (state === "busy" || state === "ready") {
@@ -539,10 +731,11 @@ export class TaskDispatch {
       if (record.receipt.state !== "claimed" || record.receipt.cancelRequested) return false;
       // 任务编辑可以在领取落盘与本步骤之间取得写锁。
       const task = this.task(taskId);
-      if (!task || !sameInput(task, record.snapshot) || !this.dispatchable(task) || this.tasks.hasLegacyRun(taskId)) return false;
       const source = record.snapshot.source;
+      if (!task || this.tasks.hasLegacyRun(taskId)) return false;
+      if (source.kind === "reply" ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !sameInput(task, record.snapshot) || !this.dispatchable(task)) return false;
       const now = this.now();
-      if (!maySend(task, record.receipt, now) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
+      if ((source.kind !== "reply" && !maySend(task, record.receipt, now)) || (source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime())) return false;
       await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version);
       return !this.abort.signal.aborted;
     });
@@ -565,6 +758,8 @@ export class TaskDispatch {
       const { record, version } = current;
       const receipt = { ...record.receipt };
       if (receipt.state !== "sending" && receipt.state !== "unknown") return null;
+      const source = record.snapshot.source;
+      if (source.kind === "reply" && (result === "accepted" || (typeof result === "object" && fingerprint(result.execution.sessionBinding) !== fingerprint(source.parent.sessionBinding)))) result = "unknown";
       const now = this.now().toISOString();
       if (result === "accepted" || typeof result === "object") {
         receipt.state = "running";
